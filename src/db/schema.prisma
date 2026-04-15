@@ -1,0 +1,104 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  chats     Chat[]
+  memories  Memory[]
+  tasks     Task[]
+
+  @@map("users")
+}
+
+model Chat {
+  id            String    @id @default(cuid())
+  userId        String
+  title         String
+  lastMessageAt DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages      Message[]
+
+  @@index([userId, lastMessageAt])
+  @@map("chats")
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  chatId         String
+  clientMessageId String?
+  role           MessageRole
+  content        String
+  status         MessageStatus @default(success)
+  createdAt      DateTime     @default(now())
+  chat           Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId, createdAt])
+  @@unique([chatId, clientMessageId])
+  @@map("messages")
+}
+
+model Memory {
+  id        String   @id @default(cuid())
+  userId    String
+  key       String
+  value     String
+  score     Float?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, key])
+  @@map("memories")
+}
+
+model Task {
+  id        String       @id @default(cuid())
+  userId    String
+  title     String
+  details   String?
+  dueDate   DateTime?
+  priority  TaskPriority @default(medium)
+  status    TaskStatus   @default(todo)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, createdAt])
+  @@map("tasks")
+}
+
+enum MessageRole {
+  user
+  assistant
+  system
+}
+
+enum MessageStatus {
+  pending
+  success
+  error
+}
+
+enum TaskPriority {
+  low
+  medium
+  high
+}
+
+enum TaskStatus {
+  todo
+  in_progress
+  done
+}

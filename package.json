@@ -1,0 +1,40 @@
+{
+  "name": "private-ai-assistant",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
+    "db:generate": "prisma generate --schema src/db/schema.prisma",
+    "db:migrate": "prisma migrate dev --schema src/db/schema.prisma",
+    "db:studio": "prisma studio --schema src/db/schema.prisma"
+  },
+  "dependencies": {
+    "@ai-sdk/google": "^3.0.63",
+    "@ai-sdk/openai": "latest",
+    "@ai-sdk/react": "latest",
+    "@prisma/client": "^6.15.0",
+    "ai": "latest",
+    "clsx": "latest",
+    "lucide-react": "latest",
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "tailwind-merge": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "autoprefixer": "latest",
+    "eslint": "latest",
+    "eslint-config-next": "latest",
+    "postcss": "latest",
+    "prisma": "^6.15.0",
+    "tailwindcss": "^3.4.17",
+    "typescript": "latest"
+  }
+}
