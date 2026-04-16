@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono, Manrope } from "next/font/google";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
 import "./globals.css";
 
 const sans = Manrope({
@@ -23,8 +24,9 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body className={`${sans.variable} ${mono.variable} min-h-screen font-sans antialiased`}>
+        <ThemeToggle />
         {children}
       </body>
     </html>

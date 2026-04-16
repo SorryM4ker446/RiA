@@ -21,26 +21,32 @@
   --input: 214 30% 88%;
   --ring: 218 82% 52%;
   --radius: 0.75rem;
+  --chat-user-bg: 217 55% 47%;
+  --chat-user-fg: 210 40% 98%;
+  --chat-user-border: 217 45% 39%;
 }
 
 .dark {
-  --background: 222 47% 11%;
-  --foreground: 210 40% 98%;
-  --card: 222 43% 14%;
-  --card-foreground: 210 40% 98%;
-  --primary: 217 91% 60%;
-  --primary-foreground: 222 47% 11%;
-  --secondary: 217 24% 24%;
-  --secondary-foreground: 210 40% 98%;
-  --muted: 217 24% 20%;
-  --muted-foreground: 215 20% 65%;
-  --accent: 203 35% 24%;
-  --accent-foreground: 197 80% 88%;
-  --destructive: 0 63% 45%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 217 19% 30%;
-  --input: 217 19% 30%;
-  --ring: 217 91% 60%;
+  --background: 222 24% 6%;
+  --foreground: 210 18% 93%;
+  --card: 222 18% 9%;
+  --card-foreground: 210 18% 93%;
+  --primary: 214 84% 67%;
+  --primary-foreground: 222 30% 10%;
+  --secondary: 222 14% 14%;
+  --secondary-foreground: 210 15% 91%;
+  --muted: 222 14% 12%;
+  --muted-foreground: 220 10% 68%;
+  --accent: 222 16% 16%;
+  --accent-foreground: 210 15% 91%;
+  --destructive: 0 62% 56%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 222 12% 20%;
+  --input: 222 12% 20%;
+  --ring: 214 84% 67%;
+  --chat-user-bg: 216 30% 22%;
+  --chat-user-fg: 210 18% 95%;
+  --chat-user-border: 216 26% 34%;
 }
 
 * {
@@ -54,8 +60,63 @@ body {
     radial-gradient(circle at 80% 95%, rgba(14, 165, 233, 0.16), transparent 32%);
 }
 
+.dark body {
+  background-image:
+    radial-gradient(circle at 14% 10%, rgba(93, 125, 170, 0.07), transparent 36%),
+    radial-gradient(circle at 86% 90%, rgba(68, 92, 132, 0.06), transparent 38%),
+    linear-gradient(180deg, rgba(8, 10, 15, 0.9), rgba(8, 10, 15, 0.98));
+}
+
 @layer utilities {
   .glass-surface {
-    @apply border border-border/80 bg-white/75 shadow-sm backdrop-blur;
+    @apply border border-border/70 bg-card/80 shadow-sm backdrop-blur;
+  }
+
+  .chat-user-bubble {
+    border-color: hsl(var(--chat-user-border));
+    background-color: hsl(var(--chat-user-bg));
+    color: hsl(var(--chat-user-fg));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+}
+
+.dark .glass-surface {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.02),
+    0 10px 28px rgba(0, 0, 0, 0.45);
+}
+
+@keyframes dialog-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes dialog-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.dialog-overlay-enter {
+  animation: dialog-overlay-in 150ms ease-out both;
+}
+
+.dialog-panel-enter {
+  animation: dialog-panel-in 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dialog-overlay-enter,
+  .dialog-panel-enter {
+    animation: none;
   }
 }

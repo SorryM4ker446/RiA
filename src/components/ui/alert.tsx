@@ -5,7 +5,7 @@ type AlertVariant = "default" | "destructive";
 
 const variantStyles: Record<AlertVariant, string> = {
   default: "border-border bg-card text-card-foreground",
-  destructive: "border-red-300 bg-red-50 text-red-800",
+  destructive: "border-red-300 bg-red-50 text-red-800 dark:border-red-500/40 dark:bg-red-950/35 dark:text-red-200",
 };
 
 export function Alert({

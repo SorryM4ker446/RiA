@@ -1,10 +1,14 @@
 # Features
 
-Business modules live here.
+Feature-oriented modules live here. Keep UI helpers, codecs, domain types, and orchestration
+logic together to avoid overloading route/page files.
 
-- `chat`: message handling and orchestration
-- `conversations`: conversation lifecycle
-- `assistant`: assistant persona and system prompt composition
-- `memory`: extraction, storage, recall
-- `rag`: ingestion, retrieval, reranking
-- `tools`: tool-calling orchestration
+## Current modules
+
+- `chat/page-utils.ts`: shared utils for `/chat` page (prompts, message codecs, file handling).
+
+## Suggested module growth
+
+- `chat/api-client.ts`: browser-side request helpers (`/api/image`, `/api/video`, persistence POSTs).
+- `chat/use-chat-state.ts`: local state and effects for model mode, drafts, attachments.
+- `chat/renderers.tsx`: message content renderers (text/image/video/tool blocks).
