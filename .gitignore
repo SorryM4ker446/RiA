@@ -5,6 +5,7 @@ node_modules/
 .next/
 out/
 dist/
+public/generated-videos/
 
 # build / cache
 coverage/

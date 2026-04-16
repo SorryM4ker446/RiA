@@ -9,7 +9,7 @@ export default function HomePage() {
     <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col justify-center gap-8 p-6 md:p-10">
       <div className="space-y-4">
         <Badge className="w-fit" variant="secondary">
-          Private AI Assistant MVP
+          Private AI Assistant 
         </Badge>
         <h1 className="max-w-3xl text-4xl font-semibold leading-tight md:text-5xl">
           Build your personal assistant with chat, memory, and tool calling.

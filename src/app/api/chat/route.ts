@@ -1,9 +1,14 @@
-import { google } from "@ai-sdk/google";
 import { convertToModelMessages, stepCountIs, streamText, type UIMessage } from "ai";
 import { NextRequest } from "next/server";
-import { DEFAULT_MODEL } from "@/config/model";
+import { chatModelSupportsImageInput, resolveModelId } from "@/config/model";
+import { getChatModel } from "@/lib/ai/client";
 import { getOrCreateRequestUser } from "@/lib/auth/request-user";
-import { getLatestUserText, truncateTitle } from "@/lib/ai/ui-message";
+import {
+  decodePersistedUserMessage,
+  encodePersistedUserMessage,
+  getLatestUserMessage,
+  truncateTitle,
+} from "@/lib/ai/ui-message";
 import { createChat, getChat, getRecentChatMessages, saveChatMessage } from "@/lib/chat/store";
 import { getRelevantMemories, saveMemory } from "@/lib/memory/store";
 import { checkRateLimit } from "@/lib/server/rate-limit";
@@ -16,9 +21,45 @@ type ChatRequestBody = {
   chatId?: string;
   conversationId?: string;
   messageId?: string;
+  modelId?: string;
   trigger?: "submit-message" | "regenerate-message" | "resume-stream";
   messages?: UIMessage[];
 };
+
+const IMAGE_MESSAGE_PREFIX = "__IMAGE_RESULT__:";
+const VIDEO_MESSAGE_PREFIX = "__VIDEO_RESULT__:";
+
+function normalizeStoredMessageContent(content: string): string {
+  const parsedUser = decodePersistedUserMessage(content);
+  if (parsedUser) {
+    const text = parsedUser.text || "(image input)";
+    return parsedUser.files.length > 0
+      ? `${text} [attached images: ${parsedUser.files.length}]`
+      : text;
+  }
+
+  if (content.startsWith(IMAGE_MESSAGE_PREFIX)) {
+    try {
+      const raw = content.slice(IMAGE_MESSAGE_PREFIX.length);
+      const parsed = JSON.parse(raw) as { text?: string };
+      return parsed.text?.trim() || "Image generated";
+    } catch {
+      return "Image generated";
+    }
+  }
+
+  if (content.startsWith(VIDEO_MESSAGE_PREFIX)) {
+    try {
+      const raw = content.slice(VIDEO_MESSAGE_PREFIX.length);
+      const parsed = JSON.parse(raw) as { text?: string };
+      return parsed.text?.trim() || "Video generated";
+    } catch {
+      return "Video generated";
+    }
+  }
+
+  return content;
+}
 
 function formatShortTermContext(
   messages: Array<{ role: "user" | "assistant" | "system"; content: string }>,
@@ -52,6 +93,27 @@ function buildSystemPrompt(shortTermContext: string, longTermMemoryContext: stri
     "[Tooling Policy]",
     "If tools are available, use them only when they improve correctness.",
   ].join("\n");
+}
+
+function stripFilePartsForTextOnlyModel(messages: UIMessage[]): UIMessage[] {
+  return messages.map((message) => {
+    const parts = Array.isArray(message.parts) ? message.parts : [];
+    const withoutFiles = parts.filter((part) => part.type !== "file");
+    const hadFiles = withoutFiles.length !== parts.length;
+
+    if (!hadFiles) return message;
+    if (withoutFiles.length > 0) {
+      return {
+        ...message,
+        parts: withoutFiles,
+      } satisfies UIMessage;
+    }
+
+    return {
+      ...message,
+      parts: [{ type: "text", text: "(上一条是图片消息，当前模型不支持读图)" }],
+    } satisfies UIMessage;
+  });
 }
 
 async function getOrCreateChat(params: {
@@ -94,11 +156,11 @@ export async function POST(req: NextRequest) {
   try {
     setupServerProxy();
 
-    if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim()) {
+    if (!process.env.OPENROUTER_API_KEY?.trim()) {
       return Response.json(
         {
           error:
-            "GOOGLE_GENERATIVE_AI_API_KEY is not configured. Set it in .env and restart the dev server before chatting.",
+            "OPENROUTER_API_KEY is not configured. Set it in .env and restart the dev server before chatting.",
         },
         { status: 500 },
       );
@@ -106,9 +168,18 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json()) as ChatRequestBody;
     const messages = Array.isArray(body.messages) ? body.messages : [];
+    const modelId = resolveModelId(body.modelId);
+    const latestUserMessage = getLatestUserMessage(messages);
 
     if (messages.length === 0) {
       return Response.json({ error: "messages is required" }, { status: 400 });
+    }
+
+    if (latestUserMessage?.files.length && !chatModelSupportsImageInput(modelId)) {
+      return Response.json(
+        { error: `当前聊天模型 ${modelId} 不支持图片输入，请切换到支持视觉的模型。` },
+        { status: 400 },
+      );
     }
 
     const user = await getOrCreateRequestUser(req);
@@ -134,7 +205,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const latestUserMessage = getLatestUserText(messages);
     const titleSeed = latestUserMessage?.text || "New Chat";
     const chat = await getOrCreateChat({
       requestedChatId: body.chatId ?? body.conversationId ?? body.id,
@@ -142,11 +212,20 @@ export async function POST(req: NextRequest) {
       fallbackTitle: truncateTitle(titleSeed),
     });
 
-    if (latestUserMessage?.text) {
+    if (latestUserMessage) {
+      const userContent =
+        latestUserMessage.files.length > 0
+          ? encodePersistedUserMessage({
+              type: "user-message",
+              text: latestUserMessage.text,
+              files: latestUserMessage.files,
+            })
+          : latestUserMessage.text;
+
       await saveChatMessage({
         chatId: chat.id,
         role: "user",
-        content: latestUserMessage.text,
+        content: userContent,
         status: "success",
         clientMessageId: latestUserMessage.id,
       });
@@ -155,7 +234,7 @@ export async function POST(req: NextRequest) {
     const shortTermMessagesRaw = await getRecentChatMessages(chat.id, 10);
     const shortTermMessages = [...shortTermMessagesRaw]
       .reverse()
-      .map((message) => ({ role: message.role, content: message.content }));
+      .map((message) => ({ role: message.role, content: normalizeStoredMessageContent(message.content) }));
 
     const relevantMemories = latestUserMessage?.text
       ? await getRelevantMemories({
@@ -189,11 +268,14 @@ export async function POST(req: NextRequest) {
       formatShortTermContext(shortTermMessages),
       formatLongTermContext(relevantMemories),
     );
-    const modelMessages = await convertToModelMessages(messages);
+    const effectiveMessages = chatModelSupportsImageInput(modelId)
+      ? messages
+      : stripFilePartsForTextOnlyModel(messages);
+    const modelMessages = await convertToModelMessages(effectiveMessages);
     const tools = createChatTools(user.id);
 
     const result = streamText({
-      model: google(DEFAULT_MODEL),
+      model: getChatModel(modelId),
       system: systemPrompt,
       messages: modelMessages,
       tools,
@@ -223,6 +305,7 @@ export async function POST(req: NextRequest) {
 
         console.info("chat.finish", {
           chatId: chat.id,
+          modelId,
           model: model.modelId,
           trigger: body.trigger ?? "submit-message",
         });
@@ -233,6 +316,7 @@ export async function POST(req: NextRequest) {
       originalMessages: messages,
       headers: {
         "x-chat-id": chat.id,
+        "x-model-id": modelId,
       },
     });
   } catch (error) {
