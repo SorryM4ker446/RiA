@@ -984,8 +984,8 @@ export default function ChatPage() {
                 </SelectContent>
               </Select>
               <Select disabled={isPending} onValueChange={onModelSelect} value={selectedModel}>
-                <SelectTrigger>
-                  <SelectValue />
+                <SelectTrigger className="min-h-11">
+                  <SelectValue className="line-clamp-2 whitespace-normal text-[13px]" />
                 </SelectTrigger>
                 <SelectContent>
                   {(

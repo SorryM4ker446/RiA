@@ -7,7 +7,17 @@ import { cn } from "@/lib/utils/cn";
 
 const Select = SelectPrimitive.Root;
 
-const SelectValue = SelectPrimitive.Value;
+function SelectValue({
+  className,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof SelectPrimitive.Value>) {
+  return (
+    <SelectPrimitive.Value
+      className={cn("block min-w-0 truncate text-left text-sm leading-tight", className)}
+      {...props}
+    />
+  );
+}
 
 const SelectTrigger = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Trigger>,
@@ -15,13 +25,13 @@ const SelectTrigger = React.forwardRef<
 >(({ className, children, ...props }, ref) => (
   <SelectPrimitive.Trigger
     className={cn(
-      "flex h-9 w-full items-center justify-between rounded-md border border-border/80 bg-background/90 px-3 text-sm text-foreground shadow-sm outline-none ring-offset-background transition hover:border-ring/40 data-[placeholder]:text-muted-foreground focus:ring-2 focus:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-card/90 dark:hover:bg-accent/70",
+      "flex min-h-9 w-full items-center justify-between gap-2 rounded-md border border-border/80 bg-background/90 px-3 py-1.5 text-sm text-foreground shadow-sm outline-none ring-offset-background transition hover:border-ring/40 data-[placeholder]:text-muted-foreground focus:ring-2 focus:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-card/90 dark:hover:bg-accent/70",
       className,
     )}
     ref={ref}
     {...props}
   >
-    {children}
+    <span className="min-w-0 flex-1">{children}</span>
     <SelectPrimitive.Icon asChild>
       <ChevronDown className="h-4 w-4 shrink-0 opacity-70" />
     </SelectPrimitive.Icon>
@@ -80,7 +90,7 @@ const SelectItem = React.forwardRef<
         <Check className="h-3.5 w-3.5" />
       </SelectPrimitive.ItemIndicator>
     </span>
-    <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+    <SelectPrimitive.ItemText className="block truncate">{children}</SelectPrimitive.ItemText>
   </SelectPrimitive.Item>
 ));
 SelectItem.displayName = SelectPrimitive.Item.displayName;
