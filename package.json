@@ -23,6 +23,7 @@
     "react": "latest",
     "react-dom": "latest",
     "tailwind-merge": "latest",
+    "undici": "^8.1.0",
     "zod": "latest"
   },
   "devDependencies": {

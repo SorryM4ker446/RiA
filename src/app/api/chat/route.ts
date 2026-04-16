@@ -7,6 +7,7 @@ import { getLatestUserText, truncateTitle } from "@/lib/ai/ui-message";
 import { createChat, getChat, getRecentChatMessages, saveChatMessage } from "@/lib/chat/store";
 import { getRelevantMemories, saveMemory } from "@/lib/memory/store";
 import { checkRateLimit } from "@/lib/server/rate-limit";
+import { setupServerProxy } from "@/lib/server/proxy";
 import { db } from "@/db";
 import { createChatTools } from "@/tools/registry";
 
@@ -91,6 +92,8 @@ async function getOrCreateChat(params: {
 
 export async function POST(req: NextRequest) {
   try {
+    setupServerProxy();
+
     if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim()) {
       return Response.json(
         {
