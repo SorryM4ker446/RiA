@@ -58,13 +58,44 @@ import {
   safeJson,
   videoPrompts,
 } from "@/features/chat/page-utils";
-import { encodePersistedUserMessage } from "@/lib/ai/ui-message";
+import { encodePersistedAssistantToolMessage, encodePersistedUserMessage } from "@/lib/ai/ui-message";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils/cn";
+
+type ManualToolName = "searchKnowledge" | "createTask";
+type ManualToolSelection = "none" | ManualToolName;
+type TaskPriorityValue = "low" | "medium" | "high";
+
+function resolveMessageSourceTag(params: {
+  role: UIMessage["role"];
+  toolParts: Array<Extract<UIMessage["parts"][number], { type: `tool-${string}` }>>;
+}): { label: string; variant: "outline" | "success" | "secondary" } | null {
+  const { role, toolParts } = params;
+
+  if (role === "system") {
+    return { label: "来源：系统", variant: "secondary" };
+  }
+
+  if (role !== "assistant") {
+    return null;
+  }
+
+  if (toolParts.length === 0) {
+    return { label: "来源：上下文推理", variant: "outline" };
+  }
+
+  const toolNames = new Set(toolParts.map((part) => part.type.replace(/^tool-/, "")));
+  if (toolNames.has("searchKnowledge")) {
+    return { label: "来源：知识库工具 + 模型推理", variant: "success" };
+  }
+  if (toolNames.has("createTask")) {
+    return { label: "来源：任务工具结果", variant: "success" };
+  }
+  return { label: "来源：工具结果", variant: "success" };
+}
 
 export default function ChatPage() {
   const [input, setInput] = useState("");
@@ -88,6 +119,13 @@ export default function ChatPage() {
   const [hasLoadedModelPrefs, setHasLoadedModelPrefs] = useState(false);
   const [pendingDeleteChat, setPendingDeleteChat] = useState<ChatSummary | null>(null);
   const [isDeletingChat, setIsDeletingChat] = useState(false);
+  const [selectedManualTool, setSelectedManualTool] = useState<ManualToolSelection>("none");
+  const [manualToolsOnly, setManualToolsOnly] = useState(false);
+  const [toolSearchTopK, setToolSearchTopK] = useState("4");
+  const [toolTaskDetails, setToolTaskDetails] = useState("");
+  const [toolTaskDueDate, setToolTaskDueDate] = useState("");
+  const [toolTaskPriority, setToolTaskPriority] = useState<TaskPriorityValue>("medium");
+  const [isRunningManualTool, setIsRunningManualTool] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -96,10 +134,19 @@ export default function ChatPage() {
       new DefaultChatTransport({
         api: "/api/chat",
         body: activeChatId
-          ? { chatId: activeChatId, modelId: selectedChatModel }
-          : { modelId: selectedChatModel },
+          ? {
+              chatId: activeChatId,
+              modelId: selectedChatModel,
+              manualToolsOnly: modelMode === "chat" ? manualToolsOnly : true,
+              mode: modelMode,
+            }
+          : {
+              modelId: selectedChatModel,
+              manualToolsOnly: modelMode === "chat" ? manualToolsOnly : true,
+              mode: modelMode,
+            },
       }),
-    [activeChatId, selectedChatModel],
+    [activeChatId, manualToolsOnly, modelMode, selectedChatModel],
   );
 
   const { messages, setMessages, sendMessage, status, error, clearError } = useChat({
@@ -108,7 +155,11 @@ export default function ChatPage() {
   });
 
   const isPending =
-    status === "submitted" || status === "streaming" || isGeneratingImage || isGeneratingVideo;
+    status === "submitted" ||
+    status === "streaming" ||
+    isGeneratingImage ||
+    isGeneratingVideo ||
+    isRunningManualTool;
   const activeChat = chats.find((chat) => chat.id === activeChatId) ?? null;
   const selectedModel =
     modelMode === "chat"
@@ -128,6 +179,7 @@ export default function ChatPage() {
     effectiveError?.includes("Invalid API key") ||
     effectiveError?.includes("No auth credentials found");
   const attachmentNames = attachments.map((file) => file.name || "未命名文件");
+  const isManualToolSelected = modelMode === "chat" && selectedManualTool !== "none";
 
   async function loadChats() {
     try {
@@ -353,6 +405,8 @@ export default function ChatPage() {
   }
 
   function onTextareaPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    if (isManualToolSelected) return;
+
     const pastedFiles = Array.from(event.clipboardData?.items ?? [])
       .filter((item) => item.kind === "file")
       .map((item) => item.getAsFile())
@@ -386,6 +440,215 @@ export default function ChatPage() {
     }
   }
 
+  function formatManualToolOutputForUi(tool: ManualToolName, data: unknown): unknown {
+    if (tool === "searchKnowledge" && data && typeof data === "object") {
+      const source = data as {
+        query?: unknown;
+        total?: unknown;
+        results?: Array<{
+          title?: unknown;
+          snippet?: unknown;
+          source?: unknown;
+          score?: unknown;
+        }>;
+      };
+      const results = Array.isArray(source.results) ? source.results : [];
+      return {
+        query: typeof source.query === "string" ? source.query : undefined,
+        total: typeof source.total === "number" ? source.total : results.length,
+        topResults: results.slice(0, 3).map((item) => ({
+          title: typeof item.title === "string" ? item.title : "",
+          snippet: typeof item.snippet === "string" ? item.snippet : "",
+          source: typeof item.source === "string" ? item.source : "",
+          score: typeof item.score === "number" ? item.score : 0,
+        })),
+      };
+    }
+
+    if (tool === "createTask" && data && typeof data === "object") {
+      const source = data as {
+        taskId?: unknown;
+        title?: unknown;
+        priority?: unknown;
+        status?: unknown;
+        dueDate?: unknown;
+      };
+      return {
+        taskId: source.taskId,
+        title: source.title,
+        priority: source.priority,
+        status: source.status,
+        dueDate: source.dueDate,
+      };
+    }
+
+    return data;
+  }
+
+  async function runManualTool(params: {
+    tool: ManualToolName;
+    input: Record<string, unknown>;
+    userVisibleText: string;
+  }) {
+    const chatId = await ensureActiveChatId(params.userVisibleText || `手动工具调用: ${params.tool}`);
+    const userMessageId = crypto.randomUUID();
+    const assistantMessageId = crypto.randomUUID();
+    const toolCallId = crypto.randomUUID();
+    const toolType = `tool-${params.tool}` as const;
+
+    const userMessage: UIMessage = {
+      id: userMessageId,
+      role: "user",
+      parts: [{ type: "text", text: params.userVisibleText || `手动调用工具 ${params.tool}` }],
+    };
+
+    const pendingAssistantMessage: UIMessage = {
+      id: assistantMessageId,
+      role: "assistant",
+      parts: [
+        { type: "text", text: `正在执行 ${params.tool}...` },
+        {
+          type: toolType,
+          toolCallId,
+          state: "input-available",
+          input: params.input,
+        } as UIMessage["parts"][number],
+      ],
+    };
+
+    setMessages((prev) => [...prev, userMessage, pendingAssistantMessage]);
+    setIsRunningManualTool(true);
+
+    try {
+      await persistConversationMessage({
+        chatId,
+        role: "user",
+        content: params.userVisibleText || `手动调用工具 ${params.tool}`,
+        clientMessageId: userMessageId,
+      });
+
+      const response = await fetch("/api/tools/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tool: params.tool,
+          input: params.input,
+          modelId: selectedChatModel,
+          mode: "chat",
+        }),
+      });
+
+      const payload = (await response.json()) as {
+        error?: string;
+        data?: unknown;
+        assistantText?: string;
+      };
+
+      if (!response.ok || payload.data === undefined) {
+        throw new Error(payload.error ?? `${params.tool} 执行失败`);
+      }
+
+      const summary =
+        typeof payload.assistantText === "string" && payload.assistantText.trim()
+          ? payload.assistantText.trim()
+          : params.tool === "searchKnowledge"
+            ? "已完成知识检索。"
+            : "任务创建成功。";
+      const outputForUi = formatManualToolOutputForUi(params.tool, payload.data);
+
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === assistantMessageId
+            ? {
+                ...message,
+                parts: [
+                  { type: "text", text: summary },
+                  {
+                    type: toolType,
+                    toolCallId,
+                    state: "output-available",
+                    input: params.input,
+                    output: outputForUi,
+                  } as UIMessage["parts"][number],
+                ],
+              }
+            : message,
+        ),
+      );
+
+      await persistConversationMessage({
+        chatId,
+        role: "assistant",
+        content: encodePersistedAssistantToolMessage({
+          type: "assistant-tool-message",
+          text: summary,
+          tools: [
+            {
+              toolName: params.tool,
+              toolCallId,
+              state: "output-available",
+              input: params.input,
+              output: outputForUi,
+            },
+          ],
+        }),
+        clientMessageId: assistantMessageId,
+      });
+
+      await loadChats();
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : `${params.tool} 执行失败`;
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === assistantMessageId
+            ? {
+                ...message,
+                parts: [
+                  { type: "text", text: "工具执行失败。" },
+                  {
+                    type: toolType,
+                    toolCallId,
+                    state: "output-error",
+                    input: params.input,
+                    errorText,
+                  } as UIMessage["parts"][number],
+                ],
+              }
+            : message,
+        ),
+      );
+
+      try {
+        await persistConversationMessage({
+          chatId,
+          role: "assistant",
+          content: encodePersistedAssistantToolMessage({
+            type: "assistant-tool-message",
+            text: "工具执行失败。",
+            tools: [
+              {
+                toolName: params.tool,
+                toolCallId,
+                state: "output-error",
+                input: params.input,
+                errorText,
+              },
+            ],
+          }),
+          clientMessageId: assistantMessageId,
+          status: "error",
+        });
+        await loadChats();
+      } catch {
+        // Keep UI responsive even if persistence fails.
+      }
+
+      throw error;
+    } finally {
+      setIsRunningManualTool(false);
+    }
+  }
+
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const content = input.trim();
@@ -395,6 +658,11 @@ export default function ChatPage() {
     if (!hasContent && !hasAttachments) return;
 
     setPageError(null);
+
+    if (modelMode === "chat" && selectedManualTool !== "none" && hasAttachments) {
+      setPageError("手动工具调用暂不支持附件，请先清空附件。");
+      return;
+    }
 
     if (modelMode === "chat" && hasAttachments && !chatModelSupportsImageInput(selectedChatModel)) {
       setPageError(`当前聊天模型 ${selectedChatModel} 不支持图片输入，请切换视觉模型或移除附件。`);
@@ -411,6 +679,41 @@ export default function ChatPage() {
         setPageError(error instanceof Error ? error.message : "附件读取失败");
         return;
       }
+    }
+
+    if (modelMode === "chat" && selectedManualTool !== "none") {
+      try {
+        if (!hasContent) {
+          throw new Error("请在输入框中填写工具参数。");
+        }
+
+        if (selectedManualTool === "searchKnowledge") {
+          const parsedTopK = Number.parseInt(toolSearchTopK, 10);
+          const topK = Number.isFinite(parsedTopK) ? Math.min(8, Math.max(1, parsedTopK)) : 4;
+          await runManualTool({
+            tool: "searchKnowledge",
+            input: { query: content, topK },
+            userVisibleText: content,
+          });
+        } else {
+          await runManualTool({
+            tool: "createTask",
+            input: {
+              title: content,
+              ...(toolTaskDetails.trim() ? { details: toolTaskDetails.trim() } : {}),
+              ...(toolTaskDueDate ? { dueDate: toolTaskDueDate } : {}),
+              priority: toolTaskPriority,
+            },
+            userVisibleText: content,
+          });
+          setToolTaskDetails("");
+          setToolTaskDueDate("");
+        }
+      } catch (submitError) {
+        setPageError(submitError instanceof Error ? submitError.message : "工具执行失败");
+      }
+
+      return;
     }
 
     if (modelMode === "image") {
@@ -676,14 +979,14 @@ export default function ChatPage() {
           await sendMessage(
             { text: content, files: uploadParts },
             {
-              body: { chatId, modelId: selectedChatModel },
+              body: { chatId, modelId: selectedChatModel, manualToolsOnly, mode: "chat" },
             },
           );
         } else {
           await sendMessage(
             { files: uploadParts },
             {
-              body: { chatId, modelId: selectedChatModel },
+              body: { chatId, modelId: selectedChatModel, manualToolsOnly, mode: "chat" },
             },
           );
         }
@@ -691,7 +994,7 @@ export default function ChatPage() {
         await sendMessage(
           { text: content },
           {
-            body: { chatId, modelId: selectedChatModel },
+            body: { chatId, modelId: selectedChatModel, manualToolsOnly, mode: "chat" },
           },
         );
       }
@@ -737,6 +1040,9 @@ export default function ChatPage() {
 
   function onModeSelect(value: ModelMode) {
     setModelMode(value);
+    if (value !== "chat") {
+      setSelectedManualTool("none");
+    }
   }
 
   useEffect(() => {
@@ -765,6 +1071,11 @@ export default function ChatPage() {
       setSelectedVideoModel(resolveVideoModelId(storedVideo));
     }
 
+    const storedManualToolsOnly = window.localStorage.getItem("chat:manual-tools-only");
+    if (storedManualToolsOnly === "1") {
+      setManualToolsOnly(true);
+    }
+
     setHasLoadedModelPrefs(true);
   }, []);
 
@@ -787,6 +1098,11 @@ export default function ChatPage() {
     if (!hasLoadedModelPrefs) return;
     window.localStorage.setItem("chat:model-mode", modelMode);
   }, [hasLoadedModelPrefs, modelMode]);
+
+  useEffect(() => {
+    if (!hasLoadedModelPrefs) return;
+    window.localStorage.setItem("chat:manual-tools-only", manualToolsOnly ? "1" : "0");
+  }, [hasLoadedModelPrefs, manualToolsOnly]);
 
   useEffect(() => {
     if (!activeChatId) {
@@ -1042,6 +1358,7 @@ export default function ChatPage() {
                   const imageUrl = imageByMessageId[message.id];
                   const videoUrl = videoByMessageId[message.id];
                   const toolParts = message.parts.filter(isToolPart);
+                  const sourceTag = resolveMessageSourceTag({ role: message.role, toolParts });
                   const isLastAssistantStreaming =
                     status === "streaming" && index === messages.length - 1 && message.role === "assistant";
 
@@ -1054,9 +1371,16 @@ export default function ChatPage() {
                         )}
                       >
                         <header className="mb-2 flex items-center justify-between gap-2">
-                          <span className="text-[11px] tracking-wide opacity-80">
-                            {getMessageRoleLabel(message.role)}
-                          </span>
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="text-[11px] tracking-wide opacity-80">
+                              {getMessageRoleLabel(message.role)}
+                            </span>
+                            {sourceTag ? (
+                              <Badge className="h-5 px-2 text-[10px]" variant={sourceTag.variant}>
+                                {sourceTag.label}
+                              </Badge>
+                            ) : null}
+                          </div>
                           {isLastAssistantStreaming ? (
                             <span className="inline-flex items-center text-[11px] opacity-80">
                               <Loader2 className="mr-1 h-3 w-3 animate-spin" />
@@ -1162,39 +1486,59 @@ export default function ChatPage() {
                         })}
 
                         {toolParts.length > 0 ? (
-                          <div className="mt-3 space-y-2">
-                            <Separator />
-                            {toolParts.map((toolPart, toolIndex) => {
-                              const toolState = formatToolState(toolPart.state);
-                              const toolName = toolPart.type.replace(/^tool-/, "");
-                              return (
-                                <div
-                                  className={cn(
-                                    "rounded-md border px-3 py-2 text-xs",
-                                    isUser ? "border-white/30 bg-white/10" : "border-border bg-muted/30",
-                                  )}
-                                  key={`${message.id}-${toolPart.toolCallId}-${toolIndex}`}
-                                >
-                                  <div className="mb-1 flex items-center gap-2">
-                                    <Badge variant="outline">{toolName}</Badge>
-                                    <Badge variant={toolState.variant}>{toolState.label}</Badge>
-                                  </div>
-                                  {toolPart.input !== undefined ? (
-                                    <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-black/5 p-2 text-[11px]">
-                                      input: {safeJson(toolPart.input)}
-                                    </pre>
-                                  ) : null}
-                                  {toolPart.state === "output-available" && toolPart.output !== undefined ? (
-                                    <pre className="mt-1 overflow-x-auto whitespace-pre-wrap rounded bg-black/5 p-2 text-[11px]">
-                                      output: {safeJson(toolPart.output)}
-                                    </pre>
-                                  ) : null}
-                                  {toolPart.state === "output-error" && toolPart.errorText ? (
-                                    <p className="mt-1 text-[11px] text-red-600">error: {toolPart.errorText}</p>
-                                  ) : null}
-                                </div>
-                              );
-                            })}
+                          <div className="mt-3">
+                            <details
+                              className={cn(
+                                "rounded-md border text-xs",
+                                isUser ? "border-white/30 bg-white/10" : "border-border bg-muted/30",
+                              )}
+                            >
+                              <summary className="flex cursor-pointer items-center justify-between px-3 py-2">
+                                <span className="truncate">
+                                  {(() => {
+                                    const first = toolParts[0];
+                                    const firstName = first.type.replace(/^tool-/, "");
+                                    const firstState = formatToolState(first.state).label;
+                                    const extra = toolParts.length > 1 ? `，另有 ${toolParts.length - 1} 个调用` : "";
+                                    return `工具详情：${firstName} · ${firstState}${extra}`;
+                                  })()}
+                                </span>
+                                <span className="ml-2 shrink-0 text-[11px] opacity-70">点开查看</span>
+                              </summary>
+                              <div className="space-y-2 border-t px-3 py-2">
+                                {toolParts.map((toolPart, toolIndex) => {
+                                  const toolState = formatToolState(toolPart.state);
+                                  const toolName = toolPart.type.replace(/^tool-/, "");
+                                  return (
+                                    <div
+                                      className={cn(
+                                        "rounded-md border px-3 py-2 text-xs",
+                                        isUser ? "border-white/30 bg-white/10" : "border-border bg-black/5",
+                                      )}
+                                      key={`${message.id}-${toolPart.toolCallId}-${toolIndex}`}
+                                    >
+                                      <div className="mb-1 flex items-center gap-2">
+                                        <Badge variant="outline">{toolName}</Badge>
+                                        <Badge variant={toolState.variant}>{toolState.label}</Badge>
+                                      </div>
+                                      {toolPart.input !== undefined ? (
+                                        <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-black/5 p-2 text-[11px]">
+                                          input: {safeJson(toolPart.input)}
+                                        </pre>
+                                      ) : null}
+                                      {toolPart.state === "output-available" && toolPart.output !== undefined ? (
+                                        <pre className="mt-1 overflow-x-auto whitespace-pre-wrap rounded bg-black/5 p-2 text-[11px]">
+                                          output: {safeJson(toolPart.output)}
+                                        </pre>
+                                      ) : null}
+                                      {toolPart.state === "output-error" && toolPart.errorText ? (
+                                        <p className="mt-1 text-[11px] text-red-600">error: {toolPart.errorText}</p>
+                                      ) : null}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </details>
                           </div>
                         ) : null}
                       </article>
@@ -1235,6 +1579,82 @@ export default function ChatPage() {
             ) : null}
 
             <form className="space-y-3" onSubmit={onSubmit}>
+              {modelMode === "chat" ? (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <Badge variant="outline">工具</Badge>
+                    <Select
+                      disabled={isPending}
+                      onValueChange={(value) => setSelectedManualTool(value as ManualToolSelection)}
+                      value={selectedManualTool}
+                    >
+                      <SelectTrigger className="h-7 w-[210px] border-dashed bg-transparent text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">自动（按语义触发）</SelectItem>
+                        <SelectItem value="searchKnowledge">手动：知识检索</SelectItem>
+                        <SelectItem value="createTask">手动：创建任务</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <label className="inline-flex items-center gap-1.5">
+                      <input
+                        checked={manualToolsOnly}
+                        className="h-3.5 w-3.5"
+                        disabled={isPending}
+                        onChange={(event) => setManualToolsOnly(event.target.checked)}
+                        type="checkbox"
+                      />
+                      <span>仅手动</span>
+                    </label>
+                    {selectedManualTool === "searchKnowledge" ? (
+                      <label className="inline-flex items-center gap-1.5">
+                        <span>topK</span>
+                        <Input
+                          className="h-7 w-16"
+                          inputMode="numeric"
+                          max={8}
+                          min={1}
+                          onChange={(event) => setToolSearchTopK(event.target.value)}
+                          type="number"
+                          value={toolSearchTopK}
+                        />
+                      </label>
+                    ) : null}
+                  </div>
+
+                  {selectedManualTool === "createTask" ? (
+                    <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_120px_220px]">
+                      <Input
+                        className="h-8"
+                        onChange={(event) => setToolTaskDetails(event.target.value)}
+                        placeholder="任务详情（可选）"
+                        value={toolTaskDetails}
+                      />
+                      <Select
+                        onValueChange={(value) => setToolTaskPriority(value as TaskPriorityValue)}
+                        value={toolTaskPriority}
+                      >
+                        <SelectTrigger className="h-8">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="low">low</SelectItem>
+                          <SelectItem value="medium">medium</SelectItem>
+                          <SelectItem value="high">high</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        className="h-8"
+                        onChange={(event) => setToolTaskDueDate(event.target.value)}
+                        type="datetime-local"
+                        value={toolTaskDueDate}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
               <Textarea
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={handleTextareaKeyDown}
@@ -1244,7 +1664,11 @@ export default function ChatPage() {
                     ? "描述你想生成的图片，或粘贴参考图...（Enter 发送，Shift+Enter 换行）"
                     : modelMode === "video"
                       ? "描述你想生成的视频，或粘贴参考图...（Enter 发送，Shift+Enter 换行）"
-                      : "输入你的问题，或粘贴图片让模型识别...（Enter 发送，Shift+Enter 换行）"
+                      : selectedManualTool === "searchKnowledge"
+                        ? "输入要检索的关键词...（Enter 手动触发 searchKnowledge）"
+                        : selectedManualTool === "createTask"
+                          ? "输入任务标题...（Enter 手动触发 createTask）"
+                          : "输入你的问题，或粘贴图片让模型识别...（Enter 发送，Shift+Enter 换行）"
                 }
                 ref={textareaRef}
                 rows={1}
@@ -1254,6 +1678,7 @@ export default function ChatPage() {
                 <input
                   accept="image/*"
                   className="block max-w-full text-xs text-muted-foreground file:mr-2 file:rounded-md file:border-0 file:bg-primary/10 file:px-2.5 file:py-1.5 file:text-xs file:font-medium file:text-primary hover:file:bg-primary/20"
+                  disabled={isManualToolSelected}
                   multiple
                   onChange={onAttachmentInputChange}
                   ref={fileInputRef}
@@ -1264,7 +1689,11 @@ export default function ChatPage() {
                     清空附件（{attachments.length}）
                   </Button>
                 ) : null}
-                <span className="text-[11px] text-muted-foreground">支持 Ctrl/Cmd+V 直接粘贴图片</span>
+                <span className="text-[11px] text-muted-foreground">
+                  {isManualToolSelected
+                    ? "手动工具模式下已禁用图片附件"
+                    : "支持 Ctrl/Cmd+V 直接粘贴图片"}
+                </span>
                 {attachmentNames.length > 0 ? (
                   <span className="truncate text-[11px] text-muted-foreground">
                     {attachmentNames.join("，")}
@@ -1277,6 +1706,8 @@ export default function ChatPage() {
                     ? `当前模式：文生图 · 选中模型：${selectedImageModel}`
                     : modelMode === "video"
                       ? `当前模式：视频生成 · 选中模型：${selectedVideoModel}`
+                      : isManualToolSelected
+                        ? `当前模式：手动工具触发 · ${selectedManualTool} · 自动工具调用${manualToolsOnly ? "已禁用" : "已启用"}`
                       : !chatModelSupportsImageInput(selectedChatModel)
                         ? `当前聊天模型仅支持纯文本：${selectedChatModel}`
                       : attachments.length > 0
@@ -1298,7 +1729,7 @@ export default function ChatPage() {
                   ) : (
                     <>
                       <SendHorizonal className="mr-2 h-4 w-4" />
-                      发送
+                      {isManualToolSelected ? "执行工具" : "发送"}
                     </>
                   )}
                 </Button>

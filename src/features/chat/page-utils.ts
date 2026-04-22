@@ -1,5 +1,8 @@
 import { UIMessage } from "ai";
-import { decodePersistedUserMessage } from "@/lib/ai/ui-message";
+import {
+  decodePersistedAssistantToolMessage,
+  decodePersistedUserMessage,
+} from "@/lib/ai/ui-message";
 
 export type ChatSummary = {
   id: string;
@@ -223,6 +226,7 @@ export function mapStoredMessagesToUI(messages: StoredMessage[]): {
     const uiMessageId = message.clientMessageId ?? message.id;
     const parsedImage = decodeImageMessage(message.content);
     const parsedVideo = decodeVideoMessage(message.content);
+    const parsedAssistantToolMessage = decodePersistedAssistantToolMessage(message.content);
     const parsedUserMessage = decodePersistedUserMessage(message.content);
 
     if (parsedImage) {
@@ -240,6 +244,31 @@ export function mapStoredMessagesToUI(messages: StoredMessage[]): {
         id: uiMessageId,
         role: message.role,
         parts: [{ type: "text", text: parsedVideo.text }],
+      } satisfies UIMessage;
+    }
+
+    if (parsedAssistantToolMessage) {
+      const parts: UIMessage["parts"] = [];
+
+      if (parsedAssistantToolMessage.text) {
+        parts.push({ type: "text", text: parsedAssistantToolMessage.text });
+      }
+
+      for (const tool of parsedAssistantToolMessage.tools) {
+        parts.push({
+          type: `tool-${tool.toolName}` as `tool-${string}`,
+          toolCallId: tool.toolCallId,
+          state: tool.state,
+          ...(tool.input !== undefined ? { input: tool.input } : {}),
+          ...(tool.output !== undefined ? { output: tool.output } : {}),
+          ...(tool.errorText ? { errorText: tool.errorText } : {}),
+        } as UIMessage["parts"][number]);
+      }
+
+      return {
+        id: uiMessageId,
+        role: message.role,
+        parts: parts.length > 0 ? parts : [{ type: "text", text: "(工具调用消息)" }],
       } satisfies UIMessage;
     }
 
