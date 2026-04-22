@@ -12,7 +12,23 @@ export type PersistedUserMessagePayload = {
   files: PersistedFilePart[];
 };
 
+export type PersistedAssistantToolItem = {
+  toolName: string;
+  toolCallId: string;
+  state: string;
+  input?: unknown;
+  output?: unknown;
+  errorText?: string;
+};
+
+export type PersistedAssistantToolMessagePayload = {
+  type: "assistant-tool-message";
+  text: string;
+  tools: PersistedAssistantToolItem[];
+};
+
 export const USER_MESSAGE_PREFIX = "__USER_MESSAGE__:";
+export const ASSISTANT_TOOL_MESSAGE_PREFIX = "__ASSISTANT_TOOL_MESSAGE__:";
 
 export function getTextFromUIMessage(message: UIMessage): string {
   const parts = Array.isArray(message.parts) ? message.parts : [];
@@ -96,6 +112,53 @@ export function decodePersistedUserMessage(content: string): PersistedUserMessag
         mediaType: file.mediaType,
         ...(typeof file.filename === "string" ? { filename: file.filename } : {}),
       })),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function encodePersistedAssistantToolMessage(
+  payload: PersistedAssistantToolMessagePayload,
+): string {
+  return `${ASSISTANT_TOOL_MESSAGE_PREFIX}${JSON.stringify(payload)}`;
+}
+
+export function decodePersistedAssistantToolMessage(
+  content: string,
+): PersistedAssistantToolMessagePayload | null {
+  if (!content.startsWith(ASSISTANT_TOOL_MESSAGE_PREFIX)) return null;
+  const raw = content.slice(ASSISTANT_TOOL_MESSAGE_PREFIX.length);
+
+  try {
+    const parsed = JSON.parse(raw) as PersistedAssistantToolMessagePayload;
+    if (!parsed || parsed.type !== "assistant-tool-message") return null;
+    if (typeof parsed.text !== "string" || !Array.isArray(parsed.tools)) return null;
+
+    const tools = parsed.tools
+      .filter(
+        (tool) =>
+          tool &&
+          typeof tool.toolName === "string" &&
+          tool.toolName.length > 0 &&
+          typeof tool.toolCallId === "string" &&
+          tool.toolCallId.length > 0 &&
+          typeof tool.state === "string" &&
+          tool.state.length > 0,
+      )
+      .map((tool) => ({
+        toolName: tool.toolName,
+        toolCallId: tool.toolCallId,
+        state: tool.state,
+        ...(tool.input !== undefined ? { input: tool.input } : {}),
+        ...(tool.output !== undefined ? { output: tool.output } : {}),
+        ...(typeof tool.errorText === "string" ? { errorText: tool.errorText } : {}),
+      }));
+
+    return {
+      type: "assistant-tool-message",
+      text: parsed.text,
+      tools,
     };
   } catch {
     return null;
