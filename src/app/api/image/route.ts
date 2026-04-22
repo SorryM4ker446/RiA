@@ -14,6 +14,66 @@ type ImageRequestBody = {
   }>;
 };
 
+function extractImageError(error: unknown): { status: number; message: string } {
+  const fallback = { status: 500, message: "图片生成失败，请稍后重试。" };
+
+  if (!error || typeof error !== "object") {
+    return fallback;
+  }
+
+  const candidate = error as {
+    message?: unknown;
+    statusCode?: unknown;
+    responseBody?: unknown;
+  };
+
+  const statusCode =
+    typeof candidate.statusCode === "number" && candidate.statusCode >= 400 && candidate.statusCode < 600
+      ? candidate.statusCode
+      : 500;
+
+  if (statusCode === 429) {
+    return {
+      status: 429,
+      message: "图片生成请求过于频繁，或账户额度不足，请稍后重试。",
+    };
+  }
+
+  if (typeof candidate.responseBody === "string" && candidate.responseBody.trim()) {
+    try {
+      const parsed = JSON.parse(candidate.responseBody) as {
+        error?: { message?: unknown };
+        message?: unknown;
+      };
+
+      const upstreamMessage =
+        typeof parsed.error?.message === "string"
+          ? parsed.error.message
+          : typeof parsed.message === "string"
+            ? parsed.message
+            : null;
+
+      if (upstreamMessage) {
+        return {
+          status: statusCode,
+          message: `图片生成失败：${upstreamMessage}`,
+        };
+      }
+    } catch {
+      // Keep fallback below.
+    }
+  }
+
+  if (typeof candidate.message === "string" && candidate.message.trim()) {
+    return {
+      status: statusCode,
+      message: `图片生成失败：${candidate.message}`,
+    };
+  }
+
+  return fallback;
+}
+
 export async function POST(req: NextRequest) {
   try {
     setupServerProxy();
@@ -58,7 +118,6 @@ export async function POST(req: NextRequest) {
             }
           : (prompt as string),
       n: 1,
-      size: body.size ?? "1024x1024",
     });
 
     const image = result.image;
@@ -68,6 +127,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     console.error("/api/image error", error);
-    return Response.json({ error: "Failed to generate image" }, { status: 500 });
+    const extracted = extractImageError(error);
+    return Response.json({ error: extracted.message }, { status: extracted.status });
   }
 }
