@@ -67,7 +67,10 @@ export async function searchKnowledge(
   const queryTokens = tokenize(query);
 
   const memoryRows = await db.memory.findMany({
-    where: { userId },
+    where: {
+      userId,
+      NOT: [{ key: { startsWith: "tool:" } }],
+    },
     orderBy: [{ updatedAt: "desc" }],
     take: 50,
   });
