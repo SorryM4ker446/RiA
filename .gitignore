@@ -7,6 +7,11 @@ out/
 dist/
 public/generated-videos/
 
+# next generated types
+next-env.d.ts
+.next/types/
+.next/dev/types/
+
 # build / cache
 coverage/
 .turbo/

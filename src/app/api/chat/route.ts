@@ -1,4 +1,4 @@
-import { convertToModelMessages, generateObject, stepCountIs, streamText, type ToolSet, type UIMessage } from "ai";
+import { convertToModelMessages, generateObject, stepCountIs, streamText, type UIMessage } from "ai";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { chatModelSupportsImageInput, resolveModelId } from "@/config/model";
@@ -19,7 +19,10 @@ import { getRelevantMemories, saveMemory } from "@/lib/memory/store";
 import { checkRateLimit } from "@/lib/server/rate-limit";
 import { setupServerProxy } from "@/lib/server/proxy";
 import { db } from "@/db";
-import { createChatTools } from "@/tools/registry";
+import { createChatToolSet, listAutoToolDescriptors } from "@/tools/catalog";
+import { persistToolMemory } from "@/tools/memory-policy";
+
+const TOOL_DEBUG = process.env.TOOL_DEBUG === "1";
 
 type ChatRequestBody = {
   id?: string;
@@ -33,9 +36,9 @@ type ChatRequestBody = {
   messages?: UIMessage[];
 };
 
-type AutoToolIntent = "searchKnowledge" | "createTask" | null;
+type AutoToolIntent = string | null;
 const autoToolIntentSchema = z.object({
-  intent: z.enum(["searchKnowledge", "createTask", "none"]),
+  intent: z.string(),
   shouldUseToolNow: z.boolean(),
   userRequestMode: z.enum(["explicit-action", "topic-question", "ambiguous"]),
   expectedBenefit: z.number().min(0).max(1).optional(),
@@ -136,20 +139,20 @@ function buildSystemPrompt(
   const toolInstruction =
     toolsEnabled && autoToolIntent
       ? [
-          "Use searchKnowledge only when the latest user message requires project-knowledge retrieval.",
-          "Use createTask only when the latest user message clearly asks for task/todo creation.",
           "Tool decision must be independent per turn, based only on the latest user message.",
-          `Only one tool is allowed for this turn: ${autoToolIntent}.`,
+          "Use tools only when user request is explicit and actionable in this turn.",
+          "Only one tool can be called in a single turn.",
+          `Selected tool for this turn: ${autoToolIntent}.`,
           "When tool output is available, answer in Chinese with this order: factual points from tool results first, then your integrated reasoning.",
-          "If tools are used in this turn, clearly state your factual basis comes from this turn's tool output.",
-          "Do not fabricate facts that are not in tool results. If evidence is limited, state uncertainty clearly.",
+          "Clearly separate tool facts and your reasoning.",
+          "Do not fabricate facts not present in tool results; if evidence is weak, state uncertainty clearly.",
         ]
       : [
           "Tools are disabled for this request.",
           "Do not emit any tool-call markup (such as <function_calls> or XML/JSON tool directives).",
           "No tools were run in this turn.",
           "Even if previous turns used tools, do not present this turn as a fresh search.",
-          "Do not claim project retrieval happened in this turn.",
+          "Do not claim retrieval happened in this turn.",
           "When describing your basis, use current conversation context, memory, and general reasoning only.",
           "Answer directly from available context; if information is insufficient, state uncertainty and ask one short clarification question.",
         ];
@@ -173,9 +176,16 @@ function buildSystemPrompt(
 async function detectAutoToolIntent(params: {
   text: string;
   modelId: ReturnType<typeof resolveModelId>;
+  autoTools: ReturnType<typeof listAutoToolDescriptors>;
 }): Promise<AutoToolIntent> {
   const input = params.text.trim();
   if (!input) return null;
+  if (!params.autoTools.length) return null;
+
+  const allowedIds = new Set(params.autoTools.map((tool) => tool.id));
+  const toolBrief = params.autoTools
+    .map((tool) => `- ${tool.id}: ${tool.description} (${tool.auto.intentHint})`)
+    .join("\n");
 
   try {
     const { object } = await generateObject({
@@ -183,26 +193,35 @@ async function detectAutoToolIntent(params: {
       schema: autoToolIntentSchema,
       system: [
         "You are a tool-intent classifier for a chat assistant.",
-        "Decide tool intent from ONLY the latest user message.",
-        "Valid outputs: searchKnowledge, createTask, none.",
-        "Only enable tools when the user explicitly asks to execute a retrieval/task action now.",
+        "Decide intent from ONLY the latest user message.",
+        `Allowed tool intents: ${Array.from(allowedIds).join(", ")}, none.`,
+        "Choose none unless user intent is explicit-action and shouldUseToolNow=true.",
         "Do not trigger tools for ordinary topic follow-up questions that can be answered directly.",
-        "Set userRequestMode=explicit-action only when the user is clearly asking the assistant to run a tool-like action.",
         "For implicit, broad, or ambiguous asks, set shouldUseToolNow=false and prefer none.",
         "Use high confidence only when the action request is unambiguous.",
       ].join(" "),
-      prompt: `Latest user message:\n${input}`,
+      prompt: [
+        "Available auto tools:",
+        toolBrief,
+        "",
+        "Latest user message:",
+        input,
+      ].join("\n"),
     });
 
-    console.info("auto-tool intent result", {
-      intent: object.intent,
-      shouldUseToolNow: object.shouldUseToolNow,
-      userRequestMode: object.userRequestMode,
-      confidence: object.confidence ?? null,
-      expectedBenefit: object.expectedBenefit ?? null,
-    });
+    if (TOOL_DEBUG) {
+      console.info("auto-tool intent result", {
+        intent: object.intent,
+        shouldUseToolNow: object.shouldUseToolNow,
+        userRequestMode: object.userRequestMode,
+        confidence: object.confidence ?? null,
+        expectedBenefit: object.expectedBenefit ?? null,
+        candidates: Array.from(allowedIds),
+      });
+    }
 
-    if (object.intent === "none") {
+    const intent = object.intent.trim();
+    if (intent === "none" || !allowedIds.has(intent)) {
       return null;
     }
 
@@ -222,19 +241,11 @@ async function detectAutoToolIntent(params: {
       return null;
     }
 
-    return object.intent;
+    return intent;
   } catch (error) {
     console.warn("auto-tool intent classification failed", error);
     return null;
   }
-}
-
-function createIntentScopedTools(userId: string, intent: Exclude<AutoToolIntent, null>): ToolSet {
-  const allTools = createChatTools(userId);
-  if (intent === "searchKnowledge") {
-    return { searchKnowledge: allTools.searchKnowledge };
-  }
-  return { createTask: allTools.createTask };
 }
 
 function stripFilePartsForTextOnlyModel(messages: UIMessage[]): UIMessage[] {
@@ -382,12 +393,15 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const isChatMode = body.mode === "chat";
+    const mode = body.mode ?? "chat";
+    const isChatMode = mode === "chat";
+    const autoToolCandidates = isChatMode ? listAutoToolDescriptors("chat") : [];
     const autoToolIntent =
-      isChatMode && latestUserMessage?.text
+      isChatMode && !body.manualToolsOnly && latestUserMessage?.text
         ? await detectAutoToolIntent({
             text: latestUserMessage.text,
             modelId,
+            autoTools: autoToolCandidates,
           })
         : null;
     const toolsEnabled = isChatMode && !body.manualToolsOnly && autoToolIntent !== null;
@@ -456,7 +470,11 @@ export async function POST(req: NextRequest) {
       system: systemPrompt,
       messages: modelMessages,
       ...(toolsEnabled && autoToolIntent
-        ? { tools: createIntentScopedTools(user.id, autoToolIntent) }
+        ? {
+            tools: createChatToolSet(user.id, {
+              toolIds: [autoToolIntent],
+            }),
+          }
         : {}),
       stopWhen: stepCountIs(5),
       onFinish: async ({ model }) => {
@@ -505,6 +523,34 @@ export async function POST(req: NextRequest) {
                   : chat.title,
             },
           });
+
+          if (toolItems.length > 0) {
+            const memoryResults = await Promise.allSettled(
+              toolItems.map((toolItem) =>
+                persistToolMemory({
+                  userId: user.id,
+                  toolId: toolItem.toolName,
+                  trigger: "auto",
+                  state: toolItem.state,
+                  input: toolItem.input,
+                  output: toolItem.output,
+                  assistantText,
+                  modelId,
+                }),
+              ),
+            );
+
+            if (TOOL_DEBUG) {
+              const decisions = memoryResults.map((result) =>
+                result.status === "fulfilled" ? result.value.reason : "error",
+              );
+              console.info("chat.auto-tool.memory", {
+                chatId: chat.id,
+                toolCount: toolItems.length,
+                decisions,
+              });
+            }
+          }
         } catch (persistError) {
           console.error("chat.persist.onFinish error", persistError);
         }
