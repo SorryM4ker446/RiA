@@ -27,10 +27,10 @@ export const OPENROUTER_MODELS = [
     supportsImageInput: true,
   },
   {
-    id: "anthropic/claude-sonnet-4.6",
-    label: "Claude Sonnet 4.6",
-    description: "均衡质量与速度",
-    supportsImageInput: true,
+    id: "deepseek/deepseek-v4-pro",
+    label: "deepseek-v4-pro",
+    description: "DeepSeek",
+    supportsImageInput: false,
   },
   {
     id: "google/gemini-3-flash-preview",
@@ -39,9 +39,9 @@ export const OPENROUTER_MODELS = [
     supportsImageInput: true,
   },
   {
-    id: "deepseek/deepseek-v3.2",
-    label: "DeepSeek V3.2",
-    description: "性价比高",
+    id: "deepseek/deepseek-v4-flash",
+    label: "deepseek-v4-flash",
+    description: "deepseek-flash",
     supportsImageInput: false,
   },
   {

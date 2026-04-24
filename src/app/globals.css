@@ -78,6 +78,169 @@ body {
     color: hsl(var(--chat-user-fg));
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
   }
+
+  .chat-list-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.38) transparent;
+  }
+
+  .chat-list-scroll::-webkit-scrollbar {
+    width: 10px;
+  }
+
+  .chat-list-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .chat-list-scroll::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: content-box;
+    background-color: hsl(var(--muted-foreground) / 0.34);
+  }
+
+  .chat-list-scroll:hover::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--muted-foreground) / 0.55);
+  }
+
+  .chat-list-scroll::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  .markdown-message {
+    @apply space-y-3 leading-7;
+  }
+
+  .markdown-message > :first-child {
+    @apply mt-0;
+  }
+
+  .markdown-message > :last-child {
+    @apply mb-0;
+  }
+
+  .markdown-message h1 {
+    @apply mt-4 text-lg font-semibold leading-7;
+  }
+
+  .markdown-message h2 {
+    @apply mt-4 text-base font-semibold leading-7;
+  }
+
+  .markdown-message h3 {
+    @apply mt-3 text-sm font-semibold leading-6;
+  }
+
+  .markdown-message p {
+    @apply whitespace-normal;
+  }
+
+  .markdown-message strong {
+    @apply font-semibold;
+  }
+
+  .markdown-message em {
+    @apply italic;
+  }
+
+  .markdown-message a {
+    @apply font-medium underline underline-offset-4;
+  }
+
+  .markdown-message ul {
+    @apply ml-5 list-disc space-y-1;
+  }
+
+  .markdown-message ol {
+    @apply ml-5 list-decimal space-y-1;
+  }
+
+  .markdown-message li {
+    @apply pl-1;
+  }
+
+  .markdown-message input[type="checkbox"] {
+    @apply mr-2 align-middle;
+  }
+
+  .markdown-message del {
+    @apply text-muted-foreground;
+  }
+
+  .markdown-table-wrap {
+    @apply overflow-x-auto rounded-lg border;
+  }
+
+  .markdown-message table {
+    @apply w-full min-w-max border-collapse text-left text-sm;
+  }
+
+  .markdown-message th {
+    @apply border-b bg-muted/70 px-3 py-2 font-semibold;
+  }
+
+  .markdown-message td {
+    @apply border-t px-3 py-2 align-top;
+  }
+
+  .markdown-message tr:first-child td {
+    @apply border-t-0;
+  }
+
+  .chat-user-bubble .markdown-table-wrap {
+    border-color: hsl(var(--chat-user-fg) / 0.18);
+  }
+
+  .chat-user-bubble .markdown-message th {
+    background-color: hsl(var(--chat-user-fg) / 0.12);
+    border-color: hsl(var(--chat-user-fg) / 0.18);
+  }
+
+  .chat-user-bubble .markdown-message td {
+    border-color: hsl(var(--chat-user-fg) / 0.14);
+  }
+
+  .markdown-message blockquote {
+    @apply border-l-2 pl-3 text-muted-foreground;
+    border-left-color: hsl(var(--border));
+  }
+
+  .chat-user-bubble .markdown-message blockquote {
+    color: hsl(var(--chat-user-fg) / 0.82);
+  }
+
+  .markdown-message code {
+    @apply rounded bg-muted px-1.5 py-0.5 font-mono text-[0.86em];
+  }
+
+  .chat-user-bubble .markdown-message code {
+    background-color: hsl(var(--chat-user-fg) / 0.14);
+  }
+
+  .markdown-message pre {
+    @apply overflow-x-auto rounded-lg border bg-muted/70 p-3 text-sm leading-6;
+  }
+
+  .markdown-message pre code {
+    @apply block whitespace-pre bg-transparent p-0 text-[12px] leading-6;
+  }
+
+  .chat-user-bubble .markdown-message pre {
+    background-color: hsl(var(--chat-user-fg) / 0.1);
+    border-color: hsl(var(--chat-user-fg) / 0.18);
+  }
+
+  .markdown-code-language {
+    @apply mb-2 block text-[11px] font-medium uppercase tracking-wide text-muted-foreground;
+  }
+
+  .chat-user-bubble .markdown-code-language {
+    color: hsl(var(--chat-user-fg) / 0.68);
+  }
+
+  .markdown-message hr {
+    @apply border-border;
+  }
 }
 
 .dark .glass-surface {
