@@ -19,6 +19,7 @@
     "@openrouter/ai-sdk-provider": "^2.8.0",
     "@prisma/client": "^6.15.0",
     "@radix-ui/react-select": "^2.2.6",
+    "@tavily/ai-sdk": "^0.4.1",
     "ai": "latest",
     "clsx": "latest",
     "lucide-react": "latest",

@@ -1,3 +1,4 @@
+import { tavilySearch } from "@tavily/ai-sdk";
 import { z } from "zod";
 import { ApiError } from "@/lib/server/api-error";
 
@@ -23,12 +24,13 @@ export type WebSearchOutput = {
   requestId?: string;
 };
 
-const TAVILY_SEARCH_URL = process.env.TAVILY_SEARCH_URL?.trim() || "https://api.tavily.com/search";
-const TAVILY_TIMEOUT_MS = 12_000;
+const DEFAULT_TAVILY_API_BASE_URL = "https://api.tavily.com";
+const TAVILY_TIMEOUT_SECONDS = 12;
 
 type TavilySearchResponse = {
   query?: string;
-  response_time?: number;
+  responseTime?: number;
+  requestId?: string;
   results?: Array<{
     title?: string;
     url?: string;
@@ -41,6 +43,42 @@ function normalizeSnippet(value: string | undefined): string {
   return (value ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
 }
 
+function resolveTavilyApiBaseUrl(): string {
+  const configuredUrl = process.env.TAVILY_SEARCH_URL?.trim();
+  if (!configuredUrl) {
+    return DEFAULT_TAVILY_API_BASE_URL;
+  }
+
+  return configuredUrl.replace(/\/search\/?$/, "").replace(/\/$/, "");
+}
+
+function throwTavilyError(error: unknown): never {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (/timed out|timeout|ECONNABORTED/i.test(message)) {
+    throw new ApiError({
+      code: "TIMEOUT",
+      message: "Tavily search timed out.",
+      details: message,
+    });
+  }
+
+  if (/\b(401|403)\b|unauthorized|forbidden|api key|apikey|authorization/i.test(message)) {
+    throw new ApiError({
+      code: "UNAUTHORIZED",
+      message: "Tavily search is not authorized.",
+      status: 401,
+      details: message,
+    });
+  }
+
+  throw new ApiError({
+    code: "UPSTREAM_FAILED",
+    message: "Failed to reach Tavily search.",
+    details: message,
+  });
+}
+
 export async function runWebSearch(input: WebSearchInput): Promise<WebSearchOutput> {
   const apiKey = process.env.TAVILY_API_KEY?.trim();
   if (!apiKey) {
@@ -50,62 +88,39 @@ export async function runWebSearch(input: WebSearchInput): Promise<WebSearchOutp
     });
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), TAVILY_TIMEOUT_MS);
-
-  let response: Response;
-  try {
-    response = await fetch(TAVILY_SEARCH_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        query: input.query.trim(),
-        max_results: input.maxResults ?? 5,
-        search_depth: "basic",
-        include_answer: false,
-        include_raw_content: false,
-      }),
-      signal: controller.signal,
-    });
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new ApiError({
-        code: "TIMEOUT",
-        message: "Tavily search timed out.",
-      });
-    }
-
+  const tool = tavilySearch({
+    apiKey,
+    apiBaseURL: resolveTavilyApiBaseUrl(),
+    maxResults: input.maxResults ?? 5,
+    searchDepth: "basic",
+    includeAnswer: false,
+    includeRawContent: false,
+    timeout: TAVILY_TIMEOUT_SECONDS,
+  });
+  const executeSearch = tool.execute;
+  if (!executeSearch) {
     throw new ApiError({
       code: "UPSTREAM_FAILED",
-      message: "Failed to reach Tavily search.",
-      details: error instanceof Error ? error.message : String(error),
+      message: "Tavily search adapter is not executable.",
     });
-  } finally {
-    clearTimeout(timeout);
   }
 
-  const requestId = response.headers.get("x-request-id") ?? undefined;
-
-  if (!response.ok) {
-    const detailText = await response.text().catch(() => "");
-    throw new ApiError({
-      code: response.status === 401 || response.status === 403 ? "UNAUTHORIZED" : "UPSTREAM_FAILED",
-      message: response.status === 401 || response.status === 403
-        ? "Tavily search is not authorized."
-        : "Tavily search failed.",
-      status: response.status === 401 || response.status === 403 ? 401 : 502,
-      details: {
-        status: response.status,
-        requestId,
-        body: detailText.slice(0, 500),
+  let payload: TavilySearchResponse;
+  try {
+    payload = (await executeSearch(
+      {
+        query: input.query.trim(),
+        searchDepth: "basic",
       },
-    });
+      {
+        toolCallId: "webSearch",
+        messages: [],
+      },
+    )) as TavilySearchResponse;
+  } catch (error) {
+    throwTavilyError(error);
   }
 
-  const payload = (await response.json()) as TavilySearchResponse;
   const results = (payload.results ?? [])
     .filter((item) => item.url && item.title)
     .slice(0, input.maxResults ?? 5)
@@ -120,7 +135,7 @@ export async function runWebSearch(input: WebSearchInput): Promise<WebSearchOutp
   return {
     query: payload.query?.trim() || input.query.trim(),
     results,
-    ...(typeof payload.response_time === "number" ? { responseTime: payload.response_time } : {}),
-    ...(requestId ? { requestId } : {}),
+    ...(typeof payload.responseTime === "number" ? { responseTime: payload.responseTime } : {}),
+    ...(payload.requestId ? { requestId: payload.requestId } : {}),
   };
 }
