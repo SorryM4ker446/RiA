@@ -185,7 +185,12 @@ async function detectAutoToolIntent(params: {
 
   const allowedIds = new Set(params.autoTools.map((tool) => tool.id));
   const toolBrief = params.autoTools
-    .map((tool) => `- ${tool.id}: ${tool.description} (${tool.auto.intentHint})`)
+    .map((tool) => {
+      const examples = tool.auto.examples?.length
+        ? `\n  Examples: ${tool.auto.examples.map((example) => `「${example}」`).join(" / ")}`
+        : "";
+      return `- ${tool.id}: ${tool.description}\n  Trigger hint: ${tool.auto.intentHint}${examples}`;
+    })
     .join("\n");
 
   try {
@@ -199,7 +204,9 @@ async function detectAutoToolIntent(params: {
         "Decide intent from ONLY the latest user message.",
         `Allowed tool intents: ${Array.from(allowedIds).join(", ")}, none.`,
         "Choose none unless user intent is explicit-action and shouldUseToolNow=true.",
-        "Only choose webSearch when the latest message explicitly asks for web search, current/latest information, external facts, or URLs/sources outside this app.",
+        "Use the tool trigger hints and examples as semantic guidance; do not rely on previous turns to infer a tool call.",
+        "If the latest message explicitly asks for one of the listed tool capabilities, choose that tool even when the wording differs from the examples.",
+        "Respect negation: if the user says not to use a capability, choose none for that capability.",
         "Do not trigger tools for ordinary topic follow-up questions that can be answered directly.",
         "For implicit, broad, or ambiguous asks, set shouldUseToolNow=false and prefer none.",
         "Use high confidence only when the action request is unambiguous.",
@@ -237,11 +244,11 @@ async function detectAutoToolIntent(params: {
       return null;
     }
 
-    if (typeof output.confidence === "number" && output.confidence < 0.82) {
+    if (typeof output.confidence === "number" && output.confidence < 0.72) {
       return null;
     }
 
-    if (typeof output.expectedBenefit === "number" && output.expectedBenefit < 0.7) {
+    if (typeof output.expectedBenefit === "number" && output.expectedBenefit < 0.6) {
       return null;
     }
 
@@ -484,6 +491,7 @@ export async function POST(req: NextRequest) {
       ...(toolsEnabled && autoToolIntent
         ? {
             tools: createChatToolSet(user.id, {
+              modelId,
               toolIds: [autoToolIntent],
             }),
           }

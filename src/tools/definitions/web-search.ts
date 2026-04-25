@@ -3,8 +3,14 @@ import { z } from "zod";
 import { ApiError } from "@/lib/server/api-error";
 
 export const webSearchInput = z.object({
-  query: z.string().min(1),
-  maxResults: z.number().int().min(1).max(10).optional().default(5),
+  query: z.string().min(1).describe("The web search query."),
+  maxResults: z
+    .number()
+    .int()
+    .min(1)
+    .max(10)
+    .optional()
+    .describe("Optional result count. Choose fewer results for simple facts and more for broad comparisons."),
 });
 
 export type WebSearchInput = z.infer<typeof webSearchInput>;
@@ -26,6 +32,9 @@ export type WebSearchOutput = {
 
 const DEFAULT_TAVILY_API_BASE_URL = "https://api.tavily.com";
 const TAVILY_TIMEOUT_SECONDS = 12;
+const DEFAULT_MAX_RESULTS = 5;
+const MIN_MAX_RESULTS = 1;
+const MAX_MAX_RESULTS = 10;
 
 type TavilySearchResponse = {
   query?: string;
@@ -41,6 +50,18 @@ type TavilySearchResponse = {
 
 function normalizeSnippet(value: string | undefined): string {
   return (value ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
+}
+
+function normalizeMaxResults(value: number | undefined): number {
+  if (typeof value === "undefined") {
+    return DEFAULT_MAX_RESULTS;
+  }
+
+  if (!Number.isFinite(value)) {
+    return DEFAULT_MAX_RESULTS;
+  }
+
+  return Math.min(MAX_MAX_RESULTS, Math.max(MIN_MAX_RESULTS, Math.trunc(value)));
 }
 
 function resolveTavilyApiBaseUrl(): string {
@@ -80,6 +101,7 @@ function throwTavilyError(error: unknown): never {
 }
 
 export async function runWebSearch(input: WebSearchInput): Promise<WebSearchOutput> {
+  const maxResults = normalizeMaxResults(input.maxResults);
   const apiKey = process.env.TAVILY_API_KEY?.trim();
   if (!apiKey) {
     throw new ApiError({
@@ -91,7 +113,7 @@ export async function runWebSearch(input: WebSearchInput): Promise<WebSearchOutp
   const tool = tavilySearch({
     apiKey,
     apiBaseURL: resolveTavilyApiBaseUrl(),
-    maxResults: input.maxResults ?? 5,
+    maxResults,
     searchDepth: "basic",
     includeAnswer: false,
     includeRawContent: false,
@@ -123,7 +145,7 @@ export async function runWebSearch(input: WebSearchInput): Promise<WebSearchOutp
 
   const results = (payload.results ?? [])
     .filter((item) => item.url && item.title)
-    .slice(0, input.maxResults ?? 5)
+    .slice(0, maxResults)
     .map((item) => ({
       title: item.title?.trim() || item.url || "Untitled",
       url: item.url as string,
