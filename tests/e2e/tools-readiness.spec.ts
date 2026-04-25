@@ -128,6 +128,7 @@ async function setupP0ApiMocks(page: Page) {
     const body = JSON.parse(route.request().postData() || "{}");
 
     if (body.tool === "webSearch") {
+      expect(body.input).not.toHaveProperty("maxResults");
       await route.fulfill({
         json: {
           tool: "webSearch",

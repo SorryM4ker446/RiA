@@ -67,9 +67,26 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    const preparedInput = descriptor.prepareInput
+      ? await descriptor.prepareInput({
+          userId: user.id,
+          input: parsedInput.data,
+          modelId: parsed.data.modelId,
+          trigger: "manual",
+        })
+      : parsedInput.data;
+    const preparedParsedInput = descriptor.inputSchema.safeParse(preparedInput);
+    if (!preparedParsedInput.success) {
+      throw new ApiError({
+        code: "VALIDATION_ERROR",
+        message: "Invalid tool input",
+        details: preparedParsedInput.error.flatten(),
+      });
+    }
+
     const data = await descriptor.execute({
       userId: user.id,
-      input: parsedInput.data,
+      input: preparedParsedInput.data,
       modelId: parsed.data.modelId,
       trigger: "manual",
     });
@@ -81,7 +98,7 @@ export async function POST(req: NextRequest) {
 
     const assistantText = (
       await descriptor.buildAssistantText({
-        input: parsedInput.data,
+        input: preparedParsedInput.data,
         output: data,
         modelId: parsed.data.modelId,
         trigger: "manual",
@@ -94,7 +111,7 @@ export async function POST(req: NextRequest) {
         toolId,
         trigger: "manual",
         state: "output-available",
-        input: parsedInput.data,
+        input: preparedParsedInput.data,
         output: data,
         assistantText,
         modelId: parsed.data.modelId,

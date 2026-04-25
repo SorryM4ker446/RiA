@@ -219,13 +219,20 @@ async function resolveWebSearchInput(params: {
       model: getChatModel(resolveModelId(params.modelId)),
       output: Output.object({
         schema: z.object({
-          maxResults: z.number().int().min(1).max(maxResultsLimit),
+          maxResults: z
+            .number()
+            .int()
+            .min(1)
+            .max(maxResultsLimit)
+            .describe("The number of web search results to retrieve before answering."),
         }),
       }),
       system: [
         "You choose how many web search results to retrieve before answering.",
-        `Return only a valid integer in maxResults from 1 to ${maxResultsLimit}.`,
-        "Use 1-3 for narrow factual lookups, 4-6 for normal questions, 7-10 for comparisons, reviews, recommendations, or fast-changing topics that need source diversity.",
+        `Choose maxResults from 1 to ${maxResultsLimit}.`,
+        "Use 1-3 for narrow factual lookups.",
+        "Use 4-6 for normal current-information questions.",
+        "Use 7-10 for comparisons, reviews, recommendations, event/product/game evaluation, or fast-changing topics that need source diversity.",
         "Balance answer quality with latency and cost.",
       ].join(" "),
       prompt: [

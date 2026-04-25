@@ -273,6 +273,7 @@ export default function ChatPage() {
   const [toolCatalogError, setToolCatalogError] = useState<string | null>(null);
   const [hasLoadedToolCatalog, setHasLoadedToolCatalog] = useState(false);
   const [manualToolFieldValues, setManualToolFieldValues] = useState<ManualToolFieldValues>({});
+  const [manualToolFieldErrors, setManualToolFieldErrors] = useState<ManualToolFieldValues>({});
   const [isRunningManualTool, setIsRunningManualTool] = useState(false);
   const [isChatListExpanded, setIsChatListExpanded] = useState(false);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
@@ -356,6 +357,47 @@ export default function ChatPage() {
       }
     }
     return defaults;
+  }
+
+  function getManualToolFieldError(field: ManualToolFieldMeta, rawValue: string): string | null {
+    const value = rawValue.trim();
+    if (!value && !field.required) {
+      return null;
+    }
+
+    if (!value && field.required) {
+      return "请填写此项";
+    }
+
+    if (field.type !== "number") {
+      return null;
+    }
+
+    const parsed = Number.parseFloat(value);
+    if (!Number.isFinite(parsed)) {
+      return "请输入有效数字";
+    }
+
+    if (typeof field.min === "number" && parsed < field.min) {
+      return `最小值为 ${field.min}`;
+    }
+
+    if (typeof field.max === "number" && parsed > field.max) {
+      return `最大值为 ${field.max}`;
+    }
+
+    return null;
+  }
+
+  function validateManualToolFields(tool: ToolCatalogItem, fieldValues: ManualToolFieldValues): ManualToolFieldValues {
+    const errors: ManualToolFieldValues = {};
+    for (const field of tool.manual.fields) {
+      const error = getManualToolFieldError(field, fieldValues[field.key] ?? field.defaultValue ?? "");
+      if (error) {
+        errors[field.key] = error;
+      }
+    }
+    return errors;
   }
 
   function normalizeManualToolInput(params: {
@@ -1117,6 +1159,11 @@ export default function ChatPage() {
           throw new Error("请在输入框中填写工具参数。");
         }
 
+        const nextFieldErrors = validateManualToolFields(selectedManualToolConfig, manualToolFieldValues);
+        setManualToolFieldErrors(nextFieldErrors);
+        if (Object.keys(nextFieldErrors).length > 0) {
+          return;
+        }
         const normalizedInput = normalizeManualToolInput({
           tool: selectedManualToolConfig,
           text: content,
@@ -1130,6 +1177,7 @@ export default function ChatPage() {
         });
 
         setManualToolFieldValues(buildDefaultManualFieldValues(selectedManualToolConfig));
+        setManualToolFieldErrors({});
       } catch (submitError) {
         setPageError(submitError instanceof Error ? submitError.message : "工具执行失败");
       }
@@ -1464,6 +1512,7 @@ export default function ChatPage() {
     if (value !== "chat") {
       setSelectedManualTool("none");
       setManualToolFieldValues({});
+      setManualToolFieldErrors({});
     }
   }
 
@@ -1546,6 +1595,7 @@ export default function ChatPage() {
       return;
     }
     setManualToolFieldValues({});
+    setManualToolFieldErrors({});
   }, [selectedManualToolConfig]);
 
   useEffect(() => {
@@ -2081,7 +2131,7 @@ export default function ChatPage() {
               </Alert>
             ) : null}
 
-            <form className="space-y-3" onSubmit={onSubmit}>
+            <form className="space-y-3" noValidate onSubmit={onSubmit}>
               {modelMode === "chat" ? (
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -2148,24 +2198,50 @@ export default function ChatPage() {
                           );
                         }
 
+                        const error = manualToolFieldErrors[field.key];
+                        const fieldErrorId = `manual-tool-${field.key}-error`;
                         return (
-                          <Input
-                            className="h-8"
-                            inputMode={field.type === "number" ? "numeric" : undefined}
-                            key={field.key}
-                            max={field.max}
-                            min={field.min}
-                            onChange={(event) =>
-                              setManualToolFieldValues((prev) => ({
-                                ...prev,
-                                [field.key]: event.target.value,
-                              }))
-                            }
-                            placeholder={field.placeholder ?? field.label}
-                            step={field.step}
-                            type={field.type}
-                            value={value}
-                          />
+                          <div className="space-y-1.5" key={field.key}>
+                            <Input
+                              aria-describedby={error ? fieldErrorId : undefined}
+                              aria-invalid={error ? true : undefined}
+                              className={cn(
+                                "h-8",
+                                error
+                                  ? "border-destructive/60 bg-background text-foreground focus-visible:border-destructive focus-visible:ring-destructive/20"
+                                  : "",
+                              )}
+                              inputMode={field.type === "number" ? "decimal" : undefined}
+                              onChange={(event) => {
+                                const nextValue = event.target.value;
+                                setManualToolFieldValues((prev) => ({
+                                  ...prev,
+                                  [field.key]: nextValue,
+                                }));
+                                setManualToolFieldErrors((prev) => {
+                                  const nextError = getManualToolFieldError(field, nextValue);
+                                  if (nextError) {
+                                    return { ...prev, [field.key]: nextError };
+                                  }
+                                  const rest = { ...prev };
+                                  delete rest[field.key];
+                                  return rest;
+                                });
+                              }}
+                              placeholder={field.placeholder ?? field.label}
+                              type={field.type === "number" ? "text" : field.type}
+                              value={value}
+                            />
+                            {error ? (
+                              <p
+                                className="px-1 text-[11px] leading-4 text-destructive/90"
+                                id={fieldErrorId}
+                                role="alert"
+                              >
+                                <span>{error}</span>
+                              </p>
+                            ) : null}
+                          </div>
                         );
                       })}
                     </div>
