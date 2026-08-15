@@ -3,6 +3,13 @@ import { z } from "zod";
 import { ApiError } from "@/lib/server/api-error";
 import { resolveModelId } from "@/config/model";
 import { getChatModel } from "@/lib/ai/client";
+import {
+  SEARCH_ANSWER_OUTPUT,
+  SEARCH_ANSWER_SYSTEM,
+  WEB_ANSWER_OUTPUT,
+  WEB_ANSWER_SYSTEM,
+  WEB_SEARCH_PLANNING_SYSTEM,
+} from "@/lib/prompts";
 import { logToolExecution } from "@/lib/server/tool-log";
 import { createTask, createTaskInputSchema } from "@/tools/definitions/create-task";
 import { searchKnowledge, searchKnowledgeInputSchema } from "@/tools/definitions/search-knowledge";
@@ -103,6 +110,7 @@ type ToolDescriptor<Input = unknown, Output = unknown> = {
     };
   };
   inputSchema: z.ZodType<Input>;
+  requiresApproval?: boolean;
   prepareInput?: (context: ToolPrepareInputContext<Input>) => Promise<Input> | Input;
   buildBudgetExceededOutput?: (context: ToolBudgetExceededContext) => Output;
   execute: (context: ToolExecutionContext<Input>) => Promise<Output>;
@@ -160,15 +168,14 @@ async function buildSearchAssistantText(params: {
   try {
     const answer = await generateText({
       model: getChatModel(resolveModelId(modelId)),
-      system:
-        "你是一个严谨的中文助手。先基于给定知识库事实，再结合常识推理给出综合回答。不要编造知识库没有的信息；若证据不足请明确说明。",
+      system: SEARCH_ANSWER_SYSTEM,
       prompt: [
         `用户问题：${result.query}`,
         "",
         "知识库检索结果（按相关性排序）：",
         JSON.stringify(references, null, 2),
         "",
-        "请输出：1) 结论；2) 基于知识库的依据；3) 结合你的推理补充（若有不确定请标注）。",
+        SEARCH_ANSWER_OUTPUT,
       ].join("\n"),
     });
 
@@ -227,14 +234,7 @@ async function resolveWebSearchInput(params: {
             .describe("The number of web search results to retrieve before answering."),
         }),
       }),
-      system: [
-        "You choose how many web search results to retrieve before answering.",
-        `Choose maxResults from 1 to ${maxResultsLimit}.`,
-        "Use 1-3 for narrow factual lookups.",
-        "Use 4-6 for normal current-information questions.",
-        "Use 7-10 for comparisons, reviews, recommendations, event/product/game evaluation, or fast-changing topics that need source diversity.",
-        "Balance answer quality with latency and cost.",
-      ].join(" "),
+      system: WEB_SEARCH_PLANNING_SYSTEM.replace("{{maxResultsLimit}}", String(maxResultsLimit)),
       prompt: [
         `Trigger: ${params.trigger}`,
         `User search query: ${params.input.query}`,
@@ -278,19 +278,14 @@ async function buildWebSearchAssistantText(params: {
   try {
     const answer = await generateText({
       model: getChatModel(resolveModelId(modelId)),
-      system:
-        "你是一个严谨的中文研究助手。你会基于 Web Search 结果回答用户问题，先综合判断，再给出清晰结论。必须区分搜索事实和你的推理，不能编造来源没有的信息。",
+      system: WEB_ANSWER_SYSTEM,
       prompt: [
         `用户问题：${result.query}`,
         "",
         "Web Search 结果（按相关性排序）：",
         JSON.stringify(references, null, 2),
         "",
-        "请用中文输出：",
-        "1. 直接结论或建议；",
-        "2. 搜索结果中的关键依据，引用格式使用 [1]、[2]；",
-        "3. 你的综合推理与不确定性；",
-        "4. 不要在正文末尾单独列出来源清单，来源会由界面根据工具结果单独折叠展示。",
+        ...WEB_ANSWER_OUTPUT,
       ].join("\n"),
     });
 
@@ -373,6 +368,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     displayName: "创建任务",
     description: "为当前用户创建任务，支持详情、优先级和截止时间。",
     modeSupport: ["chat"],
+    requiresApproval: true,
     manual: {
       enabled: true,
       label: "手动：创建任务",
@@ -597,6 +593,7 @@ export function createChatToolSet(userId: string, options?: { modelId?: string; 
     {
       description: tool.description,
       inputSchema: tool.inputSchema,
+      ...(tool.requiresApproval ? { needsApproval: true } : {}),
       execute: async (input: unknown) => {
         const startedAt = Date.now();
         try {

@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
-import { getOrCreateRequestUser } from "@/lib/auth/request-user";
+import { requireRequestUser } from "@/lib/auth/request-user";
 import { saveMemory } from "@/lib/memory/store";
 
 const createKnowledgeSchema = z.object({
@@ -17,7 +17,7 @@ const knowledgeListQuerySchema = z.object({
 
 export async function GET(req: NextRequest) {
   try {
-    const user = await getOrCreateRequestUser(req);
+    const user = await requireRequestUser(req);
     const parsed = knowledgeListQuerySchema.safeParse({
       limit: req.nextUrl.searchParams.get("limit") ?? undefined,
     });
@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const user = await getOrCreateRequestUser(req);
+    const user = await requireRequestUser(req);
     const parsed = createKnowledgeSchema.safeParse(await req.json());
 
     if (!parsed.success) {

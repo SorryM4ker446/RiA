@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
-import { getOrCreateRequestUser } from "@/lib/auth/request-user";
+import { requireRequestUser } from "@/lib/auth/request-user";
 import { logToolExecution } from "@/lib/server/tool-log";
 import { getToolDescriptor, isToolSupportedInMode, type ToolMode } from "@/tools/catalog";
 import { persistToolMemory } from "@/tools/memory-policy";
@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   let succeeded = false;
 
   try {
-    const user = await getOrCreateRequestUser(req);
+    const user = await requireRequestUser(req);
     const parsed = runToolSchema.safeParse(await req.json());
 
     if (!parsed.success) {

@@ -1,4 +1,6 @@
 import { NextRequest } from "next/server";
+import { requireRequestUser } from "@/lib/auth/request-user";
+import { createApiErrorResponse } from "@/lib/server/api-error";
 import { listPublicToolCatalog, type ToolMode } from "@/tools/catalog";
 
 function resolveMode(value: string | null): ToolMode | undefined {
@@ -10,12 +12,19 @@ function resolveMode(value: string | null): ToolMode | undefined {
 }
 
 export async function GET(req: NextRequest) {
-  const url = new URL(req.url);
-  const mode = resolveMode(url.searchParams.get("mode"));
+  try {
+    await requireRequestUser(req);
 
-  const tools = listPublicToolCatalog(mode ?? "chat");
+    const url = new URL(req.url);
+    const mode = resolveMode(url.searchParams.get("mode"));
 
-  return Response.json({
-    data: tools,
-  });
+    const tools = listPublicToolCatalog(mode ?? "chat");
+
+    return Response.json({
+      data: tools,
+    });
+  } catch (error) {
+    console.error("/api/tools GET error", error);
+    return createApiErrorResponse(error, "Failed to fetch tool catalog");
+  }
 }

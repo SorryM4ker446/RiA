@@ -127,6 +127,10 @@ type ChatScopedPreferences = {
   manualToolsOnly: boolean;
 };
 
+type DeleteTarget =
+  | { kind: "chat"; chat: ChatSummary }
+  | { kind: "message"; message: UIMessage };
+
 const CHAT_PREFS_STORAGE_PREFIX = "chat:prefs:";
 const LAST_ACTIVE_CHAT_STORAGE_KEY = "chat:last-active-id";
 const COLLAPSED_CHAT_LIMIT = 5;
@@ -265,8 +269,8 @@ export default function ChatPage() {
   const [pageError, setPageError] = useState<string | null>(null);
   const [attachingImageKey, setAttachingImageKey] = useState<string | null>(null);
   const [isPrefsHydratedForActiveChat, setIsPrefsHydratedForActiveChat] = useState(false);
-  const [pendingDeleteChat, setPendingDeleteChat] = useState<ChatSummary | null>(null);
-  const [isDeletingChat, setIsDeletingChat] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<DeleteTarget | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [selectedManualTool, setSelectedManualTool] = useState<ManualToolSelection>("none");
   const [manualToolsOnly, setManualToolsOnly] = useState(false);
   const [availableTools, setAvailableTools] = useState<ToolCatalogItem[]>([]);
@@ -281,6 +285,8 @@ export default function ChatPage() {
   const [isLoadingTasks, setIsLoadingTasks] = useState(false);
   const [taskPanelError, setTaskPanelError] = useState<string | null>(null);
   const [isTaskListExpanded, setIsTaskListExpanded] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingMessageText, setEditingMessageText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const latestHistoryRequestRef = useRef(0);
@@ -452,7 +458,7 @@ export default function ChatPage() {
     [activeChatId, manualToolsOnly, modelMode, selectedChatModel],
   );
 
-  const { messages, setMessages, sendMessage, status, error, clearError } = useChat({
+  const { messages, setMessages, sendMessage, regenerate, addToolApprovalResponse, status, error, clearError } = useChat({
     id: activeChatId ?? "draft",
     transport,
   });
@@ -713,47 +719,78 @@ export default function ChatPage() {
   }
 
   function requestDeleteConversation(chat: ChatSummary) {
-    setPendingDeleteChat(chat);
+    setPendingDelete({ kind: "chat", chat });
+  }
+
+  function requestDeleteMessage(message: UIMessage) {
+    setPendingDelete({ kind: "message", message });
   }
 
   function closeDeleteDialog() {
-    if (isDeletingChat) return;
-    setPendingDeleteChat(null);
+    if (isDeleting) return;
+    setPendingDelete(null);
   }
 
-  async function confirmDeleteConversation() {
-    if (!pendingDeleteChat) return;
-    const chatId = pendingDeleteChat.id;
+  async function confirmDelete() {
+    if (!pendingDelete) return;
 
     setPageError(null);
-    setIsDeletingChat(true);
+    setIsDeleting(true);
     try {
-      const response = await fetch(`/api/conversations/${chatId}`, {
-        method: "DELETE",
-      });
-
-      if (!response.ok) {
-        throw new Error("删除会话失败");
-      }
-
-      const nextChats = chats.filter((chat) => chat.id !== chatId);
-      setChats(nextChats);
-
-      if (activeChatId === chatId) {
-        const nextActiveId = nextChats[0]?.id ?? null;
-        setActiveChatId(nextActiveId);
-        if (!nextActiveId) {
-          setMessages([]);
-          setImageByMessageId({});
-          setVideoByMessageId({});
-          clearAttachments();
-        }
+      if (pendingDelete.kind === "chat") {
+        await performDeleteChat(pendingDelete.chat.id);
+      } else {
+        await performDeleteMessage(pendingDelete.message.id);
       }
     } catch (deleteError) {
-      setPageError(deleteError instanceof Error ? deleteError.message : "删除会话失败");
+      setPageError(deleteError instanceof Error ? deleteError.message : "删除失败");
     } finally {
-      setIsDeletingChat(false);
-      setPendingDeleteChat(null);
+      setIsDeleting(false);
+      setPendingDelete(null);
+    }
+  }
+
+  async function performDeleteChat(chatId: string) {
+    const response = await fetch(`/api/conversations/${chatId}`, {
+      method: "DELETE",
+    });
+
+    if (!response.ok) {
+      throw new Error("删除会话失败");
+    }
+
+    const nextChats = chats.filter((chat) => chat.id !== chatId);
+    setChats(nextChats);
+
+    if (activeChatId === chatId) {
+      const nextActiveId = nextChats[0]?.id ?? null;
+      setActiveChatId(nextActiveId);
+      if (!nextActiveId) {
+        setMessages([]);
+        setImageByMessageId({});
+        setVideoByMessageId({});
+        clearAttachments();
+      }
+    }
+  }
+
+  async function performDeleteMessage(messageId: string) {
+    if (!activeChatId) return;
+
+    const previous = messages;
+    setMessages((current) => current.filter((message) => message.id !== messageId));
+
+    try {
+      const response = await fetch(`/api/conversations/${activeChatId}/messages/${messageId}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        throw new Error("删除消息失败");
+      }
+      await loadChats();
+    } catch (deleteError) {
+      setMessages(previous);
+      throw deleteError;
     }
   }
 
@@ -954,6 +991,55 @@ export default function ChatPage() {
     if (nextChatId === activeChatId) return;
     await persistCurrentStreamingAssistantIfNeeded(activeChatId);
     setActiveChatId(nextChatId);
+  }
+
+  function startEditingMessage(message: UIMessage) {
+    setEditingMessageId(message.id);
+    setEditingMessageText(readText(message));
+  }
+
+  function cancelEditingMessage() {
+    setEditingMessageId(null);
+    setEditingMessageText("");
+  }
+
+  async function saveEditedMessage(message: UIMessage) {
+    const nextText = editingMessageText.trim();
+    if (!nextText || !activeChatId) return;
+
+    const previous = messages;
+    setEditingMessageId(null);
+    setEditingMessageText("");
+    setMessages((current) =>
+      current.map((item) =>
+        item.id === message.id ? { ...item, parts: [{ type: "text", text: nextText }] } : item,
+      ),
+    );
+
+    try {
+      const response = await fetch(`/api/conversations/${activeChatId}/messages/${message.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: nextText }),
+      });
+      if (!response.ok) {
+        throw new Error("保存修改失败");
+      }
+    } catch (editError) {
+      setMessages(previous);
+      setPageError(editError instanceof Error ? editError.message : "保存修改失败");
+    }
+  }
+
+  async function regenerateMessage(messageId: string) {
+    if (isPending) return;
+    setPageError(null);
+    try {
+      await regenerate({ messageId });
+      await loadChats();
+    } catch (regenerateError) {
+      setPageError(regenerateError instanceof Error ? regenerateError.message : "重新生成失败");
+    }
   }
 
   async function runManualTool(params: {
@@ -1631,17 +1717,17 @@ export default function ChatPage() {
   }, [input]);
 
   useEffect(() => {
-    if (!pendingDeleteChat) return;
+    if (!pendingDelete) return;
 
     function onKeyDown(event: globalThis.KeyboardEvent) {
-      if (event.key === "Escape" && !isDeletingChat) {
-        setPendingDeleteChat(null);
+      if (event.key === "Escape" && !isDeleting) {
+        setPendingDelete(null);
       }
     }
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [pendingDeleteChat, isDeletingChat]);
+  }, [pendingDelete, isDeleting]);
 
   return (
     <>
@@ -1885,12 +1971,15 @@ export default function ChatPage() {
                   const sourceTag = resolveMessageSourceTag({ role: message.role, toolParts });
                   const isLastAssistantStreaming =
                     status === "streaming" && index === messages.length - 1 && message.role === "assistant";
+                  const isEditing = editingMessageId === message.id;
+                  const isEditable = isUser && fileParts.length === 0 && !isEditing;
+                  const isRegenerable = message.role === "assistant" && index === messages.length - 1;
 
                   return (
                     <div className={cn("flex w-full", isUser ? "justify-end" : "justify-start")} key={message.id}>
                       <article
                         className={cn(
-                          "max-w-[92%] rounded-2xl border px-4 py-3 text-sm md:max-w-[80%]",
+                          "group max-w-[92%] rounded-2xl border px-4 py-3 text-sm md:max-w-[80%]",
                           isUser ? "chat-user-bubble" : "border-border bg-card text-card-foreground",
                         )}
                       >
@@ -1905,15 +1994,71 @@ export default function ChatPage() {
                               </Badge>
                             ) : null}
                           </div>
-                          {isLastAssistantStreaming ? (
-                            <span className="inline-flex items-center text-[11px] opacity-80">
-                              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                              streaming
-                            </span>
-                          ) : null}
+                          <div className="flex shrink-0 items-center gap-1">
+                            {isLastAssistantStreaming ? (
+                              <span className="inline-flex items-center text-[11px] opacity-80">
+                                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                streaming
+                              </span>
+                            ) : null}
+                            <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                              {isEditable ? (
+                                <Button
+                                  aria-label="编辑消息"
+                                  onClick={() => startEditingMessage(message)}
+                                  size="icon"
+                                  type="button"
+                                  variant="ghost"
+                                >
+                                  <PencilLine className="h-3.5 w-3.5" />
+                                </Button>
+                              ) : null}
+                              {isRegenerable && !isPending ? (
+                                <Button
+                                  aria-label="重新生成"
+                                  onClick={() => void regenerateMessage(message.id)}
+                                  size="icon"
+                                  type="button"
+                                  variant="ghost"
+                                >
+                                  <RefreshCw className="h-3.5 w-3.5" />
+                                </Button>
+                              ) : null}
+                              <Button
+                                aria-label="删除消息"
+                                onClick={() => requestDeleteMessage(message)}
+                                size="icon"
+                                type="button"
+                                variant="ghost"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </div>
                         </header>
 
-                        {text ? <MarkdownMessage text={text} /> : null}
+                        {isEditing ? (
+                          <div className="space-y-2">
+                            <Textarea
+                              autoFocus
+                              onChange={(event) => setEditingMessageText(event.target.value)}
+                              rows={3}
+                              value={editingMessageText}
+                            />
+                            <div className="flex items-center gap-1">
+                              <Button onClick={() => void saveEditedMessage(message)} size="sm" type="button">
+                                <Check className="mr-1 h-3.5 w-3.5" />
+                                保存
+                              </Button>
+                              <Button onClick={cancelEditingMessage} size="sm" type="button" variant="ghost">
+                                <X className="mr-1 h-3.5 w-3.5" />
+                                取消
+                              </Button>
+                            </div>
+                          </div>
+                        ) : text ? (
+                          <MarkdownMessage text={text} />
+                        ) : null}
                         {webSearchSources.length > 0 ? (
                           <details
                             className={cn(
@@ -2074,6 +2219,38 @@ export default function ChatPage() {
                                         <Badge variant="outline">{toolName}</Badge>
                                         <Badge variant={toolState.variant}>{toolState.label}</Badge>
                                       </div>
+                                      {toolPart.state === "approval-requested" && "approval" in toolPart && toolPart.approval ? (
+                                        <div className="mt-2 flex items-center gap-2">
+                                          <Button
+                                            onClick={() =>
+                                              void addToolApprovalResponse({
+                                                id: toolPart.approval.id,
+                                                approved: true,
+                                              })
+                                            }
+                                            size="sm"
+                                            type="button"
+                                          >
+                                            <Check className="mr-1 h-3.5 w-3.5" />
+                                            批准
+                                          </Button>
+                                          <Button
+                                            onClick={() =>
+                                              void addToolApprovalResponse({
+                                                id: toolPart.approval.id,
+                                                approved: false,
+                                                reason: "用户拒绝",
+                                              })
+                                            }
+                                            size="sm"
+                                            type="button"
+                                            variant="outline"
+                                          >
+                                            <X className="mr-1 h-3.5 w-3.5" />
+                                            拒绝
+                                          </Button>
+                                        </div>
+                                      ) : null}
                                       {toolPart.input !== undefined ? (
                                         <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-black/5 p-2 text-[11px]">
                                           input: {safeJson(toolPart.input)}
@@ -2466,9 +2643,9 @@ export default function ChatPage() {
         </Card>
       </aside>
 
-      {pendingDeleteChat ? (
+      {pendingDelete ? (
         <div
-          aria-hidden={isDeletingChat}
+          aria-hidden={isDeleting}
           className="dialog-overlay-enter fixed inset-0 z-[70] flex items-center justify-center bg-black/45 px-4 backdrop-blur-[2px]"
           onClick={closeDeleteDialog}
         >
@@ -2483,28 +2660,34 @@ export default function ChatPage() {
                 <Trash2 className="h-4 w-4" />
               </div>
               <div className="min-w-0">
-                <h3 className="text-sm font-semibold text-foreground">确认删除会话</h3>
+                <h3 className="text-sm font-semibold text-foreground">
+                  {pendingDelete.kind === "chat" ? "确认删除会话" : "确认删除消息"}
+                </h3>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  删除后将无法恢复。将移除会话及其全部消息记录。
+                  {pendingDelete.kind === "chat"
+                    ? "删除后将无法恢复。将移除会话及其全部消息记录。"
+                    : "删除后将无法恢复。"}
                 </p>
                 <p className="mt-2 truncate rounded-md border border-border/80 bg-muted/40 px-2 py-1 text-xs text-foreground/85">
-                  {pendingDeleteChat.title}
+                  {pendingDelete.kind === "chat"
+                    ? pendingDelete.chat.title
+                    : `「${readText(pendingDelete.message).slice(0, 60) || "（空消息）"}」`}
                 </p>
               </div>
             </div>
 
             <div className="flex items-center justify-end gap-2">
-              <Button disabled={isDeletingChat} onClick={closeDeleteDialog} size="sm" type="button" variant="ghost">
+              <Button disabled={isDeleting} onClick={closeDeleteDialog} size="sm" type="button" variant="ghost">
                 取消
               </Button>
               <Button
-                disabled={isDeletingChat}
-                onClick={() => void confirmDeleteConversation()}
+                disabled={isDeleting}
+                onClick={() => void confirmDelete()}
                 size="sm"
                 type="button"
                 variant="destructive"
               >
-                {isDeletingChat ? (
+                {isDeleting ? (
                   <>
                     <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
                     删除中...

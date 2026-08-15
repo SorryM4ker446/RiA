@@ -19,6 +19,7 @@ export default defineConfig({
       ...process.env,
       TAVILY_API_KEY: process.env.TAVILY_API_KEY || "test-tavily-key",
       TAVILY_SEARCH_URL: process.env.TAVILY_SEARCH_URL || "http://127.0.0.1:4010/search",
+      AUTH_DISABLED: "1",
     },
   },
   projects: [

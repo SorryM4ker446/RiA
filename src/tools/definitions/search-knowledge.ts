@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { db } from "@/db";
+import { cosineSimilarity, embedText, toEmbeddingVector } from "@/lib/ai/embedding";
 
 export const searchKnowledgeInputSchema = z.object({
   query: z.string().min(1, "query is required"),
@@ -65,6 +66,7 @@ export async function searchKnowledge(
   const query = input.query.trim();
   const topK = input.topK ?? 4;
   const queryTokens = tokenize(query);
+  const queryEmbedding = await embedText(query);
 
   const memoryRows = await db.memory.findMany({
     where: {
@@ -75,13 +77,22 @@ export async function searchKnowledge(
     take: 50,
   });
 
-  const memoryResults: SearchKnowledgeItem[] = memoryRows.map((row) => ({
-    id: row.id,
-    title: row.key,
-    snippet: row.value,
-    source: "memory",
-    score: scoreText(queryTokens, `${row.key} ${row.value}`) + (row.score ?? 0) * 0.2,
-  }));
+  const memoryResults: SearchKnowledgeItem[] = memoryRows.map((row) => {
+    const keywordScore = scoreText(queryTokens, `${row.key} ${row.value}`);
+    const semanticScore =
+      queryEmbedding && row.embedding
+        ? Math.max(0, cosineSimilarity(queryEmbedding, toEmbeddingVector(row.embedding)))
+        : 0;
+    const lexicalScore = Math.max(keywordScore, semanticScore * 0.85);
+
+    return {
+      id: row.id,
+      title: row.key,
+      snippet: row.value,
+      source: "memory",
+      score: lexicalScore + (row.score ?? 0) * 0.2,
+    };
+  });
 
   const builtinResults: SearchKnowledgeItem[] = builtinKnowledgeBase.map((item) => ({
     id: item.id,

@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
-import { getOrCreateRequestUser } from "@/lib/auth/request-user";
+import { requireRequestUser } from "@/lib/auth/request-user";
 
 type Params = {
   params: Promise<{ id: string }>;
@@ -19,7 +19,7 @@ async function getScopedKnowledgeEntry(userId: string, id: string) {
 
 export async function DELETE(req: NextRequest, context: Params) {
   try {
-    const user = await getOrCreateRequestUser(req);
+    const user = await requireRequestUser(req);
     const { id } = await context.params;
     const existing = await getScopedKnowledgeEntry(user.id, id);
 
