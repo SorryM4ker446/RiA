@@ -3,7 +3,7 @@ import { z } from "zod";
 import { TaskStatus } from "@prisma/client";
 import { db } from "@/db";
 import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
-import { getOrCreateRequestUser } from "@/lib/auth/request-user";
+import { requireRequestUser } from "@/lib/auth/request-user";
 
 const taskListQuerySchema = z.object({
   status: z.enum(["todo", "in_progress", "done"]).optional(),
@@ -12,7 +12,7 @@ const taskListQuerySchema = z.object({
 
 export async function GET(req: NextRequest) {
   try {
-    const user = await getOrCreateRequestUser(req);
+    const user = await requireRequestUser(req);
     const parsed = taskListQuerySchema.safeParse({
       status: req.nextUrl.searchParams.get("status") ?? undefined,
       limit: req.nextUrl.searchParams.get("limit") ?? undefined,

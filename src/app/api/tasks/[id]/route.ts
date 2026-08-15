@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
-import { getOrCreateRequestUser } from "@/lib/auth/request-user";
+import { requireRequestUser } from "@/lib/auth/request-user";
 
 const updateTaskSchema = z
   .object({
@@ -46,7 +46,7 @@ async function getScopedTask(userId: string, taskId: string) {
 
 export async function GET(req: NextRequest, context: Params) {
   try {
-    const user = await getOrCreateRequestUser(req);
+    const user = await requireRequestUser(req);
     const { id } = await context.params;
     const task = await getScopedTask(user.id, id);
 
@@ -66,7 +66,7 @@ export async function GET(req: NextRequest, context: Params) {
 
 export async function PATCH(req: NextRequest, context: Params) {
   try {
-    const user = await getOrCreateRequestUser(req);
+    const user = await requireRequestUser(req);
     const { id } = await context.params;
     const parsed = updateTaskSchema.safeParse(await req.json());
 
@@ -107,7 +107,7 @@ export async function PATCH(req: NextRequest, context: Params) {
 
 export async function DELETE(req: NextRequest, context: Params) {
   try {
-    const user = await getOrCreateRequestUser(req);
+    const user = await requireRequestUser(req);
     const { id } = await context.params;
     const existing = await getScopedTask(user.id, id);
 

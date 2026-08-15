@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { getOrCreateRequestUser } from "@/lib/auth/request-user";
+import { requireRequestUser } from "@/lib/auth/request-user";
 import { truncateTitle } from "@/lib/ai/ui-message";
+import { createApiErrorResponse } from "@/lib/server/api-error";
 import { createChat, listChats } from "@/lib/chat/store";
 
 const createConversationSchema = z.object({
@@ -11,7 +12,7 @@ const createConversationSchema = z.object({
 
 export async function GET(req: NextRequest) {
   try {
-    const user = await getOrCreateRequestUser(req);
+    const user = await requireRequestUser(req);
 
     const conversations = await listChats(user.id);
 
@@ -27,13 +28,13 @@ export async function GET(req: NextRequest) {
     });
   } catch (error) {
     console.error("/api/conversations GET error", error);
-    return Response.json({ error: "Failed to fetch conversations" }, { status: 500 });
+    return createApiErrorResponse(error, "Failed to fetch conversations");
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const user = await getOrCreateRequestUser(req);
+    const user = await requireRequestUser(req);
     const parsed = createConversationSchema.safeParse(await req.json());
 
     if (!parsed.success) {
@@ -52,6 +53,6 @@ export async function POST(req: NextRequest) {
     return Response.json({ data: conversation }, { status: 201 });
   } catch (error) {
     console.error("/api/conversations POST error", error);
-    return Response.json({ error: "Failed to create conversation" }, { status: 500 });
+    return createApiErrorResponse(error, "Failed to create conversation");
   }
 }

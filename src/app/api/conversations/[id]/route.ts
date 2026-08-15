@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { getOrCreateRequestUser } from "@/lib/auth/request-user";
+import { requireRequestUser } from "@/lib/auth/request-user";
+import { createApiErrorResponse } from "@/lib/server/api-error";
 import { deleteChat, getChat, listChatMessages, updateChatTitle } from "@/lib/chat/store";
 
 const updateConversationSchema = z.object({
@@ -13,7 +14,7 @@ type Params = {
 
 export async function GET(req: NextRequest, context: Params) {
   try {
-    const user = await getOrCreateRequestUser(req);
+    const user = await requireRequestUser(req);
     const { id } = await context.params;
 
     const conversation = await getChat(user.id, id);
@@ -37,13 +38,13 @@ export async function GET(req: NextRequest, context: Params) {
     });
   } catch (error) {
     console.error("/api/conversations/[id] GET error", error);
-    return Response.json({ error: "Failed to fetch conversation" }, { status: 500 });
+    return createApiErrorResponse(error, "Failed to fetch conversation");
   }
 }
 
 export async function PATCH(req: NextRequest, context: Params) {
   try {
-    const user = await getOrCreateRequestUser(req);
+    const user = await requireRequestUser(req);
     const { id } = await context.params;
     const parsed = updateConversationSchema.safeParse(await req.json());
 
@@ -62,13 +63,13 @@ export async function PATCH(req: NextRequest, context: Params) {
     return Response.json({ data: updated });
   } catch (error) {
     console.error("/api/conversations/[id] PATCH error", error);
-    return Response.json({ error: "Failed to update conversation" }, { status: 500 });
+    return createApiErrorResponse(error, "Failed to update conversation");
   }
 }
 
 export async function DELETE(req: NextRequest, context: Params) {
   try {
-    const user = await getOrCreateRequestUser(req);
+    const user = await requireRequestUser(req);
     const { id } = await context.params;
 
     const deleted = await deleteChat(user.id, id);
@@ -79,6 +80,6 @@ export async function DELETE(req: NextRequest, context: Params) {
     return Response.json({ success: true });
   } catch (error) {
     console.error("/api/conversations/[id] DELETE error", error);
-    return Response.json({ error: "Failed to delete conversation" }, { status: 500 });
+    return createApiErrorResponse(error, "Failed to delete conversation");
   }
 }

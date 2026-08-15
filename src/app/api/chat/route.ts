@@ -3,7 +3,14 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { chatModelSupportsImageInput, resolveModelId } from "@/config/model";
 import { getChatModel } from "@/lib/ai/client";
-import { getOrCreateRequestUser } from "@/lib/auth/request-user";
+import {
+  ASSISTANT_BASE_PROMPT,
+  TOOL_DISABLED_INSTRUCTIONS,
+  TOOL_ENABLED_INSTRUCTIONS,
+  TOOL_INTENT_CLASSIFIER_SYSTEM,
+  TOOLING_POLICY_LINE,
+} from "@/lib/prompts";
+import { requireRequestUser } from "@/lib/auth/request-user";
 import {
   decodePersistedAssistantToolMessage,
   decodePersistedUserMessage,
@@ -135,32 +142,11 @@ function buildSystemPrompt(
   shortTermContext: string,
   longTermMemoryContext: string,
   toolsEnabled: boolean,
-  autoToolIntent: AutoToolIntent,
 ): string {
-  const toolInstruction =
-    toolsEnabled && autoToolIntent
-      ? [
-          "Tool decision must be independent per turn, based only on the latest user message.",
-          "Use tools only when user request is explicit and actionable in this turn.",
-          "Only one tool can be called in a single turn.",
-          `Selected tool for this turn: ${autoToolIntent}.`,
-          "When tool output is available, answer in Chinese with this order: factual points from tool results first, then your integrated reasoning.",
-          "Clearly separate tool facts and your reasoning.",
-          "Do not fabricate facts not present in tool results; if evidence is weak, state uncertainty clearly.",
-        ]
-      : [
-          "Tools are disabled for this request.",
-          "Do not emit any tool-call markup (such as <function_calls> or XML/JSON tool directives).",
-          "No tools were run in this turn.",
-          "Even if previous turns used tools, do not present this turn as a fresh search.",
-          "Do not claim retrieval happened in this turn.",
-          "When describing your basis, use current conversation context, memory, and general reasoning only.",
-          "Answer directly from available context; if information is insufficient, state uncertainty and ask one short clarification question.",
-        ];
+  const toolInstruction = toolsEnabled ? TOOL_ENABLED_INSTRUCTIONS : TOOL_DISABLED_INSTRUCTIONS;
 
   return [
-    "You are a private AI assistant. Be concise, practical, and helpful.",
-    "Ask a short follow-up question when user intent is ambiguous.",
+    ASSISTANT_BASE_PROMPT,
     ...toolInstruction,
     "",
     "[Short-Term Context]",
@@ -170,7 +156,7 @@ function buildSystemPrompt(
     longTermMemoryContext,
     "",
     "[Tooling Policy]",
-    "If tools are available, use them only when they improve correctness.",
+    TOOLING_POLICY_LINE,
   ].join("\n");
 }
 
@@ -199,18 +185,10 @@ async function detectAutoToolIntent(params: {
       output: Output.object({
         schema: autoToolIntentSchema,
       }),
-      system: [
-        "You are a tool-intent classifier for a chat assistant.",
-        "Decide intent from ONLY the latest user message.",
-        `Allowed tool intents: ${Array.from(allowedIds).join(", ")}, none.`,
-        "Choose none unless user intent is explicit-action and shouldUseToolNow=true.",
-        "Use the tool trigger hints and examples as semantic guidance; do not rely on previous turns to infer a tool call.",
-        "If the latest message explicitly asks for one of the listed tool capabilities, choose that tool even when the wording differs from the examples.",
-        "Respect negation: if the user says not to use a capability, choose none for that capability.",
-        "Do not trigger tools for ordinary topic follow-up questions that can be answered directly.",
-        "For implicit, broad, or ambiguous asks, set shouldUseToolNow=false and prefer none.",
-        "Use high confidence only when the action request is unambiguous.",
-      ].join(" "),
+      system: TOOL_INTENT_CLASSIFIER_SYSTEM.replace(
+        "{{allowedIntents}}",
+        Array.from(allowedIds).join(", "),
+      ),
       prompt: [
         "Available auto tools:",
         toolBrief,
@@ -280,7 +258,17 @@ function stripFilePartsForTextOnlyModel(messages: UIMessage[]): UIMessage[] {
   });
 }
 
-function buildModelInputMessages(messages: UIMessage[], toolsEnabled: boolean): UIMessage[] {
+function buildModelInputMessages(
+  messages: UIMessage[],
+  toolsEnabled: boolean,
+  isApprovalResume: boolean,
+): UIMessage[] {
+  // When resuming after a tool approval, pass the full conversation so
+  // streamText can correlate the approval response with its tool call.
+  if (toolsEnabled && isApprovalResume) {
+    return messages;
+  }
+
   const userMessages = messages.filter((message) => message.role === "user");
 
   if (toolsEnabled) {
@@ -343,6 +331,17 @@ export async function POST(req: NextRequest) {
     const messages = Array.isArray(body.messages) ? body.messages : [];
     const modelId = resolveModelId(body.modelId);
     const latestUserMessage = getLatestUserMessage(messages);
+    const isApprovalResume = messages.some(
+      (message) =>
+        Array.isArray(message.parts) &&
+        message.parts.some(
+          (part) =>
+            typeof part.type === "string" &&
+            part.type.startsWith("tool-") &&
+            "state" in part &&
+            part.state === "approval-responded",
+        ),
+    );
 
     if (messages.length === 0) {
       throw new ApiError({
@@ -358,7 +357,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const user = await getOrCreateRequestUser(req);
+    const user = await requireRequestUser(req);
     const rateLimit = checkRateLimit({
       key: `chat:${user.id}`,
       limit: 30,
@@ -412,18 +411,37 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Regenerate: the client already truncates its message list to end at the
+    // user message being re-answered. Remove the stale assistant reply (and any
+    // messages after it) from persistence before generating a new one.
+    if ((body.trigger === "regenerate-message" || isApprovalResume) && latestUserMessage?.id) {
+      const userMessage = await db.message.findFirst({
+        where: { chatId: chat.id, clientMessageId: latestUserMessage.id },
+        select: { createdAt: true },
+      });
+
+      if (userMessage) {
+        await db.message.deleteMany({
+          where: {
+            chatId: chat.id,
+            createdAt: { gt: userMessage.createdAt },
+          },
+        });
+      }
+    }
+
     const mode = body.mode ?? "chat";
     const isChatMode = mode === "chat";
     const autoToolCandidates = isChatMode ? listAutoToolDescriptors("chat") : [];
     const autoToolIntent =
-      isChatMode && !body.manualToolsOnly && latestUserMessage?.text
+      isChatMode && !body.manualToolsOnly && !isApprovalResume && latestUserMessage?.text
         ? await detectAutoToolIntent({
             text: latestUserMessage.text,
             modelId,
             autoTools: autoToolCandidates,
           })
         : null;
-    const toolsEnabled = isChatMode && !body.manualToolsOnly && autoToolIntent !== null;
+    const toolsEnabled = isChatMode && !body.manualToolsOnly && (isApprovalResume || autoToolIntent !== null);
 
     const shortTermMessagesRaw = await getRecentChatMessages(chat.id, 10);
     const shortTermMessages = [...shortTermMessagesRaw]
@@ -476,23 +494,21 @@ export async function POST(req: NextRequest) {
       formatShortTermContext(shortTermMessages),
       formatLongTermContext(relevantMemories),
       toolsEnabled,
-      autoToolIntent,
     );
     const effectiveMessages = chatModelSupportsImageInput(modelId)
       ? messages
       : stripFilePartsForTextOnlyModel(messages);
-    const modelInputMessages = buildModelInputMessages(effectiveMessages, toolsEnabled);
+    const modelInputMessages = buildModelInputMessages(effectiveMessages, toolsEnabled, isApprovalResume);
     const modelMessages = await convertToModelMessages(modelInputMessages);
 
     const result = streamText({
       model: getChatModel(modelId),
       system: systemPrompt,
       messages: modelMessages,
-      ...(toolsEnabled && autoToolIntent
+      ...(toolsEnabled
         ? {
             tools: createChatToolSet(user.id, {
               modelId,
-              toolIds: [autoToolIntent],
             }),
           }
         : {}),

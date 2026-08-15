@@ -327,7 +327,7 @@ export function formatTime(value: string): string {
 }
 
 export function getMessageRoleLabel(role: UIMessage["role"]): string {
-  if (role === "user") return "ALTER";
-  if (role === "assistant") return "RiA";
+  if (role === "user") return "我";
+  if (role === "assistant") return "助手";
   return "系统";
 }

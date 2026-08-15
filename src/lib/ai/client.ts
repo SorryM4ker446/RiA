@@ -25,6 +25,13 @@ export function getChatModel(modelId: SupportedModelId = DEFAULT_MODEL) {
   return openrouter(modelId);
 }
 
+export const DEFAULT_EMBEDDING_MODEL =
+  process.env.EMBEDDING_MODEL_ID?.trim() || "openai/text-embedding-3-small";
+
+export function getEmbeddingModel(modelId: string = DEFAULT_EMBEDDING_MODEL) {
+  return openrouter.textEmbeddingModel(modelId);
+}
+
 export function getImageModel(modelId: SupportedImageModelId = DEFAULT_IMAGE_MODEL) {
   return openrouter.imageModel(modelId);
 }

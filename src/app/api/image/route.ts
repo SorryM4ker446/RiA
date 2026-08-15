@@ -2,6 +2,8 @@ import { generateImage } from "ai";
 import { NextRequest } from "next/server";
 import { imageModelSupportsImageInput, resolveImageModelId } from "@/config/model";
 import { getImageModel } from "@/lib/ai/client";
+import { requireRequestUser } from "@/lib/auth/request-user";
+import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { setupServerProxy } from "@/lib/server/proxy";
 
 type ImageRequestBody = {
@@ -77,6 +79,7 @@ function extractImageError(error: unknown): { status: number; message: string } 
 export async function POST(req: NextRequest) {
   try {
     setupServerProxy();
+    await requireRequestUser(req);
 
     if (!process.env.OPENROUTER_API_KEY?.trim()) {
       return Response.json(
@@ -127,6 +130,9 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     console.error("/api/image error", error);
+    if (error instanceof ApiError) {
+      return createApiErrorResponse(error);
+    }
     const extracted = extractImageError(error);
     return Response.json({ error: extracted.message }, { status: extracted.status });
   }

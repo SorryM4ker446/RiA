@@ -1,27 +1,47 @@
-import { NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
 import { db } from "@/db";
+import { getSessionUserFromRequest } from "@/lib/auth/session";
+import { ApiError } from "@/lib/server/api-error";
 
 const DEFAULT_EMAIL = "demo@private-ai.local";
 const DEFAULT_NAME = "Demo User";
 
-export async function getOrCreateRequestUser(req: NextRequest) {
-  const userId = req.headers.get("x-user-id")?.trim();
-  if (userId) {
-    const existingById = await db.user.findUnique({ where: { id: userId } });
-    if (existingById) {
-      return existingById;
-    }
-  }
+export function isAuthDisabled(): boolean {
+  return process.env.AUTH_DISABLED === "1";
+}
 
-  const emailHeader = req.headers.get("x-user-email")?.trim().toLowerCase();
-  const email = emailHeader && emailHeader.length > 0 ? emailHeader : DEFAULT_EMAIL;
-
+async function resolveDemoUser() {
   return db.user.upsert({
-    where: { email },
+    where: { email: DEFAULT_EMAIL },
     update: {},
     create: {
-      email,
+      email: DEFAULT_EMAIL,
       name: DEFAULT_NAME,
     },
   });
+}
+
+/**
+ * Returns the currently authenticated user, or null when unauthenticated.
+ * When AUTH_DISABLED=1 is set (local dev / E2E escape hatch), falls back to a
+ * single shared demo user.
+ */
+export async function getRequestUser(req: NextRequest) {
+  if (isAuthDisabled()) return resolveDemoUser();
+  return getSessionUserFromRequest(req);
+}
+
+/**
+ * Like `getRequestUser` but throws a 401 ApiError when no valid session
+ * exists. Use this in every protected API route.
+ */
+export async function requireRequestUser(req: NextRequest) {
+  const user = await getRequestUser(req);
+  if (!user) {
+    throw new ApiError({
+      code: "UNAUTHORIZED",
+      message: "Authentication required. Please sign in.",
+    });
+  }
+  return user;
 }

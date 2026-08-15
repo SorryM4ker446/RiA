@@ -5,6 +5,8 @@ import { experimental_generateVideo } from "ai";
 import { NextRequest } from "next/server";
 import { resolveVideoModelId, videoModelSupportsImageInput } from "@/config/model";
 import { getVideoModel } from "@/lib/ai/client";
+import { requireRequestUser } from "@/lib/auth/request-user";
+import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { setupServerProxy } from "@/lib/server/proxy";
 
 type VideoRequestBody = {
@@ -29,6 +31,7 @@ function getVideoExtension(mediaType: string): string {
 export async function POST(req: NextRequest) {
   try {
     setupServerProxy();
+    await requireRequestUser(req);
 
     if (!process.env.OPENROUTER_API_KEY?.trim()) {
       return Response.json(
@@ -89,6 +92,9 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     console.error("/api/video error", error);
+    if (error instanceof ApiError) {
+      return createApiErrorResponse(error);
+    }
     return Response.json({ error: "Failed to generate video" }, { status: 500 });
   }
 }
