@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "node scripts/run-with-local-db.mjs --migrate next start",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
+    "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
     "test:db": "node scripts/run-with-local-db.mjs --migrate node scripts/verify-local-database.mjs",
     "db:generate": "node scripts/run-with-local-db.mjs prisma generate --schema src/db/schema.prisma",

@@ -50,6 +50,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Check TypeScript
+        run: npm run typecheck
+
       - name: Verify SQLite database
         run: npm run test:db
 
