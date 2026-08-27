@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate web and local database
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    env:
+      CI: "true"
+      APP_RUNTIME: test
+      AUTH_DISABLED: "1"
+      LOCAL_DATABASE_FILE: .desktop-data/ci/${{ github.run_id }}-${{ github.run_attempt }}/app.db
+      OPENROUTER_API_KEY: ""
+      TAVILY_API_KEY: test-tavily-key
+      TAVILY_SEARCH_URL: http://127.0.0.1:4010/search
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Verify SQLite database
+        run: npm run test:db
+
+      - name: Build application
+        run: node scripts/run-with-local-db.mjs --migrate next build
+
+      - name: Install Playwright browser
+        run: npx playwright install chromium
+
+      - name: Run browser tests
+        run: npm run test:e2e
+
+      - name: Upload browser test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
