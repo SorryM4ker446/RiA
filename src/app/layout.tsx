@@ -17,7 +17,7 @@ const mono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "Private AI Assistant",
-  description: "A personal AI assistant built with Next.js, Vercel AI SDK, and PostgreSQL",
+  description: "A personal AI assistant built with Next.js, Vercel AI SDK, and SQLite",
 };
 
 export default function RootLayout({

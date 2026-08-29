@@ -5,6 +5,10 @@ node_modules/
 .next/
 out/
 dist/
+electron-dist/
+out/
+.desktop-runtime/
+.desktop-data/
 public/generated-videos/
 
 # next generated types

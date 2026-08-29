@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Loader2, Sparkles, UserPlus } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ function readErrorMessage(payload: unknown, fallback: string): string {
 }
 
 export default function RegisterPage() {
+  const router = useRouter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -52,7 +54,8 @@ export default function RegisterPage() {
         throw new Error(readErrorMessage(payload, "注册失败，请稍后重试。"));
       }
 
-      window.location.href = "/chat";
+      router.replace("/chat");
+      router.refresh();
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "注册失败，请稍后重试。");
     } finally {

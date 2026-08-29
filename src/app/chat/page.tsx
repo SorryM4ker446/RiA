@@ -15,6 +15,7 @@ import {
   Plus,
   RefreshCw,
   SendHorizonal,
+  Settings,
   Sparkles,
   Trash2,
   TriangleAlert,
@@ -287,6 +288,7 @@ export default function ChatPage() {
   const [isTaskListExpanded, setIsTaskListExpanded] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingMessageText, setEditingMessageText] = useState("");
+  const [isDesktopRuntime, setIsDesktopRuntime] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const latestHistoryRequestRef = useRef(0);
@@ -1717,6 +1719,10 @@ export default function ChatPage() {
   }, [input]);
 
   useEffect(() => {
+    setIsDesktopRuntime(Boolean(window.privateAiDesktop));
+  }, []);
+
+  useEffect(() => {
     if (!pendingDelete) return;
 
     function onKeyDown(event: globalThis.KeyboardEvent) {
@@ -1731,13 +1737,24 @@ export default function ChatPage() {
 
   return (
     <>
-      <Link
-        className="fixed left-4 top-6 z-50 inline-flex h-9 items-center justify-center rounded-md border border-border/80 bg-card px-3 text-sm font-medium text-foreground shadow-sm transition hover:bg-muted/70 md:left-6"
-        href="/knowledge"
-      >
-        <BookOpen className="mr-2 h-4 w-4 text-primary" />
-        知识库
-      </Link>
+      <div className="fixed left-4 top-6 z-50 flex items-center gap-2 md:left-6">
+        <Link
+          className="inline-flex h-9 items-center justify-center rounded-md border border-border/80 bg-card px-3 text-sm font-medium text-foreground shadow-sm transition hover:bg-muted/70"
+          href="/knowledge"
+        >
+          <BookOpen className="mr-2 h-4 w-4 text-primary" />
+          知识库
+        </Link>
+        {isDesktopRuntime ? (
+          <Link
+            className="inline-flex h-9 items-center justify-center rounded-md border border-border/80 bg-card px-3 text-sm font-medium text-foreground shadow-sm transition hover:bg-muted/70"
+            href="/settings"
+          >
+            <Settings className="mr-2 h-4 w-4 text-primary" />
+            设置
+          </Link>
+        ) : null}
+      </div>
 
     <main className="mx-auto flex min-h-screen w-full max-w-[96rem] flex-col gap-4 p-4 md:p-6 xl:flex-row xl:items-start">
       <aside className="w-full shrink-0 xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)] xl:w-72">
