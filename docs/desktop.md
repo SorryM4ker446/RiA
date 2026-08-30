@@ -18,6 +18,8 @@ Installed application data is stored in:
 
 The same data directory contains file-backed `media/`, encrypted settings, migration backups, and `logs/desktop.log`. Reinstalling or uninstalling the application does not intentionally delete this user-data directory. Backups must include both SQLite and media; automatic database migration backups cover SQLite only. See [Media storage and migration](media-storage.md).
 
+The shared Web/desktop application client uses one SQLite connection per service process. Concurrent queries wait in the pool for up to 30 seconds instead of competing for SQLite's single write lock. Interactive transactions use the same 30-second connection-acquisition limit; their execution timeout remains unchanged. A lock held by another process still times out after 5 seconds. These limits are applied to the Prisma datasource without changing `DATABASE_URL`, database/media paths, or the schema. Restart an already-running service after updating the client configuration. This policy does not coordinate multiple service processes or turn SQLite into a multi-instance database.
+
 The packaged Next.js server and Prisma runtime are copied to:
 
 ```text

@@ -128,7 +128,9 @@ test("conversation, message, task and knowledge APIs enforce user ownership", as
 });
 
 test("concurrent memory saves share one row and clear stale embeddings", async () => {
-  await Promise.all(Array.from({ length: 8 }, (_, index) => saveMemory({ userId: user.id, key: "preference", value: `value ${index}`, score: 0.9 })));
+  const results = await Promise.allSettled(Array.from({ length: 8 }, (_, index) => saveMemory({ userId: user.id, key: "preference", value: `value ${index}`, score: 0.9 })));
+  // A failed write must not leave the remaining writes running into the next test.
+  for (const result of results) if (result.status === "rejected") throw result.reason;
   assert.equal(await db.memory.count({ where: { userId: user.id, key: "preference" } }), 1);
   await db.memory.update({ where: { userId_key: { userId: user.id, key: "preference" } }, data: { embedding: [1, 2] } });
   const updated = await saveMemory({ userId: user.id, key: "preference", value: "updated without embeddings" });
