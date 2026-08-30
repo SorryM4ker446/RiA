@@ -1,7 +1,53 @@
 import { expect, test } from "@playwright/test";
 import { randomUUID } from "node:crypto";
+import { request as httpRequest } from "node:http";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=", "base64");
+
+test("chunked uploads without Content-Length receive a structured size error", async ({ baseURL }) => {
+  const result = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+    const request = httpRequest(new URL("/api/media/upload", baseURL), {
+      method: "POST", headers: { "Content-Type": "multipart/form-data; boundary=oversized-upload" },
+    }, (response) => {
+      let body = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk) => { body += chunk; });
+      response.on("end", () => resolve({ status: response.statusCode!, body }));
+      response.on("error", reject);
+    });
+    request.on("error", reject);
+    request.setTimeout(10_000, () => request.destroy(new Error("Chunked upload timed out")));
+    const chunk = Buffer.alloc(1024 * 1024);
+    for (let index = 0; index < 23; index++) request.write(chunk);
+    request.end();
+  });
+  expect(result.status).toBe(413);
+  expect(JSON.parse(result.body).error.code).toBe("PAYLOAD_TOO_LARGE");
+});
+
+test("multipart uploads above the Proxy default retain the existing attachment limits", async ({ request }) => {
+  const paddedPng = Buffer.alloc(6 * 1024 * 1024);
+  png.copy(paddedPng);
+  const form = new FormData();
+  form.append("files", new Blob([paddedPng], { type: "image/png" }), "first.png");
+  form.append("files", new Blob([paddedPng], { type: "image/png" }), "second.png");
+  const encoded = new Response(form);
+  const uploaded = await request.post("/api/media/upload", {
+    headers: { "Content-Type": encoded.headers.get("content-type")! },
+    data: Buffer.from(await encoded.arrayBuffer()),
+  });
+  expect(uploaded.status()).toBe(201);
+  const assets = (await uploaded.json()).data as Array<{ url: string; byteSize: number }>;
+  try {
+    expect(assets).toHaveLength(2);
+    for (const asset of assets) {
+      expect(asset.byteSize).toBe(paddedPng.length);
+      expect(Number((await request.head(asset.url)).headers()["content-length"])).toBe(paddedPng.length);
+    }
+  } finally {
+    for (const asset of assets) await request.delete(asset.url);
+  }
+});
 
 test("real uploaded media renders after reload and survives conversation deletion until explicit removal", async ({ page, request }) => {
   const uploaded = await request.post("/api/media/upload", { multipart: { files: { name: "saved.png", mimeType: "image/png", buffer: png } } });

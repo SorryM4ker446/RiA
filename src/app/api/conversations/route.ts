@@ -1,13 +1,14 @@
+import { readJsonBody } from "@/lib/server/request-body";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { requireRequestUser } from "@/lib/auth/request-user";
 import { truncateTitle } from "@/lib/ai/ui-message";
-import { createApiErrorResponse } from "@/lib/server/api-error";
+import { createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { createChat, listChats } from "@/lib/chat/store";
 
-const createConversationSchema = z.object({
-  id: z.string().min(1).optional(),
-  title: z.string().min(1).max(200).optional(),
+const createConversationSchema = z.strictObject({
+  id: z.string().trim().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/).optional(),
+  title: z.string().trim().min(1).max(200).optional(),
 });
 
 export async function GET(req: NextRequest) {
@@ -27,7 +28,7 @@ export async function GET(req: NextRequest) {
       })),
     });
   } catch (error) {
-    console.error("/api/conversations GET error", error);
+    console.error("/api/conversations GET error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to fetch conversations");
   }
 }
@@ -35,13 +36,10 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const user = await requireRequestUser(req);
-    const parsed = createConversationSchema.safeParse(await req.json());
+    const parsed = createConversationSchema.safeParse(await readJsonBody(req));
 
     if (!parsed.success) {
-      return Response.json(
-        { error: "Invalid request body", details: parsed.error.flatten() },
-        { status: 400 },
-      );
+      throw parsed.error;
     }
 
     const conversation = await createChat({
@@ -52,7 +50,7 @@ export async function POST(req: NextRequest) {
 
     return Response.json({ data: conversation }, { status: 201 });
   } catch (error) {
-    console.error("/api/conversations POST error", error);
+    console.error("/api/conversations POST error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to create conversation");
   }
 }

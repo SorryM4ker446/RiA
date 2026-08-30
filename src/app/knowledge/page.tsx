@@ -1,5 +1,7 @@
 "use client";
 
+import { getApiErrorMessage as readApiErrorMessage } from "@/lib/api-error-message";
+
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, BookOpen, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
@@ -21,21 +23,6 @@ type KnowledgeEntry = {
   updatedAt: string;
 };
 
-function readApiErrorMessage(payload: unknown, fallback: string): string {
-  if (
-    payload &&
-    typeof payload === "object" &&
-    "error" in payload &&
-    payload.error &&
-    typeof payload.error === "object" &&
-    "message" in payload.error &&
-    typeof payload.error.message === "string"
-  ) {
-    return payload.error.message;
-  }
-
-  return fallback;
-}
 
 function formatTime(value: string): string {
   const date = new Date(value);

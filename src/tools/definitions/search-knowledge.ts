@@ -2,8 +2,8 @@ import { z } from "zod";
 import { db } from "@/db";
 import { cosineSimilarity, embedText, toEmbeddingVector } from "@/lib/ai/embedding";
 
-export const searchKnowledgeInputSchema = z.object({
-  query: z.string().min(1, "query is required"),
+export const searchKnowledgeInputSchema = z.strictObject({
+  query: z.string().trim().max(2000).min(1, "query is required"),
   topK: z.number().int().min(1).max(8).optional().default(4),
 });
 

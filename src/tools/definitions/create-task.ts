@@ -2,10 +2,10 @@ import { z } from "zod";
 import { TaskPriority, TaskStatus } from "@prisma/client";
 import { db } from "@/db";
 
-export const createTaskInputSchema = z.object({
-  title: z.string().min(1, "title is required").max(120),
+export const createTaskInputSchema = z.strictObject({
+  title: z.string().trim().min(1, "title is required").max(120),
   details: z.string().max(2000).optional(),
-  dueDate: z.string().optional(),
+  dueDate: z.string().max(100).refine((value) => !value.trim() || Number.isFinite(new Date(value).getTime()), "Invalid dueDate").optional(),
   priority: z.enum(["low", "medium", "high"]).optional().default("medium"),
 });
 

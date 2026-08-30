@@ -1,4 +1,5 @@
 "use client";
+import { getApiErrorMessage } from "@/lib/api-error-message";
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
@@ -18,7 +19,7 @@ export default function StoragePage() {
     try {
       const response = await fetch("/api/media", { cache: "no-store" });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error?.message || "无法读取存储信息");
+      if (!response.ok) throw new Error(getApiErrorMessage(payload, "无法读取存储信息"));
       setStats(payload.data);
     } catch (error) { setError(error instanceof Error ? error.message : "读取失败"); }
     finally { setBusy(false); }
@@ -30,7 +31,7 @@ export default function StoragePage() {
     try {
       const response = await fetch("/api/media/cleanup", { method: "POST" });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error?.message || "清理失败");
+      if (!response.ok) throw new Error(getApiErrorMessage(payload, "清理失败"));
       setMessage(`已清理 ${payload.data.removedCount} 个文件，释放 ${(payload.data.freedBytes / 1024 / 1024).toFixed(2)} MiB。${payload.data.failedCount ? ` ${payload.data.failedCount} 项暂未清理，可稍后重试。` : ""}`);
       await refresh();
     } catch (error) { setError(error instanceof Error ? error.message : "清理失败"); }

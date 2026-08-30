@@ -1,5 +1,7 @@
 "use client";
 
+import { getApiErrorMessage as readApiErrorMessage } from "@/lib/api-error-message";
+
 import { ChangeEvent, ClipboardEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
@@ -175,30 +177,6 @@ function resolveMessageSourceTag(params: {
   return { label: "来源：工具结果", variant: "success" };
 }
 
-function readApiErrorMessage(payload: unknown, fallback: string): string {
-  if (
-    payload &&
-    typeof payload === "object" &&
-    "error" in payload &&
-    payload.error &&
-    typeof payload.error === "object" &&
-    "message" in payload.error &&
-    typeof payload.error.message === "string"
-  ) {
-    return payload.error.message;
-  }
-
-  if (
-    payload &&
-    typeof payload === "object" &&
-    "error" in payload &&
-    typeof payload.error === "string"
-  ) {
-    return payload.error;
-  }
-
-  return fallback;
-}
 
 function formatTaskStatus(status: TaskItem["status"]): string {
   if (status === "todo") return "待处理";
@@ -488,7 +466,7 @@ export default function ChatPage() {
       : modelMode === "image"
         ? OPENROUTER_IMAGE_MODELS.find((model) => model.id === selectedImageModel)
         : OPENROUTER_VIDEO_MODELS.find((model) => model.id === selectedVideoModel);
-  const effectiveError = pageError ?? error?.message ?? null;
+  const effectiveError = pageError ?? (error ? readApiErrorMessage(error.message, "聊天请求失败，请稍后重试。") : null);
   const keyError =
     effectiveError?.includes("OPENROUTER_API_KEY") ||
     effectiveError?.includes("Invalid API key") ||
@@ -1352,7 +1330,7 @@ export default function ChatPage() {
 
         const payload = (await response.json()) as { error?: { message?: string }; modelId?: string; asset?: MediaReference };
         if (!response.ok || !payload.asset) {
-          throw new Error(payload.error?.message ?? "图片生成失败");
+          throw new Error(readApiErrorMessage(payload, "图片生成失败"));
         }
 
         setImageByMessageId((prev) => ({
@@ -1483,7 +1461,7 @@ export default function ChatPage() {
 
         const payload = (await response.json()) as { error?: { message?: string }; modelId?: string; asset?: MediaReference };
         if (!response.ok || !payload.asset) {
-          throw new Error(payload.error?.message ?? "视频生成失败");
+          throw new Error(readApiErrorMessage(payload, "视频生成失败"));
         }
 
         setVideoByMessageId((prev) => ({

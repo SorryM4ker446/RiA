@@ -1,17 +1,18 @@
+import { readJsonBody } from "@/lib/server/request-body";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
-import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
+import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { requireRequestUser } from "@/lib/auth/request-user";
 import { saveMemory } from "@/lib/memory/store";
 
-const createKnowledgeSchema = z.object({
-  key: z.string().min(1).max(120),
-  value: z.string().min(1).max(4000),
+const createKnowledgeSchema = z.strictObject({
+  key: z.string().trim().min(1).max(120),
+  value: z.string().trim().min(1).max(4000),
   score: z.number().min(0).max(1).optional().default(0.85),
 });
 
-const knowledgeListQuerySchema = z.object({
+const knowledgeListQuerySchema = z.strictObject({
   limit: z.coerce.number().int().min(1).max(100).optional().default(50),
 });
 
@@ -41,7 +42,7 @@ export async function GET(req: NextRequest) {
 
     return Response.json({ data: memories });
   } catch (error) {
-    console.error("/api/knowledge GET error", error);
+    console.error("/api/knowledge GET error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to fetch knowledge entries");
   }
 }
@@ -49,7 +50,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const user = await requireRequestUser(req);
-    const parsed = createKnowledgeSchema.safeParse(await req.json());
+    const parsed = createKnowledgeSchema.safeParse(await readJsonBody(req));
 
     if (!parsed.success) {
       throw new ApiError({
@@ -68,7 +69,7 @@ export async function POST(req: NextRequest) {
 
     return Response.json({ data: memory }, { status: 201 });
   } catch (error) {
-    console.error("/api/knowledge POST error", error);
+    console.error("/api/knowledge POST error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to save knowledge entry");
   }
 }

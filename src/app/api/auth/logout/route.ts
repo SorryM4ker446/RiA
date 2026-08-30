@@ -1,3 +1,6 @@
+import { assertRequestSecurity } from "@/lib/server/request-security";
+import { readEmptyBody } from "@/lib/server/request-body";
+import { createApiErrorResponse } from "@/lib/server/api-error";
 import { NextRequest, NextResponse } from "next/server";
 import {
   destroySessionByToken,
@@ -7,13 +10,17 @@ import {
 } from "@/lib/auth/session";
 
 export async function POST(req: NextRequest) {
-  const token = getSessionTokenFromRequest(req);
-  await destroySessionByToken(token);
+  try {
+    assertRequestSecurity(req);
+    await readEmptyBody(req);
+    const token = getSessionTokenFromRequest(req);
+    await destroySessionByToken(token);
 
-  const response = NextResponse.json({ success: true });
-  response.cookies.set(SESSION_COOKIE_NAME, "", {
-    ...sessionCookieOptions,
-    maxAge: 0,
-  });
-  return response;
+    const response = NextResponse.json({ success: true });
+    response.cookies.set(SESSION_COOKIE_NAME, "", {
+      ...sessionCookieOptions,
+      maxAge: 0,
+    });
+    return response;
+  } catch (error) { return createApiErrorResponse(error); }
 }

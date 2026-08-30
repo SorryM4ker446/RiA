@@ -2,14 +2,14 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { requireRequestUser } from "@/lib/auth/request-user";
-import { createApiErrorResponse } from "@/lib/server/api-error";
+import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { readJsonBody } from "@/lib/server/request-body";
 import { migrateMessageMedia, prepareMessageMedia, replaceMessageMedia } from "@/lib/media/messages";
 
-const updateMessageSchema = z.object({
-  content: z.string().min(1).optional(),
+const updateMessageSchema = z.strictObject({
+  content: z.string().min(1).max(1_000_000).optional(),
   status: z.enum(["pending", "success", "error"]).optional(),
-});
+}).refine((body) => Object.keys(body).length > 0, "At least one field is required");
 
 type Params = {
   params: Promise<{ id: string; messageId: string }>;
@@ -32,12 +32,12 @@ export async function GET(req: NextRequest, context: Params) {
 
     const message = await getScopedMessage(user.id, conversationId, messageId);
     if (!message) {
-      return Response.json({ error: "Message not found" }, { status: 404 });
+      throw new ApiError({ code: "NOT_FOUND", message: "Message not found" });
     }
 
     return Response.json({ data: await migrateMessageMedia(user.id, message) });
   } catch (error) {
-    console.error("/api/conversations/[id]/messages/[messageId] GET error", error);
+    console.error("/api/conversations/[id]/messages/[messageId] GET error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to fetch message");
   }
 }
@@ -49,15 +49,12 @@ export async function PATCH(req: NextRequest, context: Params) {
     const parsed = updateMessageSchema.safeParse(await readJsonBody(req));
 
     if (!parsed.success) {
-      return Response.json(
-        { error: "Invalid request body", details: parsed.error.flatten() },
-        { status: 400 },
-      );
+      throw parsed.error;
     }
 
     const existing = await getScopedMessage(user.id, conversationId, messageId);
     if (!existing) {
-      return Response.json({ error: "Message not found" }, { status: 404 });
+      throw new ApiError({ code: "NOT_FOUND", message: "Message not found" });
     }
 
     const prepared = parsed.data.content ? await prepareMessageMedia(user.id, parsed.data.content) : null;
@@ -75,7 +72,7 @@ export async function PATCH(req: NextRequest, context: Params) {
     });
     return Response.json({ data: updated });
   } catch (error) {
-    console.error("/api/conversations/[id]/messages/[messageId] PATCH error", error);
+    console.error("/api/conversations/[id]/messages/[messageId] PATCH error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to update message");
   }
 }
@@ -87,7 +84,7 @@ export async function DELETE(req: NextRequest, context: Params) {
 
     const existing = await getScopedMessage(user.id, conversationId, messageId);
     if (!existing) {
-      return Response.json({ error: "Message not found" }, { status: 404 });
+      throw new ApiError({ code: "NOT_FOUND", message: "Message not found" });
     }
 
     await db.$transaction(async (tx) => {
@@ -97,7 +94,7 @@ export async function DELETE(req: NextRequest, context: Params) {
 
     return Response.json({ success: true });
   } catch (error) {
-    console.error("/api/conversations/[id]/messages/[messageId] DELETE error", error);
+    console.error("/api/conversations/[id]/messages/[messageId] DELETE error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to delete message");
   }
 }

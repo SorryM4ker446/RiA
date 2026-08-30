@@ -27,7 +27,7 @@ export async function embedTexts(values: string[]): Promise<Array<number[] | nul
 
     return embeddings.map((embedding) => (Array.isArray(embedding) ? embedding : null));
   } catch (error) {
-    console.warn("embedding generation failed, falling back to keyword scoring", error);
+    console.warn("embedding generation failed, falling back to keyword scoring", error instanceof Error ? error.name : "UnknownError");
     return values.map(() => null);
   }
 }

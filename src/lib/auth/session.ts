@@ -9,10 +9,24 @@ export const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 export const sessionCookieOptions = {
   httpOnly: true,
   sameSite: "lax" as const,
-  secure: process.env.NODE_ENV === "production",
+  secure: process.env.NODE_ENV === "production" && process.env.APP_RUNTIME !== "desktop",
   path: "/",
   maxAge: SESSION_DURATION_MS / 1000,
 };
+
+const SESSION_CLEANUP_INTERVAL_MS = 15 * 60 * 1000;
+let nextCleanupAt = 0;
+let pendingCleanup: Promise<void> | undefined;
+
+/** Opportunistic maintenance also removes expired sessions that are never reused. */
+export async function cleanupExpiredSessions() {
+  if (pendingCleanup) return pendingCleanup;
+  if (Date.now() < nextCleanupAt) return;
+  pendingCleanup = db.session.deleteMany({ where: { expiresAt: { lte: new Date() } } }).then(() => {
+    nextCleanupAt = Date.now() + SESSION_CLEANUP_INTERVAL_MS;
+  }).finally(() => { pendingCleanup = undefined; });
+  return pendingCleanup;
+}
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -23,6 +37,7 @@ function hashToken(token: string): string {
  * client cookie. Only the SHA-256 hash of the token is persisted.
  */
 export async function createSession(userId: string): Promise<string> {
+  await cleanupExpiredSessions();
   const token = randomBytes(32).toString("hex");
   await db.session.create({
     data: {
@@ -39,6 +54,7 @@ export async function createSession(userId: string): Promise<string> {
  * side effect. Returns null when the token is missing, unknown, or expired.
  */
 export async function resolveUserBySessionToken(token: string | null | undefined) {
+  await cleanupExpiredSessions();
   if (!token) return null;
 
   const session = await db.session.findUnique({
@@ -49,7 +65,7 @@ export async function resolveUserBySessionToken(token: string | null | undefined
   if (!session) return null;
 
   if (session.expiresAt.getTime() <= Date.now()) {
-    await db.session.delete({ where: { id: session.id } }).catch(() => {});
+    await db.session.deleteMany({ where: { id: session.id } });
     return null;
   }
 

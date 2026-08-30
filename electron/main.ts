@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { request as httpRequest } from "node:http";
 import {
   app,
   BrowserWindow,
@@ -241,6 +242,38 @@ async function runSmokeAssertion() {
   const unauthenticatedResponse = await fetch(`${nextServer.origin}/api/conversations`);
   if (unauthenticatedResponse.status !== 403) {
     throw new Error(`Desktop API accepted a request without the session cookie (${unauthenticatedResponse.status}).`);
+  }
+  const deniedBody = await unauthenticatedResponse.json() as { error?: { code?: string } };
+  if (deniedBody.error?.code !== "FORBIDDEN") throw new Error("Desktop authentication error contract changed");
+  const invalidHeaders: Record<string, string>[] = [
+    { Origin: "https://outside.invalid" },
+    { Host: "outside.invalid" },
+  ];
+  for (const headers of invalidHeaders) {
+    // Fetch can replace a supplied Host; raw HTTP verifies the actual wire boundary.
+    const status = await new Promise<number>((resolve, reject) => {
+      const request = httpRequest(`${nextServer!.origin}/api/conversations`, {
+        method: "POST", headers: { Cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}`, "Content-Type": "application/json", ...headers },
+      }, (response) => {
+        response.resume();
+        response.on("end", () => resolve(response.statusCode ?? 0));
+        response.on("error", reject);
+      });
+      request.on("error", reject);
+      request.setTimeout(10_000, () => request.destroy(new Error("Desktop boundary check timed out")));
+      request.end(JSON.stringify({ title: "Must not be created" }));
+    });
+    if (status !== 403) throw new Error(`Desktop ${Object.keys(headers).join(",")} boundary check returned ${status}`);
+  }
+  for (let index = 0; index < 31; index++) {
+    const response = await fetch(`${nextServer.origin}/api/chat`, {
+      method: "POST", headers: { Cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}`, "Content-Type": "application/json", Origin: nextServer.origin }, body: "{}",
+    });
+    const payload = await response.json() as { error?: { code?: string } };
+    if (response.status !== (index < 30 ? 400 : 429) || payload.error?.code !== (index < 30 ? "VALIDATION_ERROR" : "RATE_LIMITED")) {
+      throw new Error("Desktop validation or chat throttle check failed");
+    }
+    if (index === 30 && !response.headers.get("retry-after")) throw new Error("Desktop rate limit is missing retry information");
   }
 
   const mediaBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=";

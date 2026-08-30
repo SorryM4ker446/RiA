@@ -13,7 +13,7 @@ Private AI Assistant is a local-first AI assistant built with Next.js, Vercel AI
 
 ## Requirements
 
-- Node.js 24 for development and packaging
+- Node.js 24.9.0 for development and packaging, matching CI
 - Windows x64 for producing the Squirrel installer
 - An OpenRouter API key for AI generation
 - A Tavily API key only when web search is needed
@@ -29,6 +29,8 @@ npm run dev
 ```
 
 The local SQLite database defaults to `.desktop-data/dev/app.db`. Browser development uses a single local demo user unless `AUTH_DISABLED` is overridden.
+
+API requests enforce input/size limits, consistent errors, local quotas and same-origin browser writes. Non-loopback hosts require an explicit `APP_ORIGIN`; see [API contracts and local security](docs/api-security.md) before changing local access or proxy settings.
 
 ## Desktop development
 

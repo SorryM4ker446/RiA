@@ -2,7 +2,7 @@ import { Readable } from "node:stream";
 import { NextRequest } from "next/server";
 import { requireRequestUser } from "@/lib/auth/request-user";
 import { deleteMediaAsset, getMediaAsset, openMediaAsset } from "@/lib/media/storage";
-import { createApiErrorResponse } from "@/lib/server/api-error";
+import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -25,8 +25,7 @@ async function serve(req: NextRequest, context: Params, headOnly: boolean) {
         else { start = Number(match[1]); if (match[2]) end = Math.min(end, Number(match[2])); }
       }
       if (!match || (!match[1] && !match[2]) || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end || start >= asset.byteSize) {
-        headers.set("Content-Range", `bytes */${asset.byteSize}`);
-        return new Response(null, { status: 416, headers });
+        throw new ApiError({ code: "RANGE_NOT_SATISFIABLE", message: "Requested media range is not available", headers: { "Content-Range": `bytes */${asset.byteSize}` } });
       }
       status = 206;
       headers.set("Content-Range", `bytes ${start}-${end}/${asset.byteSize}`);
@@ -36,7 +35,10 @@ async function serve(req: NextRequest, context: Params, headOnly: boolean) {
     if (headOnly) { await handle.close(); return new Response(null, { status, headers }); }
     const stream = handle.createReadStream({ start, end, autoClose: true });
     return new Response(Readable.toWeb(stream) as ReadableStream<Uint8Array>, { status, headers });
-  } catch (error) { return createApiErrorResponse(error, "Failed to read media"); }
+  } catch (error) {
+    const response = createApiErrorResponse(error, "Failed to read media");
+    return headOnly ? new Response(null, { status: response.status, headers: response.headers }) : response;
+  }
 }
 
 export const GET = (req: NextRequest, context: Params) => serve(req, context, false);
