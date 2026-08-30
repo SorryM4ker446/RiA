@@ -38,7 +38,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
@@ -56,16 +56,16 @@ jobs:
       - name: Check TypeScript
         run: npm run typecheck
 
+      - name: Test server behavior with isolated SQLite
+        run: npm run test:server
+
       - name: Verify SQLite database
         run: npm run test:db
-
-      - name: Build application
-        run: node scripts/run-with-local-db.mjs --migrate next build
 
       - name: Install Playwright browser
         run: npx playwright install chromium
 
-      - name: Run browser tests
+      - name: Build application and run browser tests
         run: npm run test:e2e
 
       - name: Upload browser test diagnostics
@@ -107,6 +107,9 @@ jobs:
 
       - name: Generate Prisma client
         run: npm run db:generate
+
+      - name: Provision Electron runtime for CI
+        run: node node_modules/electron/install.js
 
       - name: Test desktop paths and migrations
         run: npm run test:desktop

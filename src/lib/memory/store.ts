@@ -1,4 +1,5 @@
 import { db } from "@/db";
+import { Prisma } from "@prisma/client";
 import { cosineSimilarity, embedText, toEmbeddingVector } from "@/lib/ai/embedding";
 
 export type SaveMemoryInput = {
@@ -80,27 +81,15 @@ export async function saveMemory(input: SaveMemoryInput) {
   // Best-effort embedding; falls back to null (keyword-only retrieval) on failure.
   const embedding = await embedText(`${normalizedKey} ${normalizedValue}`);
 
-  const existing = await db.memory.findFirst({
-    where: {
-      userId: input.userId,
-      key: normalizedKey,
+  return db.memory.upsert({
+    where: { userId_key: { userId: input.userId, key: normalizedKey } },
+    update: {
+      value: normalizedValue,
+      ...(input.score !== undefined ? { score: input.score } : {}),
+      // Never retain an embedding for an old value when embedding the new text fails.
+      embedding: embedding ?? Prisma.DbNull,
     },
-  });
-
-  if (existing) {
-    return db.memory.update({
-      where: { id: existing.id },
-      data: {
-        value: normalizedValue,
-        score: input.score ?? existing.score ?? 0.5,
-        updatedAt: new Date(),
-        ...(embedding ? { embedding } : {}),
-      },
-    });
-  }
-
-  return db.memory.create({
-    data: {
+    create: {
       userId: input.userId,
       key: normalizedKey,
       value: normalizedValue,

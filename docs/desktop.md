@@ -86,7 +86,9 @@ This project does not configure Windows code signing or automatic updates. Windo
 
 ## Validation and CI
 
-`npm run test:desktop` checks path isolation, fresh-database migration, idempotent migration, and persistence without downloading a separate testing package.
+`npm run test:desktop` checks path isolation, fresh-database migration, idempotent migration, persistence, duplicate-memory preservation, and migration backups without downloading a separate testing package.
+
+`npm run test:server` adds real route-handler and SQLite regression checks, including authentication, tool execution logging, memory upserts, chat context, regeneration, and approval replay protection. The external AI provider is simulated; these tests do not incur API charges. See [Test coverage and local validation](testing.md).
 
 `npm run test:desktop:smoke` boots Electron against the prepared standalone runtime and verifies:
 

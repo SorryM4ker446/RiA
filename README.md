@@ -55,6 +55,7 @@ npm run desktop:make
 ```powershell
 npm run lint
 npm run typecheck
+npm run test:server
 npm run test:db
 npm run test:e2e
 npm run test:desktop
@@ -64,6 +65,8 @@ npm run test:desktop:package
 ```
 
 Desktop validation uses Node's built-in test runner and a hidden Electron window; it does not require an additional desktop test framework.
+
+Server regression tests use real route handlers and temporary SQLite databases, with only the external AI provider replaced by a deterministic test double. See [Test coverage and local validation](docs/testing.md) for the boundary between UI tests, server tests, and live-provider validation.
 
 See [Desktop development and release](docs/desktop.md) for data paths, security behavior, troubleshooting, and release checks.
 

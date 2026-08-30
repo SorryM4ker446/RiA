@@ -15,6 +15,7 @@
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
+    "test:server": "node --import ./tests/helpers/register-typescript.mjs --test tests/server/*.test.mjs",
     "test:db": "node scripts/run-with-local-db.mjs --migrate node scripts/verify-local-database.mjs",
     "db:generate": "node scripts/run-with-local-db.mjs prisma generate --schema src/db/schema.prisma",
     "db:migrate": "node scripts/run-with-local-db.mjs prisma migrate dev --schema src/db/schema.prisma",
