@@ -16,7 +16,7 @@ const { createChatToolSet, getToolDescriptor } = await import("@/tools/catalog")
 const { saveChatMessage } = await import("@/lib/chat/store");
 const { proxy } = await import("@/proxy");
 const routes = {};
-for (const name of ["chat", "image", "video", "tools/run", "tools", "memory", "retrieval", "knowledge", "knowledge/[id]", "tasks", "tasks/[id]", "conversations", "conversations/[id]", "conversations/[id]/messages", "conversations/[id]/messages/[messageId]", "media", "media/upload", "media/cleanup", "media/[id]", "auth/login", "auth/register", "auth/logout", "auth/me", "health"]) {
+for (const name of ["chat", "image", "video", "tools/run", "tools", "memory", "retrieval", "knowledge", "knowledge/[id]", "tasks", "tasks/[id]", "tasks/reminders", "conversations", "conversations/[id]", "conversations/[id]/messages", "conversations/[id]/messages/[messageId]", "media", "media/upload", "media/cleanup", "media/[id]", "auth/login", "auth/register", "auth/logout", "auth/me", "health"]) {
   routes[name] = await import(`@/app/api/${name}/route`);
 }
 let user, cookie;

@@ -82,5 +82,8 @@ export function normalizeManualToolInput(params: {
     }
   }
 
+  if (params.tool.id === "createTask" && inputPayload.dueDate) {
+    inputPayload.timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  }
   return inputPayload;
 }

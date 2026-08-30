@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { chatApi } from "@/features/chat/api-client";
-import type { TaskItem, TaskStatusFilter } from "@/features/chat/types";
+import type { TaskItem, TaskScheduleInput, TaskStatusFilter } from "@/features/chat/types";
 import { COLLAPSED_TASK_LIMIT } from "@/features/chat/types";
 
 export function useTasks() {
@@ -9,65 +9,61 @@ export function useTasks() {
   const [isLoadingTasks, setIsLoadingTasks] = useState(false);
   const [taskPanelError, setTaskPanelError] = useState<string | null>(null);
   const [isTaskListExpanded, setIsTaskListExpanded] = useState(false);
-  const filteredTasks = tasks.filter((task) =>
-    taskStatusFilter === "all" ? true : task.status === taskStatusFilter,
-  );
+  const [updatingTaskIds, setUpdatingTaskIds] = useState<string[]>([]);
+  const pending = useRef(new Set<string>());
+  const loadVersion = useRef(0);
+  const filteredTasks = tasks.filter(task => taskStatusFilter === "all" || task.status === taskStatusFilter);
   const visibleTasks = isTaskListExpanded ? filteredTasks : filteredTasks.slice(0, COLLAPSED_TASK_LIMIT);
   const hasHiddenTasks = filteredTasks.length > COLLAPSED_TASK_LIMIT;
-  async function loadTasks(nextStatus: TaskStatusFilter = taskStatusFilter, options?: { silent?: boolean }) {
-    if (!options?.silent) {
-      setIsLoadingTasks(true);
-    }
+  const loadTasks = useCallback(async (nextStatus: TaskStatusFilter = taskStatusFilter, options?: { silent?: boolean }) => {
+    const version = ++loadVersion.current;
+    if (!options?.silent) setIsLoadingTasks(true);
     setTaskPanelError(null);
     try {
       const payload = await chatApi.listTasks(nextStatus);
-      setTasks(Array.isArray(payload.data) ? payload.data : []);
+      if (version === loadVersion.current) setTasks(Array.isArray(payload.data) ? payload.data : []);
     } catch (error) {
-      setTaskPanelError(error instanceof Error ? error.message : "读取任务失败");
+      if (version === loadVersion.current) setTaskPanelError(error instanceof Error ? error.message : "读取任务失败");
     } finally {
-      if (!options?.silent) {
-        setIsLoadingTasks(false);
-      }
+      if (version === loadVersion.current) setIsLoadingTasks(false);
     }
-  }
-
-  async function updateTaskStatus(taskId: string, statusValue: TaskItem["status"]) {
-    setTaskPanelError(null);
-    const previousTasks = tasks;
-    setTasks((current) =>
-      current.map((task) =>
-        task.id === taskId ? { ...task, status: statusValue, updatedAt: new Date().toISOString() } : task,
-      ),
-    );
-    try {
-      const payload = await chatApi.updateTask(taskId, statusValue);
-      if (payload.data) {
-        setTasks((current) => current.map((task) => (task.id === taskId ? payload.data : task)));
-      }
-    } catch (error) {
-      setTasks(previousTasks);
-      setTaskPanelError(error instanceof Error ? error.message : "更新任务失败");
-    }
-  }
-
-  async function deleteTask(taskId: string) {
-    setTaskPanelError(null);
-    const previousTasks = tasks;
-    setTasks((current) => current.filter((task) => task.id !== taskId));
-    try {
-      await chatApi.deleteTask(taskId);
-    } catch (error) {
-      setTasks(previousTasks);
-      setTaskPanelError(error instanceof Error ? error.message : "删除任务失败");
-    }
-  }
-  useEffect(() => {
-    void loadTasks(taskStatusFilter);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskStatusFilter]);
+
+  async function mutateTask(taskId: string, input: Parameters<typeof chatApi.updateTask>[1] | null) {
+    if (pending.current.has(taskId)) return false;
+    pending.current.add(taskId);
+    setUpdatingTaskIds([...pending.current]);
+    setTaskPanelError(null);
+    try {
+      if (input === null) {
+        await chatApi.deleteTask(taskId);
+        setTasks(current => current.filter(task => task.id !== taskId));
+      } else {
+        const payload = await chatApi.updateTask(taskId, input);
+        setTasks(current => {
+          const updated = current.map(task => task.id === taskId ? payload.data : task);
+          return payload.nextTask && !updated.some(task => task.id === payload.nextTask!.id) ? [payload.nextTask, ...updated] : updated;
+        });
+      }
+      // A list response started before the mutation must not undo its result.
+      loadVersion.current++;
+      setIsLoadingTasks(false);
+      return true;
+    } catch (error) {
+      setTaskPanelError(error instanceof Error ? error.message : "更新任务失败");
+      return false;
+    } finally {
+      pending.current.delete(taskId);
+      setUpdatingTaskIds([...pending.current]);
+    }
+  }
+
+  useEffect(() => { void loadTasks(); }, [loadTasks]);
   return {
     tasks, taskStatusFilter, isLoadingTasks, taskPanelError, isTaskListExpanded, filteredTasks,
-    visibleTasks, hasHiddenTasks, setTaskStatusFilter, setIsTaskListExpanded, loadTasks,
-    updateTaskStatus, deleteTask,
+    visibleTasks, hasHiddenTasks, setTaskStatusFilter, setIsTaskListExpanded, loadTasks, updatingTaskIds,
+    updateTaskStatus: (id: string, status: TaskItem["status"]) => mutateTask(id, { status }),
+    saveTaskSchedule: (id: string, schedule: TaskScheduleInput) => mutateTask(id, schedule),
+    deleteTask: (id: string) => mutateTask(id, null),
   };
 }

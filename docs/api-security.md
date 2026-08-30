@@ -59,6 +59,7 @@ Existing media limits remain: four attachments per message, PNG/JPEG/WebP/GIF on
 | Video generation | User | 3 requests / minute |
 | Attachment upload | User | 20 requests / minute |
 | Document import/reindex | User, shared between both operations | 6 attempts / minute |
+| Desktop task reminder claims | User | 10 checks / minute; at most 10 due tasks per check |
 
 Document-only search shares the tool request quota. Document uploads reuse the limited stream reader with a narrower 9 MiB body/8 MiB file allowance. Extraction has worker, timeout, expanded-size and per-user document limits; see [Document knowledge](document-knowledge.md). The existing attachment/Proxy limits are not increased.
 
@@ -75,3 +76,5 @@ Without `APP_ORIGIN`, API Host values are restricted to localhost, 127.0.0.1 and
 Browser writes must be same-origin. Foreign/null Origin and cross-site or same-site Fetch Metadata are rejected, including login, logout, uploads and cleanup. Native scripts without Origin/Fetch Metadata remain supported but still need normal authentication. This intentionally retains local service probes and Electron main-process fetches. There is no permissive CORS allowlist, wildcard origin or cross-origin cookie flow.
 
 Desktop always uses its generated Host and random desktop Cookie, independently of APP_ORIGIN and AUTH_DISABLED. It binds to loopback and still applies origin checks. Changing the local service port refreshes that Cookie; renderer, proxy settings, health probes and media access continue through the existing desktop lifecycle.
+
+Task reminder claims are desktop-only and persist before native display to prevent replay. They cannot accept a caller-supplied user ID or arbitrary notification content. Recurring-task completion and successor creation are transactional. See [Task reminders](task-reminders.md) for delivery limits and the read-only scheduling state.

@@ -3,7 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatTime } from "@/features/chat/page-utils";
+import { useEffect, useState } from "react";
+import { TaskScheduleEditor, repeatLabels } from "@/features/chat/task-schedule-editor";
 import { cn } from "@/lib/utils/cn";
 import {
   ListTodo,
@@ -15,8 +16,16 @@ import type { TaskItem, TaskStatusFilter } from "@/features/chat/types";
 import { COLLAPSED_TASK_LIMIT } from "@/features/chat/types";
 import type { ChatState } from "@/features/chat/use-chat-state";
 
-type Props = Pick<ChatState, "filteredTasks" | "isLoadingTasks" | "loadTasks" | "setTaskStatusFilter" | "taskStatusFilter" | "taskPanelError" | "tasks" | "visibleTasks" | "updateTaskStatus" | "deleteTask" | "hasHiddenTasks" | "setIsTaskListExpanded" | "isTaskListExpanded">;
-export function TaskPanel({ filteredTasks, isLoadingTasks, loadTasks, setTaskStatusFilter, taskStatusFilter, taskPanelError, tasks, visibleTasks, updateTaskStatus, deleteTask, hasHiddenTasks, setIsTaskListExpanded, isTaskListExpanded }: Props) {
+type Props = Pick<ChatState, "filteredTasks" | "isLoadingTasks" | "loadTasks" | "setTaskStatusFilter" | "taskStatusFilter" | "taskPanelError" | "tasks" | "visibleTasks" | "updateTaskStatus" | "deleteTask" | "saveTaskSchedule" | "updatingTaskIds" | "hasHiddenTasks" | "setIsTaskListExpanded" | "isTaskListExpanded">;
+export function TaskPanel({ filteredTasks, isLoadingTasks, loadTasks, setTaskStatusFilter, taskStatusFilter, taskPanelError, tasks, visibleTasks, updateTaskStatus, deleteTask, saveTaskSchedule, updatingTaskIds, hasHiddenTasks, setIsTaskListExpanded, isTaskListExpanded }: Props) {
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    const refresh = () => setNow(Date.now());
+    refresh();
+    const timer = setInterval(refresh, 30_000);
+    window.addEventListener("focus", refresh);
+    return () => { clearInterval(timer); window.removeEventListener("focus", refresh); };
+  }, []);
   return (<aside className="w-full shrink-0 xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)] xl:w-80">
     <Card className="glass-surface flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden xl:max-h-[calc(100vh-3rem)]">
       <CardHeader className="shrink-0 border-b border-border/70 pb-3">
@@ -24,10 +33,11 @@ export function TaskPanel({ filteredTasks, isLoadingTasks, loadTasks, setTaskSta
           <ListTodo className="h-4 w-4 text-primary" />
           任务
         </CardTitle>
-        <CardDescription>创建后可查询、流转和删除</CardDescription>
+        <CardDescription>到期提醒与重复任务</CardDescription>
       </CardHeader>
       <CardContent className="chat-list-scroll min-h-0 space-y-5 overflow-y-auto p-4 pr-3">
         <section className="space-y-3" data-testid="task-panel">
+          <p className="text-[11px] text-muted-foreground">系统通知仅在桌面应用运行时发送；关闭后下次启动补查。网页仅显示到期状态。</p>
           <div className="flex items-center justify-between gap-2">
             <div>
               <h3 className="text-sm font-semibold">任务列表</h3>
@@ -98,10 +108,14 @@ export function TaskPanel({ filteredTasks, isLoadingTasks, loadTasks, setTaskSta
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
                     <span>优先级：{formatTaskPriority(task.priority)}</span>
-                    {task.dueDate ? <span>截止：{formatTime(task.dueDate)}</span> : null}
+                    {task.dueDate ? <span>截止：{new Date(task.dueDate).toLocaleString("zh-CN", { timeZone: task.timeZone ?? "UTC" })}（{task.timeZone ?? "UTC"}）</span> : null}
+                    {task.dueDate && task.status !== "done" && Date.parse(task.dueDate) <= now ? <Badge variant="outline" className="text-red-600">已逾期</Badge> : null}
+                    {task.reminderEnabled ? <span>到期提醒</span> : null}
+                    {task.repeatRule && task.repeatRule !== "none" ? <span>{repeatLabels[task.repeatRule]} · 完成后续建</span> : null}
                   </div>
                   <div className="mt-3 flex items-center gap-2">
                     <Select
+                      disabled={updatingTaskIds.includes(task.id)}
                       onValueChange={(value) => void updateTaskStatus(task.id, value as TaskItem["status"])}
                       value={task.status}
                     >
@@ -116,6 +130,7 @@ export function TaskPanel({ filteredTasks, isLoadingTasks, loadTasks, setTaskSta
                     </Select>
                     <Button
                       aria-label={`删除任务 ${task.title}`}
+                      disabled={updatingTaskIds.includes(task.id)}
                       onClick={() => void deleteTask(task.id)}
                       size="icon"
                       type="button"
@@ -124,6 +139,7 @@ export function TaskPanel({ filteredTasks, isLoadingTasks, loadTasks, setTaskSta
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
+                  <TaskScheduleEditor task={task} onSave={saveTaskSchedule} disabled={updatingTaskIds.includes(task.id)} />
                 </div>
               ))
             )}
@@ -144,4 +160,3 @@ export function TaskPanel({ filteredTasks, isLoadingTasks, loadTasks, setTaskSta
     </Card>
   </aside>);
 }
-

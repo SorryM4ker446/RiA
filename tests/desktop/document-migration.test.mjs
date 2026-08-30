@@ -25,7 +25,7 @@ test("desktop document migration backs up existing data and retains document ind
     } finally { before.close(); }
     const options = { databaseFile, migrationsDirectory, backupsDirectory: join(root, "backups"), logger: { info() {}, warn() {}, error() {} } };
     const applied = runDesktopMigrations(options);
-    assert.deepEqual(applied.applied, [migration]);
+    assert.deepEqual(applied.applied, readdirSync(migrationsDirectory, { withFileTypes: true }).filter(entry => entry.isDirectory() && entry.name >= migration).map(entry => entry.name).sort());
     assert.ok(applied.backupFile);
     const backup = new DatabaseSync(applied.backupFile, { readOnly: true });
     try {

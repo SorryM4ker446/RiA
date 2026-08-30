@@ -3,7 +3,7 @@ import { attachmentValidationError } from "@/lib/media/limits";
 import type { MediaReference } from "@/lib/media/message-codec";
 import { DefaultChatTransport } from "ai";
 import type { ChatSummary, MessageStatus, StoredMessage, UploadableFilePart } from "@/features/chat/page-utils";
-import type { ChatScopedPreferences, TaskItem, TaskStatusFilter, ToolCatalogItem } from "@/features/chat/types";
+import type { ChatScopedPreferences, TaskItem, TaskScheduleInput, TaskStatusFilter, ToolCatalogItem } from "@/features/chat/types";
 
 type Data<T> = { data: T };
 type Page<T> = Data<T[]> & { pageInfo?: { nextCursor: string | null; hasMore: boolean } };
@@ -54,7 +54,7 @@ export const chatApi = {
     if (status !== "all") query.set("status", status);
     return requestJson<Data<TaskItem[]>>(`/api/tasks?${query}`, "读取任务失败");
   },
-  updateTask: (id: string, status: TaskItem["status"]) => requestJson<Data<TaskItem>>(`/api/tasks/${encodeURIComponent(id)}`, "更新任务失败", jsonBody("PATCH", { status })),
+  updateTask: (id: string, input: Partial<TaskScheduleInput> & { status?: TaskItem["status"] }) => requestJson<Data<TaskItem> & { nextTask?: TaskItem | null }>(`/api/tasks/${encodeURIComponent(id)}`, "更新任务失败", jsonBody("PATCH", input)),
   deleteTask: (id: string) => requestJson<unknown>(`/api/tasks/${encodeURIComponent(id)}`, "删除任务失败", { method: "DELETE" }),
   async generateMedia(kind: "image" | "video", prompt: string, modelId: string, files: UploadableFilePart[]) {
     const inputs = files.map(({ url, mediaType }) => ({ url, mediaType }));

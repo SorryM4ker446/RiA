@@ -53,11 +53,22 @@ export type ManualToolFieldValues = Record<string, string>;
 
 export type TaskStatusFilter = "all" | "todo" | "in_progress" | "done";
 
+export type TaskScheduleInput = {
+  dueDate: string | null;
+  timeZone: string;
+  reminderEnabled: boolean;
+  repeatRule: "none" | "daily" | "weekly" | "monthly";
+};
+
 export type TaskItem = {
   id: string;
   title: string;
   details: string | null;
   dueDate: string | null;
+  timeZone?: string;
+  reminderEnabled?: boolean;
+  repeatRule?: TaskScheduleInput["repeatRule"];
+  repeatGenerated?: boolean;
   priority: "low" | "medium" | "high";
   status: "todo" | "in_progress" | "done";
   createdAt: string;

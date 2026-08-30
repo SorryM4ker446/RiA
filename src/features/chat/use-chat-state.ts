@@ -71,7 +71,7 @@ export function useChatState() {
   const {
     tasks, taskStatusFilter, isLoadingTasks, taskPanelError, isTaskListExpanded, filteredTasks,
     visibleTasks, hasHiddenTasks, setTaskStatusFilter, setIsTaskListExpanded, loadTasks,
-    updateTaskStatus, deleteTask,
+    updateTaskStatus, deleteTask, saveTaskSchedule, updatingTaskIds,
   } = useTasks();
   const {
     isGeneratingImage, isGeneratingVideo, isUploadingAttachments, setIsUploadingAttachments,
@@ -513,7 +513,7 @@ export function useChatState() {
     editingTitle, saveEditedTitle, cancelEditingChat, switchActiveChat, startEditingChat,
     requestDeleteConversation, hasHiddenChats, setIsChatListExpanded, isChatListExpanded, filteredTasks,
     isLoadingTasks, loadTasks, setTaskStatusFilter, taskStatusFilter, taskPanelError, tasks,
-    visibleTasks, updateTaskStatus, deleteTask, hasHiddenTasks, setIsTaskListExpanded,
+    visibleTasks, updateTaskStatus, deleteTask, saveTaskSchedule, updatingTaskIds, hasHiddenTasks, setIsTaskListExpanded,
     isTaskListExpanded, activeChat, isPending, modelMode, selectedModel, selectedModelInfo, onModeSelect,
     onModelSelect, appendQuickPrompt, isLoadingHistory, messages, imageByMessageId, videoByMessageId,
     status, editingMessageId, startEditingMessage, regenerateMessage, requestDeleteMessage,

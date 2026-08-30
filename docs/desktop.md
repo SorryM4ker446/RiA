@@ -58,6 +58,8 @@ Saving settings restarts the local Next.js service so that server-only environme
 
 The settings page also supports an outbound HTTP proxy, OpenRouter site name, and HTTP referrer. Chat and media model choices remain conversation-scoped preferences in the chat UI.
 
+Task deadlines, time zones, reminders and repetition are configured from **设置时间与提醒** in the task panel. Electron checks due reminders while running, including after startup and resume; closing the app stops checks. The notification API may be supported even when Windows notification settings or Focus Assist suppress display. See [Task reminders](task-reminders.md) for persisted claims, recurrence rules, privacy and manual release checks.
+
 ## Security boundary
 
 - The local service binds only to `127.0.0.1` on a dynamically selected port.
@@ -106,6 +108,7 @@ This project does not configure Windows code signing or automatic updates. Windo
 - authenticated desktop API requests succeed;
 - requests without the desktop cookie are rejected;
 - a conversation remains after the local service restarts;
+- due task notifications are dispatched once to a recording test sink, and recurrence/claims survive service restart without invoking a model or displaying OS notifications;
 - the application exits without retaining its child service.
 
 After `desktop:package`, `npm run test:desktop:package` repeats the smoke test against the actual packaged executable. `npm run desktop:verify` checks runtime resources, Prisma's native engine, migrations, EXE presence, and absence of `.env` or key-shaped values.

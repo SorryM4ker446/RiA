@@ -28,11 +28,14 @@ Chat submissions send at most the latest 100 loaded messages. The existing serve
 | `GET /api/conversations/:id` | Owned conversation summary: ID, title, timestamps and message count; used by selection restoration |
 | `GET /api/conversations/:id/messages/:messageId` | Owned message by persisted or client message ID; returns `data` with role, content, status and timestamps; retains private-media migration |
 | `GET /api/tasks/:id` | Owned task detail, including title, details, due date, priority and status |
+| `PATCH /api/tasks/:id` | Owned task update, including deadline, time zone, reminder and recurrence; returns `data` plus `nextTask` when completion creates a successor |
 | `GET /api/memory?query=...&limit=5` | Relevant memories for the current user; maximum 20, empty query returns an empty list |
 | `POST /api/memory` | Upsert the current user's memory using `key` (1–120 characters), `value` (1–4000) and optional `score` (0–1); returns `201` with `data` |
 | `POST /api/retrieval` | Retrieve current-user memories using JSON `query` (1–2000 characters) and optional `limit` (1–20, default 6); returns `data` |
 
 The memory and retrieval endpoints remain deliberate local integration contracts even though the UI uses the knowledge page and tools. Missing or foreign detail records return `404`; unauthenticated requests return `401`. Mutations use the same bounded JSON parsing and same-origin checks as UI requests. Embedding configuration is optional; keyword retrieval remains available without a provider key.
+
+Task schedule formats, recurrence rules and the desktop-only reminder claim endpoint are documented in [Task reminders](task-reminders.md). Claiming is a mutation with delivery consequences, so integrations must not poll it as a task-list endpoint.
 
 ## Retrieval behavior
 
