@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionUserFromRequest } from "@/lib/auth/session";
+import { getRequestUser } from "@/lib/auth/request-user";
 
 export async function GET(req: NextRequest) {
-  const user = await getSessionUserFromRequest(req);
+  const user = await getRequestUser(req);
   if (!user) {
     return NextResponse.json(
       { error: { code: "UNAUTHORIZED", message: "未登录" } },

@@ -15,7 +15,7 @@ export default function HomePage() {
           Build your personal assistant with chat, memory, and tool calling.
         </h1>
         <p className="max-w-2xl text-sm text-muted-foreground md:text-base">
-          Next.js App Router + Vercel AI SDK + PostgreSQL. The core MVP flow is now ready for
+          Next.js App Router + Vercel AI SDK + SQLite. The core MVP flow is ready for
           daily usage and future RAG expansion.
         </p>
       </div>

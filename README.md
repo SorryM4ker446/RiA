@@ -1,115 +1,78 @@
-# Private AI Assistant Skeleton
+# Private AI Assistant
 
-Tech stack:
-- Next.js App Router + TypeScript
-- Vercel AI SDK + OpenRouter
-- PostgreSQL + Prisma
-- Tailwind CSS + shadcn/ui
+Private AI Assistant is a local-first AI assistant built with Next.js, Vercel AI SDK, Electron, Prisma, and SQLite. It can run in a browser during development or as an installable Windows desktop application.
 
-## Quick start
+## Capabilities
 
-```bash
+- Streaming, persisted multi-turn chat through OpenRouter
+- Local conversations, messages, memories, knowledge, and tasks
+- Semantic knowledge retrieval with keyword fallback
+- Tavily web search and tool-call approval flows
+- Image and video generation modes
+- Windows desktop shell with encrypted API-key storage
+
+## Requirements
+
+- Node.js 24 for development and packaging
+- Windows x64 for producing the Squirrel installer
+- An OpenRouter API key for AI generation
+- A Tavily API key only when web search is needed
+
+The installed desktop application does not require Node.js or PostgreSQL.
+
+## Browser development
+
+```powershell
 npm install
-cp .env.example .env
 npm run db:generate
 npm run dev
 ```
 
-## Directory highlights
+The local SQLite database defaults to `.desktop-data/dev/app.db`. Browser development uses a single local demo user unless `AUTH_DISABLED` is overridden.
 
-- `src/app`: pages + route handlers
-- `src/components`: reusable UI and view components
-- `src/features`: business capabilities (chat, memory, rag, tools)
-- `src/lib`: shared infrastructure code
-- `src/db`: Prisma schema and DB client
-- `src/prompts`: prompt assets
+## Desktop development
+
+```powershell
+npm run desktop:dev
+```
+
+Electron starts and stops the local Next.js development service automatically. Use the desktop Settings page to store API keys with Windows encryption.
+
+## Build and package
+
+```powershell
+npm run desktop:build
+npm run desktop:package
+npm run desktop:make
+```
+
+- `desktop:build` creates and verifies `.desktop-runtime`.
+- `desktop:package` creates the unpacked Windows application under `out/`.
+- `desktop:make` creates the Windows Setup executable and Squirrel metadata under `out/make/`.
+
+## Validation
+
+```powershell
+npm run lint
+npm run typecheck
+npm run test:db
+npm run test:e2e
+npm run test:desktop
+npm run test:desktop:smoke
+npm run desktop:verify
+npm run test:desktop:package
+```
+
+Desktop validation uses Node's built-in test runner and a hidden Electron window; it does not require an additional desktop test framework.
+
+See [Desktop development and release](docs/desktop.md) for data paths, security behavior, troubleshooting, and release checks.
+
+## Project layout
+
+- `electron`: desktop main process, preload bridge, migrations, settings, and security
+- `src/app`: pages and route handlers
+- `src/features`: chat-facing business capabilities
+- `src/db`: Prisma schema and SQLite migrations
 - `src/tools`: tool definitions and registry
-
-Detailed layout and refactor guidance:
-- `docs/project-structure.md`
-
-## OpenRouter model presets
-
-Preset file: `src/config/model.ts`
-
-Chat model presets (aligned with OpenRouter rankings, synced on 2026-04-16):
-- `anthropic/claude-opus-4.6`
-- `anthropic/claude-sonnet-4.6`
-- `deepseek/deepseek-v3.2`
-- `minimax/minimax-m2.7`
-- `minimax/minimax-m2.5`
-- `google/gemini-3-flash-preview`
-- `xiaomi/mimo-v2-pro`
-- `nvidia/nemotron-3-super-120b-a12b:free`
-- `google/gemini-2.5-flash`
-- `google/gemini-2.5-flash-lite`
-
-Image model presets (aligned with OpenRouter image-model rankings page):
-- `google/gemini-2.5-flash-image`
-- `google/gemini-3.1-flash-image-preview`
-- `google/gemini-3-pro-image-preview`
-- `bytedance-seed/seedream-4.5`
-- `openai/gpt-5-image-mini`
-- `openai/gpt-5-image`
-
-## How to manually add models
-
-### Add a chat model
-
-1. Edit `src/config/model.ts`, append an item in `OPENROUTER_MODELS`:
-
-```ts
-{
-  id: "provider/model-id",
-  label: "Your Model Name",
-  description: "Short note",
-}
-```
-
-2. No extra UI wiring needed: chat selector uses `OPENROUTER_MODELS` automatically.
-3. Start dev server and verify:
-
-```bash
-npm run dev
-```
-
-### Add a text-to-image model
-
-1. Edit `src/config/model.ts`, append the model in `OPENROUTER_IMAGE_MODELS`.
-2. Use `getImageModel(...)` from `src/lib/ai/client.ts` with `generateImage` from `ai`.
-3. Return base64 data URL to frontend for preview.
-
-Minimal API route example (`src/app/api/image/route.ts`):
-
-```ts
-import { generateImage } from "ai";
-import { NextRequest } from "next/server";
-import { resolveImageModelId } from "@/config/model";
-import { getImageModel } from "@/lib/ai/client";
-
-export async function POST(req: NextRequest) {
-  const body = (await req.json()) as {
-    prompt?: string;
-    modelId?: string;
-    size?: `${number}x${number}`;
-  };
-
-  const prompt = body.prompt?.trim();
-  if (!prompt) {
-    return Response.json({ error: "prompt is required" }, { status: 400 });
-  }
-
-  const modelId = resolveImageModelId(body.modelId);
-  const result = await generateImage({
-    model: getImageModel(modelId),
-    prompt,
-    n: 1,
-    size: body.size ?? "1024x1024",
-  });
-
-  const image = result.image;
-  const dataUrl = `data:${image.mediaType};base64,${image.base64}`;
-
-  return Response.json({ modelId, dataUrl });
-}
-```
+- `scripts`: local database, desktop build, packaging, and verification helpers
+- `tests`: browser and desktop regression tests

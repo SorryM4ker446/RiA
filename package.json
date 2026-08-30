@@ -1,7 +1,12 @@
 {
   "name": "private-ai-assistant",
+  "productName": "Private AI Assistant",
   "version": "0.1.0",
+  "packageManager": "npm@11.19.1",
+  "description": "A private desktop AI assistant built with Next.js and Electron",
+  "author": "Private AI Assistant",
   "private": true,
+  "main": "electron-dist/main.js",
   "scripts": {
     "dev": "node scripts/run-with-local-db.mjs --migrate next dev --webpack",
     "dev:turbopack": "node scripts/run-with-local-db.mjs --migrate next dev",
@@ -16,7 +21,19 @@
     "db:deploy": "node scripts/run-with-local-db.mjs prisma migrate deploy --schema src/db/schema.prisma",
     "db:studio": "node scripts/run-with-local-db.mjs prisma studio --schema src/db/schema.prisma",
     "auth:list-users": "node scripts/run-with-local-db.mjs --migrate node scripts/list-users.mjs",
-    "auth:set-password": "node scripts/run-with-local-db.mjs --migrate node scripts/recover-demo-user.mjs"
+    "auth:set-password": "node scripts/run-with-local-db.mjs --migrate node scripts/recover-demo-user.mjs",
+    "desktop:compile": "tsc -p electron/tsconfig.json",
+    "desktop:dev": "npm run desktop:compile && node scripts/run-desktop-dev.mjs",
+    "desktop:dev:web": "node scripts/run-desktop-web.mjs",
+    "desktop:dev:electron": "npm run desktop:dev",
+    "desktop:build": "node scripts/build-desktop.mjs",
+    "desktop:package": "npm run desktop:build && electron-forge package --platform win32 --arch x64",
+    "desktop:make": "npm run desktop:build && electron-forge make --platform win32 --arch x64",
+    "desktop:verify": "node scripts/verify-desktop-package.mjs",
+    "test:desktop": "npm run desktop:compile && node --test tests/desktop/*.test.mjs",
+    "test:desktop:smoke": "node scripts/smoke-desktop.mjs",
+    "test:desktop:dev": "npm run desktop:compile && node scripts/smoke-desktop.mjs --development",
+    "test:desktop:package": "node scripts/smoke-desktop.mjs --packaged"
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.63",
@@ -25,31 +42,56 @@
     "@openrouter/ai-sdk-provider": "^2.8.0",
     "@prisma/client": "^6.15.0",
     "@radix-ui/react-select": "^2.2.6",
-    "@tavily/ai-sdk": "^0.4.1",
+    "@tavily/ai-sdk": "0.5.0",
     "ai": "6.0.161",
     "clsx": "2.1.1",
     "lucide-react": "1.8.0",
-    "next": "16.2.3",
+    "next": "16.3.3",
     "react": "19.2.5",
     "react-dom": "19.2.5",
     "react-markdown": "^10.1.0",
     "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "3.5.0",
-    "undici": "^8.1.0",
+    "undici": "8.10.0",
     "zod": "4.3.6"
   },
   "devDependencies": {
+    "@electron-forge/cli": "7.11.2",
+    "@electron-forge/maker-squirrel": "7.11.2",
+    "@electron-forge/shared-types": "7.11.2",
     "@playwright/test": "^1.59.1",
     "@types/node": "25.6.0",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "autoprefixer": "10.5.0",
+    "electron": "44.0.0",
     "eslint": "9.39.4",
-    "eslint-config-next": "16.2.3",
-    "postcss": "8.5.9",
+    "eslint-config-next": "16.3.3",
+    "postcss": "8.5.26",
     "prisma": "^6.15.0",
     "tailwindcss": "^3.4.17",
     "typescript": "6.0.2"
+  },
+  "allowScripts": {
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "electron-winstaller@5.4.4": true,
+    "prisma@6.19.3": true,
+    "unrs-resolver@1.11.1": true
+  },
+  "overrides": {
+    "@babel/core": "7.29.6",
+    "deepmerge-ts": "8.0.2",
+    "extract-zip": "npm:@electron-internal/extract-zip@1.0.5",
+    "js-yaml": "4.3.2",
+    "minimatch@3.1.5": {
+      "brace-expansion": "1.1.18"
+    },
+    "minimatch@10.2.5": {
+      "brace-expansion": "5.0.9"
+    },
+    "tar": "7.5.22",
+    "tmp": "0.2.7"
   }
 }

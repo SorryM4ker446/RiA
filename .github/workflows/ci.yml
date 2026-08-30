@@ -42,7 +42,10 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npx --yes npm@11.19.1 ci
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=low
 
       - name: Generate Prisma client
         run: npm run db:generate
@@ -75,3 +78,60 @@ jobs:
             test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  desktop:
+    name: Build and smoke-test Windows desktop package
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    env:
+      CI: "true"
+      APP_RUNTIME: test
+      AUTH_DISABLED: "1"
+      LOCAL_DATABASE_FILE: .desktop-data/ci-desktop/${{ github.run_id }}-${{ github.run_attempt }}/app.db
+      OPENROUTER_API_KEY: ""
+      TAVILY_API_KEY: ""
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npx --yes npm@11.19.1 ci
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Test desktop paths and migrations
+        run: npm run test:desktop
+
+      - name: Build standalone desktop runtime
+        run: npm run desktop:build
+
+      - name: Smoke-test Electron with standalone runtime
+        run: npm run test:desktop:smoke
+
+      - name: Create Windows installer
+        run: npx electron-forge make --platform win32 --arch x64
+
+      - name: Verify and smoke-test packaged application
+        run: |
+          npm run desktop:verify
+          npm run test:desktop:package
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: private-ai-assistant-windows-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            out/make/squirrel.windows/x64/*.exe
+            out/make/squirrel.windows/x64/*.nupkg
+            out/make/squirrel.windows/x64/RELEASES
+          if-no-files-found: error
+          retention-days: 14
