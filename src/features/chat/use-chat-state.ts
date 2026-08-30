@@ -31,6 +31,7 @@ export function useChatState() {
   const [input, setInput] = useState("");
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [historyState, setHistoryState] = useState<{ chatId: string; status: "loading" | "ready" | "error" } | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<DeleteTarget | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -58,6 +59,15 @@ export function useChatState() {
     transport,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
   });
+  type PendingSend = {
+    chatId: string;
+    message: Parameters<typeof sendMessage>[0];
+    options: Parameters<typeof sendMessage>[1];
+    resolve: () => void;
+    reject: (error: Error) => void;
+  };
+  const [pendingSend, setPendingSend] = useState<PendingSend | null>(null);
+  const claimedSendRef = useRef<PendingSend | null>(null);
   const {
     tasks, taskStatusFilter, isLoadingTasks, taskPanelError, isTaskListExpanded, filteredTasks,
     visibleTasks, hasHiddenTasks, setTaskStatusFilter, setIsTaskListExpanded, loadTasks,
@@ -75,6 +85,7 @@ export function useChatState() {
     manualToolSelectValue, isManualToolSelected, runManualTool,
   } = useTools({ setMessages, ensureActiveChatId, loadChats, selectedChatModel, modelMode, selectedManualTool, setSelectedManualTool, loadTasks, taskStatusFilter });
   const isPending =
+    pendingSend !== null ||
     status === "submitted" ||
     status === "streaming" ||
     isGeneratingImage ||
@@ -105,6 +116,7 @@ export function useChatState() {
     setOlderMessagesCursor(null);
     setIsLoadingOlderMessages(false);
     setIsLoadingHistory(false);
+    setHistoryState(null);
     setMessages([]);
     setImageByMessageId({});
     setVideoByMessageId({});
@@ -114,6 +126,7 @@ export function useChatState() {
     const requestId = latestHistoryRequestRef.current + 1;
     latestHistoryRequestRef.current = requestId;
     setIsLoadingHistory(true);
+    setHistoryState({ chatId, status: "loading" });
     olderRequestRef.current = false;
     setOlderMessagesCursor(null);
     setIsLoadingOlderMessages(false);
@@ -128,8 +141,10 @@ export function useChatState() {
       setImageByMessageId(mapped.imageMap);
       setVideoByMessageId(mapped.videoMap);
       setOlderMessagesCursor(payload.pageInfo?.nextCursor ?? null);
+      setHistoryState({ chatId, status: "ready" });
     } catch (loadError) {
       if (latestHistoryRequestRef.current === requestId) {
+        setHistoryState({ chatId, status: "error" });
         setPageError(loadError instanceof Error ? loadError.message : "读取历史消息失败");
       }
     } finally {
@@ -397,31 +412,14 @@ export function useChatState() {
 
     try {
       const chatId = await ensureActiveChatId(content || "聊天消息");
-
-      if (hasAttachments) {
-        if (hasContent) {
-          await sendMessage(
-            { text: content, files: uploadParts },
-            {
-              body: { chatId, modelId: selectedChatModel, manualToolsOnly, mode: "chat" },
-            },
-          );
-        } else {
-          await sendMessage(
-            { files: uploadParts },
-            {
-              body: { chatId, modelId: selectedChatModel, manualToolsOnly, mode: "chat" },
-            },
-          );
-        }
-      } else {
-        await sendMessage(
-          { text: content },
-          {
-            body: { chatId, modelId: selectedChatModel, manualToolsOnly, mode: "chat" },
-          },
-        );
-      }
+      // Activating a new conversation replaces the SDK Chat instance. Send only
+      // after that instance and its initial history are ready, not through draft's closure.
+      await new Promise<void>((resolve, reject) => setPendingSend({
+        chatId,
+        message: hasAttachments ? { ...(hasContent ? { text: content } : {}), files: uploadParts } : { text: content },
+        options: { body: { chatId, modelId: selectedChatModel, manualToolsOnly, mode: "chat" } },
+        resolve, reject,
+      }));
 
       clearAttachments();
       await loadChats();
@@ -440,6 +438,20 @@ export function useChatState() {
       void onSubmit(event as unknown as FormEvent<HTMLFormElement>);
     }
   }
+
+  useEffect(() => {
+    if (!pendingSend || claimedSendRef.current === pendingSend) return;
+    if (activeChatId !== pendingSend.chatId || (historyState?.chatId === pendingSend.chatId && historyState.status === "error")) {
+      claimedSendRef.current = pendingSend;
+      setPendingSend(null);
+      pendingSend.reject(new Error("会话已切换或历史加载失败，请重新加载会话后再发送。"));
+      return;
+    }
+    if (historyState?.chatId !== pendingSend.chatId || historyState.status !== "ready" || isLoadingHistory) return;
+    claimedSendRef.current = pendingSend;
+    setPendingSend(null);
+    void sendMessage(pendingSend.message, pendingSend.options).then(pendingSend.resolve, pendingSend.reject);
+  }, [activeChatId, historyState, isLoadingHistory, pendingSend, sendMessage]);
 
   function appendQuickPrompt(prompt: string) {
     setInput((prev) => {
