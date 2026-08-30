@@ -37,6 +37,10 @@ try {
         create: {
           title: `Task ${marker}`,
           priority: "high",
+          dueDate: new Date("2026-09-01T00:00:00Z"),
+          timeZone: "Asia/Shanghai",
+          reminderEnabled: true,
+          repeatRule: "daily",
         },
       },
     },
@@ -56,7 +60,12 @@ try {
     stored.chats.length !== 1 ||
     stored.chats[0].messages.length !== 1 ||
     stored.memories.length !== 1 ||
-    stored.tasks.length !== 1
+    stored.tasks.length !== 1 ||
+    stored.tasks[0].timeZone !== "Asia/Shanghai" ||
+    stored.tasks[0].reminderEnabled !== true ||
+    stored.tasks[0].repeatRule !== "daily" ||
+    stored.tasks[0].remindedAt !== null ||
+    stored.tasks[0].repeatGenerated !== false
   ) {
     throw new Error("Local database relations were not persisted as expected.");
   }

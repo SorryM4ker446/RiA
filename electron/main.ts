@@ -8,6 +8,8 @@ import {
   dialog,
   ipcMain,
   Menu,
+  Notification,
+  powerMonitor,
   session,
   type IpcMainInvokeEvent,
 } from "electron";
@@ -18,6 +20,8 @@ import { resolveDesktopPaths, toSqliteUrl, type DesktopPaths } from "./paths";
 import { configureDesktopSession, secureBrowserWindow } from "./security";
 import { DesktopSettingsStore, type DesktopSettingsInput } from "./settings";
 import { handleSquirrelStartupEvent } from "./squirrel";
+import { createTaskNotificationDelivery, TaskReminderPoller, type TaskReminder } from "./task-reminders";
+import { seedTaskReminderSmoke } from "./task-reminders-smoke";
 
 const PRODUCT_NAME = "Private AI Assistant";
 const DESKTOP_COOKIE_NAME = "desktop_session";
@@ -49,6 +53,15 @@ let desktopSessionToken = "";
 let serverPort = 0;
 let isQuitting = false;
 let restartInProgress: Promise<void> | null = null;
+let reminderPoller: TaskReminderPoller | null = null;
+const smokeReminders: TaskReminder[] = [];
+
+function focusMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
 
 function assertTrustedIpcSender(event: IpcMainInvokeEvent) {
   if (!nextServer) throw new Error("Desktop service is not ready.");
@@ -114,12 +127,14 @@ async function restartLocalService() {
   restartInProgress = (async () => {
     if (!logger) return;
     logger.info("Restarting local Next.js service after settings update");
+    await reminderPoller?.stop();
     if (nextServer) await nextServer.stop();
     nextServer = await launchNextServer();
     await setDesktopCookie(nextServer.origin);
     if (mainWindow && !mainWindow.isDestroyed()) {
       await mainWindow.loadURL(`${nextServer.origin}/settings?saved=1`);
     }
+    reminderPoller?.start();
   })().finally(() => {
     restartInProgress = null;
   });
@@ -137,6 +152,7 @@ function registerIpcHandlers() {
       dataDirectory: dirname(desktopPaths.databaseFile),
       mediaDirectory: desktopPaths.mediaDirectory,
       logFile: desktopPaths.logFile,
+      notificationsSupported: Notification.isSupported(),
     };
   });
 
@@ -306,8 +322,26 @@ async function runSmokeAssertion() {
     importedDocuments.push({ id, expected: fixture.expected, pageNumber: fixture.pageNumber });
   }
 
+  await reminderPoller?.poll();
+  const reminderId = seedTaskReminderSmoke(desktopPaths.databaseFile, conversationId);
+  await reminderPoller?.poll();
+  await reminderPoller?.poll();
+  if (smokeReminders.filter(task => task.id === reminderId).length !== 1) throw new Error("Desktop task notification was missing or duplicated");
+  const completeReminder = () => fetch(`${nextServer!.origin}/api/tasks/${reminderId}`, {
+    method: "PATCH", headers: { Cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ status: "done" }),
+  });
+  const completed = await completeReminder();
+  const completion = await completed.json() as { nextTask?: { id: string; dueDate: string; reminderEnabled: boolean } };
+  if (!completed.ok || !completion.nextTask?.reminderEnabled || Date.parse(completion.nextTask.dueDate) <= Date.now()) throw new Error("Desktop recurring task did not create a future reminder");
+
   await restartLocalService();
   if (!nextServer) throw new Error("Desktop service did not restart.");
+  await reminderPoller?.poll();
+  if (smokeReminders.filter(task => task.id === reminderId).length !== 1) throw new Error("Desktop reminder replayed after service restart");
+  const repeatedCompletion = await completeReminder();
+  if (!repeatedCompletion.ok || (await repeatedCompletion.json() as { nextTask?: unknown }).nextTask !== null) throw new Error("Desktop task completion replay created a duplicate");
+  const nextReminder = await fetch(`${nextServer.origin}/api/tasks/${completion.nextTask.id}`, { headers: { Cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}` } });
+  if (!nextReminder.ok) throw new Error("Desktop recurring task did not survive restart");
   const persistedResponse = await fetch(`${nextServer.origin}/api/conversations`, {
     headers: { Cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}` },
   });
@@ -374,20 +408,26 @@ async function bootstrap() {
   const settings = await settingsStore.getView();
   const initialPath = packagedRuntime && !settings.hasOpenrouterApiKey ? "/settings?welcome=1" : "/chat";
   mainWindow = await createMainWindow(initialPath);
+  reminderPoller = new TaskReminderPoller({
+    connection: () => nextServer ? { origin: nextServer.origin, cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}` } : null,
+    supported: () => smokeTest || Notification.isSupported(),
+    deliver: smokeTest ? task => { smokeReminders.push(task); } : createTaskNotificationDelivery(Notification, focusMainWindow, logger),
+    logger,
+  });
+  reminderPoller.start();
+  powerMonitor.on("resume", () => { void reminderPoller?.poll(); });
 
   if (smokeTest) {
     await runSmokeAssertion();
     isQuitting = true;
+    await reminderPoller.stop();
     await nextServer.stop();
     app.exit(0);
   }
 }
 
 app.on("second-instance", () => {
-  if (!mainWindow) return;
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.show();
-  mainWindow.focus();
+  focusMainWindow();
 });
 
 app.on("activate", () => {
@@ -407,7 +447,7 @@ app.on("before-quit", (event) => {
   if (isQuitting || !nextServer) return;
   event.preventDefault();
   isQuitting = true;
-  void nextServer.stop().finally(() => app.exit(0));
+  void (async () => { await reminderPoller?.stop(); await nextServer?.stop(); })().finally(() => app.exit(0));
 });
 
 if (singleInstanceLock && !squirrelEventHandled) {
@@ -416,6 +456,6 @@ if (singleInstanceLock && !squirrelEventHandled) {
     logger?.error("Desktop application failed to start", error);
     if (!smokeTest) dialog.showErrorBox(`${PRODUCT_NAME} failed to start`, `${message}\n\nSee the desktop log for details.`);
     isQuitting = true;
-    void nextServer?.stop().finally(() => app.exit(1));
+    void (async () => { await reminderPoller?.stop(); await nextServer?.stop(); })().finally(() => app.exit(1));
   });
 }

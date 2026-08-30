@@ -192,8 +192,10 @@ async function buildSearchAssistantText(params: {
 }
 
 function buildCreateTaskAssistantText(result: Awaited<ReturnType<typeof createTask>>): string {
-  const due = result.dueDate ? `，截止时间 ${new Date(result.dueDate).toLocaleString("zh-CN")}` : "";
-  return `已创建任务「${result.title}」${due}，当前状态为 ${result.status}。`;
+  const due = result.dueDate ? `，截止时间 ${new Date(result.dueDate).toLocaleString("zh-CN", { timeZone: result.timeZone })}（${result.timeZone}）` : "";
+  const reminder = result.reminderEnabled ? "，桌面运行时到期提醒" : "";
+  const repeat = result.repeatRule !== "none" ? `，重复规则 ${result.repeatRule}（完成后续建）` : "";
+  return `已创建任务「${result.title}」${due}${reminder}${repeat}，当前状态为 ${result.status}。`;
 }
 
 function buildWebSearchFallbackText(result: Awaited<ReturnType<typeof runWebSearch>>): string {
@@ -369,7 +371,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
   createTask: {
     id: "createTask",
     displayName: "创建任务",
-    description: "为当前用户创建任务，支持详情、优先级和截止时间。",
+    description: "为当前用户创建任务，支持截止时间、IANA timeZone（默认 UTC）、reminderEnabled 桌面到期提醒和 repeatRule（none/daily/weekly/monthly，完成后续建）。提醒和重复都需要 dueDate；无偏移时间按 timeZone 解释。",
     modeSupport: ["chat"],
     requiresApproval: true,
     manual: {

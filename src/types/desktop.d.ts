@@ -14,6 +14,7 @@ type DesktopRuntimeInfo = {
   dataDirectory: string;
   mediaDirectory: string;
   logFile: string;
+  notificationsSupported: boolean;
 };
 
 type DesktopSettingsInput = {

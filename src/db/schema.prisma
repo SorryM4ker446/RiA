@@ -118,6 +118,12 @@ model Task {
   title     String
   details   String?
   dueDate   DateTime?
+  timeZone  String       @default("UTC")
+  reminderEnabled Boolean @default(false)
+  remindedAt DateTime?
+  repeatRule String      @default("none")
+  repeatAnchor DateTime?
+  repeatGenerated Boolean @default(false)
   priority  TaskPriority @default(medium)
   status    TaskStatus   @default(todo)
   createdAt DateTime     @default(now())
@@ -125,6 +131,7 @@ model Task {
   user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, status, createdAt])
+  @@index([userId, reminderEnabled, remindedAt, dueDate])
   @@map("tasks")
 }
 

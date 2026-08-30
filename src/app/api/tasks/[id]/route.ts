@@ -1,40 +1,13 @@
 import { readJsonBody } from "@/lib/server/request-body";
 import { NextRequest } from "next/server";
-import { z } from "zod";
 import { db } from "@/db";
 import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { requireRequestUser } from "@/lib/auth/request-user";
-
-const updateTaskSchema = z
-  .strictObject({
-    title: z.string().trim().min(1).max(120).optional(),
-    details: z.string().max(2000).nullable().optional(),
-    dueDate: z.string().max(100).nullable().optional(),
-    priority: z.enum(["low", "medium", "high"]).optional(),
-    status: z.enum(["todo", "in_progress", "done"]).optional(),
-  })
-  .refine((value) => Object.keys(value).length > 0, {
-    message: "At least one field is required",
-  });
+import { updateTask, updateTaskSchema } from "@/lib/tasks/service";
 
 type Params = {
   params: Promise<{ id: string }>;
 };
-
-function parseDueDate(value: string | null | undefined): Date | null | undefined {
-  if (value === undefined) return undefined;
-  if (value === null) return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const date = new Date(trimmed);
-  if (Number.isNaN(date.getTime())) {
-    throw new ApiError({
-      code: "VALIDATION_ERROR",
-      message: "Invalid dueDate",
-    });
-  }
-  return date;
-}
 
 async function getScopedTask(userId: string, taskId: string) {
   return db.task.findFirst({
@@ -79,27 +52,7 @@ export async function PATCH(req: NextRequest, context: Params) {
       });
     }
 
-    const existing = await getScopedTask(user.id, id);
-    if (!existing) {
-      throw new ApiError({
-        code: "NOT_FOUND",
-        message: "Task not found",
-      });
-    }
-
-    const dueDate = parseDueDate(parsed.data.dueDate);
-    const updated = await db.task.update({
-      where: { id },
-      data: {
-        ...(parsed.data.title !== undefined ? { title: parsed.data.title.trim() } : {}),
-        ...(parsed.data.details !== undefined ? { details: parsed.data.details?.trim() || null } : {}),
-        ...(dueDate !== undefined ? { dueDate } : {}),
-        ...(parsed.data.priority ? { priority: parsed.data.priority } : {}),
-        ...(parsed.data.status ? { status: parsed.data.status } : {}),
-      },
-    });
-
-    return Response.json({ data: updated });
+    return Response.json(await updateTask(user.id, id, parsed.data));
   } catch (error) {
     console.error("/api/tasks/[id] PATCH error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to update task");

@@ -43,6 +43,8 @@ npm run desktop:dev
 
 Electron starts and stops the local Next.js development service automatically. Use the desktop Settings page to store API keys with Windows encryption.
 
+Task-panel **设置时间与提醒** supports time zones, due notifications and daily/weekly/monthly recurrence. Notifications require the desktop app to remain running; repetition creates the next task when the current one is completed. See [Task reminders](docs/task-reminders.md) for delivery and calendar rules.
+
 ## Build and package
 
 ```powershell
