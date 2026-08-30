@@ -1,5 +1,21 @@
 import { UIMessage } from "ai";
 import type { SearchSourceItem, TaskItem } from "@/features/chat/types";
+import { documentSourceSchema, type DocumentSource } from "@/lib/documents/types";
+
+export function getDocumentSources(message: UIMessage): DocumentSource[] {
+  if (message.role !== "assistant") return [];
+  const metadata = message.metadata as { documentSources?: unknown } | undefined;
+  const candidates: unknown[] = Array.isArray(metadata?.documentSources) ? metadata.documentSources.slice(0, 8) : [];
+  for (const part of message.parts) {
+    if (part.type !== "tool-searchKnowledge" || part.state !== "output-available") continue;
+    const output = part.output as { results?: { reference?: unknown }[] } | undefined;
+    if (Array.isArray(output?.results)) candidates.push(...output.results.slice(0, 8).map(item => item?.reference));
+  }
+  return [...new Map(candidates.flatMap(source => {
+    const result = documentSourceSchema.safeParse(source);
+    return result.success ? [[result.data.chunkId, result.data] as const] : [];
+  })).values()].slice(0, 8);
+}
 
 export function resolveMessageSourceTag(params: {
   role: UIMessage["role"];

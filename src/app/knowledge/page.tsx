@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils/cn";
+import { DocumentLibrary } from "@/features/knowledge/document-library";
 
 type KnowledgeEntry = {
   id: string;
@@ -150,6 +151,7 @@ export default function KnowledgePage() {
         </Alert>
       ) : null}
 
+      <DocumentLibrary />
       <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
         <Card className="glass-surface h-fit">
           <CardHeader>

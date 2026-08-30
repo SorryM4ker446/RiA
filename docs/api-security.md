@@ -23,15 +23,15 @@ Business handlers return errors as JSON with `Cache-Control: no-store`:
 | `FORBIDDEN` | 403 | Host, desktop Cookie or browser origin check failed |
 | `NOT_FOUND` | 404 | Missing resource, including resources owned by another user |
 | `CONFLICT` | 409 | Duplicate account/identifier, stale tool approval, concurrent edit or referenced media |
-| `PAYLOAD_TOO_LARGE` | 413 | Request byte limit exceeded |
+| `PAYLOAD_TOO_LARGE` | 413 | Request bytes or extracted document limits exceeded |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | A JSON or multipart endpoint received the wrong Content-Type |
 | `RANGE_NOT_SATISFIABLE` | 416 | Invalid media byte range; includes Content-Range |
 | `RATE_LIMITED` | 429 | Local quota exhausted; includes Retry-After and details.retryAfterSeconds |
 | `INTERNAL_ERROR` | 500 | Unexpected application/storage failure, without internal diagnostics |
 | `UPSTREAM_FAILED` | 502 | Model or external service failure |
 | `CONFIGURATION_ERROR` | 503 | Required service configuration is missing or invalid |
-| `SERVICE_UNAVAILABLE` | 503 | SQLite query/connection wait timed out |
-| `TIMEOUT` | 504 | Upstream operation timed out |
+| `SERVICE_UNAVAILABLE` | 503 | SQLite query/connection wait timed out or document parsers are busy |
+| `TIMEOUT` | 504 | Upstream operation or document parsing timed out |
 
 The order is Host/Origin/desktop boundary, user authentication, applicable quota, limited body reading and schema validation, resource/configuration checks, then business work. Login and registration use the same flow without a pre-existing user session. Logout is idempotent and accepts an absent/expired session after the origin check. Health requires a valid desktop Host but no desktop Cookie.
 
@@ -58,6 +58,9 @@ Existing media limits remain: four attachments per message, PNG/JPEG/WebP/GIF on
 | Image generation | User | 6 requests / minute |
 | Video generation | User | 3 requests / minute |
 | Attachment upload | User | 20 requests / minute |
+| Document import/reindex | User, shared between both operations | 6 attempts / minute |
+
+Document-only search shares the tool request quota. Document uploads reuse the limited stream reader with a narrower 9 MiB body/8 MiB file allowance. Extraction has worker, timeout, expanded-size and per-user document limits; see [Document knowledge](document-knowledge.md). The existing attachment/Proxy limits are not increased.
 
 Invalid requests and configuration failures consume the applicable quota. Rejected requests do not extend its window. Unauthenticated protected requests never use a user's quota. Login and registration deliberately do not trust `X-Forwarded-For` or `X-Real-IP`: changing an address or email cannot bypass the service budget. The in-memory store holds at most 2,000 active keys and refuses new keys while full instead of evicting existing quotas. Expired entries are reclaimed.
 

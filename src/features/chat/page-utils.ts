@@ -197,6 +197,7 @@ export function mapStoredMessagesToUI(messages: StoredMessage[]): {
       return {
         id: uiMessageId,
         role: message.role,
+        ...(parsedAssistantToolMessage.documentSources?.length ? { metadata: { documentSources: parsedAssistantToolMessage.documentSources } } : {}),
         parts: parts.length > 0 ? parts : [{ type: "text", text: "(工具调用消息)" }],
       } satisfies UIMessage;
     }

@@ -19,6 +19,7 @@ model User {
   tasks        Task[]
   sessions     Session[]
   mediaAssets  MediaAsset[]
+  documents    KnowledgeDocument[]
 
   @@map("users")
 }
@@ -125,6 +126,52 @@ model Task {
 
   @@index([userId, status, createdAt])
   @@map("tasks")
+}
+
+model KnowledgeDocument {
+  id           String   @id @default(cuid())
+  userId       String
+  filename     String
+  format       String
+  byteSize     Int
+  contentHash  String
+  pages        Json
+  characterCount Int
+  indexVersion Int
+  indexedAt    DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chunks       DocumentChunk[]
+
+  @@unique([userId, filename])
+  @@index([userId, updatedAt, id])
+  @@map("knowledge_documents")
+}
+
+model DocumentChunk {
+  id         String @id @default(cuid())
+  documentId String
+  chunkKey   String
+  ordinal    Int
+  pageNumber Int?
+  text       String
+  document   KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  terms      DocumentTerm[]
+
+  @@unique([documentId, chunkKey])
+  @@index([documentId, ordinal])
+  @@map("document_chunks")
+}
+
+model DocumentTerm {
+  chunkId String
+  term    String
+  chunk   DocumentChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+
+  @@id([chunkId, term])
+  @@index([term, chunkId])
+  @@map("document_terms")
 }
 
 enum MessageRole {

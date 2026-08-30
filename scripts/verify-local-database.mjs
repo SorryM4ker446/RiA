@@ -68,14 +68,24 @@ try {
   }, include: { references: true } });
   if (asset.references.length !== 1) throw new Error("Media references were not persisted.");
 
+  const document = await db.knowledgeDocument.create({ data: {
+    userId: user.id, filename: "database-check.txt", format: "txt", byteSize: 5,
+    contentHash: marker, pages: [{ pageNumber: null, text: "Local document" }], characterCount: 14, indexVersion: 1,
+    chunks: { create: { chunkKey: marker, ordinal: 0, text: "Local document", terms: { create: [{ term: "local" }, { term: "document" }] } } },
+  }, include: { chunks: { include: { terms: true } } } });
+  if (document.chunks.length !== 1 || document.chunks[0].terms.length !== 2) throw new Error("Document index relations were not persisted.");
+
   await db.user.delete({ where: { id: user.id } });
   const remainingChats = await db.chat.count({ where: { userId: user.id } });
   const remainingMemories = await db.memory.count({ where: { userId: user.id } });
   const remainingTasks = await db.task.count({ where: { userId: user.id } });
   const remainingAssets = await db.mediaAsset.count({ where: { userId: user.id } });
   const remainingReferences = await db.messageMedia.count({ where: { assetId: marker } });
+  const remainingDocuments = await db.knowledgeDocument.count({ where: { userId: user.id } });
+  const remainingChunks = await db.documentChunk.count({ where: { documentId: document.id } });
+  const remainingTerms = await db.documentTerm.count({ where: { chunkId: document.chunks[0].id } });
 
-  if (remainingChats !== 0 || remainingMemories !== 0 || remainingTasks !== 0 || remainingAssets !== 0 || remainingReferences !== 0) {
+  if (remainingChats !== 0 || remainingMemories !== 0 || remainingTasks !== 0 || remainingAssets !== 0 || remainingReferences !== 0 || remainingDocuments !== 0 || remainingChunks !== 0 || remainingTerms !== 0) {
     throw new Error("Local database cascade deletion did not remove related records.");
   }
 

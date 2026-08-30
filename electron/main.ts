@@ -292,6 +292,20 @@ async function runSmokeAssertion() {
   if (!messageResponse.ok) throw new Error("Desktop media reference did not persist");
   if ((await fetch(`${nextServer.origin}${asset.url}`)).status !== 403) throw new Error("Desktop media allowed unauthenticated access");
 
+  const documentFixtures = JSON.parse(process.env.DESKTOP_SMOKE_DOCUMENTS || "[]") as Array<{ filename: string; data: string; expected: string; pageNumber: number | null }>;
+  if (documentFixtures.length !== 2) throw new Error("Desktop document smoke fixtures are missing");
+  const importedDocuments: { id: string; expected: string; pageNumber: number | null }[] = [];
+  for (const fixture of documentFixtures) {
+    const documentForm = new FormData();
+    documentForm.append("file", new Blob([Buffer.from(fixture.data, "base64")]), fixture.filename);
+    const imported = await fetch(`${nextServer.origin}/api/documents`, { method: "POST", headers: { Cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}` }, body: documentForm });
+    const payload = await imported.json() as { data?: { document?: { id?: string } } };
+    if (!imported.ok || !payload.data?.document?.id) throw new Error(`Desktop document import failed (${fixture.filename}, ${imported.status})`);
+    const id = payload.data.document.id;
+    if ((await fetch(`${nextServer.origin}/api/documents/${id}`)).status !== 403) throw new Error("Desktop document allowed unauthenticated access");
+    importedDocuments.push({ id, expected: fixture.expected, pageNumber: fixture.pageNumber });
+  }
+
   await restartLocalService();
   if (!nextServer) throw new Error("Desktop service did not restart.");
   const persistedResponse = await fetch(`${nextServer.origin}/api/conversations`, {
@@ -303,6 +317,14 @@ async function runSmokeAssertion() {
   }
   const persistedMedia = await fetch(`${nextServer.origin}${asset.url}`, { headers: { Cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}` } });
   if (!persistedMedia.ok || !Buffer.from(await persistedMedia.arrayBuffer()).equals(mediaBytes)) throw new Error("Desktop media did not survive a service restart");
+  for (const document of importedDocuments) {
+    const retained = await fetch(`${nextServer.origin}/api/documents/${document.id}`, { headers: { Cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}` } });
+    const payload = await retained.json() as { data?: { chunks?: Array<{ text: string; pageNumber: number | null }> } };
+    if (!retained.ok || !payload.data?.chunks?.some(chunk => chunk.text.includes(document.expected) && chunk.pageNumber === document.pageNumber)) throw new Error("Desktop document did not survive a service restart");
+    const search = await fetch(`${nextServer.origin}/api/documents/search`, { method: "POST", headers: { Cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ query: document.expected }) });
+    const results = await search.json() as { data?: Array<{ documentId: string }> };
+    if (!search.ok || !results.data?.some(result => result.documentId === document.id)) throw new Error("Desktop document index did not survive a service restart");
+  }
   const log = readFileSync(desktopPaths.logFile, "utf8");
   if (!log.includes("Next stdout") || log.includes(`desktop-smoke-key-${process.pid}`) || statSync(desktopPaths.logFile).size > DESKTOP_LOG_LIMITS.maxBytes) {
     throw new Error("Desktop service output did not use bounded, redacted logging");

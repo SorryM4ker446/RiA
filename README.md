@@ -7,6 +7,7 @@ Private AI Assistant is a local-first AI assistant built with Next.js, Vercel AI
 - Streaming, persisted multi-turn chat through OpenRouter
 - Local conversations, messages, memories, knowledge, and tasks
 - Semantic knowledge retrieval with keyword fallback
+- PDF, Markdown, text and Word `.docx` knowledge import with local indexing and cited excerpts
 - Tavily web search and tool-call approval flows
 - Image and video generation modes
 - Windows desktop shell with encrypted API-key storage
@@ -76,6 +77,8 @@ See [Desktop development and release](docs/desktop.md) for data paths, security 
 
 Images, videos, and attachments use private file-backed media assets instead of inline message data. Open **存储管理** from the chat header to inspect disk usage and clean expired unreferenced files. See [Media storage and migration](docs/media-storage.md) for limits, API changes, legacy-data handling, and backup requirements.
 
+Open **知识库管理** to import, update, search, reindex or delete document text. Import and document search are local; relevant snippets are sent to the configured model when chatting. See [Document knowledge](docs/document-knowledge.md) for supported formats, citations, retention and limits.
+
 ## Project layout
 
 - `electron`: desktop main process, preload bridge, migrations, settings, and security
@@ -83,6 +86,7 @@ Images, videos, and attachments use private file-backed media assets instead of 
 - `src/features/chat`: browser API client, conversation/media/tool hooks, and chat views
 - `src/lib/chat`: validated chat requests, model context, tool intent, streaming, and persistence
 - `src/lib/memory`: memory storage and shared retrieval/scoring policies
+- `src/lib/documents`: bounded extraction workers, incremental document indexing and source retrieval
 - `src/db`: Prisma schema and SQLite migrations
 - `src/tools`: tool definitions and registry
 - `scripts`: local database, desktop build, packaging, and verification helpers

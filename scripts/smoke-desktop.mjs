@@ -3,6 +3,7 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveInstalledElectron } from "./resolve-installed-electron.mjs";
+import { textPdf, wordDocument } from "../tests/helpers/document-fixtures.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packageVersion = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")).version;
@@ -17,6 +18,10 @@ const electronExecutable = installed
     : resolveInstalledElectron();
 const testRoot = join(repositoryRoot, ".desktop-data", "test", `electron-smoke-${process.pid}-${Date.now()}`);
 const expectedParent = resolve(repositoryRoot, ".desktop-data", "test");
+const documentFixtures = JSON.stringify([
+  { filename: "support.pdf", data: textPdf().toString("base64"), expected: "Aurora support hours", pageNumber: 1 },
+  { filename: "release.docx", data: (await wordDocument()).toString("base64"), expected: "回滚窗口", pageNumber: null },
+]);
 
 if (!existsSync(join(repositoryRoot, ".desktop-runtime", "server.js"))) {
   throw new Error("Desktop runtime is missing. Run npm run desktop:build first.");
@@ -39,6 +44,7 @@ const child = spawn(
     DESKTOP_USER_DATA_DIR: testRoot,
     DESKTOP_DATA_DIR: development ? join(testRoot, "data") : "",
     DESKTOP_NODE_EXECUTABLE: process.execPath,
+    DESKTOP_SMOKE_DOCUMENTS: documentFixtures,
   },
   stdio: "inherit",
   windowsHide: true,

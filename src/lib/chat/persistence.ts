@@ -11,6 +11,7 @@ import { ApiError, normalizeApiError } from "@/lib/server/api-error";
 import { type UIMessage } from "ai";
 import { persistResponseToolMemories } from "@/lib/chat/memory";
 import type { ChatRequest } from "@/lib/chat/request";
+import type { DocumentSource } from "@/lib/documents/types";
 async function getOrCreateChat(params: {
   requestedChatId?: string;
   userId: string;
@@ -109,7 +110,7 @@ export async function prepareChatPersistence(input: ChatRequest, userId: string)
   return { chat, regenerationSnapshot };
 }
 export type ChatPersistence = Awaited<ReturnType<typeof prepareChatPersistence>>;
-export async function persistChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; userId: string; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean }) {
+export async function persistChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; userId: string; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; documentSources?: DocumentSource[] }) {
   const { input, conversation, userId, responseMessage, isAborted, generationFailed } = params;
   const { latestUserMessage, modelId } = input;
   const { chat, regenerationSnapshot } = conversation;
@@ -117,11 +118,12 @@ export async function persistChatResponse(params: { input: ChatRequest; conversa
     const assistantText = getTextFromUIMessage(responseMessage).trim();
     const toolItems = getToolItemsFromResponseMessage(responseMessage);
     const content =
-      toolItems.length > 0
+      toolItems.length > 0 || (params.documentSources?.length && assistantText)
         ? encodePersistedAssistantToolMessage({
           type: "assistant-tool-message",
           text: assistantText,
           tools: toolItems,
+          ...(params.documentSources?.length ? { documentSources: params.documentSources } : {}),
         })
         : assistantText;
 
@@ -163,4 +165,3 @@ export async function persistChatResponse(params: { input: ChatRequest; conversa
     throw normalizeApiError(persistError, "回答保存失败，请重新加载会话后重试。");
   }
 }
-

@@ -1,4 +1,5 @@
 import { UIMessage } from "ai";
+import { documentSourceSchema, type DocumentSource } from "@/lib/documents/types";
 
 export type PersistedFilePart = {
   url: string;
@@ -28,6 +29,7 @@ export type PersistedAssistantToolMessagePayload = {
   type: "assistant-tool-message";
   text: string;
   tools: PersistedAssistantToolItem[];
+  documentSources?: DocumentSource[];
 };
 
 export const USER_MESSAGE_PREFIX = "__USER_MESSAGE__:";
@@ -165,6 +167,10 @@ export function decodePersistedAssistantToolMessage(
       type: "assistant-tool-message",
       text: parsed.text,
       tools,
+      ...(Array.isArray(parsed.documentSources) ? { documentSources: parsed.documentSources.slice(0, 8).flatMap(source => {
+        const result = documentSourceSchema.safeParse(source);
+        return result.success ? [result.data] : [];
+      }) } : {}),
     };
   } catch {
     return null;

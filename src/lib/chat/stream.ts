@@ -5,7 +5,8 @@ import type { ModelMessage } from "ai";
 import { createUIMessageStream, createUIMessageStreamResponse, stepCountIs, streamText } from "ai";
 import { persistChatResponse, type ChatPersistence } from "@/lib/chat/persistence";
 import type { ChatRequest } from "@/lib/chat/request";
-export function streamChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; userId: string; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal }) {
+import type { DocumentSource } from "@/lib/documents/types";
+export function streamChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; userId: string; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; documentSources?: DocumentSource[] }) {
   const { input, conversation, userId, systemPrompt, modelMessages, toolsEnabled, signal } = params;
   const { modelId, body, messages } = input;
   const { chat } = conversation;
@@ -40,8 +41,9 @@ export function streamChatResponse(params: { input: ChatRequest; conversation: C
   const stream = result.toUIMessageStream({
     onError: (error) => streamError(error instanceof ApiError ? error : new ApiError({ code: "UPSTREAM_FAILED", message: "模型服务暂时不可用，请稍后重试。" })),
     originalMessages: messages,
+    messageMetadata: ({ part }) => part.type === "start" ? { documentSources: params.documentSources ?? [] } : undefined,
     onFinish: async ({ responseMessage, isAborted }) => {
-      await persistChatResponse({ input, conversation, userId, responseMessage, isAborted, generationFailed });
+      await persistChatResponse({ input, conversation, userId, responseMessage, isAborted, generationFailed, documentSources: params.documentSources });
     },
   });
   return createUIMessageStreamResponse({
@@ -50,4 +52,3 @@ export function streamChatResponse(params: { input: ChatRequest; conversation: C
   });
 
 }
-
