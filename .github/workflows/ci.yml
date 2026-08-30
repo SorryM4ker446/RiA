@@ -121,7 +121,7 @@ jobs:
       - name: Provision Electron runtime for CI
         run: node node_modules/electron/install.js
 
-      - name: Test desktop paths and migrations
+      - name: Test desktop startup, paths and migrations
         run: npm run test:desktop
 
       - name: Build standalone desktop runtime

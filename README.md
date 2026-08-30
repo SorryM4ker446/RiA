@@ -78,7 +78,9 @@ Images, videos, and attachments use private file-backed media assets instead of 
 
 - `electron`: desktop main process, preload bridge, migrations, settings, and security
 - `src/app`: pages and route handlers
-- `src/features`: chat-facing business capabilities
+- `src/features/chat`: browser API client, conversation/media/tool hooks, and chat views
+- `src/lib/chat`: validated chat requests, model context, tool intent, streaming, and persistence
+- `src/lib/memory`: memory storage and shared retrieval/scoring policies
 - `src/db`: Prisma schema and SQLite migrations
 - `src/tools`: tool definitions and registry
 - `scripts`: local database, desktop build, packaging, and verification helpers

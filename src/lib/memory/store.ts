@@ -1,6 +1,7 @@
 import { db } from "@/db";
+import { embedText } from "@/lib/ai/embedding";
 import { Prisma } from "@prisma/client";
-import { cosineSimilarity, embedText, toEmbeddingVector } from "@/lib/ai/embedding";
+import { CONTEXT_MEMORY_POLICY, getMemorySearchCandidates, rankByScore } from "@/lib/memory/retrieval";
 
 export type SaveMemoryInput = {
   userId: string;
@@ -14,61 +15,6 @@ export type GetRelevantMemoriesInput = {
   query: string;
   limit?: number;
 };
-
-type RankedMemory = {
-  id: string;
-  key: string;
-  value: string;
-  score: number | null;
-  updatedAt: Date;
-  relevance: number;
-};
-
-function tokenize(text: string): string[] {
-  return text
-    .toLowerCase()
-    .split(/[^a-z0-9\u4e00-\u9fa5]+/g)
-    .map((token) => token.trim())
-    .filter(Boolean);
-}
-
-function keywordOverlapScore(memoryText: string, queryTokens: string[]): number {
-  if (queryTokens.length === 0) return 0;
-  const overlap = queryTokens.filter((token) => memoryText.includes(token)).length;
-  return overlap / queryTokens.length;
-}
-
-function computeRelevance(params: {
-  memory: {
-    key: string;
-    value: string;
-    score: number | null;
-    embedding: unknown;
-    updatedAt: Date;
-  };
-  queryTokens: string[];
-  queryEmbedding: number[] | null;
-}): number {
-  const { memory, queryTokens, queryEmbedding } = params;
-  const memoryText = `${memory.key} ${memory.value}`.toLowerCase();
-
-  const keywordScore = keywordOverlapScore(memoryText, queryTokens);
-  const memoryEmbedding = toEmbeddingVector(memory.embedding);
-  const semanticScore =
-    queryEmbedding && memoryEmbedding
-      ? Math.max(0, cosineSimilarity(queryEmbedding, memoryEmbedding))
-      : 0;
-
-  // Either a lexical hit or a semantic hit counts; semantic matches are
-  // slightly discounted so exact keyword hits still rank first.
-  const lexicalScore = Math.max(keywordScore, semanticScore * 0.85);
-
-  const daysAgo = (Date.now() - memory.updatedAt.getTime()) / (1000 * 60 * 60 * 24);
-  const recencyBoost = Math.max(0, 1 - daysAgo / 30) * 0.2;
-  const manualScoreBoost = (memory.score ?? 0) * 0.4;
-
-  return lexicalScore + recencyBoost + manualScoreBoost;
-}
 
 export async function saveMemory(input: SaveMemoryInput) {
   const normalizedKey = input.key.trim();
@@ -104,37 +50,8 @@ export async function getRelevantMemories(input: GetRelevantMemoriesInput) {
   if (!query) return [];
 
   const limit = input.limit ?? 5;
-  const queryTokens = tokenize(query);
-  const queryEmbedding = await embedText(query);
-
-  const memories = await db.memory.findMany({
-    where: { userId: input.userId },
-    orderBy: [{ updatedAt: "desc" }],
-    take: 100,
-  });
-
-  const ranked: RankedMemory[] = memories
-    .map((memory) => ({
-      id: memory.id,
-      key: memory.key,
-      value: memory.value,
-      score: memory.score,
-      updatedAt: memory.updatedAt,
-      relevance: computeRelevance({
-        memory: {
-          key: memory.key,
-          value: memory.value,
-          score: memory.score,
-          embedding: memory.embedding,
-          updatedAt: memory.updatedAt,
-        },
-        queryTokens,
-        queryEmbedding,
-      }),
-    }))
-    .filter((memory) => memory.relevance > 0)
-    .sort((a, b) => b.relevance - a.relevance)
-    .slice(0, limit);
-
-  return ranked.map(({ relevance: _relevance, ...memory }) => memory);
+  const { candidates } = await getMemorySearchCandidates(input.userId, query, CONTEXT_MEMORY_POLICY);
+  return rankByScore(candidates, (item) => item.relevance, limit).map(({ memory }) => ({
+    id: memory.id, key: memory.key, value: memory.value, score: memory.score, updatedAt: memory.updatedAt,
+  }));
 }

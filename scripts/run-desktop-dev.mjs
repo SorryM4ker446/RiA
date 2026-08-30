@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url);
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const electronExecutable = require("electron");
+console.log("Starting Electron development window. Service startup details are written to desktop.log.");
 const child = spawn(electronExecutable, [join(repositoryRoot, "electron-dist", "main.js")], {
   cwd: repositoryRoot,
   env: {
@@ -16,7 +17,8 @@ const child = spawn(electronExecutable, [join(repositoryRoot, "electron-dist", "
     DESKTOP_NODE_EXECUTABLE: process.execPath,
   },
   stdio: "inherit",
-  windowsHide: true,
+  // Electron owns the visible application window; hiding it suppresses its first show() on Windows.
+  windowsHide: false,
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
