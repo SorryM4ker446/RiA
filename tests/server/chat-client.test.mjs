@@ -1,12 +1,37 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { chatApi, filesToUploadParts, persistConversationMessage } from "@/features/chat/api-client";
+import { chatApi, createChatTransport, filesToUploadParts, persistConversationMessage } from "@/features/chat/api-client";
 
 test("chat API client preserves actionable API errors and handles non-JSON failures", async (t) => {
   t.mock.method(globalThis, "fetch", async () => Response.json({ error: { code: "RATE_LIMITED", message: "Too many requests", details: { retryAfterSeconds: 12 } } }, { status: 429 }));
   await assert.rejects(chatApi.listConversations(), /12 秒后可重试/);
   t.mock.method(globalThis, "fetch", async () => new Response("Bad gateway", { status: 502 }));
   await assert.rejects(chatApi.listMessages("chat"), /读取历史消息失败/);
+});
+
+test("chat transport bounds loaded history while retaining the active turn and regeneration metadata", async (t) => {
+  let sent;
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    sent = JSON.parse(options.body);
+    return new Response("data: [DONE]\n\n", { headers: { "Content-Type": "text/event-stream" } });
+  });
+  const messages = Array.from({ length: 125 }, (_, i) => ({ id: `message-${i}`, role: i % 2 ? "assistant" : "user", parts: [{ type: "text", text: `text-${i}` }] }));
+  const transport = createChatTransport("chat", { selectedChatModel: "model", manualToolsOnly: true, modelMode: "chat" });
+  await transport.sendMessages({ chatId: "sdk-chat", messages, trigger: "regenerate-message", messageId: "message-124" });
+  assert.equal(sent.messages.length, 100);
+  assert.equal(sent.messages.at(-1).id, "message-124");
+  assert.equal(sent.messageId, "message-124");
+  assert.equal(sent.trigger, "regenerate-message");
+  assert.equal(sent.chatId, "chat");
+  assert.equal(sent.manualToolsOnly, true);
+  assert.equal(messages.length, 125);
+});
+
+test("conversation detail lookup distinguishes missing records from transient failures", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => Response.json({ error: { code: "NOT_FOUND", message: "Missing" } }, { status: 404 }));
+  assert.deepEqual(await chatApi.getConversation("missing"), { data: null });
+  t.mock.method(globalThis, "fetch", async () => new Response("Failed", { status: 500 }));
+  await assert.rejects(chatApi.getConversation("existing"), /读取会话失败/);
 });
 
 test("media generation and message persistence send private references without embedded bytes", async (t) => {

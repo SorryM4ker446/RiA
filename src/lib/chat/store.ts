@@ -4,17 +4,24 @@ import { db } from "@/db";
 import { decodePersistedAssistantToolMessage, encodePersistedAssistantToolMessage, truncateTitle } from "@/lib/ai/ui-message";
 import { ApiError } from "@/lib/server/api-error";
 import { migrateMessageMedia, prepareMessageMedia, replaceMessageMedia } from "@/lib/media/messages";
+import { pageResult, type PageOptions } from "@/lib/server/pagination";
 
-export async function listChats(userId: string) {
-  return db.chat.findMany({
-    where: { userId },
-    orderBy: [{ lastMessageAt: "desc" }],
+export async function listChats(userId: string, options: PageOptions) {
+  const cursor = options.cursor;
+  const rows = await db.chat.findMany({
+    where: { userId, ...(cursor ? { OR: [
+      { lastMessageAt: { lt: cursor.date } },
+      { lastMessageAt: cursor.date, id: { lt: cursor.id } },
+    ] } : {}) },
+    orderBy: [{ lastMessageAt: "desc" }, { id: "desc" }],
+    take: options.limit + 1,
     include: {
       _count: {
         select: { messages: true },
       },
     },
   });
+  return pageResult(rows, options, `chats:${userId}`, (row) => row.lastMessageAt);
 }
 
 export async function getChat(userId: string, chatId: string) {
@@ -70,26 +77,21 @@ export async function deleteChat(userId: string, chatId: string) {
   return true;
 }
 
-export async function listChatMessages(userId: string, chatId: string) {
-  const existing = await getChat(userId, chatId);
-  if (!existing) return null;
-
-  const messages = await db.message.findMany({
-    where: { chatId },
-    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-  });
-
-  const migrated = [];
-  for (const message of messages) migrated.push(await migrateMessageMedia(userId, message));
-  return migrated;
-}
-
-export async function getRecentChatMessages(chatId: string, limit = 10) {
-  return db.message.findMany({
-    where: { chatId },
+export async function listChatMessagePage(userId: string, chatId: string, options: PageOptions) {
+  if (!await getChat(userId, chatId)) return null;
+  const cursor = options.cursor;
+  const rows = await db.message.findMany({
+    where: { chatId, ...(cursor ? { OR: [
+      { createdAt: { lt: cursor.date } },
+      { createdAt: cursor.date, id: { lt: cursor.id } },
+    ] } : {}) },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    take: limit,
+    take: options.limit + 1,
   });
+  const page = pageResult(rows, options, `messages:${userId}:${chatId}`, (row) => row.createdAt);
+  const data = [];
+  for (const message of page.data.reverse()) data.push(await migrateMessageMedia(userId, message));
+  return { ...page, data };
 }
 
 export async function saveChatMessage(params: {
@@ -128,14 +130,23 @@ export async function saveChatMessage(params: {
 }
 
 export async function getRegenerationSnapshot(userId: string, chatId: string, messageId: string) {
-  const messages = await listChatMessages(userId, chatId);
-  const index = messages?.findIndex((message) =>
-    message.role === "user" && (message.id === messageId || message.clientMessageId === messageId),
-  ) ?? -1;
-  if (!messages || index < 0) {
+  const target = await db.message.findFirst({ where: {
+    chatId, chat: { userId }, role: "user", OR: [{ id: messageId }, { clientMessageId: messageId }],
+  } });
+  if (!target) {
     throw new ApiError({ code: "NOT_FOUND", message: "Message to regenerate was not found" });
   }
-  return { userId, chatId, messages };
+  const from = { createdAt: target.createdAt, id: target.id };
+  const rows = await db.message.findMany({
+    where: { chatId, ...fromMessage(from) }, orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+  });
+  const messages = [];
+  for (const message of rows) messages.push(await migrateMessageMedia(userId, message));
+  return { userId, chatId, from, messages };
+}
+
+function fromMessage(from: { createdAt: Date; id: string }) {
+  return { OR: [{ createdAt: { gt: from.createdAt } }, { createdAt: from.createdAt, id: { gte: from.id } }] };
 }
 
 /** Claim a persisted pending approval once, before any side effect is executed. */
@@ -184,7 +195,7 @@ export async function saveRegeneratedResponse(params: {
     const chat = await tx.chat.findFirst({ where: { id: snapshot.chatId, userId: snapshot.userId } });
     if (!chat) throw new ApiError({ code: "NOT_FOUND", message: "Conversation was not found" });
     const current = await tx.message.findMany({
-      where: { chatId: snapshot.chatId },
+      where: { chatId: snapshot.chatId, ...fromMessage(snapshot.from) },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
     // A concurrent edit/send must not be discarded by a slower generation.

@@ -1,23 +1,12 @@
-type ChatModelConfig = {
+type ModelConfig = {
   id: string;
   label: string;
   description: string;
   supportsImageInput: boolean;
 };
 
-type ImageModelConfig = {
-  id: string;
-  label: string;
-  description: string;
-  supportsImageInput: boolean;
-};
-
-type VideoModelConfig = {
-  id: string;
-  label: string;
-  description: string;
-  supportsImageInput: boolean;
-};
+// Revision of this curated list, not a claim that provider availability was checked.
+export const MODEL_CATALOG_REVISION = "2026-08-30";
 
 export const OPENROUTER_MODELS = [
   {
@@ -80,11 +69,11 @@ export const OPENROUTER_MODELS = [
     description: "低延迟低成本",
     supportsImageInput: true,
   },
-] as const satisfies readonly ChatModelConfig[];
+] as const satisfies readonly ModelConfig[];
 
 export type SupportedModelId = (typeof OPENROUTER_MODELS)[number]["id"];
 
-export const DEFAULT_MODEL: SupportedModelId = OPENROUTER_MODELS[0].id;
+export const DEFAULT_MODEL: SupportedModelId = "anthropic/claude-opus-4.6";
 
 export const OPENROUTER_IMAGE_MODELS = [
   {
@@ -123,11 +112,11 @@ export const OPENROUTER_IMAGE_MODELS = [
     description: "高质量图文一体",
     supportsImageInput: true,
   },
-] as const satisfies readonly ImageModelConfig[];
+] as const satisfies readonly ModelConfig[];
 
 export type SupportedImageModelId = (typeof OPENROUTER_IMAGE_MODELS)[number]["id"];
 
-export const DEFAULT_IMAGE_MODEL: SupportedImageModelId = OPENROUTER_IMAGE_MODELS[0].id;
+export const DEFAULT_IMAGE_MODEL: SupportedImageModelId = "google/gemini-2.5-flash-image";
 
 export const OPENROUTER_VIDEO_MODELS = [
   {
@@ -148,11 +137,11 @@ export const OPENROUTER_VIDEO_MODELS = [
     description: "高保真视频生成",
     supportsImageInput: true,
   },
-] as const satisfies readonly VideoModelConfig[];
+] as const satisfies readonly ModelConfig[];
 
 export type SupportedVideoModelId = (typeof OPENROUTER_VIDEO_MODELS)[number]["id"];
 
-export const DEFAULT_VIDEO_MODEL: SupportedVideoModelId = OPENROUTER_VIDEO_MODELS[0].id;
+export const DEFAULT_VIDEO_MODEL: SupportedVideoModelId = "bytedance/seedance-2.0";
 
 export function isSupportedModelId(value: string): value is SupportedModelId {
   return OPENROUTER_MODELS.some((model) => model.id === value);

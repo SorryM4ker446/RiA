@@ -45,7 +45,7 @@ model Chat {
   user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages      Message[]
 
-  @@index([userId, lastMessageAt])
+  @@index([userId, lastMessageAt, id])
   @@map("chats")
 }
 
@@ -60,7 +60,7 @@ model Message {
   chat           Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
   media          MessageMedia[]
 
-  @@index([chatId, createdAt])
+  @@index([chatId, createdAt, id])
   @@unique([chatId, clientMessageId])
   @@map("messages")
 }
@@ -107,6 +107,7 @@ model Memory {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, key])
+  @@index([userId, updatedAt, id])
   @@map("memories")
 }
 

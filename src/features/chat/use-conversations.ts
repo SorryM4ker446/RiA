@@ -1,6 +1,6 @@
 import { ChatSummary } from "@/features/chat/page-utils";
 import type { Dispatch, SetStateAction } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { chatApi } from "@/features/chat/api-client";
 import { getChatPrefsStorageKey } from "@/features/chat/preferences";
 import type { ChatScopedPreferences } from "@/features/chat/types";
@@ -27,16 +27,32 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [isChatListExpanded, setIsChatListExpanded] = useState(false);
+  const [nextChatsCursor, setNextChatsCursor] = useState<string | null>(null);
+  const [isLoadingMoreChats, setIsLoadingMoreChats] = useState(false);
+  const chatsRequestRef = useRef(0);
+  const loadingMoreRef = useRef(false);
+  const activeIdRef = useRef(activeChatId);
+  useEffect(() => { activeIdRef.current = activeChatId; }, [activeChatId]);
   const activeChat = chats.find((chat) => chat.id === activeChatId) ?? null;
   const hasHiddenChats = chats.length > COLLAPSED_CHAT_LIMIT;
   const visibleChats = isChatListExpanded ? chats : chats.slice(0, COLLAPSED_CHAT_LIMIT);
   async function loadChats() {
+    const requestId = ++chatsRequestRef.current;
+    loadingMoreRef.current = false;
+    setIsLoadingMoreChats(false);
     try {
       const payload = await chatApi.listConversations();
       const list = payload.data ?? [];
+      const preferredId = activeIdRef.current ?? window.localStorage.getItem(LAST_ACTIVE_CHAT_STORAGE_KEY);
+      if (preferredId && !list.some((chat) => chat.id === preferredId)) {
+        const preferred = await chatApi.getConversation(preferredId);
+        if (preferred.data) list.push(preferred.data);
+      }
+      if (requestId !== chatsRequestRef.current) return;
       setChats(list);
+      setNextChatsCursor(payload.pageInfo?.nextCursor ?? null);
 
-      if (!activeChatId) {
+      if (!activeIdRef.current) {
         const lastActiveId = window.localStorage.getItem(LAST_ACTIVE_CHAT_STORAGE_KEY);
         const preferred = lastActiveId ? list.find((chat) => chat.id === lastActiveId)?.id : null;
         const nextActiveId = preferred ?? list[0]?.id ?? null;
@@ -46,7 +62,28 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
         setActiveChatId((current) => current ?? nextActiveId);
       }
     } catch (loadError) {
-      setPageError(loadError instanceof Error ? loadError.message : "读取会话列表失败");
+      if (requestId === chatsRequestRef.current) setPageError(loadError instanceof Error ? loadError.message : "读取会话列表失败");
+    }
+  }
+
+  async function loadMoreChats() {
+    if (!nextChatsCursor || loadingMoreRef.current) return;
+    const requestId = chatsRequestRef.current;
+    loadingMoreRef.current = true;
+    setIsLoadingMoreChats(true);
+    try {
+      const page = await chatApi.listConversations(nextChatsCursor);
+      if (requestId !== chatsRequestRef.current) return;
+      setChats((current) => [...current, ...page.data.filter((chat) => !current.some((item) => item.id === chat.id))]);
+      setNextChatsCursor(page.pageInfo?.nextCursor ?? null);
+      setIsChatListExpanded(true);
+    } catch (error) {
+      if (requestId === chatsRequestRef.current) setPageError(error instanceof Error ? error.message : "读取更多会话失败");
+    } finally {
+      if (requestId === chatsRequestRef.current) {
+        loadingMoreRef.current = false;
+        setIsLoadingMoreChats(false);
+      }
     }
   }
 
@@ -106,6 +143,9 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
 
   async function performDeleteChat(chatId: string) {
     await chatApi.deleteConversation(chatId);
+    chatsRequestRef.current += 1;
+    loadingMoreRef.current = false;
+    setIsLoadingMoreChats(false);
     const nextChats = chats.filter((chat) => chat.id !== chatId);
     setChats(nextChats);
 
@@ -161,6 +201,7 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   }
   useEffect(() => {
     void loadChats();
+    return () => { chatsRequestRef.current += 1; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
@@ -172,6 +213,6 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     chats, activeChat, isCreatingChat, editingChatId, editingTitle, setEditingTitle, isChatListExpanded,
     setIsChatListExpanded, visibleChats, hasHiddenChats, loadChats, createNewChat, startEditingChat,
     cancelEditingChat, saveEditedTitle, performDeleteChat, ensureActiveChatId,
+    nextChatsCursor, isLoadingMoreChats, loadMoreChats,
   };
 }
-

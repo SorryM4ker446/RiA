@@ -6,13 +6,17 @@ import type { ChatSummary, MessageStatus, StoredMessage, UploadableFilePart } fr
 import type { ChatScopedPreferences, TaskItem, TaskStatusFilter, ToolCatalogItem } from "@/features/chat/types";
 
 type Data<T> = { data: T };
+type Page<T> = Data<T[]> & { pageInfo?: { nextCursor: string | null; hasMore: boolean } };
 type GeneratedMedia = { asset: MediaReference; modelId?: string };
 type ToolResult = { data: unknown; assistantText?: string };
+class ApiClientError extends Error {
+  constructor(readonly status: number, message: string) { super(message); }
+}
 
 async function requestJson<T>(url: string, fallback: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, { cache: "no-store", ...options });
   const payload: unknown = await response.json().catch(() => null);
-  if (!response.ok || payload === null) throw new Error(getApiErrorMessage(payload, fallback));
+  if (!response.ok || payload === null) throw new ApiClientError(response.status, getApiErrorMessage(payload, fallback));
   return payload as T;
 }
 
@@ -22,13 +26,21 @@ function jsonBody(method: "POST" | "PATCH", body: unknown): RequestInit {
 
 const conversationPath = (id: string) => `/api/conversations/${encodeURIComponent(id)}`;
 const messagePath = (chatId: string, messageId: string) => `${conversationPath(chatId)}/messages/${encodeURIComponent(messageId)}`;
+const withCursor = (path: string, cursor?: string) => cursor ? `${path}?${new URLSearchParams({ cursor })}` : path;
 
 export const chatApi = {
-  listConversations: () => requestJson<Data<ChatSummary[]>>("/api/conversations", "读取会话列表失败"),
+  listConversations: (cursor?: string) => requestJson<Page<ChatSummary>>(withCursor("/api/conversations", cursor), "读取会话列表失败"),
+  async getConversation(id: string): Promise<Data<ChatSummary | null>> {
+    try { return await requestJson<Data<ChatSummary>>(conversationPath(id), "读取会话失败"); }
+    catch (error) {
+      if (error instanceof ApiClientError && error.status === 404) return { data: null };
+      throw error;
+    }
+  },
   createConversation: (title: string) => requestJson<Data<ChatSummary>>("/api/conversations", "创建会话失败", jsonBody("POST", { title })),
   renameConversation: (id: string, title: string) => requestJson<Data<ChatSummary>>(conversationPath(id), "重命名会话失败", jsonBody("PATCH", { title })),
   deleteConversation: (id: string) => requestJson<unknown>(conversationPath(id), "删除会话失败", { method: "DELETE" }),
-  listMessages: (id: string) => requestJson<Data<StoredMessage[]>>(`${conversationPath(id)}/messages`, "读取历史消息失败"),
+  listMessages: (id: string, cursor?: string) => requestJson<Page<StoredMessage>>(withCursor(`${conversationPath(id)}/messages`, cursor), "读取历史消息失败"),
   editMessage: (chatId: string, messageId: string, content: string) => requestJson<unknown>(messagePath(chatId, messageId), "保存修改失败", jsonBody("PATCH", { content })),
   deleteMessage: (chatId: string, messageId: string) => requestJson<unknown>(messagePath(chatId, messageId), "删除消息失败", { method: "DELETE" }),
   listTools: () => requestJson<Data<ToolCatalogItem[]>>("/api/tools?mode=chat", "读取工具目录失败"),
@@ -90,5 +102,8 @@ export function createChatTransport(activeChatId: string | null, preferences: Pi
       manualToolsOnly: preferences.modelMode === "chat" ? preferences.manualToolsOnly : true,
       mode: preferences.modelMode,
     },
+    prepareSendMessagesRequest: ({ id, messages, trigger, messageId, body }) => ({
+      body: { ...body, id, messages: messages.slice(-100), trigger, messageId },
+    }),
   });
 }

@@ -1,0 +1,41 @@
+# Local integration API
+
+These endpoints are supported for authenticated local integrations as well as the shared browser/Electron UI. They are not anonymous public services. All retain the Cookie, Host, Origin, ownership and error rules in [API security](api-security.md). A caller needs its own valid session; desktop automation must also use the current desktop session boundary. Never copy session secrets into scripts or documentation.
+
+## Conversation and message pagination
+
+`GET /api/conversations` returns the newest 30 conversations by default. `GET /api/conversations/:id/messages` returns the newest 50 messages, ordered oldest to newest within that page. Both accept `limit` (1–100) and an opaque `cursor`, and return:
+
+```json
+{
+  "data": [],
+  "pageInfo": { "nextCursor": null, "hasMore": false }
+}
+```
+
+For another page, send the returned `nextCursor` to the same endpoint. Append conversation pages; prepend older message pages. A null cursor ends traversal. Do not construct or reuse cursors across users or conversations. Invalid, duplicate or unknown pagination parameters return `400 VALIDATION_ERROR`; authorization runs first. Existing clients must follow `pageInfo` instead of assuming `data` contains all history.
+
+Ordering uses timestamp plus ID, so equal timestamps are deterministic and deleting a cursor's original row does not break traversal. Conversation activity can move a row to the front between requests: refresh the first page to see new activity. This is a live list, not a frozen snapshot. Clients deduplicate IDs when merging pages.
+
+The UI offers “加载更多会话” and “加载更早消息”. Reloading restores the selected conversation by its detail endpoint even when it is outside the first page. Stale page responses are ignored after switching conversations. Conversation details count messages without loading their bodies or migrating media; media migration runs only for messages actually read.
+
+Chat submissions send at most the latest 100 loaded messages. The existing server context window and incomplete historical excerpts remain in effect; loading older pages for display does not promise that all of them will be sent to a model. Regeneration checks only the target user message and subsequent affected history, preserves earlier messages, and still rejects concurrent changes to the affected range. Regenerating near the beginning of a long conversation can therefore inspect a large affected range.
+
+## Supported detail and memory endpoints
+
+| Endpoint | Supported behavior |
+| --- | --- |
+| `GET /api/conversations/:id` | Owned conversation summary: ID, title, timestamps and message count; used by selection restoration |
+| `GET /api/conversations/:id/messages/:messageId` | Owned message by persisted or client message ID; returns `data` with role, content, status and timestamps; retains private-media migration |
+| `GET /api/tasks/:id` | Owned task detail, including title, details, due date, priority and status |
+| `GET /api/memory?query=...&limit=5` | Relevant memories for the current user; maximum 20, empty query returns an empty list |
+| `POST /api/memory` | Upsert the current user's memory using `key` (1–120 characters), `value` (1–4000) and optional `score` (0–1); returns `201` with `data` |
+| `POST /api/retrieval` | Retrieve current-user memories using JSON `query` (1–2000 characters) and optional `limit` (1–20, default 6); returns `data` |
+
+The memory and retrieval endpoints remain deliberate local integration contracts even though the UI uses the knowledge page and tools. Missing or foreign detail records return `404`; unauthenticated requests return `401`. Mutations use the same bounded JSON parsing and same-origin checks as UI requests. Embedding configuration is optional; keyword retrieval remains available without a provider key.
+
+## Retrieval behavior
+
+Queries use the runtime's Chinese word segmentation, Unicode compatibility normalization, duplicate removal and a small stop-word list. Word boundaries may vary with the runtime's ICU version. Ranking evaluates scores once and uses deterministic ordering for ties. Unrelated entries cannot rank solely because they are recent or manually weighted.
+
+Each search combines bounded recent and lexical candidate sets: up to 100 of each for context recall, and 50 of each for explicit knowledge search. Context retains tool memories and its recency/manual weights; explicit knowledge search excludes tool memories and merges built-in entries. The first 16 query terms widen lexical candidate selection so older matching notes are not hidden solely by newer unrelated notes. This is bounded keyword/embedding retrieval, not exhaustive full-text indexing or a guarantee of semantic recall.

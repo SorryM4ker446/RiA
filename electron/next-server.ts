@@ -1,8 +1,7 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { closeSync, openSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
-import type { DesktopLogger } from "./logger";
+import { createDesktopLogSink, type DesktopLogger } from "./logger";
 
 export type NextServerOptions = {
   packagedRuntime: boolean;
@@ -14,7 +13,6 @@ export type NextServerOptions = {
   mediaDirectory: string;
   desktopSessionToken: string;
   port: number;
-  logFile: string;
   environment: Record<string, string>;
   logger: DesktopLogger;
 };
@@ -106,7 +104,6 @@ async function stopChild(child: ChildProcess, logger: DesktopLogger): Promise<vo
 export async function startNextServer(options: NextServerOptions): Promise<RunningNextServer> {
   const host = `127.0.0.1:${options.port}`;
   const origin = `http://${host}`;
-  const logDescriptor = openSync(options.logFile, "a");
   const command = options.packagedRuntime ? process.execPath : options.nodeExecutable;
   const args = options.packagedRuntime
     ? [options.serverEntry]
@@ -143,9 +140,10 @@ export async function startNextServer(options: NextServerOptions): Promise<Runni
     cwd: options.packagedRuntime ? options.runtimeDirectory : options.projectRoot,
     env: childEnvironment,
     windowsHide: true,
-    stdio: ["ignore", logDescriptor, logDescriptor],
+    stdio: ["ignore", "pipe", "pipe"],
   });
-  closeSync(logDescriptor);
+  child.stdout?.pipe(createDesktopLogSink(options.logger, "Next stdout"));
+  child.stderr?.pipe(createDesktopLogSink(options.logger, "Next stderr"));
 
   const stop = () => stopChild(child, options.logger);
   child.once("error", (error) => options.logger.error("Local Next.js service process error", error));

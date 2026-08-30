@@ -3,7 +3,8 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { requireRequestUser } from "@/lib/auth/request-user";
 import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
-import { deleteChat, getChat, listChatMessages, updateChatTitle } from "@/lib/chat/store";
+import { deleteChat, getChat, updateChatTitle } from "@/lib/chat/store";
+import { db } from "@/db";
 
 const updateConversationSchema = z.strictObject({
   title: z.string().trim().min(1).max(200),
@@ -24,8 +25,7 @@ export async function GET(req: NextRequest, context: Params) {
       throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
     }
 
-    const messages = await listChatMessages(user.id, id);
-    const messageCount = messages?.length ?? 0;
+    const messageCount = await db.message.count({ where: { chatId: id, chat: { userId: user.id } } });
 
     return Response.json({
       data: {

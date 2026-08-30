@@ -38,6 +38,8 @@ The main process chooses an available loopback port, applies SQLite migrations, 
 
 The development terminal stays attached while Electron runs. Next.js startup and request output goes to `.desktop-data/dev/logs/desktop.log`, so a quiet terminal after TypeScript compilation does not by itself indicate a stall. The launcher must allow Electron's window to show on Windows; only background services and intentionally hidden smoke tests use hidden process startup.
 
+Desktop logs rotate at 2 MiB per file, retaining the active file plus three archives (`desktop.log.1` through `.3`), up to 8 MiB total. Next stdout/stderr goes through the same parent-process writer and redaction rules instead of a file descriptor that bypasses rotation. Complete output lines are buffered across chunks for redaction; lines over 16 Ki characters are omitted, and entries larger than a file are replaced with an omission marker. Oversized logs from older versions are capped when rotated. Rotation/write failures do not stop the app; diagnostics may be lost when the log directory is unwritable. Do not use these bounded diagnostic files as durable audit logs.
+
 For browser-only UI work backed by the desktop development database:
 
 ```powershell

@@ -32,6 +32,8 @@ The local SQLite database defaults to `.desktop-data/dev/app.db`. Browser develo
 
 API requests enforce input/size limits, consistent errors, local quotas and same-origin browser writes. Non-loopback hosts require an explicit `APP_ORIGIN`; see [API contracts and local security](docs/api-security.md) before changing local access or proxy settings.
 
+Conversation and message history loads in bounded pages. See [Local integration API](docs/local-api.md) for cursor contracts and retrieval behavior, and [Model catalog maintenance](docs/model-catalog.md) for offline checks and intentional catalog updates.
+
 ## Desktop development
 
 ```powershell
