@@ -1,0 +1,20 @@
+{
+  "documents": [
+    { "filename": "星河发布.md", "text": "# 星河发布流程\n\n星河项目每周五发布。上线前需要双人审批，回滚窗口为三十分钟。\n\n发布完成后，由值班人员检查监控告警。" },
+    { "filename": "数据库备份.txt", "text": "数据库备份每天凌晨两点执行，保留三十天。恢复时必须同时还原 SQLite 数据库与媒体目录。" },
+    { "filename": "Aurora-support.txt", "text": "Aurora support hours are 09:00 to 18:00 UTC. Critical incidents must be escalated to the duty engineer within fifteen minutes." },
+    { "filename": "Atlas-deploy.md", "text": "Atlas deployment requires two approvals. The rollback deadline is twenty minutes. Deployment logs are retained for ninety days." },
+    { "filename": "差旅报销.txt", "text": "差旅报销需要提交发票和行程单。员工应在返回后的十个工作日内提交申请。" },
+    { "filename": "中文隐私政策.txt", "text": "用户导入文档在本地建立索引。聊天时只将检索到的相关片段发送给所配置的模型提供商。" }
+  ],
+  "queries": [
+    { "query": "星河项目回滚窗口", "expected": "星河发布.md", "excerpt": "三十分钟" },
+    { "query": "数据库备份保留多少天", "expected": "数据库备份.txt", "excerpt": "三十天" },
+    { "query": "恢复 SQLite 媒体目录", "expected": "数据库备份.txt", "excerpt": "同时还原" },
+    { "query": "AURORA SUPPORT HOURS", "expected": "Aurora-support.txt", "excerpt": "09:00" },
+    { "query": "Atlas rollback deadline", "expected": "Atlas-deploy.md", "excerpt": "twenty minutes" },
+    { "query": "差旅报销提交发票", "expected": "差旅报销.txt", "excerpt": "行程单" },
+    { "query": "文档片段发送模型", "expected": "中文隐私政策.txt", "excerpt": "相关片段" },
+    { "query": "Ａｔｌａｓ deployment approvals", "expected": "Atlas-deploy.md", "excerpt": "two approvals" }
+  ]
+}

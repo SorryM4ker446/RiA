@@ -1,5 +1,7 @@
 import { getMemorySearchCandidates, keywordScore, KNOWLEDGE_MEMORY_POLICY, rankByScore } from "@/lib/memory/retrieval";
 import { z } from "zod";
+import { searchDocuments } from "@/lib/documents/retrieval";
+import { documentSourceSchema, type DocumentSource } from "@/lib/documents/types";
 
 export const searchKnowledgeInputSchema = z.strictObject({
   query: z.string().trim().max(2000).min(1, "query is required"),
@@ -12,7 +14,8 @@ export type SearchKnowledgeItem = {
   id: string;
   title: string;
   snippet: string;
-  source: "memory" | "builtin";
+  source: "memory" | "builtin" | "document";
+  reference?: DocumentSource;
   score: number;
 };
 
@@ -62,7 +65,8 @@ export async function searchKnowledge(
     score: keywordScore(queryTokens, `${item.title} ${item.content}`),
   }));
 
-  const ranked = rankByScore([...memoryResults, ...builtinResults], (item) => item.score, topK)
+  const documentResults: SearchKnowledgeItem[] = (await searchDocuments(userId, query, topK)).map(item => ({ id: item.chunkId, title: item.filename, snippet: item.snippet, source: "document", score: item.score, reference: documentSourceSchema.parse(item) }));
+  const ranked = rankByScore([...documentResults, ...memoryResults, ...builtinResults], (item) => item.score, topK)
     .map((item) => ({
       ...item,
       score: Number(item.score.toFixed(3)),

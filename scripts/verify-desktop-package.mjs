@@ -31,6 +31,9 @@ function verifyRuntime(directory) {
   requireFile(join(directory, "package.json"), "Standalone package metadata");
   requireFile(join(directory, "desktop-runtime.json"), "Desktop runtime manifest");
   requireFile(join(directory, "prisma", "schema.prisma"), "Prisma schema");
+  for (const entry of ["pdfjs-dist/legacy/build/pdf.mjs", "pdfjs-dist/legacy/build/pdf.worker.mjs", "mammoth/lib/index.js", "jszip/lib/index.js"]) {
+    requireFile(join(directory, "node_modules", entry), "Document parser dependency");
+  }
 
   const files = walk(directory);
   if (!files.some((path) => path.endsWith("migration.sql"))) {
@@ -44,7 +47,7 @@ function verifyRuntime(directory) {
     throw new Error(`Environment file must not be packaged: ${forbiddenEnvironmentFile}`);
   }
 
-  const textExtensions = new Set([".js", ".json", ".txt", ".md", ".prisma"]);
+  const textExtensions = new Set([".js", ".mjs", ".cjs", ".json", ".txt", ".md", ".prisma"]);
   const secretPattern = /(?:sk-or-v1-|tvly-)[A-Za-z0-9_-]{16,}/;
   for (const file of files) {
     if (!textExtensions.has(extname(file).toLowerCase()) || statSync(file).size > 10 * 1024 * 1024) continue;

@@ -8,6 +8,7 @@ export const RATE_LIMIT_POLICIES = {
   image: { limit: 6, windowMs: 60_000 },
   video: { limit: 3, windowMs: 60_000 },
   upload: { limit: 20, windowMs: 60_000 },
+  documents: { limit: 6, windowMs: 60_000 },
 } as const;
 
 type RateLimitRecord = {

@@ -14,6 +14,7 @@ import {
 import { logToolExecution } from "@/lib/server/tool-log";
 import { createTask, createTaskInputSchema } from "@/tools/definitions/create-task";
 import { searchKnowledge, searchKnowledgeInputSchema } from "@/tools/definitions/search-knowledge";
+import { documentSourceUrl } from "@/lib/documents/types";
 import { runWebSearch, webSearchInput } from "@/tools/definitions/web-search";
 
 export type ToolMode = "chat" | "image" | "video";
@@ -144,7 +145,7 @@ function buildSearchFallbackText(result: Awaited<ReturnType<typeof searchKnowled
   }
 
   const top = result.results[0];
-  const sourceLabel = top.source === "memory" ? "根据你的知识库记忆" : "根据内置知识";
+  const sourceLabel = top.source === "document" ? `根据文档《${top.title}》` : top.source === "memory" ? "根据你的知识库记忆" : "根据内置知识";
   return `${sourceLabel}，${top.snippet}`;
 }
 
@@ -163,6 +164,7 @@ async function buildSearchAssistantText(params: {
     title: item.title,
     snippet: item.snippet,
     source: item.source,
+    ...(item.reference ? { url: documentSourceUrl(item.reference), page: item.reference.pageNumber } : {}),
     score: item.score,
   }));
 
@@ -303,7 +305,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
   searchKnowledge: {
     id: "searchKnowledge",
     displayName: "知识检索",
-    description: "检索项目知识库（memory + 内置知识）并返回可引用结果。",
+    description: "检索已导入的文档、知识记忆和内置知识，并返回可引用结果。",
     modeSupport: ["chat"],
     manual: {
       enabled: true,

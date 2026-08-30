@@ -11,6 +11,8 @@ import { setupServerProxy } from "@/lib/server/proxy";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { listAutoToolDescriptors } from "@/tools/catalog";
 import { NextRequest } from "next/server";
+import { formatDocumentContext, searchDocuments } from "@/lib/documents/retrieval";
+import { documentSourceSchema } from "@/lib/documents/types";
 
 export async function POST(req: NextRequest) {
   try {
@@ -52,8 +54,9 @@ export async function POST(req: NextRequest) {
 
 
     await rememberUserMessage(user.id, latestUserMessage?.text);
-    const systemPrompt = buildSystemPrompt(context.historyExcerpt || "No earlier messages omitted.", formatLongTermContext(relevantMemories), toolsEnabled);
-    return streamChatResponse({ input, conversation, userId: user.id, systemPrompt, modelMessages, toolsEnabled, signal: req.signal });
+    const documentSources = latestUserMessage?.text ? (await searchDocuments(user.id, latestUserMessage.text)).map(source => documentSourceSchema.parse(source)) : [];
+    const systemPrompt = buildSystemPrompt(context.historyExcerpt || "No earlier messages omitted.", formatLongTermContext(relevantMemories), toolsEnabled) + formatDocumentContext(documentSources);
+    return streamChatResponse({ input, conversation, userId: user.id, systemPrompt, modelMessages, toolsEnabled, signal: req.signal, documentSources });
   } catch (error) {
     console.error("/api/chat error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to generate chat response");

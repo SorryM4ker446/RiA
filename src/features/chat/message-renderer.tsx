@@ -21,7 +21,8 @@ import {
   X
 } from "lucide-react";
 import Image from "next/image";
-import { getWebSearchSources, resolveMessageSourceTag } from "@/features/chat/message-presentation";
+import { getDocumentSources, getWebSearchSources, resolveMessageSourceTag } from "@/features/chat/message-presentation";
+import { DocumentSources } from "@/components/knowledge/document-sources";
 import type { ChatState } from "@/features/chat/use-chat-state";
 
 type Props = Pick<ChatState, "isLoadingHistory" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId" | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText" | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel" | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages">;
@@ -171,6 +172,7 @@ export function MessageRenderer({ isLoadingHistory, messages, imageByMessageId, 
                   </ol>
                 </details>
               ) : null}
+              <DocumentSources sources={getDocumentSources(message)} />
               {imageUrl ? (
                 <div className="mt-3 space-y-2">
                   <Image
