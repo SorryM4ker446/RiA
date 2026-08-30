@@ -6,8 +6,8 @@ Both CI jobs pin Node.js to 24.9.0 to match the local development runtime and lo
 
 | Command | What it checks | External dependencies |
 | --- | --- | --- |
-| `npm run test:server` | Real route handlers, sessions, ownership, tool logging, memory upserts, chat persistence, media upload/generation/storage, legacy import, path safety and cleanup | Temporary SQLite and media files; deterministic provider doubles; no network or paid model calls |
-| `npm run test:e2e` | Production build, chat/tool UI regression, binary attachment uploads, media persistence across reload and storage cleanup confirmation | Existing Playwright Chromium; most UI tests use API doubles, but the media persistence chain uses real HTTP handlers, SQLite and files |
+| `npm run test:server` | Real route handlers, CRUD, sessions, ownership, tool logging/timeouts, chat persistence/abort, media storage, legacy import, path safety and cleanup | Temporary SQLite/media; deterministic model doubles and a loopback search server; no paid model calls |
+| `npm run test:e2e` | Production build, chat/tool UI regression, authenticated chat/task/knowledge persistence, user isolation, binary uploads and storage cleanup | Existing Playwright Chromium; API doubles for UI cases, real HTTP/SQLite for integration cases, offline responses at the model boundary |
 | `npm run test:desktop` | Desktop development window visibility, bounded/redacted logs, data paths, media retention when the installation path changes, migrations/backups, packaging privacy boundaries and legacy-video preservation | Node's built-in SQLite/test runner and existing Electron on Windows |
 | `npm run test:desktop:smoke` | Prepared standalone runtime, renderer/preload, encrypted settings, API/media authentication and conversation/media persistence across a local service restart | Existing Electron runtime; no live AI requests |
 
@@ -17,7 +17,15 @@ On Windows, the development-launcher regression runs the actual launch script ag
 
 Security regressions cover all protected route entrypoints, malformed and oversized bodies, nested chat/media schemas, tool configuration ordering, quotas/recovery/user isolation, expired-session pruning, Host/Origin/Fetch Metadata rejection, sanitized database errors and streamed persistence conflicts. Negative database tests deliberately trigger unique-constraint and missing-table errors in their isolated database; sanitized responses must hide query details. Login/register, manual/automatic tools and media quotas run through actual handlers, without external model calls.
 
-The authentication browser test starts an additional server from the already-built standalone runtime after the main test server is ready. It uses its own dynamically selected loopback port and `.desktop-data/test/auth-*` SQLite/media directory with AUTH_DISABLED=0 and blank provider keys. It exercises real registration/login/logout, cookie attributes, expired-session rejection, CSRF and login throttling, then stops that server and removes only its own directory. Other browser tests verify readable HTTP 429 and streamed conflict messages. The Electron smoke also checks foreign Origin/Host rejection, standardized errors and chat throttling without invoking a provider.
+The authentication browser test starts an additional server from the already-built standalone runtime after the main test server is ready. It uses its own dynamically selected loopback port and `.desktop-data/test/http-*` SQLite/media directory with AUTH_DISABLED=0 and blank provider keys. It exercises real registration/login/logout, cookie attributes, expired-session rejection, CSRF and login throttling, then stops that server and removes only its own directory. Session checks use browser fetch: Chromium accepts Secure cookies on loopback, while Playwright's separate API request client may omit them on HTTP. The test verifies a successful authenticated request before expiry/logout, rejection afterward, and actual deletion of the SQLite session row. Other browser tests verify readable HTTP 429 and streamed conflict messages. The Electron smoke also checks foreign Origin/Host rejection, standardized errors and chat throttling without invoking a provider.
+
+`business-persistence.spec.ts` also uses isolated authenticated standalone servers, with no browser route interception and no database mocks. One flow registers, sends a first message from an empty conversation, streams a reply, sends a follow-up, edits/regenerates, restarts the service, and checks history and cross-user rejection. Another creates and updates tasks, upserts and retrieves knowledge, renames the conversation, restarts, checks a second user's isolation, and deletes the records. Assertions inspect both HTTP results and persisted SQLite rows. Synthetic embedding/completion responses are the only provider replacements; this is not a model-quality test.
+
+The test-only `offline-http.mjs` preload intercepts fetch in those child processes using the existing Undici dependency. It uses matching fetch/dispatcher versions, bridges native Request/Response, denies unmatched destinations and endpoints, and emits synthetic model prompts over IPC for context assertions. It does not store request headers or add a test switch to application code. A server regression checks both provider-disabled and simulated-provider modes and rejects unmatched external and loopback fetches. This guard covers fetch, not every possible socket API; Tavily is disabled in these browser fixtures. The separate search adapter tests point Tavily explicitly at an isolated loopback server.
+
+Run `npm run test:e2e -- --grep '@integration'` to select authenticated HTTP/SQLite flows, or add `--repeat-each=3` to check repeatability. Quote the tag in PowerShell to avoid splatting. This still builds and prepares the production runtime; do not run it alongside another browser run, desktop build or smoke using the same output. The full `test:e2e` command includes these tagged cases automatically.
+
+CRUD route tests cover message retries/client-ID scoping, edits/deletion/counts/cascades, task status filters and atomic rejection of invalid dates, and knowledge upserts/deletion while keeping other users and internal tool memories isolated. Search HTTP tests exercise the actual installed Tavily adapter, source normalization, upstream 403/500 conversion, the existing 12-second timeout against a deliberately stalled socket, and recovery on the next request. They check exactly one execution log and no successful memory on failure. They do not shorten production timeouts or directly throw a timeout in place of waiting for the adapter.
 
 These cases are discovered by the existing CI `test:server`, `test:e2e` and desktop smoke commands; no additional CI job, dependency, browser download or deployment infrastructure is required for local validation. A local pass is not a GitHub Actions result.
 
@@ -58,6 +66,7 @@ Browser tests build, prepare `.desktop-runtime`, and start the standalone produc
 ## Conversation behavior covered by regression tests
 
 - Recent assistant answers remain available to follow-up questions.
+- Sending from an empty conversation waits for the newly activated SDK chat and its initial history before starting the stream, so the draft instance and history fetch cannot discard the first reply.
 - Refreshing restores the last selected conversation even when a newer conversation exists.
 - Older tool results are historical context, not fresh tool calls or approvals.
 - Long conversations retain the active turn and bounded, explicitly incomplete excerpts. These excerpts are not model-generated summaries and do not guarantee recall of every older detail.
@@ -65,6 +74,7 @@ Browser tests build, prepare `.desktop-runtime`, and start the standalone produc
 - Completed approval continuations update their existing assistant message rather than inserting duplicates.
 - Approval processing favors at-most-once execution. An interrupted continuation is not automatically replayed; reload the conversation and check the task state before requesting a new action.
 - Regeneration retains old replies until a successful stream finishes. Failed streams and concurrent edits do not erase the original history.
+- Aborting a real handler stream marks partial normal output as an error and leaves a regeneration's original answer intact; tests drain stream/persistence work before checking or closing SQLite.
 - Editing a user message persists the edit and starts regeneration. A failed generation can leave the previous answer in storage until a later successful retry.
 
 ## Memory migration

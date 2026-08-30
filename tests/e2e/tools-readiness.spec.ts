@@ -20,7 +20,7 @@ type KnowledgeEntry = {
   updatedAt: string;
 };
 
-async function setupP0ApiMocks(page: Page) {
+async function setupToolUiMocks(page: Page) {
   const now = new Date().toISOString();
   const tasks: Task[] = [];
   const knowledgeEntries: KnowledgeEntry[] = [];
@@ -137,16 +137,16 @@ async function setupP0ApiMocks(page: Page) {
             requestId: "e2e-tavily-request",
             results: [
               {
-                title: "P0 Tools Readiness Source",
-                url: "https://example.com/p0-tools",
-                snippet: "Mocked Tavily result used by the P0 tools readiness E2E flow.",
+                title: "Tool UI Fixture Source",
+                url: "https://example.com/tool-ui",
+                snippet: "Mocked Tavily result used by the tool UI flow E2E flow.",
                 score: 0.94,
                 source: "tavily",
               },
             ],
           },
           assistantText:
-            "已完成 Web Search，返回 1 条结果。\n\n结论：P0 tools readiness 的搜索结果已可用于综合判断。搜索来源可在下方展开查看。",
+            "已完成 Web Search，返回 1 条结果。\n\n结论：tool UI flow 的搜索结果已可用于综合判断。搜索来源可在下方展开查看。",
         },
       });
       return;
@@ -220,7 +220,7 @@ async function setupP0ApiMocks(page: Page) {
 }
 
 test.beforeEach(async ({ page }) => {
-  await setupP0ApiMocks(page);
+  await setupToolUiMocks(page);
 });
 
 test("manual webSearch shows traceable source in chat UI", async ({ page }) => {
@@ -228,14 +228,14 @@ test("manual webSearch shows traceable source in chat UI", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "E2E Chat", exact: true })).toBeVisible();
   await page.getByLabel("选择手动工具").click();
   await page.getByRole("option", { name: "手动：Web 搜索" }).click();
-  await page.getByPlaceholder(/输入要搜索的关键词/).fill("P0 tools readiness");
+  await page.getByPlaceholder(/输入要搜索的关键词/).fill("tool UI flow");
   await page.getByRole("button", { name: "执行工具" }).click();
 
   await expect(page.getByText("已完成 Web Search")).toBeVisible();
   await page.getByText(/搜索来源（1）/).click();
-  await expect(page.getByRole("link", { name: "P0 Tools Readiness Source" })).toHaveAttribute(
+  await expect(page.getByRole("link", { name: "Tool UI Fixture Source" })).toHaveAttribute(
     "href",
-    "https://example.com/p0-tools",
+    "https://example.com/tool-ui",
   );
   await expect(page.getByText(/工具详情：webSearch/)).toBeVisible();
 });
@@ -245,12 +245,12 @@ test("createTask persists to task panel and status can move to done", async ({ p
   await expect(page.getByRole("heading", { name: "E2E Chat", exact: true })).toBeVisible();
   await page.getByLabel("选择手动工具").click();
   await page.getByRole("option", { name: "手动：创建任务" }).click();
-  await page.getByPlaceholder(/输入任务标题/).fill("P0 E2E task");
+  await page.getByPlaceholder(/输入任务标题/).fill("UI fixture task");
   await page.getByRole("button", { name: "执行工具" }).click();
 
   const taskPanel = page.getByTestId("task-panel");
-  await expect(taskPanel.getByText("P0 E2E task")).toBeVisible();
-  await page.getByLabel("任务状态 P0 E2E task").click();
+  await expect(taskPanel.getByText("UI fixture task")).toBeVisible();
+  await page.getByLabel("任务状态 UI fixture task").click();
   await page.getByRole("option", { name: "已完成" }).click();
   await expect(taskPanel.getByText("已完成").first()).toBeVisible();
 });
@@ -260,18 +260,18 @@ test("new knowledge entry can be retrieved by searchKnowledge", async ({ page })
   await expect(page.getByRole("heading", { name: "E2E Chat", exact: true })).toBeVisible();
   await page.getByRole("link", { name: /知识库/ }).click();
   await expect(page).toHaveURL(/\/knowledge$/);
-  await page.getByPlaceholder("知识标题").fill("P0 readiness keyword");
-  await page.getByPlaceholder("知识内容").fill("P0 readiness knowledge entry visible to searchKnowledge.");
+  await page.getByPlaceholder("知识标题").fill("UI fixture keyword");
+  await page.getByPlaceholder("知识内容").fill("UI fixture knowledge entry visible to searchKnowledge.");
   await page.getByRole("button", { name: "新增知识" }).click();
-  await expect(page.getByText("P0 readiness keyword")).toBeVisible();
+  await expect(page.getByText("UI fixture keyword")).toBeVisible();
 
   await page.getByRole("link", { name: /返回聊天/ }).click();
   await expect(page.getByRole("heading", { name: "E2E Chat", exact: true })).toBeVisible();
   await page.getByLabel("选择手动工具").click();
   await page.getByRole("option", { name: "手动：知识检索" }).click();
-  await page.getByPlaceholder(/输入要检索的关键词/).fill("P0 readiness keyword");
+  await page.getByPlaceholder(/输入要检索的关键词/).fill("UI fixture keyword");
   await page.getByRole("button", { name: "执行工具" }).click();
 
-  await expect(page.getByText(/^根据你的知识库记忆，P0 readiness knowledge entry/)).toBeVisible();
+  await expect(page.getByText(/^根据你的知识库记忆，UI fixture knowledge entry/)).toBeVisible();
   await expect(page.getByText(/工具详情：searchKnowledge/)).toBeVisible();
 });

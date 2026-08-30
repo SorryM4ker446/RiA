@@ -1,50 +1,21 @@
 import { test, expect } from "@playwright/test";
-import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, rmSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { createServer } from "node:net";
-import { DatabaseSync } from "node:sqlite";
+import { startStandaloneServer } from "../helpers/standalone-server";
+import { browserApi } from "../helpers/browser-api";
 
 // Reuse the already-built runtime after Playwright's webServer is ready.
 // This extra server enables real authentication without sharing the demo test database.
-let server: ChildProcess;
+let server: Awaited<ReturnType<typeof startStandaloneServer>>;
 let origin: string;
-const root = resolve(".desktop-data/test", `auth-${process.pid}-${randomUUID()}`);
-const database = join(root, "app.db");
 
 test.beforeAll(async () => {
-  const listener = createServer();
-  await new Promise<void>((resolve) => listener.listen(0, "127.0.0.1", resolve));
-  const port = (listener.address() as { port: number }).port;
-  await new Promise<void>((resolve, reject) => listener.close((error) => error ? reject(error) : resolve()));
-  origin = `http://127.0.0.1:${port}`;
-  mkdirSync(root, { recursive: true });
-  const env: NodeJS.ProcessEnv = {
-    ...process.env, NODE_ENV: "production", APP_RUNTIME: "test", AUTH_DISABLED: "0", APP_ORIGIN: "",
-    HOSTNAME: "127.0.0.1", PORT: String(port), LOCAL_DATABASE_FILE: database,
-    DATABASE_URL: `file:${database.replaceAll("\\", "/")}`, MEDIA_DIRECTORY: join(root, "media"),
-    LEGACY_VIDEO_DIRECTORY: join(root, "legacy-videos"), OPENROUTER_API_KEY: "", TAVILY_API_KEY: "", OUTBOUND_PROXY_URL: "",
-  };
-  execFileSync(process.execPath, ["scripts/run-with-local-db.mjs", "--migrate", "node", "--version"], { env, windowsHide: true, timeout: 30_000, stdio: "pipe" });
-  server = spawn(process.execPath, [".desktop-runtime/server.js"], { env, windowsHide: true, stdio: "ignore" });
-  await expect.poll(async () => {
-    if (server.exitCode !== null) throw new Error("Authentication test server exited before readiness");
-    return fetch(`${origin}/api/health`).then((response) => response.status).catch(() => 0);
-  }, { timeout: 30_000 }).toBe(200);
+  server = await startStandaloneServer();
+  origin = server.origin;
 });
 
-test.afterAll(async () => {
-  if (server && server.exitCode === null) {
-    const exited = new Promise<void>((resolve) => server.once("exit", () => resolve()));
-    server.kill();
-    await exited;
-  }
-  if (dirname(root) !== resolve(".desktop-data/test")) throw new Error("Unexpected auth test directory");
-  rmSync(root, { recursive: true, force: true });
-});
+test.afterAll(async () => { await server?.close(); });
 
-test("real browser authentication, CSRF rejection, Session expiry and login throttling", async ({ page, request }) => {
+test("real browser authentication, CSRF rejection, Session expiry and login throttling", { tag: "@integration" }, async ({ page, request }) => {
   const email = `${randomUUID()}@example.invalid`;
   const password = randomUUID();
   const unauthorized = await request.post(`${origin}/api/chat`, { data: "invalid" });
@@ -58,6 +29,7 @@ test("real browser authentication, CSRF rejection, Session expiry and login thro
   const session = (await page.context().cookies()).find((cookie) => cookie.name === "app_session");
   expect(session?.httpOnly).toBe(true);
   expect(session?.sameSite).toBe("Lax");
+  expect((await browserApi(page, `${origin}/api/auth/me`)).status).toBe(200);
   const malformed = await page.evaluate(async () => {
     const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: [{ id: "u", role: "user", parts: [{ type: "text", text: 12 }] }] }) });
     return { status: response.status, body: await response.json() };
@@ -78,14 +50,11 @@ test("real browser authentication, CSRF rejection, Session expiry and login thro
   const unconfigured = await chatResponse;
   expect(unconfigured.status()).toBe(503);
   expect((await unconfigured.json()).error.code).toBe("CONFIGURATION_ERROR");
-  const sqlite = new DatabaseSync(database);
-  try {
-    sqlite.exec("PRAGMA busy_timeout=5000");
-    sqlite.prepare("UPDATE sessions SET expiresAt = 0").run();
-  } finally { sqlite.close(); }
-  const expired = await page.context().request.get(`${origin}/api/auth/me`);
-  expect(expired.status()).toBe(401);
-  expect((await expired.json()).error.code).toBe("UNAUTHORIZED");
+  server.expireSessions();
+  const expired = await browserApi(page, `${origin}/api/auth/me`);
+  expect(expired.status).toBe(401);
+  expect(expired.body.error.code).toBe("UNAUTHORIZED");
+  expect(server.readRows("SELECT id FROM sessions")).toHaveLength(0);
   await page.goto(`${origin}/chat`);
   await expect(page).toHaveURL(`${origin}/login`);
   await page.goto(`${origin}/knowledge`);
@@ -94,8 +63,10 @@ test("real browser authentication, CSRF rejection, Session expiry and login thro
   await page.getByPlaceholder("密码", { exact: true }).fill(password);
   await page.getByRole("button", { name: "登录", exact: true }).click();
   await expect(page).toHaveURL(`${origin}/chat`);
-  expect((await page.context().request.post(`${origin}/api/auth/logout`)).ok()).toBe(true);
-  expect((await page.context().request.get(`${origin}/api/auth/me`)).status()).toBe(401);
+  expect((await browserApi(page, `${origin}/api/auth/me`)).status).toBe(200);
+  expect((await browserApi(page, `${origin}/api/auth/logout`, "POST")).status).toBe(200);
+  expect(server.readRows("SELECT id FROM sessions")).toHaveLength(0);
+  expect((await browserApi(page, `${origin}/api/auth/me`)).status).toBe(401);
   for (let index = 0; index < 19; index++) {
     expect((await request.post(`${origin}/api/auth/login`, { data: { email, password: randomUUID() }, headers: { "x-forwarded-for": `198.51.100.${index}` } })).status()).toBe(401);
   }
