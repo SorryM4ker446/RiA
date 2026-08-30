@@ -36,7 +36,7 @@
 | webSearch | 限流/超时/重试/缓存 | 部分 | 已有超时与错误码；重试、缓存仍缺失 | P1 |
 | 通用 | 工具仅聊天模式可用 | 已有 | 非聊天模式不可手动/被动调用工具 | P0 |
 | 通用 | 历史工具详情可回看 | 已有 | 历史消息支持折叠查看 input/output | P0 |
-| 通用 | 端到端测试（工具触发→DB→UI） | 已完成 | 3 条 Playwright E2E：`webSearch/createTask/searchKnowledge` | P0 |
+| 通用 | UI 回归与服务端集成测试 | 已有 | Playwright Mock UI 流程与真实 Route Handler + SQLite 测试分层覆盖，不等同完整浏览器→服务端→DB 链路 | P0 |
 | 通用 | 监控与审计日志（tool call） | 已完成（基础版） | 记录 `toolId/trigger/state/durationMs/userId/errorCode/requestId` | P1 |
 
 ## 3. P0 排期建议（先可用）

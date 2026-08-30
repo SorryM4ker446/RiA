@@ -19,6 +19,7 @@ export type PersistedAssistantToolItem = {
   input?: unknown;
   output?: unknown;
   errorText?: string;
+  approval?: { id: string; approved?: boolean; reason?: string };
 };
 
 export type PersistedAssistantToolMessagePayload = {
@@ -153,6 +154,13 @@ export function decodePersistedAssistantToolMessage(
         ...(tool.input !== undefined ? { input: tool.input } : {}),
         ...(tool.output !== undefined ? { output: tool.output } : {}),
         ...(typeof tool.errorText === "string" ? { errorText: tool.errorText } : {}),
+        ...(tool.approval && typeof tool.approval.id === "string" ? {
+          approval: {
+            id: tool.approval.id,
+            ...(typeof tool.approval.approved === "boolean" ? { approved: tool.approval.approved } : {}),
+            ...(typeof tool.approval.reason === "string" ? { reason: tool.approval.reason } : {}),
+          },
+        } : {}),
       }));
 
     return {

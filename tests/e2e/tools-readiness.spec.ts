@@ -225,6 +225,7 @@ test.beforeEach(async ({ page }) => {
 
 test("manual webSearch shows traceable source in chat UI", async ({ page }) => {
   await page.goto("/chat");
+  await expect(page.getByRole("heading", { name: "E2E Chat", exact: true })).toBeVisible();
   await page.getByLabel("选择手动工具").click();
   await page.getByRole("option", { name: "手动：Web 搜索" }).click();
   await page.getByPlaceholder(/输入要搜索的关键词/).fill("P0 tools readiness");
@@ -241,6 +242,7 @@ test("manual webSearch shows traceable source in chat UI", async ({ page }) => {
 
 test("createTask persists to task panel and status can move to done", async ({ page }) => {
   await page.goto("/chat");
+  await expect(page.getByRole("heading", { name: "E2E Chat", exact: true })).toBeVisible();
   await page.getByLabel("选择手动工具").click();
   await page.getByRole("option", { name: "手动：创建任务" }).click();
   await page.getByPlaceholder(/输入任务标题/).fill("P0 E2E task");
@@ -255,6 +257,7 @@ test("createTask persists to task panel and status can move to done", async ({ p
 
 test("new knowledge entry can be retrieved by searchKnowledge", async ({ page }) => {
   await page.goto("/chat");
+  await expect(page.getByRole("heading", { name: "E2E Chat", exact: true })).toBeVisible();
   await page.getByRole("link", { name: /知识库/ }).click();
   await expect(page).toHaveURL(/\/knowledge$/);
   await page.getByPlaceholder("知识标题").fill("P0 readiness keyword");
@@ -263,6 +266,7 @@ test("new knowledge entry can be retrieved by searchKnowledge", async ({ page })
   await expect(page.getByText("P0 readiness keyword")).toBeVisible();
 
   await page.getByRole("link", { name: /返回聊天/ }).click();
+  await expect(page.getByRole("heading", { name: "E2E Chat", exact: true })).toBeVisible();
   await page.getByLabel("选择手动工具").click();
   await page.getByRole("option", { name: "手动：知识检索" }).click();
   await page.getByPlaceholder(/输入要检索的关键词/).fill("P0 readiness keyword");

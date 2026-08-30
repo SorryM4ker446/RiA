@@ -1,10 +1,9 @@
 import { spawn } from "node:child_process";
-import { createRequire } from "node:module";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveInstalledElectron } from "./resolve-installed-electron.mjs";
 
-const require = createRequire(import.meta.url);
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packageVersion = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")).version;
 const development = process.argv.includes("--development");
@@ -15,7 +14,7 @@ const electronExecutable = installed
   ? join(process.env.LOCALAPPDATA || "", "PrivateAIAssistant", `app-${packageVersion}`, "Private AI Assistant.exe")
   : packaged
     ? join(repositoryRoot, "out", "Private AI Assistant-win32-x64", "Private AI Assistant.exe")
-    : require("electron");
+    : resolveInstalledElectron();
 const testRoot = join(repositoryRoot, ".desktop-data", "test", `electron-smoke-${process.pid}-${Date.now()}`);
 const expectedParent = resolve(repositoryRoot, ".desktop-data", "test");
 

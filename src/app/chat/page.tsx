@@ -4,7 +4,7 @@ import { ChangeEvent, ClipboardEvent, FormEvent, KeyboardEvent, useEffect, useMe
 import Image from "next/image";
 import Link from "next/link";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, UIMessage } from "ai";
+import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses, UIMessage } from "ai";
 import {
   BookOpen,
   Check,
@@ -463,6 +463,7 @@ export default function ChatPage() {
   const { messages, setMessages, sendMessage, regenerate, addToolApprovalResponse, status, error, clearError } = useChat({
     id: activeChatId ?? "draft",
     transport,
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
   });
 
   const isPending =
@@ -969,6 +970,7 @@ export default function ChatPage() {
               ...(toolPart.input !== undefined ? { input: toolPart.input } : {}),
               ...(toolPart.output !== undefined ? { output: toolPart.output } : {}),
               ...(toolPart.errorText ? { errorText: toolPart.errorText } : {}),
+              ...(toolPart.approval ? { approval: toolPart.approval } : {}),
             })),
           })
         : text;
@@ -1006,6 +1008,7 @@ export default function ChatPage() {
   }
 
   async function saveEditedMessage(message: UIMessage) {
+    if (isPending) return;
     const nextText = editingMessageText.trim();
     if (!nextText || !activeChatId) return;
 
@@ -1030,7 +1033,9 @@ export default function ChatPage() {
     } catch (editError) {
       setMessages(previous);
       setPageError(editError instanceof Error ? editError.message : "保存修改失败");
+      return;
     }
+    await regenerateMessage(message.id);
   }
 
   async function regenerateMessage(messageId: string) {
@@ -1989,7 +1994,7 @@ export default function ChatPage() {
                   const isLastAssistantStreaming =
                     status === "streaming" && index === messages.length - 1 && message.role === "assistant";
                   const isEditing = editingMessageId === message.id;
-                  const isEditable = isUser && fileParts.length === 0 && !isEditing;
+                  const isEditable = isUser && fileParts.length === 0 && !isEditing && !isPending;
                   const isRegenerable = message.role === "assistant" && index === messages.length - 1;
 
                   return (
@@ -2239,6 +2244,7 @@ export default function ChatPage() {
                                       {toolPart.state === "approval-requested" && "approval" in toolPart && toolPart.approval ? (
                                         <div className="mt-2 flex items-center gap-2">
                                           <Button
+                                            disabled={isPending || index !== messages.length - 1}
                                             onClick={() =>
                                               void addToolApprovalResponse({
                                                 id: toolPart.approval.id,
@@ -2252,6 +2258,7 @@ export default function ChatPage() {
                                             批准
                                           </Button>
                                           <Button
+                                            disabled={isPending || index !== messages.length - 1}
                                             onClick={() =>
                                               void addToolApprovalResponse({
                                                 id: toolPart.approval.id,

@@ -129,15 +129,16 @@ export async function POST(req: NextRequest) {
       console.warn("tools.run memory.persist warning", memoryError);
     }
 
-    succeeded = true;
-    return Response.json({
+    const response = Response.json({
       tool: toolId,
       data,
       assistantText,
     });
+    succeeded = true;
+    return response;
   } catch (error) {
     console.error("/api/tools/run POST error", error);
-    if (succeeded && logContext) {
+    if (logContext) {
       logToolExecution({
         toolId: logContext.toolId,
         trigger: "manual",
@@ -150,7 +151,7 @@ export async function POST(req: NextRequest) {
     }
     return createApiErrorResponse(error, "Failed to run tool");
   } finally {
-    if (logContext) {
+    if (succeeded && logContext) {
       logToolExecution({
         toolId: logContext.toolId,
         trigger: "manual",

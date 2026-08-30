@@ -266,6 +266,7 @@ export function mapStoredMessagesToUI(messages: StoredMessage[]): {
           ...(tool.input !== undefined ? { input: tool.input } : {}),
           ...(tool.output !== undefined ? { output: tool.output } : {}),
           ...(tool.errorText ? { errorText: tool.errorText } : {}),
+          ...(tool.approval ? { approval: tool.approval } : {}),
         } as UIMessage["parts"][number]);
       }
 

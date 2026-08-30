@@ -1,6 +1,8 @@
 import { MessageRole, MessageStatus } from "@prisma/client";
+import type { UIMessage } from "ai";
 import { db } from "@/db";
-import { truncateTitle } from "@/lib/ai/ui-message";
+import { decodePersistedAssistantToolMessage, encodePersistedAssistantToolMessage, truncateTitle } from "@/lib/ai/ui-message";
+import { ApiError } from "@/lib/server/api-error";
 
 export async function listChats(userId: string) {
   return db.chat.findMany({
@@ -72,7 +74,7 @@ export async function listChatMessages(userId: string, chatId: string) {
 
   const messages = await db.message.findMany({
     where: { chatId },
-    orderBy: [{ createdAt: "asc" }],
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   });
 
   return messages;
@@ -81,7 +83,7 @@ export async function listChatMessages(userId: string, chatId: string) {
 export async function getRecentChatMessages(chatId: string, limit = 10) {
   return db.message.findMany({
     where: { chatId },
-    orderBy: [{ createdAt: "desc" }],
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: limit,
   });
 }
@@ -92,32 +94,108 @@ export async function saveChatMessage(params: {
   content: string;
   status?: MessageStatus;
   clientMessageId?: string;
+  updateExisting?: boolean;
 }) {
-  const { chatId, role, content, status = "success", clientMessageId } = params;
+  const { chatId, role, content, status = "success", clientMessageId, updateExisting = false } = params;
   const normalizedClientMessageId = clientMessageId?.trim() ? clientMessageId.trim() : undefined;
 
-  if (normalizedClientMessageId) {
-    const existing = await db.message.findFirst({
-      where: { chatId, clientMessageId: normalizedClientMessageId },
-    });
-
-    if (existing) return existing;
-  }
-
-  const message = await db.message.create({
-    data: {
+  return db.$transaction(async (tx) => {
+    const data = {
       chatId,
       role,
       content,
       status,
       ...(normalizedClientMessageId ? { clientMessageId: normalizedClientMessageId } : {}),
-    },
+    };
+    const message = normalizedClientMessageId
+      ? await tx.message.upsert({
+          where: { chatId_clientMessageId: { chatId, clientMessageId: normalizedClientMessageId } },
+          create: data,
+          update: updateExisting ? { content, status } : {},
+        })
+      : await tx.message.create({ data });
+    await tx.chat.update({ where: { id: chatId }, data: { lastMessageAt: new Date() } });
+    return message;
   });
+}
 
-  await db.chat.update({
-    where: { id: chatId },
-    data: { lastMessageAt: new Date() },
+export async function getRegenerationSnapshot(userId: string, chatId: string, messageId: string) {
+  const messages = await listChatMessages(userId, chatId);
+  const index = messages?.findIndex((message) =>
+    message.role === "user" && (message.id === messageId || message.clientMessageId === messageId),
+  ) ?? -1;
+  if (!messages || index < 0) {
+    throw new ApiError({ code: "NOT_FOUND", message: "Message to regenerate was not found" });
+  }
+  return { userId, chatId, messages };
+}
+
+/** Claim a persisted pending approval once, before any side effect is executed. */
+export async function claimToolApproval(userId: string, chatId: string, message: UIMessage) {
+  const existing = await db.message.findFirst({ where: {
+    chatId, chat: { userId }, role: "assistant",
+    OR: [{ id: message.id }, { clientMessageId: message.id }],
+  } });
+  const persisted = existing ? decodePersistedAssistantToolMessage(existing.content) : null;
+  if (!existing || !persisted) {
+    throw new ApiError({ code: "NOT_FOUND", message: "Pending tool approval was not found" });
+  }
+  const decisions = message.parts.filter((part) => "state" in part && part.state === "approval-responded");
+  if (decisions.length === 0) throw new ApiError({ code: "VALIDATION_ERROR", message: "Approval decision is required" });
+  for (const part of decisions) {
+    if (!("toolCallId" in part) || !("approval" in part) || !part.approval || typeof part.approval.approved !== "boolean") {
+      throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid approval decision" });
+    }
+    const stored = persisted.tools.find((tool) => tool.toolCallId === part.toolCallId);
+    if (!stored || stored.state !== "approval-requested" || stored.approval?.id !== part.approval.id) {
+      throw new ApiError({ code: "CONFLICT", message: "This approval is no longer pending; refresh the conversation" });
+    }
+    if (part.type !== `tool-${stored.toolName}` || JSON.stringify(part.input) !== JSON.stringify(stored.input)) {
+      throw new ApiError({ code: "VALIDATION_ERROR", message: "Tool approval input does not match the pending request" });
+    }
+    stored.state = "approval-responded";
+    stored.approval = part.approval;
+  }
+  const claimed = await db.message.updateMany({
+    where: { id: existing.id, content: existing.content },
+    data: { content: encodePersistedAssistantToolMessage(persisted) },
   });
+  if (claimed.count !== 1) {
+    throw new ApiError({ code: "CONFLICT", message: "This approval has already been processed" });
+  }
+}
 
-  return message;
+export async function saveRegeneratedResponse(params: {
+  snapshot: Awaited<ReturnType<typeof getRegenerationSnapshot>>;
+  userMessageId: string;
+  content: string;
+  clientMessageId: string;
+}) {
+  const { snapshot } = params;
+  return db.$transaction(async (tx) => {
+    const chat = await tx.chat.findFirst({ where: { id: snapshot.chatId, userId: snapshot.userId } });
+    if (!chat) throw new ApiError({ code: "NOT_FOUND", message: "Conversation was not found" });
+    const current = await tx.message.findMany({
+      where: { chatId: snapshot.chatId },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    });
+    // A concurrent edit/send must not be discarded by a slower generation.
+    if (JSON.stringify(current) !== JSON.stringify(snapshot.messages)) {
+      throw new ApiError({ code: "CONFLICT", message: "Conversation changed while regenerating; original messages were preserved" });
+    }
+    const index = current.findIndex((message) =>
+      message.role === "user" && (message.id === params.userMessageId || message.clientMessageId === params.userMessageId),
+    );
+    if (index < 0) throw new ApiError({ code: "NOT_FOUND", message: "Message to regenerate was not found" });
+    await tx.message.deleteMany({ where: { id: { in: current.slice(index + 1).map((message) => message.id) } } });
+    const message = await tx.message.create({ data: {
+      chatId: snapshot.chatId,
+      role: "assistant",
+      content: params.content,
+      status: "success",
+      clientMessageId: params.clientMessageId,
+    } });
+    await tx.chat.update({ where: { id: snapshot.chatId }, data: { lastMessageAt: new Date() } });
+    return message;
+  });
 }
