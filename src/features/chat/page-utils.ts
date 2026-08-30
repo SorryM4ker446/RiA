@@ -1,11 +1,9 @@
-import { getApiErrorMessage } from "@/lib/api-error-message";
-import { UIMessage } from "ai";
-import { decodeMediaMessage, encodeMediaMessage, mediaUrl, type MediaReference, type StoredMediaMessage } from "@/lib/media/message-codec";
-import { attachmentValidationError } from "@/lib/media/limits";
 import {
   decodePersistedAssistantToolMessage,
   decodePersistedUserMessage,
 } from "@/lib/ai/ui-message";
+import { decodeMediaMessage, encodeMediaMessage, mediaUrl, type StoredMediaMessage } from "@/lib/media/message-codec";
+import { UIMessage } from "ai";
 
 export type ChatSummary = {
   id: string;
@@ -139,17 +137,6 @@ export function dedupeFiles(files: File[]): File[] {
   }
 
   return result;
-}
-
-export async function filesToUploadParts(files: File[]): Promise<UploadableFilePart[]> {
-  const validation = attachmentValidationError(files);
-  if (validation) throw new Error(validation);
-  const form = new FormData();
-  for (const file of files) form.append("files", file);
-  const response = await fetch("/api/media/upload", { method: "POST", body: form });
-  const payload = await response.json() as { data?: Array<MediaReference & { filename?: string }>; error?: { message?: string } };
-  if (!response.ok || !payload.data) throw new Error(getApiErrorMessage(payload, "附件上传失败"));
-  return payload.data.map((asset) => ({ type: "file", url: asset.url, mediaType: asset.mediaType, filename: asset.filename }));
 }
 
 export function mapStoredMessagesToUI(messages: StoredMessage[]): {
