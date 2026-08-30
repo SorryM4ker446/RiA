@@ -1,14 +1,12 @@
 import { NextRequest } from "next/server";
+import { assertRequestSecurity } from "@/lib/server/request-security";
+import { createApiErrorResponse } from "@/lib/server/api-error";
 
 export const dynamic = "force-dynamic";
 
 export function GET(request: NextRequest) {
-  if (process.env.APP_RUNTIME === "desktop") {
-    const expectedHost = process.env.DESKTOP_SERVER_HOST;
-    if (!expectedHost || request.headers.get("host") !== expectedHost) {
-      return Response.json({ status: "error" }, { status: 403 });
-    }
-  }
+  try { assertRequestSecurity(request); }
+  catch (error) { return createApiErrorResponse(error); }
 
   return Response.json(
     { status: "ok" },

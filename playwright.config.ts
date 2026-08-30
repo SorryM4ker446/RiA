@@ -23,6 +23,7 @@ export default defineConfig({
     env: {
       ...process.env,
       APP_RUNTIME: "test",
+      APP_ORIGIN: "",
       HOSTNAME: "127.0.0.1",
       PORT: String(e2ePort),
       LOCAL_DATABASE_FILE: `.desktop-data/test/${e2eRunId}/app.db`,

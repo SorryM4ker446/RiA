@@ -2,8 +2,8 @@ import { tavilySearch } from "@tavily/ai-sdk";
 import { z } from "zod";
 import { ApiError } from "@/lib/server/api-error";
 
-export const webSearchInput = z.object({
-  query: z.string().min(1).describe("The web search query."),
+export const webSearchInput = z.strictObject({
+  query: z.string().trim().max(2000).min(1).describe("The web search query."),
   maxResults: z
     .number()
     .int()
@@ -80,23 +80,19 @@ function throwTavilyError(error: unknown): never {
     throw new ApiError({
       code: "TIMEOUT",
       message: "Tavily search timed out.",
-      details: message,
     });
   }
 
   if (/\b(401|403)\b|unauthorized|forbidden|api key|apikey|authorization/i.test(message)) {
     throw new ApiError({
-      code: "UNAUTHORIZED",
+      code: "CONFIGURATION_ERROR",
       message: "Tavily search is not authorized.",
-      status: 401,
-      details: message,
     });
   }
 
   throw new ApiError({
     code: "UPSTREAM_FAILED",
     message: "Failed to reach Tavily search.",
-    details: message,
   });
 }
 
@@ -105,7 +101,7 @@ export async function runWebSearch(input: WebSearchInput): Promise<WebSearchOutp
   const apiKey = process.env.TAVILY_API_KEY?.trim();
   if (!apiKey) {
     throw new ApiError({
-      code: "UNAUTHORIZED",
+      code: "CONFIGURATION_ERROR",
       message: "TAVILY_API_KEY is not configured.",
     });
   }

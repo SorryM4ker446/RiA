@@ -1,11 +1,12 @@
+import { readJsonBody } from "@/lib/server/request-body";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { requireRequestUser } from "@/lib/auth/request-user";
-import { createApiErrorResponse } from "@/lib/server/api-error";
+import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { deleteChat, getChat, listChatMessages, updateChatTitle } from "@/lib/chat/store";
 
-const updateConversationSchema = z.object({
-  title: z.string().min(1).max(200),
+const updateConversationSchema = z.strictObject({
+  title: z.string().trim().min(1).max(200),
 });
 
 type Params = {
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest, context: Params) {
     const conversation = await getChat(user.id, id);
 
     if (!conversation) {
-      return Response.json({ error: "Conversation not found" }, { status: 404 });
+      throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
     }
 
     const messages = await listChatMessages(user.id, id);
@@ -37,7 +38,7 @@ export async function GET(req: NextRequest, context: Params) {
       },
     });
   } catch (error) {
-    console.error("/api/conversations/[id] GET error", error);
+    console.error("/api/conversations/[id] GET error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to fetch conversation");
   }
 }
@@ -46,23 +47,20 @@ export async function PATCH(req: NextRequest, context: Params) {
   try {
     const user = await requireRequestUser(req);
     const { id } = await context.params;
-    const parsed = updateConversationSchema.safeParse(await req.json());
+    const parsed = updateConversationSchema.safeParse(await readJsonBody(req));
 
     if (!parsed.success) {
-      return Response.json(
-        { error: "Invalid request body", details: parsed.error.flatten() },
-        { status: 400 },
-      );
+      throw parsed.error;
     }
 
     const updated = await updateChatTitle(user.id, id, parsed.data.title);
     if (!updated) {
-      return Response.json({ error: "Conversation not found" }, { status: 404 });
+      throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
     }
 
     return Response.json({ data: updated });
   } catch (error) {
-    console.error("/api/conversations/[id] PATCH error", error);
+    console.error("/api/conversations/[id] PATCH error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to update conversation");
   }
 }
@@ -74,12 +72,12 @@ export async function DELETE(req: NextRequest, context: Params) {
 
     const deleted = await deleteChat(user.id, id);
     if (!deleted) {
-      return Response.json({ error: "Conversation not found" }, { status: 404 });
+      throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
     }
 
     return Response.json({ success: true });
   } catch (error) {
-    console.error("/api/conversations/[id] DELETE error", error);
+    console.error("/api/conversations/[id] DELETE error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to delete conversation");
   }
 }

@@ -2,14 +2,14 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { requireRequestUser } from "@/lib/auth/request-user";
 import { decodePersistedUserMessage, truncateTitle } from "@/lib/ai/ui-message";
-import { createApiErrorResponse } from "@/lib/server/api-error";
+import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { getChat, listChatMessages, saveChatMessage, updateChatTitle } from "@/lib/chat/store";
 import { readJsonBody } from "@/lib/server/request-body";
 
-const createMessageSchema = z.object({
+const createMessageSchema = z.strictObject({
   role: z.enum(["user", "assistant", "system"]),
-  content: z.string().min(1),
-  clientMessageId: z.string().min(1).optional(),
+  content: z.string().min(1).max(1_000_000),
+  clientMessageId: z.string().trim().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/).optional(),
   status: z.enum(["pending", "success", "error"]).optional(),
 });
 
@@ -30,12 +30,12 @@ export async function GET(req: NextRequest, context: Params) {
 
     const messages = await listChatMessages(user.id, chatId);
     if (!messages) {
-      return Response.json({ error: "Conversation not found" }, { status: 404 });
+      throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
     }
 
     return Response.json({ data: messages });
   } catch (error) {
-    console.error("/api/conversations/[id]/messages GET error", error);
+    console.error("/api/conversations/[id]/messages GET error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to fetch messages");
   }
 }
@@ -44,17 +44,11 @@ export async function POST(req: NextRequest, context: Params) {
   try {
     const user = await requireRequestUser(req);
     const { id: chatId } = await context.params;
+    const parsed = createMessageSchema.safeParse(await readJsonBody(req));
+    if (!parsed.success) throw parsed.error;
     const chat = await getChat(user.id, chatId);
     if (!chat) {
-      return Response.json({ error: "Conversation not found" }, { status: 404 });
-    }
-
-    const parsed = createMessageSchema.safeParse(await readJsonBody(req));
-    if (!parsed.success) {
-      return Response.json(
-        { error: "Invalid request body", details: parsed.error.flatten() },
-        { status: 400 },
-      );
+      throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
     }
 
     const message = await saveChatMessage({
@@ -75,7 +69,7 @@ export async function POST(req: NextRequest, context: Params) {
 
     return Response.json({ data: message }, { status: 201 });
   } catch (error) {
-    console.error("/api/conversations/[id]/messages POST error", error);
+    console.error("/api/conversations/[id]/messages POST error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to create message");
   }
 }

@@ -1,14 +1,15 @@
+import { readJsonBody } from "@/lib/server/request-body";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
-import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
+import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { requireRequestUser } from "@/lib/auth/request-user";
 
 const updateTaskSchema = z
-  .object({
-    title: z.string().min(1).max(120).optional(),
+  .strictObject({
+    title: z.string().trim().min(1).max(120).optional(),
     details: z.string().max(2000).nullable().optional(),
-    dueDate: z.string().nullable().optional(),
+    dueDate: z.string().max(100).nullable().optional(),
     priority: z.enum(["low", "medium", "high"]).optional(),
     status: z.enum(["todo", "in_progress", "done"]).optional(),
   })
@@ -59,7 +60,7 @@ export async function GET(req: NextRequest, context: Params) {
 
     return Response.json({ data: task });
   } catch (error) {
-    console.error("/api/tasks/[id] GET error", error);
+    console.error("/api/tasks/[id] GET error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to fetch task");
   }
 }
@@ -68,7 +69,7 @@ export async function PATCH(req: NextRequest, context: Params) {
   try {
     const user = await requireRequestUser(req);
     const { id } = await context.params;
-    const parsed = updateTaskSchema.safeParse(await req.json());
+    const parsed = updateTaskSchema.safeParse(await readJsonBody(req));
 
     if (!parsed.success) {
       throw new ApiError({
@@ -100,7 +101,7 @@ export async function PATCH(req: NextRequest, context: Params) {
 
     return Response.json({ data: updated });
   } catch (error) {
-    console.error("/api/tasks/[id] PATCH error", error);
+    console.error("/api/tasks/[id] PATCH error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to update task");
   }
 }
@@ -124,7 +125,7 @@ export async function DELETE(req: NextRequest, context: Params) {
 
     return Response.json({ success: true });
   } catch (error) {
-    console.error("/api/tasks/[id] DELETE error", error);
+    console.error("/api/tasks/[id] DELETE error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to delete task");
   }
 }

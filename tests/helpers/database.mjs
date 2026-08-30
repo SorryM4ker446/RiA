@@ -20,6 +20,8 @@ export function createTestDatabase() {
   process.env.MEDIA_DIRECTORY = join(root, "media");
   process.env.LEGACY_VIDEO_DIRECTORY = join(root, "legacy-videos");
   process.env.AUTH_DISABLED = "0";
+  process.env.APP_RUNTIME = "test";
+  process.env.APP_ORIGIN = "";
   process.env.OPENROUTER_API_KEY = "";
   process.env.TAVILY_API_KEY = "";
   process.env.OUTBOUND_PROXY_URL = "";

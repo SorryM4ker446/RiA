@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { db } from "@/db";
-import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
+import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { requireRequestUser } from "@/lib/auth/request-user";
 
 type Params = {
@@ -36,7 +36,7 @@ export async function DELETE(req: NextRequest, context: Params) {
 
     return Response.json({ success: true });
   } catch (error) {
-    console.error("/api/knowledge/[id] DELETE error", error);
+    console.error("/api/knowledge/[id] DELETE error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to delete knowledge entry");
   }
 }

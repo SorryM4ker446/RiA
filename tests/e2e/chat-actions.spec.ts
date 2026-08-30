@@ -21,6 +21,22 @@ function streamBody(chunks: object[]) {
   return chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n";
 }
 
+for (const code of ["RATE_LIMITED", "CONFLICT"]) {
+  test(`chat displays a readable ${code} error`, async ({ page }) => {
+    await mockHistory(page, [userMessage, assistantMessage]);
+    const payload = { error: { code, message: code === "RATE_LIMITED" ? "请求过于频繁" : "Conversation changed", details: { retryAfterSeconds: 30 } } };
+    await page.route("**/api/chat", (route) => code === "RATE_LIMITED"
+      ? route.fulfill({ status: 429, json: payload })
+      : route.fulfill({ contentType: "text/event-stream", headers: { "x-vercel-ai-ui-message-stream": "v1" }, body: streamBody([{ type: "error", errorText: JSON.stringify(payload) }]) }));
+    await page.goto("/chat");
+    await page.getByPlaceholder(/输入你的问题/).fill("Follow-up");
+    await page.getByRole("button", { name: "发送", exact: true }).click();
+    const alert = page.getByRole("alert").filter({ hasText: "请求失败" });
+    await expect(alert).toContainText(code === "RATE_LIMITED" ? "30 秒后可重试" : "重新加载会话");
+    await expect(alert).not.toContainText('"error"');
+  });
+}
+
 for (const approved of [true, false]) {
   test(`reloaded tool approval ${approved ? "acceptance" : "denial"} sends one continuation`, async ({ page }) => {
     await mockHistory(page, [userMessage, pendingMessage]);

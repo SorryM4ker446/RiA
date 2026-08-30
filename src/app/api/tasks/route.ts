@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { TaskStatus } from "@prisma/client";
 import { db } from "@/db";
-import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
+import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { requireRequestUser } from "@/lib/auth/request-user";
 
 const taskListQuerySchema = z.object({
@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
 
     return Response.json({ data: tasks });
   } catch (error) {
-    console.error("/api/tasks GET error", error);
+    console.error("/api/tasks GET error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to fetch tasks");
   }
 }

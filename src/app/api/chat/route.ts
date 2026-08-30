@@ -1,4 +1,5 @@
-import { convertToModelMessages, generateText, Output, stepCountIs, streamText, type UIMessage } from "ai";
+import { chatRequestSchema } from "@/lib/server/request-schemas";
+import { convertToModelMessages, validateUIMessages, createUIMessageStream, createUIMessageStreamResponse, generateText, Output, stepCountIs, streamText, type UIMessage } from "ai";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { chatModelSupportsImageInput, resolveModelId } from "@/config/model";
@@ -22,8 +23,8 @@ import {
 import { claimToolApproval, createChat, getChat, getRegenerationSnapshot, saveChatMessage, saveRegeneratedResponse } from "@/lib/chat/store";
 import { buildChatContext, isToolApprovalContinuation } from "@/lib/chat/context";
 import { getRelevantMemories, saveMemory } from "@/lib/memory/store";
-import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
-import { checkRateLimit } from "@/lib/server/rate-limit";
+import { ApiError, apiErrorPayload, normalizeApiError, createApiErrorResponse } from "@/lib/server/api-error";
+import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { setupServerProxy } from "@/lib/server/proxy";
 import { db } from "@/db";
 import { createChatToolSet, listAutoToolDescriptors } from "@/tools/catalog";
@@ -32,18 +33,6 @@ import { readJsonBody } from "@/lib/server/request-body";
 import { materializeChatAttachments, resolveImageInputs } from "@/lib/media/messages";
 
 const TOOL_DEBUG = process.env.TOOL_DEBUG === "1";
-
-type ChatRequestBody = {
-  id?: string;
-  chatId?: string;
-  conversationId?: string;
-  messageId?: string;
-  modelId?: string;
-  mode?: "chat" | "image" | "video";
-  manualToolsOnly?: boolean;
-  trigger?: "submit-message" | "regenerate-message" | "resume-stream";
-  messages?: UIMessage[];
-};
 
 type AutoToolIntent = string | null;
 const autoToolIntentSchema = z.object({
@@ -182,7 +171,7 @@ async function detectAutoToolIntent(params: {
 
     return intent;
   } catch (error) {
-    console.warn("auto-tool intent classification failed", error);
+    console.warn("auto-tool intent classification failed", normalizeApiError(error).code);
     return null;
   }
 }
@@ -247,31 +236,25 @@ async function getOrCreateChat(params: {
 export async function POST(req: NextRequest) {
   try {
     const user = await requireRequestUser(req);
-    setupServerProxy();
+    enforceRateLimit("chat", user.id);
 
-    if (!process.env.OPENROUTER_API_KEY?.trim()) {
-      throw new ApiError({
-        code: "CONFIGURATION_ERROR",
-        message: "OPENROUTER_API_KEY is not configured. Set it in .env and restart the dev server before chatting.",
-      });
-    }
-
-    const body = (await readJsonBody(req)) as ChatRequestBody;
-    if (!body || typeof body !== "object") throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid chat body" });
-    const messages = Array.isArray(body.messages) ? body.messages : [];
-    if (messages.length > 1000 || messages.some((message) => !message || !Array.isArray(message.parts) || message.parts.length > 100 || message.parts.some((part) => !part || typeof part.type !== "string"))) {
-      throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid messages or too many message parts" });
-    }
+    const body = chatRequestSchema.parse(await readJsonBody(req));
+    const messages = await validateUIMessages<UIMessage>({ messages: body.messages }).catch(() => {
+      throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid message parts or tool state" });
+    });
     const modelId = resolveModelId(body.modelId);
     const latestUserMessage = getLatestUserMessage(messages);
     const isApprovalResume = isToolApprovalContinuation(messages);
-    if (latestUserMessage?.files.length) await resolveImageInputs(user.id, latestUserMessage.files);
-
-    if (messages.length === 0) {
-      throw new ApiError({
-        code: "VALIDATION_ERROR",
-        message: "messages is required",
-      });
+    const requestedChatId = body.chatId ?? body.conversationId ?? body.id;
+    if (requestedChatId) {
+      const existing = await db.chat.findUnique({ where: { id: requestedChatId }, select: { userId: true } });
+      if ((existing && existing.userId !== user.id) || (!existing && isApprovalResume)) {
+        throw new ApiError({ code: "NOT_FOUND", message: "Conversation was not found" });
+      }
+    }
+    for (const message of messages) {
+      const files = message.parts.filter((part) => part.type === "file");
+      if (files.length) await resolveImageInputs(user.id, files);
     }
 
     if (latestUserMessage?.files.length && !chatModelSupportsImageInput(modelId)) {
@@ -281,41 +264,30 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const rateLimit = checkRateLimit({
-      key: `chat:${user.id}`,
-      limit: 30,
-      windowMs: 60_000,
-    });
-
-    if (!rateLimit.allowed) {
-      return Response.json(
-        {
-          error: {
-            code: "RATE_LIMITED",
-            message: "Too many chat requests. Please wait a moment and try again.",
-            details: {
-              retryAfterSeconds: rateLimit.retryAfterSeconds,
-            },
-          },
-        },
-        {
-          status: 429,
-          headers: {
-            "Retry-After": String(rateLimit.retryAfterSeconds),
-            "X-RateLimit-Remaining": String(rateLimit.remaining),
-          },
-        },
-      );
+    if (!process.env.OPENROUTER_API_KEY?.trim()) {
+      throw new ApiError({
+        code: "CONFIGURATION_ERROR",
+        message: "OPENROUTER_API_KEY is not configured. Set it in .env and restart the dev server before chatting.",
+      });
     }
+    setupServerProxy();
+
+    const effectiveMessages = chatModelSupportsImageInput(modelId)
+      ? messages
+      : stripFilePartsForTextOnlyModel(messages);
+    const context = buildChatContext(effectiveMessages);
+    const modelMessages = await convertToModelMessages(await materializeChatAttachments(user.id, context.messages));
 
     const titleSeed = latestUserMessage?.text || "New Chat";
     const chat = await getOrCreateChat({
-      requestedChatId: body.chatId ?? body.conversationId ?? body.id,
+      requestedChatId,
       userId: user.id,
       fallbackTitle: truncateTitle(titleSeed),
     });
 
-    if (latestUserMessage) {
+    if (isApprovalResume) await claimToolApproval(user.id, chat.id, messages[messages.length - 1]);
+
+    if (latestUserMessage && !isApprovalResume) {
       const userContent =
         latestUserMessage.files.length > 0
           ? encodePersistedUserMessage({
@@ -381,19 +353,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const effectiveMessages = chatModelSupportsImageInput(modelId)
-      ? messages
-      : stripFilePartsForTextOnlyModel(messages);
-    const context = buildChatContext(effectiveMessages);
     const systemPrompt = buildSystemPrompt(
       context.historyExcerpt || "No earlier messages omitted.",
       formatLongTermContext(relevantMemories),
       toolsEnabled,
     );
-    const modelMessages = await convertToModelMessages(await materializeChatAttachments(user.id, context.messages));
-    if (isApprovalResume && toolsEnabled) {
-      await claimToolApproval(user.id, chat.id, messages[messages.length - 1]);
-    }
     let generationFailed = false;
 
     const result = streamText({
@@ -421,7 +385,9 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return result.toUIMessageStreamResponse({
+    const streamError = (error: unknown) => JSON.stringify(apiErrorPayload(normalizeApiError(error, "聊天生成或保存失败，请重试或重新加载会话。")));
+    const stream = result.toUIMessageStream({
+      onError: (error) => streamError(error instanceof ApiError ? error : new ApiError({ code: "UPSTREAM_FAILED", message: "模型服务暂时不可用，请稍后重试。" })),
       originalMessages: messages,
       onFinish: async ({ responseMessage, isAborted }) => {
         try {
@@ -497,16 +463,16 @@ export async function POST(req: NextRequest) {
             }
           }
         } catch (persistError) {
-          console.error("chat.persist.onFinish error", persistError);
+          throw normalizeApiError(persistError, "回答保存失败，请重新加载会话后重试。");
         }
       },
-      headers: {
-        "x-chat-id": chat.id,
-        "x-model-id": modelId,
-      },
+    });
+    return createUIMessageStreamResponse({
+      stream: createUIMessageStream({ execute: ({ writer }) => { writer.merge(stream); }, onError: streamError }),
+      headers: { "x-chat-id": chat.id, "x-model-id": modelId, "Cache-Control": "no-store" },
     });
   } catch (error) {
-    console.error("/api/chat error", error);
+    console.error("/api/chat error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to generate chat response");
   }
 }

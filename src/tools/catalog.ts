@@ -1,6 +1,7 @@
+import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { generateText, Output, type ToolSet } from "ai";
 import { z } from "zod";
-import { ApiError } from "@/lib/server/api-error";
+import { ApiError, normalizeApiError } from "@/lib/server/api-error";
 import { resolveModelId } from "@/config/model";
 import { getChatModel } from "@/lib/ai/client";
 import {
@@ -248,7 +249,7 @@ async function resolveWebSearchInput(params: {
       maxResults: output.maxResults,
     };
   } catch (error) {
-    console.warn("webSearch result-count planning failed", error);
+    console.warn("webSearch result-count planning failed", normalizeApiError(error).code);
     return {
       ...params.input,
       maxResults: Math.min(5, maxResultsLimit),
@@ -292,7 +293,7 @@ async function buildWebSearchAssistantText(params: {
     const text = answer.text.trim();
     if (text) return text;
   } catch (error) {
-    console.warn("webSearch synthesis failed", error);
+    console.warn("webSearch synthesis failed", normalizeApiError(error).code);
   }
 
   return buildWebSearchFallbackText(result);
@@ -580,6 +581,12 @@ function readNumericInputValue(input: unknown, key: string): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+export function assertToolConfiguration(toolId: string) {
+  if (toolId === "webSearch" && !process.env.TAVILY_API_KEY?.trim()) {
+    throw new ApiError({ code: "CONFIGURATION_ERROR", message: "TAVILY_API_KEY is not configured." });
+  }
+}
+
 export function createChatToolSet(userId: string, options?: { modelId?: string; toolIds?: string[] }): ToolSet {
   const allowed = new Set(options?.toolIds ?? []);
   const hasRestriction = allowed.size > 0;
@@ -597,6 +604,7 @@ export function createChatToolSet(userId: string, options?: { modelId?: string; 
       execute: async (input: unknown) => {
         const startedAt = Date.now();
         try {
+          enforceRateLimit("tools", userId);
           const budget = tool.auto.resultBudget;
           const usedBudget = resultBudgetUsed.get(tool.id) ?? 0;
           const remainingResultBudget = budget ? budget.maxPerTurn - usedBudget : undefined;
@@ -643,6 +651,7 @@ export function createChatToolSet(userId: string, options?: { modelId?: string; 
             });
           }
 
+          assertToolConfiguration(tool.id);
           const preparedInput = tool.prepareInput
             ? await tool.prepareInput({
                 userId,

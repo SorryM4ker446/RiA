@@ -1,3 +1,4 @@
+import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { NextRequest } from "next/server";
 import { requireRequestUser } from "@/lib/auth/request-user";
 import { attachmentValidationError, MEDIA_LIMITS } from "@/lib/media/limits";
@@ -8,10 +9,13 @@ import { readLimitedBody } from "@/lib/server/request-body";
 export async function POST(req: NextRequest) {
   try {
     const user = await requireRequestUser(req);
+    enforceRateLimit("upload", user.id);
+    if (!req.headers.get("content-type")?.toLowerCase().startsWith("multipart/form-data;")) throw new ApiError({ code: "UNSUPPORTED_MEDIA_TYPE", message: "Content-Type must be multipart/form-data" });
     const bytes = await readLimitedBody(req, MEDIA_LIMITS.uploadBodyBytes);
     let form: FormData;
     try { form = await new Response(bytes, { headers: { "Content-Type": req.headers.get("content-type") || "" } }).formData(); }
     catch { throw new ApiError({ code: "VALIDATION_ERROR", message: "Expected multipart image attachments" }); }
+    if ([...form.keys()].some((key) => key !== "files")) throw new ApiError({ code: "VALIDATION_ERROR", message: "Unexpected upload field" });
     const entries = form.getAll("files");
     if (!entries.length || entries.some((file) => !(file instanceof File))) throw new ApiError({ code: "VALIDATION_ERROR", message: "files is required" });
     const files = entries as File[];

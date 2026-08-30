@@ -1,17 +1,20 @@
+import { chatModelSchema } from "@/lib/server/request-schemas";
+import { enforceRateLimit } from "@/lib/server/rate-limit";
+import { readJsonBody } from "@/lib/server/request-body";
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
+import { ApiError, normalizeApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { requireRequestUser } from "@/lib/auth/request-user";
 import { logToolExecution } from "@/lib/server/tool-log";
-import { getToolDescriptor, isToolSupportedInMode, type ToolMode } from "@/tools/catalog";
+import { assertToolConfiguration, getToolDescriptor, isToolSupportedInMode, type ToolMode } from "@/tools/catalog";
 import { persistToolMemory } from "@/tools/memory-policy";
 
 const TOOL_DEBUG = process.env.TOOL_DEBUG === "1";
 
-const runToolSchema = z.object({
-  tool: z.string().min(1),
-  input: z.unknown(),
-  modelId: z.string().optional(),
+const runToolSchema = z.strictObject({
+  tool: z.string().trim().min(1).max(100),
+  input: z.json(),
+  modelId: chatModelSchema.optional(),
   mode: z.literal("chat"),
 });
 
@@ -22,7 +25,8 @@ export async function POST(req: NextRequest) {
 
   try {
     const user = await requireRequestUser(req);
-    const parsed = runToolSchema.safeParse(await req.json());
+    enforceRateLimit("tools", user.id);
+    const parsed = runToolSchema.safeParse(await readJsonBody(req));
 
     if (!parsed.success) {
       throw new ApiError({
@@ -67,6 +71,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    assertToolConfiguration(toolId);
     const preparedInput = descriptor.prepareInput
       ? await descriptor.prepareInput({
           userId: user.id,
@@ -126,7 +131,7 @@ export async function POST(req: NextRequest) {
         });
       }
     } catch (memoryError) {
-      console.warn("tools.run memory.persist warning", memoryError);
+      console.warn("tools.run memory.persist warning", normalizeApiError(memoryError).code);
     }
 
     const response = Response.json({
@@ -137,7 +142,7 @@ export async function POST(req: NextRequest) {
     succeeded = true;
     return response;
   } catch (error) {
-    console.error("/api/tools/run POST error", error);
+    console.error("/api/tools/run POST error", normalizeApiError(error).code);
     if (logContext) {
       logToolExecution({
         toolId: logContext.toolId,

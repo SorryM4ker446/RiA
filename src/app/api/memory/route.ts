@@ -1,21 +1,22 @@
+import { readJsonBody } from "@/lib/server/request-body";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { requireRequestUser } from "@/lib/auth/request-user";
-import { createApiErrorResponse } from "@/lib/server/api-error";
+import { createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { getRelevantMemories, saveMemory } from "@/lib/memory/store";
 
-const saveMemorySchema = z.object({
-  key: z.string().min(1),
-  value: z.string().min(1),
+const saveMemorySchema = z.strictObject({
+  key: z.string().trim().min(1).max(120),
+  value: z.string().trim().min(1).max(4000),
   score: z.number().min(0).max(1).optional(),
 });
+
+const querySchema = z.strictObject({ query: z.string().trim().max(2000).default(""), limit: z.coerce.number().int().min(1).max(20).default(5) });
 
 export async function GET(req: NextRequest) {
   try {
     const user = await requireRequestUser(req);
-    const query = req.nextUrl.searchParams.get("query")?.trim() ?? "";
-    const limitRaw = req.nextUrl.searchParams.get("limit");
-    const limit = limitRaw ? Number(limitRaw) : 5;
+    const { query, limit } = querySchema.parse({ query: req.nextUrl.searchParams.get("query") ?? undefined, limit: req.nextUrl.searchParams.get("limit") ?? undefined });
 
     if (!query) {
       return Response.json({ data: [], message: "query is empty" });
@@ -24,12 +25,12 @@ export async function GET(req: NextRequest) {
     const memories = await getRelevantMemories({
       userId: user.id,
       query,
-      limit: Number.isFinite(limit) ? Math.max(1, Math.min(limit, 20)) : 5,
+      limit,
     });
 
     return Response.json({ data: memories });
   } catch (error) {
-    console.error("/api/memory GET error", error);
+    console.error("/api/memory GET error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to fetch memories");
   }
 }
@@ -37,13 +38,10 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const user = await requireRequestUser(req);
-    const parsed = saveMemorySchema.safeParse(await req.json());
+    const parsed = saveMemorySchema.safeParse(await readJsonBody(req));
 
     if (!parsed.success) {
-      return Response.json(
-        { error: "Invalid request body", details: parsed.error.flatten() },
-        { status: 400 },
-      );
+      throw parsed.error;
     }
 
     const memory = await saveMemory({
@@ -55,7 +53,7 @@ export async function POST(req: NextRequest) {
 
     return Response.json({ data: memory }, { status: 201 });
   } catch (error) {
-    console.error("/api/memory POST error", error);
+    console.error("/api/memory POST error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to save memory");
   }
 }

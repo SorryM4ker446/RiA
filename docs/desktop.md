@@ -56,6 +56,7 @@ The settings page also supports an outbound HTTP proxy, OpenRouter site name, an
 
 - The local service binds only to `127.0.0.1` on a dynamically selected port.
 - Desktop API routes require the generated Host value and a random HttpOnly session cookie.
+- Writes also require a same-origin browser context; non-browser main-process requests retain Cookie/Host authentication. API quotas reset when the local service restarts. See [API contracts and local security](api-security.md).
 - Electron renderers use `contextIsolation`, sandboxing, disabled Node integration, and a narrow preload bridge.
 - Permission requests, webviews, arbitrary navigation, and new windows are denied.
 - Only HTTPS external links are handed to the operating system browser.

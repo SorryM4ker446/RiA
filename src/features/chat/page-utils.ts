@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/lib/api-error-message";
 import { UIMessage } from "ai";
 import { decodeMediaMessage, encodeMediaMessage, mediaUrl, type MediaReference, type StoredMediaMessage } from "@/lib/media/message-codec";
 import { attachmentValidationError } from "@/lib/media/limits";
@@ -147,7 +148,7 @@ export async function filesToUploadParts(files: File[]): Promise<UploadableFileP
   for (const file of files) form.append("files", file);
   const response = await fetch("/api/media/upload", { method: "POST", body: form });
   const payload = await response.json() as { data?: Array<MediaReference & { filename?: string }>; error?: { message?: string } };
-  if (!response.ok || !payload.data) throw new Error(payload.error?.message || "附件上传失败");
+  if (!response.ok || !payload.data) throw new Error(getApiErrorMessage(payload, "附件上传失败"));
   return payload.data.map((asset) => ({ type: "file", url: asset.url, mediaType: asset.mediaType, filename: asset.filename }));
 }
 

@@ -2,6 +2,8 @@ import type { NextRequest } from "next/server";
 import { db } from "@/db";
 import { getSessionUserFromRequest } from "@/lib/auth/session";
 import { ApiError } from "@/lib/server/api-error";
+import { assertRequestSecurity } from "@/lib/server/request-security";
+import { readEmptyBody } from "@/lib/server/request-body";
 
 const DEFAULT_EMAIL = "demo@private-ai.local";
 const DEFAULT_NAME = "Demo User";
@@ -27,6 +29,7 @@ async function resolveDemoUser() {
  * single shared demo user.
  */
 export async function getRequestUser(req: NextRequest) {
+  assertRequestSecurity(req);
   if (isAuthDisabled()) return resolveDemoUser();
   return getSessionUserFromRequest(req);
 }
@@ -43,5 +46,6 @@ export async function requireRequestUser(req: NextRequest) {
       message: "Authentication required. Please sign in.",
     });
   }
+  if (req.method === "DELETE") await readEmptyBody(req);
   return user;
 }
