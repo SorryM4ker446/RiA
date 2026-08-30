@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { resolve } from "node:path";
 
 const e2ePort = 3100;
 const e2eRunId = `playwright-${process.pid}`;
@@ -25,6 +26,8 @@ export default defineConfig({
       HOSTNAME: "127.0.0.1",
       PORT: String(e2ePort),
       LOCAL_DATABASE_FILE: `.desktop-data/test/${e2eRunId}/app.db`,
+      MEDIA_DIRECTORY: resolve(`.desktop-data/test/${e2eRunId}/media`),
+      LEGACY_VIDEO_DIRECTORY: resolve(`.desktop-data/test/${e2eRunId}/legacy-videos`),
       OPENROUTER_API_KEY: "",
       TAVILY_API_KEY: "test-tavily-key",
       TAVILY_SEARCH_URL: "http://127.0.0.1:4010/search",

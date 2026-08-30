@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -23,6 +23,7 @@ test("desktop paths keep packaged data under Electron userData", () => {
       compiledDirectory: join(root, "app", "electron-dist"),
     });
     assert.equal(paths.databaseFile, join(root, "user-data", "data", "app.db"));
+    assert.equal(paths.mediaDirectory, join(root, "user-data", "data", "media"));
     assert.equal(paths.runtimeDirectory, join(root, "resources", ".desktop-runtime"));
     assert.equal(toSqliteUrl(paths.databaseFile), `file:${paths.databaseFile.replaceAll("\\", "/")}`);
   } finally {
@@ -71,6 +72,27 @@ test("desktop migrations initialize SQLite once and preserve data", () => {
   }
 });
 
+test("changing the installation path retains media and database paths in existing userData", () => {
+  const root = mkdtempSync(join(tmpdir(), "private-ai-media-upgrade-"));
+  try {
+    const input = { isPackaged: true, userDataPath: join(root, "user-data") };
+    const oldPaths = resolveDesktopPaths({ ...input, resourcesPath: join(root, "old-install", "resources"), compiledDirectory: join(root, "old-install", "electron-dist") });
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=", "base64");
+    writeFileSync(join(oldPaths.mediaDirectory, "retained.png"), png);
+    runDesktopMigrations({ databaseFile: oldPaths.databaseFile, migrationsDirectory: join(repositoryRoot, "src", "db", "migrations"), backupsDirectory: oldPaths.backupsDirectory, logger });
+    const previousDatabase = readFileSync(oldPaths.databaseFile);
+    const newPaths = resolveDesktopPaths({ ...input, resourcesPath: join(root, "new-install", "resources"), compiledDirectory: join(root, "new-install", "electron-dist") });
+    assert.notEqual(oldPaths.runtimeDirectory, newPaths.runtimeDirectory);
+    assert.equal(oldPaths.databaseFile, newPaths.databaseFile);
+    assert.equal(oldPaths.mediaDirectory, newPaths.mediaDirectory);
+    assert.deepEqual(readFileSync(join(newPaths.mediaDirectory, "retained.png")), png);
+    assert.deepEqual(readFileSync(newPaths.databaseFile), previousDatabase);
+  } finally {
+    if (resolve(dirname(root)) !== resolve(tmpdir())) throw new Error("Unexpected test directory");
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("memory uniqueness migration preserves duplicates, resolves key collisions and creates a backup", () => {
   const root = mkdtempSync(join(tmpdir(), "private-ai-upgrade-"));
   const databaseFile = join(root, "app.db");
@@ -92,7 +114,7 @@ test("memory uniqueness migration preserves duplicates, resolves key collisions 
     database.close();
 
     const result = runDesktopMigrations({ databaseFile, migrationsDirectory, backupsDirectory: join(root, "backups"), logger });
-    assert.equal(result.applied.length, 1);
+    assert.ok(result.applied.includes("20260830090000_unique_memory_keys"));
     assert.ok(result.backupFile && existsSync(result.backupFile));
     const upgraded = new DatabaseSync(databaseFile);
     try {

@@ -3,6 +3,7 @@ import type { UIMessage } from "ai";
 import { db } from "@/db";
 import { decodePersistedAssistantToolMessage, encodePersistedAssistantToolMessage, truncateTitle } from "@/lib/ai/ui-message";
 import { ApiError } from "@/lib/server/api-error";
+import { migrateMessageMedia, prepareMessageMedia, replaceMessageMedia } from "@/lib/media/messages";
 
 export async function listChats(userId: string) {
   return db.chat.findMany({
@@ -61,8 +62,9 @@ export async function deleteChat(userId: string, chatId: string) {
   const existing = await getChat(userId, chatId);
   if (!existing) return false;
 
-  await db.chat.delete({
-    where: { id: chatId },
+  await db.$transaction(async (tx) => {
+    await tx.mediaAsset.updateMany({ where: { userId, references: { some: { message: { chatId } } } }, data: { lastUsedAt: new Date() } });
+    await tx.chat.delete({ where: { id: chatId } });
   });
 
   return true;
@@ -77,7 +79,9 @@ export async function listChatMessages(userId: string, chatId: string) {
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   });
 
-  return messages;
+  const migrated = [];
+  for (const message of messages) migrated.push(await migrateMessageMedia(userId, message));
+  return migrated;
 }
 
 export async function getRecentChatMessages(chatId: string, limit = 10) {
@@ -98,12 +102,15 @@ export async function saveChatMessage(params: {
 }) {
   const { chatId, role, content, status = "success", clientMessageId, updateExisting = false } = params;
   const normalizedClientMessageId = clientMessageId?.trim() ? clientMessageId.trim() : undefined;
+  const chat = await db.chat.findUnique({ where: { id: chatId }, select: { userId: true } });
+  if (!chat) throw new ApiError({ code: "NOT_FOUND", message: "Conversation was not found" });
+  const prepared = await prepareMessageMedia(chat.userId, content);
 
   return db.$transaction(async (tx) => {
     const data = {
       chatId,
       role,
-      content,
+      content: prepared.content,
       status,
       ...(normalizedClientMessageId ? { clientMessageId: normalizedClientMessageId } : {}),
     };
@@ -111,9 +118,10 @@ export async function saveChatMessage(params: {
       ? await tx.message.upsert({
           where: { chatId_clientMessageId: { chatId, clientMessageId: normalizedClientMessageId } },
           create: data,
-          update: updateExisting ? { content, status } : {},
+          update: updateExisting ? { content: prepared.content, status } : {},
         })
       : await tx.message.create({ data });
+    if (message.content === prepared.content) await replaceMessageMedia(tx, chat.userId, message.id, prepared.assetIds);
     await tx.chat.update({ where: { id: chatId }, data: { lastMessageAt: new Date() } });
     return message;
   });
@@ -187,7 +195,9 @@ export async function saveRegeneratedResponse(params: {
       message.role === "user" && (message.id === params.userMessageId || message.clientMessageId === params.userMessageId),
     );
     if (index < 0) throw new ApiError({ code: "NOT_FOUND", message: "Message to regenerate was not found" });
-    await tx.message.deleteMany({ where: { id: { in: current.slice(index + 1).map((message) => message.id) } } });
+    const removedIds = current.slice(index + 1).map((message) => message.id);
+    await tx.mediaAsset.updateMany({ where: { userId: snapshot.userId, references: { some: { messageId: { in: removedIds } } } }, data: { lastUsedAt: new Date() } });
+    await tx.message.deleteMany({ where: { id: { in: removedIds } } });
     const message = await tx.message.create({ data: {
       chatId: snapshot.chatId,
       role: "assistant",

@@ -4,9 +4,10 @@ import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const runtimeDirectory = join(repositoryRoot, ".desktop-runtime");
-const explicitPackageDirectory = process.argv[2] ? resolve(repositoryRoot, process.argv[2]) : null;
+const runtimeOnly = process.argv.includes("--runtime-only");
+const explicitPackageDirectory = process.argv[2] && !runtimeOnly ? resolve(repositoryRoot, process.argv[2]) : null;
 const defaultPackageDirectory = join(repositoryRoot, "out", "Private AI Assistant-win32-x64");
-const packageDirectory = explicitPackageDirectory || (existsSync(defaultPackageDirectory) ? defaultPackageDirectory : null);
+const packageDirectory = runtimeOnly ? null : explicitPackageDirectory || (existsSync(defaultPackageDirectory) ? defaultPackageDirectory : null);
 
 function walk(directory) {
   const files = [];
@@ -23,6 +24,9 @@ function requireFile(path, label) {
 }
 
 function verifyRuntime(directory) {
+  for (const forbidden of [".desktop-data", ".desktop-runtime", ".git", "out", "public/generated-videos"]) {
+    if (existsSync(join(directory, forbidden))) throw new Error(`User/development data must not be packaged: ${forbidden}`);
+  }
   requireFile(join(directory, "server.js"), "Standalone server");
   requireFile(join(directory, "package.json"), "Standalone package metadata");
   requireFile(join(directory, "desktop-runtime.json"), "Desktop runtime manifest");

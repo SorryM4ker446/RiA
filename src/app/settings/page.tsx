@@ -245,6 +245,8 @@ export default function DesktopSettingsPage() {
               <p>版本：{runtime?.appVersion || "—"}</p>
               <p>模式：{runtime?.packaged ? "安装版" : "开发版"}</p>
               <p>数据目录：{runtime?.dataDirectory || "—"}</p>
+              <p>媒体目录：{runtime?.mediaDirectory || "—"}</p>
+              <Link className="inline-block underline" href="/storage">管理媒体存储</Link>
               <p>日志：{runtime?.logFile || "—"}</p>
             </CardContent>
           </Card>

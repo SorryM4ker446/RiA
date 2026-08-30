@@ -16,7 +16,7 @@ Installed application data is stored in:
 %APPDATA%/Private AI Assistant/data/app.db
 ```
 
-The same data directory contains encrypted settings, migration backups, and `logs/desktop.log`. Reinstalling or uninstalling the application does not intentionally delete this user-data directory.
+The same data directory contains file-backed `media/`, encrypted settings, migration backups, and `logs/desktop.log`. Reinstalling or uninstalling the application does not intentionally delete this user-data directory. Backups must include both SQLite and media; automatic database migration backups cover SQLite only. See [Media storage and migration](media-storage.md).
 
 The packaged Next.js server and Prisma runtime are copied to:
 

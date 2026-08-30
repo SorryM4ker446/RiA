@@ -61,12 +61,21 @@ try {
     throw new Error("Local database relations were not persisted as expected.");
   }
 
+  const asset = await db.mediaAsset.create({ data: {
+    id: marker, userId: user.id, relativePath: `database-check/${marker}.png`,
+    mediaType: "image/png", byteSize: 1, kind: "attachment",
+    references: { create: { messageId: stored.chats[0].messages[0].id } },
+  }, include: { references: true } });
+  if (asset.references.length !== 1) throw new Error("Media references were not persisted.");
+
   await db.user.delete({ where: { id: user.id } });
   const remainingChats = await db.chat.count({ where: { userId: user.id } });
   const remainingMemories = await db.memory.count({ where: { userId: user.id } });
   const remainingTasks = await db.task.count({ where: { userId: user.id } });
+  const remainingAssets = await db.mediaAsset.count({ where: { userId: user.id } });
+  const remainingReferences = await db.messageMedia.count({ where: { assetId: marker } });
 
-  if (remainingChats !== 0 || remainingMemories !== 0 || remainingTasks !== 0) {
+  if (remainingChats !== 0 || remainingMemories !== 0 || remainingTasks !== 0 || remainingAssets !== 0 || remainingReferences !== 0) {
     throw new Error("Local database cascade deletion did not remove related records.");
   }
 

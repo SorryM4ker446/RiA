@@ -1,4 +1,6 @@
 import { UIMessage } from "ai";
+import { decodeMediaMessage, encodeMediaMessage, mediaUrl, type MediaReference, type StoredMediaMessage } from "@/lib/media/message-codec";
+import { attachmentValidationError } from "@/lib/media/limits";
 import {
   decodePersistedAssistantToolMessage,
   decodePersistedUserMessage,
@@ -24,19 +26,9 @@ export type FilePart = Extract<UIMessage["parts"][number], { type: "file" }>;
 export type ModelMode = "chat" | "image" | "video";
 export type MessageStatus = "pending" | "success" | "error";
 
-export type StoredImageMessagePayload = {
-  type: "image-result";
-  dataUrl: string;
-  modelId: string;
-  text: string;
-};
+export type StoredImageMessagePayload = StoredMediaMessage & { type: "image-result" };
 
-export type StoredVideoMessagePayload = {
-  type: "video-result";
-  videoUrl: string;
-  modelId: string;
-  text: string;
-};
+export type StoredVideoMessagePayload = StoredMediaMessage & { type: "video-result" };
 
 export type UploadableFilePart = {
   type: "file";
@@ -62,9 +54,6 @@ export const videoPrompts = [
   "未来城市街头追逐，霓虹反射，动态运镜",
   "国风山水云海延时，薄雾流动，4K质感",
 ];
-
-const IMAGE_MESSAGE_PREFIX = "__IMAGE_RESULT__:";
-const VIDEO_MESSAGE_PREFIX = "__VIDEO_RESULT__:";
 
 export function readText(message: UIMessage): string {
   const text = message.parts
@@ -116,61 +105,25 @@ export function formatToolState(state: string): {
 }
 
 export function encodeImageMessage(payload: StoredImageMessagePayload): string {
-  return `${IMAGE_MESSAGE_PREFIX}${JSON.stringify(payload)}`;
+  return encodeMediaMessage(payload);
 }
 
 function decodeImageMessage(content: string): StoredImageMessagePayload | null {
-  if (!content.startsWith(IMAGE_MESSAGE_PREFIX)) return null;
-  const raw = content.slice(IMAGE_MESSAGE_PREFIX.length);
-
-  try {
-    const parsed = JSON.parse(raw) as StoredImageMessagePayload;
-    if (
-      parsed &&
-      parsed.type === "image-result" &&
-      typeof parsed.dataUrl === "string" &&
-      typeof parsed.modelId === "string" &&
-      typeof parsed.text === "string"
-    ) {
-      return parsed;
-    }
-    return null;
-  } catch {
-    return null;
-  }
+  const parsed = decodeMediaMessage(content);
+  return parsed?.type === "image-result" ? parsed as StoredImageMessagePayload : null;
 }
 
 export function encodeVideoMessage(payload: StoredVideoMessagePayload): string {
-  return `${VIDEO_MESSAGE_PREFIX}${JSON.stringify(payload)}`;
+  return encodeMediaMessage(payload);
 }
 
 function decodeVideoMessage(content: string): StoredVideoMessagePayload | null {
-  if (!content.startsWith(VIDEO_MESSAGE_PREFIX)) return null;
-  const raw = content.slice(VIDEO_MESSAGE_PREFIX.length);
-
-  try {
-    const parsed = JSON.parse(raw) as StoredVideoMessagePayload;
-    if (
-      parsed &&
-      parsed.type === "video-result" &&
-      typeof parsed.videoUrl === "string" &&
-      typeof parsed.modelId === "string" &&
-      typeof parsed.text === "string"
-    ) {
-      return parsed;
-    }
-    return null;
-  } catch {
-    return null;
-  }
+  const parsed = decodeMediaMessage(content);
+  return parsed?.type === "video-result" ? parsed as StoredVideoMessagePayload : null;
 }
 
 export function getFileParts(message: UIMessage): FilePart[] {
   return message.parts.filter((part): part is FilePart => part.type === "file");
-}
-
-export function normalizePastedFiles(files: File[]): File[] {
-  return files.filter((file) => file.type.startsWith("image/"));
 }
 
 export function dedupeFiles(files: File[]): File[] {
@@ -187,32 +140,15 @@ export function dedupeFiles(files: File[]): File[] {
   return result;
 }
 
-async function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const value = reader.result;
-      if (typeof value === "string") {
-        resolve(value);
-        return;
-      }
-      reject(new Error("Failed to read file as data URL"));
-    };
-    reader.onerror = () => reject(reader.error ?? new Error("Failed to read file"));
-    reader.readAsDataURL(file);
-  });
-}
-
 export async function filesToUploadParts(files: File[]): Promise<UploadableFilePart[]> {
-  const parts = await Promise.all(
-    files.map(async (file) => ({
-      type: "file" as const,
-      url: await fileToDataUrl(file),
-      mediaType: file.type || "application/octet-stream",
-      ...(file.name ? { filename: file.name } : {}),
-    })),
-  );
-  return parts;
+  const validation = attachmentValidationError(files);
+  if (validation) throw new Error(validation);
+  const form = new FormData();
+  for (const file of files) form.append("files", file);
+  const response = await fetch("/api/media/upload", { method: "POST", body: form });
+  const payload = await response.json() as { data?: Array<MediaReference & { filename?: string }>; error?: { message?: string } };
+  if (!response.ok || !payload.data) throw new Error(payload.error?.message || "附件上传失败");
+  return payload.data.map((asset) => ({ type: "file", url: asset.url, mediaType: asset.mediaType, filename: asset.filename }));
 }
 
 export function mapStoredMessagesToUI(messages: StoredMessage[]): {
@@ -234,7 +170,7 @@ export function mapStoredMessagesToUI(messages: StoredMessage[]): {
     const parsedUserMessage = decodePersistedUserMessage(message.content);
 
     if (parsedImage) {
-      imageMap[uiMessageId] = parsedImage.dataUrl;
+      imageMap[uiMessageId] = parsedImage.assetId ? mediaUrl(parsedImage.assetId) : parsedImage.dataUrl || "";
       return {
         id: uiMessageId,
         role: message.role,
@@ -243,7 +179,7 @@ export function mapStoredMessagesToUI(messages: StoredMessage[]): {
     }
 
     if (parsedVideo) {
-      videoMap[uiMessageId] = parsedVideo.videoUrl;
+      videoMap[uiMessageId] = parsedVideo.assetId ? mediaUrl(parsedVideo.assetId) : parsedVideo.videoUrl || "";
       return {
         id: uiMessageId,
         role: message.role,

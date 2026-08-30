@@ -18,6 +18,7 @@ model User {
   memories     Memory[]
   tasks        Task[]
   sessions     Session[]
+  mediaAssets  MediaAsset[]
 
   @@map("users")
 }
@@ -57,10 +58,41 @@ model Message {
   status         MessageStatus @default(success)
   createdAt      DateTime     @default(now())
   chat           Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  media          MessageMedia[]
 
   @@index([chatId, createdAt])
   @@unique([chatId, clientMessageId])
   @@map("messages")
+}
+
+model MediaAsset {
+  id           String   @id
+  userId       String
+  relativePath String   @unique
+  mediaType    String
+  byteSize     Int
+  kind         String
+  modelId      String?
+  description  String?
+  createdAt    DateTime @default(now())
+  lastUsedAt   DateTime @default(now())
+  deletedAt    DateTime?
+  user         User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  references   MessageMedia[]
+
+  @@index([userId, createdAt])
+  @@map("media_assets")
+}
+
+model MessageMedia {
+  messageId String
+  assetId   String
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  asset     MediaAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, assetId])
+  @@index([assetId])
+  @@map("message_media")
 }
 
 model Memory {

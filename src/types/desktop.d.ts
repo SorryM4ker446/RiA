@@ -12,6 +12,7 @@ type DesktopRuntimeInfo = {
   packaged: boolean;
   platform: string;
   dataDirectory: string;
+  mediaDirectory: string;
   logFile: string;
 };
 

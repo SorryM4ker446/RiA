@@ -28,6 +28,8 @@ import { setupServerProxy } from "@/lib/server/proxy";
 import { db } from "@/db";
 import { createChatToolSet, listAutoToolDescriptors } from "@/tools/catalog";
 import { persistToolMemory } from "@/tools/memory-policy";
+import { readJsonBody } from "@/lib/server/request-body";
+import { materializeChatAttachments, resolveImageInputs } from "@/lib/media/messages";
 
 const TOOL_DEBUG = process.env.TOOL_DEBUG === "1";
 
@@ -254,11 +256,16 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const body = (await req.json()) as ChatRequestBody;
+    const body = (await readJsonBody(req)) as ChatRequestBody;
+    if (!body || typeof body !== "object") throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid chat body" });
     const messages = Array.isArray(body.messages) ? body.messages : [];
+    if (messages.length > 1000 || messages.some((message) => !message || !Array.isArray(message.parts) || message.parts.length > 100 || message.parts.some((part) => !part || typeof part.type !== "string"))) {
+      throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid messages or too many message parts" });
+    }
     const modelId = resolveModelId(body.modelId);
     const latestUserMessage = getLatestUserMessage(messages);
     const isApprovalResume = isToolApprovalContinuation(messages);
+    if (latestUserMessage?.files.length) await resolveImageInputs(user.id, latestUserMessage.files);
 
     if (messages.length === 0) {
       throw new ApiError({
@@ -383,7 +390,7 @@ export async function POST(req: NextRequest) {
       formatLongTermContext(relevantMemories),
       toolsEnabled,
     );
-    const modelMessages = await convertToModelMessages(context.messages);
+    const modelMessages = await convertToModelMessages(await materializeChatAttachments(user.id, context.messages));
     if (isApprovalResume && toolsEnabled) {
       await claimToolApproval(user.id, chat.id, messages[messages.length - 1]);
     }

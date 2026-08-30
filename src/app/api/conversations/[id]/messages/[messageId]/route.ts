@@ -3,6 +3,8 @@ import { z } from "zod";
 import { db } from "@/db";
 import { requireRequestUser } from "@/lib/auth/request-user";
 import { createApiErrorResponse } from "@/lib/server/api-error";
+import { readJsonBody } from "@/lib/server/request-body";
+import { migrateMessageMedia, prepareMessageMedia, replaceMessageMedia } from "@/lib/media/messages";
 
 const updateMessageSchema = z.object({
   content: z.string().min(1).optional(),
@@ -33,7 +35,7 @@ export async function GET(req: NextRequest, context: Params) {
       return Response.json({ error: "Message not found" }, { status: 404 });
     }
 
-    return Response.json({ data: message });
+    return Response.json({ data: await migrateMessageMedia(user.id, message) });
   } catch (error) {
     console.error("/api/conversations/[id]/messages/[messageId] GET error", error);
     return createApiErrorResponse(error, "Failed to fetch message");
@@ -44,7 +46,7 @@ export async function PATCH(req: NextRequest, context: Params) {
   try {
     const user = await requireRequestUser(req);
     const { id: conversationId, messageId } = await context.params;
-    const parsed = updateMessageSchema.safeParse(await req.json());
+    const parsed = updateMessageSchema.safeParse(await readJsonBody(req));
 
     if (!parsed.success) {
       return Response.json(
@@ -58,14 +60,19 @@ export async function PATCH(req: NextRequest, context: Params) {
       return Response.json({ error: "Message not found" }, { status: 404 });
     }
 
-    const updated = await db.message.update({
-      where: { id: existing.id },
-      data: {
-        ...(parsed.data.content ? { content: parsed.data.content } : {}),
-        ...(parsed.data.status ? { status: parsed.data.status } : {}),
-      },
-    });
+    const prepared = parsed.data.content ? await prepareMessageMedia(user.id, parsed.data.content) : null;
+    const updated = await db.$transaction(async (tx) => {
+      const message = await tx.message.update({
+        where: { id: existing.id },
+        data: {
+          ...(prepared ? { content: prepared.content } : {}),
+          ...(parsed.data.status ? { status: parsed.data.status } : {}),
+        },
+      });
 
+      if (prepared) await replaceMessageMedia(tx, user.id, message.id, prepared.assetIds);
+      return message;
+    });
     return Response.json({ data: updated });
   } catch (error) {
     console.error("/api/conversations/[id]/messages/[messageId] PATCH error", error);
@@ -83,8 +90,9 @@ export async function DELETE(req: NextRequest, context: Params) {
       return Response.json({ error: "Message not found" }, { status: 404 });
     }
 
-    await db.message.delete({
-      where: { id: existing.id },
+    await db.$transaction(async (tx) => {
+      await tx.mediaAsset.updateMany({ where: { userId: user.id, references: { some: { messageId: existing.id } } }, data: { lastUsedAt: new Date() } });
+      await tx.message.delete({ where: { id: existing.id } });
     });
 
     return Response.json({ success: true });

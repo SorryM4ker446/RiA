@@ -41,6 +41,11 @@ jobs:
           node-version: 24
           cache: npm
 
+      - name: Report toolchain versions
+        run: |
+          node --version
+          npm --version
+
       - name: Install dependencies
         run: npx --yes npm@11.19.1 ci
 
@@ -101,6 +106,11 @@ jobs:
         with:
           node-version: 24
           cache: npm
+
+      - name: Report toolchain versions
+        run: |
+          node --version
+          npm --version
 
       - name: Install dependencies
         run: npx --yes npm@11.19.1 ci

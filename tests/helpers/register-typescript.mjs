@@ -1,10 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
-import { createRequire, registerHooks } from "node:module";
+import { registerHooks } from "node:module";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "typescript";
 
-const require = createRequire(import.meta.url);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 // Test-only loader: use the already-installed TypeScript compiler, without another runner.
@@ -20,7 +19,8 @@ registerHooks({
       if (file) return nextResolve(pathToFileURL(file).href, context);
     }
     if (specifier === "next/server" || specifier === "next/headers") {
-      return nextResolve(pathToFileURL(require.resolve(specifier)).href, context);
+      // require.resolve() would restart this hook chain on newer Node.js releases.
+      return nextResolve(`${specifier}.js`, context);
     }
     return nextResolve(specifier, context);
   },

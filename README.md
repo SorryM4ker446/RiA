@@ -70,6 +70,8 @@ Server regression tests use real route handlers and temporary SQLite databases, 
 
 See [Desktop development and release](docs/desktop.md) for data paths, security behavior, troubleshooting, and release checks.
 
+Images, videos, and attachments use private file-backed media assets instead of inline message data. Open **存储管理** from the chat header to inspect disk usage and clean expired unreferenced files. See [Media storage and migration](docs/media-storage.md) for limits, API changes, legacy-data handling, and backup requirements.
+
 ## Project layout
 
 - `electron`: desktop main process, preload bridge, migrations, settings, and security

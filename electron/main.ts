@@ -88,6 +88,7 @@ async function launchNextServer(): Promise<RunningNextServer> {
     serverEntry: desktopPaths.serverEntry,
     nodeExecutable,
     databaseUrl: toSqliteUrl(desktopPaths.databaseFile),
+    mediaDirectory: desktopPaths.mediaDirectory,
     desktopSessionToken,
     port: serverPort,
     logFile: desktopPaths.logFile,
@@ -134,6 +135,7 @@ function registerIpcHandlers() {
       packaged: packagedRuntime,
       platform: process.platform,
       dataDirectory: dirname(desktopPaths.databaseFile),
+      mediaDirectory: desktopPaths.mediaDirectory,
       logFile: desktopPaths.logFile,
     };
   });
@@ -241,6 +243,23 @@ async function runSmokeAssertion() {
     throw new Error(`Desktop API accepted a request without the session cookie (${unauthenticatedResponse.status}).`);
   }
 
+  const mediaBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=";
+  const mediaBytes = Buffer.from(mediaBase64, "base64");
+  const form = new FormData();
+  form.append("files", new Blob([mediaBytes], { type: "image/png" }), "smoke.png");
+  const uploadResponse = await fetch(`${nextServer.origin}/api/media/upload`, {
+    method: "POST", headers: { Cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}` }, body: form,
+  });
+  const uploaded = await uploadResponse.json() as { data?: Array<{ assetId: string; url: string; relativePath: string; mediaType: string }> };
+  const asset = uploaded.data?.[0];
+  if (!uploadResponse.ok || !asset || !desktopPaths || !existsSync(join(desktopPaths.mediaDirectory, asset.relativePath))) throw new Error("Desktop media upload did not persist in the data directory");
+  const messageResponse = await fetch(`${nextServer.origin}/api/conversations/${conversationId}/messages`, {
+    method: "POST", headers: { Cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ role: "user", content: "__USER_MESSAGE__:" + JSON.stringify({ type: "user-message", text: "Smoke attachment", files: [{ url: asset.url, mediaType: asset.mediaType }] }) }),
+  });
+  if (!messageResponse.ok) throw new Error("Desktop media reference did not persist");
+  if ((await fetch(`${nextServer.origin}${asset.url}`)).status !== 403) throw new Error("Desktop media allowed unauthenticated access");
+
   await restartLocalService();
   if (!nextServer) throw new Error("Desktop service did not restart.");
   const persistedResponse = await fetch(`${nextServer.origin}/api/conversations`, {
@@ -250,6 +269,8 @@ async function runSmokeAssertion() {
   if (!persistedResponse.ok || !persistedPayload.data?.some((conversation) => conversation.id === conversationId)) {
     throw new Error("Desktop conversation did not persist across a local service restart.");
   }
+  const persistedMedia = await fetch(`${nextServer.origin}${asset.url}`, { headers: { Cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}` } });
+  if (!persistedMedia.ok || !Buffer.from(await persistedMedia.arrayBuffer()).equals(mediaBytes)) throw new Error("Desktop media did not survive a service restart");
   logger?.info("Desktop Electron smoke test passed");
 }
 
