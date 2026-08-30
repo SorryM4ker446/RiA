@@ -18,7 +18,10 @@ after(async () => { await db.$disconnect(); cleanup(); });
 test("memory ranking preserves lexical, semantic, recency and manual weighting", () => {
   const now = Date.parse("2026-08-30T00:00:00Z");
   const memory = { key: "SQLite", value: "本地数据库", score: 0.5, embedding: [1, 0], updatedAt: new Date(now) };
-  assert.deepEqual(tokenizeQuery("SQLITE / 本地数据库"), ["sqlite", "本地数据库"]);
+  const tokens = tokenizeQuery("SQLITE / 本地数据库");
+  assert.equal(tokens[0], "sqlite");
+  assert.equal(tokens.slice(1).join(""), "本地数据库");
+  assert.ok(tokens.length > 2);
   assert.equal(scoreMemory(memory, ["sqlite"], null, CONTEXT_MEMORY_POLICY, now), 1.4);
   assert.equal(scoreMemory(memory, ["sqlite"], null, KNOWLEDGE_MEMORY_POLICY, now), 1.1);
   assert.equal(scoreMemory(memory, ["unmatched"], [1, 0], KNOWLEDGE_MEMORY_POLICY, now), 0.95);
@@ -26,6 +29,25 @@ test("memory ranking preserves lexical, semantic, recency and manual weighting",
   const rows = [{ id: "first", score: 1 }, { id: "zero", score: 0 }, { id: "second", score: 1 }, { id: "high", score: 2 }];
   assert.deepEqual(rankByScore(rows, (row) => row.score, 3).map((row) => row.id), ["high", "first", "second"]);
   assert.equal(rows[0].id, "first");
+});
+
+test("Chinese retrieval segments natural queries and recalls older lexical matches", async () => {
+  const user = await db.user.create({ data: { email: `${randomUUID()}@example.invalid` } });
+  const target = await db.memory.create({ data: { userId: user.id, key: "旅行偏好", value: "云南徒步路线", score: 0.5, updatedAt: new Date("2020-01-01T00:00:00Z") } });
+  await db.memory.createMany({ data: Array.from({ length: 110 }, (_, i) => ({ userId: user.id, key: `other-${i}`, value: "unrelated programming notes", score: 1 })) });
+  const query = "请帮我查找云南徒步路线";
+  assert.equal((await getRelevantMemories({ userId: user.id, query }))[0].id, target.id);
+  assert.equal((await searchKnowledge(user.id, { query, topK: 4 })).results[0].id, target.id);
+  assert.deepEqual(tokenizeQuery("ＳＱＬＩＴＥ SQLite 数据库 数据库"), tokenizeQuery("sqlite 数据库"));
+  assert.deepEqual(await getRelevantMemories({ userId: user.id, query: "！！！" }), []);
+});
+
+test("ranking computes each score once and keeps ties stable", () => {
+  let calls = 0;
+  const items = [{ id: "one", score: 1 }, { id: "two", score: 1 }, { id: "invalid", score: NaN }];
+  const result = rankByScore(items, (item) => { calls += 1; return item.score; }, 3);
+  assert.equal(calls, items.length);
+  assert.deepEqual(result.map((row) => row.id), ["one", "two"]);
 });
 
 test("shared retrieval keeps user isolation and distinct context versus knowledge candidates", async () => {

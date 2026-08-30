@@ -39,6 +39,9 @@ export function useChatState() {
   const [isDesktopRuntime, setIsDesktopRuntime] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const latestHistoryRequestRef = useRef(0);
+  const [olderMessagesCursor, setOlderMessagesCursor] = useState<string | null>(null);
+  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
+  const olderRequestRef = useRef(false);
   const {
     modelMode, setModelMode, selectedChatModel, selectedImageModel, selectedVideoModel, selectedManualTool,
     setSelectedManualTool, manualToolsOnly, setManualToolsOnly, applyChatPreferences, onModelSelect,
@@ -47,6 +50,7 @@ export function useChatState() {
     chats, activeChat, isCreatingChat, editingChatId, editingTitle, setEditingTitle, isChatListExpanded,
     setIsChatListExpanded, visibleChats, hasHiddenChats, loadChats, createNewChat, startEditingChat,
     cancelEditingChat, saveEditedTitle, performDeleteChat, ensureActiveChatId,
+    nextChatsCursor, isLoadingMoreChats, loadMoreChats,
   } = useConversations({ activeChatId, setActiveChatId, preferences: { modelMode, selectedChatModel, selectedImageModel, selectedVideoModel, selectedManualTool, manualToolsOnly }, applyChatPreferences, resetConversation, persistCurrentStreamingAssistantIfNeeded, setPageError });
   const transport = useMemo(() => createChatTransport(activeChatId, { selectedChatModel, manualToolsOnly, modelMode }), [activeChatId, selectedChatModel, manualToolsOnly, modelMode]);
   const { messages, setMessages, sendMessage, regenerate, addToolApprovalResponse, status, error, clearError } = useChat({
@@ -76,6 +80,7 @@ export function useChatState() {
     isGeneratingImage ||
     isGeneratingVideo ||
     isUploadingAttachments ||
+    isLoadingOlderMessages ||
     isRunningManualTool;
   const selectedModel =
     modelMode === "chat"
@@ -95,6 +100,10 @@ export function useChatState() {
     effectiveError?.includes("Invalid API key") ||
     effectiveError?.includes("No auth credentials found");
   function resetConversation() {
+    latestHistoryRequestRef.current += 1;
+    olderRequestRef.current = false;
+    setOlderMessagesCursor(null);
+    setIsLoadingOlderMessages(false);
     setIsLoadingHistory(false);
     setMessages([]);
     setImageByMessageId({});
@@ -105,6 +114,9 @@ export function useChatState() {
     const requestId = latestHistoryRequestRef.current + 1;
     latestHistoryRequestRef.current = requestId;
     setIsLoadingHistory(true);
+    olderRequestRef.current = false;
+    setOlderMessagesCursor(null);
+    setIsLoadingOlderMessages(false);
     setPageError(null);
     try {
       const payload = await chatApi.listMessages(chatId);
@@ -115,6 +127,7 @@ export function useChatState() {
       setMessages(mapped.uiMessages);
       setImageByMessageId(mapped.imageMap);
       setVideoByMessageId(mapped.videoMap);
+      setOlderMessagesCursor(payload.pageInfo?.nextCursor ?? null);
     } catch (loadError) {
       if (latestHistoryRequestRef.current === requestId) {
         setPageError(loadError instanceof Error ? loadError.message : "读取历史消息失败");
@@ -122,6 +135,29 @@ export function useChatState() {
     } finally {
       if (latestHistoryRequestRef.current === requestId) {
         setIsLoadingHistory(false);
+      }
+    }
+  }
+
+  async function loadOlderMessages() {
+    if (!activeChatId || !olderMessagesCursor || olderRequestRef.current || isPending || isLoadingHistory) return;
+    const requestId = latestHistoryRequestRef.current;
+    olderRequestRef.current = true;
+    setIsLoadingOlderMessages(true);
+    try {
+      const page = await chatApi.listMessages(activeChatId, olderMessagesCursor);
+      if (requestId !== latestHistoryRequestRef.current) return;
+      const mapped = mapStoredMessagesToUI(page.data);
+      setMessages((current) => [...mapped.uiMessages.filter((message) => !current.some((item) => item.id === message.id)), ...current]);
+      setImageByMessageId((current) => ({ ...mapped.imageMap, ...current }));
+      setVideoByMessageId((current) => ({ ...mapped.videoMap, ...current }));
+      setOlderMessagesCursor(page.pageInfo?.nextCursor ?? null);
+    } catch (error) {
+      if (requestId === latestHistoryRequestRef.current) setPageError(error instanceof Error ? error.message : "读取更早消息失败");
+    } finally {
+      if (requestId === latestHistoryRequestRef.current) {
+        olderRequestRef.current = false;
+        setIsLoadingOlderMessages(false);
       }
     }
   }
@@ -460,6 +496,7 @@ export function useChatState() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [pendingDelete, isDeleting]);
   return {
+    nextChatsCursor, isLoadingMoreChats, loadMoreChats, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages,
     isCreatingChat, createNewChat, chats, visibleChats, activeChatId, editingChatId, setEditingTitle,
     editingTitle, saveEditedTitle, cancelEditingChat, switchActiveChat, startEditingChat,
     requestDeleteConversation, hasHiddenChats, setIsChatListExpanded, isChatListExpanded, filteredTasks,

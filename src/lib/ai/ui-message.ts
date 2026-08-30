@@ -57,12 +57,6 @@ export function getTextFromUIMessage(message: UIMessage): string {
   return "";
 }
 
-export function getLatestUserText(messages: UIMessage[]): { id?: string; text: string } | null {
-  const latest = getLatestUserMessage(messages);
-  if (!latest?.text) return null;
-  return { id: latest.id, text: latest.text };
-}
-
 export function getLatestUserMessage(messages: UIMessage[]): {
   id?: string;
   text: string;

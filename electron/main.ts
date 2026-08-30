@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { request as httpRequest } from "node:http";
 import {
@@ -11,7 +11,7 @@ import {
   session,
   type IpcMainInvokeEvent,
 } from "electron";
-import { createDesktopLogger, type DesktopLogger } from "./logger";
+import { createDesktopLogger, DESKTOP_LOG_LIMITS, type DesktopLogger } from "./logger";
 import { runDesktopMigrations } from "./migrations";
 import { findAvailablePort, startNextServer, type RunningNextServer } from "./next-server";
 import { resolveDesktopPaths, toSqliteUrl, type DesktopPaths } from "./paths";
@@ -92,7 +92,6 @@ async function launchNextServer(): Promise<RunningNextServer> {
     mediaDirectory: desktopPaths.mediaDirectory,
     desktopSessionToken,
     port: serverPort,
-    logFile: desktopPaths.logFile,
     environment: await resolveServerEnvironment(),
     logger,
   });
@@ -304,6 +303,10 @@ async function runSmokeAssertion() {
   }
   const persistedMedia = await fetch(`${nextServer.origin}${asset.url}`, { headers: { Cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}` } });
   if (!persistedMedia.ok || !Buffer.from(await persistedMedia.arrayBuffer()).equals(mediaBytes)) throw new Error("Desktop media did not survive a service restart");
+  const log = readFileSync(desktopPaths.logFile, "utf8");
+  if (!log.includes("Next stdout") || log.includes(`desktop-smoke-key-${process.pid}`) || statSync(desktopPaths.logFile).size > DESKTOP_LOG_LIMITS.maxBytes) {
+    throw new Error("Desktop service output did not use bounded, redacted logging");
+  }
   logger?.info("Desktop Electron smoke test passed");
 }
 

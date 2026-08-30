@@ -24,9 +24,14 @@ import Image from "next/image";
 import { getWebSearchSources, resolveMessageSourceTag } from "@/features/chat/message-presentation";
 import type { ChatState } from "@/features/chat/use-chat-state";
 
-type Props = Pick<ChatState, "isLoadingHistory" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId" | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText" | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel" | "addToolApprovalResponse">;
-export function MessageRenderer({ isLoadingHistory, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, addToolApprovalResponse }: Props) {
+type Props = Pick<ChatState, "isLoadingHistory" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId" | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText" | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel" | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages">;
+export function MessageRenderer({ isLoadingHistory, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, addToolApprovalResponse, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages }: Props) {
   return (<div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+    {olderMessagesCursor && !isLoadingHistory ? (
+      <Button className="w-full" disabled={isPending || isLoadingOlderMessages} onClick={() => void loadOlderMessages()} type="button" variant="secondary">
+        {isLoadingOlderMessages ? "加载中…" : "加载更早消息"}
+      </Button>
+    ) : null}
     {isLoadingHistory ? (
       <div className="space-y-3">
         <Skeleton className="h-16 w-2/3" />
@@ -358,4 +363,3 @@ export function MessageRenderer({ isLoadingHistory, messages, imageByMessageId, 
     )}
   </div>);
 }
-

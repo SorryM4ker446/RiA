@@ -531,10 +531,6 @@ export function listToolDescriptors(mode?: ToolMode): AnyToolDescriptor[] {
   return tools.filter((tool) => tool.modeSupport.includes(mode));
 }
 
-export function listManualToolDescriptors(mode: ToolMode): AnyToolDescriptor[] {
-  return listToolDescriptors(mode).filter((tool) => tool.manual.enabled);
-}
-
 export function listAutoToolDescriptors(mode: ToolMode): AnyToolDescriptor[] {
   return listToolDescriptors(mode).filter((tool) => tool.auto.enabled);
 }

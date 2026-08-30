@@ -3,8 +3,9 @@ import { z } from "zod";
 import { requireRequestUser } from "@/lib/auth/request-user";
 import { decodePersistedUserMessage, truncateTitle } from "@/lib/ai/ui-message";
 import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
-import { getChat, listChatMessages, saveChatMessage, updateChatTitle } from "@/lib/chat/store";
+import { getChat, listChatMessagePage, saveChatMessage, updateChatTitle } from "@/lib/chat/store";
 import { readJsonBody } from "@/lib/server/request-body";
+import { readPageOptions } from "@/lib/server/pagination";
 
 const createMessageSchema = z.strictObject({
   role: z.enum(["user", "assistant", "system"]),
@@ -28,12 +29,12 @@ export async function GET(req: NextRequest, context: Params) {
     const user = await requireRequestUser(req);
     const { id: chatId } = await context.params;
 
-    const messages = await listChatMessages(user.id, chatId);
-    if (!messages) {
+    const page = await listChatMessagePage(user.id, chatId, readPageOptions(req.nextUrl.searchParams, `messages:${user.id}:${chatId}`, 50));
+    if (!page) {
       throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
     }
 
-    return Response.json({ data: messages });
+    return Response.json(page);
   } catch (error) {
     console.error("/api/conversations/[id]/messages GET error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to fetch messages");

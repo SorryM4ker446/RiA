@@ -15,8 +15,8 @@ import {
 import { COLLAPSED_CHAT_LIMIT } from "@/features/chat/types";
 import type { ChatState } from "@/features/chat/use-chat-state";
 
-type Props = Pick<ChatState, "isCreatingChat" | "createNewChat" | "chats" | "visibleChats" | "activeChatId" | "editingChatId" | "setEditingTitle" | "editingTitle" | "saveEditedTitle" | "cancelEditingChat" | "switchActiveChat" | "startEditingChat" | "requestDeleteConversation" | "hasHiddenChats" | "setIsChatListExpanded" | "isChatListExpanded">;
-export function ConversationList({ isCreatingChat, createNewChat, chats, visibleChats, activeChatId, editingChatId, setEditingTitle, editingTitle, saveEditedTitle, cancelEditingChat, switchActiveChat, startEditingChat, requestDeleteConversation, hasHiddenChats, setIsChatListExpanded, isChatListExpanded }: Props) {
+type Props = Pick<ChatState, "isCreatingChat" | "createNewChat" | "chats" | "visibleChats" | "activeChatId" | "editingChatId" | "setEditingTitle" | "editingTitle" | "saveEditedTitle" | "cancelEditingChat" | "switchActiveChat" | "startEditingChat" | "requestDeleteConversation" | "hasHiddenChats" | "setIsChatListExpanded" | "isChatListExpanded" | "nextChatsCursor" | "isLoadingMoreChats" | "loadMoreChats">;
+export function ConversationList({ isCreatingChat, createNewChat, chats, visibleChats, activeChatId, editingChatId, setEditingTitle, editingTitle, saveEditedTitle, cancelEditingChat, switchActiveChat, startEditingChat, requestDeleteConversation, hasHiddenChats, setIsChatListExpanded, isChatListExpanded, nextChatsCursor, isLoadingMoreChats, loadMoreChats }: Props) {
   return (<aside className="w-full shrink-0 xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)] xl:w-72">
     <Card className="glass-surface flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden xl:max-h-[calc(100vh-5rem)]">
       <CardHeader className="shrink-0 pb-3">
@@ -132,6 +132,11 @@ export function ConversationList({ isCreatingChat, createNewChat, chats, visible
             ) : null}
           </>
         )}
+        {nextChatsCursor && (isChatListExpanded || !hasHiddenChats) ? (
+          <Button className="w-full" disabled={isLoadingMoreChats} onClick={() => void loadMoreChats()} type="button" variant="secondary">
+            {isLoadingMoreChats ? "加载中…" : "加载更多会话"}
+          </Button>
+        ) : null}
       </CardContent>
     </Card>
   </aside>);
