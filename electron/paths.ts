@@ -7,6 +7,7 @@ export type DesktopPaths = {
   serverEntry: string;
   migrationsDirectory: string;
   databaseFile: string;
+  mediaDirectory: string;
   backupsDirectory: string;
   logsDirectory: string;
   logFile: string;
@@ -39,8 +40,9 @@ export function resolveDesktopPaths(input: ResolveDesktopPathsInput): DesktopPat
   const logsDirectory = join(dataRoot, "logs");
   const backupsDirectory = join(dataRoot, "backups");
   const configDirectory = join(dataRoot, "config");
+  const mediaDirectory = join(dataRoot, "media");
 
-  for (const directory of [dataRoot, logsDirectory, backupsDirectory, configDirectory]) {
+  for (const directory of [dataRoot, logsDirectory, backupsDirectory, configDirectory, mediaDirectory]) {
     mkdirSync(directory, { recursive: true });
   }
 
@@ -52,6 +54,7 @@ export function resolveDesktopPaths(input: ResolveDesktopPathsInput): DesktopPat
       ? join(runtimeDirectory, "prisma", "migrations")
       : join(projectRoot, "src", "db", "migrations"),
     databaseFile: join(dataRoot, "app.db"),
+    mediaDirectory,
     backupsDirectory,
     logsDirectory,
     logFile: join(logsDirectory, "desktop.log"),

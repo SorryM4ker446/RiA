@@ -4,6 +4,8 @@ export type PersistedFilePart = {
   url: string;
   mediaType: string;
   filename?: string;
+  assetId?: string;
+  relativePath?: string;
 };
 
 export type PersistedUserMessagePayload = {
@@ -112,6 +114,8 @@ export function decodePersistedUserMessage(content: string): PersistedUserMessag
         url: file.url,
         mediaType: file.mediaType,
         ...(typeof file.filename === "string" ? { filename: file.filename } : {}),
+        ...(typeof file.assetId === "string" ? { assetId: file.assetId } : {}),
+        ...(typeof file.relativePath === "string" ? { relativePath: file.relativePath } : {}),
       })),
     };
   } catch {

@@ -11,6 +11,7 @@ export type NextServerOptions = {
   serverEntry: string;
   nodeExecutable: string;
   databaseUrl: string;
+  mediaDirectory: string;
   desktopSessionToken: string;
   port: number;
   logFile: string;
@@ -125,6 +126,7 @@ export async function startNextServer(options: NextServerOptions): Promise<Runni
     APP_RUNTIME: "desktop",
     AUTH_DISABLED: "1",
     DATABASE_URL: options.databaseUrl,
+    MEDIA_DIRECTORY: options.mediaDirectory,
     DESKTOP_SESSION_TOKEN: options.desktopSessionToken,
     DESKTOP_SERVER_HOST: host,
     HOSTNAME: "127.0.0.1",

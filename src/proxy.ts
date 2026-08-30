@@ -10,6 +10,10 @@ function forbidden(message: string) {
 }
 
 export function proxy(request: NextRequest) {
+  // Legacy public videos are imported through authenticated history loading only.
+  if (request.nextUrl.pathname.startsWith("/generated-videos/")) {
+    return NextResponse.json({ error: { code: "NOT_FOUND", message: "Media must be accessed through its authenticated asset URL" } }, { status: 404 });
+  }
   if (process.env.APP_RUNTIME !== "desktop") return NextResponse.next();
 
   const expectedHost = process.env.DESKTOP_SERVER_HOST;
@@ -30,5 +34,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: "/api/:path*",
+  matcher: ["/api/:path*", "/generated-videos/:path*"],
 };

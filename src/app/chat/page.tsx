@@ -4,6 +4,8 @@ import { ChangeEvent, ClipboardEvent, FormEvent, KeyboardEvent, useEffect, useMe
 import Image from "next/image";
 import Link from "next/link";
 import { useChat } from "@ai-sdk/react";
+import { attachmentValidationError, IMAGE_MEDIA_TYPES } from "@/lib/media/limits";
+import type { MediaReference } from "@/lib/media/message-codec";
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses, UIMessage } from "ai";
 import {
   BookOpen,
@@ -58,7 +60,6 @@ import {
   imagePrompts,
   isToolPart,
   mapStoredMessagesToUI,
-  normalizePastedFiles,
   quickPrompts,
   readText,
   safeJson,
@@ -258,6 +259,7 @@ export default function ChatPage() {
   const [selectedVideoModel, setSelectedVideoModel] = useState<SupportedVideoModelId>(DEFAULT_VIDEO_MODEL);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
+  const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
   const [imageByMessageId, setImageByMessageId] = useState<Record<string, string>>({});
   const [videoByMessageId, setVideoByMessageId] = useState<Record<string, string>>({});
   const [attachments, setAttachments] = useState<File[]>([]);
@@ -471,6 +473,7 @@ export default function ChatPage() {
     status === "streaming" ||
     isGeneratingImage ||
     isGeneratingVideo ||
+    isUploadingAttachments ||
     isRunningManualTool;
   const activeChat = chats.find((chat) => chat.id === activeChatId) ?? null;
   const selectedModel =
@@ -523,7 +526,7 @@ export default function ChatPage() {
         if (!nextActiveId && lastActiveId) {
           window.localStorage.removeItem(LAST_ACTIVE_CHAT_STORAGE_KEY);
         }
-        setActiveChatId(nextActiveId);
+        setActiveChatId((current) => current ?? nextActiveId);
       }
     } catch (loadError) {
       setPageError(loadError instanceof Error ? loadError.message : "读取会话列表失败");
@@ -769,6 +772,7 @@ export default function ChatPage() {
       const nextActiveId = nextChats[0]?.id ?? null;
       setActiveChatId(nextActiveId);
       if (!nextActiveId) {
+        window.localStorage.removeItem(LAST_ACTIVE_CHAT_STORAGE_KEY);
         setMessages([]);
         setImageByMessageId({});
         setVideoByMessageId({});
@@ -863,9 +867,10 @@ export default function ChatPage() {
   }
 
   function appendAttachments(nextFiles: File[]) {
-    const normalized = normalizePastedFiles(nextFiles);
-    if (normalized.length === 0) return;
-    setAttachments((prev) => dedupeFiles([...prev, ...normalized]));
+    const combined = dedupeFiles([...attachments, ...nextFiles]);
+    const validation = attachmentValidationError(combined) || (modelMode === "video" && combined.length > 1 ? "视频生成最多使用 1 个参考图。" : null);
+    if (validation) { setPageError(validation); return; }
+    setAttachments(combined);
   }
 
   function extensionFromImageType(mediaType: string): string {
@@ -1216,11 +1221,13 @@ export default function ChatPage() {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isPending) return;
     const content = input.trim();
     const hasAttachments = attachments.length > 0;
     const hasContent = content.length > 0;
 
     if (!hasContent && !hasAttachments) return;
+    if (modelMode === "video" && attachments.length > 1) { setPageError("视频生成最多使用 1 个参考图。"); return; }
 
     setPageError(null);
 
@@ -1238,11 +1245,14 @@ export default function ChatPage() {
 
     let uploadParts: UploadableFilePart[] = [];
     if (hasAttachments) {
+      setIsUploadingAttachments(true);
       try {
         uploadParts = await filesToUploadParts(attachments);
       } catch (error) {
         setPageError(error instanceof Error ? error.message : "附件读取失败");
         return;
+      } finally {
+        setIsUploadingAttachments(false);
       }
     }
 
@@ -1340,14 +1350,14 @@ export default function ChatPage() {
           }),
         });
 
-        const payload = (await response.json()) as { error?: string; modelId?: string; dataUrl?: string };
-        if (!response.ok || !payload.dataUrl) {
-          throw new Error(payload.error ?? "图片生成失败");
+        const payload = (await response.json()) as { error?: { message?: string }; modelId?: string; asset?: MediaReference };
+        if (!response.ok || !payload.asset) {
+          throw new Error(payload.error?.message ?? "图片生成失败");
         }
 
         setImageByMessageId((prev) => ({
           ...prev,
-          [assistantMessageId]: payload.dataUrl as string,
+          [assistantMessageId]: payload.asset!.url,
         }));
         setMessages(
           nextMessages.map((message) =>
@@ -1364,7 +1374,9 @@ export default function ChatPage() {
           role: "assistant",
           content: encodeImageMessage({
             type: "image-result",
-            dataUrl: payload.dataUrl,
+            assetId: payload.asset.assetId,
+            relativePath: payload.asset.relativePath,
+            mediaType: payload.asset.mediaType,
             modelId: payload.modelId ?? selectedImageModel,
             text: `图片生成完成 · ${payload.modelId ?? selectedImageModel}`,
           }),
@@ -1469,14 +1481,14 @@ export default function ChatPage() {
           }),
         });
 
-        const payload = (await response.json()) as { error?: string; modelId?: string; videoUrl?: string };
-        if (!response.ok || !payload.videoUrl) {
-          throw new Error(payload.error ?? "视频生成失败");
+        const payload = (await response.json()) as { error?: { message?: string }; modelId?: string; asset?: MediaReference };
+        if (!response.ok || !payload.asset) {
+          throw new Error(payload.error?.message ?? "视频生成失败");
         }
 
         setVideoByMessageId((prev) => ({
           ...prev,
-          [assistantMessageId]: payload.videoUrl as string,
+          [assistantMessageId]: payload.asset!.url,
         }));
         setMessages(
           nextMessages.map((message) =>
@@ -1493,7 +1505,9 @@ export default function ChatPage() {
           role: "assistant",
           content: encodeVideoMessage({
             type: "video-result",
-            videoUrl: payload.videoUrl,
+            assetId: payload.asset.assetId,
+            relativePath: payload.asset.relativePath,
+            mediaType: payload.asset.mediaType,
             modelId: payload.modelId ?? selectedVideoModel,
             text: `视频生成完成 · ${payload.modelId ?? selectedVideoModel}`,
           }),
@@ -1652,10 +1666,8 @@ export default function ChatPage() {
   ]);
 
   useEffect(() => {
-    if (!activeChatId) {
-      window.localStorage.removeItem(LAST_ACTIVE_CHAT_STORAGE_KEY);
-      return;
-    }
+    // Initial null means history has not loaded yet; preserve the saved selection.
+    if (!activeChatId) return;
     window.localStorage.setItem(LAST_ACTIVE_CHAT_STORAGE_KEY, activeChatId);
   }, [activeChatId]);
 
@@ -1750,6 +1762,7 @@ export default function ChatPage() {
           <BookOpen className="mr-2 h-4 w-4 text-primary" />
           知识库
         </Link>
+        <Link className="inline-flex h-9 items-center rounded-md border border-border/80 bg-card px-3 text-sm font-medium hover:bg-muted/70" href="/storage">存储管理</Link>
         {isDesktopRuntime ? (
           <Link
             className="inline-flex h-9 items-center justify-center rounded-md border border-border/80 bg-card px-3 text-sm font-medium text-foreground shadow-sm transition hover:bg-muted/70"
@@ -2477,7 +2490,7 @@ export default function ChatPage() {
               />
               <div className="flex flex-wrap items-center gap-2">
                 <input
-                  accept="image/*"
+                  accept={IMAGE_MEDIA_TYPES.join(",")}
                   className="block max-w-full text-xs text-muted-foreground file:mr-2 file:rounded-md file:border-0 file:bg-primary/10 file:px-2.5 file:py-1.5 file:text-xs file:font-medium file:text-primary hover:file:bg-primary/20"
                   disabled={isManualToolSelected}
                   multiple

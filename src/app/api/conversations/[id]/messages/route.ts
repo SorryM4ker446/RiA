@@ -4,6 +4,7 @@ import { requireRequestUser } from "@/lib/auth/request-user";
 import { decodePersistedUserMessage, truncateTitle } from "@/lib/ai/ui-message";
 import { createApiErrorResponse } from "@/lib/server/api-error";
 import { getChat, listChatMessages, saveChatMessage, updateChatTitle } from "@/lib/chat/store";
+import { readJsonBody } from "@/lib/server/request-body";
 
 const createMessageSchema = z.object({
   role: z.enum(["user", "assistant", "system"]),
@@ -48,7 +49,7 @@ export async function POST(req: NextRequest, context: Params) {
       return Response.json({ error: "Conversation not found" }, { status: 404 });
     }
 
-    const parsed = createMessageSchema.safeParse(await req.json());
+    const parsed = createMessageSchema.safeParse(await readJsonBody(req));
     if (!parsed.success) {
       return Response.json(
         { error: "Invalid request body", details: parsed.error.flatten() },

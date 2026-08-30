@@ -1,100 +1,44 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { experimental_generateVideo } from "ai";
 import { NextRequest } from "next/server";
+import { z } from "zod";
 import { resolveVideoModelId, videoModelSupportsImageInput } from "@/config/model";
 import { getVideoModel } from "@/lib/ai/client";
 import { requireRequestUser } from "@/lib/auth/request-user";
+import { imageInputBytes } from "@/lib/media/messages";
+import { createMediaAsset, toMediaReference } from "@/lib/media/storage";
 import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
+import { readJsonBody } from "@/lib/server/request-body";
 import { setupServerProxy } from "@/lib/server/proxy";
 
-type VideoRequestBody = {
-  prompt?: string;
-  modelId?: string;
-  aspectRatio?: `${number}:${number}`;
-  duration?: number;
-  fps?: number;
-  inputImage?: {
-    url: string;
-    mediaType?: string;
-  };
-};
-
-function getVideoExtension(mediaType: string): string {
-  if (mediaType.includes("mp4")) return "mp4";
-  if (mediaType.includes("webm")) return "webm";
-  if (mediaType.includes("quicktime")) return "mov";
-  return "mp4";
-}
+const videoRequestSchema = z.object({
+  prompt: z.string().trim().max(4000).default(""), modelId: z.string().max(200).optional(),
+  aspectRatio: z.enum(["16:9", "9:16", "1:1"]).default("16:9"),
+  duration: z.number().min(1).max(60).optional(), fps: z.number().int().min(1).max(120).optional(),
+  inputImage: z.object({ url: z.string().max(200), mediaType: z.string().max(100).optional() }).optional(),
+});
 
 export async function POST(req: NextRequest) {
   try {
-    setupServerProxy();
-    await requireRequestUser(req);
-
-    if (!process.env.OPENROUTER_API_KEY?.trim()) {
-      return Response.json(
-        {
-          error:
-            "OPENROUTER_API_KEY is not configured. Set it in .env and restart the dev server before generating videos.",
-        },
-        { status: 500 },
-      );
-    }
-
-    const body = (await req.json()) as VideoRequestBody;
-    const prompt = body.prompt?.trim();
-    const inputImage =
-      body.inputImage && typeof body.inputImage.url === "string" && body.inputImage.url.length > 0
-        ? body.inputImage.url
-        : null;
-
-    if (!prompt && !inputImage) {
-      return Response.json({ error: "prompt or inputImage is required" }, { status: 400 });
-    }
-
+    const user = await requireRequestUser(req);
+    const body = videoRequestSchema.parse(await readJsonBody(req));
+    if (!body.prompt && !body.inputImage) throw new ApiError({ code: "VALIDATION_ERROR", message: "prompt or inputImage is required" });
+    const [inputImage] = await imageInputBytes(user.id, body.inputImage ? [body.inputImage] : []);
     const modelId = resolveVideoModelId(body.modelId);
-    if (inputImage && !videoModelSupportsImageInput(modelId)) {
-      return Response.json(
-        { error: `当前视频模型 ${modelId} 不支持图片输入，请切换模型后重试。` },
-        { status: 400 },
-      );
-    }
-
+    if (inputImage && !videoModelSupportsImageInput(modelId)) throw new ApiError({ code: "VALIDATION_ERROR", message: "当前视频模型不支持图片输入。" });
+    if (!process.env.OPENROUTER_API_KEY?.trim()) throw new ApiError({ code: "CONFIGURATION_ERROR", message: "OpenRouter API key is not configured" });
+    setupServerProxy();
     const result = await experimental_generateVideo({
-      model: getVideoModel(modelId),
-      prompt: inputImage
-        ? {
-            image: inputImage,
-            ...(prompt ? { text: prompt } : {}),
-          }
-        : (prompt as string),
-      n: 1,
-      aspectRatio: body.aspectRatio ?? "16:9",
-      ...(typeof body.duration === "number" ? { duration: body.duration } : {}),
-      ...(typeof body.fps === "number" ? { fps: body.fps } : {}),
+      model: getVideoModel(modelId), n: 1, abortSignal: req.signal,
+      prompt: inputImage ? { image: inputImage, ...(body.prompt ? { text: body.prompt } : {}) } : body.prompt,
+      aspectRatio: body.aspectRatio, duration: body.duration, fps: body.fps,
     });
-
-    const video = result.video;
-    const extension = getVideoExtension(video.mediaType);
-    const fileName = `${Date.now()}-${randomUUID()}.${extension}`;
-    const outputDir = path.join(process.cwd(), "public", "generated-videos");
-    const outputPath = path.join(outputDir, fileName);
-
-    await mkdir(outputDir, { recursive: true });
-    await writeFile(outputPath, Buffer.from(video.uint8Array));
-
-    return Response.json({
-      modelId,
-      videoUrl: `/generated-videos/${fileName}`,
-      mediaType: video.mediaType,
+    const asset = await createMediaAsset({
+      userId: user.id, bytes: result.video.uint8Array, mediaType: result.video.mediaType,
+      kind: "generated-video", modelId, description: body.prompt,
     });
+    return Response.json({ modelId, asset: toMediaReference(asset) });
   } catch (error) {
-    console.error("/api/video error", error);
-    if (error instanceof ApiError) {
-      return createApiErrorResponse(error);
-    }
-    return Response.json({ error: "Failed to generate video" }, { status: 500 });
+    if (error instanceof ApiError || error instanceof z.ZodError) return createApiErrorResponse(error);
+    return createApiErrorResponse(new ApiError({ code: "UPSTREAM_FAILED", message: "视频生成或保存失败，请稍后重试。" }));
   }
 }

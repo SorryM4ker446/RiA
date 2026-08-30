@@ -25,4 +25,4 @@ runNode(
 );
 runNode(["node_modules/typescript/bin/tsc", "-p", "electron/tsconfig.json"]);
 runNode(["scripts/prepare-desktop.mjs"]);
-runNode(["scripts/verify-desktop-package.mjs"]);
+runNode(["scripts/verify-desktop-package.mjs", "--runtime-only"]);

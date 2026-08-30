@@ -22,16 +22,27 @@ if (resolve(runtimeDirectory) !== expectedRuntimeDirectory || dirname(runtimeDir
   throw new Error(`Refusing to replace unexpected runtime directory: ${runtimeDirectory}`);
 }
 
+// Fail before copying or replacing anything if tracing captured development/user data.
+for (const forbidden of [".desktop-data", ".desktop-runtime", ".git", "out"]) {
+  if (existsSync(join(standaloneDirectory, forbidden))) {
+    throw new Error(`Standalone output contains ${forbidden}; fix runtime file tracing before preparing a desktop bundle.`);
+  }
+}
+
+const legacyVideos = join(runtimeDirectory, "public", "generated-videos");
+if (existsSync(legacyVideos) && readdirSync(legacyVideos).length > 0) {
+  throw new Error("Legacy generated videos exist in .desktop-runtime/public/generated-videos. Back them up outside the runtime and configure LEGACY_VIDEO_DIRECTORY before rebuilding; refusing to discard them.");
+}
 rmSync(runtimeDirectory, { recursive: true, force: true });
 mkdirSync(runtimeDirectory, { recursive: true });
 cpSync(standaloneDirectory, runtimeDirectory, {
   recursive: true,
-  filter: (source) => !/^\.env(?:\.|$)/i.test(basename(source)),
+  filter: (source) => !/^\.env(?:\.|$)/i.test(basename(source)) && basename(source) !== "generated-videos",
 });
 
 const publicDirectory = join(repositoryRoot, "public");
 if (existsSync(publicDirectory)) {
-  cpSync(publicDirectory, join(runtimeDirectory, "public"), { recursive: true });
+  cpSync(publicDirectory, join(runtimeDirectory, "public"), { recursive: true, filter: (source) => basename(source) !== "generated-videos" });
 }
 
 const staticDirectory = join(repositoryRoot, ".next", "static");

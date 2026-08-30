@@ -1,6 +1,8 @@
-import { MockEmbeddingModelV3, MockLanguageModelV3 } from "ai/test";
+import { MockEmbeddingModelV3, MockLanguageModelV3, MockImageModelV3 } from "ai/test";
 
-export const providerState = { streamError: false, streamGate: undefined };
+export const providerState = { streamError: false, streamGate: undefined, imageCalls: [], videoCalls: [] };
+export const testPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=", "base64");
+export const testVideo = Buffer.from([0, 0, 0, 24, 102, 116, 121, 112, 105, 115, 111, 109, 0, 0, 0, 0, 105, 115, 111, 109]);
 export const languageModel = new MockLanguageModelV3({
   doStream: async () => ({
     stream: new ReadableStream({
@@ -17,6 +19,16 @@ export const languageModel = new MockLanguageModelV3({
     }),
   }),
 });
-const embeddingModel = new MockEmbeddingModelV3({ doEmbed: async ({ values }) => ({ embeddings: values.map(() => [1, 0, 0]) }) });
+const embeddingModel = new MockEmbeddingModelV3({ doEmbed: async ({ values }) => ({ embeddings: values.map(() => [1, 0, 0]), warnings: [] }) });
 export const getChatModel = () => languageModel;
 export const getEmbeddingModel = () => embeddingModel;
+const imageModel = new MockImageModelV3({ doGenerate: async (options) => {
+  providerState.imageCalls.push(options);
+  return { images: [testPng], warnings: [], response: { timestamp: new Date(), modelId: "mock-image", headers: {} } };
+} });
+const videoModel = { specificationVersion: "v3", provider: "mock-provider", modelId: "mock-video", maxVideosPerCall: 1, doGenerate: async (options) => {
+  providerState.videoCalls.push(options);
+  return { videos: [{ type: "binary", data: testVideo, mediaType: "video/mp4" }], warnings: [], response: { timestamp: new Date(), modelId: "mock-video", headers: {} } };
+} };
+export const getImageModel = () => imageModel;
+export const getVideoModel = () => videoModel;
