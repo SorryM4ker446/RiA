@@ -40,14 +40,28 @@ model Chat {
   id            String    @id @default(cuid())
   userId        String
   title         String
+  pinned        Boolean   @default(false)
+  archived      Boolean   @default(false)
   lastMessageAt DateTime  @default(now())
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages      Message[]
+  tags          ChatTag[]
 
   @@index([userId, lastMessageAt, id])
+  @@index([userId, archived, pinned, lastMessageAt, id])
   @@map("chats")
+}
+
+model ChatTag {
+  chatId String
+  label  String
+  chat   Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@id([chatId, label])
+  @@index([label, chatId])
+  @@map("chat_tags")
 }
 
 model Message {

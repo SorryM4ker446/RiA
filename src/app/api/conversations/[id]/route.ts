@@ -1,14 +1,11 @@
 import { readJsonBody } from "@/lib/server/request-body";
 import { NextRequest } from "next/server";
-import { z } from "zod";
 import { requireRequestUser } from "@/lib/auth/request-user";
 import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
-import { deleteChat, getChat, updateChatTitle } from "@/lib/chat/store";
+import { deleteChat } from "@/lib/chat/store";
 import { db } from "@/db";
-
-const updateConversationSchema = z.strictObject({
-  title: z.string().trim().min(1).max(200),
-});
+import { updateConversation, updateConversationSchema } from "@/lib/conversations/mutations";
+import { conversationSummary } from "@/lib/conversations/query";
 
 type Params = {
   params: Promise<{ id: string }>;
@@ -19,24 +16,13 @@ export async function GET(req: NextRequest, context: Params) {
     const user = await requireRequestUser(req);
     const { id } = await context.params;
 
-    const conversation = await getChat(user.id, id);
+    const conversation = await db.chat.findFirst({ where: { id, userId: user.id }, include: { tags: { orderBy: { label: "asc" } }, _count: { select: { messages: true } } } });
 
     if (!conversation) {
       throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
     }
 
-    const messageCount = await db.message.count({ where: { chatId: id, chat: { userId: user.id } } });
-
-    return Response.json({
-      data: {
-        id: conversation.id,
-        title: conversation.title,
-        createdAt: conversation.createdAt,
-        updatedAt: conversation.updatedAt,
-        lastMessageAt: conversation.lastMessageAt,
-        messageCount,
-      },
-    });
+    return Response.json({ data: conversationSummary(conversation) });
   } catch (error) {
     console.error("/api/conversations/[id] GET error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to fetch conversation");
@@ -53,10 +39,7 @@ export async function PATCH(req: NextRequest, context: Params) {
       throw parsed.error;
     }
 
-    const updated = await updateChatTitle(user.id, id, parsed.data.title);
-    if (!updated) {
-      throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
-    }
+    const updated = await updateConversation(user.id, id, parsed.data);
 
     return Response.json({ data: updated });
   } catch (error) {

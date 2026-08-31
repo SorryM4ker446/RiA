@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { formatTime } from "@/features/chat/page-utils";
@@ -26,7 +27,7 @@ export function ConversationList({ isCreatingChat, createNewChat, chats, visible
               <MessageSquare className="h-4 w-4 text-primary" />
               会话列表
             </CardTitle>
-            <CardDescription>按最近更新时间排序</CardDescription>
+            <CardDescription>置顶优先，按最近消息排序</CardDescription>
           </div>
           <div className="flex items-center gap-1">
               <Button
@@ -40,6 +41,7 @@ export function ConversationList({ isCreatingChat, createNewChat, chats, visible
             </Button>
           </div>
         </div>
+        <Link className="mt-2 text-sm text-primary underline underline-offset-4" href="/conversations">管理会话</Link>
       </CardHeader>
       <CardContent className="chat-list-scroll min-h-0 space-y-2 overflow-y-auto overscroll-contain pr-3">
         {chats.length === 0 ? (
@@ -90,7 +92,7 @@ export function ConversationList({ isCreatingChat, createNewChat, chats, visible
                         onClick={() => void switchActiveChat(chat.id)}
                         type="button"
                       >
-                        <p className="truncate text-sm font-medium">{chat.title}</p>
+                        <p className="truncate text-sm font-medium">{chat.pinned ? "📌 " : ""}{chat.title}</p>
                         <p className="mt-1 text-[11px] text-muted-foreground">
                           {chat.messageCount} 条消息 · {formatTime(chat.lastMessageAt)}
                         </p>

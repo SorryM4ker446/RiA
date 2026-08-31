@@ -108,6 +108,7 @@ This project does not configure Windows code signing or automatic updates. Windo
 - authenticated desktop API requests succeed;
 - requests without the desktop cookie are rejected;
 - a conversation remains after the local service restarts;
+- conversation search, pinning and tags survive restart; Markdown/JSON downloads from the actual management UI preserve text and private media references;
 - due task notifications are dispatched once to a recording test sink, and recurrence/claims survive service restart without invoking a model or displaying OS notifications;
 - the application exits without retaining its child service.
 

@@ -46,7 +46,7 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
       const preferredId = activeIdRef.current ?? window.localStorage.getItem(LAST_ACTIVE_CHAT_STORAGE_KEY);
       if (preferredId && !list.some((chat) => chat.id === preferredId)) {
         const preferred = await chatApi.getConversation(preferredId);
-        if (preferred.data) list.push(preferred.data);
+        if (preferred.data && !preferred.data.archived) list.push(preferred.data);
       }
       if (requestId !== chatsRequestRef.current) return;
       setChats(list);

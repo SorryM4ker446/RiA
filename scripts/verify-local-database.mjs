@@ -16,6 +16,9 @@ try {
       chats: {
         create: {
           title: `Chat ${marker}`,
+          pinned: true,
+          archived: true,
+          tags: { create: { label: "database-check" } },
           messages: {
             create: {
               clientMessageId: marker,
@@ -49,7 +52,7 @@ try {
   const stored = await db.user.findUnique({
     where: { id: user.id },
     include: {
-      chats: { include: { messages: true } },
+      chats: { include: { messages: true, tags: true } },
       memories: true,
       tasks: true,
     },
@@ -59,6 +62,7 @@ try {
     !stored ||
     stored.chats.length !== 1 ||
     stored.chats[0].messages.length !== 1 ||
+    !stored.chats[0].pinned || !stored.chats[0].archived || stored.chats[0].tags[0]?.label !== "database-check" ||
     stored.memories.length !== 1 ||
     stored.tasks.length !== 1 ||
     stored.tasks[0].timeZone !== "Asia/Shanghai" ||
@@ -84,7 +88,12 @@ try {
   }, include: { chunks: { include: { terms: true } } } });
   if (document.chunks.length !== 1 || document.chunks[0].terms.length !== 2) throw new Error("Document index relations were not persisted.");
 
+  const [indexed] = await db.$queryRaw`SELECT count(*) AS count FROM message_text_search WHERE message_text_search MATCH '"Local database verification"' AND id=${stored.chats[0].messages[0].id}`;
+  if (Number(indexed.count) !== 1) throw new Error("Conversation search index was not persisted.");
   await db.user.delete({ where: { id: user.id } });
+  const tags = await db.chatTag.count({ where: { chatId: stored.chats[0].id } });
+  const [indexRemainder] = await db.$queryRaw`SELECT count(*) AS count FROM message_text_search WHERE id=${stored.chats[0].messages[0].id}`;
+  if (tags || Number(indexRemainder.count)) throw new Error("Conversation organization or search index did not cascade.");
   const remainingChats = await db.chat.count({ where: { userId: user.id } });
   const remainingMemories = await db.memory.count({ where: { userId: user.id } });
   const remainingTasks = await db.task.count({ where: { userId: user.id } });

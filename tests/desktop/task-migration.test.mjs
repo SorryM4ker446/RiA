@@ -27,7 +27,7 @@ test("task reminder migration retains legacy dates and defaults to no notificati
       before.prepare("INSERT INTO tasks (id,userId,title,dueDate,updatedAt) VALUES ('task','owner','Legacy task',?,CURRENT_TIMESTAMP)").run(1788048000000);
     } finally { before.close(); }
     const applied = runDesktopMigrations(options);
-    assert.deepEqual(applied.applied, [migration]);
+    assert.deepEqual(applied.applied, readdirSync(migrationsDirectory, { withFileTypes: true }).filter(entry => entry.isDirectory() && entry.name >= migration).map(entry => entry.name).sort());
     assert.ok(applied.backupFile);
     const backup = new DatabaseSync(applied.backupFile, { readOnly: true });
     try {

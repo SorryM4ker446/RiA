@@ -23,7 +23,7 @@ Business handlers return errors as JSON with `Cache-Control: no-store`:
 | `FORBIDDEN` | 403 | Host, desktop Cookie or browser origin check failed |
 | `NOT_FOUND` | 404 | Missing resource, including resources owned by another user |
 | `CONFLICT` | 409 | Duplicate account/identifier, stale tool approval, concurrent edit or referenced media |
-| `PAYLOAD_TOO_LARGE` | 413 | Request bytes or extracted document limits exceeded |
+| `PAYLOAD_TOO_LARGE` | 413 | Request bytes, extracted document or conversation export limits exceeded |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | A JSON or multipart endpoint received the wrong Content-Type |
 | `RANGE_NOT_SATISFIABLE` | 416 | Invalid media byte range; includes Content-Range |
 | `RATE_LIMITED` | 429 | Local quota exhausted; includes Retry-After and details.retryAfterSeconds |
@@ -37,7 +37,7 @@ The order is Host/Origin/desktop boundary, user authentication, applicable quota
 
 JSON operations require `application/json`. Unknown request fields and unknown model IDs are rejected instead of silently selecting a default model; omitting the model still selects its default. Chat accepts user/assistant history, bounded message parts, uploaded image references and the supported tool/approval states. Client system history is never promoted to the server system prompt. Only a final persisted pending approval can continue execution. Media generation accepts private uploaded references, never arbitrary remote or data URLs.
 
-The successful API shapes are unchanged. AI SDK streams already started with HTTP 200 cannot switch their HTTP status later. Their error chunks carry the same serialized error object; the shared browser parser displays its message and retry/reload guidance. Persistence failures, including regeneration conflicts, are surfaced through that stream. HEAD errors intentionally have no response body. Framework-level routing errors (for example an unknown endpoint or an unsupported HTTP method) are outside the business error contract.
+Successful API payloads are documented in [Local integration API](local-api.md); conversation exports return attachment bodies instead of a JSON data envelope. AI SDK streams already started with HTTP 200 cannot switch their HTTP status later. Their error chunks carry the same serialized error object; the shared browser parser displays its message and retry/reload guidance. Persistence failures, including regeneration conflicts, are surfaced through that stream. HEAD errors intentionally have no response body. Framework-level routing errors (for example an unknown endpoint or an unsupported HTTP method) are outside the business error contract.
 
 Raw ORM/provider diagnostics are not logged or returned because they can contain query values or upstream request details. Route logs retain the endpoint and normalized error code. Chat and knowledge layouts evaluate authentication at request time, even if the artifact was built with demo authentication enabled.
 
@@ -60,8 +60,13 @@ Existing media limits remain: four attachments per message, PNG/JPEG/WebP/GIF on
 | Attachment upload | User | 20 requests / minute |
 | Document import/reindex | User, shared between both operations | 6 attempts / minute |
 | Desktop task reminder claims | User | 10 checks / minute; at most 10 due tasks per check |
+| Conversation text search | User | 30 requests / minute |
+| Conversation export | User | 6 requests / minute |
+| Confirmed bulk conversation deletion | User | 10 requests / minute |
 
 Document-only search shares the tool request quota. Document uploads reuse the limited stream reader with a narrower 9 MiB body/8 MiB file allowance. Extraction has worker, timeout, expanded-size and per-user document limits; see [Document knowledge](document-knowledge.md). The existing attachment/Proxy limits are not increased.
+
+Bulk conversation deletion accepts at most 50 unique owned IDs and explicit confirmation within 16 KiB. Exports have message/source/output caps, preserve private media authorization, and omit raw tool arguments/settings. See [Conversation management](conversation-management.md). Archive state never replaces ownership checks.
 
 Invalid requests and configuration failures consume the applicable quota. Rejected requests do not extend its window. Unauthenticated protected requests never use a user's quota. Login and registration deliberately do not trust `X-Forwarded-For` or `X-Real-IP`: changing an address or email cannot bypass the service budget. The in-memory store holds at most 2,000 active keys and refuses new keys while full instead of evicting existing quotas. Expired entries are reclaimed.
 

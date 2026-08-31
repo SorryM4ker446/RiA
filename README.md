@@ -6,6 +6,7 @@ Private AI Assistant is a local-first AI assistant built with Next.js, Vercel AI
 
 - Streaming, persisted multi-turn chat through OpenRouter
 - Local conversations, messages, memories, knowledge, and tasks
+- Conversation text search, pinning, tags, archive, confirmed bulk deletion and Markdown/JSON export
 - Semantic knowledge retrieval with keyword fallback
 - PDF, Markdown, text and Word `.docx` knowledge import with local indexing and cited excerpts
 - Tavily web search and tool-call approval flows
@@ -34,6 +35,8 @@ The local SQLite database defaults to `.desktop-data/dev/app.db`. Browser develo
 API requests enforce input/size limits, consistent errors, local quotas and same-origin browser writes. Non-loopback hosts require an explicit `APP_ORIGIN`; see [API contracts and local security](docs/api-security.md) before changing local access or proxy settings.
 
 Conversation and message history loads in bounded pages. See [Local integration API](docs/local-api.md) for cursor contracts and retrieval behavior, and [Model catalog maintenance](docs/model-catalog.md) for offline checks and intentional catalog updates.
+
+Open **管理会话** from the sidebar to search and organize history or download text snapshots. These features work in both browser and desktop; see [Conversation management](docs/conversation-management.md) for export privacy, limits and migration notes.
 
 ## Desktop development
 
