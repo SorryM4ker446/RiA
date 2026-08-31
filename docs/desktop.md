@@ -18,6 +18,8 @@ Installed application data is stored in:
 
 The same data directory contains file-backed `media/`, encrypted settings, migration backups, and `logs/desktop.log`. Reinstalling or uninstalling the application does not intentionally delete this user-data directory. Backups must include both SQLite and media; automatic database migration backups cover SQLite only. See [Media storage and migration](media-storage.md).
 
+The shared **备份与恢复** page stores unencrypted portable account archives in owner directories under `backups/`, alongside but separate from database migration `.bak` files. It supports export/import, confirmed restore with a safety archive, and retention cleanup while the service runs. **模型与用量** stores account defaults and optional fallback in SQLite; provider keys remain in desktop encrypted settings and are never added to these settings or archives. See [Account backups](account-backups.md) and [Model settings and usage](model-usage.md).
+
 Imported document text and its search index are stored inside SQLite and included in its backups. Original PDF/Word files are not retained. See [Document knowledge](document-knowledge.md) for supported formats, source references, privacy and reindexing. Document import works without a model key; chat sends relevant excerpts to the configured model.
 
 The shared Web/desktop application client uses one SQLite connection per service process. Concurrent queries wait in the pool for up to 30 seconds instead of competing for SQLite's single write lock. Interactive transactions use the same 30-second connection-acquisition limit; their execution timeout remains unchanged. A lock held by another process still times out after 5 seconds. These limits are applied to the Prisma datasource without changing `DATABASE_URL`, database/media paths, or the schema. Restart an already-running service after updating the client configuration. This policy does not coordinate multiple service processes or turn SQLite into a multi-instance database.
@@ -39,6 +41,8 @@ npm run desktop:dev
 The main process chooses an available loopback port, applies SQLite migrations, starts Next.js, waits for `/api/health`, sets a random HttpOnly desktop-session cookie, and then opens the window. Closing the application stops the child service.
 
 The development terminal stays attached while Electron runs. Next.js startup and request output goes to `.desktop-data/dev/logs/desktop.log`, so a quiet terminal after TypeScript compilation does not by itself indicate a stall. The launcher must allow Electron's window to show on Windows; only background services and intentionally hidden smoke tests use hidden process startup.
+
+When restarting the local service, Electron first leaves the old page, then reloads Settings after the service is ready. The temporary blank page prevents the old development hot-reload connection from aborting navigation during restart; cookies and persisted data are retained.
 
 Desktop logs rotate at 2 MiB per file, retaining the active file plus three archives (`desktop.log.1` through `.3`), up to 8 MiB total. Next stdout/stderr goes through the same parent-process writer and redaction rules instead of a file descriptor that bypasses rotation. Complete output lines are buffered across chunks for redaction; lines over 16 Ki characters are omitted, and entries larger than a file are replaced with an omission marker. Oversized logs from older versions are capped when rotated. Rotation/write failures do not stop the app; diagnostics may be lost when the log directory is unwritable. Do not use these bounded diagnostic files as durable audit logs.
 
@@ -112,6 +116,7 @@ This project does not configure Windows code signing or automatic updates. Windo
 - a conversation remains after the local service restarts;
 - conversation search, pinning and tags survive restart; Markdown/JSON downloads from the actual management UI preserve text and private media references;
 - media source/recipe metadata survives restart; the actual library UI downloads an authenticated PNG and deleting its unused result preserves the reference image;
+- account model defaults survive restart; the backup UI creates and downloads a private archive, unconfirmed restore is rejected, and confirmed restore retains media/settings across another service restart without replaying reminders;
 - due task notifications are dispatched once to a recording test sink, and recurrence/claims survive service restart without invoking a model or displaying OS notifications;
 - the application exits without retaining its child service.
 

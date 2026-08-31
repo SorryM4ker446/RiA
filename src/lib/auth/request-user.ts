@@ -4,6 +4,7 @@ import { getSessionUserFromRequest } from "@/lib/auth/session";
 import { ApiError } from "@/lib/server/api-error";
 import { assertRequestSecurity } from "@/lib/server/request-security";
 import { readEmptyBody } from "@/lib/server/request-body";
+import { identifyDataUser } from "@/lib/server/data-operations";
 
 const DEFAULT_EMAIL = "demo@private-ai.local";
 const DEFAULT_NAME = "Demo User";
@@ -47,5 +48,6 @@ export async function requireRequestUser(req: NextRequest) {
     });
   }
   if (req.method === "DELETE") await readEmptyBody(req);
+  identifyDataUser(user.id);
   return user;
 }

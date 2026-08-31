@@ -1,3 +1,4 @@
+import { protectDataOperation } from "@/lib/server/data-operations";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { requireRequestUser } from "@/lib/auth/request-user";
@@ -7,7 +8,7 @@ import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { readJsonBody } from "@/lib/server/request-body";
 
 const schema = z.strictObject({ query: z.string().trim().min(1).max(2000) });
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   try {
     const user = await requireRequestUser(req);
     enforceRateLimit("tools", user.id);
@@ -15,3 +16,5 @@ export async function POST(req: NextRequest) {
     return Response.json({ data: await searchDocuments(user.id, query, 6) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return createApiErrorResponse(error, "检索文档失败。"); }
 }
+
+export const POST = protectDataOperation(POSTHandler);

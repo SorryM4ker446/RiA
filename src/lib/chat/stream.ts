@@ -6,6 +6,7 @@ import { createUIMessageStream, createUIMessageStreamResponse, stepCountIs, stre
 import { persistChatResponse, type ChatPersistence } from "@/lib/chat/persistence";
 import type { ChatRequest } from "@/lib/chat/request";
 import type { DocumentSource } from "@/lib/documents/types";
+import { retainDataOperation } from "@/lib/server/data-operations";
 export function streamChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; userId: string; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; documentSources?: DocumentSource[] }) {
   const { input, conversation, userId, systemPrompt, modelMessages, toolsEnabled, signal } = params;
   const { modelId, body, messages } = input;
@@ -14,6 +15,7 @@ export function streamChatResponse(params: { input: ChatRequest; conversation: C
 
   const result = streamText({
     model: getChatModel(modelId),
+    maxRetries: 0,
     system: systemPrompt,
     messages: modelMessages,
     abortSignal: signal,
@@ -47,7 +49,13 @@ export function streamChatResponse(params: { input: ChatRequest; conversation: C
     },
   });
   return createUIMessageStreamResponse({
-    stream: createUIMessageStream({ execute: ({ writer }) => { writer.merge(stream); }, onError: streamError }),
+    stream: createUIMessageStream({ execute: async ({ writer }) => {
+      // The SDK continues consuming after the HTTP reader disconnects. Hold
+      // the restore gate until that consumer and message persistence finish.
+      const release = retainDataOperation(), reader = stream.getReader();
+      try { for (;;) { const item = await reader.read(); if (item.done) break; writer.write(item.value); } }
+      finally { reader.releaseLock(); release(); }
+    }, onError: streamError }),
     headers: { "x-chat-id": chat.id, "x-model-id": modelId, "Cache-Control": "no-store" },
   });
 

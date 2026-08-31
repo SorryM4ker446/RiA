@@ -1,3 +1,4 @@
+import { protectDataOperation } from "@/lib/server/data-operations";
 import { Readable } from "node:stream";
 import { NextRequest } from "next/server";
 import { requireRequestUser } from "@/lib/auth/request-user";
@@ -41,13 +42,15 @@ async function serve(req: NextRequest, context: Params, headOnly: boolean) {
   }
 }
 
-export const GET = (req: NextRequest, context: Params) => serve(req, context, false);
-export const HEAD = (req: NextRequest, context: Params) => serve(req, context, true);
+export const GET = protectDataOperation((req: NextRequest, context: Params) => serve(req, context, false));
+export const HEAD = protectDataOperation((req: NextRequest, context: Params) => serve(req, context, true));
 
-export async function DELETE(req: NextRequest, context: Params) {
+async function DELETEHandler(req: NextRequest, context: Params) {
   try {
     const user = await requireRequestUser(req);
     const { id } = await context.params;
     return Response.json({ data: { freedBytes: await deleteMediaAsset(user.id, id) } });
   } catch (error) { return createApiErrorResponse(error, "Failed to delete media"); }
 }
+
+export const DELETE = protectDataOperation(DELETEHandler);

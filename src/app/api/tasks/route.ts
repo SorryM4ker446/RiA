@@ -1,3 +1,4 @@
+import { protectDataOperation } from "@/lib/server/data-operations";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { TaskStatus } from "@prisma/client";
@@ -10,7 +11,7 @@ const taskListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional().default(50),
 });
 
-export async function GET(req: NextRequest) {
+async function GETHandler(req: NextRequest) {
   try {
     const user = await requireRequestUser(req);
     const parsed = taskListQuerySchema.safeParse({
@@ -41,3 +42,5 @@ export async function GET(req: NextRequest) {
     return createApiErrorResponse(error, "Failed to fetch tasks");
   }
 }
+
+export const GET = protectDataOperation(GETHandler);

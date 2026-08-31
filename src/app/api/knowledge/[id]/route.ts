@@ -1,3 +1,4 @@
+import { protectDataOperation } from "@/lib/server/data-operations";
 import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
@@ -17,7 +18,7 @@ async function getScopedKnowledgeEntry(userId: string, id: string) {
   });
 }
 
-export async function DELETE(req: NextRequest, context: Params) {
+async function DELETEHandler(req: NextRequest, context: Params) {
   try {
     const user = await requireRequestUser(req);
     const { id } = await context.params;
@@ -40,3 +41,5 @@ export async function DELETE(req: NextRequest, context: Params) {
     return createApiErrorResponse(error, "Failed to delete knowledge entry");
   }
 }
+
+export const DELETE = protectDataOperation(DELETEHandler);

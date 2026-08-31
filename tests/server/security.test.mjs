@@ -16,6 +16,7 @@ const { createChatToolSet, getToolDescriptor } = await import("@/tools/catalog")
 const { saveChatMessage } = await import("@/lib/chat/store");
 const { proxy } = await import("@/proxy");
 const routes = {};
+for (const name of ["backups", "backups/[id]", "backups/import", "backups/import/[id]", "models", "usage"]) routes[name] = await import(`@/app/api/${name}/route`);
 for (const name of ["chat", "image", "video", "tools/run", "tools", "memory", "retrieval", "knowledge", "knowledge/[id]", "tasks", "tasks/[id]", "tasks/reminders", "conversations", "conversations/bulk-delete", "conversations/[id]/export", "conversations/[id]", "conversations/[id]/messages", "conversations/[id]/messages/[messageId]", "media", "media/library", "media/[id]/details", "media/[id]/regenerate", "media/upload", "media/cleanup", "media/[id]", "auth/login", "auth/register", "auth/logout", "auth/me", "health"]) {
   routes[name] = await import(`@/app/api/${name}/route`);
 }
@@ -56,7 +57,7 @@ after(async () => { await db.$disconnect(); cleanup(); });
 test("all protected handlers authenticate before parsing invalid bodies", async () => {
   for (const [name, route] of Object.entries(routes)) {
     if (name.startsWith("auth/") || name === "health") continue;
-    for (const method of ["GET", "POST", "PATCH", "DELETE"]) {
+    for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE"]) {
       if (!route[method]) continue;
       const req = request(name, undefined, { method, session: "", ...(method === "GET" ? {} : { raw: "not-json" }) });
       await expectError(await route[method](req, ctx), 401, "UNAUTHORIZED");
@@ -184,7 +185,7 @@ test("expired sessions are rejected and unused expired rows are pruned without d
 
 test("all mutation handlers reject foreign browser origins before authentication or writes", async () => {
   for (const [name, route] of Object.entries(routes)) {
-    for (const method of ["POST", "PATCH", "DELETE"]) {
+    for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
       if (route[method]) await expectError(await route[method](request(name, {}, { method, headers: { origin: "https://outside.invalid" }, session: "" }), ctx), 403, "FORBIDDEN");
     }
   }

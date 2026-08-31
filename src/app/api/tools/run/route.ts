@@ -1,3 +1,4 @@
+import { protectDataOperation } from "@/lib/server/data-operations";
 import { chatModelSchema } from "@/lib/server/request-schemas";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { readJsonBody } from "@/lib/server/request-body";
@@ -18,7 +19,7 @@ const runToolSchema = z.strictObject({
   mode: z.literal("chat"),
 });
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   const startedAt = Date.now();
   let logContext: { toolId: string; userId: string; requestId?: string } | null = null;
   let succeeded = false;
@@ -168,3 +169,5 @@ export async function POST(req: NextRequest) {
     }
   }
 }
+
+export const POST = protectDataOperation(POSTHandler);

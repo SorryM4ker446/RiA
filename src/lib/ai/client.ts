@@ -1,4 +1,5 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import { observeLanguageModel, observeEmbeddingModel } from "@/lib/models/observe-language";
 import {
   DEFAULT_IMAGE_MODEL,
   DEFAULT_MODEL,
@@ -22,14 +23,14 @@ const openrouter = createOpenRouter({
 });
 
 export function getChatModel(modelId: SupportedModelId = DEFAULT_MODEL) {
-  return openrouter(modelId);
+  return observeLanguageModel(openrouter(modelId), modelId, id => openrouter(id));
 }
 
 export const DEFAULT_EMBEDDING_MODEL =
   process.env.EMBEDDING_MODEL_ID?.trim() || "openai/text-embedding-3-small";
 
 export function getEmbeddingModel(modelId: string = DEFAULT_EMBEDDING_MODEL) {
-  return openrouter.textEmbeddingModel(modelId);
+  return observeEmbeddingModel(openrouter.textEmbeddingModel(modelId), modelId);
 }
 
 export function getImageModel(modelId: SupportedImageModelId = DEFAULT_IMAGE_MODEL) {

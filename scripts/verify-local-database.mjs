@@ -96,7 +96,12 @@ try {
 
   const [indexed] = await db.$queryRaw`SELECT count(*) AS count FROM message_text_search WHERE message_text_search MATCH '"Local database verification"' AND id=${stored.chats[0].messages[0].id}`;
   if (Number(indexed.count) !== 1) throw new Error("Conversation search index was not persisted.");
+  await db.accountPreference.create({ data: { userId: user.id, settings: { version: 1, defaultMode: "image" } } });
+  await db.modelRequest.create({ data: { userId: user.id, requestId: marker, mode: "image", modelId: "offline/model", status: "success", durationMs: 123, inputTokens: null, outputTokens: null, costUsd: 0, costSource: "configured" } });
+  await db.$disconnect();
+  if ((await db.accountPreference.findUnique({ where: { userId: user.id } })).settings.defaultMode !== "image" || (await db.modelRequest.findFirst({ where: { userId: user.id } })).costUsd !== 0) throw new Error("Account settings and usage did not survive reconnect.");
   await db.user.delete({ where: { id: user.id } });
+  if (await db.accountPreference.count({ where: { userId: user.id } }) || await db.modelRequest.count({ where: { userId: user.id } })) throw new Error("Account settings and usage did not cascade.");
   const tags = await db.chatTag.count({ where: { chatId: stored.chats[0].id } });
   const [indexRemainder] = await db.$queryRaw`SELECT count(*) AS count FROM message_text_search WHERE id=${stored.chats[0].messages[0].id}`;
   if (tags || Number(indexRemainder.count)) throw new Error("Conversation organization or search index did not cascade.");

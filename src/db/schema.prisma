@@ -20,8 +20,38 @@ model User {
   sessions     Session[]
   mediaAssets  MediaAsset[]
   documents    KnowledgeDocument[]
+  preferences  AccountPreference?
+  modelRequests ModelRequest[]
 
   @@map("users")
+}
+
+model AccountPreference {
+  userId String @id
+  settings Json
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("account_preferences")
+}
+
+model ModelRequest {
+  id String @id @default(cuid())
+  userId String
+  requestId String
+  mode String
+  modelId String
+  status String
+  durationMs Int
+  inputTokens Int?
+  outputTokens Int?
+  costUsd Float?
+  costSource String
+  errorCode String?
+  fallback Boolean @default(false)
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, createdAt, id])
+  @@map("model_requests")
 }
 
 model Session {

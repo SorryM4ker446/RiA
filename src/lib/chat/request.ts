@@ -6,6 +6,7 @@ import { resolveImageInputs } from "@/lib/media/messages";
 import { ApiError } from "@/lib/server/api-error";
 import { readJsonBody } from "@/lib/server/request-body";
 import { chatRequestSchema } from "@/lib/server/request-schemas";
+import { preferredModel } from "@/lib/models/preferences";
 import { validateUIMessages, type UIMessage } from "ai";
 
 export async function readChatRequest(req: Request, userId: string) {
@@ -13,7 +14,7 @@ export async function readChatRequest(req: Request, userId: string) {
   const messages = await validateUIMessages<UIMessage>({ messages: body.messages }).catch(() => {
     throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid message parts or tool state" });
   });
-  const modelId = resolveModelId(body.modelId);
+  const modelId = resolveModelId(await preferredModel(userId, "chat", body.modelId));
   const latestUserMessage = getLatestUserMessage(messages);
   const isApprovalResume = isToolApprovalContinuation(messages);
   const requestedChatId = body.chatId ?? body.conversationId ?? body.id;

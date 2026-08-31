@@ -1,3 +1,4 @@
+import { protectDataOperation } from "@/lib/server/data-operations";
 import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { requireRequestUser } from "@/lib/auth/request-user";
@@ -8,7 +9,7 @@ import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { readLimitedBody } from "@/lib/server/request-body";
 
-export async function GET(req: NextRequest) {
+async function GETHandler(req: NextRequest) {
   try {
     const user = await requireRequestUser(req);
     if (req.nextUrl.searchParams.size) throw new ApiError({ code: "VALIDATION_ERROR", message: "Unexpected query parameter" });
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest) {
   } catch (error) { return createApiErrorResponse(error, "读取文档列表失败。"); }
 }
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   try {
     const user = await requireRequestUser(req);
     enforceRateLimit("documents", user.id);
@@ -36,3 +37,6 @@ export async function POST(req: NextRequest) {
     return Response.json({ data }, { status: data.change === "created" ? 201 : 200, headers: { "Cache-Control": "no-store" } });
   } catch (error) { return createApiErrorResponse(error, "文档导入失败，原有索引保持不变。"); }
 }
+
+export const GET = protectDataOperation(GETHandler);
+export const POST = protectDataOperation(POSTHandler);

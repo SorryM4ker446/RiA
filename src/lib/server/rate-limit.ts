@@ -14,6 +14,9 @@ export const RATE_LIMIT_POLICIES = {
   mediaRegeneration: { limit: 6, windowMs: 60_000 },
   conversationExport: { limit: 6, windowMs: 60_000 },
   conversationBulkDelete: { limit: 10, windowMs: 60_000 },
+  backups: { limit: 6, windowMs: 60_000 },
+  backupChunks: { limit: 120, windowMs: 60_000 },
+  modelSettings: { limit: 20, windowMs: 60_000 },
 } as const;
 
 type RateLimitRecord = {
