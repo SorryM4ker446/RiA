@@ -70,8 +70,38 @@ test("saved mode defaults apply to new conversations and model settings survive 
   await page.getByLabel("新会话默认模式", { exact: true }).selectOption("image"); await page.getByLabel("图片默认模型", { exact: true }).selectOption("google/gemini-3.1-flash-image-preview");
   await page.getByRole("button", { name: "保存模型偏好" }).click(); await expect(page.getByRole("status")).toContainText("模型偏好已保存");
   await app.restart(); await page.reload(); await expect(page.getByLabel("新会话默认模式", { exact: true })).toHaveValue("image");
-  await page.getByRole("link", { name: "返回聊天", exact: true }).click(); await page.getByRole("button", { name: "创建会话", exact: true }).click(); await expect(page.getByPlaceholder(/描述你想生成的图片/)).toBeVisible();
-  const chat = (await browserData(page, "/api/conversations"))[0]; expect(await page.evaluate(id => JSON.parse(localStorage.getItem(`chat:prefs:${id}`)!), chat.id)).toMatchObject({ modelMode: "image", selectedImageModel: "google/gemini-3.1-flash-image-preview" });
+  await page.getByRole("link", { name: "返回聊天", exact: true }).click();
+  const createButton = page.getByRole("button", { name: "创建会话", exact: true });
+  let releaseCreation!: () => void;
+  const creationGate = new Promise<void>(resolve => { releaseCreation = resolve; });
+  await page.route(`${app.origin}/api/conversations`, async route => {
+    if (route.request().method() === "POST") await creationGate;
+    await route.continue();
+  });
+  try {
+    await createButton.click();
+    await expect(createButton).toBeDisabled();
+    // Account defaults can show the image composer before the real POST completes.
+    await expect(page.getByPlaceholder(/描述你想生成的图片/)).toBeVisible();
+    expect(await browserData(page, "/api/conversations")).toEqual([]);
+
+    const created = page.waitForResponse(response =>
+      response.url() === `${app.origin}/api/conversations` && response.request().method() === "POST");
+    releaseCreation();
+    const response = await created;
+    expect(response.status()).toBe(201);
+    const { data: chat } = await response.json();
+    expect(chat).toMatchObject({ id: expect.any(String), title: "New Chat" });
+    await expect(createButton).toBeEnabled();
+    await expect(page.getByRole("button", { name: /^New Chat/ })).toBeVisible();
+    expect(await browserData(page, "/api/conversations")).toEqual([expect.objectContaining({ id: chat.id })]);
+    await expect.poll(() => page.evaluate(id =>
+      JSON.parse(localStorage.getItem(`chat:prefs:${id}`) ?? "null"), chat.id))
+      .toMatchObject({ modelMode: "image", selectedImageModel: "google/gemini-3.1-flash-image-preview" });
+  } finally {
+    releaseCreation();
+    await page.unrouteAll({ behavior: "wait" });
+  }
   await page.goto(`${app.origin}/models`); await expect(page.getByRole("button", { name: "保存模型偏好" })).toBeVisible(); await page.screenshot({ path: info.outputPath("account-models.png"), fullPage: true }); expect(app.providerCalls).toHaveLength(0);
 });
 
