@@ -11,6 +11,7 @@ Private AI Assistant is a local-first AI assistant built with Next.js, Vercel AI
 - PDF, Markdown, text and Word `.docx` knowledge import with local indexing and cited excerpts
 - Tavily web search and tool-call approval flows
 - Image and video generation modes
+- Private media library with source conversations, generation parameters, downloads and confirmed regeneration/deletion
 - Windows desktop shell with encrypted API-key storage
 
 ## Requirements
@@ -80,7 +81,7 @@ Server regression tests use real route handlers and temporary SQLite databases, 
 
 See [Desktop development and release](docs/desktop.md) for data paths, security behavior, troubleshooting, and release checks.
 
-Images, videos, and attachments use private file-backed media assets instead of inline message data. Open **存储管理** from the chat header to inspect disk usage and clean expired unreferenced files. See [Media storage and migration](docs/media-storage.md) for limits, API changes, legacy-data handling, and backup requirements.
+Images, videos, and attachments use private file-backed media assets instead of inline message data. Open **媒体资源库** from the sidebar to browse, filter, inspect and download files, or confirm regeneration/deletion. Its disk-usage panel shares the existing **存储管理** cleanup controls. See [Media library](docs/media-library.md) for generation parameters and reference protection, and [Media storage and migration](docs/media-storage.md) for limits, legacy-data handling and backup requirements.
 
 Open **知识库管理** to import, update, search, reindex or delete document text. Import and document search are local; relevant snippets are sent to the configured model when chatting. See [Document knowledge](docs/document-knowledge.md) for supported formats, citations, retention and limits.
 

@@ -73,12 +73,14 @@ export const chatRequestSchema = z.strictObject({
 });
 
 export const imageRequestSchema = z.strictObject({
+  chatId: z.string().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/).optional(),
   prompt: z.string().trim().max(4000).default(""),
   modelId: z.string().max(200).refine(isSupportedImageModelId, "Unsupported image model").optional(),
   inputImages: z.array(imageReference).max(MEDIA_LIMITS.attachmentCount).default([]),
 }).refine((body) => Boolean(body.prompt || body.inputImages.length), "prompt or inputImages is required");
 
 export const videoRequestSchema = z.strictObject({
+  chatId: z.string().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/).optional(),
   prompt: z.string().trim().max(4000).default(""),
   modelId: z.string().max(200).refine(isSupportedVideoModelId, "Unsupported video model").optional(),
   aspectRatio: z.enum(["16:9", "9:16", "1:1"]).default("16:9"),

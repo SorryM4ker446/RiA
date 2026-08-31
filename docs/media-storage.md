@@ -2,7 +2,7 @@
 
 ## Storage layout
 
-New generated images, videos, and uploaded attachments are written to private file storage. SQLite holds asset metadata and message-to-asset references, not embedded image/video bytes.
+New generated images, videos, and uploaded attachments are written to private file storage. SQLite holds asset metadata, generation recipes, source conversations, message references and generation-input references, not embedded image/video bytes. Generation recipes contain prompts and owned input identifiers, so database backups also contain that private content.
 
 - Local browser development: `.desktop-data/dev/media/` next to `app.db`.
 - Installed desktop: `%APPDATA%/Private AI Assistant/data/media/`.
@@ -24,11 +24,14 @@ All media APIs require the current user. Desktop requests additionally pass the 
 | `HEAD /api/media/:id` | Same authorization and file checks, headers only |
 | `DELETE /api/media/:id` | Explicit permanent removal of an unreferenced asset; referenced assets return 409 |
 | `GET /api/media` | Current user's storage counts, actual managed-file bytes, and cleanup eligibility |
+| `GET /api/media/library` | Filtered, cursor-paginated metadata for the current user's images and videos |
+| `GET /api/media/:id/details` | Owned resource metadata, source conversations, references and stored generation parameters |
+| `POST /api/media/:id/regenerate` | Requires `{ "confirm": true }`; returns HTTP 201 with `{ modelId, asset }` for a new, independent result |
 | `POST /api/media/cleanup` | Reclaims expired unreferenced assets and recognized orphan files for the current user |
 
 `POST /api/image` and `/api/video` now return `{ modelId, asset }`, where `asset` has the same media reference fields as uploads. They no longer return `dataUrl` or a public `videoUrl`. Reference images must use uploaded `/api/media/:id` URLs, not remote URLs, file URLs, or data URLs. Update external clients to upload first.
 
-The chat UI follows this contract automatically. Server-side model calls materialize owned image references into bytes only for the current request; providers do not fetch private local API URLs. The model's attachment context is bounded to the newest four images and 20 MiB; older image attachments remain in history but are represented by an omission note for that request.
+The chat UI follows this contract automatically and passes the owned `chatId` to record the generation source. External image/video clients may omit `chatId`; no source is inferred. Server-side model calls materialize owned image references into bytes only for the current request; providers do not fetch private local API URLs. The model's attachment context is bounded to the newest four images and 20 MiB; older image attachments remain in history but are represented by an omission note for that request. See [Media library](media-library.md) for list/detail contracts and regeneration behavior.
 
 ## Limits and checks
 
@@ -41,7 +44,7 @@ The chat UI follows this contract automatically. Server-side model calls materia
 - Asset lookups enforce ownership before reading files. Managed paths are checked against server-generated names, and symlinks/junctions at the media root, owner directory, or file are rejected.
 - Responses use private/no-store caching, `nosniff`, and a restrictive content security policy. Video range requests return 206 or 416 as appropriate.
 
-Public Web deployment still needs the separately planned rate limits, shared storage, and operational security controls. This file-backed service targets a single local application instance.
+Single-process quotas and browser Origin checks are active; see [API security](api-security.md). Public Web deployment still needs a separate shared-state, storage and operational security design. This file-backed service targets a single local application instance.
 
 ## Existing messages
 
@@ -57,6 +60,8 @@ Runtime-only filesystem access is excluded from Turbopack file tracing. Preparat
 
 Deleting a message, replacing its media, regenerating later history, or deleting a conversation releases only the corresponding references. Shared assets remain available to other messages. The last-use timestamp is updated when references change, so a just-detached old asset receives a fresh 24-hour grace period.
 
-The storage page requires confirmation before reclaiming eligible files. Cleanup does not remove referenced assets, recent uploads/generations, other users' files, or unrecognized files. Failed deletions retain a tombstone and can be retried. There is no automatic background cleanup. The explicit asset DELETE endpoint does not wait for the grace period, but still refuses to delete a referenced asset.
+Stored generation recipes also protect their reference images. An input cannot be deleted or reclaimed while any generated output depends on it, even if no message references it. Removing an output releases only its dependencies and refreshes the inputs' grace period. Deleting a source conversation clears its source pointer without deleting the generated files. Reference counts and cleanup eligibility include both message and generation references.
 
-Deleted files cannot be restored without a backup. The complete browsing/regeneration media library and integrated backup/restore UI are separate future features.
+The storage page and media library require confirmation before reclaiming eligible files. Cleanup does not remove referenced assets, recent uploads/generations, other users' files, or unrecognized files. Failed deletions retain a tombstone and can be retried. There is no automatic background cleanup. The explicit asset DELETE endpoint does not wait for the grace period, but still refuses to delete a referenced asset.
+
+Deleted files cannot be restored without a backup. An integrated backup/restore UI is not yet available; continue to back up the database and media directory together while the app is closed.

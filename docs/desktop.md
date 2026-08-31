@@ -60,6 +60,8 @@ The settings page also supports an outbound HTTP proxy, OpenRouter site name, an
 
 Task deadlines, time zones, reminders and repetition are configured from **设置时间与提醒** in the task panel. Electron checks due reminders while running, including after startup and resume; closing the app stops checks. The notification API may be supported even when Windows notification settings or Focus Assist suppress display. See [Task reminders](task-reminders.md) for persisted claims, recurrence rules, privacy and manual release checks.
 
+**媒体资源库** in the sidebar shares the browser's image/video library, original-file downloads, generation details and confirmed deletion/regeneration. Regeneration uses the encrypted OpenRouter configuration through the local service; it creates a new resource and may incur provider charges. Files and generation metadata remain in the existing private data directories. See [Media library](media-library.md) for input-reference retention and legacy-resource limitations.
+
 ## Security boundary
 
 - The local service binds only to `127.0.0.1` on a dynamically selected port.
@@ -109,6 +111,7 @@ This project does not configure Windows code signing or automatic updates. Windo
 - requests without the desktop cookie are rejected;
 - a conversation remains after the local service restarts;
 - conversation search, pinning and tags survive restart; Markdown/JSON downloads from the actual management UI preserve text and private media references;
+- media source/recipe metadata survives restart; the actual library UI downloads an authenticated PNG and deleting its unused result preserves the reference image;
 - due task notifications are dispatched once to a recording test sink, and recurrence/claims survive service restart without invoking a model or displaying OS notifications;
 - the application exits without retaining its child service.
 

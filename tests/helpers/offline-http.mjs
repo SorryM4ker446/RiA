@@ -31,6 +31,7 @@ if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
         : (latest?.content ?? []).filter((part) => part.type === "text").map((part) => part.text).join("\n");
       const content = `离线回答：${prompt}`;
       const base = { id: "offline-completion", model: body.model, usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } };
+      if (body.modalities?.includes("image")) return JSON.stringify({ ...base, choices: [{ index: 0, message: { role: "assistant", content: "", images: [{ type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=" } }] }, finish_reason: "stop" }] });
       if (body.stream) {
         const chunks = [
           { ...base, choices: [{ index: 0, delta: { role: "assistant", content: content.slice(0, 5) }, finish_reason: null }] },
@@ -47,4 +48,11 @@ if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
     const values = Array.isArray(body.input) ? body.input : [body.input];
     return JSON.stringify({ data: values.map((_, index) => ({ index, embedding: [1, 0, 0] })), usage: { prompt_tokens: values.length, total_tokens: values.length } });
   }, { headers: { "content-type": "application/json" } }).persist();
+  provider.intercept({ path: "/api/v1/videos", method: "POST" }).reply(200, options => {
+    const body = JSON.parse(String(options.body));
+    process.send({ type: "provider-call", stream: false, messages: [{ role: "user", content: body.prompt }] });
+    return JSON.stringify({ id: "offline-video", polling_url: "https://openrouter.ai/api/v1/videos/offline-video", status: "queued" });
+  }, { headers: { "content-type": "application/json" } }).persist();
+  provider.intercept({ path: "/api/v1/videos/offline-video", method: "GET" }).reply(200, { id: "offline-video", polling_url: "https://openrouter.ai/api/v1/videos/offline-video", status: "completed", unsigned_urls: ["https://media.example.invalid/offline.mp4"] }, { headers: { "content-type": "application/json" } }).persist();
+  agent.get("https://media.example.invalid").intercept({ path: "/offline.mp4", method: "GET" }).reply(200, Buffer.from([0, 0, 0, 24, 102, 116, 121, 112, 105, 115, 111, 109, 0, 0, 0, 0, 105, 115, 111, 109]), { headers: { "content-type": "video/mp4" } }).persist();
 }
