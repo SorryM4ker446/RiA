@@ -10,6 +10,9 @@ export type ChatSummary = {
   title: string;
   lastMessageAt: string;
   messageCount: number;
+  pinned?: boolean;
+  archived?: boolean;
+  tags?: string[];
 };
 
 export type StoredMessage = {

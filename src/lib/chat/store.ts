@@ -5,24 +5,7 @@ import { decodePersistedAssistantToolMessage, encodePersistedAssistantToolMessag
 import { ApiError } from "@/lib/server/api-error";
 import { migrateMessageMedia, prepareMessageMedia, replaceMessageMedia } from "@/lib/media/messages";
 import { pageResult, type PageOptions } from "@/lib/server/pagination";
-
-export async function listChats(userId: string, options: PageOptions) {
-  const cursor = options.cursor;
-  const rows = await db.chat.findMany({
-    where: { userId, ...(cursor ? { OR: [
-      { lastMessageAt: { lt: cursor.date } },
-      { lastMessageAt: cursor.date, id: { lt: cursor.id } },
-    ] } : {}) },
-    orderBy: [{ lastMessageAt: "desc" }, { id: "desc" }],
-    take: options.limit + 1,
-    include: {
-      _count: {
-        select: { messages: true },
-      },
-    },
-  });
-  return pageResult(rows, options, `chats:${userId}`, (row) => row.lastMessageAt);
-}
+import { deleteConversations, updateConversation } from "@/lib/conversations/mutations";
 
 export async function getChat(userId: string, chatId: string) {
   return db.chat.findFirst({
@@ -53,28 +36,18 @@ export async function createChat(params: { userId: string; chatId?: string; titl
   });
 }
 
-export async function updateChatTitle(userId: string, chatId: string, title: string) {
-  const existing = await getChat(userId, chatId);
-  if (!existing) return null;
-
-  return db.chat.update({
-    where: { id: chatId },
-    data: {
-      title: truncateTitle(title),
-    },
-  });
-}
-
 export async function deleteChat(userId: string, chatId: string) {
   const existing = await getChat(userId, chatId);
   if (!existing) return false;
 
-  await db.$transaction(async (tx) => {
-    await tx.mediaAsset.updateMany({ where: { userId, references: { some: { message: { chatId } } } }, data: { lastUsedAt: new Date() } });
-    await tx.chat.delete({ where: { id: chatId } });
-  });
+  await deleteConversations(userId, [chatId]);
 
   return true;
+}
+
+export async function updateChatTitle(userId: string, chatId: string, title: string) {
+  if (!await getChat(userId, chatId)) return null;
+  return updateConversation(userId, chatId, { title });
 }
 
 export async function listChatMessagePage(userId: string, chatId: string, options: PageOptions) {

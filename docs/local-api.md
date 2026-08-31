@@ -4,7 +4,7 @@ These endpoints are supported for authenticated local integrations as well as th
 
 ## Conversation and message pagination
 
-`GET /api/conversations` returns the newest 30 conversations by default. `GET /api/conversations/:id/messages` returns the newest 50 messages, ordered oldest to newest within that page. Both accept `limit` (1–100) and an opaque `cursor`, and return:
+`GET /api/conversations` returns 30 active conversations by default, pinned first and then ordered by newest last-message time. `GET /api/conversations/:id/messages` returns the newest 50 messages, ordered oldest to newest within that page. Both accept `limit` (1–100) and an opaque `cursor`, and return:
 
 ```json
 {
@@ -17,7 +17,9 @@ For another page, send the returned `nextCursor` to the same endpoint. Append co
 
 Ordering uses timestamp plus ID, so equal timestamps are deterministic and deleting a cursor's original row does not break traversal. Conversation activity can move a row to the front between requests: refresh the first page to see new activity. This is a live list, not a frozen snapshot. Clients deduplicate IDs when merging pages.
 
-The UI offers “加载更多会话” and “加载更早消息”. Reloading restores the selected conversation by its detail endpoint even when it is outside the first page. Stale page responses are ignored after switching conversations. Conversation details count messages without loading their bodies or migrating media; media migration runs only for messages actually read.
+The UI offers “加载更多会话” and “加载更早消息”. Reloading restores the selected active conversation by its detail endpoint even when it is outside the first page; archived selections are not restored into the sidebar. Stale page responses are ignored after switching conversations. Conversation details count messages without loading their bodies or migrating media; media migration runs only for messages actually read.
+
+Conversation lists also accept `q`, `tag` and `state`. Cursors are scoped to those filters and use a new version: refresh old cursors after upgrading. See [Conversation management](conversation-management.md) for literal full-history search, organization, atomic confirmed bulk deletion and Markdown/JSON exports. Summary responses add `pinned`, `archived` and `tags`; default list reads exclude archived conversations.
 
 Chat submissions send at most the latest 100 loaded messages. The existing server context window and incomplete historical excerpts remain in effect; loading older pages for display does not promise that all of them will be sent to a model. Regeneration checks only the target user message and subsequent affected history, preserves earlier messages, and still rejects concurrent changes to the affected range. Regenerating near the beginning of a long conversation can therefore inspect a large affected range.
 
