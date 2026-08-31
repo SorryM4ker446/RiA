@@ -1,3 +1,4 @@
+import { protectDataOperation } from "@/lib/server/data-operations";
 import { readJsonBody } from "@/lib/server/request-body";
 import { NextRequest } from "next/server";
 import { z } from "zod";
@@ -13,7 +14,7 @@ const createConversationSchema = z.strictObject({
   title: z.string().trim().min(1).max(200).optional(),
 });
 
-export async function GET(req: NextRequest) {
+async function GETHandler(req: NextRequest) {
   try {
     const user = await requireRequestUser(req);
 
@@ -25,7 +26,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   try {
     const user = await requireRequestUser(req);
     const parsed = createConversationSchema.safeParse(await readJsonBody(req));
@@ -46,3 +47,6 @@ export async function POST(req: NextRequest) {
     return createApiErrorResponse(error, "Failed to create conversation");
   }
 }
+
+export const GET = protectDataOperation(GETHandler);
+export const POST = protectDataOperation(POSTHandler);

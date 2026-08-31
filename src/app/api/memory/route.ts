@@ -1,3 +1,4 @@
+import { protectDataOperation } from "@/lib/server/data-operations";
 import { readJsonBody } from "@/lib/server/request-body";
 import { NextRequest } from "next/server";
 import { z } from "zod";
@@ -13,7 +14,7 @@ const saveMemorySchema = z.strictObject({
 
 const querySchema = z.strictObject({ query: z.string().trim().max(2000).default(""), limit: z.coerce.number().int().min(1).max(20).default(5) });
 
-export async function GET(req: NextRequest) {
+async function GETHandler(req: NextRequest) {
   try {
     const user = await requireRequestUser(req);
     const { query, limit } = querySchema.parse({ query: req.nextUrl.searchParams.get("query") ?? undefined, limit: req.nextUrl.searchParams.get("limit") ?? undefined });
@@ -35,7 +36,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   try {
     const user = await requireRequestUser(req);
     const parsed = saveMemorySchema.safeParse(await readJsonBody(req));
@@ -57,3 +58,6 @@ export async function POST(req: NextRequest) {
     return createApiErrorResponse(error, "Failed to save memory");
   }
 }
+
+export const GET = protectDataOperation(GETHandler);
+export const POST = protectDataOperation(POSTHandler);

@@ -64,6 +64,9 @@ Existing media limits remain: four attachments per message, PNG/JPEG/WebP/GIF on
 | Conversation text search | User | 30 requests / minute |
 | Conversation export | User | 6 requests / minute |
 | Confirmed bulk conversation deletion | User | 10 requests / minute |
+| Backup create/restore/delete, import begin/finish | User, shared | 6 attempts / minute |
+| Backup import chunks | User | 120 chunks / minute, each at most 8 MiB |
+| Model preference updates | User | 20 attempts / minute |
 
 Document-only search shares the tool request quota. Document uploads reuse the limited stream reader with a narrower 9 MiB body/8 MiB file allowance. Extraction has worker, timeout, expanded-size and per-user document limits; see [Document knowledge](document-knowledge.md). The existing attachment/Proxy limits are not increased.
 
@@ -76,6 +79,8 @@ Invalid requests and configuration failures consume the applicable quota. Reject
 Restarting the service resets quotas. Fixed windows can allow a burst around their boundary. These are bounded local abuse/cost controls, not distributed rate limits, concurrency controls, or provider spending caps. Heavy legitimate authentication activity shares one budget; wait for Retry-After rather than repeatedly retrying. Public deployment needs a separate reviewed authentication, proxy and shared-state design.
 
 ## Sessions and origins
+
+Account backup operations coordinate with business requests through a single-process maintenance gate. In-flight work rejects a maintenance request with 409; active maintenance rejects business requests with 503. Disconnecting a chat HTTP reader does not release its background persistence guard early. Backup files have owner-only access, bounded ordered uploads, schema/checksum validation and server-generated paths; restore requires explicit confirmation and creates a safety backup. See [Account backups](account-backups.md). Model settings use strict 64 KiB JSON and reuse the same session/Origin checks; [usage estimates](model-usage.md) exclude prompt/key/error-body storage.
 
 Opaque application-session tokens are stored only as hashes, expire after 30 days and use HttpOnly, SameSite=Lax cookies. Web production cookies retain Secure; desktop loopback HTTP cookies do not require HTTPS. Creating/resolving sessions opportunistically deletes expired rows no more than once per 15 minutes, coalesces concurrent maintenance, and deletes an individually encountered expired session immediately. An idle, stopped application performs no maintenance; expiry remains enforced on the next request. Cleanup failures are propagated, not silently retried.
 

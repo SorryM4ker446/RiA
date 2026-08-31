@@ -87,6 +87,23 @@ export async function createMediaAsset(input: {
 }) {
   const generation = input.generation ? generationRecipeSchema.parse(input.generation) : undefined;
   const inputIds = [...new Set(generation?.inputImages.map(image => image.assetId) ?? [])];
+  const staged = await stageMediaFile(input);
+  return db.$transaction(async tx => {
+    if (await tx.mediaAsset.count({ where: { id: { in: inputIds }, userId: input.userId, deletedAt: null } }) !== inputIds.length) throw pathError();
+    const source = input.sourceChatId ? await tx.chat.findFirst({ where: { id: input.sourceChatId, userId: input.userId }, select: { id: true } }) : null;
+    await tx.mediaAsset.updateMany({ where: { id: { in: inputIds }, userId: input.userId }, data: { lastUsedAt: new Date() } });
+    return tx.mediaAsset.create({ data: {
+      ...staged, userId: input.userId,
+      modelId: input.modelId?.slice(0, 200), description: input.description?.slice(0, 4000),
+      ...(generation ? { generation, inputs: { create: inputIds.map(inputAssetId => ({ inputAssetId })) } } : {}),
+      sourceChatId: source?.id,
+    } });
+  });
+}
+
+// A complete, unreferenced file can be staged before an atomic metadata restore.
+// Failed transactions leave only managed orphan files for the normal grace period.
+export async function stageMediaFile(input: { userId: string; bytes: Uint8Array; mediaType: string; kind: "attachment" | "generated-image" | "generated-video" }) {
   const maximum = input.kind === "attachment" ? MEDIA_LIMITS.attachmentBytes : input.kind === "generated-image" ? MEDIA_LIMITS.generatedImageBytes : MEDIA_LIMITS.generatedVideoBytes;
   if ((input.kind === "generated-video") !== input.mediaType.startsWith("video/")) throw new ApiError({ code: "VALIDATION_ERROR", message: "Unexpected media type" });
   validateMediaBytes(input.bytes, input.mediaType, maximum);
@@ -99,18 +116,7 @@ export async function createMediaAsset(input: {
   // Interrupted writes remain unreferenced and can be reclaimed after the grace period.
   await writeFile(temporary, input.bytes, { flag: "wx", mode: 0o600 });
   await rename(temporary, destination);
-  return db.$transaction(async tx => {
-    if (await tx.mediaAsset.count({ where: { id: { in: inputIds }, userId: input.userId, deletedAt: null } }) !== inputIds.length) throw pathError();
-    const source = input.sourceChatId ? await tx.chat.findFirst({ where: { id: input.sourceChatId, userId: input.userId }, select: { id: true } }) : null;
-    await tx.mediaAsset.updateMany({ where: { id: { in: inputIds }, userId: input.userId }, data: { lastUsedAt: new Date() } });
-    return tx.mediaAsset.create({ data: {
-      id, userId: input.userId, relativePath: `${mediaOwnerDirectory(input.userId)}/${filename}`,
-      mediaType: input.mediaType, byteSize: input.bytes.byteLength, kind: input.kind,
-      modelId: input.modelId?.slice(0, 200), description: input.description?.slice(0, 4000),
-      ...(generation ? { generation, inputs: { create: inputIds.map(inputAssetId => ({ inputAssetId })) } } : {}),
-      sourceChatId: source?.id,
-    } });
-  });
+  return { id, relativePath: `${mediaOwnerDirectory(input.userId)}/${filename}`, mediaType: input.mediaType, byteSize: input.bytes.byteLength, kind: input.kind };
 }
 
 export async function getMediaAsset(userId: string, id: string) {

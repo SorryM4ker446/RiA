@@ -12,6 +12,8 @@ Private AI Assistant is a local-first AI assistant built with Next.js, Vercel AI
 - Tavily web search and tool-call approval flows
 - Image and video generation modes
 - Private media library with source conversations, generation parameters, downloads and confirmed regeneration/deletion
+- Portable account backup/import/export, confirmed restore with a safety backup, and automatic expired-backup cleanup
+- Saved model defaults, optional bounded fallback, and per-attempt latency/token/cost estimates
 - Windows desktop shell with encrypted API-key storage
 
 ## Requirements
@@ -38,6 +40,8 @@ API requests enforce input/size limits, consistent errors, local quotas and same
 Conversation and message history loads in bounded pages. See [Local integration API](docs/local-api.md) for cursor contracts and retrieval behavior, and [Model catalog maintenance](docs/model-catalog.md) for offline checks and intentional catalog updates.
 
 Open **管理会话** from the sidebar to search and organize history or download text snapshots. These features work in both browser and desktop; see [Conversation management](docs/conversation-management.md) for export privacy, limits and migration notes.
+
+Open **备份与恢复** for portable account recovery, or **模型与用量** for default models, optional fallback and usage estimates. Both work in browser and desktop. Backups are unencrypted and exclude login/provider credentials; restore creates a safety backup before replacing business data. See [Account backups](docs/account-backups.md) and [Model settings and usage](docs/model-usage.md) for limits and safety rules.
 
 ## Desktop development
 

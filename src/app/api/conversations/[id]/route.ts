@@ -1,3 +1,4 @@
+import { protectDataOperation } from "@/lib/server/data-operations";
 import { readJsonBody } from "@/lib/server/request-body";
 import { NextRequest } from "next/server";
 import { requireRequestUser } from "@/lib/auth/request-user";
@@ -11,7 +12,7 @@ type Params = {
   params: Promise<{ id: string }>;
 };
 
-export async function GET(req: NextRequest, context: Params) {
+async function GETHandler(req: NextRequest, context: Params) {
   try {
     const user = await requireRequestUser(req);
     const { id } = await context.params;
@@ -29,7 +30,7 @@ export async function GET(req: NextRequest, context: Params) {
   }
 }
 
-export async function PATCH(req: NextRequest, context: Params) {
+async function PATCHHandler(req: NextRequest, context: Params) {
   try {
     const user = await requireRequestUser(req);
     const { id } = await context.params;
@@ -48,7 +49,7 @@ export async function PATCH(req: NextRequest, context: Params) {
   }
 }
 
-export async function DELETE(req: NextRequest, context: Params) {
+async function DELETEHandler(req: NextRequest, context: Params) {
   try {
     const user = await requireRequestUser(req);
     const { id } = await context.params;
@@ -64,3 +65,7 @@ export async function DELETE(req: NextRequest, context: Params) {
     return createApiErrorResponse(error, "Failed to delete conversation");
   }
 }
+
+export const GET = protectDataOperation(GETHandler);
+export const PATCH = protectDataOperation(PATCHHandler);
+export const DELETE = protectDataOperation(DELETEHandler);

@@ -1,3 +1,4 @@
+import { protectDataOperation } from "@/lib/server/data-operations";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { requireRequestUser } from "@/lib/auth/request-user";
@@ -7,7 +8,7 @@ import { readJsonBody } from "@/lib/server/request-body";
 import { getMediaDetail } from "@/lib/media/library";
 import { generateStoredMedia } from "@/lib/media/generation";
 import { mediaUrl } from "@/lib/media/message-codec";
-export async function POST(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+async function POSTHandler(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const user = await requireRequestUser(req);
     enforceRateLimit("mediaRegeneration", user.id);
@@ -19,6 +20,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     const inputs = recipe.inputImages.map(image => ({ url: mediaUrl(image.assetId), mediaType: image.mediaType }));
     const body = { prompt: recipe.prompt, modelId: recipe.modelId, ...(detail.sourceChat ? { chatId: detail.sourceChat.id } : {}),
       ...(recipe.type === "image" ? { inputImages: inputs } : { inputImage: inputs[0], aspectRatio: recipe.aspectRatio, duration: recipe.duration, fps: recipe.fps }) };
-    return Response.json(await generateStoredMedia(user.id, recipe.type, body, req.signal), { status: 201, headers: { "Cache-Control": "private, no-store" } });
+    return Response.json(await generateStoredMedia(user.id, recipe.type, body, req.signal, false), { status: 201, headers: { "Cache-Control": "private, no-store" } });
   } catch (error) { return createApiErrorResponse(error, "重新生成失败，原资源已保留。"); }
 }
+
+export const POST = protectDataOperation(POSTHandler);

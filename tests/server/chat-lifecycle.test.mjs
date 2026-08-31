@@ -15,6 +15,7 @@ const { indexDocument, deleteDocument } = await import("@/lib/documents/store");
 const { decodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
 const { mapStoredMessagesToUI } = await import("@/features/chat/page-utils");
 const { getDocumentSources } = await import("@/features/chat/message-presentation");
+const { exclusiveDataOperation } = await import("@/lib/server/data-operations");
 let user, cookie;
 beforeEach(async (t) => {
   t.mock.method(console, "info", () => {});
@@ -106,3 +107,16 @@ for (const regenerate of [false, true]) {
     }
   });
 }
+
+test("disconnecting the HTTP stream keeps restore blocked until background persistence settles", {timeout:15000}, async()=>{
+  let release;providerState.streamGate=new Promise(resolve=>{release=resolve;});
+  const response=await chat.POST(request({messages:[ui("disconnect","user","Question")]}));
+  const reader=response.body.getReader();let wire="";
+  try {
+    while(!wire.includes("text-delta")){const item=await reader.read();assert.equal(item.done,false);wire+=new TextDecoder().decode(item.value);}
+    await reader.cancel();await assert.rejects(exclusiveDataOperation(async()=>{}),/仍有请求/);
+  } finally {release();reader.releaseLock();}
+  const deadline=Date.now()+5000;let settled=false;
+  while(Date.now()<deadline){try{await exclusiveDataOperation(async()=>{});settled=true;break;}catch{await new Promise(resolve=>setTimeout(resolve,10));}}
+  assert.equal(settled,true);assert.equal(await db.message.count({where:{chat:{userId:user.id},role:"assistant"}}),1);
+});

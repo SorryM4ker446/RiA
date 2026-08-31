@@ -2,7 +2,7 @@ import { ChatSummary } from "@/features/chat/page-utils";
 import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useRef, useState } from "react";
 import { chatApi } from "@/features/chat/api-client";
-import { getChatPrefsStorageKey } from "@/features/chat/preferences";
+import { getChatPrefsStorageKey, loadAccountChatDefaults } from "@/features/chat/preferences";
 import type { ChatScopedPreferences } from "@/features/chat/types";
 import { COLLAPSED_CHAT_LIMIT, LAST_ACTIVE_CHAT_STORAGE_KEY } from "@/features/chat/types";
 
@@ -93,15 +93,11 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     try {
       await persistCurrentStreamingAssistantIfNeeded(activeChatId);
 
+      const defaults = await loadAccountChatDefaults();
       const payload = await chatApi.createConversation("New Chat");
       const chat = payload.data;
       const seededPreferences: ChatScopedPreferences = {
-        modelMode,
-        selectedChatModel,
-        selectedImageModel,
-        selectedVideoModel,
-        selectedManualTool: modelMode === "chat" ? selectedManualTool : "none",
-        manualToolsOnly: modelMode === "chat" ? manualToolsOnly : false,
+        ...defaults,
       };
 
       window.localStorage.setItem(getChatPrefsStorageKey(chat.id), JSON.stringify(seededPreferences));

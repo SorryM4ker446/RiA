@@ -1,3 +1,4 @@
+import { protectDataOperation } from "@/lib/server/data-operations";
 import { NextRequest } from "next/server";
 import { requireRequestUser } from "@/lib/auth/request-user";
 import { createApiErrorResponse } from "@/lib/server/api-error";
@@ -5,7 +6,7 @@ import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { readJsonBody } from "@/lib/server/request-body";
 import { bulkDeleteSchema, deleteConversations } from "@/lib/conversations/mutations";
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   try {
     const user = await requireRequestUser(req);
     enforceRateLimit("conversationBulkDelete", user.id);
@@ -13,3 +14,5 @@ export async function POST(req: NextRequest) {
     return Response.json({ data: { deletedCount: await deleteConversations(user.id, input.ids) } });
   } catch (error) { return createApiErrorResponse(error, "Failed to delete conversations"); }
 }
+
+export const POST = protectDataOperation(POSTHandler);

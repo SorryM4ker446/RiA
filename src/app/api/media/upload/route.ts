@@ -1,3 +1,4 @@
+import { protectDataOperation } from "@/lib/server/data-operations";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { NextRequest } from "next/server";
 import { requireRequestUser } from "@/lib/auth/request-user";
@@ -6,7 +7,7 @@ import { createMediaAsset, toMediaReference, validateMediaBytes } from "@/lib/me
 import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { readLimitedBody } from "@/lib/server/request-body";
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   try {
     const user = await requireRequestUser(req);
     enforceRateLimit("upload", user.id);
@@ -32,3 +33,5 @@ export async function POST(req: NextRequest) {
     return Response.json({ data }, { status: 201 });
   } catch (error) { return createApiErrorResponse(error, "Failed to store image attachments"); }
 }
+
+export const POST = protectDataOperation(POSTHandler);

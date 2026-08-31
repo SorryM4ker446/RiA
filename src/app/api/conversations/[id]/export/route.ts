@@ -1,3 +1,4 @@
+import { protectDataOperation } from "@/lib/server/data-operations";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { requireRequestUser } from "@/lib/auth/request-user";
@@ -5,7 +6,7 @@ import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { exportConversation } from "@/lib/conversations/export";
 
-export async function GET(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+async function GETHandler(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const user = await requireRequestUser(req);
     enforceRateLimit("conversationExport", user.id);
@@ -21,3 +22,5 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     } });
   } catch (error) { return createApiErrorResponse(error, "Failed to export conversation"); }
 }
+
+export const GET = protectDataOperation(GETHandler);

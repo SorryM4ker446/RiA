@@ -1,3 +1,4 @@
+import { protectDataOperation } from "@/lib/server/data-operations";
 import { readJsonBody } from "@/lib/server/request-body";
 import { NextRequest } from "next/server";
 import { z } from "zod";
@@ -10,7 +11,7 @@ const retrievalSchema = z.strictObject({
   limit: z.number().int().min(1).max(20).optional(),
 });
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   try {
     const user = await requireRequestUser(req);
 
@@ -29,3 +30,5 @@ export async function POST(req: NextRequest) {
     return createApiErrorResponse(error, "Failed to retrieve memories");
   }
 }
+
+export const POST = protectDataOperation(POSTHandler);

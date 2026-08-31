@@ -1,3 +1,4 @@
+import { protectDataOperation } from "@/lib/server/data-operations";
 import { requireRequestUser } from "@/lib/auth/request-user";
 import { rememberUserMessage } from "@/lib/chat/memory";
 import { buildSystemPrompt, formatLongTermContext, prepareModelContext } from "@/lib/chat/model-context";
@@ -14,7 +15,7 @@ import { NextRequest } from "next/server";
 import { formatDocumentContext, searchDocuments } from "@/lib/documents/retrieval";
 import { documentSourceSchema } from "@/lib/documents/types";
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   try {
     const user = await requireRequestUser(req);
     enforceRateLimit("chat", user.id);
@@ -62,3 +63,5 @@ export async function POST(req: NextRequest) {
     return createApiErrorResponse(error, "Failed to generate chat response");
   }
 }
+
+export const POST = protectDataOperation(POSTHandler);

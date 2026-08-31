@@ -98,6 +98,8 @@ export default function DesktopSettingsPage() {
         <p className="mt-1 text-sm text-muted-foreground">管理模型服务密钥、代理和本地运行信息。</p>
       </header>
 
+      <nav className="flex flex-wrap gap-4 text-sm"><Link href="/models" className="text-primary underline">模型与用量</Link><Link href="/backups" className="text-primary underline">备份与恢复</Link></nav>
+
       {error ? (
         <Alert variant="destructive">
           <AlertTitle>设置不可用</AlertTitle>

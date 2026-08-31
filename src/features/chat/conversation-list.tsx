@@ -43,6 +43,8 @@ export function ConversationList({ isCreatingChat, createNewChat, chats, visible
         </div>
         <Link className="mt-2 text-sm text-primary underline underline-offset-4" href="/conversations">管理会话</Link>
         <Link className="mt-2 text-sm text-primary underline underline-offset-4" href="/media">媒体资源库</Link>
+        <Link className="mt-2 text-sm text-primary underline underline-offset-4" href="/models">模型与用量</Link>
+        <Link className="mt-2 text-sm text-primary underline underline-offset-4" href="/backups">备份与恢复</Link>
       </CardHeader>
       <CardContent className="chat-list-scroll min-h-0 space-y-2 overflow-y-auto overscroll-contain pr-3">
         {chats.length === 0 ? (

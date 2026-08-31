@@ -50,12 +50,13 @@ test("media library paginates equal timestamps, scopes filters and hides foreign
   const first = await payload(await routes.library.GET(req("/api/media/library")));
   assert.equal(first.data.length, 24);
   assert.equal(JSON.stringify(first).includes("relativePath"), false);
+  assert.equal((await payload(await routes.library.GET(req("/api/media/library?type=video")))).data[0].id, video.id);
   const last = first.data.at(-1).id;
   await storage.deleteMediaAsset(user.id, last);
   const second = await payload(await routes.library.GET(req(`/api/media/library?cursor=${first.pageInfo.nextCursor}`)));
   assert.equal(second.data.length, 3);
   assert.equal(new Set([...first.data, ...second.data].map(asset => asset.id)).size, 27);
-  assert.equal((await payload(await routes.library.GET(req("/api/media/library?type=video")))).data[0].id, video.id);
+  assert.deepEqual((await payload(await routes.library.GET(req("/api/media/library?type=video")))).data.map(asset => asset.id), last === video.id ? [] : [video.id]);
   for (const query of ["limit=101", "limit=0", "type=wrong", "type=image&type=video", "kind=unknown", "usage=wrong", "extra=1", `type=video&cursor=${first.pageInfo.nextCursor}`]) assert.equal((await routes.library.GET(req(`/api/media/library?${query}`))).status, 400);
   assert.equal((await routes.library.GET(req(`/api/media/library?cursor=${first.pageInfo.nextCursor}`, "GET", undefined, otherCookie))).status, 400);
 });

@@ -46,6 +46,7 @@ export function useChatState() {
   const {
     modelMode, setModelMode, selectedChatModel, selectedImageModel, selectedVideoModel, selectedManualTool,
     setSelectedManualTool, manualToolsOnly, setManualToolsOnly, applyChatPreferences, onModelSelect,
+    isLoadingPreferences, preferencesError,
   } = useChatPreferences(activeChatId);
   const {
     chats, activeChat, isCreatingChat, editingChatId, editingTitle, setEditingTitle, isChatListExpanded,
@@ -85,6 +86,7 @@ export function useChatState() {
     manualToolSelectValue, isManualToolSelected, runManualTool,
   } = useTools({ setMessages, ensureActiveChatId, loadChats, selectedChatModel, modelMode, selectedManualTool, setSelectedManualTool, loadTasks, taskStatusFilter });
   const isPending =
+    isLoadingPreferences ||
     pendingSend !== null ||
     status === "submitted" ||
     status === "streaming" ||
@@ -105,7 +107,7 @@ export function useChatState() {
       : modelMode === "image"
         ? OPENROUTER_IMAGE_MODELS.find((model) => model.id === selectedImageModel)
         : OPENROUTER_VIDEO_MODELS.find((model) => model.id === selectedVideoModel);
-  const effectiveError = pageError ?? (error ? readApiErrorMessage(error.message, "聊天请求失败，请稍后重试。") : null);
+  const effectiveError = pageError ?? preferencesError ?? (error ? readApiErrorMessage(error.message, "聊天请求失败，请稍后重试。") : null);
   const keyError =
     effectiveError?.includes("OPENROUTER_API_KEY") ||
     effectiveError?.includes("Invalid API key") ||

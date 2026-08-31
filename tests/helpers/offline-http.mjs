@@ -21,6 +21,14 @@ globalThis.fetch = async (input, options) => {
 
 if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
   const provider = agent.get("https://openrouter.ai");
+  provider.intercept({ path: "/api/v1/chat/completions", method: "POST", body: raw => {
+    const body = JSON.parse(String(raw));
+    return body.model === "anthropic/claude-opus-4.6" && JSON.stringify(body.messages).includes("OFFLINE_PRIMARY_FAILURE");
+  } }).reply(503, options => {
+    const body = JSON.parse(String(options.body));
+    process.send({ type: "provider-call", stream: body.stream === true, messages: body.messages });
+    return JSON.stringify({ error: { message: "Synthetic primary unavailable", code: 503 } });
+  }, { headers: { "content-type": "application/json" } }).persist();
   for (const stream of [false, true]) {
     provider.intercept({ path: "/api/v1/chat/completions", method: "POST", body: (body) => (JSON.parse(String(body)).stream === true) === stream }).reply(200, (options) => {
       const body = JSON.parse(String(options.body));

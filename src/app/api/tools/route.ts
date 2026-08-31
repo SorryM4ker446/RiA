@@ -1,10 +1,11 @@
+import { protectDataOperation } from "@/lib/server/data-operations";
 import { z } from "zod";
 import { NextRequest } from "next/server";
 import { requireRequestUser } from "@/lib/auth/request-user";
 import { createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { listPublicToolCatalog } from "@/tools/catalog";
 
-export async function GET(req: NextRequest) {
+async function GETHandler(req: NextRequest) {
   try {
     await requireRequestUser(req);
 
@@ -21,3 +22,5 @@ export async function GET(req: NextRequest) {
     return createApiErrorResponse(error, "Failed to fetch tool catalog");
   }
 }
+
+export const GET = protectDataOperation(GETHandler);

@@ -1,3 +1,4 @@
+import { protectDataOperation } from "@/lib/server/data-operations";
 import { NextRequest } from "next/server";
 import { requireRequestUser } from "@/lib/auth/request-user";
 import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
@@ -5,7 +6,7 @@ import { readEmptyBody } from "@/lib/server/request-body";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { claimTaskReminders } from "@/lib/tasks/service";
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   try {
     const user = await requireRequestUser(req);
     if (process.env.APP_RUNTIME !== "desktop") {
@@ -18,3 +19,5 @@ export async function POST(req: NextRequest) {
     return createApiErrorResponse(error, "Failed to check task reminders");
   }
 }
+
+export const POST = protectDataOperation(POSTHandler);

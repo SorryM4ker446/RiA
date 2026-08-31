@@ -1,3 +1,4 @@
+import { protectDataOperation } from "@/lib/server/data-operations";
 import { readJsonBody } from "@/lib/server/request-body";
 import { NextRequest } from "next/server";
 import { z } from "zod";
@@ -16,7 +17,7 @@ const knowledgeListQuerySchema = z.strictObject({
   limit: z.coerce.number().int().min(1).max(100).optional().default(50),
 });
 
-export async function GET(req: NextRequest) {
+async function GETHandler(req: NextRequest) {
   try {
     const user = await requireRequestUser(req);
     const parsed = knowledgeListQuerySchema.safeParse({
@@ -47,7 +48,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   try {
     const user = await requireRequestUser(req);
     const parsed = createKnowledgeSchema.safeParse(await readJsonBody(req));
@@ -73,3 +74,6 @@ export async function POST(req: NextRequest) {
     return createApiErrorResponse(error, "Failed to save knowledge entry");
   }
 }
+
+export const GET = protectDataOperation(GETHandler);
+export const POST = protectDataOperation(POSTHandler);
