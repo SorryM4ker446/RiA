@@ -131,7 +131,7 @@ export function useMediaGeneration({ messages, setMessages, ensureActiveChatId, 
         clientMessageId: userMessageId,
       });
 
-      const payload = await chatApi.generateMedia("image", content, selectedImageModel, uploadParts);
+      const payload = await chatApi.generateMedia("image", content, selectedImageModel, uploadParts, chatId);
       setImageByMessageId((prev) => ({
         ...prev,
         [assistantMessageId]: payload.asset!.url,
@@ -242,7 +242,7 @@ export function useMediaGeneration({ messages, setMessages, ensureActiveChatId, 
         clientMessageId: userMessageId,
       });
 
-      const payload = await chatApi.generateMedia("video", content, selectedVideoModel, uploadParts);
+      const payload = await chatApi.generateMedia("video", content, selectedVideoModel, uploadParts, chatId);
       setVideoByMessageId((prev) => ({
         ...prev,
         [assistantMessageId]: payload.asset!.url,
@@ -309,4 +309,3 @@ export function useMediaGeneration({ messages, setMessages, ensureActiveChatId, 
     appendAttachments, onReuseImageForEditing, onAttachmentInputChange, generateImage, generateVideo,
   };
 }
-

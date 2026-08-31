@@ -7,6 +7,7 @@ import { db } from "@/db";
 import { ApiError } from "@/lib/server/api-error";
 import { MEDIA_LIMITS } from "@/lib/media/limits";
 import { ASSET_ID_PATTERN, mediaUrl, type MediaReference } from "@/lib/media/message-codec";
+import { generationRecipeSchema, type GenerationRecipe } from "@/lib/media/generation-recipe";
 
 const extensions: Record<string, string> = {
   "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif",
@@ -82,7 +83,10 @@ export function toMediaReference(asset: MediaAsset): MediaReference {
 export async function createMediaAsset(input: {
   userId: string; bytes: Uint8Array; mediaType: string; kind: "attachment" | "generated-image" | "generated-video";
   modelId?: string; description?: string;
+  generation?: GenerationRecipe; sourceChatId?: string;
 }) {
+  const generation = input.generation ? generationRecipeSchema.parse(input.generation) : undefined;
+  const inputIds = [...new Set(generation?.inputImages.map(image => image.assetId) ?? [])];
   const maximum = input.kind === "attachment" ? MEDIA_LIMITS.attachmentBytes : input.kind === "generated-image" ? MEDIA_LIMITS.generatedImageBytes : MEDIA_LIMITS.generatedVideoBytes;
   if ((input.kind === "generated-video") !== input.mediaType.startsWith("video/")) throw new ApiError({ code: "VALIDATION_ERROR", message: "Unexpected media type" });
   validateMediaBytes(input.bytes, input.mediaType, maximum);
@@ -95,11 +99,18 @@ export async function createMediaAsset(input: {
   // Interrupted writes remain unreferenced and can be reclaimed after the grace period.
   await writeFile(temporary, input.bytes, { flag: "wx", mode: 0o600 });
   await rename(temporary, destination);
-  return db.mediaAsset.create({ data: {
-    id, userId: input.userId, relativePath: `${mediaOwnerDirectory(input.userId)}/${filename}`,
-    mediaType: input.mediaType, byteSize: input.bytes.byteLength, kind: input.kind,
-    modelId: input.modelId?.slice(0, 200), description: input.description?.slice(0, 4000),
-  } });
+  return db.$transaction(async tx => {
+    if (await tx.mediaAsset.count({ where: { id: { in: inputIds }, userId: input.userId, deletedAt: null } }) !== inputIds.length) throw pathError();
+    const source = input.sourceChatId ? await tx.chat.findFirst({ where: { id: input.sourceChatId, userId: input.userId }, select: { id: true } }) : null;
+    await tx.mediaAsset.updateMany({ where: { id: { in: inputIds }, userId: input.userId }, data: { lastUsedAt: new Date() } });
+    return tx.mediaAsset.create({ data: {
+      id, userId: input.userId, relativePath: `${mediaOwnerDirectory(input.userId)}/${filename}`,
+      mediaType: input.mediaType, byteSize: input.bytes.byteLength, kind: input.kind,
+      modelId: input.modelId?.slice(0, 200), description: input.description?.slice(0, 4000),
+      ...(generation ? { generation, inputs: { create: inputIds.map(inputAssetId => ({ inputAssetId })) } } : {}),
+      sourceChatId: source?.id,
+    } });
+  });
 }
 
 export async function getMediaAsset(userId: string, id: string) {
@@ -140,7 +151,10 @@ async function removeClaimedAsset(asset: MediaAsset) {
     if (!stat.isFile() || stat.isSymbolicLink() || await realpath(/* turbopackIgnore: true */ file) !== file) throw pathError();
     await unlink(file);
   } catch (error) { if (!isMissing(error)) throw error; }
-  await db.mediaAsset.deleteMany({ where: { id: asset.id, userId: asset.userId, deletedAt: { not: null }, references: { none: {} } } });
+  await db.$transaction(async tx => {
+    await tx.mediaAsset.updateMany({ where: { userId: asset.userId, usedByGenerations: { some: { assetId: asset.id } } }, data: { lastUsedAt: new Date() } });
+    await tx.mediaAsset.deleteMany({ where: { id: asset.id, userId: asset.userId, deletedAt: { not: null }, references: { none: {} }, usedByGenerations: { none: {} } } });
+  });
 }
 
 export async function deleteMediaAsset(userId: string, id: string, olderThan?: Date) {
@@ -149,7 +163,7 @@ export async function deleteMediaAsset(userId: string, id: string, olderThan?: D
     const existing = await tx.mediaAsset.findFirst({ where: { id, userId } });
     if (!existing) throw pathError();
     const claimed = await tx.mediaAsset.updateMany({ where: {
-      id, userId, references: { none: {} }, ...(olderThan ? { lastUsedAt: { lt: olderThan } } : {}),
+      id, userId, references: { none: {} }, usedByGenerations: { none: {} }, ...(olderThan ? { lastUsedAt: { lt: olderThan } } : {}),
     }, data: { deletedAt: new Date() } });
     if (claimed.count !== 1) throw new ApiError({ code: "CONFLICT", message: "Media is still referenced or too recent to clean up" });
     return existing;
@@ -174,11 +188,11 @@ async function listManagedFiles(userId: string) {
 }
 
 export async function getMediaStats(userId: string) {
-  const assets = await db.mediaAsset.findMany({ where: { userId }, include: { _count: { select: { references: true } } } });
+  const assets = await db.mediaAsset.findMany({ where: { userId }, select: { relativePath: true, lastUsedAt: true, _count: { select: { references: true, usedByGenerations: true } } } });
   const files = await listManagedFiles(userId);
   const known = new Set(assets.map((asset) => asset.relativePath));
   const cutoff = Date.now() - MEDIA_LIMITS.orphanGraceMs;
-  const unreferenced = assets.filter((asset) => asset._count.references === 0);
+  const unreferenced = assets.filter((asset) => asset._count.references === 0 && asset._count.usedByGenerations === 0);
   const looseFiles = files.filter((file) => !known.has(file.relativePath));
   return {
     assetCount: assets.length, totalBytes: files.reduce((sum, file) => sum + file.size, 0),
@@ -190,7 +204,7 @@ export async function getMediaStats(userId: string) {
 
 export async function cleanupMedia(userId: string) {
   const cutoff = new Date(Date.now() - MEDIA_LIMITS.orphanGraceMs);
-  const candidates = await db.mediaAsset.findMany({ where: { userId, lastUsedAt: { lt: cutoff }, references: { none: {} } } });
+  const candidates = await db.mediaAsset.findMany({ where: { userId, lastUsedAt: { lt: cutoff }, references: { none: {} }, usedByGenerations: { none: {} } } });
   let removedCount = 0, freedBytes = 0, failedCount = 0;
   for (const asset of candidates) {
     try { freedBytes += await deleteMediaAsset(userId, asset.id, cutoff); removedCount += 1; }

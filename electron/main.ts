@@ -23,6 +23,7 @@ import { handleSquirrelStartupEvent } from "./squirrel";
 import { createTaskNotificationDelivery, TaskReminderPoller, type TaskReminder } from "./task-reminders";
 import { seedTaskReminderSmoke } from "./task-reminders-smoke";
 import { prepareConversationSmoke, verifyConversationSmoke } from "./conversations-smoke";
+import { seedMediaLibrarySmoke, verifyMediaLibrarySmoke } from "./media-library-smoke";
 
 const PRODUCT_NAME = "Private AI Assistant";
 const DESKTOP_COOKIE_NAME = "desktop_session";
@@ -336,6 +337,7 @@ async function runSmokeAssertion() {
   if (!completed.ok || !completion.nextTask?.reminderEnabled || Date.parse(completion.nextTask.dueDate) <= Date.now()) throw new Error("Desktop recurring task did not create a future reminder");
 
   await prepareConversationSmoke(nextServer.origin, `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}`, conversationId);
+  const libraryFixture = seedMediaLibrarySmoke(desktopPaths.databaseFile, desktopPaths.mediaDirectory, asset.assetId, conversationId);
   await restartLocalService();
   if (!nextServer) throw new Error("Desktop service did not restart.");
   await reminderPoller?.poll();
@@ -362,6 +364,7 @@ async function runSmokeAssertion() {
     if (!search.ok || !results.data?.some(result => result.documentId === document.id)) throw new Error("Desktop document index did not survive a service restart");
   }
   await verifyConversationSmoke(mainWindow!, nextServer.origin, `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}`, conversationId, dirname(desktopPaths.databaseFile));
+  await verifyMediaLibrarySmoke(mainWindow!, nextServer.origin, `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}`, libraryFixture, asset.assetId, mediaBytes, dirname(desktopPaths.databaseFile));
   const log = readFileSync(desktopPaths.logFile, "utf8");
   if (!log.includes("Next stdout") || log.includes(`desktop-smoke-key-${process.pid}`) || statSync(desktopPaths.logFile).size > DESKTOP_LOG_LIMITS.maxBytes) {
     throw new Error("Desktop service output did not use bounded, redacted logging");

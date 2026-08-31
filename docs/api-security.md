@@ -57,6 +57,7 @@ Existing media limits remain: four attachments per message, PNG/JPEG/WebP/GIF on
 | Tool execution | User, shared by manual and automatic calls | 30 attempts / minute |
 | Image generation | User | 6 requests / minute |
 | Video generation | User | 3 requests / minute |
+| Media library regeneration attempts | User; valid recipes also consume the image/video quota above | 6 attempts / minute |
 | Attachment upload | User | 20 requests / minute |
 | Document import/reindex | User, shared between both operations | 6 attempts / minute |
 | Desktop task reminder claims | User | 10 checks / minute; at most 10 due tasks per check |
@@ -67,6 +68,8 @@ Existing media limits remain: four attachments per message, PNG/JPEG/WebP/GIF on
 Document-only search shares the tool request quota. Document uploads reuse the limited stream reader with a narrower 9 MiB body/8 MiB file allowance. Extraction has worker, timeout, expanded-size and per-user document limits; see [Document knowledge](document-knowledge.md). The existing attachment/Proxy limits are not increased.
 
 Bulk conversation deletion accepts at most 50 unique owned IDs and explicit confirmation within 16 KiB. Exports have message/source/output caps, preserve private media authorization, and omit raw tool arguments/settings. See [Conversation management](conversation-management.md). Archive state never replaces ownership checks.
+
+Media library regeneration requires strict `{ "confirm": true }` JSON within 16 KiB, then checks the owned recipe and shared image/video quota before generation. Callers cannot override recorded parameters. Its list/detail APIs omit filesystem paths and retain owner-only access; message and generation-input references both prevent deletion. See [Media library](media-library.md).
 
 Invalid requests and configuration failures consume the applicable quota. Rejected requests do not extend its window. Unauthenticated protected requests never use a user's quota. Login and registration deliberately do not trust `X-Forwarded-For` or `X-Real-IP`: changing an address or email cannot bypass the service budget. The in-memory store holds at most 2,000 active keys and refuses new keys while full instead of evicting existing quotas. Expired entries are reclaimed.
 

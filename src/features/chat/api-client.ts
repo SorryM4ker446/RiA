@@ -56,11 +56,11 @@ export const chatApi = {
   },
   updateTask: (id: string, input: Partial<TaskScheduleInput> & { status?: TaskItem["status"] }) => requestJson<Data<TaskItem> & { nextTask?: TaskItem | null }>(`/api/tasks/${encodeURIComponent(id)}`, "更新任务失败", jsonBody("PATCH", input)),
   deleteTask: (id: string) => requestJson<unknown>(`/api/tasks/${encodeURIComponent(id)}`, "删除任务失败", { method: "DELETE" }),
-  async generateMedia(kind: "image" | "video", prompt: string, modelId: string, files: UploadableFilePart[]) {
+  async generateMedia(kind: "image" | "video", prompt: string, modelId: string, files: UploadableFilePart[], chatId?: string) {
     const inputs = files.map(({ url, mediaType }) => ({ url, mediaType }));
     const fallback = kind === "image" ? "图片生成失败" : "视频生成失败";
     const payload = await requestJson<GeneratedMedia>(`/api/${kind}`, fallback, jsonBody("POST", {
-      prompt, modelId, ...(kind === "image" ? { inputImages: inputs } : { inputImage: inputs[0] }),
+      prompt, modelId, ...(chatId ? { chatId } : {}), ...(kind === "image" ? { inputImages: inputs } : { inputImage: inputs[0] }),
     }));
     if (!payload.asset) throw new Error(fallback);
     return payload;

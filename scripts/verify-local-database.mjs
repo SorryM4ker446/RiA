@@ -80,6 +80,12 @@ try {
     references: { create: { messageId: stored.chats[0].messages[0].id } },
   }, include: { references: true } });
   if (asset.references.length !== 1) throw new Error("Media references were not persisted.");
+  const generated = await db.mediaAsset.create({ data: {
+    id: randomUUID(), userId: user.id, relativePath: `database-check/${marker}-generated.png`, mediaType: "image/png", byteSize: 1, kind: "generated-image",
+    sourceChatId: stored.chats[0].id, generation: { version: 1, type: "image", modelId: "offline/model", prompt: "Database check", inputImages: [{ assetId: asset.id, mediaType: "image/png" }] },
+    inputs: { create: { inputAssetId: asset.id } },
+  }, include: { inputs: true, sourceChat: true } });
+  if (generated.inputs.length !== 1 || generated.sourceChat.id !== stored.chats[0].id) throw new Error("Media generation provenance was not persisted.");
 
   const document = await db.knowledgeDocument.create({ data: {
     userId: user.id, filename: "database-check.txt", format: "txt", byteSize: 5,
@@ -99,6 +105,7 @@ try {
   const remainingTasks = await db.task.count({ where: { userId: user.id } });
   const remainingAssets = await db.mediaAsset.count({ where: { userId: user.id } });
   const remainingReferences = await db.messageMedia.count({ where: { assetId: marker } });
+  if (await db.mediaGenerationInput.count({ where: { assetId: generated.id } })) throw new Error("Media generation references did not cascade.");
   const remainingDocuments = await db.knowledgeDocument.count({ where: { userId: user.id } });
   const remainingChunks = await db.documentChunk.count({ where: { documentId: document.id } });
   const remainingTerms = await db.documentTerm.count({ where: { chunkId: document.chunks[0].id } });
