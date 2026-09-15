@@ -3,17 +3,18 @@ import { randomUUID } from "node:crypto";
 import { after, beforeEach, test } from "node:test";
 import { NextRequest } from "next/server";
 import { createTestDatabase } from "../helpers/database.mjs";
+import { localAccessCookie } from "../helpers/local-access.mjs";
 
 const cleanup = createTestDatabase();
 const { db } = await import("@/db");
-const { createSession } = await import("@/lib/auth/session");
+
 const chats = await import("@/app/api/conversations/route");
 const messages = await import("@/app/api/conversations/[id]/messages/route");
 const detail = await import("@/app/api/conversations/[id]/route");
 const memory = await import("@/app/api/memory/route");
 const retrieval = await import("@/app/api/retrieval/route");
 const { getRegenerationSnapshot, saveRegeneratedResponse } = await import("@/lib/chat/store");
-let user, cookie;
+let cookie;
 const context = (id) => ({ params: Promise.resolve({ id }) });
 const request = (path, auth = cookie, body) => new NextRequest(`http://localhost${path}`, {
   method: body ? "POST" : "GET", headers: { ...(auth ? { cookie: auth } : {}), ...(body ? { "Content-Type": "application/json" } : {}) },
@@ -21,21 +22,28 @@ const request = (path, auth = cookie, body) => new NextRequest(`http://localhost
 });
 beforeEach(async (t) => {
   t.mock.method(console, "error", () => {});
-  user = await db.user.create({ data: { email: `${randomUUID()}@example.invalid` } });
-  cookie = `app_session=${await createSession(user.id)}`;
+  cookie = localAccessCookie();
+  await db.message.deleteMany({});
+  await db.chat.deleteMany({});
+  await db.memory.deleteMany({});
+  await db.task.deleteMany({});
+  await db.knowledgeDocument.deleteMany({});
+  await db.mediaAsset.deleteMany({});
+  await db.modelRequest.deleteMany({});
+  await db.workspacePreference.deleteMany({});
 });
 after(async () => { await db.$disconnect(); cleanup(); });
 
 test("conversation cursors page equal timestamps without duplicates and survive anchor deletion", async () => {
   const date = new Date("2026-08-01T00:00:00Z");
-  const ids = Array.from({ length: 65 }, (_, i) => `${user.id}-${String(i).padStart(3, "0")}`);
-  await db.chat.createMany({ data: ids.map((id) => ({ id, userId: user.id, title: id, lastMessageAt: date })) });
+  const ids = Array.from({ length: 65 }, (_, i) => `page-${String(i).padStart(3, "0")}`);
+  await db.chat.createMany({ data: ids.map((id) => ({ id, title: id, lastMessageAt: date })) });
   const first = await (await chats.GET(request("/api/conversations"))).json();
   assert.equal(first.data.length, 30);
   assert.deepEqual(first.data.map((row) => row.id), ids.slice(-30).reverse());
   const boundary = first.data.at(-1).id;
   await db.chat.delete({ where: { id: boundary } });
-  await db.chat.create({ data: { userId: user.id, title: "New arrival", lastMessageAt: new Date() } });
+  await db.chat.create({ data: { title: "New arrival", lastMessageAt: new Date() } });
   const collected = first.data.map((row) => row.id);
   let cursor = first.pageInfo.nextCursor;
   while (cursor) {
@@ -47,7 +55,7 @@ test("conversation cursors page equal timestamps without duplicates and survive 
 });
 
 test("message pages return the newest bounded window in chronological order", async () => {
-  const chat = await db.chat.create({ data: { userId: user.id, title: "Long history" } });
+  const chat = await db.chat.create({ data: { title: "Long history" } });
   const ids = Array.from({ length: 125 }, (_, i) => `${chat.id}-${String(i).padStart(3, "0")}`);
   await db.message.createMany({ data: ids.map((id) => ({ id, chatId: chat.id, role: "user", content: id, createdAt: new Date("2026-08-01T00:00:00Z") })) });
   const first = await (await messages.GET(request(`/api/conversations/${chat.id}/messages`), context(chat.id))).json();
@@ -71,31 +79,31 @@ test("pagination validates limits and cursor scope after authentication", async 
     assert.equal((await response.json()).error.code, "VALIDATION_ERROR");
   }
   assert.equal((await chats.GET(request("/api/conversations?limit=bad", null))).status, 401);
-  await db.chat.createMany({ data: [{ userId: user.id, title: "one" }, { userId: user.id, title: "two" }] });
+  await db.chat.createMany({ data: [{ title: "one" }, { title: "two" }] });
   const first = await (await chats.GET(request("/api/conversations?limit=1"))).json();
-  const other = await db.user.create({ data: { email: `${randomUUID()}@example.invalid` } });
-  const otherCookie = `app_session=${await createSession(other.id)}`;
-  assert.equal((await chats.GET(request(`/api/conversations?cursor=${first.pageInfo.nextCursor}`, otherCookie))).status, 400);
+  // A cursor issued for a different query scope is rejected.
+  assert.equal((await chats.GET(request(`/api/conversations?cursor=${first.pageInfo.nextCursor}&state=archived`))).status, 400);
   const chatId = first.data[0].id;
-  assert.equal((await messages.GET(request(`/api/conversations/${chatId}/messages`, otherCookie), context(chatId))).status, 404);
+  assert.equal((await messages.GET(request(`/api/conversations/${chatId}/messages`), context(chatId))).status, 200);
   assert.equal((await messages.GET(request(`/api/conversations/${chatId}/messages?cursor=${first.pageInfo.nextCursor}`), context(chatId))).status, 400);
+  assert.equal((await messages.GET(request(`/api/conversations/${chatId}/messages`, ""), context(chatId))).status, 401);
 });
 
 test("conversation details count history without loading or migrating media", async () => {
-  const chat = await db.chat.create({ data: { userId: user.id, title: "Count only" } });
+  const chat = await db.chat.create({ data: { title: "Count only" } });
   const content = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=";
   await db.message.create({ data: { chatId: chat.id, role: "assistant", content } });
   const response = await detail.GET(request(`/api/conversations/${chat.id}`), context(chat.id));
   assert.equal((await response.json()).data.messageCount, 1);
-  assert.equal(await db.mediaAsset.count({ where: { userId: user.id } }), 0);
+  assert.equal(await db.mediaAsset.count({ where: {} }), 0);
   assert.equal((await db.message.findFirst({ where: { chatId: chat.id } })).content, content);
 });
 
 test("regeneration snapshots inspect only the affected tail and preserve earlier edits", async () => {
-  const chat = await db.chat.create({ data: { userId: user.id, title: "Long regeneration" } });
+  const chat = await db.chat.create({ data: { title: "Long regeneration" } });
   const ids = Array.from({ length: 120 }, (_, i) => `${chat.id}-${String(i).padStart(3, "0")}`);
   await db.message.createMany({ data: ids.map((id, i) => ({ id, chatId: chat.id, role: i % 2 ? "assistant" : "user", content: id, createdAt: new Date(Date.parse("2026-08-01T00:00:00Z") + i * 1000) })) });
-  const snapshot = await getRegenerationSnapshot(user.id, chat.id, ids[118]);
+  const snapshot = await getRegenerationSnapshot(chat.id, ids[118]);
   assert.deepEqual(snapshot.messages.map((row) => row.id), ids.slice(118));
   await db.message.update({ where: { id: ids[0] }, data: { content: "Earlier edit must remain" } });
   await saveRegeneratedResponse({ snapshot, userMessageId: ids[118], content: "Replacement", clientMessageId: "regenerated" });
@@ -104,13 +112,11 @@ test("regeneration snapshots inspect only the affected tail and preserve earlier
   assert.equal(await db.message.findUnique({ where: { id: ids[119] } }), null);
 });
 
-test("local memory and retrieval integrations retain authenticated user scoping", async () => {
+test("local memory and retrieval integrations require the local access credential", async () => {
   const saved = await memory.POST(request("/api/memory", cookie, { key: "旅行偏好", value: "喜欢云南徒步", score: 0.8 }));
   assert.equal(saved.status, 201);
   const found = await retrieval.POST(request("/api/retrieval", cookie, { query: "云南徒步", limit: 3 }));
   assert.equal((await found.json()).data[0].key, "旅行偏好");
-  const other = await db.user.create({ data: { email: `${randomUUID()}@example.invalid` } });
-  const otherCookie = `app_session=${await createSession(other.id)}`;
-  const empty = await memory.GET(request("/api/memory?query=云南徒步", otherCookie));
-  assert.deepEqual((await empty.json()).data, []);
+  const empty = await memory.GET(request("/api/memory?query=云南徒步", ""));
+  assert.equal(empty.status, 401);
 });

@@ -1,7 +1,7 @@
 import { protectDataOperation } from "@/lib/server/data-operations";
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { requireRequestUser } from "@/lib/auth/request-user";
+import { currentWorkspaceId, requireLocalWorkspace } from "@/lib/local/workspace";
 import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { readJsonBody } from "@/lib/server/request-body";
@@ -10,17 +10,16 @@ import { generateStoredMedia } from "@/lib/media/generation";
 import { mediaUrl } from "@/lib/media/message-codec";
 async function POSTHandler(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const user = await requireRequestUser(req);
-    enforceRateLimit("mediaRegeneration", user.id);
+    await requireLocalWorkspace(req); enforceRateLimit("mediaRegeneration");
     z.strictObject({ confirm: z.literal(true) }).parse(await readJsonBody(req, 16 * 1024));
-    const detail = await getMediaDetail(user.id, (await context.params).id);
+    const detail = await getMediaDetail((await context.params).id);
     if (detail.regenerationUnavailable || !detail.generation) throw new ApiError({ code: "CONFLICT", message: detail.regenerationUnavailable ?? "生成参数不可用。" });
     const recipe = detail.generation;
-    enforceRateLimit(recipe.type, user.id);
+    enforceRateLimit(recipe.type);
     const inputs = recipe.inputImages.map(image => ({ url: mediaUrl(image.assetId), mediaType: image.mediaType }));
     const body = { prompt: recipe.prompt, modelId: recipe.modelId, ...(detail.sourceChat ? { chatId: detail.sourceChat.id } : {}),
       ...(recipe.type === "image" ? { inputImages: inputs } : { inputImage: inputs[0], aspectRatio: recipe.aspectRatio, duration: recipe.duration, fps: recipe.fps }) };
-    return Response.json(await generateStoredMedia(user.id, recipe.type, body, req.signal, false), { status: 201, headers: { "Cache-Control": "private, no-store" } });
+    return Response.json(await generateStoredMedia(recipe.type, body, req.signal, false), { status: 201, headers: { "Cache-Control": "private, no-store" } });
   } catch (error) { return createApiErrorResponse(error, "重新生成失败，原资源已保留。"); }
 }
 

@@ -121,7 +121,6 @@ export async function startNextServer(options: NextServerOptions): Promise<Runni
     ...options.environment,
     NODE_ENV: options.packagedRuntime ? "production" : "development",
     APP_RUNTIME: "desktop",
-    AUTH_DISABLED: "1",
     DATABASE_URL: options.databaseUrl,
     MEDIA_DIRECTORY: options.mediaDirectory,
     DESKTOP_SESSION_TOKEN: options.desktopSessionToken,

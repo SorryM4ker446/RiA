@@ -1,9 +1,5 @@
-import { redirect } from "next/navigation";
-import { connection } from "next/server";
-import { isAuthDisabled } from "@/lib/auth/request-user";
-import { getSessionUserFromCookies } from "@/lib/auth/session";
-export default async function ModelLayout({ children }: { children: React.ReactNode }) {
-  await connection();
-  if (!isAuthDisabled() && !await getSessionUserFromCookies()) redirect("/login");
+export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
+  // Access control lives in the API layer: every request is validated against
+  // the local application credential before it can read or write workspace data.
   return <>{children}</>;
 }

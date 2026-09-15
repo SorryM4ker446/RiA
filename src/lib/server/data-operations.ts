@@ -4,11 +4,11 @@ import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { assertRequestSecurity } from "@/lib/server/request-security";
 import type { NextRequest } from "next/server";
 
-type Context = { requestId: string; userId?: string };
+type Context = { requestId: string; workspaceId?: string };
 const state = globalThis as typeof globalThis & { dataOperations?: { active: number; exclusive: boolean; context: AsyncLocalStorage<Context> } };
 const operations = state.dataOperations ??= { active: 0, exclusive: false, context: new AsyncLocalStorage<Context>() };
 export const dataRequestContext = () => operations.context.getStore();
-export function identifyDataUser(userId: string) { const context = dataRequestContext(); if (context) context.userId = userId; }
+export function identifyDataOperation(workspaceId: string) { const context = dataRequestContext(); if (context) context.workspaceId = workspaceId; }
 export function retainDataOperation() {
   if (operations.exclusive) throw new ApiError({ code: "SERVICE_UNAVAILABLE", message: "正在备份或恢复数据，请稍后重试。" });
   operations.active++;

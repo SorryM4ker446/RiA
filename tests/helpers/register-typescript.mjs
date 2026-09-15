@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { registerHooks } from "node:module";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -17,6 +17,20 @@ registerHooks({
       const file = [base, `${base}.ts`, `${base}.tsx`, join(base, "index.ts")]
         .find((candidate) => extname(candidate) && existsSync(candidate));
       if (file) return nextResolve(pathToFileURL(file).href, context);
+      if (process.env.PRIVATE_AI_TEST_RESOLVE_DEBUG === "1") {
+        process.stderr.write(`unresolved alias ${specifier} from ${context.parentURL ?? "unknown"}\n`);
+      }
+    }
+    // The Electron half is compiled by tsc with Node16 resolution, so its
+    // sources import each other without a file extension. Node's ESM resolver
+    // needs the extension, exactly like a compiled CommonJS build would.
+    if (specifier.startsWith("./") || specifier.startsWith("../")) {
+      const parent = context.parentURL ? dirname(fileURLToPath(context.parentURL)) : root;
+      const base = resolve(parent, specifier);
+      if (!extname(base) || extname(base) === ".js") {
+        const file = [`${base}.ts`, `${base}.tsx`, join(base, "index.ts")].find((candidate) => existsSync(candidate));
+        if (file) return nextResolve(pathToFileURL(file).href, context);
+      }
     }
     if (specifier === "next/server" || specifier === "next/headers") {
       // require.resolve() would restart this hook chain on newer Node.js releases.

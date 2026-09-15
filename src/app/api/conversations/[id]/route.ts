@@ -1,7 +1,7 @@
 import { protectDataOperation } from "@/lib/server/data-operations";
 import { readJsonBody } from "@/lib/server/request-body";
 import { NextRequest } from "next/server";
-import { requireRequestUser } from "@/lib/auth/request-user";
+import { currentWorkspaceId, requireLocalWorkspace } from "@/lib/local/workspace";
 import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { deleteChat } from "@/lib/chat/store";
 import { db } from "@/db";
@@ -14,10 +14,9 @@ type Params = {
 
 async function GETHandler(req: NextRequest, context: Params) {
   try {
-    const user = await requireRequestUser(req);
-    const { id } = await context.params;
+    await requireLocalWorkspace(req);const { id } = await context.params;
 
-    const conversation = await db.chat.findFirst({ where: { id, userId: user.id }, include: { tags: { orderBy: { label: "asc" } }, _count: { select: { messages: true } } } });
+    const conversation = await db.chat.findFirst({ where: { id }, include: { tags: { orderBy: { label: "asc" } }, _count: { select: { messages: true } } } });
 
     if (!conversation) {
       throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
@@ -32,15 +31,14 @@ async function GETHandler(req: NextRequest, context: Params) {
 
 async function PATCHHandler(req: NextRequest, context: Params) {
   try {
-    const user = await requireRequestUser(req);
-    const { id } = await context.params;
+    await requireLocalWorkspace(req);const { id } = await context.params;
     const parsed = updateConversationSchema.safeParse(await readJsonBody(req));
 
     if (!parsed.success) {
       throw parsed.error;
     }
 
-    const updated = await updateConversation(user.id, id, parsed.data);
+    const updated = await updateConversation(id, parsed.data);
 
     return Response.json({ data: updated });
   } catch (error) {
@@ -51,10 +49,9 @@ async function PATCHHandler(req: NextRequest, context: Params) {
 
 async function DELETEHandler(req: NextRequest, context: Params) {
   try {
-    const user = await requireRequestUser(req);
-    const { id } = await context.params;
+    await requireLocalWorkspace(req);const { id } = await context.params;
 
-    const deleted = await deleteChat(user.id, id);
+    const deleted = await deleteChat(id);
     if (!deleted) {
       throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
     }

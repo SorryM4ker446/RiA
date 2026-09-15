@@ -7,8 +7,8 @@ import { persistChatResponse, type ChatPersistence } from "@/lib/chat/persistenc
 import type { ChatRequest } from "@/lib/chat/request";
 import type { DocumentSource } from "@/lib/documents/types";
 import { retainDataOperation } from "@/lib/server/data-operations";
-export function streamChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; userId: string; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; documentSources?: DocumentSource[] }) {
-  const { input, conversation, userId, systemPrompt, modelMessages, toolsEnabled, signal } = params;
+export function streamChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; documentSources?: DocumentSource[] }) {
+  const { input, conversation, systemPrompt, modelMessages, toolsEnabled, signal } = params;
   const { modelId, body, messages } = input;
   const { chat } = conversation;
   let generationFailed = false;
@@ -21,7 +21,7 @@ export function streamChatResponse(params: { input: ChatRequest; conversation: C
     abortSignal: signal,
     ...(toolsEnabled
       ? {
-        tools: createChatToolSet(userId, {
+        tools: createChatToolSet({
           modelId,
         }),
       }
@@ -45,7 +45,7 @@ export function streamChatResponse(params: { input: ChatRequest; conversation: C
     originalMessages: messages,
     messageMetadata: ({ part }) => part.type === "start" ? { documentSources: params.documentSources ?? [] } : undefined,
     onFinish: async ({ responseMessage, isAborted }) => {
-      await persistChatResponse({ input, conversation, userId, responseMessage, isAborted, generationFailed, documentSources: params.documentSources });
+      await persistChatResponse({ input, conversation, responseMessage, isAborted, generationFailed, documentSources: params.documentSources });
     },
   });
   return createUIMessageStreamResponse({

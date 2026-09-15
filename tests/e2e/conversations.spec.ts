@@ -1,4 +1,5 @@
 import { test as base, expect, type Page } from "@playwright/test";
+import { NO_CREDENTIAL_STATE, localHostOrigin, openWorkspace } from "../helpers/workspace-entry";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { startStandaloneServer } from "../helpers/standalone-server";
@@ -11,11 +12,8 @@ const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>
   },
 });
 async function register(page: Page, origin: string) {
-  await page.goto(`${origin}/register`);
-  await page.getByPlaceholder("邮箱", { exact: true }).fill(`${randomUUID()}@example.invalid`);
-  await page.getByPlaceholder("密码（至少 8 位）").fill(randomUUID());
-  await page.getByRole("button", { name: "注册并登录" }).click();
-  await expect(page).toHaveURL(`${origin}/chat`);
+  // The workspace has no login: the run's access cookie is already active.
+  await openWorkspace(page, origin);
 }
 async function create(page: Page, title: string) {
   const result = await browserApi(page, "/api/conversations", "POST", { title });
@@ -128,20 +126,22 @@ test("browser exports download complete text snapshots and keep media private", 
       expect(snapshot.messages[0].attachments[0].url).toBe(asset.url);
     } else expect(contents).toContain("````text");
   }
-  const other = await browser.newContext();
+  const anonymous = await browser.newContext({ storageState: NO_CREDENTIAL_STATE });
   try {
-    expect((await other.request.get(`${app.origin}/api/conversations/${id}/export`)).status()).toBe(401);
-    const stranger = await other.newPage(); await register(stranger, app.origin);
-    expect((await browserApi(stranger, `/api/conversations/${id}/export?format=json`)).status).toBe(404);
-    const own = await create(stranger, "保留自己的会话");
-    expect((await browserApi(stranger, "/api/conversations/bulk-delete", "POST", { ids: [own, id], confirm: true })).status).toBe(404);
-    expect((await browserData(stranger, "/api/conversations")).map((chat: { id: string }) => chat.id)).toEqual([own]);
-    expect((await browserApi(stranger, asset.url)).status).toBe(404);
-  } finally { await other.close(); }
+    // The local access credential is the only remaining boundary: a context
+    // that never obtained one can read nothing and change nothing.
+    const base = localHostOrigin(app.origin);
+    expect((await anonymous.request.get(`${base}/api/conversations/${id}/export`)).status()).toBe(401);
+    expect((await anonymous.request.post(`${base}/api/conversations/bulk-delete`, { data: { ids: [id], confirm: true } })).status()).toBe(401);
+    expect((await anonymous.request.get(`${base}${asset.url}`)).status()).toBe(401);
+    expect(JSON.stringify(await (await anonymous.request.get(`${base}/api/conversations`)).json())).toContain("UNAUTHORIZED");
+  } finally { await anonymous.close(); }
+  // The workspace that did obtain one still holds its own data untouched.
+  expect((await browserData(page, "/api/conversations")).map((chat: { id: string }) => chat.id)).toContain(id);
   expect(app.providerCalls).toHaveLength(0);
 });
 
-test("conversation validation, rate limits and expired sessions surface actionable errors", { tag: "@integration" }, async ({ page, app }) => {
+test("conversation validation, rate limits and credential refusal surface actionable errors", { tag: "@integration" }, async ({ page, browser, app }) => {
   await register(page, app.origin);
   const id = await create(page, "边界验证");
   await manage(page, app.origin);
@@ -158,12 +158,16 @@ test("conversation validation, rate limits and expired sessions surface actionab
   await row.getByRole("button", { name: "导出 JSON", exact: true }).click();
   await expect(page.locator("main").getByRole("alert")).toContainText(/rate|频繁|稍后|limit/i);
   const cookies = (await page.context().cookies()).map(cookie => `${cookie.name}=${cookie.value}`).join("; ");
-  const denied = await fetch(`${app.origin}/api/conversations/bulk-delete`, { method: "POST", headers: { cookie: cookies, origin: "https://outside.invalid", "content-type": "application/json" }, body: JSON.stringify({ ids: [id], confirm: true }) });
+  const denied = await fetch(`${localHostOrigin(app.origin)}/api/conversations/bulk-delete`, { method: "POST", headers: { cookie: cookies, origin: "https://outside.invalid", "content-type": "application/json" }, body: JSON.stringify({ ids: [id], confirm: true }) });
   expect(denied.status).toBe(403);
-  app.expireSessions();
-  await page.getByRole("button", { name: "刷新列表" }).click();
-  await expect(page.locator("main").getByRole("alert")).toContainText(/登录|Unauthorized|Authentication/i);
+  // A request that presents no credential is refused before anything is read.
+  const anonymous = await browser.newContext({ storageState: NO_CREDENTIAL_STATE });
+  try {
+    const base = localHostOrigin(app.origin);
+    expect((await anonymous.request.post(`${base}/api/conversations/bulk-delete`, { data: { ids: [id], confirm: true }, headers: { origin: base } })).status()).toBe(401);
+  } finally { await anonymous.close(); }
   expect(app.readRows("SELECT id FROM chats")).toHaveLength(1);
-  await page.reload(); await expect(page).toHaveURL(`${app.origin}/login`);
+  // The workspace itself stays usable; there is no login page to fall back to.
+  await page.reload(); await expect(page).not.toHaveURL(/\/login$/);
   expect(app.providerCalls).toHaveLength(0);
 });

@@ -1,13 +1,13 @@
 import { protectDataOperation } from "@/lib/server/data-operations";
 import { z } from "zod";
 import { NextRequest } from "next/server";
-import { requireRequestUser } from "@/lib/auth/request-user";
+import { requireLocalWorkspace } from "@/lib/local/workspace";
 import { createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { listPublicToolCatalog } from "@/tools/catalog";
 
 async function GETHandler(req: NextRequest) {
   try {
-    await requireRequestUser(req);
+    await requireLocalWorkspace(req);
 
     const url = new URL(req.url);
     const mode = z.enum(["chat", "image", "video"]).optional().parse(url.searchParams.get("mode") ?? undefined);

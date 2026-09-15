@@ -1,4 +1,5 @@
 import { test as base, expect, type Page } from "@playwright/test";
+import { NO_CREDENTIAL_STATE, openWorkspace } from "../helpers/workspace-entry";
 import { randomUUID } from "node:crypto";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { browserApi, browserData } from "../helpers/browser-api";
@@ -12,11 +13,8 @@ const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>
 test.use({ timezoneId: "America/New_York" });
 
 async function register(page: Page, origin: string) {
-  await page.goto(`${origin}/register`);
-  await page.getByPlaceholder("邮箱", { exact: true }).fill(`${randomUUID()}@example.invalid`);
-  await page.getByPlaceholder("密码（至少 8 位）").fill(randomUUID());
-  await page.getByRole("button", { name: "注册并登录" }).click();
-  await expect(page).toHaveURL(`${origin}/chat`);
+  // The workspace has no login: the run's access cookie is already active.
+  await openWorkspace(page, origin);
 }
 
 test("task reminder settings validate local dates and persist recurrence across browser and service restarts", { tag: "@integration" }, async ({ page, app, browser }) => {
@@ -71,17 +69,19 @@ test("task reminder settings validate local dates and persist recurrence across 
   expect(retry.status).toBe(200);
   expect(retry.body.nextTask).toBeNull();
   expect(app.readRows("SELECT id FROM tasks")).toHaveLength(2);
-  const otherContext = await browser.newContext();
+  // A browser that never obtained the credential reaches no stored task.
+  const otherContext = await browser.newContext({ storageState: NO_CREDENTIAL_STATE });
   try {
     const other = await otherContext.newPage();
-    await register(other, app.origin);
-    expect((await browserApi(other, `${app.origin}/api/tasks/${next.id}`, "PATCH", { reminderEnabled: false })).status).toBe(404);
-    expect(await browserData(other, `${app.origin}/api/tasks`)).toEqual([]);
+    await other.goto(`${app.origin}/chat`);
+    expect((await browserApi(other, `${app.origin}/api/tasks/${next.id}`, "PATCH", { reminderEnabled: false })).status).toBe(401);
+    expect((await browserApi(other, `${app.origin}/api/tasks`)).status).toBe(401);
   } finally { await otherContext.close(); }
+  expect(app.readRows("SELECT id FROM tasks WHERE id = ?", next.id)).toHaveLength(1);
   expect(app.providerCalls).toEqual([]);
 });
 
-test("task reminder mutations reject CSRF, incomplete schedules and expired sessions without changing data", { tag: "@integration" }, async ({ page, app }) => {
+test("task reminder mutations reject CSRF, incomplete schedules and a missing credential without changing data", { tag: "@integration" }, async ({ page, app }) => {
   await register(page, app.origin);
   const creation = await browserApi(page, `${app.origin}/api/tools/run`, "POST", { tool: "createTask", mode: "chat", input: { title: "安全提醒验证" } });
   expect(creation.status).toBe(200);
@@ -91,7 +91,8 @@ test("task reminder mutations reject CSRF, incomplete schedules and expired sess
   expect((await browserApi(page, url, "PATCH", { dueDate: "2026-02-30", repeatRule: "daily" })).status).toBe(400);
   const denied = await page.context().request.patch(url, { headers: { Origin: "https://outside.invalid" }, data: { reminderEnabled: true } });
   expect(denied.status()).toBe(403);
-  app.expireSessions();
+  // Dropping the credential makes the workspace unreachable again.
+  await page.context().clearCookies();
   expect((await browserApi(page, url, "PATCH", { dueDate: "2026-09-01T09:00Z", timeZone: "UTC", reminderEnabled: true })).status).toBe(401);
   expect(app.readRows("SELECT dueDate,reminderEnabled,repeatRule FROM tasks WHERE id=?", created.taskId)).toEqual([{ dueDate: null, reminderEnabled: 0, repeatRule: "none" }]);
   expect(app.providerCalls).toEqual([]);

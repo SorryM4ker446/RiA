@@ -1,13 +1,15 @@
 import { expect, test } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { request as httpRequest } from "node:http";
+import { TEST_ACCESS_TOKEN } from "../helpers/workspace-entry";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=", "base64");
 
 test("chunked uploads without Content-Length receive a structured size error", async ({ baseURL }) => {
   const result = await new Promise<{ status: number; body: string }>((resolve, reject) => {
     const request = httpRequest(new URL("/api/media/upload", baseURL), {
-      method: "POST", headers: { "Content-Type": "multipart/form-data; boundary=oversized-upload" },
+      // A raw client has no cookie jar, so the local credential is explicit.
+      method: "POST", headers: { "Content-Type": "multipart/form-data; boundary=oversized-upload", Cookie: `local_access=${TEST_ACCESS_TOKEN}` },
     }, (response) => {
       let body = "";
       response.setEncoding("utf8");

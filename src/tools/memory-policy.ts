@@ -13,7 +13,7 @@ const MEMORY_DEDUPE_WINDOW_MS = 15 * 60 * 1000;
 const TOOL_DEBUG = process.env.TOOL_DEBUG === "1";
 
 type PersistToolMemoryParams = {
-  userId: string;
+  workspaceId: string;
   toolId: string;
   trigger: ToolTriggerType;
   state: ToolExecutionState | string;
@@ -162,7 +162,6 @@ export async function persistToolMemory(params: PersistToolMemoryParams): Promis
 
   const existing = await db.memory.findFirst({
     where: {
-      userId: params.userId,
       key,
     },
     select: {
@@ -190,7 +189,6 @@ export async function persistToolMemory(params: PersistToolMemoryParams): Promis
   }
 
   await saveMemory({
-    userId: params.userId,
     key,
     value,
     score: Math.max(0, Math.min(1, draft.score)),

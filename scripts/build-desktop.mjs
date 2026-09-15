@@ -18,7 +18,6 @@ runNode(
   ["scripts/run-with-local-db.mjs", "--migrate", "next", "build"],
   {
     APP_RUNTIME: "desktop",
-    AUTH_DISABLED: "1",
     DESKTOP_BUILD: "1",
     LOCAL_DATABASE_FILE: ".desktop-data/build/app.db",
   },

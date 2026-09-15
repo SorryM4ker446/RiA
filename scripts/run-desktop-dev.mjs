@@ -12,7 +12,6 @@ const child = spawn(electronExecutable, [join(repositoryRoot, "electron-dist", "
   env: {
     ...process.env,
     APP_RUNTIME: "desktop",
-    AUTH_DISABLED: "1",
     DESKTOP_PROJECT_ROOT: repositoryRoot,
     DESKTOP_NODE_EXECUTABLE: process.execPath,
   },

@@ -6,12 +6,17 @@ import { DatabaseSync } from "node:sqlite";
 import { createRequire } from "node:module";
 import { test } from "node:test";
 
+import { accountScopedMigrationsFrom } from "../helpers/legacy-workspace.mjs";
+
 const { runDesktopMigrations } = createRequire(import.meta.url)("../../electron-dist/migrations.js");
 const migrationsDirectory = resolve("src/db/migrations");
 test("conversation migration backfills safe text, survives vacuum and restart, and cascades indexes", () => {
   const root = mkdtempSync(join(tmpdir(), "private-ai-conversation-upgrade-"));
   const databaseFile = join(root, "app.db");
   const migration = "20260831100000_conversation_management";
+  // The account-to-workspace conversion is exercised separately; this test stays
+  // on the account-scoped schema it was written for and applies one range.
+  const lastAccountScopedMigration = "20260831150000_account_preferences_and_model_usage";
   const options = { databaseFile, migrationsDirectory, backupsDirectory: join(root, "backups"), logger: { info() {}, warn() {}, error() {} } };
   try {
     const old = new DatabaseSync(databaseFile);
@@ -28,9 +33,8 @@ test("conversation migration backfills safe text, survives vacuum and restart, a
       insert.run("structured", '__USER_MESSAGE__:{"type":"user-message","text":"附件的可见正文","files":[{"url":"data:image/png;base64,hidden-binary"}]}');
       insert.run("broken", "__USER_MESSAGE__:{hidden-malformed");
     } finally { old.close(); }
-    const applied = runDesktopMigrations(options);
-    assert.deepEqual(applied.applied, readdirSync(migrationsDirectory, { withFileTypes: true }).filter(entry => entry.isDirectory() && entry.name >= migration).map(entry => entry.name).sort());
-    assert.ok(applied.backupFile);
+    const applied = runDesktopMigrations({ ...options, upToMigration: lastAccountScopedMigration });
+    assert.deepEqual(applied.applied, accountScopedMigrationsFrom(migration));    assert.ok(applied.backupFile);
     const backup = new DatabaseSync(applied.backupFile, { readOnly: true });
     try {
       assert.equal(backup.prepare("SELECT title FROM chats").get().title, "月光旅行");
@@ -46,7 +50,7 @@ test("conversation migration backfills safe text, survives vacuum and restart, a
       db.exec("UPDATE chats SET pinned=1,archived=1,title='Changed title'; INSERT INTO chat_tags VALUES ('chat','work'); UPDATE messages SET content='Edited history' WHERE id='plain'");
       assert.equal(db.prepare("SELECT count(*) AS count FROM chat_title_search WHERE chat_title_search MATCH ?").get('"月光旅行"').count, 0);
     } finally { db.close(); }
-    assert.deepEqual(runDesktopMigrations(options).applied, []);
+    assert.deepEqual(runDesktopMigrations({ ...options, upToMigration: lastAccountScopedMigration }).applied, []);
     const reopened = new DatabaseSync(databaseFile);
     try {
       reopened.exec("PRAGMA foreign_keys=ON");

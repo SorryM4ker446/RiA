@@ -9,24 +9,25 @@ import { chatRequestSchema } from "@/lib/server/request-schemas";
 import { preferredModel } from "@/lib/models/preferences";
 import { validateUIMessages, type UIMessage } from "ai";
 
-export async function readChatRequest(req: Request, userId: string) {
+export async function readChatRequest(req: Request) {
   const body = chatRequestSchema.parse(await readJsonBody(req));
   const messages = await validateUIMessages<UIMessage>({ messages: body.messages }).catch(() => {
     throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid message parts or tool state" });
   });
-  const modelId = resolveModelId(await preferredModel(userId, "chat", body.modelId));
+  const modelId = resolveModelId(await preferredModel("chat", body.modelId));
   const latestUserMessage = getLatestUserMessage(messages);
   const isApprovalResume = isToolApprovalContinuation(messages);
   const requestedChatId = body.chatId ?? body.conversationId ?? body.id;
   if (requestedChatId) {
-    const existing = await db.chat.findUnique({ where: { id: requestedChatId }, select: { userId: true } });
-    if ((existing && existing.userId !== userId) || (!existing && isApprovalResume)) {
+    const existing = await db.chat.findUnique({ where: { id: requestedChatId }, select: { id: true } });
+    // Resuming an approval requires the conversation that holds the pending request.
+    if (!existing && isApprovalResume) {
       throw new ApiError({ code: "NOT_FOUND", message: "Conversation was not found" });
     }
   }
   for (const message of messages) {
     const files = message.parts.filter((part) => part.type === "file");
-    if (files.length) await resolveImageInputs(userId, files);
+    if (files.length) await resolveImageInputs(files);
   }
 
   if (latestUserMessage?.files.length && !chatModelSupportsImageInput(modelId)) {

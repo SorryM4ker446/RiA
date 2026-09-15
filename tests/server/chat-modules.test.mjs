@@ -32,14 +32,14 @@ test("memory ranking preserves lexical, semantic, recency and manual weighting",
 });
 
 test("Chinese retrieval segments natural queries and recalls older lexical matches", async () => {
-  const user = await db.user.create({ data: { email: `${randomUUID()}@example.invalid` } });
-  const target = await db.memory.create({ data: { userId: user.id, key: "旅行偏好", value: "云南徒步路线", score: 0.5, updatedAt: new Date("2020-01-01T00:00:00Z") } });
-  await db.memory.createMany({ data: Array.from({ length: 110 }, (_, i) => ({ userId: user.id, key: `other-${i}`, value: "unrelated programming notes", score: 1 })) });
+
+  const target = await db.memory.create({ data: { key: "旅行偏好", value: "云南徒步路线", score: 0.5, updatedAt: new Date("2020-01-01T00:00:00Z") } });
+  await db.memory.createMany({ data: Array.from({ length: 110 }, (_, i) => ({ key: `other-${i}`, value: "unrelated programming notes", score: 1 })) });
   const query = "请帮我查找云南徒步路线";
-  assert.equal((await getRelevantMemories({ userId: user.id, query }))[0].id, target.id);
-  assert.equal((await searchKnowledge(user.id, { query, topK: 4 })).results[0].id, target.id);
+  assert.equal((await getRelevantMemories({ query }))[0].id, target.id);
+  assert.equal((await searchKnowledge( { query, topK: 4 })).results[0].id, target.id);
   assert.deepEqual(tokenizeQuery("ＳＱＬＩＴＥ SQLite 数据库 数据库"), tokenizeQuery("sqlite 数据库"));
-  assert.deepEqual(await getRelevantMemories({ userId: user.id, query: "！！！" }), []);
+  assert.deepEqual(await getRelevantMemories({ query: "！！！" }), []);
 });
 
 test("ranking computes each score once and keeps ties stable", () => {
@@ -50,23 +50,23 @@ test("ranking computes each score once and keeps ties stable", () => {
   assert.deepEqual(result.map((row) => row.id), ["one", "two"]);
 });
 
-test("shared retrieval keeps user isolation and distinct context versus knowledge candidates", async () => {
-  const user = await db.user.create({ data: { email: `${randomUUID()}@example.invalid` } });
-  const other = await db.user.create({ data: { email: `${randomUUID()}@example.invalid` } });
+test("shared retrieval keeps tool records out of context while knowledge candidates stay distinct", async () => {
+
   const old = new Date("2020-01-01T00:00:00Z");
   await db.memory.createMany({ data: [
-    { userId: user.id, key: "sqlite-note", value: "sqlite local", score: 0.5, updatedAt: old },
-    { userId: user.id, key: "tool:sqlite", value: "sqlite tool record", score: 1, updatedAt: old },
-    { userId: user.id, key: "unrelated", value: "other topic", score: 0, updatedAt: old },
-    { userId: other.id, key: "sqlite-private", value: "another user's memory", score: 1, updatedAt: old },
+    { key: "sqlite-note", value: "sqlite local", score: 0.5, updatedAt: old },
+    { key: "tool:sqlite", value: "sqlite tool record", score: 1, updatedAt: old },
+    { key: "unrelated", value: "other topic", score: 0, updatedAt: old },
+    { key: "sqlite-other", value: "unrelated memory", score: 1, updatedAt: old },
   ] });
-  assert.deepEqual((await getRelevantMemories({ userId: user.id, query: "sqlite" })).map((row) => row.key), ["tool:sqlite", "sqlite-note"]);
-  const result = await searchKnowledge(user.id, { query: " sqlite ", topK: 8 });
+  assert.deepEqual((await getRelevantMemories({ query: "sqlite" })).map((row) => row.key).sort(), ["sqlite-note", "sqlite-other", "tool:sqlite"]);
+  // "sqlite-other" is an ordinary workspace memory, not a tool record.
+  const result = await searchKnowledge( { query: " sqlite ", topK: 8 });
   assert.equal(result.query, "sqlite");
-  assert.deepEqual(result.results.map((row) => [row.title, row.score]), [["sqlite-note", 1.1]]);
-  const builtin = await searchKnowledge(other.id, { query: "short-term", topK: 8 });
+  assert.deepEqual(result.results.map((row) => row.title).sort(), ["sqlite-note", "sqlite-other"]);
+  const builtin = await searchKnowledge( { query: "short-term", topK: 8 });
   assert.ok(builtin.results.some((row) => row.id === "builtin-memory"));
-  assert.deepEqual(await getRelevantMemories({ userId: user.id, query: " " }), []);
+  assert.deepEqual(await getRelevantMemories({ query: " " }), []);
 });
 
 test("automatic tool intent requires explicit action, an available tool and sufficient confidence", async (t) => {

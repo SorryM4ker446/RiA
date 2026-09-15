@@ -19,11 +19,9 @@
     "test:server": "node --import ./tests/helpers/register-typescript.mjs --test tests/server/*.test.mjs",
     "test:db": "node scripts/run-with-local-db.mjs --migrate node scripts/verify-local-database.mjs",
     "db:generate": "node scripts/run-with-local-db.mjs prisma generate --schema src/db/schema.prisma",
-    "db:migrate": "node scripts/run-with-local-db.mjs prisma migrate dev --schema src/db/schema.prisma",
-    "db:deploy": "node scripts/run-with-local-db.mjs prisma migrate deploy --schema src/db/schema.prisma",
+    "db:migrate": "node scripts/run-with-local-db.mjs --migrate node scripts/verify-local-database.mjs",
+    "db:deploy": "node scripts/run-with-local-db.mjs --migrate node scripts/verify-local-database.mjs",
     "db:studio": "node scripts/run-with-local-db.mjs prisma studio --schema src/db/schema.prisma",
-    "auth:list-users": "node scripts/run-with-local-db.mjs --migrate node scripts/list-users.mjs",
-    "auth:set-password": "node scripts/run-with-local-db.mjs --migrate node scripts/recover-demo-user.mjs",
     "desktop:compile": "tsc -p electron/tsconfig.json",
     "desktop:dev": "npm run desktop:compile && node scripts/run-desktop-dev.mjs",
     "desktop:dev:web": "node scripts/run-desktop-web.mjs",
@@ -35,7 +33,11 @@
     "test:desktop": "npm run desktop:compile && node --test tests/desktop/*.test.mjs",
     "test:desktop:smoke": "node scripts/smoke-desktop.mjs",
     "test:desktop:dev": "npm run desktop:compile && node scripts/smoke-desktop.mjs --development",
-    "test:desktop:package": "node scripts/smoke-desktop.mjs --packaged"
+    "test:desktop:package": "node scripts/smoke-desktop.mjs --packaged",
+    "workspace:status": "node --import ./tests/helpers/register-typescript.mjs scripts/upgrade-local-workspace.mjs --status",
+    "workspace:prepare": "node --import ./tests/helpers/register-typescript.mjs scripts/upgrade-local-workspace.mjs --prepare",
+    "workspace:restore": "node --import ./tests/helpers/register-typescript.mjs scripts/upgrade-local-workspace.mjs --restore",
+    "workspace:inventory": "node --import ./tests/helpers/register-typescript.mjs scripts/inventory-local-data.mjs"
   },
   "dependencies": {
     "@ai-sdk/react": "3.0.163",

@@ -27,8 +27,10 @@ test("media library migration preserves old assets and references, backs up meta
         INSERT INTO media_assets (id,userId,relativePath,mediaType,byteSize,kind) VALUES ('input','owner','owner/input.png','image/png',8,'attachment');
         INSERT INTO message_media (messageId,assetId) VALUES ('message','input');`);
     } finally { old.close(); }
-    const applied = runDesktopMigrations(options);
-    assert.deepEqual(applied.applied, readdirSync(migrationsDirectory, { withFileTypes: true }).filter(entry => entry.isDirectory() && entry.name >= migration).map(entry => entry.name).sort());
+    // Scoped to this migration range: the account-to-workspace conversion is
+    // covered by its own test.
+    const applied = runDesktopMigrations({ ...options, upToMigration: "20260831150000_account_preferences_and_model_usage" });
+    assert.deepEqual(applied.applied, readdirSync(migrationsDirectory, { withFileTypes: true }).filter(entry => entry.isDirectory() && entry.name >= migration && entry.name <= "20260831150000_account_preferences_and_model_usage").map(entry => entry.name).sort());
     const backup = new DatabaseSync(applied.backupFile, { readOnly: true });
     try { assert.equal(backup.prepare("SELECT relativePath FROM media_assets").get().relativePath, "owner/input.png"); assert.equal(backup.prepare("PRAGMA table_info(media_assets)").all().some(column => column.name === "generation"), false); }
     finally { backup.close(); }
@@ -42,7 +44,7 @@ test("media library migration preserves old assets and references, backs up meta
       assert.equal(db.prepare("SELECT sourceChatId FROM media_assets WHERE id='output'").get().sourceChatId, null);
       assert.equal(db.prepare("SELECT count(*) AS count FROM media_assets").get().count, 2);
     } finally { db.close(); }
-    assert.deepEqual(runDesktopMigrations(options).applied, []);
+    assert.deepEqual(runDesktopMigrations({ ...options, upToMigration: "20260831150000_account_preferences_and_model_usage" }).applied, []);
     const reopened = new DatabaseSync(databaseFile);
     try {
       reopened.exec("PRAGMA foreign_keys=ON");

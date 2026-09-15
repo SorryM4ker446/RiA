@@ -54,10 +54,10 @@ export function rankByScore<T>(items: T[], score: (item: T) => number, limit: nu
     .slice(0, limit).map((entry) => entry.item);
 }
 
-export async function getMemorySearchCandidates(userId: string, query: string, policy: RankingPolicy) {
+export async function getMemorySearchCandidates(query: string, policy: RankingPolicy) {
   const queryTokens = tokenizeQuery(query);
   const queryEmbedding = await embedText(query);
-  const scope = { userId, ...(policy.excludeToolMemories ? { NOT: [{ key: { startsWith: "tool:" } }] } : {}) };
+  const scope = { ...(policy.excludeToolMemories ? { NOT: [{ key: { startsWith: "tool:" } }] } : {}) };
   if (!queryTokens.length && !queryEmbedding) return { queryTokens, candidates: [] };
   const rows = await db.memory.findMany({
     where: scope,

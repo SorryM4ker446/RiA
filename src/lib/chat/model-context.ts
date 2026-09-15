@@ -29,13 +29,13 @@ function stripFilePartsForTextOnlyModel(messages: UIMessage[]): UIMessage[] {
     } satisfies UIMessage;
   });
 }
-export async function prepareModelContext(input: ChatRequest, userId: string) {
+export async function prepareModelContext(input: ChatRequest) {
   const { messages, modelId } = input;
   const effectiveMessages = chatModelSupportsImageInput(modelId)
     ? messages
     : stripFilePartsForTextOnlyModel(messages);
   const context = buildChatContext(effectiveMessages);
-  const modelMessages = await convertToModelMessages(await materializeChatAttachments(userId, context.messages));
+  const modelMessages = await convertToModelMessages(await materializeChatAttachments(context.messages));
 
   return { context, modelMessages };
 }

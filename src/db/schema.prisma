@@ -7,81 +7,53 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id           String    @id @default(cuid())
-  email        String    @unique
-  name         String?
-  passwordHash String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  chats        Chat[]
-  memories     Memory[]
-  tasks        Task[]
-  sessions     Session[]
-  mediaAssets  MediaAsset[]
-  documents    KnowledgeDocument[]
-  preferences  AccountPreference?
-  modelRequests ModelRequest[]
+// One local workspace owns all data. There is no account, no login session and
+// no per-user scoping: the local application credential is what protects
+// access, and every table below belongs to the single workspace.
 
-  @@map("users")
-}
-
-model AccountPreference {
-  userId String @id
-  settings Json
+model WorkspacePreference {
+  id        String   @id @default("local")
+  settings  Json
   updatedAt DateTime @updatedAt
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@map("account_preferences")
 }
 
 model ModelRequest {
-  id String @id @default(cuid())
-  userId String
-  requestId String
-  mode String
-  modelId String
-  status String
-  durationMs Int
-  inputTokens Int?
+  id           String   @id @default(cuid())
+  requestId    String
+  mode         String
+  modelId      String
+  status       String
+  durationMs   Int
+  inputTokens  Int?
   outputTokens Int?
-  costUsd Float?
-  costSource String
-  errorCode String?
-  fallback Boolean @default(false)
-  createdAt DateTime @default(now())
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  @@index([userId, createdAt, id])
+  costUsd      Float?
+  costSource   String
+  errorCode    String?
+  fallback     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt, id])
   @@map("model_requests")
 }
 
-model Session {
-  id        String   @id @default(cuid())
-  userId    String
-  tokenHash String   @unique
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@map("sessions")
-}
-
 model Chat {
-  id            String    @id @default(cuid())
-  userId        String
-  title         String
-  pinned        Boolean   @default(false)
-  archived      Boolean   @default(false)
-  lastMessageAt DateTime  @default(now())
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messages      Message[]
-  tags          ChatTag[]
-  generatedMedia MediaAsset[]
+  id              String       @id @default(cuid())
+  title           String
+  pinned          Boolean      @default(false)
+  archived        Boolean      @default(false)
+  lastMessageAt   DateTime     @default(now())
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  messages        Message[]
+  tags            ChatTag[]
+  generatedMedia  MediaAsset[]
 
-  @@index([userId, lastMessageAt, id])
-  @@index([userId, archived, pinned, lastMessageAt, id])
+  @@index([lastMessageAt, id])
+  @@index([archived, pinned, lastMessageAt, id])
+  @@index([pinned, lastMessageAt, id])
+  @@index([createdAt])
   @@map("chats")
 }
 
@@ -96,15 +68,15 @@ model ChatTag {
 }
 
 model Message {
-  id             String       @id @default(cuid())
-  chatId         String
+  id              String        @id @default(cuid())
+  chatId          String
   clientMessageId String?
-  role           MessageRole
-  content        String
-  status         MessageStatus @default(success)
-  createdAt      DateTime     @default(now())
-  chat           Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
-  media          MessageMedia[]
+  role            MessageRole
+  content         String
+  status          MessageStatus @default(success)
+  createdAt       DateTime      @default(now())
+  chat            Chat          @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  media           MessageMedia[]
 
   @@index([chatId, createdAt, id])
   @@unique([chatId, clientMessageId])
@@ -112,35 +84,34 @@ model Message {
 }
 
 model MediaAsset {
-  id           String   @id
-  userId       String
-  relativePath String   @unique
-  mediaType    String
-  byteSize     Int
-  kind         String
-  modelId      String?
-  description  String?
-  generation   Json?
-  sourceChatId String?
-  sourceChat   Chat? @relation(fields: [sourceChatId], references: [id], onDelete: SetNull)
-  createdAt    DateTime @default(now())
-  lastUsedAt   DateTime @default(now())
-  deletedAt    DateTime?
-  user         User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  references   MessageMedia[]
-  inputs       MediaGenerationInput[] @relation("GenerationOutput")
+  id                String   @id
+  relativePath      String   @unique
+  mediaType         String
+  byteSize          Int
+  kind              String
+  modelId           String?
+  description       String?
+  generation        Json?
+  sourceChatId      String?
+  sourceChat        Chat?    @relation(fields: [sourceChatId], references: [id], onDelete: SetNull)
+  createdAt         DateTime @default(now())
+  lastUsedAt        DateTime @default(now())
+  deletedAt         DateTime?
+  references        MessageMedia[]
+  inputs            MediaGenerationInput[] @relation("GenerationOutput")
   usedByGenerations MediaGenerationInput[] @relation("GenerationInput")
 
-  @@index([userId, createdAt])
-  @@index([userId, createdAt, id])
+  @@index([createdAt])
+  @@index([createdAt, id])
   @@index([sourceChatId])
+  @@index([kind])
   @@map("media_assets")
 }
 
 model MessageMedia {
   messageId String
   assetId   String
-  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  message   Message    @relation(fields: [messageId], references: [id], onDelete: Cascade)
   asset     MediaAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
 
   @@id([messageId, assetId])
@@ -161,61 +132,56 @@ model MediaGenerationInput {
 
 model Memory {
   id        String   @id @default(cuid())
-  userId    String
   key       String
   value     String
   score     Float?
   embedding Json?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, key])
-  @@index([userId, updatedAt, id])
+  @@unique([key])
+  @@index([updatedAt, id])
   @@map("memories")
 }
 
 model Task {
-  id        String       @id @default(cuid())
-  userId    String
-  title     String
-  details   String?
-  dueDate   DateTime?
-  timeZone  String       @default("UTC")
-  reminderEnabled Boolean @default(false)
-  remindedAt DateTime?
-  repeatRule String      @default("none")
-  repeatAnchor DateTime?
-  repeatGenerated Boolean @default(false)
-  priority  TaskPriority @default(medium)
-  status    TaskStatus   @default(todo)
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
-  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id              String       @id @default(cuid())
+  title           String
+  details         String?
+  dueDate         DateTime?
+  timeZone        String       @default("UTC")
+  reminderEnabled Boolean      @default(false)
+  remindedAt      DateTime?
+  repeatRule      String       @default("none")
+  repeatAnchor    DateTime?
+  repeatGenerated Boolean      @default(false)
+  priority        TaskPriority @default(medium)
+  status          TaskStatus   @default(todo)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 
-  @@index([userId, status, createdAt])
-  @@index([userId, reminderEnabled, remindedAt, dueDate])
+  @@index([status, createdAt])
+  @@index([reminderEnabled, remindedAt, dueDate])
+  @@index([dueDate])
   @@map("tasks")
 }
 
 model KnowledgeDocument {
-  id           String   @id @default(cuid())
-  userId       String
-  filename     String
-  format       String
-  byteSize     Int
-  contentHash  String
-  pages        Json
+  id             String   @id @default(cuid())
+  filename       String
+  format         String
+  byteSize       Int
+  contentHash    String
+  pages          Json
   characterCount Int
-  indexVersion Int
-  indexedAt    DateTime @default(now())
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  user         User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  chunks       DocumentChunk[]
+  indexVersion   Int
+  indexedAt      DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  chunks         DocumentChunk[]
 
-  @@unique([userId, filename])
-  @@index([userId, updatedAt, id])
+  @@unique([filename])
+  @@index([updatedAt, id])
   @@map("knowledge_documents")
 }
 

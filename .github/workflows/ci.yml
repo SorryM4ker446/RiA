@@ -25,7 +25,6 @@ jobs:
     env:
       CI: "true"
       APP_RUNTIME: test
-      AUTH_DISABLED: "1"
       LOCAL_DATABASE_FILE: .desktop-data/ci/${{ github.run_id }}-${{ github.run_attempt }}/app.db
       OPENROUTER_API_KEY: ""
       TAVILY_API_KEY: test-tavily-key
@@ -92,7 +91,6 @@ jobs:
     env:
       CI: "true"
       APP_RUNTIME: test
-      AUTH_DISABLED: "1"
       LOCAL_DATABASE_FILE: .desktop-data/ci-desktop/${{ github.run_id }}-${{ github.run_attempt }}/app.db
       OPENROUTER_API_KEY: ""
       TAVILY_API_KEY: ""

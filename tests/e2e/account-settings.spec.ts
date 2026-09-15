@@ -1,4 +1,5 @@
 import { test as base, expect, type Page } from "@playwright/test";
+import { openWorkspace } from "../helpers/workspace-entry";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { startStandaloneServer } from "../helpers/standalone-server";
@@ -6,11 +7,12 @@ import { browserApi, browserData } from "../helpers/browser-api";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({ app: async ({}, runTest) => { const app = await startStandaloneServer({ modelFixture: true }); try { await runTest(app); } finally { await app.close(); } } });
 async function register(page: Page, origin: string) {
-  await page.goto(`${origin}/register`); await page.getByPlaceholder("邮箱", { exact: true }).fill(`${randomUUID()}@example.invalid`); await page.getByPlaceholder("密码（至少 8 位）").fill(randomUUID()); await page.getByRole("button", { name: "注册并登录" }).click(); await expect(page).toHaveURL(`${origin}/chat`); await expect(page.getByRole("checkbox", { name: "仅手动" })).toBeEnabled();
+  // The workspace has no login: the run's access cookie is already active.
+  await openWorkspace(page, origin);
 }
 async function openBackups(page: Page, origin: string) { await page.goto(`${origin}/backups`); await expect(page.getByRole("button", { name: "创建备份", exact: true })).toBeEnabled(); }
 
-test("account backup downloads and confirmed restore preserve media and business data across restart", { tag: "@integration" }, async ({ page, app }, info) => {
+test("workspace backup downloads and confirmed restore preserve media and business data across restart", { tag: "@integration" }, async ({ page, app }, info) => {
   await register(page, app.origin);
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "需要恢复的会话" })).body.data;
   await browserApi(page, `/api/conversations/${chat.id}/messages`, "POST", { role: "user", content: "备份正文", clientMessageId: randomUUID() });
@@ -21,7 +23,7 @@ test("account backup downloads and confirmed restore preserve media and business
   await page.getByRole("button", { name: "创建备份", exact: true }).click(); await expect(page.getByRole("article")).toHaveCount(1);
   const backup = (await browserData(page, "/api/backups"))[0];
   const download = page.waitForEvent("download"); await page.getByRole("button", { name: "下载备份" }).click(); const saved = await download; const file = info.outputPath(saved.suggestedFilename()); await saved.saveAs(file);
-  const bytes = await readFile(file); expect(bytes.subarray(0, 8).toString()).toBe("PAIB0001"); expect(bytes.includes(Buffer.from("tokenHash"))).toBe(false);
+  const bytes = await readFile(file); expect(bytes.subarray(0, 8).toString()).toBe("PAIB0001"); expect(bytes.includes(Buffer.from("tokenHash"))).toBe(false); expect(bytes.includes(Buffer.from("sessionToken"))).toBe(false);
   await browserApi(page, `/api/conversations/${chat.id}`, "DELETE");
   await page.getByRole("button", { name: "恢复", exact: true }).click(); const dialog = page.getByRole("dialog"); await expect(dialog.getByRole("button", { name: "确认恢复" })).toBeDisabled(); await dialog.getByRole("button", { name: "取消操作" }).click(); expect(await browserData(page, "/api/conversations")).toHaveLength(0);
   await page.getByRole("button", { name: "恢复", exact: true }).click(); await dialog.getByLabel("恢复确认文字").fill("恢复"); await dialog.getByRole("button", { name: "确认恢复" }).click(); await expect(page.getByRole("status").filter({ hasText: "恢复完成" })).toBeVisible();
@@ -31,11 +33,11 @@ test("account backup downloads and confirmed restore preserve media and business
   const media = (await browserData(page, "/api/media/library"))[0]; expect(media.id).not.toBe(image.body.asset.assetId);
   const detail = await browserData(page, `/api/media/${media.id}/details`); expect(detail.sourceChat.id).toBe(restored[0].id);
   await app.restart(); await openBackups(page, app.origin); expect((await browserData(page, `/api/backups/${backup.id}`)).counts.assets).toBe(1);
-  await page.screenshot({ path: info.outputPath("account-backups.png"), fullPage: true });
+  await page.screenshot({ path: info.outputPath("workspace-backups.png"), fullPage: true });
   expect(app.providerCalls).toHaveLength(1);
 });
 
-test("portable backup import uploads multiple bounded chunks and restores into another account", { tag: "@integration" }, async ({ page, browser, app }, info) => {
+test("portable backup import uploads bounded chunks and restores the workspace", { tag: "@integration" }, async ({ page, app }, info) => {
   await register(page, app.origin);
   await page.evaluate(async () => {
     const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII="), c => c.charCodeAt(0)); const form = new FormData();
@@ -43,26 +45,31 @@ test("portable backup import uploads multiple bounded chunks and restores into a
     const response = await fetch("/api/media/upload", { method: "POST", body: form }); if (response.status !== 201) throw new Error("Synthetic media upload failed");
   });
   await openBackups(page, app.origin); await page.getByRole("button", { name: "创建备份", exact: true }).click(); await expect(page.getByRole("article")).toHaveCount(1);
+  const created = (await browserData(page, "/api/backups"))[0];
   const pending = page.waitForEvent("download"); await page.getByRole("button", { name: "下载备份" }).click(); const download = await pending; const file = info.outputPath(download.suggestedFilename()); await download.saveAs(file);
-  const other = await browser.newContext();
-  try {
-    const stranger = await other.newPage(); await register(stranger, app.origin); await openBackups(stranger, app.origin);
-    const chunks: number[] = []; stranger.on("request", request => { if (request.method() === "PUT" && request.url().includes("/api/backups/import/")) chunks.push(request.postDataBuffer()?.length ?? 0); });
-    await stranger.getByLabel("导入备份文件", { exact: true }).setInputFiles(file); await expect(stranger.getByRole("status").filter({ hasText: "备份已导入并校验" })).toBeVisible();
-    expect(chunks.length).toBeGreaterThan(1); expect(Math.max(...chunks)).toBeLessThanOrEqual(8 * 1024 * 1024); expect(await browserData(stranger, "/api/media/library")).toHaveLength(0);
-    await stranger.getByRole("button", { name: "恢复", exact: true }).click(); await stranger.getByLabel("恢复确认文字").fill("恢复"); await stranger.getByRole("button", { name: "确认恢复" }).click(); await expect(stranger.getByRole("status").filter({ hasText: "恢复完成" })).toBeVisible();
-    expect(await browserData(stranger, "/api/media/library")).toHaveLength(2); expect(await browserData(page, "/api/media/library")).toHaveLength(2);
-  } finally { await other.close(); }
+  const chunks: number[] = [];
+  page.on("request", request => { if (request.method() === "PUT" && request.url().includes("/api/backups/import/")) chunks.push(request.postDataBuffer()?.length ?? 0); });
+  await page.getByLabel("导入备份文件", { exact: true }).setInputFiles(file); await expect(page.getByRole("status").filter({ hasText: "备份已导入并校验" })).toBeVisible();
+  // A portable archive is uploaded in more than one bounded chunk.
+  expect(chunks.length).toBeGreaterThan(1); expect(Math.max(...chunks)).toBeLessThanOrEqual(8 * 1024 * 1024);
+  // The import adds a second entry beside the one this workspace just created.
+  const imported = (await browserData(page, "/api/backups")).find((entry: { id: string }) => entry.id !== created.id) as { id: string };
+  const importedArticle = page.getByLabel(`备份 ${imported.id}`);
+  await importedArticle.getByRole("button", { name: "恢复", exact: true }).click(); await page.getByLabel("恢复确认文字").fill("恢复"); await page.getByRole("button", { name: "确认恢复" }).click(); await expect(page.getByRole("status").filter({ hasText: "恢复完成" })).toBeVisible();
+  expect(await browserData(page, "/api/media/library")).toHaveLength(2);
   expect(app.providerCalls).toHaveLength(0);
 });
 
-test("backup validation and expired sessions surface errors without changing business data", { tag: "@integration" }, async ({ page, app }) => {
+test("backup validation and a missing credential surface errors without changing business data", { tag: "@integration" }, async ({ page, app }) => {
   await register(page, app.origin); await openBackups(page, app.origin);
   await page.getByLabel("导入备份文件", { exact: true }).setInputFiles({ name: "corrupt.paib", mimeType: "application/octet-stream", buffer: Buffer.alloc(100, 7) });
   await expect(page.locator("main").getByRole("alert")).toContainText("备份格式"); expect(await browserData(page, "/api/backups")).toHaveLength(0);
   expect((await browserApi(page, "/api/backups", "POST", { unexpected: true })).status).toBe(400);
-  app.expireSessions(); await page.getByRole("button", { name: "创建备份", exact: true }).click(); await expect(page.locator("main").getByRole("alert")).toContainText(/Authentication required|登录/);
-  await page.reload(); await expect(page).toHaveURL(`${app.origin}/login`); expect(app.providerCalls).toHaveLength(0);
+  // Dropping the credential stops the operation, and there is no login page to
+  // return to: the refusal is reported in place.
+  await page.context().clearCookies();
+  await page.getByRole("button", { name: "创建备份", exact: true }).click(); await expect(page.locator("main").getByRole("alert")).toContainText(/凭证|Authentication required/);
+  expect(app.readRows("SELECT id FROM chats")).toHaveLength(0); expect(app.providerCalls).toHaveLength(0);
 });
 
 test("saved mode defaults apply to new conversations and model settings survive service restart", { tag: "@integration" }, async ({ page, app }, info) => {
@@ -102,7 +109,7 @@ test("saved mode defaults apply to new conversations and model settings survive 
     releaseCreation();
     await page.unrouteAll({ behavior: "wait" });
   }
-  await page.goto(`${app.origin}/models`); await expect(page.getByRole("button", { name: "保存模型偏好" })).toBeVisible(); await page.screenshot({ path: info.outputPath("account-models.png"), fullPage: true }); expect(app.providerCalls).toHaveLength(0);
+  await page.goto(`${app.origin}/models`); await expect(page.getByRole("button", { name: "保存模型偏好" })).toBeVisible(); await page.screenshot({ path: info.outputPath("workspace-models.png"), fullPage: true }); expect(app.providerCalls).toHaveLength(0);
 });
 
 test("configured chat fallback runs through the real provider adapter and persists usage estimates", { tag: "@integration" }, async ({ page, app }) => {
@@ -120,11 +127,15 @@ test("configured chat fallback runs through the real provider adapter and persis
   await app.restart(); await page.goto(`${app.origin}/models`); await expect(page.getByRole("cell", { name: "成功（备用）" })).toBeVisible(); await expect(page.getByRole("cell").filter({ hasText: "$0.000060" })).toBeVisible();
 });
 
-test("model settings and usage enforce ownership, invalid prices and session expiration over HTTP", { tag: "@integration" }, async ({ page, app }) => {
+test("model settings and usage reject invalid prices and a missing credential over HTTP", { tag: "@integration" }, async ({ page, app }) => {
   await register(page, app.origin);
   const settings = await browserData(page, "/api/models");
   expect((await browserApi(page, "/api/models", "PUT", { ...settings, chat: { modelId: "removed/model", fallbackId: null } })).status).toBe(400);
   expect((await browserApi(page, "/api/models", "PUT", { ...settings, rates: { invalid: { inputPerMillion: -1, outputPerMillion: 0, perRequest: null } } })).status).toBe(400);
   expect((await browserData(page, "/api/usage")).totals.costUsd).toBeNull();
-  await page.goto(`${app.origin}/models`); await expect(page.getByRole("button", { name: "保存模型偏好" })).toBeVisible(); app.expireSessions(); await page.getByRole("button", { name: "保存模型偏好" }).click(); await expect(page.locator("main").getByRole("alert")).toContainText(/Authentication required|登录/); expect(app.providerCalls).toHaveLength(0);
+  const stored = app.readRows("SELECT settings FROM account_preferences");
+  await page.goto(`${app.origin}/models`); await expect(page.getByRole("button", { name: "保存模型偏好" })).toBeVisible();
+  // Dropping the credential refuses the write; nothing is persisted.
+  await page.context().clearCookies(); await page.getByRole("button", { name: "保存模型偏好" }).click(); await expect(page.locator("main").getByRole("alert")).toContainText(/凭证|Authentication required/);
+  expect(app.readRows("SELECT settings FROM account_preferences")).toEqual(stored); expect(app.providerCalls).toHaveLength(0);
 });

@@ -1,81 +1,78 @@
-import { test, expect } from "@playwright/test";
-import { randomUUID } from "node:crypto";
+import { test as base, expect, request as playwrightRequest } from "@playwright/test";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { browserApi } from "../helpers/browser-api";
+import { openWorkspace, TEST_ACCESS_TOKEN } from "../helpers/workspace-entry";
 
-// Reuse the already-built runtime after Playwright's webServer is ready.
-// This extra server enables real authentication without sharing the demo test database.
-let server: Awaited<ReturnType<typeof startStandaloneServer>>;
-let origin: string;
-
-test.beforeAll(async () => {
-  server = await startStandaloneServer();
-  origin = server.origin;
+// This spec needs its own service, because it inspects the database directly.
+const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
+  app: async ({}, runTest) => {
+    const app = await startStandaloneServer();
+    try { await runTest(app); } finally { await app.close(); }
+  },
 });
 
-test.afterAll(async () => { await server?.close(); });
+/** The same cookie the run uses, but with a value the service never issued. */
+function forgedStorageState(value: string) {
+  return {
+    cookies: [{ name: "local_access", value, domain: "localhost", path: "/", expires: -1, httpOnly: false, secure: false, sameSite: "Lax" as const }],
+    origins: [],
+  };
+}
 
-test("real browser authentication, CSRF rejection, Session expiry and login throttling", { tag: "@integration" }, async ({ page, request }) => {
-  const email = `${randomUUID()}@example.invalid`;
-  const password = randomUUID();
-  const unauthorized = await request.post(`${origin}/api/chat`, { data: "invalid" });
-  expect(unauthorized.status()).toBe(401);
-  expect((await unauthorized.json()).error.code).toBe("UNAUTHORIZED");
-  await page.goto(`${origin}/register`);
-  await page.getByPlaceholder("邮箱", { exact: true }).fill(email);
-  await page.getByPlaceholder("密码（至少 8 位）").fill(password);
-  await page.getByRole("button", { name: "注册并登录" }).click();
-  await expect(page).toHaveURL(`${origin}/chat`);
-  const session = (await page.context().cookies()).find((cookie) => cookie.name === "app_session");
-  expect(session?.httpOnly).toBe(true);
-  expect(session?.sameSite).toBe("Lax");
-  expect((await browserApi(page, `${origin}/api/auth/me`)).status).toBe(200);
-  const malformed = await page.evaluate(async () => {
-    const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: [{ id: "u", role: "user", parts: [{ type: "text", text: 12 }] }] }) });
-    return { status: response.status, body: await response.json() };
-  });
-  expect(malformed.status).toBe(400);
-  expect(malformed.body.error.code).toBe("VALIDATION_ERROR");
-  const foreign = await page.context().request.post(`${origin}/api/conversations`, { headers: { Origin: "https://outside.invalid" }, data: { title: "Must not be created" } });
-  expect(foreign.status()).toBe(403);
-  expect((await foreign.json()).error.code).toBe("FORBIDDEN");
-  const created = await page.evaluate(async () => {
-    const response = await fetch("/api/conversations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "Authenticated browser" }) });
-    return response.status;
-  });
-  expect(created).toBe(201);
-  const chatResponse = page.waitForResponse((response) => response.url() === `${origin}/api/chat`);
-  await page.getByPlaceholder(/输入你的问题/).fill("Validate the normal chat request");
-  await page.getByRole("button", { name: "发送", exact: true }).click();
-  const unconfigured = await chatResponse;
-  expect(unconfigured.status()).toBe(503);
-  expect((await unconfigured.json()).error.code).toBe("CONFIGURATION_ERROR");
-  server.expireSessions();
-  const expired = await browserApi(page, `${origin}/api/auth/me`);
-  expect(expired.status).toBe(401);
-  expect(expired.body.error.code).toBe("UNAUTHORIZED");
-  expect(server.readRows("SELECT id FROM sessions")).toHaveLength(0);
-  await page.goto(`${origin}/chat`);
-  await expect(page).toHaveURL(`${origin}/login`);
-  await page.goto(`${origin}/knowledge`);
-  await expect(page).toHaveURL(`${origin}/login`);
-  await page.getByPlaceholder("邮箱", { exact: true }).fill(email);
-  await page.getByPlaceholder("密码", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(page).toHaveURL(`${origin}/chat`);
-  expect((await browserApi(page, `${origin}/api/auth/me`)).status).toBe(200);
-  expect((await browserApi(page, `${origin}/api/auth/logout`, "POST")).status).toBe(200);
-  expect(server.readRows("SELECT id FROM sessions")).toHaveLength(0);
-  expect((await browserApi(page, `${origin}/api/auth/me`)).status).toBe(401);
-  for (let index = 0; index < 19; index++) {
-    expect((await request.post(`${origin}/api/auth/login`, { data: { email, password: randomUUID() }, headers: { "x-forwarded-for": `198.51.100.${index}` } })).status()).toBe(401);
+test("local access credential is required, and the entry point does not hand one out freely", { tag: "@integration" }, async ({ page, app }) => {
+  const origin = app.origin;
+  // Both contexts are deliberately outside the run's storage state, so neither
+  // carries the credential the workspace issued. `newContext` otherwise
+  // inherits the configured storage state.
+  const anonymous = await playwrightRequest.newContext({ storageState: { cookies: [], origins: [] } });
+  const forged = await playwrightRequest.newContext({ storageState: forgedStorageState("f".repeat(40)) });
+  try {
+    // 1. Without the credential no business endpoint answers at all.
+    const unauthorized = await anonymous.post(`${origin}/api/chat`, { data: "invalid" });
+    expect(unauthorized.status()).toBe(401);
+    expect((await unauthorized.json()).error.code).toBe("UNAUTHORIZED");
+    for (const path of ["/api/conversations", "/api/models", "/api/tasks", "/api/memory", "/api/usage"]) {
+      const response = await anonymous.get(`${origin}${path}`);
+      expect(response.status(), path).toBe(401);
+    }
+    // The refusal must not describe the local configuration.
+    expect(JSON.stringify(await (await anonymous.get(`${origin}/api/models`)).json())).not.toContain("OPENROUTER");
+
+    // 2. The entry point only answers a direct visit carrying the current code.
+    expect((await anonymous.get(`${origin}/api/local-access`, { maxRedirects: 0 })).status()).toBe(403);
+    expect((await anonymous.get(`${origin}/api/local-access?handshake=${"0".repeat(48)}`, { maxRedirects: 0 })).status()).toBe(403);
+    // A page on another origin can neither navigate nor fetch its way to a credential.
+    expect((await anonymous.get(`${origin}/api/local-access`, { headers: { origin: "https://outside.invalid" }, maxRedirects: 0 })).status()).toBe(403);
+
+    // 3. With the credential the workspace answers, and the cookie stays out of script reach.
+    await openWorkspace(page, origin);
+    const access = (await page.context().cookies()).find((cookie) => cookie.name === "local_access");
+    expect(access?.httpOnly).toBe(true);
+    expect(access?.sameSite).toBe("Lax");
+    expect((await browserApi(page, `${origin}/api/conversations`)).status).toBe(200);
+
+    // 4. Request validation and the same-origin rule still apply to a credentialed caller.
+    const malformed = await browserApi(page, `${origin}/api/chat`, "POST", {
+      messages: [{ id: "message-1", role: "user", parts: [{ type: "text", text: 12 }] }],
+    });
+    expect(malformed.status).toBe(400);
+    expect(malformed.body.error.code).toBe("VALIDATION_ERROR");
+
+    const foreign = await playwrightRequest.newContext({
+      storageState: forgedStorageState(TEST_ACCESS_TOKEN),
+      extraHTTPHeaders: { origin: "https://outside.invalid" },
+    });
+    try {
+      const response = await foreign.post(`${origin}/api/conversations`, { data: { title: "Must not be created" } });
+      expect(response.status()).toBe(403);
+      expect((await response.json()).error.code).toBe("FORBIDDEN");
+    } finally { await foreign.dispose(); }
+    expect(app.readRows("SELECT id FROM chats")).toHaveLength(0);
+
+    // 5. A credential that merely looks right is refused.
+    expect((await forged.get(`${origin}/api/conversations`)).status()).toBe(401);
+  } finally {
+    await anonymous.dispose();
+    await forged.dispose();
   }
-  await page.goto(`${origin}/login`);
-  await page.getByPlaceholder("邮箱", { exact: true }).fill(email);
-  await page.getByPlaceholder("密码", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(page.getByRole("alert").filter({ hasText: "登录失败" })).toContainText("秒后可重试");
-  const limited = await request.post(`${origin}/api/auth/login`, { data: { email, password } });
-  expect(limited.status()).toBe(429);
-  expect(Number(limited.headers()["retry-after"])).toBeGreaterThan(0);
 });

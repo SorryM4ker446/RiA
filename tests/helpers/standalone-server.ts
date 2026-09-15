@@ -5,6 +5,8 @@ import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
+import { TEST_ACCESS_TOKEN } from "./workspace-entry";
+
 
 type ProviderCall = { stream: boolean; messages: Array<{ role: string; content: unknown }> };
 
@@ -20,9 +22,14 @@ export async function startStandaloneServer(options: { modelFixture?: boolean } 
   });
   const port = (listener.address() as { port: number }).port;
   await new Promise<void>((resolve, reject) => listener.close((error) => error ? reject(error) : resolve()));
-  const origin = `http://127.0.0.1:${port}`;
+  // The service is bound to 127.0.0.1 but reached as `localhost`, because that
+  // is the origin the application resolves for its own requests. A cookie stored
+  // for one name is never sent to the other, so the whole harness must agree.
+  const origin = `http://localhost:${port}`;
   const env: NodeJS.ProcessEnv = {
-    ...process.env, NODE_ENV: "production", NODE_OPTIONS: "", APP_RUNTIME: "test", AUTH_DISABLED: "0", APP_ORIGIN: "",
+    ...process.env, NODE_ENV: "production", NODE_OPTIONS: "", APP_RUNTIME: "test", APP_ORIGIN: "",
+    // The harness must present the same credential the page will use.
+    LOCAL_ACCESS_TOKEN: TEST_ACCESS_TOKEN,
     HOSTNAME: "127.0.0.1", PORT: String(port), LOCAL_DATABASE_FILE: database,
     DATABASE_URL: `file:${database.replaceAll("\\", "/")}`, MEDIA_DIRECTORY: join(root, "media"), LEGACY_VIDEO_DIRECTORY: join(root, "legacy-videos"),
     OPENROUTER_API_KEY: options.modelFixture ? "offline-fixture-placeholder" : "", TAVILY_API_KEY: "", TAVILY_SEARCH_URL: "",
@@ -74,13 +81,6 @@ export async function startStandaloneServer(options: { modelFixture?: boolean } 
       try {
         sqlite.exec("PRAGMA busy_timeout=5000");
         return sqlite.prepare(sql).all(...parameters);
-      } finally { sqlite.close(); }
-    },
-    expireSessions() {
-      const sqlite = new DatabaseSync(database);
-      try {
-        sqlite.exec("PRAGMA busy_timeout=5000");
-        sqlite.prepare("UPDATE sessions SET expiresAt = 0").run();
       } finally { sqlite.close(); }
     },
   };

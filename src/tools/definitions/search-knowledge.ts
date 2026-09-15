@@ -47,12 +47,11 @@ const builtinKnowledgeBase = [
 ];
 
 export async function searchKnowledge(
-  userId: string,
   input: SearchKnowledgeInput,
 ): Promise<SearchKnowledgeOutput> {
   const query = input.query.trim();
   const topK = input.topK ?? 4;
-  const { queryTokens, candidates } = await getMemorySearchCandidates(userId, query, KNOWLEDGE_MEMORY_POLICY);
+  const { queryTokens, candidates } = await getMemorySearchCandidates(query, KNOWLEDGE_MEMORY_POLICY);
   const memoryResults: SearchKnowledgeItem[] = candidates.map(({ memory: row, relevance }) => ({
     id: row.id, title: row.key, snippet: row.value, source: "memory", score: relevance,
   }));
@@ -65,7 +64,7 @@ export async function searchKnowledge(
     score: keywordScore(queryTokens, `${item.title} ${item.content}`),
   }));
 
-  const documentResults: SearchKnowledgeItem[] = (await searchDocuments(userId, query, topK)).map(item => ({ id: item.chunkId, title: item.filename, snippet: item.snippet, source: "document", score: item.score, reference: documentSourceSchema.parse(item) }));
+  const documentResults: SearchKnowledgeItem[] = (await searchDocuments(query, topK)).map(item => ({ id: item.chunkId, title: item.filename, snippet: item.snippet, source: "document", score: item.score, reference: documentSourceSchema.parse(item) }));
   const ranked = rankByScore([...documentResults, ...memoryResults, ...builtinResults], (item) => item.score, topK)
     .map((item) => ({
       ...item,

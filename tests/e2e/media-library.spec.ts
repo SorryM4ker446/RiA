@@ -1,4 +1,5 @@
 import { test as base, expect, type Page } from "@playwright/test";
+import { NO_CREDENTIAL_STATE, localHostOrigin, openWorkspace } from "../helpers/workspace-entry";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { startStandaloneServer } from "../helpers/standalone-server";
@@ -8,11 +9,8 @@ const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>
   app: async ({}, runTest) => { const app = await startStandaloneServer({ modelFixture: true }); try { await runTest(app); } finally { await app.close(); } },
 });
 async function register(page: Page, origin: string) {
-  await page.goto(`${origin}/register`);
-  await page.getByPlaceholder("邮箱", { exact: true }).fill(`${randomUUID()}@example.invalid`);
-  await page.getByPlaceholder("密码（至少 8 位）").fill(randomUUID());
-  await page.getByRole("button", { name: "注册并登录" }).click();
-  await expect(page).toHaveURL(`${origin}/chat`);
+  // The workspace has no login: the run's access cookie is already active.
+  await openWorkspace(page, origin);
 }
 async function upload(page: Page, count = 1): Promise<Array<{ assetId: string; url: string; mediaType: string }>> {
   return page.evaluate(async count => {
@@ -78,7 +76,7 @@ test("media library shows real generation provenance, confirms regeneration and 
   await expect(page.getByText("媒体来源会话", { exact: true }).first()).toBeVisible();
 });
 
-test("video library filters and generation options survive HTTP regeneration while quotas and ownership remain enforced", { tag: "@integration" }, async ({ page, browser, app }, info) => {
+test("video library filters and generation options survive HTTP regeneration while quotas and credentials remain enforced", { tag: "@integration" }, async ({ page, browser, app }, info) => {
   await register(page, app.origin);
   const first = await browserApi(page, "/api/video", "POST", { prompt: "离线视频", aspectRatio: "9:16", duration: 5, fps: 24 });
   expect(first.status).toBe(200);
@@ -95,12 +93,14 @@ test("video library filters and generation options survive HTTP regeneration whi
   for (let i = 0; i < 2; i++) expect((await browserApi(page, `/api/media/${id}/regenerate`, "POST", { confirm: true })).status).toBe(201);
   expect((await browserApi(page, `/api/media/${id}/regenerate`, "POST", { confirm: true })).status).toBe(429);
   expect(app.providerCalls).toHaveLength(3);
-  const other = await browser.newContext();
+  // A browser that never obtained the credential reaches no stored asset.
+  const other = await browser.newContext({ storageState: NO_CREDENTIAL_STATE });
   try {
-    expect((await other.request.get(`${app.origin}/api/media/library`)).status()).toBe(401);
-    const stranger = await other.newPage(); await register(stranger, app.origin);
-    for (const suffix of ["details", "regenerate"]) expect((await browserApi(stranger, `/api/media/${id}/${suffix}`, suffix === "regenerate" ? "POST" : "GET", suffix === "regenerate" ? { confirm: true } : undefined)).status).toBe(404);
-    expect((await browserData(stranger, "/api/media/library"))).toEqual([]);
+    const base = localHostOrigin(app.origin);
+    expect((await other.request.get(`${base}/api/media/library`)).status()).toBe(401);
+    const stranger = await other.newPage(); await stranger.goto(`${base}/chat`);
+    for (const suffix of ["details", "regenerate"]) expect((await browserApi(stranger, `${base}/api/media/${id}/${suffix}`, suffix === "regenerate" ? "POST" : "GET", suffix === "regenerate" ? { confirm: true } : undefined)).status).toBe(401);
+    expect((await browserApi(stranger, `${base}/api/media/library`)).status).toBe(401);
   } finally { await other.close(); }
 });
 
@@ -132,7 +132,7 @@ test("media pagination and confirmed deletion preserve referenced inputs and upd
   await expect(page.getByRole("button", { name: "清理未使用媒体" })).toBeDisabled();
 });
 
-test("media errors, forged requests and expired sessions never trigger unintended generation", { tag: "@integration" }, async ({ page, app }) => {
+test("media errors, forged requests and a missing credential never trigger unintended generation", { tag: "@integration" }, async ({ page, app }) => {
   await register(page, app.origin);
   const [input] = await upload(page);
   await library(page, app.origin); const detail = await inspect(page, input.assetId);
@@ -140,11 +140,15 @@ test("media errors, forged requests and expired sessions never trigger unintende
   expect((await browserApi(page, `/api/media/${input.assetId}/regenerate`, "POST", { confirm: true })).status).toBe(409);
   expect((await browserApi(page, "/api/media/library?type=image&type=video")).status).toBe(400);
   const cookie = (await page.context().cookies()).map(value => `${value.name}=${value.value}`).join("; ");
-  const denied = await fetch(`${app.origin}/api/media/${input.assetId}/regenerate`, { method: "POST", headers: { cookie, origin: "https://outside.invalid", "content-type": "application/json" }, body: JSON.stringify({ confirm: true }) });
+  const denied = await fetch(`${localHostOrigin(app.origin)}/api/media/${input.assetId}/regenerate`, { method: "POST", headers: { cookie, origin: "https://outside.invalid", "content-type": "application/json" }, body: JSON.stringify({ confirm: true }) });
   expect(denied.status).toBe(403);
-  app.expireSessions();
+  // Dropping the credential stops the download, and there is no login page to
+  // fall back to: the workspace reports the refusal instead of redirecting.
+  await page.context().clearCookies();
   await detail.getByRole("button", { name: "下载原文件" }).click();
-  await expect(page.locator("main").getByRole("alert")).toContainText("重新登录");
+  await expect(page.locator("main").getByRole("alert")).toContainText("本地访问凭证已失效");
   expect(app.providerCalls).toHaveLength(0);
-  await page.reload(); await expect(page).toHaveURL(`${app.origin}/login`);
+  // A reload without the credential keeps the workspace route and never falls
+  // back to a login page, because there is none.
+  await page.reload(); await expect(page).toHaveURL(`${app.origin}/media`);
 });

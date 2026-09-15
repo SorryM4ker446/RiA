@@ -14,7 +14,7 @@ The manager loads 30 conversations at a time. Pinning, archiving and new message
 
 ## Text exports
 
-Each conversation offers **导出 Markdown** and **导出 JSON**. Downloads include all messages in chronological order, status, organization fields, retained document citation excerpts, and owned private-media references. They do not include raw tool inputs/outputs, approval tokens, local media paths, provider settings or media bytes. Markdown renders message bodies as literal fenced text to keep untrusted message markup inactive. JSON uses `formatVersion: 1`.
+Each conversation offers **导出 Markdown** and **导出 JSON**. Downloads include all messages in chronological order, status, organization fields, retained document citation excerpts, and private-media references. They do not include raw tool inputs/outputs, approval tokens, local media paths, provider settings or media bytes. Markdown renders message bodies as literal fenced text to keep untrusted message markup inactive. JSON uses `formatVersion: 1`.
 
 Exports are text snapshots, not restorable backups. Private references such as `/api/media/:id` still require the original application and authorized user; they are not portable public download links. Unavailable or legacy embedded media is omitted and marked. Export does not migrate legacy media or modify messages. Message text and citation excerpts may themselves contain information supplied by the user or model; exports are **not** a secret-redaction service. Treat downloaded files as private, even though configuration credentials are not collected.
 
@@ -29,10 +29,10 @@ All operations require normal ownership/session and desktop Host/Cookie checks. 
 | `GET /api/conversations` | Optional `q`, `tag`, `state=active\|archived\|all`, `limit=1..100` and opaque `cursor`; defaults to active, 30 rows; returns `data` and `pageInfo` |
 | `GET /api/conversations/:id` | Summary with `pinned`, `archived`, `tags`, timestamps and `messageCount` |
 | `PATCH /api/conversations/:id` | At least one of `title`, boolean `pinned`, boolean `archived`, or string-array `tags`; returns updated `data`; title keeps the existing 60-character display truncation |
-| `POST /api/conversations/bulk-delete` | `{ "ids": ["owned-id"], "confirm": true }`; 1–50 unique IDs, 16 KiB body; returns `data.deletedCount` |
+| `POST /api/conversations/bulk-delete` | `{ "ids": ["chat-id"], "confirm": true }`; 1–50 unique IDs, 16 KiB body; returns `data.deletedCount` |
 | `GET /api/conversations/:id/export?format=markdown` | `markdown` (default) or `json`; attachment response with safe filename, `Cache-Control: no-store` and `X-Content-Type-Options: nosniff` |
 
-Unknown/duplicate query parameters and invalid fields return the shared error envelope. Search, export and bulk-delete have separate per-user quotas of 30, 6 and 10 requests per minute. Default list reads are not charged as searches. Cursor scope includes user, query, tag and archive state. Refresh after upgrading from older cursors or changing filters; never reuse one across scopes.
+Unknown/duplicate query parameters and invalid fields return the shared error envelope. Search, export and bulk-delete have separate per-instance quotas of 30, 6 and 10 requests per minute. Default list reads are not charged as searches. Cursor scope includes user, query, tag and archive state. Refresh after upgrading from older cursors or changing filters; never reuse one across scopes.
 
 ## SQLite migration and maintenance
 

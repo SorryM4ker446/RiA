@@ -16,9 +16,9 @@ export const bulkDeleteSchema = z.strictObject({
   confirm: z.literal(true),
 });
 
-export async function updateConversation(userId: string, id: string, input: z.infer<typeof updateConversationSchema>) {
+export async function updateConversation(id: string, input: z.infer<typeof updateConversationSchema>) {
   return db.$transaction(async tx => {
-    if (!await tx.chat.findFirst({ where: { id, userId }, select: { id: true } })) throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
+    if (!await tx.chat.findFirst({ where: { id }, select: { id: true } })) throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
     const chat = await tx.chat.update({ where: { id }, data: {
       ...(input.title !== undefined ? { title: truncateTitle(input.title) } : {}),
       ...(input.pinned !== undefined ? { pinned: input.pinned } : {}),
@@ -29,12 +29,12 @@ export async function updateConversation(userId: string, id: string, input: z.in
   });
 }
 
-export async function deleteConversations(userId: string, ids: string[]) {
+export async function deleteConversations(ids: string[]) {
   return db.$transaction(async tx => {
-    const count = await tx.chat.count({ where: { userId, id: { in: ids } } });
+    const count = await tx.chat.count({ where: { id: { in: ids } } });
     if (count !== ids.length) throw new ApiError({ code: "NOT_FOUND", message: "One or more conversations are unavailable; no conversations were deleted" });
     // Preserve shared assets and give newly unreferenced files the normal cleanup grace period.
-    await tx.mediaAsset.updateMany({ where: { userId, references: { some: { message: { chatId: { in: ids } } } } }, data: { lastUsedAt: new Date() } });
-    return (await tx.chat.deleteMany({ where: { userId, id: { in: ids } } })).count;
+    await tx.mediaAsset.updateMany({ where: { references: { some: { message: { chatId: { in: ids } } } } }, data: { lastUsedAt: new Date() } });
+    return (await tx.chat.deleteMany({ where: { id: { in: ids } } })).count;
   });
 }

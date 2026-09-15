@@ -3,13 +3,14 @@ import { randomUUID } from "node:crypto";
 import { after, beforeEach, test } from "node:test";
 import { NextRequest } from "next/server";
 import { createTestDatabase } from "../helpers/database.mjs";
+import { localAccessCookie } from "../helpers/local-access.mjs";
 import { languageModel, providerState } from "../helpers/model-provider.mjs";
 
 const cleanup = createTestDatabase();
 process.env.PRIVATE_AI_TEST_PROVIDER = "1";
 
 const { db } = await import("@/db");
-const { createSession } = await import("@/lib/auth/session");
+
 const { saveMemory } = await import("@/lib/memory/store");
 const { getRegenerationSnapshot, saveRegeneratedResponse, saveChatMessage } = await import("@/lib/chat/store");
 const { ApiError } = await import("@/lib/server/api-error");
@@ -24,10 +25,6 @@ const messageRoute = await import("@/app/api/conversations/[id]/messages/[messag
 const taskRoute = await import("@/app/api/tasks/[id]/route");
 const knowledge = await import("@/app/api/knowledge/route");
 const knowledgeEntry = await import("@/app/api/knowledge/[id]/route");
-const register = await import("@/app/api/auth/register/route");
-const login = await import("@/app/api/auth/login/route");
-const logout = await import("@/app/api/auth/logout/route");
-const me = await import("@/app/api/auth/me/route");
 
 function request(path, method = "GET", body, cookie) {
   return new NextRequest(`http://localhost${path}`, {
@@ -48,8 +45,15 @@ beforeEach(async (t) => {
   process.env.OPENROUTER_API_KEY = "";
   providerState.streamError = false;
   providerState.streamGate = undefined;
-  user = await db.user.create({ data: { email: `${randomUUID()}@example.invalid` } });
-  cookie = `app_session=${await createSession(user.id)}`;
+  cookie = localAccessCookie();
+  // One workspace means one shared database, so each test starts from empty.
+  await db.message.deleteMany({});
+  await db.chat.deleteMany({});
+  await db.memory.deleteMany({});
+  await db.task.deleteMany({});
+  await db.knowledgeDocument.deleteMany({});
+  await db.mediaAsset.deleteMany({});
+  await db.modelRequest.deleteMany({});
 });
 after(async () => { await db.$disconnect(); cleanup(); });
 
@@ -61,26 +65,23 @@ test("chat authenticates before exposing configuration or parsing a body", async
   assert.equal(JSON.stringify(payload).includes("OPENROUTER"), false);
 });
 
-test("registration, login and logout use real persisted sessions", async () => {
-  const credentials = { email: `${randomUUID()}@example.invalid`, password: randomUUID() };
-  const created = await register.POST(request("/api/auth/register", "POST", credentials));
-  assert.equal(created.status, 201);
-  const registered = (await created.json()).data;
-  const stored = await db.user.findUnique({ where: { id: registered.id } });
-  assert.notEqual(stored.passwordHash, credentials.password);
-  const signedIn = await login.POST(request("/api/auth/login", "POST", credentials));
-  assert.equal(signedIn.status, 200);
-  const sessionCookie = signedIn.headers.get("set-cookie").split(";")[0];
-  assert.equal((await me.GET(request("/api/auth/me", "GET", undefined, sessionCookie))).status, 200);
-  await logout.POST(request("/api/auth/logout", "POST", {}, sessionCookie));
-  assert.equal((await me.GET(request("/api/auth/me", "GET", undefined, sessionCookie))).status, 401);
+test("local workspace access is required before any business route responds", async () => {
+  const models = await import("@/app/api/models/route");
+  for (const response of [
+    await chat.POST(new NextRequest("http://localhost/api/chat", { method: "POST", body: "invalid-json" })),
+    await models.GET(new NextRequest("http://localhost/api/models")),
+    await conversations.GET(new NextRequest("http://localhost/api/conversations")),
+  ]) {
+    assert.equal(response.status, 401);
+    assert.equal((await response.json()).error.code, "UNAUTHORIZED");
+  }
 });
 
 test("manual task execution persists data and emits one success log", async () => {
   const response = await tools.POST(request("/api/tools/run", "POST", { tool: "createTask", mode: "chat", input: { title: "Integration task" } }, cookie));
   assert.equal(response.status, 200);
   const payload = await response.json();
-  assert.equal((await db.task.findUnique({ where: { id: payload.data.taskId } })).userId, user.id);
+  assert.ok(await db.task.findUnique({ where: { id: payload.data.taskId } }));
   const logs = console.info.mock.calls.filter((call) => call.arguments[0] === "tool.execution");
   assert.deepEqual(logs.map((call) => call.arguments[1].state), ["output-available"]);
 });
@@ -90,7 +91,7 @@ for (const code of ["TIMEOUT", "UPSTREAM_FAILED"]) {
     t.mock.method(getToolDescriptor("createTask"), "execute", async () => { throw new ApiError({ code, message: "Simulated failure" }); });
     const response = await tools.POST(request("/api/tools/run", "POST", { tool: "createTask", mode: "chat", input: { title: "Must not exist" } }, cookie));
     assert.equal(response.status, code === "TIMEOUT" ? 504 : 502);
-    assert.equal(await db.task.count({ where: { userId: user.id } }), 0);
+    assert.equal(await db.task.count({ where: {} }), 0);
     const logs = console.info.mock.calls.filter((call) => call.arguments[0] === "tool.execution");
     assert.equal(logs.length, 1);
     assert.equal(logs[0].arguments[1].state, "output-error");
@@ -111,35 +112,34 @@ test("conversation, message, task and knowledge APIs enforce user ownership", as
   const savedMessage = await messages.POST(request("/api/messages", "POST", { role: "user", content: "Private text", clientMessageId: "client-1" }, cookie), context(ownedChat.id));
   assert.equal(savedMessage.status, 201);
   const row = (await savedMessage.json()).data;
-  const task = await db.task.create({ data: { userId: user.id, title: "Private task" } });
+  const task = await db.task.create({ data: { title: "Private task" } });
   const entry = await knowledge.POST(request("/api/knowledge", "POST", { key: "Private", value: "Private fact" }, cookie));
   const entryId = (await entry.json()).data.id;
-  const other = await db.user.create({ data: { email: `${randomUUID()}@example.invalid` } });
-  const otherCookie = `app_session=${await createSession(other.id)}`;
-  assert.equal((await conversation.GET(request("/api/conversations", "GET", undefined, otherCookie), context(ownedChat.id))).status, 404);
-  assert.equal((await conversation.DELETE(request("/api/conversations", "DELETE", undefined, otherCookie), context(ownedChat.id))).status, 404);
-  assert.equal((await messageRoute.PATCH(request("/api/messages", "PATCH", { content: "stolen" }, otherCookie), context(ownedChat.id, row.id))).status, 404);
-  assert.equal((await taskRoute.DELETE(request("/api/tasks", "DELETE", undefined, otherCookie), context(task.id))).status, 404);
-  assert.equal((await knowledgeEntry.DELETE(request("/api/knowledge", "DELETE", undefined, otherCookie), context(entryId))).status, 404);
+  // The local workspace credential is the only access boundary left: a request
+  // without it must not reach any of these resources.
+  assert.equal((await conversation.GET(request("/api/conversations", "GET", undefined, ""), context(ownedChat.id))).status, 401);
+  assert.equal((await messageRoute.PATCH(request("/api/messages", "PATCH", { content: "stolen" }, ""), context(ownedChat.id, row.id))).status, 401);
+  assert.equal((await taskRoute.DELETE(request("/api/tasks", "DELETE", undefined, ""), context(task.id))).status, 401);
+  assert.equal((await knowledgeEntry.DELETE(request("/api/knowledge", "DELETE", undefined, ""), context(entryId))).status, 401);
   process.env.OPENROUTER_API_KEY = "test-provider-placeholder";
-  const forbidden = await chat.POST(request("/api/chat", "POST", { chatId: ownedChat.id, messages: [uiMessage("x", "user", "hello")] }, otherCookie));
-  assert.equal(forbidden.status, 404);
+  const forbidden = await chat.POST(request("/api/chat", "POST", { chatId: ownedChat.id, messages: [uiMessage("x", "user", "hello")] }, ""));
+  assert.equal(forbidden.status, 401);
   assert.equal(await db.message.count({ where: { chatId: ownedChat.id } }), 1);
 });
 
 test("concurrent memory saves share one row and clear stale embeddings", async () => {
-  const results = await Promise.allSettled(Array.from({ length: 8 }, (_, index) => saveMemory({ userId: user.id, key: "preference", value: `value ${index}`, score: 0.9 })));
+  const results = await Promise.allSettled(Array.from({ length: 8 }, (_, index) => saveMemory({ key: "preference", value: `value ${index}`, score: 0.9 })));
   // A failed write must not leave the remaining writes running into the next test.
   for (const result of results) if (result.status === "rejected") throw result.reason;
-  assert.equal(await db.memory.count({ where: { userId: user.id, key: "preference" } }), 1);
-  await db.memory.update({ where: { userId_key: { userId: user.id, key: "preference" } }, data: { embedding: [1, 2] } });
-  const updated = await saveMemory({ userId: user.id, key: "preference", value: "updated without embeddings" });
+  assert.equal(await db.memory.count({ where: { key: "preference" } }), 1);
+  await db.memory.update({ where: { key: "preference" }, data: { embedding: [1, 2] } });
+  const updated = await saveMemory({ key: "preference", value: "updated without embeddings" });
   assert.equal(updated.embedding, null);
   assert.equal(updated.score, 0.9);
 });
 
 test("assistant persistence updates the approval row instead of duplicating it", async () => {
-  const owned = await db.chat.create({ data: { userId: user.id, title: "Approval" } });
+  const owned = await db.chat.create({ data: { title: "Approval" } });
   const pending = await saveChatMessage({ chatId: owned.id, role: "assistant", content: "Pending", clientMessageId: "approval-response" });
   const completed = await saveChatMessage({ chatId: owned.id, role: "assistant", content: "Completed", clientMessageId: "approval-response", updateExisting: true });
   assert.equal(completed.id, pending.id);
@@ -148,7 +148,7 @@ test("assistant persistence updates the approval row instead of duplicating it",
 });
 
 async function seedConversation() {
-  const owned = await db.chat.create({ data: { userId: user.id, title: "Regeneration" } });
+  const owned = await db.chat.create({ data: { title: "Regeneration" } });
   await saveChatMessage({ chatId: owned.id, role: "user", content: "Original question", clientMessageId: "u1" });
   await saveChatMessage({ chatId: owned.id, role: "assistant", content: "Original answer", clientMessageId: "a1" });
   return owned;
@@ -192,7 +192,7 @@ test("successful regeneration replaces old history only after the stream finishe
 
 test("regeneration rejects concurrent edits without deleting any messages", async () => {
   const owned = await seedConversation();
-  const snapshot = await getRegenerationSnapshot(user.id, owned.id, "u1");
+  const snapshot = await getRegenerationSnapshot(owned.id, "u1");
   await saveChatMessage({ chatId: owned.id, role: "user", content: "Concurrent follow-up", clientMessageId: "u2" });
   await assert.rejects(saveRegeneratedResponse({ snapshot, userMessageId: "u1", clientMessageId: "replacement", content: "Replacement" }), (error) => error.code === "CONFLICT");
   assert.equal(await db.message.count({ where: { chatId: owned.id } }), 3);
@@ -216,7 +216,7 @@ for (const approved of [true, false]) {
     const response = await chat.POST(request("/api/chat", "POST", payload, cookie));
     assert.equal(response.status, 200);
     await response.text();
-    assert.equal(await db.task.count({ where: { userId: user.id } }), approved ? 1 : 0);
+    assert.equal(await db.task.count({ where: {} }), approved ? 1 : 0);
     const rows = await db.message.findMany({ where: { chatId: owned.id } });
     assert.equal(rows.length, 3);
     assert.ok(rows.some((row) => row.content === "Original answer"));
@@ -225,7 +225,7 @@ for (const approved of [true, false]) {
     assert.equal(persisted.tools[0].approval.approved, approved);
     const replay = await chat.POST(request("/api/chat", "POST", payload, cookie));
     assert.equal(replay.status, 409);
-    assert.equal(await db.task.count({ where: { userId: user.id } }), approved ? 1 : 0);
+    assert.equal(await db.task.count({ where: {} }), approved ? 1 : 0);
   });
 }
 
@@ -236,5 +236,5 @@ test("approval rejects changed tool arguments without executing the task", async
   process.env.OPENROUTER_API_KEY = "test-provider-placeholder";
   const response = await chat.POST(request("/api/chat", "POST", { chatId: owned.id, messages: [uiMessage("u1", "user", "Original question"), { id: "pending-1", role: "assistant", parts: [{ type: "tool-createTask", toolCallId: "call-1", state: "approval-responded", input: { title: "Tampered" }, approval: { id: "approval-1", approved: true } }] }] }, cookie));
   assert.equal(response.status, 400);
-  assert.equal(await db.task.count({ where: { userId: user.id } }), 0);
+  assert.equal(await db.task.count({ where: {} }), 0);
 });

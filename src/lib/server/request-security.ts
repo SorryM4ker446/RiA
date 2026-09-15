@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { ApiError } from "@/lib/server/api-error";
+import { assertLocalAccess } from "@/lib/server/local-access";
 
 function forbidden(message: string): never {
   throw new ApiError({ code: "FORBIDDEN", message });
@@ -30,13 +31,21 @@ export function assertRequestSecurity(request: NextRequest) {
     }
     if (host !== origin.host) forbidden("Request host is not allowed.");
     expectedOrigin = origin.origin;
+    if (url.pathname !== "/api/health" && url.pathname !== "/api/local-access") assertLocalAccess(request);
   } else {
-    // Local default also prevents DNS rebinding when demo authentication is enabled.
+    // Local default also prevents DNS rebinding: a page reached through another
+    // name cannot address this service.
     let hostUrl: URL;
     try { hostUrl = new URL(`${url.protocol}//${host}`); }
     catch { forbidden("Invalid request host."); }
     if (hostUrl.host !== host || !["localhost", "127.0.0.1", "[::1]"].includes(hostUrl.hostname)) forbidden("Configure APP_ORIGIN to use a non-loopback host.");
     expectedOrigin = hostUrl.origin;
+    // With no account system, the local access credential is what separates
+    // this application from any other page running in the same browser. The
+    // entry point that issues that credential authenticates itself with a
+    // one-time handshake code instead.
+    const issuesAccess = url.pathname === "/api/local-access";
+    if (url.pathname !== "/api/health" && !issuesAccess) assertLocalAccess(request);
   }
 
   if (["GET", "HEAD", "OPTIONS"].includes(request.method)) return;
