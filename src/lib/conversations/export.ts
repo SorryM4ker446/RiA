@@ -36,9 +36,9 @@ function heading(value: string) {
   return value.replace(/[\r\n]/g, " ").replace(/[\\`*_{}[\]()#+.!|<>]/g, "\\$&");
 }
 
-export async function exportConversation(userId: string, id: string, format: "json" | "markdown") {
+export async function exportConversation(id: string, format: "json" | "markdown") {
   const snapshot = await db.$transaction(async tx => {
-    const chat = await tx.chat.findFirst({ where: { id, userId }, include: { tags: { orderBy: { label: "asc" } } } });
+    const chat = await tx.chat.findFirst({ where: { id }, include: { tags: { orderBy: { label: "asc" } } } });
     if (!chat) throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
     const [size] = await tx.$queryRaw<Array<{ count: bigint; bytes: bigint }>>`
       SELECT count(*) AS count,coalesce(sum(length(cast(content AS blob))),0) AS bytes FROM messages WHERE chatId=${id}`;
@@ -47,7 +47,7 @@ export async function exportConversation(userId: string, id: string, format: "js
     }
     const messages = await tx.message.findMany({
       where: { chatId: id }, orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      include: { media: { where: { asset: { userId, deletedAt: null } }, include: { asset: { select: { id: true, mediaType: true, byteSize: true } } } } },
+      include: { media: { where: { asset: { deletedAt: null } }, include: { asset: { select: { id: true, mediaType: true, byteSize: true } } } } },
     });
     return {
       formatVersion: 1, exportedAt: new Date().toISOString(),

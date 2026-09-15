@@ -2,7 +2,7 @@ import { protectDataOperation } from "@/lib/server/data-operations";
 import { readJsonBody } from "@/lib/server/request-body";
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { requireRequestUser } from "@/lib/auth/request-user";
+import { requireLocalWorkspace } from "@/lib/local/workspace";
 import { createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { getRelevantMemories, saveMemory } from "@/lib/memory/store";
 
@@ -16,7 +16,7 @@ const querySchema = z.strictObject({ query: z.string().trim().max(2000).default(
 
 async function GETHandler(req: NextRequest) {
   try {
-    const user = await requireRequestUser(req);
+    await requireLocalWorkspace(req);
     const { query, limit } = querySchema.parse({ query: req.nextUrl.searchParams.get("query") ?? undefined, limit: req.nextUrl.searchParams.get("limit") ?? undefined });
 
     if (!query) {
@@ -24,7 +24,6 @@ async function GETHandler(req: NextRequest) {
     }
 
     const memories = await getRelevantMemories({
-      userId: user.id,
       query,
       limit,
     });
@@ -38,7 +37,7 @@ async function GETHandler(req: NextRequest) {
 
 async function POSTHandler(req: NextRequest) {
   try {
-    const user = await requireRequestUser(req);
+    await requireLocalWorkspace(req);
     const parsed = saveMemorySchema.safeParse(await readJsonBody(req));
 
     if (!parsed.success) {
@@ -46,7 +45,6 @@ async function POSTHandler(req: NextRequest) {
     }
 
     const memory = await saveMemory({
-      userId: user.id,
       key: parsed.data.key,
       value: parsed.data.value,
       score: parsed.data.score,

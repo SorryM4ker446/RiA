@@ -1,6 +1,6 @@
 # Model settings and usage
 
-Open **模型与用量** from the chat sidebar or Settings. Browser and Electron share the same per-account SQLite preferences. Choose the default mode and a default model for chat, images and videos. Explicitly created new conversations use those defaults; existing conversations retain their local controls. Requests that omit `modelId` use the saved default for that mode.
+Open **模型与用量** from the chat sidebar or Settings. Browser and Electron share the same local SQLite preferences. Choose the default mode and a default model for chat, images and videos. Explicitly created new conversations use those defaults; existing conversations retain their local controls. Requests that omit `modelId` use the saved default for that mode.
 
 The catalog remains a maintained local list, not a live provider capability probe. Stored models missing from it and recent provider HTTP 404 responses appear as warnings. Generation does not silently replace a removed saved default. Choose an available model and save the settings. Catalog maintenance and provider snapshot checks are described in [Model catalog maintenance](model-catalog.md).
 
@@ -16,7 +16,7 @@ Image/video fallback retains the request's prompt/options and requires a catalog
 
 Each observed model attempt records its actual model ID, mode, result, duration, tokens when supplied, error code and fallback flag. It stores no new copy of prompts, keys or provider error bodies. Calls for chat context, intent/planning and embeddings are included when they run inside an authenticated application request. HTTP validation/configuration failures before reaching a model do not create model-attempt records. Duration measures the model attempt rather than the entire HTTP request.
 
-The page shows the latest 100 calls and totals over the last 30 days. New recorded attempts opportunistically remove records older than 90 days and retain at most 5,000 per account. No calls means no usage-retention maintenance. Backups preserve the currently retained history.
+The page shows the latest 100 calls and totals over the last 30 days. New recorded attempts opportunistically remove records older than 90 days and retain at most 5,000 records. No calls means no usage-retention maintenance. Backups preserve the currently retained history.
 
 Cost values have three explicit sources:
 
@@ -28,8 +28,8 @@ The known-cost total omits unknown costs and shows the number of unknown attempt
 
 ## Local API and configuration
 
-`GET /api/models` returns `{ data, catalogs, unavailable, recentFailures }`. `PUT /api/models` accepts a complete strict preference object within 64 KiB and returns `{ data }`. Model IDs must exist in the corresponding catalog, fallback must be different from primary, and prices must be finite nonnegative numbers (maximum 1,000,000) or null. At most 100 model rate entries are accepted. `GET /api/usage` returns `{ data: { recent, totals, days } }`; it cannot query another user. Responses are private/no-store and follow the normal API security checks.
+`GET /api/models` returns `{ data, catalogs, unavailable, recentFailures }`. `PUT /api/models` accepts a complete strict preference object within 64 KiB and returns `{ data }`. Model IDs must exist in the corresponding catalog, fallback must be different from primary, and prices must be finite nonnegative numbers (maximum 1,000,000) or null. At most 100 model rate entries are accepted. `GET /api/usage` returns `{ data: { recent, totals, days } }`; it cannot query outside the local workspace. Responses are private/no-store and follow the normal API security checks.
 
 Preferences include `version: 1`, `defaultMode`, three `{ modelId, fallbackId }` mode objects, `rates`, `backupRetentionDays` and `backupMaxCount`. Read the latest object before replacing it. Rates contain `inputPerMillion`, `outputPerMillion` and `perRequest`; null means unspecified. The UI presents rates for selected generation models; an embedding model's rate can also be set through this API.
 
-No new environment variable, API key, external service or dependency is required. Existing `OPENROUTER_API_KEY`, optional `EMBEDDING_MODEL_ID` and desktop encrypted key handling remain unchanged. Settings and usage tables are included in normal Prisma/Electron migrations and [account backups](account-backups.md).
+No new environment variable, API key, external service or dependency is required. Existing `OPENROUTER_API_KEY`, optional `EMBEDDING_MODEL_ID` and desktop encrypted key handling remain unchanged. Settings and usage tables are included in normal Prisma/Electron migrations and [workspace backups](workspace-backups.md).

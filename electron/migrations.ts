@@ -12,6 +12,14 @@ function listMigrationNames(migrationsDirectory: string): string[] {
     .sort();
 }
 
+/** Highest migration applied, so a caller can report exactly what this run did. */
+function highestAppliedMigration(database: DatabaseSync): string | null {
+  const row = database
+    .prepare('SELECT "name" FROM "desktop_migrations" ORDER BY "name" DESC LIMIT 1')
+    .get() as MigrationRecord | undefined;
+  return row?.name ?? null;
+}
+
 function tableExists(database: DatabaseSync, tableName: string): boolean {
   const row = database
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
@@ -38,14 +46,48 @@ function createBackup(databaseFile: string, backupsDirectory: string): string | 
   return backupFile;
 }
 
+/**
+ * SQLite ignores `PRAGMA foreign_keys` inside a transaction, so a migration
+ * that rebuilds tables has to be applied with enforcement disabled around the
+ * transaction and checked again afterwards. Dropping "users" or "chats" while
+ * enforcement is on would cascade and delete the user's content.
+ */
+function applyMigrationSql(database: DatabaseSync, sql: string, migrationName: string) {
+  database.exec("PRAGMA foreign_keys = OFF;");
+  database.exec("BEGIN IMMEDIATE;");
+  try {
+    database.exec(sql);
+    // The ledger row is part of the same transaction, so a failure can never
+    // mark an incomplete migration as applied.
+    database.prepare('INSERT INTO "desktop_migrations" ("name") VALUES (?)').run(migrationName);
+    database.exec("COMMIT;");
+  } catch (error) {
+    database.exec("ROLLBACK;");
+    throw error;
+  } finally {
+    database.exec("PRAGMA foreign_keys = ON;");
+  }
+
+  for (const violation of database.prepare("PRAGMA foreign_key_check").all()) {
+    throw new Error(`Migration left a foreign key violation: ${JSON.stringify(violation)}`);
+  }
+}
+
 export function runDesktopMigrations(input: {
   databaseFile: string;
   migrationsDirectory: string;
   backupsDirectory: string;
   logger: DesktopLogger;
+  /**
+   * Highest migration name to apply. Upgrade flows leave this open so every
+   * pending migration runs; tests use it to exercise one migration range.
+   */
+  upToMigration?: string;
 }): { applied: string[]; backupFile: string | null } {
   mkdirSync(dirname(input.databaseFile), { recursive: true });
-  const migrationNames = listMigrationNames(input.migrationsDirectory);
+  const migrationNames = listMigrationNames(input.migrationsDirectory).filter(
+    (name) => !input.upToMigration || name <= input.upToMigration,
+  );
   const database = new DatabaseSync(input.databaseFile);
   let backupFile: string | null = null;
   const applied: string[] = [];
@@ -81,15 +123,7 @@ export function runDesktopMigrations(input: {
       }
 
       const sql = readFileSync(join(input.migrationsDirectory, migrationName, "migration.sql"), "utf8");
-      database.exec("BEGIN IMMEDIATE;");
-      try {
-        database.exec(sql);
-        database.prepare('INSERT INTO "desktop_migrations" ("name") VALUES (?)').run(migrationName);
-        database.exec("COMMIT;");
-      } catch (error) {
-        database.exec("ROLLBACK;");
-        throw error;
-      }
+      applyMigrationSql(database, sql, migrationName);
 
       known.add(migrationName);
       applied.push(migrationName);

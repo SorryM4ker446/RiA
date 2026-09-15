@@ -23,7 +23,7 @@ Document data lives in the existing SQLite database, not `public/` or a new file
 | PDF pages | 200 |
 | Chunks | 256 per document; at most 1,000 code units with 100-character overlap within long paragraphs |
 | Documents | 100 per user |
-| Import and reindex | Shared per-user quota of 6 attempts/minute |
+| Import and reindex | Shared local instance quota of 6 attempts/minute |
 | Parsing | At most two workers per service; 15-second deadline; 128 MiB old-generation JS heap per worker |
 | Word archive | 500 non-directory entries; at most 12 MiB of actual decompressed data |
 
@@ -31,15 +31,15 @@ Workers receive no inherited environment variables, use buffer input and have `f
 
 Scanned/image-only PDFs need OCR before import. Encrypted PDFs, legacy `.doc`, macro-enabled Word, arbitrary binary text and malformed files are rejected. No OCR, original-file download, table-layout preservation, automatic background parsing or semantic document embeddings are provided. Complex layouts/fonts may extract imperfectly; inspect the source page before relying on them.
 
-Document search uses the shared Chinese word segmentation, Unicode normalization and stop words, then a SQLite inverted index. Up to 16 query terms select 200 candidates across all owned documents. Coverage, exact phrase and filename matches determine ranking, with stable ties and at most two chunks per document. It is lexical retrieval; synonyms and facts beyond retrieved chunks may be missed.
+Document search uses the shared Chinese word segmentation, Unicode normalization and stop words, then a SQLite inverted index. Up to 16 query terms select 200 candidates across all indexed documents. Coverage, exact phrase and filename matches determine ranking, with stable ties and at most two chunks per document. It is lexical retrieval; synonyms and facts beyond retrieved chunks may be missed.
 
 ## API and validation
 
 | Endpoint | Contract |
 | --- | --- |
-| `GET /api/documents` | Current user's bounded document summaries; no query parameters |
+| `GET /api/documents` | Bounded document summaries; no query parameters |
 | `POST /api/documents` | Multipart `file`; returns `data.document`, `change`, `added`, `retained`, `removed`; HTTP 201 for creation, 200 for updates/unchanged content |
-| `GET /api/documents/:id` | Owned summary and extracted chunks; no raw original file |
+| `GET /api/documents/:id` | Document summary and extracted chunks; no raw original file |
 | `POST /api/documents/:id` | Reindex saved text; empty body or `{}` |
 | `DELETE /api/documents/:id` | Delete saved document and index; empty body or `{}` |
 | `POST /api/documents/search` | JSON `{ "query": "search terms" }`, 1–2,000 characters; up to six source snippets; shares the tool request quota |

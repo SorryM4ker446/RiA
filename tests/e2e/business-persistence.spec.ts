@@ -1,4 +1,5 @@
 import { test as base, expect, type Page } from "@playwright/test";
+import { NO_CREDENTIAL_STATE, openWorkspace } from "../helpers/workspace-entry";
 import { randomUUID } from "node:crypto";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { browserApi, browserData } from "../helpers/browser-api";
@@ -11,11 +12,8 @@ const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>
 });
 
 async function register(page: Page, origin: string) {
-  await page.goto(`${origin}/register`);
-  await page.getByPlaceholder("邮箱", { exact: true }).fill(`${randomUUID()}@example.invalid`);
-  await page.getByPlaceholder("密码（至少 8 位）").fill(randomUUID());
-  await page.getByRole("button", { name: "注册并登录" }).click();
-  await expect(page).toHaveURL(`${origin}/chat`);
+  // The workspace has no login: the run's access cookie is already active.
+  await openWorkspace(page, origin);
 }
 
 test("streamed chat, follow-up context and edited regeneration survive a service restart", { tag: "@integration" }, async ({ page, browser, app }) => {
@@ -59,15 +57,16 @@ test("streamed chat, follow-up context and edited regeneration survive a service
   await page.reload();
   await expect(page.getByText("离线回答：修改后的问题", { exact: true })).toBeVisible();
   await expect(page.getByText("离线回答：第一轮问题", { exact: true })).toHaveCount(0);
-  expect((await browserApi(page, `${app.origin}/api/auth/me`)).status).toBe(200);
-  const stranger = await browser.newContext();
+  expect((await browserApi(page, `${app.origin}/api/conversations`)).status).toBe(200);
+  const stranger = await browser.newContext({ storageState: NO_CREDENTIAL_STATE });
   try {
+    // Without the local credential no request reaches the stored workspace.
     expect((await stranger.request.get(historyURL)).status()).toBe(401);
     const otherPage = await stranger.newPage();
-    await register(otherPage, app.origin);
-    expect((await browserApi(otherPage, historyURL)).status).toBe(404);
-    expect((await browserApi(otherPage, `${app.origin}/api/conversations/${chatId}`, "DELETE")).status).toBe(404);
-    expect(await browserData(otherPage, `${app.origin}/api/conversations`)).toEqual([]);
+    await otherPage.goto(`${app.origin}/chat`);
+    expect((await browserApi(otherPage, historyURL)).status).toBe(401);
+    expect((await browserApi(otherPage, `${app.origin}/api/conversations/${chatId}`, "DELETE")).status).toBe(401);
+    expect((await browserApi(otherPage, `${app.origin}/api/conversations`)).status).toBe(401);
   } finally { await stranger.close(); }
   expect((await history()).length).toBe(2);
 });
@@ -118,16 +117,19 @@ test("manual tasks and knowledge use real APIs, persist across restart and remai
   await expect(taskPanel.getByText("已完成", { exact: true }).first()).toBeVisible();
   await expect(page.getByText(/工具详情：searchKnowledge/)).toBeVisible();
 
-  const stranger = await browser.newContext();
+  const stranger = await browser.newContext({ storageState: NO_CREDENTIAL_STATE });
   try {
-    const otherPage = await stranger.newPage();
-    await register(otherPage, app.origin);
+    // The workspace is local, so it is the credential — not a second account —
+    // that decides whether a request is served at all.
     for (const path of ["tasks", "knowledge"]) {
-      expect(await browserData(otherPage, `${app.origin}/api/${path}`)).toEqual([]);
+      expect((await stranger.request.get(`${app.origin}/api/${path}`)).status()).toBe(401);
     }
-    expect((await browserApi(otherPage, `${app.origin}/api/tasks/${task.id}`, "PATCH", { status: "todo" })).status).toBe(404);
-    expect((await browserApi(otherPage, `${app.origin}/api/knowledge/${entry.id}`, "DELETE")).status).toBe(404);
+    expect((await stranger.request.patch(`${app.origin}/api/tasks/${task.id}`, { data: { status: "todo" } })).status()).toBe(401);
+    expect((await stranger.request.delete(`${app.origin}/api/knowledge/${entry.id}`)).status()).toBe(401);
   } finally { await stranger.close(); }
+  // The refused calls changed nothing.
+  expect(app.readRows("SELECT status FROM tasks WHERE id = ?", task.id)).toEqual([{ status: "done" }]);
+  expect(app.readRows("SELECT id FROM memories WHERE id = ?", entry.id)).toHaveLength(1);
   await page.getByLabel("删除任务 浏览器持久化任务").click();
   await expect.poll(() => app.readRows("SELECT id FROM tasks WHERE id = ?", task.id).length).toBe(0);
   await page.getByRole("link", { name: /知识库/ }).click();

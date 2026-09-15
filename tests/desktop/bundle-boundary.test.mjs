@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +13,12 @@ function fixture(script, check) {
   try {
     mkdirSync(join(root, "scripts"));
     copyFileSync(join(repositoryRoot, "scripts", script), join(root, "scripts", script));
+    // The script may import neighbouring helpers, so the fixture carries every
+    // local module from the scripts directory.
+    for (const entry of readdirSync(join(repositoryRoot, "scripts"), { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".mjs") || entry.name === script) continue;
+      copyFileSync(join(repositoryRoot, "scripts", entry.name), join(root, "scripts", entry.name));
+    }
     mkdirSync(join(root, ".next", "standalone"), { recursive: true });
     writeFileSync(join(root, ".next", "standalone", "server.js"), "");
     mkdirSync(join(root, ".desktop-runtime"));

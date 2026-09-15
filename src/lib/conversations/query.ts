@@ -15,10 +15,10 @@ const querySchema = z.strictObject({
   cursor: z.string().min(1).max(1500).regex(/^[A-Za-z0-9_-]+$/).optional(),
 });
 
-export function readConversationQuery(userId: string, params: URLSearchParams) {
+export function readConversationQuery(params: URLSearchParams) {
   for (const key of new Set(params.keys())) if (params.getAll(key).length !== 1) throw new ApiError({ code: "VALIDATION_ERROR", message: "Duplicate query parameter" });
   const input = querySchema.parse(Object.fromEntries(params));
-  const scope = createHash("sha256").update(JSON.stringify([userId, input.q, input.tag ?? "", input.state])).digest("hex");
+  const scope = createHash("sha256").update(JSON.stringify([input.q, input.tag ?? "", input.state])).digest("hex");
   let cursor: z.infer<typeof cursorSchema> | undefined;
   if (input.cursor) {
     try {
@@ -46,12 +46,12 @@ function searchCondition(query: string) {
   return Prisma.sql`AND (
     c.id IN (SELECT s.id FROM chat_title_search s WHERE ${titleMatch})
     OR c.id IN (SELECT m.chatId FROM messages m JOIN message_text_search s ON s.id=m.id
-      JOIN chats owned ON owned.id=m.chatId WHERE owned.userId=c.userId AND ${messageMatch})
+      WHERE ${messageMatch})
   )`;
 }
 
-export async function listConversations(userId: string, params: URLSearchParams) {
-  const options = readConversationQuery(userId, params);
+export async function listConversations(params: URLSearchParams) {
+  const options = readConversationQuery(params);
   const cursor = options.cursor;
   const state = options.state === "all" ? Prisma.empty : Prisma.sql`AND c.archived=${options.state === "archived"}`;
   const tags = options.tag ? Prisma.sql`AND EXISTS (SELECT 1 FROM chat_tags t WHERE t.chatId=c.id AND t.label=${options.tag})` : Prisma.empty;
@@ -59,10 +59,10 @@ export async function listConversations(userId: string, params: URLSearchParams)
     (c.lastMessageAt < ${new Date(cursor.date)} OR (c.lastMessageAt=${new Date(cursor.date)} AND c.id < ${cursor.id}))))` : Prisma.empty;
   return db.$transaction(async tx => {
   const ids = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    SELECT c.id FROM chats c WHERE c.userId=${userId} ${state} ${tags} ${boundary}
+    SELECT c.id FROM chats c WHERE 1=1 ${state} ${tags} ${boundary}
     ${options.q ? searchCondition(options.q) : Prisma.empty}
     ORDER BY c.pinned DESC,c.lastMessageAt DESC,c.id DESC LIMIT ${options.limit + 1}`);
-  const rows = await tx.chat.findMany({ where: { id: { in: ids.map(row => row.id) }, userId }, include: { tags: { orderBy: { label: "asc" } }, _count: { select: { messages: true } } } });
+  const rows = await tx.chat.findMany({ where: { id: { in: ids.map(row => row.id) } }, include: { tags: { orderBy: { label: "asc" } }, _count: { select: { messages: true } } } });
   const byId = new Map(rows.map(row => [row.id, row]));
   const ordered = ids.flatMap(row => { const chat = byId.get(row.id); return chat ? [chat] : []; });
   const data = ordered.slice(0, options.limit).map(conversationSummary);

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { TaskStatus } from "@prisma/client";
 import { db } from "@/db";
 import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
-import { requireRequestUser } from "@/lib/auth/request-user";
+import { requireLocalWorkspace } from "@/lib/local/workspace";
 
 const taskListQuerySchema = z.object({
   status: z.enum(["todo", "in_progress", "done"]).optional(),
@@ -13,7 +13,7 @@ const taskListQuerySchema = z.object({
 
 async function GETHandler(req: NextRequest) {
   try {
-    const user = await requireRequestUser(req);
+    await requireLocalWorkspace(req);
     const parsed = taskListQuerySchema.safeParse({
       status: req.nextUrl.searchParams.get("status") ?? undefined,
       limit: req.nextUrl.searchParams.get("limit") ?? undefined,
@@ -29,7 +29,6 @@ async function GETHandler(req: NextRequest) {
 
     const tasks = await db.task.findMany({
       where: {
-        userId: user.id,
         ...(parsed.data.status ? { status: parsed.data.status as TaskStatus } : {}),
       },
       orderBy: [{ createdAt: "desc" }],

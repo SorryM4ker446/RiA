@@ -36,6 +36,10 @@ pnpm-debug.log*
 .env.*
 !.env.example
 
+# local access credential and its diagnostics: never commit these
+.local-access-token
+access-diagnostic.log
+
 # editor / os
 .vscode/
 .idea/

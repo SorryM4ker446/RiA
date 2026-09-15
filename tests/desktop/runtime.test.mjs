@@ -7,6 +7,8 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 
+import { removeTempDirectoryQuietly } from "../helpers/temp-directory.mjs";
+
 const require = createRequire(import.meta.url);
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const { resolveDesktopPaths, toSqliteUrl } = require("../../electron-dist/paths.js");
@@ -27,7 +29,7 @@ test("desktop paths keep packaged data under Electron userData", () => {
     assert.equal(paths.runtimeDirectory, join(root, "resources", ".desktop-runtime"));
     assert.equal(toSqliteUrl(paths.databaseFile), `file:${paths.databaseFile.replaceAll("\\", "/")}`);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -46,11 +48,15 @@ test("desktop migrations initialize SQLite once and preserve data", () => {
       .filter((entry) => entry.isDirectory()).length;
     assert.equal(first.applied.length, migrationCount);
 
+    // The workspace is account-free after initialization.
     const database = new DatabaseSync(databaseFile);
-    database.prepare('INSERT INTO "users" ("id", "email", "updatedAt") VALUES (?, ?, ?)').run(
-      "desktop-test-user",
-      "desktop-test@example.invalid",
-      new Date().toISOString(),
+    const userTables = database
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('users','sessions')")
+      .all();
+    assert.deepEqual(userTables, []);
+    database.prepare('INSERT INTO "chats" ("id", "title", "updatedAt") VALUES (?, ?, CURRENT_TIMESTAMP)').run(
+      "desktop-test-chat",
+      "Desktop persistence check",
     );
     database.close();
 
@@ -63,12 +69,14 @@ test("desktop migrations initialize SQLite once and preserve data", () => {
     assert.deepEqual(second.applied, []);
 
     const reopened = new DatabaseSync(databaseFile);
-    const row = reopened.prepare('SELECT "email" FROM "users" WHERE "id" = ?').get("desktop-test-user");
+    const row = reopened.prepare('SELECT "title" FROM "chats" WHERE "id" = ?').get("desktop-test-chat");
+    const columns = reopened.prepare('PRAGMA table_info("chats")').all().map((column) => column.name);
     reopened.close();
-    assert.equal(row.email, "desktop-test@example.invalid");
+    assert.equal(row.title, "Desktop persistence check");
+    assert.equal(columns.includes("userId"), false);
     assert.equal(existsSync(databaseFile), true);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -89,7 +97,7 @@ test("changing the installation path retains media and database paths in existin
     assert.deepEqual(readFileSync(newPaths.databaseFile), previousDatabase);
   } finally {
     if (resolve(dirname(root)) !== resolve(tmpdir())) throw new Error("Unexpected test directory");
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -118,19 +126,23 @@ test("memory uniqueness migration preserves duplicates, resolves key collisions 
     assert.ok(result.backupFile && existsSync(result.backupFile));
     const upgraded = new DatabaseSync(databaseFile);
     try {
+      // Only the adopted account is carried into the workspace, so the second
+      // account's memory is not part of the upgraded database.
       const rows = upgraded.prepare('SELECT "id", "key", "value" FROM "memories" ORDER BY "id"').all();
-      assert.equal(rows.length, 4);
+      assert.equal(rows.length, 3);
       assert.equal(rows.find((row) => row.id === "old").key, "preference [duplicate:old]_");
       assert.equal(rows.find((row) => row.id === "old").value, "older value");
       assert.equal(rows.find((row) => row.id === "new").key, "preference");
-      assert.equal(rows.find((row) => row.id === "other").key, "preference");
-      assert.throws(() => upgraded.prepare('INSERT INTO "memories" ("id", "userId", "key", "value", "updatedAt") VALUES (?, ?, ?, ?, ?)')
-        .run("duplicate", "one", "preference", "must fail", "2026-08-30T00:00:00Z"), /UNIQUE constraint/);
+      assert.equal(rows.some((row) => row.id === "other"), false);
+      const columns = upgraded.prepare('PRAGMA table_info("memories")').all().map((column) => column.name);
+      assert.equal(columns.includes("userId"), false);
+      assert.throws(() => upgraded.prepare('INSERT INTO "memories" ("id", "key", "value", "updatedAt") VALUES (?, ?, ?, ?)')
+        .run("duplicate", "preference", "must fail", "2026-08-30T00:00:00Z"), /UNIQUE constraint/);
     } finally {
       upgraded.close();
     }
   } finally {
     if (resolve(dirname(root)) !== resolve(tmpdir())) throw new Error("Unexpected test directory");
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });

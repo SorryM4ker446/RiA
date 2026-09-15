@@ -2,17 +2,16 @@ import { protectDataOperation } from "@/lib/server/data-operations";
 import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
-import { requireRequestUser } from "@/lib/auth/request-user";
+import { requireLocalWorkspace } from "@/lib/local/workspace";
 
 type Params = {
   params: Promise<{ id: string }>;
 };
 
-async function getScopedKnowledgeEntry(userId: string, id: string) {
+async function getScopedKnowledgeEntry(id: string) {
   return db.memory.findFirst({
     where: {
       id,
-      userId,
       NOT: [{ key: { startsWith: "tool:" } }],
     },
   });
@@ -20,9 +19,9 @@ async function getScopedKnowledgeEntry(userId: string, id: string) {
 
 async function DELETEHandler(req: NextRequest, context: Params) {
   try {
-    const user = await requireRequestUser(req);
+    await requireLocalWorkspace(req);
     const { id } = await context.params;
-    const existing = await getScopedKnowledgeEntry(user.id, id);
+    const existing = await getScopedKnowledgeEntry(id);
 
     if (!existing) {
       throw new ApiError({

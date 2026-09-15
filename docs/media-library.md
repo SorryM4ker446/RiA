@@ -1,6 +1,6 @@
 # Media library
 
-Open **媒体资源库** in the conversation sidebar, or follow its link from **存储管理**. The browser and Electron use the same `/media` page and private media APIs. The library shows uploaded images and generated images/videos owned by the current user.
+Open **媒体资源库** in the conversation sidebar, or follow its link from **存储管理**. The browser and Electron use the same `/media` page and private media APIs. The library shows stored uploaded images and generated images/videos.
 
 ## Browse and inspect
 
@@ -12,7 +12,7 @@ Details include file size, MIME type, creation time, model, prompt, recorded gen
 
 ## Generate again
 
-New generation results store a versioned recipe: resolved model ID, normalized prompt, ordered owned reference-image IDs, and video aspect ratio plus optional duration/FPS. Quantity remains one. An optional owned `chatId`, supplied by the chat UI, records the source independently of message references. If the source conversation is deleted, the file and recipe remain, without a source pointer.
+New generation results store a versioned recipe: resolved model ID, normalized prompt, ordered reference-image IDs, and video aspect ratio plus optional duration/FPS. Quantity remains one. An optional `chatId`, supplied by the chat UI, records the source independently of message references. If the source conversation is deleted, the file and recipe remain, without a source pointer.
 
 **重新生成** opens a confirmation that warns about another model call and possible fees. Confirming reuses the stored recipe through the normal image/video generation service, including its input validation, configuration checks and quota. A successful request creates a separate file in the library. It does not replace the original file, alter chat history or append a chat message. Failed requests retain the original resource and references.
 
@@ -33,10 +33,10 @@ Requests are not idempotent. If a response is lost after a successful generation
 | Request | Contract |
 | --- | --- |
 | `GET /api/media/library` | `{ data, pageInfo: { nextCursor, hasMore } }`; `type=all/image/video`, `kind=all/attachment/generated-image/generated-video`, `usage=all/referenced/unused`, `limit=1..100` (default 24), optional `cursor` |
-| `GET /api/media/:id/details` | `{ data }` with safe file metadata, recipe or null, owned source/associated conversations, message and generation reference counts, dependent result IDs and `regenerationUnavailable` reason or null |
+| `GET /api/media/:id/details` | `{ data }` with safe file metadata, recipe or null, source/associated conversations, message and generation reference counts, dependent result IDs and `regenerationUnavailable` reason or null |
 | `POST /api/media/:id/regenerate` | Strict JSON `{ "confirm": true }`, at most 16 KiB; HTTP 201 `{ modelId, asset }` on success |
 
-Cursors are scoped to the current user and exact filters. Unknown or duplicate query parameters, malformed cursors and invalid limits return 400. Lists/details do not expose filesystem paths or configuration secrets. Asset URLs still require authentication. Cross-user asset IDs return 404; invalid sessions, origin checks and quotas use the [standard API error contract](api-security.md).
+Cursors are scoped to the exact filters. Unknown or duplicate query parameters, malformed cursors and invalid limits return 400. Lists/details do not expose filesystem paths or configuration secrets. Asset URLs still require the local access credential. Unknown asset IDs return 404; a missing credential, origin checks and quotas use the [standard API error contract](api-security.md).
 
 Regeneration attempts have a user quota of six per minute. Once a valid recipe is resolved, calls also consume the existing shared image quota (six per minute) or video quota (three per minute). Moving between chat generation and library regeneration does not bypass those quotas. Existing attachment/output size limits and desktop Cookie/Host checks remain unchanged.
 

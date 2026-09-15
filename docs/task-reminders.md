@@ -14,7 +14,7 @@ The original task's completion and its successor are written in one SQLite trans
 
 ## Desktop delivery and limits
 
-The Electron main process checks on startup, every 30 seconds and after system resume. It pauses polling while the local service restarts and waits for an in-flight check before shutdown. Only the current user's enabled, unfinished, due tasks are eligible. Each check claims at most 10 tasks, oldest first, through the authenticated local service. A backlog can take several checks. Clicking a notification focuses the existing window without discarding the active conversation or draft.
+The Electron main process checks on startup, every 30 seconds and after system resume. It pauses polling while the local service restarts and waits for an in-flight check before shutdown. Only enabled, unfinished, due tasks are eligible. Each check claims at most 10 tasks, oldest first, through the authenticated local service. A backlog can take several checks. Clicking a notification focuses the existing window without discarding the active conversation or draft.
 
 This requires the desktop application to be running. Closing all windows exits the application and stops its service; there is no tray process, Windows scheduled task, cloud scheduler or notification while powered off. On the next launch, unclaimed overdue tasks are checked. A browser-only session shows deadlines and saves settings but does not send operating-system notifications.
 
@@ -33,7 +33,7 @@ The notification contains the task title and deadline, which may appear on the l
 | `reminderEnabled` | Boolean, default false; requires a deadline |
 | `repeatRule` | `none`, `daily`, `weekly`, `monthly`; default `none`; repetition requires a deadline |
 
-Updates merge with the stored schedule before validation. A zone-only API update preserves the existing instant; send both `dueDate` and `timeZone` to reinterpret wall time. Other task fields retain their existing contracts. Invalid calendars, time zones, rules, booleans and unknown fields return `400 VALIDATION_ERROR` with no partial update. Server-owned `remindedAt`, `repeatAnchor` and `repeatGenerated` are read-only. The PATCH response adds `nextTask` (the created successor or null) alongside the existing `data` task. Clients should merge the successor by ID into their task list.
+Updates merge with the stored schedule before validation. A zone-only API update preserves the existing instant; send both `dueDate` and `timeZone` to reinterpret wall time. Other task fields retain their existing contracts. Invalid calendars, time zones, rules, booleans and unknown fields return `400 VALIDATION_ERROR` with no partial update. Server-managed `remindedAt`, `repeatAnchor` and `repeatGenerated` are read-only. The PATCH response adds `nextTask` (the created successor or null) alongside the existing `data` task. Clients should merge the successor by ID into their task list.
 
 The settings form displays minutes, but saving reminder options without editing the displayed date/time or zone preserves the original instant, including seconds, milliseconds and the selected side of a DST clock rollback.
 
@@ -43,6 +43,6 @@ No extra environment variable, API key, external service or dependency is requir
 
 ## Verification boundary
 
-Server tests cover calendars/DST, monthly anchors, invalid and unauthorized updates, atomic rollback, concurrent completion/claiming, reconnects, quotas and expired sessions. Browser integration tests use real HTTP and isolated SQLite with network access denied at the model boundary. Desktop tests exercise migration/backups, polling and a native-notification adapter double. Electron smoke uses its real main process, Cookie boundary, local service, task API and restart flow, with an isolated fixture and a recording notification sink to avoid displaying notifications during automation.
+Server tests cover calendars/DST, monthly anchors, invalid updates and missing-credential refusals, atomic rollback, concurrent completion/claiming, reconnects, quotas and a missing credential. Browser integration tests use real HTTP and isolated SQLite with network access denied at the model boundary. Desktop tests exercise migration/backups, polling and a native-notification adapter double. Electron smoke uses its real main process, Cookie boundary, local service, task API and restart flow, with an isolated fixture and a recording notification sink to avoid displaying notifications during automation.
 
 Automated checks establish dispatch behavior, not Windows notification-center/lock-screen delivery. Installed-application notification display, Focus Assist, physical sleep/wake, installer upgrade/uninstall/reinstall and other operating systems require separate manual release validation. No installer is needed for the local unit, browser or runtime smoke checks.

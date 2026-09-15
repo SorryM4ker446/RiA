@@ -1,16 +1,10 @@
-import { db } from "@/db";
 import { exclusiveDataOperation } from "@/lib/server/data-operations";
 import { pruneAccountBackups } from "@/lib/backups/archive";
 const shared = globalThis as typeof globalThis & { backupMaintenanceTimer?: ReturnType<typeof setInterval> };
 export async function maintainBackups() {
+  // One workspace, so retention is a single pass.
   await exclusiveDataOperation(async () => {
-    let cursor: string | undefined;
-    for (;;) {
-      const users = await db.user.findMany({ orderBy: { id: "asc" }, take: 100, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}), select: { id: true } });
-      for (const user of users) await pruneAccountBackups(user.id);
-      if (users.length < 100) break;
-      cursor = users.at(-1)!.id;
-    }
+    await pruneAccountBackups();
   });
 }
 export function startBackupMaintenance() {

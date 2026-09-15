@@ -1,11 +1,12 @@
 import { protectDataOperation } from "@/lib/server/data-operations";
+import { LOCAL_WORKSPACE_ID } from "@/lib/local/workspace";
 import { chatModelSchema } from "@/lib/server/request-schemas";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { readJsonBody } from "@/lib/server/request-body";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { ApiError, normalizeApiError, createApiErrorResponse } from "@/lib/server/api-error";
-import { requireRequestUser } from "@/lib/auth/request-user";
+import { requireLocalWorkspace } from "@/lib/local/workspace";
 import { logToolExecution } from "@/lib/server/tool-log";
 import { assertToolConfiguration, getToolDescriptor, isToolSupportedInMode, type ToolMode } from "@/tools/catalog";
 import { persistToolMemory } from "@/tools/memory-policy";
@@ -21,12 +22,12 @@ const runToolSchema = z.strictObject({
 
 async function POSTHandler(req: NextRequest) {
   const startedAt = Date.now();
-  let logContext: { toolId: string; userId: string; requestId?: string } | null = null;
+  let logContext: { toolId: string; requestId?: string } | null = null;
   let succeeded = false;
 
   try {
-    const user = await requireRequestUser(req);
-    enforceRateLimit("tools", user.id);
+    await requireLocalWorkspace(req);
+    enforceRateLimit("tools");
     const parsed = runToolSchema.safeParse(await readJsonBody(req));
 
     if (!parsed.success) {
@@ -39,7 +40,7 @@ async function POSTHandler(req: NextRequest) {
 
     const toolId = parsed.data.tool.trim();
     const mode = parsed.data.mode as ToolMode;
-    logContext = { toolId, userId: user.id };
+    logContext = { toolId };
 
     const descriptor = getToolDescriptor(toolId);
     if (!descriptor) {
@@ -75,7 +76,7 @@ async function POSTHandler(req: NextRequest) {
     assertToolConfiguration(toolId);
     const preparedInput = descriptor.prepareInput
       ? await descriptor.prepareInput({
-          userId: user.id,
+          workspaceId: LOCAL_WORKSPACE_ID,
           input: parsedInput.data,
           modelId: parsed.data.modelId,
           trigger: "manual",
@@ -91,7 +92,7 @@ async function POSTHandler(req: NextRequest) {
     }
 
     const data = await descriptor.execute({
-      userId: user.id,
+      workspaceId: LOCAL_WORKSPACE_ID,
       input: preparedParsedInput.data,
       modelId: parsed.data.modelId,
       trigger: "manual",
@@ -100,7 +101,7 @@ async function POSTHandler(req: NextRequest) {
       data && typeof data === "object" && "requestId" in data && typeof data.requestId === "string"
         ? data.requestId
         : undefined;
-    logContext = { toolId, userId: user.id, requestId };
+    logContext = { toolId, requestId };
 
     const assistantText = (
       await descriptor.buildAssistantText({
@@ -113,7 +114,7 @@ async function POSTHandler(req: NextRequest) {
 
     try {
       const memoryResult = await persistToolMemory({
-        userId: user.id,
+        workspaceId: LOCAL_WORKSPACE_ID,
         toolId,
         trigger: "manual",
         state: "output-available",
@@ -150,7 +151,6 @@ async function POSTHandler(req: NextRequest) {
         trigger: "manual",
         state: "output-error",
         durationMs: Date.now() - startedAt,
-        userId: logContext.userId,
         requestId: logContext.requestId,
         errorCode: error instanceof ApiError ? error.code : "INTERNAL_ERROR",
       });
@@ -163,7 +163,6 @@ async function POSTHandler(req: NextRequest) {
         trigger: "manual",
         state: "output-available",
         durationMs: Date.now() - startedAt,
-        userId: logContext.userId,
         requestId: logContext.requestId,
       });
     }

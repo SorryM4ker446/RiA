@@ -4,14 +4,12 @@ import { Prisma } from "@prisma/client";
 import { CONTEXT_MEMORY_POLICY, getMemorySearchCandidates, rankByScore } from "@/lib/memory/retrieval";
 
 export type SaveMemoryInput = {
-  userId: string;
   key: string;
   value: string;
   score?: number;
 };
 
 export type GetRelevantMemoriesInput = {
-  userId: string;
   query: string;
   limit?: number;
 };
@@ -28,7 +26,7 @@ export async function saveMemory(input: SaveMemoryInput) {
   const embedding = await embedText(`${normalizedKey} ${normalizedValue}`);
 
   return db.memory.upsert({
-    where: { userId_key: { userId: input.userId, key: normalizedKey } },
+    where: { key: normalizedKey },
     update: {
       value: normalizedValue,
       ...(input.score !== undefined ? { score: input.score } : {}),
@@ -36,7 +34,6 @@ export async function saveMemory(input: SaveMemoryInput) {
       embedding: embedding ?? Prisma.DbNull,
     },
     create: {
-      userId: input.userId,
       key: normalizedKey,
       value: normalizedValue,
       score: input.score ?? 0.5,
@@ -50,7 +47,7 @@ export async function getRelevantMemories(input: GetRelevantMemoriesInput) {
   if (!query) return [];
 
   const limit = input.limit ?? 5;
-  const { candidates } = await getMemorySearchCandidates(input.userId, query, CONTEXT_MEMORY_POLICY);
+  const { candidates } = await getMemorySearchCandidates(query, CONTEXT_MEMORY_POLICY);
   return rankByScore(candidates, (item) => item.relevance, limit).map(({ memory }) => ({
     id: memory.id, key: memory.key, value: memory.value, score: memory.score, updatedAt: memory.updatedAt,
   }));

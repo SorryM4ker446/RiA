@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { requireRequestUser } from "@/lib/auth/request-user";
+import { currentWorkspaceId, requireLocalWorkspace } from "@/lib/local/workspace";
 import { createApiErrorResponse } from "@/lib/server/api-error";
 import { readJsonBody } from "@/lib/server/request-body";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
@@ -9,13 +9,13 @@ import { availableModel, catalogs, modelModes } from "@/lib/models/preferences-s
 import { db } from "@/db";
 export const GET = protectDataOperation(async (req: NextRequest) => {
   try {
-    const user = await requireRequestUser(req), settings = await getModelPreferences(user.id);
+    await requireLocalWorkspace(req); const settings = await getModelPreferences();
     const unavailable = modelModes.flatMap(mode => [settings[mode].modelId, settings[mode].fallbackId].filter(id => id && !availableModel(mode, id)).map(id => ({ mode, modelId: id, reason: "不在当前模型目录中" })));
-    const recentFailures = await db.modelRequest.findMany({ where: { userId: user.id, errorCode: "MODEL_UNAVAILABLE", createdAt: { gte: new Date(Date.now() - 30 * 86_400_000) } }, orderBy: { createdAt: "desc" }, take: 20, select: { modelId: true, mode: true, createdAt: true } });
+    const recentFailures = await db.modelRequest.findMany({ where: { errorCode: "MODEL_UNAVAILABLE", createdAt: { gte: new Date(Date.now() - 30 * 86_400_000) } }, orderBy: { createdAt: "desc" }, take: 20, select: { modelId: true, mode: true, createdAt: true } });
     return Response.json({ data: settings, catalogs, unavailable, recentFailures }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) { return createApiErrorResponse(error, "读取模型设置失败。"); }
 });
 export const PUT = protectDataOperation(async (req: NextRequest) => {
-  try { const user = await requireRequestUser(req); enforceRateLimit("modelSettings", user.id); return Response.json({ data: await saveModelPreferences(user.id, await readJsonBody(req, 64 * 1024)) }, { headers: { "Cache-Control": "no-store" } }); }
+  try { await requireLocalWorkspace(req); enforceRateLimit("modelSettings"); return Response.json({ data: await saveModelPreferences(await readJsonBody(req, 64 * 1024)) }, { headers: { "Cache-Control": "no-store" } }); }
   catch (error) { return createApiErrorResponse(error, "保存模型设置失败。"); }
 });

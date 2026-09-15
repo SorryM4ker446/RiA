@@ -102,7 +102,7 @@ export default function ConversationsPage() {
       {chats.map(chat => <ConversationRow key={chat.id} chat={chat} selected={selected.includes(chat.id)} disabled={disabled} selectionFull={selected.length >= 50}
         select={() => setSelected(previous => previous.includes(chat.id) ? previous.filter(id => id !== chat.id) : [...previous, chat.id])}
         open={() => open(chat)} update={value => update(chat, value)}
-        download={format => { void act(async () => { await conversationsApi.download(chat.id, format); setNotice("导出已交给下载管理器。文件仅含文本及需要登录的资源引用，请妥善保存。"); }); }} />)}
+        download={format => { void act(async () => { await conversationsApi.download(chat.id, format); setNotice("导出已交给下载管理器。文件仅含文本及需要本地访问凭证的资源引用，请妥善保存。"); }); }} />)}
       {!chats.length && !loading && !error && <p className="rounded-xl border border-dashed p-8 text-center text-muted-foreground">没有符合条件的会话。</p>}
       {loading && <p role="status" className="text-sm text-muted-foreground">正在加载会话…</p>}
     </div>

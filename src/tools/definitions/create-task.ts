@@ -28,12 +28,11 @@ export type CreateTaskOutput = {
   createdAt: string;
 };
 
-export async function createTask(userId: string, input: CreateTaskInput): Promise<CreateTaskOutput> {
+export async function createTask(input: CreateTaskInput): Promise<CreateTaskOutput> {
   const schedule = resolveTaskSchedule(input);
 
   const task = await db.task.create({
     data: {
-      userId,
       title: input.title.trim(),
       details: input.details?.trim() || null,
       ...schedule,

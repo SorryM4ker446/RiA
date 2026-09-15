@@ -8,6 +8,7 @@ import { ApiError } from "@/lib/server/api-error";
 import { MEDIA_LIMITS } from "@/lib/media/limits";
 import { ASSET_ID_PATTERN, mediaUrl, type MediaReference } from "@/lib/media/message-codec";
 import { generationRecipeSchema, type GenerationRecipe } from "@/lib/media/generation-recipe";
+import { LOCAL_WORKSPACE_ID } from "@/lib/local/workspace";
 
 const extensions: Record<string, string> = {
   "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif",
@@ -27,21 +28,26 @@ export function getMediaDirectory(): string {
   return join(dirname(databaseFile), "media");
 }
 
-export function mediaOwnerDirectory(userId: string): string {
-  return createHash("sha256").update(userId).digest("hex");
+/**
+ * Every file belongs to the one local workspace. The workspace id still names
+ * the directory the files live in, because those directories already exist on
+ * disk and must not move.
+ */
+export function mediaOwnerDirectory(workspaceId: string): string {
+  return createHash("sha256").update(workspaceId).digest("hex");
 }
 
 function pathError() { return new ApiError({ code: "NOT_FOUND", message: "Media file is unavailable" }); }
 function isMissing(error: unknown) { return (error as NodeJS.ErrnoException)?.code === "ENOENT"; }
 
-async function safeOwnerDirectory(userId: string, create: boolean) {
+async function safeOwnerDirectory(workspaceId: string, create: boolean) {
   const root = getMediaDirectory();
   if (create) await mkdir(root, { recursive: true });
   const rootStat = await lstat(root);
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw pathError();
   // Runtime user data is not a build input and must never enter standalone output.
   const canonicalRoot = await realpath(/* turbopackIgnore: true */ root);
-  const directory = join(canonicalRoot, mediaOwnerDirectory(userId));
+  const directory = join(canonicalRoot, mediaOwnerDirectory(workspaceId));
   if (create) await mkdir(directory, { recursive: true });
   const directoryStat = await lstat(directory);
   if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) throw pathError();
@@ -49,9 +55,9 @@ async function safeOwnerDirectory(userId: string, create: boolean) {
   return directory;
 }
 
-function assertRelativePath(asset: Pick<MediaAsset, "id" | "userId" | "mediaType" | "relativePath">) {
+function assertRelativePath(asset: Pick<MediaAsset, "id" | "mediaType" | "relativePath">) {
   if (!ASSET_ID_PATTERN.test(asset.id) || !extensions[asset.mediaType] ||
-      asset.relativePath !== `${mediaOwnerDirectory(asset.userId)}/${asset.id}.${extensions[asset.mediaType]}`) throw pathError();
+      asset.relativePath !== `${mediaOwnerDirectory(LOCAL_WORKSPACE_ID)}/${asset.id}.${extensions[asset.mediaType]}`) throw pathError();
 }
 
 export function validateMediaBytes(bytes: Uint8Array, mediaType: string, maxBytes: number) {
@@ -81,7 +87,7 @@ export function toMediaReference(asset: MediaAsset): MediaReference {
 }
 
 export async function createMediaAsset(input: {
-  userId: string; bytes: Uint8Array; mediaType: string; kind: "attachment" | "generated-image" | "generated-video";
+  bytes: Uint8Array; mediaType: string; kind: "attachment" | "generated-image" | "generated-video";
   modelId?: string; description?: string;
   generation?: GenerationRecipe; sourceChatId?: string;
 }) {
@@ -89,11 +95,11 @@ export async function createMediaAsset(input: {
   const inputIds = [...new Set(generation?.inputImages.map(image => image.assetId) ?? [])];
   const staged = await stageMediaFile(input);
   return db.$transaction(async tx => {
-    if (await tx.mediaAsset.count({ where: { id: { in: inputIds }, userId: input.userId, deletedAt: null } }) !== inputIds.length) throw pathError();
-    const source = input.sourceChatId ? await tx.chat.findFirst({ where: { id: input.sourceChatId, userId: input.userId }, select: { id: true } }) : null;
-    await tx.mediaAsset.updateMany({ where: { id: { in: inputIds }, userId: input.userId }, data: { lastUsedAt: new Date() } });
+    if (await tx.mediaAsset.count({ where: { id: { in: inputIds }, deletedAt: null } }) !== inputIds.length) throw pathError();
+    const source = input.sourceChatId ? await tx.chat.findFirst({ where: { id: input.sourceChatId }, select: { id: true } }) : null;
+    await tx.mediaAsset.updateMany({ where: { id: { in: inputIds } }, data: { lastUsedAt: new Date() } });
     return tx.mediaAsset.create({ data: {
-      ...staged, userId: input.userId,
+      ...staged,
       modelId: input.modelId?.slice(0, 200), description: input.description?.slice(0, 4000),
       ...(generation ? { generation, inputs: { create: inputIds.map(inputAssetId => ({ inputAssetId })) } } : {}),
       sourceChatId: source?.id,
@@ -103,11 +109,11 @@ export async function createMediaAsset(input: {
 
 // A complete, unreferenced file can be staged before an atomic metadata restore.
 // Failed transactions leave only managed orphan files for the normal grace period.
-export async function stageMediaFile(input: { userId: string; bytes: Uint8Array; mediaType: string; kind: "attachment" | "generated-image" | "generated-video" }) {
+export async function stageMediaFile(input: { bytes: Uint8Array; mediaType: string; kind: "attachment" | "generated-image" | "generated-video" }) {
   const maximum = input.kind === "attachment" ? MEDIA_LIMITS.attachmentBytes : input.kind === "generated-image" ? MEDIA_LIMITS.generatedImageBytes : MEDIA_LIMITS.generatedVideoBytes;
   if ((input.kind === "generated-video") !== input.mediaType.startsWith("video/")) throw new ApiError({ code: "VALIDATION_ERROR", message: "Unexpected media type" });
   validateMediaBytes(input.bytes, input.mediaType, maximum);
-  const directory = await safeOwnerDirectory(input.userId, true);
+  const directory = await safeOwnerDirectory(LOCAL_WORKSPACE_ID, true);
   const id = randomUUID();
   const filename = `${id}.${extensions[input.mediaType]}`;
   const temporary = join(directory, `.tmp-${id}`);
@@ -116,12 +122,12 @@ export async function stageMediaFile(input: { userId: string; bytes: Uint8Array;
   // Interrupted writes remain unreferenced and can be reclaimed after the grace period.
   await writeFile(temporary, input.bytes, { flag: "wx", mode: 0o600 });
   await rename(temporary, destination);
-  return { id, relativePath: `${mediaOwnerDirectory(input.userId)}/${filename}`, mediaType: input.mediaType, byteSize: input.bytes.byteLength, kind: input.kind };
+  return { id, relativePath: `${mediaOwnerDirectory(LOCAL_WORKSPACE_ID)}/${filename}`, mediaType: input.mediaType, byteSize: input.bytes.byteLength, kind: input.kind };
 }
 
-export async function getMediaAsset(userId: string, id: string) {
+export async function getMediaAsset(id: string) {
   if (!ASSET_ID_PATTERN.test(id)) throw pathError();
-  const asset = await db.mediaAsset.findFirst({ where: { id, userId, deletedAt: null } });
+  const asset = await db.mediaAsset.findFirst({ where: { id, deletedAt: null } });
   if (!asset) throw pathError();
   assertRelativePath(asset);
   return asset;
@@ -130,7 +136,7 @@ export async function getMediaAsset(userId: string, id: string) {
 export async function openMediaAsset(asset: MediaAsset) {
   assertRelativePath(asset);
   try {
-    const directory = await safeOwnerDirectory(asset.userId, false);
+    const directory = await safeOwnerDirectory(LOCAL_WORKSPACE_ID, false);
     const file = join(/* turbopackIgnore: true */ directory, `${asset.id}.${extensions[asset.mediaType]}`);
     const stat = await lstat(file);
     if (!stat.isFile() || stat.isSymbolicLink() || stat.size !== asset.byteSize || await realpath(/* turbopackIgnore: true */ file) !== file) throw pathError();
@@ -151,25 +157,25 @@ export async function readMediaAsset(asset: MediaAsset) {
 async function removeClaimedAsset(asset: MediaAsset) {
   assertRelativePath(asset);
   try {
-    const directory = await safeOwnerDirectory(asset.userId, false);
+    const directory = await safeOwnerDirectory(LOCAL_WORKSPACE_ID, false);
     const file = join(/* turbopackIgnore: true */ directory, `${asset.id}.${extensions[asset.mediaType]}`);
     const stat = await lstat(file);
     if (!stat.isFile() || stat.isSymbolicLink() || await realpath(/* turbopackIgnore: true */ file) !== file) throw pathError();
     await unlink(file);
   } catch (error) { if (!isMissing(error)) throw error; }
   await db.$transaction(async tx => {
-    await tx.mediaAsset.updateMany({ where: { userId: asset.userId, usedByGenerations: { some: { assetId: asset.id } } }, data: { lastUsedAt: new Date() } });
-    await tx.mediaAsset.deleteMany({ where: { id: asset.id, userId: asset.userId, deletedAt: { not: null }, references: { none: {} }, usedByGenerations: { none: {} } } });
+    await tx.mediaAsset.updateMany({ where: { usedByGenerations: { some: { assetId: asset.id } } }, data: { lastUsedAt: new Date() } });
+    await tx.mediaAsset.deleteMany({ where: { id: asset.id, deletedAt: { not: null }, references: { none: {} }, usedByGenerations: { none: {} } } });
   });
 }
 
-export async function deleteMediaAsset(userId: string, id: string, olderThan?: Date) {
+export async function deleteMediaAsset(id: string, olderThan?: Date) {
   if (!ASSET_ID_PATTERN.test(id)) throw pathError();
   const asset = await db.$transaction(async (tx) => {
-    const existing = await tx.mediaAsset.findFirst({ where: { id, userId } });
+    const existing = await tx.mediaAsset.findFirst({ where: { id } });
     if (!existing) throw pathError();
     const claimed = await tx.mediaAsset.updateMany({ where: {
-      id, userId, references: { none: {} }, usedByGenerations: { none: {} }, ...(olderThan ? { lastUsedAt: { lt: olderThan } } : {}),
+      id, references: { none: {} }, usedByGenerations: { none: {} }, ...(olderThan ? { lastUsedAt: { lt: olderThan } } : {}),
     }, data: { deletedAt: new Date() } });
     if (claimed.count !== 1) throw new ApiError({ code: "CONFLICT", message: "Media is still referenced or too recent to clean up" });
     return existing;
@@ -178,24 +184,24 @@ export async function deleteMediaAsset(userId: string, id: string, olderThan?: D
   return asset.byteSize;
 }
 
-async function listManagedFiles(userId: string) {
+async function listManagedFiles() {
   try {
-    const directory = await safeOwnerDirectory(userId, false);
+    const directory = await safeOwnerDirectory(LOCAL_WORKSPACE_ID, false);
     const entries = await readdir(directory, { withFileTypes: true });
     const files: Array<{ path: string; relativePath: string; size: number; modifiedAt: number }> = [];
     for (const entry of entries) {
       if (!entry.isFile() || entry.isSymbolicLink() || !managedFilePattern.test(entry.name)) continue;
       const file = join(directory, entry.name);
       const stat = await lstat(file);
-      if (stat.isFile() && !stat.isSymbolicLink()) files.push({ path: file, relativePath: `${mediaOwnerDirectory(userId)}/${entry.name}`, size: stat.size, modifiedAt: stat.mtimeMs });
+      if (stat.isFile() && !stat.isSymbolicLink()) files.push({ path: file, relativePath: `${mediaOwnerDirectory(LOCAL_WORKSPACE_ID)}/${entry.name}`, size: stat.size, modifiedAt: stat.mtimeMs });
     }
     return files;
   } catch (error) { if (isMissing(error)) return []; throw error; }
 }
 
-export async function getMediaStats(userId: string) {
-  const assets = await db.mediaAsset.findMany({ where: { userId }, select: { relativePath: true, lastUsedAt: true, _count: { select: { references: true, usedByGenerations: true } } } });
-  const files = await listManagedFiles(userId);
+export async function getMediaStats() {
+  const assets = await db.mediaAsset.findMany({ select: { relativePath: true, lastUsedAt: true, _count: { select: { references: true, usedByGenerations: true } } } });
+  const files = await listManagedFiles();
   const known = new Set(assets.map((asset) => asset.relativePath));
   const cutoff = Date.now() - MEDIA_LIMITS.orphanGraceMs;
   const unreferenced = assets.filter((asset) => asset._count.references === 0 && asset._count.usedByGenerations === 0);
@@ -208,21 +214,21 @@ export async function getMediaStats(userId: string) {
   };
 }
 
-export async function cleanupMedia(userId: string) {
+export async function cleanupMedia() {
   const cutoff = new Date(Date.now() - MEDIA_LIMITS.orphanGraceMs);
-  const candidates = await db.mediaAsset.findMany({ where: { userId, lastUsedAt: { lt: cutoff }, references: { none: {} }, usedByGenerations: { none: {} } } });
+  const candidates = await db.mediaAsset.findMany({ where: { lastUsedAt: { lt: cutoff }, references: { none: {} }, usedByGenerations: { none: {} } } });
   let removedCount = 0, freedBytes = 0, failedCount = 0;
   for (const asset of candidates) {
-    try { freedBytes += await deleteMediaAsset(userId, asset.id, cutoff); removedCount += 1; }
+    try { freedBytes += await deleteMediaAsset(asset.id, cutoff); removedCount += 1; }
     catch { failedCount += 1; } // Keep failed tombstones for a later cleanup attempt.
   }
-  const known = new Set((await db.mediaAsset.findMany({ where: { userId }, select: { relativePath: true } })).map((asset) => asset.relativePath));
-  for (const file of await listManagedFiles(userId)) {
+  const known = new Set((await db.mediaAsset.findMany({ select: { relativePath: true } })).map((asset) => asset.relativePath));
+  for (const file of await listManagedFiles()) {
     if (known.has(file.relativePath) || file.modifiedAt >= cutoff.getTime()) continue;
     try {
       // Check again immediately before deleting: a file may have acquired metadata.
       if (await db.mediaAsset.findUnique({ where: { relativePath: file.relativePath } })) continue;
-      const directory = await safeOwnerDirectory(userId, false);
+      const directory = await safeOwnerDirectory(LOCAL_WORKSPACE_ID, false);
       if (!file.path.startsWith(`${directory}${sep}`) || (await lstat(file.path)).isSymbolicLink()) throw pathError();
       await unlink(file.path); freedBytes += file.size; removedCount += 1;
     } catch { failedCount += 1; }

@@ -1,8 +1,6 @@
 import { ApiError } from "@/lib/server/api-error";
 
 export const RATE_LIMIT_POLICIES = {
-  login: { limit: 20, windowMs: 15 * 60_000 },
-  register: { limit: 5, windowMs: 60 * 60_000 },
   chat: { limit: 30, windowMs: 60_000 },
   tools: { limit: 30, windowMs: 60_000 },
   image: { limit: 6, windowMs: 60_000 },
@@ -98,8 +96,13 @@ export function checkRateLimit(input: CheckRateLimitInput): CheckRateLimitResult
   };
 }
 
-export function enforceRateLimit(policy: keyof typeof RATE_LIMIT_POLICIES, userId = "local-service") {
-  const result = checkRateLimit({ key: `${policy}:${userId}`, ...RATE_LIMIT_POLICIES[policy] });
+/**
+ * Quotas belong to the local instance, not to a caller. Every request from this
+ * installation shares one bucket per policy, so opening extra windows or
+ * clearing cookies cannot raise the limit.
+ */
+export function enforceRateLimit(policy: keyof typeof RATE_LIMIT_POLICIES) {
+  const result = checkRateLimit({ key: policy, ...RATE_LIMIT_POLICIES[policy] });
   if (!result.allowed) {
     throw new ApiError({
       code: "RATE_LIMITED",

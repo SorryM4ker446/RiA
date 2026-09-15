@@ -1,7 +1,7 @@
 import { protectDataOperation } from "@/lib/server/data-operations";
 import { Readable } from "node:stream";
 import { NextRequest } from "next/server";
-import { requireRequestUser } from "@/lib/auth/request-user";
+import { currentWorkspaceId, requireLocalWorkspace } from "@/lib/local/workspace";
 import { deleteMediaAsset, getMediaAsset, openMediaAsset } from "@/lib/media/storage";
 import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 
@@ -9,9 +9,8 @@ type Params = { params: Promise<{ id: string }> };
 
 async function serve(req: NextRequest, context: Params, headOnly: boolean) {
   try {
-    const user = await requireRequestUser(req);
-    const { id } = await context.params;
-    const asset = await getMediaAsset(user.id, id);
+    await requireLocalWorkspace(req);const { id } = await context.params;
+    const asset = await getMediaAsset(id);
     const headers = new Headers({
       "Content-Type": asset.mediaType, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
       "Content-Security-Policy": "default-src 'none'; sandbox", "Accept-Ranges": "bytes",
@@ -47,9 +46,8 @@ export const HEAD = protectDataOperation((req: NextRequest, context: Params) => 
 
 async function DELETEHandler(req: NextRequest, context: Params) {
   try {
-    const user = await requireRequestUser(req);
-    const { id } = await context.params;
-    return Response.json({ data: { freedBytes: await deleteMediaAsset(user.id, id) } });
+    await requireLocalWorkspace(req);const { id } = await context.params;
+    return Response.json({ data: { freedBytes: await deleteMediaAsset(id) } });
   } catch (error) { return createApiErrorResponse(error, "Failed to delete media"); }
 }
 

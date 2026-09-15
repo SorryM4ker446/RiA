@@ -9,7 +9,7 @@ export function seedMediaLibrarySmoke(databaseFile: string, mediaDirectory: stri
   const db = new DatabaseSync(databaseFile);
   try {
     db.exec("PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON");
-    const input = db.prepare("SELECT userId,relativePath,byteSize FROM media_assets WHERE id=?").get(inputId);
+    const input = db.prepare("SELECT relativePath,byteSize FROM media_assets WHERE id=?").get(inputId);
     if (!input || typeof input.relativePath !== "string" || !/^[a-f0-9]{64}\/[a-f0-9-]{36}\.png$/.test(input.relativePath)) throw new Error("Invalid media smoke source");
     const id = randomUUID();
     const relativePath = `${input.relativePath.split("/")[0]}/${id}.png`;
@@ -17,7 +17,7 @@ export function seedMediaLibrarySmoke(databaseFile: string, mediaDirectory: stri
     if (!destination.startsWith(`${resolve(mediaDirectory)}${sep}`)) throw new Error("Invalid media fixture path");
     copyFileSync(resolve(mediaDirectory, input.relativePath), destination);
     const recipe = { version: 1, type: "image", modelId: "google/gemini-2.5-flash-image", prompt: "Desktop library fixture", inputImages: [{ assetId: inputId, mediaType: "image/png" }] };
-    db.prepare("INSERT INTO media_assets (id,userId,relativePath,byteSize,mediaType,kind,modelId,description,generation,sourceChatId) VALUES (?,?,?,?,'image/png','generated-image',?,?,?,?)").run(id, input.userId, relativePath, input.byteSize, recipe.modelId, recipe.prompt, JSON.stringify(recipe), chatId);
+    db.prepare("INSERT INTO media_assets (id,relativePath,byteSize,mediaType,kind,modelId,description,generation,sourceChatId) VALUES (?,?,?,'image/png','generated-image',?,?,?,?)").run(id, relativePath, input.byteSize, recipe.modelId, recipe.prompt, JSON.stringify(recipe), chatId);
     db.prepare("INSERT INTO media_generation_inputs (assetId,inputAssetId) VALUES (?,?)").run(id, inputId);
     return id;
   } finally { db.close(); }

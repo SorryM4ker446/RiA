@@ -4,7 +4,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
-import { requireRequestUser } from "@/lib/auth/request-user";
+import { requireLocalWorkspace } from "@/lib/local/workspace";
 import { saveMemory } from "@/lib/memory/store";
 
 const createKnowledgeSchema = z.strictObject({
@@ -19,7 +19,7 @@ const knowledgeListQuerySchema = z.strictObject({
 
 async function GETHandler(req: NextRequest) {
   try {
-    const user = await requireRequestUser(req);
+    await requireLocalWorkspace(req);
     const parsed = knowledgeListQuerySchema.safeParse({
       limit: req.nextUrl.searchParams.get("limit") ?? undefined,
     });
@@ -34,7 +34,6 @@ async function GETHandler(req: NextRequest) {
 
     const memories = await db.memory.findMany({
       where: {
-        userId: user.id,
         NOT: [{ key: { startsWith: "tool:" } }],
       },
       orderBy: [{ updatedAt: "desc" }],
@@ -50,7 +49,7 @@ async function GETHandler(req: NextRequest) {
 
 async function POSTHandler(req: NextRequest) {
   try {
-    const user = await requireRequestUser(req);
+    await requireLocalWorkspace(req);
     const parsed = createKnowledgeSchema.safeParse(await readJsonBody(req));
 
     if (!parsed.success) {
@@ -62,7 +61,6 @@ async function POSTHandler(req: NextRequest) {
     }
 
     const memory = await saveMemory({
-      userId: user.id,
       key: parsed.data.key,
       value: parsed.data.value,
       score: parsed.data.score,

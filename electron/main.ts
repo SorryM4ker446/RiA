@@ -15,6 +15,7 @@ import {
 } from "electron";
 import { createDesktopLogger, DESKTOP_LOG_LIMITS, type DesktopLogger } from "./logger";
 import { runDesktopMigrations } from "./migrations";
+import { runWorkspaceUpgrade } from "./desktop-workspace-upgrade";
 import { findAvailablePort, startNextServer, type RunningNextServer } from "./next-server";
 import { resolveDesktopPaths, toSqliteUrl, type DesktopPaths } from "./paths";
 import { configureDesktopSession, secureBrowserWindow } from "./security";
@@ -398,6 +399,8 @@ async function bootstrap() {
     packagedRuntime,
     platform: process.platform,
   });
+
+  runWorkspaceUpgrade({ desktopPaths, logger });
 
   runDesktopMigrations({
     databaseFile: desktopPaths.databaseFile,

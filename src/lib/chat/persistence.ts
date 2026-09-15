@@ -14,36 +14,33 @@ import type { ChatRequest } from "@/lib/chat/request";
 import type { DocumentSource } from "@/lib/documents/types";
 async function getOrCreateChat(params: {
   requestedChatId?: string;
-  userId: string;
   fallbackTitle: string;
 }) {
-  const { requestedChatId, userId, fallbackTitle } = params;
+  const { requestedChatId, fallbackTitle } = params;
 
   if (requestedChatId) {
-    const existing = await getChat(userId, requestedChatId);
+    const existing = await getChat(requestedChatId);
 
     if (existing) {
       return existing;
     }
 
-    const ownedByOthers = await db.chat.findUnique({
+    const alreadyExists = await db.chat.findUnique({
       where: { id: requestedChatId },
       select: { id: true },
     });
 
-    if (ownedByOthers) {
+    if (alreadyExists) {
       throw new ApiError({ code: "NOT_FOUND", message: "Conversation was not found" });
     }
 
     return createChat({
-      userId,
       chatId: requestedChatId,
       title: fallbackTitle,
     });
   }
 
   return createChat({
-    userId,
     title: fallbackTitle,
   });
 }
@@ -71,16 +68,15 @@ function getToolItemsFromResponseMessage(message: UIMessage): PersistedAssistant
       ...("approval" in part && part.approval ? { approval: part.approval } : {}),
     }));
 }
-export async function prepareChatPersistence(input: ChatRequest, userId: string) {
+export async function prepareChatPersistence(input: ChatRequest) {
   const { body, messages, latestUserMessage, isApprovalResume, requestedChatId } = input;
   const titleSeed = latestUserMessage?.text || "New Chat";
   const chat = await getOrCreateChat({
     requestedChatId,
-    userId,
     fallbackTitle: truncateTitle(titleSeed),
   });
 
-  if (isApprovalResume) await claimToolApproval(userId, chat.id, messages[messages.length - 1]);
+  if (isApprovalResume) await claimToolApproval(chat.id, messages[messages.length - 1]);
 
   if (latestUserMessage && !isApprovalResume) {
     const userContent =
@@ -104,14 +100,14 @@ export async function prepareChatPersistence(input: ChatRequest, userId: string)
   // Keep existing replies until a complete replacement has been generated.
   // Approval continuations update their assistant row and never truncate history.
   const regenerationSnapshot = body.trigger === "regenerate-message" && !isApprovalResume && latestUserMessage?.id
-    ? await getRegenerationSnapshot(userId, chat.id, latestUserMessage.id)
+    ? await getRegenerationSnapshot(chat.id, latestUserMessage.id)
     : null;
 
   return { chat, regenerationSnapshot };
 }
 export type ChatPersistence = Awaited<ReturnType<typeof prepareChatPersistence>>;
-export async function persistChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; userId: string; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; documentSources?: DocumentSource[] }) {
-  const { input, conversation, userId, responseMessage, isAborted, generationFailed } = params;
+export async function persistChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; documentSources?: DocumentSource[] }) {
+  const { input, conversation, responseMessage, isAborted, generationFailed } = params;
   const { latestUserMessage, modelId } = input;
   const { chat, regenerationSnapshot } = conversation;
   try {
@@ -160,7 +156,7 @@ export async function persistChatResponse(params: { input: ChatRequest; conversa
       },
     });
 
-    await persistResponseToolMemories({ userId, chatId: chat.id, toolItems, assistantText, modelId });
+    await persistResponseToolMemories({ chatId: chat.id, toolItems, assistantText, modelId });
   } catch (persistError) {
     throw normalizeApiError(persistError, "回答保存失败，请重新加载会话后重试。");
   }

@@ -7,7 +7,6 @@ export function logToolExecution(params: {
   trigger: "manual" | "auto";
   state: ToolLogState;
   durationMs: number;
-  userId: string;
   errorCode?: ApiErrorCode;
   requestId?: string;
 }) {
@@ -16,7 +15,6 @@ export function logToolExecution(params: {
     trigger: params.trigger,
     state: params.state,
     durationMs: params.durationMs,
-    userId: params.userId,
     ...(params.errorCode ? { errorCode: params.errorCode } : {}),
     ...(params.requestId ? { requestId: params.requestId } : {}),
   });

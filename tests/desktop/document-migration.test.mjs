@@ -24,8 +24,10 @@ test("desktop document migration backs up existing data and retains document ind
       before.exec("INSERT INTO users (id,email,updatedAt) VALUES ('owner','migration@example.invalid',CURRENT_TIMESTAMP); INSERT INTO chats (id,userId,title,updatedAt) VALUES ('chat','owner','Retained chat',CURRENT_TIMESTAMP)");
     } finally { before.close(); }
     const options = { databaseFile, migrationsDirectory, backupsDirectory: join(root, "backups"), logger: { info() {}, warn() {}, error() {} } };
-    const applied = runDesktopMigrations(options);
-    assert.deepEqual(applied.applied, readdirSync(migrationsDirectory, { withFileTypes: true }).filter(entry => entry.isDirectory() && entry.name >= migration).map(entry => entry.name).sort());
+    // Scoped to this migration range: the account-to-workspace conversion is
+    // covered by its own test.
+    const applied = runDesktopMigrations({ ...options, upToMigration: "20260831150000_account_preferences_and_model_usage" });
+    assert.deepEqual(applied.applied, readdirSync(migrationsDirectory, { withFileTypes: true }).filter(entry => entry.isDirectory() && entry.name >= migration && entry.name <= "20260831150000_account_preferences_and_model_usage").map(entry => entry.name).sort());
     assert.ok(applied.backupFile);
     const backup = new DatabaseSync(applied.backupFile, { readOnly: true });
     try {
@@ -39,7 +41,7 @@ test("desktop document migration backs up existing data and retains document ind
         INSERT INTO document_chunks (id,documentId,chunkKey,ordinal,text) VALUES ('chunk','doc','hash:0',0,'hello');
         INSERT INTO document_terms (chunkId,term) VALUES ('chunk','hello');`);
     } finally { updated.close(); }
-    assert.deepEqual(runDesktopMigrations(options).applied, []);
+    assert.deepEqual(runDesktopMigrations({ ...options, upToMigration: "20260831150000_account_preferences_and_model_usage" }).applied, []);
     const reopened = new DatabaseSync(databaseFile);
     try {
       reopened.exec("PRAGMA foreign_keys=ON");

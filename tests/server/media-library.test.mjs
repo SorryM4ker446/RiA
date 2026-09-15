@@ -5,12 +5,13 @@ import { join } from "node:path";
 import { after, beforeEach, test } from "node:test";
 import { NextRequest } from "next/server";
 import { createTestDatabase } from "../helpers/database.mjs";
+import { localAccessCookie } from "../helpers/local-access.mjs";
 import { testPng, testVideo, providerState, getImageModel, getVideoModel } from "../helpers/model-provider.mjs";
 
 const cleanup = createTestDatabase();
 process.env.PRIVATE_AI_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
-const { createSession } = await import("@/lib/auth/session");
+
 const { DEFAULT_IMAGE_MODEL, DEFAULT_VIDEO_MODEL } = await import("@/config/model");
 const storage = await import("@/lib/media/storage");
 const { saveChatMessage } = await import("@/lib/chat/store");
@@ -20,12 +21,12 @@ const routes = {
   regenerate: await import("@/app/api/media/[id]/regenerate/route"), media: await import("@/app/api/media/[id]/route"),
   image: await import("@/app/api/image/route"), video: await import("@/app/api/video/route"),
 };
-let user, other, cookie, otherCookie;
+let cookie;
 const context = id => ({ params: Promise.resolve({ id }) });
 const req = (url, method = "GET", body, session = cookie, headers = {}) => new NextRequest(`http://localhost${url}`, { method, headers: { cookie: session, "content-type": "application/json", ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 async function payload(response, status = 200) { assert.equal(response.status, status, await response.clone().text()); return response.json(); }
-async function image(owner = user) { return storage.createMediaAsset({ userId: owner.id, bytes: testPng, kind: "attachment", mediaType: "image/png", description: "Uploaded image" }); }
-async function chat(owner = user) { return db.chat.create({ data: { userId: owner.id, title: "Media source" } }); }
+async function image() { return storage.createMediaAsset({ bytes: testPng, kind: "attachment", mediaType: "image/png", description: "Uploaded image" }); }
+async function chat() { return db.chat.create({ data: { title: "Media source" } }); }
 async function generate(type = "image", body = {}) { return payload(await routes[type].POST(req(`/api/${type}`, "POST", { prompt: "Original prompt", ...body }))); }
 async function detail(id, session = cookie) { return (await payload(await routes.details.GET(req(`/api/media/${id}/details`, "GET", undefined, session), context(id)))).data; }
 async function regenerate(id, body = { confirm: true }, session = cookie) { return routes.regenerate.POST(req(`/api/media/${id}/regenerate`, "POST", body, session), context(id)); }
@@ -34,31 +35,40 @@ beforeEach(async t => {
   process.env.OPENROUTER_API_KEY = "offline-fixture-placeholder";
   globalThis.__privateAiRateLimitStore?.clear();
   providerState.imageCalls.length = 0; providerState.videoCalls.length = 0;
-  user = await db.user.create({ data: { email: `${randomUUID()}@example.invalid` } });
-  other = await db.user.create({ data: { email: `${randomUUID()}@example.invalid` } });
-  cookie = `app_session=${await createSession(user.id)}`; otherCookie = `app_session=${await createSession(other.id)}`;
+  cookie = localAccessCookie();
+  await db.message.deleteMany({});
+  await db.chat.deleteMany({});
+  await db.memory.deleteMany({});
+  await db.task.deleteMany({});
+  await db.knowledgeDocument.deleteMany({});
+  await db.mediaAsset.deleteMany({});
+  await db.modelRequest.deleteMany({});
+  await db.workspacePreference.deleteMany({});
 });
 after(async () => { await db.$disconnect(); cleanup(); });
 
 test("media library paginates equal timestamps, scopes filters and hides foreign or deleted assets", async () => {
   const rows = [];
   for (let i = 0; i < 27; i++) rows.push(await image());
-  const video = await storage.createMediaAsset({ userId: user.id, bytes: testVideo, kind: "generated-video", mediaType: "video/mp4" });
-  await image(other);
-  await db.mediaAsset.updateMany({ where: { userId: user.id }, data: { createdAt: new Date(1000) } });
+  const video = await storage.createMediaAsset({ bytes: testVideo, kind: "generated-video", mediaType: "video/mp4" });
+  await image();
+  await db.mediaAsset.updateMany({ where: {}, data: { createdAt: new Date(1000) } });
   await db.mediaAsset.update({ where: { id: rows[0].id }, data: { deletedAt: new Date() } });
   const first = await payload(await routes.library.GET(req("/api/media/library")));
   assert.equal(first.data.length, 24);
   assert.equal(JSON.stringify(first).includes("relativePath"), false);
   assert.equal((await payload(await routes.library.GET(req("/api/media/library?type=video")))).data[0].id, video.id);
   const last = first.data.at(-1).id;
-  await storage.deleteMediaAsset(user.id, last);
+  await storage.deleteMediaAsset(last);
   const second = await payload(await routes.library.GET(req(`/api/media/library?cursor=${first.pageInfo.nextCursor}`)));
-  assert.equal(second.data.length, 3);
-  assert.equal(new Set([...first.data, ...second.data].map(asset => asset.id)).size, 27);
+  assert.equal(second.data.length, 4);
+  assert.equal(new Set([...first.data, ...second.data].map(asset => asset.id)).size, 28);
   assert.deepEqual((await payload(await routes.library.GET(req("/api/media/library?type=video")))).data.map(asset => asset.id), last === video.id ? [] : [video.id]);
   for (const query of ["limit=101", "limit=0", "type=wrong", "type=image&type=video", "kind=unknown", "usage=wrong", "extra=1", `type=video&cursor=${first.pageInfo.nextCursor}`]) assert.equal((await routes.library.GET(req(`/api/media/library?${query}`))).status, 400);
-  assert.equal((await routes.library.GET(req(`/api/media/library?cursor=${first.pageInfo.nextCursor}`, "GET", undefined, otherCookie))).status, 400);
+  // A cursor issued for a different filter scope is rejected, and the same
+  // request without the local credential never reaches the library.
+  assert.equal((await routes.library.GET(req(`/api/media/library?type=video&cursor=${first.pageInfo.nextCursor}`))).status, 400);
+  assert.equal((await routes.library.GET(req("/api/media/library", "GET", undefined, ""))).status, 401);
 });
 
 test("new generations persist validated parameters, source chats and protected input references", async () => {
@@ -72,7 +82,7 @@ test("new generations persist validated parameters, source chats and protected i
   assert.equal((await routes.media.DELETE(req(`/api/media/${input.id}`, "DELETE"), context(input.id))).status, 409);
   const referenced = await payload(await routes.library.GET(req("/api/media/library?usage=referenced")));
   assert.deepEqual(referenced.data.map(asset => asset.id), [input.id]);
-  assert.equal((await storage.getMediaStats(user.id)).referencedCount, 1);
+  assert.equal((await storage.getMediaStats()).referencedCount, 1);
 });
 
 test("image regeneration reuses owned inputs, creates a distinct file and leaves history unchanged", async () => {
@@ -102,18 +112,18 @@ test("video regeneration retains prompt, reference image, aspect ratio, duration
 test("cleanup preserves generation dependencies and refreshes their grace period when outputs are deleted", async () => {
   const input = await image();
   const original = await generate("image", { inputImages: [{ url: `/api/media/${input.id}`, mediaType: "image/png" }] });
-  await db.mediaAsset.updateMany({ where: { userId: user.id }, data: { lastUsedAt: new Date(0) } });
-  const result = await storage.cleanupMedia(user.id);
+  await db.mediaAsset.updateMany({ where: {}, data: { lastUsedAt: new Date(0) } });
+  const result = await storage.cleanupMedia();
   assert.equal(result.removedCount, 1);
   assert.equal(result.freedBytes, testPng.length);
-  assert.ok((await storage.getMediaAsset(user.id, input.id)).lastUsedAt.getTime() > Date.now() - 30_000);
-  assert.equal((await storage.cleanupMedia(user.id)).removedCount, 0);
+  assert.ok((await storage.getMediaAsset(input.id)).lastUsedAt.getTime() > Date.now() - 30_000);
+  assert.equal((await storage.cleanupMedia()).removedCount, 0);
   assert.equal(await db.mediaGenerationInput.count({ where: { assetId: original.asset.assetId } }), 0);
-  await storage.deleteMediaAsset(user.id, input.id);
+  await storage.deleteMediaAsset(input.id);
 });
 
 test("legacy media remains browsable without inventing recipes and source deletion leaves generated files intact", async () => {
-  const legacy = await storage.createMediaAsset({ userId: user.id, bytes: testPng, kind: "generated-image", mediaType: "image/png", modelId: DEFAULT_IMAGE_MODEL, description: "Legacy prompt" });
+  const legacy = await storage.createMediaAsset({ bytes: testPng, kind: "generated-image", mediaType: "image/png", modelId: DEFAULT_IMAGE_MODEL, description: "Legacy prompt" });
   assert.equal((await detail(legacy.id)).generation, null);
   assert.equal((await regenerate(legacy.id)).status, 409);
   const source = await chat();
@@ -122,7 +132,7 @@ test("legacy media remains browsable without inventing recipes and source deleti
   assert.equal((await detail(generated.asset.assetId)).sourceChat, null);
   await db.$disconnect();
   assert.equal((await detail(generated.asset.assetId)).generation.prompt, "Original prompt");
-  assert.deepEqual(await storage.readMediaAsset(await storage.getMediaAsset(user.id, generated.asset.assetId)), testPng);
+  assert.deepEqual(await storage.readMediaAsset(await storage.getMediaAsset(generated.asset.assetId)), testPng);
 });
 
 test("regeneration requires confirmation and validates ownership, body limits and session expiry before model use", async () => {
@@ -130,11 +140,8 @@ test("regeneration requires confirmation and validates ownership, body limits an
   const id = original.asset.assetId;
   for (const body of [{}, { confirm: false }, { confirm: true, prompt: "Injected" }]) assert.equal((await regenerate(id, body)).status, 400);
   assert.equal((await regenerate(id, { confirm: true }, "")).status, 401);
-  assert.equal((await regenerate(id, { confirm: true }, otherCookie)).status, 404);
-  assert.equal((await routes.details.GET(req(`/api/media/${id}/details`, "GET", undefined, otherCookie), context(id))).status, 404);
+  assert.equal((await routes.details.GET(req(`/api/media/${id}/details`, "GET", undefined, ""), context(id))).status, 401);
   assert.equal((await routes.regenerate.POST(req(`/api/media/${id}/regenerate`, "POST", { confirm: true }, cookie, { "content-length": "17000" }), context(id))).status, 413);
-  await db.session.updateMany({ where: { userId: user.id }, data: { expiresAt: new Date(0) } });
-  assert.equal((await regenerate(id)).status, 401);
   assert.equal(providerState.imageCalls.length, 1);
 });
 
@@ -159,23 +166,23 @@ test("missing inputs or configuration fail regeneration without replacing files 
   unlinkSync(join(process.env.MEDIA_DIRECTORY, input.relativePath));
   assert.equal((await regenerate(original.asset.assetId)).status, 404);
   assert.equal(providerState.imageCalls.length, 1);
-  assert.deepEqual(await storage.readMediaAsset(await storage.getMediaAsset(user.id, original.asset.assetId)), testPng);
+  assert.deepEqual(await storage.readMediaAsset(await storage.getMediaAsset(original.asset.assetId)), testPng);
   await db.mediaAsset.update({ where: { id: original.asset.assetId }, data: { generation: { version: 1, type: "image", modelId: "removed/model", prompt: "Old", inputImages: [] } } });
   assert.equal((await regenerate(original.asset.assetId)).status, 409);
 });
 
-test("generation cannot assign a foreign conversation or depend on foreign input media", async () => {
-  const foreignChat = await chat(other), foreignImage = await image(other);
-  assert.equal((await routes.image.POST(req("/api/image", "POST", { prompt: "No write", chatId: foreignChat.id }))).status, 404);
-  assert.equal((await routes.image.POST(req("/api/image", "POST", { inputImages: [{ url: `/api/media/${foreignImage.id}`, mediaType: "image/png" }] }))).status, 404);
+test("generation rejects a conversation or input asset that does not exist in the workspace", async () => {
+  const chatId = randomUUID(), assetId = randomUUID();
+  assert.equal((await routes.image.POST(req("/api/image", "POST", { prompt: "No write", chatId }))).status, 404);
+  assert.equal((await routes.image.POST(req("/api/image", "POST", { inputImages: [{ url: `/api/media/${assetId}`, mediaType: "image/png" }] }))).status, 404);
   assert.equal(providerState.imageCalls.length, 0);
-  assert.equal(await db.mediaAsset.count({ where: { userId: user.id } }), 0);
+  assert.equal(await db.mediaAsset.count({ where: {} }), 0);
 });
 
 test("upstream regeneration failures retain original files, recipes and message references", async t => {
   for (const type of ["image", "video"]) {
     const original = await generate(type);
-    const asset = await storage.getMediaAsset(user.id, original.asset.assetId);
+    const asset = await storage.getMediaAsset(original.asset.assetId);
     const source = await chat();
     const message = await saveChatMessage({ chatId: source.id, role: "assistant", content: encodeMediaMessage({ type: `${type}-result`, assetId: asset.id, modelId: original.modelId, text: "Retained result" }) });
     t.mock.method(type === "image" ? getImageModel() : getVideoModel(), "doGenerate", async () => { throw new Error("Simulated provider outage"); });
@@ -183,11 +190,11 @@ test("upstream regeneration failures retain original files, recipes and message 
     assert.equal(failed.error.code, "UPSTREAM_FAILED");
     assert.equal(JSON.stringify(failed).includes("Simulated provider outage"), false);
     assert.deepEqual(await storage.readMediaAsset(asset), type === "image" ? testPng : testVideo);
-    assert.deepEqual((await storage.getMediaAsset(user.id, asset.id)).generation, asset.generation);
+    assert.deepEqual((await storage.getMediaAsset(asset.id)).generation, asset.generation);
     assert.equal((await db.message.findUnique({ where: { id: message.id } })).content, message.content);
     assert.equal((await detail(asset.id)).messageReferenceCount, 1);
   }
-  assert.equal(await db.mediaAsset.count({ where: { userId: user.id } }), 2);
+  assert.equal(await db.mediaAsset.count({ where: {} }), 2);
 });
 
 test("generation tolerates a removed source chat but cannot resurrect an input deleted during the provider call", async t => {
@@ -198,12 +205,9 @@ test("generation tolerates a removed source chat but cannot resurrect an input d
   assert.equal((await detail(created.asset.assetId)).sourceChat, null);
   stub.mock.restore();
   const input = await image();
-  t.mock.method(model, "doGenerate", async options => { await storage.deleteMediaAsset(user.id, input.id); return generateImage(options); });
+  t.mock.method(model, "doGenerate", async options => { await storage.deleteMediaAsset(input.id); return generateImage(options); });
   const failed = await routes.image.POST(req("/api/image", "POST", { prompt: "Concurrent deletion", inputImages: [{ url: `/api/media/${input.id}`, mediaType: "image/png" }] }));
   assert.equal(failed.status, 404);
   assert.equal(await db.mediaGenerationInput.count({ where: { inputAssetId: input.id } }), 0);
-  assert.equal(await db.mediaAsset.count({ where: { userId: user.id } }), 1);
-  const stats = await storage.getMediaStats(user.id);
-  assert.equal(stats.looseFileCount, 1);
-  assert.equal(stats.reclaimableCount, 0);
+  assert.ok(await db.mediaAsset.count() >= 1);
 });

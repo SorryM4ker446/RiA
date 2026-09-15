@@ -18,7 +18,7 @@ Installed application data is stored in:
 
 The same data directory contains file-backed `media/`, encrypted settings, migration backups, and `logs/desktop.log`. Reinstalling or uninstalling the application does not intentionally delete this user-data directory. Backups must include both SQLite and media; automatic database migration backups cover SQLite only. See [Media storage and migration](media-storage.md).
 
-The shared **备份与恢复** page stores unencrypted portable account archives in owner directories under `backups/`, alongside but separate from database migration `.bak` files. It supports export/import, confirmed restore with a safety archive, and retention cleanup while the service runs. **模型与用量** stores account defaults and optional fallback in SQLite; provider keys remain in desktop encrypted settings and are never added to these settings or archives. See [Account backups](account-backups.md) and [Model settings and usage](model-usage.md).
+The shared **备份与恢复** page stores unencrypted portable workspace archives under `backups/`, alongside but separate from database migration `.bak` files. It supports export/import, confirmed restore with a safety archive, and retention cleanup while the service runs. **模型与用量** stores workspace defaults and optional fallback in SQLite; provider keys remain in desktop encrypted settings and are never added to these settings or archives. See [Workspace backups](workspace-backups.md) and [Model settings and usage](model-usage.md).
 
 Imported document text and its search index are stored inside SQLite and included in its backups. Original PDF/Word files are not retained. See [Document knowledge](document-knowledge.md) for supported formats, source references, privacy and reindexing. Document import works without a model key; chat sends relevant excerpts to the configured model.
 
@@ -116,7 +116,7 @@ This project does not configure Windows code signing or automatic updates. Windo
 - a conversation remains after the local service restarts;
 - conversation search, pinning and tags survive restart; Markdown/JSON downloads from the actual management UI preserve text and private media references;
 - media source/recipe metadata survives restart; the actual library UI downloads an authenticated PNG and deleting its unused result preserves the reference image;
-- account model defaults survive restart; the backup UI creates and downloads a private archive, unconfirmed restore is rejected, and confirmed restore retains media/settings across another service restart without replaying reminders;
+- saved model defaults survive restart; the backup UI creates and downloads a private archive, unconfirmed restore is rejected, and confirmed restore retains media/settings across another service restart without replaying reminders;
 - due task notifications are dispatched once to a recording test sink, and recurrence/claims survive service restart without invoking a model or displaying OS notifications;
 - the application exits without retaining its child service.
 

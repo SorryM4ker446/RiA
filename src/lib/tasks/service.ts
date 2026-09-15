@@ -33,9 +33,9 @@ export function resolveTaskSchedule(input: {
   return { dueDate, timeZone, reminderEnabled, repeatRule };
 }
 
-export async function updateTask(userId: string, id: string, input: z.infer<typeof updateTaskSchema>, now = new Date()) {
+export async function updateTask(id: string, input: z.infer<typeof updateTaskSchema>, now = new Date()) {
   return db.$transaction(async tx => {
-    const existing = await tx.task.findFirst({ where: { id, userId } });
+    const existing = await tx.task.findFirst({ where: { id } });
     if (!existing) throw new ApiError({ code: "NOT_FOUND", message: "Task not found" });
     const schedule = resolveTaskSchedule({
       dueDate: input.dueDate === undefined ? existing.dueDate?.toISOString() : input.dueDate,
@@ -64,7 +64,7 @@ export async function updateTask(userId: string, id: string, input: z.infer<type
       await tx.task.update({ where: { id }, data: { repeatGenerated: true } });
       updated.repeatGenerated = true;
       nextTask = await tx.task.create({ data: {
-        userId, title: updated.title, details: updated.details, priority: updated.priority,
+        title: updated.title, details: updated.details, priority: updated.priority,
         ...schedule, dueDate, repeatAnchor,
       } });
     }
@@ -72,14 +72,14 @@ export async function updateTask(userId: string, id: string, input: z.infer<type
   });
 }
 
-export async function claimTaskReminders(userId: string, now = new Date()) {
+export async function claimTaskReminders(now = new Date()) {
   return db.$transaction(async tx => {
     const tasks = await tx.task.findMany({
-      where: { userId, reminderEnabled: true, remindedAt: null, dueDate: { lte: now }, status: { not: "done" } },
+      where: { reminderEnabled: true, remindedAt: null, dueDate: { lte: now }, status: { not: "done" } },
       orderBy: [{ dueDate: "asc" }, { id: "asc" }], take: 10,
       select: { id: true, title: true, dueDate: true, timeZone: true },
     });
-    await tx.task.updateMany({ where: { id: { in: tasks.map(task => task.id) }, userId, remindedAt: null }, data: { remindedAt: now } });
+    await tx.task.updateMany({ where: { id: { in: tasks.map(task => task.id) }, remindedAt: null }, data: { remindedAt: now } });
     return tasks;
   });
 }

@@ -11,17 +11,16 @@ type Part = StreamResult["stream"] extends ReadableStream<infer T> ? T : never;
 
 export function observeLanguageModel(model: Model, modelId: string, alternate: (id: string) => Model) {
   const context = dataRequestContext();
-  if (!context?.userId) return model;
-  const userId = context.userId;
+  if (!context?.workspaceId) return model;
   return wrapLanguageModel({ model, middleware: {
     specificationVersion: "v3",
     async wrapGenerate({ doGenerate }) {
-      const started = Date.now(), rates = await requestPricing(userId);
-      try { const result = await doGenerate(); await recordModelAttempt({ userId, requestId: context.requestId, mode: "chat", modelId, started, usage: result.usage, metadata: result.providerMetadata, rate: rates[modelId] }); return result; }
-      catch (error) { await recordModelAttempt({ userId, requestId: context.requestId, mode: "chat", modelId, started, error }); throw error; }
+      const started = Date.now(), rates = await requestPricing();
+      try { const result = await doGenerate(); await recordModelAttempt({ requestId: context.requestId, mode: "chat", modelId, started, usage: result.usage, metadata: result.providerMetadata, rate: rates[modelId] }); return result; }
+      catch (error) { await recordModelAttempt({ requestId: context.requestId, mode: "chat", modelId, started, error }); throw error; }
     },
     async wrapStream({ params }) {
-      const preferences = await getModelPreferences(userId);
+      const preferences = await getModelPreferences();
       let fallbackId = preferences.chat.fallbackId;
       const hasImages = params.prompt.some(message => message.role === "user" && message.content.some(part => part.type === "file"));
       if (params.tools?.length || fallbackId === modelId || !fallbackId || !availableModel("chat", fallbackId) || hasImages && !availableModel("chat", fallbackId)?.supportsImageInput) fallbackId = null;
@@ -34,7 +33,7 @@ export function observeLanguageModel(model: Model, modelId: string, alternate: (
         let recorded = false;
         const record = async (error?: unknown) => {
           if (recorded) return; recorded = true;
-          await recordModelAttempt({ userId, requestId: context.requestId, mode: "chat", modelId: selected, started, usage: finished?.usage, metadata: finished?.providerMetadata, error, fallback: attempt > 0, rate: preferences.rates[selected] });
+          await recordModelAttempt({ requestId: context.requestId, mode: "chat", modelId: selected, started, usage: finished?.usage, metadata: finished?.providerMetadata, error, fallback: attempt > 0, rate: preferences.rates[selected] });
         };
         try {
           const result = await (attempt ? alternate(selected) : model).doStream(params);
@@ -76,11 +75,10 @@ export function observeLanguageModel(model: Model, modelId: string, alternate: (
   } });
 }
 export function observeEmbeddingModel(model: Embed, modelId: string) {
-  const context = dataRequestContext(); if (!context?.userId) return model;
-  const userId = context.userId;
+  const context = dataRequestContext(); if (!context?.workspaceId) return model;
   return wrapEmbeddingModel({ model, middleware: { specificationVersion: "v3", async wrapEmbed({ doEmbed }) {
-    const started = Date.now(), rates = await requestPricing(userId);
-    try { const result = await doEmbed(); await recordModelAttempt({ userId, requestId: context.requestId, mode: "embedding", modelId, started, usage: result.usage, metadata: result.providerMetadata, rate: rates[modelId] }); return result; }
-    catch (error) { await recordModelAttempt({ userId, requestId: context.requestId, mode: "embedding", modelId, started, error }); throw error; }
+    const started = Date.now(), rates = await requestPricing();
+    try { const result = await doEmbed(); await recordModelAttempt({ requestId: context.requestId, mode: "embedding", modelId, started, usage: result.usage, metadata: result.providerMetadata, rate: rates[modelId] }); return result; }
+    catch (error) { await recordModelAttempt({ requestId: context.requestId, mode: "embedding", modelId, started, error }); throw error; }
   } } });
 }

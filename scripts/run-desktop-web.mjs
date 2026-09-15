@@ -18,7 +18,6 @@ const child = spawn(process.execPath, [
   env: {
     ...process.env,
     APP_RUNTIME: "web",
-    AUTH_DISABLED: "1",
     LOCAL_DATABASE_FILE: ".desktop-data/dev/app.db",
   },
   stdio: "inherit",

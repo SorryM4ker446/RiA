@@ -16,13 +16,14 @@ import { createTask, createTaskInputSchema } from "@/tools/definitions/create-ta
 import { searchKnowledge, searchKnowledgeInputSchema } from "@/tools/definitions/search-knowledge";
 import { documentSourceUrl } from "@/lib/documents/types";
 import { runWebSearch, webSearchInput } from "@/tools/definitions/web-search";
+import { LOCAL_WORKSPACE_ID } from "@/lib/local/workspace";
 
 export type ToolMode = "chat" | "image" | "video";
 export type ToolTriggerType = "manual" | "auto";
 export type ToolExecutionState = "output-available" | "output-error";
 
 type ToolExecutionContext<Input> = {
-  userId: string;
+  workspaceId: string;
   input: Input;
   modelId?: string;
   trigger: ToolTriggerType;
@@ -34,7 +35,7 @@ type ToolBudgetExceededContext = {
 };
 
 type ToolPrepareInputContext<Input> = {
-  userId: string;
+  workspaceId: string;
   input: Input;
   modelId?: string;
   trigger: ToolTriggerType;
@@ -338,7 +339,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       ],
     },
     inputSchema: searchKnowledgeInputSchema,
-    execute: async ({ userId, input }) => searchKnowledge(userId, input),
+    execute: async ({ input }) => searchKnowledge(input),
     buildAssistantText: async ({ output, modelId }) =>
       buildSearchAssistantText({
         result: output,
@@ -416,7 +417,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       ],
     },
     inputSchema: createTaskInputSchema,
-    execute: async ({ userId, input }) => createTask(userId, input),
+    execute: async ({ input }) => createTask(input),
     buildAssistantText: ({ output }) => buildCreateTaskAssistantText(output),
     memory: {
       enabled: true,
@@ -587,7 +588,8 @@ export function assertToolConfiguration(toolId: string) {
   }
 }
 
-export function createChatToolSet(userId: string, options?: { modelId?: string; toolIds?: string[] }): ToolSet {
+export function createChatToolSet(options?: { modelId?: string; toolIds?: string[] }): ToolSet {
+  const workspaceId = LOCAL_WORKSPACE_ID;
   const allowed = new Set(options?.toolIds ?? []);
   const hasRestriction = allowed.size > 0;
   const resultBudgetUsed = new Map<string, number>();
@@ -604,7 +606,7 @@ export function createChatToolSet(userId: string, options?: { modelId?: string; 
       execute: async (input: unknown) => {
         const startedAt = Date.now();
         try {
-          enforceRateLimit("tools", userId);
+          enforceRateLimit("tools");
           const budget = tool.auto.resultBudget;
           const usedBudget = resultBudgetUsed.get(tool.id) ?? 0;
           const remainingResultBudget = budget ? budget.maxPerTurn - usedBudget : undefined;
@@ -620,7 +622,6 @@ export function createChatToolSet(userId: string, options?: { modelId?: string; 
                 trigger: "auto",
                 state: "output-available",
                 durationMs: Date.now() - startedAt,
-                userId,
               });
 
               return output;
@@ -654,7 +655,7 @@ export function createChatToolSet(userId: string, options?: { modelId?: string; 
           assertToolConfiguration(tool.id);
           const preparedInput = tool.prepareInput
             ? await tool.prepareInput({
-                userId,
+                workspaceId,
                 input: parsedInput.data,
                 modelId: options?.modelId,
                 trigger: "auto",
@@ -703,7 +704,7 @@ export function createChatToolSet(userId: string, options?: { modelId?: string; 
           }
 
           const output = await tool.execute({
-            userId,
+            workspaceId,
             input: preparedParsedInput.data,
             modelId: options?.modelId,
             trigger: "auto",
@@ -718,7 +719,6 @@ export function createChatToolSet(userId: string, options?: { modelId?: string; 
             trigger: "auto",
             state: "output-available",
             durationMs: Date.now() - startedAt,
-            userId,
             requestId,
           });
 
@@ -729,7 +729,6 @@ export function createChatToolSet(userId: string, options?: { modelId?: string; 
             trigger: "auto",
             state: "output-error",
             durationMs: Date.now() - startedAt,
-            userId,
             errorCode: error instanceof ApiError ? error.code : "INTERNAL_ERROR",
           });
           throw error;

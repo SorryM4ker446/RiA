@@ -7,51 +7,43 @@ import { migrateMessageMedia, prepareMessageMedia, replaceMessageMedia } from "@
 import { pageResult, type PageOptions } from "@/lib/server/pagination";
 import { deleteConversations, updateConversation } from "@/lib/conversations/mutations";
 
-export async function getChat(userId: string, chatId: string) {
-  return db.chat.findFirst({
-    where: {
-      id: chatId,
-      userId,
-    },
-  });
+export async function getChat(chatId: string) {
+  return db.chat.findFirst({ where: { id: chatId } });
 }
 
-export async function createChat(params: { userId: string; chatId?: string; title?: string }) {
-  const { userId, chatId, title } = params;
+export async function createChat(params: { chatId?: string; title?: string }) {
+  const { chatId, title } = params;
 
   if (chatId) {
-    const existing = await db.chat.findFirst({
-      where: { id: chatId, userId },
-    });
+    const existing = await db.chat.findFirst({ where: { id: chatId } });
     if (existing) return existing;
   }
 
   return db.chat.create({
     data: {
       ...(chatId ? { id: chatId } : {}),
-      userId,
       title: truncateTitle(title ?? "New Chat"),
       lastMessageAt: new Date(),
     },
   });
 }
 
-export async function deleteChat(userId: string, chatId: string) {
-  const existing = await getChat(userId, chatId);
+export async function deleteChat(chatId: string) {
+  const existing = await getChat(chatId);
   if (!existing) return false;
 
-  await deleteConversations(userId, [chatId]);
+  await deleteConversations([chatId]);
 
   return true;
 }
 
-export async function updateChatTitle(userId: string, chatId: string, title: string) {
-  if (!await getChat(userId, chatId)) return null;
-  return updateConversation(userId, chatId, { title });
+export async function updateChatTitle(chatId: string, title: string) {
+  if (!await getChat(chatId)) return null;
+  return updateConversation(chatId, { title });
 }
 
-export async function listChatMessagePage(userId: string, chatId: string, options: PageOptions) {
-  if (!await getChat(userId, chatId)) return null;
+export async function listChatMessagePage(chatId: string, options: PageOptions) {
+  if (!await getChat(chatId)) return null;
   const cursor = options.cursor;
   const rows = await db.message.findMany({
     where: { chatId, ...(cursor ? { OR: [
@@ -61,9 +53,9 @@ export async function listChatMessagePage(userId: string, chatId: string, option
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: options.limit + 1,
   });
-  const page = pageResult(rows, options, `messages:${userId}:${chatId}`, (row) => row.createdAt);
+  const page = pageResult(rows, options, `messages:${chatId}`, (row) => row.createdAt);
   const data = [];
-  for (const message of page.data.reverse()) data.push(await migrateMessageMedia(userId, message));
+  for (const message of page.data.reverse()) data.push(await migrateMessageMedia(message));
   return { ...page, data };
 }
 
@@ -77,9 +69,9 @@ export async function saveChatMessage(params: {
 }) {
   const { chatId, role, content, status = "success", clientMessageId, updateExisting = false } = params;
   const normalizedClientMessageId = clientMessageId?.trim() ? clientMessageId.trim() : undefined;
-  const chat = await db.chat.findUnique({ where: { id: chatId }, select: { userId: true } });
+  const chat = await db.chat.findUnique({ where: { id: chatId }, select: { id: true } });
   if (!chat) throw new ApiError({ code: "NOT_FOUND", message: "Conversation was not found" });
-  const prepared = await prepareMessageMedia(chat.userId, content);
+  const prepared = await prepareMessageMedia(content);
 
   return db.$transaction(async (tx) => {
     const data = {
@@ -96,15 +88,15 @@ export async function saveChatMessage(params: {
           update: updateExisting ? { content: prepared.content, status } : {},
         })
       : await tx.message.create({ data });
-    if (message.content === prepared.content) await replaceMessageMedia(tx, chat.userId, message.id, prepared.assetIds);
+    if (message.content === prepared.content) await replaceMessageMedia(tx, message.id, prepared.assetIds);
     await tx.chat.update({ where: { id: chatId }, data: { lastMessageAt: new Date() } });
     return message;
   });
 }
 
-export async function getRegenerationSnapshot(userId: string, chatId: string, messageId: string) {
+export async function getRegenerationSnapshot(chatId: string, messageId: string) {
   const target = await db.message.findFirst({ where: {
-    chatId, chat: { userId }, role: "user", OR: [{ id: messageId }, { clientMessageId: messageId }],
+    chatId, role: "user", OR: [{ id: messageId }, { clientMessageId: messageId }],
   } });
   if (!target) {
     throw new ApiError({ code: "NOT_FOUND", message: "Message to regenerate was not found" });
@@ -114,8 +106,8 @@ export async function getRegenerationSnapshot(userId: string, chatId: string, me
     where: { chatId, ...fromMessage(from) }, orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   });
   const messages = [];
-  for (const message of rows) messages.push(await migrateMessageMedia(userId, message));
-  return { userId, chatId, from, messages };
+  for (const message of rows) messages.push(await migrateMessageMedia(message));
+  return { chatId, from, messages };
 }
 
 function fromMessage(from: { createdAt: Date; id: string }) {
@@ -123,9 +115,9 @@ function fromMessage(from: { createdAt: Date; id: string }) {
 }
 
 /** Claim a persisted pending approval once, before any side effect is executed. */
-export async function claimToolApproval(userId: string, chatId: string, message: UIMessage) {
+export async function claimToolApproval(chatId: string, message: UIMessage) {
   const existing = await db.message.findFirst({ where: {
-    chatId, chat: { userId }, role: "assistant",
+    chatId, role: "assistant",
     OR: [{ id: message.id }, { clientMessageId: message.id }],
   } });
   const persisted = existing ? decodePersistedAssistantToolMessage(existing.content) : null;
@@ -165,7 +157,7 @@ export async function saveRegeneratedResponse(params: {
 }) {
   const { snapshot } = params;
   return db.$transaction(async (tx) => {
-    const chat = await tx.chat.findFirst({ where: { id: snapshot.chatId, userId: snapshot.userId } });
+    const chat = await tx.chat.findFirst({ where: { id: snapshot.chatId } });
     if (!chat) throw new ApiError({ code: "NOT_FOUND", message: "Conversation was not found" });
     const current = await tx.message.findMany({
       where: { chatId: snapshot.chatId, ...fromMessage(snapshot.from) },
@@ -180,7 +172,7 @@ export async function saveRegeneratedResponse(params: {
     );
     if (index < 0) throw new ApiError({ code: "NOT_FOUND", message: "Message to regenerate was not found" });
     const removedIds = current.slice(index + 1).map((message) => message.id);
-    await tx.mediaAsset.updateMany({ where: { userId: snapshot.userId, references: { some: { messageId: { in: removedIds } } } }, data: { lastUsedAt: new Date() } });
+    await tx.mediaAsset.updateMany({ where: { references: { some: { messageId: { in: removedIds } } } }, data: { lastUsedAt: new Date() } });
     await tx.message.deleteMany({ where: { id: { in: removedIds } } });
     const message = await tx.message.create({ data: {
       chatId: snapshot.chatId,

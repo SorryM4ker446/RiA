@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { keywordScore, tokenizeQuery } from "@/lib/memory/retrieval";
 import { documentSourceUrl, type DocumentSource } from "@/lib/documents/types";
 
-export async function searchDocuments(userId: string, query: string, limit = 4): Promise<(DocumentSource & { score: number })[]> {
+export async function searchDocuments(query: string, limit = 4): Promise<(DocumentSource & { score: number })[]> {
   const tokens = tokenizeQuery(query).filter(token => token.length <= 100).slice(0, 16);
   if (!tokens.length) return [];
   // A local inverted index finds candidates across all owned documents, not just recent uploads.
@@ -11,11 +11,11 @@ export async function searchDocuments(userId: string, query: string, limit = 4):
     SELECT c.id FROM document_terms t
     JOIN document_chunks c ON c.id = t.chunkId
     JOIN knowledge_documents d ON d.id = c.documentId
-    WHERE d.userId = ${userId} AND t.term IN (${Prisma.join(tokens)})
+    WHERE t.term IN (${Prisma.join(tokens)})
     GROUP BY c.id ORDER BY COUNT(*) DESC, c.ordinal ASC, c.id ASC LIMIT 200
   `);
   if (!candidates.length) return [];
-  const chunks = await db.documentChunk.findMany({ where: { id: { in: candidates.map(chunk => chunk.id) }, document: { userId } }, include: { document: { select: { filename: true } } } });
+  const chunks = await db.documentChunk.findMany({ where: { id: { in: candidates.map(chunk => chunk.id) }, }, include: { document: { select: { filename: true } } } });
   const normalizedQuery = query.normalize("NFKC").toLowerCase().trim();
   const ranked = chunks.map(chunk => ({
     documentId: chunk.documentId, chunkId: chunk.id, filename: chunk.document.filename, pageNumber: chunk.pageNumber, ordinal: chunk.ordinal, snippet: chunk.text,

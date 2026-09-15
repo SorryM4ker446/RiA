@@ -10,6 +10,8 @@ import {
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { copyStandaloneDirectory } from "./desktop-copy.mjs";
+
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const standaloneDirectory = join(repositoryRoot, ".next", "standalone");
 const runtimeDirectory = join(repositoryRoot, ".desktop-runtime");
@@ -35,8 +37,7 @@ if (existsSync(legacyVideos) && readdirSync(legacyVideos).length > 0) {
 }
 rmSync(runtimeDirectory, { recursive: true, force: true });
 mkdirSync(runtimeDirectory, { recursive: true });
-cpSync(standaloneDirectory, runtimeDirectory, {
-  recursive: true,
+copyStandaloneDirectory(standaloneDirectory, runtimeDirectory, {
   filter: (source) => !/^\.env(?:\.|$)/i.test(basename(source)) && basename(source) !== "generated-videos",
 });
 

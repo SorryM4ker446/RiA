@@ -12,7 +12,7 @@ Private AI Assistant is a local-first AI assistant built with Next.js, Vercel AI
 - Tavily web search and tool-call approval flows
 - Image and video generation modes
 - Private media library with source conversations, generation parameters, downloads and confirmed regeneration/deletion
-- Portable account backup/import/export, confirmed restore with a safety backup, and automatic expired-backup cleanup
+- Portable workspace backup/import/export, confirmed restore with a safety backup, and automatic expired-backup cleanup
 - Saved model defaults, optional bounded fallback, and per-attempt latency/token/cost estimates
 - Windows desktop shell with encrypted API-key storage
 
@@ -33,7 +33,7 @@ npm run db:generate
 npm run dev
 ```
 
-The local SQLite database defaults to `.desktop-data/dev/app.db`. Browser development uses a single local demo user unless `AUTH_DISABLED` is overridden.
+The local SQLite database defaults to `.desktop-data/dev/app.db`. There is no application account: `npm run dev` prints a one-time entry link, and opening it on this machine establishes the local access credential the workspace then uses.
 
 API requests enforce input/size limits, consistent errors, local quotas and same-origin browser writes. Non-loopback hosts require an explicit `APP_ORIGIN`; see [API contracts and local security](docs/api-security.md) before changing local access or proxy settings.
 
@@ -41,7 +41,7 @@ Conversation and message history loads in bounded pages. See [Local integration 
 
 Open **管理会话** from the sidebar to search and organize history or download text snapshots. These features work in both browser and desktop; see [Conversation management](docs/conversation-management.md) for export privacy, limits and migration notes.
 
-Open **备份与恢复** for portable account recovery, or **模型与用量** for default models, optional fallback and usage estimates. Both work in browser and desktop. Backups are unencrypted and exclude login/provider credentials; restore creates a safety backup before replacing business data. See [Account backups](docs/account-backups.md) and [Model settings and usage](docs/model-usage.md) for limits and safety rules.
+Open **备份与恢复** for portable workspace recovery, or **模型与用量** for default models, optional fallback and usage estimates. Both work in browser and desktop. Backups are unencrypted and exclude the local access credential and provider keys; restore creates a safety backup before replacing business data. See [Workspace backups](docs/workspace-backups.md) and [Model settings and usage](docs/model-usage.md) for limits and safety rules.
 
 ## Desktop development
 
@@ -78,6 +78,25 @@ npm run test:desktop:smoke
 npm run desktop:verify
 npm run test:desktop:package
 ```
+
+## Local data upgrade
+
+An existing installation may still hold the earlier account-scoped database.
+`npm run dev` and the desktop application inventory that database, snapshot it,
+and record which old account the workspace adopts. Nothing is converted until
+that snapshot verifies.
+
+```powershell
+npm run workspace:status     # read-only plan and current state
+npm run workspace:inventory  # read-only report of every local data file
+npm run workspace:prepare    # snapshot and record the adopted workspace owner
+npm run workspace:restore    # restore the newest verified snapshot
+```
+
+A database whose content is spread over several accounts stops the upgrade with
+an explanation instead of merging silently. See
+[Local workspace upgrade and recovery](docs/workspace-upgrade.md) for the
+decision rules, the snapshot format and the recovery procedure.
 
 Desktop validation uses Node's built-in test runner and a hidden Electron window; it does not require an additional desktop test framework.
 

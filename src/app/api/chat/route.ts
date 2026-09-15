@@ -1,5 +1,5 @@
 import { protectDataOperation } from "@/lib/server/data-operations";
-import { requireRequestUser } from "@/lib/auth/request-user";
+import { currentWorkspaceId, requireLocalWorkspace } from "@/lib/local/workspace";
 import { rememberUserMessage } from "@/lib/chat/memory";
 import { buildSystemPrompt, formatLongTermContext, prepareModelContext } from "@/lib/chat/model-context";
 import { prepareChatPersistence } from "@/lib/chat/persistence";
@@ -17,9 +17,9 @@ import { documentSourceSchema } from "@/lib/documents/types";
 
 async function POSTHandler(req: NextRequest) {
   try {
-    const user = await requireRequestUser(req);
-    enforceRateLimit("chat", user.id);
-    const input = await readChatRequest(req, user.id);
+    await requireLocalWorkspace(req);
+    enforceRateLimit("chat");
+    const input = await readChatRequest(req);
     const { body, modelId, latestUserMessage, isApprovalResume } = input;
     if (!process.env.OPENROUTER_API_KEY?.trim()) {
       throw new ApiError({
@@ -30,8 +30,8 @@ async function POSTHandler(req: NextRequest) {
     setupServerProxy();
 
 
-    const { context, modelMessages } = await prepareModelContext(input, user.id);
-    const conversation = await prepareChatPersistence(input, user.id);
+    const { context, modelMessages } = await prepareModelContext(input);
+    const conversation = await prepareChatPersistence(input);
     const mode = body.mode ?? "chat";
     const isChatMode = mode === "chat";
     const autoToolCandidates = isChatMode ? listAutoToolDescriptors("chat") : [];
@@ -47,17 +47,16 @@ async function POSTHandler(req: NextRequest) {
 
     const relevantMemories = latestUserMessage?.text
       ? await getRelevantMemories({
-        userId: user.id,
         query: latestUserMessage.text,
         limit: 6,
       })
       : [];
 
 
-    await rememberUserMessage(user.id, latestUserMessage?.text);
-    const documentSources = latestUserMessage?.text ? (await searchDocuments(user.id, latestUserMessage.text)).map(source => documentSourceSchema.parse(source)) : [];
+    await rememberUserMessage(latestUserMessage?.text);
+    const documentSources = latestUserMessage?.text ? (await searchDocuments(latestUserMessage.text)).map(source => documentSourceSchema.parse(source)) : [];
     const systemPrompt = buildSystemPrompt(context.historyExcerpt || "No earlier messages omitted.", formatLongTermContext(relevantMemories), toolsEnabled) + formatDocumentContext(documentSources);
-    return streamChatResponse({ input, conversation, userId: user.id, systemPrompt, modelMessages, toolsEnabled, signal: req.signal, documentSources });
+    return streamChatResponse({ input, conversation, systemPrompt, modelMessages, toolsEnabled, signal: req.signal, documentSources });
   } catch (error) {
     console.error("/api/chat error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to generate chat response");

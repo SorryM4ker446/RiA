@@ -21,7 +21,7 @@ export const mediaApi = {
   async download(id: string) {
     const url = `${path(id)}?download=1`;
     const check = await fetch(url, { method: "HEAD", cache: "no-store" });
-    if (!check.ok) throw new Error(check.status === 401 || check.status === 403 ? "请重新登录后下载。" : "媒体文件不可用，请刷新后重试。");
+    if (!check.ok) throw new Error(check.status === 401 || check.status === 403 ? "本地访问凭证已失效，请从本机重新打开应用。" : "媒体文件不可用，请刷新后重试。");
     const anchor = document.createElement("a");
     anchor.href = url; anchor.download = "";
     document.body.append(anchor); anchor.click(); anchor.remove();

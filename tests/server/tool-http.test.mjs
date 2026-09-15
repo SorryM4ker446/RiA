@@ -4,21 +4,29 @@ import { createServer } from "node:http";
 import { after, beforeEach, test } from "node:test";
 import { NextRequest } from "next/server";
 import { createTestDatabase } from "../helpers/database.mjs";
+import { localAccessCookie } from "../helpers/local-access.mjs";
 
 const cleanup = createTestDatabase();
 process.env.PRIVATE_AI_TEST_PROVIDER = "1";
 for (const key of ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]) process.env[key] = "";
 const { db } = await import("@/db");
-const { createSession } = await import("@/lib/auth/session");
+
 const tools = await import("@/app/api/tools/run/route");
-let user, cookie;
+let cookie;
 beforeEach(async (t) => {
   t.mock.method(console, "info", () => {});
   t.mock.method(console, "warn", () => {});
   t.mock.method(console, "error", () => {});
   process.env.TAVILY_API_KEY = "local-http-fixture";
-  user = await db.user.create({ data: { email: `${randomUUID()}@example.invalid` } });
-  cookie = `app_session=${await createSession(user.id)}`;
+  cookie = localAccessCookie();
+  await db.message.deleteMany({});
+  await db.chat.deleteMany({});
+  await db.memory.deleteMany({});
+  await db.task.deleteMany({});
+  await db.knowledgeDocument.deleteMany({});
+  await db.mediaAsset.deleteMany({});
+  await db.modelRequest.deleteMany({});
+  await db.workspacePreference.deleteMany({});
 });
 after(async () => { await db.$disconnect(); cleanup(); });
 
@@ -72,7 +80,7 @@ test("web search sends real HTTP requests, normalizes sources and records one su
   assert.equal(payload.data.results[1].snippet.length, 500);
   assert.match(payload.assistantText, /https:\/\/example.invalid\/source/);
   assert.deepEqual(logs().map((entry) => entry.state), ["output-available"]);
-  assert.equal(await db.memory.count({ where: { userId: user.id, key: { startsWith: "tool:webSearch:" } } }), 1);
+  assert.equal(await db.memory.count({ where: { key: { startsWith: "tool:webSearch:" } } }), 1);
 });
 
 for (const [status, expected, code] of [[403, 503, "CONFIGURATION_ERROR"], [500, 502, "UPSTREAM_FAILED"]]) {
@@ -85,7 +93,7 @@ for (const [status, expected, code] of [[403, 503, "CONFIGURATION_ERROR"], [500,
     assert.equal(JSON.stringify(body).includes("fixture diagnostic"), false);
     assert.equal(fixture.requests.length, 1);
     assert.deepEqual(logs().map((entry) => [entry.state, entry.errorCode]), [["output-error", code]]);
-    assert.equal(await db.memory.count({ where: { userId: user.id } }), 0);
+    assert.equal(await db.memory.count({ where: {} }), 0);
   });
 }
 
@@ -101,7 +109,7 @@ test("web search actually times out a stalled HTTP connection and later requests
   assert.ok(performance.now() - started >= 11_000, "must exercise the real 12-second timeout");
   await fixture.closed;
   assert.deepEqual(logs().map((entry) => [entry.state, entry.errorCode]), [["output-error", "TIMEOUT"]]);
-  assert.equal(await db.memory.count({ where: { userId: user.id } }), 0);
+  assert.equal(await db.memory.count({ where: {} }), 0);
   respond = true;
   assert.equal((await run()).status, 200);
   assert.equal(fixture.requests.length, 2);

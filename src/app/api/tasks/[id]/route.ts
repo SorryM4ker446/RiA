@@ -3,27 +3,26 @@ import { readJsonBody } from "@/lib/server/request-body";
 import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
-import { requireRequestUser } from "@/lib/auth/request-user";
+import { currentWorkspaceId, requireLocalWorkspace } from "@/lib/local/workspace";
 import { updateTask, updateTaskSchema } from "@/lib/tasks/service";
 
 type Params = {
   params: Promise<{ id: string }>;
 };
 
-async function getScopedTask(userId: string, taskId: string) {
+async function getScopedTask(taskId: string) {
   return db.task.findFirst({
     where: {
       id: taskId,
-      userId,
     },
   });
 }
 
 async function GETHandler(req: NextRequest, context: Params) {
   try {
-    const user = await requireRequestUser(req);
+    await requireLocalWorkspace(req);
     const { id } = await context.params;
-    const task = await getScopedTask(user.id, id);
+    const task = await getScopedTask(id);
 
     if (!task) {
       throw new ApiError({
@@ -41,7 +40,7 @@ async function GETHandler(req: NextRequest, context: Params) {
 
 async function PATCHHandler(req: NextRequest, context: Params) {
   try {
-    const user = await requireRequestUser(req);
+    await requireLocalWorkspace(req);
     const { id } = await context.params;
     const parsed = updateTaskSchema.safeParse(await readJsonBody(req));
 
@@ -53,7 +52,7 @@ async function PATCHHandler(req: NextRequest, context: Params) {
       });
     }
 
-    return Response.json(await updateTask(user.id, id, parsed.data));
+    return Response.json(await updateTask(id, parsed.data));
   } catch (error) {
     console.error("/api/tasks/[id] PATCH error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to update task");
@@ -62,9 +61,9 @@ async function PATCHHandler(req: NextRequest, context: Params) {
 
 async function DELETEHandler(req: NextRequest, context: Params) {
   try {
-    const user = await requireRequestUser(req);
+    await requireLocalWorkspace(req);
     const { id } = await context.params;
-    const existing = await getScopedTask(user.id, id);
+    const existing = await getScopedTask(id);
 
     if (!existing) {
       throw new ApiError({

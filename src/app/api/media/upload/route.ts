@@ -1,7 +1,7 @@
 import { protectDataOperation } from "@/lib/server/data-operations";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { NextRequest } from "next/server";
-import { requireRequestUser } from "@/lib/auth/request-user";
+import { requireLocalWorkspace } from "@/lib/local/workspace";
 import { attachmentValidationError, MEDIA_LIMITS } from "@/lib/media/limits";
 import { createMediaAsset, toMediaReference, validateMediaBytes } from "@/lib/media/storage";
 import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
@@ -9,8 +9,8 @@ import { readLimitedBody } from "@/lib/server/request-body";
 
 async function POSTHandler(req: NextRequest) {
   try {
-    const user = await requireRequestUser(req);
-    enforceRateLimit("upload", user.id);
+    await requireLocalWorkspace(req);
+    enforceRateLimit("upload");
     if (!req.headers.get("content-type")?.toLowerCase().startsWith("multipart/form-data;")) throw new ApiError({ code: "UNSUPPORTED_MEDIA_TYPE", message: "Content-Type must be multipart/form-data" });
     const bytes = await readLimitedBody(req, MEDIA_LIMITS.uploadBodyBytes);
     let form: FormData;
@@ -27,7 +27,7 @@ async function POSTHandler(req: NextRequest) {
     for (const input of inputs) validateMediaBytes(input.bytes, input.file.type, MEDIA_LIMITS.attachmentBytes);
     const data = [];
     for (const input of inputs) {
-      const asset = await createMediaAsset({ userId: user.id, bytes: input.bytes, mediaType: input.file.type, kind: "attachment", description: input.file.name });
+      const asset = await createMediaAsset({ bytes: input.bytes, mediaType: input.file.type, kind: "attachment", description: input.file.name });
       data.push({ ...toMediaReference(asset), filename: input.file.name.slice(0, 255) });
     }
     return Response.json({ data }, { status: 201 });
