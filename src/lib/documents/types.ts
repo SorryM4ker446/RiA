@@ -7,7 +7,9 @@ export const DOCUMENT_LIMITS = {
   pages: 200,
   chunks: 256,
   documentsPerUser: 100,
-  parseTimeoutMs: 15_000,
+  // PDF.js can take several seconds to cold-start on a constrained CI or
+  // Windows machine before it begins reading the document.
+  parseTimeoutMs: 30_000,
 } as const;
 
 export const documentPageSchema = z.strictObject({ pageNumber: z.number().int().min(1).max(DOCUMENT_LIMITS.pages).nullable(), text: z.string().max(DOCUMENT_LIMITS.characters) });

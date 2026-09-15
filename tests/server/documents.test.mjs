@@ -13,6 +13,7 @@ const collection = await import("@/app/api/documents/route");
 const detail = await import("@/app/api/documents/[id]/route");
 const search = await import("@/app/api/documents/search/route");
 const { parseDocument, validateDocumentFile } = await import("@/lib/documents/parser");
+const { DOCUMENT_LIMITS } = await import("@/lib/documents/types");
 const { indexDocument } = await import("@/lib/documents/store");
 const { searchDocuments } = await import("@/lib/documents/retrieval");
 let cookie;
@@ -125,7 +126,7 @@ test("ingestion rate limits return Retry-After without modifying documents", asy
 test("parser timeout and cancellation release concurrency capacity", async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const pending = parseDocument(textPdf(), "pdf");
-  t.mock.timers.tick(15_001);
+  t.mock.timers.tick(DOCUMENT_LIMITS.parseTimeoutMs + 1);
   await assert.rejects(pending, error => error.code === "TIMEOUT");
   t.mock.timers.reset();
   await assert.rejects(parseDocument(Buffer.from("hello"), "txt", AbortSignal.abort()), /取消/);
