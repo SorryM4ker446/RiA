@@ -40,12 +40,12 @@
     "workspace:inventory": "node --import ./tests/helpers/register-typescript.mjs scripts/inventory-local-data.mjs"
   },
   "dependencies": {
-    "@ai-sdk/react": "3.0.163",
+    "@ai-sdk/react": "3.0.216",
     "@openrouter/ai-sdk-provider": "^2.8.0",
     "@prisma/client": "^6.15.0",
     "@radix-ui/react-select": "^2.2.6",
     "@tavily/ai-sdk": "0.5.0",
-    "ai": "6.0.161",
+    "ai": "6.0.214",
     "clsx": "2.1.1",
     "jszip": "3.10.1",
     "lucide-react": "1.8.0",
