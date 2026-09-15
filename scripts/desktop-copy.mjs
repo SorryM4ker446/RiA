@@ -1,13 +1,13 @@
-import { cpSync, lstatSync, mkdirSync, readdirSync, readlinkSync, symlinkSync } from "node:fs";
+import { cpSync, lstatSync, mkdirSync, readdirSync, readlinkSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
 /**
  * Copies the Next.js standalone output into the desktop runtime.
  *
  * The standalone output links externally traced packages instead of copying
- * them. Node's own recursive copy recreates those links verbatim, which fails
- * on Windows without Developer Mode, so each link is resolved and recreated as
- * a junction. The runtime therefore works on a normal developer account.
+ * them. Resolve those links while preparing the runtime so the generated
+ * desktop bundle contains ordinary files and directories. This avoids making
+ * Electron Forge create symlinks during packaging on Windows.
  */
 export function copyStandaloneDirectory(source, target, options = {}) {
   const { filter = () => true } = options;
@@ -25,12 +25,12 @@ export function copyStandaloneDirectory(source, target, options = {}) {
       if (stats.isSymbolicLink()) {
         const linkTarget = readlinkSync(entrySource);
         const absoluteTarget = isAbsolute(linkTarget) ? linkTarget : resolve(dirname(entrySource), linkTarget);
-        mkdirSync(dirname(entryTarget), { recursive: true });
-        try {
-          symlinkSync(absoluteTarget, entryTarget, "junction");
-        } catch {
-          // Fall back to the linked content when the platform refuses the link.
-          cpSync(absoluteTarget, entryTarget, { recursive: true });
+        const targetStats = lstatSync(absoluteTarget);
+        if (targetStats.isDirectory()) {
+          copyStandaloneDirectory(absoluteTarget, entryTarget, options);
+        } else {
+          mkdirSync(dirname(entryTarget), { recursive: true });
+          cpSync(absoluteTarget, entryTarget);
         }
         continue;
       }
