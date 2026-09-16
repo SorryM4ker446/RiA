@@ -17,7 +17,7 @@
     "models:check": "node scripts/check-model-catalog.mjs",
     "test:e2e": "playwright test",
     "test:server": "node --import ./tests/helpers/register-typescript.mjs --test tests/server/*.test.mjs",
-    "test:db": "node scripts/test-local-db.mjs",
+    "test:db": "npm run desktop:compile && node scripts/test-local-db.mjs",
     "db:generate": "node scripts/run-with-local-db.mjs prisma generate --schema src/db/schema.prisma",
     "db:migrate": "node scripts/run-with-local-db.mjs --migrate node scripts/verify-local-database.mjs",
     "db:deploy": "node scripts/run-with-local-db.mjs --migrate node scripts/verify-local-database.mjs",
