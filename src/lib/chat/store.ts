@@ -149,6 +149,32 @@ export async function claimToolApproval(chatId: string, message: UIMessage) {
   }
 }
 
+/**
+ * Restores an approval that was claimed but never reached tool execution, so
+ * the user can retry the same decision after a failed preparation step. The
+ * restore only applies while the row still holds this claim's decision.
+ */
+export async function releaseUnclaimedToolApproval(chatId: string, message: UIMessage) {
+  const existing = await db.message.findFirst({ where: {
+    chatId, role: "assistant",
+    OR: [{ id: message.id }, { clientMessageId: message.id }],
+  } });
+  const persisted = existing ? decodePersistedAssistantToolMessage(existing.content) : null;
+  if (!existing || !persisted) return;
+  const decisions = message.parts.filter((part) => "state" in part && part.state === "approval-responded");
+  const claimed = persisted.tools.filter((tool) => decisions.some((part) => "toolCallId" in part && part.toolCallId === tool.toolCallId));
+  if (claimed.length === 0) return;
+  for (const tool of claimed) {
+    if (tool.state !== "approval-responded") return;
+    if (!tool.approval || typeof tool.approval.approved !== "boolean") return;
+    tool.state = "approval-requested";
+  }
+  await db.message.updateMany({
+    where: { id: existing.id, content: existing.content },
+    data: { content: encodePersistedAssistantToolMessage(persisted) },
+  });
+}
+
 export async function saveRegeneratedResponse(params: {
   snapshot: Awaited<ReturnType<typeof getRegenerationSnapshot>>;
   userMessageId: string;

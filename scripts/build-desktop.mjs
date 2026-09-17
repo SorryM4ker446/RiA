@@ -14,6 +14,9 @@ function runNode(args, extraEnvironment = {}) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
+// The migrator loads its runtime from electron-dist, so the Electron compile
+// must exist before the first migration runs on a clean checkout.
+runNode(["node_modules/typescript/bin/tsc", "-p", "electron/tsconfig.json"]);
 runNode(
   ["scripts/run-with-local-db.mjs", "--migrate", "next", "build"],
   {
@@ -22,6 +25,5 @@ runNode(
     LOCAL_DATABASE_FILE: ".desktop-data/build/app.db",
   },
 );
-runNode(["node_modules/typescript/bin/tsc", "-p", "electron/tsconfig.json"]);
 runNode(["scripts/prepare-desktop.mjs"]);
 runNode(["scripts/verify-desktop-package.mjs", "--runtime-only"]);

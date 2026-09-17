@@ -31,6 +31,9 @@ const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
   reactStrictMode: true,
+  // The printed development entry accepts every loopback spelling, and the dev
+  // asset fence otherwise blocks resources for any host it did not initialize.
+  allowedDevOrigins: ["127.0.0.1", "[::1]"],
   serverExternalPackages: ["pdfjs-dist", "mammoth", "jszip"],
   outputFileTracingIncludes: {
     "/api/documents": documentRuntimeFiles(),

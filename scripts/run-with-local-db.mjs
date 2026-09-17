@@ -115,7 +115,9 @@ const child = spawn(executable, args, {
 
 if (localAccessCode) {
   const port = childEnvironment.PORT?.trim() || process.env.PORT?.trim() || "3000";
-  const entryOrigin = childEnvironment.APP_ORIGIN?.trim() || `http://127.0.0.1:${port}`;
+  // Next dev initializes with localhost, and its dev asset fence treats other
+  // hostnames as cross-origin, so the printed entry keeps that host too.
+  const entryOrigin = childEnvironment.APP_ORIGIN?.trim() || `http://localhost:${port}`;
   console.log(
       `\n本地工作区入口（无需账户）：${entryOrigin}/api/local-access?handshake=${localAccessCode}\n` +
       "该链接只能使用一次，服务重新启动后需要重新打开。\n",

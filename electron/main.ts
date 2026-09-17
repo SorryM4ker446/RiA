@@ -115,6 +115,9 @@ async function launchNextServer(): Promise<RunningNextServer> {
 }
 
 async function setDesktopCookie(origin: string) {
+  // A session cookie lives as long as the Chromium session itself. The token
+  // rotates on every launch, so a persistent expiry would only guarantee a
+  // 403 wall for windows left open longer than a day.
   await session.defaultSession.cookies.set({
     url: origin,
     name: DESKTOP_COOKIE_NAME,
@@ -122,7 +125,6 @@ async function setDesktopCookie(origin: string) {
     httpOnly: true,
     secure: false,
     sameSite: "strict",
-    expirationDate: Math.floor(Date.now() / 1000) + 24 * 60 * 60,
   });
 }
 
@@ -432,6 +434,13 @@ async function bootstrap() {
   });
   reminderPoller.start();
   powerMonitor.on("resume", () => { void reminderPoller?.poll(); });
+  // A wake from sleep must not outlive the session cookie either; reissue it
+  // so a long-lived window keeps an unexpired credential for the local service.
+  powerMonitor.on("resume", () => {
+    if (nextServer) void setDesktopCookie(nextServer.origin).catch((error) => {
+      logger?.error("Unable to refresh the desktop session cookie after resume", error);
+    });
+  });
 
   if (smokeTest) {
     await runSmokeAssertion();

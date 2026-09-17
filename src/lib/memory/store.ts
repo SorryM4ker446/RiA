@@ -12,6 +12,7 @@ export type SaveMemoryInput = {
 export type GetRelevantMemoriesInput = {
   query: string;
   limit?: number;
+  signal?: AbortSignal;
 };
 
 export async function saveMemory(input: SaveMemoryInput) {
@@ -45,9 +46,10 @@ export async function saveMemory(input: SaveMemoryInput) {
 export async function getRelevantMemories(input: GetRelevantMemoriesInput) {
   const query = input.query.trim();
   if (!query) return [];
+  if (input.signal?.aborted) return [];
 
   const limit = input.limit ?? 5;
-  const { candidates } = await getMemorySearchCandidates(query, CONTEXT_MEMORY_POLICY);
+  const { candidates } = await getMemorySearchCandidates(query, CONTEXT_MEMORY_POLICY, input.signal);
   return rankByScore(candidates, (item) => item.relevance, limit).map(({ memory }) => ({
     id: memory.id, key: memory.key, value: memory.value, score: memory.score, updatedAt: memory.updatedAt,
   }));

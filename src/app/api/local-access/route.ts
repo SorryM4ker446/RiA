@@ -29,8 +29,12 @@ export function GET(request: NextRequest) {
       throw new ApiError({ code: "FORBIDDEN", message: "启动凭证已失效，请从本地服务的启动输出重新打开应用。" });
     }
 
-    const target = new URL("/chat", request.nextUrl.origin);
-    const response = NextResponse.redirect(target, { status: 303 });
+    // Keep the browser's original host: NextURL normalizes loopback IPs to
+    // localhost, which would leave this host-only cookie on the entry host.
+    const response = new NextResponse(null, {
+      status: 303,
+      headers: { Location: "/chat", "Cache-Control": "no-store" },
+    });
     response.cookies.set(LOCAL_ACCESS_COOKIE, localAccessToken(), {
       httpOnly: true,
       sameSite: "lax",

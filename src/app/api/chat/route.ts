@@ -41,6 +41,7 @@ async function POSTHandler(req: NextRequest) {
           text: latestUserMessage.text,
           modelId,
           autoTools: autoToolCandidates,
+          signal: req.signal,
         })
         : null;
     const toolsEnabled = isChatMode && (isApprovalResume || (!body.manualToolsOnly && autoToolIntent !== null));

@@ -6,7 +6,7 @@ import {
   truncateTitle,
   type PersistedAssistantToolItem
 } from "@/lib/ai/ui-message";
-import { claimToolApproval, createChat, getChat, getRegenerationSnapshot, saveChatMessage, saveRegeneratedResponse } from "@/lib/chat/store";
+import { claimToolApproval, createChat, getChat, getRegenerationSnapshot, releaseUnclaimedToolApproval, saveChatMessage, saveRegeneratedResponse } from "@/lib/chat/store";
 import { ApiError, normalizeApiError } from "@/lib/server/api-error";
 import { type UIMessage } from "ai";
 import { persistResponseToolMemories } from "@/lib/chat/memory";
@@ -76,7 +76,16 @@ export async function prepareChatPersistence(input: ChatRequest) {
     fallbackTitle: truncateTitle(titleSeed),
   });
 
-  if (isApprovalResume) await claimToolApproval(chat.id, messages[messages.length - 1]);
+  if (isApprovalResume) {
+    const lastMessage = messages[messages.length - 1];
+    try {
+      await claimToolApproval(chat.id, lastMessage);
+    } catch (claimError) {
+      // A validation refusal must not consume the pending approval.
+      await releaseUnclaimedToolApproval(chat.id, lastMessage).catch(() => {});
+      throw claimError;
+    }
+  }
 
   if (latestUserMessage && !isApprovalResume) {
     const userContent =
@@ -144,15 +153,16 @@ export async function persistChatResponse(params: { input: ChatRequest; conversa
       });
     }
 
+    // A rename made while the answer streamed must survive; only a conversation
+    // still holding the auto-generated placeholder gets named from the message.
+    if (chat.title === "New Chat" && latestUserMessage?.text) {
+      await db.chat.updateMany({ where: { id: chat.id, title: "New Chat" }, data: { title: truncateTitle(latestUserMessage.text) } });
+    }
     await db.chat.update({
       where: { id: chat.id },
       data: {
         lastMessageAt: new Date(),
         updatedAt: new Date(),
-        title:
-          chat.title === "New Chat" && latestUserMessage?.text
-            ? truncateTitle(latestUserMessage.text)
-            : chat.title,
       },
     });
 
