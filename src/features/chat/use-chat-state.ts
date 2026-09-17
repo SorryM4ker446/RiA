@@ -79,7 +79,7 @@ export function useChatState() {
     imageByMessageId, setImageByMessageId, videoByMessageId, setVideoByMessageId, attachments,
     attachingImageKey, fileInputRef, attachmentNames, reuseImageActionLabel, clearAttachments,
     appendAttachments, onReuseImageForEditing, onAttachmentInputChange, generateImage, generateVideo,
-  } = useMediaGeneration({ messages, setMessages, ensureActiveChatId, loadChats, setPageError, modelMode, selectedImageModel, selectedVideoModel, textareaRef });
+  } = useMediaGeneration({ activeChatId, isHistoryReady: historyState?.chatId === activeChatId && historyState.status === "ready", setMessages, reloadMessages: loadMessages, ensureActiveChatId, loadChats, setPageError, modelMode, selectedImageModel, selectedVideoModel, textareaRef });
   const {
     toolCatalogError, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors,
     setManualToolFieldErrors, isRunningManualTool, manualTools, selectedManualToolConfig,
@@ -324,9 +324,15 @@ export function useChatState() {
 
   async function regenerateMessage(messageId: string) {
     if (isPending) return;
+    if (!activeChatId) return;
     setPageError(null);
     try {
-      await regenerate({ messageId });
+      // The Chat instance keeps the transport it was constructed with, so the
+      // current preferences must travel with the request itself.
+      await regenerate({
+        messageId,
+        body: { chatId: activeChatId, modelId: selectedChatModel, manualToolsOnly, mode: modelMode },
+      });
       await loadChats();
     } catch (regenerateError) {
       setPageError(regenerateError instanceof Error ? regenerateError.message : "重新生成失败");
@@ -357,18 +363,22 @@ export function useChatState() {
 
     if (hasContent) setInput("");
 
+    const uploadViewRequest = latestHistoryRequestRef.current;
     let uploadParts: UploadableFilePart[] = [];
     if (hasAttachments) {
       setIsUploadingAttachments(true);
       try {
         uploadParts = await filesToUploadParts(attachments);
       } catch (error) {
-        setPageError(error instanceof Error ? error.message : "附件读取失败");
+        if (uploadViewRequest === latestHistoryRequestRef.current) setPageError(error instanceof Error ? error.message : "附件读取失败");
         return;
       } finally {
         setIsUploadingAttachments(false);
       }
     }
+
+    // Do not start a submission through a stale composer after an upload.
+    if (uploadViewRequest !== latestHistoryRequestRef.current) return;
 
     if (modelMode === "chat" && selectedManualToolConfig) {
       try {

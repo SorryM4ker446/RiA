@@ -11,7 +11,7 @@ function isEmbeddingAvailable(): boolean {
  * embedding backend is unavailable or a call fails, so callers can fall back
  * to keyword scoring.
  */
-export async function embedTexts(values: string[]): Promise<Array<number[] | null>> {
+export async function embedTexts(values: string[], signal?: AbortSignal): Promise<Array<number[] | null>> {
   if (values.length === 0 || !isEmbeddingAvailable()) {
     return values.map(() => null);
   }
@@ -23,6 +23,7 @@ export async function embedTexts(values: string[]): Promise<Array<number[] | nul
     const { embeddings } = await embedMany({
       model: getEmbeddingModel(),
       values: normalized,
+      abortSignal: signal,
     });
 
     return embeddings.map((embedding) => (Array.isArray(embedding) ? embedding : null));
@@ -32,8 +33,8 @@ export async function embedTexts(values: string[]): Promise<Array<number[] | nul
   }
 }
 
-export async function embedText(value: string): Promise<number[] | null> {
-  const results = await embedTexts([value]);
+export async function embedText(value: string, signal?: AbortSignal): Promise<number[] | null> {
+  const results = await embedTexts([value], signal);
   return results[0] ?? null;
 }
 

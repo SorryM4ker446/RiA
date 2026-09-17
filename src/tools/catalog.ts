@@ -27,6 +27,7 @@ type ToolExecutionContext<Input> = {
   input: Input;
   modelId?: string;
   trigger: ToolTriggerType;
+  signal?: AbortSignal;
 };
 
 type ToolBudgetExceededContext = {
@@ -40,6 +41,7 @@ type ToolPrepareInputContext<Input> = {
   modelId?: string;
   trigger: ToolTriggerType;
   remainingResultBudget?: number;
+  signal?: AbortSignal;
 };
 
 type ToolAssistantTextContext<Input, Output> = {
@@ -217,7 +219,11 @@ async function resolveWebSearchInput(params: {
   modelId?: string;
   trigger: ToolTriggerType;
   maxResultsLimit?: number;
+  signal?: AbortSignal;
 }): Promise<z.infer<typeof webSearchInput>> {
+  if (params.signal?.aborted) {
+    throw new ApiError({ code: "TIMEOUT", message: "Web search was cancelled." });
+  }
   if (typeof params.input.maxResults === "number") {
     return params.input;
   }
@@ -482,12 +488,13 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       ],
     },
     inputSchema: webSearchInput,
-    prepareInput: ({ input, modelId, trigger, remainingResultBudget }) =>
+    prepareInput: ({ input, modelId, trigger, remainingResultBudget, signal }) =>
       resolveWebSearchInput({
         input,
         modelId,
         trigger,
         maxResultsLimit: remainingResultBudget,
+        signal,
       }),
     buildBudgetExceededOutput: ({ input }) => {
       const query =
@@ -500,7 +507,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
         results: [],
       };
     },
-    execute: async ({ input }) => runWebSearch(input),
+    execute: async ({ input, signal }) => runWebSearch(input, signal),
     buildAssistantText: ({ output, modelId }) =>
       buildWebSearchAssistantText({
         result: output,
@@ -603,8 +610,11 @@ export function createChatToolSet(options?: { modelId?: string; toolIds?: string
       description: tool.description,
       inputSchema: tool.inputSchema,
       ...(tool.requiresApproval ? { needsApproval: true } : {}),
-      execute: async (input: unknown) => {
+      execute: async (input: unknown, callOptions?: { abortSignal?: AbortSignal }) => {
         const startedAt = Date.now();
+        // The SDK passes call options as the second argument when a tool runs;
+        // its abortSignal carries the user's stop request into every stage.
+        const signal = callOptions?.abortSignal;
         try {
           enforceRateLimit("tools");
           const budget = tool.auto.resultBudget;
@@ -660,6 +670,7 @@ export function createChatToolSet(options?: { modelId?: string; toolIds?: string
                 modelId: options?.modelId,
                 trigger: "auto",
                 remainingResultBudget,
+                signal,
               })
             : parsedInput.data;
           const preparedParsedInput = tool.inputSchema.safeParse(preparedInput);
@@ -686,7 +697,28 @@ export function createChatToolSet(options?: { modelId?: string; toolIds?: string
               });
             }
 
-            if (typeof remainingResultBudget === "number" && requestedBudget > remainingResultBudget) {
+            // The budget was read before the async preparation above; parallel
+            // executions would all see the same stale count, so re-check and
+            // reserve against the map's current value instead of the snapshot.
+            const currentUsedBudget = resultBudgetUsed.get(tool.id) ?? 0;
+            const currentRemaining = budget.maxPerTurn - currentUsedBudget;
+            if (requestedBudget > currentRemaining) {
+              if (tool.buildBudgetExceededOutput) {
+                const output = tool.buildBudgetExceededOutput({
+                  input: preparedParsedInput.data,
+                  remainingResultBudget: Math.max(0, currentRemaining),
+                });
+
+                logToolExecution({
+                  toolId: tool.id,
+                  trigger: "auto",
+                  state: "output-available",
+                  durationMs: Date.now() - startedAt,
+                });
+
+                return output;
+              }
+
               throw new ApiError({
                 code: "VALIDATION_ERROR",
                 message: `Tool ${tool.id} exceeded the per-turn result budget.`,
@@ -694,13 +726,13 @@ export function createChatToolSet(options?: { modelId?: string; toolIds?: string
                   inputKey: budget.inputKey,
                   requested: requestedBudget,
                   maxPerTurn: budget.maxPerTurn,
-                  used: usedBudget,
-                  remaining: remainingResultBudget,
+                  used: currentUsedBudget,
+                  remaining: currentRemaining,
                 },
               });
             }
 
-            resultBudgetUsed.set(tool.id, usedBudget + requestedBudget);
+            resultBudgetUsed.set(tool.id, currentUsedBudget + requestedBudget);
           }
 
           const output = await tool.execute({
@@ -708,6 +740,7 @@ export function createChatToolSet(options?: { modelId?: string; toolIds?: string
             input: preparedParsedInput.data,
             modelId: options?.modelId,
             trigger: "auto",
+            signal,
           });
           const requestId =
             output && typeof output === "object" && "requestId" in output && typeof output.requestId === "string"

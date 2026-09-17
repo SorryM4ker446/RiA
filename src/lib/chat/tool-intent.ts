@@ -21,10 +21,12 @@ export async function detectAutoToolIntent(params: {
   text: string;
   modelId: ReturnType<typeof resolveModelId>;
   autoTools: ReturnType<typeof listAutoToolDescriptors>;
+  signal?: AbortSignal;
 }): Promise<AutoToolIntent> {
   const input = params.text.trim();
   if (!input) return null;
   if (!params.autoTools.length) return null;
+  if (params.signal?.aborted) return null;
 
   const allowedIds = new Set(params.autoTools.map((tool) => tool.id));
   const toolBrief = params.autoTools
@@ -53,6 +55,7 @@ export async function detectAutoToolIntent(params: {
         "Latest user message:",
         input,
       ].join("\n"),
+      abortSignal: params.signal,
     });
 
     if (TOOL_DEBUG) {

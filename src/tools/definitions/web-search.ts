@@ -96,7 +96,7 @@ function throwTavilyError(error: unknown): never {
   });
 }
 
-export async function runWebSearch(input: WebSearchInput): Promise<WebSearchOutput> {
+export async function runWebSearch(input: WebSearchInput, signal?: AbortSignal): Promise<WebSearchOutput> {
   const maxResults = normalizeMaxResults(input.maxResults);
   const apiKey = process.env.TAVILY_API_KEY?.trim();
   if (!apiKey) {
@@ -105,6 +105,8 @@ export async function runWebSearch(input: WebSearchInput): Promise<WebSearchOutp
       message: "TAVILY_API_KEY is not configured.",
     });
   }
+
+  if (signal?.aborted) throw new ApiError({ code: "TIMEOUT", message: "Web search was cancelled." });
 
   const tool = tavilySearch({
     apiKey,
