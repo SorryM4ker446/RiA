@@ -1,22 +1,36 @@
 "use client";
 import Link from "next/link";
+import { BackToChatLink } from "@/components/layout/back-to-chat-link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useAwaitingFirstLoad } from "@/lib/use-awaiting-first-load";
+import { RefreshButton } from "@/components/ui/refresh-button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AssetDetailPanel } from "@/features/media/asset-detail";
 import { StoragePanel } from "@/features/media/storage-panel";
 import { mediaApi, assetKind, formatBytes, type Asset, type AssetDetail, type Filters, type SourceChat } from "@/features/media/api-client";
 import { LAST_ACTIVE_CHAT_STORAGE_KEY } from "@/features/chat/types";
 import { conversationsApi } from "@/features/conversations/api-client";
+import { t } from "@/lib/locale";
 
 const defaults: Filters = { type: "all", kind: "all", usage: "all" };
+const sameFilters = (a: Filters, b: Filters) => a.type === b.type && a.kind === b.kind && a.usage === b.usage;
 export default function MediaPage() {
   const router = useRouter();
   const [filters, setFilters] = useState(defaults);
+  // The filters the currently displayed rows were fetched with, so a refresh
+  // can tell "same query, re-read it" apart from "different query, start over".
+  // The filters the visible rows were actually loaded with — see the note in
+  // the conversations list; the same distinction applies here.
+  const loadedFilters = useRef(filters);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [selected, setSelected] = useState<AssetDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  // The filters are the query: re-running them is silent, changing them earns a
+  // first paint again.
+  const awaitingFirstAssetLoad = useAwaitingFirstLoad(loading, JSON.stringify(filters));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -29,20 +43,26 @@ export default function MediaPage() {
   const load = useCallback(async (next?: string) => {
     const version = ++requests.current.version;
     setLoading(true); setError("");
-    if (!next) { setAssets([]); setCursor(null); }
+    // A refresh keeps the rows already on screen and swaps them when the
+    // response lands. Clearing first emptied the grid for the length of the
+    // request, so every refresh flashed: content out, empty state in, content
+    // back. Only a filter change is allowed to blank the list, because those
+    // rows genuinely no longer match.
+    if (!next && !sameFilters(loadedFilters.current, filters)) { setAssets([]); setCursor(null); }
     try {
       const result = await mediaApi.list(filters, next);
       if (version !== requests.current.version) return;
+      loadedFilters.current = filters;
       setAssets(previous => next ? [...previous, ...result.data.filter(item => !previous.some(asset => asset.id === item.id))] : result.data);
       setCursor(result.pageInfo.nextCursor);
-    } catch (cause) { if (version === requests.current.version) setError(cause instanceof Error ? cause.message : "读取失败。"); }
+    } catch (cause) { if (version === requests.current.version) setError(cause instanceof Error ? cause.message : t("media.error.load")); }
     finally { if (version === requests.current.version) setLoading(false); }
   }, [filters]);
   useEffect(() => { const current = requests.current; void load(); return () => { current.version++; }; }, [load]);
   async function act(action: () => Promise<void>) {
     if (locked.current) return;
     locked.current = true; setBusy(true); setError(""); setNotice("");
-    try { await action(); } catch (cause) { setError(cause instanceof Error ? cause.message : "媒体操作失败。"); }
+    try { await action(); } catch (cause) { setError(cause instanceof Error ? cause.message : t("media.error.act")); }
     finally { locked.current = false; setBusy(false); }
   }
   async function show(id: string) {
@@ -57,42 +77,68 @@ export default function MediaPage() {
     const id = selected.id;
     dialog.current?.close();
     void act(async () => {
-      if (operation === "delete") { await mediaApi.delete(id); setSelected(null); setNotice("资源已删除，文件无法恢复。"); }
-      else { const result = await mediaApi.regenerate(id); await show(result.asset.assetId); setNotice("重新生成完成，已另存新资源，原文件和历史消息未改变。"); }
+      if (operation === "delete") { await mediaApi.delete(id); setSelected(null); setNotice(t("media.notice.deleted")); }
+      else { const result = await mediaApi.regenerate(id); await show(result.asset.assetId); setNotice(t("media.notice.regenerated")); }
       setRevision(value => value + 1); await load();
     });
   }
   const disabled = busy || loading;
   return <main className="mx-auto max-w-6xl space-y-5 px-4 py-8 sm:px-6">
-    <header className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="text-2xl font-semibold">媒体资源库</h1><p className="mt-2 text-sm text-muted-foreground">浏览本机图片、视频及附件。查看详情后可下载、重新生成或安全删除。</p></div><Link className="text-sm text-primary underline" href="/chat">返回聊天</Link></header>
-    <details className="rounded-xl border p-4"><summary className="cursor-pointer font-medium">磁盘占用与清理</summary><div className="mt-4"><StoragePanel revision={revision} onChanged={() => { setSelected(null); void load(); }} /></div></details>
+    <header className="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-headline">{t("media.title")}</h1>
+        <p className="mt-2 text-sm text-muted-foreground">{t("media.description")}</p>
+      </div>
+      <BackToChatLink />
+    </header>
+    <details className="rounded-lg bg-card p-4 shadow-card"><summary className="cursor-pointer text-sm font-medium tracking-label">{t("media.storageSummary")}</summary><div className="mt-4"><StoragePanel revision={revision} onChanged={() => { setSelected(null); void load(); }} /></div></details>
     <div className="flex flex-wrap items-end gap-3">
-      {([{ key: "type", label: "媒体类型", values: [["all", "全部"], ["image", "图片"], ["video", "视频"]] }, { key: "kind", label: "资源来源", values: [["all", "全部"], ["attachment", "上传附件"], ["generated-image", "生成图片"], ["generated-video", "生成视频"]] }, { key: "usage", label: "引用状态", values: [["all", "全部"], ["referenced", "被引用"], ["unused", "未引用"]] }] as const).map(filter => <label key={filter.key} className="text-sm">{filter.label}<select aria-label={filter.label} className="mt-1 block h-10 min-w-32 rounded-md border bg-background px-3" value={filters[filter.key]} disabled={disabled} onChange={event => { setSelected(null); setFilters({ ...filters, [filter.key]: event.target.value }); }}>{filter.values.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>)}
-      <Button disabled={disabled} variant="outline" onClick={() => { setSelected(null); setRevision(value => value + 1); void load(); }}>刷新资源</Button>
+      {([{ key: "type", label: t("media.filter.typeLabel"), values: [["all", t("media.filter.all")], ["image", t("media.filter.image")], ["video", t("media.filter.video")]] }, { key: "kind", label: t("media.filter.sourceLabel"), values: [["all", t("media.filter.all")], ["attachment", t("media.filter.attachment")], ["generated-image", t("media.filter.generatedImage")], ["generated-video", t("media.filter.generatedVideo")]] }, { key: "usage", label: t("media.filter.usageLabel"), values: [["all", t("media.filter.all")], ["referenced", t("media.filter.referenced")], ["unused", t("media.filter.unused")]] }] as const).map(filter => <div key={filter.key} className="text-sm"><span className="block">{filter.label}</span>
+        <Select
+          disabled={disabled}
+          onValueChange={value => { setSelected(null); setFilters({ ...filters, [filter.key]: value }); }}
+          value={filters[filter.key]}
+        >
+          <SelectTrigger aria-label={filter.label} className="mt-1.5 min-w-32">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {filter.values.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>)}
+      <RefreshButton
+        disabled={disabled}
+        onClick={() => { setSelected(null); setRevision(value => value + 1); void load(); }}
+        refreshing={loading}
+        label={t("media.refresh")}
+      />
     </div>
-    {error && <p role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">{error}</p>}
+    {error && <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-sm text-destructive shadow-hairline">{error}</p>}
     {notice && <p role="status" className="text-sm">{notice}</p>}
     <div ref={detailPanel}>{selected && <AssetDetailPanel key={selected.id} asset={selected} busy={disabled} close={() => setSelected(null)} openChat={openChat} inspect={id => { void act(() => show(id)); }}
-      download={() => { void act(async () => { await mediaApi.download(selected.id); setNotice("原文件已交给下载管理器，请妥善保存。"); }); }}
+      download={() => { void act(async () => { await mediaApi.download(selected.id); setNotice(t("media.notice.downloaded")); }); }}
       remove={() => { setOperation("delete"); dialog.current?.showModal(); }} regenerate={() => { setOperation("regenerate"); dialog.current?.showModal(); }} />}</div>
-    <p className="text-sm text-muted-foreground" aria-live="polite">已加载 {assets.length} 个资源，按创建时间倒序。</p>
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-busy={disabled}>{assets.map(asset => <article key={asset.id} aria-label={`媒体 ${asset.id}`} className="overflow-hidden rounded-xl border bg-card">
-      <button className="flex h-44 w-full items-center justify-center bg-muted/40" aria-label={`查看媒体 ${asset.id}`} disabled={disabled} onClick={() => void act(() => show(asset.id))}>
+    <p className="text-sm text-muted-foreground" aria-live="polite">{`${t("media.loaded")} ${assets.length} ${t("media.loadedUnit")}`}</p>
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-busy={disabled}>{assets.map(asset => <article key={asset.id} aria-label={`${t("media.cardLabel")} ${asset.id}`} className="overflow-hidden rounded-lg bg-card shadow-card transition-shadow duration-200 hover:shadow-raised">
+      <button className="flex h-44 w-full items-center justify-center bg-muted" aria-label={`${t("media.viewLabel")} ${asset.id}`} disabled={disabled} onClick={() => void act(() => show(asset.id))}>
         {asset.mediaType.startsWith("image/")
           // eslint-disable-next-line @next/next/no-img-element
-          ? <img src={asset.url} alt={asset.description?.slice(0, 120) || "图片资源"} loading="lazy" className="h-full w-full object-contain" />
-          : <span className="text-muted-foreground">▶ 视频 · 打开详情播放</span>}
-      </button><div className="space-y-2 p-4"><p className="text-sm font-medium">{assetKind(asset.kind)} · {formatBytes(asset.byteSize)}</p><p className="line-clamp-2 break-words text-sm">{asset.description || "未记录描述"}</p><p className="break-words text-xs text-muted-foreground">{asset.modelId || "未记录模型"} · {asset.referenceCount} 处引用</p><Button disabled={disabled} size="sm" variant="outline" onClick={() => void act(() => show(asset.id))}>查看详情</Button></div>
+          ? <img src={asset.url} alt={asset.description?.slice(0, 120) || t("media.imageAlt")} loading="lazy" className="h-full w-full object-contain" />
+          : <span className="text-muted-foreground">{t("media.videoHint")}</span>}
+      </button><div className="space-y-2 p-4"><p className="text-sm font-medium tracking-label">{assetKind(asset.kind)} · {formatBytes(asset.byteSize)}</p><p className="line-clamp-2 break-words text-sm text-muted-foreground">{asset.description || t("media.noDescription")}</p><p className="break-words text-xs text-muted-foreground">{`${asset.modelId || t("media.noModel")} · ${asset.referenceCount} ${t("media.referenceCount")}`}</p><Button disabled={disabled} size="sm" variant="outline" onClick={() => void act(() => show(asset.id))}>{t("media.viewDetails")}</Button></div>
     </article>)}</div>
-    {loading && <p role="status">正在加载媒体…</p>}
-    {!assets.length && !loading && !error && <p className="rounded-xl border border-dashed p-8 text-center text-muted-foreground">没有符合条件的媒体资源。</p>}
-    {cursor && <Button className="w-full" disabled={disabled} variant="outline" onClick={() => void load(cursor)}>加载更多资源</Button>}
-    <p className="text-xs text-muted-foreground">重新生成会再次调用模型，结果可能不同；只有明确确认后才会执行。新结果保存在资源库，不替换历史消息。旧内嵌媒体需先打开对应聊天完成迁移。</p>
-    <dialog ref={dialog} aria-labelledby="media-confirm-title" aria-describedby="media-confirm-description" className="w-[min(32rem,90vw)] rounded-xl border bg-background p-6 text-foreground shadow-xl backdrop:bg-black/50">
-      <h2 id="media-confirm-title" className="text-lg font-semibold">{operation === "delete" ? "永久删除这个资源？" : "按原参数重新生成？"}</h2>
-      <p id="media-confirm-description" className="my-4 text-sm">{operation === "delete" ? "文件将从本机永久移除，无法撤销。若出现新的引用，删除会被拒绝。" : "将再次调用原模型，可能产生费用。生成结果另存为新资源，不覆盖原文件或修改历史消息。"}</p>
-      <p className="mb-4 break-all text-xs text-muted-foreground">{selected?.id}</p>
-      <div className="flex justify-end gap-2"><Button autoFocus disabled={busy} variant="outline" onClick={() => dialog.current?.close()}>取消操作</Button><Button disabled={busy} variant={operation === "delete" ? "destructive" : "default"} onClick={confirm}>{operation === "delete" ? "确认永久删除" : "确认重新生成"}</Button></div>
+    {/* Only announce a load when there is nothing on screen yet. Re-announcing
+        it over an intact list is what made a refresh read as a re-render. */}
+    {awaitingFirstAssetLoad && <p role="status">{t("media.loading")}</p>}
+    {!assets.length && !awaitingFirstAssetLoad && !error && <p className="empty-state">{t("media.empty")}</p>}
+    {cursor && <Button className="w-full" disabled={disabled} variant="outline" onClick={() => void load(cursor)}>{t("media.loadMore")}</Button>}
+    <p className="text-xs text-muted-foreground">{t("media.footnote")}</p>
+    <dialog ref={dialog} aria-labelledby="media-confirm-title" aria-describedby="media-confirm-description" className="w-[min(32rem,90vw)] rounded-lg bg-background p-6 text-foreground shadow-pop backdrop:bg-foreground/30">
+      <h2 id="media-confirm-title" className="text-lg font-semibold tracking-title">{operation === "delete" ? t("media.confirmDeleteTitle") : t("media.confirmRegenerateTitle")}</h2>
+      <p id="media-confirm-description" className="my-4 text-sm text-muted-foreground">{operation === "delete" ? t("media.confirmDeleteBody") : t("media.confirmRegenerateBody")}</p>
+      <p className="mb-4 break-all font-mono text-xs text-muted-foreground">{selected?.id}</p>
+      <div className="flex justify-end gap-2"><Button autoFocus disabled={busy} variant="outline" onClick={() => dialog.current?.close()}>{t("media.cancelAction")}</Button><Button disabled={busy} variant={operation === "delete" ? "destructive" : "default"} onClick={confirm}>{operation === "delete" ? t("media.confirmDeleteAction") : t("media.confirmRegenerateAction")}</Button></div>
     </dialog>
   </main>;
 }

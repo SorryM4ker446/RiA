@@ -1,4 +1,5 @@
 import { getApiErrorMessage } from "@/lib/api-error-message";
+import { t } from "@/lib/locale";
 import type { ChatSummary } from "@/features/chat/page-utils";
 
 export type Conversation = ChatSummary & { pinned: boolean; archived: boolean; tags: string[] };
@@ -8,7 +9,7 @@ export type ConversationPage = { data: Conversation[]; pageInfo: { nextCursor: s
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, { cache: "no-store", ...options });
   const payload: unknown = await response.json().catch(() => null);
-  if (!response.ok || !payload) throw new Error(getApiErrorMessage(payload, "会话操作失败，请重试。"));
+  if (!response.ok || !payload) throw new Error(getApiErrorMessage(payload, t("conversationsApi.actFailed")));
   return payload as T;
 }
 const path = (id: string) => `/api/conversations/${encodeURIComponent(id)}`;
@@ -26,7 +27,7 @@ export const conversationsApi = {
   delete: (ids: string[]) => request<{ data: { deletedCount: number } }>("/api/conversations/bulk-delete", body("POST", { ids, confirm: true })),
   async download(id: string, format: "json" | "markdown") {
     const response = await fetch(`${path(id)}/export?${new URLSearchParams({ format })}`, { cache: "no-store" });
-    if (!response.ok) throw new Error(getApiErrorMessage(await response.json().catch(() => null), "导出失败，请重试。"));
+    if (!response.ok) throw new Error(getApiErrorMessage(await response.json().catch(() => null), t("conversationsApi.exportFailed")));
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
