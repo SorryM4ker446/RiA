@@ -124,7 +124,7 @@ export class DesktopSettingsStore {
       OPENROUTER_API_KEY: openrouterApiKey,
       TAVILY_API_KEY: tavilyApiKey,
       OUTBOUND_PROXY_URL: stored.outboundProxyUrl || "",
-      OPENROUTER_SITE_NAME: stored.openrouterSiteName || "Private AI Assistant Desktop",
+      OPENROUTER_SITE_NAME: stored.openrouterSiteName || "RiA Desktop",
       OPENROUTER_HTTP_REFERER: stored.openrouterHttpReferer || "",
     };
   }

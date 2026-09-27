@@ -34,5 +34,12 @@ interface Window {
     saveSettings: (
       input: DesktopSettingsInput,
     ) => Promise<{ settings: DesktopSettingsView; restarting: boolean }>;
+    windowControls?: {
+      minimize: () => void;
+      toggleMaximize: () => void;
+      close: () => void;
+      state: () => Promise<{ maximized: boolean }>;
+      onMaximizedChange: (listener: (maximized: boolean) => void) => () => void;
+    };
   };
 }

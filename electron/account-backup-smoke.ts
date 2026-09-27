@@ -81,7 +81,12 @@ export async function verifyAccountBackupSmoke(window: BrowserWindow, origin: st
   await window.webContents.executeJavaScript(`(async () => {
     const deadline = Date.now() + 10000;
     while (Date.now() < deadline) {
-      if (document.querySelector('select[aria-label="新会话默认模式"]')?.value === 'image') return;
+      // The default-mode picker is a Radix combobox, not a native <select>: it
+      // paints its own menu so it can follow the palette and the interface
+      // language. The stored value is therefore not readable from the element —
+      // the trigger shows the selected mode's label instead.
+      const trigger = document.querySelector('[role="combobox"][aria-label="新会话默认模式"]');
+      if (trigger && trigger.textContent?.trim() === '图片生成') return;
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     throw new Error('Desktop restored model settings did not render');

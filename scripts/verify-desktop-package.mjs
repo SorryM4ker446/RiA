@@ -6,7 +6,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const runtimeDirectory = join(repositoryRoot, ".desktop-runtime");
 const runtimeOnly = process.argv.includes("--runtime-only");
 const explicitPackageDirectory = process.argv[2] && !runtimeOnly ? resolve(repositoryRoot, process.argv[2]) : null;
-const defaultPackageDirectory = join(repositoryRoot, "out", "Private AI Assistant-win32-x64");
+const defaultPackageDirectory = join(repositoryRoot, "out", "RiA-win32-x64");
 const packageDirectory = runtimeOnly ? null : explicitPackageDirectory || (existsSync(defaultPackageDirectory) ? defaultPackageDirectory : null);
 
 function walk(directory) {
@@ -60,7 +60,7 @@ function verifyRuntime(directory) {
 verifyRuntime(runtimeDirectory);
 
 if (packageDirectory) {
-  requireFile(join(packageDirectory, "Private AI Assistant.exe"), "Packaged application executable");
+  requireFile(join(packageDirectory, "RiA.exe"), "Packaged application executable");
   verifyRuntime(join(packageDirectory, "resources", ".desktop-runtime"));
   const packagedFiles = walk(packageDirectory);
   if (packagedFiles.some((path) => /^\.env(?:\.|$)/i.test(path.split(/[\\/]/).pop() || ""))) {

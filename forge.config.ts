@@ -20,7 +20,7 @@ const config: ForgeConfig = {
       platforms: ["win32"],
       config: {
         name: "PrivateAIAssistant",
-        authors: "Private AI Assistant",
+        authors: "RiA",
         description: "A private desktop AI assistant",
         setupIcon: "assets/desktop-icon.ico",
         noMsi: true,
