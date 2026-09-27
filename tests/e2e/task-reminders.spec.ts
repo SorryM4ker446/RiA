@@ -3,10 +3,12 @@ import { NO_CREDENTIAL_STATE, openWorkspace } from "../helpers/workspace-entry";
 import { randomUUID } from "node:crypto";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { browserApi, browserData } from "../helpers/browser-api";
+import { configureOfflineModels } from "../helpers/model-fixture";
+import { chooseOption } from "../helpers/select";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => {
-    const app = await startStandaloneServer();
+    const app = await startStandaloneServer({ modelFixture: true });
     try { await runTest(app); } finally { await app.close(); }
   },
 });
@@ -19,6 +21,7 @@ async function register(page: Page, origin: string) {
 
 test("task reminder settings validate local dates and persist recurrence across browser and service restarts", { tag: "@integration" }, async ({ page, app, browser }) => {
   await register(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   await page.getByLabel("选择手动工具").click();
   await page.getByRole("option", { name: "手动：创建任务" }).click();
   await page.getByPlaceholder(/输入任务标题/).fill("重复提醒浏览器验证");
@@ -32,7 +35,7 @@ test("task reminder settings validate local dates and persist recurrence across 
   expect(original.dueDate).toBe("2026-01-31T14:00:00.000Z");
   await row.getByRole("button", { name: "设置时间与提醒" }).click();
   await row.getByLabel("到期桌面通知").check();
-  await row.getByLabel("重复", { exact: true }).selectOption("monthly");
+  await chooseOption(row.getByLabel("重复", { exact: true }), "每月");
   await row.getByLabel("任务时区").fill("Invalid/Zone");
   await row.getByRole("button", { name: "保存提醒设置" }).click();
   await expect(row.getByRole("alert")).toContainText("有效的 IANA 时区");
@@ -83,6 +86,7 @@ test("task reminder settings validate local dates and persist recurrence across 
 
 test("task reminder mutations reject CSRF, incomplete schedules and a missing credential without changing data", { tag: "@integration" }, async ({ page, app }) => {
   await register(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   const creation = await browserApi(page, `${app.origin}/api/tools/run`, "POST", { tool: "createTask", mode: "chat", input: { title: "安全提醒验证" } });
   expect(creation.status).toBe(200);
   const created = creation.body.data;
@@ -100,6 +104,7 @@ test("task reminder mutations reject CSRF, incomplete schedules and a missing cr
 
 test("changing reminder options preserves the stored DST occurrence and sub-minute deadline", { tag: "@integration" }, async ({ page, app }) => {
   await register(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   const creation = await browserApi(page, `${app.origin}/api/tools/run`, "POST", { tool: "createTask", mode: "chat", input: {
     title: "精确时刻保留验证", dueDate: "2026-11-01T01:30:45.123-05:00", timeZone: "America/New_York", repeatRule: "monthly",
   } });

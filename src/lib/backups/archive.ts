@@ -3,15 +3,17 @@ import { open, rename } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import { db } from "@/db";
 import { Prisma } from "@prisma/client";
+import { t } from "@/lib/locale";
 import { ApiError } from "@/lib/server/api-error";
 import { getModelPreferences } from "@/lib/models/preferences";
+import { upgradeModelPreferences } from "@/lib/models/preferences-schema";
 import { openMediaAsset } from "@/lib/media/storage";
 import { decodeMediaMessage } from "@/lib/media/message-codec";
 import { BACKUP_LIMITS, backupManifestSchema, type BackupManifest } from "@/lib/backups/schema";
 import { backupFile, listBackupFiles, openBackup, removeBackupFile } from "@/lib/backups/files";
 
 const MAGIC = Buffer.from("PAIB0001");
-const invalid = () => new ApiError({ code: "VALIDATION_ERROR", message: "备份格式、长度或校验值无效。" });
+const invalid = () => new ApiError({ code: "VALIDATION_ERROR", message: t("lib.backups.invalidArchive") });
 async function readExact(handle: FileHandle, length: number, position: number) {
   const buffer = Buffer.alloc(length);
   let offset = 0;
@@ -63,7 +65,7 @@ export async function createAccountBackup(prune = true) {
     (SELECT coalesce(sum(length(CAST(pages AS BLOB))),0) FROM knowledge_documents) +
     (SELECT coalesce(sum(length(CAST(text AS BLOB))),0) FROM document_chunks) +
     (SELECT coalesce(sum(coalesce(length(CAST(description AS BLOB)),0)+coalesce(length(CAST(generation AS BLOB)),0)),0) FROM media_assets) AS bytes`);
-  if (counts.some(count => count > BACKUP_LIMITS.rows) || documentsCount > 100 || termsCount > 100_000 || Number(volume.bytes) > BACKUP_LIMITS.manifest) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: "账户数据超出便携备份上限，请使用离线目录备份。" });
+  if (counts.some(count => count > BACKUP_LIMITS.rows) || documentsCount > 100 || termsCount > 100_000 || Number(volume.bytes) > BACKUP_LIMITS.manifest) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.backups.workspaceTooLarge") });
   const [chats, memories, tasks, documents, assets, preferences, usage] = await Promise.all([
     db.chat.findMany({ include: { tags: true, messages: true } }),
     db.memory.findMany(), db.task.findMany(),
@@ -71,8 +73,8 @@ export async function createAccountBackup(prune = true) {
     db.mediaAsset.findMany({ where: { deletedAt: null }, include: { references: true, inputs: true } }),
     getModelPreferences(), db.modelRequest.findMany({ orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 5000 }),
   ]);
-  if (chats.some(chat => chat.messages.some(message => { const media = decodeMediaMessage(message.content); return media?.type === "video-result" && !media.assetId; }))) throw new ApiError({ code: "CONFLICT", message: "存在尚未迁移的旧视频。请先打开对应会话完成媒体迁移，或停机备份数据库、媒体及旧视频目录。" });
-  if (assets.reduce((sum, asset) => sum + asset.byteSize, 0) > BACKUP_LIMITS.bytes) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: "备份超过 512 MiB 上限，请先减少数据或使用离线目录备份。" });
+  if (chats.some(chat => chat.messages.some(message => { const media = decodeMediaMessage(message.content); return media?.type === "video-result" && !media.assetId; }))) throw new ApiError({ code: "CONFLICT", message: t("lib.backups.legacyVideos") });
+  if (assets.reduce((sum, asset) => sum + asset.byteSize, 0) > BACKUP_LIMITS.bytes) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.backups.overSizeLimit") });
   const media = [];
   for (const asset of assets) {
     const file = await openMediaAsset(asset);
@@ -83,7 +85,7 @@ export async function createAccountBackup(prune = true) {
   }
   const manifest = backupManifestSchema.parse(JSON.parse(JSON.stringify({ format: "private-ai-account-backup", version: 1, createdAt: new Date().toISOString(), chats: chats.map(chat => ({ ...chat, messages: chat.messages.map(message => ({ ...message, content: portableContent(message.content) })) })), memories, tasks, documents, assets: media, preferences, usage })));
   const json = Buffer.from(JSON.stringify(manifest));
-  if (json.length > BACKUP_LIMITS.manifest || 44 + json.length + assets.reduce((sum, asset) => sum + asset.byteSize, 0) > BACKUP_LIMITS.bytes) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: "备份内容超过支持的大小上限。" });
+  if (json.length > BACKUP_LIMITS.manifest || 44 + json.length + assets.reduce((sum, asset) => sum + asset.byteSize, 0) > BACKUP_LIMITS.bytes) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.backups.contentTooLarge") });
   const id = randomUUID(), temporary = await backupFile(id, "partial");
   const target = await open(temporary, "wx", 0o600);
   try {
@@ -122,6 +124,15 @@ export async function inspectAccountBackup(id: string) {
   const file = await openBackup(id);
   try {
     const { manifest } = await readBackupManifest(file);
-    return { id, createdAt: manifest.createdAt, bytes: (await file.stat()).size, counts: { chats: manifest.chats.length, messages: manifest.chats.reduce((sum, chat) => sum + chat.messages.length, 0), tasks: manifest.tasks.length, memories: manifest.memories.length, documents: manifest.documents.length, assets: manifest.assets.length, usage: manifest.usage.length } };
+    const current = await getModelPreferences();
+    const archived = upgradeModelPreferences(manifest.preferences);
+    const currentLibrary = new Map(current.library.map(item => [`${item.providerId}:${item.modelId}`, item]));
+    const archivedLibrary = new Map(archived.library.map(item => [`${item.providerId}:${item.modelId}`, item]));
+    const modelSummary = (item: { modelId: string; name: string }) => ({ modelId: item.modelId, name: item.name });
+    const models = {
+      restored: [...archivedLibrary].filter(([key]) => !currentLibrary.has(key)).map(([, item]) => modelSummary(item)),
+      removed: [...currentLibrary].filter(([key]) => !archivedLibrary.has(key)).map(([, item]) => modelSummary(item)),
+    };
+    return { id, createdAt: manifest.createdAt, bytes: (await file.stat()).size, counts: { chats: manifest.chats.length, messages: manifest.chats.reduce((sum, chat) => sum + chat.messages.length, 0), tasks: manifest.tasks.length, memories: manifest.memories.length, documents: manifest.documents.length, assets: manifest.assets.length, usage: manifest.usage.length }, models };
   } finally { await file.close(); }
 }

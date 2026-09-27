@@ -16,7 +16,15 @@ export const APP_RUNTIME = {
 
 export type AppRuntime = (typeof APP_RUNTIME)[keyof typeof APP_RUNTIME];
 
-export const DESKTOP_APP_DIRECTORY_NAME = "Private AI Assistant";
+/**
+ * Folder under %APPDATA% holding the database, media, backups and logs.
+ *
+ * Renaming the product does not automatically rename this: an install that
+ * silently lost every conversation to a cosmetic change would be far worse than
+ * a folder whose name lags the window title, so the rename is a deliberate edit
+ * here rather than a side effect of the product name.
+ */
+export const DESKTOP_APP_DIRECTORY_NAME = "RiA";
 
 export function resolveAppRuntime(environment: NodeJS.ProcessEnv = process.env): AppRuntime {
   const configured = environment.APP_RUNTIME?.trim();

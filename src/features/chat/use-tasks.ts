@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { chatApi } from "@/features/chat/api-client";
+import { t } from "@/lib/locale";
 import type { TaskItem, TaskScheduleInput, TaskStatusFilter } from "@/features/chat/types";
 import { COLLAPSED_TASK_LIMIT } from "@/features/chat/types";
 
@@ -23,7 +24,7 @@ export function useTasks() {
       const payload = await chatApi.listTasks(nextStatus);
       if (version === loadVersion.current) setTasks(Array.isArray(payload.data) ? payload.data : []);
     } catch (error) {
-      if (version === loadVersion.current) setTaskPanelError(error instanceof Error ? error.message : "读取任务失败");
+      if (version === loadVersion.current) setTaskPanelError(error instanceof Error ? error.message : t("chatApi.listTasksFailed"));
     } finally {
       if (version === loadVersion.current) setIsLoadingTasks(false);
     }
@@ -50,7 +51,7 @@ export function useTasks() {
       setIsLoadingTasks(false);
       return true;
     } catch (error) {
-      setTaskPanelError(error instanceof Error ? error.message : "更新任务失败");
+      setTaskPanelError(error instanceof Error ? error.message : t("chatApi.updateTaskFailed"));
       return false;
     } finally {
       pending.current.delete(taskId);

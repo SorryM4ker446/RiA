@@ -14,6 +14,8 @@ const storage = await import("@/lib/media/storage");
 const archive = await import("@/lib/backups/archive");
 const files = await import("@/lib/backups/files");
 const { restoreAccountBackup } = await import("@/lib/backups/restore");
+const { getModelPreferences } = await import("@/lib/models/preferences");
+const { defaultModelPreferences } = await import("@/lib/models/preferences-schema");
 const { exclusiveDataOperation, protectDataOperation } = await import("@/lib/server/data-operations");
 const { indexDocument } = await import("@/lib/documents/store");
 const { saveChatMessage } = await import("@/lib/chat/store");
@@ -44,6 +46,35 @@ async function seed() {
   await indexDocument({filename:"backup.txt",format:"txt",byteSize:6,pages:[{pageNumber:null,text:"备份检索示例"}]});
   return {chat,input,output};
 }
+test("backup preview reports models that restore would add or remove",async()=>{
+  const current=defaultModelPreferences();
+  current.library=[{providerId:"openrouter",modelId:"anthropic/claude-opus-4.6",name:"Claude",description:"",modes:["chat"],supportsImageInput:false,endpointImageInput:null,supportsTools:true,contextLength:null,pricing:{},addedAt:new Date().toISOString(),lastSeenAt:new Date().toISOString()}];
+  current.chat={modelId:"anthropic/claude-opus-4.6",fallbackId:null};
+  await db.workspacePreference.upsert({ where: { id: "local" }, create: { id: "local", settings: current }, update: { settings: current } });
+  const backup=await exclusiveDataOperation(()=>archive.createAccountBackup(false));
+  const raw=await readFile(await files.backupFile(backup.id));
+  const length=raw.readUInt32BE(8),manifest=JSON.parse(raw.subarray(44,44+length));
+  const archived=structuredClone(manifest.preferences);
+  archived.library=[];
+  archived.chat={modelId:null,fallbackId:null};
+  manifest.preferences=archived;
+  const json=Buffer.from(JSON.stringify(manifest));
+  const header=Buffer.from(raw.subarray(0,44));header.writeUInt32BE(json.length,8);createHash("sha256").update(json).digest().copy(header,12);
+  await writeFile(await files.backupFile(backup.id),Buffer.concat([header,json,raw.subarray(44+length)]));
+  const currentLibrary = new Map((await getModelPreferences()).library.map(item => [`${item.providerId}:${item.modelId}`, item]));
+  const archivedLibrary = new Map(archived.library.map(item => [`${item.providerId}:${item.modelId}`, item]));
+  assert.equal(currentLibrary.size, 1);
+  assert.equal(archivedLibrary.size, 0);
+  const preview = await archive.inspectAccountBackup(backup.id);
+  assert.deepEqual(preview.models.restored, []);
+  assert.deepEqual(preview.models.removed, [{ modelId: "anthropic/claude-opus-4.6", name: "Claude" }]);
+  assert.equal(preview.counts.assets, 0);
+  const restored=await exclusiveDataOperation(()=>restoreAccountBackup(backup.id));
+  assert.equal(restored.restored,true);
+  assert.deepEqual((await getModelPreferences()).library,[]);
+  assert.equal((await getModelPreferences()).chat.modelId,null);
+});
+
 test("account backups restore business rows, media dependencies and search without carrying credentials",async()=>{
   const original=await seed();
   const backup=await exclusiveDataOperation(()=>archive.createAccountBackup());
@@ -168,6 +199,7 @@ test("checksummed but inconsistent backup relationships and media bytes are reje
     assert.ok(await db.chat.findUnique({where:{id:original.chat.id}}));
   };
   await change(next=>next.chats[0].tags.push(next.chats[0].tags[0]));
+  await change(next=>{next.preferences.library=[];next.preferences.chat={modelId:"removed/model",fallbackId:null};});
   await change(next=>next.assets[0].relativePath="../outside.png");
   await change(next=>{const input=next.assets.find(asset=>asset.id===original.input.id);input.inputs=[{assetId:input.id,inputAssetId:original.output.id}];input.generation={version:1,type:"image",modelId:"google/gemini-2.5-flash-image",prompt:"Cycle",inputImages:[{assetId:original.output.id,mediaType:"image/png"}]};});
   raw[raw.length-1]^=1;await writeFile(path,raw);

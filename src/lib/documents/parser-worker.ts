@@ -1,12 +1,34 @@
+import { t } from "@/lib/locale";
+
+/**
+ * User-facing copy for the parser worker.
+ *
+ * The worker runs as an `eval`'d string with an empty environment, so it cannot
+ * import this module. The parent resolves the strings and hands them over with
+ * the job, which keeps the worker free of any locale lookup of its own.
+ */
+export function documentParserMessages() {
+  return {
+    expandedTooLarge: t("lib.documents.expandedTooLarge"),
+    notValidDocx: t("lib.documents.notValidDocx"),
+    macroDocx: t("lib.documents.macroDocx"),
+    notUtf8: t("lib.documents.notUtf8"),
+    binaryText: t("lib.documents.binaryText"),
+    noSearchableText: t("lib.documents.noSearchableText"),
+    encryptedPdf: t("lib.documents.encryptedPdf"),
+    corrupt: t("lib.documents.corrupt"),
+  } as const;
+}
+
 // A separate worker prevents malformed documents from blocking the HTTP event loop.
 export const DOCUMENT_PARSER_WORKER = String.raw`
 const { parentPort, workerData } = require('node:worker_threads');
 const { pathToFileURL } = require('node:url');
 const { dirname, join } = require('node:path');
 globalThis.fetch = async () => { throw new Error('Network access is disabled during document import'); };
-const { bytes, format, limits, pdfPath, pdfWorkerPath, mammothPath, zipPath } = workerData;
+const { bytes, format, limits, messages, pdfPath, pdfWorkerPath, mammothPath, zipPath } = workerData;
 const fail = (message, code = 'VALIDATION_ERROR') => { throw Object.assign(new Error(message), { code }); };
-const tooLarge = () => fail('文档展开后过大，请拆分后导入。', 'PAYLOAD_TOO_LARGE');
+const tooLarge = () => fail(messages.expandedTooLarge, 'PAYLOAD_TOO_LARGE');
 const normalize = text => text.replace(/\r\n?/g, '\n').replace(/\u0000/g, '').trim();
 async function parse() {
   let pages;
@@ -46,10 +68,10 @@ async function parse() {
     const zip = await require(zipPath).loadAsync(bytes);
     const entries = Object.values(zip.files).filter(file => !file.dir);
     if (entries.length > 500) tooLarge();
-    if (!zip.file('word/document.xml') || !zip.file('[Content_Types].xml')) fail('文件不是有效的 Word .docx 文档。');
+    if (!zip.file('word/document.xml') || !zip.file('[Content_Types].xml')) fail(messages.notValidDocx);
     let expandedBytes = 0;
     for (const file of entries) {
-      if (file.name.toLowerCase().endsWith('vbaproject.bin')) fail('不支持含宏的 Word 文档。');
+      if (file.name.toLowerCase().endsWith('vbaproject.bin')) fail(messages.macroDocx);
       // Count actual streamed output, not attacker-controlled ZIP size metadata.
       await new Promise((resolve, reject) => {
         const stream = file.nodeStream();
@@ -58,7 +80,7 @@ async function parse() {
           if (expandedBytes > 12 * 1024 * 1024) {
             stream.pause();
             stream.destroy();
-            reject(Object.assign(new Error('文档展开后过大，请拆分后导入。'), { code: 'PAYLOAD_TOO_LARGE' }));
+            reject(Object.assign(new Error(messages.expandedTooLarge), { code: 'PAYLOAD_TOO_LARGE' }));
           }
         });
         stream.on('end', resolve);
@@ -70,17 +92,17 @@ async function parse() {
   } else {
     let text;
     try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
-    catch { fail('文本文件必须使用 UTF-8 编码。'); }
-    if (/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(text)) fail('文件含二进制内容，不能作为文本导入。');
+    catch { fail(messages.notUtf8); }
+    if (/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(text)) fail(messages.binaryText);
     pages = [{ pageNumber: null, text: normalize(text) }];
   }
   if (pages.reduce((sum, page) => sum + page.text.length, 0) > limits.characters) tooLarge();
-  if (!pages.some(page => page.text.trim())) fail('文档没有可检索的文本；扫描 PDF 请先进行 OCR。');
+  if (!pages.some(page => page.text.trim())) fail(messages.noSearchableText);
   return pages;
 }
 parse().then(pages => parentPort.postMessage({ pages }), error => parentPort.postMessage({
   code: ['PAYLOAD_TOO_LARGE', 'VALIDATION_ERROR'].includes(error.code) ? error.code : 'VALIDATION_ERROR',
   message: ['PAYLOAD_TOO_LARGE', 'VALIDATION_ERROR'].includes(error.code) ? error.message :
-    error.name === 'PasswordException' ? '不支持加密 PDF，请先解密。' : '文档损坏或格式不受支持。'
+    error.name === 'PasswordException' ? messages.encryptedPdf : messages.corrupt
 }));
 `;

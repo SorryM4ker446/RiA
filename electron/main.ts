@@ -27,7 +27,7 @@ import { prepareConversationSmoke, verifyConversationSmoke } from "./conversatio
 import { seedMediaLibrarySmoke, verifyMediaLibrarySmoke } from "./media-library-smoke";
 import { prepareAccountSettingsSmoke, verifyAccountBackupSmoke } from "./account-backup-smoke";
 
-const PRODUCT_NAME = "Private AI Assistant";
+const PRODUCT_NAME = "RiA";
 const DESKTOP_COOKIE_NAME = "desktop_session";
 const forcePackagedRuntime = process.env.DESKTOP_FORCE_PACKAGED === "1";
 const packagedRuntime = app.isPackaged || forcePackagedRuntime;
@@ -67,9 +67,11 @@ function focusMainWindow() {
   mainWindow.focus();
 }
 
-function assertTrustedIpcSender(event: IpcMainInvokeEvent) {
+function assertTrustedIpcSender(event: IpcMainInvokeEvent | Electron.IpcMainEvent) {
   if (!nextServer) throw new Error("Desktop service is not ready.");
-  const senderUrl = event.sender.getURL();
+  // senderFrame is the frame that actually sent this; getURL() is the top
+  // frame, so a subframe would be checked against the wrong document.
+  const senderUrl = event.senderFrame?.url ?? event.sender.getURL();
   let senderOrigin = "";
   try {
     senderOrigin = new URL(senderUrl).origin;
@@ -151,6 +153,42 @@ async function restartLocalService() {
 }
 
 function registerIpcHandlers() {
+  // The caption is drawn by the page, so the verbs live here rather than in the
+  // window factory: `createMainWindow` runs a second time from `activate`, and
+  // registering there duplicated every `on` listener (one click, N actions) and
+  // made `ipcMain.handle` throw on the second call.
+  //
+  // These are `send` rather than `invoke` so the page never waits on a window
+  // operation. That also means there is no promise for Electron to turn a throw
+  // into a rejection, so the trust check is caught here: an unhandled throw in
+  // an `ipcMain.on` callback is an uncaught exception in the main process, and
+  // a refused sender would take the whole shell down instead of being ignored.
+  const guarded = (event: Electron.IpcMainEvent, action: (target: BrowserWindow) => void) => {
+    try {
+      assertTrustedIpcSender(event);
+    } catch {
+      return;
+    }
+    const target = BrowserWindow.fromWebContents(event.sender);
+    if (target && !target.isDestroyed()) action(target);
+  };
+  ipcMain.on("desktop:window:minimize", (event) => {
+    guarded(event, (target) => target.minimize());
+  });
+  ipcMain.on("desktop:window:toggle-maximize", (event) => {
+    guarded(event, (target) => (target.isMaximized() ? target.unmaximize() : target.maximize()));
+  });
+  ipcMain.on("desktop:window:close", (event) => {
+    guarded(event, (target) => target.close());
+  });
+  // The page mounts before it can have observed a maximise event, so the initial
+  // state has to be pullable. This one is an `invoke`, so a rejected sender
+  // becomes a rejected promise instead.
+  ipcMain.handle("desktop:window:state", (event) => {
+    assertTrustedIpcSender(event);
+    return { maximized: BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false };
+  });
+
   ipcMain.handle("desktop:runtime:get", (event) => {
     assertTrustedIpcSender(event);
     if (!desktopPaths) throw new Error("Desktop paths are not initialized.");
@@ -206,7 +244,17 @@ async function createMainWindow(initialPath: string): Promise<BrowserWindow> {
     minHeight: 640,
     show: false,
     title: PRODUCT_NAME,
-    backgroundColor: "#0b0f19",
+    // Matches `--background`. The app boots light, so a dark canvas here showed
+    // as a flash of the wrong theme before React painted anything.
+    backgroundColor: "#ffffff",
+    // Hide the caption but keep the native frame, so window resizing, snap
+    // layouts and assistive technology still work.
+    //
+    // `titleBarOverlay` is deliberately NOT set. It makes Windows paint an
+    // opaque, unstyleable strip over the top-right of the page — the band this
+    // design removes — and that strip also covers the document scrollbar. The
+    // app draws its own controls instead; see the caption block below.
+    ...(process.platform === "win32" ? { titleBarStyle: "hidden" as const } : {}),
     autoHideMenuBar: true,
     webPreferences: {
       preload: desktopPaths.preloadFile,
@@ -222,6 +270,16 @@ async function createMainWindow(initialPath: string): Promise<BrowserWindow> {
   window.once("ready-to-show", () => {
     if (!smokeTest) window.show();
   });
+
+  // The page draws the caption, so the window verbs have to be reachable from
+  // it. `titleBarStyle: "hidden"` removes the native controls, which means
+  // nothing else would restore, minimise or close this window.
+  const sendMaximized = () => {
+    if (!window.isDestroyed()) window.webContents.send("desktop:window:maximized", window.isMaximized());
+  };
+  window.on("maximize", sendMaximized);
+  window.on("unmaximize", sendMaximized);
+  window.on("restore", sendMaximized);
   window.on("closed", () => {
     if (mainWindow === window) mainWindow = null;
   });
@@ -261,6 +319,96 @@ async function runSmokeAssertion() {
     result.settings.encryptionAvailable !== true
   ) {
     throw new Error("Desktop renderer bridge or authenticated API smoke check failed.");
+  }
+
+  // The caption is drawn by the page, so the real window is the only place its
+  // behaviour can be checked: a browser build has no bridge and no window state.
+  //
+  // Geometry alone proved to be a weak check. A set of buttons can be the right
+  // size, in the right place, clear of the scrollbar and still be completely
+  // dead, because the title row is a window drag region and the hit test honours
+  // that rather than the DOM stack. So the two halves are checked separately:
+  // first that each control is genuinely reachable, then that the verbs reach
+  // the window.
+  const caption = (await mainWindow.webContents.executeJavaScript(
+    `(() => {
+      const controls = window.privateAiDesktop?.windowControls;
+      const labels = ["最小化", "最大化", "关闭"];
+      // The narrow and wide headers each render the controls and only one is
+      // displayed at a time, so a hidden copy measures 0x0. Take the visible
+      // ones or this fails on a layout that is correct.
+      const nodes = labels
+        .map(label => [...document.querySelectorAll('button[aria-label="' + label + '"]')]
+          .find(node => node.getClientRects().length > 0))
+        .filter(Boolean);
+      return {
+        bridge: Boolean(controls),
+        verbs: ["minimize", "toggleMaximize", "close"].every(key => typeof controls?.[key] === "function"),
+        state: typeof controls?.state === "function",
+        count: nodes.length,
+        heights: nodes.map(node => Math.round(node.getBoundingClientRect().height)),
+        widths: nodes.map(node => Math.round(node.getBoundingClientRect().width)),
+        // clientWidth excludes the document scrollbar; anything past it is drawn
+        // over the scrollbar gutter.
+        lastRight: nodes.length
+          ? Math.round(nodes[nodes.length - 1].getBoundingClientRect().right)
+          : 0,
+        contentRight: document.documentElement.clientWidth,
+        // The app-region property is not inherited: a no-drag wrapper leaves its
+        // buttons inside the drag region, where a click moves the window
+        // instead of firing. Only a per-button opt-out is visible here.
+        regions: nodes.map(node => getComputedStyle(node).webkitAppRegion || "-"),
+        // Nothing may cover a control's centre, or the pointer never reaches it.
+        covering: nodes.map(node => {
+          const box = node.getBoundingClientRect();
+          const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+          if (!hit) return "none";
+          return hit === node || node.contains(hit) ? "ok" : (hit.getAttribute("aria-label") || hit.tagName);
+        })
+      };
+    })()`,
+    true,
+  )) as {
+    bridge: boolean; verbs: boolean; state: boolean; count: number;
+    heights: number[]; widths: number[]; lastRight: number; contentRight: number;
+    regions: string[]; covering: string[];
+  };
+  if (!caption.bridge || !caption.verbs || !caption.state) {
+    throw new Error(`Desktop window-control bridge is incomplete: ${JSON.stringify(caption)}`);
+  }
+  if (caption.count !== 3) {
+    throw new Error(`Expected 3 drawn window controls, found ${caption.count}: ${JSON.stringify(caption)}`);
+  }
+  if (caption.regions.some(region => region !== "no-drag")) {
+    throw new Error(`A window control sits inside a drag region: ${JSON.stringify(caption)}`);
+  }
+  if (caption.covering.some(entry => entry !== "ok")) {
+    throw new Error(`Something covers a window control: ${JSON.stringify(caption)}`);
+  }
+  // A zero-height caption button is invisible and unclickable, which is exactly
+  // what an `h-full` button inside an auto-height wrapper produces.
+  if (caption.heights.some(height => height !== 40) || caption.widths.some(width => width < 24)) {
+    throw new Error(`Window controls are not full-height clickable targets: ${JSON.stringify(caption)}`);
+  }
+  if (caption.lastRight > caption.contentRight) {
+    throw new Error(`The window controls overlap the document scrollbar: ${JSON.stringify(caption)}`);
+  }
+
+  // Drive the bridge exactly as a click does, and require the window to change.
+  const captionWindow = mainWindow;
+  if (captionWindow && !captionWindow.isMaximized()) {
+    const maximized = new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), 8000);
+      captionWindow.once("maximize", () => { clearTimeout(timer); resolve(true); });
+    });
+    await captionWindow.webContents.executeJavaScript(
+      "window.privateAiDesktop.windowControls.toggleMaximize()",
+      true,
+    );
+    if (!(await maximized)) {
+      throw new Error(`The maximise caption verb did not reach the window: ${JSON.stringify(caption)}`);
+    }
+    captionWindow.unmaximize();
   }
 
   const unauthenticatedResponse = await fetch(`${nextServer.origin}/api/conversations`);
@@ -433,10 +581,10 @@ async function bootstrap() {
     logger,
   });
   reminderPoller.start();
-  powerMonitor.on("resume", () => { void reminderPoller?.poll(); });
-  // A wake from sleep must not outlive the session cookie either; reissue it
-  // so a long-lived window keeps an unexpired credential for the local service.
+  // One handler for one event. A wake from sleep must not outlive the session
+  // cookie either, so the credential is reissued for a long-lived window.
   powerMonitor.on("resume", () => {
+    void reminderPoller?.poll();
     if (nextServer) void setDesktopCookie(nextServer.origin).catch((error) => {
       logger?.error("Unable to refresh the desktop session cookie after resume", error);
     });

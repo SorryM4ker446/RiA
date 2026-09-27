@@ -1,5 +1,5 @@
 import type { NextConfig } from "next";
-import { MEDIA_LIMITS } from "./src/lib/media/limits";
+import { MEDIA_LIMITS } from "./src/lib/media/limits-constants";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { dirname, relative } from "node:path";

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { generationRecipeSchema } from "@/lib/media/generation-recipe";
 import { documentPagesSchema } from "@/lib/documents/types";
-import { preferencesSchema } from "@/lib/models/preferences-schema";
+import { legacyPreferencesSchema, preferencesSchema } from "@/lib/models/preferences-schema";
 
 export const BACKUP_LIMITS = { bytes: 512 * 1024 * 1024, manifest: 32 * 1024 * 1024, chunk: 8 * 1024 * 1024, rows: 10_000, uploadsPerUser: 1, stagingAgeMs: 60 * 60_000 };
 export const backupId = z.string().uuid();
@@ -12,7 +12,7 @@ const text = z.string().max(2 * 1024 * 1024);
 const timestamps = { createdAt: date, updatedAt: date };
 const message = z.strictObject({ id, chatId: id, clientMessageId: id.nullable(), role: z.enum(["user", "assistant", "system"]), content: text, status: z.enum(["pending", "success", "error"]), createdAt: date });
 const chat = z.strictObject({ id, title: z.string().max(4000), pinned: z.boolean(), archived: z.boolean(), lastMessageAt: date, ...timestamps, tags: z.array(z.strictObject({ chatId: id, label: z.string().min(1).max(40) })).max(8), messages: z.array(message).max(BACKUP_LIMITS.rows) });
-const memory = z.strictObject({ id, key: z.string().max(2000), value: text, score: z.number().nullable(), embedding: z.array(z.number()).max(16_384).nullable(), ...timestamps });
+const memory = z.strictObject({ id, key: z.string().max(2000), value: text, score: z.number().nullable(), embedding: z.array(z.number()).max(16_384).nullable(), embeddingModelId: z.string().max(200).nullable().optional(), ...timestamps });
 const task = z.strictObject({ id, title: z.string().max(4000), details: text.nullable(), dueDate: date.nullable(), timeZone: z.string().min(1).max(100).refine(value => { try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; } catch { return false; } }), reminderEnabled: z.boolean(), remindedAt: date.nullable(), repeatRule: z.enum(["none", "daily", "weekly", "monthly"]), repeatAnchor: date.nullable(), repeatGenerated: z.boolean(), priority: z.enum(["low", "medium", "high"]), status: z.enum(["todo", "in_progress", "done"]), ...timestamps });
 const chunk = z.strictObject({ id, documentId: id, chunkKey: z.string().max(200), ordinal: count, pageNumber: count.nullable(), text, terms: z.array(z.strictObject({ chunkId: id, term: z.string().min(1).max(100) })).max(3000) });
 const document = z.strictObject({ id, filename: z.string().min(1).max(180), format: z.enum(["pdf", "docx", "md", "txt"]), byteSize: count.max(8 * 1024 * 1024), contentHash: z.string().max(128), pages: documentPagesSchema, characterCount: count.max(100_000), indexVersion: count, indexedAt: date, ...timestamps, chunks: z.array(chunk).max(256) });
@@ -20,7 +20,7 @@ const asset = z.strictObject({ id: backupId, mediaType: z.enum(["image/png", "im
 const usage = z.strictObject({ id, requestId: id, mode: z.enum(["chat", "image", "video", "embedding"]), modelId: z.string().max(200), status: z.enum(["success", "error", "aborted"]), durationMs: count, inputTokens: count.nullable(), outputTokens: count.nullable(), costUsd: z.number().nonnegative().nullable(), costSource: z.enum(["provider", "configured", "unknown"]), errorCode: z.string().max(60).nullable(), fallback: z.boolean(), createdAt: date });
 export const backupManifestSchema = z.strictObject({
   format: z.literal("private-ai-account-backup"), version: z.literal(1), createdAt: date,
-  chats: z.array(chat).max(BACKUP_LIMITS.rows), memories: z.array(memory).max(BACKUP_LIMITS.rows), tasks: z.array(task).max(BACKUP_LIMITS.rows), documents: z.array(document).max(100), assets: z.array(asset).max(BACKUP_LIMITS.rows), preferences: preferencesSchema, usage: z.array(usage).max(5000),
+  chats: z.array(chat).max(BACKUP_LIMITS.rows), memories: z.array(memory).max(BACKUP_LIMITS.rows), tasks: z.array(task).max(BACKUP_LIMITS.rows), documents: z.array(document).max(100), assets: z.array(asset).max(BACKUP_LIMITS.rows), preferences: z.union([preferencesSchema, legacyPreferencesSchema]), usage: z.array(usage).max(5000),
 }).superRefine((data, context) => {
   const error = () => context.addIssue({ code: "custom", message: "Backup contains duplicate, inconsistent or excessive relationships" });
   const messages = data.chats.flatMap(chat => chat.messages);

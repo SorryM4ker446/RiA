@@ -6,13 +6,14 @@ import { documentIdSchema } from "@/lib/documents/types";
 import { createApiErrorResponse } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { readEmptyBody } from "@/lib/server/request-body";
+import { t } from "@/lib/locale";
 
 type Context = { params: Promise<{ id: string }> };
 async function GETHandler(req: NextRequest, context: Context) {
   try {
     await requireLocalWorkspace(req);const id = documentIdSchema.parse((await context.params).id);
     return Response.json({ data: await getDocument(id) }, { headers: { "Cache-Control": "no-store" } });
-  } catch (error) { return createApiErrorResponse(error, "读取文档失败。"); }
+  } catch (error) { return createApiErrorResponse(error, t("api.documents.readFailed")); }
 }
 async function POSTHandler(req: NextRequest, context: Context) {
   try {
@@ -20,7 +21,7 @@ async function POSTHandler(req: NextRequest, context: Context) {
     const id = documentIdSchema.parse((await context.params).id);
     await readEmptyBody(req);
     return Response.json({ data: await reindexDocument(id) }, { headers: { "Cache-Control": "no-store" } });
-  } catch (error) { return createApiErrorResponse(error, "重新索引失败，原有索引保持不变。"); }
+  } catch (error) { return createApiErrorResponse(error, t("api.documents.reindexFailed")); }
 }
 async function DELETEHandler(req: NextRequest, context: Context) {
   try {
@@ -28,7 +29,7 @@ async function DELETEHandler(req: NextRequest, context: Context) {
     await readEmptyBody(req);
     await deleteDocument(id);
     return Response.json({ data: { id } }, { headers: { "Cache-Control": "no-store" } });
-  } catch (error) { return createApiErrorResponse(error, "删除文档失败。"); }
+  } catch (error) { return createApiErrorResponse(error, t("api.documents.deleteFailed")); }
 }
 
 export const GET = protectDataOperation(GETHandler);

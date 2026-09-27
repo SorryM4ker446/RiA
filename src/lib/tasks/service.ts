@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { db } from "@/db";
+import { t } from "@/lib/locale";
 import { ApiError } from "@/lib/server/api-error";
 import { isTaskTimeZone, nextTaskDueDate, parseTaskDueDate, TASK_REPEAT_RULES, type TaskRepeatRule } from "@/lib/tasks/schedule";
 
@@ -28,7 +29,7 @@ export function resolveTaskSchedule(input: {
   try { dueDate = parseTaskDueDate(input.dueDate, timeZone); }
   catch (error) { throw new ApiError({ code: "VALIDATION_ERROR", message: (error as Error).message }); }
   if ((reminderEnabled || repeatRule !== "none") && !dueDate) {
-    throw new ApiError({ code: "VALIDATION_ERROR", message: "提醒和重复任务必须设置截止时间。" });
+    throw new ApiError({ code: "VALIDATION_ERROR", message: t("lib.tasks.dueDateRequired") });
   }
   return { dueDate, timeZone, reminderEnabled, repeatRule };
 }

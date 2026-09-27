@@ -21,6 +21,36 @@ globalThis.fetch = async (input, options) => {
 
 if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
   const provider = agent.get("https://openrouter.ai");
+  const catalogRow = (id, name, input, output, extra = {}) => ({
+    id, name, description: `Offline fixture for ${id}`, context_length: 200000,
+    architecture: { input_modalities: input, output_modalities: output },
+    supported_parameters: ["tools", ...(input.includes("image") ? ["image"] : [])],
+    pricing: { prompt: "0.000001", completion: "0.000002" }, ...extra,
+  });
+  provider.intercept({ path: "/api/v1/models?output_modalities=text", method: "GET" }).reply(200, {
+    data: [
+      catalogRow("anthropic/claude-opus-4.6", "Claude Opus Offline", ["text", "image"], ["text"]),
+      catalogRow("google/gemini-3-flash-preview", "Gemini Flash Offline", ["text", "image"], ["text"]),
+      // Two rows the normalizer must skip: one that repeats an id already
+      // seen, one whose id is not a usable `author/name`. A live feed carries
+      // these routinely, and they must not cost the page the rest of the
+      // catalog — the page lists what parsed and notes what it dropped.
+      catalogRow("google/gemini-3-flash-preview", "Gemini Flash Offline duplicate", ["text"], ["text"]),
+      { id: "not-a-namespaced-id", name: "Broken Row" },
+    ],
+  }, { headers: { "content-type": "application/json" } }).persist();
+  provider.intercept({ path: "/api/v1/images/models", method: "GET" }).reply(200, {
+    data: [catalogRow("google/gemini-3.1-flash-image-preview", "Gemini Image Offline", ["text", "image"], ["image"])],
+  }, { headers: { "content-type": "application/json" } }).persist();
+  provider.intercept({ path: "/api/v1/images/models/google/gemini-3.1-flash-image-preview/endpoints", method: "GET" }).reply(200, {
+    endpoints: [{ supported_parameters: { input_references: { min: 0, max: 1 } } }],
+  }, { headers: { "content-type": "application/json" } }).persist();
+  provider.intercept({ path: "/api/v1/videos/models", method: "GET" }).reply(200, {
+    data: [catalogRow("bytedance/seedance-2.0", "Seedance Offline", ["text"], ["video"], { supported_parameters: [], supported_frame_images: ["first_frame"], pricing_skus: { "per-video-second": "0.08" } })],
+  }, { headers: { "content-type": "application/json" } }).persist();
+  provider.intercept({ path: "/api/v1/embeddings/models", method: "GET" }).reply(200, {
+    data: [catalogRow("openai/text-embedding-3-small", "Embedding Offline", ["text"], ["embeddings"])],
+  }, { headers: { "content-type": "application/json" } }).persist();
   provider.intercept({ path: "/api/v1/chat/completions", method: "POST", body: raw => {
     const body = JSON.parse(String(raw));
     return body.model === "anthropic/claude-opus-4.6" && JSON.stringify(body.messages).includes("OFFLINE_PRIMARY_FAILURE");

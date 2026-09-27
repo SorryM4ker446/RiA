@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { browserApi, browserData } from "../helpers/browser-api";
+import { chooseOption } from "../helpers/select";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => {
@@ -61,7 +62,7 @@ test("conversation search, pinning, tags and archive restoration survive browser
   await expect(page.getByText("旅行记录", { exact: true })).toHaveCount(0);
   await app.restart();
   await manage(page, app.origin);
-  await page.getByLabel("会话状态").selectOption("archived");
+  await chooseOption(page.getByLabel("会话状态"), "已归档");
   await filter(page);
   await expect(row.getByText("work", { exact: true })).toBeVisible();
   await row.getByRole("button", { name: "恢复并打开" }).click();
@@ -88,7 +89,7 @@ test("conversation pagination and bulk deletion require visible selection and ex
   await page.keyboard.press("Escape");
   await expect(confirm).not.toBeVisible();
   expect(app.readRows("SELECT id FROM chats")).toHaveLength(33);
-  await page.getByLabel("会话状态").selectOption("all");
+  await chooseOption(page.getByLabel("会话状态"), "全部");
   await filter(page);
   await expect(page.getByRole("button", { name: "删除所选" })).toBeDisabled();
   await page.getByRole("button", { name: "选择前 50 个已加载会话" }).click();

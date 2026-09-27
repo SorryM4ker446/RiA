@@ -1,10 +1,10 @@
 # Workspace backups and restore
 
-Open **备份与恢复** from the chat sidebar or Settings in either the browser or Electron. **创建备份** makes a private archive; **下载备份** exports it as a `.paib` file. Importing a file validates and saves an archive without applying it. Select **恢复**, inspect the counts, and type **恢复** to replace the workspace's business data. A restore replaces; it never merges.
+Open **备份与恢复** from the chat sidebar or Settings in either the browser or Electron. **创建备份** makes a private archive; **下载备份** exports it as a `.paib` file. Importing a file validates and saves an archive without applying it. Select **恢复**, inspect the counts and model-library differences (including the model names that would be re-added or removed), then type **恢复** to replace the workspace's business data. A restore replaces; it never merges. Because the **我的模型** library is restored as an archived snapshot, a restore can re-enable a model that was manually removed after the backup was created.
 
 ## Contents and privacy
 
-An archive includes conversations/messages/tags, memories and embeddings, tasks, extracted document text and indexes, private media files and references, generation recipes, model preferences, retention settings, and up to 5,000 recorded model attempts. Original PDF/Word source files are not retained by document import and are not included.
+An archive includes conversations/messages/tags, memories and embeddings (tagged with the model ID that created each vector), tasks, extracted document text and indexes, private media files and references, generation recipes, model preferences and the **我的模型** library, retention settings, and up to 5,000 recorded model attempts. OpenRouter catalog snapshots are a refreshable cache and are not included. Older preference and memory records remain importable; legacy model IDs become migration candidates and are not automatically enabled. Original PDF/Word source files are not retained by document import and are not included.
 
 The local access credential, desktop encrypted settings, provider API keys, proxy configuration, logs and other archives are excluded. Structured media paths and tool approval credentials are omitted. Conversation text, tool outputs, recipes and documents can themselves contain sensitive information that the user entered; this content is preserved. **Archives are not encrypted.** Protect exported files like the original data and only import trusted archives. Checksums detect corruption, not who authored the file.
 
@@ -16,9 +16,9 @@ Backups are private files under `backups/<workspace>/` beside the configured med
 
 Stop generation and wait for other requests to finish first. Backup, import and restore operations use a single-process maintenance gate: an in-flight request returns HTTP 409 to a maintenance operation, and a business request during maintenance receives HTTP 503. Chat consumption and persistence retain the gate even after an HTTP reader disconnects. There are no forced cancellations or unlimited retries.
 
-Restore validates files, stages new immutable media paths, and creates a safety archive of the current workspace before changing business rows in one SQLite transaction. The access credential is not part of a restore and stays as it is. Any database failure rolls back the business changes. IDs and internal media/document/source references are remapped, so the same archive can be imported repeatedly without collisions. A restore requires space for the archive, the safety archive and another copy of its media. Large restores remain subject to the existing SQLite transaction timeout; a timeout rolls back rather than extending it indefinitely.
+Restore validates files, stages new immutable media paths, and creates a safety archive of the current workspace before changing business rows in one SQLite transaction. The safety backup and the transaction are serialized with model-settings mutations, so a concurrent model removal or settings save cannot interleave with the restored snapshot. The access credential is not part of a restore and stays as it is. Any database failure rolls back the business changes. IDs and internal media/document/source references are remapped, so the same archive can be imported repeatedly without collisions. A restore requires space for the archive, the safety archive and another copy of its media. Large restores remain subject to the existing SQLite transaction timeout; a timeout rolls back rather than extending it indefinitely.
 
-Pending messages become errors, historical pending tool approvals become denied, and restored task reminders are disabled. Re-enable reminders deliberately after checking their dates. Model preferences and backup retention settings return to their archived values. Refresh other open windows after restoring; local per-conversation controls in those windows are not a synchronized database snapshot.
+Pending messages become errors, historical pending tool approvals become denied, and restored task reminders are disabled. Re-enable reminders deliberately after checking their dates. Model preferences, backup retention settings and the **我的模型** library return to their archived values; the restore confirmation shows which model names will be re-added or removed. Refresh other open windows after restoring; local per-conversation controls in those windows are not a synchronized database snapshot.
 
 Previous live media files and files staged by interrupted restores are left as managed orphans, eligible for the existing confirmed media cleanup after its grace period. Archive cleanup errors after a successful commit do not turn that restore into a failure; the response reports `cleanupFailed`. Disk failure, abrupt termination and operating-system interference cannot guarantee file durability. Keep a second copy on separate storage.
 
@@ -42,7 +42,7 @@ All endpoints retain the normal credential, Host and Origin checks and sanitized
 | --- | --- |
 | `GET /api/backups` | List completed archives |
 | `POST /api/backups` | Empty body; create an archive, HTTP 201 |
-| `GET /api/backups/:id` | Inspect manifest counts; `?download=1` streams the archive |
+| `GET /api/backups/:id` | Inspect manifest counts and model-library differences; `?download=1` streams the archive |
 | `POST /api/backups/:id` | Strict `{ "confirm": true }`, at most 16 KiB; restore and return `safetyBackupId`, `restored`, `cleanupFailed` |
 | `DELETE /api/backups/:id` | Permanently delete that archive |
 | `POST /api/backups/import` | Strict `{ "bytes": integer }`; return upload ID and chunk size |

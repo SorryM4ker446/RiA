@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { db } from "@/db";
+import { t } from "@/lib/locale";
 import { stageMediaFile } from "@/lib/media/storage";
 import { ASSISTANT_TOOL_MESSAGE_PREFIX } from "@/lib/ai/ui-message";
 import { openBackup } from "@/lib/backups/files";
 import { createAccountBackup, pruneAccountBackupsSafely, readBackupAsset, readBackupManifest } from "@/lib/backups/archive";
-import { PREFERENCE_ROW_ID } from "@/lib/models/preferences";
+import { PREFERENCE_ROW_ID, withModelSettingsLock } from "@/lib/models/preferences";
+import { upgradeModelPreferences } from "@/lib/models/preferences-schema";
 
 export async function restoreAccountBackup(id: string) {
   const archive = await openBackup(id);
@@ -39,13 +41,15 @@ export async function restoreAccountBackup(id: string) {
       try {
         const payload = JSON.parse(text.slice(prefix.length));
         if (prefix === ASSISTANT_TOOL_MESSAGE_PREFIX && Array.isArray(payload.tools)) {
-          for (const tool of payload.tools) if (!["output-available", "output-error", "output-denied"].includes(tool.state)) { tool.state = "output-denied"; tool.errorText = "恢复的历史审批不会重新执行。"; }
+          for (const tool of payload.tools) if (!["output-available", "output-error", "output-denied"].includes(tool.state)) { tool.state = "output-denied"; tool.errorText = t("lib.backups.approvalNotReplayed"); }
         }
         return prefix + JSON.stringify(transform(payload));
       } catch { return text; }
     }
-    const safety = await createAccountBackup(false);
-    await db.$transaction(async tx => {
+    const restoredPreferences = upgradeModelPreferences(manifest.preferences);
+    const { safety } = await withModelSettingsLock(async () => {
+      const safety = await createAccountBackup(false);
+      await db.$transaction(async tx => {
       // A restore replaces the workspace: conversations go first so their
       // messages, tags and asset references cascade away with them.
       await tx.chat.deleteMany({});
@@ -65,7 +69,7 @@ export async function restoreAccountBackup(id: string) {
       for (let i = 0; i < references.length; i += 500) await tx.messageMedia.createMany({ data: references.slice(i, i + 500) });
       const inputs = manifest.assets.flatMap(asset => asset.inputs.map(ref => ({ assetId: mapped(ref.assetId), inputAssetId: mapped(ref.inputAssetId) })));
       for (let i = 0; i < inputs.length; i += 500) await tx.mediaGenerationInput.createMany({ data: inputs.slice(i, i + 500) });
-      for (let i = 0; i < manifest.memories.length; i += 250) await tx.memory.createMany({ data: manifest.memories.slice(i, i + 250).map(memory => ({ ...memory, id: mapped(memory.id), embedding: memory.embedding ?? Prisma.DbNull })) });
+      for (let i = 0; i < manifest.memories.length; i += 250) await tx.memory.createMany({ data: manifest.memories.slice(i, i + 250).map(memory => ({ ...memory, id: mapped(memory.id), embedding: memory.embedding ?? Prisma.DbNull, embeddingModelId: memory.embeddingModelId ?? null })) });
       for (let i = 0; i < manifest.tasks.length; i += 250) await tx.task.createMany({ data: manifest.tasks.slice(i, i + 250).map(task => ({ ...task, id: mapped(task.id), reminderEnabled: false })) });
       await tx.knowledgeDocument.createMany({ data: manifest.documents.map(({ chunks: _chunks, ...document }) => ({ ...document, id: mapped(document.id) })) });
       const chunks = manifest.documents.flatMap(document => document.chunks.map(({ terms: _terms, ...chunk }) => ({ ...chunk, id: mapped(chunk.id), documentId: mapped(chunk.documentId) })));
@@ -73,7 +77,9 @@ export async function restoreAccountBackup(id: string) {
       const terms = manifest.documents.flatMap(document => document.chunks.flatMap(chunk => chunk.terms.map(term => ({ ...term, chunkId: mapped(term.chunkId) }))));
       for (let i = 0; i < terms.length; i += 500) await tx.documentTerm.createMany({ data: terms.slice(i, i + 500) });
       for (let i = 0; i < manifest.usage.length; i += 250) await tx.modelRequest.createMany({ data: manifest.usage.slice(i, i + 250).map(row => ({ ...row, id: mapped(row.id) })) });
-      await tx.workspacePreference.upsert({ where: { id: PREFERENCE_ROW_ID }, create: { id: PREFERENCE_ROW_ID, settings: manifest.preferences as Prisma.InputJsonValue }, update: { settings: manifest.preferences as Prisma.InputJsonValue } });
+      await tx.workspacePreference.upsert({ where: { id: PREFERENCE_ROW_ID }, create: { id: PREFERENCE_ROW_ID, settings: restoredPreferences as Prisma.InputJsonValue }, update: { settings: restoredPreferences as Prisma.InputJsonValue } });
+      });
+      return { safety };
     });
     const cleanup = await pruneAccountBackupsSafely(safety.id);
     return { safetyBackupId: safety.id, restored: true, cleanupFailed: !!cleanup.failed };

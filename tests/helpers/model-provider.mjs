@@ -1,6 +1,14 @@
 import { MockEmbeddingModelV3, MockLanguageModelV3, MockImageModelV3 } from "ai/test";
 
-export const providerState = { streamError: false, streamGate: undefined, imageCalls: [], videoCalls: [] };
+export const providerState = { streamError: false, streamGate: undefined, imageGate: undefined, imageEntered: undefined, imageCalls: [], videoCalls: [] };
+export function resetProviderState() {
+  providerState.streamError = false;
+  providerState.streamGate = undefined;
+  providerState.imageGate = undefined;
+  providerState.imageEntered = undefined;
+  providerState.imageCalls.length = 0;
+  providerState.videoCalls.length = 0;
+}
 export const testPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=", "base64");
 export const testVideo = Buffer.from([0, 0, 0, 24, 102, 116, 121, 112, 105, 115, 111, 109, 0, 0, 0, 0, 105, 115, 111, 109]);
 export const languageModel = new MockLanguageModelV3({
@@ -22,13 +30,35 @@ export const languageModel = new MockLanguageModelV3({
 const embeddingModel = new MockEmbeddingModelV3({ doEmbed: async ({ values }) => ({ embeddings: values.map(() => [1, 0, 0]), warnings: [] }) });
 export const getChatModel = () => languageModel;
 export const getEmbeddingModel = () => embeddingModel;
+const defaultImageModelId = "google/gemini-2.5-flash-image";
+let imageLeaseModelId = defaultImageModelId;
+let imageModelValidator;
+async function withProviderModelLease(mode, modelId, operation) {
+  const { withModelLease } = await import("@/lib/models/preferences");
+  return withModelLease(mode, modelId, operation);
+}
+function withProviderVideoLease(modelId, operation) {
+  return withProviderModelLease("video", modelId, operation);
+}
 const imageModel = new MockImageModelV3({ doGenerate: async (options) => {
-  providerState.imageCalls.push(options);
-  return { images: [testPng], warnings: [], response: { timestamp: new Date(), modelId: "mock-image", headers: {} } };
+  const modelId = imageLeaseModelId;
+  const validate = imageModelValidator;
+  return withProviderModelLease("image", modelId, async model => {
+    validate?.(model);
+    providerState.imageEntered?.(); providerState.imageEntered = undefined;
+    if (providerState.imageGate) await providerState.imageGate;
+    providerState.imageCalls.push(options);
+    return { images: [testPng], warnings: [], response: { timestamp: new Date(), modelId: "mock-image", headers: {} } };
+  });
 } });
+const defaultVideoModelId = "google/veo-3.1-fast";
+let videoLeaseModelId = defaultVideoModelId;
 const videoModel = { specificationVersion: "v3", provider: "mock-provider", modelId: "mock-video", maxVideosPerCall: 1, doGenerate: async (options) => {
-  providerState.videoCalls.push(options);
-  return { videos: [{ type: "binary", data: testVideo, mediaType: "video/mp4" }], warnings: [], response: { timestamp: new Date(), modelId: "mock-video", headers: {} } };
+  const modelId = videoLeaseModelId;
+  return withProviderVideoLease(modelId, async () => {
+    providerState.videoCalls.push(options);
+    return { videos: [{ type: "binary", data: testVideo, mediaType: "video/mp4" }], warnings: [], response: { timestamp: new Date(), modelId: "mock-video", headers: {} } };
+  });
 } };
-export const getImageModel = () => imageModel;
-export const getVideoModel = () => videoModel;
+export const getImageModel = (modelId = defaultImageModelId, validate) => { imageLeaseModelId = modelId; imageModelValidator = validate; return imageModel; };
+export const getVideoModel = (modelId = defaultVideoModelId) => { videoLeaseModelId = modelId; return videoModel; };

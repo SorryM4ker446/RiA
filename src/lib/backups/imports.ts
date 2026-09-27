@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { open, rename } from "node:fs/promises";
+import { t } from "@/lib/locale";
 import { ApiError } from "@/lib/server/api-error";
 import { readLimitedBody } from "@/lib/server/request-body";
 import { BACKUP_LIMITS } from "@/lib/backups/schema";
@@ -13,9 +14,9 @@ const uploads = shared.backupUploads ??= new Map();
 const UPLOAD_KEY = "local";
 export async function beginBackupImport(size: number) {
   for (const [key, upload] of uploads) if (upload.expires < Date.now()) uploads.delete(key);
-  if (uploads.size >= 1 && !uploads.has(UPLOAD_KEY)) throw new ApiError({ code: "SERVICE_UNAVAILABLE", message: "已有其他备份上传占用中，请稍后重试。" });
+  if (uploads.size >= 1 && !uploads.has(UPLOAD_KEY)) throw new ApiError({ code: "SERVICE_UNAVAILABLE", message: t("lib.backups.uploadOccupied") });
   const existing = uploads.get(UPLOAD_KEY);
-  if (existing && existing.expires > Date.now()) throw new ApiError({ code: "CONFLICT", message: "已有备份正在上传，请先取消或等待过期。" });
+  if (existing && existing.expires > Date.now()) throw new ApiError({ code: "CONFLICT", message: t("lib.backups.uploadInProgress") });
   // Partial uploads cannot resume after restart. Staged files are removed when
   // starting a replacement upload.
   for (const file of await listBackupFiles()) if (file.extension === "upload") await removeBackupFile(file.id, "upload");
@@ -25,18 +26,18 @@ export async function beginBackupImport(size: number) {
 }
 function pending(id: string) {
   const upload = uploads.get(UPLOAD_KEY);
-  if (!upload || upload.id !== id || upload.expires < Date.now()) throw new ApiError({ code: "NOT_FOUND", message: "上传已过期或不存在，请重新导入。" });
+  if (!upload || upload.id !== id || upload.expires < Date.now()) throw new ApiError({ code: "NOT_FOUND", message: t("lib.backups.uploadExpired") });
   return upload;
 }
 export async function appendBackupImport(id: string, offset: number, request: Request) {
   const upload = pending(id);
-  if (request.headers.get("content-type")?.split(";")[0] !== "application/octet-stream") throw new ApiError({ code: "UNSUPPORTED_MEDIA_TYPE", message: "请使用二进制分块上传。" });
-  if (upload.offset !== offset) throw new ApiError({ code: "CONFLICT", message: "上传偏移不一致，请重新导入。" });
+  if (request.headers.get("content-type")?.split(";")[0] !== "application/octet-stream") throw new ApiError({ code: "UNSUPPORTED_MEDIA_TYPE", message: t("lib.backups.binaryChunks") });
+  if (upload.offset !== offset) throw new ApiError({ code: "CONFLICT", message: t("lib.backups.offsetMismatch") });
   const bytes = await readLimitedBody(request, Math.min(BACKUP_LIMITS.chunk, upload.size - offset));
-  if (!bytes.length) throw new ApiError({ code: "VALIDATION_ERROR", message: "上传分块不能为空。" });
+  if (!bytes.length) throw new ApiError({ code: "VALIDATION_ERROR", message: t("lib.backups.emptyChunk") });
   const file = await openBackup(id, "upload", true);
   try {
-    if ((await file.stat()).size !== offset) throw new ApiError({ code: "CONFLICT", message: "上传文件大小不一致。" });
+    if ((await file.stat()).size !== offset) throw new ApiError({ code: "CONFLICT", message: t("lib.backups.sizeMismatch") });
     let written = 0;
     while (written < bytes.length) { const result = await file.write(bytes, written, bytes.length - written, offset + written); if (!result.bytesWritten) throw new Error("Backup write failed"); written += result.bytesWritten; }
   }
@@ -46,7 +47,7 @@ export async function appendBackupImport(id: string, offset: number, request: Re
 }
 export async function completeBackupImport(id: string) {
   const upload = pending(id);
-  if (upload.offset !== upload.size) throw new ApiError({ code: "CONFLICT", message: "备份尚未完整上传。" });
+  if (upload.offset !== upload.size) throw new ApiError({ code: "CONFLICT", message: t("lib.backups.incompleteUpload") });
   const file = await openBackup(id, "upload");
   try {
     const { manifest, offset: start } = await readBackupManifest(file); let offset = start;

@@ -1,33 +1,26 @@
-import {
-  DEFAULT_IMAGE_MODEL,
-  DEFAULT_MODEL,
-  DEFAULT_VIDEO_MODEL,
-  resolveImageModelId,
-  resolveModelId,
-  resolveVideoModelId,
-  type SupportedImageModelId,
-  type SupportedModelId,
-  type SupportedVideoModelId
-} from "@/config/model";
 import { ModelMode } from "@/features/chat/page-utils";
+import { t } from "@/lib/locale";
+import type { ModelLibraryItem } from "@/lib/models/preferences-schema";
 import { useEffect, useRef, useState } from "react";
 import { getChatPrefsStorageKey, getDefaultChatPreferences, readChatPreferences, loadAccountChatDefaults, staleChatModelWarning } from "@/features/chat/preferences";
 import type { ChatScopedPreferences, ManualToolSelection } from "@/features/chat/types";
 
 export function useChatPreferences(activeChatId: string | null) {
   const [modelMode, setModelMode] = useState<ModelMode>("chat");
-  const [selectedChatModel, setSelectedChatModel] = useState<SupportedModelId>(DEFAULT_MODEL);
-  const [selectedImageModel, setSelectedImageModel] = useState<SupportedImageModelId>(DEFAULT_IMAGE_MODEL);
-  const [selectedVideoModel, setSelectedVideoModel] = useState<SupportedVideoModelId>(DEFAULT_VIDEO_MODEL);
+  const [selectedChatModel, setSelectedChatModel] = useState<string | null>(null);
+  const [selectedImageModel, setSelectedImageModel] = useState<string | null>(null);
+  const [selectedVideoModel, setSelectedVideoModel] = useState<string | null>(null);
+  const [modelLibrary, setModelLibrary] = useState<ModelLibraryItem[]>([]);
   const [selectedManualTool, setSelectedManualTool] = useState<ManualToolSelection>("none");
   const [manualToolsOnly, setManualToolsOnly] = useState(false);
   const [hydratedChatId, setHydratedChatId] = useState<string | null>(null);
   const [defaultsLoaded, setDefaultsLoaded] = useState(false), [preferencesError, setPreferencesError] = useState<string | null>(null);
   const accountDefaults = useRef(getDefaultChatPreferences());
+  const defaultsErrorRef = useRef<string | null>(null);
   useEffect(() => {
     let active = true;
-    void loadAccountChatDefaults().then(value => { if (active) accountDefaults.current = value; })
-      .catch(error => { if (active) setPreferencesError(error instanceof Error ? error.message : "无法读取默认模型。"); })
+    void loadAccountChatDefaults().then(value => { if (active) { accountDefaults.current = value.preferences; setModelLibrary(value.library); } })
+      .catch(error => { if (active) { const message = error instanceof Error ? error.message : t("chatPrefs.defaultsLoadFailed"); defaultsErrorRef.current = message; setPreferencesError(message); } })
       .finally(() => { if (active) setDefaultsLoaded(true); });
     return () => { active = false; };
   }, []);
@@ -42,15 +35,21 @@ export function useChatPreferences(activeChatId: string | null) {
 
   function onModelSelect(value: string) {
     setPreferencesError(null);
+    // Switching mode re-renders the model select against a different,
+    // mode-filtered option list. Radix can emit an empty string in that window,
+    // and only the literal "none" mapped to null -- so the empty value stored
+    // "" and silently blanked a model that was still configured.
+    if (!value) return;
+    const selected = value === "none" ? null : value;
     if (modelMode === "chat") {
-      setSelectedChatModel(resolveModelId(value));
+      setSelectedChatModel(selected);
       return;
     }
     if (modelMode === "image") {
-      setSelectedImageModel(resolveImageModelId(value));
+      setSelectedImageModel(selected);
       return;
     }
-    setSelectedVideoModel(resolveVideoModelId(value));
+    setSelectedVideoModel(selected);
   }
   useEffect(() => {
     if (!defaultsLoaded) return;
@@ -58,9 +57,10 @@ export function useChatPreferences(activeChatId: string | null) {
     // Browser storage must be restored after mount and before saving this chat's controls.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     applyChatPreferences(stored ?? accountDefaults.current);
-    if (activeChatId && staleChatModelWarning(activeChatId)) setPreferencesError(staleChatModelWarning(activeChatId));
+    const warning = activeChatId ? staleChatModelWarning(activeChatId, modelLibrary) : null;
+    setPreferencesError(warning ?? defaultsErrorRef.current);
     setHydratedChatId(activeChatId);
-  }, [activeChatId, defaultsLoaded]);
+  }, [activeChatId, defaultsLoaded, modelLibrary]);
   useEffect(() => {
     if (!defaultsLoaded || !activeChatId || hydratedChatId !== activeChatId) return;
 
@@ -89,6 +89,7 @@ export function useChatPreferences(activeChatId: string | null) {
     modelMode, setModelMode, selectedChatModel, setSelectedChatModel, selectedImageModel,
     setSelectedImageModel, selectedVideoModel, setSelectedVideoModel, selectedManualTool,
     setSelectedManualTool, manualToolsOnly, setManualToolsOnly, applyChatPreferences, onModelSelect,
-    isLoadingPreferences: !defaultsLoaded, preferencesError,
+    isLoadingPreferences: !defaultsLoaded, preferencesError, modelLibrary,
+    clearPreferencesError() { defaultsErrorRef.current = null; setPreferencesError(null); },
   };
 }

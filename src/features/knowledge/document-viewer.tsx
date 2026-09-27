@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { documentRequest } from "@/features/knowledge/document-library";
+import { t } from "@/lib/locale";
 
 type DocumentView = { filename: string; chunks: { id: string; text: string; ordinal: number; pageNumber: number | null }[] };
 export function DocumentViewer({ id }: { id: string }) {
@@ -26,14 +27,14 @@ export function DocumentViewer({ id }: { id: string }) {
     const element = window.document.getElementById(chunkId);
     if (element) element.scrollIntoView({ block: "center" });
   }, [document]);
-  return <main className="mx-auto max-w-4xl space-y-4 p-6">
-    <Link className="text-sm underline" href="/knowledge">返回知识库</Link>
-    <h1 className="break-all text-xl font-semibold">{document?.filename ?? "文档来源"}</h1>
-    <p className="text-sm text-muted-foreground">以下为当前保存的提取文本，可能与原文件排版不同。相邻长片段包含少量重叠。</p>
-    {error ? <p role="alert" className="text-destructive">{error}</p> : !document ? <p>正在读取文档…</p> : null}
-    {outdated ? <p role="status">原引用片段已被更新或删除，以下展示文档当前版本；聊天中的摘录保留了回答时的内容。</p> : null}
-    {document?.chunks.map(chunk => <section className="scroll-mt-6 rounded-md border p-4 target:border-primary target:bg-muted/50" id={chunk.id} key={chunk.id}>
-      <h2 className="mb-2 text-xs text-muted-foreground">片段 {chunk.ordinal + 1}{chunk.pageNumber ? ` · 第 ${chunk.pageNumber} 页` : ""}</h2>
+  return <main className="mx-auto max-w-4xl space-y-4 px-6 py-8">
+    <Link className="text-sm text-muted-foreground transition-colors hover:text-foreground" href="/knowledge">{t("documents.backToLibrary")}</Link>
+    <h1 className="break-all text-xl font-semibold tracking-headline">{document?.filename ?? t("documents.fallbackTitle")}</h1>
+    <p className="text-sm leading-6 text-muted-foreground">{t("documents.extractedTextNote")}</p>
+    {error ? <p role="alert" className="text-destructive">{error}</p> : !document ? <p>{t("documents.loading")}</p> : null}
+    {outdated ? <p className="text-sm text-muted-foreground" role="status">{t("documents.outdated")}</p> : null}
+    {document?.chunks.map(chunk => <section className="scroll-mt-6 rounded-lg bg-card p-4 shadow-hairline target:ring-2 target:ring-ring/70" id={chunk.id} key={chunk.id}>
+      <h2 className="label-mono mb-2">{t("documents.chunkLabel")} {chunk.ordinal + 1}{chunk.pageNumber ? ` · ${t("documents.pageLabel")} ${chunk.pageNumber} ${t("documents.pageUnit")}` : ""}</h2>
       <p className="whitespace-pre-wrap break-words text-sm leading-6">{chunk.text}</p>
     </section>)}
   </main>;

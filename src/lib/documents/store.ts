@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { db } from "@/db";
+import { t } from "@/lib/locale";
 import { buildDocumentChunks, DOCUMENT_INDEX_VERSION, hashDocumentContent } from "@/lib/documents/chunks";
 import { DOCUMENT_LIMITS, documentPagesSchema, type DocumentPage } from "@/lib/documents/types";
 import { tokenizeQuery } from "@/lib/memory/retrieval";
@@ -15,16 +16,16 @@ type DocumentInput = { filename: string; format: string; byteSize: number; pages
 export async function indexDocument(input: DocumentInput, expected?: { id: string; contentHash: string }) {
   const pages = documentPagesSchema.parse(input.pages);
   const characterCount = pages.reduce((sum, page) => sum + page.text.length, 0);
-  if (characterCount > DOCUMENT_LIMITS.characters) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: "文档不能超过十万字符。" });
+  if (characterCount > DOCUMENT_LIMITS.characters) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.documents.charLimit") });
   const prepared = buildDocumentChunks(pages).map(chunk => ({ ...chunk, terms: tokenizeQuery(`${input.filename} ${chunk.text}`).filter(term => term.length <= 100) }));
   const contentHash = hashDocumentContent(JSON.stringify(pages));
   return db.$transaction(async tx => {
     const existing = await tx.knowledgeDocument.findUnique({ where: { filename: input.filename }, include: { chunks: true } });
     if (expected && (!existing || existing.id !== expected.id || existing.contentHash !== expected.contentHash)) {
-      throw new ApiError({ code: "CONFLICT", message: "文档已被修改或删除，请刷新后重试。" });
+      throw new ApiError({ code: "CONFLICT", message: t("lib.documents.modifiedOrDeleted") });
     }
     if (!existing && await tx.knowledgeDocument.count({ where: {} }) >= DOCUMENT_LIMITS.documentsPerUser) {
-      throw new ApiError({ code: "CONFLICT", message: "每个用户最多保存 100 份文档，请先删除不再需要的文档。" });
+      throw new ApiError({ code: "CONFLICT", message: t("lib.documents.tooManyDocuments") });
     }
     if (existing?.contentHash === contentHash && existing.indexVersion === DOCUMENT_INDEX_VERSION && !expected) {
       return { document: await tx.knowledgeDocument.findUniqueOrThrow({ where: { id: existing.id }, select: documentSummarySelect }), change: "unchanged", added: 0, removed: 0, retained: existing.chunks.length };
@@ -59,17 +60,17 @@ export async function indexDocument(input: DocumentInput, expected?: { id: strin
 
 export async function getDocument(id: string) {
   const document = await db.knowledgeDocument.findFirst({ where: { id }, select: { ...documentSummarySelect, chunks: { orderBy: { ordinal: "asc" }, select: { id: true, text: true, ordinal: true, pageNumber: true } } } });
-  if (!document) throw new ApiError({ code: "NOT_FOUND", message: "文档不存在或已删除。" });
+  if (!document) throw new ApiError({ code: "NOT_FOUND", message: t("lib.documents.notFound") });
   return document;
 }
 
 export async function reindexDocument(id: string) {
   const document = await db.knowledgeDocument.findFirst({ where: { id } });
-  if (!document) throw new ApiError({ code: "NOT_FOUND", message: "文档不存在或已删除。" });
+  if (!document) throw new ApiError({ code: "NOT_FOUND", message: t("lib.documents.notFound") });
   return indexDocument({ ...document, pages: documentPagesSchema.parse(document.pages) }, { id, contentHash: document.contentHash });
 }
 
 export async function deleteDocument(id: string) {
   const result = await db.knowledgeDocument.deleteMany({ where: { id } });
-  if (!result.count) throw new ApiError({ code: "NOT_FOUND", message: "文档不存在或已删除。" });
+  if (!result.count) throw new ApiError({ code: "NOT_FOUND", message: t("lib.documents.notFound") });
 }

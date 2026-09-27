@@ -1,3 +1,4 @@
+import { t } from "@/lib/locale";
 import { ApiError } from "@/lib/server/api-error";
 
 export const RATE_LIMIT_POLICIES = {
@@ -15,6 +16,7 @@ export const RATE_LIMIT_POLICIES = {
   backups: { limit: 6, windowMs: 60_000 },
   backupChunks: { limit: 120, windowMs: 60_000 },
   modelSettings: { limit: 20, windowMs: 60_000 },
+  modelCatalog: { limit: 8, windowMs: 60_000 },
 } as const;
 
 type RateLimitRecord = {
@@ -106,7 +108,7 @@ export function enforceRateLimit(policy: keyof typeof RATE_LIMIT_POLICIES) {
   if (!result.allowed) {
     throw new ApiError({
       code: "RATE_LIMITED",
-      message: "请求过于频繁，请稍后重试。",
+      message: t("lib.server.rateLimited"),
       details: { retryAfterSeconds: result.retryAfterSeconds },
       headers: { "Retry-After": String(result.retryAfterSeconds), "X-RateLimit-Remaining": "0" },
     });

@@ -1,4 +1,3 @@
-import { chatModelSupportsImageInput } from "@/config/model";
 import { buildChatContext } from "@/lib/chat/context";
 import { materializeChatAttachments } from "@/lib/media/messages";
 import {
@@ -25,13 +24,13 @@ function stripFilePartsForTextOnlyModel(messages: UIMessage[]): UIMessage[] {
 
     return {
       ...message,
-      parts: [{ type: "text", text: "(上一条是图片消息，当前模型不支持读图)" }],
+      parts: [{ type: "text", text: "(The previous message was an image, which this model cannot read.)" }],
     } satisfies UIMessage;
   });
 }
 export async function prepareModelContext(input: ChatRequest) {
-  const { messages, modelId } = input;
-  const effectiveMessages = chatModelSupportsImageInput(modelId)
+  const { messages, model } = input;
+  const effectiveMessages = model?.supportsImageInput
     ? messages
     : stripFilePartsForTextOnlyModel(messages);
   const context = buildChatContext(effectiveMessages);

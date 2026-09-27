@@ -19,6 +19,17 @@ model WorkspacePreference {
   @@map("account_preferences")
 }
 
+model ModelCatalogSnapshot {
+  providerId String
+  mode       String
+  models     Json
+  fetchedAt  DateTime @default(now())
+
+  @@id([providerId, mode])
+  @@index([fetchedAt])
+  @@map("model_catalog_snapshots")
+}
+
 model ModelRequest {
   id           String   @id @default(cuid())
   requestId    String
@@ -136,6 +147,7 @@ model Memory {
   value     String
   score     Float?
   embedding Json?
+  embeddingModelId String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

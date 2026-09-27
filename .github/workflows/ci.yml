@@ -128,6 +128,14 @@ jobs:
       - name: Smoke-test Electron with standalone runtime
         run: npm run test:desktop:smoke
 
+      # A synthetic .click() cannot catch this class of defect: the broken
+      # version passed every other gate because the React SyntheticEvent was
+      # never structured-cloned across the contextBridge. Only a real trusted
+      # click reaches the bridge the way a user's does. Runs after the smoke
+      # test because both launch Electron and the app is single-instance.
+      - name: Verify the drawn window controls answer a real click
+        run: npm run test:desktop:caption
+
       - name: Create Windows installer
         run: npx electron-forge make --platform win32 --arch x64
 

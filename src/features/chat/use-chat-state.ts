@@ -1,10 +1,4 @@
 import {
-  chatModelSupportsImageInput,
-  OPENROUTER_IMAGE_MODELS,
-  OPENROUTER_MODELS,
-  OPENROUTER_VIDEO_MODELS
-} from "@/config/model";
-import {
   ChatSummary,
   isToolPart,
   mapStoredMessagesToUI,
@@ -14,12 +8,15 @@ import {
 } from "@/features/chat/page-utils";
 import { encodePersistedAssistantToolMessage } from "@/lib/ai/ui-message";
 import { getApiErrorMessage as readApiErrorMessage } from "@/lib/api-error-message";
+import { t } from "@/lib/locale";
+import { usePanelVisibility } from "./use-panel-visibility";
 import { useChat } from "@ai-sdk/react";
 import { lastAssistantMessageIsCompleteWithApprovalResponses, UIMessage } from "ai";
 import { ClipboardEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { chatApi, createChatTransport, filesToUploadParts } from "@/features/chat/api-client";
 import { buildDefaultManualFieldValues, normalizeManualToolInput, validateManualToolFields } from "@/features/chat/tool-input";
 import type { DeleteTarget } from "@/features/chat/types";
+import type { ModelLibraryItem } from "@/lib/models/preferences-schema";
 
 import { persistConversationMessage } from "@/features/chat/api-client";
 import { useChatPreferences } from "@/features/chat/use-chat-preferences";
@@ -46,7 +43,7 @@ export function useChatState() {
   const {
     modelMode, setModelMode, selectedChatModel, selectedImageModel, selectedVideoModel, selectedManualTool,
     setSelectedManualTool, manualToolsOnly, setManualToolsOnly, applyChatPreferences, onModelSelect,
-    isLoadingPreferences, preferencesError,
+    isLoadingPreferences, preferencesError, modelLibrary, clearPreferencesError,
   } = useChatPreferences(activeChatId);
   const {
     chats, activeChat, isCreatingChat, editingChatId, editingTitle, setEditingTitle, isChatListExpanded,
@@ -101,13 +98,23 @@ export function useChatState() {
       : modelMode === "image"
         ? selectedImageModel
         : selectedVideoModel;
-  const selectedModelInfo =
-    modelMode === "chat"
-      ? OPENROUTER_MODELS.find((model) => model.id === selectedChatModel)
-      : modelMode === "image"
-        ? OPENROUTER_IMAGE_MODELS.find((model) => model.id === selectedImageModel)
-        : OPENROUTER_VIDEO_MODELS.find((model) => model.id === selectedVideoModel);
-  const effectiveError = pageError ?? preferencesError ?? (error ? readApiErrorMessage(error.message, "聊天请求失败，请稍后重试。") : null);
+  const selectedModelInfo: ModelLibraryItem | undefined = modelLibrary.find(model => model.modelId === selectedModel && model.modes.includes(modelMode));
+  const { visibility: panelVisibility, toggle: togglePanel } = usePanelVisibility();
+
+  const effectiveError = pageError ?? preferencesError ?? (error ? readApiErrorMessage(error.message, t("chatState.requestFailed")) : null);
+
+  /**
+   * One failure, one message.
+   *
+   * An app-level fault — an expired local token, an unreachable database — makes
+   * the tool catalog and the task list fail with the exact same message. Each
+   * panel rendering its own copy made a single problem look like three, so a
+   * panel stands down whenever it would only echo the banner above it. An
+   * unrelated panel failure still surfaces on its own, because the comparison
+   * is exact.
+   */
+  const withoutGlobalEcho = (message: string | null) =>
+    message && message === effectiveError ? null : message;
   const keyError =
     effectiveError?.includes("OPENROUTER_API_KEY") ||
     effectiveError?.includes("Invalid API key") ||
@@ -147,7 +154,7 @@ export function useChatState() {
     } catch (loadError) {
       if (latestHistoryRequestRef.current === requestId) {
         setHistoryState({ chatId, status: "error" });
-        setPageError(loadError instanceof Error ? loadError.message : "读取历史消息失败");
+        setPageError(loadError instanceof Error ? loadError.message : t("chatApi.listMessagesFailed"));
       }
     } finally {
       if (latestHistoryRequestRef.current === requestId) {
@@ -170,7 +177,7 @@ export function useChatState() {
       setVideoByMessageId((current) => ({ ...mapped.videoMap, ...current }));
       setOlderMessagesCursor(page.pageInfo?.nextCursor ?? null);
     } catch (error) {
-      if (requestId === latestHistoryRequestRef.current) setPageError(error instanceof Error ? error.message : "读取更早消息失败");
+      if (requestId === latestHistoryRequestRef.current) setPageError(error instanceof Error ? error.message : t("chatState.loadOlderFailed"));
     } finally {
       if (requestId === latestHistoryRequestRef.current) {
         olderRequestRef.current = false;
@@ -204,7 +211,7 @@ export function useChatState() {
         await performDeleteMessage(pendingDelete.message.id);
       }
     } catch (deleteError) {
-      setPageError(deleteError instanceof Error ? deleteError.message : "删除失败");
+      setPageError(deleteError instanceof Error ? deleteError.message : t("chatState.deleteFailed"));
     } finally {
       setIsDeleting(false);
       setPendingDelete(null);
@@ -248,7 +255,7 @@ export function useChatState() {
 
     const text = readText(lastMessage).trim();
     const toolParts = lastMessage.parts.filter(isToolPart);
-    const fallbackText = "（响应中断，已保存当前输出）";
+    const fallbackText = t("chatState.streamInterrupted");
     const content =
       toolParts.length > 0
         ? encodePersistedAssistantToolMessage({
@@ -316,7 +323,7 @@ export function useChatState() {
       await chatApi.editMessage(activeChatId, message.id, nextText);
     } catch (editError) {
       setMessages(previous);
-      setPageError(editError instanceof Error ? editError.message : "保存修改失败");
+      setPageError(editError instanceof Error ? editError.message : t("chatApi.saveEditFailed"));
       return;
     }
     await regenerateMessage(message.id);
@@ -331,11 +338,11 @@ export function useChatState() {
       // current preferences must travel with the request itself.
       await regenerate({
         messageId,
-        body: { chatId: activeChatId, modelId: selectedChatModel, manualToolsOnly, mode: modelMode },
+        body: { chatId: activeChatId, ...(selectedChatModel ? { modelId: selectedChatModel } : {}), manualToolsOnly, mode: modelMode },
       });
       await loadChats();
     } catch (regenerateError) {
-      setPageError(regenerateError instanceof Error ? regenerateError.message : "重新生成失败");
+      setPageError(regenerateError instanceof Error ? regenerateError.message : t("chatState.regenerateFailed"));
     }
   }
 
@@ -347,17 +354,18 @@ export function useChatState() {
     const hasContent = content.length > 0;
 
     if (!hasContent && !hasAttachments) return;
-    if (modelMode === "video" && attachments.length > 1) { setPageError("视频生成最多使用 1 个参考图。"); return; }
+    if (!selectedModel) { setPageError(t("chatState.noModelSelected")); return; }
+    if (modelMode === "video" && attachments.length > 1) { setPageError(t("mediaGen.videoReferenceLimit")); return; }
 
     setPageError(null);
 
     if (modelMode === "chat" && selectedManualToolConfig && hasAttachments) {
-      setPageError("手动工具调用暂不支持附件，请先清空附件。");
+      setPageError(t("chatState.manualToolAttachmentBlocked"));
       return;
     }
 
-    if (modelMode === "chat" && hasAttachments && !chatModelSupportsImageInput(selectedChatModel)) {
-      setPageError(`当前聊天模型 ${selectedChatModel} 不支持图片输入，请切换视觉模型或移除附件。`);
+    if (modelMode === "chat" && hasAttachments && !selectedModelInfo?.supportsImageInput) {
+      setPageError(`${t("chatState.imageInputUnsupportedPrefix")} ${selectedChatModel} ${t("chatState.imageInputUnsupportedSuffix")}`);
       return;
     }
 
@@ -370,7 +378,7 @@ export function useChatState() {
       try {
         uploadParts = await filesToUploadParts(attachments);
       } catch (error) {
-        if (uploadViewRequest === latestHistoryRequestRef.current) setPageError(error instanceof Error ? error.message : "附件读取失败");
+        if (uploadViewRequest === latestHistoryRequestRef.current) setPageError(error instanceof Error ? error.message : t("chatState.attachmentReadFailed"));
         return;
       } finally {
         setIsUploadingAttachments(false);
@@ -383,7 +391,7 @@ export function useChatState() {
     if (modelMode === "chat" && selectedManualToolConfig) {
       try {
         if (!hasContent) {
-          throw new Error("请在输入框中填写工具参数。");
+          throw new Error(t("chatState.toolParamsRequired"));
         }
 
         const nextFieldErrors = validateManualToolFields(selectedManualToolConfig, manualToolFieldValues);
@@ -406,7 +414,7 @@ export function useChatState() {
         setManualToolFieldValues(buildDefaultManualFieldValues(selectedManualToolConfig));
         setManualToolFieldErrors({});
       } catch (submitError) {
-        setPageError(submitError instanceof Error ? submitError.message : "工具执行失败");
+        setPageError(submitError instanceof Error ? submitError.message : t("chatState.toolRunFailed"));
       }
 
       return;
@@ -423,20 +431,20 @@ export function useChatState() {
     }
 
     try {
-      const chatId = await ensureActiveChatId(content || "聊天消息");
+      const chatId = await ensureActiveChatId(content || t("chatState.defaultChatTitle"));
       // Activating a new conversation replaces the SDK Chat instance. Send only
       // after that instance and its initial history are ready, not through draft's closure.
       await new Promise<void>((resolve, reject) => setPendingSend({
         chatId,
         message: hasAttachments ? { ...(hasContent ? { text: content } : {}), files: uploadParts } : { text: content },
-        options: { body: { chatId, modelId: selectedChatModel, manualToolsOnly, mode: "chat" } },
+        options: { body: { chatId, ...(selectedChatModel ? { modelId: selectedChatModel } : {}), manualToolsOnly, mode: "chat" } },
         resolve, reject,
       }));
 
       clearAttachments();
       await loadChats();
     } catch (submitError) {
-      setPageError(submitError instanceof Error ? submitError.message : "发送消息失败");
+      setPageError(submitError instanceof Error ? submitError.message : t("chatState.sendFailed"));
     }
   }
 
@@ -456,7 +464,7 @@ export function useChatState() {
     if (activeChatId !== pendingSend.chatId || (historyState?.chatId === pendingSend.chatId && historyState.status === "error")) {
       claimedSendRef.current = pendingSend;
       setPendingSend(null);
-      pendingSend.reject(new Error("会话已切换或历史加载失败，请重新加载会话后再发送。"));
+      pendingSend.reject(new Error(t("chatState.sendContextLost")));
       return;
     }
     if (historyState?.chatId !== pendingSend.chatId || historyState.status !== "ready" || isLoadingHistory) return;
@@ -524,7 +532,8 @@ export function useChatState() {
     isCreatingChat, createNewChat, chats, visibleChats, activeChatId, editingChatId, setEditingTitle,
     editingTitle, saveEditedTitle, cancelEditingChat, switchActiveChat, startEditingChat,
     requestDeleteConversation, hasHiddenChats, setIsChatListExpanded, isChatListExpanded, filteredTasks,
-    isLoadingTasks, loadTasks, setTaskStatusFilter, taskStatusFilter, taskPanelError, tasks,
+    isLoadingTasks, loadTasks, setTaskStatusFilter, taskStatusFilter,
+    taskPanelError: withoutGlobalEcho(taskPanelError), tasks,
     visibleTasks, updateTaskStatus, deleteTask, saveTaskSchedule, updatingTaskIds, hasHiddenTasks, setIsTaskListExpanded,
     isTaskListExpanded, activeChat, isPending, modelMode, selectedModel, selectedModelInfo, onModeSelect,
     onModelSelect, appendQuickPrompt, isLoadingHistory, messages, imageByMessageId, videoByMessageId,
@@ -533,11 +542,13 @@ export function useChatState() {
     attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, addToolApprovalResponse, onSubmit,
     setSelectedManualTool, manualToolSelectValue, manualTools, manualToolsOnly, setManualToolsOnly,
     selectedManualToolConfig, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors,
-    setManualToolFieldErrors, toolCatalogError, setInput, handleTextareaKeyDown, onTextareaPaste,
+    setManualToolFieldErrors, toolCatalogError: withoutGlobalEcho(toolCatalogError),
+    setInput, handleTextareaKeyDown, onTextareaPaste,
     textareaRef, input, isManualToolSelected, onAttachmentInputChange, fileInputRef, attachments,
     clearAttachments, attachmentNames, selectedImageModel, selectedVideoModel, selectedManualTool,
     selectedChatModel, pendingDelete, isDeleting, closeDeleteDialog, confirmDelete, isDesktopRuntime,
-    effectiveError, keyError, setPageError, clearError,
+    effectiveError, keyError, setPageError, clearError, clearPreferencesError, modelLibrary,
+    panelVisibility, togglePanel,
   };
 }
 export type ChatState = ReturnType<typeof useChatState>;

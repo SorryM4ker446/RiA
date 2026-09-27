@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { cosineSimilarity, embedText, toEmbeddingVector } from "@/lib/ai/embedding";
+import { cosineSimilarity, embedTextWithModel, toEmbeddingVector } from "@/lib/ai/embedding";
 
 type RankingPolicy = {
   candidateLimit: number;
@@ -33,14 +33,15 @@ export function keywordScore(queryTokens: string[], text: string): number {
 }
 
 export function scoreMemory(
-  memory: { key: string; value: string; score: number | null; embedding: unknown; updatedAt: Date },
+  memory: { key: string; value: string; score: number | null; embedding: unknown; embeddingModelId?: string | null; updatedAt: Date },
   queryTokens: string[],
   queryEmbedding: number[] | null,
   policy: RankingPolicy,
   now = Date.now(),
+  queryModelId?: string | null,
 ): number {
   const lexical = keywordScore(queryTokens, `${memory.key} ${memory.value}`);
-  const semantic = Math.max(0, cosineSimilarity(queryEmbedding, toEmbeddingVector(memory.embedding)));
+  const semantic = Math.max(0, queryModelId && memory.embeddingModelId === queryModelId ? cosineSimilarity(queryEmbedding, toEmbeddingVector(memory.embedding)) : 0);
   if (lexical === 0 && semantic === 0) return 0;
   const daysAgo = (now - memory.updatedAt.getTime()) / (1000 * 60 * 60 * 24);
   const recency = Math.max(0, 1 - daysAgo / 30) * policy.recencyWeight;
@@ -56,7 +57,7 @@ export function rankByScore<T>(items: T[], score: (item: T) => number, limit: nu
 
 export async function getMemorySearchCandidates(query: string, policy: RankingPolicy, signal?: AbortSignal) {
   const queryTokens = tokenizeQuery(query);
-  const queryEmbedding = await embedText(query, signal);
+  const { embedding: queryEmbedding, modelId: queryModelId } = await embedTextWithModel(query, signal);
   const scope = { ...(policy.excludeToolMemories ? { NOT: [{ key: { startsWith: "tool:" } }] } : {}) };
   if (!queryTokens.length && !queryEmbedding) return { queryTokens, candidates: [] };
   const rows = await db.memory.findMany({
@@ -73,6 +74,6 @@ export async function getMemorySearchCandidates(query: string, policy: RankingPo
   const now = Date.now();
   return {
     queryTokens,
-    candidates: candidates.map((memory) => ({ memory, relevance: scoreMemory(memory, queryTokens, queryEmbedding, policy, now) })),
+    candidates: candidates.map((memory) => ({ memory, relevance: scoreMemory(memory, queryTokens, queryEmbedding, policy, now, queryModelId) })),
   };
 }

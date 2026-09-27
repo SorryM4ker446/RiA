@@ -10,6 +10,8 @@ import { requireLocalWorkspace } from "@/lib/local/workspace";
 import { logToolExecution } from "@/lib/server/tool-log";
 import { assertToolConfiguration, getToolDescriptor, isToolSupportedInMode, type ToolMode } from "@/tools/catalog";
 import { persistToolMemory } from "@/tools/memory-policy";
+import { modelInLibrary, preferredModel } from "@/lib/models/preferences";
+import { t } from "@/lib/locale";
 
 const TOOL_DEBUG = process.env.TOOL_DEBUG === "1";
 
@@ -74,11 +76,18 @@ async function POSTHandler(req: NextRequest) {
     }
 
     assertToolConfiguration(toolId);
+    const modelId = await preferredModel("chat", parsed.data.modelId);
+    const model = await modelInLibrary("chat", modelId);
+    if (!model?.supportsTools) {
+      // The id sits mid-sentence, so the copy is split around it and the
+      // spacing stays in the template: a translator can reorder the halves.
+      throw new ApiError({ code: "VALIDATION_ERROR", message: `${t("api.tools.modelUnsupportedPrefix")} ${modelId} ${t("api.tools.modelUnsupportedSuffix")}` });
+    }
     const preparedInput = descriptor.prepareInput
       ? await descriptor.prepareInput({
           workspaceId: LOCAL_WORKSPACE_ID,
           input: parsedInput.data,
-          modelId: parsed.data.modelId,
+          modelId,
           trigger: "manual",
         })
       : parsedInput.data;
@@ -94,7 +103,7 @@ async function POSTHandler(req: NextRequest) {
     const data = await descriptor.execute({
       workspaceId: LOCAL_WORKSPACE_ID,
       input: preparedParsedInput.data,
-      modelId: parsed.data.modelId,
+      modelId,
       trigger: "manual",
     });
     const requestId =
@@ -107,7 +116,7 @@ async function POSTHandler(req: NextRequest) {
       await descriptor.buildAssistantText({
         input: preparedParsedInput.data,
         output: data,
-        modelId: parsed.data.modelId,
+        modelId,
         trigger: "manual",
       })
     ).trim();
@@ -121,7 +130,7 @@ async function POSTHandler(req: NextRequest) {
         input: preparedParsedInput.data,
         output: data,
         assistantText,
-        modelId: parsed.data.modelId,
+        modelId,
       });
 
       if (TOOL_DEBUG) {

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { t } from "@/lib/locale";
 
 export default function DesktopSettingsPage() {
   const [settings, setSettings] = useState<DesktopSettingsView | null>(null);
@@ -28,7 +29,7 @@ export default function DesktopSettingsPage() {
     const bridge = window.privateAiDesktop;
     if (!bridge) {
       queueMicrotask(() => {
-        setError("桌面设置只能在安装版或 Electron 开发模式中使用。");
+        setError(t("settings.error.desktopOnly"));
         setIsLoading(false);
       });
       return;
@@ -42,12 +43,12 @@ export default function DesktopSettingsPage() {
         setOpenrouterSiteName(loadedSettings.openrouterSiteName);
         setOpenrouterHttpReferer(loadedSettings.openrouterHttpReferer);
         if (window.location.search.includes("saved=1")) {
-          setNotice("设置已保存，本地 AI 服务已使用新配置重新启动。");
+          setNotice(t("settings.notice.saved"));
         } else if (window.location.search.includes("welcome=1")) {
-          setNotice("首次使用请配置 OpenRouter API Key。密钥只会以系统加密形式保存在本机。");
+          setNotice(t("settings.notice.welcome"));
         }
       })
-      .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "读取桌面设置失败。"))
+      .catch((loadError) => setError(loadError instanceof Error ? loadError.message : t("settings.error.load")))
       .finally(() => setIsLoading(false));
   }, []);
 
@@ -74,67 +75,70 @@ export default function DesktopSettingsPage() {
       setTavilyApiKey("");
       setClearOpenrouterApiKey(false);
       setClearTavilyApiKey(false);
-      setNotice("设置已加密保存，正在重启本地 AI 服务……");
+      setNotice(t("settings.notice.saving"));
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "保存桌面设置失败。");
+      setError(saveError instanceof Error ? saveError.message : t("settings.error.save"));
       setIsSaving(false);
     }
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 p-4 md:p-6">
+    <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8 md:px-6">
       <header>
         <Link
-          className="mb-3 inline-flex h-8 items-center rounded-md bg-muted px-3 text-xs font-medium text-foreground transition hover:bg-muted/80"
+          className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
           href="/chat"
         >
-          <ArrowLeft className="mr-1 h-3.5 w-3.5" />
-          返回聊天
+          <ArrowLeft aria-hidden="true" className="h-3.5 w-3.5" />
+          {t("settings.backToChat")}
         </Link>
-        <h1 className="flex items-center gap-2 text-xl font-semibold">
-          <MonitorCog className="h-5 w-5 text-primary" />
-          桌面设置
+        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-headline">
+          <MonitorCog aria-hidden="true" className="h-5 w-5 text-muted-foreground" />
+          {t("settings.title")}
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">管理模型服务密钥、代理和本地运行信息。</p>
+        <p className="mt-2 text-sm text-muted-foreground">{t("settings.description")}</p>
       </header>
 
-      <nav className="flex flex-wrap gap-4 text-sm"><Link href="/models" className="text-primary underline">模型与用量</Link><Link href="/backups" className="text-primary underline">备份与恢复</Link></nav>
+      <nav className="flex flex-wrap gap-2"><Link href="/models" className="text-sm text-muted-foreground transition-colors hover:text-foreground">{t("settings.navModels")}</Link><span aria-hidden="true" className="text-muted-foreground/40">/</span><Link href="/backups" className="text-sm text-muted-foreground transition-colors hover:text-foreground">{t("settings.navBackups")}</Link></nav>
 
       {error ? (
         <Alert variant="destructive">
-          <AlertTitle>设置不可用</AlertTitle>
+          <AlertTitle>{t("settings.error.title")}</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       ) : null}
       {notice ? (
         <Alert>
-          <CheckCircle2 className="h-4 w-4" />
-          <AlertTitle>桌面配置</AlertTitle>
+          <CheckCircle2 aria-hidden="true" className="h-4 w-4" />
+          <AlertTitle>{t("settings.notice.title")}</AlertTitle>
           <AlertDescription>{notice}</AlertDescription>
         </Alert>
       ) : null}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <Card className="glass-surface">
+        <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <KeyRound className="h-4 w-4 text-primary" />
-              服务配置
+              <KeyRound aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
+              {t("settings.serviceTitle")}
             </CardTitle>
-            <CardDescription>密钥输入框不会回显已保存的内容；留空表示保留原密钥。</CardDescription>
+            <CardDescription>{t("settings.serviceDescription")}</CardDescription>
           </CardHeader>
           <CardContent>
-            {isLoading ? (
+            {/* Once the settings have been read they stay on screen. Replacing
+                the form with a spinner on every re-read meant saving a key made
+                the whole panel blink out and back. */}
+            {isLoading && !settings ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> 正在读取设置…
+                <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> {t("settings.loading")}
               </div>
             ) : (
               <form className="space-y-5" onSubmit={onSubmit}>
                 <label className="block space-y-2 text-sm">
-                  <span className="flex items-center justify-between font-medium">
+                  <span className="flex items-center justify-between text-sm font-medium tracking-label">
                     OpenRouter API Key
                     <Badge variant={settings?.hasOpenrouterApiKey ? "success" : "outline"}>
-                      {settings?.hasOpenrouterApiKey ? "已配置" : "未配置"}
+                      {settings?.hasOpenrouterApiKey ? t("settings.configured") : t("settings.notConfigured")}
                     </Badge>
                   </span>
                   <Input
@@ -152,23 +156,23 @@ export default function DesktopSettingsPage() {
                         onChange={(event) => setClearOpenrouterApiKey(event.target.checked)}
                         type="checkbox"
                       />
-                      删除已保存的 OpenRouter 密钥
+                      {t("settings.clearOpenrouter")}
                     </span>
                   ) : null}
                 </label>
 
                 <label className="block space-y-2 text-sm">
-                  <span className="flex items-center justify-between font-medium">
+                  <span className="flex items-center justify-between text-sm font-medium tracking-label">
                     Tavily API Key
                     <Badge variant={settings?.hasTavilyApiKey ? "success" : "outline"}>
-                      {settings?.hasTavilyApiKey ? "已配置" : "未配置"}
+                      {settings?.hasTavilyApiKey ? t("settings.configured") : t("settings.notConfigured")}
                     </Badge>
                   </span>
                   <Input
                     autoComplete="off"
                     disabled={!settings?.encryptionAvailable || clearTavilyApiKey}
                     onChange={(event) => setTavilyApiKey(event.target.value)}
-                    placeholder="tvly-…（联网搜索可选）"
+                    placeholder={t("settings.tavilyPlaceholder")}
                     type="password"
                     value={tavilyApiKey}
                   />
@@ -179,46 +183,46 @@ export default function DesktopSettingsPage() {
                         onChange={(event) => setClearTavilyApiKey(event.target.checked)}
                         type="checkbox"
                       />
-                      删除已保存的 Tavily 密钥
+                      {t("settings.clearTavily")}
                     </span>
                   ) : null}
                 </label>
 
                 <label className="block space-y-2 text-sm">
-                  <span className="font-medium">出站代理 URL</span>
+                  <span className="text-sm font-medium tracking-label">{t("settings.proxyLabel")}</span>
                   <Input
                     onChange={(event) => setOutboundProxyUrl(event.target.value)}
-                    placeholder="http://127.0.0.1:7897（可选）"
+                    placeholder={t("settings.proxyPlaceholder")}
                     value={outboundProxyUrl}
                   />
                 </label>
                 <label className="block space-y-2 text-sm">
-                  <span className="font-medium">OpenRouter 站点名称</span>
+                  <span className="text-sm font-medium tracking-label">{t("settings.siteNameLabel")}</span>
                   <Input
                     onChange={(event) => setOpenrouterSiteName(event.target.value)}
-                    placeholder="Private AI Assistant Desktop"
+                    placeholder="RiA Desktop"
                     value={openrouterSiteName}
                   />
                 </label>
                 <label className="block space-y-2 text-sm">
-                  <span className="font-medium">OpenRouter HTTP Referrer</span>
+                  <span className="text-sm font-medium tracking-label">OpenRouter HTTP Referrer</span>
                   <Input
                     onChange={(event) => setOpenrouterHttpReferer(event.target.value)}
-                    placeholder="https://example.com（可选）"
+                    placeholder={t("settings.refererPlaceholder")}
                     value={openrouterHttpReferer}
                   />
                 </label>
 
                 {!settings?.encryptionAvailable ? (
                   <Alert variant="destructive">
-                    <AlertTitle>系统加密不可用</AlertTitle>
-                    <AlertDescription>为避免明文落盘，当前环境禁止保存 API Key。</AlertDescription>
+                    <AlertTitle>{t("settings.encryptionUnavailableTitle")}</AlertTitle>
+                    <AlertDescription>{t("settings.encryptionUnavailableBody")}</AlertDescription>
                   </Alert>
                 ) : null}
 
                 <Button disabled={isSaving || !settings?.encryptionAvailable} type="submit">
-                  {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  保存并重启本地服务
+                  {isSaving ? <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  {t("settings.saveAndRestart")}
                 </Button>
               </form>
             )}
@@ -226,30 +230,30 @@ export default function DesktopSettingsPage() {
         </Card>
 
         <div className="space-y-4">
-          <Card className="glass-surface">
+          <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <ShieldCheck className="h-4 w-4 text-primary" />
-                本地安全
+                <ShieldCheck aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
+                {t("settings.securityTitle")}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-xs text-muted-foreground">
-              <p>API Key 使用 Windows 系统加密后再写入配置文件。</p>
-              <p>网页渲染进程只能看到“是否已配置”，不能读取密钥明文。</p>
-              <p>本地 API 受随机会话 Cookie 与 Host 校验保护。</p>
+              <p>{t("settings.securityKey")}</p>
+              <p>{t("settings.securityNoPlaintext")}</p>
+              <p>{t("settings.securityLocalApi")}</p>
             </CardContent>
           </Card>
-          <Card className="glass-surface">
+          <Card>
             <CardHeader>
-              <CardTitle className="text-base">运行信息</CardTitle>
+              <CardTitle className="text-base">{t("settings.runtimeTitle")}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 break-all text-xs text-muted-foreground">
-              <p>版本：{runtime?.appVersion || "—"}</p>
-              <p>模式：{runtime?.packaged ? "安装版" : "开发版"}</p>
-              <p>数据目录：{runtime?.dataDirectory || "—"}</p>
-              <p>媒体目录：{runtime?.mediaDirectory || "—"}</p>
-              <Link className="inline-block underline" href="/storage">管理媒体存储</Link>
-              <p>日志：{runtime?.logFile || "—"}</p>
+              <p>{`${t("settings.runtimeVersion")}${runtime?.appVersion || "—"}`}</p>
+              <p>{`${t("settings.runtimeMode")}${runtime?.packaged ? t("settings.runtimePackaged") : t("settings.runtimeDev")}`}</p>
+              <p>{`${t("settings.runtimeDataDirectory")}${runtime?.dataDirectory || "—"}`}</p>
+              <p>{`${t("settings.runtimeMediaDirectory")}${runtime?.mediaDirectory || "—"}`}</p>
+              <Link className="inline-block text-sm text-foreground underline underline-offset-4" href="/storage">{t("settings.manageStorage")}</Link>
+              <p>{`${t("settings.runtimeLogFile")}${runtime?.logFile || "—"}`}</p>
             </CardContent>
           </Card>
         </div>

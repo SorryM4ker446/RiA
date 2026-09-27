@@ -1,7 +1,8 @@
 import { wrapLanguageModel, wrapEmbeddingModel, type LanguageModel, type EmbeddingModel } from "ai";
+import { t } from "@/lib/locale";
 import { dataRequestContext } from "@/lib/server/data-operations";
-import { getModelPreferences } from "@/lib/models/preferences";
-import { availableModel } from "@/lib/models/preferences-schema";
+import { ApiError } from "@/lib/server/api-error";
+import { getModelPreferences, modelInLibrary, withModelLease } from "@/lib/models/preferences";
 import { canFallback, recordModelAttempt, requestPricing } from "@/lib/models/usage";
 
 type Model = Extract<LanguageModel, { specificationVersion: "v3" }>;
@@ -15,15 +16,27 @@ export function observeLanguageModel(model: Model, modelId: string, alternate: (
   return wrapLanguageModel({ model, middleware: {
     specificationVersion: "v3",
     async wrapGenerate({ doGenerate }) {
-      const started = Date.now(), rates = await requestPricing();
-      try { const result = await doGenerate(); await recordModelAttempt({ requestId: context.requestId, mode: "chat", modelId, started, usage: result.usage, metadata: result.providerMetadata, rate: rates[modelId] }); return result; }
-      catch (error) { await recordModelAttempt({ requestId: context.requestId, mode: "chat", modelId, started, error }); throw error; }
+      const started = Date.now();
+      const rates = await requestPricing();
+      try {
+        const result = await withModelLease("chat", modelId, () => doGenerate());
+        await recordModelAttempt({ requestId: context.requestId, mode: "chat", modelId, started, usage: result.usage, metadata: result.providerMetadata, rate: rates[modelId] });
+        return result;
+      } catch (error) {
+        await recordModelAttempt({ requestId: context.requestId, mode: "chat", modelId, started, error });
+        throw error;
+      }
     },
     async wrapStream({ params }) {
+      const libraryModel = await modelInLibrary("chat", modelId);
+      if (!libraryModel) throw new ApiError({ code: "CONFIGURATION_ERROR", message: `${t("lib.models.modelWord")} ${modelId} ${t("lib.models.removedSuffix")}` });
+      if (params.tools?.length && !libraryModel.supportsTools) throw new ApiError({ code: "VALIDATION_ERROR", message: `${t("lib.models.chatPrefix")} ${modelId} ${t("lib.models.chatNoTools")}` });
+      const hasImages = params.prompt.some(message => message.role === "user" && message.content.some(part => part.type === "file"));
+      if (hasImages && !libraryModel.supportsImageInput) throw new ApiError({ code: "VALIDATION_ERROR", message: `${t("lib.models.chatPrefix")} ${modelId} ${t("lib.models.chatNoImage")}` });
       const preferences = await getModelPreferences();
       let fallbackId = preferences.chat.fallbackId;
-      const hasImages = params.prompt.some(message => message.role === "user" && message.content.some(part => part.type === "file"));
-      if (params.tools?.length || fallbackId === modelId || !fallbackId || !availableModel("chat", fallbackId) || hasImages && !availableModel("chat", fallbackId)?.supportsImageInput) fallbackId = null;
+      const fallbackModel = fallbackId ? await modelInLibrary("chat", fallbackId) : null;
+      if (params.tools?.length || fallbackId === modelId || !fallbackId || !fallbackModel || hasImages && !fallbackModel.supportsImageInput) fallbackId = null;
       const candidates = [modelId, ...(fallbackId ? [fallbackId] : [])];
       for (let attempt = 0; attempt < candidates.length; attempt++) {
         const selected = candidates[attempt], started = Date.now();
@@ -36,7 +49,7 @@ export function observeLanguageModel(model: Model, modelId: string, alternate: (
           await recordModelAttempt({ requestId: context.requestId, mode: "chat", modelId: selected, started, usage: finished?.usage, metadata: finished?.providerMetadata, error, fallback: attempt > 0, rate: preferences.rates[selected] });
         };
         try {
-          const result = await (attempt ? alternate(selected) : model).doStream(params);
+          const result = await withModelLease("chat", selected, async () => (attempt ? alternate(selected) : model).doStream(params));
           reader = result.stream.getReader();
           const buffered: Part[] = [];
           for (;;) {
@@ -75,10 +88,17 @@ export function observeLanguageModel(model: Model, modelId: string, alternate: (
   } });
 }
 export function observeEmbeddingModel(model: Embed, modelId: string) {
-  const context = dataRequestContext(); if (!context?.workspaceId) return model;
+  const context = dataRequestContext();
+  if (!context?.workspaceId) return model;
   return wrapEmbeddingModel({ model, middleware: { specificationVersion: "v3", async wrapEmbed({ doEmbed }) {
-    const started = Date.now(), rates = await requestPricing();
-    try { const result = await doEmbed(); await recordModelAttempt({ requestId: context.requestId, mode: "embedding", modelId, started, usage: result.usage, metadata: result.providerMetadata, rate: rates[modelId] }); return result; }
-    catch (error) { await recordModelAttempt({ requestId: context.requestId, mode: "embedding", modelId, started, error }); throw error; }
-  } } });
+   const started = Date.now();
+   const rates = await requestPricing();
+   return withModelLease("embedding", modelId, () => doEmbed()).then(async result => {
+     await recordModelAttempt({ requestId: context.requestId, mode: "embedding", modelId, started, usage: result.usage, metadata: result.providerMetadata, rate: rates[modelId] });
+     return result;
+   }).catch(async error => {
+     await recordModelAttempt({ requestId: context.requestId, mode: "embedding", modelId, started, error });
+     throw error;
+   });
+ } } });
 }

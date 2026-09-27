@@ -1,9 +1,4 @@
 import {
-  type SupportedImageModelId,
-  type SupportedModelId,
-  type SupportedVideoModelId
-} from "@/config/model";
-import {
   ChatSummary,
   ModelMode
 } from "@/features/chat/page-utils";
@@ -43,10 +38,6 @@ export type ToolCatalogItem = {
   description: string;
   modeSupport: string[];
   manual: ManualToolMeta;
-  auto: {
-    enabled: boolean;
-    intentHint: string;
-  };
 };
 
 export type ManualToolFieldValues = Record<string, string>;
@@ -77,9 +68,9 @@ export type TaskItem = {
 
 export type ChatScopedPreferences = {
   modelMode: ModelMode;
-  selectedChatModel: SupportedModelId;
-  selectedImageModel: SupportedImageModelId;
-  selectedVideoModel: SupportedVideoModelId;
+  selectedChatModel: string | null;
+  selectedImageModel: string | null;
+  selectedVideoModel: string | null;
   selectedManualTool: ManualToolSelection;
   manualToolsOnly: boolean;
 };

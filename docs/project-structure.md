@@ -26,7 +26,7 @@
 src/app/            App Router 页面与 API 路由
 src/app/api/        业务接口（除 /health 与换取凭证的入口外都需要本地凭证）
 src/components/ui/  可复用 UI 基元
-src/config/         模型目录与解析助手
+src/config/         旧版精选模型目录校验基准（仅供脚本使用）
 src/db/             Prisma schema 与 SQLite 迁移
 src/features/       按功能划分的客户端模块
 src/lib/            共享基础设施
@@ -37,7 +37,7 @@ src/lib/            共享基础设施
   documents/        文档抽取、索引与检索
   media/            私有媒体存储、生成与迁移
   memory/           记忆存储与检索评分
-  models/           模型偏好与用量记录
+  models/           OpenRouter 动态目录、我的模型、偏好与用量记录
   local/            本地工作区身份
   server/           请求边界：安全、限流、请求体、错误
 src/prompts/        提示词模板

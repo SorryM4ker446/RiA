@@ -1,3 +1,4 @@
+import { t } from "@/lib/locale";
 import type { ManualToolFieldMeta, ManualToolFieldValues, ToolCatalogItem } from "@/features/chat/types";
 
 export function buildDefaultManualFieldValues(tool: ToolCatalogItem | null): ManualToolFieldValues {
@@ -19,7 +20,7 @@ export function getManualToolFieldError(field: ManualToolFieldMeta, rawValue: st
   }
 
   if (!value && field.required) {
-    return "请填写此项";
+    return t("tools.fieldRequired");
   }
 
   if (field.type !== "number") {
@@ -28,15 +29,15 @@ export function getManualToolFieldError(field: ManualToolFieldMeta, rawValue: st
 
   const parsed = Number.parseFloat(value);
   if (!Number.isFinite(parsed)) {
-    return "请输入有效数字";
+    return t("tools.fieldInvalidNumber");
   }
 
   if (typeof field.min === "number" && parsed < field.min) {
-    return `最小值为 ${field.min}`;
+    return `${t("tools.fieldMinPrefix")} ${field.min}`;
   }
 
   if (typeof field.max === "number" && parsed > field.max) {
-    return `最大值为 ${field.max}`;
+    return `${t("tools.fieldMaxPrefix")} ${field.max}`;
   }
 
   return null;

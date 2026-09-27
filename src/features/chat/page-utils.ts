@@ -3,6 +3,8 @@ import {
   decodePersistedUserMessage,
 } from "@/lib/ai/ui-message";
 import { decodeMediaMessage, encodeMediaMessage, mediaUrl, type StoredMediaMessage } from "@/lib/media/message-codec";
+import { formatDateTime } from "@/lib/locale";
+import { t } from "@/lib/locale";
 import { UIMessage } from "ai";
 
 export type ChatSummary = {
@@ -40,21 +42,21 @@ export type UploadableFilePart = {
 };
 
 export const quickPrompts = [
-  "帮我总结这段内容：",
-  "把这段话改写得更专业：",
-  "帮我制定一周学习计划：",
+  t("chat.prompts.quickSummarize"),
+  t("chat.prompts.quickRewrite"),
+  t("chat.prompts.quickPlan"),
 ];
 
 export const imagePrompts = [
-  "赛博朋克夜景，霓虹灯雨夜，电影感构图",
-  "产品海报：极简风智能手表，白底，商业摄影",
-  "国风插画：山水与飞鹤，留白，高细节",
+  t("chat.prompts.image1"),
+  t("chat.prompts.image2"),
+  t("chat.prompts.image3"),
 ];
 
 export const videoPrompts = [
-  "清晨海边航拍镜头，电影级光影，慢速推进",
-  "未来城市街头追逐，霓虹反射，动态运镜",
-  "国风山水云海延时，薄雾流动，4K质感",
+  t("chat.prompts.video1"),
+  t("chat.prompts.video2"),
+  t("chat.prompts.video3"),
 ];
 
 export function readText(message: UIMessage): string {
@@ -88,19 +90,19 @@ export function formatToolState(state: string): {
 } {
   switch (state) {
     case "input-streaming":
-      return { label: "准备输入中", variant: "secondary" };
+      return { label: t("chat.toolState.inputStreaming"), variant: "secondary" };
     case "input-available":
-      return { label: "输入已就绪", variant: "secondary" };
+      return { label: t("chat.toolState.inputAvailable"), variant: "secondary" };
     case "approval-requested":
-      return { label: "等待批准", variant: "warning" };
+      return { label: t("chat.toolState.approvalRequested"), variant: "warning" };
     case "approval-responded":
-      return { label: "已批准", variant: "success" };
+      return { label: t("chat.toolState.approvalResponded"), variant: "success" };
     case "output-available":
-      return { label: "执行完成", variant: "success" };
+      return { label: t("chat.toolState.outputAvailable"), variant: "success" };
     case "output-error":
-      return { label: "执行失败", variant: "danger" };
+      return { label: t("chat.toolState.outputError"), variant: "danger" };
     case "output-denied":
-      return { label: "已拒绝", variant: "warning" };
+      return { label: t("chat.toolState.outputDenied"), variant: "warning" };
     default:
       return { label: state, variant: "secondary" };
   }
@@ -201,7 +203,7 @@ export function mapStoredMessagesToUI(messages: StoredMessage[]): {
         id: uiMessageId,
         role: message.role,
         ...(parsedAssistantToolMessage.documentSources?.length ? { metadata: { documentSources: parsedAssistantToolMessage.documentSources } } : {}),
-        parts: parts.length > 0 ? parts : [{ type: "text", text: "(工具调用消息)" }],
+        parts: parts.length > 0 ? parts : [{ type: "text", text: t("chat.messages.toolCallFallback") }],
       } satisfies UIMessage;
     }
 
@@ -222,7 +224,7 @@ export function mapStoredMessagesToUI(messages: StoredMessage[]): {
       return {
         id: uiMessageId,
         role: message.role,
-        parts: parts.length > 0 ? parts : [{ type: "text", text: "(附件消息)" }],
+        parts: parts.length > 0 ? parts : [{ type: "text", text: t("chat.messages.attachmentOnlyFallback") }],
       } satisfies UIMessage;
     }
 
@@ -247,7 +249,7 @@ export function safeJson(value: unknown): string {
 export function formatTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("zh-CN", {
+  return formatDateTime(date, {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -256,7 +258,7 @@ export function formatTime(value: string): string {
 }
 
 export function getMessageRoleLabel(role: UIMessage["role"]): string {
-  if (role === "user") return "我";
-  if (role === "assistant") return "助手";
-  return "系统";
+  if (role === "user") return t("chat.role.user");
+  if (role === "assistant") return t("chat.role.assistant");
+  return t("chat.role.system");
 }

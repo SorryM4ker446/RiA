@@ -5,6 +5,7 @@ import { after, beforeEach, test } from "node:test";
 import { NextRequest } from "next/server";
 import { createTestDatabase } from "../helpers/database.mjs";
 import { localAccessCookie } from "../helpers/local-access.mjs";
+import { seedTestModelPreferences } from "../helpers/model-library.mjs";
 
 const cleanup = createTestDatabase();
 process.env.PRIVATE_AI_TEST_PROVIDER = "1";
@@ -27,6 +28,7 @@ beforeEach(async (t) => {
   await db.mediaAsset.deleteMany({});
   await db.modelRequest.deleteMany({});
   await db.workspacePreference.deleteMany({});
+  await seedTestModelPreferences(db);
 });
 after(async () => { await db.$disconnect(); cleanup(); });
 

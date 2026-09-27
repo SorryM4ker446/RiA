@@ -1,6 +1,49 @@
 import { embedMany } from "ai";
 import { getEmbeddingModel } from "@/lib/ai/client";
 import { setupServerProxy } from "@/lib/server/proxy";
+import { getModelPreferences, modelInLibrary } from "@/lib/models/preferences";
+
+/**
+ * Desktop smoke mode must never reach a paid provider.
+ *
+ * The packaged smoke run imports documents, and indexing embeds their text. With
+ * a real OPENROUTER_API_KEY in .env that turned every smoke run into a live,
+ * billable request that could hang until the 120s timeout when the network was
+ * slow — and a test that quietly spends money is worse than no test.
+ *
+ * The offline harness swaps the model factory at loader level, but that only
+ * works for the isolated server-test child process. The smoke run boots the real
+ * Next service, so the substitution has to live in the application and key off
+ * the flag the smoke launcher already exports.
+ */
+const SMOKE_EMBEDDING_DIMENSIONS = 256;
+const SMOKE_EMBEDDING_MODEL_ID = "offline-smoke-hash-v1";
+
+function isSmokeMode(): boolean {
+  return process.env.DESKTOP_SMOKE_TEST === "1";
+}
+
+/**
+ * Deterministic bag-of-words vector.
+ *
+ * Hashing is not an embedding model, but it keeps the two properties the smoke
+ * assertions rely on: identical text always scores 1, and texts sharing words
+ * score above texts that do not. Retrieval therefore still distinguishes a hit
+ * from a miss, which a constant or random vector would destroy.
+ */
+function offlineEmbedding(value: string): number[] {
+  const vector = new Array<number>(SMOKE_EMBEDDING_DIMENSIONS).fill(0);
+  for (const token of value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []) {
+    let hash = 2166136261;
+    for (let index = 0; index < token.length; index += 1) {
+      hash ^= token.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    vector[Math.abs(hash) % SMOKE_EMBEDDING_DIMENSIONS] += 1;
+  }
+  const magnitude = Math.sqrt(vector.reduce((sum, component) => sum + component * component, 0));
+  return magnitude === 0 ? vector : vector.map((component) => component / magnitude);
+}
 
 function isEmbeddingAvailable(): boolean {
   return Boolean(process.env.OPENROUTER_API_KEY?.trim());
@@ -12,30 +55,47 @@ function isEmbeddingAvailable(): boolean {
  * to keyword scoring.
  */
 export async function embedTexts(values: string[], signal?: AbortSignal): Promise<Array<number[] | null>> {
-  if (values.length === 0 || !isEmbeddingAvailable()) {
-    return values.map(() => null);
+  return (await embedTextsWithModel(values, signal)).embeddings;
+}
+
+export async function embedTextsWithModel(values: string[], signal?: AbortSignal): Promise<{ embeddings: Array<number[] | null>; modelId: string | null }> {
+  if (values.length === 0) {
+    return { embeddings: values.map(() => null), modelId: null };
+  }
+
+  // Checked before the key probe: a developer machine with a real key in .env
+  // must still get the offline path, or the smoke run quietly bills them.
+  if (isSmokeMode()) {
+    return { embeddings: values.map(offlineEmbedding), modelId: SMOKE_EMBEDDING_MODEL_ID };
+  }
+
+  if (!isEmbeddingAvailable()) {
+    return { embeddings: values.map(() => null), modelId: null };
   }
 
   const normalized = values.map((value) => value.replace(/\s+/g, " ").trim());
 
   try {
+    const preferences = await getModelPreferences();
+    const modelId = preferences.embeddingModelId;
+    if (!modelId || !await modelInLibrary("embedding", modelId)) return { embeddings: values.map(() => null), modelId: null };
     setupServerProxy();
-    const { embeddings } = await embedMany({
-      model: getEmbeddingModel(),
-      values: normalized,
-      abortSignal: signal,
-    });
-
-    return embeddings.map((embedding) => (Array.isArray(embedding) ? embedding : null));
+    const { embeddings } = await embedMany({ model: getEmbeddingModel(modelId), values: normalized, abortSignal: signal });
+    return { embeddings: embeddings.map((embedding) => (Array.isArray(embedding) ? embedding : null)), modelId };
   } catch (error) {
     console.warn("embedding generation failed, falling back to keyword scoring", error instanceof Error ? error.name : "UnknownError");
-    return values.map(() => null);
+    return { embeddings: values.map(() => null), modelId: null };
   }
 }
 
 export async function embedText(value: string, signal?: AbortSignal): Promise<number[] | null> {
   const results = await embedTexts([value], signal);
   return results[0] ?? null;
+}
+
+export async function embedTextWithModel(value: string, signal?: AbortSignal): Promise<{ embedding: number[] | null; modelId: string | null }> {
+  const result = await embedTextsWithModel([value], signal);
+  return { embedding: result.embeddings[0] ?? null, modelId: result.modelId };
 }
 
 export function cosineSimilarity(

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { TEST_ACCESS_TOKEN } from "../helpers/workspace-entry";
@@ -88,7 +88,24 @@ test("real uploaded media renders after reload and survives conversation deletio
   }
 });
 
+async function mockChatModels(page: Page) {
+  await page.route("**/api/models", (route) => route.fulfill({ json: { data: {
+    version: 2,
+    defaultMode: "chat",
+    chat: { modelId: "anthropic/claude-opus-4.6", fallbackId: null },
+    image: { modelId: "google/gemini-3.1-flash-image-preview", fallbackId: null },
+    video: { modelId: null, fallbackId: null },
+    embeddingModelId: null,
+    legacyCandidates: [],
+    library: [
+      { providerId: "openrouter", modelId: "anthropic/claude-opus-4.6", name: "Claude", description: "Fixture", modes: ["chat"], supportsImageInput: true, endpointImageInput: null, supportsTools: true, pricing: {}, addedAt: "2026-01-01T00:00:00.000Z", lastSeenAt: "2026-01-01T00:00:00.000Z" },
+      { providerId: "openrouter", modelId: "google/gemini-3.1-flash-image-preview", name: "Gemini Image", description: "Fixture", modes: ["image"], supportsImageInput: true, endpointImageInput: true, supportsTools: false, pricing: {}, addedAt: "2026-01-01T00:00:00.000Z", lastSeenAt: "2026-01-01T00:00:00.000Z" },
+    ],
+  } } }));
+}
+
 test("composer uploads binary attachments and sends only references to chat", async ({ page, request }) => {
+  await mockChatModels(page);
   const title = `Attachment ${randomUUID()}`;
   const chat = (await (await request.post("/api/conversations", { data: { title } })).json()).data;
   let fileUrl = "";
@@ -116,6 +133,7 @@ test("composer uploads binary attachments and sends only references to chat", as
 });
 
 test("image generation UI persists the asset response and reloads the protected image", async ({ page, request }) => {
+  await mockChatModels(page);
   const uploaded = await request.post("/api/media/upload", { multipart: { files: { name: "generated.png", mimeType: "image/png", buffer: png } } });
   const asset = (await uploaded.json()).data[0];
   const title = `Generation ${randomUUID()}`;

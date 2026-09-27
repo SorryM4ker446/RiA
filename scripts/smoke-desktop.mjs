@@ -12,9 +12,9 @@ const installed = process.argv.includes("--installed");
 const packaged = installed || process.argv.includes("--packaged");
 const forceStandalone = !development && !packaged;
 const electronExecutable = installed
-  ? join(process.env.LOCALAPPDATA || "", "PrivateAIAssistant", `app-${packageVersion}`, "Private AI Assistant.exe")
+  ? join(process.env.LOCALAPPDATA || "", "RiA", `app-${packageVersion}`, "RiA.exe")
   : packaged
-    ? join(repositoryRoot, "out", "Private AI Assistant-win32-x64", "Private AI Assistant.exe")
+    ? join(repositoryRoot, "out", "RiA-win32-x64", "RiA.exe")
     : resolveInstalledElectron();
 const testRoot = join(repositoryRoot, ".desktop-data", "test", `electron-smoke-${process.pid}-${Date.now()}`);
 const expectedParent = resolve(repositoryRoot, ".desktop-data", "test");

@@ -13,7 +13,7 @@ Private AI Assistant is a local-first AI assistant built with Next.js, Vercel AI
 - Image and video generation modes
 - Private media library with source conversations, generation parameters, downloads and confirmed regeneration/deletion
 - Portable workspace backup/import/export, confirmed restore with a safety backup, and automatic expired-backup cleanup
-- Saved model defaults, optional bounded fallback, and per-attempt latency/token/cost estimates
+- Dynamic OpenRouter catalogs for chat, image, video and embedding models; an explicit **我的模型** allowlist; optional bounded fallback; and per-attempt latency/token/cost estimates
 - Windows desktop shell with encrypted API-key storage
 
 ## Requirements
@@ -41,7 +41,7 @@ Conversation and message history loads in bounded pages. See [Local integration 
 
 Open **管理会话** from the sidebar to search and organize history or download text snapshots. These features work in both browser and desktop; see [Conversation management](docs/conversation-management.md) for export privacy, limits and migration notes.
 
-Open **备份与恢复** for portable workspace recovery, or **模型与用量** for default models, optional fallback and usage estimates. Both work in browser and desktop. Backups are unencrypted and exclude the local access credential and provider keys; restore creates a safety backup before replacing business data. See [Workspace backups](docs/workspace-backups.md) and [Model settings and usage](docs/model-usage.md) for limits and safety rules.
+Open **备份与恢复** for portable workspace recovery, or **模型与用量** to refresh official OpenRouter catalogs, add allowed models, set defaults and review usage estimates. Both work in browser and desktop. Backups are unencrypted and exclude the local access credential and provider keys; restore creates a safety backup before replacing business data. See [Workspace backups](docs/workspace-backups.md) and [Model settings and usage](docs/model-usage.md) for limits and safety rules.
 
 ## Desktop development
 

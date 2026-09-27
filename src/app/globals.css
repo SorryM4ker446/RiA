@@ -2,86 +2,166 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Vercel's palette is achromatic on purpose: #171717 on #ffffff, grays from
+   #ebebeb down. Color is reserved for status, so hue never competes with the
+   content. Both themes keep the same token names, so every utility class in
+   the app resolves against exactly one variable. */
 :root {
-  --background: 210 40% 98%;
-  --foreground: 222 47% 11%;
+  --background: 0 0% 100%;
+  --foreground: 0 0% 9%;
   --card: 0 0% 100%;
-  --card-foreground: 222 47% 11%;
-  --primary: 218 82% 52%;
-  --primary-foreground: 210 40% 98%;
-  --secondary: 212 35% 92%;
-  --secondary-foreground: 222 47% 11%;
-  --muted: 210 30% 95%;
-  --muted-foreground: 215 14% 43%;
-  --accent: 197 79% 92%;
-  --accent-foreground: 198 65% 24%;
-  --destructive: 0 72% 51%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 214 30% 88%;
-  --input: 214 30% 88%;
-  --ring: 218 82% 52%;
-  --radius: 0.75rem;
-  --chat-user-bg: 217 55% 47%;
-  --chat-user-fg: 210 40% 98%;
-  --chat-user-border: 217 45% 39%;
+  --card-foreground: 0 0% 9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 9%;
+  --primary: 0 0% 9%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 96%;
+  --secondary-foreground: 0 0% 9%;
+  --muted: 0 0% 97%;
+  --muted-foreground: 0 0% 40%;
+  --accent: 0 0% 96%;
+  --accent-foreground: 0 0% 9%;
+  --destructive: 0 72% 40%;
+  --destructive-foreground: 0 0% 100%;
+  --success: 152 62% 26%;
+  --success-foreground: 0 0% 100%;
+  --warning: 32 84% 32%;
+  --warning-foreground: 0 0% 100%;
+  --border: 0 0% 92%;
+  --input: 0 0% 88%;
+  --ring: 212 100% 48%;
+  --radius: 0.5rem;
+  --shadow: 0 0% 9%;
+  --selection: 0 0% 92%;
+  --surface: 0 0% 98%;
+  --elevated: 0 0% 100%;
+  --chat-user-bg: 0 0% 96%;
+  --chat-user-fg: 0 0% 9%;
+  --chat-user-border: 0 0% 88%;
 }
 
 .dark {
-  --background: 222 24% 6%;
-  --foreground: 210 18% 93%;
-  --card: 222 18% 9%;
-  --card-foreground: 210 18% 93%;
-  --primary: 214 84% 67%;
-  --primary-foreground: 222 30% 10%;
-  --secondary: 222 14% 14%;
-  --secondary-foreground: 210 15% 91%;
-  --muted: 222 14% 12%;
-  --muted-foreground: 220 10% 68%;
-  --accent: 222 16% 16%;
-  --accent-foreground: 210 15% 91%;
-  --destructive: 0 62% 56%;
-  --destructive-foreground: 0 0% 98%;
-  --border: 222 12% 20%;
-  --input: 222 12% 20%;
-  --ring: 214 84% 67%;
-  --chat-user-bg: 216 30% 22%;
-  --chat-user-fg: 210 18% 95%;
-  --chat-user-border: 216 26% 34%;
+  --background: 0 0% 0%;
+  --foreground: 0 0% 93%;
+  --card: 0 0% 5%;
+  --card-foreground: 0 0% 93%;
+  --popover: 0 0% 9%;
+  --popover-foreground: 0 0% 93%;
+  --primary: 0 0% 93%;
+  --primary-foreground: 0 0% 4%;
+  --secondary: 0 0% 11%;
+  --secondary-foreground: 0 0% 93%;
+  --muted: 0 0% 9%;
+  --muted-foreground: 0 0% 62%;
+  --accent: 0 0% 14%;
+  --accent-foreground: 0 0% 96%;
+  --destructive: 0 72% 64%;
+  --destructive-foreground: 0 0% 4%;
+  --success: 152 52% 52%;
+  --success-foreground: 0 0% 4%;
+  --warning: 38 88% 60%;
+  --warning-foreground: 0 0% 4%;
+  --border: 0 0% 18%;
+  --input: 0 0% 24%;
+  --ring: 212 100% 48%;
+  --shadow: 0 0% 100%;
+  --selection: 0 0% 20%;
+  --surface: 0 0% 7%;
+  --elevated: 0 0% 11%;
+  --chat-user-bg: 0 0% 17%;
+  --chat-user-fg: 0 0% 93%;
+  --chat-user-border: 0 0% 22%;
 }
 
 * {
   @apply border-border;
 }
 
-body {
-  @apply bg-background text-foreground;
-  background-image:
-    radial-gradient(circle at 10% 5%, rgba(59, 130, 246, 0.14), transparent 28%),
-    radial-gradient(circle at 80% 95%, rgba(14, 165, 233, 0.16), transparent 32%);
+html {
+  -webkit-text-size-adjust: 100%;
 }
 
-.dark body {
-  background-image:
-    radial-gradient(circle at 14% 10%, rgba(93, 125, 170, 0.07), transparent 36%),
-    radial-gradient(circle at 86% 90%, rgba(68, 92, 132, 0.06), transparent 38%),
-    linear-gradient(180deg, rgba(8, 10, 15, 0.9), rgba(8, 10, 15, 0.98));
+body {
+  @apply bg-background text-foreground;
+  font-feature-settings: "liga";
+  font-variation-settings: "ss01";
+}
+
+::selection {
+  background-color: hsl(var(--selection));
+}
+
+/* Geist has no visible autofill wash on the achromatic canvas, and the browser
+   default is the one place where a stray blue would survive the palette. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: hsl(var(--foreground));
+  -webkit-box-shadow: 0 0 0 1000px hsl(var(--card)) inset;
+  caret-color: hsl(var(--foreground));
+}
+
+@layer components {
+  /* Vercel's signature: a border drawn in the shadow layer, so corners stay
+     round, transitions stay smooth, and the line reads lighter than a real
+     border would. */
+  .ring-border {
+    box-shadow: 0 0 0 1px hsl(var(--border));
+  }
+
+  /* A dashed border reads as "drop something here" or "still loading". An empty
+     result is neither, so empties get a quiet filled surface instead. */
+  .empty-state {
+    @apply rounded-lg bg-surface p-6 text-center text-sm text-muted-foreground;
+  }
+
+  /* Rows that open something lift on hover; the tint is a paint-only change, so
+     it never reflows the list. */
+  .row-interactive {
+    @apply transition-colors duration-[--dur-fast] ease-[--ease-out];
+  }
+  .row-interactive:hover {
+    @apply bg-accent/60;
+  }
+
+  .card-surface {
+    box-shadow:
+      0 0 0 1px hsl(var(--border)),
+      0 1px 2px hsl(var(--shadow) / 0.05),
+      0 12px 32px -16px hsl(var(--shadow) / 0.16);
+  }
+
+  .card-surface-raised {
+    box-shadow:
+      0 0 0 1px hsl(var(--border)),
+      0 2px 4px hsl(var(--shadow) / 0.06),
+      0 24px 48px -24px hsl(var(--shadow) / 0.24);
+  }
+
+  .focus-ring {
+    @apply outline-none ring-offset-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70;
+  }
+
+  /* Technical labels speak in mono uppercase, the way a console does. */
+  .label-mono {
+    @apply font-mono text-[11px] font-medium uppercase tracking-wider text-muted-foreground;
+  }
 }
 
 @layer utilities {
-  .glass-surface {
-    @apply border border-border/70 bg-card/80 shadow-sm backdrop-blur;
+  .surface-subtle {
+    background-color: hsl(var(--surface));
   }
 
   .chat-user-bubble {
     border-color: hsl(var(--chat-user-border));
     background-color: hsl(var(--chat-user-bg));
     color: hsl(var(--chat-user-fg));
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
   }
 
   .chat-list-scroll {
     scrollbar-width: thin;
-    scrollbar-color: hsl(var(--muted-foreground) / 0.38) transparent;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.34) transparent;
   }
 
   .chat-list-scroll::-webkit-scrollbar {
@@ -96,11 +176,11 @@ body {
     border: 3px solid transparent;
     border-radius: 999px;
     background-clip: content-box;
-    background-color: hsl(var(--muted-foreground) / 0.34);
+    background-color: hsl(var(--muted-foreground) / 0.3);
   }
 
   .chat-list-scroll:hover::-webkit-scrollbar-thumb {
-    background-color: hsl(var(--muted-foreground) / 0.55);
+    background-color: hsl(var(--muted-foreground) / 0.5);
   }
 
   .chat-list-scroll::-webkit-scrollbar-corner {
@@ -120,15 +200,15 @@ body {
   }
 
   .markdown-message h1 {
-    @apply mt-4 text-lg font-semibold leading-7;
+    @apply mt-5 text-xl font-semibold leading-7 tracking-tight;
   }
 
   .markdown-message h2 {
-    @apply mt-4 text-base font-semibold leading-7;
+    @apply mt-5 text-lg font-semibold leading-7 tracking-tight;
   }
 
   .markdown-message h3 {
-    @apply mt-3 text-sm font-semibold leading-6;
+    @apply mt-4 text-base font-semibold leading-6 tracking-tight;
   }
 
   .markdown-message p {
@@ -144,7 +224,7 @@ body {
   }
 
   .markdown-message a {
-    @apply font-medium underline underline-offset-4;
+    @apply font-medium text-ring underline decoration-ring/40 underline-offset-4 hover:decoration-ring;
   }
 
   .markdown-message ul {
@@ -176,7 +256,7 @@ body {
   }
 
   .markdown-message th {
-    @apply border-b bg-muted/70 px-3 py-2 font-semibold;
+    @apply border-b bg-muted px-3 py-2 font-semibold;
   }
 
   .markdown-message td {
@@ -192,7 +272,7 @@ body {
   }
 
   .chat-user-bubble .markdown-message th {
-    background-color: hsl(var(--chat-user-fg) / 0.12);
+    background-color: hsl(var(--chat-user-fg) / 0.08);
     border-color: hsl(var(--chat-user-fg) / 0.18);
   }
 
@@ -210,23 +290,23 @@ body {
   }
 
   .markdown-message code {
-    @apply rounded bg-muted px-1.5 py-0.5 font-mono text-[0.86em];
+    @apply rounded border-0 bg-muted px-1.5 py-0.5 font-mono text-[0.86em];
   }
 
   .chat-user-bubble .markdown-message code {
-    background-color: hsl(var(--chat-user-fg) / 0.14);
+    background-color: hsl(var(--chat-user-fg) / 0.1);
   }
 
   .markdown-message pre {
-    @apply overflow-x-auto rounded-lg border bg-muted/70 p-3 text-sm leading-6;
+    @apply overflow-x-auto rounded-lg border bg-muted p-3 text-sm leading-6;
   }
 
   .markdown-message pre code {
-    @apply block whitespace-pre bg-transparent p-0 text-[12px] leading-6;
+    @apply block whitespace-pre border-0 bg-transparent p-0 text-[12px] leading-6;
   }
 
   .chat-user-bubble .markdown-message pre {
-    background-color: hsl(var(--chat-user-fg) / 0.1);
+    background-color: hsl(var(--chat-user-fg) / 0.06);
     border-color: hsl(var(--chat-user-fg) / 0.18);
   }
 
@@ -241,12 +321,6 @@ body {
   .markdown-message hr {
     @apply border-border;
   }
-}
-
-.dark .glass-surface {
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.02),
-    0 10px 28px rgba(0, 0, 0, 0.45);
 }
 
 @keyframes dialog-overlay-in {
@@ -282,4 +356,140 @@ body {
   .dialog-panel-enter {
     animation: none;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Motion
+   One place defines how the interface moves. Durations are short enough to read
+   as "instant" and long enough to be legible; the easing is a decelerate curve,
+   so things arrive and settle rather than sliding to a stop.
+   --------------------------------------------------------------------------- */
+:root {
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.36, 0.64, 1);
+  --dur-instant: 90ms;
+  --dur-fast: 160ms;
+  --dur-base: 240ms;
+  --dur-slow: 360ms;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Every interactive surface transitions its paint, not its layout, so
+     hovering a row never reflows the page. */
+  a,
+  button,
+  [role="button"],
+  [role="tab"],
+  [role="switch"],
+  summary,
+  label,
+  input,
+  textarea,
+  select {
+    transition:
+      color var(--dur-fast) var(--ease-out),
+      background-color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out),
+      box-shadow var(--dur-fast) var(--ease-out),
+      opacity var(--dur-fast) var(--ease-out);
+  }
+
+  /* Presses get a 1px nudge: enough to feel physical, short enough to ignore. */
+  button:active:not(:disabled),
+  [role="button"]:active:not([aria-disabled="true"]) {
+    transform: translateY(0.5px) scale(0.985);
+    transition-duration: var(--dur-instant);
+  }
+
+  /* Hover lift for cards and the panels that read as surfaces. */
+  .card-surface,
+  .card-surface-raised {
+    transition:
+      box-shadow var(--dur-base) var(--ease-out),
+      transform var(--dur-base) var(--ease-out),
+      border-color var(--dur-base) var(--ease-out);
+  }
+
+  /* Focus rings animate in rather than snapping, so keyboard travel is smooth. */
+  :focus-visible {
+    transition: box-shadow var(--dur-fast) var(--ease-out);
+  }
+}
+
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes panel-in-right {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes panel-in-left {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes panel-in-up {
+  from { opacity: 0; transform: translateY(8px) scale(0.99); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes row-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes shimmer {
+  from { background-position: -200% 0; }
+  to { background-position: 200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/*
+ * Electron drag region. Once the native title bar is hidden its strip is
+ * covered by web content, so the top of the page has to act as the window's
+ * move handle. A class keeps this out of the component's inline style, where
+ * React's CSSProperties type does not accept the vendor prefix.
+ */
+.desktop-titlebar-drag {
+  -webkit-app-region: drag;
+}
+
+/*
+ * Anything the user has to click inside the title-bar row — the brand link, a
+ * menu button, a filter — must opt back out of the drag region. Without this
+ * the transparent strip above it swallows the click and the control looks
+ * dead. `-webkit-app-region` is not inherited, so this has to be applied to
+ * each interactive node, not once on a wrapper.
+ */
+.desktop-titlebar-interactive {
+  -webkit-app-region: no-drag;
+}
+
+/*
+ * The browser build has no window to drag, so the top row must not be a drag
+ * region there — it would only cost the browser a text-selection and
+ * click-handling quirk it has no use for. Applied when the preload bridge is
+ * absent.
+ */
+.desktop-titlebar-plain {
+  -webkit-app-region: no-drag;
 }

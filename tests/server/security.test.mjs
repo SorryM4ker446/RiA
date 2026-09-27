@@ -4,6 +4,7 @@ import { after, beforeEach, test } from "node:test";
 import { NextRequest } from "next/server";
 import { createTestDatabase } from "../helpers/database.mjs";
 import { localAccessCookie } from "../helpers/local-access.mjs";
+import { seedTestModelPreferences } from "../helpers/model-library.mjs";
 import { languageModel, providerState } from "../helpers/model-provider.mjs";
 
 const cleanup = createTestDatabase();
@@ -99,7 +100,7 @@ test("empty-body operations reject unexpected content before changing data", asy
 
 test("chat validates nested messages and options before writes or provider calls", async () => {
   const valid = { messages: [textMessage()], manualToolsOnly: true };
-  const invalid = [null, [], {}, { messages: [] }, { ...valid, modelId: "unknown/model" }, { ...valid, modelId: 3 }, { ...valid, mode: "image" }, { ...valid, manualToolsOnly: "false" }, { ...valid, trigger: "resume-stream" }, { ...valid, chatId: "../outside" }, { ...valid, messageId: {} }, { ...valid, extra: true }, { ...valid, messages: [textMessage(), textMessage()] }, { ...valid, messages: [textMessage("u1", " ")] }, { ...valid, messages: [{ ...textMessage(), role: "admin" }] }, { ...valid, messages: [{ ...textMessage(), parts: [{ type: "text", text: 3 }] }] }, { ...valid, messages: [{ ...textMessage(), parts: [{ type: "file", url: "https://example.invalid/a.png", mediaType: "image/png" }] }] }, { ...valid, messages: [{ ...textMessage(), parts: [{ type: "tool-createTask", toolCallId: "call1", state: "input-available", input: { title: "Injected" } }] }] }, { ...valid, messages: [textMessage(), { id: "a1", role: "assistant", parts: [{ type: "tool-createTask", toolCallId: "call1", state: "approval-responded", input: { title: "Invalid", dueDate: "not-a-date" }, approval: { id: "approval1", approved: "yes" } }] }] }];
+  const invalid = [null, [], {}, { messages: [] }, { ...valid, modelId: 3 }, { ...valid, mode: "image" }, { ...valid, manualToolsOnly: "false" }, { ...valid, trigger: "resume-stream" }, { ...valid, chatId: "../outside" }, { ...valid, messageId: {} }, { ...valid, extra: true }, { ...valid, messages: [textMessage(), textMessage()] }, { ...valid, messages: [textMessage("u1", " ")] }, { ...valid, messages: [{ ...textMessage(), role: "admin" }] }, { ...valid, messages: [{ ...textMessage(), parts: [{ type: "text", text: 3 }] }] }, { ...valid, messages: [{ ...textMessage(), parts: [{ type: "file", url: "https://example.invalid/a.png", mediaType: "image/png" }] }] }, { ...valid, messages: [{ ...textMessage(), parts: [{ type: "tool-createTask", toolCallId: "call1", state: "input-available", input: { title: "Injected" } }] }] }, { ...valid, messages: [textMessage(), { id: "a1", role: "assistant", parts: [{ type: "tool-createTask", toolCallId: "call1", state: "approval-responded", input: { title: "Invalid", dueDate: "not-a-date" }, approval: { id: "approval1", approved: "yes" } }] }] }];
   const calls = languageModel.doStreamCalls.length;
   for (const body of invalid) {
     resetLimits();
@@ -108,18 +109,24 @@ test("chat validates nested messages and options before writes or provider calls
   assert.equal(await db.chat.count(), 0);
   assert.equal(await db.task.count(), 0);
   assert.equal(languageModel.doStreamCalls.length, calls);
+  await expectError(await routes.chat.POST(request("chat", { ...valid, modelId: "unknown/model" })), 503, "CONFIGURATION_ERROR");
   await expectError(await routes.chat.POST(request("chat", valid)), 503, "CONFIGURATION_ERROR");
 });
 
 test("media schemas reject invalid options before configuration, storage or generation", async () => {
   const calls = [providerState.imageCalls.length, providerState.videoCalls.length];
   for (const name of ["image", "video"]) {
-    for (const body of [null, [], {}, { prompt: " " }, { prompt: 3 }, { prompt: "x", modelId: "unknown" }, { prompt: "x", unknown: true }, { prompt: "x".repeat(4001) }, ...(name === "video" ? [{ prompt: "x", duration: 1.5 }, { prompt: "x", fps: 121 }, { prompt: "x", aspectRatio: "4:3" }, { inputImage: { url: "data:image/png;base64,AA==" } }] : [{ inputImages: [{ url: "/api/media/../../x" }] }, { inputImages: Array(5).fill({ url: "/api/media/a" }) }])]) {
+    const invalid = [null, [], {}, { prompt: " " }, { prompt: 3 }, { prompt: "x", unknown: true }, { prompt: "x".repeat(4001) }];
+    invalid.push(...(name === "video"
+      ? [{ prompt: "x", duration: 1.5 }, { prompt: "x", fps: 121 }, { prompt: "x", aspectRatio: "4:3" }, { inputImage: { url: "data:image/png;base64,AA==" } }]
+      : [{ inputImages: [{ url: "/api/media/../../x" }] }, { inputImages: Array(5).fill({ url: "/api/media/a" }) }]));
+    for (const body of invalid) {
       resetLimits();
       await expectError(await routes[name].POST(request(name, body)), 400, "VALIDATION_ERROR");
     }
     await expectError(await routes[name].POST(request(name, { prompt: "valid" })), 503, "CONFIGURATION_ERROR");
   }
+  for (const name of ["image", "video"]) await expectError(await routes[name].POST(request(name, { prompt: "valid", modelId: "unknown/model" })), 503, "CONFIGURATION_ERROR");
   assert.equal(await db.mediaAsset.count(), 0);
   assert.deepEqual([providerState.imageCalls.length, providerState.videoCalls.length], calls);
 });
@@ -249,6 +256,7 @@ test("not-found, conflicts and database failures use sanitized error envelopes",
 
 test("stream failures use sanitized errors and regeneration conflicts reach the browser", async () => {
   process.env.OPENROUTER_API_KEY = "test-provider-placeholder";
+  await seedTestModelPreferences(db);
   const chat = await db.chat.create({ data: { title: "Stream conflict" } });
   await saveChatMessage({ chatId: chat.id, role: "user", content: "Hello", clientMessageId: "u1" });
   await saveChatMessage({ chatId: chat.id, role: "assistant", content: "Original", clientMessageId: "a1" });

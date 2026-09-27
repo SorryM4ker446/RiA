@@ -1,10 +1,10 @@
 {
   "name": "private-ai-assistant",
-  "productName": "Private AI Assistant",
+  "productName": "RiA",
   "version": "0.1.0",
   "packageManager": "npm@11.19.1",
   "description": "A private desktop AI assistant built with Next.js and Electron",
-  "author": "Private AI Assistant",
+  "author": "RiA",
   "private": true,
   "main": "electron-dist/main.js",
   "scripts": {
@@ -37,7 +37,10 @@
     "workspace:status": "node --import ./tests/helpers/register-typescript.mjs scripts/upgrade-local-workspace.mjs --status",
     "workspace:prepare": "node --import ./tests/helpers/register-typescript.mjs scripts/upgrade-local-workspace.mjs --prepare",
     "workspace:restore": "node --import ./tests/helpers/register-typescript.mjs scripts/upgrade-local-workspace.mjs --restore",
-    "workspace:inventory": "node --import ./tests/helpers/register-typescript.mjs scripts/inventory-local-data.mjs"
+    "workspace:inventory": "node --import ./tests/helpers/register-typescript.mjs scripts/inventory-local-data.mjs",
+    "test:desktop:caption": "node scripts/verify-caption-click.mjs",
+    "test:desktop:window": "npm run test:desktop:caption && npm run test:desktop:smoke",
+    "test": "npm run typecheck && npm run lint && npm run test:server && npm run test:desktop && npm run test:e2e"
   },
   "dependencies": {
     "@ai-sdk/react": "3.0.216",

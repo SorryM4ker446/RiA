@@ -1,16 +1,13 @@
 import { protectDataOperation } from "@/lib/server/data-operations";
 import { currentWorkspaceId, requireLocalWorkspace } from "@/lib/local/workspace";
-import { rememberUserMessage } from "@/lib/chat/memory";
 import { buildSystemPrompt, formatLongTermContext, prepareModelContext } from "@/lib/chat/model-context";
 import { prepareChatPersistence } from "@/lib/chat/persistence";
 import { readChatRequest } from "@/lib/chat/request";
 import { streamChatResponse } from "@/lib/chat/stream";
-import { detectAutoToolIntent } from "@/lib/chat/tool-intent";
 import { getRelevantMemories } from "@/lib/memory/store";
 import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { setupServerProxy } from "@/lib/server/proxy";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
-import { listAutoToolDescriptors } from "@/tools/catalog";
 import { NextRequest } from "next/server";
 import { formatDocumentContext, searchDocuments } from "@/lib/documents/retrieval";
 import { documentSourceSchema } from "@/lib/documents/types";
@@ -34,17 +31,12 @@ async function POSTHandler(req: NextRequest) {
     const conversation = await prepareChatPersistence(input);
     const mode = body.mode ?? "chat";
     const isChatMode = mode === "chat";
-    const autoToolCandidates = isChatMode ? listAutoToolDescriptors("chat") : [];
-    const autoToolIntent =
-      isChatMode && !body.manualToolsOnly && !isApprovalResume && latestUserMessage?.text
-        ? await detectAutoToolIntent({
-          text: latestUserMessage.text,
-          modelId,
-          autoTools: autoToolCandidates,
-          signal: req.signal,
-        })
-        : null;
-    const toolsEnabled = isChatMode && (isApprovalResume || (!body.manualToolsOnly && autoToolIntent !== null));
+    const canUseTools = isChatMode && input.model?.supportsTools === true;
+    // The chat model decides for itself whether a tool helps, so tools stay
+    // attached for the whole turn. Restraint comes from TOOL_ENABLED_INSTRUCTIONS
+    // and each tool's modelDescription, not from a second LLM call that would
+    // have to guess from the latest message alone.
+    const toolsEnabled = canUseTools && (isApprovalResume || !body.manualToolsOnly);
 
     const relevantMemories = latestUserMessage?.text
       ? await getRelevantMemories({
@@ -54,7 +46,6 @@ async function POSTHandler(req: NextRequest) {
       : [];
 
 
-    await rememberUserMessage(latestUserMessage?.text);
     const documentSources = latestUserMessage?.text ? (await searchDocuments(latestUserMessage.text)).map(source => documentSourceSchema.parse(source)) : [];
     const systemPrompt = buildSystemPrompt(context.historyExcerpt || "No earlier messages omitted.", formatLongTermContext(relevantMemories), toolsEnabled) + formatDocumentContext(documentSources);
     return streamChatResponse({ input, conversation, systemPrompt, modelMessages, toolsEnabled, signal: req.signal, documentSources });

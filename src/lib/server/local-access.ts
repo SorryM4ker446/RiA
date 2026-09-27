@@ -2,6 +2,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { NextRequest } from "next/server";
+import { t } from "@/lib/locale";
 import { ApiError } from "@/lib/server/api-error";
 
 /**
@@ -187,6 +188,6 @@ export function assertLocalAccess(request: NextRequest) {
   if (hasValidLocalAccess(request)) return;
   throw new ApiError({
     code: "UNAUTHORIZED",
-    message: "本地访问凭证缺失或无效，请从本机打开应用重新获取。",
+    message: t("lib.server.localAccessMissing"),
   });
 }
