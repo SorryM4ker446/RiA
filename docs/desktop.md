@@ -99,6 +99,8 @@ npm run desktop:make
 
 The Squirrel maker produces a versioned `Private AI Assistant-<version> Setup.exe`, a `.nupkg`, and `RELEASES` under `out/make/squirrel.windows/x64/`.
 
+Before nuget runs, the maker copies the packaged app into a temporary directory, so a path that is safe inside the bundle can still cross the 260-character Windows limit once staged. The runtime's Next.js image cache is excluded from the packaged copy for this reason: its hashed filenames are long enough to overflow the limit on a CI runner while passing on a developer machine, whose temp path is shorter. `npm run desktop:verify` fails with the offending path if a packaged path would overflow.
+
 This project does not configure Windows code signing or automatic updates. Windows may display an unknown-publisher warning until a signing certificate is added in a separate release process.
 
 ## Validation and CI

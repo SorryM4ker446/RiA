@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, extname, join, relative, resolve } from "node:path";
+import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -23,7 +23,36 @@ function requireFile(path, label) {
   if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`${label} is missing: ${path}`);
 }
 
-function verifyRuntime(directory) {
+// Windows rejects a fully qualified path of 260 characters or more. Before nuget
+// runs, Squirrel copies the packaged app to a temp directory, so a file that is
+// safe inside the bundle can still overflow once staged. The reserve below
+// covers that re-rooting: %TEMP%\squirrel-maker-XXXXXX\ plus the
+// resources/.desktop-runtime/ prefix it is copied under.
+const windowsPathLimit = 260;
+const squirrelStagingReserve = 102;
+const windowsPathBudget = windowsPathLimit - squirrelStagingReserve;
+
+// The packaging hook strips the runtime image cache from the staged copy, so it
+// never reaches nuget. Running the packaged app regenerates it in place, and this
+// check runs against that same directory, so the cache is skipped here for the
+// same reason: it is not part of what the installer ships.
+const runtimeImageCache = join(".next", "cache");
+
+function assertPackagedPathsFitWindows(directory) {
+  let longest = { length: 0, path: "" };
+  for (const file of walk(directory)) {
+    const relativePath = relative(directory, file);
+    if (relativePath.split(sep).join("/").startsWith(`${runtimeImageCache.split(sep).join("/")}/`)) continue;
+    if (relativePath.length > longest.length) longest = { length: relativePath.length, path: relativePath };
+  }
+  if (longest.length >= windowsPathBudget) {
+    throw new Error(
+      `Packaged path is ${longest.length} characters, which reaches the Windows limit of ${windowsPathLimit} once the Squirrel temp directory is prepended: ${longest.path}`,
+    );
+  }
+}
+
+function verifyRuntime(directory, { enforceWindowsPathBudget = false } = {}) {
   for (const forbidden of [".desktop-data", ".desktop-runtime", ".git", "out", "public/generated-videos"]) {
     if (existsSync(join(directory, forbidden))) throw new Error(`User/development data must not be packaged: ${forbidden}`);
   }
@@ -55,13 +84,24 @@ function verifyRuntime(directory) {
       throw new Error(`A value resembling a real API key was found in ${file}`);
     }
   }
+
+  // Only the packaged copy is subject to the Squirrel staging limit. The source
+  // runtime legitimately grows a Next.js image cache while the app runs, and the
+  // packaging hook drops that cache from the staged copy.
+  if (enforceWindowsPathBudget) {
+    // Squirrel re-copies the packaged app under %TEMP%\squirrel-maker-XXXXXX
+    // before running nuget, which cannot handle a fully qualified path of 260
+    // characters or more. Fail here with the offending path instead of letting
+    // the installer step die on an opaque nuget "path too long" error.
+    assertPackagedPathsFitWindows(directory);
+  }
 }
 
 verifyRuntime(runtimeDirectory);
 
 if (packageDirectory) {
   requireFile(join(packageDirectory, "RiA.exe"), "Packaged application executable");
-  verifyRuntime(join(packageDirectory, "resources", ".desktop-runtime"));
+  verifyRuntime(join(packageDirectory, "resources", ".desktop-runtime"), { enforceWindowsPathBudget: true });
   const packagedFiles = walk(packageDirectory);
   if (packagedFiles.some((path) => /^\.env(?:\.|$)/i.test(path.split(/[\\/]/).pop() || ""))) {
     throw new Error("Packaged application contains an environment file.");

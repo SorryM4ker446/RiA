@@ -1,3 +1,5 @@
+import { dropRuntimeImageCache } from "./scripts/desktop-package-hooks.mjs";
+
 import type { ForgeConfig } from "@electron-forge/shared-types";
 
 const allowedAppFiles = ["/package.json", "/electron-dist", "/assets"];
@@ -8,6 +10,7 @@ const config: ForgeConfig = {
     prune: false,
     icon: "assets/desktop-icon.ico",
     extraResource: [".desktop-runtime"],
+    afterCopyExtraResources: [dropRuntimeImageCache],
     ignore: (path) => {
       const normalized = path.replaceAll("\\", "/");
       if (!normalized) return false;
