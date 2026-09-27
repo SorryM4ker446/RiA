@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { browserApi, browserData } from "../helpers/browser-api";
+import { configureOfflineModels } from "../helpers/model-fixture";
+import { chooseOption } from "../helpers/select";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => { const app = await startStandaloneServer({ modelFixture: true }); try { await runTest(app); } finally { await app.close(); } },
@@ -35,6 +37,7 @@ async function inspect(page: Page, id: string) {
 
 test("media library shows real generation provenance, confirms regeneration and downloads private images", { tag: "@integration" }, async ({ page, app }, info) => {
   await register(page, app.origin);
+  await configureOfflineModels(page, { image: "google/gemini-3.1-flash-image-preview" });
   const [input] = await upload(page);
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "媒体来源会话" })).body.data;
   const first = await browserApi(page, "/api/image", "POST", { prompt: "离线月光图片", chatId: chat.id, inputImages: [{ url: input.url, mediaType: input.mediaType }] });
@@ -78,11 +81,12 @@ test("media library shows real generation provenance, confirms regeneration and 
 
 test("video library filters and generation options survive HTTP regeneration while quotas and credentials remain enforced", { tag: "@integration" }, async ({ page, browser, app }, info) => {
   await register(page, app.origin);
+  await configureOfflineModels(page, { video: "bytedance/seedance-2.0" });
   const first = await browserApi(page, "/api/video", "POST", { prompt: "离线视频", aspectRatio: "9:16", duration: 5, fps: 24 });
   expect(first.status).toBe(200);
   const id = first.body.asset.assetId;
   await upload(page); await library(page, app.origin);
-  await page.getByLabel("媒体类型", { exact: true }).selectOption("video");
+  await chooseOption(page.getByLabel("媒体类型", { exact: true }), "视频");
   await expect(page.getByRole("article")).toHaveCount(1);
   const detail = await inspect(page, id);
   await expect(detail).toContainText("比例：9:16 · 时长：5 秒 · 帧率：24");
@@ -106,6 +110,7 @@ test("video library filters and generation options survive HTTP regeneration whi
 
 test("media pagination and confirmed deletion preserve referenced inputs and update real storage statistics", { tag: "@integration" }, async ({ page, app }) => {
   await register(page, app.origin);
+  await configureOfflineModels(page, { image: "google/gemini-3.1-flash-image-preview" });
   const inputs = [];
   for (let i = 0; i < 7; i++) inputs.push(...await upload(page, 4));
   const generated = (await browserApi(page, "/api/image", "POST", { prompt: "保护参考图", inputImages: [{ url: inputs[0].url, mediaType: inputs[0].mediaType }] })).body.asset;

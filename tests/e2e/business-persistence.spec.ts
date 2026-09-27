@@ -3,6 +3,7 @@ import { NO_CREDENTIAL_STATE, openWorkspace } from "../helpers/workspace-entry";
 import { randomUUID } from "node:crypto";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { browserApi, browserData } from "../helpers/browser-api";
+import { configureOfflineModels } from "../helpers/model-fixture";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => {
@@ -18,6 +19,7 @@ async function register(page: Page, origin: string) {
 
 test("streamed chat, follow-up context and edited regeneration survive a service restart", { tag: "@integration" }, async ({ page, browser, app }) => {
   await register(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   await page.getByRole("checkbox").check();
   const send = async (text: string) => {
     await page.getByPlaceholder(/输入你的问题/).fill(text);
@@ -73,6 +75,7 @@ test("streamed chat, follow-up context and edited regeneration survive a service
 
 test("manual tasks and knowledge use real APIs, persist across restart and remain private", { tag: "@integration" }, async ({ page, browser, app }) => {
   await register(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   await page.getByLabel("选择手动工具").click();
   await page.getByRole("option", { name: "手动：创建任务" }).click();
   await page.getByPlaceholder(/输入任务标题/).fill("浏览器持久化任务");

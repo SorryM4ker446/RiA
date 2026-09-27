@@ -23,6 +23,13 @@ playwright-report/
 blob-report/
 .turbo/
 *.tsbuildinfo
+.eslintcache
+
+# local sqlite: the real database lives in .desktop-data/, but a misconfigured
+# DATA_DIR can drop one in the repo root and it must never be committed
+*.db
+*.sqlite
+*.sqlite3
 
 # logs
 *.log

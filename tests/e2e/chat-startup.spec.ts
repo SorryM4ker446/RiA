@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+const modelSettings = { version: 2, defaultMode: "chat", chat: { modelId: "anthropic/claude-opus-4.6", fallbackId: null }, image: { modelId: null, fallbackId: null }, video: { modelId: null, fallbackId: null }, embeddingModelId: null, legacyCandidates: [], library: [{ providerId: "openrouter", modelId: "anthropic/claude-opus-4.6", name: "Claude", description: "Fixture", modes: ["chat"], supportsImageInput: true, endpointImageInput: null, supportsTools: true, contextLength: null, pricing: {}, addedAt: "2026-08-30T00:00:00.000Z", lastSeenAt: "2026-08-30T00:00:00.000Z" }], rates: {}, backupRetentionDays: 30, backupMaxCount: 10 };
+
 for (const historyFails of [false, true]) {
   test(`first chat submission waits for initial history ${historyFails ? "and refuses to send after a load failure" : "and stays attached to the active conversation"}`, async ({ page }) => {
     let created = false;
@@ -9,7 +11,8 @@ for (const historyFails of [false, true]) {
     const started = new Promise<void>((resolve) => { historyStarted = resolve; });
     const gate = new Promise<void>((resolve) => { releaseHistory = resolve; });
     const chat = { id: "new-conversation", title: "First question", lastMessageAt: "2026-08-30T00:00:00Z", messageCount: 0 };
-    await page.route("**/api/conversations", (route) => {
+    await page.route("**/api/models", (route) => route.fulfill({ json: { data: { version: 2, defaultMode: "chat", chat: { modelId: "anthropic/claude-opus-4.6", fallbackId: null }, image: { modelId: null, fallbackId: null }, video: { modelId: null, fallbackId: null }, embeddingModelId: null, legacyCandidates: [], library: [{ providerId: "openrouter", modelId: "anthropic/claude-opus-4.6", name: "Claude", description: "Fixture", modes: ["chat"], supportsImageInput: true, endpointImageInput: null, supportsTools: true, contextLength: null, pricing: {}, addedAt: "2026-08-30T00:00:00.000Z", lastSeenAt: "2026-08-30T00:00:00.000Z" }], rates: {}, backupRetentionDays: 30, backupMaxCount: 10 } } }));
+  await page.route("**/api/conversations", (route) => {
       if (route.request().method() === "POST") { created = true; return route.fulfill({ status: 201, json: { data: chat } }); }
       return route.fulfill({ json: { data: created ? [chat] : [] } });
     });
@@ -18,6 +21,7 @@ for (const historyFails of [false, true]) {
       await gate;
       await route.fulfill(historyFails ? { status: 500, json: { error: { code: "INTERNAL_ERROR", message: "History unavailable" } } } : { json: { data: [] } });
     });
+    await page.route("**/api/models", (route) => route.fulfill({ json: { data: modelSettings } }));
     await page.route("**/api/tasks**", (route) => route.fulfill({ json: { data: [] } }));
     await page.route("**/api/tools?*", (route) => route.fulfill({ json: { data: [] } }));
     await page.route("**/api/chat", (route) => {

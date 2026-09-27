@@ -3,6 +3,7 @@ import { after, beforeEach, test } from "node:test";
 import { NextRequest } from "next/server";
 import { createTestDatabase } from "../helpers/database.mjs";
 import { localAccessCookie } from "../helpers/local-access.mjs";
+import { seedTestModelPreferences } from "../helpers/model-library.mjs";
 
 const cleanup = createTestDatabase();
 const { db } = await import("@/db");
@@ -37,6 +38,8 @@ beforeEach(async (t) => {
   await db.memory.deleteMany({});
   await db.task.deleteMany({});
   await db.knowledgeDocument.deleteMany({});
+  await db.workspacePreference.deleteMany({});
+  await seedTestModelPreferences(db);
 });
 after(async () => { await db.$disconnect(); cleanup(); });
 

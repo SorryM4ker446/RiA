@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { browserApi, browserData } from "../helpers/browser-api";
+import { configureOfflineModels } from "../helpers/model-fixture";
+import { chooseOption } from "../helpers/select";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({ app: async ({}, runTest) => { const app = await startStandaloneServer({ modelFixture: true }); try { await runTest(app); } finally { await app.close(); } } });
 async function register(page: Page, origin: string) {
@@ -14,6 +16,7 @@ async function openBackups(page: Page, origin: string) { await page.goto(`${orig
 
 test("workspace backup downloads and confirmed restore preserve media and business data across restart", { tag: "@integration" }, async ({ page, app }, info) => {
   await register(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6", image: "google/gemini-3.1-flash-image-preview" });
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "需要恢复的会话" })).body.data;
   await browserApi(page, `/api/conversations/${chat.id}/messages`, "POST", { role: "user", content: "备份正文", clientMessageId: randomUUID() });
   await browserApi(page, "/api/knowledge", "POST", { key: "restore-key", value: "保留知识" });
@@ -74,9 +77,13 @@ test("backup validation and a missing credential surface errors without changing
 
 test("saved mode defaults apply to new conversations and model settings survive service restart", { tag: "@integration" }, async ({ page, app }, info) => {
   await register(page, app.origin); await page.getByRole("link", { name: "模型与用量", exact: true }).click();
-  await page.getByLabel("新会话默认模式", { exact: true }).selectOption("image"); await page.getByLabel("图片默认模型", { exact: true }).selectOption("google/gemini-3.1-flash-image-preview");
+  await page.getByRole("button", { name: "图片生成", exact: true }).click();
+  const imageCatalogRow = page.locator("li").filter({ hasText: "google/gemini-3.1-flash-image-preview" });
+  await imageCatalogRow.getByRole("button", { name: "添加", exact: true }).click();
+  await expect(imageCatalogRow.getByRole("button", { name: "已添加", exact: true })).toBeVisible();
+  await chooseOption(page.getByLabel("新会话默认模式", { exact: true }), "图片生成"); await chooseOption(page.getByLabel("图片生成默认模型", { exact: true }), "Gemini Image Offline");
   await page.getByRole("button", { name: "保存模型偏好" }).click(); await expect(page.getByRole("status")).toContainText("模型偏好已保存");
-  await app.restart(); await page.reload(); await expect(page.getByLabel("新会话默认模式", { exact: true })).toHaveValue("image");
+  await app.restart(); await page.reload(); await expect(page.getByLabel("新会话默认模式", { exact: true })).toContainText("图片生成");
   await page.getByRole("link", { name: "返回聊天", exact: true }).click();
   const createButton = page.getByRole("button", { name: "创建会话", exact: true });
   let releaseCreation!: () => void;
@@ -110,11 +117,28 @@ test("saved mode defaults apply to new conversations and model settings survive 
     await page.unrouteAll({ behavior: "wait" });
   }
   await page.goto(`${app.origin}/models`); await expect(page.getByRole("button", { name: "保存模型偏好" })).toBeVisible(); await page.screenshot({ path: info.outputPath("workspace-models.png"), fullPage: true }); expect(app.providerCalls).toHaveLength(0);
+  // The offline feed deliberately returns a duplicate id and one unusable id.
+  // Those rows are skipped and reported, but the two usable models are still
+  // listed: a partial parse must not present an empty catalog as unavailable.
+  await expect(page.getByText("Claude Opus Offline", { exact: true })).toBeVisible();
+  await expect(page.getByText("Gemini Flash Offline", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("目录暂不可用。", { exact: true })).toHaveCount(0);
+  // The skipped count describes a live parse, so read it after a forced
+  // refresh rather than from the cached first load.
+  await page.getByRole("button", { name: "刷新当前目录" }).click();
+  await expect(page.getByText("已跳过 2 条无效或重复记录，其余目录可用。", { exact: true })).toBeVisible();
+  await expect(page.getByText("Claude Opus Offline", { exact: true })).toBeVisible();
 });
 
 test("configured chat fallback runs through the real provider adapter and persists usage estimates", { tag: "@integration" }, async ({ page, app }) => {
   await register(page, app.origin); await page.goto(`${app.origin}/models`);
-  await page.getByLabel("聊天备用模型", { exact: true }).selectOption("google/gemini-3-flash-preview");
+  for (const modelId of ["anthropic/claude-opus-4.6", "google/gemini-3-flash-preview"]) {
+    const catalogRow = page.locator("li").filter({ hasText: modelId });
+    await catalogRow.getByRole("button", { name: "添加", exact: true }).click();
+    await expect(catalogRow.getByRole("button", { name: "已添加", exact: true })).toBeVisible();
+  }
+  await chooseOption(page.getByLabel("聊天默认模型", { exact: true }), "Claude Opus Offline");
+  await chooseOption(page.getByLabel("聊天备用模型", { exact: true }), "Gemini Flash Offline");
   await page.getByText("配置估算费率（USD）", { exact: true }).click();
   await page.getByLabel("google/gemini-3-flash-preview 输入 / 百万 Token", { exact: true }).fill("2"); await page.getByLabel("google/gemini-3-flash-preview 输出 / 百万 Token", { exact: true }).fill("4");
   await page.getByRole("button", { name: "保存模型偏好" }).click(); await expect(page.getByRole("status")).toContainText("已保存");

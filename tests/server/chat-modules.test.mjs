@@ -10,22 +10,23 @@ const { db } = await import("@/db");
 const { getRelevantMemories } = await import("@/lib/memory/store");
 const { searchKnowledge } = await import("@/tools/definitions/search-knowledge");
 const { tokenizeQuery, scoreMemory, rankByScore, CONTEXT_MEMORY_POLICY, KNOWLEDGE_MEMORY_POLICY } = await import("@/lib/memory/retrieval");
-const { detectAutoToolIntent } = await import("@/lib/chat/tool-intent");
+import { seedTestModelPreferences } from "../helpers/model-library.mjs";
 const { getDefaultChatPreferences, readChatPreferences } = await import("@/features/chat/preferences");
 const { buildDefaultManualFieldValues, validateManualToolFields, normalizeManualToolInput } = await import("@/features/chat/tool-input");
 after(async () => { await db.$disconnect(); cleanup(); });
 
 test("memory ranking preserves lexical, semantic, recency and manual weighting", () => {
   const now = Date.parse("2026-08-30T00:00:00Z");
-  const memory = { key: "SQLite", value: "本地数据库", score: 0.5, embedding: [1, 0], updatedAt: new Date(now) };
+  const memory = { key: "SQLite", value: "本地数据库", score: 0.5, embedding: [1, 0], embeddingModelId: "embed-v1", updatedAt: new Date(now) };
   const tokens = tokenizeQuery("SQLITE / 本地数据库");
   assert.equal(tokens[0], "sqlite");
   assert.equal(tokens.slice(1).join(""), "本地数据库");
   assert.ok(tokens.length > 2);
   assert.equal(scoreMemory(memory, ["sqlite"], null, CONTEXT_MEMORY_POLICY, now), 1.4);
   assert.equal(scoreMemory(memory, ["sqlite"], null, KNOWLEDGE_MEMORY_POLICY, now), 1.1);
-  assert.equal(scoreMemory(memory, ["unmatched"], [1, 0], KNOWLEDGE_MEMORY_POLICY, now), 0.95);
-  assert.equal(scoreMemory({ ...memory, embedding: null, score: null, updatedAt: new Date(now - 31 * 86400000) }, ["unmatched"], [1, 0], CONTEXT_MEMORY_POLICY, now), 0);
+  assert.equal(scoreMemory(memory, ["unmatched"], [1, 0], KNOWLEDGE_MEMORY_POLICY, now, "embed-v1"), 0.95);
+  assert.equal(scoreMemory(memory, ["unmatched"], [1, 0], KNOWLEDGE_MEMORY_POLICY, now, "embed-v2"), 0);
+  assert.equal(scoreMemory({ ...memory, embedding: null, score: null, updatedAt: new Date(now - 31 * 86400000) }, ["unmatched"], [1, 0], CONTEXT_MEMORY_POLICY, now, "embed-v1"), 0);
   const rows = [{ id: "first", score: 1 }, { id: "zero", score: 0 }, { id: "second", score: 1 }, { id: "high", score: 2 }];
   assert.deepEqual(rankByScore(rows, (row) => row.score, 3).map((row) => row.id), ["high", "first", "second"]);
   assert.equal(rows[0].id, "first");
@@ -69,35 +70,14 @@ test("shared retrieval keeps tool records out of context while knowledge candida
   assert.deepEqual(await getRelevantMemories({ query: " " }), []);
 });
 
-test("automatic tool intent requires explicit action, an available tool and sufficient confidence", async (t) => {
-  t.mock.method(console, "warn", () => {});
-  const autoTools = [{ id: "createTask", description: "Create task", auto: { intentHint: "explicit request" } }];
-  let output = { intent: "createTask", shouldUseToolNow: true, userRequestMode: "explicit-action", confidence: 0.9, expectedBenefit: 0.9 };
-  const generate = t.mock.method(languageModel, "doGenerate", async () => ({
-    content: [{ type: "text", text: JSON.stringify(output) }],
-    finishReason: { unified: "stop", raw: undefined },
-    usage: { inputTokens: { total: 1 }, outputTokens: { total: 1 } }, warnings: [],
-  }));
-  const params = { text: "Create a task", modelId: "test-model", autoTools };
-  assert.equal(await detectAutoToolIntent(params), "createTask");
-  const accepted = { ...output };
-  for (const rejected of [{ intent: "unavailable" }, { shouldUseToolNow: false }, { userRequestMode: "topic-question" }, { userRequestMode: "ambiguous" }, { confidence: 0.71 }, { expectedBenefit: 0.59 }]) {
-    output = { ...accepted, ...rejected };
-    assert.equal(await detectAutoToolIntent(params), null);
-  }
-  const calls = generate.mock.callCount();
-  assert.equal(await detectAutoToolIntent({ ...params, text: " " }), null);
-  assert.equal(await detectAutoToolIntent({ ...params, autoTools: [] }), null);
-  assert.equal(generate.mock.callCount(), calls);
-});
 
-test("per-conversation preferences normalize stale models and malformed storage", (t) => {
+test("per-conversation preferences preserve stale model IDs for explicit recovery", (t) => {
   let raw = "{";
   globalThis.window = { localStorage: { getItem: () => raw } };
   t.after(() => { delete globalThis.window; });
   assert.equal(readChatPreferences("conversation"), null);
   raw = JSON.stringify({ modelMode: "invalid", selectedChatModel: "removed-model", manualToolsOnly: true });
-  assert.deepEqual(readChatPreferences("conversation"), { ...getDefaultChatPreferences(), manualToolsOnly: true });
+  assert.deepEqual(readChatPreferences("conversation"), { ...getDefaultChatPreferences(), selectedChatModel: "removed-model", manualToolsOnly: true });
 });
 
 test("manual tool fields preserve defaults, numeric bounds and normalized input", () => {

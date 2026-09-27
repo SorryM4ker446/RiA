@@ -11,6 +11,7 @@ const pendingMessage: HistoryMessage = { id: "row-p", clientMessageId: "pending-
 
 // These browser tests isolate UI interactions; server/SQLite behavior is tested by test:server.
 async function mockHistory(page: Page, history: HistoryMessage[]) {
+  await page.route("**/api/models", (route) => route.fulfill({ json: { data: { version: 2, defaultMode: "chat", chat: { modelId: "anthropic/claude-opus-4.6", fallbackId: null }, image: { modelId: null, fallbackId: null }, video: { modelId: null, fallbackId: null }, embeddingModelId: null, legacyCandidates: [], library: [{ providerId: "openrouter", modelId: "anthropic/claude-opus-4.6", name: "Claude", description: "Fixture", modes: ["chat"], supportsImageInput: true, endpointImageInput: null, supportsTools: true, contextLength: null, pricing: {}, addedAt: now, lastSeenAt: now }], rates: {}, backupRetentionDays: 30, backupMaxCount: 10 } } }));
   await page.route("**/api/conversations", (route) => route.fulfill({ json: { data: [{ id: "chat-actions", title: "Actions", lastMessageAt: now, messageCount: history.length }] } }));
   await page.route("**/api/conversations/*/messages", (route) => route.fulfill({ json: { data: history } }));
   await page.route("**/api/tasks**", (route) => route.fulfill({ json: { data: [] } }));

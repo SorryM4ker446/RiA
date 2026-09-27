@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { browserApi, browserData } from "../helpers/browser-api";
 import { textPdf, wordDocument } from "../helpers/document-fixtures.mjs";
+import { configureOfflineModels } from "../helpers/model-fixture";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => {
@@ -27,6 +28,7 @@ async function importFile(page: Page, name: string, buffer: Buffer) {
 
 test("document imports, local retrieval and chat citations persist across reload and service restart", { tag: "@integration" }, async ({ page, browser, app }) => {
   await register(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   await page.getByRole("link", { name: /知识库/ }).click();
   const original = await importFile(page, "星河运行手册.md", Buffer.from("# 星河运行手册\n\n星河补给每周三送达，回滚窗口为三十分钟。\n\n备用线路每月巡检。"));
   const documentId = original.document.id;

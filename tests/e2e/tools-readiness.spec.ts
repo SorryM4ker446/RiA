@@ -26,6 +26,18 @@ async function setupToolUiMocks(page: Page) {
   const knowledgeEntries: KnowledgeEntry[] = [];
   const chatId = "e2e-chat";
 
+  await page.route("**/api/models", async (route) => {
+    const mode = new URL(route.request().url()).searchParams.get("mode") ?? "chat";
+    const models = mode === "chat"
+      ? [{ providerId: "openrouter", modelId: "anthropic/claude-opus-4.6", name: "Claude", description: "Fixture", modes: ["chat"], supportsImageInput: false, endpointImageInput: null, supportsTools: true, pricing: {}, addedAt: now, lastSeenAt: now }]
+      : mode === "image"
+        ? [{ providerId: "openrouter", modelId: "google/gemini-3.1-flash-image-preview", name: "Gemini Image", description: "Fixture", modes: ["image"], supportsImageInput: true, endpointImageInput: true, supportsTools: false, pricing: {}, addedAt: now, lastSeenAt: now }]
+        : mode === "video"
+          ? [{ providerId: "openrouter", modelId: "bytedance/seedance-2.0", name: "Seedance", description: "Fixture", modes: ["video"], supportsImageInput: true, endpointImageInput: true, supportsTools: false, pricing: {}, addedAt: now, lastSeenAt: now }]
+          : [];
+    await route.fulfill({ json: { data: { version: 2, defaultMode: "chat", chat: { modelId: "anthropic/claude-opus-4.6", fallbackId: null }, image: { modelId: "google/gemini-3.1-flash-image-preview", fallbackId: null }, video: { modelId: "bytedance/seedance-2.0", fallbackId: null }, embeddingModelId: null, legacyCandidates: [], library: models } } });
+  });
+
   await page.route("**/api/conversations", async (route) => {
     if (route.request().method() === "POST") {
       await route.fulfill({
