@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
+import { t } from "@/lib/locale";
 import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { assertRequestSecurity } from "@/lib/server/request-security";
 import type { NextRequest } from "next/server";
@@ -10,7 +11,7 @@ const operations = state.dataOperations ??= { active: 0, exclusive: false, conte
 export const dataRequestContext = () => operations.context.getStore();
 export function identifyDataOperation(workspaceId: string) { const context = dataRequestContext(); if (context) context.workspaceId = workspaceId; }
 export function retainDataOperation() {
-  if (operations.exclusive) throw new ApiError({ code: "SERVICE_UNAVAILABLE", message: "正在备份或恢复数据，请稍后重试。" });
+  if (operations.exclusive) throw new ApiError({ code: "SERVICE_UNAVAILABLE", message: t("lib.server.backupRestoreBusy") });
   operations.active++;
   let released = false;
   return () => { if (!released) { released = true; operations.active--; } };
@@ -22,7 +23,7 @@ export function protectDataOperation<Args extends [NextRequest, ...unknown[]]>(h
   return async (...args: Args): Promise<Response> => {
     try {
       assertRequestSecurity(args[0]);
-      if (operations.exclusive) throw new ApiError({ code: "SERVICE_UNAVAILABLE", message: "正在备份或恢复数据，请稍后重试。" });
+      if (operations.exclusive) throw new ApiError({ code: "SERVICE_UNAVAILABLE", message: t("lib.server.backupRestoreBusy") });
       operations.active++;
       let released = false;
       const release = () => { if (!released) { released = true; operations.active--; } };
@@ -40,12 +41,12 @@ export function protectDataOperation<Args extends [NextRequest, ...unknown[]]>(h
           }), { status: response.status, headers: response.headers });
         });
       } catch (error) { release(); throw error; }
-    } catch (error) { return createApiErrorResponse(error, "本地数据操作失败。"); }
+    } catch (error) { return createApiErrorResponse(error, t("lib.server.dataOperationFailed")); }
   };
 }
 
 export async function exclusiveDataOperation<T>(operation: () => Promise<T>): Promise<T> {
-  if (operations.exclusive || operations.active) throw new ApiError({ code: "CONFLICT", message: "仍有请求正在执行，请停止生成并等待其他操作完成后重试。" });
+  if (operations.exclusive || operations.active) throw new ApiError({ code: "CONFLICT", message: t("lib.server.operationsBusy") });
   operations.exclusive = true;
   try { return await operation(); } finally { operations.exclusive = false; }
 }

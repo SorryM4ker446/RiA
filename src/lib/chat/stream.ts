@@ -1,4 +1,5 @@
 import { getChatModel } from "@/lib/ai/client";
+import { t } from "@/lib/locale";
 import { ApiError, apiErrorPayload, normalizeApiError } from "@/lib/server/api-error";
 import { createChatToolSet } from "@/tools/catalog";
 import type { ModelMessage } from "ai";
@@ -11,6 +12,9 @@ export function streamChatResponse(params: { input: ChatRequest; conversation: C
   const { input, conversation, systemPrompt, modelMessages, toolsEnabled, signal } = params;
   const { modelId, body, messages } = input;
   const { chat } = conversation;
+  if (toolsEnabled && input.model?.supportsTools !== true) {
+    throw new ApiError({ code: "VALIDATION_ERROR", message: `${t("lib.models.chatPrefix")} ${modelId} ${t("lib.models.chatNoTools")}` });
+  }
   let generationFailed = false;
 
   const result = streamText({
@@ -39,9 +43,9 @@ export function streamChatResponse(params: { input: ChatRequest; conversation: C
     },
   });
 
-  const streamError = (error: unknown) => JSON.stringify(apiErrorPayload(normalizeApiError(error, "聊天生成或保存失败，请重试或重新加载会话。")));
+  const streamError = (error: unknown) => JSON.stringify(apiErrorPayload(normalizeApiError(error, t("lib.chat.generateFailed"))));
   const stream = result.toUIMessageStream({
-    onError: (error) => streamError(error instanceof ApiError ? error : new ApiError({ code: "UPSTREAM_FAILED", message: "模型服务暂时不可用，请稍后重试。" })),
+    onError: (error) => streamError(error instanceof ApiError ? error : new ApiError({ code: "UPSTREAM_FAILED", message: t("lib.chat.providerUnavailable") })),
     originalMessages: messages,
     messageMetadata: ({ part }) => part.type === "start" ? { documentSources: params.documentSources ?? [] } : undefined,
     onFinish: async ({ responseMessage, isAborted }) => {

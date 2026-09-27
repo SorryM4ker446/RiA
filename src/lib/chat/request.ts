@@ -1,12 +1,12 @@
-import { chatModelSupportsImageInput, resolveModelId } from "@/config/model";
 import { db } from "@/db";
+import { t } from "@/lib/locale";
 import { getLatestUserMessage } from "@/lib/ai/ui-message";
 import { isToolApprovalContinuation } from "@/lib/chat/context";
 import { resolveImageInputs } from "@/lib/media/messages";
 import { ApiError } from "@/lib/server/api-error";
 import { readJsonBody } from "@/lib/server/request-body";
 import { chatRequestSchema } from "@/lib/server/request-schemas";
-import { preferredModel } from "@/lib/models/preferences";
+import { preferredModel, modelInLibrary } from "@/lib/models/preferences";
 import { validateUIMessages, type UIMessage } from "ai";
 
 export async function readChatRequest(req: Request) {
@@ -14,7 +14,8 @@ export async function readChatRequest(req: Request) {
   const messages = await validateUIMessages<UIMessage>({ messages: body.messages }).catch(() => {
     throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid message parts or tool state" });
   });
-  const modelId = resolveModelId(await preferredModel("chat", body.modelId));
+  const modelId = await preferredModel("chat", body.modelId);
+  const model = await modelInLibrary("chat", modelId);
   const latestUserMessage = getLatestUserMessage(messages);
   const isApprovalResume = isToolApprovalContinuation(messages);
   const requestedChatId = body.chatId ?? body.conversationId ?? body.id;
@@ -30,13 +31,19 @@ export async function readChatRequest(req: Request) {
     if (files.length) await resolveImageInputs(files);
   }
 
-  if (latestUserMessage?.files.length && !chatModelSupportsImageInput(modelId)) {
+  if (latestUserMessage?.files.length && !model?.supportsImageInput) {
     throw new ApiError({
       code: "VALIDATION_ERROR",
-      message: `当前聊天模型 ${modelId} 不支持图片输入，请切换到支持视觉的模型。`,
+      message: `${t("lib.models.chatPrefix")} ${modelId} ${t("lib.models.chatNoImageSwitch")}`,
+    });
+  }
+  if (isApprovalResume && !model?.supportsTools) {
+    throw new ApiError({
+      code: "VALIDATION_ERROR",
+      message: `${t("lib.models.chatPrefix")} ${modelId} ${t("lib.models.chatNoToolsApproval")}`,
     });
   }
 
-  return { body, messages, modelId, latestUserMessage, isApprovalResume, requestedChatId };
+  return { body, messages, modelId, model, latestUserMessage, isApprovalResume, requestedChatId };
 }
 export type ChatRequest = Awaited<ReturnType<typeof readChatRequest>>;

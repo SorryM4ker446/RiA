@@ -2,8 +2,10 @@ import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { generateText, Output, type ToolSet } from "ai";
 import { z } from "zod";
 import { ApiError, normalizeApiError } from "@/lib/server/api-error";
-import { resolveModelId } from "@/config/model";
 import { getChatModel } from "@/lib/ai/client";
+import { t, tf, formatDateTime } from "@/lib/locale";
+import { saveMemory } from "@/lib/memory/store";
+import { preferredModel } from "@/lib/models/preferences";
 import {
   SEARCH_ANSWER_OUTPUT,
   SEARCH_ANSWER_SYSTEM,
@@ -102,17 +104,27 @@ export type ToolMemoryPolicy<Input, Output> = {
 type ToolDescriptor<Input = unknown, Output = unknown> = {
   id: string;
   displayName: string;
+  /** Interface copy, rendered under the tool picker. Stays in the UI language. */
   description: string;
+  /**
+   * Model-facing description, English by design.
+   *
+   * This is the only text the chat model gets for choosing between tools, so
+   * it carries the whole decision: what the tool does, and when not to reach
+   * for it. Keep the "do not use when" clause explicit — without a separate
+   * intent classifier, the description is the only brake against firing a
+   * tool on an ordinary question.
+   *
+   * Reply language is decided separately by the system prompt, which tells the
+   * model to match the language the user wrote in.
+   */
+  modelDescription: string;
   modeSupport: ToolMode[];
   manual: ManualToolMeta;
-  auto: {
-    enabled: boolean;
-    intentHint: string;
-    examples?: string[];
-    resultBudget?: {
-      inputKey: string;
-      maxPerTurn: number;
-    };
+  /** Caps how many results one turn may pull, to bound cost and latency. */
+  resultBudget?: {
+    inputKey: string;
+    maxPerTurn: number;
   };
   inputSchema: z.ZodType<Input>;
   requiresApproval?: boolean;
@@ -131,25 +143,24 @@ export type PublicToolCatalogItem = {
   description: string;
   modeSupport: ToolMode[];
   manual: ManualToolMeta;
-  auto: {
-    enabled: boolean;
-    intentHint: string;
-    examples?: string[];
-    resultBudget?: {
-      inputKey: string;
-      maxPerTurn: number;
-    };
+  resultBudget?: {
+    inputKey: string;
+    maxPerTurn: number;
   };
 };
 
 function buildSearchFallbackText(result: Awaited<ReturnType<typeof searchKnowledge>>): string {
   if (result.total === 0 || result.results.length === 0) {
-    return `我在当前知识库里没有找到和“${result.query}”直接相关的内容。`;
+    return tf("tools.searchKnowledge.noResults", { query: result.query });
   }
 
   const top = result.results[0];
-  const sourceLabel = top.source === "document" ? `根据文档《${top.title}》` : top.source === "memory" ? "根据你的知识库记忆" : "根据内置知识";
-  return `${sourceLabel}，${top.snippet}`;
+  const sourceLabel = top.source === "document"
+    ? tf("tools.searchKnowledge.sourceDocument", { title: top.title })
+    : top.source === "memory"
+      ? t("tools.searchKnowledge.sourceMemory")
+      : t("tools.searchKnowledge.sourceBuiltin");
+  return `${sourceLabel}${t("tools.searchKnowledge.sourceSeparator")}${top.snippet}`;
 }
 
 async function buildSearchAssistantText(params: {
@@ -172,13 +183,14 @@ async function buildSearchAssistantText(params: {
   }));
 
   try {
+    const selectedModel = await preferredModel("chat", modelId);
     const answer = await generateText({
-      model: getChatModel(resolveModelId(modelId)),
+      model: getChatModel(selectedModel),
       system: SEARCH_ANSWER_SYSTEM,
       prompt: [
-        `用户问题：${result.query}`,
+        `User question: ${result.query}`,
         "",
-        "知识库检索结果（按相关性排序）：",
+        "Knowledge-base retrieval results (ordered by relevance):",
         JSON.stringify(references, null, 2),
         "",
         SEARCH_ANSWER_OUTPUT,
@@ -195,23 +207,30 @@ async function buildSearchAssistantText(params: {
 }
 
 function buildCreateTaskAssistantText(result: Awaited<ReturnType<typeof createTask>>): string {
-  const due = result.dueDate ? `，截止时间 ${new Date(result.dueDate).toLocaleString("zh-CN", { timeZone: result.timeZone })}（${result.timeZone}）` : "";
-  const reminder = result.reminderEnabled ? "，桌面运行时到期提醒" : "";
-  const repeat = result.repeatRule !== "none" ? `，重复规则 ${result.repeatRule}（完成后续建）` : "";
-  return `已创建任务「${result.title}」${due}${reminder}${repeat}，当前状态为 ${result.status}。`;
+  const due = result.dueDate
+    ? tf("tools.createTask.duePrefix", {
+        value: formatDateTime(result.dueDate, { timeZone: result.timeZone }),
+        timeZone: result.timeZone,
+      })
+    : "";
+  const reminder = result.reminderEnabled ? t("tools.createTask.reminderSuffix") : "";
+  const repeat = result.repeatRule !== "none"
+    ? tf("tools.createTask.repeatSuffix", { rule: result.repeatRule })
+    : "";
+  return tf("tools.createTask.created", { title: result.title, due, reminder, repeat, status: result.status });
 }
 
 function buildWebSearchFallbackText(result: Awaited<ReturnType<typeof runWebSearch>>): string {
   const count = Array.isArray(result.results) ? result.results.length : 0;
   if (count === 0) {
-    return `已执行 Web Search，但暂未返回可用结果：${result.query}`;
+    return tf("tools.webSearch.noResults", { query: result.query });
   }
   const references = result.results
     .slice(0, 5)
-    .map((item, index) => `${index + 1}. [${item.title}](${item.url})${item.snippet ? `：${item.snippet}` : ""}`)
+    .map((item, index) => `${index + 1}. [${item.title}](${item.url})${item.snippet ? `${t("tools.webSearch.snippetSeparator")}${item.snippet}` : ""}`)
     .join("\n");
 
-  return [`已完成 Web Search，返回 ${count} 条结果。`, "", "可在下方展开查看搜索来源。", references].join("\n");
+  return [tf("tools.webSearch.completed", { count }), "", t("tools.webSearch.expandHint"), references].join("\n");
 }
 
 async function resolveWebSearchInput(params: {
@@ -234,8 +253,9 @@ async function resolveWebSearchInput(params: {
       : 10;
 
   try {
+    const selectedModel = await preferredModel("chat", params.modelId);
     const { output } = await generateText({
-      model: getChatModel(resolveModelId(params.modelId)),
+      model: getChatModel(selectedModel),
       output: Output.object({
         schema: z.object({
           maxResults: z
@@ -288,13 +308,14 @@ async function buildWebSearchAssistantText(params: {
   }));
 
   try {
+    const selectedModel = await preferredModel("chat", modelId);
     const answer = await generateText({
-      model: getChatModel(resolveModelId(modelId)),
+      model: getChatModel(selectedModel),
       system: WEB_ANSWER_SYSTEM,
       prompt: [
-        `用户问题：${result.query}`,
+        `User question: ${result.query}`,
         "",
-        "Web Search 结果（按相关性排序）：",
+        "Web search results (ordered by relevance):",
         JSON.stringify(references, null, 2),
         "",
         ...WEB_ANSWER_OUTPUT,
@@ -310,19 +331,64 @@ async function buildWebSearchAssistantText(params: {
   return buildWebSearchFallbackText(result);
 }
 
+const saveMemoryInputSchema = z.strictObject({
+  key: z.string().min(1).max(200).describe("Short stable handle for the fact, reused to update it later."),
+  value: z.string().min(1).max(4000).describe("The fact itself, in the user's own words."),
+});
+
 const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
-  searchKnowledge: {
-    id: "searchKnowledge",
-    displayName: "知识检索",
-    description: "检索已导入的文档、知识记忆和内置知识，并返回可引用结果。",
+  saveMemory: {
+    id: "saveMemory",
+    displayName: t("tools.saveMemory.displayName"),
+    description: t("tools.saveMemory.description"),
+    modelDescription:
+      "Store one durable fact about the user so future conversations can act on it: a name, a preference, a constraint, a standing instruction. Use it when the user states something they want kept, such as \"remember that ...\" or \"my name is ...\", in any language. Do not use it for passing information, for conversation-specific context, or for anything the user did not ask you to keep.",
     modeSupport: ["chat"],
     manual: {
       enabled: true,
-      label: "手动：知识检索",
-      placeholder: "输入要检索的关键词...（Enter 手动触发）",
-      submitLabel: "执行工具",
+      label: t("tools.saveMemory.manualLabel"),
+      placeholder: t("tools.saveMemory.placeholder"),
+      submitLabel: t("tools.common.submitLabel"),
+      primaryFieldKey: "value",
+      primaryFieldLabel: t("tools.saveMemory.primaryFieldLabel"),
+      fields: [
+        {
+          key: "key",
+          label: t("tools.saveMemory.keyLabel"),
+          type: "text",
+          required: true,
+          defaultValue: "user_memory",
+        },
+      ],
+    },
+    inputSchema: saveMemoryInputSchema,
+    execute: async ({ input }) => saveMemory({ key: input.key, value: input.value, score: 0.9 }),
+    buildAssistantText: ({ output, input }) => {
+      const result = output as { key: string };
+      return tf("tools.saveMemory.saved", { key: result.key, value: input.value });
+    },
+    memory: {
+      // The tool's whole job is already to write a memory, so recording the
+      // fact again through the tool-memory policy would duplicate it.
+      enabled: false,
+      minQuality: 1,
+      summarize: () => null,
+    },
+  },
+  searchKnowledge: {
+    id: "searchKnowledge",
+    displayName: t("tools.searchKnowledge.displayName"),
+    description: t("tools.searchKnowledge.description"),
+    modelDescription:
+      "Search imported documents, stored knowledge memory, and built-in knowledge; returns citable results. Use it when the user asks what the project already knows, imports, or records about a topic. Do not use it for general knowledge, opinions, or anything answerable without the workspace.",
+    modeSupport: ["chat"],
+    manual: {
+      enabled: true,
+      label: t("tools.searchKnowledge.manualLabel"),
+      placeholder: t("tools.searchKnowledge.placeholder"),
+      submitLabel: t("tools.common.submitLabel"),
       primaryFieldKey: "query",
-      primaryFieldLabel: "检索词",
+      primaryFieldLabel: t("tools.searchKnowledge.primaryFieldLabel"),
       fields: [
         {
           key: "topK",
@@ -333,15 +399,6 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
           step: 1,
           defaultValue: "4",
         },
-      ],
-    },
-    auto: {
-      enabled: true,
-      intentHint: "当用户明确要求检索项目知识/资料/信息时使用。",
-      examples: [
-        "查一下我的知识库里有没有这方面记录",
-        "从已有知识里找一下这个关键词",
-        "检索项目资料并总结",
       ],
     },
     inputSchema: searchKnowledgeInputSchema,
@@ -362,8 +419,8 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
 
         const summary =
           result.results.length === 1
-            ? `查询「${input.query}」命中 1 条：${best.title}（${best.source}）`
-            : `查询「${input.query}」命中 ${result.total} 条，首条为 ${best.title}（${best.source}）`;
+            ? tf("tools.searchKnowledge.hitOne", { query: input.query, title: best.title, source: best.source })
+            : tf("tools.searchKnowledge.hitMany", { query: input.query, total: result.total, title: best.title, source: best.source });
 
         return {
           seed: input.query,
@@ -377,27 +434,29 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
   },
   createTask: {
     id: "createTask",
-    displayName: "创建任务",
-    description: "为当前用户创建任务，支持截止时间、IANA timeZone（默认 UTC）、reminderEnabled 桌面到期提醒和 repeatRule（none/daily/weekly/monthly，完成后续建）。提醒和重复都需要 dueDate；无偏移时间按 timeZone 解释。",
+    displayName: t("tools.createTask.displayName"),
+    description: t("tools.createTask.description"),
+    modelDescription:
+      "Create a task for the current user. Supports a due date, an IANA timeZone (default UTC), reminderEnabled for desktop due reminders, and repeatRule (none/daily/weekly/monthly, where each repeat is created after the previous one completes). Both reminders and repeats require dueDate; a time without an offset is interpreted in timeZone. Use it only when the user wants something tracked or scheduled. Do not use it to answer a question, and never create a task the user did not ask for.",
     modeSupport: ["chat"],
     requiresApproval: true,
     manual: {
       enabled: true,
-      label: "手动：创建任务",
-      placeholder: "输入任务标题...（Enter 手动触发）",
-      submitLabel: "执行工具",
+      label: t("tools.createTask.manualLabel"),
+      placeholder: t("tools.createTask.placeholder"),
+      submitLabel: t("tools.common.submitLabel"),
       primaryFieldKey: "title",
-      primaryFieldLabel: "任务标题",
+      primaryFieldLabel: t("tools.createTask.primaryFieldLabel"),
       fields: [
         {
           key: "details",
-          label: "任务详情",
+          label: t("tools.createTask.detailLabel"),
           type: "text",
-          placeholder: "任务详情（可选）",
+          placeholder: t("tools.createTask.detailPlaceholder"),
         },
         {
           key: "priority",
-          label: "优先级",
+          label: t("tools.createTask.priorityLabel"),
           type: "select",
           defaultValue: "medium",
           options: [
@@ -408,18 +467,9 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
         },
         {
           key: "dueDate",
-          label: "截止时间",
+          label: t("tools.createTask.dueLabel"),
           type: "datetime-local",
         },
-      ],
-    },
-    auto: {
-      enabled: true,
-      intentHint: "当用户明确要求创建任务、待办或提醒事项时使用。",
-      examples: [
-        "帮我创建一个待办",
-        "把这件事加入任务",
-        "记录一个明天要做的任务",
       ],
     },
     inputSchema: createTaskInputSchema,
@@ -433,11 +483,11 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
         if (!result.taskId) return null;
 
         const summary = [
-          `任务「${result.title}」已创建`,
+          tf("tools.createTask.memorySummary", { title: result.title }),
           `status=${result.status}`,
           `priority=${result.priority}`,
           result.dueDate ? `due=${result.dueDate}` : "due=none",
-        ].join("，");
+        ].join(t("tools.createTask.memoryJoin"));
 
         return {
           seed: result.taskId,
@@ -452,40 +502,32 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
   webSearch: {
     id: "webSearch",
     displayName: "Web Search",
-    description: "通过网络搜索获取外部信息。",
+    description: t("tools.webSearch.description"),
+    modelDescription:
+      "Retrieve external information through web search. Use it when the answer depends on facts outside this workspace: current events, external facts, web sources, links, or anything the user expects to be looked up. Do not use it for questions you can answer from general knowledge, and prefer the knowledge base when the answer is already stored there.",
     modeSupport: ["chat"],
     manual: {
       enabled: true,
-      label: "手动：Web 搜索",
-      placeholder: "输入要搜索的关键词...（Enter 手动触发）",
-      submitLabel: "执行工具",
+      label: t("tools.webSearch.manualLabel"),
+      placeholder: t("tools.webSearch.placeholder"),
+      submitLabel: t("tools.common.submitLabel"),
       primaryFieldKey: "query",
-      primaryFieldLabel: "搜索词",
+      primaryFieldLabel: t("tools.webSearch.primaryFieldLabel"),
       fields: [
         {
           key: "maxResults",
-          label: "结果数（可空）",
+          label: t("tools.webSearch.resultCountLabel"),
           type: "number",
           min: 1,
           max: 10,
           step: 1,
-          placeholder: "留空由模型决定",
+          placeholder: t("tools.createTask.priorityPlaceholder"),
         },
       ],
     },
-    auto: {
-      enabled: true,
-      intentHint: "当用户明确要求联网、搜索、查询最新信息、外部事实、网页来源、链接或实时资料时使用。",
-      resultBudget: {
-        inputKey: "maxResults",
-        maxPerTurn: 10,
-      },
-      examples: [
-        "联网搜索并评价这个游戏",
-        "帮我查一下最新消息",
-        "找几个外部来源对比一下",
-        "搜索网页资料并给我结论",
-      ],
+    resultBudget: {
+      inputKey: "maxResults",
+      maxPerTurn: 10,
     },
     inputSchema: webSearchInput,
     prepareInput: ({ input, modelId, trigger, remainingResultBudget, signal }) =>
@@ -523,7 +565,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
 
         return {
           seed: input.query,
-          summary: `Web 搜索「${input.query}」返回 ${count} 条结果。`,
+          summary: tf("tools.webSearch.memorySummary", { query: input.query, count }),
           quality: Math.min(0.9, 0.45 + count * 0.05),
           score: 0.6,
           tags: ["web-search"],
@@ -543,10 +585,6 @@ export function listToolDescriptors(mode?: ToolMode): AnyToolDescriptor[] {
   return tools.filter((tool) => tool.modeSupport.includes(mode));
 }
 
-export function listAutoToolDescriptors(mode: ToolMode): AnyToolDescriptor[] {
-  return listToolDescriptors(mode).filter((tool) => tool.auto.enabled);
-}
-
 export function listPublicToolCatalog(mode?: ToolMode): PublicToolCatalogItem[] {
   return listToolDescriptors(mode).map((tool) => ({
     id: tool.id,
@@ -554,7 +592,7 @@ export function listPublicToolCatalog(mode?: ToolMode): PublicToolCatalogItem[] 
     description: tool.description,
     modeSupport: tool.modeSupport,
     manual: tool.manual,
-    auto: tool.auto,
+    resultBudget: tool.resultBudget,
   }));
 }
 
@@ -607,7 +645,7 @@ export function createChatToolSet(options?: { modelId?: string; toolIds?: string
   const entries = descriptors.map((tool) => [
     tool.id,
     {
-      description: tool.description,
+      description: tool.modelDescription,
       inputSchema: tool.inputSchema,
       ...(tool.requiresApproval ? { needsApproval: true } : {}),
       execute: async (input: unknown, callOptions?: { abortSignal?: AbortSignal }) => {
@@ -617,7 +655,7 @@ export function createChatToolSet(options?: { modelId?: string; toolIds?: string
         const signal = callOptions?.abortSignal;
         try {
           enforceRateLimit("tools");
-          const budget = tool.auto.resultBudget;
+          const budget = tool.resultBudget;
           const usedBudget = resultBudgetUsed.get(tool.id) ?? 0;
           const remainingResultBudget = budget ? budget.maxPerTurn - usedBudget : undefined;
           if (budget && typeof remainingResultBudget === "number" && remainingResultBudget <= 0) {

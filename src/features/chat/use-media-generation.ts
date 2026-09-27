@@ -1,6 +1,6 @@
-import { type SupportedImageModelId, type SupportedVideoModelId } from "@/config/model";
 import { dedupeFiles, encodeImageMessage, encodeVideoMessage, type ModelMode, type UploadableFilePart } from "@/features/chat/page-utils";
 import { encodePersistedUserMessage } from "@/lib/ai/ui-message";
+import { t } from "@/lib/locale";
 import { attachmentValidationError } from "@/lib/media/limits";
 import type { UIMessage } from "ai";
 import type { Dispatch, RefObject, SetStateAction } from "react";
@@ -22,14 +22,14 @@ type Options = {
   loadChats: (options?: { silent?: boolean }) => Promise<void>;
   setPageError: Dispatch<SetStateAction<string | null>>;
   modelMode: ModelMode;
-  selectedImageModel: SupportedImageModelId;
-  selectedVideoModel: SupportedVideoModelId;
+  selectedImageModel: string | null;
+  selectedVideoModel: string | null;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
 };
 
 type GenerationOptions = Pick<Options, "ensureActiveChatId" | "loadChats" | "setPageError"> & {
   kind: "image" | "video";
-  modelId: string;
+  modelId: string | null;
   content: string;
   uploadParts: UploadableFilePart[];
   getView: () => MediaView;
@@ -42,14 +42,15 @@ type GenerationOptions = Pick<Options, "ensureActiveChatId" | "loadChats" | "set
 // The request owns its chat ID; only the currently committed view owns UI setters.
 // Keep this operation separate from React so deferred network races are testable.
 export async function runMediaGeneration({ kind, modelId, content, uploadParts, getView, isOriginView, ensureActiveChatId, loadChats, setPageError, setAsset, clearAttachments, setGenerating }: GenerationOptions) {
-  const label = kind === "image" ? "图片" : "视频";
+  if (!modelId) throw new Error(t("mediaGen.needModel"));
+  const label = kind === "image" ? t("mediaGen.kindImage") : t("mediaGen.kindVideo");
   setGenerating(true);
   try {
     let chatId: string;
     try {
-      chatId = await ensureActiveChatId(content || `${label}生成`, isOriginView);
+      chatId = await ensureActiveChatId(content || `${label}${t("mediaGen.defaultTitleSuffix")}`, isOriginView);
     } catch (error) {
-      if (isOriginView()) setPageError(error instanceof Error ? error.message : "创建会话失败");
+      if (isOriginView()) setPageError(error instanceof Error ? error.message : t("chatApi.createConversationFailed"));
       return;
     }
     const userMessage: UIMessage = {
@@ -57,7 +58,7 @@ export async function runMediaGeneration({ kind, modelId, content, uploadParts, 
       parts: [...(content ? [{ type: "text" as const, text: content }] : []), ...uploadParts],
     };
     const assistantMessage: UIMessage = {
-      id: crypto.randomUUID(), role: "assistant", parts: [{ type: "text", text: `正在生成${label}...` }],
+      id: crypto.randomUUID(), role: "assistant", parts: [{ type: "text", text: `${t("mediaGen.generatingPrefix")}${label}...` }],
     };
     function publish(text: string, url?: string) {
       const view = getView();
@@ -74,14 +75,14 @@ export async function runMediaGeneration({ kind, modelId, content, uploadParts, 
       });
       if (url) setAsset(assistantMessage.id, url);
     }
-    publish(`正在生成${label}...`);
+    publish(`${t("mediaGen.generatingPrefix")}${label}...`);
     try {
       await persistConversationMessage({
         chatId, role: "user", clientMessageId: userMessage.id,
         content: uploadParts.length ? encodePersistedUserMessage({ type: "user-message", text: content, files: uploadParts.map(({ url, mediaType, filename }) => ({ url, mediaType, ...(filename ? { filename } : {}) })) }) : content,
       });
       const payload = await chatApi.generateMedia(kind, content, modelId, uploadParts, chatId);
-      const text = `${label}生成完成 · ${payload.modelId ?? modelId}`;
+      const text = `${label}${t("mediaGen.completedSuffix")} · ${payload.modelId ?? modelId}`;
       const result = { assetId: payload.asset.assetId, relativePath: payload.asset.relativePath, mediaType: payload.asset.mediaType, modelId: payload.modelId ?? modelId, text };
       await persistConversationMessage({
         chatId, role: "assistant", clientMessageId: assistantMessage.id,
@@ -95,7 +96,7 @@ export async function runMediaGeneration({ kind, modelId, content, uploadParts, 
       await loadChats({ silent: true });
       if (isOriginView()) clearAttachments();
     } catch (error) {
-      const text = `${label}生成失败，请稍后重试。`;
+      const text = `${label}${t("mediaGen.failedSuffix")}`;
       try {
         await persistConversationMessage({ chatId, role: "assistant", content: text, clientMessageId: assistantMessage.id, status: "error" });
         const view = getView();
@@ -105,7 +106,7 @@ export async function runMediaGeneration({ kind, modelId, content, uploadParts, 
         // Keep the failure visible even if persistence is unavailable.
       }
       publish(text);
-      if (isOriginView()) setPageError(error instanceof Error ? error.message : `${label}生成失败`);
+      if (isOriginView()) setPageError(error instanceof Error ? error.message : `${label}${t("mediaGen.failedShortSuffix")}`);
     }
   } finally {
     setGenerating(false);
@@ -127,15 +128,15 @@ export function useMediaGeneration({ activeChatId, isHistoryReady, setMessages, 
     if (viewRef.current.chatId !== activeChatId) viewVersionRef.current += 1;
     viewRef.current = { chatId: activeChatId, ready: isHistoryReady, setMessages, reloadMessages };
   });
-  const attachmentNames = attachments.map((file) => file.name || "未命名文件");
-  const reuseImageActionLabel = modelMode === "image" ? "继续编辑" : modelMode === "chat" ? "带图追问" : "用作视频参考";
+  const attachmentNames = attachments.map((file) => file.name || t("mediaGen.untitledFile"));
+  const reuseImageActionLabel = modelMode === "image" ? t("mediaGen.reuseEdit") : modelMode === "chat" ? t("mediaGen.reuseAsk") : t("mediaGen.reuseVideoRef");
   function clearAttachments() {
     setAttachments([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
   function appendAttachments(nextFiles: File[]) {
     const combined = dedupeFiles([...attachments, ...nextFiles]);
-    const validation = attachmentValidationError(combined) || (modelMode === "video" && combined.length > 1 ? "视频生成最多使用 1 个参考图。" : null);
+    const validation = attachmentValidationError(combined) || (modelMode === "video" && combined.length > 1 ? t("mediaGen.videoReferenceLimit") : null);
     if (validation) { setPageError(validation); return; }
     setAttachments(combined);
   }
@@ -151,7 +152,7 @@ export function useMediaGeneration({ activeChatId, isHistoryReady, setMessages, 
       appendAttachments([new File([blob], `${params.filenameBase}.${extension}`, { type: mediaType, lastModified: Date.now() })]);
       textareaRef.current?.focus();
     } catch (error) {
-      if (version === viewVersionRef.current) setPageError(error instanceof Error ? error.message : "加入图片附件失败");
+      if (version === viewVersionRef.current) setPageError(error instanceof Error ? error.message : t("mediaGen.attachImageFailed"));
     } finally {
       setAttachingImageKey((current) => current === params.key ? null : current);
     }

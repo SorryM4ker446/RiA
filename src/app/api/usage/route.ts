@@ -4,7 +4,8 @@ import { currentWorkspaceId, requireLocalWorkspace } from "@/lib/local/workspace
 import { createApiErrorResponse } from "@/lib/server/api-error";
 import { protectDataOperation } from "@/lib/server/data-operations";
 import { usageSummary } from "@/lib/models/usage";
+import { t } from "@/lib/locale";
 export const GET = protectDataOperation(async (req: NextRequest) => {
   try { await requireLocalWorkspace(req); z.strictObject({}).parse(Object.fromEntries(req.nextUrl.searchParams)); return Response.json({ data: await usageSummary() }, { headers: { "Cache-Control": "private, no-store" } }); }
-  catch (error) { return createApiErrorResponse(error, "读取用量失败。"); }
+  catch (error) { return createApiErrorResponse(error, t("api.usage.readFailed")); }
 });

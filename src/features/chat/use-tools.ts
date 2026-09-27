@@ -1,6 +1,6 @@
-import { type SupportedModelId } from "@/config/model";
 import { ModelMode } from "@/features/chat/page-utils";
 import { encodePersistedAssistantToolMessage } from "@/lib/ai/ui-message";
+import { t } from "@/lib/locale";
 import { UIMessage } from "ai";
 import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useState } from "react";
@@ -8,7 +8,7 @@ import { chatApi, persistConversationMessage } from "@/features/chat/api-client"
 import { buildDefaultManualFieldValues } from "@/features/chat/tool-input";
 import type { ManualToolFieldValues, ManualToolSelection, TaskStatusFilter, ToolCatalogItem } from "@/features/chat/types";
 import type { useTasks } from "@/features/chat/use-tasks";
-type Options = { setMessages: Dispatch<SetStateAction<UIMessage[]>>; ensureActiveChatId: (title: string) => Promise<string>; loadChats: () => Promise<void>; selectedChatModel: SupportedModelId; modelMode: ModelMode; selectedManualTool: ManualToolSelection; setSelectedManualTool: Dispatch<SetStateAction<ManualToolSelection>>; loadTasks: ReturnType<typeof useTasks>["loadTasks"]; taskStatusFilter: TaskStatusFilter; };
+type Options = { setMessages: Dispatch<SetStateAction<UIMessage[]>>; ensureActiveChatId: (title: string) => Promise<string>; loadChats: () => Promise<void>; selectedChatModel: string | null; modelMode: ModelMode; selectedManualTool: ManualToolSelection; setSelectedManualTool: Dispatch<SetStateAction<ManualToolSelection>>; loadTasks: ReturnType<typeof useTasks>["loadTasks"]; taskStatusFilter: TaskStatusFilter; };
 export function useTools({ setMessages, ensureActiveChatId, loadChats, selectedChatModel, modelMode, selectedManualTool, setSelectedManualTool, loadTasks, taskStatusFilter }: Options) {
   const [availableTools, setAvailableTools] = useState<ToolCatalogItem[]>([]);
   const [toolCatalogError, setToolCatalogError] = useState<string | null>(null);
@@ -37,7 +37,7 @@ export function useTools({ setMessages, ensureActiveChatId, loadChats, selectedC
       setToolCatalogError(null);
     } catch (error) {
       setAvailableTools([]);
-      setToolCatalogError(error instanceof Error ? error.message : "读取工具目录失败");
+      setToolCatalogError(error instanceof Error ? error.message : t("chatApi.listToolsFailed"));
     } finally {
       setHasLoadedToolCatalog(true);
     }
@@ -48,7 +48,8 @@ export function useTools({ setMessages, ensureActiveChatId, loadChats, selectedC
     input: Record<string, unknown>;
     userVisibleText: string;
   }) {
-    const chatId = await ensureActiveChatId(params.userVisibleText || `手动工具调用: ${params.tool}`);
+    if (!selectedChatModel) throw new Error(t("tools.needChatModel"));
+    const chatId = await ensureActiveChatId(params.userVisibleText || `${t("tools.manualCallTitlePrefix")} ${params.tool}`);
     const userMessageId = crypto.randomUUID();
     const assistantMessageId = crypto.randomUUID();
     const toolCallId = crypto.randomUUID();
@@ -57,14 +58,14 @@ export function useTools({ setMessages, ensureActiveChatId, loadChats, selectedC
     const userMessage: UIMessage = {
       id: userMessageId,
       role: "user",
-      parts: [{ type: "text", text: params.userVisibleText || `手动调用工具 ${params.tool}` }],
+      parts: [{ type: "text", text: params.userVisibleText || `${t("tools.manualCallTextPrefix")} ${params.tool}` }],
     };
 
     const pendingAssistantMessage: UIMessage = {
       id: assistantMessageId,
       role: "assistant",
       parts: [
-        { type: "text", text: `正在执行 ${params.tool}...` },
+        { type: "text", text: `${t("tools.runningPrefix")} ${params.tool}...` },
         {
           type: toolType,
           toolCallId,
@@ -81,7 +82,7 @@ export function useTools({ setMessages, ensureActiveChatId, loadChats, selectedC
       await persistConversationMessage({
         chatId,
         role: "user",
-        content: params.userVisibleText || `手动调用工具 ${params.tool}`,
+        content: params.userVisibleText || `${t("tools.manualCallTextPrefix")} ${params.tool}`,
         clientMessageId: userMessageId,
       });
 
@@ -89,7 +90,7 @@ export function useTools({ setMessages, ensureActiveChatId, loadChats, selectedC
       const summary =
         typeof payload.assistantText === "string" && payload.assistantText.trim()
           ? payload.assistantText.trim()
-          : `已完成工具「${params.tool}」调用。`;
+          : `${t("tools.completedPrefix")}${params.tool}${t("tools.completedSuffix")}`;
 
       setMessages((prev) =>
         prev.map((message) =>
@@ -136,14 +137,14 @@ export function useTools({ setMessages, ensureActiveChatId, loadChats, selectedC
 
       await loadChats();
     } catch (error) {
-      const errorText = error instanceof Error ? error.message : `${params.tool} 执行失败`;
+      const errorText = error instanceof Error ? error.message : `${params.tool} ${t("chatApi.runToolFailed")}`;
       setMessages((prev) =>
         prev.map((message) =>
           message.id === assistantMessageId
             ? {
               ...message,
               parts: [
-                { type: "text", text: "工具执行失败。" },
+                { type: "text", text: t("tools.failedText") },
                 {
                   type: toolType,
                   toolCallId,
@@ -163,7 +164,7 @@ export function useTools({ setMessages, ensureActiveChatId, loadChats, selectedC
           role: "assistant",
           content: encodePersistedAssistantToolMessage({
             type: "assistant-tool-message",
-            text: "工具执行失败。",
+            text: t("tools.failedText"),
             tools: [
               {
                 toolName: params.tool,
@@ -224,4 +225,3 @@ export function useTools({ setMessages, ensureActiveChatId, loadChats, selectedC
     manualToolSelectValue, isManualToolSelected, runManualTool,
   };
 }
-

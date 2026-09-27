@@ -1,3 +1,5 @@
+import { t } from "@/lib/locale";
+
 export const TASK_REPEAT_RULES = ["none", "daily", "weekly", "monthly"] as const;
 export type TaskRepeatRule = (typeof TASK_REPEAT_RULES)[number];
 
@@ -40,22 +42,22 @@ function fromWallTime(wall: number, timeZone: string, allowGap: boolean): Date {
     const later = candidates.find(instant => wallTime(new Date(instant), timeZone) > wall);
     if (later !== undefined) return new Date(later);
   }
-  throw new Error("该时区不存在这个本地时间，请避开夏令时跳转时刻。");
+  throw new Error(t("lib.tasks.localTimeMissing"));
 }
 
 export function parseTaskDueDate(value: string | null | undefined, timeZone: string): Date | null {
   if (!value?.trim()) return null;
-  if (!isTaskTimeZone(timeZone)) throw new Error("无效的 IANA 时区。");
+  if (!isTaskTimeZone(timeZone)) throw new Error(t("lib.tasks.invalidTimeZone"));
   const match = /^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2})(?::(\d{2})(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})?)?$/.exec(value.trim());
-  if (!match) throw new Error("截止时间需要 ISO 日期或本地日期时间。");
+  if (!match) throw new Error(t("lib.tasks.dueDateFormat"));
   const local = `${match[1]}T${match[2] ?? "00:00"}:${match[3] ?? "00"}`;
   const wall = Date.parse(`${local}Z`);
   if (!Number.isFinite(wall) || new Date(wall).toISOString().slice(0, 19) !== local || +match[1].slice(0, 4) < 1) {
-    throw new Error("无效的截止时间。");
+    throw new Error(t("lib.tasks.invalidDueDate"));
   }
   if (match[5]) {
     const instant = new Date(`${local}${match[4] ?? ""}${match[5]}`);
-    if (!Number.isFinite(instant.getTime())) throw new Error("无效的时间偏移量。");
+    if (!Number.isFinite(instant.getTime())) throw new Error(t("lib.tasks.invalidOffset"));
     return instant;
   }
   return new Date(fromWallTime(wall, timeZone, false).getTime() + Number(match[4] ?? 0) * 1000);
@@ -90,5 +92,5 @@ export function nextTaskDueDate(anchor: Date, current: Date, rule: TaskRepeatRul
     const next = fromWallTime(candidate.getTime(), timeZone, true);
     if (next.getTime() > after) return next;
   }
-  throw new Error("无法计算下一次截止时间，请调整重复规则或日期。");
+  throw new Error(t("lib.tasks.noNextDueDate"));
 }

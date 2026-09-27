@@ -1,4 +1,5 @@
 import { UIMessage } from "ai";
+import { t } from "@/lib/locale";
 import type { SearchSourceItem, TaskItem } from "@/features/chat/types";
 import { documentSourceSchema, type DocumentSource } from "@/lib/documents/types";
 
@@ -22,9 +23,13 @@ export function resolveMessageSourceTag(params: {
   toolParts: Array<Extract<UIMessage["parts"][number], { type: `tool-${string}` }>>;
 }): { label: string; variant: "outline" | "success" | "secondary" } | null {
   const { role, toolParts } = params;
+  // A shared lead-in keeps one copy of the source label, so a translator can
+  // move the qualifier without rewriting all six variants. The E2E suite
+  // matches these rendered strings exactly, so the parts must stay adjacent.
+  const source = (qualifier: Parameters<typeof t>[0]) => `${t("chatMsg.sourcePrefix")}${t(qualifier)}`;
 
   if (role === "system") {
-    return { label: "来源：系统", variant: "secondary" };
+    return { label: source("chatMsg.sourceSystem"), variant: "secondary" };
   }
 
   if (role !== "assistant") {
@@ -32,32 +37,34 @@ export function resolveMessageSourceTag(params: {
   }
 
   if (toolParts.length === 0) {
-    return { label: "来源：上下文推理", variant: "outline" };
+    return { label: source("chatMsg.sourceContext"), variant: "outline" };
   }
 
   const toolNames = new Set(toolParts.map((part) => part.type.replace(/^tool-/, "")));
   if (toolNames.has("webSearch")) {
-    return { label: "来源：搜索工具 + 模型推理", variant: "success" };
+    return { label: source("chatMsg.sourceWebSearch"), variant: "success" };
   }
   if (toolNames.has("searchKnowledge")) {
-    return { label: "来源：知识库工具 + 模型推理", variant: "success" };
+    return { label: source("chatMsg.sourceKnowledge"), variant: "success" };
   }
   if (toolNames.has("createTask")) {
-    return { label: "来源：任务工具结果", variant: "success" };
+    return { label: source("chatMsg.sourceTask"), variant: "success" };
   }
-  return { label: "来源：工具结果", variant: "success" };
+  return { label: source("chatMsg.sourceTool"), variant: "success" };
 }
 
+// These are the same three words the task panel filter and status select already
+// show, so one status can never be spelled two different ways in the UI.
 export function formatTaskStatus(status: TaskItem["status"]): string {
-  if (status === "todo") return "待处理";
-  if (status === "in_progress") return "进行中";
-  return "已完成";
+  if (status === "todo") return t("chat.tasks.statusTodo");
+  if (status === "in_progress") return t("chat.tasks.statusInProgress");
+  return t("chat.tasks.statusDone");
 }
 
 export function formatTaskPriority(priority: TaskItem["priority"]): string {
-  if (priority === "high") return "高";
-  if (priority === "medium") return "中";
-  return "低";
+  if (priority === "high") return t("chatMsg.priorityHigh");
+  if (priority === "medium") return t("chatMsg.priorityMedium");
+  return t("chatMsg.priorityLow");
 }
 
 export function getWebSearchSources(

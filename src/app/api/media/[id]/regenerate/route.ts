@@ -8,19 +8,20 @@ import { readJsonBody } from "@/lib/server/request-body";
 import { getMediaDetail } from "@/lib/media/library";
 import { generateStoredMedia } from "@/lib/media/generation";
 import { mediaUrl } from "@/lib/media/message-codec";
+import { t } from "@/lib/locale";
 async function POSTHandler(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     await requireLocalWorkspace(req); enforceRateLimit("mediaRegeneration");
     z.strictObject({ confirm: z.literal(true) }).parse(await readJsonBody(req, 16 * 1024));
     const detail = await getMediaDetail((await context.params).id);
-    if (detail.regenerationUnavailable || !detail.generation) throw new ApiError({ code: "CONFLICT", message: detail.regenerationUnavailable ?? "生成参数不可用。" });
+    if (detail.regenerationUnavailable || !detail.generation) throw new ApiError({ code: "CONFLICT", message: detail.regenerationUnavailable ?? t("api.media.regenerationParamsUnavailable") });
     const recipe = detail.generation;
     enforceRateLimit(recipe.type);
     const inputs = recipe.inputImages.map(image => ({ url: mediaUrl(image.assetId), mediaType: image.mediaType }));
     const body = { prompt: recipe.prompt, modelId: recipe.modelId, ...(detail.sourceChat ? { chatId: detail.sourceChat.id } : {}),
       ...(recipe.type === "image" ? { inputImages: inputs } : { inputImage: inputs[0], aspectRatio: recipe.aspectRatio, duration: recipe.duration, fps: recipe.fps }) };
     return Response.json(await generateStoredMedia(recipe.type, body, req.signal, false), { status: 201, headers: { "Cache-Control": "private, no-store" } });
-  } catch (error) { return createApiErrorResponse(error, "重新生成失败，原资源已保留。"); }
+  } catch (error) { return createApiErrorResponse(error, t("api.media.regenerateFailed")); }
 }
 
 export const POST = protectDataOperation(POSTHandler);

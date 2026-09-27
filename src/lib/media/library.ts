@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { db } from "@/db";
-import { isSupportedImageModelId, isSupportedVideoModelId } from "@/config/model";
+import { t } from "@/lib/locale";
 import { ApiError } from "@/lib/server/api-error";
 import { pageResult, readPageOptions } from "@/lib/server/pagination";
 import { getMediaAsset } from "@/lib/media/storage";
 import { mediaUrl } from "@/lib/media/message-codec";
 import { readGenerationRecipe } from "@/lib/media/generation-recipe";
+import { modelInLibrary } from "@/lib/models/preferences";
 
 const filters = z.strictObject({ type: z.enum(["all", "image", "video"]).default("all"), kind: z.enum(["all", "attachment", "generated-image", "generated-video"]).default("all"), usage: z.enum(["all", "referenced", "unused"]).default("all") });
 export async function listMediaLibrary(params: URLSearchParams) {
@@ -41,11 +42,16 @@ export async function getMediaDetail(id: string) {
     db.mediaAsset.findUniqueOrThrow({ where: { id }, select: { _count: { select: { references: true, usedByGenerations: true } } } }),
   ]);
   let regenerationUnavailable: string | null = null;
-  if (!recipe || asset.kind !== `generated-${recipe.type}`) regenerationUnavailable = "此资源没有完整生成参数，无法重新生成。旧资源不会推测参数。";
-  else if (!(recipe.type === "image" ? isSupportedImageModelId(recipe.modelId) : isSupportedVideoModelId(recipe.modelId))) regenerationUnavailable = "原模型已不在当前模型目录中，无法按原参数重新生成。";
+  if (!recipe || asset.kind !== `generated-${recipe.type}`) regenerationUnavailable = t("lib.media.regenerateNoRecipe");
   else {
-    const ids = [...new Set(recipe.inputImages.map(image => image.assetId))];
-    if (await db.mediaAsset.count({ where: { id: { in: ids }, deletedAt: null } }) !== ids.length) regenerationUnavailable = "原参考图已不可用，无法按原参数重新生成。";
+    const model = await modelInLibrary(recipe.type, recipe.modelId);
+    if (!model) regenerationUnavailable = t("lib.media.regenerateModelGone");
+    else {
+      const ids = [...new Set(recipe.inputImages.map(image => image.assetId))];
+      if (await db.mediaAsset.count({ where: { id: { in: ids }, deletedAt: null } }) !== ids.length) regenerationUnavailable = t("lib.media.regenerateRefsGone");
+      else if (recipe.type === "image" && ids.length > 0 && model.endpointImageInput !== true) regenerationUnavailable = t("lib.media.regenerateNoEndpoint");
+      else if (recipe.type === "video" && ids.length > 0 && !model.supportsImageInput) regenerationUnavailable = t("lib.media.regenerateNoRefs");
+    }
   }
   return { id: asset.id, url: mediaUrl(id), mediaType: asset.mediaType, byteSize: asset.byteSize, kind: asset.kind, modelId: asset.modelId, description: asset.description, createdAt: asset.createdAt, generation: recipe,
     sourceChat: source, references: references.map(ref => ({ messageId: ref.message.id, chat: ref.message.chat })), usedByGenerations: consumers.map(ref => ref.assetId),

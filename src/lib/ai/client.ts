@@ -1,13 +1,10 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { observeLanguageModel, observeEmbeddingModel } from "@/lib/models/observe-language";
-import {
-  DEFAULT_IMAGE_MODEL,
-  DEFAULT_MODEL,
-  DEFAULT_VIDEO_MODEL,
-  type SupportedImageModelId,
-  type SupportedModelId,
-  type SupportedVideoModelId,
-} from "@/config/model";
+import { wrapImageModel } from "ai";
+import { withModelLease } from "@/lib/models/preferences";
+import type { ModelLibraryItem } from "@/lib/models/preferences-schema";
+
+type ModelValidator = (model: ModelLibraryItem) => void;
 
 const openrouterSiteName = process.env.OPENROUTER_SITE_NAME ?? process.env.OPENROUTER_X_TITLE;
 
@@ -22,21 +19,38 @@ const openrouter = createOpenRouter({
   },
 });
 
-export function getChatModel(modelId: SupportedModelId = DEFAULT_MODEL) {
+export function getChatModel(modelId: string) {
   return observeLanguageModel(openrouter(modelId), modelId, id => openrouter(id));
 }
 
-export const DEFAULT_EMBEDDING_MODEL =
-  process.env.EMBEDDING_MODEL_ID?.trim() || "openai/text-embedding-3-small";
-
-export function getEmbeddingModel(modelId: string = DEFAULT_EMBEDDING_MODEL) {
+export function getEmbeddingModel(modelId: string) {
   return observeEmbeddingModel(openrouter.textEmbeddingModel(modelId), modelId);
 }
 
-export function getImageModel(modelId: SupportedImageModelId = DEFAULT_IMAGE_MODEL) {
-  return openrouter.imageModel(modelId);
+export function getImageModel(modelId: string, validate?: ModelValidator) {
+  return wrapImageModel({
+    model: openrouter.imageModel(modelId),
+    middleware: {
+      specificationVersion: "v3",
+      async wrapGenerate({ doGenerate }) {
+        return withModelLease("image", modelId, model => {
+          validate?.(model);
+          return doGenerate();
+        });
+      },
+    },
+  });
 }
 
-export function getVideoModel(modelId: SupportedVideoModelId = DEFAULT_VIDEO_MODEL) {
-  return openrouter.videoModel(modelId);
+export function getVideoModel(modelId: string, validate?: ModelValidator) {
+  const model = openrouter.videoModel(modelId);
+  return {
+    ...model,
+    async doGenerate(options: Parameters<typeof model.doGenerate>[0]) {
+      return withModelLease("video", modelId, async authorizedModel => {
+        validate?.(authorizedModel);
+        return model.doGenerate(options);
+      });
+    },
+  };
 }

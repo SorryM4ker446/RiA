@@ -1,4 +1,5 @@
 import { db } from "@/db";
+import { t } from "@/lib/locale";
 import {
   encodePersistedAssistantToolMessage,
   encodePersistedUserMessage,
@@ -168,6 +169,6 @@ export async function persistChatResponse(params: { input: ChatRequest; conversa
 
     await persistResponseToolMemories({ chatId: chat.id, toolItems, assistantText, modelId });
   } catch (persistError) {
-    throw normalizeApiError(persistError, "回答保存失败，请重新加载会话后重试。");
+    throw normalizeApiError(persistError, t("lib.chat.saveFailed"));
   }
 }

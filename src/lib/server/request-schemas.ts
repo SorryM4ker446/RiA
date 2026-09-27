@@ -1,10 +1,9 @@
 import { z } from "zod";
-import { isSupportedModelId, isSupportedImageModelId, isSupportedVideoModelId } from "@/config/model";
 import { IMAGE_MEDIA_TYPES, MEDIA_LIMITS } from "@/lib/media/limits";
 import { getToolDescriptor } from "@/tools/catalog";
 
 export const identifierSchema = z.string().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/);
-export const chatModelSchema = z.string().max(200).refine(isSupportedModelId, "Unsupported chat model");
+export const chatModelSchema = z.string().min(1).max(200);
 const providerMetadata = z.record(z.string(), z.record(z.string(), z.json())).optional();
 const imageReference = z.strictObject({
   url: z.string().max(200).regex(/^\/api\/media\/[a-zA-Z0-9_-]+$/),
@@ -75,14 +74,14 @@ export const chatRequestSchema = z.strictObject({
 export const imageRequestSchema = z.strictObject({
   chatId: z.string().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/).optional(),
   prompt: z.string().trim().max(4000).default(""),
-  modelId: z.string().max(200).refine(isSupportedImageModelId, "Unsupported image model").optional(),
+  modelId: z.string().min(1).max(200).optional(),
   inputImages: z.array(imageReference).max(MEDIA_LIMITS.attachmentCount).default([]),
 }).refine((body) => Boolean(body.prompt || body.inputImages.length), "prompt or inputImages is required");
 
 export const videoRequestSchema = z.strictObject({
   chatId: z.string().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/).optional(),
   prompt: z.string().trim().max(4000).default(""),
-  modelId: z.string().max(200).refine(isSupportedVideoModelId, "Unsupported video model").optional(),
+  modelId: z.string().min(1).max(200).optional(),
   aspectRatio: z.enum(["16:9", "9:16", "1:1"]).default("16:9"),
   duration: z.number().int().min(1).max(60).optional(), fps: z.number().int().min(1).max(120).optional(),
   inputImage: imageReference.optional(),

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { t } from "@/lib/locale";
 import { DOCUMENT_LIMITS, type DocumentPage } from "@/lib/documents/types";
 import { ApiError } from "@/lib/server/api-error";
 
@@ -26,13 +27,13 @@ export function buildDocumentChunks(pages: DocumentPage[]) {
           occurrences.set(hash, occurrence + 1);
           chunks.push({ chunkKey: `${hash}:${occurrence}`, ordinal: chunks.length, pageNumber: page.pageNumber, text });
         }
-        if (chunks.length > DOCUMENT_LIMITS.chunks) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: "文档片段过多，请拆分文档后导入。" });
+        if (chunks.length > DOCUMENT_LIMITS.chunks) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.documents.tooManyChunks") });
         if (end === trimmed.length) break;
         start = end - 100;
         if (/[\uDC00-\uDFFF]/u.test(trimmed[start])) start++;
       }
     }
   }
-  if (!chunks.length) throw new ApiError({ code: "VALIDATION_ERROR", message: "文档没有可检索的文本；扫描 PDF 请先进行 OCR。" });
+  if (!chunks.length) throw new ApiError({ code: "VALIDATION_ERROR", message: t("lib.documents.noSearchableText") });
   return chunks;
 }

@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { embedText } from "@/lib/ai/embedding";
+import { embedTextWithModel } from "@/lib/ai/embedding";
 import { Prisma } from "@prisma/client";
 import { CONTEXT_MEMORY_POLICY, getMemorySearchCandidates, rankByScore } from "@/lib/memory/retrieval";
 
@@ -24,7 +24,7 @@ export async function saveMemory(input: SaveMemoryInput) {
   }
 
   // Best-effort embedding; falls back to null (keyword-only retrieval) on failure.
-  const embedding = await embedText(`${normalizedKey} ${normalizedValue}`);
+  const { embedding, modelId } = await embedTextWithModel(`${normalizedKey} ${normalizedValue}`);
 
   return db.memory.upsert({
     where: { key: normalizedKey },
@@ -33,12 +33,14 @@ export async function saveMemory(input: SaveMemoryInput) {
       ...(input.score !== undefined ? { score: input.score } : {}),
       // Never retain an embedding for an old value when embedding the new text fails.
       embedding: embedding ?? Prisma.DbNull,
+      embeddingModelId: embedding ? modelId : null,
     },
     create: {
       key: normalizedKey,
       value: normalizedValue,
       score: input.score ?? 0.5,
       ...(embedding ? { embedding } : {}),
+      embeddingModelId: embedding ? modelId : null,
     },
   });
 }

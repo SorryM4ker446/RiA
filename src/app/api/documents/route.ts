@@ -8,6 +8,7 @@ import { DOCUMENT_LIMITS } from "@/lib/documents/types";
 import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { readLimitedBody } from "@/lib/server/request-body";
+import { t } from "@/lib/locale";
 
 async function GETHandler(req: NextRequest) {
   try {
@@ -15,7 +16,7 @@ async function GETHandler(req: NextRequest) {
     if (req.nextUrl.searchParams.size) throw new ApiError({ code: "VALIDATION_ERROR", message: "Unexpected query parameter" });
     const data = await db.knowledgeDocument.findMany({ where: {}, orderBy: [{ updatedAt: "desc" }, { id: "desc" }], take: DOCUMENT_LIMITS.documentsPerUser, select: documentSummarySelect });
     return Response.json({ data }, { headers: { "Cache-Control": "no-store" } });
-  } catch (error) { return createApiErrorResponse(error, "读取文档列表失败。"); }
+  } catch (error) { return createApiErrorResponse(error, t("api.documents.listFailed")); }
 }
 
 async function POSTHandler(req: NextRequest) {
@@ -27,15 +28,15 @@ async function POSTHandler(req: NextRequest) {
     const bytes = await readLimitedBody(req, DOCUMENT_LIMITS.bodyBytes);
     let form: FormData;
     try { form = await new Response(bytes, { headers: { "Content-Type": contentType } }).formData(); }
-    catch { throw new ApiError({ code: "VALIDATION_ERROR", message: "无效的文档上传请求。" }); }
+    catch { throw new ApiError({ code: "VALIDATION_ERROR", message: t("api.documents.invalidUpload") }); }
     const file = form.get("file");
-    if ([...form.keys()].length !== 1 || !(file instanceof File)) throw new ApiError({ code: "VALIDATION_ERROR", message: "每次只能上传一个 file 文件字段。" });
+    if ([...form.keys()].length !== 1 || !(file instanceof File)) throw new ApiError({ code: "VALIDATION_ERROR", message: t("api.documents.singleFileField") });
     const { filename, format } = validateDocumentFile(file);
     const pages = await parseDocument(new Uint8Array(await file.arrayBuffer()), format, req.signal);
-    if (req.signal.aborted) throw new ApiError({ code: "VALIDATION_ERROR", message: "文档导入已取消。" });
+    if (req.signal.aborted) throw new ApiError({ code: "VALIDATION_ERROR", message: t("api.documents.importCancelled") });
     const data = await indexDocument({ filename, format, byteSize: file.size, pages });
     return Response.json({ data }, { status: data.change === "created" ? 201 : 200, headers: { "Cache-Control": "no-store" } });
-  } catch (error) { return createApiErrorResponse(error, "文档导入失败，原有索引保持不变。"); }
+  } catch (error) { return createApiErrorResponse(error, t("api.documents.importFailed")); }
 }
 
 export const GET = protectDataOperation(GETHandler);

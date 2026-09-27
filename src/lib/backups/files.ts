@@ -2,6 +2,7 @@ import { lstat, mkdir, open, realpath, readdir, unlink } from "node:fs/promises"
 import { dirname, join } from "node:path";
 import { getMediaDirectory, mediaOwnerDirectory } from "@/lib/media/storage";
 import { LOCAL_WORKSPACE_ID } from "@/lib/local/workspace";
+import { t } from "@/lib/locale";
 import { ApiError } from "@/lib/server/api-error";
 import { backupId, BACKUP_LIMITS } from "@/lib/backups/schema";
 
@@ -12,11 +13,11 @@ const workspaceDirectoryName = () => mediaOwnerDirectory(LOCAL_WORKSPACE_ID);
 export async function backupDirectory() {
   const root = join(dirname(getMediaDirectory()), "backups");
   await mkdir(root, { recursive: true });
-  if (!(await lstat(root)).isDirectory() || (await lstat(root)).isSymbolicLink()) throw new ApiError({ code: "CONFLICT", message: "备份目录不安全。" });
+  if (!(await lstat(root)).isDirectory() || (await lstat(root)).isSymbolicLink()) throw new ApiError({ code: "CONFLICT", message: t("lib.backups.unsafeDirectory") });
   const directory = join(await realpath(/* turbopackIgnore: true */ root), workspaceDirectoryName());
   await mkdir(directory, { recursive: true });
   const stat = await lstat(directory);
-  if (!stat.isDirectory() || stat.isSymbolicLink() || await realpath(/* turbopackIgnore: true */ directory) !== directory) throw new ApiError({ code: "CONFLICT", message: "备份目录不安全。" });
+  if (!stat.isDirectory() || stat.isSymbolicLink() || await realpath(/* turbopackIgnore: true */ directory) !== directory) throw new ApiError({ code: "CONFLICT", message: t("lib.backups.unsafeDirectory") });
   return directory;
 }
 export async function backupFile(id: string, extension = "paib") {
@@ -32,7 +33,7 @@ export async function openBackup(id: string, extension = "paib", writable = fals
     const opened = await handle.stat();
     if (opened.ino !== stat.ino || opened.size !== stat.size) { await handle.close(); throw new Error("Changed file"); }
     return handle;
-  } catch { throw new ApiError({ code: "NOT_FOUND", message: "备份文件不存在或不可用。" }); }
+  } catch { throw new ApiError({ code: "NOT_FOUND", message: t("lib.backups.fileUnavailable") }); }
 }
 export async function listBackupFiles() {
   const directory = await backupDirectory();

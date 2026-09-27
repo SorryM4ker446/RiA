@@ -10,6 +10,8 @@ export const DOCUMENT_LIMITS = {
   // PDF.js can take several seconds to cold-start on a constrained CI or
   // Windows machine before it begins reading the document.
   parseTimeoutMs: 30_000,
+  /** How long worker cleanup may block the response before it is abandoned. */
+  terminateGraceMs: 2_000,
 } as const;
 
 export const documentPageSchema = z.strictObject({ pageNumber: z.number().int().min(1).max(DOCUMENT_LIMITS.pages).nullable(), text: z.string().max(DOCUMENT_LIMITS.characters) });

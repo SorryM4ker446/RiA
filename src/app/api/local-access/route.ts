@@ -8,6 +8,7 @@ import {
   isTopLevelLocalNavigation,
   localAccessToken,
 } from "@/lib/server/local-access";
+import { t } from "@/lib/locale";
 
 /**
  * Local entry point for browser development.
@@ -22,11 +23,11 @@ export function GET(request: NextRequest) {
   try {
     assertRequestSecurity(request);
     if (!isTopLevelLocalNavigation(request)) {
-      throw new ApiError({ code: "FORBIDDEN", message: "本地访问凭证只能通过本机的直接访问获取。" });
+      throw new ApiError({ code: "FORBIDDEN", message: t("api.localAccess.notTopLevel") });
     }
     const code = request.nextUrl.searchParams.get(LOCAL_HANDSHAKE_QUERY);
     if (!consumeHandshakeCode(code)) {
-      throw new ApiError({ code: "FORBIDDEN", message: "启动凭证已失效，请从本地服务的启动输出重新打开应用。" });
+      throw new ApiError({ code: "FORBIDDEN", message: t("api.localAccess.codeExpired") });
     }
 
     // Keep the browser's original host: NextURL normalizes loopback IPs to
@@ -43,6 +44,6 @@ export function GET(request: NextRequest) {
     });
     return response;
   } catch (error) {
-    return createApiErrorResponse(error, "无法建立本地访问凭证。");
+    return createApiErrorResponse(error, t("api.localAccess.establishFailed"));
   }
 }
