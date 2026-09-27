@@ -1,8 +1,9 @@
 import { getApiErrorMessage } from "@/lib/api-error-message";
+import { t } from "@/lib/locale";
 export async function settingsRequest<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, { cache: "no-store", ...options });
   const body: unknown = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(getApiErrorMessage(body, "操作失败，请刷新后重试。"));
+  if (!response.ok) throw new Error(getApiErrorMessage(body, t("settingsApi.actFailed")));
   return body as T;
 }
 export const jsonRequest = (method: string, body: unknown): RequestInit => ({ method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
