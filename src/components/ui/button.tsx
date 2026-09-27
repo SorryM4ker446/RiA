@@ -9,35 +9,44 @@ export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   size?: ButtonSize;
 };
 
+/* Vercel draws control outlines in the shadow layer rather than as a border, so
+   the radius stays clean and the hairline reads lighter than a real border.
+   The fill steps, not the outline, carry emphasis. */
 const variantStyles: Record<ButtonVariant, string> = {
-  default: "bg-primary text-primary-foreground hover:opacity-90",
-  secondary: "bg-muted text-foreground hover:bg-muted/80",
-  outline: "border border-border bg-background text-foreground hover:bg-muted/60",
-  ghost: "bg-transparent text-foreground hover:bg-muted/60",
-  destructive: "bg-red-600 text-white hover:bg-red-500",
+  default: "bg-primary text-primary-foreground shadow-hairline hover:bg-primary/90",
+  secondary: "bg-secondary text-secondary-foreground shadow-hairline hover:bg-secondary/80",
+  outline: "bg-elevated text-foreground shadow-hairline hover:bg-muted",
+  ghost: "text-foreground hover:bg-accent",
+  destructive: "bg-destructive text-destructive-foreground shadow-hairline hover:bg-destructive/90",
 };
 
 const sizeStyles: Record<ButtonSize, string> = {
-  default: "h-10 px-4 py-2 text-sm",
-  sm: "h-8 px-3 text-xs",
-  lg: "h-11 px-6 text-sm",
-  icon: "h-10 w-10",
+  default: "h-9 px-3.5 text-sm",
+  sm: "h-8 px-2.5 text-xs",
+  lg: "h-10 px-5 text-sm",
+  icon: "h-8 w-8",
 };
 
 export function Button({
   className,
   variant = "default",
   size = "default",
+  type = "button",
   ...props
 }: ButtonProps) {
   return (
     <button
       className={cn(
-        "inline-flex items-center justify-center rounded-md font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-medium tracking-label",
+        "transition-[color,background-color,box-shadow,opacity,transform] duration-[--dur-fast] ease-[--ease-out]",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        "disabled:pointer-events-none disabled:opacity-45",
+        "active:not-disabled:translate-y-px active:not-disabled:scale-[0.98]",
         variantStyles[variant],
         sizeStyles[size],
         className,
       )}
+      type={type}
       {...props}
     />
   );
