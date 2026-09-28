@@ -88,16 +88,18 @@ function normalizeRow(value: unknown): CatalogModel | null {
     name: row.name?.trim() || row.id,
     description: "",
     modes: ["chat"],
-    // The list reports image input as a fact about the provider's models. What
-    // the library records is what THIS application can do with them, and the
-    // chat adapter rejects an image message rather than guessing the content
-    // encoding. Claiming the capability here would let the composer offer an
-    // attachment that fails mid-stream, so it stays off until the encoding is
-    // implemented and verified. The provider's own claim is kept alongside it.
-    supportsImageInput: false,
+    // The list reports input modalities directly, so image input is read from
+    // the provider's own field rather than inferred from a name. The chat
+    // adapter implements the documented `image_url` block with an inline data
+    // URL, which is what makes this claim true here rather than merely true
+    // upstream; the tests exercise both halves.
+    supportsImageInput: inputs.includes("image"),
     providerSupportsImageInput: inputs.includes("image"),
     endpointImageInput: null,
     supportsTools: DEEPSEEK_CAPABILITY_RULES.tools.supported,
+    // This provider exposes no search of its own; searching is either the
+    // application's own tool or the model's own knowledge.
+    providerSearch: false,
     contextLength: row.context_window ?? null,
     // The endpoint carries no price. Cost stays unknown until the user enters
     // a rate; a price scraped from a web page would not be a bill.
@@ -148,6 +150,13 @@ export const deepseekProvider: ModelProvider = {
   // selectors stay empty instead of offering something that cannot be called.
   offeredModes: ["chat"],
   isConfigured: () => Boolean(deepSeekKey()),
+  // The workspace preference is expressed in this provider's own vocabulary:
+  // a toggle, an effort, and the rule that a disabled toggle and an effort are
+  // never sent together.
+  reasoningOptions: preference => {
+    if (!preference.enabled) return { deepseek: { thinking: { enabled: false } } };
+    return { deepseek: { thinking: { enabled: true, ...(preference.effort ? { effort: preference.effort } : {}) } } };
+  },
   fetchCatalog: fetchDeepSeekCatalog,
   createChatModel(modelId: string): LanguageModelV3 {
     return createDeepSeekChatModel({ modelId, getApiKey: deepSeekKey, baseURL: deepSeekBaseURL(), defaultThinking: defaultThinking() });

@@ -1,4 +1,5 @@
 import { getChatModel } from "@/lib/ai/client";
+import { getModelProvider } from "@/lib/models/providers";
 import { t } from "@/lib/locale";
 import { ApiError, apiErrorPayload, normalizeApiError } from "@/lib/server/api-error";
 import { createChatToolSet } from "@/tools/catalog";
@@ -8,7 +9,7 @@ import { persistChatResponse, type ChatPersistence } from "@/lib/chat/persistenc
 import type { ChatRequest } from "@/lib/chat/request";
 import type { DocumentSource } from "@/lib/documents/types";
 import { retainDataOperation } from "@/lib/server/data-operations";
-export function streamChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; documentSources?: DocumentSource[] }) {
+export function streamChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; documentSources?: DocumentSource[]; unavailableTools?: string[] }) {
   const { input, conversation, systemPrompt, modelMessages, toolsEnabled, signal } = params;
   const { modelRef, body, messages } = input;
   const { chat } = conversation;
@@ -17,8 +18,13 @@ export function streamChatResponse(params: { input: ChatRequest; conversation: C
   }
   let generationFailed = false;
 
+  // The provider decides how the workspace's reasoning preference is expressed
+  // in its own request; a provider with no such notion contributes nothing and
+  // the call goes out exactly as before.
+  const providerOptions = getModelProvider(modelRef.providerId).reasoningOptions?.(input.reasoning);
   const result = streamText({
     model: getChatModel(modelRef),
+    ...(providerOptions ? { providerOptions } : {}),
     maxRetries: 0,
     system: systemPrompt,
     messages: modelMessages,
@@ -50,7 +56,11 @@ export function streamChatResponse(params: { input: ChatRequest; conversation: C
     originalMessages: messages,
     messageMetadata: ({ part }) => part.type === "start" ? { documentSources: params.documentSources ?? [] } : undefined,
     onFinish: async ({ responseMessage, isAborted }) => {
-      await persistChatResponse({ input, conversation, responseMessage, isAborted, generationFailed, documentSources: params.documentSources });
+      await persistChatResponse({
+        input, conversation, responseMessage, isAborted, generationFailed,
+        documentSources: params.documentSources,
+        unavailableTools: params.unavailableTools,
+      });
     },
   });
   return createUIMessageStreamResponse({

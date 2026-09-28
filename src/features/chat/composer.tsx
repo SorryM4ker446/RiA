@@ -14,8 +14,8 @@ import type { ChatState } from "@/features/chat/use-chat-state";
 import { ModelMode } from "@/features/chat/page-utils";
 import type { ModelLibraryItem } from "@/lib/models/preferences-schema";
 
-type Props = Pick<ChatState, "onSubmit" | "modelMode" | "isPending" | "setSelectedManualTool" | "manualToolSelectValue" | "manualTools" | "manualToolsOnly" | "setManualToolsOnly" | "selectedManualToolConfig" | "manualToolFieldValues" | "setManualToolFieldValues" | "manualToolFieldErrors" | "setManualToolFieldErrors" | "toolCatalogError" | "setInput" | "handleTextareaKeyDown" | "onTextareaPaste" | "textareaRef" | "input" | "isManualToolSelected" | "onAttachmentInputChange" | "fileInputRef" | "attachments" | "clearAttachments" | "attachmentNames" | "selectedImageModel" | "selectedVideoModel" | "selectedManualTool" | "selectedChatModel" | "activeChat" | "selectedModelInfo" | "selectedModel" | "onModeSelect" | "onModelSelect" | "modelLibrary">;
-export function Composer({ onSubmit, modelMode, isPending, setSelectedManualTool, manualToolSelectValue, manualTools, manualToolsOnly, setManualToolsOnly, selectedManualToolConfig, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors, setManualToolFieldErrors, toolCatalogError, setInput, handleTextareaKeyDown, onTextareaPaste, textareaRef, input, isManualToolSelected, onAttachmentInputChange, fileInputRef, attachments, clearAttachments, attachmentNames, selectedImageModel, selectedVideoModel, selectedManualTool, selectedChatModel, activeChat, selectedModelInfo, selectedModel, onModeSelect, onModelSelect, modelLibrary }: Props) {
+type Props = Pick<ChatState, "onSubmit" | "modelMode" | "isPending" | "setSelectedManualTool" | "manualToolSelectValue" | "manualTools" | "manualToolsOnly" | "setManualToolsOnly" | "selectedManualToolConfig" | "manualToolFieldValues" | "setManualToolFieldValues" | "manualToolFieldErrors" | "setManualToolFieldErrors" | "toolCatalogError" | "unavailableTools" | "setInput" | "handleTextareaKeyDown" | "onTextareaPaste" | "textareaRef" | "input" | "isManualToolSelected" | "onAttachmentInputChange" | "fileInputRef" | "attachments" | "clearAttachments" | "attachmentNames" | "selectedImageModel" | "selectedVideoModel" | "selectedManualTool" | "selectedChatModel" | "activeChat" | "selectedModelInfo" | "selectedModel" | "onModeSelect" | "onModelSelect" | "modelLibrary">;
+export function Composer({ onSubmit, modelMode, isPending, setSelectedManualTool, manualToolSelectValue, manualTools, manualToolsOnly, setManualToolsOnly, selectedManualToolConfig, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors, setManualToolFieldErrors, toolCatalogError, unavailableTools, setInput, handleTextareaKeyDown, onTextareaPaste, textareaRef, input, isManualToolSelected, onAttachmentInputChange, fileInputRef, attachments, clearAttachments, attachmentNames, selectedImageModel, selectedVideoModel, selectedManualTool, selectedChatModel, activeChat, selectedModelInfo, selectedModel, onModeSelect, onModelSelect, modelLibrary }: Props) {
   return (<form className="mt-auto space-y-3" noValidate onSubmit={onSubmit}>
     {modelMode === "chat" && selectedManualToolConfig && selectedManualToolConfig.manual.fields.length > 0 ? (
       <div className="grid gap-2 md:grid-cols-3">
@@ -169,6 +169,11 @@ export function Composer({ onSubmit, modelMode, isPending, setSelectedManualTool
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">{t("chat.composer.toolAutoOption")}</SelectItem>
+                {unavailableTools.map((tool) => (
+                  <SelectItem disabled key={tool.id} value={`unavailable-${tool.id}`}>
+                    {`${tool.displayName}（${t("chat.composer.toolNotConfigured")}）`}
+                  </SelectItem>
+                ))}
                 {manualTools.map((tool) => (
                   <SelectItem key={tool.id} value={tool.id}>
                     {tool.manual.label}
@@ -297,6 +302,11 @@ export function Composer({ onSubmit, modelMode, isPending, setSelectedManualTool
       <p className="text-[13px] text-muted-foreground">
         {tf("chat.composer.statusImageModel", { modelId: selectedImageModel?.modelId ?? t("chat.composer.notSelected") })}
       </p>
+    ) : selectedModelInfo?.providerSearch ? (
+      /* A model that searches on its own bills the search itself. Saying so at
+         the point of selection is the only place the user can still change
+         their mind before the next message costs anything. */
+      <p className="text-[13px] text-warning">{t("chat.composer.providerSearchNote")}</p>
     ) : modelMode === "video" ? (
       <p className="text-[13px] text-muted-foreground">
         {tf("chat.composer.statusVideoModel", { modelId: selectedVideoModel?.modelId ?? t("chat.composer.notSelected") })}

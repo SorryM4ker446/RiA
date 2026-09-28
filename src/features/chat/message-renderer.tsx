@@ -9,6 +9,7 @@ import {
   getFileParts,
   getMessageRoleLabel,
   isToolPart,
+  readReasoning,
   readText,
   safeJson
 } from "@/features/chat/page-utils";
@@ -22,7 +23,7 @@ import {
   X
 } from "lucide-react";
 import Image from "next/image";
-import { getDocumentSources, getWebSearchSources, resolveMessageSourceTag } from "@/features/chat/message-presentation";
+import { getDocumentSources, getTurnNotices, getWebSearchSources, resolveMessageSourceTag } from "@/features/chat/message-presentation";
 import { t, tf } from "@/lib/locale";
 import { DocumentSources } from "@/components/knowledge/document-sources";
 import type { ChatState } from "@/features/chat/use-chat-state";
@@ -65,8 +66,12 @@ export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imag
         const imageUrl = imageByMessageId[message.id];
         const videoUrl = videoByMessageId[message.id];
         const toolParts = message.parts.filter(isToolPart);
+        const reasoning = readReasoning(message);
         const webSearchSources = getWebSearchSources(toolParts);
         const sourceTag = resolveMessageSourceTag({ role: message.role, toolParts });
+        // Stated once per turn and kept across reloads, so a turn that had no
+        // internet access says so in the same place every time it is read.
+        const turnNotices = getTurnNotices(message);
         const isLastAssistantStreaming =
           status === "streaming" && index === messages.length - 1 && message.role === "assistant";
         const isEditing = editingMessageId === message.id;
@@ -91,6 +96,11 @@ export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imag
                       {sourceTag.label}
                     </Badge>
                   ) : null}
+                  {turnNotices.map((notice) => (
+                    <Badge className="h-5 px-2 text-[10px]" key={notice} variant="outline">
+                      {notice}
+                    </Badge>
+                  ))}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   {isLastAssistantStreaming ? (
@@ -154,9 +164,25 @@ export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imag
                     </Button>
                   </div>
                 </div>
-              ) : text ? (
-                <MarkdownMessage text={text} />
               ) : null}
+              {/* The reasoning comes before the answer because that is the order
+                  it happened in. It stays collapsed so the answer is what the
+                  eye lands on, and open while it is still arriving so the turn
+                  does not look stuck. */}
+              {reasoning && !isUser ? (
+                <details
+                  className="mb-2 rounded-lg bg-muted text-xs"
+                  open={isLastAssistantStreaming || undefined}
+                >
+                  <summary className="cursor-pointer px-3 py-2 font-medium">
+                    {isLastAssistantStreaming ? t("chat.messages.reasoningLive") : t("chat.messages.reasoningToggle")}
+                  </summary>
+                  <div className="whitespace-pre-wrap border-t px-3 py-2 leading-5 text-muted-foreground">
+                    {reasoning}
+                  </div>
+                </details>
+              ) : null}
+              {!isEditing && text ? <MarkdownMessage text={text} /> : null}
               {webSearchSources.length > 0 ? (
                 <details
                   className={cn(

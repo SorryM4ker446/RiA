@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { APICallError, InvalidResponseDataError, type LanguageModelV3, type LanguageModelV3CallOptions, type LanguageModelV3Content, type LanguageModelV3FinishReason, type LanguageModelV3GenerateResult, type LanguageModelV3Prompt, type LanguageModelV3StreamPart, type LanguageModelV3Usage, type SharedV3Warning } from "@ai-sdk/provider";
+import { APICallError, InvalidResponseDataError, type LanguageModelV3, type LanguageModelV3CallOptions, type LanguageModelV3Content, type LanguageModelV3FinishReason, type LanguageModelV3GenerateResult, type LanguageModelV3Prompt, type LanguageModelV3StreamPart, type LanguageModelV3ToolResultOutput, type LanguageModelV3Usage, type SharedV3Warning } from "@ai-sdk/provider";
 import { createEventSourceResponseHandler, postJsonToApi } from "@ai-sdk/provider-utils";
 
 /**
@@ -20,11 +20,18 @@ import { createEventSourceResponseHandler, postJsonToApi } from "@ai-sdk/provide
  * 3. Usage arrives on the last streamed chunk rather than in a separate
  *    usage-only chunk, and reports cache hits separately.
  *
+ * A fourth one applies to input: images travel as OpenAI-compatible
+ * `image_url` blocks carrying a data URL, in user messages only.
+ *
  * Sources, verified 2026-09-28:
  *   https://api-docs.deepseek.com/api/create-chat-completion/
  *   https://api-docs.deepseek.com/guides/thinking_mode/
+ *   https://api-docs.deepseek.com/guides/vision
  *   https://api-docs.deepseek.com/api/list-models/
  */
+
+/** The formats the provider detects from the file's own content. */
+const supportedImageTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 
 export const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
 
@@ -150,14 +157,18 @@ function toMessages(prompt: LanguageModelV3Prompt, carriesTools: boolean): DeepS
       continue;
     }
     if (message.role === "user") {
-      const text: string[] = [];
+      const blocks: Record<string, unknown>[] = [];
       for (const part of message.content) {
-        if (part.type === "text") text.push(part.text);
-        else if (part.type === "file" && typeof part.data !== "undefined") {
-          throw new InvalidResponseDataError({ data: part.data, message: "DeepSeek chat does not accept image input through this adapter" });
-        }
+        if (part.type === "text") { blocks.push({ type: "text", text: part.text }); continue; }
+        if (part.type === "file") blocks.push({ type: "image_url", image_url: { url: toImageUrl(part) } });
       }
-      messages.push({ role: "user", content: text.join("\n") });
+      // A message with no attachment stays a plain string, which is what the
+      // provider expects and what every text-only turn has been.
+      const textOnly = blocks.every(block => block.type === "text");
+      messages.push({
+        role: "user",
+        content: textOnly ? blocks.map(block => String(block.text)).join("\n") : blocks,
+      });
       continue;
     }
     if (message.role === "assistant") {
@@ -165,6 +176,10 @@ function toMessages(prompt: LanguageModelV3Prompt, carriesTools: boolean): DeepS
       let reasoning: string | undefined;
       const toolCalls: Record<string, unknown>[] = [];
       for (const part of message.content) {
+        // The provider rejects an image outside a user message with a 400, so
+        // an assistant turn that carried one keeps its text and loses the image
+        // rather than failing the whole request.
+        if (part.type === "file") continue;
         if (part.type === "text") text += part.text;
         else if (part.type === "reasoning") reasoning = `${reasoning ?? ""}${part.text}`;
         else if (part.type === "tool-call") {
@@ -193,13 +208,53 @@ function toMessages(prompt: LanguageModelV3Prompt, carriesTools: boolean): DeepS
           messages.push({
             role: "tool",
             tool_call_id: part.toolCallId,
-            content: typeof part.output === "string" ? part.output : JSON.stringify(part.output as unknown),
+            content: toolResultContent(part.output),
           });
         }
       }
     }
   }
   return messages;
+}
+
+/**
+ * The provider takes the image inline. A private media URL would be useless to
+ * it, so anything that is not already inline data is refused with a reason
+ * rather than sent as a link the provider cannot fetch.
+ */
+function toImageUrl(part: { mediaType: string; data: unknown }): string {
+  const mediaType = part.mediaType?.toLowerCase();
+  if (!mediaType || !supportedImageTypes.has(mediaType)) {
+    throw new InvalidResponseDataError({ data: part.data, message: `DeepSeek chat accepts ${[...supportedImageTypes].join(", ")} images only.` });
+  }
+  if (typeof part.data === "string") {
+    if (part.data.startsWith("data:")) return part.data;
+    // Only a bare base64 payload is accepted beyond that. Anything else — an
+    // http URL the provider cannot fetch, or a private path such as
+    // `/api/media/…` — would otherwise be inlined as if it were image bytes.
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(part.data) || part.data.length % 4 !== 0) {
+      throw new InvalidResponseDataError({ data: part.data, message: "A private media URL cannot be sent to DeepSeek; the image has to be inlined." });
+    }
+    return `data:${mediaType};base64,${part.data}`;
+  }
+  if (part.data instanceof Uint8Array) {
+    return `data:${mediaType};base64,${Buffer.from(part.data).toString("base64")}`;
+  }
+  throw new InvalidResponseDataError({ data: part.data, message: "The image could not be inlined for DeepSeek." });
+}
+
+/**
+ * A tool result is a tagged value, not a bare string, and the provider wants
+ * the text on its own. Stringifying the whole tag would send
+ * `{"type":"text","value":"…"}` as the tool message body, which the model
+ * would read as the literal result.
+ */
+function toolResultContent(output: LanguageModelV3ToolResultOutput): string {
+  if (output.type === "text" || output.type === "error-text") return output.value;
+  if (output.type === "json" || output.type === "error-json") return JSON.stringify(output.value ?? null);
+  // A denied execution carries a reason rather than a result. It still has to
+  // reach the model as text, otherwise the next turn sees an empty tool answer.
+  return output.type === "execution-denied" ? `Tool execution was denied${output.reason ? `: ${output.reason}` : "."}` : "";
 }
 
 function toTools(options: LanguageModelV3CallOptions, thinking: DeepSeekThinking) {

@@ -1,0 +1,105 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { after, test } from "node:test";
+import type { ModelRef } from "@/lib/models/preferences-schema";
+import type { ToolCatalogItem } from "@/features/chat/types";
+import { createTestDatabase } from "../helpers/database";
+import { languageModel } from "../helpers/model-provider";
+
+const cleanup = createTestDatabase();
+process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+const { db } = await import("@/db");
+const { getRelevantMemories } = await import("@/lib/memory/store");
+const { searchKnowledge } = await import("@/tools/definitions/search-knowledge");
+const { tokenizeQuery, scoreMemory, rankByScore, CONTEXT_MEMORY_POLICY, KNOWLEDGE_MEMORY_POLICY } = await import("@/lib/memory/retrieval");
+import { seedTestModelPreferences } from "../helpers/model-library";
+const { getDefaultChatPreferences, readChatPreferences } = await import("@/features/chat/preferences");
+const { buildDefaultManualFieldValues, validateManualToolFields, normalizeManualToolInput } = await import("@/features/chat/tool-input");
+after(async () => { await db.$disconnect(); cleanup(); });
+
+test("memory ranking preserves lexical, semantic, recency and manual weighting", () => {
+  const now = Date.parse("2026-08-30T00:00:00Z");
+  const memory = { key: "SQLite", value: "本地数据库", score: 0.5, embedding: [1, 0], embeddingModelId: "embed-v1", embeddingModelProvider: "openrouter", updatedAt: new Date(now) };
+  const tokens = tokenizeQuery("SQLITE / 本地数据库");
+  assert.equal(tokens[0], "sqlite");
+  assert.equal(tokens.slice(1).join(""), "本地数据库");
+  assert.ok(tokens.length > 2);
+  assert.equal(scoreMemory(memory, ["sqlite"], null, CONTEXT_MEMORY_POLICY, now), 1.4);
+  assert.equal(scoreMemory(memory, ["sqlite"], null, KNOWLEDGE_MEMORY_POLICY, now), 1.1);
+  assert.equal(scoreMemory(memory, ["unmatched"], [1, 0], KNOWLEDGE_MEMORY_POLICY, now, { providerId: "openrouter", modelId: "embed-v1" }), 0.95);
+  assert.equal(scoreMemory(memory, ["unmatched"], [1, 0], KNOWLEDGE_MEMORY_POLICY, now, { providerId: "openrouter", modelId: "embed-v2" }), 0);
+  // Vectors are only comparable inside the space that produced them, so the
+  // same model id reached through another provider scores nothing rather than
+  // a confident 0.95. The provider here is deliberately outside the configured
+  // set, which is exactly the case the comparison has to reject.
+  assert.equal(scoreMemory(memory, ["unmatched"], [1, 0], KNOWLEDGE_MEMORY_POLICY, now, { providerId: "other" as ModelRef["providerId"], modelId: "embed-v1" }), 0);
+  // A row with no recorded provider is left out of semantic scoring entirely.
+  assert.equal(scoreMemory({ ...memory, embeddingModelProvider: null }, ["unmatched"], [1, 0], KNOWLEDGE_MEMORY_POLICY, now, { providerId: "openrouter", modelId: "embed-v1" }), 0);
+  assert.equal(scoreMemory({ ...memory, embedding: null, score: null, updatedAt: new Date(now - 31 * 86400000) }, ["unmatched"], [1, 0], CONTEXT_MEMORY_POLICY, now, { providerId: "openrouter", modelId: "embed-v1" }), 0);
+  const rows = [{ id: "first", score: 1 }, { id: "zero", score: 0 }, { id: "second", score: 1 }, { id: "high", score: 2 }];
+  assert.deepEqual(rankByScore(rows, (row) => row.score, 3).map((row) => row.id), ["high", "first", "second"]);
+  assert.equal(rows[0].id, "first");
+});
+
+test("Chinese retrieval segments natural queries and recalls older lexical matches", async () => {
+
+  const target = await db.memory.create({ data: { key: "旅行偏好", value: "云南徒步路线", score: 0.5, updatedAt: new Date("2020-01-01T00:00:00Z") } });
+  await db.memory.createMany({ data: Array.from({ length: 110 }, (_, i) => ({ key: `other-${i}`, value: "unrelated programming notes", score: 1 })) });
+  const query = "请帮我查找云南徒步路线";
+  assert.equal((await getRelevantMemories({ query }))[0].id, target.id);
+  assert.equal((await searchKnowledge( { query, topK: 4 })).results[0].id, target.id);
+  assert.deepEqual(tokenizeQuery("ＳＱＬＩＴＥ SQLite 数据库 数据库"), tokenizeQuery("sqlite 数据库"));
+  assert.deepEqual(await getRelevantMemories({ query: "！！！" }), []);
+});
+
+test("ranking computes each score once and keeps ties stable", () => {
+  let calls = 0;
+  const items = [{ id: "one", score: 1 }, { id: "two", score: 1 }, { id: "invalid", score: NaN }];
+  const result = rankByScore(items, (item) => { calls += 1; return item.score; }, 3);
+  assert.equal(calls, items.length);
+  assert.deepEqual(result.map((row) => row.id), ["one", "two"]);
+});
+
+test("shared retrieval keeps tool records out of context while knowledge candidates stay distinct", async () => {
+
+  const old = new Date("2020-01-01T00:00:00Z");
+  await db.memory.createMany({ data: [
+    { key: "sqlite-note", value: "sqlite local", score: 0.5, updatedAt: old },
+    { key: "tool:sqlite", value: "sqlite tool record", score: 1, updatedAt: old },
+    { key: "unrelated", value: "other topic", score: 0, updatedAt: old },
+    { key: "sqlite-other", value: "unrelated memory", score: 1, updatedAt: old },
+  ] });
+  assert.deepEqual((await getRelevantMemories({ query: "sqlite" })).map((row) => row.key).sort(), ["sqlite-note", "sqlite-other", "tool:sqlite"]);
+  // "sqlite-other" is an ordinary workspace memory, not a tool record.
+  const result = await searchKnowledge( { query: " sqlite ", topK: 8 });
+  assert.equal(result.query, "sqlite");
+  assert.deepEqual(result.results.map((row) => row.title).sort(), ["sqlite-note", "sqlite-other"]);
+  const builtin = await searchKnowledge( { query: "short-term", topK: 8 });
+  assert.ok(builtin.results.some((row) => row.id === "builtin-memory"));
+  assert.deepEqual(await getRelevantMemories({ query: " " }), []);
+});
+
+
+test("per-conversation preferences preserve stale model references for explicit recovery", (t) => {
+  let raw = "{";
+  globalThis.window = { localStorage: { getItem: () => raw } } as unknown as typeof globalThis.window;
+  t.after(() => { delete globalThis.window; });
+  assert.equal(readChatPreferences("conversation"), null);
+  // A selection saved before model references were provider-qualified was a
+  // bare id, and it was always OpenRouter, so it is read back that way instead
+  // of being discarded on upgrade.
+  raw = JSON.stringify({ modelMode: "invalid", selectedChatModel: "removed-model", manualToolsOnly: true });
+  assert.deepEqual(readChatPreferences("conversation"), { ...getDefaultChatPreferences(), selectedChatModel: { providerId: "openrouter", modelId: "removed-model" }, manualToolsOnly: true });
+  raw = JSON.stringify({ selectedImageModel: { providerId: "openrouter", modelId: "image/one" }, selectedVideoModel: { providerId: "openrouter" } });
+  assert.deepEqual(readChatPreferences("conversation"), { ...getDefaultChatPreferences(), selectedImageModel: { providerId: "openrouter", modelId: "image/one" } });
+});
+
+test("manual tool fields preserve defaults, numeric bounds and normalized input", () => {
+  // The manual-field helpers read only `tool.manual`, so the fixture supplies
+  // just that subtree rather than the catalog fields the picker fills in.
+  const tool = { manual: { primaryFieldKey: "query", fields: [{ key: "topK", type: "number", required: true, min: 1, max: 8, defaultValue: "4" }] } } as unknown as ToolCatalogItem;
+  assert.deepEqual(buildDefaultManualFieldValues(tool), { topK: "4" });
+  assert.deepEqual(validateManualToolFields(tool, { topK: "9" }), { topK: "最大值为 8" });
+  assert.deepEqual(validateManualToolFields(tool, { topK: "abc" }), { topK: "请输入有效数字" });
+  assert.deepEqual(normalizeManualToolInput({ tool, text: "SQLite", fieldValues: {} }), { query: "SQLite", topK: 4 });
+});

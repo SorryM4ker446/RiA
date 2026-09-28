@@ -78,7 +78,7 @@ export function useChatState() {
     appendAttachments, onReuseImageForEditing, onAttachmentInputChange, generateImage, generateVideo,
   } = useMediaGeneration({ activeChatId, isHistoryReady: historyState?.chatId === activeChatId && historyState.status === "ready", setMessages, reloadMessages: loadMessages, ensureActiveChatId, loadChats, setPageError, modelMode, selectedImageModel, selectedVideoModel, textareaRef });
   const {
-    toolCatalogError, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors,
+    toolCatalogError, unavailableTools, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors,
     setManualToolFieldErrors, isRunningManualTool, manualTools, selectedManualToolConfig,
     manualToolSelectValue, isManualToolSelected, runManualTool,
   } = useTools({ setMessages, ensureActiveChatId, loadChats, selectedChatModel, modelMode, selectedManualTool, setSelectedManualTool, loadTasks, taskStatusFilter });
@@ -544,7 +544,7 @@ export function useChatState() {
     attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, addToolApprovalResponse, onSubmit,
     setSelectedManualTool, manualToolSelectValue, manualTools, manualToolsOnly, setManualToolsOnly,
     selectedManualToolConfig, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors,
-    setManualToolFieldErrors, toolCatalogError: withoutGlobalEcho(toolCatalogError),
+    setManualToolFieldErrors, unavailableTools, toolCatalogError: withoutGlobalEcho(toolCatalogError),
     setInput, handleTextareaKeyDown, onTextareaPaste,
     textareaRef, input, isManualToolSelected, onAttachmentInputChange, fileInputRef, attachments,
     clearAttachments, attachmentNames, selectedImageModel, selectedVideoModel, selectedManualTool,

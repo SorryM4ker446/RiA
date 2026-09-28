@@ -65,7 +65,7 @@ function resolveNodeCommand(name, args) {
 function prepareWorkspaceUpgrade() {
   const result = spawnSync(
     process.execPath,
-    ["--import", "./tests/helpers/register-typescript.mjs", "scripts/upgrade-local-workspace.mjs", "--prepare"],
+    ["--import", "./tests/helpers/register-typescript.ts", "scripts/upgrade-local-workspace.mjs", "--prepare"],
     { cwd: repositoryRoot, env: childEnvironment, stdio: "inherit" },
   );
 

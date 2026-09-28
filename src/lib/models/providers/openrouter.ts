@@ -68,6 +68,12 @@ function normalizeOpenRouterRow(value: unknown, mode: (typeof libraryModes)[numb
       : inputs.includes("image") || parameterNames.some(x => ["image", "input_image", "frame_images", "input_references"].includes(x)),
     endpointImageInput: null,
     supportsTools: mode === "chat" && parameterNames.some(x => ["tools", "tool_choice"].includes(x)),
+    // Three ways the provider says it will search on its own: the `:online`
+    // variant of any slug, a per-request search-context price, or a declared
+    // web search parameter. Any of them means the answer is grounded by the
+    // provider and billed for it, which the user is told rather than left to
+    // discover on an invoice.
+    providerSearch: /:online$/.test(row.id) || Object.keys(row.pricing ?? row.pricing_skus ?? {}).some(key => key.includes("search")) || parameterNames.some(x => /web[_-]?search/i.test(x)),
     contextLength: row.context_length ?? null,
     pricing: Object.fromEntries(Object.entries(row.pricing ?? row.pricing_skus ?? {}).filter(([, v]) => ["string", "number"].includes(typeof v)).slice(0, 12).map(([k, v]) => [k, String(v)])),
   };

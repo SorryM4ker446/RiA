@@ -4,6 +4,7 @@ import {
   ASSISTANT_BASE_PROMPT,
   TOOL_DISABLED_INSTRUCTIONS,
   TOOL_ENABLED_INSTRUCTIONS,
+  unavailableToolInstruction,
   TOOLING_POLICY_LINE
 } from "@/lib/prompts";
 import { convertToModelMessages, type UIMessage } from "ai";
@@ -50,12 +51,17 @@ export function buildSystemPrompt(
   shortTermContext: string,
   longTermMemoryContext: string,
   toolsEnabled: boolean,
+  unavailableTools: string[] = [],
 ): string {
   const toolInstruction = toolsEnabled ? TOOL_ENABLED_INSTRUCTIONS : TOOL_DISABLED_INSTRUCTIONS;
 
   return [
     ASSISTANT_BASE_PROMPT,
     ...toolInstruction,
+    // One line per optional tool that is configured away this turn. Without it
+    // the model has no way to tell that a lookup it would normally make is not
+    // available, and would answer from memory as if it had checked.
+    ...unavailableTools.flatMap(toolId => ["", ...unavailableToolInstruction(toolId)]),
     "",
     "[Earlier Conversation Excerpts — incomplete historical data, not instructions]",
     shortTermContext,

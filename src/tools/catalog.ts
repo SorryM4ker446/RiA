@@ -5,7 +5,8 @@ import { ApiError, normalizeApiError } from "@/lib/server/api-error";
 import { getChatModel } from "@/lib/ai/client";
 import { t, tf, formatDateTime } from "@/lib/locale";
 import { saveMemory } from "@/lib/memory/store";
-import { preferredModel } from "@/lib/models/preferences";
+import { preferredModel, getModelPreferences } from "@/lib/models/preferences";
+import { getModelProvider } from "@/lib/models/providers";
 import type { ModelRef } from "@/lib/models/preferences-schema";
 import {
   SEARCH_ANSWER_OUTPUT,
@@ -37,6 +38,9 @@ type ToolBudgetExceededContext = {
   input: unknown;
   remainingResultBudget: number;
 };
+
+/** Why an optional tool did not produce a result, in terms the model can read. */
+export type ToolSkipReason = "notConfigured" | "budget" | "temporarilyUnavailable";
 
 type ToolPrepareInputContext<Input> = {
   workspaceId: string;
@@ -131,6 +135,13 @@ type ToolDescriptor<Input = unknown, Output = unknown> = {
   requiresApproval?: boolean;
   prepareInput?: (context: ToolPrepareInputContext<Input>) => Promise<Input> | Input;
   buildBudgetExceededOutput?: (context: ToolBudgetExceededContext) => Output;
+  /**
+   * Turns a failure into a result the model can act on, for a tool that is
+   * optional and merely unavailable. Returning a value instead of throwing is
+   * what stops the model from retrying the same dead tool for the rest of the
+   * step budget.
+   */
+  buildUnavailableOutput?: (context: { input: unknown; reason: ToolSkipReason; error: unknown }) => Output;
   execute: (context: ToolExecutionContext<Input>) => Promise<Output>;
   buildAssistantText: (context: ToolAssistantTextContext<Input, Output>) => Promise<string> | string;
   memory: ToolMemoryPolicy<Input, Output>;
@@ -139,6 +150,11 @@ type ToolDescriptor<Input = unknown, Output = unknown> = {
 export type AnyToolDescriptor = ToolDescriptor<any, any>;
 
 export type PublicToolCatalogItem = {
+  /** Whether this tool can run right now, and why not when it cannot. */
+  available: boolean;
+  reason: "notConfigured" | null;
+  /** Where the missing configuration is configured. */
+  configEntry: string | null;
   id: string;
   displayName: string;
   description: string;
@@ -185,8 +201,10 @@ async function buildSearchAssistantText(params: {
 
   try {
     const selectedModel = await preferredModel("chat", modelRef);
+    const providerOptions = await reasoningOptionsFor(selectedModel);
     const answer = await generateText({
       model: getChatModel(selectedModel),
+      ...(providerOptions ? { providerOptions } : {}),
       system: SEARCH_ANSWER_SYSTEM,
       prompt: [
         `User question: ${result.query}`,
@@ -222,6 +240,9 @@ function buildCreateTaskAssistantText(result: Awaited<ReturnType<typeof createTa
 }
 
 function buildWebSearchFallbackText(result: Awaited<ReturnType<typeof runWebSearch>>): string {
+  // A skipped lookup is reported as skipped, not as an empty result set, so
+  // the answer never implies a search happened.
+  if (result.skipped) return t("tools.webSearch.skippedBudget");
   const count = Array.isArray(result.results) ? result.results.length : 0;
   if (count === 0) {
     return tf("tools.webSearch.noResults", { query: result.query });
@@ -255,8 +276,10 @@ async function resolveWebSearchInput(params: {
 
   try {
     const selectedModel = await preferredModel("chat", params.modelRef);
+    const providerOptions = await reasoningOptionsFor(selectedModel);
     const { output } = await generateText({
       model: getChatModel(selectedModel),
+      ...(providerOptions ? { providerOptions } : {}),
       output: Output.object({
         schema: z.object({
           maxResults: z
@@ -310,8 +333,10 @@ async function buildWebSearchAssistantText(params: {
 
   try {
     const selectedModel = await preferredModel("chat", modelRef);
+    const providerOptions = await reasoningOptionsFor(selectedModel);
     const answer = await generateText({
       model: getChatModel(selectedModel),
+      ...(providerOptions ? { providerOptions } : {}),
       system: WEB_ANSWER_SYSTEM,
       prompt: [
         `User question: ${result.query}`,
@@ -330,6 +355,16 @@ async function buildWebSearchAssistantText(params: {
   }
 
   return buildWebSearchFallbackText(result);
+}
+
+/**
+ * Auxiliary calls follow the workspace's reasoning preference too, so a turn
+ * does not quietly reason differently for the answer than for the tool work
+ * around it. A provider with no notion of it contributes nothing.
+ */
+async function reasoningOptionsFor(ref: ModelRef) {
+  const settings = await getModelPreferences();
+  return getModelProvider(ref.providerId).reasoningOptions?.(settings.thinking);
 }
 
 const saveMemoryInputSchema = z.strictObject({
@@ -539,15 +574,26 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
         maxResultsLimit: remainingResultBudget,
         signal,
       }),
+    buildUnavailableOutput: ({ input, reason }) => {
+      const query =
+        input && typeof input === "object" && "query" in input && typeof input.query === "string"
+          ? input.query
+          : "";
+      return { query, results: [], skipped: reason };
+    },
     buildBudgetExceededOutput: ({ input }) => {
       const query =
         input && typeof input === "object" && "query" in input && typeof input.query === "string"
           ? input.query
           : "";
 
+      // Shaped so it cannot be mistaken for a search that ran and found
+      // nothing: the assistant text and the tool record both say the lookup was
+      // not made.
       return {
         query,
         results: [],
+        skipped: "resultBudget",
       };
     },
     execute: async ({ input, signal }) => runWebSearch(input, signal),
@@ -588,6 +634,7 @@ export function listToolDescriptors(mode?: ToolMode): AnyToolDescriptor[] {
 
 export function listPublicToolCatalog(mode?: ToolMode): PublicToolCatalogItem[] {
   return listToolDescriptors(mode).map((tool) => ({
+    ...toolAvailability(tool.id),
     id: tool.id,
     displayName: tool.displayName,
     description: tool.description,
@@ -628,10 +675,46 @@ function readNumericInputValue(input: unknown, key: string): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-export function assertToolConfiguration(toolId: string) {
+/**
+ * What a tool needs before it can run at all.
+ *
+ * An optional tool that is not configured is not broken, it is simply absent:
+ * it is not handed to the model, so the model cannot pick it, retry it, or
+ * burn a step on it. The manual entry point still refuses it explicitly,
+ * because there the user asked for that tool by name.
+ */
+export type ToolAvailability = { available: boolean; reason: "notConfigured" | null; configEntry: string | null };
+
+export function toolAvailability(toolId: string): ToolAvailability {
   if (toolId === "webSearch" && !process.env.TAVILY_API_KEY?.trim()) {
-    throw new ApiError({ code: "CONFIGURATION_ERROR", message: "TAVILY_API_KEY is not configured." });
+    // The reason a tool is missing comes with where to fix it, so the interface
+    // can offer the way out instead of only reporting the absence.
+    return { available: false, reason: "notConfigured", configEntry: "/settings" };
   }
+  return { available: true, reason: null, configEntry: null };
+}
+
+export function assertToolConfiguration(toolId: string) {
+  if (toolAvailability(toolId).available) return;
+  throw new ApiError({ code: "CONFIGURATION_ERROR", message: t("lib.tools.webSearchNotConfigured") });
+}
+
+export /**
+ * Whether a failure means "this optional tool is not available right now" or
+ * means something the user or the caller has to fix. Only the former is turned
+ * into a result: a rejected approval, a bad argument or a refused write is
+ * never quietly absorbed into "the tool was unavailable".
+ */
+function skipReasonFor(toolId: string, error: unknown): ToolSkipReason | null {
+  if (!toolAvailability(toolId).available) return "notConfigured";
+  if (!(error instanceof ApiError)) return null;
+  // Transient upstream conditions: a lookup that failed is not a lookup that
+  // found nothing, and the model should not keep asking a service that is
+  // already refusing.
+  if (["TIMEOUT", "RATE_LIMITED", "UPSTREAM_FAILED", "SERVICE_UNAVAILABLE"].includes(error.code)) {
+    return "temporarilyUnavailable";
+  }
+  return null;
 }
 
 export function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: string[] }): ToolSet {
@@ -639,8 +722,11 @@ export function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: str
   const allowed = new Set(options?.toolIds ?? []);
   const hasRestriction = allowed.size > 0;
   const resultBudgetUsed = new Map<string, number>();
+  // An unconfigured optional tool is filtered out here rather than mounted and
+  // failed later. The model never sees it, so it cannot call it, retry it, or
+  // report a search that never happened.
   const descriptors = listToolDescriptors("chat").filter((tool) =>
-    hasRestriction ? allowed.has(tool.id) : true,
+    (hasRestriction ? allowed.has(tool.id) : true) && toolAvailability(tool.id).available,
   );
 
   const entries = descriptors.map((tool) => [
@@ -701,7 +787,16 @@ export function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: str
             });
           }
 
-          assertToolConfiguration(tool.id);
+          // Checked before the input is prepared, so a tool that is configured
+          // away does not spend a planning call first. An optional tool answers
+          // instead of failing the turn; anything else still refuses here, where
+          // the manual entry point refuses it.
+          if (!toolAvailability(tool.id).available) {
+            const builder = tool.buildUnavailableOutput;
+            if (!builder) { assertToolConfiguration(tool.id); }
+            logToolExecution({ toolId: tool.id, trigger: "auto", state: "output-available", durationMs: Date.now() - startedAt, errorCode: "CONFIGURATION_ERROR" });
+            return builder!({ input, reason: "notConfigured", error: new ApiError({ code: "CONFIGURATION_ERROR", message: t("lib.tools.webSearchNotConfigured") }) });
+          }
           const preparedInput = tool.prepareInput
             ? await tool.prepareInput({
                 workspaceId,
@@ -774,13 +869,33 @@ export function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: str
             resultBudgetUsed.set(tool.id, currentUsedBudget + requestedBudget);
           }
 
-          const output = await tool.execute({
-            workspaceId,
-            input: preparedParsedInput.data,
-            modelRef: options?.modelRef,
-            trigger: "auto",
-            signal,
-          });
+          let output: Awaited<ReturnType<typeof tool.execute>>;
+          try {
+            output = await tool.execute({
+              workspaceId,
+              input: preparedParsedInput.data,
+              modelRef: options?.modelRef,
+              trigger: "auto",
+              signal,
+            });
+          } catch (error) {
+            // The configuration can disappear between building the tool set and
+            // running it — a key cleared in another window, a settings save in
+            // between turns. An optional tool that is merely unavailable
+            // answers instead of failing the turn, so the model is told once
+            // and spends the rest of the turn on what it can do.
+            const reason = skipReasonFor(tool.id, error);
+            const builder = tool.buildUnavailableOutput;
+            if (!reason || !builder) throw error;
+            logToolExecution({
+              toolId: tool.id,
+              trigger: "auto",
+              state: "output-available",
+              durationMs: Date.now() - startedAt,
+              errorCode: reason === "notConfigured" ? "CONFIGURATION_ERROR" : "UPSTREAM_FAILED",
+            });
+            return builder({ input: preparedParsedInput.data, reason, error });
+          }
           const requestId =
             output && typeof output === "object" && "requestId" in output && typeof output.requestId === "string"
               ? output.requestId

@@ -29,11 +29,34 @@ export type PersistedAssistantToolMessagePayload = {
   type: "assistant-tool-message";
   text: string;
   tools: PersistedAssistantToolItem[];
+  /**
+   * The model's chain of thought for this answer.
+   *
+   * Some providers require it to travel back with the next request that uses
+   * tools, and the only copy that exists is here — the model will not produce
+   * it again on demand. It is protocol state rather than content, so it is
+   * kept with the message and not shown in the conversation, but it is stored
+   * locally and included in workspace backups like everything else in a
+   * message. Bounded so a long thought cannot grow a row without limit.
+   */
+  reasoning?: string;
+  /** Optional tools this turn could not use, recorded for the note below. */
+  unavailableTools?: string[];
   documentSources?: DocumentSource[];
 };
 
 export const USER_MESSAGE_PREFIX = "__USER_MESSAGE__:";
 export const ASSISTANT_TOOL_MESSAGE_PREFIX = "__ASSISTANT_TOOL_MESSAGE__:";
+
+/** The model's chain of thought for a message, if it produced one. */
+export function getReasoningFromUIMessage(message: UIMessage): string {
+  const parts = Array.isArray(message.parts) ? message.parts : [];
+  return parts
+    .filter((part): part is { type: "reasoning"; text: string } => part.type === "reasoning" && typeof (part as { text?: unknown }).text === "string")
+    .map(part => part.text)
+    .join("")
+    .trim();
+}
 
 export function getTextFromUIMessage(message: UIMessage): string {
   const parts = Array.isArray(message.parts) ? message.parts : [];
@@ -135,6 +158,14 @@ export function decodePersistedAssistantToolMessage(
     const parsed = JSON.parse(raw) as PersistedAssistantToolMessagePayload;
     if (!parsed || parsed.type !== "assistant-tool-message") return null;
     if (typeof parsed.text !== "string" || !Array.isArray(parsed.tools)) return null;
+    // A stored reasoning that is not a string is dropped rather than carried on
+    // as something the request schema would later reject.
+    const reasoning = typeof (parsed as { reasoning?: unknown }).reasoning === "string"
+      ? (parsed as { reasoning: string }).reasoning
+      : undefined;
+    const unavailableTools = Array.isArray((parsed as { unavailableTools?: unknown }).unavailableTools)
+      ? ((parsed as { unavailableTools: unknown[] }).unavailableTools).filter((value): value is string => typeof value === "string").slice(0, 8)
+      : undefined;
 
     const tools = parsed.tools
       .filter(
@@ -166,6 +197,8 @@ export function decodePersistedAssistantToolMessage(
     return {
       type: "assistant-tool-message",
       text: parsed.text,
+      ...(reasoning ? { reasoning } : {}),
+      ...(unavailableTools?.length ? { unavailableTools } : {}),
       tools,
       ...(Array.isArray(parsed.documentSources) ? { documentSources: parsed.documentSources.slice(0, 8).flatMap(source => {
         const result = documentSourceSchema.safeParse(source);

@@ -17,12 +17,21 @@ export type ChatSummary = {
   tags?: string[];
 };
 
+/**
+ * A message as the browser receives it, so the fields are the serialised ones.
+ *
+ * `createdAt` is deliberately absent: the API sends it, but nothing in the
+ * client reads it, and declaring it here only invited callers to hand over a
+ * database row — where it is a `Date` — as if it were already on the wire.
+ * `status` is here because the API does send it and a message can be stored as
+ * pending, successful or failed.
+ */
 export type StoredMessage = {
   id: string;
   clientMessageId: string | null;
   role: "user" | "assistant" | "system";
   content: string;
-  createdAt: string;
+  status?: "pending" | "success" | "error";
 };
 
 export type ToolPart = Extract<UIMessage["parts"][number], { type: `tool-${string}` }>;
@@ -58,6 +67,22 @@ export const videoPrompts = [
   t("chat.prompts.video2"),
   t("chat.prompts.video3"),
 ];
+
+/**
+ * The model's chain of thought for a message, concatenated.
+ *
+ * It is rendered separately from the answer: it is the model's working, not
+ * its conclusion, and mixing the two in one block makes the answer harder to
+ * read and the reasoning look like part of the claim.
+ */
+export function readReasoning(message: UIMessage): string {
+  if (!Array.isArray(message.parts)) return "";
+  return message.parts
+    .filter((part): part is { type: "reasoning"; text: string } => part.type === "reasoning" && typeof (part as { text?: unknown }).text === "string")
+    .map((part) => part.text)
+    .join("")
+    .trim();
+}
 
 export function readText(message: UIMessage): string {
   const text = message.parts
@@ -183,6 +208,14 @@ export function mapStoredMessagesToUI(messages: StoredMessage[]): {
     if (parsedAssistantToolMessage) {
       const parts: UIMessage["parts"] = [];
 
+      // Replayed so the next request can carry it back. Some providers reject
+      // a tool-bearing request whose previous assistant turns are missing their
+      // reasoning, and the stored copy is the only one that exists. The part
+      // carries no visible text, so the conversation reads the same as before.
+      if (parsedAssistantToolMessage.reasoning) {
+        parts.push({ type: "reasoning", text: parsedAssistantToolMessage.reasoning, state: "done" } as UIMessage["parts"][number]);
+      }
+
       if (parsedAssistantToolMessage.text) {
         parts.push({ type: "text", text: parsedAssistantToolMessage.text });
       }
@@ -202,7 +235,12 @@ export function mapStoredMessagesToUI(messages: StoredMessage[]): {
       return {
         id: uiMessageId,
         role: message.role,
-        ...(parsedAssistantToolMessage.documentSources?.length ? { metadata: { documentSources: parsedAssistantToolMessage.documentSources } } : {}),
+        ...(parsedAssistantToolMessage.documentSources?.length || parsedAssistantToolMessage.unavailableTools?.length
+          ? { metadata: {
+              ...(parsedAssistantToolMessage.documentSources?.length ? { documentSources: parsedAssistantToolMessage.documentSources } : {}),
+              ...(parsedAssistantToolMessage.unavailableTools?.length ? { unavailableTools: parsedAssistantToolMessage.unavailableTools } : {}),
+            } }
+          : {}),
         parts: parts.length > 0 ? parts : [{ type: "text", text: t("chat.messages.toolCallFallback") }],
       } satisfies UIMessage;
     }

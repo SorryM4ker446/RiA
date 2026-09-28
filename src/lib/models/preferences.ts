@@ -165,7 +165,7 @@ export async function addModel(ref: ModelRef): Promise<{ data: ModelLibraryItem;
   // A catalog row is provider data and may carry fields this application does
   // not store. The library entry is built from an explicit list of them, so a
   // new provider field cannot make a model silently un-addable.
-  const libraryFields = { providerId: true, modelId: true, name: true, description: true, modes: true, supportsImageInput: true, endpointImageInput: true, supportsTools: true, contextLength: true, pricing: true, addedAt: true, lastSeenAt: true } as const;
+  const libraryFields = { providerId: true, modelId: true, name: true, description: true, modes: true, supportsImageInput: true, endpointImageInput: true, supportsTools: true, providerSearch: true, contextLength: true, pricing: true, addedAt: true, lastSeenAt: true } as const;
   const matches = snapshots.flatMap(snapshot => {
     const rows = Array.isArray(snapshot.models) ? snapshot.models : [];
     return rows.flatMap(row => {
@@ -196,6 +196,9 @@ export async function addModel(ref: ModelRef): Promise<{ data: ModelLibraryItem;
       supportsImageInput: matches.some(match => match.item.modes.includes("chat") && match.item.supportsImageInput) || endpointImageInput === true || (!hasImageGeneration && matches.some(match => match.item.supportsImageInput)),
       endpointImageInput,
       supportsTools: matches.some(match => match.item.supportsTools),
+      // Refreshed on every add, so a model the provider changed into an
+      // online variant is noticed the next time it is added or re-added.
+      providerSearch: matches.some(match => match.item.providerSearch),
       addedAt: existing?.addedAt ?? new Date().toISOString(),
       lastSeenAt: matches.reduce((date, match) => match.fetchedAt > date ? match.fetchedAt : date, matches[0].fetchedAt).toISOString(),
     });

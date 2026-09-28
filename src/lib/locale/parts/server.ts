@@ -48,6 +48,7 @@ export const serverMessages = {
   "lib.models.notYetAddedSuffix": "清单中",
   "lib.models.fallbackMustDiffer": "备用模型必须与默认模型不同",
   "lib.models.embeddingNotAdded": "嵌入模型尚未添加到“我的模型”",
+  "lib.tools.webSearchNotConfigured": "联网搜索尚未配置，本轮没有访问互联网。",
   "lib.models.providerNotConfigured": "该服务商尚未配置密钥，请先在设置中填写后再试。",
   "lib.models.providerNoModePrefix": "该服务商不提供",
   "lib.models.providerNoModeSuffix": "模型生成，请为该模式另选服务商。",

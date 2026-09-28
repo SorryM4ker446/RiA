@@ -24,7 +24,23 @@ The chat protocol is implemented directly rather than by pointing an OpenAI-shap
 
 Capabilities the official model list does not report — currently only tool support — come from a written rule in `src/lib/models/providers/deepseek.ts` that names its source and the date it was checked. The list itself is never hardcoded: a renamed model stops being offered, because nothing in the source remembers its old name.
 
+Images are inlined as the documented `image_url` block with a data URL, in user messages only; the provider answers 400 for one anywhere else, so an image in an assistant turn is dropped rather than failing the request. A private media path is never forwarded as a link the provider cannot fetch, and a format outside JPEG, PNG, GIF and WebP is refused before the request is sent.
+
+**Thinking mode** is a request setting, stored per workspace and edited on this page. The provider decides how to express it: DeepSeek maps it to its toggle and effort, and a toggle that is off is never sent together with an effort. A provider with no notion of it ignores the setting and its requests are unchanged.
+
+**Reasoning is stored with the message.** Some providers require a previous assistant turn's chain of thought to travel back on the next request that uses tools, and the model will not produce it a second time on demand. It is kept in the message it belongs to and replayed with the next request, and it is included in workspace backups like the rest of a message. In the conversation it is shown in its own collapsed block above the answer, opening by itself while the turn is still arriving: the model's working and its conclusion are different claims, and folding them together makes both harder to read.
+
 `DEEPSEEK_BASE_URL` overrides the endpoint for a proxy or an offline fixture. It changes where a request goes, never what it means, and carries no credential.
+
+## When web search is not configured
+
+An optional tool that is not configured is absent, not broken. The search tool is not handed to the model at all, so the model cannot call it, retry it, or spend a step discovering it is missing, and no search request is made. The chat prompt says plainly that this turn has no internet access, so a question that depends on current information is answered from knowledge with that said out loud rather than presented as if it had been checked. The manual tool picker shows the search entry as unavailable instead of hiding it, and the model page shows a `自带联网（额外计费）` badge on any model that searches on the provider's side.
+
+The same rule applies to a per-turn result budget: a lookup skipped because the budget is spent is returned as a skipped result, never as an empty result set, so "we did not look" cannot read as "we looked and found nothing".
+
+A tool that becomes unavailable **during** a turn — a key cleared in another window between the tools being built and the call running — answers with the same controlled result instead of failing the turn, so the model is told once and spends the rest of the turn on what it can do. The same applies to a transient search failure (timeout, throttling, unreachable): a lookup that failed is not a lookup that found nothing, and the model should not keep asking a service that is already refusing. This path is only for optional tools that are merely unavailable. A rejected approval, a bad argument or a refused write still fails as before — degradation never swallows a decision the user or the caller made.
+
+Each turn records which optional tools it could not use, and the message carries a `本轮未联网` badge from the stored turn rather than from the live stream, so a reloaded conversation says the same thing the first time did.
 
 ## Optional fallback
 
@@ -43,7 +59,9 @@ The page shows the latest 100 calls and totals over the last 30 days. New record
 Cost values have three explicit sources:
 
 - **上游返回**: a numeric OpenRouter cost reported through the installed provider adapter.
-- **配置估算**: user-entered USD prices per million input/output tokens, or per image/video request. Media per-request pricing takes precedence. There is no price feed or automatic exchange-rate conversion.
+- **配置估算**: user-entered USD prices per million input/output tokens, per image/video request, and optionally per million **cache-read and cache-write** tokens. Media per-request pricing takes precedence. There is no price feed or automatic exchange-rate conversion.
+
+A cached read is not an ordinary input token: providers bill it differently, and charging it at the full input price overstates exactly the cheapest requests. When a provider reports the split, it is priced with the cache rates; when no cache rate is filled in, the input rate applies, so a configuration without one means what it always meant.
 - **未报告 / 未配置**: unknown. Missing tokens or rates do not become zero. An explicitly configured or reported zero remains zero.
 
 The known-cost total omits unknown costs and shows the number of unknown attempts beside it. A failed attempt does not get a synthetic per-request charge; an upstream-reported charge is retained. Usage recording is best effort: a storage failure logs the sanitized `model.usage.write_failed` event without discarding a successful model answer. Process termination or provider omissions can leave missing usage. This is an estimate/history view, not a complete billing ledger; check the provider's bill for payment decisions.

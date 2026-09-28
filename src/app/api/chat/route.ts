@@ -10,6 +10,7 @@ import { setupServerProxy } from "@/lib/server/proxy";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { NextRequest } from "next/server";
 import { formatDocumentContext, searchDocuments } from "@/lib/documents/retrieval";
+import { listPublicToolCatalog } from "@/tools/catalog";
 import { documentSourceSchema } from "@/lib/documents/types";
 
 async function POSTHandler(req: NextRequest) {
@@ -37,6 +38,7 @@ async function POSTHandler(req: NextRequest) {
     // and each tool's modelDescription, not from a second LLM call that would
     // have to guess from the latest message alone.
     const toolsEnabled = canUseTools && (isApprovalResume || !body.manualToolsOnly);
+  const unavailableTools = toolsEnabled ? unavailableChatTools() : [];
 
     const relevantMemories = latestUserMessage?.text
       ? await getRelevantMemories({
@@ -47,12 +49,28 @@ async function POSTHandler(req: NextRequest) {
 
 
     const documentSources = latestUserMessage?.text ? (await searchDocuments(latestUserMessage.text)).map(source => documentSourceSchema.parse(source)) : [];
-    const systemPrompt = buildSystemPrompt(context.historyExcerpt || "No earlier messages omitted.", formatLongTermContext(relevantMemories), toolsEnabled) + formatDocumentContext(documentSources);
+    // The optional tools that are configured away this turn are named in the
+    // prompt, so the model can answer honestly about what it could not check.
+    const systemPrompt = buildSystemPrompt(
+      context.historyExcerpt || "No earlier messages omitted.",
+      formatLongTermContext(relevantMemories),
+      toolsEnabled,
+      unavailableTools,
+    ) + formatDocumentContext(documentSources);
     return streamChatResponse({ input, conversation, systemPrompt, modelMessages, toolsEnabled, signal: req.signal, documentSources });
   } catch (error) {
     console.error("/api/chat error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to generate chat response");
   }
+}
+
+/**
+ * Optional tools this turn cannot use. The list comes from the same source the
+ * tool set is built from, so the prompt and the tools can never disagree about
+ * what was available.
+ */
+function unavailableChatTools() {
+  return listPublicToolCatalog("chat").filter(tool => !tool.available).map(tool => tool.id);
 }
 
 export const POST = protectDataOperation(POSTHandler);

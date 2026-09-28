@@ -3,7 +3,7 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveInstalledElectron } from "./resolve-installed-electron.mjs";
-import { textPdf, wordDocument } from "../tests/helpers/document-fixtures.mjs";
+import { textPdf, wordDocument } from "../tests/helpers/document-fixtures.ts";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packageVersion = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")).version;

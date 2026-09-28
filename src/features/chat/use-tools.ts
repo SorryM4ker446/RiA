@@ -18,11 +18,16 @@ export function useTools({ setMessages, ensureActiveChatId, loadChats, selectedC
   const [manualToolFieldErrors, setManualToolFieldErrors] = useState<ManualToolFieldValues>({});
   const [isRunningManualTool, setIsRunningManualTool] = useState(false);
   const manualTools = getManualToolsForChat();
+  // Surfaced in the picker so the absence is explained where the user looks
+  // for it, rather than as a tool that silently is not there.
+  const unavailableTools = availableTools.filter((tool) => !tool.available && tool.modeSupport.includes("chat"));
   const selectedManualToolConfig = getSelectedManualToolConfig();
   const manualToolSelectValue = selectedManualToolConfig ? selectedManualToolConfig.id : "none";
   const isManualToolSelected = modelMode === "chat" && selectedManualToolConfig !== null;
   function getManualToolsForChat(): ToolCatalogItem[] {
-    return availableTools.filter((tool) => tool.manual.enabled && tool.modeSupport.includes("chat"));
+    // A tool that cannot run is not offered as a manual action either: the
+    // user is told why instead of pressing a button that only errors.
+    return availableTools.filter((tool) => tool.manual.enabled && tool.available && tool.modeSupport.includes("chat"));
   }
 
   function getSelectedManualToolConfig(): ToolCatalogItem | null {
@@ -221,7 +226,7 @@ export function useTools({ setMessages, ensureActiveChatId, loadChats, selectedC
     setManualToolFieldErrors({});
   }, [selectedManualToolConfig]);
   return {
-    toolCatalogError, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors,
+    toolCatalogError, unavailableTools, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors,
     setManualToolFieldErrors, isRunningManualTool, manualTools, selectedManualToolConfig,
     manualToolSelectValue, isManualToolSelected, runManualTool,
   };

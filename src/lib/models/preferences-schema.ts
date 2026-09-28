@@ -48,6 +48,13 @@ export const modelLibraryItemSchema = z.strictObject({
   supportsImageInput: z.boolean(),
   endpointImageInput: z.boolean().nullable().default(null),
   supportsTools: z.boolean(),
+  /**
+   * The provider performs its own web search for this model, charged on top of
+   * the model's usage. Recognised rather than hidden, because an answer the
+   * user paid to ground is not the same thing as one this application searched
+   * for — and an entry written before this field existed means "not known".
+   */
+  providerSearch: z.boolean().optional(),
   contextLength: z.number().int().positive().nullable(),
   pricing: z.record(z.string().max(40), z.string().max(80)).refine(value => Object.keys(value).length <= 12),
   addedAt: z.iso.datetime(),
@@ -67,9 +74,30 @@ const preferencesShape = {
   library: z.array(modelLibraryItemSchema).max(1000).refine(rows => new Set(rows.map(row => modelRefKey(row))).size === rows.length, "Duplicate models in library"),
   // Keyed by `provider:model`, so two providers offering the same underlying
   // model keep their own user-supplied rates.
-  rates: z.record(id, z.strictObject({ inputPerMillion: price, outputPerMillion: price, perRequest: price })).refine(value => Object.keys(value).length <= 100),
+  // Cached input is priced separately because providers bill it differently.
+// Both stay nullable: an unset cache rate falls back to the input rate, so an
+// existing configuration keeps meaning exactly what it meant before.
+  rates: z.record(id, z.strictObject({
+    inputPerMillion: price,
+    outputPerMillion: price,
+    perRequest: price,
+    cacheReadPerMillion: price.nullish(),
+    cacheWritePerMillion: price.nullish(),
+  })).refine(value => Object.keys(value).length <= 100),
   backupRetentionDays: z.number().int().min(1).max(365),
   backupMaxCount: z.number().int().min(2).max(20),
+  /**
+   * Whether the model should reason before answering, and how hard.
+   *
+   * It is a request-level setting, so it is stored per workspace rather than
+   * per model: a model that has no notion of it ignores it. The default
+   * matches what a reasoning model does on its own, so an existing workspace
+   * keeps behaving the same and no stored document has to be rewritten.
+   */
+  thinking: z.strictObject({
+    enabled: z.boolean().default(true),
+    effort: z.enum(["low", "high", "max"]).nullable().default(null),
+  }).default({ enabled: true, effort: null }),
 };
 
 export const preferencesSchema = z.strictObject(preferencesShape).superRefine((settings, context) => {
@@ -131,6 +159,7 @@ export function defaultModelPreferences(): ModelPreferences {
     rates: {},
     backupRetentionDays: 30,
     backupMaxCount: 10,
+    thinking: { enabled: true, effort: null },
   };
 }
 

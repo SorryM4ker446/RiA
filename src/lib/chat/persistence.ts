@@ -3,6 +3,7 @@ import { t } from "@/lib/locale";
 import {
   encodePersistedAssistantToolMessage,
   encodePersistedUserMessage,
+  getReasoningFromUIMessage,
   getTextFromUIMessage,
   truncateTitle,
   type PersistedAssistantToolItem
@@ -116,18 +117,28 @@ export async function prepareChatPersistence(input: ChatRequest) {
   return { chat, regenerationSnapshot };
 }
 export type ChatPersistence = Awaited<ReturnType<typeof prepareChatPersistence>>;
-export async function persistChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; documentSources?: DocumentSource[] }) {
+export async function persistChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; documentSources?: DocumentSource[]; unavailableTools?: string[] }) {
   const { input, conversation, responseMessage, isAborted, generationFailed } = params;
   const { latestUserMessage, modelRef } = input;
+  const { unavailableTools = [] } = params;
   const { chat, regenerationSnapshot } = conversation;
   try {
     const assistantText = getTextFromUIMessage(responseMessage).trim();
     const toolItems = getToolItemsFromResponseMessage(responseMessage);
+    // Reasoning is kept with the message whether or not this answer used a
+    // tool: the next turn's request may need it, and it cannot be recovered
+    // after the fact.
+    const reasoning = getReasoningFromUIMessage(responseMessage);
     const content =
-      toolItems.length > 0 || (params.documentSources?.length && assistantText)
+      toolItems.length > 0 || reasoning || (params.documentSources?.length && assistantText)
         ? encodePersistedAssistantToolMessage({
           type: "assistant-tool-message",
           text: assistantText,
+          ...(reasoning ? { reasoning } : {}),
+          // Recorded so the note about a tool this turn could not use survives a
+          // reload and is stated once, instead of only existing in the model's
+          // prose or only in the live stream.
+          ...(unavailableTools.length ? { unavailableTools } : {}),
           tools: toolItems,
           ...(params.documentSources?.length ? { documentSources: params.documentSources } : {}),
         })

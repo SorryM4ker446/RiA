@@ -1,4 +1,5 @@
 import type { EmbeddingModel, ImageModel, LanguageModel } from "ai";
+import type { SharedV3ProviderOptions } from "@ai-sdk/provider";
 import type { Experimental_VideoModelV3 } from "@ai-sdk/provider";
 import type { LibraryMode, ProviderId } from "@/lib/models/preferences-schema";
 
@@ -8,6 +9,9 @@ import type { LibraryMode, ProviderId } from "@/lib/models/preferences-schema";
 export type LanguageModelV3 = Extract<LanguageModel, { specificationVersion: "v3" }>;
 export type ImageModelV3 = Extract<ImageModel, { specificationVersion: "v3" }>;
 export type EmbeddingModelV3 = Extract<EmbeddingModel, { specificationVersion: "v3" }>;
+
+/** Whether the model should reason before answering, and how hard. */
+export type ReasoningPreference = { enabled: boolean; effort: "low" | "high" | "max" | null };
 
 /** A model as the provider's own catalog describes it, before the user adds it. */
 export type CatalogModel = {
@@ -27,6 +31,8 @@ export type CatalogModel = {
   providerSupportsImageInput?: boolean;
   endpointImageInput: boolean | null;
   supportsTools: boolean;
+  /** The provider runs its own web search for this model, at extra cost. */
+  providerSearch: boolean;
   contextLength: number | null;
   pricing: Record<string, string>;
 };
@@ -84,6 +90,12 @@ export type ModelProvider = {
   offeredModes: LibraryMode[];
   /** Whether this instance holds the credentials the provider needs. */
   isConfigured: () => boolean;
+  /**
+   * Translates the workspace's reasoning preference into this provider's own
+   * request options. Absent when the provider has no notion of it, which is
+   * what keeps the preference from being guessed at by the call sites.
+   */
+  reasoningOptions?: (preference: ReasoningPreference) => SharedV3ProviderOptions | undefined;
   /** Reads one mode's catalog. Throws `CatalogFetchError`, never a raw fetch error. */
   fetchCatalog: (mode: LibraryMode, signal: AbortSignal) => Promise<{ models: CatalogModel[]; invalidRows: number }>;
   createChatModel: (modelId: string) => LanguageModelV3;
