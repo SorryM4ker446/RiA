@@ -55,7 +55,7 @@ function setup(t, kind, { initialChatId = "A", ensure } = {}) {
     return json({ data: {} });
   });
   const options = {
-    kind, content: "draw the sea", modelId: "test-model", uploadParts: [],
+    kind, content: "draw the sea", model: { providerId: "openrouter", modelId: "test-model" }, uploadParts: [],
     getView: () => view,
     isOriginView: () => originVersion === version,
     ensureActiveChatId: ensure ?? (async () => "A"),

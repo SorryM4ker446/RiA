@@ -15,11 +15,13 @@ export default function DesktopSettingsPage() {
   const [runtime, setRuntime] = useState<DesktopRuntimeInfo | null>(null);
   const [openrouterApiKey, setOpenrouterApiKey] = useState("");
   const [tavilyApiKey, setTavilyApiKey] = useState("");
+  const [deepseekApiKey, setDeepseekApiKey] = useState("");
   const [outboundProxyUrl, setOutboundProxyUrl] = useState("");
   const [openrouterSiteName, setOpenrouterSiteName] = useState("");
   const [openrouterHttpReferer, setOpenrouterHttpReferer] = useState("");
   const [clearOpenrouterApiKey, setClearOpenrouterApiKey] = useState(false);
   const [clearTavilyApiKey, setClearTavilyApiKey] = useState(false);
+  const [clearDeepseekApiKey, setClearDeepseekApiKey] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,8 +66,10 @@ export default function DesktopSettingsPage() {
       const result = await bridge.saveSettings({
         openrouterApiKey,
         tavilyApiKey,
+        deepseekApiKey,
         clearOpenrouterApiKey,
         clearTavilyApiKey,
+        clearDeepseekApiKey,
         outboundProxyUrl,
         openrouterSiteName,
         openrouterHttpReferer,
@@ -184,6 +188,36 @@ export default function DesktopSettingsPage() {
                         type="checkbox"
                       />
                       {t("settings.clearTavily")}
+                    </span>
+                  ) : null}
+                </label>
+
+                <label className="block space-y-2 text-sm">
+                  <span className="flex items-center justify-between text-sm font-medium tracking-label">
+                    DeepSeek API Key
+                    <Badge variant={settings?.hasDeepseekApiKey ? "success" : "outline"}>
+                      {settings?.hasDeepseekApiKey ? t("settings.configured") : t("settings.notConfigured")}
+                    </Badge>
+                  </span>
+                  <Input
+                    autoComplete="off"
+                    disabled={!settings?.encryptionAvailable || clearDeepseekApiKey}
+                    onChange={(event) => setDeepseekApiKey(event.target.value)}
+                    placeholder={t("settings.deepseekPlaceholder")}
+                    type="password"
+                    value={deepseekApiKey}
+                  />
+                  {/* DeepSeek serves chat only. Saying so here is what stops the
+                      key from looking like a way to enable image or video. */}
+                  <span className="block text-xs text-muted-foreground">{t("settings.deepseekHint")}</span>
+                  {settings?.hasDeepseekApiKey ? (
+                    <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <input
+                        checked={clearDeepseekApiKey}
+                        onChange={(event) => setClearDeepseekApiKey(event.target.checked)}
+                        type="checkbox"
+                      />
+                      {t("settings.clearDeepseek")}
                     </span>
                   ) : null}
                 </label>

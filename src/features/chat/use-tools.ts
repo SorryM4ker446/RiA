@@ -8,7 +8,8 @@ import { chatApi, persistConversationMessage } from "@/features/chat/api-client"
 import { buildDefaultManualFieldValues } from "@/features/chat/tool-input";
 import type { ManualToolFieldValues, ManualToolSelection, TaskStatusFilter, ToolCatalogItem } from "@/features/chat/types";
 import type { useTasks } from "@/features/chat/use-tasks";
-type Options = { setMessages: Dispatch<SetStateAction<UIMessage[]>>; ensureActiveChatId: (title: string) => Promise<string>; loadChats: () => Promise<void>; selectedChatModel: string | null; modelMode: ModelMode; selectedManualTool: ManualToolSelection; setSelectedManualTool: Dispatch<SetStateAction<ManualToolSelection>>; loadTasks: ReturnType<typeof useTasks>["loadTasks"]; taskStatusFilter: TaskStatusFilter; };
+import type { ModelRef } from "@/lib/models/preferences-schema";
+type Options = { setMessages: Dispatch<SetStateAction<UIMessage[]>>; ensureActiveChatId: (title: string) => Promise<string>; loadChats: () => Promise<void>; selectedChatModel: ModelRef | null; modelMode: ModelMode; selectedManualTool: ManualToolSelection; setSelectedManualTool: Dispatch<SetStateAction<ManualToolSelection>>; loadTasks: ReturnType<typeof useTasks>["loadTasks"]; taskStatusFilter: TaskStatusFilter; };
 export function useTools({ setMessages, ensureActiveChatId, loadChats, selectedChatModel, modelMode, selectedManualTool, setSelectedManualTool, loadTasks, taskStatusFilter }: Options) {
   const [availableTools, setAvailableTools] = useState<ToolCatalogItem[]>([]);
   const [toolCatalogError, setToolCatalogError] = useState<string | null>(null);

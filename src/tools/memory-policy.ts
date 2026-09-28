@@ -7,6 +7,7 @@ import {
   type ToolMemoryDraft,
   type ToolTriggerType,
 } from "@/tools/catalog";
+import type { ModelRef } from "@/lib/models/preferences-schema";
 
 const TOOL_MEMORY_VERSION = "tool-memory-v1";
 const MEMORY_DEDUPE_WINDOW_MS = 15 * 60 * 1000;
@@ -20,7 +21,7 @@ type PersistToolMemoryParams = {
   input: unknown;
   output: unknown;
   assistantText: string;
-  modelId?: string;
+  modelRef?: ModelRef;
   invokedAt?: Date;
 };
 
@@ -133,7 +134,7 @@ export async function persistToolMemory(params: PersistToolMemoryParams): Promis
     output: params.output,
     assistantText: params.assistantText,
     trigger: params.trigger,
-    modelId: params.modelId,
+    modelRef: params.modelRef,
   });
 
   if (!draft || !draft.summary.trim()) {

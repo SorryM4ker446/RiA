@@ -6,6 +6,7 @@ import { getChatModel } from "@/lib/ai/client";
 import { t, tf, formatDateTime } from "@/lib/locale";
 import { saveMemory } from "@/lib/memory/store";
 import { preferredModel } from "@/lib/models/preferences";
+import type { ModelRef } from "@/lib/models/preferences-schema";
 import {
   SEARCH_ANSWER_OUTPUT,
   SEARCH_ANSWER_SYSTEM,
@@ -27,7 +28,7 @@ export type ToolExecutionState = "output-available" | "output-error";
 type ToolExecutionContext<Input> = {
   workspaceId: string;
   input: Input;
-  modelId?: string;
+  modelRef?: ModelRef;
   trigger: ToolTriggerType;
   signal?: AbortSignal;
 };
@@ -40,7 +41,7 @@ type ToolBudgetExceededContext = {
 type ToolPrepareInputContext<Input> = {
   workspaceId: string;
   input: Input;
-  modelId?: string;
+  modelRef?: ModelRef;
   trigger: ToolTriggerType;
   remainingResultBudget?: number;
   signal?: AbortSignal;
@@ -49,7 +50,7 @@ type ToolPrepareInputContext<Input> = {
 type ToolAssistantTextContext<Input, Output> = {
   input: Input;
   output: Output;
-  modelId?: string;
+  modelRef?: ModelRef;
   trigger: ToolTriggerType;
 };
 
@@ -66,7 +67,7 @@ type ToolMemoryContext<Input, Output> = {
   output: Output;
   assistantText: string;
   trigger: ToolTriggerType;
-  modelId?: string;
+  modelRef?: ModelRef;
 };
 
 export type ManualFieldMeta = {
@@ -165,9 +166,9 @@ function buildSearchFallbackText(result: Awaited<ReturnType<typeof searchKnowled
 
 async function buildSearchAssistantText(params: {
   result: Awaited<ReturnType<typeof searchKnowledge>>;
-  modelId?: string;
+  modelRef?: ModelRef;
 }): Promise<string> {
-  const { result, modelId } = params;
+  const { result, modelRef } = params;
 
   if (result.total === 0 || result.results.length === 0) {
     return buildSearchFallbackText(result);
@@ -183,7 +184,7 @@ async function buildSearchAssistantText(params: {
   }));
 
   try {
-    const selectedModel = await preferredModel("chat", modelId);
+    const selectedModel = await preferredModel("chat", modelRef);
     const answer = await generateText({
       model: getChatModel(selectedModel),
       system: SEARCH_ANSWER_SYSTEM,
@@ -235,7 +236,7 @@ function buildWebSearchFallbackText(result: Awaited<ReturnType<typeof runWebSear
 
 async function resolveWebSearchInput(params: {
   input: z.infer<typeof webSearchInput>;
-  modelId?: string;
+  modelRef?: ModelRef;
   trigger: ToolTriggerType;
   maxResultsLimit?: number;
   signal?: AbortSignal;
@@ -253,7 +254,7 @@ async function resolveWebSearchInput(params: {
       : 10;
 
   try {
-    const selectedModel = await preferredModel("chat", params.modelId);
+    const selectedModel = await preferredModel("chat", params.modelRef);
     const { output } = await generateText({
       model: getChatModel(selectedModel),
       output: Output.object({
@@ -290,9 +291,9 @@ async function resolveWebSearchInput(params: {
 
 async function buildWebSearchAssistantText(params: {
   result: Awaited<ReturnType<typeof runWebSearch>>;
-  modelId?: string;
+  modelRef?: ModelRef;
 }): Promise<string> {
-  const { result, modelId } = params;
+  const { result, modelRef } = params;
   const count = Array.isArray(result.results) ? result.results.length : 0;
   if (count === 0) {
     return buildWebSearchFallbackText(result);
@@ -308,7 +309,7 @@ async function buildWebSearchAssistantText(params: {
   }));
 
   try {
-    const selectedModel = await preferredModel("chat", modelId);
+    const selectedModel = await preferredModel("chat", modelRef);
     const answer = await generateText({
       model: getChatModel(selectedModel),
       system: WEB_ANSWER_SYSTEM,
@@ -403,10 +404,10 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     },
     inputSchema: searchKnowledgeInputSchema,
     execute: async ({ input }) => searchKnowledge(input),
-    buildAssistantText: async ({ output, modelId }) =>
+    buildAssistantText: async ({ output, modelRef }) =>
       buildSearchAssistantText({
         result: output,
-        modelId,
+        modelRef,
       }),
     memory: {
       enabled: true,
@@ -530,10 +531,10 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       maxPerTurn: 10,
     },
     inputSchema: webSearchInput,
-    prepareInput: ({ input, modelId, trigger, remainingResultBudget, signal }) =>
+    prepareInput: ({ input, modelRef, trigger, remainingResultBudget, signal }) =>
       resolveWebSearchInput({
         input,
-        modelId,
+        modelRef,
         trigger,
         maxResultsLimit: remainingResultBudget,
         signal,
@@ -550,10 +551,10 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       };
     },
     execute: async ({ input, signal }) => runWebSearch(input, signal),
-    buildAssistantText: ({ output, modelId }) =>
+    buildAssistantText: ({ output, modelRef }) =>
       buildWebSearchAssistantText({
         result: output,
-        modelId,
+        modelRef,
       }),
     memory: {
       enabled: true,
@@ -633,7 +634,7 @@ export function assertToolConfiguration(toolId: string) {
   }
 }
 
-export function createChatToolSet(options?: { modelId?: string; toolIds?: string[] }): ToolSet {
+export function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: string[] }): ToolSet {
   const workspaceId = LOCAL_WORKSPACE_ID;
   const allowed = new Set(options?.toolIds ?? []);
   const hasRestriction = allowed.size > 0;
@@ -705,7 +706,7 @@ export function createChatToolSet(options?: { modelId?: string; toolIds?: string
             ? await tool.prepareInput({
                 workspaceId,
                 input: parsedInput.data,
-                modelId: options?.modelId,
+                modelRef: options?.modelRef,
                 trigger: "auto",
                 remainingResultBudget,
                 signal,
@@ -776,7 +777,7 @@ export function createChatToolSet(options?: { modelId?: string; toolIds?: string
           const output = await tool.execute({
             workspaceId,
             input: preparedParsedInput.data,
-            modelId: options?.modelId,
+            modelRef: options?.modelRef,
             trigger: "auto",
             signal,
           });

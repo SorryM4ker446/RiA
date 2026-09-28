@@ -3,6 +3,7 @@ import {
   ModelMode
 } from "@/features/chat/page-utils";
 import { UIMessage } from "ai";
+import type { ModelRef } from "@/lib/models/preferences-schema";
 
 export type ManualToolSelection = "none" | string;
 
@@ -68,9 +69,9 @@ export type TaskItem = {
 
 export type ChatScopedPreferences = {
   modelMode: ModelMode;
-  selectedChatModel: string | null;
-  selectedImageModel: string | null;
-  selectedVideoModel: string | null;
+  selectedChatModel: ModelRef | null;
+  selectedImageModel: ModelRef | null;
+  selectedVideoModel: ModelRef | null;
   selectedManualTool: ManualToolSelection;
   manualToolsOnly: boolean;
 };

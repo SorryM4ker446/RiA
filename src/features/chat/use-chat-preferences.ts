@@ -1,15 +1,15 @@
 import { ModelMode } from "@/features/chat/page-utils";
 import { t } from "@/lib/locale";
-import type { ModelLibraryItem } from "@/lib/models/preferences-schema";
+import type { ModelLibraryItem, ModelRef } from "@/lib/models/preferences-schema";
 import { useEffect, useRef, useState } from "react";
-import { getChatPrefsStorageKey, getDefaultChatPreferences, readChatPreferences, loadAccountChatDefaults, staleChatModelWarning } from "@/features/chat/preferences";
+import { getChatPrefsStorageKey, getDefaultChatPreferences, readChatPreferences, loadAccountChatDefaults, parseModelRefValue, staleChatModelWarning } from "@/features/chat/preferences";
 import type { ChatScopedPreferences, ManualToolSelection } from "@/features/chat/types";
 
 export function useChatPreferences(activeChatId: string | null) {
   const [modelMode, setModelMode] = useState<ModelMode>("chat");
-  const [selectedChatModel, setSelectedChatModel] = useState<string | null>(null);
-  const [selectedImageModel, setSelectedImageModel] = useState<string | null>(null);
-  const [selectedVideoModel, setSelectedVideoModel] = useState<string | null>(null);
+  const [selectedChatModel, setSelectedChatModel] = useState<ModelRef | null>(null);
+  const [selectedImageModel, setSelectedImageModel] = useState<ModelRef | null>(null);
+  const [selectedVideoModel, setSelectedVideoModel] = useState<ModelRef | null>(null);
   const [modelLibrary, setModelLibrary] = useState<ModelLibraryItem[]>([]);
   const [selectedManualTool, setSelectedManualTool] = useState<ManualToolSelection>("none");
   const [manualToolsOnly, setManualToolsOnly] = useState(false);
@@ -40,7 +40,7 @@ export function useChatPreferences(activeChatId: string | null) {
     // and only the literal "none" mapped to null -- so the empty value stored
     // "" and silently blanked a model that was still configured.
     if (!value) return;
-    const selected = value === "none" ? null : value;
+    const selected = value === "none" ? null : parseModelRefValue(value);
     if (modelMode === "chat") {
       setSelectedChatModel(selected);
       return;

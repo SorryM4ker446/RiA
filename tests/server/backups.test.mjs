@@ -49,14 +49,15 @@ async function seed() {
 test("backup preview reports models that restore would add or remove",async()=>{
   const current=defaultModelPreferences();
   current.library=[{providerId:"openrouter",modelId:"anthropic/claude-opus-4.6",name:"Claude",description:"",modes:["chat"],supportsImageInput:false,endpointImageInput:null,supportsTools:true,contextLength:null,pricing:{},addedAt:new Date().toISOString(),lastSeenAt:new Date().toISOString()}];
-  current.chat={modelId:"anthropic/claude-opus-4.6",fallbackId:null};
+  current.chat={model:{providerId:"openrouter",modelId:"anthropic/claude-opus-4.6"},fallback:null};
+  current.rates={"openrouter:anthropic/claude-opus-4.6":{inputPerMillion:3,outputPerMillion:15,perRequest:null}};
   await db.workspacePreference.upsert({ where: { id: "local" }, create: { id: "local", settings: current }, update: { settings: current } });
   const backup=await exclusiveDataOperation(()=>archive.createAccountBackup(false));
   const raw=await readFile(await files.backupFile(backup.id));
   const length=raw.readUInt32BE(8),manifest=JSON.parse(raw.subarray(44,44+length));
   const archived=structuredClone(manifest.preferences);
   archived.library=[];
-  archived.chat={modelId:null,fallbackId:null};
+  archived.chat={model:null,fallback:null};
   manifest.preferences=archived;
   const json=Buffer.from(JSON.stringify(manifest));
   const header=Buffer.from(raw.subarray(0,44));header.writeUInt32BE(json.length,8);createHash("sha256").update(json).digest().copy(header,12);
@@ -67,12 +68,56 @@ test("backup preview reports models that restore would add or remove",async()=>{
   assert.equal(archivedLibrary.size, 0);
   const preview = await archive.inspectAccountBackup(backup.id);
   assert.deepEqual(preview.models.restored, []);
-  assert.deepEqual(preview.models.removed, [{ modelId: "anthropic/claude-opus-4.6", name: "Claude" }]);
+  // The provider is part of the entry: two providers can offer the same model
+  // id, so a preview that only named the id could not say which one it would
+  // bring back or drop.
+  assert.deepEqual(preview.models.removed, [{ providerId: "openrouter", modelId: "anthropic/claude-opus-4.6", name: "Claude" }]);
   assert.equal(preview.counts.assets, 0);
   const restored=await exclusiveDataOperation(()=>restoreAccountBackup(backup.id));
   assert.equal(restored.restored,true);
   assert.deepEqual((await getModelPreferences()).library,[]);
-  assert.equal((await getModelPreferences()).chat.modelId,null);
+  assert.equal((await getModelPreferences()).chat.model,null);
+});
+
+test("archives written before model references were provider-qualified still import",async()=>{
+  const current=defaultModelPreferences();
+  current.library=[{providerId:"openrouter",modelId:"anthropic/claude-opus-4.6",name:"Claude",description:"",modes:["chat","embedding"],supportsImageInput:false,endpointImageInput:null,supportsTools:true,contextLength:null,pricing:{},addedAt:new Date().toISOString(),lastSeenAt:new Date().toISOString()}];
+  current.chat={model:{providerId:"openrouter",modelId:"anthropic/claude-opus-4.6"},fallback:null};
+  await db.workspacePreference.upsert({ where: { id: "local" }, create: { id: "local", settings: current }, update: { settings: current } });
+  const backup=await exclusiveDataOperation(()=>archive.createAccountBackup(false));
+  const path=await files.backupFile(backup.id),raw=await readFile(path);
+  const length=raw.readUInt32BE(8),manifest=JSON.parse(raw.subarray(44,44+length));
+  const current3=manifest.preferences;
+  // Version 2: the library era. Bare ids, a separate `embeddingModelId`, and
+  // rates keyed by model id alone.
+  const version2={version:2,defaultMode:current3.defaultMode,
+    chat:{modelId:"anthropic/claude-opus-4.6",fallbackId:null},image:{modelId:null,fallbackId:null},video:{modelId:null,fallbackId:null},
+    embeddingModelId:"anthropic/claude-opus-4.6",legacyCandidates:current3.legacyCandidates,library:current3.library,
+    rates:{"anthropic/claude-opus-4.6":{inputPerMillion:3,outputPerMillion:15,perRequest:null}},
+    backupRetentionDays:current3.backupRetentionDays,backupMaxCount:current3.backupMaxCount};
+  // Version 1: before the library existed at all. Ids become migration
+  // candidates rather than active selections.
+  const version1={version:1,defaultMode:"chat",
+    chat:{modelId:"anthropic/claude-opus-4.6",fallbackId:null},image:{modelId:"google/gemini-2.5-flash-image",fallbackId:null},video:{modelId:"google/veo-3.1-fast",fallbackId:null},
+    rates:{},backupRetentionDays:30,backupMaxCount:10};
+  for (const preferences of [version2, version1]) {
+    const current2=defaultModelPreferences();
+    await db.workspacePreference.upsert({ where: { id: "local" }, create: { id: "local", settings: current2 }, update: { settings: current2 } });
+    const fresh=await exclusiveDataOperation(()=>archive.createAccountBackup(false));
+    const path=await files.backupFile(fresh.id),raw=await readFile(path);
+    const length=raw.readUInt32BE(8),manifest=JSON.parse(raw.subarray(44,44+length));
+    const next=structuredClone(manifest);next.preferences=preferences;
+    const json=Buffer.from(JSON.stringify(next)),header=Buffer.from(raw.subarray(0,44));
+    header.writeUInt32BE(json.length,8);createHash("sha256").update(json).digest().copy(header,12);
+    await writeFile(path,Buffer.concat([header,json,raw.subarray(44+length)]));
+    // An archive of any of the three eras is readable, and the diff is keyed
+    // by provider and model rather than by model id alone.
+    assert.deepEqual((await archive.inspectAccountBackup(fresh.id)).models.removed,[]);
+    assert.equal((await exclusiveDataOperation(()=>restoreAccountBackup(fresh.id))).restored,true);
+    const settings=await getModelPreferences();
+    assert.deepEqual(settings.rates["openrouter:anthropic/claude-opus-4.6"],preferences.version===2?{inputPerMillion:3,outputPerMillion:15,perRequest:null}:undefined);
+    assert.deepEqual(settings.embedding,preferences.version===2?{providerId:"openrouter",modelId:"anthropic/claude-opus-4.6"}:null);
+  }
 });
 
 test("account backups restore business rows, media dependencies and search without carrying credentials",async()=>{
@@ -199,7 +244,7 @@ test("checksummed but inconsistent backup relationships and media bytes are reje
     assert.ok(await db.chat.findUnique({where:{id:original.chat.id}}));
   };
   await change(next=>next.chats[0].tags.push(next.chats[0].tags[0]));
-  await change(next=>{next.preferences.library=[];next.preferences.chat={modelId:"removed/model",fallbackId:null};});
+  await change(next=>{next.preferences.library=[];next.preferences.chat={model:{providerId:"openrouter",modelId:"removed/model"},fallback:null};});
   await change(next=>next.assets[0].relativePath="../outside.png");
   await change(next=>{const input=next.assets.find(asset=>asset.id===original.input.id);input.inputs=[{assetId:input.id,inputAssetId:original.output.id}];input.generation={version:1,type:"image",modelId:"google/gemini-2.5-flash-image",prompt:"Cycle",inputImages:[{assetId:original.output.id,mediaType:"image/png"}]};});
   raw[raw.length-1]^=1;await writeFile(path,raw);

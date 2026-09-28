@@ -67,6 +67,8 @@ Quotas belong to the local instance, not to a caller. Every request from this in
 | Backup create/restore/delete, import begin/finish, shared | 6 attempts / minute |
 | Backup import chunks | 120 chunks / minute, each at most 8 MiB |
 | Model preference updates | 20 attempts / minute |
+| Model catalog reads and manual refreshes | 8 attempts / minute |
+| Memory embedding rebuild runs | 2 runs / minute; one run re-embeds a bounded batch and spends one provider request per memory |
 
 Document-only search shares the tool request quota. Document uploads reuse the limited stream reader with a narrower 9 MiB body/8 MiB file allowance. Extraction has worker, timeout, expanded-size and per-workspace document limits; see [Document knowledge](document-knowledge.md). The existing attachment/Proxy limits are not increased.
 
@@ -80,7 +82,7 @@ Restarting the service resets quotas. Fixed windows can allow a burst around the
 
 ## Access credential and origins
 
-Workspace backup operations coordinate with business requests through a single-process maintenance gate. In-flight work rejects a maintenance request with 409; active maintenance rejects business requests with 503. Disconnecting a chat HTTP reader does not release its background persistence guard early. Backup files have owner-only access, bounded ordered uploads, schema/checksum validation and server-generated paths; restore requires explicit confirmation and creates a safety backup. See [Workspace backups](workspace-backups.md). Model settings use strict 64 KiB JSON and reuse the same credential/Origin checks; [usage estimates](model-usage.md) exclude prompt/key/error-body storage.
+Workspace backup operations coordinate with business requests through a single-process maintenance gate. In-flight work rejects a maintenance request with 409; active maintenance rejects business requests with 503. Disconnecting a chat HTTP reader does not release its background persistence guard early. Backup files have owner-only access, bounded ordered uploads, schema/checksum validation and server-generated paths; restore requires explicit confirmation and creates a safety backup. See [Workspace backups](workspace-backups.md). Model settings use strict 64 KiB JSON and reuse the same credential/Origin checks. Catalog bodies are read through a shared limiter (8 MiB, 12 s timeout, redirects refused) regardless of which provider produced them. Rebuilding memory embeddings requires an explicit `{ "confirm": true }`, is rate limited, and never runs on its own; [usage estimates](model-usage.md) exclude prompt/key/error-body storage.
 
 There is no application account and no login. Access is decided by a local credential that only a process or page on this machine can obtain. The packaged application receives a random token from its main process through `DESKTOP_SESSION_TOKEN` and sets the desktop session cookie before the window loads. Browser development prints a one-time entry link; opening it performs a top-level navigation on this machine, exchanges the code for an HttpOnly, SameSite=Lax cookie and redirects into the workspace. The credential is issued per server process, so restarting the service invalidates it, and the exchange code is consumed on first use.
 

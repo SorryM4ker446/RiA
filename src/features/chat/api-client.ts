@@ -3,6 +3,7 @@ import { attachmentValidationError } from "@/lib/media/limits";
 import { t } from "@/lib/locale";
 import type { MediaReference } from "@/lib/media/message-codec";
 import { DefaultChatTransport } from "ai";
+import type { ModelRef } from "@/lib/models/preferences-schema";
 import type { ChatSummary, MessageStatus, StoredMessage, UploadableFilePart } from "@/features/chat/page-utils";
 import type { ChatScopedPreferences, TaskItem, TaskScheduleInput, TaskStatusFilter, ToolCatalogItem } from "@/features/chat/types";
 
@@ -45,9 +46,9 @@ export const chatApi = {
   editMessage: (chatId: string, messageId: string, content: string) => requestJson<unknown>(messagePath(chatId, messageId), t("chatApi.saveEditFailed"), jsonBody("PATCH", { content })),
   deleteMessage: (chatId: string, messageId: string) => requestJson<unknown>(messagePath(chatId, messageId), t("chatApi.deleteMessageFailed"), { method: "DELETE" }),
   listTools: () => requestJson<Data<ToolCatalogItem[]>>("/api/tools?mode=chat", t("chatApi.listToolsFailed")),
-  async runTool(tool: string, input: Record<string, unknown>, modelId: string) {
+  async runTool(tool: string, input: Record<string, unknown>, model: ModelRef) {
     const failed = `${tool} ${t("chatApi.runToolFailed")}`;
-    const payload = await requestJson<ToolResult>("/api/tools/run", failed, jsonBody("POST", { tool, input, modelId, mode: "chat" }));
+    const payload = await requestJson<ToolResult>("/api/tools/run", failed, jsonBody("POST", { tool, input, model, mode: "chat" }));
     if (payload.data === undefined) throw new Error(failed);
     return payload;
   },
@@ -58,11 +59,11 @@ export const chatApi = {
   },
   updateTask: (id: string, input: Partial<TaskScheduleInput> & { status?: TaskItem["status"] }) => requestJson<Data<TaskItem> & { nextTask?: TaskItem | null }>(`/api/tasks/${encodeURIComponent(id)}`, t("chatApi.updateTaskFailed"), jsonBody("PATCH", input)),
   deleteTask: (id: string) => requestJson<unknown>(`/api/tasks/${encodeURIComponent(id)}`, t("chatApi.deleteTaskFailed"), { method: "DELETE" }),
-  async generateMedia(kind: "image" | "video", prompt: string, modelId: string, files: UploadableFilePart[], chatId?: string) {
+  async generateMedia(kind: "image" | "video", prompt: string, model: ModelRef, files: UploadableFilePart[], chatId?: string) {
     const inputs = files.map(({ url, mediaType }) => ({ url, mediaType }));
     const fallback = kind === "image" ? t("chatApi.imageGenerateFailed") : t("chatApi.videoGenerateFailed");
     const payload = await requestJson<GeneratedMedia>(`/api/${kind}`, fallback, jsonBody("POST", {
-      prompt, modelId, ...(chatId ? { chatId } : {}), ...(kind === "image" ? { inputImages: inputs } : { inputImage: inputs[0] }),
+      prompt, model, ...(chatId ? { chatId } : {}), ...(kind === "image" ? { inputImages: inputs } : { inputImage: inputs[0] }),
     }));
     if (!payload.asset) throw new Error(fallback);
     return payload;
@@ -100,7 +101,7 @@ export function createChatTransport(activeChatId: string | null, preferences: Pi
     api: "/api/chat",
     body: {
       ...(activeChatId ? { chatId: activeChatId } : {}),
-      ...(preferences.selectedChatModel ? { modelId: preferences.selectedChatModel } : {}),
+      ...(preferences.selectedChatModel ? { model: preferences.selectedChatModel } : {}),
       manualToolsOnly: preferences.modelMode === "chat" ? preferences.manualToolsOnly : true,
       mode: preferences.modelMode,
     },

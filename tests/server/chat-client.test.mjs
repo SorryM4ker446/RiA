@@ -16,7 +16,7 @@ test("chat transport bounds loaded history while retaining the active turn and r
     return new Response("data: [DONE]\n\n", { headers: { "Content-Type": "text/event-stream" } });
   });
   const messages = Array.from({ length: 125 }, (_, i) => ({ id: `message-${i}`, role: i % 2 ? "assistant" : "user", parts: [{ type: "text", text: `text-${i}` }] }));
-  const transport = createChatTransport("chat", { selectedChatModel: "model", manualToolsOnly: true, modelMode: "chat" });
+  const transport = createChatTransport("chat", { selectedChatModel: { providerId: "openrouter", modelId: "anthropic/claude-opus-4.6" }, manualToolsOnly: true, modelMode: "chat" });
   await transport.sendMessages({ chatId: "sdk-chat", messages, trigger: "regenerate-message", messageId: "message-124" });
   assert.equal(sent.messages.length, 100);
   assert.equal(sent.messages.at(-1).id, "message-124");
@@ -24,6 +24,9 @@ test("chat transport bounds loaded history while retaining the active turn and r
   assert.equal(sent.trigger, "regenerate-message");
   assert.equal(sent.chatId, "chat");
   assert.equal(sent.manualToolsOnly, true);
+  // The transport names the model by provider as well as id; a bare id is not
+  // a model the server would accept.
+  assert.deepEqual(sent.model, { providerId: "openrouter", modelId: "anthropic/claude-opus-4.6" });
   assert.equal(messages.length, 125);
 });
 
@@ -42,11 +45,14 @@ test("media generation and message persistence send private references without e
     return Response.json({ asset, modelId: "model", data: {} });
   });
   const files = [{ type: "file", url: asset.url, mediaType: asset.mediaType }];
-  await chatApi.generateMedia("image", "prompt", "model", files);
-  await chatApi.generateMedia("video", "prompt", "model", files);
+  const model = { providerId: "openrouter", modelId: "google/gemini-2.5-flash-image" };
+  await chatApi.generateMedia("image", "prompt", model, files);
+  await chatApi.generateMedia("video", "prompt", model, files);
   await persistConversationMessage({ chatId: "chat", role: "assistant", content: "saved", clientMessageId: "message" });
   assert.deepEqual(calls[0].body.inputImages, [{ url: asset.url, mediaType: asset.mediaType }]);
   assert.deepEqual(calls[1].body.inputImage, calls[0].body.inputImages[0]);
+  // Both media requests select the same provider-qualified reference.
+  assert.deepEqual([calls[0].body.model, calls[1].body.model], [model, model]);
   assert.equal(calls[2].body.status, "success");
   assert.equal(JSON.stringify(calls).includes("base64"), false);
 });

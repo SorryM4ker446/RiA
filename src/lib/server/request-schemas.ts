@@ -1,9 +1,14 @@
 import { z } from "zod";
 import { IMAGE_MEDIA_TYPES, MEDIA_LIMITS } from "@/lib/media/limits";
+import { modelRefSchema } from "@/lib/models/preferences-schema";
 import { getToolDescriptor } from "@/tools/catalog";
 
 export const identifierSchema = z.string().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/);
-export const chatModelSchema = z.string().min(1).max(200);
+// A client names a model by provider as well as id. Validating the pair here
+// only fixes the shape; membership of "我的模型" is checked server-side before
+// any call, so a request cannot talk this application into a model the user did
+// not add.
+export const chatModelSchema = modelRefSchema;
 const providerMetadata = z.record(z.string(), z.record(z.string(), z.json())).optional();
 const imageReference = z.strictObject({
   url: z.string().max(200).regex(/^\/api\/media\/[a-zA-Z0-9_-]+$/),
@@ -56,7 +61,7 @@ const messageSchema = z.strictObject({
 
 export const chatRequestSchema = z.strictObject({
   id: identifierSchema.optional(), chatId: identifierSchema.optional(), conversationId: identifierSchema.optional(),
-  messageId: identifierSchema.optional(), modelId: chatModelSchema.optional(),
+  messageId: identifierSchema.optional(), model: chatModelSchema.optional(),
   mode: z.literal("chat").optional(), manualToolsOnly: z.boolean().optional(),
   trigger: z.enum(["submit-message", "regenerate-message"]).optional(),
   messages: z.array(messageSchema).min(1).max(1000),
@@ -74,14 +79,14 @@ export const chatRequestSchema = z.strictObject({
 export const imageRequestSchema = z.strictObject({
   chatId: z.string().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/).optional(),
   prompt: z.string().trim().max(4000).default(""),
-  modelId: z.string().min(1).max(200).optional(),
+  model: chatModelSchema.optional(),
   inputImages: z.array(imageReference).max(MEDIA_LIMITS.attachmentCount).default([]),
 }).refine((body) => Boolean(body.prompt || body.inputImages.length), "prompt or inputImages is required");
 
 export const videoRequestSchema = z.strictObject({
   chatId: z.string().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/).optional(),
   prompt: z.string().trim().max(4000).default(""),
-  modelId: z.string().min(1).max(200).optional(),
+  model: chatModelSchema.optional(),
   aspectRatio: z.enum(["16:9", "9:16", "1:1"]).default("16:9"),
   duration: z.number().int().min(1).max(60).optional(), fps: z.number().int().min(1).max(120).optional(),
   inputImage: imageReference.optional(),

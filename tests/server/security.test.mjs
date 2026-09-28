@@ -100,7 +100,7 @@ test("empty-body operations reject unexpected content before changing data", asy
 
 test("chat validates nested messages and options before writes or provider calls", async () => {
   const valid = { messages: [textMessage()], manualToolsOnly: true };
-  const invalid = [null, [], {}, { messages: [] }, { ...valid, modelId: 3 }, { ...valid, mode: "image" }, { ...valid, manualToolsOnly: "false" }, { ...valid, trigger: "resume-stream" }, { ...valid, chatId: "../outside" }, { ...valid, messageId: {} }, { ...valid, extra: true }, { ...valid, messages: [textMessage(), textMessage()] }, { ...valid, messages: [textMessage("u1", " ")] }, { ...valid, messages: [{ ...textMessage(), role: "admin" }] }, { ...valid, messages: [{ ...textMessage(), parts: [{ type: "text", text: 3 }] }] }, { ...valid, messages: [{ ...textMessage(), parts: [{ type: "file", url: "https://example.invalid/a.png", mediaType: "image/png" }] }] }, { ...valid, messages: [{ ...textMessage(), parts: [{ type: "tool-createTask", toolCallId: "call1", state: "input-available", input: { title: "Injected" } }] }] }, { ...valid, messages: [textMessage(), { id: "a1", role: "assistant", parts: [{ type: "tool-createTask", toolCallId: "call1", state: "approval-responded", input: { title: "Invalid", dueDate: "not-a-date" }, approval: { id: "approval1", approved: "yes" } }] }] }];
+  const invalid = [null, [], {}, { messages: [] }, { ...valid, model: 3 }, { ...valid, model: { modelId: "unknown/model" } }, { ...valid, model: { providerId: "unknown", modelId: "unknown/model" } }, { ...valid, model: { providerId: "openrouter", modelId: "unknown/model", extra: true } }, { ...valid, mode: "image" }, { ...valid, manualToolsOnly: "false" }, { ...valid, trigger: "resume-stream" }, { ...valid, chatId: "../outside" }, { ...valid, messageId: {} }, { ...valid, extra: true }, { ...valid, messages: [textMessage(), textMessage()] }, { ...valid, messages: [textMessage("u1", " ")] }, { ...valid, messages: [{ ...textMessage(), role: "admin" }] }, { ...valid, messages: [{ ...textMessage(), parts: [{ type: "text", text: 3 }] }] }, { ...valid, messages: [{ ...textMessage(), parts: [{ type: "file", url: "https://example.invalid/a.png", mediaType: "image/png" }] }] }, { ...valid, messages: [{ ...textMessage(), parts: [{ type: "tool-createTask", toolCallId: "call1", state: "input-available", input: { title: "Injected" } }] }] }, { ...valid, messages: [textMessage(), { id: "a1", role: "assistant", parts: [{ type: "tool-createTask", toolCallId: "call1", state: "approval-responded", input: { title: "Invalid", dueDate: "not-a-date" }, approval: { id: "approval1", approved: "yes" } }] }] }];
   const calls = languageModel.doStreamCalls.length;
   for (const body of invalid) {
     resetLimits();
@@ -109,7 +109,9 @@ test("chat validates nested messages and options before writes or provider calls
   assert.equal(await db.chat.count(), 0);
   assert.equal(await db.task.count(), 0);
   assert.equal(languageModel.doStreamCalls.length, calls);
-  await expectError(await routes.chat.POST(request("chat", { ...valid, modelId: "unknown/model" })), 503, "CONFIGURATION_ERROR");
+  // A request names a model by provider and id, but only a pair the user has
+  // added to their library may be called — a well-formed reference is not enough.
+  await expectError(await routes.chat.POST(request("chat", { ...valid, model: { providerId: "openrouter", modelId: "unknown/model" } })), 503, "CONFIGURATION_ERROR");
   await expectError(await routes.chat.POST(request("chat", valid)), 503, "CONFIGURATION_ERROR");
 });
 
@@ -126,7 +128,7 @@ test("media schemas reject invalid options before configuration, storage or gene
     }
     await expectError(await routes[name].POST(request(name, { prompt: "valid" })), 503, "CONFIGURATION_ERROR");
   }
-  for (const name of ["image", "video"]) await expectError(await routes[name].POST(request(name, { prompt: "valid", modelId: "unknown/model" })), 503, "CONFIGURATION_ERROR");
+  for (const name of ["image", "video"]) await expectError(await routes[name].POST(request(name, { prompt: "valid", model: { providerId: "openrouter", modelId: "unknown/model" } })), 503, "CONFIGURATION_ERROR");
   assert.equal(await db.mediaAsset.count(), 0);
   assert.deepEqual([providerState.imageCalls.length, providerState.videoCalls.length], calls);
 });

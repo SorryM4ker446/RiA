@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
 
 type Task = {
   id: string;
@@ -29,13 +30,13 @@ async function setupToolUiMocks(page: Page) {
   await page.route("**/api/models", async (route) => {
     const mode = new URL(route.request().url()).searchParams.get("mode") ?? "chat";
     const models = mode === "chat"
-      ? [{ providerId: "openrouter", modelId: "anthropic/claude-opus-4.6", name: "Claude", description: "Fixture", modes: ["chat"], supportsImageInput: false, endpointImageInput: null, supportsTools: true, pricing: {}, addedAt: now, lastSeenAt: now }]
+      ? [fixtureLibraryItem("anthropic/claude-opus-4.6", ["chat"], { supportsImageInput: false })]
       : mode === "image"
-        ? [{ providerId: "openrouter", modelId: "google/gemini-3.1-flash-image-preview", name: "Gemini Image", description: "Fixture", modes: ["image"], supportsImageInput: true, endpointImageInput: true, supportsTools: false, pricing: {}, addedAt: now, lastSeenAt: now }]
+        ? [fixtureLibraryItem("google/gemini-3.1-flash-image-preview", ["image"], { endpointImageInput: true, supportsTools: false })]
         : mode === "video"
-          ? [{ providerId: "openrouter", modelId: "bytedance/seedance-2.0", name: "Seedance", description: "Fixture", modes: ["video"], supportsImageInput: true, endpointImageInput: true, supportsTools: false, pricing: {}, addedAt: now, lastSeenAt: now }]
+          ? [fixtureLibraryItem("bytedance/seedance-2.0", ["video"], { endpointImageInput: true, supportsTools: false })]
           : [];
-    await route.fulfill({ json: { data: { version: 2, defaultMode: "chat", chat: { modelId: "anthropic/claude-opus-4.6", fallbackId: null }, image: { modelId: "google/gemini-3.1-flash-image-preview", fallbackId: null }, video: { modelId: "bytedance/seedance-2.0", fallbackId: null }, embeddingModelId: null, legacyCandidates: [], library: models } } });
+    await route.fulfill({ json: modelsRouteFixture(models, { chat: "anthropic/claude-opus-4.6", image: "google/gemini-3.1-flash-image-preview", video: "bytedance/seedance-2.0" }) });
   });
 
   await page.route("**/api/conversations", async (route) => {
@@ -138,6 +139,9 @@ async function setupToolUiMocks(page: Page) {
 
   await page.route("**/api/tools/run", async (route) => {
     const body = JSON.parse(route.request().postData() || "{}");
+    // A tool call names the model it will plan against by provider as well as
+    // id, so a bare id is no longer enough to select one.
+    expect(body.model).toEqual({ providerId: "openrouter", modelId: expect.any(String) });
 
     if (body.tool === "webSearch") {
       expect(body.input).not.toHaveProperty("maxResults");

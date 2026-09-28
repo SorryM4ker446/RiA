@@ -10,15 +10,15 @@ import type { DocumentSource } from "@/lib/documents/types";
 import { retainDataOperation } from "@/lib/server/data-operations";
 export function streamChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; documentSources?: DocumentSource[] }) {
   const { input, conversation, systemPrompt, modelMessages, toolsEnabled, signal } = params;
-  const { modelId, body, messages } = input;
+  const { modelRef, body, messages } = input;
   const { chat } = conversation;
   if (toolsEnabled && input.model?.supportsTools !== true) {
-    throw new ApiError({ code: "VALIDATION_ERROR", message: `${t("lib.models.chatPrefix")} ${modelId} ${t("lib.models.chatNoTools")}` });
+    throw new ApiError({ code: "VALIDATION_ERROR", message: `${t("lib.models.chatPrefix")} ${modelRef.modelId} ${t("lib.models.chatNoTools")}` });
   }
   let generationFailed = false;
 
   const result = streamText({
-    model: getChatModel(modelId),
+    model: getChatModel(modelRef),
     maxRetries: 0,
     system: systemPrompt,
     messages: modelMessages,
@@ -26,7 +26,7 @@ export function streamChatResponse(params: { input: ChatRequest; conversation: C
     ...(toolsEnabled
       ? {
         tools: createChatToolSet({
-          modelId,
+          modelRef,
         }),
       }
       : {}),
@@ -36,7 +36,8 @@ export function streamChatResponse(params: { input: ChatRequest; conversation: C
       if (finishReason === "error") generationFailed = true;
       console.info("chat.finish", {
         chatId: chat.id,
-        modelId,
+        modelId: modelRef.modelId,
+        modelProvider: modelRef.providerId,
         model: model.modelId,
         trigger: body.trigger ?? "submit-message",
       });
@@ -60,7 +61,7 @@ export function streamChatResponse(params: { input: ChatRequest; conversation: C
       try { for (;;) { const item = await reader.read(); if (item.done) break; writer.write(item.value); } }
       finally { reader.releaseLock(); release(); }
     }, onError: streamError }),
-    headers: { "x-chat-id": chat.id, "x-model-id": modelId, "Cache-Control": "no-store" },
+    headers: { "x-chat-id": chat.id, "x-model-id": modelRef.modelId, "Cache-Control": "no-store" },
   });
 
 }

@@ -3,19 +3,22 @@ import { t } from "@/lib/locale";
 import type { ChatScopedPreferences, ManualToolSelection } from "@/features/chat/types";
 import { CHAT_PREFS_STORAGE_PREFIX } from "@/features/chat/types";
 import { settingsRequest } from "@/features/settings/api-client";
-import type { ModelLibraryItem, ModelPreferences } from "@/lib/models/preferences-schema";
+import { modelRefKey, providerIds, type ModelLibraryItem, type ModelPreferences, type ModelRef } from "@/lib/models/preferences-schema";
 
 export async function loadAccountChatDefaults(): Promise<{ preferences: ChatScopedPreferences; library: ModelLibraryItem[] }> {
   const { data } = await settingsRequest<{ data: ModelPreferences }>("/api/models");
   return {
-    preferences: { modelMode: data.defaultMode, selectedChatModel: data.chat.modelId, selectedImageModel: data.image.modelId, selectedVideoModel: data.video.modelId, selectedManualTool: "none", manualToolsOnly: false },
+    preferences: { modelMode: data.defaultMode, selectedChatModel: data.chat.model, selectedImageModel: data.image.model, selectedVideoModel: data.video.model, selectedManualTool: "none", manualToolsOnly: false },
     library: data.library,
   };
 }
 export function staleChatModelWarning(chatId: string, library: ModelLibraryItem[]) {
   try {
     const raw = JSON.parse(window.localStorage.getItem(getChatPrefsStorageKey(chatId)) || "null");
-    if (raw && [["chat", "selectedChatModel"], ["image", "selectedImageModel"], ["video", "selectedVideoModel"]].some(([mode, key]) => raw[key] && !library.some(item => item.modelId === raw[key] && item.modes.includes(mode as ModelMode)))) return t("chatPrefs.staleModelWarning");
+    if (raw && [["chat", "selectedChatModel"], ["image", "selectedImageModel"], ["video", "selectedVideoModel"]].some(([mode, key]) => {
+      const saved = readStoredModelRef(raw[key]);
+      return saved && !library.some(item => item.providerId === saved.providerId && item.modelId === saved.modelId && item.modes.includes(mode as ModelMode));
+    })) return t("chatPrefs.staleModelWarning");
   } catch { /* Malformed local preferences are ignored. */ }
   return null;
 }
@@ -26,6 +29,35 @@ export function getDefaultChatPreferences(): ChatScopedPreferences {
 
 export function getChatPrefsStorageKey(chatId: string): string { return `${CHAT_PREFS_STORAGE_PREFIX}${chatId}`; }
 
+/**
+ * A stored selection is a provider plus a model id. Entries written before that
+ * distinction existed were a bare id, always OpenRouter, and are read that way
+ * rather than discarded — the user's saved choice should not evaporate on an
+ * upgrade that did not change which provider it used.
+ */
+function readStoredModelRef(value: unknown): ModelRef | null {
+  if (typeof value === "string" && value.length <= 200) return { providerId: "openrouter", modelId: value };
+  if (value && typeof value === "object" && "providerId" in value && "modelId" in value) {
+    const candidate = value as { providerId?: unknown; modelId?: unknown };
+    if (typeof candidate.providerId === "string" && typeof candidate.modelId === "string" && candidate.modelId.length <= 200) {
+      return { providerId: candidate.providerId as ModelRef["providerId"], modelId: candidate.modelId };
+    }
+  }
+  return null;
+}
+
+export function modelRefValue(ref: ModelRef | null): string {
+  return ref ? modelRefKey(ref) : "";
+}
+
+export function parseModelRefValue(value: string): ModelRef | null {
+  const [providerId, ...rest] = value.split(":");
+  const modelId = rest.join(":");
+  if (!providerId || !modelId) return null;
+  const match = (providerIds as readonly string[]).includes(providerId) && modelId.length <= 200 ? { providerId, modelId } as ModelRef : null;
+  return match;
+}
+
 export function readChatPreferences(chatId: string): ChatScopedPreferences | null {
   const raw = window.localStorage.getItem(getChatPrefsStorageKey(chatId));
   if (!raw) return null;
@@ -33,8 +65,7 @@ export function readChatPreferences(chatId: string): ChatScopedPreferences | nul
     const parsed = JSON.parse(raw) as Partial<ChatScopedPreferences>;
     const modelMode: ModelMode = parsed.modelMode === "chat" || parsed.modelMode === "image" || parsed.modelMode === "video" ? parsed.modelMode : "chat";
     const selectedManualTool: ManualToolSelection = typeof parsed.selectedManualTool === "string" && parsed.selectedManualTool.trim() ? parsed.selectedManualTool : "none";
-    const id = (value: unknown) => typeof value === "string" && value.length <= 200 ? value : null;
-    return { modelMode, selectedChatModel: id(parsed.selectedChatModel), selectedImageModel: id(parsed.selectedImageModel), selectedVideoModel: id(parsed.selectedVideoModel), selectedManualTool, manualToolsOnly: parsed.manualToolsOnly === true };
+    return { modelMode, selectedChatModel: readStoredModelRef(parsed.selectedChatModel), selectedImageModel: readStoredModelRef(parsed.selectedImageModel), selectedVideoModel: readStoredModelRef(parsed.selectedVideoModel), selectedManualTool, manualToolsOnly: parsed.manualToolsOnly === true };
   } catch { return null; }
 }
 

@@ -87,7 +87,7 @@ async function resolveServerEnvironment(): Promise<Record<string, string>> {
   if (!settingsStore) throw new Error("Desktop settings store is not ready.");
   const settingsEnvironment = await settingsStore.getServerEnvironment();
   if (!packagedRuntime) {
-    for (const key of ["OPENROUTER_API_KEY", "TAVILY_API_KEY", "OUTBOUND_PROXY_URL"] as const) {
+    for (const key of ["OPENROUTER_API_KEY", "DEEPSEEK_API_KEY", "TAVILY_API_KEY", "OUTBOUND_PROXY_URL"] as const) {
       if (!settingsEnvironment[key]) delete settingsEnvironment[key];
     }
   }
@@ -305,7 +305,7 @@ async function runSmokeAssertion() {
     health?: { status?: number; body?: { status?: string } };
     conversation?: { status?: number; body?: { data?: { id?: string } } };
     runtime?: { packaged?: boolean };
-    settings?: { hasOpenrouterApiKey?: boolean; encryptionAvailable?: boolean };
+    settings?: { hasOpenrouterApiKey?: boolean; hasDeepseekApiKey?: boolean; encryptionAvailable?: boolean };
   };
   if (result.health?.status !== 200 || result.health.body?.status !== "ok") {
     throw new Error(`Desktop renderer health check failed: ${JSON.stringify(result)}`);
@@ -316,6 +316,7 @@ async function runSmokeAssertion() {
     !conversationId ||
     result.runtime?.packaged !== packagedRuntime ||
     result.settings?.hasOpenrouterApiKey !== true ||
+    result.settings?.hasDeepseekApiKey !== true ||
     result.settings.encryptionAvailable !== true
   ) {
     throw new Error("Desktop renderer bridge or authenticated API smoke check failed.");
@@ -561,10 +562,24 @@ async function bootstrap() {
   settingsStore = new DesktopSettingsStore(desktopPaths.settingsFile);
   if (smokeTest) {
     const smokeSecret = `desktop-smoke-key-${process.pid}`;
-    await settingsStore.save({ openrouterApiKey: smokeSecret });
-    if (readFileSync(desktopPaths.settingsFile, "utf8").includes(smokeSecret)) {
+    // Both providers are seeded so the smoke proves a second key is stored and
+    // cleared on its own, not just that one key happens to work.
+    const deepseekSecret = `desktop-smoke-deepseek-${process.pid}`;
+    await settingsStore.save({ openrouterApiKey: smokeSecret, deepseekApiKey: deepseekSecret });
+    const storedSettings = readFileSync(desktopPaths.settingsFile, "utf8");
+    if (storedSettings.includes(smokeSecret) || storedSettings.includes(deepseekSecret)) {
       throw new Error("Desktop settings stored an API key without encryption.");
     }
+    const smokeView = await settingsStore.getView();
+    if (!smokeView.hasOpenrouterApiKey || !smokeView.hasDeepseekApiKey) {
+      throw new Error("Desktop settings did not report both provider keys as configured.");
+    }
+    await settingsStore.save({ clearDeepseekApiKey: true });
+    const clearedView = await settingsStore.getView();
+    if (clearedView.hasDeepseekApiKey || !clearedView.hasOpenrouterApiKey) {
+      throw new Error("Clearing one provider key disturbed another.");
+    }
+    await settingsStore.save({ deepseekApiKey: deepseekSecret });
   }
   desktopSessionToken = randomBytes(32).toString("hex");
   serverPort = await findAvailablePort();

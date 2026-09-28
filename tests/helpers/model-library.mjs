@@ -10,11 +10,17 @@ const rows = [
   providerId: "openrouter", modelId: id, name: label, description, modes, supportsImageInput, endpointImageInput, supportsTools, contextLength, pricing, addedAt: now, lastSeenAt: now,
 }));
 
+// Selections are provider-qualified, so a seeded default carries both halves.
+// The tests use these through the same shape the interface sends.
+export const CHAT_MODEL_REF = { providerId: "openrouter", modelId: DEFAULT_MODEL };
+export const IMAGE_MODEL_REF = { providerId: "openrouter", modelId: DEFAULT_IMAGE_MODEL };
+export const VIDEO_MODEL_REF = { providerId: "openrouter", modelId: DEFAULT_VIDEO_MODEL };
+
 export async function seedTestModelPreferences(db) {
   const settings = defaultModelPreferences();
-  settings.chat.modelId = DEFAULT_MODEL;
-  settings.image.modelId = DEFAULT_IMAGE_MODEL;
-  settings.video.modelId = DEFAULT_VIDEO_MODEL;
+  settings.chat.model = CHAT_MODEL_REF;
+  settings.image.model = IMAGE_MODEL_REF;
+  settings.video.model = VIDEO_MODEL_REF;
   settings.library = rows;
   await db.workspacePreference.upsert({ where: { id: "local" }, create: { id: "local", settings }, update: { settings } });
   return settings;

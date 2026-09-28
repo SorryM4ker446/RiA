@@ -30,20 +30,22 @@ export const languageModel = new MockLanguageModelV3({
 const embeddingModel = new MockEmbeddingModelV3({ doEmbed: async ({ values }) => ({ embeddings: values.map(() => [1, 0, 0]), warnings: [] }) });
 export const getChatModel = () => languageModel;
 export const getEmbeddingModel = () => embeddingModel;
-const defaultImageModelId = "google/gemini-2.5-flash-image";
-let imageLeaseModelId = defaultImageModelId;
+// Provider calls take a lease on the exact model they will reach, so the mock
+// holds the same provider-qualified reference the request carried.
+const defaultImageModelRef = { providerId: "openrouter", modelId: "google/gemini-2.5-flash-image" };
+let imageLeaseRef = defaultImageModelRef;
 let imageModelValidator;
-async function withProviderModelLease(mode, modelId, operation) {
+async function withProviderModelLease(mode, ref, operation) {
   const { withModelLease } = await import("@/lib/models/preferences");
-  return withModelLease(mode, modelId, operation);
+  return withModelLease(mode, ref, operation);
 }
-function withProviderVideoLease(modelId, operation) {
-  return withProviderModelLease("video", modelId, operation);
+function withProviderVideoLease(ref, operation) {
+  return withProviderModelLease("video", ref, operation);
 }
 const imageModel = new MockImageModelV3({ doGenerate: async (options) => {
-  const modelId = imageLeaseModelId;
+  const ref = imageLeaseRef;
   const validate = imageModelValidator;
-  return withProviderModelLease("image", modelId, async model => {
+  return withProviderModelLease("image", ref, async model => {
     validate?.(model);
     providerState.imageEntered?.(); providerState.imageEntered = undefined;
     if (providerState.imageGate) await providerState.imageGate;
@@ -51,14 +53,14 @@ const imageModel = new MockImageModelV3({ doGenerate: async (options) => {
     return { images: [testPng], warnings: [], response: { timestamp: new Date(), modelId: "mock-image", headers: {} } };
   });
 } });
-const defaultVideoModelId = "google/veo-3.1-fast";
-let videoLeaseModelId = defaultVideoModelId;
+const defaultVideoModelRef = { providerId: "openrouter", modelId: "google/veo-3.1-fast" };
+let videoLeaseRef = defaultVideoModelRef;
 const videoModel = { specificationVersion: "v3", provider: "mock-provider", modelId: "mock-video", maxVideosPerCall: 1, doGenerate: async (options) => {
-  const modelId = videoLeaseModelId;
-  return withProviderVideoLease(modelId, async () => {
+  const ref = videoLeaseRef;
+  return withProviderVideoLease(ref, async () => {
     providerState.videoCalls.push(options);
     return { videos: [{ type: "binary", data: testVideo, mediaType: "video/mp4" }], warnings: [], response: { timestamp: new Date(), modelId: "mock-video", headers: {} } };
   });
 } };
-export const getImageModel = (modelId = defaultImageModelId, validate) => { imageLeaseModelId = modelId; imageModelValidator = validate; return imageModel; };
-export const getVideoModel = (modelId = defaultVideoModelId) => { videoLeaseModelId = modelId; return videoModel; };
+export const getImageModel = (ref = defaultImageModelRef, validate) => { imageLeaseRef = ref; imageModelValidator = validate; return imageModel; };
+export const getVideoModel = (ref = defaultVideoModelRef) => { videoLeaseRef = ref; return videoModel; };

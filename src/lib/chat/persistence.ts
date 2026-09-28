@@ -118,7 +118,7 @@ export async function prepareChatPersistence(input: ChatRequest) {
 export type ChatPersistence = Awaited<ReturnType<typeof prepareChatPersistence>>;
 export async function persistChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; documentSources?: DocumentSource[] }) {
   const { input, conversation, responseMessage, isAborted, generationFailed } = params;
-  const { latestUserMessage, modelId } = input;
+  const { latestUserMessage, modelRef } = input;
   const { chat, regenerationSnapshot } = conversation;
   try {
     const assistantText = getTextFromUIMessage(responseMessage).trim();
@@ -167,7 +167,7 @@ export async function persistChatResponse(params: { input: ChatRequest; conversa
       },
     });
 
-    await persistResponseToolMemories({ chatId: chat.id, toolItems, assistantText, modelId });
+    await persistResponseToolMemories({ chatId: chat.id, toolItems, assistantText, modelRef });
   } catch (persistError) {
     throw normalizeApiError(persistError, t("lib.chat.saveFailed"));
   }

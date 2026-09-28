@@ -128,7 +128,10 @@ export async function inspectAccountBackup(id: string) {
     const archived = upgradeModelPreferences(manifest.preferences);
     const currentLibrary = new Map(current.library.map(item => [`${item.providerId}:${item.modelId}`, item]));
     const archivedLibrary = new Map(archived.library.map(item => [`${item.providerId}:${item.modelId}`, item]));
-    const modelSummary = (item: { modelId: string; name: string }) => ({ modelId: item.modelId, name: item.name });
+    // The provider is part of the entry: two entries can share a model id and
+    // still be different models with different credentials and pricing, and the
+    // restore preview has to say which one it would bring back.
+    const modelSummary = (item: { providerId: string; modelId: string; name: string }) => ({ providerId: item.providerId, modelId: item.modelId, name: item.name });
     const models = {
       restored: [...archivedLibrary].filter(([key]) => !currentLibrary.has(key)).map(([, item]) => modelSummary(item)),
       removed: [...currentLibrary].filter(([key]) => !archivedLibrary.has(key)).map(([, item]) => modelSummary(item)),

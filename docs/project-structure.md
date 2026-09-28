@@ -36,8 +36,8 @@ src/lib/            共享基础设施
   conversations/    会话查询、变更与导出
   documents/        文档抽取、索引与检索
   media/            私有媒体存储、生成与迁移
-  memory/           记忆存储与检索评分
-  models/           OpenRouter 动态目录、我的模型、偏好与用量记录
+  memory/           记忆存储、检索评分与向量重建
+  models/           服务商适配、动态目录、我的模型、可用性、偏好与用量记录
   local/            本地工作区身份
   server/           请求边界：安全、限流、请求体、错误
 src/prompts/        提示词模板

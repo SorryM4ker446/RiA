@@ -78,7 +78,9 @@ test("new generations persist validated parameters, source chats and protected i
   const result = await generate("image", { prompt: "  Original prompt  ", chatId: source.id, inputImages: [{ url: `/api/media/${input.id}`, mediaType: "image/png" }] });
   const output = await detail(result.asset.assetId);
   assert.equal(output.sourceChat.id, source.id); assert.equal(output.modelId, DEFAULT_IMAGE_MODEL);
-  assert.deepEqual(output.generation, { version: 1, type: "image", prompt: "Original prompt", modelId: DEFAULT_IMAGE_MODEL, inputImages: [{ assetId: input.id, mediaType: "image/png" }] });
+  // The recipe records which provider produced the file, so regenerating it
+  // later reaches the same endpoint rather than a same-named model elsewhere.
+  assert.deepEqual(output.generation, { version: 1, type: "image", prompt: "Original prompt", modelId: DEFAULT_IMAGE_MODEL, modelProvider: "openrouter", inputImages: [{ assetId: input.id, mediaType: "image/png" }] });
   assert.equal(output.regenerationUnavailable, null);
   assert.equal((await detail(input.id)).generationReferenceCount, 1);
   assert.equal((await routes.media.DELETE(req(`/api/media/${input.id}`, "DELETE"), context(input.id))).status, 409);
@@ -104,7 +106,7 @@ test("image regeneration reuses owned inputs, creates a distinct file and leaves
 
 test("video regeneration retains prompt, reference image, aspect ratio, duration and fps", async () => {
   const input = await image();
-  const original = await generate("video", { modelId: DEFAULT_VIDEO_MODEL, prompt: "A video", aspectRatio: "9:16", duration: 5, fps: 24, inputImage: { url: `/api/media/${input.id}`, mediaType: "image/png" } });
+  const original = await generate("video", { model: { providerId: "openrouter", modelId: DEFAULT_VIDEO_MODEL }, prompt: "A video", aspectRatio: "9:16", duration: 5, fps: 24, inputImage: { url: `/api/media/${input.id}`, mediaType: "image/png" } });
   await payload(await regenerate(original.asset.assetId), 201);
   const recipe = (await detail(original.asset.assetId)).generation;
   assert.equal(recipe.duration, 5); assert.equal(recipe.fps, 24); assert.equal(recipe.aspectRatio, "9:16");

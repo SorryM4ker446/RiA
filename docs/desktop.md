@@ -56,7 +56,7 @@ This browser-only command intentionally runs in web runtime mode and therefore d
 
 ## API keys and settings
 
-Open the Settings page from the chat header. OpenRouter and Tavily keys are encrypted by Electron `safeStorage`, which uses Windows DPAPI. The renderer receives only boolean “configured” state and cannot read decrypted values.
+Open the Settings page from the chat header. OpenRouter, DeepSeek and Tavily keys are encrypted by Electron `safeStorage`, which uses Windows DPAPI. The renderer receives only boolean “configured” state and cannot read decrypted values. Each provider's key is stored and cleared independently: configuring DeepSeek alone leaves OpenRouter untouched, and the local service decides which provider a stored model belongs to. DeepSeek serves chat models only, which the settings page states where the key is entered so it cannot be mistaken for a way to enable image or video.
 
 Saving settings restarts the local Next.js service so that server-only environment variables are refreshed. Plaintext API keys are not written to SQLite, normal logs, the standalone runtime, or the installer.
 

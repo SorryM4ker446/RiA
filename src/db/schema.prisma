@@ -24,6 +24,9 @@ model ModelCatalogSnapshot {
   mode       String
   models     Json
   fetchedAt  DateTime @default(now())
+  // Why the last refresh failed, kept beside the rows it failed to replace.
+  lastFailure   String?
+  lastFailureAt DateTime?
 
   @@id([providerId, mode])
   @@index([fetchedAt])
@@ -35,6 +38,7 @@ model ModelRequest {
   requestId    String
   mode         String
   modelId      String
+  modelProvider String  @default("openrouter")
   status       String
   durationMs   Int
   inputTokens  Int?
@@ -101,6 +105,9 @@ model MediaAsset {
   byteSize          Int
   kind              String
   modelId           String?
+  // Null on assets generated before model references were provider-qualified.
+  // Those were all reached through OpenRouter, which is how they are read back.
+  modelProvider     String?
   description       String?
   generation        Json?
   sourceChatId      String?
@@ -148,11 +155,17 @@ model Memory {
   score     Float?
   embedding Json?
   embeddingModelId String?
+  // A vector is only comparable with the one that produced it, so the provider
+  // is stored next to the model id. Null means "written before the provider was
+  // recorded", and such vectors are excluded from semantic matching rather than
+  // being compared across providers.
+  embeddingModelProvider String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([key])
   @@index([updatedAt, id])
+  @@index([embeddingModelProvider, embeddingModelId])
   @@map("memories")
 }
 

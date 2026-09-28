@@ -98,7 +98,9 @@ export function useChatState() {
       : modelMode === "image"
         ? selectedImageModel
         : selectedVideoModel;
-  const selectedModelInfo: ModelLibraryItem | undefined = modelLibrary.find(model => model.modelId === selectedModel && model.modes.includes(modelMode));
+  const selectedModelInfo: ModelLibraryItem | undefined = selectedModel
+    ? modelLibrary.find(model => model.providerId === selectedModel.providerId && model.modelId === selectedModel.modelId && model.modes.includes(modelMode))
+    : undefined;
   const { visibility: panelVisibility, toggle: togglePanel } = usePanelVisibility();
 
   const effectiveError = pageError ?? preferencesError ?? (error ? readApiErrorMessage(error.message, t("chatState.requestFailed")) : null);
@@ -338,7 +340,7 @@ export function useChatState() {
       // current preferences must travel with the request itself.
       await regenerate({
         messageId,
-        body: { chatId: activeChatId, ...(selectedChatModel ? { modelId: selectedChatModel } : {}), manualToolsOnly, mode: modelMode },
+        body: { chatId: activeChatId, ...(selectedChatModel ? { model: selectedChatModel } : {}), manualToolsOnly, mode: modelMode },
       });
       await loadChats();
     } catch (regenerateError) {
@@ -365,7 +367,7 @@ export function useChatState() {
     }
 
     if (modelMode === "chat" && hasAttachments && !selectedModelInfo?.supportsImageInput) {
-      setPageError(`${t("chatState.imageInputUnsupportedPrefix")} ${selectedChatModel} ${t("chatState.imageInputUnsupportedSuffix")}`);
+      setPageError(`${t("chatState.imageInputUnsupportedPrefix")} ${selectedChatModel?.modelId ?? ""} ${t("chatState.imageInputUnsupportedSuffix")}`);
       return;
     }
 
@@ -437,7 +439,7 @@ export function useChatState() {
       await new Promise<void>((resolve, reject) => setPendingSend({
         chatId,
         message: hasAttachments ? { ...(hasContent ? { text: content } : {}), files: uploadParts } : { text: content },
-        options: { body: { chatId, ...(selectedChatModel ? { modelId: selectedChatModel } : {}), manualToolsOnly, mode: "chat" } },
+        options: { body: { chatId, ...(selectedChatModel ? { model: selectedChatModel } : {}), manualToolsOnly, mode: "chat" } },
         resolve, reject,
       }));
 

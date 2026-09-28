@@ -3,6 +3,7 @@ import { encodePersistedUserMessage } from "@/lib/ai/ui-message";
 import { t } from "@/lib/locale";
 import { attachmentValidationError } from "@/lib/media/limits";
 import type { UIMessage } from "ai";
+import type { ModelRef } from "@/lib/models/preferences-schema";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { type ChangeEvent, useLayoutEffect, useRef, useState } from "react";
 import { chatApi, persistConversationMessage } from "@/features/chat/api-client";
@@ -22,14 +23,14 @@ type Options = {
   loadChats: (options?: { silent?: boolean }) => Promise<void>;
   setPageError: Dispatch<SetStateAction<string | null>>;
   modelMode: ModelMode;
-  selectedImageModel: string | null;
-  selectedVideoModel: string | null;
+  selectedImageModel: ModelRef | null;
+  selectedVideoModel: ModelRef | null;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
 };
 
 type GenerationOptions = Pick<Options, "ensureActiveChatId" | "loadChats" | "setPageError"> & {
   kind: "image" | "video";
-  modelId: string | null;
+  model: ModelRef | null;
   content: string;
   uploadParts: UploadableFilePart[];
   getView: () => MediaView;
@@ -41,8 +42,8 @@ type GenerationOptions = Pick<Options, "ensureActiveChatId" | "loadChats" | "set
 
 // The request owns its chat ID; only the currently committed view owns UI setters.
 // Keep this operation separate from React so deferred network races are testable.
-export async function runMediaGeneration({ kind, modelId, content, uploadParts, getView, isOriginView, ensureActiveChatId, loadChats, setPageError, setAsset, clearAttachments, setGenerating }: GenerationOptions) {
-  if (!modelId) throw new Error(t("mediaGen.needModel"));
+export async function runMediaGeneration({ kind, model, content, uploadParts, getView, isOriginView, ensureActiveChatId, loadChats, setPageError, setAsset, clearAttachments, setGenerating }: GenerationOptions) {
+  if (!model) throw new Error(t("mediaGen.needModel"));
   const label = kind === "image" ? t("mediaGen.kindImage") : t("mediaGen.kindVideo");
   setGenerating(true);
   try {
@@ -81,9 +82,9 @@ export async function runMediaGeneration({ kind, modelId, content, uploadParts, 
         chatId, role: "user", clientMessageId: userMessage.id,
         content: uploadParts.length ? encodePersistedUserMessage({ type: "user-message", text: content, files: uploadParts.map(({ url, mediaType, filename }) => ({ url, mediaType, ...(filename ? { filename } : {}) })) }) : content,
       });
-      const payload = await chatApi.generateMedia(kind, content, modelId, uploadParts, chatId);
-      const text = `${label}${t("mediaGen.completedSuffix")} · ${payload.modelId ?? modelId}`;
-      const result = { assetId: payload.asset.assetId, relativePath: payload.asset.relativePath, mediaType: payload.asset.mediaType, modelId: payload.modelId ?? modelId, text };
+      const payload = await chatApi.generateMedia(kind, content, model, uploadParts, chatId);
+      const text = `${label}${t("mediaGen.completedSuffix")} · ${payload.modelId ?? model.modelId}`;
+      const result = { assetId: payload.asset.assetId, relativePath: payload.asset.relativePath, mediaType: payload.asset.mediaType, modelId: payload.modelId ?? model.modelId, text };
       await persistConversationMessage({
         chatId, role: "assistant", clientMessageId: assistantMessage.id,
         content: kind === "image" ? encodeImageMessage({ ...result, type: "image-result" }) : encodeVideoMessage({ ...result, type: "video-result" }),
@@ -164,7 +165,7 @@ export function useMediaGeneration({ activeChatId, isHistoryReady, setMessages, 
   function generate(kind: "image" | "video", content: string, uploadParts: UploadableFilePart[]) {
     const version = viewVersionRef.current;
     return runMediaGeneration({
-      kind, content, uploadParts, modelId: kind === "image" ? selectedImageModel : selectedVideoModel,
+      kind, content, uploadParts, model: kind === "image" ? selectedImageModel : selectedVideoModel,
       getView: () => viewRef.current, isOriginView: () => version === viewVersionRef.current,
       ensureActiveChatId, loadChats, setPageError, clearAttachments,
       setGenerating: kind === "image" ? setIsGeneratingImage : setIsGeneratingVideo,

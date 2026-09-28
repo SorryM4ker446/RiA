@@ -35,19 +35,22 @@ export const serverMessages = {
   "lib.models.notAdded": "该模型不在“我的模型”中。",
   "lib.models.removeConflict": "该模型正在移除，请稍后重试。",
   "lib.models.invalidSettings": "模型设置格式无效，请先导出工作区备份并检查数据。",
-  "lib.models.addFirstPrefix": "请先在“模型与用量”中将 OpenRouter 模型添加到“我的模型”，并设置",
+  "lib.models.addFirstPrefix": "请先在“模型与用量”中将模型添加到“我的模型”，并设置",
   "lib.models.addFirstSuffix": "默认模型。",
   // The three mode labels differ from `models.mode.*` on purpose: that record
   // names the tabs, these name the default-model sentence.
   "lib.models.modeChat": "聊天",
   "lib.models.modeImage": "图片",
   "lib.models.modeVideo": "视频",
-  "lib.models.notInCatalog": "该模型不在已获取的 OpenRouter 官方目录中。请刷新目录后重试。",
+  "lib.models.notInCatalog": "该模型不在已获取的官方目录中。请刷新目录后重试。",
   // SuperRefine issues shown beside the offending preference field.
   "lib.models.notYetAdded": "尚未添加到“我的模型”的",
   "lib.models.notYetAddedSuffix": "清单中",
   "lib.models.fallbackMustDiffer": "备用模型必须与默认模型不同",
   "lib.models.embeddingNotAdded": "嵌入模型尚未添加到“我的模型”",
+  "lib.models.providerNotConfigured": "该服务商尚未配置密钥，请先在设置中填写后再试。",
+  "lib.models.providerNoModePrefix": "该服务商不提供",
+  "lib.models.providerNoModeSuffix": "模型生成，请为该模式另选服务商。",
   // Chat-capability refusals share a prefix so the model id sits in one place.
   "lib.models.chatPrefix": "当前聊天模型",
   "lib.models.chatNoTools": "不支持工具调用。",
@@ -55,23 +58,26 @@ export const serverMessages = {
   "lib.models.chatNoImage": "不支持图片输入。",
   "lib.models.chatNoImageSwitch": "不支持图片输入，请切换到支持视觉的模型。",
 
-  // --- OpenRouter catalog sync --------------------------------------------
+  // --- provider catalog sync ----------------------------------------------
+  // The provider name is supplied by the caller, so these fragments read as the
+  // tail of a sentence: "OpenRouter 聊天目录返回 HTTP 503".
   "lib.models.catalogMode.chat": "聊天",
   "lib.models.catalogMode.image": "图片生成",
   "lib.models.catalogMode.video": "视频生成",
   "lib.models.catalogMode.embedding": "嵌入",
-  "lib.models.catalogProvider": "OpenRouter",
   "lib.models.catalogHttpStatus": "目录返回 HTTP",
-  "lib.models.catalogResponseTooLarge": "OpenRouter 模型目录响应超过大小限制。",
-  "lib.models.catalogResponseEmpty": "OpenRouter 模型目录响应为空。",
-  "lib.models.catalogNotJson": "OpenRouter 模型目录不是有效 JSON。",
-  "lib.models.catalogInvalidShape": "OpenRouter 模型目录格式无效。",
+  "lib.models.catalogUnauthorized": "目录拒绝了当前凭据，请在设置中检查该服务商的密钥。",
+  "lib.models.catalogResponseTooLarge": "模型目录响应超过大小限制。",
+  "lib.models.catalogResponseEmpty": "模型目录响应为空。",
+  "lib.models.catalogNotJson": "模型目录不是有效 JSON。",
+  "lib.models.catalogInvalidShape": "模型目录格式无效。",
   "lib.models.catalogInvalidRowsPrefix": "目录包含 ",
   "lib.models.catalogInvalidRowsSuffix": " 条无效或重复记录。",
   "lib.models.catalogEmptySuffix": "目录为空。",
-  "lib.models.catalogTimeout": "连接 OpenRouter 模型目录超时。",
-  "lib.models.catalogReadFailed": "读取 OpenRouter 模型目录失败。",
+  "lib.models.catalogTimeoutSuffix": "目录连接超时。",
+  "lib.models.catalogReadFailed": "模型目录读取失败。",
   "lib.models.catalogUnknownMode": "未知的模型目录类型。",
+  "lib.models.catalogUnknownProvider": "未知的服务商。",
 
   // --- media library and attachments ---------------------------------------
   "lib.media.regenerateNoRecipe": "此资源没有完整生成参数，无法重新生成。旧资源不会推测参数。",

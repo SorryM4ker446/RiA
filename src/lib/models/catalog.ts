@@ -2,189 +2,193 @@ import { z } from "zod";
 import { db } from "@/db";
 import { t } from "@/lib/locale";
 import { ApiError } from "@/lib/server/api-error";
-import { libraryModes, openRouterModelIdSchema, type LibraryMode } from "@/lib/models/preferences-schema";
+import { libraryModes, modelIdSchema, providerIdSchema, type LibraryMode, type ProviderId } from "@/lib/models/preferences-schema";
+import { CatalogFetchError, getModelProvider, listModelProviders, type CatalogFailureReason, type CatalogModel } from "@/lib/models/providers";
 
-const providerId = "openrouter";
-const urls: Record<LibraryMode, string> = {
-  chat: "https://openrouter.ai/api/v1/models?output_modalities=text",
-  image: "https://openrouter.ai/api/v1/images/models",
-  video: "https://openrouter.ai/api/v1/videos/models",
-  embedding: "https://openrouter.ai/api/v1/embeddings/models",
+export type { CatalogModel } from "@/lib/models/providers";
+
+/**
+ * One mode of one provider, as the interface sees it: the rows, when they were
+ * read, whether what is on screen is live or the last good copy, and why a
+ * refresh failed. A failure never clears a previously good cache — the user can
+ * still browse, and the reason is shown instead of being swallowed.
+ */
+export type CatalogState = {
+  providerId: ProviderId;
+  mode: LibraryMode;
+  models: CatalogModel[];
+  fetchedAt: string | null;
+  stale: boolean;
+  source: "live" | "cache" | "empty";
+  error: string | null;
+  /** Distinguishes "temporarily unreachable" from "the stored credential was rejected". */
+  failure: CatalogFailureReason | null;
+  skipped: number;
 };
-const rawModel = z.object({
-  id: z.string().min(1).max(200), name: z.string().max(240).nullable().optional(), description: z.string().max(2000).nullable().optional(),
-  context_length: z.number().int().positive().nullable().optional(),
-  architecture: z.object({ modality: z.string().optional(), input_modalities: z.array(z.string()).optional(), output_modalities: z.array(z.string()).optional() }).passthrough().nullable().optional(),
-  supported_parameters: z.union([z.array(z.string()), z.record(z.string(), z.unknown())]).nullable().optional(),
-  supported_frame_images: z.array(z.string()).nullable().optional(),
-  supported_durations: z.array(z.unknown()).nullable().optional(),
-  supported_resolutions: z.array(z.unknown()).nullable().optional(),
-  supported_aspect_ratios: z.array(z.unknown()).nullable().optional(),
-  pricing: z.record(z.string(), z.union([z.string(), z.number()]).nullable()).nullable().optional(),
-  pricing_skus: z.record(z.string(), z.union([z.string(), z.number()]).nullable()).nullable().optional(),
-}).passthrough();
 
-function hasPositiveReferenceLimit(value: unknown) {
-  if (value === true) return true;
-  if (!value || typeof value !== "object") return false;
-  const max = (value as { max?: unknown }).max;
-  return typeof max === "number" && max > 0;
-}
-const envelope = z.object({ data: z.array(z.unknown()).max(20_000) }).passthrough();
-const modelId = openRouterModelIdSchema;
-const maxBodyBytes = 8 * 1024 * 1024;
+const failureReasons: CatalogFailureReason[] = ["http", "unauthorized", "timeout", "tooLarge", "empty", "notJson", "invalidShape", "emptyCatalog", "network"];
+const catalogTimeoutMs = 12_000;
 const cacheDurationMs = 24 * 60 * 60_000;
-const inFlight = new Map<LibraryMode, Promise<CatalogState>>();
-const failures = new Map<LibraryMode, { at: number; message: string }>();
-// These names reach the models page as the catalog warning, so they follow the
-// interface language; the `mode` key itself stays a stored enum value.
+const failureCooldownMs = 30_000;
+const inFlight = new Map<string, Promise<CatalogState>>();
+const failures = new Map<string, { at: number; state: CatalogFailureReason; message: string }>();
+
 const modeNames: Record<LibraryMode, string> = { chat: t("lib.models.catalogMode.chat"), image: t("lib.models.catalogMode.image"), video: t("lib.models.catalogMode.video"), embedding: t("lib.models.catalogMode.embedding") };
 
-export type CatalogModel = {
-  providerId: "openrouter"; modelId: string; name: string; description: string; modes: LibraryMode[];
-  supportsImageInput: boolean; endpointImageInput: boolean | null; supportsTools: boolean; contextLength: number | null; pricing: Record<string, string>;
-};
-export type CatalogState = { mode: LibraryMode; models: CatalogModel[]; fetchedAt: string | null; stale: boolean; source: "live" | "cache" | "empty"; error: string | null; skipped: number };
-
-function normalize(value: unknown, mode: LibraryMode): CatalogModel | null {
-  const parsed = rawModel.safeParse(value);
-  if (!parsed.success || !modelId.safeParse(parsed.data.id).success) return null;
-  const row = parsed.data;
-  const modality = row.architecture?.modality?.toLowerCase().split("->");
-  const inputs = (row.architecture?.input_modalities ?? modality?.[0]?.split("+") ?? []).map(value => value.toLowerCase());
-  const outputs = (row.architecture?.output_modalities ?? modality?.at(-1)?.split("+") ?? []).map(value => value.toLowerCase());
-  const parameters = row.supported_parameters ?? [];
-  const parameterNames = Array.isArray(parameters) ? parameters : Object.keys(parameters);
-  const frameImages = row.supported_frame_images ?? [];
-  const out: LibraryMode[] = [mode];
-  if (mode === "chat" && !outputs.includes("text")) return null;
-  return {
-    providerId, modelId: row.id,
-    name: row.name?.trim() || row.id,
-    description: row.description?.slice(0, 2000) ?? "",
-    modes: out,
-    supportsImageInput: mode === "video"
-      ? frameImages.length > 0
-      : inputs.includes("image") || parameterNames.some(x => ["image", "input_image", "frame_images", "input_references"].includes(x)),
-    endpointImageInput: null,
-    supportsTools: mode === "chat" && parameterNames.some(x => ["tools", "tool_choice"].includes(x)),
-    contextLength: row.context_length ?? null,
-    pricing: Object.fromEntries(Object.entries(row.pricing ?? row.pricing_skus ?? {}).filter(([, v]) => ["string", "number"].includes(typeof v)).slice(0, 12).map(([k, v]) => [k, String(v)])),
-  };
+function cacheKey(providerId: ProviderId, mode: LibraryMode) {
+  return `${providerId}:${mode}`;
 }
 
-async function parseResponse(response: Response, mode: LibraryMode): Promise<{ models: CatalogModel[]; invalidRows: number }> {
-  if (!response.ok) throw new Error(`${t("lib.models.catalogProvider")} ${modeNames[mode]}${t("lib.models.catalogHttpStatus")} ${response.status}`);
-  const declared = Number(response.headers.get("content-length") ?? 0);
-  if (declared > maxBodyBytes) throw new Error(t("lib.models.catalogResponseTooLarge"));
-  if (!response.body) throw new Error(t("lib.models.catalogResponseEmpty"));
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > maxBodyBytes) { await reader.cancel(); throw new Error(t("lib.models.catalogResponseTooLarge")); }
-      chunks.push(value);
-    }
-  } finally { reader.releaseLock(); }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-  let decoded: unknown;
-  try { decoded = JSON.parse(new TextDecoder().decode(bytes)); } catch { throw new Error(t("lib.models.catalogNotJson")); }
-  const envelopeResult = envelope.safeParse(decoded);
-  if (!envelopeResult.success) throw new Error(t("lib.models.catalogInvalidShape"));
-  const seen = new Set<string>();
-  const models: CatalogModel[] = [];
-  let invalidRows = 0;
-  for (const value of envelopeResult.data.data) {
-    const item = normalize(value, mode);
-    if (!item) { invalidRows++; continue; }
-    if (seen.has(item.modelId)) { invalidRows++; continue; }
-    seen.add(item.modelId);
-    models.push(item);
+const storedCatalogModel = z.object({
+  providerId: providerIdSchema,
+  modelId: modelIdSchema,
+  name: z.string(),
+  description: z.string(),
+  modes: z.array(z.enum(libraryModes)),
+  supportsImageInput: z.boolean(),
+  endpointImageInput: z.boolean().nullable().optional(),
+  supportsTools: z.boolean(),
+  contextLength: z.number().int().positive().nullable(),
+  pricing: z.record(z.string(), z.string()),
+});
+
+function describeFailure(reason: CatalogFailureReason, providerName: string, mode: LibraryMode, detail?: string): string {
+  const subject = `${providerName} ${modeNames[mode]}`;
+  switch (reason) {
+    case "http": return `${subject}${t("lib.models.catalogHttpStatus")} ${detail ?? ""}`.trim();
+    case "unauthorized": return `${subject}${t("lib.models.catalogUnauthorized")}`;
+    case "timeout": return `${subject}${t("lib.models.catalogTimeoutSuffix")}`;
+    case "tooLarge": return `${subject}${t("lib.models.catalogResponseTooLarge")}`;
+    case "empty": return `${subject}${t("lib.models.catalogResponseEmpty")}`;
+    case "notJson": return `${subject}${t("lib.models.catalogNotJson")}`;
+    case "invalidShape": return `${subject}${t("lib.models.catalogInvalidShape")}`;
+    case "emptyCatalog": return `${subject}${detail ? `${t("lib.models.catalogInvalidRowsPrefix")}${detail}${t("lib.models.catalogInvalidRowsSuffix")}` : t("lib.models.catalogEmptySuffix")}`;
+    case "network": return `${subject}${t("lib.models.catalogReadFailed")}`;
   }
-  // A handful of malformed or duplicated rows is normal for a live third-party
-  // feed and says nothing about the rows that parsed cleanly. Throwing here
-  // discarded the WHOLE catalog over a few bad entries, so the page reported
-  // "目录暂不可用" with zero models even though the rest were perfectly usable.
-  // The skipped count travels back as a warning; only a catalog that yields
-  // nothing at all is a real failure.
-  if (models.length === 0) throw new Error(`${t("lib.models.catalogProvider")} ${modeNames[mode]}${invalidRows > 0 ? `${t("lib.models.catalogInvalidRowsPrefix")}${invalidRows}${t("lib.models.catalogInvalidRowsSuffix")}` : t("lib.models.catalogEmptySuffix")}`);
-  return { models, invalidRows };
 }
 
-async function cached(mode: LibraryMode): Promise<{ models: CatalogModel[]; fetchedAt: Date } | null> {
+async function cachedSnapshot(providerId: ProviderId, mode: LibraryMode): Promise<{ models: CatalogModel[]; fetchedAt: Date; lastFailure: CatalogFailureReason | null } | null> {
   const snapshot = await db.modelCatalogSnapshot.findUnique({ where: { providerId_mode: { providerId, mode } } });
   if (!snapshot || !Array.isArray(snapshot.models)) return null;
-  const models = snapshot.models.flatMap(value => { const parsed = z.object({ providerId: z.literal(providerId), modelId, name: z.string(), description: z.string(), modes: z.array(z.enum(libraryModes)), supportsImageInput: z.boolean(), endpointImageInput: z.boolean().nullable().optional(), supportsTools: z.boolean(), contextLength: z.number().int().positive().nullable(), pricing: z.record(z.string(), z.string()) }).safeParse(value); return parsed.success && parsed.data.modes.includes(mode) ? [{ ...parsed.data, endpointImageInput: parsed.data.endpointImageInput ?? null } as CatalogModel] : []; });
-  return { models, fetchedAt: snapshot.fetchedAt };
+  const models = snapshot.models.flatMap(value => {
+    const parsed = storedCatalogModel.safeParse(value);
+    return parsed.success && parsed.data.modes.includes(mode)
+      ? [{ ...parsed.data, endpointImageInput: parsed.data.endpointImageInput ?? null } as CatalogModel]
+      : [];
+  });
+  const lastFailure = typeof snapshot.lastFailure === "string" && failureReasons.includes(snapshot.lastFailure as CatalogFailureReason)
+    ? snapshot.lastFailure as CatalogFailureReason
+    : null;
+  return { models, fetchedAt: snapshot.fetchedAt, lastFailure };
 }
 
-async function refresh(mode: LibraryMode): Promise<CatalogState> {
-  const old = await cached(mode);
+async function refresh(providerId: ProviderId, mode: LibraryMode): Promise<CatalogState> {
+  const provider = getModelProvider(providerId);
+  const key = cacheKey(providerId, mode);
+  const old = await cachedSnapshot(providerId, mode);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12_000);
+  const timer = setTimeout(() => controller.abort(), catalogTimeoutMs);
   try {
-    const response = await fetch(urls[mode], { method: "GET", cache: "no-store", redirect: "error", signal: controller.signal,
-      headers: { Accept: "application/json", ...(process.env.OPENROUTER_API_KEY?.trim() ? { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY.trim()}` } : {}) } });
-    const { models, invalidRows } = await parseResponse(response, mode);
+    const { models, invalidRows } = await provider.fetchCatalog(mode, controller.signal);
     const fetchedAt = new Date();
-    await db.modelCatalogSnapshot.upsert({ where: { providerId_mode: { providerId, mode } }, create: { providerId, mode, models: models as never, fetchedAt }, update: { models: models as never, fetchedAt } });
-    failures.delete(mode);
-    return { mode, models, fetchedAt: fetchedAt.toISOString(), stale: false, source: "live", error: null, skipped: invalidRows };
+    await db.modelCatalogSnapshot.upsert({
+      where: { providerId_mode: { providerId, mode } },
+      create: { providerId, mode, models: models as never, fetchedAt, lastFailure: null, lastFailureAt: null },
+      update: { models: models as never, fetchedAt, lastFailure: null, lastFailureAt: null },
+    });
+    failures.delete(key);
+    return { providerId, mode, models, fetchedAt: fetchedAt.toISOString(), stale: false, source: "live", error: null, failure: null, skipped: invalidRows };
   } catch (error) {
-    const message = error instanceof Error && error.name === "AbortError" ? t("lib.models.catalogTimeout") : error instanceof Error ? error.message : t("lib.models.catalogReadFailed");
-    failures.set(mode, { at: Date.now(), message });
-    return { mode, models: old?.models ?? [], fetchedAt: old?.fetchedAt.toISOString() ?? null, stale: Boolean(old), source: old ? "cache" : "empty", error: message, skipped: 0 };
+    const reason = error instanceof CatalogFetchError ? error.reason : "network";
+    const message = describeFailure(reason, provider.displayName, mode, error instanceof CatalogFetchError ? error.detail : undefined);
+    failures.set(key, { at: Date.now(), state: reason, message });
+    // The snapshot keeps its rows and gains the reason. Without this the page
+    // would forget a rejected credential the moment it reloaded and report the
+    // models as merely unlisted.
+    if (old) {
+      await db.modelCatalogSnapshot.update({ where: { providerId_mode: { providerId, mode } }, data: { lastFailure: reason, lastFailureAt: new Date() } });
+    }
+    return {
+      providerId, mode,
+      models: old?.models ?? [],
+      fetchedAt: old?.fetchedAt.toISOString() ?? null,
+      stale: Boolean(old),
+      source: old ? "cache" : "empty",
+      error: message,
+      failure: reason,
+      skipped: 0,
+    };
   } finally { clearTimeout(timer); }
 }
 
-export async function getOpenRouterCatalog(mode: LibraryMode, force = false): Promise<CatalogState> {
-  const old = await cached(mode);
-  if (!force && old && Date.now() - old.fetchedAt.getTime() < cacheDurationMs) return { mode, models: old.models, fetchedAt: old.fetchedAt.toISOString(), stale: false, source: "cache", error: null, skipped: 0 };
-  const failure = failures.get(mode);
-  if (!force && failure && Date.now() - failure.at < 30_000) return { mode, models: old?.models ?? [], fetchedAt: old?.fetchedAt.toISOString() ?? null, stale: Boolean(old), source: old ? "cache" : "empty", error: failure.message, skipped: 0 };
-  const existing = inFlight.get(mode);
+/**
+ * The snapshot on disk, without touching the network.
+ *
+ * Availability is computed on the settings page, and that page must not turn
+ * into a proxy for a slow provider: a catalog that has never been read says
+ * "not checked", not "delisted". Only the catalog endpoint fetches.
+ */
+export async function readCachedCatalog(providerId: ProviderId, mode: LibraryMode): Promise<CatalogState> {
+  const snapshot = await cachedSnapshot(providerId, mode);
+  const age = snapshot ? Date.now() - snapshot.fetchedAt.getTime() : 0;
+  return {
+    providerId, mode,
+    models: snapshot?.models ?? [],
+    fetchedAt: snapshot?.fetchedAt.toISOString() ?? null,
+    // Stale here means "the snapshot is past its refresh window", not "a
+    // refresh failed": this read made no attempt either way.
+    stale: Boolean(snapshot) && age >= cacheDurationMs,
+    source: snapshot ? "cache" : "empty",
+    error: null,
+    failure: snapshot?.lastFailure ?? null,
+    skipped: 0,
+  };
+}
+
+export async function readCachedCatalogs(): Promise<ProviderCatalogs> {
+  const providers = listModelProviders();
+  const result = await Promise.all(providers.map(async provider => {
+    const states = await Promise.all(libraryModes.map(mode => readCachedCatalog(provider.id, mode)));
+    return [provider.id, Object.fromEntries(states.map(state => [state.mode, state]))] as const;
+  }));
+  return Object.fromEntries(result) as ProviderCatalogs;
+}
+
+/**
+ * A provider that does not offer a mode has no catalog for it, and asking
+ * anyway would manufacture a failure the user cannot act on. Only the modes a
+ * provider declares are requested; the rest stay absent.
+ */
+function offeredModes(providerId: ProviderId): LibraryMode[] {
+  return libraryModes.filter(mode => getModelProvider(providerId).offeredModes.includes(mode));
+}
+
+export async function getCatalog(providerId: ProviderId, mode: LibraryMode, force = false): Promise<CatalogState> {
+  const key = cacheKey(providerId, mode);
+  const old = await cachedSnapshot(providerId, mode);
+  if (!force && old && Date.now() - old.fetchedAt.getTime() < cacheDurationMs) {
+    return { providerId, mode, models: old.models, fetchedAt: old.fetchedAt.toISOString(), stale: false, source: "cache", error: null, failure: null, skipped: 0 };
+  }
+  const failure = failures.get(key);
+  if (!force && failure && Date.now() - failure.at < failureCooldownMs) {
+    return { providerId, mode, models: old?.models ?? [], fetchedAt: old?.fetchedAt.toISOString() ?? null, stale: Boolean(old), source: old ? "cache" : "empty", error: failure.message, failure: failure.state, skipped: 0 };
+  }
+  const existing = inFlight.get(key);
   if (existing) return existing;
-  const operation = refresh(mode).finally(() => inFlight.delete(mode));
-  inFlight.set(mode, operation);
+  const operation = refresh(providerId, mode).finally(() => inFlight.delete(key));
+  inFlight.set(key, operation);
   return operation;
 }
 
-export async function getOpenRouterCatalogs(force = false) {
-  const states = await Promise.all(libraryModes.map(mode => getOpenRouterCatalog(mode, force)));
-  return Object.fromEntries(states.map(state => [state.mode, state])) as Record<LibraryMode, CatalogState>;
-}
+export type ProviderCatalogs = Record<ProviderId, Record<LibraryMode, CatalogState>>;
 
-/** Queries the fixed official image endpoints route; never follows URLs supplied by catalog data. */
-export async function getImageEndpointReferenceSupport(id: string): Promise<boolean | null> {
-  const match = modelId.safeParse(id);
-  if (!match.success) return null;
-  const [author, slug] = id.split("/");
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8_000);
-  try {
-    const response = await fetch(`https://openrouter.ai/api/v1/images/models/${encodeURIComponent(author)}/${encodeURIComponent(slug)}/endpoints`, {
-      method: "GET", cache: "no-store", redirect: "error", signal: controller.signal,
-      headers: { Accept: "application/json", ...(process.env.OPENROUTER_API_KEY?.trim() ? { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY.trim()}` } : {}) },
-    });
-    if (!response.ok || !response.body) return null;
-    const reader = response.body.getReader(), chunks: Uint8Array[] = [];
-    let size = 0;
-    try {
-      for (;;) { const { done, value } = await reader.read(); if (done) break; size += value.byteLength; if (size > 2 * 1024 * 1024) { await reader.cancel(); return null; } chunks.push(value); }
-    } finally { reader.releaseLock(); }
-    const bytes = new Uint8Array(size); let offset = 0;
-    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-    const parsed = z.object({ endpoints: z.array(z.object({ supported_parameters: z.record(z.string(), z.unknown()).optional() }).passthrough()).max(500) }).safeParse(JSON.parse(new TextDecoder().decode(bytes)));
-    if (!parsed.success || !parsed.data.endpoints.length) return false;
-    return parsed.data.endpoints.some(endpoint => hasPositiveReferenceLimit(endpoint.supported_parameters?.input_references));
-  } catch { return null; }
-  finally { clearTimeout(timer); }
+export async function getCatalogs(force = false): Promise<ProviderCatalogs> {
+  const providers = listModelProviders();
+  const result = await Promise.all(providers.map(async provider => {
+    const states = await Promise.all(offeredModes(provider.id).map(mode => getCatalog(provider.id, mode, force)));
+    return [provider.id, Object.fromEntries(states.map(state => [state.mode, state]))] as const;
+  }));
+  return Object.fromEntries(result) as ProviderCatalogs;
 }
 
 export function assertCatalogMode(value: unknown): LibraryMode {

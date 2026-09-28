@@ -1,6 +1,7 @@
 type DesktopSettingsView = {
   hasOpenrouterApiKey: boolean;
   hasTavilyApiKey: boolean;
+  hasDeepseekApiKey: boolean;
   outboundProxyUrl: string;
   openrouterSiteName: string;
   openrouterHttpReferer: string;
@@ -20,8 +21,10 @@ type DesktopRuntimeInfo = {
 type DesktopSettingsInput = {
   openrouterApiKey?: string;
   tavilyApiKey?: string;
+  deepseekApiKey?: string;
   clearOpenrouterApiKey?: boolean;
   clearTavilyApiKey?: boolean;
+  clearDeepseekApiKey?: boolean;
   outboundProxyUrl?: string;
   openrouterSiteName?: string;
   openrouterHttpReferer?: string;

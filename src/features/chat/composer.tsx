@@ -1,3 +1,4 @@
+import { modelRefKey } from "@/lib/models/preferences-schema";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -128,7 +129,7 @@ export function Composer({ onSubmit, modelMode, isPending, setSelectedManualTool
             <SelectItem value="video">{t("chat.toolbar.modeVideo")}</SelectItem>
           </SelectContent>
         </Select>
-        <Select disabled={isPending} onValueChange={onModelSelect} value={selectedModel ?? "none"}>
+        <Select disabled={isPending} onValueChange={onModelSelect} value={selectedModel ? modelRefKey(selectedModel) : "none"}>
           <SelectTrigger
             aria-label={t("chat.toolbar.modelSelectLabel")}
             className="h-7 w-auto max-w-[220px] gap-1.5 bg-transparent text-xs"
@@ -137,15 +138,15 @@ export function Composer({ onSubmit, modelMode, isPending, setSelectedManualTool
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="none">{t("chat.toolbar.modelNone")}</SelectItem>
-            {selectedModel && !modelLibrary.some((model) => model.modelId === selectedModel && model.modes.includes(modelMode)) ? (
-              <SelectItem value={selectedModel}>
-                {tf("chat.toolbar.modelUnavailable", { modelId: selectedModel })}
+            {selectedModel && !modelLibrary.some((model) => modelRefKey(model) === modelRefKey(selectedModel) && model.modes.includes(modelMode)) ? (
+              <SelectItem value={modelRefKey(selectedModel)}>
+                {tf("chat.toolbar.modelUnavailable", { modelId: selectedModel.modelId })}
               </SelectItem>
             ) : null}
             {modelLibrary
               .filter((model: ModelLibraryItem) => model.modes.includes(modelMode))
               .map((model) => (
-                <SelectItem key={model.modelId} value={model.modelId}>
+                <SelectItem key={modelRefKey(model)} value={modelRefKey(model)}>
                   {model.name}
                 </SelectItem>
               ))}
@@ -294,11 +295,11 @@ export function Composer({ onSubmit, modelMode, isPending, setSelectedManualTool
     */}
     {modelMode === "image" ? (
       <p className="text-[13px] text-muted-foreground">
-        {tf("chat.composer.statusImageModel", { modelId: selectedImageModel ?? t("chat.composer.notSelected") })}
+        {tf("chat.composer.statusImageModel", { modelId: selectedImageModel?.modelId ?? t("chat.composer.notSelected") })}
       </p>
     ) : modelMode === "video" ? (
       <p className="text-[13px] text-muted-foreground">
-        {tf("chat.composer.statusVideoModel", { modelId: selectedVideoModel ?? t("chat.composer.notSelected") })}
+        {tf("chat.composer.statusVideoModel", { modelId: selectedVideoModel?.modelId ?? t("chat.composer.notSelected") })}
       </p>
     ) : isManualToolSelected ? (
       <p className="text-[13px] text-muted-foreground">
@@ -309,7 +310,7 @@ export function Composer({ onSubmit, modelMode, isPending, setSelectedManualTool
       <p className="text-xs text-muted-foreground">{t("chat.composer.noModelSelected")}</p>
     ) : !selectedModelInfo?.supportsImageInput ? (
       <p className="text-[13px] text-muted-foreground">
-        {tf("chat.composer.textOnlyModel", { modelId: selectedChatModel })}
+        {tf("chat.composer.textOnlyModel", { modelId: selectedChatModel.modelId })}
       </p>
     ) : attachments.length > 0 ? (
       <p className="text-[13px] text-muted-foreground">

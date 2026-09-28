@@ -17,16 +17,22 @@ after(async () => { await db.$disconnect(); cleanup(); });
 
 test("memory ranking preserves lexical, semantic, recency and manual weighting", () => {
   const now = Date.parse("2026-08-30T00:00:00Z");
-  const memory = { key: "SQLite", value: "本地数据库", score: 0.5, embedding: [1, 0], embeddingModelId: "embed-v1", updatedAt: new Date(now) };
+  const memory = { key: "SQLite", value: "本地数据库", score: 0.5, embedding: [1, 0], embeddingModelId: "embed-v1", embeddingModelProvider: "openrouter", updatedAt: new Date(now) };
   const tokens = tokenizeQuery("SQLITE / 本地数据库");
   assert.equal(tokens[0], "sqlite");
   assert.equal(tokens.slice(1).join(""), "本地数据库");
   assert.ok(tokens.length > 2);
   assert.equal(scoreMemory(memory, ["sqlite"], null, CONTEXT_MEMORY_POLICY, now), 1.4);
   assert.equal(scoreMemory(memory, ["sqlite"], null, KNOWLEDGE_MEMORY_POLICY, now), 1.1);
-  assert.equal(scoreMemory(memory, ["unmatched"], [1, 0], KNOWLEDGE_MEMORY_POLICY, now, "embed-v1"), 0.95);
-  assert.equal(scoreMemory(memory, ["unmatched"], [1, 0], KNOWLEDGE_MEMORY_POLICY, now, "embed-v2"), 0);
-  assert.equal(scoreMemory({ ...memory, embedding: null, score: null, updatedAt: new Date(now - 31 * 86400000) }, ["unmatched"], [1, 0], CONTEXT_MEMORY_POLICY, now, "embed-v1"), 0);
+  assert.equal(scoreMemory(memory, ["unmatched"], [1, 0], KNOWLEDGE_MEMORY_POLICY, now, { providerId: "openrouter", modelId: "embed-v1" }), 0.95);
+  assert.equal(scoreMemory(memory, ["unmatched"], [1, 0], KNOWLEDGE_MEMORY_POLICY, now, { providerId: "openrouter", modelId: "embed-v2" }), 0);
+  // Vectors are only comparable inside the space that produced them, so the
+  // same model id reached through another provider scores nothing rather than
+  // a confident 0.95.
+  assert.equal(scoreMemory(memory, ["unmatched"], [1, 0], KNOWLEDGE_MEMORY_POLICY, now, { providerId: "other", modelId: "embed-v1" }), 0);
+  // A row with no recorded provider is left out of semantic scoring entirely.
+  assert.equal(scoreMemory({ ...memory, embeddingModelProvider: null }, ["unmatched"], [1, 0], KNOWLEDGE_MEMORY_POLICY, now, { providerId: "openrouter", modelId: "embed-v1" }), 0);
+  assert.equal(scoreMemory({ ...memory, embedding: null, score: null, updatedAt: new Date(now - 31 * 86400000) }, ["unmatched"], [1, 0], CONTEXT_MEMORY_POLICY, now, { providerId: "openrouter", modelId: "embed-v1" }), 0);
   const rows = [{ id: "first", score: 1 }, { id: "zero", score: 0 }, { id: "second", score: 1 }, { id: "high", score: 2 }];
   assert.deepEqual(rankByScore(rows, (row) => row.score, 3).map((row) => row.id), ["high", "first", "second"]);
   assert.equal(rows[0].id, "first");
@@ -71,13 +77,18 @@ test("shared retrieval keeps tool records out of context while knowledge candida
 });
 
 
-test("per-conversation preferences preserve stale model IDs for explicit recovery", (t) => {
+test("per-conversation preferences preserve stale model references for explicit recovery", (t) => {
   let raw = "{";
   globalThis.window = { localStorage: { getItem: () => raw } };
   t.after(() => { delete globalThis.window; });
   assert.equal(readChatPreferences("conversation"), null);
+  // A selection saved before model references were provider-qualified was a
+  // bare id, and it was always OpenRouter, so it is read back that way instead
+  // of being discarded on upgrade.
   raw = JSON.stringify({ modelMode: "invalid", selectedChatModel: "removed-model", manualToolsOnly: true });
-  assert.deepEqual(readChatPreferences("conversation"), { ...getDefaultChatPreferences(), selectedChatModel: "removed-model", manualToolsOnly: true });
+  assert.deepEqual(readChatPreferences("conversation"), { ...getDefaultChatPreferences(), selectedChatModel: { providerId: "openrouter", modelId: "removed-model" }, manualToolsOnly: true });
+  raw = JSON.stringify({ selectedImageModel: { providerId: "openrouter", modelId: "image/one" }, selectedVideoModel: { providerId: "openrouter" } });
+  assert.deepEqual(readChatPreferences("conversation"), { ...getDefaultChatPreferences(), selectedImageModel: { providerId: "openrouter", modelId: "image/one" } });
 });
 
 test("manual tool fields preserve defaults, numeric bounds and normalized input", () => {

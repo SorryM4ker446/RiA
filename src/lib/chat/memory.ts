@@ -1,9 +1,10 @@
 import { type PersistedAssistantToolItem } from "@/lib/ai/ui-message";
 import { persistToolMemory } from "@/tools/memory-policy";
 import { LOCAL_WORKSPACE_ID } from "@/lib/local/workspace";
+import type { ModelRef } from "@/lib/models/preferences-schema";
 
 const TOOL_DEBUG = process.env.TOOL_DEBUG === "1";
-export async function persistResponseToolMemories({ chatId, toolItems, assistantText, modelId }: { chatId: string; toolItems: PersistedAssistantToolItem[]; assistantText: string; modelId: string }) {
+export async function persistResponseToolMemories({ chatId, toolItems, assistantText, modelRef }: { chatId: string; toolItems: PersistedAssistantToolItem[]; assistantText: string; modelRef: ModelRef }) {
   if (toolItems.length > 0) {
     const memoryResults = await Promise.allSettled(
       toolItems.map((toolItem) =>
@@ -15,7 +16,7 @@ export async function persistResponseToolMemories({ chatId, toolItems, assistant
           input: toolItem.input,
           output: toolItem.output,
           assistantText,
-          modelId,
+          modelRef,
         }),
       ),
     );

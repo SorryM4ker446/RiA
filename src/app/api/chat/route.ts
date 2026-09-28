@@ -17,7 +17,7 @@ async function POSTHandler(req: NextRequest) {
     await requireLocalWorkspace(req);
     enforceRateLimit("chat");
     const input = await readChatRequest(req);
-    const { body, modelId, latestUserMessage, isApprovalResume } = input;
+    const { body, modelRef, latestUserMessage, isApprovalResume } = input;
     if (!process.env.OPENROUTER_API_KEY?.trim()) {
       throw new ApiError({
         code: "CONFIGURATION_ERROR",
