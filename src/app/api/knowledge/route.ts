@@ -15,6 +15,9 @@ const createKnowledgeSchema = z.strictObject({
 
 const knowledgeListQuerySchema = z.strictObject({
   limit: z.coerce.number().int().min(1).max(100).optional().default(50),
+  // What the assistant inferred is listed separately, so the default view
+  // stays "what I decided to keep" and the candidates do not bury it.
+  view: z.enum(["all", "confirmed", "candidates"]).optional().default("all"),
 });
 
 async function GETHandler(req: NextRequest) {
@@ -22,6 +25,7 @@ async function GETHandler(req: NextRequest) {
     await requireLocalWorkspace(req);
     const parsed = knowledgeListQuerySchema.safeParse({
       limit: req.nextUrl.searchParams.get("limit") ?? undefined,
+      view: req.nextUrl.searchParams.get("view") ?? undefined,
     });
 
     if (!parsed.success) {
@@ -32,9 +36,16 @@ async function GETHandler(req: NextRequest) {
       });
     }
 
+    // Everything is listed, including what the assistant inferred: a memory the
+    // user cannot see is a memory they cannot correct. Confirmation is what
+    // decides whether it is used, not visibility.
     const memories = await db.memory.findMany({
+      // Everything is listed, including what the assistant inferred: a memory
+      // the user cannot see is one they cannot correct. The tool-facing search
+      // still keeps them out of its own results — that is a different question.
       where: {
-        NOT: [{ key: { startsWith: "tool:" } }],
+        ...(parsed.data.view === "confirmed" ? { confirmed: true } : {}),
+        ...(parsed.data.view === "candidates" ? { confirmed: false } : {}),
       },
       orderBy: [{ updatedAt: "desc" }],
       take: parsed.data.limit,

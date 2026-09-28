@@ -3,15 +3,25 @@ import { db } from "@/db";
 import { keywordScore, tokenizeQuery } from "@/lib/memory/retrieval";
 import { documentSourceUrl, type DocumentSource } from "@/lib/documents/types";
 
-export async function searchDocuments(query: string, limit = 4): Promise<(DocumentSource & { score: number })[]> {
+/**
+ * Finds the excerpts a question should be answered from.
+ *
+ * `collections` narrows the search to the topics a conversation has put in
+ * scope. An empty list means every topic, which is the normal case; a non-empty
+ * one means a document outside those topics is not evidence for this
+ * conversation even when it matches the words.
+ */
+export async function searchDocuments(query: string, limit = 4, collections: string[] = []): Promise<(DocumentSource & { score: number })[]> {
   const tokens = tokenizeQuery(query).filter(token => token.length <= 100).slice(0, 16);
   if (!tokens.length) return [];
+  const scope = collections.filter((value) => value.trim().length > 0);
   // A local inverted index finds candidates across all owned documents, not just recent uploads.
   const candidates = await db.$queryRaw<{ id: string }[]>(Prisma.sql`
     SELECT c.id FROM document_terms t
     JOIN document_chunks c ON c.id = t.chunkId
     JOIN knowledge_documents d ON d.id = c.documentId
     WHERE t.term IN (${Prisma.join(tokens)})
+    ${scope.length > 0 ? Prisma.sql`AND d.collection IN (${Prisma.join(scope)})` : Prisma.empty}
     GROUP BY c.id ORDER BY COUNT(*) DESC, c.ordinal ASC, c.id ASC LIMIT 200
   `);
   if (!candidates.length) return [];

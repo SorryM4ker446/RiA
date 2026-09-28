@@ -3,7 +3,7 @@ import { NO_CREDENTIAL_STATE, localHostOrigin, openWorkspace } from "../helpers/
 import { randomUUID } from "node:crypto";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { browserApi, browserData } from "../helpers/browser-api";
-import { textPdf, wordDocument } from "../helpers/document-fixtures.mjs";
+import { textPdf, wordDocument } from "../helpers/document-fixtures";
 import { configureOfflineModels } from "../helpers/model-fixture";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({

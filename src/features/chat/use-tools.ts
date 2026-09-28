@@ -8,7 +8,8 @@ import { chatApi, persistConversationMessage } from "@/features/chat/api-client"
 import { buildDefaultManualFieldValues } from "@/features/chat/tool-input";
 import type { ManualToolFieldValues, ManualToolSelection, TaskStatusFilter, ToolCatalogItem } from "@/features/chat/types";
 import type { useTasks } from "@/features/chat/use-tasks";
-type Options = { setMessages: Dispatch<SetStateAction<UIMessage[]>>; ensureActiveChatId: (title: string) => Promise<string>; loadChats: () => Promise<void>; selectedChatModel: string | null; modelMode: ModelMode; selectedManualTool: ManualToolSelection; setSelectedManualTool: Dispatch<SetStateAction<ManualToolSelection>>; loadTasks: ReturnType<typeof useTasks>["loadTasks"]; taskStatusFilter: TaskStatusFilter; };
+import type { ModelRef } from "@/lib/models/preferences-schema";
+type Options = { setMessages: Dispatch<SetStateAction<UIMessage[]>>; ensureActiveChatId: (title: string) => Promise<string>; loadChats: () => Promise<void>; selectedChatModel: ModelRef | null; modelMode: ModelMode; selectedManualTool: ManualToolSelection; setSelectedManualTool: Dispatch<SetStateAction<ManualToolSelection>>; loadTasks: ReturnType<typeof useTasks>["loadTasks"]; taskStatusFilter: TaskStatusFilter; };
 export function useTools({ setMessages, ensureActiveChatId, loadChats, selectedChatModel, modelMode, selectedManualTool, setSelectedManualTool, loadTasks, taskStatusFilter }: Options) {
   const [availableTools, setAvailableTools] = useState<ToolCatalogItem[]>([]);
   const [toolCatalogError, setToolCatalogError] = useState<string | null>(null);
@@ -17,11 +18,16 @@ export function useTools({ setMessages, ensureActiveChatId, loadChats, selectedC
   const [manualToolFieldErrors, setManualToolFieldErrors] = useState<ManualToolFieldValues>({});
   const [isRunningManualTool, setIsRunningManualTool] = useState(false);
   const manualTools = getManualToolsForChat();
+  // Surfaced in the picker so the absence is explained where the user looks
+  // for it, rather than as a tool that silently is not there.
+  const unavailableTools = availableTools.filter((tool) => !tool.available && tool.modeSupport.includes("chat"));
   const selectedManualToolConfig = getSelectedManualToolConfig();
   const manualToolSelectValue = selectedManualToolConfig ? selectedManualToolConfig.id : "none";
   const isManualToolSelected = modelMode === "chat" && selectedManualToolConfig !== null;
   function getManualToolsForChat(): ToolCatalogItem[] {
-    return availableTools.filter((tool) => tool.manual.enabled && tool.modeSupport.includes("chat"));
+    // A tool that cannot run is not offered as a manual action either: the
+    // user is told why instead of pressing a button that only errors.
+    return availableTools.filter((tool) => tool.manual.enabled && tool.available && tool.modeSupport.includes("chat"));
   }
 
   function getSelectedManualToolConfig(): ToolCatalogItem | null {
@@ -220,7 +226,7 @@ export function useTools({ setMessages, ensureActiveChatId, loadChats, selectedC
     setManualToolFieldErrors({});
   }, [selectedManualToolConfig]);
   return {
-    toolCatalogError, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors,
+    toolCatalogError, unavailableTools, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors,
     setManualToolFieldErrors, isRunningManualTool, manualTools, selectedManualToolConfig,
     manualToolSelectValue, isManualToolSelected, runManualTool,
   };

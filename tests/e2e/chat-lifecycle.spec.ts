@@ -1,12 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
 import { DEFAULT_IMAGE_MODEL, DEFAULT_MODEL, DEFAULT_VIDEO_MODEL } from "../../src/config/model";
+import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
 
 const now = "2026-08-30T00:00:00Z";
 const summary = (id: string, title: string) => ({ id, title, lastMessageAt: now, messageCount: 1 });
 const storedMessage = (id: string, content: string) => ({ id, clientMessageId: id, role: "assistant", content, createdAt: now });
 
 async function emptyPanels(page: Page) {
-  await page.route("**/api/models", (route) => route.fulfill({ json: { data: { version: 2, defaultMode: "chat", chat: { modelId: "anthropic/claude-opus-4.6", fallbackId: null }, image: { modelId: "google/gemini-2.5-flash-image", fallbackId: null }, video: { modelId: "bytedance/seedance-2.0", fallbackId: null }, embeddingModelId: null, legacyCandidates: [], library: [{ providerId: "openrouter", modelId: "anthropic/claude-opus-4.6", name: "Claude", description: "Fixture", modes: ["chat"], supportsImageInput: true, endpointImageInput: null, supportsTools: true, contextLength: null, pricing: {}, addedAt: now, lastSeenAt: now }, { providerId: "openrouter", modelId: "google/gemini-2.5-flash-image", name: "Image", description: "Fixture", modes: ["image"], supportsImageInput: true, endpointImageInput: true, supportsTools: false, contextLength: null, pricing: {}, addedAt: now, lastSeenAt: now }, { providerId: "openrouter", modelId: "bytedance/seedance-2.0", name: "Video", description: "Fixture", modes: ["video"], supportsImageInput: true, endpointImageInput: null, supportsTools: false, contextLength: null, pricing: {}, addedAt: now, lastSeenAt: now }], rates: {}, backupRetentionDays: 30, backupMaxCount: 10 } } }));
+  await page.route("**/api/models", (route) => route.fulfill({ json: modelsRouteFixture(
+    [fixtureLibraryItem(DEFAULT_MODEL, ["chat"]), fixtureLibraryItem(DEFAULT_IMAGE_MODEL, ["image"], { endpointImageInput: true, supportsTools: false }), fixtureLibraryItem(DEFAULT_VIDEO_MODEL, ["video"], { supportsTools: false })],
+    { chat: DEFAULT_MODEL, image: DEFAULT_IMAGE_MODEL, video: DEFAULT_VIDEO_MODEL },
+  ) }));
   await page.route("**/api/tasks**", (route) => route.fulfill({ json: { data: [] } }));
   await page.route("**/api/tools?*", (route) => route.fulfill({ json: { data: [] } }));
 }
@@ -112,8 +116,11 @@ test("video generation preserves the asset reference and renders it after reload
     } else await route.fulfill({ json: { data: history } });
   });
   await page.route("**/api/video", async (route) => {
-    expect(route.request().postDataJSON().prompt).toBe("A short clip");
-    await route.fulfill({ json: { asset, modelId: "fixture-model" } });
+    const body = route.request().postDataJSON();
+    expect(body.prompt).toBe("A short clip");
+    // Media requests select a model by provider and id, like every other call.
+    expect(body.model).toEqual({ providerId: "openrouter", modelId: DEFAULT_VIDEO_MODEL });
+    await route.fulfill({ json: { asset, modelId: "fixture-model", modelProvider: "openrouter" } });
   });
   await page.route("**/api/media/fixture-video", (route) => route.fulfill({ contentType: "video/mp4", body: Buffer.from([]) }));
   await page.goto("/chat");

@@ -12,8 +12,9 @@ import { t } from "@/lib/locale";
 import { usePanelVisibility } from "./use-panel-visibility";
 import { useChat } from "@ai-sdk/react";
 import { lastAssistantMessageIsCompleteWithApprovalResponses, UIMessage } from "ai";
-import { ClipboardEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
-import { chatApi, createChatTransport, filesToUploadParts } from "@/features/chat/api-client";
+import { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { chatApi, createChatTransport } from "@/features/chat/api-client";
+import { clearChatDraft, readChatDraft, writeChatDraft } from "@/features/chat/draft";
 import { buildDefaultManualFieldValues, normalizeManualToolInput, validateManualToolFields } from "@/features/chat/tool-input";
 import type { DeleteTarget } from "@/features/chat/types";
 import type { ModelLibraryItem } from "@/lib/models/preferences-schema";
@@ -49,10 +50,11 @@ export function useChatState() {
     chats, activeChat, isCreatingChat, editingChatId, editingTitle, setEditingTitle, isChatListExpanded,
     setIsChatListExpanded, visibleChats, hasHiddenChats, loadChats, createNewChat, startEditingChat,
     cancelEditingChat, saveEditedTitle, performDeleteChat, ensureActiveChatId,
-    nextChatsCursor, isLoadingMoreChats, loadMoreChats,
+    nextChatsCursor, isLoadingMoreChats, loadMoreChats, toggleEphemeral, isEphemeralSaving,
+    documentTopics, loadDocumentTopics, setDocumentScope,
   } = useConversations({ activeChatId, setActiveChatId, preferences: { modelMode, selectedChatModel, selectedImageModel, selectedVideoModel, selectedManualTool, manualToolsOnly }, applyChatPreferences, resetConversation, persistCurrentStreamingAssistantIfNeeded, setPageError });
   const transport = useMemo(() => createChatTransport(activeChatId, { selectedChatModel, manualToolsOnly, modelMode }), [activeChatId, selectedChatModel, manualToolsOnly, modelMode]);
-  const { messages, setMessages, sendMessage, regenerate, addToolApprovalResponse, status, error, clearError } = useChat({
+  const { messages, setMessages, sendMessage, regenerate, addToolApprovalResponse, status, error, clearError, stop } = useChat({
     id: activeChatId ?? "draft",
     transport,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
@@ -74,11 +76,11 @@ export function useChatState() {
   const {
     isGeneratingImage, isGeneratingVideo, isUploadingAttachments, setIsUploadingAttachments,
     imageByMessageId, setImageByMessageId, videoByMessageId, setVideoByMessageId, attachments,
-    attachingImageKey, fileInputRef, attachmentNames, reuseImageActionLabel, clearAttachments,
+    attachingImageKey, fileInputRef, attachmentNames, reuseImageActionLabel, clearAttachments, removeAttachmentAt, replaceAttachments,
     appendAttachments, onReuseImageForEditing, onAttachmentInputChange, generateImage, generateVideo,
   } = useMediaGeneration({ activeChatId, isHistoryReady: historyState?.chatId === activeChatId && historyState.status === "ready", setMessages, reloadMessages: loadMessages, ensureActiveChatId, loadChats, setPageError, modelMode, selectedImageModel, selectedVideoModel, textareaRef });
   const {
-    toolCatalogError, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors,
+    toolCatalogError, unavailableTools, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors,
     setManualToolFieldErrors, isRunningManualTool, manualTools, selectedManualToolConfig,
     manualToolSelectValue, isManualToolSelected, runManualTool,
   } = useTools({ setMessages, ensureActiveChatId, loadChats, selectedChatModel, modelMode, selectedManualTool, setSelectedManualTool, loadTasks, taskStatusFilter });
@@ -98,10 +100,146 @@ export function useChatState() {
       : modelMode === "image"
         ? selectedImageModel
         : selectedVideoModel;
-  const selectedModelInfo: ModelLibraryItem | undefined = modelLibrary.find(model => model.modelId === selectedModel && model.modes.includes(modelMode));
+  const selectedModelInfo: ModelLibraryItem | undefined = selectedModel
+    ? modelLibrary.find(model => model.providerId === selectedModel.providerId && model.modelId === selectedModel.modelId && model.modes.includes(modelMode))
+    : undefined;
   const { visibility: panelVisibility, toggle: togglePanel } = usePanelVisibility();
 
   const effectiveError = pageError ?? preferencesError ?? (error ? readApiErrorMessage(error.message, t("chatState.requestFailed")) : null);
+
+  // A draft belongs to one conversation. Switching away parks it and switching
+  // back brings it back, so a half-written question survives navigating around.
+  const draftChatIdRef = useRef<string | null>(null);
+  const pendingSendDraftRef = useRef<{ chatId: string; text: string; pendingChat?: boolean; afterIndex: number } | null>(null);
+  const draftAttachmentsRef = useRef<UploadableFilePart[]>(attachments);
+  draftAttachmentsRef.current = attachments;
+
+  useEffect(() => {
+    // Parking first: the current conversation keeps what was typed in it.
+    const previousId = draftChatIdRef.current;
+    if (previousId && previousId !== activeChatId) {
+      writeChatDraft(previousId, { text: inputRef.current, attachments: draftAttachmentsRef.current });
+    }
+    // Only on a conversation change: re-running this on every keystroke would
+    // overwrite the draft that is about to be read back.
+    draftChatIdRef.current = activeChatId;
+    // Sending the first message creates the conversation, which switches the
+    // active id out from under the composer. Reading an empty draft at that
+    // moment would wipe the message being sent, so an in-flight send keeps its
+    // own text.
+    const pending = pendingSendDraftRef.current;
+    // A send that is still waiting for its conversation to be created must not
+    // have its input replaced by the (empty) draft of the new id.
+    if (pending?.pendingChat) return;
+    // Only the initial activation is protected. A deliberate switch must always
+    // park one conversation's draft and show the other's, even if the user is
+    // mid-sentence in the first one.
+    const typedBeforeActivation = previousId === null && inputRef.current.length > 0 && inputRef.current !== restoredInputRef.current;
+    const draft = readChatDraft(activeChatId);
+    if (typedBeforeActivation) return;
+    restoredInputRef.current = draft?.text ?? "";
+    if (draft) {
+      setInput(draft.text);
+      replaceAttachments(draft.attachments);
+    } else {
+      setInput("");
+      replaceAttachments([]);
+    }
+  }, [activeChatId, replaceAttachments]);
+
+  // Kept in a ref so the effect above sees the current text without depending
+  // on it, which would re-run on every keystroke.
+  const inputRef = useRef(input);
+  inputRef.current = input;
+  // What the draft last put in the box. Text the user typed after that belongs
+  // to them: the conversation list can activate a conversation a moment after
+  // the page opens, and restoring an empty draft then would delete whatever was
+  // typed in the meantime.
+  const restoredInputRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    writeChatDraft(draftChatIdRef.current, { text: input, attachments });
+  }, [input, attachments]);
+
+  // The draft is cleared only once the turn actually produced an answer. A send
+  // that fails, or that the user stops, has to leave the text where it can be
+  // sent again — which is also why this is judged by the answer appearing
+  // rather than by the request settling: a stopped request settles too.
+  useEffect(() => {
+    const pending = pendingSendDraftRef.current;
+    // A send that is still waiting for its conversation covers whichever one is
+    // on screen; otherwise it has to be this exact conversation.
+    if (!pending || (!pending.pendingChat && pending.chatId !== activeChatId)) return;
+    const answered = messages
+      .slice(pending.afterIndex)
+      .some((message) => message.role === "assistant" && message.parts.some((part) => part.type === "text" && part.text.trim().length > 0));
+    if (!answered) return;
+    clearChatDraft(pending.chatId);
+    pendingSendDraftRef.current = null;
+  }, [messages, activeChatId]);
+
+  /**
+   * Stopping abandons the request, not the question: the message was already
+   * delivered and is in the conversation, so putting it back in the composer
+   * would offer to send it twice. What the model managed to produce stays on
+   * screen, stored as an interrupted answer.
+   */
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+
+  /**
+   * Dropping a file on the composer attaches it the same way choosing it does.
+   * The drag only counts when it actually carries files, so dragging selected
+   * text does not light up the whole composer.
+   */
+  function onComposerDragOver(event: DragEvent<HTMLElement>) {
+    if (isManualToolSelected) return;
+    if (!Array.from(event.dataTransfer?.types ?? []).includes("Files")) return;
+    event.preventDefault();
+    event.dataTransfer!.dropEffect = "copy";
+    setIsDraggingFiles(true);
+  }
+
+  function onComposerDragLeave(event: DragEvent<HTMLElement>) {
+    // Only clear when the pointer actually left the composer; dragging across
+    // its children fires leave events that would otherwise flicker the outline.
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    setIsDraggingFiles(false);
+  }
+
+  function onComposerDrop(event: DragEvent<HTMLElement>) {
+    if (isManualToolSelected) return;
+    const files = Array.from(event.dataTransfer?.files ?? []);
+    setIsDraggingFiles(false);
+    if (!files.length) return;
+    event.preventDefault();
+    void appendAttachments(files);
+  }
+
+  const stopRef = useRef(stop);
+  stopRef.current = stop;
+  const onStop = useCallback(() => {
+    if (!isPending) return;
+    stopRef.current();
+    clearChatDraft(activeChatId);
+    pendingSendDraftRef.current = null;
+  }, [isPending, activeChatId]);
+
+  /**
+   * Whether a pending send belongs to the conversation on screen. A send that
+   * is still waiting for its conversation to be created covers it too: until
+   * that finishes there is no id to match against, and treating it as foreign
+   * would drop the text on the floor at exactly the moment it is most fragile.
+   */
+  function pendingCoversCurrentChat(pending: { chatId: string; pendingChat?: boolean } | null) {
+    return pending !== null && (pending.pendingChat === true || pending.chatId === activeChatId);
+  }
+
+  function restorePendingSendDraft() {
+    const pending = pendingSendDraftRef.current;
+    if (!pending || !pendingCoversCurrentChat(pending)) return;
+    pendingSendDraftRef.current = null;
+    setInput(pending.text);
+  }
 
   /**
    * One failure, one message.
@@ -338,7 +476,7 @@ export function useChatState() {
       // current preferences must travel with the request itself.
       await regenerate({
         messageId,
-        body: { chatId: activeChatId, ...(selectedChatModel ? { modelId: selectedChatModel } : {}), manualToolsOnly, mode: modelMode },
+        body: { chatId: activeChatId, ...(selectedChatModel ? { model: selectedChatModel } : {}), manualToolsOnly, mode: modelMode },
       });
       await loadChats();
     } catch (regenerateError) {
@@ -365,28 +503,23 @@ export function useChatState() {
     }
 
     if (modelMode === "chat" && hasAttachments && !selectedModelInfo?.supportsImageInput) {
-      setPageError(`${t("chatState.imageInputUnsupportedPrefix")} ${selectedChatModel} ${t("chatState.imageInputUnsupportedSuffix")}`);
+      setPageError(`${t("chatState.imageInputUnsupportedPrefix")} ${selectedChatModel?.modelId ?? ""} ${t("chatState.imageInputUnsupportedSuffix")}`);
       return;
     }
 
     if (hasContent) setInput("");
+    // Remembered until the turn produces an answer, so a failure can put the
+    // text back instead of making the user retype it. The conversation id is
+    // filled in once the first message has created one: a send that creates the
+    // conversation switches the active id mid-flight, and the draft has to
+    // follow it rather than be read back as empty.
+    pendingSendDraftRef.current = { chatId: activeChatId ?? "", text: content, pendingChat: activeChatId === null, afterIndex: messages.length };
 
-    const uploadViewRequest = latestHistoryRequestRef.current;
-    let uploadParts: UploadableFilePart[] = [];
-    if (hasAttachments) {
-      setIsUploadingAttachments(true);
-      try {
-        uploadParts = await filesToUploadParts(attachments);
-      } catch (error) {
-        if (uploadViewRequest === latestHistoryRequestRef.current) setPageError(error instanceof Error ? error.message : t("chatState.attachmentReadFailed"));
-        return;
-      } finally {
-        setIsUploadingAttachments(false);
-      }
-    }
-
-    // Do not start a submission through a stale composer after an upload.
-    if (uploadViewRequest !== latestHistoryRequestRef.current) return;
+    // The attachments are already uploaded references, so a submission no
+    // longer depends on reading a file that may no longer be in memory. This
+    // also removes the window where a send could be started from a composer that
+    // belonged to a conversation the user had already left.
+    const uploadParts: UploadableFilePart[] = attachments;
 
     if (modelMode === "chat" && selectedManualToolConfig) {
       try {
@@ -432,18 +565,28 @@ export function useChatState() {
 
     try {
       const chatId = await ensureActiveChatId(content || t("chatState.defaultChatTitle"));
+      // Written here rather than in the composer, and unconditionally: the
+      // composer clears its input on submit, and a draft that was only kept for
+      // the "conversation was just created" path would be erased by the very
+      // save that runs after the input is cleared.
+      draftChatIdRef.current = chatId;
+      writeChatDraft(chatId, { text: content, attachments });
+      if (pendingSendDraftRef.current) {
+        pendingSendDraftRef.current = { ...pendingSendDraftRef.current, chatId, pendingChat: false };
+      }
       // Activating a new conversation replaces the SDK Chat instance. Send only
       // after that instance and its initial history are ready, not through draft's closure.
       await new Promise<void>((resolve, reject) => setPendingSend({
         chatId,
         message: hasAttachments ? { ...(hasContent ? { text: content } : {}), files: uploadParts } : { text: content },
-        options: { body: { chatId, ...(selectedChatModel ? { modelId: selectedChatModel } : {}), manualToolsOnly, mode: "chat" } },
+        options: { body: { chatId, ...(selectedChatModel ? { model: selectedChatModel } : {}), manualToolsOnly, mode: "chat" } },
         resolve, reject,
       }));
 
       clearAttachments();
       await loadChats();
     } catch (submitError) {
+      restorePendingSendDraft();
       setPageError(submitError instanceof Error ? submitError.message : t("chatState.sendFailed"));
     }
   }
@@ -519,15 +662,22 @@ export function useChatState() {
     if (!pendingDelete) return;
 
     function onKeyDown(event: globalThis.KeyboardEvent) {
-      if (event.key === "Escape" && !isDeleting) {
+      if (event.key !== "Escape" || isDeleting) return;
+      if (pendingDelete) {
         setPendingDelete(null);
+        return;
       }
+      // Escape stops a running turn. The composer is left alone: someone
+      // pressing Escape to dismiss something should not silently abandon an
+      // answer they were watching.
+      if (isPending) onStop();
     }
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [pendingDelete, isDeleting]);
+  }, [pendingDelete, isDeleting, isPending, onStop]);
   return {
+    toggleEphemeral, isEphemeralSaving, documentTopics, loadDocumentTopics, setDocumentScope,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages,
     isCreatingChat, createNewChat, chats, visibleChats, activeChatId, editingChatId, setEditingTitle,
     editingTitle, saveEditedTitle, cancelEditingChat, switchActiveChat, startEditingChat,
@@ -539,10 +689,11 @@ export function useChatState() {
     onModelSelect, appendQuickPrompt, isLoadingHistory, messages, imageByMessageId, videoByMessageId,
     status, editingMessageId, startEditingMessage, regenerateMessage, requestDeleteMessage,
     setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage,
-    attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, addToolApprovalResponse, onSubmit,
+    attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, addToolApprovalResponse, onStop, onSubmit,
+    removeAttachmentAt, isUploadingAttachments, isDraggingFiles, onComposerDragOver, onComposerDragLeave, onComposerDrop,
     setSelectedManualTool, manualToolSelectValue, manualTools, manualToolsOnly, setManualToolsOnly,
     selectedManualToolConfig, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors,
-    setManualToolFieldErrors, toolCatalogError: withoutGlobalEcho(toolCatalogError),
+    setManualToolFieldErrors, unavailableTools, toolCatalogError: withoutGlobalEcho(toolCatalogError),
     setInput, handleTextareaKeyDown, onTextareaPaste,
     textareaRef, input, isManualToolSelected, onAttachmentInputChange, fileInputRef, attachments,
     clearAttachments, attachmentNames, selectedImageModel, selectedVideoModel, selectedManualTool,

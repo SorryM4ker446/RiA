@@ -2,6 +2,8 @@ import { embedMany } from "ai";
 import { getEmbeddingModel } from "@/lib/ai/client";
 import { setupServerProxy } from "@/lib/server/proxy";
 import { getModelPreferences, modelInLibrary } from "@/lib/models/preferences";
+import { getModelProvider } from "@/lib/models/providers";
+import type { ModelRef } from "@/lib/models/preferences-schema";
 
 /**
  * Desktop smoke mode must never reach a paid provider.
@@ -46,8 +48,10 @@ function offlineEmbedding(value: string): number[] {
 }
 
 function isEmbeddingAvailable(): boolean {
-  return Boolean(process.env.OPENROUTER_API_KEY?.trim());
+  return getModelProvider(SMOKE_EMBEDDING_PROVIDER).isConfigured();
 }
+
+const SMOKE_EMBEDDING_PROVIDER = "openrouter";
 
 /**
  * Generates embeddings for a list of texts. Returns null entries when the
@@ -58,33 +62,34 @@ export async function embedTexts(values: string[], signal?: AbortSignal): Promis
   return (await embedTextsWithModel(values, signal)).embeddings;
 }
 
-export async function embedTextsWithModel(values: string[], signal?: AbortSignal): Promise<{ embeddings: Array<number[] | null>; modelId: string | null }> {
+export async function embedTextsWithModel(values: string[], signal?: AbortSignal): Promise<{ embeddings: Array<number[] | null>; modelRef: ModelRef | null }> {
   if (values.length === 0) {
-    return { embeddings: values.map(() => null), modelId: null };
+    return { embeddings: values.map(() => null), modelRef: null };
   }
 
   // Checked before the key probe: a developer machine with a real key in .env
   // must still get the offline path, or the smoke run quietly bills them.
   if (isSmokeMode()) {
-    return { embeddings: values.map(offlineEmbedding), modelId: SMOKE_EMBEDDING_MODEL_ID };
+    return { embeddings: values.map(offlineEmbedding), modelRef: { providerId: SMOKE_EMBEDDING_PROVIDER, modelId: SMOKE_EMBEDDING_MODEL_ID } };
   }
 
   if (!isEmbeddingAvailable()) {
-    return { embeddings: values.map(() => null), modelId: null };
+    return { embeddings: values.map(() => null), modelRef: null };
   }
 
   const normalized = values.map((value) => value.replace(/\s+/g, " ").trim());
 
   try {
     const preferences = await getModelPreferences();
-    const modelId = preferences.embeddingModelId;
-    if (!modelId || !await modelInLibrary("embedding", modelId)) return { embeddings: values.map(() => null), modelId: null };
+    const modelRef = preferences.embedding;
+    if (!modelRef || !await modelInLibrary("embedding", modelRef)) return { embeddings: values.map(() => null), modelRef: null };
+    if (!getModelProvider(modelRef.providerId).isConfigured()) return { embeddings: values.map(() => null), modelRef: null };
     setupServerProxy();
-    const { embeddings } = await embedMany({ model: getEmbeddingModel(modelId), values: normalized, abortSignal: signal });
-    return { embeddings: embeddings.map((embedding) => (Array.isArray(embedding) ? embedding : null)), modelId };
+    const { embeddings } = await embedMany({ model: getEmbeddingModel(modelRef), values: normalized, abortSignal: signal });
+    return { embeddings: embeddings.map((embedding) => (Array.isArray(embedding) ? embedding : null)), modelRef };
   } catch (error) {
     console.warn("embedding generation failed, falling back to keyword scoring", error instanceof Error ? error.name : "UnknownError");
-    return { embeddings: values.map(() => null), modelId: null };
+    return { embeddings: values.map(() => null), modelRef: null };
   }
 }
 
@@ -93,9 +98,9 @@ export async function embedText(value: string, signal?: AbortSignal): Promise<nu
   return results[0] ?? null;
 }
 
-export async function embedTextWithModel(value: string, signal?: AbortSignal): Promise<{ embedding: number[] | null; modelId: string | null }> {
+export async function embedTextWithModel(value: string, signal?: AbortSignal): Promise<{ embedding: number[] | null; modelRef: ModelRef | null }> {
   const result = await embedTextsWithModel([value], signal);
-  return { embedding: result.embeddings[0] ?? null, modelId: result.modelId };
+  return { embedding: result.embeddings[0] ?? null, modelRef: result.modelRef };
 }
 
 export function cosineSimilarity(

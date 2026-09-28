@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { TEST_ACCESS_TOKEN } from "../helpers/workspace-entry";
+import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=", "base64");
 
@@ -89,19 +90,10 @@ test("real uploaded media renders after reload and survives conversation deletio
 });
 
 async function mockChatModels(page: Page) {
-  await page.route("**/api/models", (route) => route.fulfill({ json: { data: {
-    version: 2,
-    defaultMode: "chat",
-    chat: { modelId: "anthropic/claude-opus-4.6", fallbackId: null },
-    image: { modelId: "google/gemini-3.1-flash-image-preview", fallbackId: null },
-    video: { modelId: null, fallbackId: null },
-    embeddingModelId: null,
-    legacyCandidates: [],
-    library: [
-      { providerId: "openrouter", modelId: "anthropic/claude-opus-4.6", name: "Claude", description: "Fixture", modes: ["chat"], supportsImageInput: true, endpointImageInput: null, supportsTools: true, pricing: {}, addedAt: "2026-01-01T00:00:00.000Z", lastSeenAt: "2026-01-01T00:00:00.000Z" },
-      { providerId: "openrouter", modelId: "google/gemini-3.1-flash-image-preview", name: "Gemini Image", description: "Fixture", modes: ["image"], supportsImageInput: true, endpointImageInput: true, supportsTools: false, pricing: {}, addedAt: "2026-01-01T00:00:00.000Z", lastSeenAt: "2026-01-01T00:00:00.000Z" },
-    ],
-  } } }));
+  await page.route("**/api/models", (route) => route.fulfill({ json: modelsRouteFixture(
+    [fixtureLibraryItem("anthropic/claude-opus-4.6", ["chat"]), fixtureLibraryItem("google/gemini-3.1-flash-image-preview", ["image"], { endpointImageInput: true, supportsTools: false })],
+    { chat: "anthropic/claude-opus-4.6", image: "google/gemini-3.1-flash-image-preview" },
+  ) }));
 }
 
 test("composer uploads binary attachments and sends only references to chat", async ({ page, request }) => {
@@ -138,7 +130,7 @@ test("image generation UI persists the asset response and reloads the protected 
   const asset = (await uploaded.json()).data[0];
   const title = `Generation ${randomUUID()}`;
   const chat = (await (await request.post("/api/conversations", { data: { title } })).json()).data;
-  await page.route("**/api/image", (route) => route.fulfill({ json: { modelId: "test-image", asset } }));
+  await page.route("**/api/image", (route) => { expect(route.request().postDataJSON().model).toEqual({ providerId: "openrouter", modelId: "google/gemini-3.1-flash-image-preview" }); return route.fulfill({ json: { modelId: "test-image", modelProvider: "openrouter", asset } }); });
   try {
     await page.goto("/chat");
     await page.getByRole("button", { name: new RegExp(title) }).click();

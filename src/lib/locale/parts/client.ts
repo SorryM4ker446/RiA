@@ -51,6 +51,8 @@ export const clientMessages = {
   "chatApi.getConversationFailed": "读取会话失败",
   "chatApi.createConversationFailed": "创建会话失败",
   "chatApi.renameConversationFailed": "重命名会话失败",
+  "chatApi.setEphemeralFailed": "修改会话设置失败。",
+  "chatApi.setDocumentScopeFailed": "修改资料范围失败。",
   "chatApi.deleteConversationFailed": "删除会话失败",
   "chatApi.listMessagesFailed": "读取历史消息失败",
   "chatApi.saveEditFailed": "保存修改失败",

@@ -4,49 +4,62 @@ import { dataRequestContext } from "@/lib/server/data-operations";
 import { ApiError } from "@/lib/server/api-error";
 import { getModelPreferences, modelInLibrary, withModelLease } from "@/lib/models/preferences";
 import { canFallback, recordModelAttempt, requestPricing } from "@/lib/models/usage";
+import { modelRefKey, type ModelRef } from "@/lib/models/preferences-schema";
 
 type Model = Extract<LanguageModel, { specificationVersion: "v3" }>;
 type Embed = Extract<EmbeddingModel, { specificationVersion: "v3" }>;
 type StreamResult = Awaited<ReturnType<Model["doStream"]>>;
 type Part = StreamResult["stream"] extends ReadableStream<infer T> ? T : never;
 
-export function observeLanguageModel(model: Model, modelId: string, alternate: (id: string) => Model) {
-  const context = dataRequestContext();
-  if (!context?.workspaceId) return model;
+/**
+ * Authorization, fallback and usage accounting for one chat model.
+ *
+ * The library check is not conditional on there being a request in flight.
+ * Skipping the whole wrapper when no request context was present also skipped
+ * the membership check, which is the one thing that must never depend on where
+ * the call came from. Only usage recording needs a request to attribute the
+ * attempt to, so that is the part that stays conditional.
+ */
+export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (ref: ModelRef) => Model) {
+  const modelRef = ref;
   return wrapLanguageModel({ model, middleware: {
     specificationVersion: "v3",
     async wrapGenerate({ doGenerate }) {
+      const context = dataRequestContext();
       const started = Date.now();
-      const rates = await requestPricing();
+      const rates = context ? await requestPricing() : {};
       try {
-        const result = await withModelLease("chat", modelId, () => doGenerate());
-        await recordModelAttempt({ requestId: context.requestId, mode: "chat", modelId, started, usage: result.usage, metadata: result.providerMetadata, rate: rates[modelId] });
+        const result = await withModelLease("chat", modelRef, () => doGenerate());
+        if (context) await recordModelAttempt({ requestId: context.requestId, mode: "chat", modelId: modelRef.modelId, modelProvider: modelRef.providerId, started, usage: result.usage, metadata: result.providerMetadata, rate: rates[modelRefKey(modelRef)] });
         return result;
       } catch (error) {
-        await recordModelAttempt({ requestId: context.requestId, mode: "chat", modelId, started, error });
+        if (context) await recordModelAttempt({ requestId: context.requestId, mode: "chat", modelId: modelRef.modelId, modelProvider: modelRef.providerId, started, error });
         throw error;
       }
     },
     async wrapStream({ params }) {
-      const libraryModel = await modelInLibrary("chat", modelId);
-      if (!libraryModel) throw new ApiError({ code: "CONFIGURATION_ERROR", message: `${t("lib.models.modelWord")} ${modelId} ${t("lib.models.removedSuffix")}` });
-      if (params.tools?.length && !libraryModel.supportsTools) throw new ApiError({ code: "VALIDATION_ERROR", message: `${t("lib.models.chatPrefix")} ${modelId} ${t("lib.models.chatNoTools")}` });
+      const libraryModel = await modelInLibrary("chat", modelRef);
+      if (!libraryModel) throw new ApiError({ code: "CONFIGURATION_ERROR", message: `${t("lib.models.modelWord")} ${modelRef.modelId} ${t("lib.models.removedSuffix")}` });
+      if (params.tools?.length && !libraryModel.supportsTools) throw new ApiError({ code: "VALIDATION_ERROR", message: `${t("lib.models.chatPrefix")} ${modelRef.modelId} ${t("lib.models.chatNoTools")}` });
       const hasImages = params.prompt.some(message => message.role === "user" && message.content.some(part => part.type === "file"));
-      if (hasImages && !libraryModel.supportsImageInput) throw new ApiError({ code: "VALIDATION_ERROR", message: `${t("lib.models.chatPrefix")} ${modelId} ${t("lib.models.chatNoImage")}` });
+      if (hasImages && !libraryModel.supportsImageInput) throw new ApiError({ code: "VALIDATION_ERROR", message: `${t("lib.models.chatPrefix")} ${modelRef.modelId} ${t("lib.models.chatNoImage")}` });
       const preferences = await getModelPreferences();
-      let fallbackId = preferences.chat.fallbackId;
-      const fallbackModel = fallbackId ? await modelInLibrary("chat", fallbackId) : null;
-      if (params.tools?.length || fallbackId === modelId || !fallbackId || !fallbackModel || hasImages && !fallbackModel.supportsImageInput) fallbackId = null;
-      const candidates = [modelId, ...(fallbackId ? [fallbackId] : [])];
+      let fallback = preferences.chat.fallback;
+      const fallbackModel = fallback ? await modelInLibrary("chat", fallback) : null;
+      if (params.tools?.length || !fallback || !fallbackModel || (fallback.providerId === modelRef.providerId && fallback.modelId === modelRef.modelId) || (hasImages && !fallbackModel.supportsImageInput)) fallback = null;
+      const candidates = [modelRef, ...(fallback ? [fallback] : [])];
       for (let attempt = 0; attempt < candidates.length; attempt++) {
         const selected = candidates[attempt], started = Date.now();
         let reader: ReadableStreamDefaultReader<Part> | undefined;
         let finished: Extract<Part, { type: "finish" }> | undefined;
         let streamError: unknown;
         let recorded = false;
+        const context = dataRequestContext();
         const record = async (error?: unknown) => {
           if (recorded) return; recorded = true;
-          await recordModelAttempt({ requestId: context.requestId, mode: "chat", modelId: selected, started, usage: finished?.usage, metadata: finished?.providerMetadata, error, fallback: attempt > 0, rate: preferences.rates[selected] });
+          if (!context) return;
+          const rates = await requestPricing();
+          await recordModelAttempt({ requestId: context.requestId, mode: "chat", modelId: selected.modelId, modelProvider: selected.providerId, started, usage: finished?.usage, metadata: finished?.providerMetadata, error, fallback: attempt > 0, rate: rates[modelRefKey(selected)] });
         };
         try {
           const result = await withModelLease("chat", selected, async () => (attempt ? alternate(selected) : model).doStream(params));
@@ -87,18 +100,19 @@ export function observeLanguageModel(model: Model, modelId: string, alternate: (
     },
   } });
 }
-export function observeEmbeddingModel(model: Embed, modelId: string) {
-  const context = dataRequestContext();
-  if (!context?.workspaceId) return model;
+
+export function observeEmbeddingModel(model: Embed, ref: ModelRef) {
+  const modelRef = ref;
   return wrapEmbeddingModel({ model, middleware: { specificationVersion: "v3", async wrapEmbed({ doEmbed }) {
+   const context = dataRequestContext();
    const started = Date.now();
-   const rates = await requestPricing();
-   return withModelLease("embedding", modelId, () => doEmbed()).then(async result => {
-     await recordModelAttempt({ requestId: context.requestId, mode: "embedding", modelId, started, usage: result.usage, metadata: result.providerMetadata, rate: rates[modelId] });
+   const rates = context ? await requestPricing() : {};
+   return withModelLease("embedding", modelRef, () => doEmbed()).then(async result => {
+     if (context) await recordModelAttempt({ requestId: context.requestId, mode: "embedding", modelId: modelRef.modelId, modelProvider: modelRef.providerId, started, usage: result.usage, metadata: result.providerMetadata, rate: rates[modelRefKey(modelRef)] });
      return result;
    }).catch(async error => {
-     await recordModelAttempt({ requestId: context.requestId, mode: "embedding", modelId, started, error });
+     if (context) await recordModelAttempt({ requestId: context.requestId, mode: "embedding", modelId: modelRef.modelId, modelProvider: modelRef.providerId, started, error });
      throw error;
    });
- } } });
+  } } });
 }

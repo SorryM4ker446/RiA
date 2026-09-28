@@ -51,6 +51,8 @@ export const toolsMessages = {
 
   // --- webSearch ---------------------------------------------------------
   "tools.webSearch.primaryFieldLabel": "搜索词",
+  "tools.webSearch.skippedBudget": "本轮未再检索：已用完本轮的结果额度。",
+  "tools.webSearch.notConfigured": "联网搜索尚未配置，本轮没有访问互联网。可在“设置 → 工具与联网”完成配置。",
   "tools.webSearch.description": "通过网络搜索获取外部信息。",
   "tools.webSearch.manualLabel": "手动：Web 搜索",
   "tools.webSearch.placeholder": "输入要搜索的关键词...（Enter 手动触发）",

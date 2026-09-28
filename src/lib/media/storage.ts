@@ -88,7 +88,7 @@ export function toMediaReference(asset: MediaAsset): MediaReference {
 
 export async function createMediaAsset(input: {
   bytes: Uint8Array; mediaType: string; kind: "attachment" | "generated-image" | "generated-video";
-  modelId?: string; description?: string;
+  modelId?: string; modelProvider?: string; description?: string;
   generation?: GenerationRecipe; sourceChatId?: string;
 }) {
   const generation = input.generation ? generationRecipeSchema.parse(input.generation) : undefined;
@@ -100,7 +100,7 @@ export async function createMediaAsset(input: {
     await tx.mediaAsset.updateMany({ where: { id: { in: inputIds } }, data: { lastUsedAt: new Date() } });
     return tx.mediaAsset.create({ data: {
       ...staged,
-      modelId: input.modelId?.slice(0, 200), description: input.description?.slice(0, 4000),
+      modelId: input.modelId?.slice(0, 200), modelProvider: input.modelProvider, description: input.description?.slice(0, 4000),
       ...(generation ? { generation, inputs: { create: inputIds.map(inputAssetId => ({ inputAssetId })) } } : {}),
       sourceChatId: source?.id,
     } });

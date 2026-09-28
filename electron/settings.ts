@@ -5,8 +5,10 @@ import { safeStorage } from "electron";
 export type DesktopSettingsInput = {
   openrouterApiKey?: string;
   tavilyApiKey?: string;
+  deepseekApiKey?: string;
   clearOpenrouterApiKey?: boolean;
   clearTavilyApiKey?: boolean;
+  clearDeepseekApiKey?: boolean;
   outboundProxyUrl?: string;
   openrouterSiteName?: string;
   openrouterHttpReferer?: string;
@@ -15,6 +17,7 @@ export type DesktopSettingsInput = {
 export type DesktopSettingsView = {
   hasOpenrouterApiKey: boolean;
   hasTavilyApiKey: boolean;
+  hasDeepseekApiKey: boolean;
   outboundProxyUrl: string;
   openrouterSiteName: string;
   openrouterHttpReferer: string;
@@ -25,6 +28,9 @@ type StoredDesktopSettings = {
   version: 1;
   encryptedOpenrouterApiKey?: string;
   encryptedTavilyApiKey?: string;
+  // Each provider keeps its own key. They are not interchangeable and neither
+  // is derivable from the other, so a provider can be configured on its own.
+  encryptedDeepseekApiKey?: string;
   outboundProxyUrl?: string;
   openrouterSiteName?: string;
   openrouterHttpReferer?: string;
@@ -87,6 +93,7 @@ export class DesktopSettingsStore {
     return {
       hasOpenrouterApiKey: Boolean(stored.encryptedOpenrouterApiKey),
       hasTavilyApiKey: Boolean(stored.encryptedTavilyApiKey),
+      hasDeepseekApiKey: Boolean(stored.encryptedDeepseekApiKey),
       outboundProxyUrl: stored.outboundProxyUrl || "",
       openrouterSiteName: stored.openrouterSiteName || "",
       openrouterHttpReferer: stored.openrouterHttpReferer || "",
@@ -106,11 +113,14 @@ export class DesktopSettingsStore {
 
     if (input.clearOpenrouterApiKey) delete next.encryptedOpenrouterApiKey;
     if (input.clearTavilyApiKey) delete next.encryptedTavilyApiKey;
+    if (input.clearDeepseekApiKey) delete next.encryptedDeepseekApiKey;
 
     const openrouterApiKey = normalizeText(input.openrouterApiKey, 4096);
     const tavilyApiKey = normalizeText(input.tavilyApiKey, 4096);
+    const deepseekApiKey = normalizeText(input.deepseekApiKey, 4096);
     if (openrouterApiKey) next.encryptedOpenrouterApiKey = await this.encrypt(openrouterApiKey);
     if (tavilyApiKey) next.encryptedTavilyApiKey = await this.encrypt(tavilyApiKey);
+    if (deepseekApiKey) next.encryptedDeepseekApiKey = await this.encrypt(deepseekApiKey);
 
     this.writeStored(next);
     return this.getView();
@@ -120,9 +130,11 @@ export class DesktopSettingsStore {
     const stored = this.readStored();
     const openrouterApiKey = await this.decrypt(stored.encryptedOpenrouterApiKey);
     const tavilyApiKey = await this.decrypt(stored.encryptedTavilyApiKey);
+    const deepseekApiKey = await this.decrypt(stored.encryptedDeepseekApiKey);
     return {
       OPENROUTER_API_KEY: openrouterApiKey,
       TAVILY_API_KEY: tavilyApiKey,
+      DEEPSEEK_API_KEY: deepseekApiKey,
       OUTBOUND_PROXY_URL: stored.outboundProxyUrl || "",
       OPENROUTER_SITE_NAME: stored.openrouterSiteName || "RiA Desktop",
       OPENROUTER_HTTP_REFERER: stored.openrouterHttpReferer || "",

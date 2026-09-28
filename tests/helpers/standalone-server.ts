@@ -50,7 +50,7 @@ export async function startStandaloneServer(options: { modelFixture?: boolean } 
   }
   async function start() {
     let launchError = false;
-    server = spawn(process.execPath, ["--import", pathToFileURL(resolve("tests/helpers/offline-http.mjs")).href, ".desktop-runtime/server.js"], { env, windowsHide: true, stdio: ["ignore", "ignore", "ignore", "ipc"] });
+    server = spawn(process.execPath, ["--import", pathToFileURL(resolve("tests/helpers/offline-http.ts")).href, ".desktop-runtime/server.js"], { env, windowsHide: true, stdio: ["ignore", "ignore", "ignore", "ipc"] });
     server.once("error", () => { launchError = true; });
     server.on("message", (value) => {
       const call = value as ProviderCall & { type?: string };

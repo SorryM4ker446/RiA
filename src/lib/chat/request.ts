@@ -6,7 +6,7 @@ import { resolveImageInputs } from "@/lib/media/messages";
 import { ApiError } from "@/lib/server/api-error";
 import { readJsonBody } from "@/lib/server/request-body";
 import { chatRequestSchema } from "@/lib/server/request-schemas";
-import { preferredModel, modelInLibrary } from "@/lib/models/preferences";
+import { preferredModel, modelInLibrary, getModelPreferences } from "@/lib/models/preferences";
 import { validateUIMessages, type UIMessage } from "ai";
 
 export async function readChatRequest(req: Request) {
@@ -14,8 +14,12 @@ export async function readChatRequest(req: Request) {
   const messages = await validateUIMessages<UIMessage>({ messages: body.messages }).catch(() => {
     throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid message parts or tool state" });
   });
-  const modelId = await preferredModel("chat", body.modelId);
-  const model = await modelInLibrary("chat", modelId);
+  const modelRef = await preferredModel("chat", body.model);
+  const model = await modelInLibrary("chat", modelRef);
+  // Read once here so the chat call and every auxiliary call in the same turn
+  // reason the same way, instead of each reading it at a different moment.
+  const settings = await getModelPreferences();
+  const reasoning = settings.thinking;
   const latestUserMessage = getLatestUserMessage(messages);
   const isApprovalResume = isToolApprovalContinuation(messages);
   const requestedChatId = body.chatId ?? body.conversationId ?? body.id;
@@ -34,16 +38,16 @@ export async function readChatRequest(req: Request) {
   if (latestUserMessage?.files.length && !model?.supportsImageInput) {
     throw new ApiError({
       code: "VALIDATION_ERROR",
-      message: `${t("lib.models.chatPrefix")} ${modelId} ${t("lib.models.chatNoImageSwitch")}`,
+      message: `${t("lib.models.chatPrefix")} ${modelRef.modelId} ${t("lib.models.chatNoImageSwitch")}`,
     });
   }
   if (isApprovalResume && !model?.supportsTools) {
     throw new ApiError({
       code: "VALIDATION_ERROR",
-      message: `${t("lib.models.chatPrefix")} ${modelId} ${t("lib.models.chatNoToolsApproval")}`,
+      message: `${t("lib.models.chatPrefix")} ${modelRef.modelId} ${t("lib.models.chatNoToolsApproval")}`,
     });
   }
 
-  return { body, messages, modelId, model, latestUserMessage, isApprovalResume, requestedChatId };
+  return { body, messages, modelRef, model, reasoning, latestUserMessage, isApprovalResume, requestedChatId };
 }
 export type ChatRequest = Awaited<ReturnType<typeof readChatRequest>>;

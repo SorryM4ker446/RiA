@@ -30,6 +30,8 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [isChatListExpanded, setIsChatListExpanded] = useState(false);
+  const [isEphemeralSaving, setIsEphemeralSaving] = useState(false);
+  const [documentTopics, setDocumentTopics] = useState<string[]>([]);
   const [nextChatsCursor, setNextChatsCursor] = useState<string | null>(null);
   const [isLoadingMoreChats, setIsLoadingMoreChats] = useState(false);
   const chatsRequestRef = useRef(0);
@@ -212,7 +214,53 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     if (!activeChatId) return;
     window.localStorage.setItem(LAST_ACTIVE_CHAT_STORAGE_KEY, activeChatId);
   }, [activeChatId]);
+  /**
+   * Flipping the memory switch applies from the next message, and the list is
+   * updated from the response rather than optimistically, so the header never
+   * claims a state the server did not store.
+   */
+  async function toggleEphemeral(next: boolean) {
+    const chat = chats.find((item) => item.id === activeChatId);
+    if (!chat) return;
+    setIsEphemeralSaving(true);
+    try {
+      await chatApi.setEphemeral(chat.id, next);
+      await loadChats();
+    } catch {
+      await loadChats();
+    } finally {
+      setIsEphemeralSaving(false);
+    }
+  }
+
+  /** The topics a conversation may draw on. Empty means every topic. */
+  async function loadDocumentTopics() {
+    try {
+      const response = await fetch("/api/documents", { cache: "no-store" });
+      if (!response.ok) return;
+      const payload = await response.json();
+      const topics = (Array.isArray(payload.data) ? payload.data : [])
+        .map((document: { collection?: string | null }) => document.collection)
+        .filter((value: unknown): value is string => typeof value === "string" && value.length > 0);
+      setDocumentTopics([...new Set<string>(topics)].sort());
+    } catch {
+      // A conversation can still be created without a scope.
+    }
+  }
+
+  async function setDocumentScope(next: string[]) {
+    const chat = chats.find((item) => item.id === activeChatId);
+    if (!chat) return;
+    try {
+      await chatApi.setDocumentScope(chat.id, next);
+      await loadChats();
+    } finally {
+      await loadChats();
+    }
+  }
+
   return {
+    toggleEphemeral, isEphemeralSaving, documentTopics, loadDocumentTopics, setDocumentScope,
     chats, activeChat, isCreatingChat, editingChatId, editingTitle, setEditingTitle, isChatListExpanded,
     setIsChatListExpanded, visibleChats, hasHiddenChats, loadChats, createNewChat, startEditingChat,
     cancelEditingChat, saveEditedTitle, performDeleteChat, ensureActiveChatId,

@@ -1,5 +1,6 @@
 import { db } from "@/db";
 import { cosineSimilarity, embedTextWithModel, toEmbeddingVector } from "@/lib/ai/embedding";
+import type { ModelRef } from "@/lib/models/preferences-schema";
 
 type RankingPolicy = {
   candidateLimit: number;
@@ -33,15 +34,19 @@ export function keywordScore(queryTokens: string[], text: string): number {
 }
 
 export function scoreMemory(
-  memory: { key: string; value: string; score: number | null; embedding: unknown; embeddingModelId?: string | null; updatedAt: Date },
+  memory: { key: string; value: string; score: number | null; embedding: unknown; embeddingModelId?: string | null; embeddingModelProvider?: string | null; updatedAt: Date },
   queryTokens: string[],
   queryEmbedding: number[] | null,
   policy: RankingPolicy,
   now = Date.now(),
-  queryModelId?: string | null,
+  queryModelRef?: ModelRef | null,
 ): number {
   const lexical = keywordScore(queryTokens, `${memory.key} ${memory.value}`);
-  const semantic = Math.max(0, queryModelId && memory.embeddingModelId === queryModelId ? cosineSimilarity(queryEmbedding, toEmbeddingVector(memory.embedding)) : 0);
+  // A vector is only comparable with one written by the same provider and model.
+  // A row with no recorded provider is left out rather than assumed: comparing
+  // it would mean comparing vectors from spaces that may not match.
+  const sameSpace = Boolean(queryModelRef && memory.embeddingModelId === queryModelRef.modelId && memory.embeddingModelProvider === queryModelRef.providerId);
+  const semantic = Math.max(0, sameSpace ? cosineSimilarity(queryEmbedding, toEmbeddingVector(memory.embedding)) : 0);
   if (lexical === 0 && semantic === 0) return 0;
   const daysAgo = (now - memory.updatedAt.getTime()) / (1000 * 60 * 60 * 24);
   const recency = Math.max(0, 1 - daysAgo / 30) * policy.recencyWeight;
@@ -57,8 +62,13 @@ export function rankByScore<T>(items: T[], score: (item: T) => number, limit: nu
 
 export async function getMemorySearchCandidates(query: string, policy: RankingPolicy, signal?: AbortSignal) {
   const queryTokens = tokenizeQuery(query);
-  const { embedding: queryEmbedding, modelId: queryModelId } = await embedTextWithModel(query, signal);
-  const scope = { ...(policy.excludeToolMemories ? { NOT: [{ key: { startsWith: "tool:" } }] } : {}) };
+  const { embedding: queryEmbedding, modelRef: queryModelRef } = await embedTextWithModel(query, signal);
+  // An entry the user has not accepted is not evidence. Candidates stay visible
+  // in the interface but never reach a model until they are confirmed.
+  const scope = {
+    confirmed: true,
+    ...(policy.excludeToolMemories ? { NOT: [{ key: { startsWith: "tool:" } }] } : {}),
+  };
   if (!queryTokens.length && !queryEmbedding) return { queryTokens, candidates: [] };
   const rows = await db.memory.findMany({
     where: scope,
@@ -74,6 +84,6 @@ export async function getMemorySearchCandidates(query: string, policy: RankingPo
   const now = Date.now();
   return {
     queryTokens,
-    candidates: candidates.map((memory) => ({ memory, relevance: scoreMemory(memory, queryTokens, queryEmbedding, policy, now, queryModelId) })),
+    candidates: candidates.map((memory) => ({ memory, relevance: scoreMemory(memory, queryTokens, queryEmbedding, policy, now, queryModelRef) })),
   };
 }

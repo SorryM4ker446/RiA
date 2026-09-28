@@ -18,7 +18,7 @@ const TOOL_DEBUG = process.env.TOOL_DEBUG === "1";
 const runToolSchema = z.strictObject({
   tool: z.string().trim().min(1).max(100),
   input: z.json(),
-  modelId: chatModelSchema.optional(),
+  model: chatModelSchema.optional(),
   mode: z.literal("chat"),
 });
 
@@ -76,18 +76,18 @@ async function POSTHandler(req: NextRequest) {
     }
 
     assertToolConfiguration(toolId);
-    const modelId = await preferredModel("chat", parsed.data.modelId);
-    const model = await modelInLibrary("chat", modelId);
+    const modelRef = await preferredModel("chat", parsed.data.model);
+    const model = await modelInLibrary("chat", modelRef);
     if (!model?.supportsTools) {
       // The id sits mid-sentence, so the copy is split around it and the
       // spacing stays in the template: a translator can reorder the halves.
-      throw new ApiError({ code: "VALIDATION_ERROR", message: `${t("api.tools.modelUnsupportedPrefix")} ${modelId} ${t("api.tools.modelUnsupportedSuffix")}` });
+      throw new ApiError({ code: "VALIDATION_ERROR", message: `${t("api.tools.modelUnsupportedPrefix")} ${modelRef.modelId} ${t("api.tools.modelUnsupportedSuffix")}` });
     }
     const preparedInput = descriptor.prepareInput
       ? await descriptor.prepareInput({
           workspaceId: LOCAL_WORKSPACE_ID,
           input: parsedInput.data,
-          modelId,
+          modelRef,
           trigger: "manual",
         })
       : parsedInput.data;
@@ -103,7 +103,7 @@ async function POSTHandler(req: NextRequest) {
     const data = await descriptor.execute({
       workspaceId: LOCAL_WORKSPACE_ID,
       input: preparedParsedInput.data,
-      modelId,
+      modelRef,
       trigger: "manual",
     });
     const requestId =
@@ -116,7 +116,7 @@ async function POSTHandler(req: NextRequest) {
       await descriptor.buildAssistantText({
         input: preparedParsedInput.data,
         output: data,
-        modelId,
+        modelRef,
         trigger: "manual",
       })
     ).trim();
@@ -130,7 +130,7 @@ async function POSTHandler(req: NextRequest) {
         input: preparedParsedInput.data,
         output: data,
         assistantText,
-        modelId,
+        modelRef,
       });
 
       if (TOOL_DEBUG) {

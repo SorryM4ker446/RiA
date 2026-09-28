@@ -26,10 +26,10 @@ All media APIs require the local access credential. Desktop requests additionall
 | `GET /api/media` | Storage counts, actual managed-file bytes, and cleanup eligibility |
 | `GET /api/media/library` | Filtered, cursor-paginated metadata for stored images and videos |
 | `GET /api/media/:id/details` | Resource metadata, source conversations, references and stored generation parameters |
-| `POST /api/media/:id/regenerate` | Requires `{ "confirm": true }`; returns HTTP 201 with `{ modelId, asset }` for a new, independent result |
+| `POST /api/media/:id/regenerate` | Requires `{ "confirm": true }`; returns HTTP 201 with `{ modelId, modelProvider, asset }` for a new, independent result |
 | `POST /api/media/cleanup` | Reclaims expired unreferenced assets and recognized orphan files |
 
-`POST /api/image` and `/api/video` now return `{ modelId, asset }`, where `asset` has the same media reference fields as uploads. They no longer return `dataUrl` or a public `videoUrl`. Reference images must use uploaded `/api/media/:id` URLs, not remote URLs, file URLs, or data URLs. Update external clients to upload first.
+`POST /api/image` and `/api/video` now return `{ modelId, modelProvider, asset }`, where `asset` has the same media reference fields as uploads. They no longer return `dataUrl` or a public `videoUrl`. Both accept a `model` reference (`{ providerId, modelId }`) and validate it against **我的模型** before calling the provider. Reference images must use uploaded `/api/media/:id` URLs, not remote URLs, file URLs, or data URLs. Update external clients to upload first.
 
 The chat UI follows this contract automatically and passes the active `chatId` to record the generation source. External image/video clients may omit `chatId`; no source is inferred. Server-side model calls materialize stored image references into bytes only for the current request; providers do not fetch private local API URLs. The model's attachment context is bounded to the newest four images and 20 MiB; older image attachments remain in history but are represented by an omission note for that request. See [Media library](media-library.md) for list/detail contracts and regeneration behavior.
 

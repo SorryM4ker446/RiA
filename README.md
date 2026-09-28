@@ -13,7 +13,7 @@ Private AI Assistant is a local-first AI assistant built with Next.js, Vercel AI
 - Image and video generation modes
 - Private media library with source conversations, generation parameters, downloads and confirmed regeneration/deletion
 - Portable workspace backup/import/export, confirmed restore with a safety backup, and automatic expired-backup cleanup
-- Dynamic OpenRouter catalogs for chat, image, video and embedding models; an explicit **我的模型** allowlist; optional bounded fallback; and per-attempt latency/token/cost estimates
+- Dynamic provider catalogs for chat, image, video and embedding models behind a small provider-adapter seam; an explicit **我的模型** allowlist keyed by provider and model; per-model availability states; an explicit embedding-rebuild workflow; optional bounded fallback; and per-attempt latency/token/cost estimates
 - Windows desktop shell with encrypted API-key storage
 
 ## Requirements

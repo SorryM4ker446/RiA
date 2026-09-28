@@ -108,11 +108,15 @@ try {
   await db.workspacePreference.upsert({ where: { id: preferenceId }, create: { id: preferenceId, settings: { version: 1, defaultMode: "chat" } }, update: { settings: { version: 1, defaultMode: "chat" } } });
   if (await db.workspacePreference.count() !== 1) throw new Error("Workspace preferences were duplicated.");
 
-  await db.modelRequest.create({ data: { requestId: marker, mode: "image", modelId: "offline/model", status: "success", durationMs: 123, inputTokens: null, outputTokens: null, costUsd: 0, costSource: "configured" } });
+  // A model attempt records which provider produced it, so the column is part
+  // of what the database check proves survives a reconnect.
+  await db.modelRequest.create({ data: { requestId: marker, mode: "image", modelId: "offline/model", modelProvider: "openrouter", status: "success", durationMs: 123, inputTokens: null, outputTokens: null, costUsd: 0, costSource: "configured" } });
 
   await db.$disconnect();
   if ((await db.workspacePreference.findUnique({ where: { id: preferenceId } })).settings.defaultMode !== "chat") throw new Error("Workspace preferences did not survive reconnect.");
-  if ((await db.modelRequest.findFirst({ where: { requestId: marker } })).costUsd !== 0) throw new Error("Usage did not survive reconnect.");
+  const recordedAttempt = await db.modelRequest.findFirst({ where: { requestId: marker } });
+  if (recordedAttempt.costUsd !== 0) throw new Error("Usage did not survive reconnect.");
+  if (recordedAttempt.modelProvider !== "openrouter") throw new Error("The model attempt lost its provider.");
 
   // Deleting a conversation still cascades to its messages and search index.
   await db.chat.delete({ where: { id: chat.id } });

@@ -12,7 +12,7 @@ const { LEGACY_INVENTORY_VERSION } = await import("../electron/legacy-inventory.
 function printUsage() {
   const runtime = resolveAppRuntime();
   const paths = resolveLocalDataPaths(runtime, checkoutRoot);
-  console.log(`用法：node --import ./tests/helpers/register-typescript.mjs scripts/upgrade-local-workspace.mjs [选项]
+  console.log(`用法：node --import ./tests/helpers/register-typescript.ts scripts/upgrade-local-workspace.mjs [选项]
 
 不带选项时只报告升级计划，不修改任何文件。
 

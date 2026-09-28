@@ -49,3 +49,11 @@ All endpoints use the existing [authentication, Origin and error contracts](api-
 `tests/fixtures/document-retrieval.json` is the minimal fixed evaluation corpus: six source documents and eight Chinese/English questions, supplemented with forty newer distractors in the test. `npm run test:server` reports Recall@3 and MRR@3 and requires both to remain 1.0 for this small corpus. This is a regression baseline, not a claim about arbitrary document accuracy.
 
 PDF.js, Mammoth and JSZip are application dependencies, pinned in the lockfile. The worker uses native Node resolution because bundler module IDs are not filesystem paths. Next's output tracing explicitly includes these packages and their installed runtime dependencies, including PDF character maps/fonts and the optional platform canvas binding when present. Keep that tracing synchronized when upgrading parsers. Browser integration tests import actual generated PDF/DOCX files through the production standalone service; Electron smoke tests repeat binary imports and verify text/index retention after service restart. No paid provider is used by these checks.
+
+## Memory provenance and candidates
+
+Every memory records where it came from: added by hand, or inferred by the assistant. An inferred entry is stored as a **candidate**: visible, editable and deletable in the knowledge page, but it does not enter the context of any answer until you accept it. An inference therefore does not become a fact on the next turn, and it never takes effect where you cannot see it.
+
+Editing a candidate is how it is accepted. A memory written by hand is stamped with the time it was last used, and the page shows **last used** so it is clear which memories are doing something and which have gone untouched.
+
+Provenance travels with workspace backups. Restoring an archive does not turn an inference you never accepted into one you are treated as having accepted.

@@ -5,13 +5,15 @@ import { ApiError, normalizeApiError } from "@/lib/server/api-error";
 import { getChatModel } from "@/lib/ai/client";
 import { t, tf, formatDateTime } from "@/lib/locale";
 import { saveMemory } from "@/lib/memory/store";
-import { preferredModel } from "@/lib/models/preferences";
+import { preferredModel, getModelPreferences } from "@/lib/models/preferences";
+import { checkRunAllowance, finishRun, recordStep, updateStep, addRunCost } from "@/lib/agent/runs";
+import { getModelProvider } from "@/lib/models/providers";
+import type { ModelRef } from "@/lib/models/preferences-schema";
 import {
   SEARCH_ANSWER_OUTPUT,
   SEARCH_ANSWER_SYSTEM,
   WEB_ANSWER_OUTPUT,
   WEB_ANSWER_SYSTEM,
-  WEB_SEARCH_PLANNING_SYSTEM,
 } from "@/lib/prompts";
 import { logToolExecution } from "@/lib/server/tool-log";
 import { createTask, createTaskInputSchema } from "@/tools/definitions/create-task";
@@ -27,7 +29,7 @@ export type ToolExecutionState = "output-available" | "output-error";
 type ToolExecutionContext<Input> = {
   workspaceId: string;
   input: Input;
-  modelId?: string;
+  modelRef?: ModelRef;
   trigger: ToolTriggerType;
   signal?: AbortSignal;
 };
@@ -37,10 +39,16 @@ type ToolBudgetExceededContext = {
   remainingResultBudget: number;
 };
 
+/** Why an optional tool did not produce a result, in terms the model can read. */
+export type ToolSkipReason = "notConfigured" | "budget" | "temporarilyUnavailable" | "runStopped";
+
+/** How many sources a search brings back when nothing more specific applies. */
+const DEFAULT_SEARCH_RESULTS = 5;
+
 type ToolPrepareInputContext<Input> = {
   workspaceId: string;
   input: Input;
-  modelId?: string;
+  modelRef?: ModelRef;
   trigger: ToolTriggerType;
   remainingResultBudget?: number;
   signal?: AbortSignal;
@@ -49,7 +57,7 @@ type ToolPrepareInputContext<Input> = {
 type ToolAssistantTextContext<Input, Output> = {
   input: Input;
   output: Output;
-  modelId?: string;
+  modelRef?: ModelRef;
   trigger: ToolTriggerType;
 };
 
@@ -66,7 +74,7 @@ type ToolMemoryContext<Input, Output> = {
   output: Output;
   assistantText: string;
   trigger: ToolTriggerType;
-  modelId?: string;
+  modelRef?: ModelRef;
 };
 
 export type ManualFieldMeta = {
@@ -130,6 +138,13 @@ type ToolDescriptor<Input = unknown, Output = unknown> = {
   requiresApproval?: boolean;
   prepareInput?: (context: ToolPrepareInputContext<Input>) => Promise<Input> | Input;
   buildBudgetExceededOutput?: (context: ToolBudgetExceededContext) => Output;
+  /**
+   * Turns a failure into a result the model can act on, for a tool that is
+   * optional and merely unavailable. Returning a value instead of throwing is
+   * what stops the model from retrying the same dead tool for the rest of the
+   * step budget.
+   */
+  buildUnavailableOutput?: (context: { input: unknown; reason: ToolSkipReason; error: unknown }) => Output;
   execute: (context: ToolExecutionContext<Input>) => Promise<Output>;
   buildAssistantText: (context: ToolAssistantTextContext<Input, Output>) => Promise<string> | string;
   memory: ToolMemoryPolicy<Input, Output>;
@@ -138,6 +153,11 @@ type ToolDescriptor<Input = unknown, Output = unknown> = {
 export type AnyToolDescriptor = ToolDescriptor<any, any>;
 
 export type PublicToolCatalogItem = {
+  /** Whether this tool can run right now, and why not when it cannot. */
+  available: boolean;
+  reason: "notConfigured" | null;
+  /** Where the missing configuration is configured. */
+  configEntry: string | null;
   id: string;
   displayName: string;
   description: string;
@@ -165,9 +185,9 @@ function buildSearchFallbackText(result: Awaited<ReturnType<typeof searchKnowled
 
 async function buildSearchAssistantText(params: {
   result: Awaited<ReturnType<typeof searchKnowledge>>;
-  modelId?: string;
+  modelRef?: ModelRef;
 }): Promise<string> {
-  const { result, modelId } = params;
+  const { result, modelRef } = params;
 
   if (result.total === 0 || result.results.length === 0) {
     return buildSearchFallbackText(result);
@@ -183,9 +203,11 @@ async function buildSearchAssistantText(params: {
   }));
 
   try {
-    const selectedModel = await preferredModel("chat", modelId);
+    const selectedModel = await preferredModel("chat", modelRef);
+    const providerOptions = await reasoningOptionsFor(selectedModel);
     const answer = await generateText({
       model: getChatModel(selectedModel),
+      ...(providerOptions ? { providerOptions } : {}),
       system: SEARCH_ANSWER_SYSTEM,
       prompt: [
         `User question: ${result.query}`,
@@ -221,6 +243,9 @@ function buildCreateTaskAssistantText(result: Awaited<ReturnType<typeof createTa
 }
 
 function buildWebSearchFallbackText(result: Awaited<ReturnType<typeof runWebSearch>>): string {
+  // A skipped lookup is reported as skipped, not as an empty result set, so
+  // the answer never implies a search happened.
+  if (result.skipped) return t("tools.webSearch.skippedBudget");
   const count = Array.isArray(result.results) ? result.results.length : 0;
   if (count === 0) {
     return tf("tools.webSearch.noResults", { query: result.query });
@@ -235,7 +260,7 @@ function buildWebSearchFallbackText(result: Awaited<ReturnType<typeof runWebSear
 
 async function resolveWebSearchInput(params: {
   input: z.infer<typeof webSearchInput>;
-  modelId?: string;
+  modelRef?: ModelRef;
   trigger: ToolTriggerType;
   maxResultsLimit?: number;
   signal?: AbortSignal;
@@ -247,52 +272,25 @@ async function resolveWebSearchInput(params: {
     return params.input;
   }
 
-  const maxResultsLimit =
-    typeof params.maxResultsLimit === "number" && Number.isFinite(params.maxResultsLimit)
-      ? Math.max(1, Math.min(10, Math.trunc(params.maxResultsLimit)))
-      : 10;
-
-  try {
-    const selectedModel = await preferredModel("chat", params.modelId);
-    const { output } = await generateText({
-      model: getChatModel(selectedModel),
-      output: Output.object({
-        schema: z.object({
-          maxResults: z
-            .number()
-            .int()
-            .min(1)
-            .max(maxResultsLimit)
-            .describe("The number of web search results to retrieve before answering."),
-        }),
-      }),
-      system: WEB_SEARCH_PLANNING_SYSTEM.replace("{{maxResultsLimit}}", String(maxResultsLimit)),
-      prompt: [
-        `Trigger: ${params.trigger}`,
-        `User search query: ${params.input.query}`,
-        "",
-        "Decide maxResults for this web search.",
-      ].join("\n"),
-    });
-
-    return {
-      ...params.input,
-      maxResults: output.maxResults,
-    };
-  } catch (error) {
-    console.warn("webSearch result-count planning failed", normalizeApiError(error).code);
-    return {
-      ...params.input,
-      maxResults: Math.min(5, maxResultsLimit),
-    };
-  }
+  /*
+   * How many results to fetch is a detail of the request, not a question worth
+   * a model call. It used to be decided by asking a model to pick a number
+   * between 1 and 10, which is a billed round trip whose answer is almost always
+   * the same. The model still chooses when it cares by passing `maxResults`; the
+   * remaining budget decides the rest, and the synthesis call is the one that
+   * actually earns its cost.
+   */
+  const remaining = typeof params.maxResultsLimit === "number" && Number.isFinite(params.maxResultsLimit)
+    ? Math.max(1, Math.min(10, Math.trunc(params.maxResultsLimit)))
+    : DEFAULT_SEARCH_RESULTS;
+  return { ...params.input, maxResults: Math.min(remaining, DEFAULT_SEARCH_RESULTS) };
 }
 
 async function buildWebSearchAssistantText(params: {
   result: Awaited<ReturnType<typeof runWebSearch>>;
-  modelId?: string;
+  modelRef?: ModelRef;
 }): Promise<string> {
-  const { result, modelId } = params;
+  const { result, modelRef } = params;
   const count = Array.isArray(result.results) ? result.results.length : 0;
   if (count === 0) {
     return buildWebSearchFallbackText(result);
@@ -308,9 +306,11 @@ async function buildWebSearchAssistantText(params: {
   }));
 
   try {
-    const selectedModel = await preferredModel("chat", modelId);
+    const selectedModel = await preferredModel("chat", modelRef);
+    const providerOptions = await reasoningOptionsFor(selectedModel);
     const answer = await generateText({
       model: getChatModel(selectedModel),
+      ...(providerOptions ? { providerOptions } : {}),
       system: WEB_ANSWER_SYSTEM,
       prompt: [
         `User question: ${result.query}`,
@@ -329,6 +329,16 @@ async function buildWebSearchAssistantText(params: {
   }
 
   return buildWebSearchFallbackText(result);
+}
+
+/**
+ * Auxiliary calls follow the workspace's reasoning preference too, so a turn
+ * does not quietly reason differently for the answer than for the tool work
+ * around it. A provider with no notion of it contributes nothing.
+ */
+async function reasoningOptionsFor(ref: ModelRef) {
+  const settings = await getModelPreferences();
+  return getModelProvider(ref.providerId).reasoningOptions?.(settings.thinking);
 }
 
 const saveMemoryInputSchema = z.strictObject({
@@ -403,10 +413,10 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     },
     inputSchema: searchKnowledgeInputSchema,
     execute: async ({ input }) => searchKnowledge(input),
-    buildAssistantText: async ({ output, modelId }) =>
+    buildAssistantText: async ({ output, modelRef }) =>
       buildSearchAssistantText({
         result: output,
-        modelId,
+        modelRef,
       }),
     memory: {
       enabled: true,
@@ -530,30 +540,41 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       maxPerTurn: 10,
     },
     inputSchema: webSearchInput,
-    prepareInput: ({ input, modelId, trigger, remainingResultBudget, signal }) =>
+    prepareInput: ({ input, modelRef, trigger, remainingResultBudget, signal }) =>
       resolveWebSearchInput({
         input,
-        modelId,
+        modelRef,
         trigger,
         maxResultsLimit: remainingResultBudget,
         signal,
       }),
+    buildUnavailableOutput: ({ input, reason }) => {
+      const query =
+        input && typeof input === "object" && "query" in input && typeof input.query === "string"
+          ? input.query
+          : "";
+      return { query, results: [], skipped: reason };
+    },
     buildBudgetExceededOutput: ({ input }) => {
       const query =
         input && typeof input === "object" && "query" in input && typeof input.query === "string"
           ? input.query
           : "";
 
+      // Shaped so it cannot be mistaken for a search that ran and found
+      // nothing: the assistant text and the tool record both say the lookup was
+      // not made.
       return {
         query,
         results: [],
+        skipped: "resultBudget",
       };
     },
     execute: async ({ input, signal }) => runWebSearch(input, signal),
-    buildAssistantText: ({ output, modelId }) =>
+    buildAssistantText: ({ output, modelRef }) =>
       buildWebSearchAssistantText({
         result: output,
-        modelId,
+        modelRef,
       }),
     memory: {
       enabled: true,
@@ -587,6 +608,7 @@ export function listToolDescriptors(mode?: ToolMode): AnyToolDescriptor[] {
 
 export function listPublicToolCatalog(mode?: ToolMode): PublicToolCatalogItem[] {
   return listToolDescriptors(mode).map((tool) => ({
+    ...toolAvailability(tool.id),
     id: tool.id,
     displayName: tool.displayName,
     description: tool.description,
@@ -600,6 +622,32 @@ export function isToolSupportedInMode(toolId: string, mode: ToolMode): boolean {
   const descriptor = getToolDescriptor(toolId);
   if (!descriptor) return false;
   return descriptor.modeSupport.includes(mode);
+}
+
+/**
+ * What a step record keeps about its input. Tool arguments can be long or hold
+ * whatever the model put there, so the record keeps the shape and a short
+ * preview rather than a second copy of the full payload.
+ */
+/**
+ * The result a refused step returns. It says the step did not run and why,
+ * which is different from a tool that ran and found nothing — the model can act
+ * on the first and would be misled by the second.
+ */
+function skippedResult(tool: AnyToolDescriptor, input: unknown, reason: string) {
+  const query = input && typeof input === "object" && "query" in input && typeof (input as { query?: unknown }).query === "string"
+    ? (input as { query: string }).query
+    : "";
+  return tool.buildUnavailableOutput?.({ input, reason: "runStopped", error: new Error(reason) }) ?? { query, results: [], skipped: reason };
+}
+
+function summarizeForRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object") return { value: String(value).slice(0, 200) };
+  const entries = Object.entries(value as Record<string, unknown>).slice(0, 8).map(([key, item]) => [
+    key,
+    typeof item === "string" ? item.slice(0, 200) : item === null || item === undefined ? null : typeof item,
+  ]);
+  return Object.fromEntries(entries);
 }
 
 function capNumericInputValue(input: unknown, key: string, maxValue: number): unknown {
@@ -627,19 +675,63 @@ function readNumericInputValue(input: unknown, key: string): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-export function assertToolConfiguration(toolId: string) {
+/**
+ * What a tool needs before it can run at all.
+ *
+ * An optional tool that is not configured is not broken, it is simply absent:
+ * it is not handed to the model, so the model cannot pick it, retry it, or
+ * burn a step on it. The manual entry point still refuses it explicitly,
+ * because there the user asked for that tool by name.
+ */
+export type ToolAvailability = { available: boolean; reason: "notConfigured" | null; configEntry: string | null };
+
+export function toolAvailability(toolId: string): ToolAvailability {
   if (toolId === "webSearch" && !process.env.TAVILY_API_KEY?.trim()) {
-    throw new ApiError({ code: "CONFIGURATION_ERROR", message: "TAVILY_API_KEY is not configured." });
+    // The reason a tool is missing comes with where to fix it, so the interface
+    // can offer the way out instead of only reporting the absence.
+    return { available: false, reason: "notConfigured", configEntry: "/settings" };
   }
+  return { available: true, reason: null, configEntry: null };
 }
 
-export function createChatToolSet(options?: { modelId?: string; toolIds?: string[] }): ToolSet {
+export function assertToolConfiguration(toolId: string) {
+  if (toolAvailability(toolId).available) return;
+  throw new ApiError({ code: "CONFIGURATION_ERROR", message: t("lib.tools.webSearchNotConfigured") });
+}
+
+export /**
+ * Whether a failure means "this optional tool is not available right now" or
+ * means something the user or the caller has to fix. Only the former is turned
+ * into a result: a rejected approval, a bad argument or a refused write is
+ * never quietly absorbed into "the tool was unavailable".
+ */
+function skipReasonFor(toolId: string, error: unknown): ToolSkipReason | null {
+  if (!toolAvailability(toolId).available) return "notConfigured";
+  if (!(error instanceof ApiError)) return null;
+  // Transient upstream conditions: a lookup that failed is not a lookup that
+  // found nothing, and the model should not keep asking a service that is
+  // already refusing.
+  if (["TIMEOUT", "RATE_LIMITED", "UPSTREAM_FAILED", "SERVICE_UNAVAILABLE"].includes(error.code)) {
+    return "temporarilyUnavailable";
+  }
+  return null;
+}
+
+export function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: string[]; runId?: string | null; usesMemory?: boolean }): ToolSet {
   const workspaceId = LOCAL_WORKSPACE_ID;
   const allowed = new Set(options?.toolIds ?? []);
   const hasRestriction = allowed.size > 0;
   const resultBudgetUsed = new Map<string, number>();
+  const runId = options?.runId ?? null;
+  let stepCount = 0;
+  // Positions are per run, not per tool, so the record reads as the sequence
+  // that actually happened rather than one counter per tool.
+  const nextStepPosition = () => ++stepCount;
+  // An unconfigured optional tool is filtered out here rather than mounted and
+  // failed later. The model never sees it, so it cannot call it, retry it, or
+  // report a search that never happened.
   const descriptors = listToolDescriptors("chat").filter((tool) =>
-    hasRestriction ? allowed.has(tool.id) : true,
+    (hasRestriction ? allowed.has(tool.id) : true) && toolAvailability(tool.id).available,
   );
 
   const entries = descriptors.map((tool) => [
@@ -653,6 +745,25 @@ export function createChatToolSet(options?: { modelId?: string; toolIds?: string
         // The SDK passes call options as the second argument when a tool runs;
         // its abortSignal carries the user's stop request into every stage.
         const signal = callOptions?.abortSignal;
+        // A run that has been stopped, or has spent its budget, does not get to
+        // start another step. The refusal is returned as a result so the model
+        // can finish with what it has instead of retrying into a wall.
+        if (runId) {
+          const allowance = await checkRunAllowance(runId).catch(() => ({ allowed: true, reason: null }));
+          if (!allowance.allowed) {
+            return skippedResult(tool, input, allowance.reason ?? "run-stopped");
+          }
+        }
+        const step = runId
+          ? await recordStep({
+            runId,
+            position: nextStepPosition(),
+            kind: "tool" as const,
+            toolName: tool.id,
+            state: "running" as const,
+            input: summarizeForRecord(input),
+          }).catch(() => null)
+          : null;
         try {
           enforceRateLimit("tools");
           const budget = tool.resultBudget;
@@ -700,12 +811,21 @@ export function createChatToolSet(options?: { modelId?: string; toolIds?: string
             });
           }
 
-          assertToolConfiguration(tool.id);
+          // Checked before the input is prepared, so a tool that is configured
+          // away does not spend a planning call first. An optional tool answers
+          // instead of failing the turn; anything else still refuses here, where
+          // the manual entry point refuses it.
+          if (!toolAvailability(tool.id).available) {
+            const builder = tool.buildUnavailableOutput;
+            if (!builder) { assertToolConfiguration(tool.id); }
+            logToolExecution({ toolId: tool.id, trigger: "auto", state: "output-available", durationMs: Date.now() - startedAt, errorCode: "CONFIGURATION_ERROR" });
+            return builder!({ input, reason: "notConfigured", error: new ApiError({ code: "CONFIGURATION_ERROR", message: t("lib.tools.webSearchNotConfigured") }) });
+          }
           const preparedInput = tool.prepareInput
             ? await tool.prepareInput({
                 workspaceId,
                 input: parsedInput.data,
-                modelId: options?.modelId,
+                modelRef: options?.modelRef,
                 trigger: "auto",
                 remainingResultBudget,
                 signal,
@@ -773,13 +893,33 @@ export function createChatToolSet(options?: { modelId?: string; toolIds?: string
             resultBudgetUsed.set(tool.id, currentUsedBudget + requestedBudget);
           }
 
-          const output = await tool.execute({
-            workspaceId,
-            input: preparedParsedInput.data,
-            modelId: options?.modelId,
-            trigger: "auto",
-            signal,
-          });
+          let output: Awaited<ReturnType<typeof tool.execute>>;
+          try {
+            output = await tool.execute({
+              workspaceId,
+              input: preparedParsedInput.data,
+              modelRef: options?.modelRef,
+              trigger: "auto",
+              signal,
+            });
+          } catch (error) {
+            // The configuration can disappear between building the tool set and
+            // running it — a key cleared in another window, a settings save in
+            // between turns. An optional tool that is merely unavailable
+            // answers instead of failing the turn, so the model is told once
+            // and spends the rest of the turn on what it can do.
+            const reason = skipReasonFor(tool.id, error);
+            const builder = tool.buildUnavailableOutput;
+            if (!reason || !builder) throw error;
+            logToolExecution({
+              toolId: tool.id,
+              trigger: "auto",
+              state: "output-available",
+              durationMs: Date.now() - startedAt,
+              errorCode: reason === "notConfigured" ? "CONFIGURATION_ERROR" : "UPSTREAM_FAILED",
+            });
+            return builder({ input: preparedParsedInput.data, reason, error });
+          }
           const requestId =
             output && typeof output === "object" && "requestId" in output && typeof output.requestId === "string"
               ? output.requestId
@@ -792,16 +932,25 @@ export function createChatToolSet(options?: { modelId?: string; toolIds?: string
             durationMs: Date.now() - startedAt,
             requestId,
           });
+          if (step) {
+            // The step carries the same facts as the log, plus the artifact when
+            // the step produced one, so the record and the log cannot disagree.
+            await updateStep(step.id, { state: "done", output: summarizeForRecord(output), finished: true }).catch(() => undefined);
+          }
 
           return output;
         } catch (error) {
+          const errorCode = error instanceof ApiError ? error.code : "INTERNAL_ERROR";
           logToolExecution({
             toolId: tool.id,
             trigger: "auto",
             state: "output-error",
             durationMs: Date.now() - startedAt,
-            errorCode: error instanceof ApiError ? error.code : "INTERNAL_ERROR",
+            errorCode,
           });
+          if (step) {
+            await updateStep(step.id, { state: "failed", errorCode, finished: true }).catch(() => undefined);
+          }
           throw error;
         }
       },

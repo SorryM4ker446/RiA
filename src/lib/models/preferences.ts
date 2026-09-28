@@ -2,21 +2,22 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import { db } from "@/db";
 import { ApiError } from "@/lib/server/api-error";
 import { t } from "@/lib/locale";
-import { getImageEndpointReferenceSupport } from "@/lib/models/catalog";
+import { getModelProvider } from "@/lib/models/providers";
 import {
   defaultModelPreferences,
   libraryModel,
   modelLibraryItemSchema,
+  modelRefKey,
   preferencesSchema,
   upgradeModelPreferences,
   type GenerationMode,
   type LibraryMode,
   type ModelLibraryItem,
   type ModelPreferences,
+  type ModelRef,
 } from "@/lib/models/preferences-schema";
 
 export const PREFERENCE_ROW_ID = "local";
-const OPENROUTER_PROVIDER = "openrouter";
 
 type PreferenceTx = PrismaClient | Prisma.TransactionClient;
 type ModelSettingsLock = {
@@ -40,36 +41,36 @@ export async function withModelSettingsLock<T>(operation: () => Promise<T>): Pro
   finally { releaseNext(); }
 }
 
-function notifyLeaseWaiters(modelId: string) {
-  if ((settingsLock.activeLeases.get(modelId) ?? 0) > 0) return;
-  const waiters = settingsLock.leaseWaiters.get(modelId);
-  settingsLock.leaseWaiters.delete(modelId);
+function notifyLeaseWaiters(key: string) {
+  if ((settingsLock.activeLeases.get(key) ?? 0) > 0) return;
+  const waiters = settingsLock.leaseWaiters.get(key);
+  settingsLock.leaseWaiters.delete(key);
   for (const resolve of waiters ?? []) resolve();
 }
 
-function incrementLease(modelId: string) {
-  settingsLock.activeLeases.set(modelId, (settingsLock.activeLeases.get(modelId) ?? 0) + 1);
+function incrementLease(key: string) {
+  settingsLock.activeLeases.set(key, (settingsLock.activeLeases.get(key) ?? 0) + 1);
 }
 
-function decrementLease(modelId: string) {
-  const next = (settingsLock.activeLeases.get(modelId) ?? 0) - 1;
-  if (next > 0) settingsLock.activeLeases.set(modelId, next);
-  else settingsLock.activeLeases.delete(modelId);
-  notifyLeaseWaiters(modelId);
+function decrementLease(key: string) {
+  const next = (settingsLock.activeLeases.get(key) ?? 0) - 1;
+  if (next > 0) settingsLock.activeLeases.set(key, next);
+  else settingsLock.activeLeases.delete(key);
+  notifyLeaseWaiters(key);
 }
 
-async function releaseModelLease(modelId: string) {
-  await withModelSettingsLock(async () => { decrementLease(modelId); });
+async function releaseModelLease(key: string) {
+  await withModelSettingsLock(async () => { decrementLease(key); });
 }
 
-async function waitForModelLeases(modelId: string) {
+async function waitForModelLeases(key: string) {
   let waiter: Promise<void> | undefined;
   await withModelSettingsLock(async () => {
-    if ((settingsLock.activeLeases.get(modelId) ?? 0) === 0) return;
+    if ((settingsLock.activeLeases.get(key) ?? 0) === 0) return;
     waiter = new Promise<void>(resolve => {
-      const waiters = settingsLock.leaseWaiters.get(modelId) ?? new Set<() => void>();
+      const waiters = settingsLock.leaseWaiters.get(key) ?? new Set<() => void>();
       waiters.add(resolve);
-      settingsLock.leaseWaiters.set(modelId, waiters);
+      settingsLock.leaseWaiters.set(key, waiters);
     });
   });
   await waiter;
@@ -81,25 +82,29 @@ async function waitForModelLeases(modelId: string) {
  * removal cannot slip between the membership check and provider submission.
  * The lease remains until that operation settles; model removal waits for the
  * active call, but it does not cancel or interrupt the provider request.
+ *
+ * The lease is keyed by provider and model together, so removing one provider's
+ * entry never waits on — or is blocked by — an unrelated model with the same id.
  */
-export async function withModelLease<T>(mode: LibraryMode, modelId: string, operation: (model: ModelLibraryItem) => PromiseLike<T> | T): Promise<T> {
+export async function withModelLease<T>(mode: LibraryMode, ref: ModelRef, operation: (model: ModelLibraryItem) => PromiseLike<T> | T): Promise<T> {
+  const key = modelRefKey(ref);
   let result!: Promise<T>;
   await withModelSettingsLock(async () => {
-    if (settingsLock.removingModels.has(modelId)) {
-      throw new ApiError({ code: "CONFIGURATION_ERROR", message: `${t("lib.models.modelWord")} ${modelId} ${t("lib.models.removingSuffix")}` });
+    if (settingsLock.removingModels.has(key)) {
+      throw new ApiError({ code: "CONFIGURATION_ERROR", message: `${t("lib.models.modelWord")} ${ref.modelId} ${t("lib.models.removingSuffix")}` });
     }
     const settings = await getModelPreferences();
-    const model = libraryModel(settings, mode, modelId);
-    if (!model) throw new ApiError({ code: "CONFIGURATION_ERROR", message: `${t("lib.models.modelWord")} ${modelId} ${t("lib.models.notInLibrary")}${mode}${t("lib.models.notInLibraryHint")}` });
-    incrementLease(modelId);
+    const model = libraryModel(settings, mode, ref);
+    if (!model) throw new ApiError({ code: "CONFIGURATION_ERROR", message: `${t("lib.models.modelWord")} ${ref.modelId} ${t("lib.models.notInLibrary")}${mode}${t("lib.models.notInLibraryHint")}` });
+    incrementLease(key);
     try { result = Promise.resolve(operation(model)); }
     catch (error) {
-      decrementLease(modelId);
+      decrementLease(key);
       throw error;
     }
   });
   try { return await result; }
-  finally { await releaseModelLease(modelId); }
+  finally { await releaseModelLease(key); }
 }
 
 async function persist(tx: PreferenceTx, settings: ModelPreferences) {
@@ -115,7 +120,7 @@ async function readPreferences(tx: PreferenceTx): Promise<ModelPreferences> {
   if (!record) return defaultModelPreferences();
   const parsed = preferencesSchema.safeParse(record.settings);
   if (parsed.success) return parsed.data;
-  if ((record.settings as { version?: unknown } | null)?.version !== 1) {
+  if (![1, 2].includes((record.settings as { version?: unknown } | null)?.version as 1 | 2)) {
     throw new ApiError({ code: "CONFIGURATION_ERROR", message: t("lib.models.invalidSettings") });
   }
   let upgraded: ModelPreferences;
@@ -132,46 +137,58 @@ export async function saveModelPreferences(value: unknown) {
   return withModelSettingsLock(() => db.$transaction(async tx => {
     const current = await readPreferences(tx);
     const library = current.library;
-    const legacyCandidates = current.legacyCandidates.filter(candidate => !libraryModel(current, candidate.mode, candidate.modelId));
+    const legacyCandidates = current.legacyCandidates.filter(candidate => !libraryModel(current, candidate.mode, candidate.ref));
     const settings = preferencesSchema.parse({ ...parsed, library, legacyCandidates });
     await persist(tx, settings);
     return settings;
   }));
 }
 
-export async function preferredModel(mode: GenerationMode, supplied?: string | null) {
+export async function preferredModel(mode: GenerationMode, supplied?: ModelRef | null): Promise<ModelRef> {
   const settings = await getModelPreferences();
-  const modelId = supplied ?? settings[mode].modelId;
-  if (!modelId) throw new ApiError({ code: "CONFIGURATION_ERROR", message: `${t("lib.models.addFirstPrefix")}${mode === "chat" ? t("lib.models.modeChat") : mode === "image" ? t("lib.models.modeImage") : t("lib.models.modeVideo")}${t("lib.models.addFirstSuffix")}` });
-  if (!libraryModel(settings, mode, modelId)) throw new ApiError({ code: "CONFIGURATION_ERROR", message: `${t("lib.models.modelWord")} ${modelId} ${t("lib.models.notInLibrary")}${mode}${t("lib.models.notInLibraryHint")}` });
-  return modelId;
+  const ref = supplied ?? settings[mode].model;
+  if (!ref) throw new ApiError({ code: "CONFIGURATION_ERROR", message: `${t("lib.models.addFirstPrefix")}${mode === "chat" ? t("lib.models.modeChat") : mode === "image" ? t("lib.models.modeImage") : t("lib.models.modeVideo")}${t("lib.models.addFirstSuffix")}` });
+  if (!libraryModel(settings, mode, ref)) throw new ApiError({ code: "CONFIGURATION_ERROR", message: `${t("lib.models.modelWord")} ${ref.modelId} ${t("lib.models.notInLibrary")}${mode}${t("lib.models.notInLibraryHint")}` });
+  return ref;
 }
 
-export async function modelInLibrary(mode: LibraryMode, modelId: string | null | undefined) {
-  if (!modelId) return null;
+export async function modelInLibrary(mode: LibraryMode, ref: ModelRef | null | undefined) {
+  if (!ref) return null;
   const settings = await getModelPreferences();
-  return libraryModel(settings, mode, modelId) ?? null;
+  return libraryModel(settings, mode, ref) ?? null;
 }
 
-export async function addOpenRouterModel(modelId: string): Promise<{ data: ModelLibraryItem; alreadyAdded: boolean }> {
-  const snapshots = await db.modelCatalogSnapshot.findMany({ where: { providerId: OPENROUTER_PROVIDER } });
+export async function addModel(ref: ModelRef): Promise<{ data: ModelLibraryItem; alreadyAdded: boolean }> {
+  const key = modelRefKey(ref);
+  const provider = getModelProvider(ref.providerId);
+  const snapshots = await db.modelCatalogSnapshot.findMany({ where: { providerId: ref.providerId } });
+  // A catalog row is provider data and may carry fields this application does
+  // not store. The library entry is built from an explicit list of them, so a
+  // new provider field cannot make a model silently un-addable.
+  const libraryFields = { providerId: true, modelId: true, name: true, description: true, modes: true, supportsImageInput: true, endpointImageInput: true, supportsTools: true, providerSearch: true, contextLength: true, pricing: true, addedAt: true, lastSeenAt: true } as const;
   const matches = snapshots.flatMap(snapshot => {
     const rows = Array.isArray(snapshot.models) ? snapshot.models : [];
     return rows.flatMap(row => {
-      const item = modelLibraryItemSchema.pick({ providerId: true, modelId: true, name: true, description: true, modes: true, supportsImageInput: true, endpointImageInput: true, supportsTools: true, contextLength: true, pricing: true, addedAt: true, lastSeenAt: true }).safeParse({
-        ...(row as Record<string, unknown>), addedAt: new Date().toISOString(), lastSeenAt: snapshot.fetchedAt.toISOString(),
+      const source = row as Record<string, unknown>;
+      // The two timestamps describe when the entry was added and when the
+      // catalog that describes it was read, not anything the row carries.
+      const item = modelLibraryItemSchema.pick(libraryFields).safeParse({
+        ...Object.fromEntries(Object.keys(libraryFields).filter(field => field !== "addedAt" && field !== "lastSeenAt").map(field => [field, source[field]])),
+        addedAt: new Date().toISOString(),
+        lastSeenAt: snapshot.fetchedAt.toISOString(),
       });
-      return item.success && item.data.modelId === modelId ? [{ item: item.data, fetchedAt: snapshot.fetchedAt }] : [];
+      return item.success && item.data.modelId === ref.modelId ? [{ item: item.data, fetchedAt: snapshot.fetchedAt }] : [];
     });
   });
   if (!matches.length) throw new ApiError({ code: "NOT_FOUND", message: t("lib.models.notInCatalog") });
   const modes = [...new Set(matches.flatMap(match => match.item.modes))] as LibraryMode[];
   const hasImageGeneration = modes.includes("image");
-  const endpointImageInput = hasImageGeneration ? await getImageEndpointReferenceSupport(modelId) : null;
+  const probe = provider.probeImageInput;
+  const endpointImageInput = hasImageGeneration && probe ? await probe(ref.modelId) : null;
 
   return withModelSettingsLock(() => db.$transaction(async tx => {
     const current = await readPreferences(tx);
-    const existing = current.library.find(item => item.providerId === OPENROUTER_PROVIDER && item.modelId === modelId);
+    const existing = current.library.find(item => modelRefKey(item) === key);
     const latest = [...matches].sort((a, b) => b.fetchedAt.getTime() - a.fetchedAt.getTime())[0].item;
     const next = modelLibraryItemSchema.parse({
       ...latest,
@@ -179,53 +196,53 @@ export async function addOpenRouterModel(modelId: string): Promise<{ data: Model
       supportsImageInput: matches.some(match => match.item.modes.includes("chat") && match.item.supportsImageInput) || endpointImageInput === true || (!hasImageGeneration && matches.some(match => match.item.supportsImageInput)),
       endpointImageInput,
       supportsTools: matches.some(match => match.item.supportsTools),
+      // Refreshed on every add, so a model the provider changed into an
+      // online variant is noticed the next time it is added or re-added.
+      providerSearch: matches.some(match => match.item.providerSearch),
       addedAt: existing?.addedAt ?? new Date().toISOString(),
       lastSeenAt: matches.reduce((date, match) => match.fetchedAt > date ? match.fetchedAt : date, matches[0].fetchedAt).toISOString(),
     });
-    const settings = preferencesSchema.parse({ ...current, library: [...current.library.filter(item => item.modelId !== modelId), next], legacyCandidates: current.legacyCandidates.filter(candidate => candidate.modelId !== modelId) });
+    const settings = preferencesSchema.parse({
+      ...current,
+      library: [...current.library.filter(item => modelRefKey(item) !== key), next],
+      legacyCandidates: current.legacyCandidates.filter(candidate => modelRefKey(candidate.ref) !== key),
+    });
     await persist(tx, settings);
     return { data: next, alreadyAdded: Boolean(existing) };
   }));
 }
 
-export async function removeOpenRouterModel(modelId: string) {
+export async function removeModel(ref: ModelRef) {
+  const key = modelRefKey(ref);
   await withModelSettingsLock(async () => {
-    if (settingsLock.removingModels.has(modelId)) {
+    if (settingsLock.removingModels.has(key)) {
       throw new ApiError({ code: "CONFLICT", message: t("lib.models.removeConflict") });
     }
     const current = await readPreferences(db);
-    const exists = current.library.some(item => item.providerId === OPENROUTER_PROVIDER && item.modelId === modelId);
+    const exists = current.library.some(item => modelRefKey(item) === key);
     if (!exists) throw new ApiError({ code: "NOT_FOUND", message: t("lib.models.notAdded") });
-    settingsLock.removingModels.add(modelId);
+    settingsLock.removingModels.add(key);
   });
   try {
-    await waitForModelLeases(modelId);
+    await waitForModelLeases(key);
     return await withModelSettingsLock(() => db.$transaction(async tx => {
       const current = await readPreferences(tx);
-      const exists = current.library.some(item => item.providerId === OPENROUTER_PROVIDER && item.modelId === modelId);
+      const exists = current.library.some(item => modelRefKey(item) === key);
       if (!exists) throw new ApiError({ code: "NOT_FOUND", message: t("lib.models.notAdded") });
+      const clear = (value: ModelRef | null) => (value && modelRefKey(value) === key ? null : value);
       const settings = preferencesSchema.parse({
         ...current,
-        library: current.library.filter(item => !(item.providerId === OPENROUTER_PROVIDER && item.modelId === modelId)),
-        chat: { modelId: current.chat.modelId === modelId ? null : current.chat.modelId, fallbackId: current.chat.fallbackId === modelId ? null : current.chat.fallbackId },
-        image: { modelId: current.image.modelId === modelId ? null : current.image.modelId, fallbackId: current.image.fallbackId === modelId ? null : current.image.fallbackId },
-        video: { modelId: current.video.modelId === modelId ? null : current.video.modelId, fallbackId: current.video.fallbackId === modelId ? null : current.video.fallbackId },
-        embeddingModelId: current.embeddingModelId === modelId ? null : current.embeddingModelId,
+        library: current.library.filter(item => modelRefKey(item) !== key),
+        chat: { model: clear(current.chat.model), fallback: clear(current.chat.fallback) },
+        image: { model: clear(current.image.model), fallback: clear(current.image.fallback) },
+        video: { model: clear(current.video.model), fallback: clear(current.video.fallback) },
+        embedding: clear(current.embedding),
       });
       await persist(tx, settings);
       return settings;
     }));
   }
   finally {
-    await withModelSettingsLock(async () => { settingsLock.removingModels.delete(modelId); });
+    await withModelSettingsLock(async () => { settingsLock.removingModels.delete(key); });
   }
-}
-
-export async function selectFallback(mode: GenerationMode, id: string | null) {
-  return withModelSettingsLock(() => db.$transaction(async tx => {
-    const current = await readPreferences(tx);
-    const settings = preferencesSchema.parse({ ...current, [mode]: { ...current[mode], fallbackId: id } });
-    await persist(tx, settings);
-    return settings;
-  }));
 }

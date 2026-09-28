@@ -24,6 +24,9 @@ model ModelCatalogSnapshot {
   mode       String
   models     Json
   fetchedAt  DateTime @default(now())
+  // Why the last refresh failed, kept beside the rows it failed to replace.
+  lastFailure   String?
+  lastFailureAt DateTime?
 
   @@id([providerId, mode])
   @@index([fetchedAt])
@@ -35,6 +38,7 @@ model ModelRequest {
   requestId    String
   mode         String
   modelId      String
+  modelProvider String  @default("openrouter")
   status       String
   durationMs   Int
   inputTokens  Int?
@@ -54,12 +58,29 @@ model Chat {
   title           String
   pinned          Boolean      @default(false)
   archived        Boolean      @default(false)
+  // When set, this conversation neither reads long-term memory nor writes any.
+  // It is a switch on memory only: the messages, the draft, uploaded media and
+  // recorded usage are still kept, and the interface says so rather than
+  // implying the turn left nothing behind.
+  ephemeral       Boolean      @default(false)
+  // Which document topics this conversation is allowed to draw on. Empty means
+  // every topic, which is the default; naming topics narrows the retrieval to
+  // what the user put in scope for this conversation.
+  documentScope   String       @default("")
+  // A model-written summary of the turns before `summaryUpToMessageId`. Kept
+  // alongside the messages it came from, so the original text is never replaced
+  // by it and can still be read.
+  summary         String?
+  summaryUpToMessageId String?
+  summaryModelId  String?
+
   lastMessageAt   DateTime     @default(now())
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
   messages        Message[]
   tags            ChatTag[]
   generatedMedia  MediaAsset[]
+  agentRuns       AgentRun[]
 
   @@index([lastMessageAt, id])
   @@index([archived, pinned, lastMessageAt, id])
@@ -76,6 +97,59 @@ model ChatTag {
   @@id([chatId, label])
   @@index([label, chatId])
   @@map("chat_tags")
+}
+
+/*
+ * One assistant turn that used tools, recorded so it can be inspected, bounded
+ * and stopped. A run is what the budget in plan 5.6 is spent against and what
+ * "stop the remaining steps" applies to.
+ */
+model AgentRun {
+  id           String   @id @default(cuid())
+  chatId       String?
+  chat         Chat?    @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  // What the turn was for, in the user's own words where possible.
+  goal         String
+  status       String   @default("running")
+  // Bounded by default. A run that could loop forever is a cost incident, not
+  // a feature; each of these is enforced rather than hoped for.
+  maxSteps     Int      @default(8)
+  maxFailures  Int      @default(2)
+  deadlineMs   Int      @default(120000)
+  maxCostUsd   Float?
+  spentCostUsd Float    @default(0)
+  stopReason   String?
+  startedAt    DateTime @default(now())
+  finishedAt   DateTime?
+  updatedAt    DateTime @updatedAt
+  steps        AgentStep[]
+
+  @@index([chatId, startedAt])
+  @@index([status, startedAt])
+  @@map("agent_runs")
+}
+
+model AgentStep {
+  id        String   @id @default(cuid())
+  runId     String
+  run       AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  position  Int
+  kind      String
+  toolName  String?
+  state     String   @default("running")
+  // A short, already-redacted description: enough to recognise the step in a
+  // list without copying a whole result into a second store.
+  input     Json?
+  output    Json?
+  // What the step produced, when it produced something viewable.
+  artifactAssetId String?
+  errorCode String?
+  startedAt DateTime @default(now())
+  finishedAt DateTime?
+
+  @@unique([runId, position])
+  @@index([runId, position])
+  @@map("agent_steps")
 }
 
 model Message {
@@ -101,6 +175,9 @@ model MediaAsset {
   byteSize          Int
   kind              String
   modelId           String?
+  // Null on assets generated before model references were provider-qualified.
+  // Those were all reached through OpenRouter, which is how they are read back.
+  modelProvider     String?
   description       String?
   generation        Json?
   sourceChatId      String?
@@ -146,13 +223,30 @@ model Memory {
   key       String
   value     String
   score     Float?
+  // Where the entry came from. Anything the assistant inferred is marked as
+  // such rather than being indistinguishable from something the user wrote.
+  source    String   @default("manual")
+  // Inferred entries wait for the user to accept them. A confirmed memory can
+  // still be edited or deleted, but nothing enters the model's context on the
+  // strength of an inference the user never saw.
+  confirmed Boolean  @default(true)
+  // When this entry was last handed to a model, so the page can say whether a
+  // memory is doing anything.
+  lastUsedAt DateTime?
   embedding Json?
   embeddingModelId String?
+  // A vector is only comparable with the one that produced it, so the provider
+  // is stored next to the model id. Null means "written before the provider was
+  // recorded", and such vectors are excluded from semantic matching rather than
+  // being compared across providers.
+  embeddingModelProvider String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([key])
   @@index([updatedAt, id])
+  @@index([confirmed, updatedAt])
+  @@index([embeddingModelProvider, embeddingModelId])
   @@map("memories")
 }
 
@@ -181,6 +275,9 @@ model Task {
 model KnowledgeDocument {
   id             String   @id @default(cuid())
   filename       String
+  // A topic or project this document belongs to. Content organisation for one
+  // person, not access control: every document is still readable in the app.
+  collection     String?
   format         String
   byteSize       Int
   contentHash    String
@@ -194,6 +291,7 @@ model KnowledgeDocument {
 
   @@unique([filename])
   @@index([updatedAt, id])
+  @@index([collection])
   @@map("knowledge_documents")
 }
 

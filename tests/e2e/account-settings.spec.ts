@@ -111,7 +111,7 @@ test("saved mode defaults apply to new conversations and model settings survive 
     expect(await browserData(page, "/api/conversations")).toEqual([expect.objectContaining({ id: chat.id })]);
     await expect.poll(() => page.evaluate(id =>
       JSON.parse(localStorage.getItem(`chat:prefs:${id}`) ?? "null"), chat.id))
-      .toMatchObject({ modelMode: "image", selectedImageModel: "google/gemini-3.1-flash-image-preview" });
+      .toMatchObject({ modelMode: "image", selectedImageModel: { providerId: "openrouter", modelId: "google/gemini-3.1-flash-image-preview" } });
   } finally {
     releaseCreation();
     await page.unrouteAll({ behavior: "wait" });
@@ -140,8 +140,17 @@ test("configured chat fallback runs through the real provider adapter and persis
   await chooseOption(page.getByLabel("聊天默认模型", { exact: true }), "Claude Opus Offline");
   await chooseOption(page.getByLabel("聊天备用模型", { exact: true }), "Gemini Flash Offline");
   await page.getByText("配置估算费率（USD）", { exact: true }).click();
-  await page.getByLabel("google/gemini-3-flash-preview 输入 / 百万 Token", { exact: true }).fill("2"); await page.getByLabel("google/gemini-3-flash-preview 输出 / 百万 Token", { exact: true }).fill("4");
+  // Rates are keyed by provider and model, so the two entries for the same
+  // underlying model reached through different providers are edited separately.
+  const rateKey = "openrouter:google/gemini-3-flash-preview";
+  await page.getByLabel(`${rateKey} 输入 / 百万 Token`, { exact: true }).fill("2"); await page.getByLabel(`${rateKey} 输出 / 百万 Token`, { exact: true }).fill("4");
   await page.getByRole("button", { name: "保存模型偏好" }).click(); await expect(page.getByRole("status")).toContainText("已保存");
+  // Each library entry is annotated with what the catalogs currently say about
+  // it, keyed by provider and model rather than by model id alone.
+  const library = page.locator('section[aria-label="我的模型"]');
+  for (const modelId of ["anthropic/claude-opus-4.6", "google/gemini-3-flash-preview"]) {
+    await expect(library.locator("li").filter({ hasText: modelId })).toContainText("可用");
+  }
   await page.getByRole("link", { name: "返回聊天", exact: true }).click(); await page.getByRole("checkbox", { name: "仅手动" }).check();
   await page.getByPlaceholder(/输入你的问题/).fill("OFFLINE_PRIMARY_FAILURE 测试备用模型"); await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByText("离线回答：OFFLINE_PRIMARY_FAILURE 测试备用模型", { exact: true })).toBeVisible();
@@ -153,9 +162,13 @@ test("configured chat fallback runs through the real provider adapter and persis
 
 test("model settings and usage reject invalid prices and a missing credential over HTTP", { tag: "@integration" }, async ({ page, app }) => {
   await register(page, app.origin);
-  const settings = await browserData(page, "/api/models");
+  const { data: settings } = await browserData(page, "/api/models");
+  // A selection the library does not contain is refused, whether it is named by
+  // provider and id or by a bare id from the era before it had to be.
+  expect((await browserApi(page, "/api/models", "PUT", { ...settings, chat: { model: { providerId: "openrouter", modelId: "removed/model" }, fallback: null } })).status).toBe(400);
   expect((await browserApi(page, "/api/models", "PUT", { ...settings, chat: { modelId: "removed/model", fallbackId: null } })).status).toBe(400);
   expect((await browserApi(page, "/api/models", "PUT", { ...settings, rates: { invalid: { inputPerMillion: -1, outputPerMillion: 0, perRequest: null } } })).status).toBe(400);
+  expect((await browserApi(page, "/api/models", "PUT", { ...settings, rates: { "openrouter:removed/model": { inputPerMillion: -1, outputPerMillion: 0, perRequest: null } } })).status).toBe(400);
   expect((await browserData(page, "/api/usage")).totals.costUsd).toBeNull();
   const stored = app.readRows("SELECT settings FROM account_preferences");
   await page.goto(`${app.origin}/models`); await expect(page.getByRole("button", { name: "保存模型偏好" })).toBeVisible();

@@ -31,7 +31,7 @@ export function readConversationQuery(params: URLSearchParams) {
 
 export function conversationSummary(chat: Chat & { tags: { label: string }[]; _count: { messages: number } }) {
   return {
-    id: chat.id, title: chat.title, pinned: chat.pinned, archived: chat.archived,
+    id: chat.id, title: chat.title, pinned: chat.pinned, archived: chat.archived, ephemeral: chat.ephemeral, documentScope: chat.documentScope,
     createdAt: chat.createdAt, updatedAt: chat.updatedAt, lastMessageAt: chat.lastMessageAt,
     tags: chat.tags.map(tag => tag.label), messageCount: chat._count.messages,
   };

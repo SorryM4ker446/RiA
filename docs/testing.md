@@ -29,7 +29,7 @@ Task reminder regressions include timezone/DST and month-end calculation, atomic
 
 On Windows, the development-launcher regression runs the actual launch script against a minimal local Electron page with an isolated temporary userData directory. It briefly shows a small test window and asserts visibility after `show()`; hidden smoke tests cannot detect this startup regression. It does not start Next.js, touch development data or call a model provider. Other platforms skip this Windows-specific check.
 
-`local-entry.test.mjs` exchanges a fresh handshake through the actual entry handler for IPv4 loopback, localhost and IPv6 loopback origins. It checks that the relative redirect retains the browser's original host and port, that the issued cookie remains HttpOnly and host-only, and that the cookie passes the next protected API request's security check. This catches NextURL loopback normalization without relying on a pre-injected test cookie.
+`local-entry.test.ts` exchanges a fresh handshake through the actual entry handler for IPv4 loopback, localhost and IPv6 loopback origins. It checks that the relative redirect retains the browser's original host and port, that the issued cookie remains HttpOnly and host-only, and that the cookie passes the next protected API request's security check. This catches NextURL loopback normalization without relying on a pre-injected test cookie.
 
 Security regressions cover all protected route entrypoints, malformed and oversized bodies, nested chat/media schemas, tool configuration ordering, instance-level quotas/recovery, Host/Origin/Fetch Metadata rejection, sanitized database errors and streamed persistence conflicts. Negative database tests deliberately trigger unique-constraint and missing-table errors in their isolated database; sanitized responses must hide query details. Manual/automatic tools and media quotas run through actual handlers, without external model calls.
 
@@ -37,7 +37,7 @@ The access browser test starts an additional server from the already-built stand
 
 `business-persistence.spec.ts` also uses isolated standalone servers, with no browser route interception and no database mocks. One flow opens the workspace, sends a first message from an empty conversation, streams a reply, sends a follow-up, edits/regenerates, restarts the service, and checks history. Another creates and updates tasks, upserts and retrieves knowledge, renames the conversation, restarts and deletes the records. Assertions inspect both HTTP results and persisted SQLite rows. Synthetic embedding/completion responses are the only provider replacements; this is not a model-quality test.
 
-The test-only `offline-http.mjs` preload intercepts fetch in those child processes using the existing Undici dependency. It uses matching fetch/dispatcher versions, bridges native Request/Response, denies unmatched destinations and endpoints, and emits synthetic model prompts over IPC for context assertions. It does not store request headers or add a test switch to application code. A server regression checks both provider-disabled and simulated-provider modes and rejects unmatched external and loopback fetches. This guard covers fetch, not every possible socket API; Tavily is disabled in these browser fixtures. The separate search adapter tests point Tavily explicitly at an isolated loopback server.
+The test-only `offline-http.ts` preload intercepts fetch in those child processes using the existing Undici dependency. It uses matching fetch/dispatcher versions, bridges native Request/Response, denies unmatched destinations and endpoints, and emits synthetic model prompts over IPC for context assertions. It does not store request headers or add a test switch to application code. A server regression checks both provider-disabled and simulated-provider modes and rejects unmatched external and loopback fetches. This guard covers fetch, not every possible socket API; Tavily is disabled in these browser fixtures. The separate search adapter tests point Tavily explicitly at an isolated loopback server.
 
 Run `npm run test:e2e -- --grep '@integration'` to select authenticated HTTP/SQLite flows, or add `--repeat-each=3` to check repeatability. Quote the tag in PowerShell to avoid splatting. This still builds and prepares the production runtime; do not run it alongside another browser run, desktop build or smoke using the same output. The full `test:e2e` command includes these tagged cases automatically.
 
@@ -58,6 +58,8 @@ Model catalog checks run inside `test:server` with synthetic provider snapshots;
 The chat page composes views from `src/features/chat`; hooks own browser state while `api-client.ts` owns HTTP serialization and API errors. The chat route composes `src/lib/chat` request, context, intent, streaming and persistence modules. Browser modules must not import database/provider implementations. Extracted domain modules use the existing `@/` imports, which are understood by both Next.js and the test loader; no loader workaround or new test runner is needed.
 
 `test:server` invokes the actual Next.js request handlers with `NextRequest`; it does not run an HTTP server. It therefore does not replace browser-to-server, reverse-proxy, installer, or live-provider testing. The TypeScript resolver and model override live exclusively under `tests/helpers` and are loaded only by the test command. The application contains no test-provider switch.
+
+Tests are TypeScript and type-checked. Application code keeps the strict root `tsconfig.json`; `tests/tsconfig.json` extends it with `noImplicitAny` off and its own include, and `npm run typecheck` runs both, so a wrong import path, a renamed export or a mistyped helper argument fails before the suite runs. The root config excludes `tests` so the two settings do not drift into each other.
 
 The test loader maps `next/server` and `next/headers` to their `.js` entrypoints through `nextResolve`. Do not call `require.resolve()` inside the synchronous resolve hook: it re-enters that hook on newer Node.js versions and can overflow the call stack. Loader regression tests check both ESM and CommonJS entrypoints with a re-entry guard and run automatically with `test:server`.
 
@@ -106,3 +108,19 @@ Document regressions import actual generated PDF/DOCX and UTF-8 text/Markdown th
 The desktop migration regression upgrades an existing database, checks its backup and preserved chat, then verifies document/index persistence and deletion cascades. Electron smoke imports a real synthetic PDF and DOCX and checks extracted text, page references, authenticated reads and search after a service restart. Binary fixtures are generated from code, contain no private documents and make no model requests. These checks exercise parser runtime dependencies in the prepared standalone artifact, not just the source tree. The existing CI server/browser/desktop commands include these regressions; no new CI service or secret is required.
 
 These tests do not certify every real OpenRouter model, network outage behavior, or clean-machine installation/uninstallation. Desktop path isolation and restart persistence are tested, but a full installer upgrade/uninstall cycle remains a separate check. Distinguish the real media HTTP/SQLite chain from the mocked UI tests when reporting coverage.
+
+## Chat interaction regressions
+
+`tests/e2e/chat-startup.spec.ts` covers three paths that had no automated protection before:
+
+- **An unsent draft** is parked when the conversation is switched away, restored when it is switched back, still there after a reload, and cleared once a sent message has actually been answered.
+- **Stopping a turn** replaces the send control, returns the composer to a sendable state, and does not put the question back into the input.
+- **Reasoning display** puts a collapsed block above the answer, keeps it out of the answer text, and leaves the answer intact when it is expanded.
+
+`tests/e2e/media-storage.spec.ts` covers image generation and attachment upload persistence and protected reads.
+
+## Interface walkthrough
+
+`tests/e2e/interface-walkthrough.spec.ts` captures the build at the sizes the acceptance list names: 1440px and 390px widths, light and dark themes, 125% and 150% text scaling, keyboard focus, and scrolled to the top.
+
+It also asserts what can be asserted without eyes: no horizontal overflow at either width, and the composer and its send control still visible and reachable at 390px and 150% scaling. **It is not a visual sign-off.** The screenshots need a person; a passing run here does not mean the walkthrough passed.

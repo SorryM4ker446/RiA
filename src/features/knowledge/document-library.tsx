@@ -15,7 +15,7 @@ import { getApiErrorMessage } from "@/lib/api-error-message";
 import { DOCUMENT_LIMITS, type DocumentSource } from "@/lib/documents/types";
 import { t, tf } from "@/lib/locale";
 
-type DocumentSummary = { id: string; filename: string; characterCount: number; indexedAt: string; _count: { chunks: number } };
+type DocumentSummary = { id: string; filename: string; collection?: string | null; characterCount: number; indexedAt: string; _count: { chunks: number } };
 
 export async function documentRequest<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { cache: "no-store", ...init });
@@ -29,6 +29,7 @@ export function DocumentLibrary() {
   const [loading, setLoading] = useState(true);
   const awaitingFirstDocumentLoad = useAwaitingFirstLoad(loading, "documents");
   const [busy, setBusy] = useState(false);
+  const [collection, setCollection] = useState("");
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -56,6 +57,9 @@ export function DocumentLibrary() {
     const data = new FormData(form);
     const file = data.get("file");
     if (!(file instanceof File) || !file.size) { setError(t("documents.selectFirst")); return; }
+    // Filed under a topic when one was given, so a conversation can be scoped
+    // to it later.
+    if (collection.trim()) data.set("collection", collection.trim());
     if (file.size > DOCUMENT_LIMITS.fileBytes) { setError(t("documents.tooLarge")); return; }
     await run(async () => {
       setImporting(true);
@@ -94,6 +98,22 @@ export function DocumentLibrary() {
             required
           />
         </div>
+        <label className="min-w-0 flex-1 space-y-1.5 text-sm">
+          <span>{t("documents.collectionLabel")}</span>
+          <Input
+            aria-label={t("documents.collectionLabel")}
+            disabled={busy}
+            list="document-collections"
+            name="collection"
+            onChange={(event) => setCollection(event.target.value)}
+            placeholder={t("documents.collectionPlaceholder")}
+            value={collection}
+          />
+          <datalist id="document-collections">
+            {[...new Set(documents.map((document) => document.collection).filter((value): value is string => Boolean(value)))]
+              .map((value) => <option key={value} value={value} />)}
+          </datalist>
+        </label>
         {/* The label never changes: swapping in a longer "importing" sentence
             resized the button and shoved the picker on every refresh, because
             `busy` is set by refreshing too. The icon carries the state instead. */}

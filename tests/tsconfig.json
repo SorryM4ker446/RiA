@@ -1,0 +1,14 @@
+{
+  "extends": "./../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "strict": false,
+    "noImplicitAny": false,
+    // Node runs these files directly and resolves the real extension, so a
+    // `.ts` specifier is the honest one; noEmit makes rewriting unnecessary.
+    "allowImportingTsExtensions": true,
+    "types": ["node"]
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["../node_modules", "../.next", "../.desktop-data", "../out", "../electron-dist", "../src", "../scripts", "../electron"]
+}

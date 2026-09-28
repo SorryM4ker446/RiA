@@ -43,3 +43,25 @@ Queries of three or more Unicode characters use case-insensitive trigram matchin
 FTS tables/triggers are intentionally managed by SQL migrations, outside the Prisma schema models. Keep them when reviewing generated migrations or introspection changes. Indexes duplicate searchable text inside the private database and increase its size; they contain the same private message content as the source records. Do not copy them to a public directory.
 
 Desktop startup backs up an existing database before applying pending migrations. Local Web migration commands do not create that backup automatically: back up an existing database before migration. Automatic tests use isolated databases, media and download directories. They verify legacy backfill, punctuation/Chinese search, archive restoration, atomic deletion, export boundaries, authenticated browser downloads and actual Electron downloads after a service restart. Installer upgrade/uninstall/reinstall acceptance remains a separate release check.
+
+## Unsent drafts
+
+What is typed into the composer is kept per conversation. Switching conversations, switching pages, reloading or restarting the application all return it to the same conversation.
+
+Attachments are uploaded when they are chosen, and the draft keeps the reference the server returned rather than the file: a file cannot be handed back after a reload, a reference can, so a draft is still sendable after a restart. An uploaded attachment that is never sent becomes an unreferenced file, which the media store's existing grace-period cleanup reclaims — an abandoned draft costs disk for a while and nothing more.
+
+A draft is cleared only once the turn actually produced an answer. A send that fails puts the text back so it can be retried. Stopping does not: the question was delivered and is in the conversation, and putting it back would invite sending it twice.
+
+## Stopping a turn
+
+While a turn is running, the send control is replaced by **stop**. Stopping abandons the request, not the question: whatever the model produced stays on screen and is stored as an interrupted answer. It does not mean the provider stopped billing.
+
+## Keyboard and copying
+
+- **Enter** sends, **Shift+Enter** adds a line; an Enter that is part of an input-method composition does not send.
+- **Escape** closes a delete confirmation; with none open, it stops a running turn.
+- Every answer has a **copy** control, and a code block has its own **copy code** control that appears on hover or focus — selecting text across a scrollable code box is a poor substitute. When the clipboard is unavailable the answer is not interrupted and the text stays selectable.
+
+## Following the scroll
+
+New messages are followed while the reader is already at the bottom, and are ignored once they have scrolled up, where a **jump to latest** control appears. The decision is made by measuring the position at the moment content arrives rather than from a remembered scroll event: a scroll that has not been delivered yet would otherwise read as "still following" and pull the view down in the middle of an answer.

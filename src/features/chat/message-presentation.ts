@@ -3,6 +3,21 @@ import { t } from "@/lib/locale";
 import type { SearchSourceItem, TaskItem } from "@/features/chat/types";
 import { documentSourceSchema, type DocumentSource } from "@/lib/documents/types";
 
+/**
+ * What this turn could not do, stated once next to the message it belongs to.
+ *
+ * It is read from the stored turn rather than from the live stream, so a
+ * reloaded conversation says the same thing the first time did, and it never
+ * becomes a claim that some other turn did not search.
+ */
+export function getTurnNotices(message: UIMessage): string[] {
+  if (message.role !== "assistant") return [];
+  const metadata = message.metadata as { unavailableTools?: unknown } | undefined;
+  if (!Array.isArray(metadata?.unavailableTools)) return [];
+  const labels: Record<string, string> = { webSearch: t("chat.notice.webSearchUnavailable") };
+  return [...new Set(metadata.unavailableTools.filter((value): value is string => typeof value === "string").map(id => labels[id]).filter(Boolean))];
+}
+
 export function getDocumentSources(message: UIMessage): DocumentSource[] {
   if (message.role !== "assistant") return [];
   const metadata = message.metadata as { documentSources?: unknown } | undefined;

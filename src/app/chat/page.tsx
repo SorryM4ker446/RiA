@@ -8,6 +8,7 @@ import { ConversationList } from "@/features/chat/conversation-list";
 import { DeleteDialog } from "@/features/chat/delete-dialog";
 import { MessageRenderer } from "@/features/chat/message-renderer";
 import { TaskPanel } from "@/features/chat/task-panel";
+import { RunRecords } from "@/features/chat/run-records";
 import { useChatState } from "@/features/chat/use-chat-state";
 import { TriangleAlert } from "lucide-react";
 import { t } from "@/lib/locale";
@@ -29,6 +30,10 @@ export default function ChatPage() {
 
           <CardContent className="flex min-h-0 flex-1 flex-col gap-4 p-4">
             <MessageRenderer {...chat} />
+
+            {/* What the turn did, above the composer: the place someone looks
+                when an answer mentions a task or a search they did not see. */}
+            <RunRecords activeChatId={chat.activeChatId} refreshKey={chat.messages.length} />
 
             {effectiveError ? (
               <Alert variant="destructive">

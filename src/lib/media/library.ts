@@ -6,7 +6,7 @@ import { ApiError } from "@/lib/server/api-error";
 import { pageResult, readPageOptions } from "@/lib/server/pagination";
 import { getMediaAsset } from "@/lib/media/storage";
 import { mediaUrl } from "@/lib/media/message-codec";
-import { readGenerationRecipe } from "@/lib/media/generation-recipe";
+import { readGenerationRecipe, recipeModelRef } from "@/lib/media/generation-recipe";
 import { modelInLibrary } from "@/lib/models/preferences";
 
 const filters = z.strictObject({ type: z.enum(["all", "image", "video"]).default("all"), kind: z.enum(["all", "attachment", "generated-image", "generated-video"]).default("all"), usage: z.enum(["all", "referenced", "unused"]).default("all") });
@@ -44,7 +44,7 @@ export async function getMediaDetail(id: string) {
   let regenerationUnavailable: string | null = null;
   if (!recipe || asset.kind !== `generated-${recipe.type}`) regenerationUnavailable = t("lib.media.regenerateNoRecipe");
   else {
-    const model = await modelInLibrary(recipe.type, recipe.modelId);
+    const model = await modelInLibrary(recipe.type, recipeModelRef(recipe));
     if (!model) regenerationUnavailable = t("lib.media.regenerateModelGone");
     else {
       const ids = [...new Set(recipe.inputImages.map(image => image.assetId))];
