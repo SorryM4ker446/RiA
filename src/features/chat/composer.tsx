@@ -1,4 +1,5 @@
 import { modelRefKey } from "@/lib/models/preferences-schema";
+import { attachmentLabel } from "@/features/chat/draft";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,16 +8,28 @@ import { Textarea } from "@/components/ui/textarea";
 import { t, tf } from "@/lib/locale";
 import { IMAGE_MEDIA_TYPES } from "@/lib/media/limits";
 import { cn } from "@/lib/utils/cn";
-import { Loader2, Paperclip, SendHorizonal } from "lucide-react";
+import { Loader2, Paperclip, SendHorizonal, Square, X } from "lucide-react";
 import { getManualToolFieldError } from "@/features/chat/tool-input";
 import type { ManualToolSelection } from "@/features/chat/types";
 import type { ChatState } from "@/features/chat/use-chat-state";
 import { ModelMode } from "@/features/chat/page-utils";
 import type { ModelLibraryItem } from "@/lib/models/preferences-schema";
 
-type Props = Pick<ChatState, "onSubmit" | "modelMode" | "isPending" | "setSelectedManualTool" | "manualToolSelectValue" | "manualTools" | "manualToolsOnly" | "setManualToolsOnly" | "selectedManualToolConfig" | "manualToolFieldValues" | "setManualToolFieldValues" | "manualToolFieldErrors" | "setManualToolFieldErrors" | "toolCatalogError" | "unavailableTools" | "setInput" | "handleTextareaKeyDown" | "onTextareaPaste" | "textareaRef" | "input" | "isManualToolSelected" | "onAttachmentInputChange" | "fileInputRef" | "attachments" | "clearAttachments" | "attachmentNames" | "selectedImageModel" | "selectedVideoModel" | "selectedManualTool" | "selectedChatModel" | "activeChat" | "selectedModelInfo" | "selectedModel" | "onModeSelect" | "onModelSelect" | "modelLibrary">;
-export function Composer({ onSubmit, modelMode, isPending, setSelectedManualTool, manualToolSelectValue, manualTools, manualToolsOnly, setManualToolsOnly, selectedManualToolConfig, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors, setManualToolFieldErrors, toolCatalogError, unavailableTools, setInput, handleTextareaKeyDown, onTextareaPaste, textareaRef, input, isManualToolSelected, onAttachmentInputChange, fileInputRef, attachments, clearAttachments, attachmentNames, selectedImageModel, selectedVideoModel, selectedManualTool, selectedChatModel, activeChat, selectedModelInfo, selectedModel, onModeSelect, onModelSelect, modelLibrary }: Props) {
-  return (<form className="mt-auto space-y-3" noValidate onSubmit={onSubmit}>
+type Props = Pick<ChatState, "onStop" | "onSubmit" | "modelMode" | "isPending" | "setSelectedManualTool" | "manualToolSelectValue" | "manualTools" | "manualToolsOnly" | "setManualToolsOnly" | "selectedManualToolConfig" | "manualToolFieldValues" | "setManualToolFieldValues" | "manualToolFieldErrors" | "setManualToolFieldErrors" | "toolCatalogError" | "unavailableTools" | "setInput" | "handleTextareaKeyDown" | "onTextareaPaste" | "textareaRef" | "input" | "isManualToolSelected" | "onAttachmentInputChange" | "fileInputRef" | "attachments" | "isUploadingAttachments" | "isDraggingFiles" | "onComposerDragOver" | "onComposerDragLeave" | "onComposerDrop" | "clearAttachments" | "removeAttachmentAt" | "attachmentNames" | "selectedImageModel" | "selectedVideoModel" | "selectedManualTool" | "selectedChatModel" | "activeChat" | "selectedModelInfo" | "selectedModel" | "onModeSelect" | "onModelSelect" | "modelLibrary">;
+export function Composer({ onStop, onSubmit, modelMode, isPending, setSelectedManualTool, manualToolSelectValue, manualTools, manualToolsOnly, setManualToolsOnly, selectedManualToolConfig, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors, setManualToolFieldErrors, toolCatalogError, unavailableTools, setInput, handleTextareaKeyDown, onTextareaPaste, textareaRef, input, isManualToolSelected, onAttachmentInputChange, fileInputRef, attachments, isUploadingAttachments, isDraggingFiles, onComposerDragOver, onComposerDragLeave, onComposerDrop, clearAttachments, removeAttachmentAt, attachmentNames, selectedImageModel, selectedVideoModel, selectedManualTool, selectedChatModel, activeChat, selectedModelInfo, selectedModel, onModeSelect, onModelSelect, modelLibrary }: Props) {
+  return (<form
+    className={cn(
+      "mt-auto space-y-3 rounded-lg transition-shadow duration-[--dur-fast]",
+      // Only lit while a real file drag is over the composer, so a drag of
+      // selected text does not look like an invitation to drop a file.
+      isDraggingFiles && "ring-2 ring-ring ring-offset-2 ring-offset-background",
+    )}
+    noValidate
+    onDragLeave={onComposerDragLeave}
+    onDragOver={onComposerDragOver}
+    onDrop={onComposerDrop}
+    onSubmit={onSubmit}
+  >
     {modelMode === "chat" && selectedManualToolConfig && selectedManualToolConfig.manual.fields.length > 0 ? (
       <div className="grid gap-2 md:grid-cols-3">
         {selectedManualToolConfig.manual.fields.map((field) => {
@@ -214,6 +227,43 @@ export function Composer({ onSubmit, modelMode, isPending, setSelectedManualTool
         value={input}
       />
 
+      {/*
+        A thumbnail is worth more than a file name here: the user is deciding
+        whether the right picture got attached, and a name cannot answer that.
+        Each one removes itself rather than only offering "remove all", because
+        fixing a wrong pick should not cost the picks that were right.
+      */}
+      {attachments.length > 0 ? (
+        <ul className="flex flex-wrap gap-2 px-3 pt-3" aria-label={t("chat.composer.attachmentListLabel")}>
+          {attachments.map((attachment, index) => (
+            <li className="group relative" key={`${attachment.url}-${index}`}>
+              {/* eslint-disable-next-line @next/next/no-img-element -- the asset
+                  lives behind the local credential, which a next/image loader
+                  would fetch without it. */}
+              <img
+                alt={attachmentLabel(attachment)}
+                className="h-14 w-14 rounded-md border border-border object-cover"
+                src={attachment.url}
+              />
+              <button
+                aria-label={t("chat.composer.removeAttachment")}
+                className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full border border-border bg-background text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                onClick={() => removeAttachmentAt(index)}
+                type="button"
+              >
+                <X aria-hidden="true" className="h-3 w-3" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {isUploadingAttachments ? (
+        <p className="flex items-center gap-1.5 px-3 pt-2 text-[11px] text-muted-foreground" role="status">
+          <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />
+          {t("chat.composer.uploadingAttachment")}
+        </p>
+      ) : null}
+
       <div className="flex items-center justify-between gap-2 px-3 pb-3">
         <div className="flex min-w-0 items-center gap-2">
           {/* The native control renders untranslated browser chrome inside an
@@ -269,25 +319,32 @@ export function Composer({ onSubmit, modelMode, isPending, setSelectedManualTool
           ) : null}
         </div>
 
-        <Button
-          className="shrink-0"
-          disabled={isPending || (!input.trim() && attachments.length === 0)}
-          type="submit"
-        >
-          {isPending ? (
-            <>
-              <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" />
-              {t("chat.composer.thinking")}
-            </>
-          ) : (
-            <>
-              <SendHorizonal aria-hidden="true" className="mr-2 h-4 w-4" />
-              {isManualToolSelected
-                ? selectedManualToolConfig?.manual.submitLabel ?? t("chat.composer.runTool")
-                : t("chat.composer.send")}
-            </>
-          )}
-        </Button>
+        {/* Stopping replaces sending while a turn is running. The label says
+            exactly that: the request to the provider is abandoned, not undone,
+            and anything already produced stays on screen. */}
+        {isPending ? (
+          <Button
+            aria-label={t("chat.composer.stop")}
+            className="shrink-0"
+            onClick={onStop}
+            type="button"
+            variant="secondary"
+          >
+            <Square aria-hidden="true" className="mr-2 h-3.5 w-3.5 fill-current" />
+            {t("chat.composer.stop")}
+          </Button>
+        ) : (
+          <Button
+            className="shrink-0"
+            disabled={!input.trim() && attachments.length === 0}
+            type="submit"
+          >
+            <SendHorizonal aria-hidden="true" className="mr-2 h-4 w-4" />
+            {isManualToolSelected
+              ? selectedManualToolConfig?.manual.submitLabel ?? t("chat.composer.runTool")
+              : t("chat.composer.send")}
+          </Button>
+        )}
       </div>
     </div>
 

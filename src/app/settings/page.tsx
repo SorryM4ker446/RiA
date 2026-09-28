@@ -12,6 +12,7 @@ import { t } from "@/lib/locale";
 
 export default function DesktopSettingsPage() {
   const [settings, setSettings] = useState<DesktopSettingsView | null>(null);
+  const [modelState, setModelState] = useState<{ library: unknown[]; chat: { model: unknown } } | null>(null);
   const [runtime, setRuntime] = useState<DesktopRuntimeInfo | null>(null);
   const [openrouterApiKey, setOpenrouterApiKey] = useState("");
   const [tavilyApiKey, setTavilyApiKey] = useState("");
@@ -37,10 +38,20 @@ export default function DesktopSettingsPage() {
       return;
     }
 
-    Promise.all([bridge.getSettings(), bridge.getRuntimeInfo()])
-      .then(([loadedSettings, loadedRuntime]) => {
+    Promise.all([
+      bridge.getSettings(),
+      bridge.getRuntimeInfo(),
+      // The readiness steps describe what is configured, and two of the three
+      // live in model settings rather than in the desktop store. A failure here
+      // must not block the page, so it is settled separately below.
+      fetch("/api/models", { credentials: "same-origin" })
+        .then((response) => (response.ok ? response.json() : null))
+        .catch(() => null),
+    ])
+      .then(([loadedSettings, loadedRuntime, models]) => {
         setSettings(loadedSettings);
         setRuntime(loadedRuntime);
+        if (models?.data) setModelState({ library: models.data.library ?? [], chat: models.data.chat ?? { model: null } });
         setOutboundProxyUrl(loadedSettings.outboundProxyUrl);
         setOpenrouterSiteName(loadedSettings.openrouterSiteName);
         setOpenrouterHttpReferer(loadedSettings.openrouterHttpReferer);
@@ -53,6 +64,9 @@ export default function DesktopSettingsPage() {
       .catch((loadError) => setError(loadError instanceof Error ? loadError.message : t("settings.error.load")))
       .finally(() => setIsLoading(false));
   }, []);
+
+  const modelCount = modelState?.library.length ?? 0;
+  const hasDefaultModel = Boolean((modelState?.chat.model as { modelId?: unknown } | null)?.modelId);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -117,6 +131,35 @@ export default function DesktopSettingsPage() {
           <AlertTitle>{t("settings.notice.title")}</AlertTitle>
           <AlertDescription>{notice}</AlertDescription>
         </Alert>
+      ) : null}
+
+      {/*
+        What the workspace can actually do right now, and the one thing that
+        unlocks the next step. A user who has configured nothing is told the
+        order rather than left to infer it from a form.
+      */}
+      {settings ? (
+        <ol className="grid gap-2 sm:grid-cols-3" aria-label={t("settings.readinessLabel")}>
+          {[
+            { done: settings.hasOpenrouterApiKey || settings.hasDeepseekApiKey, label: t("settings.step.provider"), detail: t("settings.step.providerDetail") },
+            { done: modelCount > 0, label: t("settings.step.models"), detail: t("settings.step.modelsDetail") },
+            { done: hasDefaultModel, label: t("settings.step.default"), detail: t("settings.step.defaultDetail") },
+          ].map((step, index) => (
+            <li className="rounded-lg border border-border bg-card p-3 text-sm shadow-hairline" key={step.label}>
+              <span className="flex items-center gap-2 font-medium tracking-label">
+                {step.done ? (
+                  <CheckCircle2 aria-hidden="true" className="h-4 w-4 text-success" />
+                ) : (
+                  <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full border border-border text-[10px] text-muted-foreground">
+                    {index + 1}
+                  </span>
+                )}
+                {step.label}
+              </span>
+              <span className="mt-1 block text-xs text-muted-foreground">{step.detail}</span>
+            </li>
+          ))}
+        </ol>
       ) : null}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">

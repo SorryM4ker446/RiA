@@ -36,6 +36,10 @@ export const chatMessages = {
   "chat.composer.toolNotConfigured": "未配置",
   "chat.composer.providerSearchNote": "当前模型自带联网：回答会由服务商检索并额外计费，且不会出现在本应用的工具记录里。",
   "chat.composer.chooseFile": "\u9009\u62e9\u6587\u4ef6",
+  "chat.composer.attachmentListLabel": "已添加的图片",
+  "chat.composer.removeAttachment": "移除这张图片",
+  "chat.composer.uploadingAttachment": "正在上传图片…",
+  "chat.composer.stop": "停止",
   "chat.composer.thinking": "\u601d\u8003\u4e2d",
   "chat.toolbar.modeChat": "聊天模式",
   "chat.toolbar.modeImage": "文生图模式",
@@ -85,6 +89,9 @@ export const chatMessages = {
   "chat.conversations.loadMore": "加载更多会话",
 
   // --- message list ------------------------------------------------------
+  "chat.messages.copyAnswer": "复制这条回答",
+  "chat.copyCode": "复制代码",
+  "chat.messages.jumpToLatest": "回到最新",
   "chat.messages.loadOlder": "加载更早消息",
   "chat.messages.empty": "开始你的第一条消息吧。支持流式回复、会话持久化和工具调用。",
   "chat.messages.edit": "编辑消息",

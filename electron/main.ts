@@ -587,7 +587,11 @@ async function bootstrap() {
   registerIpcHandlers();
 
   const settings = await settingsStore.getView();
-  const initialPath = packagedRuntime && !settings.hasOpenrouterApiKey ? "/settings?welcome=1" : "/chat";
+  // The welcome page is for an installation that cannot call any model at all.
+  // Keying it on one provider sent a workspace configured only for DeepSeek to
+  // the settings screen on every launch, asking for a key it does not need.
+  const hasAnyProviderKey = settings.hasOpenrouterApiKey || settings.hasDeepseekApiKey;
+  const initialPath = packagedRuntime && !hasAnyProviderKey ? "/settings?welcome=1" : "/chat";
   mainWindow = await createMainWindow(initialPath);
   reminderPoller = new TaskReminderPoller({
     connection: () => nextServer ? { origin: nextServer.origin, cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}` } : null,

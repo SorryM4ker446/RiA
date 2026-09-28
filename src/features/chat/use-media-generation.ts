@@ -1,12 +1,13 @@
-import { dedupeFiles, encodeImageMessage, encodeVideoMessage, type ModelMode, type UploadableFilePart } from "@/features/chat/page-utils";
+import { dedupeAttachmentNames, dedupeFiles, encodeImageMessage, encodeVideoMessage, type ModelMode, type UploadableFilePart } from "@/features/chat/page-utils";
 import { encodePersistedUserMessage } from "@/lib/ai/ui-message";
 import { t } from "@/lib/locale";
-import { attachmentValidationError } from "@/lib/media/limits";
+import { attachmentValidationError, MEDIA_LIMITS } from "@/lib/media/limits";
 import type { UIMessage } from "ai";
 import type { ModelRef } from "@/lib/models/preferences-schema";
 import type { Dispatch, RefObject, SetStateAction } from "react";
-import { type ChangeEvent, useLayoutEffect, useRef, useState } from "react";
-import { chatApi, persistConversationMessage } from "@/features/chat/api-client";
+import { type ChangeEvent, type DragEvent, useCallback, useLayoutEffect, useRef, useState } from "react";
+import { chatApi, filesToUploadParts, persistConversationMessage } from "@/features/chat/api-client";
+import { attachmentLabel } from "@/features/chat/draft";
 
 type MediaView = {
   chatId: string | null;
@@ -120,7 +121,9 @@ export function useMediaGeneration({ activeChatId, isHistoryReady, setMessages, 
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
   const [imageByMessageId, setImageByMessageId] = useState<Record<string, string>>({});
   const [videoByMessageId, setVideoByMessageId] = useState<Record<string, string>>({});
-  const [attachments, setAttachments] = useState<File[]>([]);
+  // Attachments are stored as the reference the upload returned rather than as
+  // the chosen file: a file cannot be recovered after a reload, a reference can.
+  const [attachments, setAttachments] = useState<UploadableFilePart[]>([]);
   const [attachingImageKey, setAttachingImageKey] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const viewRef = useRef<MediaView>({ chatId: activeChatId, ready: isHistoryReady, setMessages, reloadMessages });
@@ -129,17 +132,40 @@ export function useMediaGeneration({ activeChatId, isHistoryReady, setMessages, 
     if (viewRef.current.chatId !== activeChatId) viewVersionRef.current += 1;
     viewRef.current = { chatId: activeChatId, ready: isHistoryReady, setMessages, reloadMessages };
   });
-  const attachmentNames = attachments.map((file) => file.name || t("mediaGen.untitledFile"));
+  const attachmentNames = attachments.map(attachmentLabel);
+  // Exposed so a restored draft can be applied without the composer remounting.
+  const replaceAttachments = useCallback((next: UploadableFilePart[]) => setAttachments(next), []);
   const reuseImageActionLabel = modelMode === "image" ? t("mediaGen.reuseEdit") : modelMode === "chat" ? t("mediaGen.reuseAsk") : t("mediaGen.reuseVideoRef");
   function clearAttachments() {
     setAttachments([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
-  function appendAttachments(nextFiles: File[]) {
-    const combined = dedupeFiles([...attachments, ...nextFiles]);
-    const validation = attachmentValidationError(combined) || (modelMode === "video" && combined.length > 1 ? t("mediaGen.videoReferenceLimit") : null);
+  /**
+   * Uploads as soon as the file is chosen, so the draft only has to remember a
+   * reference. A file that fails to upload is reported here rather than at send
+   * time, when the rest of the message is already written.
+   */
+  function removeAttachmentAt(index: number) {
+    setAttachments((current) => current.filter((_, position) => position !== index));
+  }
+
+  async function appendAttachments(nextFiles: File[]) {
+    const combined = dedupeAttachmentNames([...attachments.map((part) => part.filename ?? ""), ...nextFiles.map((file) => file.name ?? "")]);
+    const validation = attachmentValidationError(nextFiles) || (modelMode === "video" && combined.length > 1 ? t("mediaGen.videoReferenceLimit") : null);
     if (validation) { setPageError(validation); return; }
-    setAttachments(combined);
+    if (attachments.length + nextFiles.length > MEDIA_LIMITS.attachmentCount) { setPageError(t("mediaGen.videoReferenceLimit")); return; }
+    const version = viewVersionRef.current;
+    setIsUploadingAttachments(true);
+    setPageError(null);
+    try {
+      const uploaded = await filesToUploadParts(nextFiles);
+      if (version !== viewVersionRef.current) return;
+      setAttachments((current) => [...current, ...uploaded]);
+    } catch (error) {
+      if (version === viewVersionRef.current) setPageError(error instanceof Error ? error.message : t("chatApi.uploadAttachmentFailed"));
+    } finally {
+      if (version === viewVersionRef.current) setIsUploadingAttachments(false);
+    }
   }
   async function onReuseImageForEditing(params: { imageUrl: string; key: string; filenameBase: string }) {
     const version = viewVersionRef.current;
@@ -162,6 +188,7 @@ export function useMediaGeneration({ activeChatId, isHistoryReady, setMessages, 
     appendAttachments(Array.from(event.target.files ?? []));
     event.currentTarget.value = "";
   }
+
   function generate(kind: "image" | "video", content: string, uploadParts: UploadableFilePart[]) {
     const version = viewVersionRef.current;
     return runMediaGeneration({
@@ -174,8 +201,8 @@ export function useMediaGeneration({ activeChatId, isHistoryReady, setMessages, 
   }
   return {
     isGeneratingImage, isGeneratingVideo, isUploadingAttachments, setIsUploadingAttachments,
-    imageByMessageId, setImageByMessageId, videoByMessageId, setVideoByMessageId, attachments,
-    attachingImageKey, fileInputRef, attachmentNames, reuseImageActionLabel, clearAttachments,
+    imageByMessageId, setImageByMessageId, videoByMessageId, setVideoByMessageId, attachments, replaceAttachments,
+    attachingImageKey, fileInputRef, attachmentNames, reuseImageActionLabel, clearAttachments, removeAttachmentAt,
     appendAttachments, onReuseImageForEditing, onAttachmentInputChange,
     generateImage: (content: string, uploadParts: UploadableFilePart[]) => generate("image", content, uploadParts),
     generateVideo: (content: string, uploadParts: UploadableFilePart[]) => generate("video", content, uploadParts),

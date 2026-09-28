@@ -43,3 +43,23 @@ Queries of three or more Unicode characters use case-insensitive trigram matchin
 FTS tables/triggers are intentionally managed by SQL migrations, outside the Prisma schema models. Keep them when reviewing generated migrations or introspection changes. Indexes duplicate searchable text inside the private database and increase its size; they contain the same private message content as the source records. Do not copy them to a public directory.
 
 Desktop startup backs up an existing database before applying pending migrations. Local Web migration commands do not create that backup automatically: back up an existing database before migration. Automatic tests use isolated databases, media and download directories. They verify legacy backfill, punctuation/Chinese search, archive restoration, atomic deletion, export boundaries, authenticated browser downloads and actual Electron downloads after a service restart. Installer upgrade/uninstall/reinstall acceptance remains a separate release check.
+
+## 未发送的草稿
+
+聊天输入框里的内容按会话保存：切换会话、切换页面、刷新或重启应用后回到同一个会话，输入框仍是写了一半的内容。附件在**被选中时**就上传，草稿保存的是服务器给出的引用而不是文件本身——文件在重载后无法取回，引用可以，所以草稿在重启后仍能直接发送。上传后没有发送的附件会变成无引用文件，媒体存储的既有回收策略会先保留一段宽限期再清理，废弃的草稿因此只占一点磁盘。
+
+草稿在**这一轮真的产生了回答**之后才清除。发送失败时输入内容会被放回，可以直接重发；点"停止"则不会放回——问题本身已经发出并存在于会话里，放回输入框等于邀请用户再发一次。
+
+## 停止生成
+
+一轮回答进行中时，发送按钮被"停止"取代。停止放弃的是对服务商的请求，不是已经产生的内容：已输出的部分留在页面上并按被中断的回复保存。停止不代表上游不计费，费用视图照常记录。
+
+## 键盘与复制
+
+- **Enter** 发送，**Shift+Enter** 换行；输入法组合中的 Enter 不触发发送。
+- **Escape** 关闭删除确认框；没有确认框打开时，停止正在生成的一轮。
+- 每条回答有**复制**按钮；代码块有独立的**复制代码**按钮（悬停或聚焦时出现），代码块里跨行选取容易被滚动容器打断。剪贴板不可用时不会打断回答，文字仍可手动选取。
+
+## 跟随滚动
+
+新消息到达时，读者在底部就跟随；已经往上翻就不动，并把"回到最新"留在视口底部。强行把视图拉到底会毁掉他刚找到的位置，所以判断的是位置而不是消息条数。

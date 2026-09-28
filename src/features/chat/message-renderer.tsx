@@ -15,13 +15,16 @@ import {
 } from "@/features/chat/page-utils";
 import { cn } from "@/lib/utils/cn";
 import {
+  ArrowDown,
   Check,
+  Copy,
   Loader2,
   PencilLine,
   RefreshCw,
   Trash2,
   X
 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { getDocumentSources, getTurnNotices, getWebSearchSources, resolveMessageSourceTag } from "@/features/chat/message-presentation";
 import { t, tf } from "@/lib/locale";
@@ -37,7 +40,93 @@ const DRAFT_HISTORY_QUERY = "draft";
 type Props = Pick<ChatState, "activeChatId" | "isLoadingHistory" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId" | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText" | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel" | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages">;
 export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, addToolApprovalResponse, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages }: Props) {
   const awaitingFirstHistoryLoad = useAwaitingFirstLoad(isLoadingHistory, activeChatId ?? DRAFT_HISTORY_QUERY);
-  return (<div className="chat-list-scroll min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+  const distanceFromBottom = () => document.documentElement.scrollHeight - window.scrollY - window.innerHeight;
+
+  /*
+   * Following the conversation is only right while the reader is already at the
+   * bottom. Yanking the viewport down mid-scroll would throw away the place they
+   * scrolled to, so the position decides: near the bottom follows new content,
+   * anywhere else stays put and offers a way back.
+   */
+  // The transcript is scrolled by the page, not by a panel: the chat section
+  // grows with its content, so the message list has no height of its own to
+  // scroll. Following therefore has to watch and move the document.
+  const [hasUnreadBelow, setHasUnreadBelow] = useState(false);
+  // The first layout after a conversation opens has no previous position worth
+  // preserving, so it always opens at the newest message. After that, the
+  // position is what decides.
+  const hasOpenedRef = useRef(false);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+
+  /**
+   * Copying an answer is a first-class action, not something to be done by
+   * selecting across a code block. The confirmation falls back on its own so it
+   * cannot be left saying "copied" after the reader has moved on.
+   */
+  async function copyAnswer(message: { id: string; text: string }) {
+    if (!message.text.trim()) return;
+    try {
+      await navigator.clipboard.writeText(message.text);
+      setCopiedMessageId(message.id);
+      setTimeout(() => setCopiedMessageId((current) => (current === message.id ? null : current)), 2000);
+    } catch {
+      // A clipboard the page may not use is not worth interrupting the answer
+      // for; the text stays selectable.
+    }
+  }
+  useEffect(() => {
+    const onScroll = () => {
+      if (distanceFromBottom() <= 96) setHasUnreadBelow(false);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [activeChatId]);
+
+  const lastMessageSignature = messages.length > 0 ? `${messages.length}:${messages.at(-1)?.parts.length ?? 0}` : "0";
+  useEffect(() => {
+    // Measured here rather than remembered from a scroll event: whether the
+    // reader is at the bottom has to be true at the moment content arrives,
+    // not at the moment they last moved. A scroll event that has not been
+    // delivered yet would otherwise be read as "still following" and yank the
+    // view down mid-answer.
+    const frame = requestAnimationFrame(() => {
+      // Only counts as opening once there is something to open: the first
+      // layout of an empty transcript has no position to go to, and treating it
+      // as "already opened" would make the arriving history look like the
+      // reader had scrolled away from it.
+      if (!hasOpenedRef.current && messages.length > 0) {
+        hasOpenedRef.current = true;
+        window.scrollTo({ top: document.documentElement.scrollHeight });
+        setHasUnreadBelow(false);
+        return;
+      }
+      if (!hasOpenedRef.current) return;
+      if (distanceFromBottom() <= 96) {
+        window.scrollTo({ top: document.documentElement.scrollHeight });
+        setHasUnreadBelow(false);
+      } else if (messages.length > 0) {
+        setHasUnreadBelow(true);
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [lastMessageSignature, messages.length, activeChatId]);
+
+  function jumpToLatest() {
+    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
+    setHasUnreadBelow(false);
+  }
+
+  return (<div className="space-y-4 pr-1" data-testid="message-list">
+  {/* Fixed: the page is what scrolls, so the control sits against the viewport
+      rather than inside the transcript. */}
+  {hasUnreadBelow ? (
+    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-20 flex justify-center">
+      <Button className="pointer-events-auto shadow-card" onClick={jumpToLatest} size="sm" type="button" variant="secondary">
+        <ArrowDown aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
+        {t("chat.messages.jumpToLatest")}
+      </Button>
+    </div>
+  ) : null}
     {/* Same rule as the conversation list: the label stays put while older
         messages load, so the button does not resize and the scroll position
         does not shift. */}
@@ -130,6 +219,21 @@ export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imag
                         variant="ghost"
                       >
                         <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
+                      </Button>
+                    ) : null}
+                    {!isUser && text ? (
+                      <Button
+                        aria-label={t("chat.messages.copyAnswer")}
+                        onClick={() => void copyAnswer({ id: message.id, text })}
+                        size="icon"
+                        type="button"
+                        variant="ghost"
+                      >
+                        {copiedMessageId === message.id ? (
+                          <Check aria-hidden="true" className="h-3.5 w-3.5 text-success" />
+                        ) : (
+                          <Copy aria-hidden="true" className="h-3.5 w-3.5" />
+                        )}
                       </Button>
                     ) : null}
                     <Button

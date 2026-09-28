@@ -108,3 +108,19 @@ Document regressions import actual generated PDF/DOCX and UTF-8 text/Markdown th
 The desktop migration regression upgrades an existing database, checks its backup and preserved chat, then verifies document/index persistence and deletion cascades. Electron smoke imports a real synthetic PDF and DOCX and checks extracted text, page references, authenticated reads and search after a service restart. Binary fixtures are generated from code, contain no private documents and make no model requests. These checks exercise parser runtime dependencies in the prepared standalone artifact, not just the source tree. The existing CI server/browser/desktop commands include these regressions; no new CI service or secret is required.
 
 These tests do not certify every real OpenRouter model, network outage behavior, or clean-machine installation/uninstallation. Desktop path isolation and restart persistence are tested, but a full installer upgrade/uninstall cycle remains a separate check. Distinguish the real media HTTP/SQLite chain from the mocked UI tests when reporting coverage.
+
+## 聊天交互回归
+
+`tests/e2e/chat-startup.spec.ts` 覆盖三条此前没有自动化保护的路径：
+
+- **未发送的草稿**：切换会话会停放草稿、切回会恢复，刷新后仍在；真正发出并得到回答后清除。
+- **停止生成**：进行中时发送按钮被"停止"取代，停止后回到可发送状态，并且**不会**把问题塞回输入框——它已经在会话里了。
+- **推理过程展示**：折叠块位于答案上方、不混入答案正文、展开后答案完整。
+
+`tests/e2e/media-storage.spec.ts` 覆盖图片生成与附件上传后的持久化与受保护读取。
+
+## 界面走查
+
+`tests/e2e/interface-walkthrough.spec.ts` 在验收要求的几种条件下截图：1440px 与 390px 宽度、深浅两种主题、125% 与 150% 文字缩放、键盘焦点、滚动到顶部。
+
+它同时断言无需人眼即可判断的部分：两种宽度下都没有横向溢出、输入框与发送按钮在 390px 和 150% 缩放下仍然可见可达。**它不是视觉验收**——截图需要人看，通过这条用例不等于界面走查通过。

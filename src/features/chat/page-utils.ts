@@ -155,6 +155,11 @@ export function getFileParts(message: UIMessage): FilePart[] {
   return message.parts.filter((part): part is FilePart => part.type === "file");
 }
 
+/** The same name and size twice is one attachment, not two. */
+export function dedupeAttachmentNames(names: string[]): string[] {
+  return [...new Set(names.filter(Boolean))];
+}
+
 export function dedupeFiles(files: File[]): File[] {
   const seen = new Set<string>();
   const result: File[] = [];
