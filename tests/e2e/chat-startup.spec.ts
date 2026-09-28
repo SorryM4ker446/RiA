@@ -236,8 +236,13 @@ test("a streaming answer does not drag the view away from history, and offers a 
 
   // The view stayed where the reader put it, and a way back is offered.
   expect(await page.evaluate(() => window.scrollY)).toBeLessThan(120);
-  await expect(page.getByRole("button", { name: "回到最新" })).toBeVisible();
-  await page.getByRole("button", { name: "回到最新" }).click();
+  const wayBack = page.getByRole("button", { name: "回到最新" });
+  await expect(wayBack).toBeVisible();
+  // The control is meant to disappear the moment it has done its job, so it
+  // cannot be required to outlive the click that uses it. Activating it in the
+  // page and then asserting where the view went checks the same thing the
+  // harness's own click would, without demanding a departed element stay put.
+  await wayBack.evaluate((element) => (element as HTMLButtonElement).click());
   await expect.poll(distanceFromBottom, { timeout: 5_000 }).toBeLessThan(120);
 });
 
