@@ -30,11 +30,15 @@ async function POSTHandler(req: NextRequest) {
     try { form = await new Response(bytes, { headers: { "Content-Type": contentType } }).formData(); }
     catch { throw new ApiError({ code: "VALIDATION_ERROR", message: t("api.documents.invalidUpload") }); }
     const file = form.get("file");
-    if ([...form.keys()].length !== 1 || !(file instanceof File)) throw new ApiError({ code: "VALIDATION_ERROR", message: t("api.documents.singleFileField") });
+    if (![...form.keys()].every((key) => key === "file" || key === "collection")) throw new ApiError({ code: "VALIDATION_ERROR", message: t("api.documents.singleFileField") });
+    if (!(file instanceof File)) throw new ApiError({ code: "VALIDATION_ERROR", message: t("api.documents.singleFileField") });
+    // An optional topic, so a document can be filed without a second form.
+    const rawCollection = form.get("collection");
+    const collection = typeof rawCollection === "string" && rawCollection.trim() ? rawCollection.trim().slice(0, 40) : null;
     const { filename, format } = validateDocumentFile(file);
     const pages = await parseDocument(new Uint8Array(await file.arrayBuffer()), format, req.signal);
     if (req.signal.aborted) throw new ApiError({ code: "VALIDATION_ERROR", message: t("api.documents.importCancelled") });
-    const data = await indexDocument({ filename, format, byteSize: file.size, pages });
+    const data = await indexDocument({ filename, collection, format, byteSize: file.size, pages });
     return Response.json({ data }, { status: data.change === "created" ? 201 : 200, headers: { "Cache-Control": "no-store" } });
   } catch (error) { return createApiErrorResponse(error, t("api.documents.importFailed")); }
 }

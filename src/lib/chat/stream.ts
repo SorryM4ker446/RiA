@@ -9,7 +9,7 @@ import { persistChatResponse, type ChatPersistence } from "@/lib/chat/persistenc
 import type { ChatRequest } from "@/lib/chat/request";
 import type { DocumentSource } from "@/lib/documents/types";
 import { retainDataOperation } from "@/lib/server/data-operations";
-export function streamChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; documentSources?: DocumentSource[]; unavailableTools?: string[] }) {
+export function streamChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; documentSources?: DocumentSource[]; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean }) {
   const { input, conversation, systemPrompt, modelMessages, toolsEnabled, signal } = params;
   const { modelRef, body, messages } = input;
   const { chat } = conversation;
@@ -33,6 +33,8 @@ export function streamChatResponse(params: { input: ChatRequest; conversation: C
       ? {
         tools: createChatToolSet({
           modelRef,
+          runId: params.runId ?? null,
+          usesMemory: params.usesMemory !== false,
         }),
       }
       : {}),
@@ -60,6 +62,7 @@ export function streamChatResponse(params: { input: ChatRequest; conversation: C
         input, conversation, responseMessage, isAborted, generationFailed,
         documentSources: params.documentSources,
         unavailableTools: params.unavailableTools,
+        usesMemory: params.usesMemory !== false,
       });
     },
   });

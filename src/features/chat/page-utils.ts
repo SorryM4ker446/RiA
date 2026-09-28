@@ -14,6 +14,8 @@ export type ChatSummary = {
   messageCount: number;
   pinned?: boolean;
   archived?: boolean;
+  ephemeral?: boolean;
+  documentScope?: string;
   tags?: string[];
 };
 

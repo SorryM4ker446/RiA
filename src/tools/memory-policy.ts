@@ -193,6 +193,9 @@ export async function persistToolMemory(params: PersistToolMemoryParams): Promis
     key,
     value,
     score: Math.max(0, Math.min(1, draft.score)),
+    // What the assistant concluded on its own arrives as a candidate the user
+    // can see and accept, rather than as a fact the next turn already relies on.
+    source: "assistant",
   });
 
   logMemoryDecision({

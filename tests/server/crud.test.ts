@@ -89,15 +89,26 @@ test("task CRUD validates atomic updates, date normalization and filters", async
   await missing(await task.DELETE(request("/api/tasks", "DELETE"), context(id)));
 });
 
-test("knowledge upserts update one workspace row and CRUD excludes tool memories", async () => {
+test("knowledge upserts one row, and an inferred memory is listed and removable like any other", async () => {
   const entry = await data(await knowledge.POST(request("/api/knowledge", "POST", { key: " 数据库约定 ", value: " First " })), 201);
   const updated = await data(await knowledge.POST(request("/api/knowledge", "POST", { key: "数据库约定", value: "Updated", score: 0.7 })), 201);
   assert.equal(updated.id, entry.id);
   assert.equal(updated.value, "Updated");
-  const internal = await db.memory.create({ data: { key: "tool:private", value: "Tool record" } });
-  assert.deepEqual((await data(await knowledge.GET(request("/api/knowledge?limit=100")))).map((row) => row.id), [entry.id]);
-  await missing(await knowledgeEntry.DELETE(request("/api/knowledge", "DELETE"), context(internal.id)));
+
+  // What the assistant inferred used to be invisible here and undeletable. A
+  // candidate the user cannot see or remove is not a candidate they can decide
+  // about, so it is listed with its source and is removable.
+  const inferred = await db.memory.create({ data: { key: "tool:private", value: "Tool record", source: "assistant", confirmed: false } });
+  const listed = await data(await knowledge.GET(request("/api/knowledge?limit=100")));
+  assert.deepEqual(new Set(listed.map((row) => row.id)), new Set([entry.id, inferred.id]));
+  assert.equal(listed.find((row) => row.id === inferred.id).source, "assistant");
+  assert.equal(listed.find((row) => row.id === inferred.id).confirmed, false);
+
+  // The confirmed view is what the user has actually accepted.
+  const confirmed = await data(await knowledge.GET(request("/api/knowledge?view=confirmed")));
+  assert.deepEqual(confirmed.map((row) => row.id), [entry.id]);
+
+  await data(await knowledgeEntry.DELETE(request("/api/knowledge", "DELETE"), context(inferred.id)), 200);
   assert.equal((await knowledgeEntry.DELETE(request("/api/knowledge", "DELETE"), context(entry.id))).status, 200);
   assert.deepEqual(await data(await knowledge.GET(request("/api/knowledge"))), []);
-  assert.ok(await db.memory.findUnique({ where: { id: internal.id } }));
 });

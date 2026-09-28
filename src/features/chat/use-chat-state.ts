@@ -50,7 +50,8 @@ export function useChatState() {
     chats, activeChat, isCreatingChat, editingChatId, editingTitle, setEditingTitle, isChatListExpanded,
     setIsChatListExpanded, visibleChats, hasHiddenChats, loadChats, createNewChat, startEditingChat,
     cancelEditingChat, saveEditedTitle, performDeleteChat, ensureActiveChatId,
-    nextChatsCursor, isLoadingMoreChats, loadMoreChats,
+    nextChatsCursor, isLoadingMoreChats, loadMoreChats, toggleEphemeral, isEphemeralSaving,
+    documentTopics, loadDocumentTopics, setDocumentScope,
   } = useConversations({ activeChatId, setActiveChatId, preferences: { modelMode, selectedChatModel, selectedImageModel, selectedVideoModel, selectedManualTool, manualToolsOnly }, applyChatPreferences, resetConversation, persistCurrentStreamingAssistantIfNeeded, setPageError });
   const transport = useMemo(() => createChatTransport(activeChatId, { selectedChatModel, manualToolsOnly, modelMode }), [activeChatId, selectedChatModel, manualToolsOnly, modelMode]);
   const { messages, setMessages, sendMessage, regenerate, addToolApprovalResponse, status, error, clearError, stop } = useChat({
@@ -676,6 +677,7 @@ export function useChatState() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [pendingDelete, isDeleting, isPending, onStop]);
   return {
+    toggleEphemeral, isEphemeralSaving, documentTopics, loadDocumentTopics, setDocumentScope,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages,
     isCreatingChat, createNewChat, chats, visibleChats, activeChatId, editingChatId, setEditingTitle,
     editingTitle, saveEditedTitle, cancelEditingChat, switchActiveChat, startEditingChat,

@@ -6,6 +6,7 @@ import { getChatModel } from "@/lib/ai/client";
 import { t, tf, formatDateTime } from "@/lib/locale";
 import { saveMemory } from "@/lib/memory/store";
 import { preferredModel, getModelPreferences } from "@/lib/models/preferences";
+import { checkRunAllowance, finishRun, recordStep, updateStep, addRunCost } from "@/lib/agent/runs";
 import { getModelProvider } from "@/lib/models/providers";
 import type { ModelRef } from "@/lib/models/preferences-schema";
 import {
@@ -13,7 +14,6 @@ import {
   SEARCH_ANSWER_SYSTEM,
   WEB_ANSWER_OUTPUT,
   WEB_ANSWER_SYSTEM,
-  WEB_SEARCH_PLANNING_SYSTEM,
 } from "@/lib/prompts";
 import { logToolExecution } from "@/lib/server/tool-log";
 import { createTask, createTaskInputSchema } from "@/tools/definitions/create-task";
@@ -40,7 +40,10 @@ type ToolBudgetExceededContext = {
 };
 
 /** Why an optional tool did not produce a result, in terms the model can read. */
-export type ToolSkipReason = "notConfigured" | "budget" | "temporarilyUnavailable";
+export type ToolSkipReason = "notConfigured" | "budget" | "temporarilyUnavailable" | "runStopped";
+
+/** How many sources a search brings back when nothing more specific applies. */
+const DEFAULT_SEARCH_RESULTS = 5;
 
 type ToolPrepareInputContext<Input> = {
   workspaceId: string;
@@ -269,47 +272,18 @@ async function resolveWebSearchInput(params: {
     return params.input;
   }
 
-  const maxResultsLimit =
-    typeof params.maxResultsLimit === "number" && Number.isFinite(params.maxResultsLimit)
-      ? Math.max(1, Math.min(10, Math.trunc(params.maxResultsLimit)))
-      : 10;
-
-  try {
-    const selectedModel = await preferredModel("chat", params.modelRef);
-    const providerOptions = await reasoningOptionsFor(selectedModel);
-    const { output } = await generateText({
-      model: getChatModel(selectedModel),
-      ...(providerOptions ? { providerOptions } : {}),
-      output: Output.object({
-        schema: z.object({
-          maxResults: z
-            .number()
-            .int()
-            .min(1)
-            .max(maxResultsLimit)
-            .describe("The number of web search results to retrieve before answering."),
-        }),
-      }),
-      system: WEB_SEARCH_PLANNING_SYSTEM.replace("{{maxResultsLimit}}", String(maxResultsLimit)),
-      prompt: [
-        `Trigger: ${params.trigger}`,
-        `User search query: ${params.input.query}`,
-        "",
-        "Decide maxResults for this web search.",
-      ].join("\n"),
-    });
-
-    return {
-      ...params.input,
-      maxResults: output.maxResults,
-    };
-  } catch (error) {
-    console.warn("webSearch result-count planning failed", normalizeApiError(error).code);
-    return {
-      ...params.input,
-      maxResults: Math.min(5, maxResultsLimit),
-    };
-  }
+  /*
+   * How many results to fetch is a detail of the request, not a question worth
+   * a model call. It used to be decided by asking a model to pick a number
+   * between 1 and 10, which is a billed round trip whose answer is almost always
+   * the same. The model still chooses when it cares by passing `maxResults`; the
+   * remaining budget decides the rest, and the synthesis call is the one that
+   * actually earns its cost.
+   */
+  const remaining = typeof params.maxResultsLimit === "number" && Number.isFinite(params.maxResultsLimit)
+    ? Math.max(1, Math.min(10, Math.trunc(params.maxResultsLimit)))
+    : DEFAULT_SEARCH_RESULTS;
+  return { ...params.input, maxResults: Math.min(remaining, DEFAULT_SEARCH_RESULTS) };
 }
 
 async function buildWebSearchAssistantText(params: {
@@ -650,6 +624,32 @@ export function isToolSupportedInMode(toolId: string, mode: ToolMode): boolean {
   return descriptor.modeSupport.includes(mode);
 }
 
+/**
+ * What a step record keeps about its input. Tool arguments can be long or hold
+ * whatever the model put there, so the record keeps the shape and a short
+ * preview rather than a second copy of the full payload.
+ */
+/**
+ * The result a refused step returns. It says the step did not run and why,
+ * which is different from a tool that ran and found nothing — the model can act
+ * on the first and would be misled by the second.
+ */
+function skippedResult(tool: AnyToolDescriptor, input: unknown, reason: string) {
+  const query = input && typeof input === "object" && "query" in input && typeof (input as { query?: unknown }).query === "string"
+    ? (input as { query: string }).query
+    : "";
+  return tool.buildUnavailableOutput?.({ input, reason: "runStopped", error: new Error(reason) }) ?? { query, results: [], skipped: reason };
+}
+
+function summarizeForRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object") return { value: String(value).slice(0, 200) };
+  const entries = Object.entries(value as Record<string, unknown>).slice(0, 8).map(([key, item]) => [
+    key,
+    typeof item === "string" ? item.slice(0, 200) : item === null || item === undefined ? null : typeof item,
+  ]);
+  return Object.fromEntries(entries);
+}
+
 function capNumericInputValue(input: unknown, key: string, maxValue: number): unknown {
   if (!input || typeof input !== "object" || !Number.isFinite(maxValue)) {
     return input;
@@ -717,11 +717,16 @@ function skipReasonFor(toolId: string, error: unknown): ToolSkipReason | null {
   return null;
 }
 
-export function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: string[] }): ToolSet {
+export function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: string[]; runId?: string | null; usesMemory?: boolean }): ToolSet {
   const workspaceId = LOCAL_WORKSPACE_ID;
   const allowed = new Set(options?.toolIds ?? []);
   const hasRestriction = allowed.size > 0;
   const resultBudgetUsed = new Map<string, number>();
+  const runId = options?.runId ?? null;
+  let stepCount = 0;
+  // Positions are per run, not per tool, so the record reads as the sequence
+  // that actually happened rather than one counter per tool.
+  const nextStepPosition = () => ++stepCount;
   // An unconfigured optional tool is filtered out here rather than mounted and
   // failed later. The model never sees it, so it cannot call it, retry it, or
   // report a search that never happened.
@@ -740,6 +745,25 @@ export function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: str
         // The SDK passes call options as the second argument when a tool runs;
         // its abortSignal carries the user's stop request into every stage.
         const signal = callOptions?.abortSignal;
+        // A run that has been stopped, or has spent its budget, does not get to
+        // start another step. The refusal is returned as a result so the model
+        // can finish with what it has instead of retrying into a wall.
+        if (runId) {
+          const allowance = await checkRunAllowance(runId).catch(() => ({ allowed: true, reason: null }));
+          if (!allowance.allowed) {
+            return skippedResult(tool, input, allowance.reason ?? "run-stopped");
+          }
+        }
+        const step = runId
+          ? await recordStep({
+            runId,
+            position: nextStepPosition(),
+            kind: "tool" as const,
+            toolName: tool.id,
+            state: "running" as const,
+            input: summarizeForRecord(input),
+          }).catch(() => null)
+          : null;
         try {
           enforceRateLimit("tools");
           const budget = tool.resultBudget;
@@ -908,16 +932,25 @@ export function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: str
             durationMs: Date.now() - startedAt,
             requestId,
           });
+          if (step) {
+            // The step carries the same facts as the log, plus the artifact when
+            // the step produced one, so the record and the log cannot disagree.
+            await updateStep(step.id, { state: "done", output: summarizeForRecord(output), finished: true }).catch(() => undefined);
+          }
 
           return output;
         } catch (error) {
+          const errorCode = error instanceof ApiError ? error.code : "INTERNAL_ERROR";
           logToolExecution({
             toolId: tool.id,
             trigger: "auto",
             state: "output-error",
             durationMs: Date.now() - startedAt,
-            errorCode: error instanceof ApiError ? error.code : "INTERNAL_ERROR",
+            errorCode,
           });
+          if (step) {
+            await updateStep(step.id, { state: "failed", errorCode, finished: true }).catch(() => undefined);
+          }
           throw error;
         }
       },

@@ -44,22 +44,24 @@ FTS tables/triggers are intentionally managed by SQL migrations, outside the Pri
 
 Desktop startup backs up an existing database before applying pending migrations. Local Web migration commands do not create that backup automatically: back up an existing database before migration. Automatic tests use isolated databases, media and download directories. They verify legacy backfill, punctuation/Chinese search, archive restoration, atomic deletion, export boundaries, authenticated browser downloads and actual Electron downloads after a service restart. Installer upgrade/uninstall/reinstall acceptance remains a separate release check.
 
-## 未发送的草稿
+## Unsent drafts
 
-聊天输入框里的内容按会话保存：切换会话、切换页面、刷新或重启应用后回到同一个会话，输入框仍是写了一半的内容。附件在**被选中时**就上传，草稿保存的是服务器给出的引用而不是文件本身——文件在重载后无法取回，引用可以，所以草稿在重启后仍能直接发送。上传后没有发送的附件会变成无引用文件，媒体存储的既有回收策略会先保留一段宽限期再清理，废弃的草稿因此只占一点磁盘。
+What is typed into the composer is kept per conversation. Switching conversations, switching pages, reloading or restarting the application all return it to the same conversation.
 
-草稿在**这一轮真的产生了回答**之后才清除。发送失败时输入内容会被放回，可以直接重发；点"停止"则不会放回——问题本身已经发出并存在于会话里，放回输入框等于邀请用户再发一次。
+Attachments are uploaded when they are chosen, and the draft keeps the reference the server returned rather than the file: a file cannot be handed back after a reload, a reference can, so a draft is still sendable after a restart. An uploaded attachment that is never sent becomes an unreferenced file, which the media store's existing grace-period cleanup reclaims — an abandoned draft costs disk for a while and nothing more.
 
-## 停止生成
+A draft is cleared only once the turn actually produced an answer. A send that fails puts the text back so it can be retried. Stopping does not: the question was delivered and is in the conversation, and putting it back would invite sending it twice.
 
-一轮回答进行中时，发送按钮被"停止"取代。停止放弃的是对服务商的请求，不是已经产生的内容：已输出的部分留在页面上并按被中断的回复保存。停止不代表上游不计费，费用视图照常记录。
+## Stopping a turn
 
-## 键盘与复制
+While a turn is running, the send control is replaced by **stop**. Stopping abandons the request, not the question: whatever the model produced stays on screen and is stored as an interrupted answer. It does not mean the provider stopped billing.
 
-- **Enter** 发送，**Shift+Enter** 换行；输入法组合中的 Enter 不触发发送。
-- **Escape** 关闭删除确认框；没有确认框打开时，停止正在生成的一轮。
-- 每条回答有**复制**按钮；代码块有独立的**复制代码**按钮（悬停或聚焦时出现），代码块里跨行选取容易被滚动容器打断。剪贴板不可用时不会打断回答，文字仍可手动选取。
+## Keyboard and copying
 
-## 跟随滚动
+- **Enter** sends, **Shift+Enter** adds a line; an Enter that is part of an input-method composition does not send.
+- **Escape** closes a delete confirmation; with none open, it stops a running turn.
+- Every answer has a **copy** control, and a code block has its own **copy code** control that appears on hover or focus — selecting text across a scrollable code box is a poor substitute. When the clipboard is unavailable the answer is not interrupted and the text stays selectable.
 
-新消息到达时，读者在底部就跟随；已经往上翻就不动，并把"回到最新"留在视口底部。强行把视图拉到底会毁掉他刚找到的位置，所以判断的是位置而不是消息条数。
+## Following the scroll
+
+New messages are followed while the reader is already at the bottom, and are ignored once they have scrolled up, where a **jump to latest** control appears. The decision is made by measuring the position at the moment content arrives rather than from a remembered scroll event: a scroll that has not been delivered yet would otherwise read as "still following" and pull the view down in the middle of an answer.

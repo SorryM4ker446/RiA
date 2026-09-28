@@ -47,13 +47,33 @@ export function formatLongTermContext(
     .map((memory, index) => `${index + 1}. ${memory.key}: ${memory.value}`)
     .join("\n");
 }
+/**
+ * The user's stated preferences, rendered as instructions.
+ *
+ * Kept apart from the rest of the prompt and stated as the user's own words,
+ * so a preference cannot be mistaken for something the assistant decided. Only
+ * the fields that were filled in appear: an empty section would invite the model
+ * to invent one.
+ */
+export function formatPersona(persona?: { name?: string; language?: string; answerStyle?: string; notes?: string } | null) {
+  const lines = [
+    persona?.name ? `Address the user as: ${persona.name}.` : "",
+    persona?.language ? `Reply in: ${persona.language}.` : "",
+    persona?.answerStyle ? `Answer style: ${persona.answerStyle}.` : "",
+    persona?.notes ? `Additional user instructions: ${persona.notes}` : "",
+  ].filter(Boolean);
+  return lines.length > 0 ? lines.join(String.fromCharCode(10)) : "";
+}
+
 export function buildSystemPrompt(
   shortTermContext: string,
   longTermMemoryContext: string,
   toolsEnabled: boolean,
   unavailableTools: string[] = [],
+  persona?: { name?: string; language?: string; answerStyle?: string; notes?: string } | null,
 ): string {
   const toolInstruction = toolsEnabled ? TOOL_ENABLED_INSTRUCTIONS : TOOL_DISABLED_INSTRUCTIONS;
+  const personaText = formatPersona(persona);
 
   return [
     ASSISTANT_BASE_PROMPT,
@@ -68,6 +88,7 @@ export function buildSystemPrompt(
     "",
     "[Long-Term Memory]",
     longTermMemoryContext,
+    ...(personaText ? ["", "[User Preferences]", personaText] : []),
     "",
     "[Tooling Policy]",
     TOOLING_POLICY_LINE,

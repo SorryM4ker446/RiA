@@ -1,4 +1,5 @@
 import { MockEmbeddingModelV3, MockLanguageModelV3, MockImageModelV3 } from "ai/test";
+import type { LanguageModelV3GenerateResult } from "@ai-sdk/provider";
 import type { LibraryMode, ModelLibraryItem, ModelRef } from "@/lib/models/preferences-schema";
 
 export const providerState = { streamError: false, streamGate: undefined, imageGate: undefined, imageEntered: undefined, imageCalls: [], videoCalls: [] };
@@ -12,7 +13,33 @@ export function resetProviderState() {
 }
 export const testPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=", "base64");
 export const testVideo = Buffer.from([0, 0, 0, 24, 102, 116, 121, 112, 105, 115, 111, 109, 0, 0, 0, 0, 105, 115, 111, 109]);
+/** The prompt rendered as plain text, so an echoed answer is readable. */
+function promptText(prompt: unknown): string {
+  if (typeof prompt === "string") return prompt;
+  if (Array.isArray(prompt)) return prompt.map((message) => {
+    const content = (message as { content?: unknown }).content;
+    if (typeof content === "string") return content;
+    if (Array.isArray(content)) {
+      return content.map((part) => (typeof part === "string" ? part : JSON.stringify(part))).join(" ");
+    }
+    return JSON.stringify(message);
+  }).join(String.fromCharCode(10));
+  return JSON.stringify(prompt);
+}
+
 export const languageModel = new MockLanguageModelV3({
+  // Non-streaming answers too: summarisation and the auxiliary synthesis calls
+  // use doGenerate, and a mock that only streams would make every one of them
+  // look like a failure.
+  // Echoes the prompt. A fixed string would make every synthesis test pass
+  // whether or not the real path ran, because the answer would look the same
+  // as the fallback; echoing shows what was actually handed to the model.
+  doGenerate: async (options): Promise<LanguageModelV3GenerateResult> => ({
+    content: [{ type: "text", text: promptText(options.prompt) }],
+    finishReason: { unified: "stop" as const, raw: "stop" },
+    usage: { inputTokens: { total: 5, noCache: 5, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 3, text: 3, reasoning: 0 } },
+    warnings: [],
+  }),
   doStream: async () => ({
     stream: new ReadableStream({
       async start(controller) {

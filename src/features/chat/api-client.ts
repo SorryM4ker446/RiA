@@ -41,6 +41,8 @@ export const chatApi = {
   },
   createConversation: (title: string) => requestJson<Data<ChatSummary>>("/api/conversations", t("chatApi.createConversationFailed"), jsonBody("POST", { title })),
   renameConversation: (id: string, title: string) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatApi.renameConversationFailed"), jsonBody("PATCH", { title })),
+  setDocumentScope: (id: string, documentScope: string[]) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatApi.setDocumentScopeFailed"), jsonBody("PATCH", { documentScope })),
+  setEphemeral: (id: string, ephemeral: boolean) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatApi.setEphemeralFailed"), jsonBody("PATCH", { ephemeral })),
   deleteConversation: (id: string) => requestJson<unknown>(conversationPath(id), t("chatApi.deleteConversationFailed"), { method: "DELETE" }),
   listMessages: (id: string, cursor?: string) => requestJson<Page<StoredMessage>>(withCursor(`${conversationPath(id)}/messages`, cursor), t("chatApi.listMessagesFailed")),
   editMessage: (chatId: string, messageId: string, content: string) => requestJson<unknown>(messagePath(chatId, messageId), t("chatApi.saveEditFailed"), jsonBody("PATCH", { content })),

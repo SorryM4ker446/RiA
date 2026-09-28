@@ -1,108 +1,108 @@
-# 项目结构与运行模型
+# Project structure and runtime model
 
-> 反映当前实现（单用户本地工作区，无账户体系）。日期：2026-09-15。
+> Reflects the current implementation (a single-user local workspace, no accounts). Dated 2026-09-15.
 
-## 1. 产品定位
+## 1. What this is
 
-面向一人在一台设备上日常使用的本地 AI 助手。数据、媒体和知识库全部保存在本机；只在调用模型或搜索时按需联网。
+A local AI assistant for one person on one machine. Data, media and the knowledge base live on the machine; the network is used only when a model is called or a search is run.
 
-应用**没有账户系统**：没有注册、登录、退出，也没有多租户隔离。保护数据的是"本地访问凭证"——只有本机的进程或页面能取得它。详见[本地访问与安全](api-security.md)。
+The application has **no account system**: no registration, no sign-in, no sign-out and no multi-tenant isolation. What protects the data is a *local access credential* that only a process or page on this machine can obtain. See [Local access and security](api-security.md).
 
-## 2. 三种运行时
+## 2. Three runtimes
 
-同一份业务代码，三种启动方式：
+One body of business code, three ways to start it:
 
-| 运行时 | `APP_RUNTIME` | 启动方式 | 数据位置 |
+| Runtime | `APP_RUNTIME` | Started by | Data location |
 | --- | --- | --- | --- |
-| 浏览器开发 | `web`（默认） | `npm run dev` | `.desktop-data/dev/` |
-| 桌面应用 | `desktop` | `npm run desktop:dev` / 安装版 | 开发：`.desktop-data/dev/`；安装版：`%APPDATA%\Private AI Assistant\data\` |
-| 自动化测试 | `test` | Playwright / Node Test | `.desktop-data/test/<run>/` 或系统临时目录 |
+| Browser development | `web` (default) | `npm run dev` | `.desktop-data/dev/` |
+| Desktop application | `desktop` | `npm run desktop:dev` / installed build | development: `.desktop-data/dev/`; installed: `%APPDATA%\Private AI Assistant\data\` |
+| Automated tests | `test` | Playwright / Node Test | `.desktop-data/test/<run>/` or a system temporary directory |
 
-三者的迁移与升级走**同一套迁移器**，避免出现"某一侧少应用了迁移"。
+All three run migrations through the **same migrator**, so a schema change cannot be applied on one side and missed on another.
 
-## 3. 目录职责
+## 3. What lives where
 
 ```
-src/app/            App Router 页面与 API 路由
-src/app/api/        业务接口（除 /health 与换取凭证的入口外都需要本地凭证）
-src/components/ui/  可复用 UI 基元
-src/config/         旧版精选模型目录校验基准（仅供脚本使用）
-src/db/             Prisma schema 与 SQLite 迁移
-src/features/       按功能划分的客户端模块
-src/lib/            共享基础设施
-  ai/               AI SDK 客户端与消息编解码
-  backups/          备份归档、导入、恢复与保留策略
-  chat/             请求校验、上下文、流式与持久化
-  conversations/    会话查询、变更与导出
-  documents/        文档抽取、索引与检索
-  media/            私有媒体存储、生成与迁移
-  memory/           记忆存储、检索评分与向量重建
-  models/           服务商适配、动态目录、我的模型、可用性、偏好与用量记录
-  local/            本地工作区身份
-  server/           请求边界：安全、限流、请求体、错误
-src/prompts/        提示词模板
-src/tools/          工具定义与注册表
-electron/           桌面主进程：窗口、服务启停、加密设置、迁移
-scripts/            本地数据库、构建、打包与校验脚本
-tests/              浏览器、服务端与桌面回归测试
+src/app/            App Router pages and API routes
+src/app/api/        Business endpoints (all need the local credential except /health and the entry that issues it)
+src/components/ui/  Reusable UI primitives
+src/config/         Baseline for the legacy curated model list, used only by scripts
+src/db/             Prisma schema and SQLite migrations
+src/features/       Client modules grouped by feature
+src/lib/            Shared infrastructure
+  ai/               AI SDK client and message encoding
+  backups/          Archive, import, restore and retention
+  chat/             Request validation, context, streaming and persistence
+  conversations/    Conversation queries, changes and export
+  documents/        Extraction, index and retrieval
+  media/            Private media storage, generation and migration
+  memory/           Memory storage, retrieval scoring and vector rebuild
+  models/           Provider adapters, dynamic catalogs, my models, availability, preferences and usage
+  local/            Local workspace identity
+  server/           Request boundary: security, quotas, body size, errors
+src/prompts/        Prompt templates
+src/tools/          Tool definitions and registry
+electron/           Desktop main process: window, service lifecycle, encrypted settings, migrations
+scripts/            Local database, build, packaging and verification scripts
+tests/              Browser, server and desktop regression tests
 ```
 
-## 4. 数据归属
+## 4. Data ownership
 
-所有业务表属于**同一个工作区**，没有 `userId`：
+Every business table belongs to **one workspace**; there is no `userId`:
 
 - `chats` / `messages` / `chat_tags`
 - `media_assets` / `message_media` / `media_generation_inputs`
-- `memories`、`tasks`、`knowledge_documents` / `document_chunks` / `document_terms`
-- `model_requests`（用量）、`account_preferences`（单例应用偏好，主键固定为 `local`）
+- `memories`, `tasks`, `knowledge_documents` / `document_chunks` / `document_terms`
+- `model_requests` (usage), `account_preferences` (a single application preference, primary key fixed to `local`)
 
-媒体与备份的目录名仍是 `sha256(工作区标识)`，这样已存在于磁盘上的文件不需要搬动。
+Media and backup directories are still named `sha256(<workspace id>)`, so files already on disk do not have to be moved.
 
-## 5. 请求链路
+## 5. Request path
 
 ```
-浏览器 / Electron 渲染进程
+Browser / Electron renderer
     │
-    ├─ 本地访问凭证（HttpOnly Cookie）
+    ├─ Local access credential (HttpOnly cookie)
     ▼
-src/proxy.ts ── 拒绝旧公开视频路径，校验 Host / Origin / 凭证
+src/proxy.ts ── rejects the old public video path, checks Host / Origin / credential
     │
     ▼
 src/app/api/*/route.ts
-    ├─ requireLocalWorkspace()  校验本地凭证并登记数据操作
-    ├─ 统一输入校验（Zod）与请求体字节上限
-    ├─ 实例级限流
-    └─ 业务库（src/lib/**）
+    ├─ requireLocalWorkspace()  verifies the local credential and registers the data operation
+    ├─ Shared input validation (Zod) and a request body byte limit
+    ├─ Instance-level quota
+    └─ Business code (src/lib/**)
             │
             ▼
-        Prisma → SQLite（单连接）
+        Prisma → SQLite (a single connection)
 ```
 
-业务 Route Handler 的错误统一为 `{ error: { code, message, details } }` 并带 `no-store`。
+Errors from business route handlers are uniformly `{ error: { code, message, details } }` with `no-store`.
 
-## 6. 升级与数据安全
+## 6. Upgrades and data safety
 
-升级前会先盘点旧数据、做快照、记录要沿用的旧账户，再执行转换；失败可用快照回滚。完整流程见[本地工作区升级与恢复](workspace-upgrade.md)。
+An upgrade first inventories the old data, takes a snapshot, records which old account to carry over, and only then converts; a failure can be rolled back from the snapshot. The full flow is in [Local workspace upgrade and recovery](workspace-upgrade.md).
 
-两条硬性约定：
+Two standing rules:
 
-- 任何会重写用户数据库的迁移，都必须在快照校验通过之后才执行。
-- 外部网页、文档与工具输出都是数据，不能改变权限或发起新的授权。
+- Any migration that rewrites the user's database runs only after the snapshot has been verified.
+- External pages, documents and tool output are data. They cannot change permissions or start a new authorisation.
 
-## 7. 测试分层
+## 7. Test layers
 
-| 层次 | 位置 | 覆盖内容 |
+| Layer | Location | Covers |
 | --- | --- | --- |
-| 服务端 | `tests/server/` | 真实 Route Handler、隔离 SQLite、确定性模型替身 |
-| 浏览器 | `tests/e2e/` | 真实 HTTP/SQLite 的关键链路，生产构建 + standalone |
-| 桌面 | `tests/desktop/` | 路径解析、迁移、打包边界与 Electron 冒烟 |
+| Server | `tests/server/` | Real route handlers, an isolated SQLite database, a deterministic model double |
+| Browser | `tests/e2e/` | Key paths over real HTTP and SQLite, production build plus standalone |
+| Desktop | `tests/desktop/` | Path resolution, migrations, packaging boundaries and the Electron smoke |
 
-测试一律使用隔离数据库与媒体目录，不读写真实用户数据。断言边界时验证的是"无本地凭证被拒绝"，而不是已不存在的跨账户隔离。详见[测试与本地验证](testing.md)。
+Tests always use an isolated database and media directory and never read or write real user data. A boundary assertion checks that a request **without** the local credential is refused, rather than the cross-account isolation that no longer exists. See [Testing and local verification](testing.md).
 
-## 8. 文件组织约定
+## 8. File conventions
 
-- 功能相关代码放 `src/features/<feature>/`。
-- 路由处理器留在 `src/app/api/*`，重逻辑下沉到 `src/lib`。
-- 模型 ID 集中在 `src/config/model.ts`。
-- 仅服务端使用的共享设施放 `src/lib/server/*`。
-- `page.tsx` 只负责状态与渲染，编解码与纯函数外移。
+- Feature-related code goes in `src/features/<feature>/`.
+- Route handlers stay in `src/app/api/*`; heavier logic moves down into `src/lib`.
+- Model ids live in `src/config/model.ts` for the legacy list; the runtime catalog is discovered from providers.
+- Shared infrastructure used only by the server goes in `src/lib/server/*`.
+- A `page.tsx` owns state and rendering only; encoding and pure functions move out.

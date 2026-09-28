@@ -7,12 +7,12 @@ import { tokenizeQuery } from "@/lib/memory/retrieval";
 import { ApiError } from "@/lib/server/api-error";
 
 export const documentSummarySelect = {
-  id: true, filename: true, format: true, byteSize: true, characterCount: true,
+  id: true, filename: true, collection: true, format: true, byteSize: true, characterCount: true,
   indexVersion: true, indexedAt: true, createdAt: true, updatedAt: true,
   _count: { select: { chunks: true } },
 } as const;
 
-type DocumentInput = { filename: string; format: string; byteSize: number; pages: DocumentPage[] };
+type DocumentInput = { filename: string; collection?: string | null; format: string; byteSize: number; pages: DocumentPage[] };
 export async function indexDocument(input: DocumentInput, expected?: { id: string; contentHash: string }) {
   const pages = documentPagesSchema.parse(input.pages);
   const characterCount = pages.reduce((sum, page) => sum + page.text.length, 0);
@@ -30,7 +30,7 @@ export async function indexDocument(input: DocumentInput, expected?: { id: strin
     if (existing?.contentHash === contentHash && existing.indexVersion === DOCUMENT_INDEX_VERSION && !expected) {
       return { document: await tx.knowledgeDocument.findUniqueOrThrow({ where: { id: existing.id }, select: documentSummarySelect }), change: "unchanged", added: 0, removed: 0, retained: existing.chunks.length };
     }
-    const data = { filename: input.filename, format: input.format, byteSize: input.byteSize, pages, contentHash, characterCount, indexVersion: DOCUMENT_INDEX_VERSION, indexedAt: new Date() };
+    const data = { filename: input.filename, collection: input.collection ?? null, format: input.format, byteSize: input.byteSize, pages, contentHash, characterCount, indexVersion: DOCUMENT_INDEX_VERSION, indexedAt: new Date() };
     const document = existing
       ? await tx.knowledgeDocument.update({ where: { id: existing.id }, data })
       : await tx.knowledgeDocument.create({ data });

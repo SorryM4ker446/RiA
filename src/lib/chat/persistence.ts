@@ -117,7 +117,7 @@ export async function prepareChatPersistence(input: ChatRequest) {
   return { chat, regenerationSnapshot };
 }
 export type ChatPersistence = Awaited<ReturnType<typeof prepareChatPersistence>>;
-export async function persistChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; documentSources?: DocumentSource[]; unavailableTools?: string[] }) {
+export async function persistChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; documentSources?: DocumentSource[]; unavailableTools?: string[]; usesMemory?: boolean }) {
   const { input, conversation, responseMessage, isAborted, generationFailed } = params;
   const { latestUserMessage, modelRef } = input;
   const { unavailableTools = [] } = params;
@@ -178,7 +178,11 @@ export async function persistChatResponse(params: { input: ChatRequest; conversa
       },
     });
 
-    await persistResponseToolMemories({ chatId: chat.id, toolItems, assistantText, modelRef });
+    // An ephemeral conversation writes no long-term memory. The run record and
+    // the messages still exist, which is what "no memory" is meant to mean.
+    if (params.usesMemory !== false) {
+      await persistResponseToolMemories({ chatId: chat.id, toolItems, assistantText, modelRef });
+    }
   } catch (persistError) {
     throw normalizeApiError(persistError, t("lib.chat.saveFailed"));
   }

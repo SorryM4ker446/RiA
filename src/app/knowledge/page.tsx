@@ -7,7 +7,7 @@ import { FormEvent, useEffect, useState } from "react";
 
 import { useAwaitingFirstLoad } from "@/lib/use-awaiting-first-load";
 import Link from "next/link";
-import { ArrowLeft, BookOpen, Loader2, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, BookOpen, Loader2, PencilLine, Plus, Trash2 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,9 @@ type KnowledgeEntry = {
   key: string;
   value: string;
   score: number | null;
+  source: "manual" | "assistant";
+  confirmed: boolean;
+  lastUsedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -41,6 +44,41 @@ function formatTime(value: string): string {
 
 export default function KnowledgePage() {
   const [entries, setEntries] = useState<KnowledgeEntry[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [persona, setPersona] = useState({ name: "", language: "", answerStyle: "", notes: "" });
+  const [isSavingPersona, setIsSavingPersona] = useState(false);
+
+  async function loadPersona() {
+    try {
+      const response = await fetch("/api/models", { cache: "no-store" });
+      if (!response.ok) return;
+      const payload = await response.json();
+      if (payload?.data?.persona) setPersona(payload.data.persona);
+    } catch {
+      // The card stays editable even when the current values cannot be read.
+    }
+  }
+
+  async function savePersona() {
+    setIsSavingPersona(true);
+    setError(null);
+    try {
+      const current = await (await fetch("/api/models", { cache: "no-store" })).json();
+      // The server keeps ownership of the library, so the change is sent on top
+      // of what it holds rather than overwriting the whole document.
+      const response = await fetch("/api/models", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...current.data, persona }),
+      });
+      if (!response.ok) throw new Error(readApiErrorMessage(await response.json(), t("knowledge.error.update")));
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : t("knowledge.error.update"));
+    } finally {
+      setIsSavingPersona(false);
+    }
+  }
+  const [editingValue, setEditingValue] = useState("");
   const [key, setKey] = useState("");
   const [value, setValue] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -61,6 +99,7 @@ export default function KnowledgePage() {
       }
 
       setEntries(Array.isArray(payload.data) ? payload.data : []);
+      void loadPersona();
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : t("knowledge.error.load"));
     } finally {
@@ -105,6 +144,29 @@ export default function KnowledgePage() {
     }
   }
 
+  /**
+   * Applies an edit or an acceptance to one entry. The list is updated from the
+   * response rather than optimistically, so what the page shows is what was
+   * stored — including a write that quietly did nothing.
+   */
+  async function updateEntry(entryId: string, body: { value?: string; confirmed?: boolean }) {
+    setError(null);
+    try {
+      const response = await fetch(`/api/knowledge/${entryId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(readApiErrorMessage(payload, t("knowledge.error.update")));
+      }
+      setEntries((current) => current.map((entry) => (entry.id === entryId ? payload.data : entry)));
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : t("knowledge.error.update"));
+    }
+  }
+
   async function deleteEntry(entryId: string) {
     const previous = entries;
     setEntries((current) => current.filter((entry) => entry.id !== entryId));
@@ -122,7 +184,9 @@ export default function KnowledgePage() {
   }
 
   useEffect(() => {
+    // Loads the entries and, with them, the preferences shown above them.
     void loadEntries();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one load on mount
   }, []);
 
   return (
@@ -216,22 +280,72 @@ export default function KnowledgePage() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <h2 className="truncate text-sm font-semibold tracking-label">{entry.key}</h2>
-                        <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
-                          {entry.value}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h2 className="truncate text-sm font-semibold tracking-label">{entry.key}</h2>
+                          <Badge variant="outline">{t(`knowledge.source.${entry.source}`)}</Badge>
+                          {!entry.confirmed ? <Badge variant="warning">{t("knowledge.candidateBadge")}</Badge> : null}
+                        </div>
+                        {editingId === entry.id ? (
+                          <div className="mt-2 space-y-2">
+                            <Textarea
+                              aria-label={t("knowledge.editValueLabel")}
+                              onChange={(event) => setEditingValue(event.target.value)}
+                              rows={3}
+                              value={editingValue}
+                            />
+                            <div className="flex gap-2">
+                              <Button
+                                onClick={() => void updateEntry(entry.id, { value: editingValue }).then(() => setEditingId(null))}
+                                size="sm"
+                                type="button"
+                              >
+                                {t("knowledge.saveEdit")}
+                              </Button>
+                              <Button onClick={() => setEditingId(null)} size="sm" type="button" variant="ghost">
+                                {t("knowledge.cancelEdit")}
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
+                            {entry.value}
+                          </p>
+                        )}
+                        {!entry.confirmed ? (
+                          <p className="mt-2 text-xs text-warning">{t("knowledge.candidateNote")}</p>
+                        ) : null}
                       </div>
-                      <Button
-                        aria-label={`${t("knowledge.deleteLabel")} ${entry.key}`}
-                        onClick={() => void deleteEntry(entry.id)}
-                        size="icon"
-                        type="button"
-                        variant="ghost"
-                      >
-                        <Trash2 aria-hidden="true" className="h-4 w-4" />
-                      </Button>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {!entry.confirmed ? (
+                          <Button onClick={() => void updateEntry(entry.id, { confirmed: true })} size="sm" type="button" variant="secondary">
+                            {t("knowledge.accept")}
+                          </Button>
+                        ) : null}
+                        {editingId !== entry.id ? (
+                          <Button
+                            aria-label={`${t("knowledge.edit")} ${entry.key}`}
+                            onClick={() => { setEditingId(entry.id); setEditingValue(entry.value); }}
+                            size="icon"
+                            type="button"
+                            variant="ghost"
+                          >
+                            <PencilLine aria-hidden="true" className="h-4 w-4" />
+                          </Button>
+                        ) : null}
+                        <Button
+                          aria-label={`${t("knowledge.deleteLabel")} ${entry.key}`}
+                          onClick={() => void deleteEntry(entry.id)}
+                          size="icon"
+                          type="button"
+                          variant="ghost"
+                        >
+                          <Trash2 aria-hidden="true" className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
-                    <p className="label-mono mt-3">{`${t("knowledge.updatedAt")} ${formatTime(entry.updatedAt)}`}</p>
+                    <p className="label-mono mt-3">
+                      {`${t("knowledge.updatedAt")} ${formatTime(entry.updatedAt)} ${t("knowledge.divider")} ${entry.lastUsedAt ? `${t("knowledge.lastUsed")} ${formatTime(entry.lastUsedAt)}` : t("knowledge.neverUsed")}`}
+                    </p>
                   </article>
                 ))}
               </div>

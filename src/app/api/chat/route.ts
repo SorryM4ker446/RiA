@@ -5,6 +5,11 @@ import { prepareChatPersistence } from "@/lib/chat/persistence";
 import { readChatRequest } from "@/lib/chat/request";
 import { streamChatResponse } from "@/lib/chat/stream";
 import { getRelevantMemories } from "@/lib/memory/store";
+import { startRun } from "@/lib/agent/runs";
+import { getModelPreferences } from "@/lib/models/preferences";
+import { summarizeOlderTurns } from "@/lib/chat/summary";
+import { getTextFromUIMessage as readText } from "@/lib/ai/ui-message";
+import { t } from "@/lib/locale";
 import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { setupServerProxy } from "@/lib/server/proxy";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
@@ -40,7 +45,11 @@ async function POSTHandler(req: NextRequest) {
     const toolsEnabled = canUseTools && (isApprovalResume || !body.manualToolsOnly);
   const unavailableTools = toolsEnabled ? unavailableChatTools() : [];
 
-    const relevantMemories = latestUserMessage?.text
+    // An ephemeral conversation neither reads long-term memory nor writes any.
+    // It is a memory switch, not a promise that nothing is kept: the messages,
+    // uploads and usage stay exactly as they otherwise would.
+    const usesMemory = !conversation.chat.ephemeral;
+    const relevantMemories = usesMemory && latestUserMessage?.text
       ? await getRelevantMemories({
         query: latestUserMessage.text,
         limit: 6,
@@ -48,16 +57,45 @@ async function POSTHandler(req: NextRequest) {
       : [];
 
 
-    const documentSources = latestUserMessage?.text ? (await searchDocuments(latestUserMessage.text)).map(source => documentSourceSchema.parse(source)) : [];
+    // A conversation that named its document topics only draws on those; an
+    // empty scope means every topic, as before.
+    const scope = (conversation.chat.documentScope ?? "").split("|").filter(Boolean);
+    // Long conversations are compressed by a model-written summary that covers
+    // the older turns and names the last message it includes. The bounded
+    // excerpts stay in the prompt either way, and a summary never replaces the
+    // messages themselves.
+    const summary = latestUserMessage?.text
+      ? await summarizeOlderTurns({
+        chatId: conversation.chat.id,
+        messages: context.messages.map((message) => ({ id: message.id ?? "", role: message.role, text: readText(message) })),
+        keepRecent: 24,
+      }).catch(() => null)
+      : null;
+
+    const documentSources = latestUserMessage?.text ? (await searchDocuments(latestUserMessage.text, 4, scope)).map(source => documentSourceSchema.parse(source)) : [];
     // The optional tools that are configured away this turn are named in the
     // prompt, so the model can answer honestly about what it could not check.
     const systemPrompt = buildSystemPrompt(
-      context.historyExcerpt || "No earlier messages omitted.",
+      [
+        summary ? `[Summary of earlier turns - a model-written condensation, not the original text: ${summary.summary}]` : "",
+        context.historyExcerpt || "No earlier messages omitted.",
+      ].filter(Boolean).join(String.fromCharCode(10, 10)),
       formatLongTermContext(relevantMemories),
       toolsEnabled,
       unavailableTools,
+      (await getModelPreferences()).persona,
     ) + formatDocumentContext(documentSources);
-    return streamChatResponse({ input, conversation, systemPrompt, modelMessages, toolsEnabled, signal: req.signal, documentSources });
+
+    // A run exists only for a turn that can actually use tools. Creating one
+    // for a plain answer would fill the record with empty runs that did nothing.
+    const run = toolsEnabled
+      ? await startRun({ chatId: conversation.chat.id, goal: latestUserMessage?.text ?? t("chat.run.goalFromConversation") }).catch(() => null)
+      : null;
+
+    return streamChatResponse({
+      input, conversation, systemPrompt, modelMessages, toolsEnabled, signal: req.signal,
+      documentSources, runId: run?.id ?? null, usesMemory,
+    });
   } catch (error) {
     console.error("/api/chat error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to generate chat response");

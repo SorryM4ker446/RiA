@@ -109,18 +109,18 @@ The desktop migration regression upgrades an existing database, checks its backu
 
 These tests do not certify every real OpenRouter model, network outage behavior, or clean-machine installation/uninstallation. Desktop path isolation and restart persistence are tested, but a full installer upgrade/uninstall cycle remains a separate check. Distinguish the real media HTTP/SQLite chain from the mocked UI tests when reporting coverage.
 
-## 聊天交互回归
+## Chat interaction regressions
 
-`tests/e2e/chat-startup.spec.ts` 覆盖三条此前没有自动化保护的路径：
+`tests/e2e/chat-startup.spec.ts` covers three paths that had no automated protection before:
 
-- **未发送的草稿**：切换会话会停放草稿、切回会恢复，刷新后仍在；真正发出并得到回答后清除。
-- **停止生成**：进行中时发送按钮被"停止"取代，停止后回到可发送状态，并且**不会**把问题塞回输入框——它已经在会话里了。
-- **推理过程展示**：折叠块位于答案上方、不混入答案正文、展开后答案完整。
+- **An unsent draft** is parked when the conversation is switched away, restored when it is switched back, still there after a reload, and cleared once a sent message has actually been answered.
+- **Stopping a turn** replaces the send control, returns the composer to a sendable state, and does not put the question back into the input.
+- **Reasoning display** puts a collapsed block above the answer, keeps it out of the answer text, and leaves the answer intact when it is expanded.
 
-`tests/e2e/media-storage.spec.ts` 覆盖图片生成与附件上传后的持久化与受保护读取。
+`tests/e2e/media-storage.spec.ts` covers image generation and attachment upload persistence and protected reads.
 
-## 界面走查
+## Interface walkthrough
 
-`tests/e2e/interface-walkthrough.spec.ts` 在验收要求的几种条件下截图：1440px 与 390px 宽度、深浅两种主题、125% 与 150% 文字缩放、键盘焦点、滚动到顶部。
+`tests/e2e/interface-walkthrough.spec.ts` captures the build at the sizes the acceptance list names: 1440px and 390px widths, light and dark themes, 125% and 150% text scaling, keyboard focus, and scrolled to the top.
 
-它同时断言无需人眼即可判断的部分：两种宽度下都没有横向溢出、输入框与发送按钮在 390px 和 150% 缩放下仍然可见可达。**它不是视觉验收**——截图需要人看，通过这条用例不等于界面走查通过。
+It also asserts what can be asserted without eyes: no horizontal overflow at either width, and the composer and its send control still visible and reachable at 390px and 150% scaling. **It is not a visual sign-off.** The screenshots need a person; a passing run here does not mean the walkthrough passed.

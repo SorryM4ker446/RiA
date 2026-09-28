@@ -8,6 +8,8 @@ export const updateConversationSchema = z.strictObject({
   title: z.string().trim().min(1).max(200).optional(),
   pinned: z.boolean().optional(),
   archived: z.boolean().optional(),
+  ephemeral: z.boolean().optional(),
+  documentScope: z.array(z.string().trim().min(1).max(40)).max(12).optional(),
   tags: z.array(chatTagSchema).max(8).transform(tags => [...new Set(tags)].sort()).optional(),
 }).refine(value => Object.keys(value).length > 0, "At least one field is required");
 
@@ -23,6 +25,10 @@ export async function updateConversation(id: string, input: z.infer<typeof updat
       ...(input.title !== undefined ? { title: truncateTitle(input.title) } : {}),
       ...(input.pinned !== undefined ? { pinned: input.pinned } : {}),
       ...(input.archived !== undefined ? { archived: input.archived } : {}),
+      ...(input.ephemeral !== undefined ? { ephemeral: input.ephemeral } : {}),
+      // Stored as one string so the scope travels with the conversation and in a
+      // backup without another table.
+      ...(input.documentScope !== undefined ? { documentScope: [...new Set(input.documentScope)].sort().join("|") } : {}),
       ...(input.tags !== undefined ? { tags: { deleteMany: {}, create: input.tags.map(label => ({ label })) } } : {}),
     }, include: { tags: { orderBy: { label: "asc" } }, _count: { select: { messages: true } } } });
     return conversationSummary(chat);

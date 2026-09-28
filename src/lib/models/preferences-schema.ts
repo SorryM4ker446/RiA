@@ -94,6 +94,16 @@ const preferencesShape = {
    * matches what a reasoning model does on its own, so an existing workspace
    * keeps behaving the same and no stored document has to be rewritten.
    */
+  /**
+   * How the assistant should address the user and answer. A personal
+   * preference, not an account: it changes the prompt and nothing else.
+   */
+  persona: z.strictObject({
+    name: z.string().max(60).default(""),
+    language: z.string().max(40).default(""),
+    answerStyle: z.string().max(200).default(""),
+    notes: z.string().max(1000).default(""),
+  }).default({ name: "", language: "", answerStyle: "", notes: "" }),
   thinking: z.strictObject({
     enabled: z.boolean().default(true),
     effort: z.enum(["low", "high", "max"]).nullable().default(null),
@@ -160,6 +170,7 @@ export function defaultModelPreferences(): ModelPreferences {
     backupRetentionDays: 30,
     backupMaxCount: 10,
     thinking: { enabled: true, effort: null },
+    persona: { name: "", language: "", answerStyle: "", notes: "" },
   };
 }
 

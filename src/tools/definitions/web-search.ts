@@ -28,7 +28,7 @@ export type WebSearchOutput = {
    * Set when no lookup was made, and why. Absent on a search that ran. A
    * caller cannot tell "found nothing" from "never looked" without it.
    */
-  skipped?: "resultBudget" | "notConfigured" | "temporarilyUnavailable";
+  skipped?: "resultBudget" | "notConfigured" | "temporarilyUnavailable" | "runStopped";
 
   query: string;
   results: WebSearchResultItem[];

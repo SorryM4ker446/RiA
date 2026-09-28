@@ -63,7 +63,12 @@ export function rankByScore<T>(items: T[], score: (item: T) => number, limit: nu
 export async function getMemorySearchCandidates(query: string, policy: RankingPolicy, signal?: AbortSignal) {
   const queryTokens = tokenizeQuery(query);
   const { embedding: queryEmbedding, modelRef: queryModelRef } = await embedTextWithModel(query, signal);
-  const scope = { ...(policy.excludeToolMemories ? { NOT: [{ key: { startsWith: "tool:" } }] } : {}) };
+  // An entry the user has not accepted is not evidence. Candidates stay visible
+  // in the interface but never reach a model until they are confirmed.
+  const scope = {
+    confirmed: true,
+    ...(policy.excludeToolMemories ? { NOT: [{ key: { startsWith: "tool:" } }] } : {}),
+  };
   if (!queryTokens.length && !queryEmbedding) return { queryTokens, candidates: [] };
   const rows = await db.memory.findMany({
     where: scope,

@@ -1,114 +1,116 @@
 # TOOLS_READINESS
 
-更新时间：2026-04-25
+Updated: 2026-04-25
 
-## 1. 当前结论（综合）
+## 1. Summary
 
-- `searchKnowledge`：8/10（可用，已具备独立知识库管理入口；短板在检索质量评测与文档索引）
-- `createTask`：8/10（已具备创建、查询、状态流转、删除和右侧栏管理闭环；提醒/到期处理仍属 P1）
-- `webSearch`：8/10（已接入 Tavily、自动/手动调用、LLM 综合推理和可折叠来源；缓存/重试仍属 P1）
+- `searchKnowledge`: 8/10 (usable, with a separate knowledge-base management entry; the weak points are retrieval-quality evaluation and document indexing)
+- `createTask`: 8/10 (create, query, status transitions, delete and a closed loop in the side panel; reminders and due handling are still P1)
+- `webSearch`: 8/10 (Tavily, automatic and manual invocation, LLM synthesis and collapsible sources; caching and retry are still P1)
 
-## 2. 综合可用度清单
+## 2. Readiness checklist
 
-| 模块 | 清单项 | 当前 | 达标定义 | 优先级 |
+| Module | Item | State | Definition of done | Priority |
 |---|---|---|---|---|
-| searchKnowledge | 工具已注册并可被模型调用 | 已有 | 聊天模式稳定触发并返回结构化结果 | P0 |
-| searchKnowledge | 手动触发入口（`/api/tools/run`） | 已有 | 手动调用返回 `data + assistantText` | P0 |
-| searchKnowledge | 自动触发语义门控（收紧） | 已有 | 明确动作意图 + 高置信度才触发 | P0 |
-| searchKnowledge | 数据源（`memories + builtin`） | 已有 | 结果可区分 `source` 与 `score` | P0 |
-| searchKnowledge | 结果可解释性（UI） | 已有 | 来源标签 + 工具详情可展开 | P0 |
-| searchKnowledge | 知识库管理入口（新增/查看/删除） | 已完成 | 独立 `/knowledge` 页面 + `GET/POST/DELETE /api/knowledge` | P0 |
-| searchKnowledge | 检索质量保障（评测/排序优化） | 缺失 | 有最小评测集、优化策略与回归基线 | P1 |
-| searchKnowledge | 项目文档接入（非仅 memory） | 部分 | 支持文档索引、更新与检索 | P1 |
-| createTask | 工具已注册并写入 `tasks` 表 | 已有 | 任务创建后数据库可查 | P0 |
-| createTask | 手动/自动触发 | 已有 | 聊天模式下两种触发都可用 | P0 |
-| createTask | 任务查询 API（list/detail） | 已完成 | `GET /api/tasks` + `GET /api/tasks/[id]`，按用户隔离 | P0 |
-| createTask | 任务操作 API（update/delete/status） | 已完成 | `PATCH/DELETE /api/tasks/[id]`，支持 `todo/in_progress/done` + 删除 | P0 |
-| createTask | 任务管理 UI（列表/筛选/状态流转） | 已完成 | 聊天页右侧任务栏，支持筛选、状态流转、删除、展开/收起 | P0 |
-| createTask | 时间与重复校验（dueDate/防重） | 部分 | 时区正确、同内容防重复 | P1 |
-| createTask | 任务闭环（提醒/到期处理） | 缺失 | 到期提醒或计划任务机制 | P1 |
-| webSearch | 工具定义与输入 schema | 已完成 | `{ query, maxResults }` + 标准化 `title/url/snippet/score/source` 输出 | P0 |
-| webSearch | 实际联网检索执行 | 已完成 | Tavily provider，返回真实 `title/url/snippet` 结果 | P0 |
-| webSearch | 注册到工具总线（registry/chat） | 已完成 | 可被自动与手动流程调用 | P0 |
-| webSearch | 手动调用入口（`/api/tools/run`） | 已完成 | 与其他工具一致可手动触发，且会经过 LLM 综合推理 | P0 |
-| webSearch | 自动语义触发策略 | 已完成（基础版） | 明确“需外部/最新/联网信息”时触发，仍可在 P1 优化误触发率 | P1 |
-| webSearch | 引用可追溯（URL/来源） | 已完成 | 回答下方提供可展开/收起的搜索来源列表 | P0 |
-| webSearch | 限流/超时/重试/缓存 | 部分 | 已有超时与错误码；重试、缓存仍缺失 | P1 |
-| 通用 | 工具仅聊天模式可用 | 已有 | 非聊天模式不可手动/被动调用工具 | P0 |
-| 通用 | 历史工具详情可回看 | 已有 | 历史消息支持折叠查看 input/output | P0 |
-| 通用 | UI 回归与服务端集成测试 | 已有 | Playwright Mock UI 流程与真实 Route Handler + SQLite 测试分层覆盖，不等同完整浏览器→服务端→DB 链路 | P0 |
-| 通用 | 监控与审计日志（tool call） | 已完成（基础版） | 记录 `toolId/trigger/state/durationMs/userId/errorCode/requestId` | P1 |
+| searchKnowledge | Tool registered and callable by the model | done | Triggers reliably in chat mode and returns a structured result | P0 |
+| searchKnowledge | Manual entry point (`/api/tools/run`) | done | A manual call returns `data + assistantText` | P0 |
+| searchKnowledge | Tightened automatic trigger gating | done | Only fires on an explicit action intent with high confidence | P0 |
+| searchKnowledge | Data sources (`memories + builtin`) | done | Results distinguish `source` and `score` | P0 |
+| searchKnowledge | Explainable results in the UI | done | A source label plus expandable tool detail | P0 |
+| searchKnowledge | Knowledge management entry (add, view, delete) | done | A separate `/knowledge` page plus `GET/POST/DELETE /api/knowledge` | P0 |
+| searchKnowledge | Retrieval quality assurance (evaluation, ranking) | missing | A minimal evaluation set, a ranking strategy and a regression baseline | P1 |
+| searchKnowledge | Project documents, not only memories | partial | Documents can be indexed, updated and retrieved | P1 |
+| createTask | Tool registered and writes to `tasks` | done | A created task is queryable in the database | P0 |
+| createTask | Manual and automatic triggers | done | Both work in chat mode | P0 |
+| createTask | Task query API (list, detail) | done | `GET /api/tasks` and `GET /api/tasks/[id]`, scoped to the workspace | P0 |
+| createTask | Task mutation API (update, delete, status) | done | `PATCH/DELETE /api/tasks/[id]` with `todo/in_progress/done` plus delete | P0 |
+| createTask | Task management UI (list, filter, transitions) | done | A panel in the chat page with filtering, transitions, delete and collapse | P0 |
+| createTask | Time and repeat validation (due date, dedupe) | partial | Correct time zones and no duplicates for the same content | P1 |
+| createTask | Closed loop (reminders, due handling) | done | Desktop due notifications and repeat rules | P1 |
+| webSearch | Tool definition and input schema | done | `{ query, maxResults }` and a normalised `title/url/snippet/score/source` output | P0 |
+| webSearch | Real search execution | done | A Tavily provider returning real `title/url/snippet` results | P0 |
+| webSearch | Registered with the tool bus | done | Callable by the automatic and manual flows | P0 |
+| webSearch | Manual entry point (`/api/tools/run`) | done | Triggerable like the other tools, with LLM synthesis | P0 |
+| webSearch | Automatic trigger strategy | done (basic) | Fires when the request clearly needs external, current or online information | P1 |
+| webSearch | Traceable citations | done | A collapsible list of sources under the answer | P0 |
+| webSearch | Quota, timeout, retry, cache | partial | Timeouts and error codes exist; retry and caching do not | P1 |
+| Common | Tools available in chat mode only | done | No manual or passive tool use outside chat mode | P0 |
+| Common | Historical tool detail can be reviewed | done | Stored messages can expand to show input and output | P0 |
+| Common | UI regression and server integration tests | done | Playwright mocked-UI flows and real route-handler plus SQLite tests, in layers; this is not the same as a full browser-to-database path | P0 |
+| Common | Monitoring and audit log for tool calls | done (basic) | Records `toolId/trigger/state/durationMs/errorCode/requestId` | P1 |
+| Common | Execution records | done | Each turn that used tools has a run with steps, states, an output summary and artifacts | P1 |
+| Common | Graceful degradation when a tool is unavailable | done | An unconfigured optional tool is not offered to the model and the turn says so | P1 |
 
-## 3. P0 排期建议（先可用）
+## 3. P0 schedule (usable first)
 
-### 第 1 周（2026-04-23 ~ 2026-04-29）
+### Week 1 (2026-04-23 to 2026-04-29)
 
-- [x] `webSearch` 接入真实检索 provider（Tavily，含返回结构标准化）
-- [x] `webSearch` 注册到工具总线（自动 + 手动）
-- [x] `webSearch` 回答引用显示（URL/source，可展开/收起）
-- [x] `webSearch` 手动调用支持搜索结果 + LLM 综合推理
-- [x] `createTask`：新增 list/detail API
+- [x] `webSearch` wired to a real search provider (Tavily, with a normalised result shape)
+- [x] `webSearch` registered with the tool bus (automatic and manual)
+- [x] `webSearch` citations shown under the answer (URL/source, expandable)
+- [x] `webSearch` manual invocation supports search results plus LLM synthesis
+- [x] `createTask`: list and detail APIs
 
-**验收：**
-- [x] 聊天模式下可手动/自动调用 `webSearch` 并返回可点击来源
-- [x] `createTask` 创建后可通过 API 查询到同一用户任务列表
+**Acceptance:**
+- [x] `webSearch` can be called manually and automatically in chat mode and returns clickable sources
+- [x] A task created by `createTask` is visible through the API in the same task list
 
-### 第 2 周（2026-04-30 ~ 2026-05-06）
+### Week 2 (2026-04-30 to 2026-05-06)
 
-- [x] `createTask`：新增 update/delete/status API
-- [x] 前端任务管理 UI（右侧栏列表、筛选、状态流转、删除、最多显示 3 个 + 展开）
-- [x] `searchKnowledge`：知识条目管理 API（新增/查看/删除）
-- [x] 独立知识库页面 `/knowledge`
+- [x] `createTask`: update, delete and status APIs
+- [x] Task management UI in the side panel (list, filter, transitions, delete, show three and expand)
+- [x] `searchKnowledge`: knowledge entry management API (add, view, delete)
+- [x] A separate knowledge page at `/knowledge`
 
-**验收：**
-- [x] 任务可从 `todo` 流转到 `done`，并可删除
-- [x] 知识条目可通过 API 管理并被 `searchKnowledge` 检索到
+**Acceptance:**
+- [x] A task moves from `todo` to `done` and can be deleted
+- [x] Knowledge entries can be managed through the API and are found by `searchKnowledge`
 
-### 第 3 周（2026-05-07 ~ 2026-05-13）
+### Week 3 (2026-05-07 to 2026-05-13)
 
-- [x] 端到端测试补齐（`searchKnowledge/createTask/webSearch`）
-- [x] 通用错误码与日志结构统一
+- [x] End-to-end coverage for all three tools
+- [x] A shared error code and log shape
 
-**验收：**
-- [x] 至少 2 条稳定 E2E（当前 3 条）
-- [x] 关键失败场景有明确错误提示（限流、超时、权限、上游失败）
+**Acceptance:**
+- [x] At least two stable E2E cases (three today)
+- [x] Key failure cases produce a clear message (quota, timeout, permission, upstream failure)
 
-### P0 完成记录（2026-04-25）
+### P0 completion record (2026-04-25)
 
-- 已完成 Tavily Web Search、工具总线注册、自动/手动触发、LLM 综合推理、可折叠搜索来源。
-- 已完成任务 API 与右侧任务管理栏，状态更新使用乐观更新以减少闪烁。
-- 已完成独立知识库管理页 `/knowledge`，聊天页左上角提供入口。
-- 已完成统一 API 错误结构与基础工具执行日志。
-- 已完成 Playwright E2E：`webSearch` 来源展示、`createTask` 状态流转、`searchKnowledge` 检索知识条目。
+- Tavily web search, tool-bus registration, automatic and manual triggering, LLM synthesis and collapsible sources are done.
+- The task API and the side task panel are done, with optimistic status updates to reduce flicker.
+- The separate knowledge management page `/knowledge` is done, linked from the chat page.
+- The shared API error shape and basic tool execution log are done.
+- Playwright E2E is done for `webSearch` sources, `createTask` transitions and `searchKnowledge` retrieval.
 
-## 4. P1 排期建议（提质量）
+## 4. P1 schedule (quality)
 
-### 第 4 周（2026-05-14 ~ 2026-05-20）
+### Week 4 (2026-05-14 to 2026-05-20)
 
-- `searchKnowledge` 检索质量评测集与排序优化
-- `createTask` 时区/重复任务防重策略
-- `webSearch` 触发门控优化（减少误触发）
+- A retrieval evaluation set for `searchKnowledge` and ranking improvements
+- Time zone and duplicate-task handling for `createTask`
+- Trigger gating improvements for `webSearch` to reduce false triggers
 
-### 第 5 周（2026-05-21 ~ 2026-05-27）
+### Week 5 (2026-05-21 to 2026-05-27)
 
-- `webSearch` 缓存、限流、重试策略
-- 通用审计日志（tool call 生命周期）
-- 任务提醒/到期机制设计与最小实现
+- Caching, quota and retry for `webSearch`
+- A general audit log across the tool call lifecycle
+- Design and a minimal implementation of task reminders and due handling
 
-## 5. 发布闸门（建议）
+## 5. Release gates (suggested)
 
-- P0 关闭标准：
-  - 三个工具在聊天模式可稳定触发并有可追溯结果展示
-  - `createTask` 具备最小管理闭环（增查改删 + 状态流转）
-  - `webSearch` 具备真实检索能力与引用展示
-  - 关键链路 E2E 通过
+- P0 close criteria:
+  - All three tools trigger reliably in chat mode and show traceable results
+  - `createTask` has a minimal management loop (add, query, update, delete plus transitions)
+  - `webSearch` performs a real search and shows citations
+  - Key paths pass E2E
 
-- P1 关闭标准：
-  - 检索质量与误触发率有量化基线
-  - 运行日志可用于问题追踪与回放
-  - 性能与失败恢复策略稳定
+- P1 close criteria:
+  - Retrieval quality and false-trigger rate have a measured baseline
+  - Runtime logs are usable for tracing and replay
+  - Performance and failure-recovery behaviour is stable
 
+## 6. Delivered beyond this plan
 
-## 6. 额外部分
-- 额外部分：新增支持历史对话内容的单条删除（包括用户和AI）,重新编辑和Retry，重新编辑确认后将以新的对话的形式重新让AI回答,Retry将重新回答当前内容
-- 上下文处理能力，引入RAG或其他功能
+- Deleting a single message from a history conversation (user and assistant), editing and retrying. An edited message is confirmed and re-answered as a new turn; retry re-answers the current content.
+- Context handling, with retrieval over stored documents and memories.
