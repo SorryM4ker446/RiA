@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   validate:
-    name: Validate web and local database
+    name: Validate application and local database
     runs-on: windows-latest
     timeout-minutes: 30
 

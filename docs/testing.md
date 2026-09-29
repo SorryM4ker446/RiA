@@ -2,6 +2,8 @@
 
 Use Node.js 24.9.0 and the dependencies already installed for this project. No separate server or desktop testing framework is required.
 
+The application ships as a Windows desktop program; there is no browser or web deployment target. "Browser tests" below means a Chromium renderer driving the application's own HTTP surface — the same renderer the desktop shell embeds — and is a description of the harness, not a supported form of the product.
+
 Both CI jobs pin Node.js to 24.9.0 to match the local development runtime and log Node.js/npm versions. When upgrading the local Node.js runtime, update both `actions/setup-node` steps in `.github/workflows/ci.yml` and revalidate with that version. A local pass still does not replace a GitHub Actions run.
 
 | Command | What it checks | External dependencies |

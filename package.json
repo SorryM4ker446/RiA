@@ -24,7 +24,6 @@
     "db:studio": "node scripts/run-with-local-db.mjs prisma studio --schema src/db/schema.prisma",
     "desktop:compile": "tsc -p electron/tsconfig.json",
     "desktop:dev": "npm run desktop:compile && node scripts/run-desktop-dev.mjs",
-    "desktop:dev:web": "node scripts/run-desktop-web.mjs",
     "desktop:dev:electron": "npm run desktop:dev",
     "desktop:build": "node scripts/build-desktop.mjs",
     "desktop:package": "npm run desktop:build && electron-forge package --platform win32 --arch x64",

@@ -46,13 +46,7 @@ When restarting the local service, Electron first leaves the old page, then relo
 
 Desktop logs rotate at 2 MiB per file, retaining the active file plus three archives (`desktop.log.1` through `.3`), up to 8 MiB total. Next stdout/stderr goes through the same parent-process writer and redaction rules instead of a file descriptor that bypasses rotation. Complete output lines are buffered across chunks for redaction; lines over 16 Ki characters are omitted, and entries larger than a file are replaced with an omission marker. Oversized logs from older versions are capped when rotated. Rotation/write failures do not stop the app; diagnostics may be lost when the log directory is unwritable. Do not use these bounded diagnostic files as durable audit logs.
 
-For browser-only UI work backed by the desktop development database:
-
-```powershell
-npm run desktop:dev:web
-```
-
-This browser-only command intentionally runs in web runtime mode and therefore does not exercise Electron IPC or the desktop-session boundary.
+There is no browser-only variant. `npm run dev` still starts the bare Next.js service for a fast loop and for the development-mode desktop smoke, but it is not a delivery form and it does not exercise Electron IPC or the desktop-session boundary.
 
 ## API keys and settings
 
