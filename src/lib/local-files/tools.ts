@@ -1,4 +1,4 @@
-import { readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { open, readdir, readFile, rm, stat } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -109,10 +109,6 @@ export async function listGrantedFiles(input: { grantId: string; path?: string; 
 
   async function walk(absolute: string, relative: string, remainingDepth: number): Promise<void> {
     if (truncated) return;
-    if (remainingDepth < 0) {
-      truncated = `Stopped at ${LOCAL_FILE_LIMITS.depth} levels deep.`;
-      return;
-    }
     if (Date.now() > deadline) {
       truncated = "Stopped after the time limit for one listing.";
       return;
@@ -122,6 +118,16 @@ export async function listGrantedFiles(input: { grantId: string; path?: string; 
       items = await readdir(absolute, { withFileTypes: true });
     } catch {
       // One unreadable subfolder must not end the whole listing.
+      return;
+    }
+    // The depth the caller asked for is the depth actually walked: at the limit
+    // the walk stops before descending rather than listing one level further.
+    // It only says so when a folder below really held something, so an empty
+    // last folder is not reported as a listing that was cut short.
+    if (remainingDepth === 0) {
+      if (items.some((entry) => entry.isDirectory() && !entry.name.startsWith("."))) {
+        truncated = `Stopped at ${depth} levels deep.`;
+      }
       return;
     }
     for (const item of items) {
@@ -172,8 +178,16 @@ export async function readGrantedFile(input: ReadLocalFileInput): Promise<ReadLo
   const grant = await requireActiveGrant(input.grantId);
   const target = await resolveWithinGrant(grant, input.path, "read");
   const bytes = await readFile(target.absolutePath);
-  const truncated = bytes.byteLength > LOCAL_FILE_LIMITS.characters;
-  const text = Buffer.from(bytes.subarray(0, LOCAL_FILE_LIMITS.characters)).toString("utf8");
+  // Two ceilings, both enforced here rather than left to the schema: the bytes
+  // one read may consume at all, and the characters it is handed back. The
+  // bytes are decoded whole and cut afterwards, so the cut lands between
+  // characters and never leaves half a code point at the end of the text.
+  if (bytes.byteLength > LOCAL_FILE_LIMITS.readBytes) {
+    throw new LocalFileRefused("too-large", "This file is larger than the limit for a single read.");
+  }
+  const decoded = bytes.toString("utf8");
+  const truncated = decoded.length > LOCAL_FILE_LIMITS.characters;
+  const text = truncated ? decoded.slice(0, LOCAL_FILE_LIMITS.characters) : decoded;
   await touchGrant(grant.id);
   return { path: target.relativePath, grantLabel: grant.label, byteSize: bytes.byteLength, text, truncated };
 }
@@ -188,15 +202,49 @@ export async function readGrantedFile(input: ReadLocalFileInput): Promise<ReadLo
  * so the user can decide what to do about it.
  */
 export async function writeGrantedFile(input: WriteLocalFileInput): Promise<WriteLocalFileOutput> {
-  if (input.binding) await verifyWriteApproval(input.binding);
+  // Checked here as well as in the schema: this function is the boundary the
+  // tool executes against, and it must not depend on a caller having parsed.
+  if (input.content.length > LOCAL_FILE_LIMITS.characters) {
+    throw new LocalFileRefused("too-large", "The content is larger than the limit for one file.");
+  }
+  if (input.path.length > 2000) {
+    throw new LocalFileRefused("name-too-long", "The name is too long.");
+  }
+  // Fails closed. A write with no binding has no record of what the user
+  // approved, so there is nothing to check it against and it does not happen.
+  if (!input.binding) {
+    throw new LocalFileRefused("outside-grant", "That write was not approved against a recorded state, so it did not run.");
+  }
+  // The binding checked one name and the write uses another. Comparing them
+  // here is what stops an approval granted for one file being spent on
+  // whatever else arrived in the same input.
+  if (input.binding.path !== input.path.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "")) {
+    throw new LocalFileRefused("outside-grant", "That request was approved for a different file.");
+  }
+  await verifyWriteApproval(input.binding);
   const grant = await requireActiveGrant(input.grantId);
   const target = await resolveWithinGrant(grant, input.path, "write");
+
+  // The exclusive create is a separate step from filling the file, so the file
+  // is opened `wx` and then written through that handle. Whatever goes wrong
+  // afterwards takes the half-written file with it: leaving one behind would
+  // make the next attempt fail as "that name is taken", which is both untrue
+  // and unfixable from here, because this version never overwrites.
+  let handle: Awaited<ReturnType<typeof open>>;
   try {
-    await writeFile(target.absolutePath, input.content, { encoding: "utf8", flag: "wx", mode: 0o600 });
+    handle = await open(target.absolutePath, "wx", 0o600);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EEXIST") {
       throw new LocalFileRefused("not-a-file", "A file with that name already exists. Choose another name; this version never overwrites.");
     }
+    throw error;
+  }
+  try {
+    await handle.writeFile(input.content, "utf8");
+    await handle.close();
+  } catch (error) {
+    await handle.close().catch(() => undefined);
+    await rm(target.absolutePath, { force: true }).catch(() => undefined);
     throw error;
   }
   await touchGrant(grant.id);

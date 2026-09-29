@@ -185,6 +185,13 @@ function assertRelativeName(relative: string): string {
     // A leading dot is how credential material is spelled on every platform this
     // targets (`.env`, `.ssh`, `.git`, `.npmrc`), so it is refused as a
     // category rather than per extension.
+    // A colon in a segment is how Windows addresses an alternate data stream.
+    // `notes.md:run.exe` carries a text extension on the outside and a program
+    // on the inside, so refusing it as a category is the only answer that does
+    // not depend on parsing what follows the colon.
+    if (segment.includes(":")) {
+      throw new LocalFileRefused("traversal", "That name is not a plain file name.");
+    }
     if (segment.startsWith(".")) {
       throw new LocalFileRefused("hidden", "Hidden files and folders are not available.");
     }

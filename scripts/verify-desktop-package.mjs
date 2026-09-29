@@ -101,6 +101,11 @@ verifyRuntime(runtimeDirectory);
 
 if (packageDirectory) {
   requireFile(join(packageDirectory, "RiA.exe"), "Packaged application executable");
+  // The tray icon is only reachable as a loose file under `resources`. Nothing
+  // else in the application reads it, so its absence is invisible until someone
+  // chooses to run in the tray and the app becomes a process with no icon and
+  // possibly no window.
+  requireFile(join(packageDirectory, "resources", "assets", "desktop-icon.png"), "Tray icon resource");
   verifyRuntime(join(packageDirectory, "resources", ".desktop-runtime"), { enforceWindowsPathBudget: true });
   const packagedFiles = walk(packageDirectory);
   if (packagedFiles.some((path) => /^\.env(?:\.|$)/i.test(path.split(/[\\/]/).pop() || ""))) {

@@ -10,6 +10,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { t } from "@/lib/locale";
 import { DirectoryGrantSettings } from "@/features/settings/directory-grants";
+import { ScheduleSettings } from "@/features/settings/schedules";
+import { CloseBehaviourSettings } from "@/features/settings/close-behaviour";
+import { HotkeySettings } from "@/features/settings/hotkey";
+import { NoticeCenter } from "@/features/settings/notice-center";
 
 export default function DesktopSettingsPage() {
   const [settings, setSettings] = useState<DesktopSettingsView | null>(null);

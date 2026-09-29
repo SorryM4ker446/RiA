@@ -82,6 +82,25 @@ export async function restoreAccountBackup(id: string) {
       return { safety };
     });
     const cleanup = await pruneAccountBackupsSafely(safety.id);
-    return { safetyBackupId: safety.id, restored: true, cleanupFailed: !!cleanup.failed };
+    /*
+     * A restored archive must not arrive already running things.
+     *
+     * Schedules and the folders the user granted are permissions on a machine,
+     * not workspace content, and a restore is a moment where the user is least
+     * likely to be watching. Both are therefore switched off by a restore, and
+     * the counts are reported so the interface can say what was paused rather
+     * than leaving the user to find out later that nothing ran.
+     */
+    const paused = await db.$transaction([
+      db.scheduledJob.updateMany({ where: { enabled: true }, data: { enabled: false } }),
+      db.directoryGrant.updateMany({ where: { revokedAt: null }, data: { revokedAt: new Date() } })
+    ]);
+    return {
+      safetyBackupId: safety.id,
+      restored: true,
+      cleanupFailed: !!cleanup.failed,
+      pausedSchedules: paused[0].count,
+      revokedDirectoryGrants: paused[1].count
+    };
   } finally { await archive.close(); }
 }

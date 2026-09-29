@@ -69,28 +69,52 @@ export async function listGrants(options: { includeRevoked?: boolean } = {}): Pr
  * somewhere else later. Granting a directory that is already granted returns
  * the existing row instead of a second one, and revives it if it was revoked:
  * the user asked for this permission again, which is the decision that matters.
+ * That holds for two requests arriving at once as well as for one arriving
+ * later: the real path is unique, so the request that loses the race is the one
+ * that revives the row the winner created.
  */
 export async function createGrant(input: { label?: string; path: string }): Promise<DirectoryGrantView> {
   const resolved = await resolveGrant({ label: input.label ?? "", path: input.path });
   const label = localGrantLabelSchema.parse(resolved.label);
 
-  const existing = await db.directoryGrant.findFirst({
-    where: { realPath: resolved.realPath },
-    orderBy: [{ createdAt: "desc" }],
-    select: { id: true, revokedAt: true }
-  });
+  const existing = await findByRealPath(resolved.realPath);
+  if (existing) return reviveGrant(existing.id, label, resolved.path);
 
-  if (existing) {
-    const row = await db.directoryGrant.update({
-      where: { id: existing.id },
-      data: { label, path: resolved.path, revokedAt: null, lastUsedAt: null },
+  try {
+    const row = await db.directoryGrant.create({
+      data: { label, path: resolved.path, realPath: resolved.realPath },
       select: grantViewSelect
     });
     return toView(row);
+  } catch (error) {
+    // Two requests for one folder can both read the table and both find nothing,
+    // because the read and the insert are not one step. The unique real path is
+    // what settles it: the loser takes the re-grant branch instead of leaving a
+    // second row the user cannot tell apart, and cannot meaningfully revoke.
+    if (!isUniqueViolation(error)) throw error;
+    const winner = await findByRealPath(resolved.realPath);
+    if (!winner) throw error;
+    return reviveGrant(winner.id, label, resolved.path);
   }
+}
 
-  const row = await db.directoryGrant.create({
-    data: { label, path: resolved.path, realPath: resolved.realPath },
+function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Error && error.name === "PrismaClientKnownRequestError" && (error as { code?: string }).code === "P2002";
+}
+
+async function findByRealPath(realPath: string): Promise<{ id: string } | null> {
+  return db.directoryGrant.findFirst({
+    where: { realPath },
+    orderBy: [{ createdAt: "desc" }],
+    select: { id: true }
+  });
+}
+
+/** Put the permission back: same row, withdrawn state cleared, so its identity is the one the caller already knows. */
+async function reviveGrant(id: string, label: string, resolvedPath: string): Promise<DirectoryGrantView> {
+  const row = await db.directoryGrant.update({
+    where: { id },
+    data: { label, path: resolvedPath, revokedAt: null, lastUsedAt: null },
     select: grantViewSelect
   });
   return toView(row);
@@ -121,7 +145,8 @@ export async function revokeGrant(id: string): Promise<{ revoked: true }> {
  * effect immediately: a run that started before the revoke still fails at its
  * next step.
  */
-export async function requireActiveGrant(id: string): Promise<{ id: string; label: string; path: string; realPath: string }> {  const row = await db.directoryGrant.findUnique({ where: { id }, select: { id: true, label: true, path: true, realPath: true, revokedAt: true } });
+export async function requireActiveGrant(id: string): Promise<{ id: string; label: string; path: string; realPath: string }> {
+  const row = await db.directoryGrant.findUnique({ where: { id }, select: { id: true, label: true, path: true, realPath: true, revokedAt: true } });
   if (!row || row.revokedAt) {
     throw new LocalFileRefused("outside-grant", "That folder is not available.");
   }

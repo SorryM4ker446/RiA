@@ -16,6 +16,13 @@ contextBridge.exposeInMainWorld("privateAiDesktop", {
   // Point a file manager at something the service has already resolved inside a
   // granted folder. The path is never composed here; the shell only selects it.
   revealPath: (target: string) => ipcRenderer.invoke("desktop:folder:reveal", target) as Promise<{ revealed: boolean }>,
+  // Leaving the app or coming back to it, both from the settings screen.
+  quitToTray: () => ipcRenderer.invoke("desktop:tray:quit") as Promise<{ quitting: boolean }>,
+  showFromTray: () => ipcRenderer.invoke("desktop:tray:show") as Promise<{ shown: boolean }>,
+  // The shortcut only brings the window forward, and that happens in the main
+  // process. There is no renderer notification for it: a channel nothing in the
+  // app listens to invites a handler nobody wrote, and the shortcut already works.
+  setGlobalHotkey: (accelerator: string) => ipcRenderer.invoke("desktop:hotkey:set", accelerator) as Promise<{ ok: boolean; hotkey: string; reason?: "conflict" | "invalid" | "not-stored" }>,
   // The page draws the caption, so it needs the verbs and the current state.
   // Absent entirely where the platform keeps its own caption.
   ...(drawsOwnCaption

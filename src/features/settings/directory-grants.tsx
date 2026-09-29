@@ -45,7 +45,10 @@ export function DirectoryGrantSettings() {
 
   const load = useCallback(async () => {
     try {
-      const response = await fetch("/api/directory-grants", { cache: "no-store" });
+      // Withdrawing a grant keeps the record, so it is asked for explicitly:
+      // without this the user sees a folder disappear and no way to find out
+      // what was taken away or when.
+      const response = await fetch("/api/directory-grants?includeRevoked=true", { cache: "no-store" });
       if (!response.ok) throw new Error(await readError(response));
       const payload = await response.json();
       setGrants(Array.isArray(payload.data) ? payload.data : []);
@@ -142,15 +145,20 @@ export function DirectoryGrantSettings() {
                   <p className="truncate text-sm font-medium">{grant.label}</p>
                   <p className="truncate text-xs text-muted-foreground" title={grant.realPath}>{grant.path}</p>
                   <p className="text-[11px] text-muted-foreground">
-                    {grant.lastUsedAt
-                      ? `${t("settings.grants.lastUsed")}${new Date(grant.lastUsedAt).toLocaleString()}`
-                      : t("settings.grants.neverUsed")}
+                    {grant.revokedAt
+                      ? `${t("settings.grants.revoked")}${new Date(grant.revokedAt).toLocaleString()}`
+                      : grant.lastUsedAt
+                        ? `${t("settings.grants.lastUsed")}${new Date(grant.lastUsedAt).toLocaleString()}`
+                        : t("settings.grants.neverUsed")}
                   </p>
                 </div>
-                <Button onClick={() => void revoke(grant.id)} size="sm" type="button" variant="outline">
-                  <ShieldOff aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
-                  {t("settings.grants.revoke")}
-                </Button>
+                {/* A withdrawn folder is shown rather than offered: there is nothing left to withdraw. */}
+                {grant.revokedAt ? null : (
+                  <Button onClick={() => void revoke(grant.id)} size="sm" type="button" variant="outline">
+                    <ShieldOff aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
+                    {t("settings.grants.revoke")}
+                  </Button>
+                )}
               </li>
             ))}
           </ul>

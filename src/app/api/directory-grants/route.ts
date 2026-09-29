@@ -30,8 +30,18 @@ function grantError(error: unknown): unknown {
 async function GETHandler(req: NextRequest) {
   try {
     await requireLocalWorkspace(req);
-    if (req.nextUrl.searchParams.size) throw new ApiError({ code: "VALIDATION_ERROR", message: "Unexpected query parameter" });
-    const data = await listGrants({ includeRevoked: req.nextUrl.searchParams.get("includeRevoked") === "true" });
+    // `includeRevoked` is the one query that means something here: withdrawing a
+    // grant keeps the row, and the settings page has to be able to show what was
+    // withdrawn and when. Anything else is still a request the endpoint does not
+    // answer to, so it is refused rather than ignored.
+    if ([...req.nextUrl.searchParams.keys()].some((key) => key !== "includeRevoked")) {
+      throw new ApiError({ code: "VALIDATION_ERROR", message: "Unexpected query parameter" });
+    }
+    const includeRevoked = req.nextUrl.searchParams.get("includeRevoked");
+    if (includeRevoked !== null && includeRevoked !== "true" && includeRevoked !== "false") {
+      throw new ApiError({ code: "VALIDATION_ERROR", message: "includeRevoked must be true or false" });
+    }
+    const data = await listGrants({ includeRevoked: includeRevoked === "true" });
     return Response.json({ data }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return createApiErrorResponse(error, t("api.directoryGrants.listFailed"));

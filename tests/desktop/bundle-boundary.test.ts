@@ -111,6 +111,12 @@ function packageFixture(root, build) {
   const packageDirectory = join(root, "out", "RiA-win32-x64");
   mkdirSync(packageDirectory, { recursive: true });
   writeFileSync(join(packageDirectory, "RiA.exe"), "");
+  // Staged loose under `resources`, the way `extraResource` puts it. A real
+  // package has it, and verification requires it: a tray without an icon is a
+  // process the user cannot find.
+  const icon = join(packageDirectory, "resources", "assets", "desktop-icon.png");
+  mkdirSync(dirname(icon), { recursive: true });
+  writeFileSync(icon, "");
   const runtime = seedValidRuntime(root, join(packageDirectory, "resources", ".desktop-runtime"));
   build(runtime);
   return packageDirectory;
@@ -157,6 +163,15 @@ test("the packaged bundle drops the runtime image cache before Squirrel reads it
   try {
     const runtime = join(repositoryRoot, ".desktop-runtime");
     if (!existsSync(join(runtime, "server.js"))) return; // Runtime not built in this checkout.
+    // Provision the cache rather than expecting it. A fresh `desktop:build`
+    // produces a runtime with no image cache, so relying on a previous app run
+    // made this test pass or fail on whatever happened to run before it, not on
+    // what the hook does. The previous case in this file already provisions its
+    // own fixture the same way.
+    const cacheDirectory = join(runtime, ".next", "cache");
+    const cached = join(cacheDirectory, "images", "a".repeat(40), `${"b".repeat(150)}.png`);
+    mkdirSync(dirname(cached), { recursive: true });
+    writeFileSync(cached, "");
     cpSync(runtime, join(staging, "resources", ".desktop-runtime"), { recursive: true });
     assert.equal(existsSync(join(staging, "resources", ".desktop-runtime", ".next", "cache", "images")), true);
 
@@ -173,6 +188,9 @@ test("the packaged bundle drops the runtime image cache before Squirrel reads it
     assert.equal(existsSync(join(staging, "resources", ".desktop-runtime", ".next", "cache")), false);
     assert.equal(existsSync(join(staging, "resources", ".desktop-runtime", "server.js")), true);
   } finally {
+    // Only what this test made. A real runtime cache belongs to whatever ran
+    // the application, not to this fixture.
+    rmSync(join(repositoryRoot, ".desktop-runtime", ".next", "cache"), { recursive: true, force: true });
     rmSync(staging, { recursive: true, force: true });
   }
 });

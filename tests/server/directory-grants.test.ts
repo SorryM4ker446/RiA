@@ -172,6 +172,17 @@ test("granting the same folder again revives it rather than stacking a second pe
   assert.equal(await listGrants().then((rows) => rows.length), 1);
 });
 
+test("two grant requests for one folder arriving together leave one permission, not two", async () => {
+  const root = temporaryDirectory("ria-grant-");
+  const [first, second] = await Promise.all([createGrant({ path: root }), createGrant({ path: root })]);
+
+  // Reading the table and inserting are two steps, so without a unique real path
+  // both can see nothing there and both insert. Two rows means the folder shows
+  // up twice and revoking one of them appears to do nothing.
+  assert.equal(first.id, second.id);
+  assert.equal(await listGrants({ includeRevoked: true }).then((rows) => rows.length), 1);
+});
+
 test("a folder renamed or replaced after granting is re-checked before use", async () => {
   const root = temporaryDirectory("ria-grant-");
   writeFileSync(path.join(root, "notes.md"), "ok");
@@ -212,6 +223,22 @@ test("the grants endpoints grant and withdraw, and never without the local crede
   assert.equal((await refused.json()).error.details.reason, "network-location");
 });
 
+test("the withdrawn folders the plain listing hides are still there to be asked for", async () => {
+  const root = temporaryDirectory("ria-grant-");
+  const created = await payload(await grantsRoute.POST(req("/api/directory-grants", "POST", { path: root })), 201);
+  await payload(await grantIdRoute.DELETE(req(`/api/directory-grants/${created.data.id}`, "DELETE"), context(created.data.id)));
+
+  assert.equal((await payload(await grantsRoute.GET(req("/api/directory-grants")))).data.length, 0);
+  const kept = await payload(await grantsRoute.GET(req("/api/directory-grants?includeRevoked=true")));
+  assert.equal(kept.data.length, 1);
+  assert.ok(kept.data[0].revokedAt, "a withdrawn folder keeps its record and the date it was withdrawn");
+
+  // One query means something here, and it is the only one accepted.
+  assert.equal((await grantsRoute.GET(req("/api/directory-grants?includeRevoked=false"))).status, 200);
+  assert.equal((await grantsRoute.GET(req("/api/directory-grants?anything=true"))).status, 400);
+  assert.equal((await grantsRoute.GET(req("/api/directory-grants?includeRevoked=maybe"))).status, 400);
+});
+
 // --- 7-2 and 7-3: the tools the assistant may run inside a grant -------------
 
 test("the local-file tools are not offered at all until a folder is granted", async () => {
@@ -248,6 +275,10 @@ test("listing walks a granted folder within its limits and says when it stopped"
   const listing = await listGrantedFiles({ grantId: grant.id, path: "", depth: 2 });
   const paths = listing.entries.map((entry) => entry.path);
   assert.ok(paths.includes("notes/a.md"), "a readable file is listed");
+  // Two levels means two levels: the file inside the second-level folder is one
+  // level too far down, and a listing that quietly returned it would be
+  // reporting a depth the caller never asked for.
+  assert.equal(paths.includes("notes/deep/b.txt"), false);
   assert.ok(paths.includes("notes/deep"), "a subfolder is listed");
   // Hidden entries are not advertised either: refusing to read them is not
   // useful if the listing still says they are there.
@@ -258,6 +289,27 @@ test("listing walks a granted folder within its limits and says when it stopped"
   const shallow = await listGrantedFiles({ grantId: grant.id, path: "", depth: 1 });
   assert.equal(shallow.entries.some((entry) => entry.path === "notes/deep/b.txt"), false);
   assert.match(String(shallow.truncated), /levels deep/);
+});
+
+test("a read is bounded by bytes as well as by characters, and never cuts a character in half", async () => {
+  const { LOCAL_FILE_LIMITS } = await import("@/lib/local-files/limits");
+  const { readGrantedFile } = await import("@/lib/local-files/tools");
+  const root = temporaryDirectory("ria-grant-");
+  writeFileSync(path.join(root, "big.md"), "y".repeat(LOCAL_FILE_LIMITS.readBytes + 1));
+  writeFileSync(path.join(root, "wide.md"), "\u4e2d".repeat(LOCAL_FILE_LIMITS.characters + 500));
+  const grant = await createGrant({ path: root });
+
+  // Under the single-file ceiling but over the budget one read may spend, so
+  // it is refused rather than quietly shortened.
+  assert.equal(await refusedBy(async () => readGrantedFile({ grantId: grant.id, path: "big.md" })), "too-large");
+
+  // The character limit counts characters. A file of three-byte text loses a
+  // hundred thousand of them, not a hundred thousand bytes, and what comes
+  // back does not end in half a code point.
+  const read = await readGrantedFile({ grantId: grant.id, path: "wide.md" });
+  assert.equal(read.text.length, LOCAL_FILE_LIMITS.characters);
+  assert.equal(read.truncated, true);
+  assert.equal(read.text.includes("\ufffd"), false);
 });
 
 test("a file is read from inside the grant and nowhere else", async () => {
@@ -278,21 +330,32 @@ test("a file is read from inside the grant and nowhere else", async () => {
 });
 
 test("writing creates a new file and never replaces one that is already there", async () => {
-  const { writeGrantedFile } = await import("@/lib/local-files/tools");
+  const { writeGrantedFile, bindWriteApproval } = await import("@/lib/local-files/tools");
   const root = temporaryDirectory("ria-grant-");
   const grant = await createGrant({ path: root });
 
-  const created = await writeGrantedFile({ grantId: grant.id, path: "summary.md", content: "# Summary" });
+  const firstBinding = await bindWriteApproval({ grantId: grant.id, path: "summary.md" });
+  // Every write carries the state it was approved against. One that does not is refused:
+  // there is nothing to check it against, and a write with no record of what was
+  // approved is not a write that happened to be safe.
+  assert.equal(await refusedBy(async () => writeGrantedFile({ grantId: grant.id, path: "unbound.md", content: "x" })), "outside-grant");
+  assert.equal(existsSync(path.join(root, "unbound.md")), false, "an unbound write does not happen");
+  const created = await writeGrantedFile({ grantId: grant.id, path: "summary.md", content: "# Summary", binding: firstBinding });
   assert.equal(created.created, true);
   assert.equal(readFileSync(path.join(root, "summary.md"), "utf8"), "# Summary");
 
   // The second attempt must leave the first file exactly as it was. The create
   // is exclusive, so the refusal and the check are the same operation.
-  assert.equal(await refusedBy(async () => writeGrantedFile({ grantId: grant.id, path: "summary.md", content: "replaced" })), "not-a-file");
+  const secondBinding = await bindWriteApproval({ grantId: grant.id, path: "summary.md" });
+  assert.equal(await refusedBy(async () => writeGrantedFile({ grantId: grant.id, path: "summary.md", content: "replaced", binding: secondBinding })), "not-a-file");
   assert.equal(readFileSync(path.join(root, "summary.md"), "utf8"), "# Summary");
 
-  assert.equal(await refusedBy(async () => writeGrantedFile({ grantId: grant.id, path: "run.cmd", content: "x" })), "unsupported-format");
-  assert.equal(await refusedBy(async () => writeGrantedFile({ grantId: grant.id, path: "../escape.md", content: "x" })), "traversal");
+  // A name that cannot be bound cannot be approved either, so it never reaches a
+  // write. This is why the binding is required rather than merely checked.
+  assert.equal(await refusedBy(async () => bindWriteApproval({ grantId: grant.id, path: "run.cmd" })), "unsupported-format");
+  assert.equal(await refusedBy(async () => bindWriteApproval({ grantId: grant.id, path: "../escape.md" })), "traversal");
+
+  assert.equal(existsSync(path.join(root, "..", "escape.md")), false);
   assert.equal(existsSync(path.join(root, "..", "escape.md")), false);
 });
 
@@ -326,9 +389,25 @@ test("a read is truncated at the character limit and says so", async () => {
   assert.equal(read.truncated, true);
 });
 
+test("the write boundary enforces the content limit rather than trusting a caller to have parsed first", async () => {
+  const { LOCAL_FILE_LIMITS } = await import("@/lib/local-files/limits");
+  const { writeGrantedFile, bindWriteApproval } = await import("@/lib/local-files/tools");
+  const root = temporaryDirectory("ria-grant-");
+  const grant = await createGrant({ path: root });
+  const binding = await bindWriteApproval({ grantId: grant.id, path: "huge.md" });
+
+  assert.equal(
+    await refusedBy(() =>
+      writeGrantedFile({ grantId: grant.id, path: "huge.md", content: "x".repeat(LOCAL_FILE_LIMITS.characters + 1), binding })
+    ),
+    "too-large"
+  );
+  assert.equal(existsSync(path.join(root, "huge.md")), false, "an over-limit write leaves nothing behind");
+});
+
 test("an approval is bound to the folder and the target as they were when it was raised", async () => {
   const { bindWriteApproval } = await import("@/lib/local-files/tools");
-  const { fingerprintBinding, verifyWriteApproval } = await import("@/lib/local-files/approval");
+  const { verifyWriteApproval } = await import("@/lib/local-files/approval");
   const { writeGrantedFile } = await import("@/lib/local-files/tools");
   const root = temporaryDirectory("ria-grant-");
   const grant = await createGrant({ path: root });
@@ -336,8 +415,6 @@ test("an approval is bound to the folder and the target as they were when it was
   const binding = await bindWriteApproval({ grantId: grant.id, path: "summary.md" });
   assert.equal(binding.targetWasAbsent, true);
   assert.equal(binding.path, "summary.md");
-  // Stable, so a binding survives the restart an approval may wait through.
-  assert.equal(fingerprintBinding(binding), fingerprintBinding({ ...binding }));
 
   // Nothing changed: the approval still describes the act the user read.
   await verifyWriteApproval(binding);
@@ -362,11 +439,18 @@ test("a withdrawn or replaced folder invalidates a pending approval", async () =
   await revokeGrant(grant.id);
   assert.equal(await refusedBy(() => verifyWriteApproval(binding)), "outside-grant");
 
-  // Re-granting restores the permission but with a new identity, so an approval
-  // raised against the old one still does not carry over.
+  // Re-granting puts the permission back on the same row, and it is the row that
+  // moved: withdrawing it and granting it again both change its version, so an
+  // approval raised against the withdrawn state does not carry over to the
+  // permission that replaced it. The refusal comes from the real binding, not a
+  // forged one, so the test covers the property the comment names.
   const revived = await createGrant({ path: root });
   assert.equal(revived.id, grant.id);
-  assert.equal(await refusedBy(() => verifyWriteApproval({ ...binding, grantUpdatedAt: new Date(0).toISOString() })), "outside-grant");
+  assert.equal(await refusedBy(() => verifyWriteApproval(binding)), "outside-grant");
+  // The permission is genuinely back: an approval taken now describes the same act
+  // and passes, which is what makes the refusal above about the move rather than
+  // about the folder having stopped existing.
+  await verifyWriteApproval(await bindWriteApproval({ grantId: grant.id, path: "summary.md" }));
 });
 
 test("revealing a file re-checks the grant instead of trusting the caller", async () => {

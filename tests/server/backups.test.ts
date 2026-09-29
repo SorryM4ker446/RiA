@@ -272,3 +272,32 @@ test("restore refuses active writes and streams and releases its gate after fail
   const response=await streaming(req("/api/test")); await assert.rejects(exclusiveDataOperation(async()=>{}),/仍有请求/); await response.text();
   await assert.rejects(exclusiveDataOperation(async()=>{throw new Error("Expected");}),/Expected/); await exclusiveDataOperation(async()=>{});
 });
+test("an export is written where the user said and recorded as a copy they own", async () => {
+  const { createAccountBackup } = await import("@/lib/backups/archive");
+  const { exportBackupCopy, listBackupExports } = await import("@/lib/backups/exports");
+  const { mkdtempSync, existsSync, readFileSync, realpathSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const path = await import("node:path");
+
+  const destination = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ria-export-")));
+  try {
+    const backup = await createAccountBackup(false);
+    const target = path.join(destination, `${backup.id}.paib`);
+    const exported = await exportBackupCopy(backup.id, target);
+
+    assert.equal(exported.backupId, backup.id);
+    assert.equal(exported.path, target);
+    assert.ok(existsSync(target), "the copy is where the user asked for it");
+    assert.ok(exported.byteSize > 0);
+    assert.equal(readFileSync(target).length, exported.byteSize);
+    assert.equal((await listBackupExports()).length, 1);
+
+    // The record is for showing, not for acting on: the application never
+    // resolves the path again, so a destination it could reach is one it could
+    // get wrong.
+    await assert.rejects(() => exportBackupCopy(backup.id, ""));
+    await assert.rejects(() => exportBackupCopy("not-a-uuid", target));
+  } finally {
+    rmSync(destination, { recursive: true, force: true });
+  }
+});

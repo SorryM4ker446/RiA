@@ -79,4 +79,11 @@ export const apiMessages = {
   "api.localAccess.notTopLevel": "本地访问凭证只能通过本机的直接访问获取。",
   "api.localAccess.codeExpired": "启动凭证已失效，请从本地服务的启动输出重新打开应用。",
   "api.localAccess.establishFailed": "无法建立本地访问凭证。",
+  // --- schedules -----------------------------------------------------------
+  "api.schedules.listFailed": "无法读取计划列表。",
+  "api.schedules.createFailed": "无法创建计划。",
+  "api.schedules.updateFailed": "无法更新计划，原设置保持不变。",
+  "api.schedules.deleteFailed": "无法删除计划。",
+  "api.notices.listFailed": "无法读取提醒中心。",
+  "api.notices.updateFailed": "无法更新提醒。",
 } as const;

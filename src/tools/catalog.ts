@@ -50,7 +50,7 @@ type ToolBudgetExceededContext = {
 };
 
 /** Why an optional tool did not produce a result, in terms the model can read. */
-export type ToolSkipReason = "notConfigured" | "noDirectoryGranted" | "budget" | "temporarilyUnavailable" | "runStopped";
+export type ToolSkipReason = "notConfigured" | "noDirectoryGranted" | "budget" | "temporarilyUnavailable" | "runStopped" | "run-budget-unreadable";
 
 /** How many sources a search brings back when nothing more specific applies. */
 const DEFAULT_SEARCH_RESULTS = 5;
@@ -146,6 +146,16 @@ type ToolDescriptor<Input = unknown, Output = unknown> = {
   };
   inputSchema: z.ZodType<Input>;
   requiresApproval?: boolean;
+  /**
+   * Attaches whatever an approval is bound to, on the tool call itself.
+   *
+   * Runs at the moment the model produced the call and before the user is
+   * asked, which is the only point where "what the user read on screen" and
+   * "what was recorded" are the same thing. Returning the bound input is
+   * preferred; the SDK stores the caller object, so a tool may also write
+   * through the reference it is handed.
+   */
+  bindForApproval?: (input: unknown) => Promise<unknown>;
   prepareInput?: (context: ToolPrepareInputContext<Input>) => Promise<Input> | Input;
   buildBudgetExceededOutput?: (context: ToolBudgetExceededContext) => Output;
   /**
@@ -612,7 +622,11 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       "List what is inside a folder the user has opened to you. Returns names, kinds, sizes and modification times, and says when the listing was cut short. Use it before reading, so you name files that exist rather than guessing. Do not use it to search the whole disk: only the granted folders can be listed at all. Do not use it when the user asked about a topic rather than a file.",
     modeSupport: ["chat"],
     manual: {
-      enabled: true,
+      // No manual entry. Choosing a tool from the picker is a way of
+      // choosing a tool, not a waiver of the confirmation one that touches the
+      // disk asked for, and a file written from a dropdown happens with nothing
+      // shown and nothing recorded.
+      enabled: false,
       label: t("tools.localFiles.manualLabel"),
       placeholder: t("tools.localFiles.placeholder"),
       submitLabel: t("tools.common.submitLabel"),
@@ -641,7 +655,11 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       "Read one text, Markdown, PDF or Word file from a folder the user has opened to you. The path is relative to that folder. Use it only for a file the user pointed you at or that a listing just showed you. Do not use it to read configuration, credentials or anything outside the granted folder: those are refused, and asking again wastes the turn.",
     modeSupport: ["chat"],
     manual: {
-      enabled: true,
+      // No manual entry. Choosing a tool from the picker is a way of
+      // choosing a tool, not a waiver of the confirmation one that touches the
+      // disk asked for, and a file written from a dropdown happens with nothing
+      // shown and nothing recorded.
+      enabled: false,
       label: t("tools.localFiles.manualLabel"),
       placeholder: t("tools.localFiles.pathPlaceholder"),
       submitLabel: t("tools.common.submitLabel"),
@@ -668,7 +686,11 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     modeSupport: ["chat"],
     requiresApproval: true,
     manual: {
-      enabled: true,
+      // No manual entry. Choosing a tool from the picker is a way of
+      // choosing a tool, not a waiver of the confirmation one that touches the
+      // disk asked for, and a file written from a dropdown happens with nothing
+      // shown and nothing recorded.
+      enabled: false,
       label: t("tools.localFiles.manualLabel"),
       placeholder: t("tools.localFiles.pathPlaceholder"),
       submitLabel: t("tools.common.submitLabel"),
@@ -687,7 +709,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
      * be recorded. It travels inside the input, which is what the approval
      * request is stored with and what comes back when the user answers.
      */
-    prepareInput: async ({ input }) => ({ ...input, binding: await bindWriteApproval(input) }),
+    bindForApproval: async (input) => { const bound = { ...(input as object), binding: await bindWriteApproval(input as { grantId: string; path: string }) }; Object.assign(input as object, bound); return bound; },
     execute: async ({ input }) => writeGrantedFile(input),
     buildAssistantText: ({ output }) => tf("tools.writeLocalFile.result", { path: output.path, size: output.byteSize }),
     memory: { enabled: false, minQuality: 1, summarize: () => null },
@@ -861,7 +883,17 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; toolIds
     {
       description: tool.modelDescription,
       inputSchema: tool.inputSchema,
-      ...(tool.requiresApproval ? { needsApproval: true } : {}),
+        // Mounted as a function so the binding is taken here, not in
+        // `prepareInput` — which the SDK calls from inside `execute`, long
+        // after the user answered.
+        ...(tool.requiresApproval
+          ? {
+              needsApproval: async (input: unknown) => {
+                if (tool.bindForApproval) await tool.bindForApproval(input);
+                return true;
+              },
+            }
+          : {}),
       execute: async (input: unknown, callOptions?: { abortSignal?: AbortSignal }) => {
         const startedAt = Date.now();
         // The SDK passes call options as the second argument when a tool runs;
@@ -871,7 +903,11 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; toolIds
         // start another step. The refusal is returned as a result so the model
         // can finish with what it has instead of retrying into a wall.
         if (runId) {
-          const allowance = await checkRunAllowance(runId).catch(() => ({ allowed: true, reason: null }));
+          // Fails **closed**. runs.ts states the policy: a budget that cannot be
+          // read refuses, because an unbounded run is the thing worth preventing.
+          // This used to fail open, so a locked SQLite file or a server restart
+          // under an in-flight turn handed a stopped run its side effects anyway.
+          const allowance = await checkRunAllowance(runId).catch(() => ({ allowed: false, reason: "run-budget-unreadable" }));
           if (!allowance.allowed) {
             return skippedResult(tool, input, allowance.reason ?? "run-stopped");
           }
