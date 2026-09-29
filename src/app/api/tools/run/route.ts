@@ -75,7 +75,7 @@ async function POSTHandler(req: NextRequest) {
       });
     }
 
-    assertToolConfiguration(toolId);
+    await assertToolConfiguration(toolId);
     const modelRef = await preferredModel("chat", parsed.data.model);
     const model = await modelInLibrary("chat", modelRef);
     if (!model?.supportsTools) {

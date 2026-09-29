@@ -38,6 +38,44 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/documents": documentRuntimeFiles(),
   },
+  // The local-file tools touch filesystem paths the user chooses at run time,
+  // which the tracer cannot resolve and answers by globbing the entire
+  // repository into the standalone output — every document, log, plan and build
+  // artifact in the working tree, across all 696 entries. Because the tool
+  // catalog is shared, that reached every route that builds a tool set, not
+  // just the new ones.
+  //
+  // Nothing below can ever belong in a server bundle: they are development
+  // instructions, tests, sources that are compiled into chunks, and artifacts of
+  // other builds. `node_modules`, `package.json`, `public`, `src` and `.next`
+  // are deliberately absent from this list because those *are* runtime inputs.
+  // This bounds the trace rather than hiding a file the application needs, and
+  // `verify-desktop-package` still fails the build if a required one is absent.
+  outputFileTracingExcludes: {
+    "*": [
+      "AGENTS.md",
+      "README.md",
+      "assets/**",
+      "components.json",
+      "dev*.log",
+      "docs/**",
+      "electron/**",
+      "electron-dist/**",
+      "eslint.config.mjs",
+      "forge.config.ts",
+      "next.config.ts",
+      "out/**",
+      "package-lock.json",
+      "playwright.config.ts",
+      "postcss.config.mjs",
+      "scripts/**",
+      "tailwind.config.ts",
+      "tests/**",
+      "tsconfig.json",
+      "tsconfig.tsbuildinfo",
+      "**/*.tsbuildinfo",
+    ],
+  },
   // Leave room for handlers to detect overflow before Proxy truncates a network chunk.
   experimental: { proxyClientMaxBodySize: MEDIA_LIMITS.uploadBodyBytes + 1024 * 1024 },
 };

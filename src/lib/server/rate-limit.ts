@@ -20,6 +20,9 @@ export const RATE_LIMIT_POLICIES = {
   // Each run re-embeds up to a bounded batch of memories, so the budget is a
   // handful of runs per minute, not a bulk operation to retry until empty.
   memoryReindex: { limit: 2, windowMs: 60_000 },
+  // Granting a folder opens a standing permission, so it is deliberately slower
+  // than the operations that use one.
+  directoryGrants: { limit: 10, windowMs: 60_000 },
 } as const;
 
 type RateLimitRecord = {

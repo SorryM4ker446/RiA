@@ -131,7 +131,7 @@ async function withLocalSearchServer(run) {
 
 test("parallel tool executions cannot double-spend the per-turn result budget", async () => {
   await withLocalSearchServer(async () => {
-    const toolSet = createChatToolSet({ toolIds: ["webSearch"] });
+    const toolSet = await createChatToolSet({ toolIds: ["webSearch"] });
     const webSearch = toolSet.webSearch;
     // The tool really runs: both calls reach the fixture, so the budget being
     // respected is a fact and not the result of every call being rejected.
@@ -159,16 +159,16 @@ test("an unconfigured optional tool is not handed to the model at all", async()=
     delete process.env.TAVILY_API_KEY;
     // The model never sees it, so it cannot call it, retry it, or spend a step
     // discovering that it is missing. No search request is ever attempted.
-    assert.equal("webSearch" in createChatToolSet({}),false);
-    assert.deepEqual(toolAvailability("webSearch"),{available:false,reason:"notConfigured",configEntry:"/settings"});
-    assert.equal(toolAvailability("searchKnowledge").available,true);
+    assert.equal("webSearch" in (await createChatToolSet({})), false);
+    assert.deepEqual(await toolAvailability("webSearch"),{available:false,reason:"notConfigured",configEntry:"/settings"});
+    assert.equal((await toolAvailability("searchKnowledge")).available,true);
     // The manual entry point still refuses it explicitly, because there the
     // user asked for that tool by name.
-    assert.throws(()=>assertToolConfiguration("webSearch"),/联网搜索尚未配置/);
-    assert.doesNotThrow(()=>assertToolConfiguration("createTask"));
+    await assert.rejects(()=>assertToolConfiguration("webSearch"),/联网搜索尚未配置/);
+    await assert.doesNotReject(()=>assertToolConfiguration("createTask"));
     // The picker is told which tool is missing and why, instead of showing a
     // list that silently lacks one entry.
-    const catalog=listPublicToolCatalog("chat");
+    const catalog=await listPublicToolCatalog("chat");
     assert.equal(catalog.find(tool=>tool.id==="webSearch").available,false);
     assert.equal(catalog.find(tool=>tool.id==="webSearch").reason,"notConfigured");
     // The way out comes with the reason, so the interface can offer it.
@@ -194,7 +194,7 @@ test("the chat prompt names the tool this turn cannot use", async()=>{
 test("an exhausted result budget is reported as skipped, not as an empty search", async()=>{
   const {createChatToolSet}=await import("@/tools/catalog");
   await withLocalSearchServer(async requests=>{
-    const webSearch=createChatToolSet({toolIds:["webSearch"]}).webSearch;
+    const webSearch=(await createChatToolSet({toolIds:["webSearch"]})).webSearch;
     // The first call spends the whole budget; the second is the one that
     // matters, because this is the call that used to look like a search that
     // ran and found nothing.
@@ -211,7 +211,7 @@ test("an optional tool that becomes unavailable mid-turn answers instead of fail
   await withLocalSearchServer(async()=>{
     const {createChatToolSet}=await import("@/tools/catalog");
     // Built while the key is present, so the tool is mounted…
-    const webSearch=createChatToolSet({toolIds:["webSearch"]}).webSearch;
+    const webSearch=(await createChatToolSet({toolIds:["webSearch"]})).webSearch;
     // …and the key disappears before it runs, as it would if it were cleared in
     // another window.
     delete process.env.TAVILY_API_KEY;
@@ -229,7 +229,7 @@ test("an optional tool that becomes unavailable mid-turn answers instead of fail
 test("a transient search failure is a skipped result, while a refused call still fails", async()=>{
   const {createChatToolSet}=await import("@/tools/catalog");
   await withLocalSearchServer(async()=>{
-    const webSearch=createChatToolSet({toolIds:["webSearch"]}).webSearch;
+    const webSearch=(await createChatToolSet({toolIds:["webSearch"]})).webSearch;
     // Point the search at a port with nothing behind it: a transport failure
     // that a retry will not fix on its own.
     const previousUrl=process.env.TAVILY_SEARCH_URL;
@@ -251,7 +251,7 @@ test("a transient search failure is a skipped result, while a refused call still
 test("a refused approval is not absorbed into a skipped tool result", async()=>{
   const {createChatToolSet}=await import("@/tools/catalog");
   await withLocalSearchServer(async()=>{
-    const tools=createChatToolSet({toolIds:["createTask"]});
+    const tools=await createChatToolSet({toolIds:["createTask"]});
     // A tool that needs approval still needs it: the degradation path is for
     // optional tools that are merely unavailable, never for a refusal.
     assert.equal(Boolean(tools.createTask),true);

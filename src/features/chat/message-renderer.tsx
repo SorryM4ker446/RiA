@@ -26,7 +26,8 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { getDocumentSources, getTurnNotices, getWebSearchSources, resolveMessageSourceTag } from "@/features/chat/message-presentation";
+import { getDocumentSources, getLocalFileUses, getTurnNotices, getWebSearchSources, resolveMessageSourceTag } from "@/features/chat/message-presentation";
+import { LocalFileUses } from "@/features/settings/local-file-uses";
 import { t, tf } from "@/lib/locale";
 import { DocumentSources } from "@/components/knowledge/document-sources";
 import type { ChatState } from "@/features/chat/use-chat-state";
@@ -37,8 +38,8 @@ import type { ChatState } from "@/features/chat/use-chat-state";
 // gate permanently satisfied and the stale messages rendered under the new
 // chat's header, which the previous `isLoadingHistory` skeleton had masked.
 const DRAFT_HISTORY_QUERY = "draft";
-type Props = Pick<ChatState, "activeChatId" | "isLoadingHistory" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId" | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText" | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel" | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages">;
-export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, addToolApprovalResponse, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages }: Props) {
+type Props = Pick<ChatState, "activeChatId" | "isLoadingHistory" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId" | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText" | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel" | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages" | "selectedChatModel">;
+export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, addToolApprovalResponse, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages, selectedChatModel }: Props) {
   const awaitingFirstHistoryLoad = useAwaitingFirstLoad(isLoadingHistory, activeChatId ?? DRAFT_HISTORY_QUERY);
   const distanceFromBottom = () => document.documentElement.scrollHeight - window.scrollY - window.innerHeight;
 
@@ -317,6 +318,7 @@ export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imag
                 </details>
               ) : null}
               <DocumentSources sources={getDocumentSources(message)} />
+              {!isUser ? <LocalFileUses modelLabel={selectedChatModel?.modelId} uses={getLocalFileUses(message)} /> : null}
               {imageUrl ? (
                 <div className="mt-3 space-y-2">
                   <Image

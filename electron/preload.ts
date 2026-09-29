@@ -10,6 +10,12 @@ contextBridge.exposeInMainWorld("privateAiDesktop", {
   getRuntimeInfo: () => ipcRenderer.invoke("desktop:runtime:get"),
   getSettings: () => ipcRenderer.invoke("desktop:settings:get"),
   saveSettings: (input: DesktopSettingsInput) => ipcRenderer.invoke("desktop:settings:save", input),
+  // A folder the user chose with the operating system dialog. There is no other
+  // way to obtain one: the assistant has no channel that could add a grant.
+  chooseFolder: () => ipcRenderer.invoke("desktop:folder:choose") as Promise<{ canceled: boolean; path: string }>,
+  // Point a file manager at something the service has already resolved inside a
+  // granted folder. The path is never composed here; the shell only selects it.
+  revealPath: (target: string) => ipcRenderer.invoke("desktop:folder:reveal", target) as Promise<{ revealed: boolean }>,
   // The page draws the caption, so it needs the verbs and the current state.
   // Absent entirely where the platform keeps its own caption.
   ...(drawsOwnCaption

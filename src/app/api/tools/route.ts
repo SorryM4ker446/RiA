@@ -12,7 +12,7 @@ async function GETHandler(req: NextRequest) {
     const url = new URL(req.url);
     const mode = z.enum(["chat", "image", "video"]).optional().parse(url.searchParams.get("mode") ?? undefined);
 
-    const tools = listPublicToolCatalog(mode ?? "chat");
+    const tools = await listPublicToolCatalog(mode ?? "chat");
 
     return Response.json({
       data: tools,

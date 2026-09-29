@@ -39,6 +39,7 @@ src/lib/            Shared infrastructure
   memory/           Memory storage, retrieval scoring and vector rebuild
   models/           Provider adapters, dynamic catalogs, my models, availability, preferences and usage
   local/            Local workspace identity
+  local-files/      User-granted directories: path safety, grants and their limits
   server/           Request boundary: security, quotas, body size, errors
 src/prompts/        Prompt templates
 src/tools/          Tool definitions and registry
@@ -93,7 +94,7 @@ Two standing rules:
 
 | Layer | Location | Covers |
 | --- | --- | --- |
-| Server | `tests/server/` | Real route handlers, an isolated SQLite database, a deterministic model double |
+| Server | `tests/server/` | Real route handlers, an isolated SQLite database, a deterministic model double; directory grants resolve against real temporary folders and real junctions, never mocks |
 | Interface | `tests/e2e/` | Key paths over real HTTP and SQLite, production build plus standalone; a Chromium renderer driving the app, not a browser product |
 | Desktop | `tests/desktop/` | Path resolution, migrations, packaging boundaries and the Electron smoke |
 

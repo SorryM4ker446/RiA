@@ -113,3 +113,39 @@ export function getWebSearchSources(
       }));
   });
 }
+
+const LOCAL_FILE_TOOLS = new Set(["listLocalFiles", "readLocalFile", "writeLocalFile"]);
+
+/**
+ * What a turn read or produced from a folder the user granted.
+ *
+ * Read off the tool parts rather than kept beside them, so the disclosure
+ * cannot drift from the calls that actually happened: there is one source for
+ * both the work and the statement about it. Only successful calls count — a
+ * refused one read nothing, and claiming otherwise would overstate what left
+ * the machine.
+ */
+export function getLocalFileUses(message: UIMessage): { grantLabel: string; grantId: string; path: string; toolId: string }[] {
+  if (!Array.isArray(message.parts)) return [];
+  const seen = new Set<string>();
+  const uses: { grantLabel: string; grantId: string; path: string; toolId: string }[] = [];
+  for (const part of message.parts) {
+    if (typeof part?.type !== "string" || !LOCAL_FILE_TOOLS.has(part.type)) continue;
+    const tool = part as {
+      type: string;
+      input?: { grantId?: unknown; path?: unknown };
+      output?: { grantLabel?: unknown; path?: unknown };
+      state?: string;
+    };
+    if (tool.state !== "output-available") continue;
+    const grantId = typeof tool.input?.grantId === "string" ? tool.input.grantId : "";
+    const path = typeof tool.output?.path === "string" ? tool.output.path : typeof tool.input?.path === "string" ? tool.input.path : "";
+    const grantLabel = typeof tool.output?.grantLabel === "string" ? tool.output.grantLabel : "";
+    if (!path) continue;
+    const key = `${part.type}:${path}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uses.push({ grantLabel, grantId, path, toolId: part.type });
+  }
+  return uses;
+}

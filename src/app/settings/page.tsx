@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { t } from "@/lib/locale";
+import { DirectoryGrantSettings } from "@/features/settings/directory-grants";
 
 export default function DesktopSettingsPage() {
   const [settings, setSettings] = useState<DesktopSettingsView | null>(null);

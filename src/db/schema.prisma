@@ -320,6 +320,32 @@ model DocumentTerm {
   @@map("document_terms")
 }
 
+// A directory the user explicitly opened to the assistant. This is a permission
+// on one machine, not workspace content: a Windows path means nothing on
+// another machine, and carrying it in a backup would hand a restored archive a
+// permission the person restoring it never granted. Grants are therefore
+// created on the machine that holds the files and deliberately stay out of
+// workspace backup/restore.
+model DirectoryGrant {
+  id    String @id @default(cuid())
+  // What the user recognised when granting, kept so a list of absolute paths
+  // stays readable.
+  label String
+  // The path the user chose, verbatim.
+  path  String
+  // The resolved real path. Containment is always decided against this rather
+  // than `path`, and it is recomputed at execution time: a junction can appear
+  // between granting and reading.
+  realPath  String
+  createdAt DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt DateTime?
+  updatedAt DateTime  @updatedAt
+
+  @@index([revokedAt])
+  @@map("directory_grants")
+}
+
 enum MessageRole {
   user
   assistant

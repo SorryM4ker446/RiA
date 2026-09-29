@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { request as httpRequest } from "node:http";
 import {
   app,
@@ -11,6 +11,7 @@ import {
   Notification,
   powerMonitor,
   session,
+  shell,
   type IpcMainInvokeEvent,
 } from "electron";
 import { createDesktopLogger, DESKTOP_LOG_LIMITS, type DesktopLogger } from "./logger";
@@ -207,6 +208,38 @@ function registerIpcHandlers() {
     assertTrustedIpcSender(event);
     if (!settingsStore) throw new Error("Desktop settings store is not ready.");
     return settingsStore.getView();
+  });
+
+  /*
+   * The one way a directory grant can be obtained.
+   *
+   * The dialog is the operating system's, so what comes back is a path the user
+   * actually picked rather than one that was typed or proposed. The path is only
+   * a suggestion here: it is the settings page that posts it, and the service
+   * that decides whether it may be granted. Nothing here writes a grant, so a
+   * model persuaded to "look in another folder" has no channel to do it through.
+   */
+  ipcMain.handle("desktop:folder:reveal", async (event, target: unknown) => {
+    assertTrustedIpcSender(event);
+    if (typeof target !== "string" || !target) return { revealed: false };
+    // Only an absolute path is ever selected. The service resolved it inside a
+    // granted folder; the shell does not re-decide that, and it is not given a
+    // path to construct.
+    if (!isAbsolute(target)) return { revealed: false };
+    shell.showItemInFolder(target);
+    return { revealed: true };
+  });
+
+  ipcMain.handle("desktop:folder:choose", async (event) => {
+    assertTrustedIpcSender(event);
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    if (!parent) return { canceled: true, path: "" };
+    const result = await dialog.showOpenDialog(parent, {
+      title: PRODUCT_NAME,
+      properties: ["openDirectory", "dontAddToRecent"],
+    });
+    if (result.canceled || result.filePaths.length === 0) return { canceled: true, path: "" };
+    return { canceled: false, path: result.filePaths[0] };
   });
 
   ipcMain.handle("desktop:settings:save", async (event, input: DesktopSettingsInput) => {

@@ -21,6 +21,16 @@ import { searchKnowledge, searchKnowledgeInputSchema } from "@/tools/definitions
 import { documentSourceUrl } from "@/lib/documents/types";
 import { runWebSearch, webSearchInput } from "@/tools/definitions/web-search";
 import { LOCAL_WORKSPACE_ID } from "@/lib/local/workspace";
+import { listActiveGrants } from "@/lib/local-files/grants";
+import {
+  bindWriteApproval,
+  listGrantedFiles,
+  listLocalFilesInputSchema,
+  readGrantedFile,
+  readLocalFileInputSchema,
+  writeGrantedFile,
+  writeLocalFileInputSchema
+} from "@/lib/local-files/tools";
 
 export type ToolMode = "chat" | "image" | "video";
 export type ToolTriggerType = "manual" | "auto";
@@ -40,7 +50,7 @@ type ToolBudgetExceededContext = {
 };
 
 /** Why an optional tool did not produce a result, in terms the model can read. */
-export type ToolSkipReason = "notConfigured" | "budget" | "temporarilyUnavailable" | "runStopped";
+export type ToolSkipReason = "notConfigured" | "noDirectoryGranted" | "budget" | "temporarilyUnavailable" | "runStopped";
 
 /** How many sources a search brings back when nothing more specific applies. */
 const DEFAULT_SEARCH_RESULTS = 5;
@@ -155,7 +165,7 @@ export type AnyToolDescriptor = ToolDescriptor<any, any>;
 export type PublicToolCatalogItem = {
   /** Whether this tool can run right now, and why not when it cannot. */
   available: boolean;
-  reason: "notConfigured" | null;
+  reason: ToolAvailabilityReason | null;
   /** Where the missing configuration is configured. */
   configEntry: string | null;
   id: string;
@@ -594,6 +604,94 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       },
     },
   },
+  listLocalFiles: {
+    id: "listLocalFiles",
+    displayName: t("tools.listLocalFiles.displayName"),
+    description: t("tools.listLocalFiles.description"),
+    modelDescription:
+      "List what is inside a folder the user has opened to you. Returns names, kinds, sizes and modification times, and says when the listing was cut short. Use it before reading, so you name files that exist rather than guessing. Do not use it to search the whole disk: only the granted folders can be listed at all. Do not use it when the user asked about a topic rather than a file.",
+    modeSupport: ["chat"],
+    manual: {
+      enabled: true,
+      label: t("tools.localFiles.manualLabel"),
+      placeholder: t("tools.localFiles.placeholder"),
+      submitLabel: t("tools.common.submitLabel"),
+      primaryFieldKey: "path",
+      primaryFieldLabel: t("tools.localFiles.pathLabel"),
+      fields: [
+        { key: "grantId", label: t("tools.localFiles.grantLabel"), type: "text", required: true },
+        { key: "depth", label: "depth", type: "number", min: 1, max: 8, step: 1 },
+      ],
+    },
+    inputSchema: listLocalFilesInputSchema,
+    execute: async ({ input }) => listGrantedFiles(input),
+    buildAssistantText: ({ output }) => {
+      const lines = (output.entries as { kind: string; path: string }[]).slice(0, 20).map((entry: { kind: string; path: string }) => `${entry.kind === "folder" ? "[dir]" : "     "} ${entry.path}`);
+      const body = lines.length > 0 ? lines.join("\n") : t("tools.localFiles.emptyFolder");
+      return [tf("tools.listLocalFiles.result", { folder: output.folder, count: output.entries.length }), body, output.truncated].filter(Boolean).join("\n");
+    },
+    buildUnavailableOutput: ({ reason }) => ({ folder: "", grantLabel: "", entries: [], truncated: reason === "noDirectoryGranted" ? t("tools.localFiles.noGrant") : reason }),
+    memory: { enabled: false, minQuality: 1, summarize: () => null },
+  },
+  readLocalFile: {
+    id: "readLocalFile",
+    displayName: t("tools.readLocalFile.displayName"),
+    description: t("tools.readLocalFile.description"),
+    modelDescription:
+      "Read one text, Markdown, PDF or Word file from a folder the user has opened to you. The path is relative to that folder. Use it only for a file the user pointed you at or that a listing just showed you. Do not use it to read configuration, credentials or anything outside the granted folder: those are refused, and asking again wastes the turn.",
+    modeSupport: ["chat"],
+    manual: {
+      enabled: true,
+      label: t("tools.localFiles.manualLabel"),
+      placeholder: t("tools.localFiles.pathPlaceholder"),
+      submitLabel: t("tools.common.submitLabel"),
+      primaryFieldKey: "path",
+      primaryFieldLabel: t("tools.localFiles.pathLabel"),
+      fields: [{ key: "grantId", label: t("tools.localFiles.grantLabel"), type: "text", required: true }],
+    },
+    inputSchema: readLocalFileInputSchema,
+    execute: async ({ input }) => readGrantedFile(input),
+    buildAssistantText: ({ output }) => [
+      tf("tools.readLocalFile.result", { path: output.path }),
+      output.text.slice(0, 2000),
+      output.truncated ? t("tools.localFiles.truncated") : null,
+    ].filter(Boolean).join("\n"),
+    buildUnavailableOutput: ({ reason }) => ({ path: "", grantLabel: "", byteSize: 0, text: "", truncated: false, unavailable: reason === "noDirectoryGranted" ? t("tools.localFiles.noGrant") : reason } as never),
+    memory: { enabled: false, minQuality: 1, summarize: () => null },
+  },
+  writeLocalFile: {
+    id: "writeLocalFile",
+    displayName: t("tools.writeLocalFile.displayName"),
+    description: t("tools.writeLocalFile.description"),
+    modelDescription:
+      "Create a new Markdown or plain text file inside a folder the user has opened to you. The user is asked to approve each one, and an existing file with the same name is never replaced. Use it when the user asked for a file to be produced. Do not use it to edit, patch or overwrite something that already exists, and do not use it to write code that will be executed.",
+    modeSupport: ["chat"],
+    requiresApproval: true,
+    manual: {
+      enabled: true,
+      label: t("tools.localFiles.manualLabel"),
+      placeholder: t("tools.localFiles.pathPlaceholder"),
+      submitLabel: t("tools.common.submitLabel"),
+      primaryFieldKey: "path",
+      primaryFieldLabel: t("tools.localFiles.pathLabel"),
+      fields: [
+        { key: "grantId", label: t("tools.localFiles.grantLabel"), type: "text", required: true },
+        { key: "content", label: t("tools.localFiles.contentLabel"), type: "text", required: true },
+      ],
+    },
+    inputSchema: writeLocalFileInputSchema,
+    /*
+     * The binding is taken here, when the input is prepared for the approval,
+     * rather than when the file is written. That is the moment the user is
+     * looking at the proposal, so it is the moment the world it assumes should
+     * be recorded. It travels inside the input, which is what the approval
+     * request is stored with and what comes back when the user answers.
+     */
+    prepareInput: async ({ input }) => ({ ...input, binding: await bindWriteApproval(input) }),
+    execute: async ({ input }) => writeGrantedFile(input),
+    buildAssistantText: ({ output }) => tf("tools.writeLocalFile.result", { path: output.path, size: output.byteSize }),
+    memory: { enabled: false, minQuality: 1, summarize: () => null },
+  },
 };
 
 export function getToolDescriptor(toolId: string): AnyToolDescriptor | null {
@@ -606,9 +704,11 @@ export function listToolDescriptors(mode?: ToolMode): AnyToolDescriptor[] {
   return tools.filter((tool) => tool.modeSupport.includes(mode));
 }
 
-export function listPublicToolCatalog(mode?: ToolMode): PublicToolCatalogItem[] {
-  return listToolDescriptors(mode).map((tool) => ({
-    ...toolAvailability(tool.id),
+export async function listPublicToolCatalog(mode?: ToolMode): Promise<PublicToolCatalogItem[]> {
+  const descriptors = listToolDescriptors(mode);
+  const availability = await Promise.all(descriptors.map((tool) => toolAvailability(tool.id)));
+  return descriptors.map((tool, index) => ({
+    ...availability[index],
     id: tool.id,
     displayName: tool.displayName,
     description: tool.description,
@@ -683,19 +783,40 @@ function readNumericInputValue(input: unknown, key: string): number | null {
  * burn a step on it. The manual entry point still refuses it explicitly,
  * because there the user asked for that tool by name.
  */
-export type ToolAvailability = { available: boolean; reason: "notConfigured" | null; configEntry: string | null };
+export type ToolAvailabilityReason = "notConfigured" | "noDirectoryGranted";
 
-export function toolAvailability(toolId: string): ToolAvailability {
+export type ToolAvailability = { available: boolean; reason: ToolAvailabilityReason | null; configEntry: string | null };
+
+const LOCAL_FILE_TOOL_IDS = new Set(["listLocalFiles", "readLocalFile", "writeLocalFile"]);
+
+/**
+ * Async because one kind of missing configuration is not a missing key: the
+ * local-file tools need a folder the user granted, which lives in the database
+ * and can be withdrawn between turns. The check is made here, where the tool set
+ * is built, so a withdrawn folder means the tool is simply not offered — the
+ * model cannot pick it, retry it, or report a read that never happened.
+ */
+export async function toolAvailability(toolId: string): Promise<ToolAvailability> {
   if (toolId === "webSearch" && !process.env.TAVILY_API_KEY?.trim()) {
     // The reason a tool is missing comes with where to fix it, so the interface
     // can offer the way out instead of only reporting the absence.
     return { available: false, reason: "notConfigured", configEntry: "/settings" };
   }
+  if (LOCAL_FILE_TOOL_IDS.has(toolId)) {
+    const active = await listActiveGrants().catch(() => []);
+    if (active.length === 0) {
+      return { available: false, reason: "noDirectoryGranted", configEntry: "/settings" };
+    }
+  }
   return { available: true, reason: null, configEntry: null };
 }
 
-export function assertToolConfiguration(toolId: string) {
-  if (toolAvailability(toolId).available) return;
+export async function assertToolConfiguration(toolId: string) {
+  const availability = await toolAvailability(toolId);
+  if (availability.available) return;
+  if (availability.reason === "noDirectoryGranted") {
+    throw new ApiError({ code: "CONFIGURATION_ERROR", message: t("lib.tools.localFilesNotGranted") });
+  }
   throw new ApiError({ code: "CONFIGURATION_ERROR", message: t("lib.tools.webSearchNotConfigured") });
 }
 
@@ -705,8 +826,9 @@ export /**
  * into a result: a rejected approval, a bad argument or a refused write is
  * never quietly absorbed into "the tool was unavailable".
  */
-function skipReasonFor(toolId: string, error: unknown): ToolSkipReason | null {
-  if (!toolAvailability(toolId).available) return "notConfigured";
+async function skipReasonFor(toolId: string, error: unknown): Promise<ToolSkipReason | null> {
+  const availability = await toolAvailability(toolId);
+  if (!availability.available) return availability.reason ?? "notConfigured";
   if (!(error instanceof ApiError)) return null;
   // Transient upstream conditions: a lookup that failed is not a lookup that
   // found nothing, and the model should not keep asking a service that is
@@ -717,7 +839,7 @@ function skipReasonFor(toolId: string, error: unknown): ToolSkipReason | null {
   return null;
 }
 
-export function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: string[]; runId?: string | null; usesMemory?: boolean }): ToolSet {
+export async function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: string[]; runId?: string | null; usesMemory?: boolean }): Promise<ToolSet> {
   const workspaceId = LOCAL_WORKSPACE_ID;
   const allowed = new Set(options?.toolIds ?? []);
   const hasRestriction = allowed.size > 0;
@@ -730,9 +852,9 @@ export function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: str
   // An unconfigured optional tool is filtered out here rather than mounted and
   // failed later. The model never sees it, so it cannot call it, retry it, or
   // report a search that never happened.
-  const descriptors = listToolDescriptors("chat").filter((tool) =>
-    (hasRestriction ? allowed.has(tool.id) : true) && toolAvailability(tool.id).available,
-  );
+  const candidates = listToolDescriptors("chat").filter((tool) => (hasRestriction ? allowed.has(tool.id) : true));
+  const availability = await Promise.all(candidates.map((tool) => toolAvailability(tool.id)));
+  const descriptors = candidates.filter((_, index) => availability[index].available);
 
   const entries = descriptors.map((tool) => [
     tool.id,
@@ -815,9 +937,9 @@ export function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: str
           // away does not spend a planning call first. An optional tool answers
           // instead of failing the turn; anything else still refuses here, where
           // the manual entry point refuses it.
-          if (!toolAvailability(tool.id).available) {
+          if (!(await toolAvailability(tool.id)).available) {
             const builder = tool.buildUnavailableOutput;
-            if (!builder) { assertToolConfiguration(tool.id); }
+            if (!builder) { await assertToolConfiguration(tool.id); }
             logToolExecution({ toolId: tool.id, trigger: "auto", state: "output-available", durationMs: Date.now() - startedAt, errorCode: "CONFIGURATION_ERROR" });
             return builder!({ input, reason: "notConfigured", error: new ApiError({ code: "CONFIGURATION_ERROR", message: t("lib.tools.webSearchNotConfigured") }) });
           }
@@ -908,7 +1030,7 @@ export function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: str
             // between turns. An optional tool that is merely unavailable
             // answers instead of failing the turn, so the model is told once
             // and spends the rest of the turn on what it can do.
-            const reason = skipReasonFor(tool.id, error);
+            const reason = await skipReasonFor(tool.id, error);
             const builder = tool.buildUnavailableOutput;
             if (!reason || !builder) throw error;
             logToolExecution({

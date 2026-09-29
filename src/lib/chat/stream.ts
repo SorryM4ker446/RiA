@@ -9,7 +9,7 @@ import { persistChatResponse, type ChatPersistence } from "@/lib/chat/persistenc
 import type { ChatRequest } from "@/lib/chat/request";
 import type { DocumentSource } from "@/lib/documents/types";
 import { retainDataOperation } from "@/lib/server/data-operations";
-export function streamChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; documentSources?: DocumentSource[]; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean }) {
+export async function streamChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; documentSources?: DocumentSource[]; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean }) {
   const { input, conversation, systemPrompt, modelMessages, toolsEnabled, signal } = params;
   const { modelRef, body, messages } = input;
   const { chat } = conversation;
@@ -31,7 +31,7 @@ export function streamChatResponse(params: { input: ChatRequest; conversation: C
     abortSignal: signal,
     ...(toolsEnabled
       ? {
-        tools: createChatToolSet({
+        tools: await createChatToolSet({
           modelRef,
           runId: params.runId ?? null,
           usesMemory: params.usesMemory !== false,

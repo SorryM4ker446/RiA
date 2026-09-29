@@ -43,7 +43,7 @@ async function POSTHandler(req: NextRequest) {
     // and each tool's modelDescription, not from a second LLM call that would
     // have to guess from the latest message alone.
     const toolsEnabled = canUseTools && (isApprovalResume || !body.manualToolsOnly);
-  const unavailableTools = toolsEnabled ? unavailableChatTools() : [];
+  const unavailableTools = toolsEnabled ? await unavailableChatTools() : [];
 
     // An ephemeral conversation neither reads long-term memory nor writes any.
     // It is a memory switch, not a promise that nothing is kept: the messages,
@@ -92,7 +92,7 @@ async function POSTHandler(req: NextRequest) {
       ? await startRun({ chatId: conversation.chat.id, goal: latestUserMessage?.text ?? t("chat.run.goalFromConversation") }).catch(() => null)
       : null;
 
-    return streamChatResponse({
+    return await streamChatResponse({
       input, conversation, systemPrompt, modelMessages, toolsEnabled, signal: req.signal,
       documentSources, runId: run?.id ?? null, usesMemory,
     });
@@ -107,8 +107,8 @@ async function POSTHandler(req: NextRequest) {
  * tool set is built from, so the prompt and the tools can never disagree about
  * what was available.
  */
-function unavailableChatTools() {
-  return listPublicToolCatalog("chat").filter(tool => !tool.available).map(tool => tool.id);
+async function unavailableChatTools() {
+  return (await listPublicToolCatalog("chat")).filter(tool => !tool.available).map(tool => tool.id);
 }
 
 export const POST = protectDataOperation(POSTHandler);

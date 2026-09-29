@@ -37,6 +37,8 @@ interface Window {
     saveSettings: (
       input: DesktopSettingsInput,
     ) => Promise<{ settings: DesktopSettingsView; restarting: boolean }>;
+    chooseFolder: () => Promise<{ canceled: boolean; path: string }>;
+    revealPath: (target: string) => Promise<{ revealed: boolean }>;
     windowControls?: {
       minimize: () => void;
       toggleMaximize: () => void;
