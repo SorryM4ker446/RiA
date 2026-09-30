@@ -38,7 +38,12 @@ export const POST = protectDataOperation(async (req: NextRequest) => {
 
 async function providerCatalogs(providerId: ProviderId, mode?: (typeof libraryModes)[number], force = false) {
   getModelProvider(providerId);
-  const modes = mode ? [mode] : libraryModes;
+  // Only the modes this provider offers. Asking a chat-only provider for its
+  // image catalog does not come back empty — the fetch ignores the mode and
+  // answers with the chat models, which are then filed under "image" and shown
+  // to the user as models that generate images.
+  const offered = libraryModes.filter(value => getModelProvider(providerId).offeredModes.includes(value));
+  const modes = mode ? [mode] : offered;
   const states = await Promise.all(modes.map(value => getCatalog(providerId, value, force)));
   return Object.fromEntries(states.map(state => [state.mode, state])) as Record<string, CatalogState>;
 }

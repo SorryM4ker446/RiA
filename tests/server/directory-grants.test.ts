@@ -429,6 +429,29 @@ test("an approval is bound to the folder and the target as they were when it was
   assert.equal(readFileSync(path.join(root, "later.md"), "utf8"), "someone else was here", "the other file is untouched");
 });
 
+test("using a folder is not the folder having changed", async () => {
+  const { bindWriteApproval, writeGrantedFile } = await import("@/lib/local-files/tools");
+  const { verifyWriteApproval } = await import("@/lib/local-files/approval");
+  const { touchGrant } = await import("@/lib/local-files/grants");
+  const root = temporaryDirectory("ria-grant-");
+  const grant = await createGrant({ path: root });
+  const binding = await bindWriteApproval({ grantId: grant.id, path: "summary.md" });
+
+  // The model can raise a write and a listing in the same step, and the listing
+  // stamps the grant as used before the user has answered the write. The row
+  // version an approval is bound to has to mean "the permission moved"; when it
+  // also moved on use, an approved write was refused with a message claiming the
+  // folder had changed while the user was deciding, which was not true.
+  await touchGrant(grant.id);
+  await touchGrant(grant.id);
+  const used = await db.directoryGrant.findUnique({ where: { id: grant.id }, select: { lastUsedAt: true } });
+  assert.ok(used?.lastUsedAt, "the use is still recorded for the settings page");
+
+  await verifyWriteApproval(binding);
+  await writeGrantedFile({ grantId: grant.id, path: "summary.md", content: "# ok", binding });
+  assert.equal(readFileSync(path.join(root, "summary.md"), "utf8"), "# ok");
+});
+
 test("a withdrawn or replaced folder invalidates a pending approval", async () => {
   const { bindWriteApproval } = await import("@/lib/local-files/tools");
   const { verifyWriteApproval } = await import("@/lib/local-files/approval");

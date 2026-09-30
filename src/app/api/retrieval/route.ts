@@ -5,6 +5,7 @@ import { z } from "zod";
 import { requireLocalWorkspace } from "@/lib/local/workspace";
 import { getRelevantMemories } from "@/lib/memory/store";
 import { createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
+import { enforceRateLimit } from "@/lib/server/rate-limit";
 
 const retrievalSchema = z.strictObject({
   query: z.string().trim().min(1).max(2000),
@@ -14,6 +15,7 @@ const retrievalSchema = z.strictObject({
 async function POSTHandler(req: NextRequest) {
   try {
     await requireLocalWorkspace(req);
+    enforceRateLimit("memory");
 
     const parsed = retrievalSchema.safeParse(await readJsonBody(req));
     if (!parsed.success) throw parsed.error;

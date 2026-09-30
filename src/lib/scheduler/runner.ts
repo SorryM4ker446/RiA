@@ -9,7 +9,7 @@ import {
   type ScheduledJobKindValue
 } from "@/lib/scheduler/jobs";
 import { raiseNotice } from "@/lib/scheduler/notices";
-import { exclusiveDataOperation } from "@/lib/server/data-operations";
+import { retainDataOperation } from "@/lib/server/data-operations";
 import { ApiError } from "@/lib/server/api-error";
 
 /*
@@ -52,13 +52,53 @@ async function runBackupReminder(now: Date): Promise<JobOutcome> {
   return { ok: true, detail };
 }
 
+/** How long a scheduled backup waits for a restore in flight before giving up. */
+const BACKUP_GATE_WAIT_MS = 30_000;
+const BACKUP_GATE_STEP_MS = 250;
+
+/**
+ * Take the workspace for the length of a read.
+ *
+ * A backup needs the workspace not to be *replaced* under it, not the workspace
+ * to be idle. `retainDataOperation` is that gate: it refuses while a restore
+ * holds the exclusive lock, and it keeps a restore from starting part-way
+ * through, which is the whole of what a backup depends on.
+ *
+ * Asking for the exclusive lock instead meant a backup needed nothing else to
+ * be happening at all, and `protectDataOperation` holds that read for the whole
+ * of a streaming chat turn. So a daily backup was lost whenever the user
+ * happened to be mid-conversation at the scheduled minute, and because a
+ * failed run is marked done until its next turn, the backup was then a day away
+ * with a "backup-failed" notice the user could do nothing about.
+ *
+ * A restore in flight is the one case left, and it is both rare and short, so
+ * it is waited out rather than dropped. Past the window the run is given up and
+ * the failure is reported as what it is.
+ */
+async function withBackupWorkspace<T>(operation: () => Promise<T>): Promise<T> {
+  const deadline = Date.now() + BACKUP_GATE_WAIT_MS;
+  for (;;) {
+    let release: (() => void) | null = null;
+    try {
+      release = retainDataOperation();
+    } catch (error) {
+      const restoring = error instanceof ApiError && error.code === "SERVICE_UNAVAILABLE";
+      if (!restoring || Date.now() >= deadline) throw error;
+      await new Promise((resolve) => setTimeout(resolve, BACKUP_GATE_STEP_MS));
+      continue;
+    }
+    try { return await operation(); } finally { release(); }
+  }
+}
+
 async function runScheduledBackup(): Promise<JobOutcome> {
   try {
     // The local service has one database and one media store, and a backup reads
-    // both for as long as it takes. Every other caller of `createAccountBackup`
-    // takes the data-operation lock for the same reason, so a scheduled backup
-    // cannot interleave with a restore or with a backup the user just asked for.
-    const created = await exclusiveDataOperation(() => createAccountBackup());
+    // both for as long as it takes. It holds the read gate rather than the
+    // exclusive one so a conversation in progress cannot cost the user a
+    // scheduled backup, and a restore can still neither overlap it nor begin
+    // while it runs.
+    const created = await withBackupWorkspace(() => createAccountBackup());
     // A successful backup clears the reminder rather than replacing it. Raising
     // a confirmation on the reminder's own fingerprint would only produce a
     // notice this next line immediately marks read, and would let the following

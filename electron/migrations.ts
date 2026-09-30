@@ -51,6 +51,11 @@ function createBackup(databaseFile: string, backupsDirectory: string): string | 
  * that rebuilds tables has to be applied with enforcement disabled around the
  * transaction and checked again afterwards. Dropping "users" or "chats" while
  * enforcement is on would cascade and delete the user's content.
+ *
+ * The chain this reads is also the test corpus the workspace fixtures and the
+ * tests/desktop/*-migration.test.ts version ranges are built from, so several
+ * migration names are referenced by name in code. See
+ * src/db/migrations/README.md before renaming or merging one.
  */
 function applyMigrationSql(database: DatabaseSync, sql: string, migrationName: string) {
   database.exec("PRAGMA foreign_keys = OFF;");

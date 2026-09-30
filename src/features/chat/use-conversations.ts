@@ -253,8 +253,14 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     if (!chat) return;
     try {
       await chatApi.setDocumentScope(chat.id, next);
-      await loadChats();
+    } catch (scopeError) {
+      // The toolbar asks for a scope without awaiting this, so a rejection would
+      // be an unhandled one: the chips would quietly go on showing the scope the
+      // change was meant to replace, with nothing saying the change did not take.
+      setPageError(scopeError instanceof Error ? scopeError.message : t("chatApi.setDocumentScopeFailed"));
     } finally {
+      // Once either way, and once: the list is what the chips read, so it has to
+      // be the stored scope rather than the one that was asked for.
       await loadChats();
     }
   }

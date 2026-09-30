@@ -6,7 +6,7 @@ import { getChatModel } from "@/lib/ai/client";
 import { t, tf, formatDateTime } from "@/lib/locale";
 import { saveMemory } from "@/lib/memory/store";
 import { preferredModel, getModelPreferences } from "@/lib/models/preferences";
-import { checkRunAllowance, finishRun, recordStep, updateStep, addRunCost } from "@/lib/agent/runs";
+import { checkRunAllowance, finishRun, recordStep, updateStep, addRunCost, nextStepPositionForRun, type StepState } from "@/lib/agent/runs";
 import { getModelProvider } from "@/lib/models/providers";
 import type { ModelRef } from "@/lib/models/preferences-schema";
 import {
@@ -652,7 +652,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     displayName: t("tools.readLocalFile.displayName"),
     description: t("tools.readLocalFile.description"),
     modelDescription:
-      "Read one text, Markdown, PDF or Word file from a folder the user has opened to you. The path is relative to that folder. Use it only for a file the user pointed you at or that a listing just showed you. Do not use it to read configuration, credentials or anything outside the granted folder: those are refused, and asking again wastes the turn.",
+      "Read one text or Markdown file from a folder the user has opened to you. The path is relative to that folder. Use it only for a file the user pointed you at or that a listing just showed you. Do not use it to read configuration, credentials or anything outside the granted folder: those are refused, and asking again wastes the turn. PDFs and Word documents are refused here; the knowledge base is where those are read.",
     modeSupport: ["chat"],
     manual: {
       // No manual entry. Choosing a tool from the picker is a way of
@@ -752,6 +752,21 @@ export function isToolSupportedInMode(toolId: string, mode: ToolMode): boolean {
  * preview rather than a second copy of the full payload.
  */
 /**
+ * The condition that stopped the run, in the vocabulary a tool result carries.
+ *
+ * `checkRunAllowance` names what the run ran out of; a tool result has to say
+ * why *this step* did not run. Every refusal collapsed to "runStopped" made a
+ * run that had spent its budget indistinguishable from one the user stopped,
+ * which is exactly the distinction the model needs to decide whether asking
+ * again could ever work.
+ */
+function skipReasonForRunRefusal(reason: string): ToolSkipReason {
+  if (reason === "run-budget-unreadable") return "run-budget-unreadable";
+  if (reason.endsWith("-budget")) return "budget";
+  return "runStopped";
+}
+
+/**
  * The result a refused step returns. It says the step did not run and why,
  * which is different from a tool that ran and found nothing — the model can act
  * on the first and would be misled by the second.
@@ -760,7 +775,8 @@ function skippedResult(tool: AnyToolDescriptor, input: unknown, reason: string) 
   const query = input && typeof input === "object" && "query" in input && typeof (input as { query?: unknown }).query === "string"
     ? (input as { query: string }).query
     : "";
-  return tool.buildUnavailableOutput?.({ input, reason: "runStopped", error: new Error(reason) }) ?? { query, results: [], skipped: reason };
+  const skipReason = skipReasonForRunRefusal(reason);
+  return tool.buildUnavailableOutput?.({ input, reason: skipReason, error: new Error(reason) }) ?? { query, results: [], skipped: skipReason };
 }
 
 function summarizeForRecord(value: unknown): Record<string, unknown> {
@@ -833,13 +849,22 @@ export async function toolAvailability(toolId: string): Promise<ToolAvailability
   return { available: true, reason: null, configEntry: null };
 }
 
+/**
+ * The refusal a missing prerequisite turns into, worded for the reason that is
+ * actually missing. Built once so the manual entry point and the mid-turn
+ * branch cannot drift apart and report a web-search key to a local-file tool.
+ */
+function unavailabilityError(reason: ToolAvailabilityReason): ApiError {
+  return new ApiError({
+    code: "CONFIGURATION_ERROR",
+    message: reason === "noDirectoryGranted" ? t("lib.tools.localFilesNotGranted") : t("lib.tools.webSearchNotConfigured"),
+  });
+}
+
 export async function assertToolConfiguration(toolId: string) {
   const availability = await toolAvailability(toolId);
   if (availability.available) return;
-  if (availability.reason === "noDirectoryGranted") {
-    throw new ApiError({ code: "CONFIGURATION_ERROR", message: t("lib.tools.localFilesNotGranted") });
-  }
-  throw new ApiError({ code: "CONFIGURATION_ERROR", message: t("lib.tools.webSearchNotConfigured") });
+  throw unavailabilityError(availability.reason ?? "notConfigured");
 }
 
 export /**
@@ -867,9 +892,13 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; toolIds
   const hasRestriction = allowed.size > 0;
   const resultBudgetUsed = new Map<string, number>();
   const runId = options?.runId ?? null;
-  let stepCount = 0;
+  let stepCount = await nextStepPositionForRun(runId) - 1;
   // Positions are per run, not per tool, so the record reads as the sequence
-  // that actually happened rather than one counter per tool.
+  // that actually happened rather than one counter per tool. They are counted
+  // from what the run already holds, not from zero, because a second tool set
+  // for the same run used to restart at 1 and collide with the unique
+  // (runId, position) index — and that write is swallowed, so the step was lost
+  // rather than reported.
   const nextStepPosition = () => ++stepCount;
   // An unconfigured optional tool is filtered out here rather than mounted and
   // failed later. The model never sees it, so it cannot call it, retry it, or
@@ -922,6 +951,28 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; toolIds
             input: summarizeForRecord(input),
           }).catch(() => null)
           : null;
+        /**
+         * Closes the recorded step, exactly once, on every exit from this
+         * wrapper.
+         *
+         * `checkRunAllowance` counts steps by row, so a step left in "running"
+         * would spend budget forever and would appear in the run record as work
+         * that never ended. Several exits below — the per-turn result budget, a
+         * tool that is not configured, a tool that became unavailable
+         * mid-execution — return a normal tool output *without* having executed
+         * the tool, so they settle as "skipped": the step was recorded, but
+         * nothing ran. Only the real execution path reports "done", and a thrown
+         * error reports "failed". The flag keeps a later exit from overwriting a
+         * state the wrapper already committed, and the write is swallowed
+         * because failed bookkeeping must not turn a successful tool result into
+         * a failed turn.
+         */
+        let stepSettled = false;
+        const settleStep = async (data: { state: StepState; output?: unknown; errorCode?: string | null }) => {
+          if (!step || stepSettled) return;
+          stepSettled = true;
+          await updateStep(step.id, { ...data, finished: true }).catch(() => undefined);
+        };
         try {
           enforceRateLimit("tools");
           const budget = tool.resultBudget;
@@ -973,11 +1024,17 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; toolIds
           // away does not spend a planning call first. An optional tool answers
           // instead of failing the turn; anything else still refuses here, where
           // the manual entry point refuses it.
-          if (!(await toolAvailability(tool.id)).available) {
+          // Whatever the tool was missing is what the model is told. A folder
+          // the user withdrew and a search key that was cleared are both a
+          // configuration problem, but only one of them is fixed in settings.
+          const unavailability = await toolAvailability(tool.id);
+          if (!unavailability.available) {
+            const reason = unavailability.reason ?? "notConfigured";
+            const error = unavailabilityError(reason);
             const builder = tool.buildUnavailableOutput;
-            if (!builder) { await assertToolConfiguration(tool.id); }
-            logToolExecution({ toolId: tool.id, trigger: "auto", state: "output-available", durationMs: Date.now() - startedAt, errorCode: "CONFIGURATION_ERROR" });
-            return builder!({ input, reason: "notConfigured", error: new ApiError({ code: "CONFIGURATION_ERROR", message: t("lib.tools.webSearchNotConfigured") }) });
+            if (!builder) throw error;
+            logToolExecution({ toolId: tool.id, trigger: "auto", state: "output-available", durationMs: Date.now() - startedAt, errorCode: error.code });
+            return builder({ input, reason, error });
           }
           const preparedInput = tool.prepareInput
             ? await tool.prepareInput({
@@ -1074,7 +1131,11 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; toolIds
               trigger: "auto",
               state: "output-available",
               durationMs: Date.now() - startedAt,
-              errorCode: reason === "notConfigured" ? "CONFIGURATION_ERROR" : "UPSTREAM_FAILED",
+              // The log has to agree with the reason it is logging. A withdrawn
+              // folder is the same configuration problem the check above the
+              // execution reports, and only a genuinely transient upstream
+              // condition is an upstream failure.
+              errorCode: reason === "temporarilyUnavailable" ? "UPSTREAM_FAILED" : "CONFIGURATION_ERROR",
             });
             return builder({ input: preparedParsedInput.data, reason, error });
           }
@@ -1090,11 +1151,9 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; toolIds
             durationMs: Date.now() - startedAt,
             requestId,
           });
-          if (step) {
-            // The step carries the same facts as the log, plus the artifact when
-            // the step produced one, so the record and the log cannot disagree.
-            await updateStep(step.id, { state: "done", output: summarizeForRecord(output), finished: true }).catch(() => undefined);
-          }
+          // The step carries the same facts as the log, plus the artifact when
+          // the step produced one, so the record and the log cannot disagree.
+          await settleStep({ state: "done", output: summarizeForRecord(output) });
 
           return output;
         } catch (error) {
@@ -1106,10 +1165,14 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; toolIds
             durationMs: Date.now() - startedAt,
             errorCode,
           });
-          if (step) {
-            await updateStep(step.id, { state: "failed", errorCode, finished: true }).catch(() => undefined);
-          }
+          await settleStep({ state: "failed", errorCode });
           throw error;
+        } finally {
+          // Reached by every early return above that has not already settled the
+          // step. Those returns are all refusals to execute the tool, so this
+          // only fires for a step that is genuinely "skipped"; a settled step is
+          // left alone, which is what keeps the state from being rewritten.
+          await settleStep({ state: "skipped" });
         }
       },
     },

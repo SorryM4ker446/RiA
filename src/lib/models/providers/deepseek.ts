@@ -125,7 +125,14 @@ async function fetchDeepSeekCatalog(_mode: LibraryMode, signal: AbortSignal) {
 
   let decoded: unknown;
   try { decoded = await readLimitedJson(response, catalogMaxBodyBytes); }
-  catch (error) { throw new CatalogFetchError(error instanceof BodyReadError ? error.failure : "invalidShape"); }
+  catch (error) {
+    if (error instanceof BodyReadError) throw new CatalogFetchError(error.failure);
+    // The body failing to arrive is this machine's connection, not a catalog
+    // DeepSeek returned in a shape it did not intend. Reported separately from
+    // a malformed one, because only one of the two is worth retrying.
+    if (error instanceof Error && error.name === "AbortError") throw new CatalogFetchError("timeout");
+    throw new CatalogFetchError("network");
+  }
 
   const envelope = catalogEnvelope.safeParse(decoded);
   if (!envelope.success) throw new CatalogFetchError("invalidShape");

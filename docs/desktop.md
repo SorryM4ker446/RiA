@@ -38,7 +38,7 @@ Run the complete desktop development stack with:
 npm run desktop:dev
 ```
 
-The main process chooses an available loopback port, applies SQLite migrations, starts Next.js, waits for `/api/health`, sets a random HttpOnly desktop-session cookie, and then opens the window. Closing the application stops the child service.
+The main process chooses an available loopback port, applies SQLite migrations, starts Next.js, waits for `/api/health`, sets a random HttpOnly desktop-session cookie, and then opens the window. Closing the application stops the child service. If the child service exits on its own, the exit code is written to the desktop log, the task reminder checks stop, and the window is replaced with the same page a failed launch shows. It is not restarted automatically, so a crash stays visible instead of being hidden behind a restart loop.
 
 The development terminal stays attached while Electron runs. Next.js startup and request output goes to `.desktop-data/dev/logs/desktop.log`, so a quiet terminal after TypeScript compilation does not by itself indicate a stall. The launcher must allow Electron's window to show on Windows; only background services and intentionally hidden smoke tests use hidden process startup.
 

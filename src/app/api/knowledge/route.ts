@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
+import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { requireLocalWorkspace } from "@/lib/local/workspace";
 import { saveMemory } from "@/lib/memory/store";
 
@@ -12,6 +13,37 @@ const createKnowledgeSchema = z.strictObject({
   value: z.string().trim().min(1).max(4000),
   score: z.number().min(0).max(1).optional().default(0.85),
 });
+
+// Everything the knowledge page renders, and nothing else. A stored row also
+// carries the embedding vector — on the order of a thousand floats per entry —
+// which no client reads and which would make every list response tens of
+// megabytes on a real library.
+const knowledgeEntrySelect = {
+  id: true,
+  key: true,
+  value: true,
+  score: true,
+  source: true,
+  confirmed: true,
+  lastUsedAt: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
+function knowledgeEntryView(row: {
+  id: string;
+  key: string;
+  value: string;
+  score: number | null;
+  source: string;
+  confirmed: boolean;
+  lastUsedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
+  const { id, key, value, score, source, confirmed, lastUsedAt, createdAt, updatedAt } = row;
+  return { id, key, value, score, source, confirmed, lastUsedAt, createdAt, updatedAt };
+}
 
 const knowledgeListQuerySchema = z.strictObject({
   limit: z.coerce.number().int().min(1).max(100).optional().default(50),
@@ -23,6 +55,7 @@ const knowledgeListQuerySchema = z.strictObject({
 async function GETHandler(req: NextRequest) {
   try {
     await requireLocalWorkspace(req);
+    enforceRateLimit("memory");
     const parsed = knowledgeListQuerySchema.safeParse({
       limit: req.nextUrl.searchParams.get("limit") ?? undefined,
       view: req.nextUrl.searchParams.get("view") ?? undefined,
@@ -49,6 +82,7 @@ async function GETHandler(req: NextRequest) {
       },
       orderBy: [{ updatedAt: "desc" }],
       take: parsed.data.limit,
+      select: knowledgeEntrySelect,
     });
 
     return Response.json({ data: memories });
@@ -61,6 +95,7 @@ async function GETHandler(req: NextRequest) {
 async function POSTHandler(req: NextRequest) {
   try {
     await requireLocalWorkspace(req);
+    enforceRateLimit("memory");
     const parsed = createKnowledgeSchema.safeParse(await readJsonBody(req));
 
     if (!parsed.success) {
@@ -77,7 +112,7 @@ async function POSTHandler(req: NextRequest) {
       score: parsed.data.score,
     });
 
-    return Response.json({ data: memory }, { status: 201 });
+    return Response.json({ data: knowledgeEntryView(memory) }, { status: 201 });
   } catch (error) {
     console.error("/api/knowledge POST error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to save knowledge entry");

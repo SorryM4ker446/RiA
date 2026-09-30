@@ -20,7 +20,7 @@ import {
 import { createDesktopLogger, DESKTOP_LOG_LIMITS, type DesktopLogger } from "./logger";
 import { runDesktopMigrations } from "./migrations";
 import { runWorkspaceUpgrade } from "./desktop-workspace-upgrade";
-import { findAvailablePort, startNextServer, type RunningNextServer } from "./next-server";
+import { findAvailablePort, startNextServer, type NextServerExit, type RunningNextServer } from "./next-server";
 import { resolveDesktopPaths, toSqliteUrl, type DesktopPaths } from "./paths";
 import { configureDesktopSession, secureBrowserWindow } from "./security";
 import { DesktopSettingsStore, type DesktopSettingsInput } from "./settings";
@@ -61,6 +61,12 @@ let desktopSessionToken = "";
 let serverPort = 0;
 let isQuitting = false;
 let restartInProgress: Promise<void> | null = null;
+/*
+ * Cancels the launch a restart is in the middle of. The restart clears the old
+ * service before it has a new one to point at, so for as long as that takes the
+ * only handle on the child process being launched is this one.
+ */
+let restartAbort: AbortController | null = null;
 let reminderPoller: TaskReminderPoller | null = null;
 
 /**
@@ -117,7 +123,7 @@ async function resolveServerEnvironment(): Promise<Record<string, string>> {
   return settingsEnvironment;
 }
 
-async function launchNextServer(): Promise<RunningNextServer> {
+async function launchNextServer(signal?: AbortSignal): Promise<RunningNextServer> {
   if (!desktopPaths || !logger) throw new Error("Desktop paths are not initialized.");
   if (packagedRuntime && !existsSync(desktopPaths.serverEntry)) {
     throw new Error(`Packaged Next.js server is missing: ${desktopPaths.serverEntry}`);
@@ -136,6 +142,53 @@ async function launchNextServer(): Promise<RunningNextServer> {
     port: serverPort,
     environment: await resolveServerEnvironment(),
     logger,
+    signal,
+    onUnexpectedExit: handleUnexpectedServiceExit,
+  });
+}
+
+/**
+ * What this application does when the local service stops existing.
+ *
+ * Nothing else can notice it. The child is a separate process, the window is
+ * holding a document that stays perfectly renderable without the service that
+ * produced it, and the IPC trust checks compare an origin string a dead
+ * process still matches — so the shell carries on looking healthy while every
+ * request to it fails, and nothing in the log says why. The tray and the
+ * global shortcut need nothing from the service and are left alone; both of
+ * them bring the window forward, which now has something to say.
+ *
+ * The window is put into the state a launch that never came up already
+ * produces, because it is the same fact: there is no service for this window
+ * to reach. It is deliberately not restarted. A service that died is something
+ * the user has to see and be able to report, and a restart loop would only
+ * replace that with a window that keeps changing state without ever saying
+ * what happened.
+ */
+function handleUnexpectedServiceExit(exit: NextServerExit): void {
+  if (isQuitting) return;
+  /*
+   * Identity, not emptiness. A child this application has already replaced is
+   * not the service it is running, and a launch that has not been adopted yet
+   * is not one either — reporting either would put the window into a state
+   * describing a process nothing is waiting for.
+   */
+  if (nextServer && nextServer.child !== exit.child) return;
+  nextServer = null;
+  /*
+   * The poller reads `nextServer` for its connection, so clearing it also ends
+   * the checks that would otherwise keep failing against a port nothing is
+   * listening on, every thirty seconds, for as long as the window is open.
+   */
+  void (async () => {
+    await reminderPoller?.stop();
+    // The quit can land while the poller settles, and there is then nothing
+    // left to tell anyone.
+    if (isQuitting || !mainWindow || mainWindow.isDestroyed()) return;
+    await mainWindow.loadURL(serviceStoppedPage());
+  })().catch((error) => {
+    // Called from a process event, where an unhandled rejection is a crash.
+    logger?.warn("Unable to show the page for a stopped local service", error);
   });
 }
 
@@ -174,10 +227,13 @@ function serviceStoppedPage(): string {
 
 async function restartLocalService() {
   if (restartInProgress) return restartInProgress;
+  const abort = new AbortController();
+  restartAbort = abort;
   restartInProgress = (async () => {
     if (!logger) return;
     logger.info("Restarting local Next.js service after settings update");
     await reminderPoller?.stop();
+    if (isQuitting) return;
     // Stop the old renderer's HMR reconnect and requests before restarting.
     // Otherwise its reload can abort the navigation to the restarted service.
     //
@@ -191,14 +247,39 @@ async function restartLocalService() {
     nextServer = null;
     if (mainWindow && !mainWindow.isDestroyed()) await mainWindow.loadURL("about:blank");
     if (stopped) await stopped.stop();
+    /*
+     * Clearing `nextServer` above opens a window in which this application owns a
+     * service nothing points at: the old one is stopped, the new one is not yet a
+     * value any of this holds. A quit landing in that window used to be let
+     * straight through, leaving the launch below running on inside a process the
+     * user had just closed. Every step the quit can overtake is a step to give
+     * up at instead, and a launch already under way is stopped at the last moment
+     * anything still can.
+     *
+     */
+    if (isQuitting || abort.signal.aborted) return;
+    let launched: RunningNextServer;
     try {
-      nextServer = await launchNextServer();
+      launched = await launchNextServer(abort.signal);
     } catch (error) {
+      if (isQuitting) return;
       // Blank is unrecoverable and says nothing, so the window states what
       // happened rather than leaving a white rectangle with no way forward.
       if (mainWindow && !mainWindow.isDestroyed()) await mainWindow.loadURL(serviceStoppedPage());
       throw error;
     }
+    /*
+     * The quit can land while the new service is still booting. The child is a
+     * separate process by then, so adopting it here would leave a listener with no
+     * supervisor the instant the shell exits. It is stopped here instead, which is
+     * the last moment something is still able to do so.
+     */
+    if (isQuitting || abort.signal.aborted) {
+      logger.info("Discarding a local service that finished launching after the quit was requested");
+      await launched.stop();
+      return;
+    }
+    nextServer = launched;
     await setDesktopCookie(nextServer.origin);
     if (mainWindow && !mainWindow.isDestroyed()) {
       await mainWindow.loadURL(`${nextServer.origin}/settings?saved=1`);
@@ -216,6 +297,7 @@ async function restartLocalService() {
     }
   })().finally(() => {
     restartInProgress = null;
+    if (restartAbort === abort) restartAbort = null;
   });
   return restartInProgress;
 }
@@ -471,6 +553,17 @@ function registerGlobalHotkey(accelerator: string): HotkeyOutcome {
     globalShortcut.unregisterAll();
     activeAccelerator = "";
     return { ok: true, hotkey: "" };
+  }
+  /*
+   * The combination already in force is not a conflict, and asking the
+   * operating system for it again is not how a repeat is recognised: Electron
+   * refuses a second registration of an accelerator this app already holds and
+   * leaves the first one running. Re-applying the stored shortcut therefore read
+   * as "another program owns this" while the app's own shortcut was the one
+   * being reported, and saving the unchanged value looked like a refusal.
+   */
+  if (activeAccelerator === wanted && globalShortcut.isRegistered(wanted)) {
+    return { ok: true, hotkey: wanted };
   }
   const bringWindowForward = () => showMainWindow();
   let registered = false;
@@ -1033,10 +1126,44 @@ app.on("before-quit", (event) => {
   // what stops the combination staying dead in the system while the app runs on
   // with no window.
   globalShortcut.unregisterAll();
-  if (isQuitting || !nextServer) return;
+  if (isQuitting) return;
+  /*
+   * A restart in flight owns a service `nextServer` does not point at yet: the
+   * stopped one is cleared before the new one is launched, and the new one is
+   * only assigned once it has answered. Returning here — which is what a plain
+   * `!nextServer` test did — let the quit run to completion with that launch
+   * still going, so the restart carried on inside a process the user had just
+   * closed: it reassigned `nextServer`, re-armed the reminder poller, could
+   * build a tray icon, and could raise the "unable to restart" dialog behind a
+   * quit. The launch is abandoned and awaited instead.
+   */
+  if (!nextServer && !restartInProgress) {
+    /*
+     * There is nothing left to stop, but the quit still has to finish, and a
+     * bare return says nothing about that. `isQuitting` stays false, which
+     * leaves the window's own close handler as the only thing deciding whether
+     * the application exits — and in tray mode that handler hides the window
+     * instead of closing it, so a quit is swallowed by a window the user meant
+     * to close. A service that died, or a restart that failed, leaves the
+     * application here, so this is a state ordinary use reaches rather than one
+     * only start-up passes through.
+     *
+     * It ends the way the branch below ends, because it is the same guarantee:
+     * the quit belongs to this handler, not to a close the user can cancel.
+     */
+    event.preventDefault();
+    isQuitting = true;
+    void (async () => { await reminderPoller?.stop(); })().finally(() => app.exit(0));
+    return;
+  }
   event.preventDefault();
   isQuitting = true;
-  void (async () => { await reminderPoller?.stop(); await nextServer?.stop(); })().finally(() => app.exit(0));
+  restartAbort?.abort(new Error("The application is quitting."));
+  void (async () => {
+    await reminderPoller?.stop();
+    await restartInProgress?.catch(() => {});
+    await nextServer?.stop();
+  })().finally(() => app.exit(0));
 });
 
 if (singleInstanceLock && !squirrelEventHandled) {

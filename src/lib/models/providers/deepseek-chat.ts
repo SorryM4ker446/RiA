@@ -46,7 +46,6 @@ export function deepSeekBaseURL() {
   return override.replace(/\/+$/, "");
 }
 
-const modelId = z.string().min(1).max(200).regex(/^[a-zA-Z0-9][\w.-]{0,199}$/);
 const toolId = z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/);
 
 const completionChunk = z.object({
@@ -284,7 +283,7 @@ function toTools(options: LanguageModelV3CallOptions, thinking: DeepSeekThinking
   return { tools, tool_choice: "auto" as const };
 }
 
-function toRequestBody(options: LanguageModelV3CallOptions, carriesTools: boolean, defaultThinking: DeepSeekThinking) {
+function toRequestBody(modelId: string, options: LanguageModelV3CallOptions, carriesTools: boolean, defaultThinking: DeepSeekThinking) {
   const thinking = readThinking(options, defaultThinking);
   const mapped = toTools(options, thinking);
   const body: Record<string, unknown> = {
@@ -347,7 +346,7 @@ function createDeepSeekChatModel(options: { modelId: string; getApiKey: () => st
     supportedUrls: {},
     async doGenerate(callOptions): Promise<LanguageModelV3GenerateResult> {
       const carriesTools = (callOptions.tools ?? []).length > 0;
-      const { body } = toRequestBody(callOptions, carriesTools, defaultThinking);
+      const { body } = toRequestBody(options.modelId, callOptions, carriesTools, defaultThinking);
       const { value, responseHeaders } = await post(body, callOptions.abortSignal, false);
       const parsed = completion.safeParse(value as unknown);
       if (!parsed.success) throw new InvalidResponseDataError({ data: value, message: "DeepSeek returned a chat completion this adapter cannot read" });
@@ -380,7 +379,7 @@ function createDeepSeekChatModel(options: { modelId: string; getApiKey: () => st
     },
     async doStream(callOptions) {
       const carriesTools = (callOptions.tools ?? []).length > 0;
-      const { body } = toRequestBody(callOptions, carriesTools, defaultThinking);
+      const { body } = toRequestBody(options.modelId, callOptions, carriesTools, defaultThinking);
       const { value, responseHeaders } = await post(body, callOptions.abortSignal, true);
       return {
         stream: streamResponse({ source: value as ReadableStream<unknown>, modelId: options.modelId, warnings: [] }),

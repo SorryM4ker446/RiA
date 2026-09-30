@@ -81,6 +81,11 @@ export type ModelProvider = {
   id: ProviderId;
   displayName: string;
   /** Shape a catalog row id must have before it can be trusted for this provider. */
+  // No call path reads this at runtime: each adapter applies its own id schema
+  // where it reads its catalog, so the member is the one place the per-provider
+  // id shape is stated and asserted. Taking it off the interface would mean
+  // deleting the schemas and the provider tests that hold them to the rows the
+  // provider actually returns.
   isTrustedModelId: (value: unknown) => boolean;
   /**
    * The library modes this provider can serve at all. A provider with no image

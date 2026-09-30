@@ -25,8 +25,17 @@ export const LOCAL_FILE_LIMITS = {
   characters: 100_000,
 } as const;
 
-/** Formats the assistant may read. The same set the document import accepts. */
-export const READABLE_EXTENSIONS = [".md", ".txt", ".pdf", ".docx"] as const;
+/**
+ * Formats the assistant may read, and can actually turn into text.
+ *
+ * This list once also carried the binary document formats, on the strength of a
+ * comment claiming it matched what document import accepts. Nothing on this side
+ * parses them: a read decodes the bytes as UTF-8, so a PDF came back as tens of
+ * thousands of characters of replacement characters, reported as a successful
+ * read and quoted straight back to the model. A format belongs here only once
+ * there is code here that turns its bytes into text.
+ */
+export const READABLE_EXTENSIONS = [".md", ".txt"] as const;
 
 /**
  * Formats the assistant may write. Deliberately narrower than what it can read:

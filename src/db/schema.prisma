@@ -141,8 +141,6 @@ model AgentStep {
   // list without copying a whole result into a second store.
   input     Json?
   output    Json?
-  // What the step produced, when it produced something viewable.
-  artifactAssetId String?
   errorCode String?
   startedAt DateTime @default(now())
   finishedAt DateTime?

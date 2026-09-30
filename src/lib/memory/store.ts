@@ -35,6 +35,16 @@ export async function saveMemory(input: SaveMemoryInput) {
   const source = input.source ?? "manual";
   const confirmed = source === "manual";
 
+  // An inference the user never saw does not take the place of something they
+  // accepted. Left alone, the update would replace the confirmed text with the
+  // assistant's, relabel it as inferred, and leave it confirmed — so the
+  // rejected candidate would keep entering the model's context in place of the
+  // memory the user agreed to.
+  if (!confirmed) {
+    const accepted = await db.memory.findUnique({ where: { key: normalizedKey } });
+    if (accepted?.confirmed) return accepted;
+  }
+
   return db.memory.upsert({
     where: { key: normalizedKey },
     update: {

@@ -29,7 +29,7 @@ export function HotkeySettings() {
       .catch(() => setProblem("invalid"));
   }, []);
 
-  if (!window.privateAiDesktop) return null;
+  if (typeof window === "undefined" || !window.privateAiDesktop) return null;
 
   async function apply(event: { preventDefault: () => void }) {
     event.preventDefault();

@@ -31,6 +31,7 @@ import { LocalFileUses } from "@/features/settings/local-file-uses";
 import { t, tf } from "@/lib/locale";
 import { DocumentSources } from "@/components/knowledge/document-sources";
 import type { ChatState } from "@/features/chat/use-chat-state";
+import type { UIMessage } from "ai";
 
 // The query identity is the open conversation, not a constant. `switchActiveChat`
 // only sets the id; it does not clear `messages`, so the previous transcript
@@ -38,6 +39,52 @@ import type { ChatState } from "@/features/chat/use-chat-state";
 // gate permanently satisfied and the stale messages rendered under the new
 // chat's header, which the previous `isLoadingHistory` skeleton had masked.
 const DRAFT_HISTORY_QUERY = "draft";
+
+/**
+ * What the follow-the-answer effect reacts to.
+ *
+ * Text arriving inside the last message is a change too. A streaming answer
+ * grows within a single text part, so the message count and the part count are
+ * the same for every token of it: a signature built from those two alone never
+ * changed while an answer was being written, and the view stopped following it.
+ */
+export function messageFollowSignature(messages: UIMessage[]): string {
+  const last = messages.at(-1);
+  if (!last) return "0";
+  return `${messages.length}:${last.parts.length}:${readText(last).length}`;
+}
+
+type OpenLayoutInput = {
+  /** The conversation the transcript was last opened for; undefined if none. */
+  openedChatId: string | null | undefined;
+  activeChatId: string | null;
+  awaitingFirstHistoryLoad: boolean;
+  messageCount: number;
+}
+
+/**
+ * Whether a layout is a conversation opening rather than content arriving in one
+ * already open.
+ *
+ * A conversation nobody has opened yet, and one that has just replaced another,
+ * have no previous position worth keeping, so they open at the newest message.
+ * While its transcript is still loading there is nothing to position: what is on
+ * screen belongs to the conversation being left, and measuring the reader
+ * against that is what made a switch land wherever the last one was read to.
+ * An empty transcript has nothing to open either, so the history that arrives
+ * next is what opens it.
+ */
+export function shouldOpenOnLayout({
+  openedChatId,
+  activeChatId,
+  awaitingFirstHistoryLoad,
+  messageCount,
+}: OpenLayoutInput): boolean {
+  if (awaitingFirstHistoryLoad) return false;
+  if (openedChatId !== undefined && openedChatId === activeChatId) return false;
+  return messageCount > 0;
+}
+
 type Props = Pick<ChatState, "activeChatId" | "isLoadingHistory" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId" | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText" | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel" | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages" | "selectedChatModel">;
 export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, addToolApprovalResponse, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages, selectedChatModel }: Props) {
   const awaitingFirstHistoryLoad = useAwaitingFirstLoad(isLoadingHistory, activeChatId ?? DRAFT_HISTORY_QUERY);
@@ -53,10 +100,11 @@ export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imag
   // grows with its content, so the message list has no height of its own to
   // scroll. Following therefore has to watch and move the document.
   const [hasUnreadBelow, setHasUnreadBelow] = useState(false);
-  // The first layout after a conversation opens has no previous position worth
-  // preserving, so it always opens at the newest message. After that, the
-  // position is what decides.
-  const hasOpenedRef = useRef(false);
+  // Which conversation the transcript was last opened for, so the next one is
+  // recognised as new rather than as a conversation already being read. Without it
+  // only the first conversation of a session opened at its newest message, and the
+  // rest kept the position the reader left the previous one in.
+  const openedChatIdRef = useRef<string | null | undefined>(undefined);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
 
   /**
@@ -83,7 +131,7 @@ export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imag
     return () => window.removeEventListener("scroll", onScroll);
   }, [activeChatId]);
 
-  const lastMessageSignature = messages.length > 0 ? `${messages.length}:${messages.at(-1)?.parts.length ?? 0}` : "0";
+  const lastMessageSignature = messageFollowSignature(messages);
   useEffect(() => {
     // Measured here rather than remembered from a scroll event: whether the
     // reader is at the bottom has to be true at the moment content arrives,
@@ -91,17 +139,20 @@ export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imag
     // delivered yet would otherwise be read as "still following" and yank the
     // view down mid-answer.
     const frame = requestAnimationFrame(() => {
-      // Only counts as opening once there is something to open: the first
-      // layout of an empty transcript has no position to go to, and treating it
-      // as "already opened" would make the arriving history look like the
-      // reader had scrolled away from it.
-      if (!hasOpenedRef.current && messages.length > 0) {
-        hasOpenedRef.current = true;
+      if (shouldOpenOnLayout({
+        openedChatId: openedChatIdRef.current,
+        activeChatId,
+        awaitingFirstHistoryLoad,
+        messageCount: messages.length,
+      })) {
+        openedChatIdRef.current = activeChatId;
         window.scrollTo({ top: document.documentElement.scrollHeight });
         setHasUnreadBelow(false);
         return;
       }
-      if (!hasOpenedRef.current) return;
+      // Nothing has been opened and nothing to open yet, so the position is the
+      // one the page already has. The history that arrives next does the opening.
+      if (openedChatIdRef.current === undefined) return;
       if (distanceFromBottom() <= 96) {
         window.scrollTo({ top: document.documentElement.scrollHeight });
         setHasUnreadBelow(false);
@@ -110,7 +161,7 @@ export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imag
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [lastMessageSignature, messages.length, activeChatId]);
+  }, [lastMessageSignature, messages.length, activeChatId, awaitingFirstHistoryLoad]);
 
   function jumpToLatest() {
     window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });

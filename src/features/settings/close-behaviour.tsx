@@ -30,7 +30,10 @@ export function CloseBehaviourSettings() {
     return () => { cancelled = true; };
   }, []);
 
-  if (!window.privateAiDesktop) {
+  // This page is prerendered on the server as well as rendered in the desktop
+  // shell, and `window` does not exist during the prerender. Reading it to
+  // decide whether to stand down is still a read of it.
+  if (typeof window === "undefined" || !window.privateAiDesktop) {
     // Outside the desktop shell the question does not exist: closing the window
     // ends the app, and there is nothing to choose.
     return null;

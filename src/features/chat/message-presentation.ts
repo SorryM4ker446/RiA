@@ -130,7 +130,13 @@ export function getLocalFileUses(message: UIMessage): { grantLabel: string; gran
   const seen = new Set<string>();
   const uses: { grantLabel: string; grantId: string; path: string; toolId: string }[] = [];
   for (const part of message.parts) {
-    if (typeof part?.type !== "string" || !LOCAL_FILE_TOOLS.has(part.type)) continue;
+    if (typeof part?.type !== "string") continue;
+    // A tool part is named `tool-<name>` everywhere else in the app — that is
+    // the shape the request schema accepts and the transcript renders. Matching
+    // the bare name against the prefixed one found nothing, and the disclosure
+    // this function exists for never appeared.
+    const toolId = part.type.replace(/^tool-/, "");
+    if (!LOCAL_FILE_TOOLS.has(toolId)) continue;
     const tool = part as {
       type: string;
       input?: { grantId?: unknown; path?: unknown };
@@ -142,10 +148,10 @@ export function getLocalFileUses(message: UIMessage): { grantLabel: string; gran
     const path = typeof tool.output?.path === "string" ? tool.output.path : typeof tool.input?.path === "string" ? tool.input.path : "";
     const grantLabel = typeof tool.output?.grantLabel === "string" ? tool.output.grantLabel : "";
     if (!path) continue;
-    const key = `${part.type}:${path}`;
+    const key = `${toolId}:${path}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    uses.push({ grantLabel, grantId, path, toolId: part.type });
+    uses.push({ grantLabel, grantId, path, toolId });
   }
   return uses;
 }

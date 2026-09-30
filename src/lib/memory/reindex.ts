@@ -38,8 +38,24 @@ export async function reindexStaleEmbeddings(): Promise<{ reindexed: number; rem
   if (!ref) return { reindexed: 0, remaining: summary.stale, embedding: null };
   if (summary.stale === 0) return { reindexed: 0, remaining: 0, embedding: modelRefKey(ref) };
 
-  const rows = await db.memory.findMany({ orderBy: { updatedAt: "desc" }, take: MAX_ROWS_PER_RUN, select: { id: true, key: true, value: true, embeddingModelId: true, embeddingModelProvider: true } });
-  const targets = rows.filter(row => !row.embeddingModelId || row.embeddingModelId !== ref.modelId || row.embeddingModelProvider !== ref.providerId);
+  const targets = await db.memory.findMany({
+    // The stale rows are selected rather than found by filtering a recent
+    // window: an entry older than the most recent MAX_ROWS_PER_RUN rows was
+    // unreachable, so a workspace with more memories than one pass covers could
+    // never finish a rebuild. Reindexed rows stop matching, so each pass moves
+    // on to the next ones, and the pass stays bounded.
+    where: {
+      OR: [
+        { embeddingModelId: null },
+        { embeddingModelId: { not: ref.modelId } },
+        { embeddingModelProvider: null },
+        { embeddingModelProvider: { not: ref.providerId } },
+      ],
+    },
+    orderBy: { updatedAt: "desc" },
+    take: MAX_ROWS_PER_RUN,
+    select: { id: true, key: true, value: true },
+  });
 
   let reindexed = 0;
   for (let index = 0; index < targets.length; index += BATCH_SIZE) {

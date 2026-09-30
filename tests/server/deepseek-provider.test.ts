@@ -154,6 +154,24 @@ test("a streamed answer carries reasoning, text, usage and the cache split", asy
   assert.deepEqual(requests[0].body.stream_options, { include_usage: true });
 });
 
+test("the request names the model the library entry was created for", async () => {
+  handler = () => textStream("答案");
+  const model = createDeepSeekChatModel({ modelId: "deepseek-v4-pro", getApiKey: () => "test-key", baseURL: deepSeekBaseURL() });
+  await model.doStream({ prompt: [{ role: "user", content: [{ type: "text", text: "问题" }] }] });
+  // The field has to carry the id string DeepSeek knows. It once carried a
+  // schema object instead, which serialised into the body as a nested JSON
+  // blob and came back as a bare 400 — and the rest of the adapter was tested
+  // only through fields other than this one, so nothing noticed.
+  assert.equal(typeof requests[0].body.model, "string");
+  assert.equal(requests[0].body.model, "deepseek-v4-pro");
+
+  requests = [];
+  handler = () => ({ status: 200, json: { id: "chat-1", model: "deepseek-v4-pro", choices: [{ index: 0, message: { role: "assistant", content: "答案" }, finish_reason: "stop" }], usage: { prompt_tokens: 3, completion_tokens: 2 } } });
+  await model.doGenerate({ prompt: [{ role: "user", content: [{ type: "text", text: "问题" }] }] });
+  // Both call paths build the body the same way, so both are checked.
+  assert.equal(requests[0].body.model, "deepseek-v4-pro");
+});
+
 test("thinking mode is declared, and sampling parameters are not sent while it is on", async () => {
   handler = () => textStream("答案");
   const model = createDeepSeekChatModel({ modelId: "deepseek-v4-pro", getApiKey: () => "test-key", baseURL: deepSeekBaseURL() });

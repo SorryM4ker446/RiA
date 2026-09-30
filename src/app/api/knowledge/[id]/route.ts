@@ -6,6 +6,7 @@ import { db } from "@/db";
 import { readJsonBody } from "@/lib/server/request-body";
 import { embedTextWithModel } from "@/lib/ai/embedding";
 import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
+import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { requireLocalWorkspace } from "@/lib/local/workspace";
 
 type Params = {
@@ -15,14 +16,36 @@ type Params = {
 // An inferred memory is editable and deletable like any other: it is on screen
 // waiting to be accepted, and a candidate that cannot be removed is just noise
 // the user has to live with.
+//
+// Only what the handlers below read is selected. The embedding vector is a few
+// thousand floats of JSON that neither path serialises, so reading it here would
+// pull it out of the database on every edit and every deletion for nothing.
 async function getScopedKnowledgeEntry(id: string) {
-  return db.memory.findFirst({ where: { id } });
+  return db.memory.findFirst({ where: { id }, select: { id: true, key: true, value: true } });
 }
 
 const updateSchema = z.strictObject({
   value: z.string().trim().min(1).max(4000).optional(),
   confirmed: z.boolean().optional(),
 });
+
+// The page rebuilds the edited entry from this response, so it carries the same
+// fields the list does — and the same exclusion of the embedding vector, which
+// is rewritten here and is far too large to hand back on every edit.
+function knowledgeEntryView(row: {
+  id: string;
+  key: string;
+  value: string;
+  score: number | null;
+  source: string;
+  confirmed: boolean;
+  lastUsedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
+  const { id, key, value, score, source, confirmed, lastUsedAt, createdAt, updatedAt } = row;
+  return { id, key, value, score, source, confirmed, lastUsedAt, createdAt, updatedAt };
+}
 
 /**
  * Editing an entry is how a wrong memory is corrected, so it re-embeds the new
@@ -32,6 +55,7 @@ const updateSchema = z.strictObject({
 async function PATCHHandler(req: NextRequest, context: Params) {
   try {
     await requireLocalWorkspace(req);
+    enforceRateLimit("memory");
     const { id } = await context.params;
     const existing = await getScopedKnowledgeEntry(id);
     if (!existing) {
@@ -60,7 +84,7 @@ async function PATCHHandler(req: NextRequest, context: Params) {
         ...(parsed.data.confirmed === undefined ? (parsed.data.value === undefined ? {} : { confirmed: true }) : { confirmed: parsed.data.confirmed }),
       },
     });
-    return Response.json({ data: updated }, { headers: { "Cache-Control": "private, no-store" } });
+    return Response.json({ data: knowledgeEntryView(updated) }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     console.error("/api/knowledge/[id] PATCH error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to update knowledge entry");
@@ -70,6 +94,7 @@ async function PATCHHandler(req: NextRequest, context: Params) {
 async function DELETEHandler(req: NextRequest, context: Params) {
   try {
     await requireLocalWorkspace(req);
+    enforceRateLimit("memory");
     const { id } = await context.params;
     const existing = await getScopedKnowledgeEntry(id);
 

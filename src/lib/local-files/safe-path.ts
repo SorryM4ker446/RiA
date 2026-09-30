@@ -291,7 +291,9 @@ export async function resolveWithinGrant(
     throw new LocalFileRefused("blocked-location", "This location is not available.");
   }
 
-  const target = path.join(realParent, path.basename(candidate));
+  // The granted directory is chosen at runtime, so there is no static prefix to
+  // scope the trace to. This is a tracing hint only: the value is identical.
+  const target = path.join(/*turbopackIgnore: true*/ realParent, path.basename(candidate));
   const stats = await stat(target).catch(() => null);
   // A file that is itself a link is resolved too, so a link dropped inside the
   // grant cannot be used to read what it points at.

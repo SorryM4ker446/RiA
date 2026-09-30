@@ -162,7 +162,16 @@ async function removeClaimedAsset(asset: MediaAsset) {
     const stat = await lstat(file);
     if (!stat.isFile() || stat.isSymbolicLink() || await realpath(/* turbopackIgnore: true */ file) !== file) throw pathError();
     await unlink(file);
-  } catch (error) { if (!isMissing(error)) throw error; }
+  } catch (error) {
+    // The claim is the only record that the bytes are gone. A file that cannot
+    // be removed must leave the asset live, or it stays invisible to the
+    // library and the user has no way left to retry it. A restore failure is
+    // not worth hiding the original error.
+    if (!isMissing(error)) {
+      await db.mediaAsset.updateMany({ where: { id: asset.id, deletedAt: { not: null } }, data: { deletedAt: null } }).catch(() => {});
+      throw error;
+    }
+  }
   await db.$transaction(async tx => {
     await tx.mediaAsset.updateMany({ where: { usedByGenerations: { some: { assetId: asset.id } } }, data: { lastUsedAt: new Date() } });
     await tx.mediaAsset.deleteMany({ where: { id: asset.id, deletedAt: { not: null }, references: { none: {} }, usedByGenerations: { none: {} } } });

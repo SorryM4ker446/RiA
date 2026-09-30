@@ -15,6 +15,31 @@ export type NextServerOptions = {
   port: number;
   environment: Record<string, string>;
   logger: DesktopLogger;
+  /**
+   * Abandons the launch and stops the child.
+   *
+   * The child is a separate operating system process from the first moment it
+   * is spawned, and `startNextServer` only resolves once the service answers.
+   * A caller that gives up in between — the shell quitting during a restart —
+   * therefore has to say so, or the launch finishes into a process nothing is
+   * left holding.
+   */
+  signal?: AbortSignal;
+  /**
+   * Told when a service that was ready stops answering because its process is
+   * gone.
+   *
+   * A stop the caller asked for is not one of these, and neither is a launch
+   * that never became ready: `startNextServer` is already failing for that one.
+   */
+  onUnexpectedExit?: (exit: NextServerExit) => void;
+};
+
+/** A service that was ready and then stopped, and the process it was. */
+export type NextServerExit = {
+  child: ChildProcess;
+  code: number | null;
+  signal: NodeJS.Signals | null;
 };
 
 export type RunningNextServer = {
@@ -41,11 +66,42 @@ export async function findAvailablePort(): Promise<number> {
   });
 }
 
-async function waitForHealth(origin: string, child: ChildProcess, timeoutMs = 90_000): Promise<void> {
+export function launchCancelledError(signal: AbortSignal): Error {
+  const reason = signal.reason;
+  const detail = reason === undefined ? "aborted" : reason instanceof Error ? reason.message : String(reason);
+  return new Error(`Local Next.js service launch was cancelled: ${detail}`);
+}
+
+/** A sleep that gives up the moment the caller does, rather than at its own deadline. */
+function pause(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(launchCancelledError(signal));
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(launchCancelledError(signal as AbortSignal));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+async function waitForHealth(
+  origin: string,
+  child: ChildProcess,
+  signal?: AbortSignal,
+  timeoutMs = 90_000,
+): Promise<void> {
   const startedAt = Date.now();
   let lastError = "No response";
 
   while (Date.now() - startedAt < timeoutMs) {
+    if (signal?.aborted) throw launchCancelledError(signal);
     if (child.exitCode !== null) {
       throw new Error(`Local Next.js service exited before becoming ready (code ${child.exitCode}).`);
     }
@@ -53,7 +109,9 @@ async function waitForHealth(origin: string, child: ChildProcess, timeoutMs = 90
     try {
       const response = await fetch(`${origin}/api/health`, {
         headers: { Accept: "application/json" },
-        signal: AbortSignal.timeout(2_000),
+        // A launch nobody is waiting for any more should also stop waiting on a
+        // hung request, or the abort would not be noticed for up to two seconds.
+        signal: signal ? AbortSignal.any([AbortSignal.timeout(2_000), signal]) : AbortSignal.timeout(2_000),
       });
       if (response.ok) {
         const payload = (await response.json()) as { status?: string };
@@ -61,10 +119,11 @@ async function waitForHealth(origin: string, child: ChildProcess, timeoutMs = 90
       }
       lastError = `HTTP ${response.status}`;
     } catch (error) {
+      if (signal?.aborted) throw launchCancelledError(signal);
       lastError = error instanceof Error ? error.message : String(error);
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await pause(250, signal);
   }
 
   throw new Error(`Timed out waiting for the local Next.js service: ${lastError}`);
@@ -135,6 +194,9 @@ export async function startNextServer(options: NextServerOptions): Promise<Runni
     mode: options.packagedRuntime ? "standalone" : "development",
     origin,
   });
+  // Checked before the spawn as well as after it: an abandoned launch must not
+  // create the process it would then have to kill.
+  if (options.signal?.aborted) throw launchCancelledError(options.signal);
   const child = spawn(command, args, {
     cwd: options.packagedRuntime ? options.runtimeDirectory : options.projectRoot,
     env: childEnvironment,
@@ -144,11 +206,45 @@ export async function startNextServer(options: NextServerOptions): Promise<Runni
   child.stdout?.pipe(createDesktopLogSink(options.logger, "Next stdout"));
   child.stderr?.pipe(createDesktopLogSink(options.logger, "Next stderr"));
 
-  const stop = () => stopChild(child, options.logger);
+  /*
+   * `stopping` is set before anything is signalled, so the exit a requested
+   * stop causes is never reported as the service dying on its own. `ready`
+   * keeps the two failures this function already reports out of it: a launch
+   * that never became ready fails the health check instead.
+   */
+  let stopping = false;
+  let ready = false;
+  const stop = () => {
+    stopping = true;
+    return stopChild(child, options.logger);
+  };
   child.once("error", (error) => options.logger.error("Local Next.js service process error", error));
+  /*
+   * Nothing else observes this process. The window keeps a document that stays
+   * perfectly renderable without the service that produced it, and the IPC
+   * trust checks compare an origin string a dead process still matches, so
+   * without this the shell carries on pointing at a service that is gone and
+   * every request to it fails without anything saying why.
+   */
+  child.once("exit", (code, signal) => {
+    if (stopping || !ready) return;
+    options.logger.error("The local Next.js service exited unexpectedly", { code, signal });
+    options.onUnexpectedExit?.({ child, code, signal });
+  });
 
   try {
-    await waitForHealth(origin, child);
+    await waitForHealth(origin, child, options.signal);
+    // The health check can succeed in the same turn the caller gives up, so the
+    // last word belongs to the caller: a launch nobody adopted must be stopped
+    // rather than returned for someone else to look after.
+    if (options.signal?.aborted) throw launchCancelledError(options.signal);
+    // The same turn can carry the process away, and an `exit` already delivered
+    // here would never be seen again. The handle is asked directly rather than
+    // a dead process being handed back as a running service.
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(`Local Next.js service exited while becoming ready (code ${child.exitCode}).`);
+    }
+    ready = true;
     options.logger.info("Local Next.js service is ready", { origin });
     return { child, origin, stop };
   } catch (error) {

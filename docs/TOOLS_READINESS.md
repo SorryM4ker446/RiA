@@ -38,7 +38,7 @@ Updated: 2026-04-25
 | Common | Historical tool detail can be reviewed | done | Stored messages can expand to show input and output | P0 |
 | Common | UI regression and server integration tests | done | Playwright mocked-UI flows and real route-handler plus SQLite tests, in layers; this is not the same as a full browser-to-database path | P0 |
 | Common | Monitoring and audit log for tool calls | done (basic) | Records `toolId/trigger/state/durationMs/errorCode/requestId` | P1 |
-| Common | Execution records | done | Each turn that used tools has a run with steps, states, an output summary and artifacts | P1 |
+| Common | Execution records | done | Each turn that used tools has a run with steps carrying a kind, tool name, state, an error code, start and finish times, and a redacted input/output summary (at most eight keys, string values cut to 200 characters, other values reduced to their type) | P1 |
 | Common | Graceful degradation when a tool is unavailable | done | An unconfigured optional tool is not offered to the model and the turn says so | P1 |
 
 ## 3. P0 schedule (usable first)

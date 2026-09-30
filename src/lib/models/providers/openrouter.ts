@@ -102,7 +102,15 @@ async function fetchOpenRouterCatalog(mode: (typeof libraryModes)[number], signa
 
   let decoded: unknown;
   try { decoded = await readLimitedJson(response, catalogMaxBodyBytes); }
-  catch (error) { throw new CatalogFetchError(error instanceof BodyReadError ? error.failure : "invalidShape"); }
+  catch (error) {
+    if (error instanceof BodyReadError) throw new CatalogFetchError(error.failure);
+    // A body that stops arriving is this machine's connection failing, not a
+    // response OpenRouter returned in a shape it did not intend. Reporting it
+    // as a malformed catalog tells the user their provider is sending
+    // something broken, and the reason is kept against the cached snapshot.
+    if (error instanceof Error && error.name === "AbortError") throw new CatalogFetchError("timeout");
+    throw new CatalogFetchError("network");
+  }
 
   const envelope = catalogEnvelope.safeParse(decoded);
   if (!envelope.success) throw new CatalogFetchError("invalidShape");

@@ -1,0 +1,20 @@
+-- A step was given a column for the artifact a tool produced, so a run record
+-- could point at the file a turn created. No chat tool produces one: the tools
+-- that create files are not offered in chat mode. The column was therefore
+-- never written by anything, and stayed null in every row of every
+-- installation.
+--
+-- Left in place it is worse than empty. Every reader of a step has to decide
+-- again what a field that is always null is for, and the answer -- "a feature
+-- that was planned and never arrived" -- is not one the record itself can give.
+-- The two functions that accepted it have no caller that passes it, so nothing
+-- is lost here that the application could observe.
+--
+-- Every existing row is null, so dropping the column rewrites no data. SQLite
+-- has supported DROP COLUMN since 3.35 and this application runs 3.50, so no
+-- table rebuild is needed.
+--
+-- If a chat tool ever does produce a file, this is the migration that would
+-- carry that work, and it would add the column back with the feature rather
+-- than leaving it reserved in the meantime.
+ALTER TABLE "agent_steps" DROP COLUMN "artifactAssetId";

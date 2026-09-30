@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { db } from "@/db";
 import { LocalFileRefused, localGrantLabelSchema } from "@/lib/local-files/limits";
 import { resolveGrant } from "@/lib/local-files/safe-path";
@@ -153,9 +154,21 @@ export async function requireActiveGrant(id: string): Promise<{ id: string; labe
   return { id: row.id, label: row.label, path: row.path, realPath: row.realPath };
 }
 
-/** Stamp a grant as used, so the settings page can show what is actually in play. */
+/**
+ * Stamp a grant as used, so the settings page can show what is actually in play.
+ *
+ * Written as raw SQL on purpose. `updatedAt` is the resource version an approved
+ * write is bound to, and Prisma stamps it on every update — so the ordinary
+ * `updateMany` this used to issue made *using* a folder look like the folder had
+ * *changed*, and a write the user was looking at got refused with a message
+ * saying the folder had moved. A revoke or a re-point still goes through
+ * `revokeGrant` and friends, which do move the version, which is what the
+ * binding is meant to catch.
+ */
 export async function touchGrant(id: string): Promise<void> {
-  await db.directoryGrant.updateMany({ where: { id, revokedAt: null }, data: { lastUsedAt: new Date() } });
+  await db.$executeRaw(Prisma.sql`
+    UPDATE directory_grants SET lastUsedAt = ${new Date()} WHERE id = ${id} AND revokedAt IS NULL
+  `);
 }
 
 /**

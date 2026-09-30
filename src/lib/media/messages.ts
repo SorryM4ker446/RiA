@@ -6,7 +6,7 @@ import { db } from "@/db";
 import { decodePersistedUserMessage, encodePersistedUserMessage, USER_MESSAGE_PREFIX, type PersistedFilePart } from "@/lib/ai/ui-message";
 import { ApiError } from "@/lib/server/api-error";
 import { MEDIA_LIMITS, attachmentValidationError } from "@/lib/media/limits";
-import { assetIdFromUrl, decodeMediaMessage, encodeMediaMessage, IMAGE_MESSAGE_PREFIX, VIDEO_MESSAGE_PREFIX } from "@/lib/media/message-codec";
+import { assetIdFromUrl, decodeMediaMessage, encodeMediaMessage, IMAGE_MESSAGE_PREFIX, VIDEO_MESSAGE_PREFIX, type MediaReference } from "@/lib/media/message-codec";
 import { createMediaAsset, decodeImageDataUrl, getMediaAsset, readMediaAsset, toMediaReference } from "@/lib/media/storage";
 
 export async function resolveImageInputs(inputs: Array<{ url: string; mediaType?: string }>) {
@@ -31,20 +31,25 @@ export async function imageInputBytes(inputs: Array<{ url: string; mediaType?: s
 
 async function normalizeFiles(files: PersistedFilePart[], legacy: boolean) {
   if (files.length > MEDIA_LIMITS.attachmentCount) throw new ApiError({ code: "VALIDATION_ERROR", message: "Too many image attachments" });
-  const refs = [];
+  // Legacy payloads are decoded and validated before anything is written: a
+  // migration that fails is retried on every read, so storing an asset the
+  // message will never accept would multiply files and rows per read.
+  const planned: Array<{ reference?: MediaReference; decoded?: { bytes: Buffer; mediaType: string }; filename?: string }> = [];
   for (const file of files) {
-    let id = assetIdFromUrl(file.url);
-    if (!id && legacy && file.url.startsWith("data:")) {
-      const decoded = decodeImageDataUrl(file.url, MEDIA_LIMITS.attachmentBytes);
-      const created = await createMediaAsset({ ...decoded, kind: "attachment", description: file.filename });
-      id = created.id;
-    }
+    const id = assetIdFromUrl(file.url);
+    if (!id && legacy && file.url.startsWith("data:")) { planned.push({ decoded: decodeImageDataUrl(file.url, MEDIA_LIMITS.attachmentBytes), filename: file.filename }); continue; }
     if (!id) throw new ApiError({ code: "VALIDATION_ERROR", message: "Attachment must reference an uploaded image" });
-    const asset = await getMediaAsset(id);
-    refs.push({ ...toMediaReference(asset), ...(file.filename ? { filename: file.filename.slice(0, 255) } : {}) });
+    planned.push({ reference: toMediaReference(await getMediaAsset(id)), filename: file.filename });
   }
-  const validation = attachmentValidationError(refs.map((ref) => ({ size: ref.byteSize, type: ref.mediaType })));
+  const validation = attachmentValidationError(planned.map((entry) => entry.reference
+    ? { size: entry.reference.byteSize, type: entry.reference.mediaType }
+    : { size: entry.decoded!.bytes.byteLength, type: entry.decoded!.mediaType }));
   if (validation) throw new ApiError({ code: "VALIDATION_ERROR", message: validation });
+  const refs = [];
+  for (const entry of planned) {
+    const reference = entry.reference ?? toMediaReference(await createMediaAsset({ ...entry.decoded!, kind: "attachment", description: entry.filename }));
+    refs.push({ ...reference, ...(entry.filename ? { filename: entry.filename.slice(0, 255) } : {}) });
+  }
   return refs;
 }
 

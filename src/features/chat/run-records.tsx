@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, ChevronRight, Loader2, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -28,20 +28,38 @@ export function RunRecords({ activeChatId, refreshKey }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [isStopping, setIsStopping] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // A runs request outlives the conversation it was asked for, so every load
+  // takes a number and only the newest one is allowed to write. Without it,
+  // switching conversations mid-request showed the previous conversation's runs
+  // under the new one, and a failure left its message on screen for good.
+  const runsRequestRef = useRef(0);
 
   const load = useCallback(async () => {
-    if (!activeChatId) { setRuns([]); return; }
+    const requestId = ++runsRequestRef.current;
+    if (!activeChatId) {
+      setRuns([]);
+      setError(null);
+      return;
+    }
     try {
       const response = await fetch(`/api/conversations/${activeChatId}/runs?limit=10`, { cache: "no-store" });
       const payload = await response.json();
       if (!response.ok) throw new Error(getApiErrorMessage(payload, t("runs.error.load")));
+      if (requestId !== runsRequestRef.current) return;
       setRuns(Array.isArray(payload.data) ? payload.data : []);
+      // The list is what this panel reports, so a message from an earlier
+      // request has nothing left to say once a newer one has answered.
+      setError(null);
     } catch (loadError) {
+      if (requestId !== runsRequestRef.current) return;
       setError(loadError instanceof Error ? loadError.message : t("runs.error.load"));
     }
   }, [activeChatId]);
 
-  useEffect(() => { void load(); }, [load, refreshKey]);
+  useEffect(() => {
+    void load();
+    return () => { runsRequestRef.current += 1; };
+  }, [load, refreshKey]);
 
   async function stop() {
     if (!activeChatId) return;

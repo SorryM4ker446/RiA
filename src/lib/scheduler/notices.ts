@@ -33,6 +33,21 @@ const noticeSelect = {
   readAt: true
 } as const;
 
+/**
+ * How many notices the workspace keeps.
+ *
+ * The list and the unread badge are read together, so the centre is bounded by
+ * what the list can show. A repeating notice is one row, but the brief and the
+ * summary each write one row per day and nothing ever removed them, so the table
+ * grew without bound and — once there were more unread rows than the list
+ * returns — the badge reported an unread count the list could not account for.
+ */
+export const NOTICE_LIMITS = { kept: 200 } as const;
+
+/** Newest first, and the bound is applied in the same order: a list sorted
+ * differently from the prune would keep a different two hundred than it shows. */
+const noticeOrder = () => [{ createdAt: "desc" as const }, { id: "desc" as const }];
+
 function toView(row: {
   id: string;
   kind: string;
@@ -59,23 +74,36 @@ export async function raiseNotice(input: {
   href?: string | null;
   fingerprint: string;
 }): Promise<AppNoticeView> {
-  const row = await db.appNotice.upsert({
-    where: { fingerprint: input.fingerprint },
-    create: {
-      kind: input.kind,
-      title: input.title.slice(0, 200),
-      detail: (input.detail ?? null)?.slice(0, 2000) ?? null,
-      href: input.href ?? null,
-      fingerprint: input.fingerprint.slice(0, 200)
-    },
-    update: {
-      title: input.title.slice(0, 200),
-      detail: (input.detail ?? null)?.slice(0, 2000) ?? null,
-      href: input.href ?? null,
-      // Reopening is the point: the thing is still true, so it is still on the list.
-      readAt: null
-    },
-    select: noticeSelect
+  const row = await db.$transaction(async (tx) => {
+    const raised = await tx.appNotice.upsert({
+      where: { fingerprint: input.fingerprint },
+      create: {
+        kind: input.kind,
+        title: input.title.slice(0, 200),
+        detail: (input.detail ?? null)?.slice(0, 2000) ?? null,
+        href: input.href ?? null,
+        fingerprint: input.fingerprint.slice(0, 200)
+      },
+      update: {
+        title: input.title.slice(0, 200),
+        detail: (input.detail ?? null)?.slice(0, 2000) ?? null,
+        href: input.href ?? null,
+        // Reopening is the point: the thing is still true, so it is still on the list.
+        readAt: null
+      },
+      select: noticeSelect
+    });
+    // Raising is the only thing that adds a row, so it is the only place the
+    // bound has to hold. It is in the same transaction as the raise so a notice
+    // is never left outside the bound by two of them landing together.
+    const stale = await tx.appNotice.findMany({
+      orderBy: noticeOrder(),
+      skip: NOTICE_LIMITS.kept,
+      take: NOTICE_LIMITS.kept,
+      select: { id: true }
+    });
+    if (stale.length > 0) await tx.appNotice.deleteMany({ where: { id: { in: stale.map((notice) => notice.id) } } });
+    return raised;
   });
   return toView(row);
 }
@@ -83,8 +111,10 @@ export async function raiseNotice(input: {
 export async function listNotices(options: { includeRead?: boolean } = {}): Promise<AppNoticeView[]> {
   const rows = await db.appNotice.findMany({
     where: options.includeRead ? {} : { readAt: null },
-    orderBy: [{ createdAt: "desc" }],
-    take: 200,
+    orderBy: noticeOrder(),
+    // The same bound the raise applies, so the list can always account for
+    // every unread row the badge counts.
+    take: NOTICE_LIMITS.kept,
     select: noticeSelect
   });
   return rows.map(toView);

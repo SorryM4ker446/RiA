@@ -66,7 +66,7 @@ export function LocalFileUses({ uses, modelLabel }: { uses: LocalFileUse[]; mode
             <span className="min-w-0 truncate" title={`${use.grantLabel}/${use.path}`}>
               {use.grantLabel}/{use.path}
             </span>
-            {window.privateAiDesktop?.revealPath ? (
+            {typeof window !== "undefined" && window.privateAiDesktop?.revealPath ? (
               <Button disabled={busy === use.path} onClick={() => void reveal(use)} size="sm" type="button" variant="ghost">
                 {busy === use.path
                   ? <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />

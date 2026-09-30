@@ -31,6 +31,11 @@ export function migrationNames() {
 /**
  * The migration that removes account scoping. Fixtures reproduce the state
  * before it, so it is excluded unless a test asks for it explicitly.
+ *
+ * This name, and the migrations around it, are load-bearing: the chain in
+ * src/db/migrations is not history that can be squashed, it is the corpus these
+ * fixtures and the tests/desktop/*-migration.test.ts version ranges are built
+ * from. See src/db/migrations/README.md before renaming or merging anything.
  */
 export const SINGLE_USER_WORKSPACE_MIGRATION = "20260901100000_single_user_workspace";
 

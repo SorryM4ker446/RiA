@@ -470,5 +470,6 @@ export const pageMessages = {
   "settings.hotkey.invalid": "系统不接受这个写法。可以试试 Ctrl+Shift+字母。",
   "settings.hotkey.note": "本应用不监听普通键盘输入，也不读取剪贴板或屏幕——全局钩子如果监听每一次按键，那就是一个伪装成效率工具的键盘记录器。",
   "settings.schedules.kind.dailyBrief": "每日简报（会调用模型）",
+  "settings.schedules.kind.weeklySummary": "每周总结（会调用模型）",
   "settings.schedules.briefNote": "每日简报会调用模型生成一段文字，因此默认关闭，并且每次运行只发一次请求。",
 } as const;

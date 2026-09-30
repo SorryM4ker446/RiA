@@ -23,7 +23,7 @@ type JobRow = {
   lastError: string | null;
 };
 
-const KINDS = ["backupReminder", "scheduledBackup", "dailyBrief"] as const;
+const KINDS = ["backupReminder", "scheduledBackup", "dailyBrief", "weeklySummary"] as const;
 const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6] as const;
 
 function localTimeZone(): string {

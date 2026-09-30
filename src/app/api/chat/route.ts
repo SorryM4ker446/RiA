@@ -7,6 +7,7 @@ import { streamChatResponse } from "@/lib/chat/stream";
 import { getRelevantMemories } from "@/lib/memory/store";
 import { startRun } from "@/lib/agent/runs";
 import { getModelPreferences } from "@/lib/models/preferences";
+import { getModelProvider } from "@/lib/models/providers";
 import { summarizeOlderTurns } from "@/lib/chat/summary";
 import { getTextFromUIMessage as readText } from "@/lib/ai/ui-message";
 import { t } from "@/lib/locale";
@@ -24,10 +25,14 @@ async function POSTHandler(req: NextRequest) {
     enforceRateLimit("chat");
     const input = await readChatRequest(req);
     const { body, modelRef, latestUserMessage, isApprovalResume } = input;
-    if (!process.env.OPENROUTER_API_KEY?.trim()) {
+    // Checked against the provider the chosen model actually belongs to. Naming
+    // OpenRouter here refused every DeepSeek-only install before it could say so,
+    // which is the one thing a user who only ever added a DeepSeek model needs
+    // to be able to run.
+    if (!getModelProvider(modelRef.providerId).isConfigured()) {
       throw new ApiError({
         code: "CONFIGURATION_ERROR",
-        message: "OPENROUTER_API_KEY is not configured. Set it in .env and restart the dev server before chatting.",
+        message: `${modelRef.providerId.toUpperCase()}_API_KEY is not configured. Set it in .env and restart the dev server before chatting.`,
       });
     }
     setupServerProxy();
@@ -67,7 +72,7 @@ async function POSTHandler(req: NextRequest) {
     const summary = latestUserMessage?.text
       ? await summarizeOlderTurns({
         chatId: conversation.chat.id,
-        messages: context.messages.map((message) => ({ id: message.id ?? "", role: message.role, text: readText(message) })),
+        messages: context.allMessages.map((message) => ({ id: message.id ?? "", role: message.role, text: readText(message) })),
         keepRecent: 24,
       }).catch(() => null)
       : null;
@@ -95,6 +100,12 @@ async function POSTHandler(req: NextRequest) {
     return await streamChatResponse({
       input, conversation, systemPrompt, modelMessages, toolsEnabled, signal: req.signal,
       documentSources, runId: run?.id ?? null, usesMemory,
+      // The prompt has been telling the model which tools this turn could not
+      // use. Without this the list never reaches persistence, so the turn's own
+      // record could not show it and the "this turn had no web search" badge
+      // never rendered — including after a reload, which is the one thing the
+      // stored metadata is for.
+      unavailableTools,
     });
   } catch (error) {
     console.error("/api/chat error", normalizeApiError(error).code);
