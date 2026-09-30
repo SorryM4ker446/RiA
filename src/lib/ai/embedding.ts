@@ -58,10 +58,6 @@ const SMOKE_EMBEDDING_PROVIDER = "openrouter";
  * embedding backend is unavailable or a call fails, so callers can fall back
  * to keyword scoring.
  */
-export async function embedTexts(values: string[], signal?: AbortSignal): Promise<Array<number[] | null>> {
-  return (await embedTextsWithModel(values, signal)).embeddings;
-}
-
 export async function embedTextsWithModel(values: string[], signal?: AbortSignal): Promise<{ embeddings: Array<number[] | null>; modelRef: ModelRef | null }> {
   if (values.length === 0) {
     return { embeddings: values.map(() => null), modelRef: null };
@@ -91,11 +87,6 @@ export async function embedTextsWithModel(values: string[], signal?: AbortSignal
     console.warn("embedding generation failed, falling back to keyword scoring", error instanceof Error ? error.name : "UnknownError");
     return { embeddings: values.map(() => null), modelRef: null };
   }
-}
-
-export async function embedText(value: string, signal?: AbortSignal): Promise<number[] | null> {
-  const results = await embedTexts([value], signal);
-  return results[0] ?? null;
 }
 
 export async function embedTextWithModel(value: string, signal?: AbortSignal): Promise<{ embedding: number[] | null; modelRef: ModelRef | null }> {

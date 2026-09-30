@@ -29,7 +29,7 @@ const MAX_ATTACHMENTS = 4;
 // conversation should not silently put back a half-written question.
 const MAX_AGE_MS = 14 * 24 * 60 * 60_000;
 
-export function getChatDraftKey(chatId: string) {
+function getChatDraftKey(chatId: string) {
   return `${DRAFT_KEY_PREFIX}${chatId}`;
 }
 

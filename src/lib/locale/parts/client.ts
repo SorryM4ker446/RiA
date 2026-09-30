@@ -85,7 +85,6 @@ export const clientMessages = {
   // the surrounding spaces.
   "chatState.imageInputUnsupportedPrefix": "当前聊天模型",
   "chatState.imageInputUnsupportedSuffix": "不支持图片输入，请切换视觉模型或移除附件。",
-  "chatState.attachmentReadFailed": "附件读取失败",
   "chatState.toolParamsRequired": "请在输入框中填写工具参数。",
   "chatState.toolRunFailed": "工具执行失败",
   // Default title for a brand new conversation; the user's own text replaces
@@ -161,5 +160,3 @@ export const clientMessages = {
   "settingsApi.actFailed": "操作失败，请刷新后重试。",
   "nav.backToChat": "返回聊天",
 } as const;
-
-export type ClientMessageKey = keyof typeof clientMessages;

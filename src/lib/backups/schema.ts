@@ -3,7 +3,7 @@ import { generationRecipeSchema } from "@/lib/media/generation-recipe";
 import { documentPagesSchema } from "@/lib/documents/types";
 import { legacyPreferencesSchema, preferencesSchema, providerAgnosticPreferencesSchema, providerIdSchema } from "@/lib/models/preferences-schema";
 
-export const BACKUP_LIMITS = { bytes: 512 * 1024 * 1024, manifest: 32 * 1024 * 1024, chunk: 8 * 1024 * 1024, rows: 10_000, uploadsPerUser: 1, stagingAgeMs: 60 * 60_000 };
+export const BACKUP_LIMITS = { bytes: 512 * 1024 * 1024, manifest: 32 * 1024 * 1024, chunk: 8 * 1024 * 1024, rows: 10_000, stagingAgeMs: 60 * 60_000 };
 export const backupId = z.string().uuid();
 const id = z.string().regex(/^[a-zA-Z0-9_-]{1,200}$/);
 const date = z.iso.datetime();

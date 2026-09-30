@@ -5,7 +5,7 @@ import { AlertCircle, CheckCircle2, ChevronRight, Loader2, Square } from "lucide
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { getApiErrorMessage } from "@/lib/api-error-message";
-import { t, tf } from "@/lib/locale";
+import { t } from "@/lib/locale";
 import { cn } from "@/lib/utils/cn";
 import type { RunView } from "@/lib/agent/runs";
 

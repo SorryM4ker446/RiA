@@ -47,9 +47,6 @@ export const WRITABLE_EXTENSIONS = [".md", ".txt"] as const;
 
 export const localGrantLabelSchema = z.string().min(1).max(200);
 
-export type ReadableExtension = (typeof READABLE_EXTENSIONS)[number];
-export type WritableExtension = (typeof WRITABLE_EXTENSIONS)[number];
-
 /**
  * Why a local file was refused.
  *

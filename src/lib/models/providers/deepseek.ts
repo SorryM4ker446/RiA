@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { BodyReadError, readLimitedJson } from "@/lib/models/catalog-read";
-import { createDeepSeekChatModel, deepSeekBaseURL, DEEPSEEK_BASE_URL, type DeepSeekThinking } from "@/lib/models/providers/deepseek-chat";
+import { createDeepSeekChatModel, deepSeekBaseURL, type DeepSeekThinking } from "@/lib/models/providers/deepseek-chat";
 import { CatalogFetchError, type CatalogModel, type LanguageModelV3, type ModelProvider } from "@/lib/models/providers/types";
 import type { LibraryMode } from "@/lib/models/preferences-schema";
 

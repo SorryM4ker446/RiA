@@ -41,7 +41,6 @@ src/lib/            Shared infrastructure
   local/            Local workspace identity
   local-files/      User-granted directories: path safety, grants and their limits
   server/           Request boundary: security, quotas, body size, errors
-src/prompts/        Prompt templates
 src/tools/          Tool definitions and registry
 electron/           Desktop main process: window, service lifecycle, encrypted settings, migrations
 scripts/            Local database, build, packaging and verification scripts

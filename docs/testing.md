@@ -101,7 +101,7 @@ Browser tests build, prepare `.desktop-runtime`, and start the standalone produc
 
 The unique `(userId, key)` migration keeps the most recently updated duplicate under the original key. Older entries are retained with a ` [duplicate:<id>]` suffix; collisions receive additional underscores. No memory values are deleted. Desktop startup creates a backup before applying an unapplied migration to an existing application database.
 
-`db:migrate` and `db:deploy` use the same local migration runner as desktop startup. They snapshot an existing account-scoped database, apply pending migrations, and verify the resulting schema. Automated tests apply migrations only to isolated databases.
+`db:migrate` uses the same local migration runner as desktop startup. It snapshots an existing account-scoped database, applies pending migrations, and verifies the resulting schema. Automated tests apply migrations only to isolated databases.
 
 ## Remaining validation boundaries
 

@@ -291,5 +291,4 @@ export function startScheduler(options: { now?: () => Date } = {}) {
 
 const shared = globalThis as typeof globalThis & { schedulerTimer?: ReturnType<typeof setInterval> };
 
-export type Scheduler = ReturnType<typeof startScheduler>;
 export { ScheduledJobKindValue };

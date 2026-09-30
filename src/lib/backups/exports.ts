@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { copyFile, rename, rm, stat } from "node:fs/promises";
 import { db } from "@/db";
 import { BACKUP_LIMITS } from "@/lib/backups/schema";
-import { backupFile, listBackupFiles } from "@/lib/backups/files";
+import { backupFile } from "@/lib/backups/files";
 import { backupId as backupIdSchema } from "@/lib/backups/schema";
 
 /*
@@ -34,16 +34,6 @@ function toView(row: {
   exportedAt: Date;
 }): BackupExportView {
   return { ...row, exportedAt: row.exportedAt.toISOString() };
-}
-
-/** The newest archive this workspace created, and the newest one exported. */
-export async function backupFreshness(): Promise<{ newestCreatedAt: string | null; newestExportedAt: string | null }> {
-  // The created side is read from the archives on disk, newest first, and only
-  // from the complete ones: a `.partial` still being written is not a backup the
-  // user has, and an upload that never finished must not stand in for one.
-  const [newestCreated] = (await listBackupFiles()).filter((record) => record.extension === "paib");
-  const [newestExport] = await db.backupExport.findMany({ orderBy: [{ exportedAt: "desc" }], take: 1, select: { exportedAt: true } });
-  return { newestCreatedAt: newestCreated?.createdAt ?? null, newestExportedAt: newestExport?.exportedAt.toISOString() ?? null };
 }
 
 export async function listBackupExports(): Promise<BackupExportView[]> {

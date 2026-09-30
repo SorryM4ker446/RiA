@@ -14,7 +14,6 @@ export const chatMessages = {
   "chat.common.cancel": "取消",
   "chat.common.save": "保存",
   "chat.common.delete": "删除",
-  "chat.common.loading": "加载中…",
   "chat.common.expandMore": "展开更多（{count}）",
 
   // --- toolbar -----------------------------------------------------------
@@ -30,8 +29,6 @@ export const chatMessages = {
   "chat.toolbar.kindChat": "聊天模型",
   "chat.toolbar.kindImage": "图像模型",
   "chat.toolbar.kindVideo": "视频模型",
-  "chat.toolbar.currentModel": "当前模型",
-  "chat.toolbar.modelNotAdded": "尚未添加模型",
   "chat.toolbar.modelSelectLabel": "\u9009\u62e9\u6a21\u578b",
   "chat.composer.toolNotConfigured": "未配置",
   "chat.composer.providerSearchNote": "当前模型自带联网：回答会由服务商检索并额外计费，且不会出现在本应用的工具记录里。",
@@ -48,7 +45,6 @@ export const chatMessages = {
   "chat.toolbar.modelUnavailable": "当前模型不可用：{modelId}",
 
   // --- composer ----------------------------------------------------------
-  "chat.composer.toolsBadge": "工具",
   "chat.composer.toolSelectLabel": "选择手动工具",
   "chat.composer.toolAutoOption": "自动（按语义触发）",
   "chat.composer.manualOnly": "仅手动",
@@ -95,11 +91,9 @@ export const chatMessages = {
   "chat.scope.all": "全部主题",
   "chat.ephemeral.label": "不记长期记忆",
   "chat.ephemeral.note": "这个会话不读取也不写入长期记忆。消息、草稿、已上传的图片和用量记录仍会保存。",
-  "chat.ephemeral.on": "本会话不使用长期记忆",
   "runs.title": "执行记录",
   "runs.error.load": "读取执行记录失败。",
   "runs.error.stop": "停止失败。",
-  "runs.pausedNote": "应用重启时这一轮被中断，剩余步骤不会自动重放。",
   "runs.failures": "次失败",
   "runs.step.running": "进行中",
   "runs.step.waiting_approval": "等待批准",
@@ -119,9 +113,7 @@ export const chatMessages = {
   "chat.run.steps": "步骤",
   "chat.run.empty": "这一轮没有调用工具。",
   "chat.run.stop": "停止后续步骤",
-  "chat.run.stopped": "已停止后续步骤。已发生的操作不会被撤销。",
   "chat.run.budget": "上限",
-  "chat.run.cost": "已用费用",
   "chat.messages.copyAnswer": "复制这条回答",
   "chat.copyCode": "复制代码",
   "chat.messages.jumpToLatest": "回到最新",
@@ -222,11 +214,8 @@ export const chatMessages = {
   "chat.delete.quoted": "「{text}」",
   "chat.composer.fileInputLabel": "选择要上传的图片",
   "chat.composer.attachmentsSelected": "已选择 {count} 个附件：{names}",
-  "chat.composer.noAttachments": "未选择附件",
   "chat.conversations.collapseRail": "收起会话列表",
   "chat.conversations.expandRail": "展开会话列表",
   "chat.tasks.collapseRail": "收起任务面板",
   "chat.tasks.expandRail": "展开任务面板",
 } as const;
-
-export type ChatMessageKey = keyof typeof chatMessages;

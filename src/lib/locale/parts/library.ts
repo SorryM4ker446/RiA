@@ -91,7 +91,6 @@ export const libraryMessages = {
   // between them is a runtime value, not part of either phrase.
   "documents.countOpen": "（",
   "documents.countClose": "）",
-  "documents.chunkUnitEnd": "个片段。",
   "documents.libraryTitle": "文档知识库",
   "documents.libraryDescription": "本地解析和检索 PDF、Markdown、TXT、Word .docx；每份最多 8 MiB、十万字符，最多保存 100 份。",
   "documents.textOnlyNote": "仅保存提取文本，不保留原文件及排版。同名文件会更新原文档并复用未变化的片段。聊天时，命中的片段会随问题发送给你配置的模型。扫描 PDF 请先 OCR，旧版 .doc 请先转换为 .docx。",

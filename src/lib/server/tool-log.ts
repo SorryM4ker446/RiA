@@ -1,6 +1,6 @@
 import type { ApiErrorCode } from "@/lib/server/api-error";
 
-export type ToolLogState = "input-available" | "output-available" | "output-error";
+type ToolLogState = "input-available" | "output-available" | "output-error";
 
 export function logToolExecution(params: {
   toolId: string;

@@ -3,7 +3,7 @@ import { t } from "@/lib/locale";
 import type { ChatScopedPreferences, ManualToolSelection } from "@/features/chat/types";
 import { CHAT_PREFS_STORAGE_PREFIX } from "@/features/chat/types";
 import { settingsRequest } from "@/features/settings/api-client";
-import { modelRefKey, providerIds, type ModelLibraryItem, type ModelPreferences, type ModelRef } from "@/lib/models/preferences-schema";
+import { providerIds, type ModelLibraryItem, type ModelPreferences, type ModelRef } from "@/lib/models/preferences-schema";
 
 export async function loadAccountChatDefaults(): Promise<{ preferences: ChatScopedPreferences; library: ModelLibraryItem[] }> {
   const { data } = await settingsRequest<{ data: ModelPreferences }>("/api/models");
@@ -44,10 +44,6 @@ function readStoredModelRef(value: unknown): ModelRef | null {
     }
   }
   return null;
-}
-
-export function modelRefValue(ref: ModelRef | null): string {
-  return ref ? modelRefKey(ref) : "";
 }
 
 export function parseModelRefValue(value: string): ModelRef | null {

@@ -18,8 +18,8 @@ import type { TaskItem, TaskStatusFilter } from "@/features/chat/types";
 import { COLLAPSED_TASK_LIMIT } from "@/features/chat/types";
 import type { ChatState } from "@/features/chat/use-chat-state";
 
-type Props = Pick<ChatState, "filteredTasks" | "isLoadingTasks" | "loadTasks" | "setTaskStatusFilter" | "taskStatusFilter" | "taskPanelError" | "tasks" | "visibleTasks" | "updateTaskStatus" | "deleteTask" | "saveTaskSchedule" | "updatingTaskIds" | "hasHiddenTasks" | "setIsTaskListExpanded" | "isTaskListExpanded" | "panelVisibility" | "togglePanel">;
-export function TaskPanel({ filteredTasks, isLoadingTasks, loadTasks, setTaskStatusFilter, taskStatusFilter, taskPanelError, tasks, visibleTasks, updateTaskStatus, deleteTask, saveTaskSchedule, updatingTaskIds, hasHiddenTasks, setIsTaskListExpanded, isTaskListExpanded, panelVisibility, togglePanel }: Props) {
+type Props = Pick<ChatState, "filteredTasks" | "isLoadingTasks" | "loadTasks" | "setTaskStatusFilter" | "taskStatusFilter" | "taskPanelError" | "visibleTasks" | "updateTaskStatus" | "deleteTask" | "saveTaskSchedule" | "updatingTaskIds" | "hasHiddenTasks" | "setIsTaskListExpanded" | "isTaskListExpanded" | "panelVisibility" | "togglePanel">;
+export function TaskPanel({ filteredTasks, isLoadingTasks, loadTasks, setTaskStatusFilter, taskStatusFilter, taskPanelError, visibleTasks, updateTaskStatus, deleteTask, saveTaskSchedule, updatingTaskIds, hasHiddenTasks, setIsTaskListExpanded, isTaskListExpanded, panelVisibility, togglePanel }: Props) {
   const railOpen = panelVisibility?.tasks !== false;
   const [now, setNow] = useState(0);
   // A status filter is a different question, so it earns a fresh first paint;

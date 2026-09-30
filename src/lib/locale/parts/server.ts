@@ -78,8 +78,6 @@ export const serverMessages = {
   "lib.models.catalogEmptySuffix": "目录为空。",
   "lib.models.catalogTimeoutSuffix": "目录连接超时。",
   "lib.models.catalogReadFailed": "模型目录读取失败。",
-  "lib.models.catalogUnknownMode": "未知的模型目录类型。",
-  "lib.models.catalogUnknownProvider": "未知的服务商。",
 
   // --- media library and attachments ---------------------------------------
   "lib.media.regenerateNoRecipe": "此资源没有完整生成参数，无法重新生成。旧资源不会推测参数。",

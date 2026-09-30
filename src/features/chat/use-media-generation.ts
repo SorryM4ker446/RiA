@@ -1,11 +1,11 @@
-import { dedupeAttachmentNames, dedupeFiles, encodeImageMessage, encodeVideoMessage, type ModelMode, type UploadableFilePart } from "@/features/chat/page-utils";
+import { dedupeAttachmentNames, encodeImageMessage, encodeVideoMessage, type ModelMode, type UploadableFilePart } from "@/features/chat/page-utils";
 import { encodePersistedUserMessage } from "@/lib/ai/ui-message";
 import { t } from "@/lib/locale";
 import { attachmentValidationError, MEDIA_LIMITS } from "@/lib/media/limits";
 import type { UIMessage } from "ai";
 import type { ModelRef } from "@/lib/models/preferences-schema";
 import type { Dispatch, RefObject, SetStateAction } from "react";
-import { type ChangeEvent, type DragEvent, useCallback, useLayoutEffect, useRef, useState } from "react";
+import { type ChangeEvent, useCallback, useLayoutEffect, useRef, useState } from "react";
 import { chatApi, filesToUploadParts, persistConversationMessage } from "@/features/chat/api-client";
 import { attachmentLabel } from "@/features/chat/draft";
 
@@ -288,7 +288,7 @@ export function useMediaGeneration({ activeChatId, isHistoryReady, setMessages, 
     });
   }
   return {
-    isGeneratingImage, isGeneratingVideo, isUploadingAttachments, setIsUploadingAttachments,
+    isGeneratingImage, isGeneratingVideo, isUploadingAttachments,
     imageByMessageId, setImageByMessageId, videoByMessageId, setVideoByMessageId, attachments, replaceAttachments,
     attachingImageKey, fileInputRef, attachmentNames, reuseImageActionLabel, clearAttachments, removeAttachmentAt,
     appendAttachments, onReuseImageForEditing, onAttachmentInputChange,

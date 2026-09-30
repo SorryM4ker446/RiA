@@ -4,7 +4,7 @@ import { ApiError } from "@/lib/server/api-error";
 import { decodePersistedAssistantToolMessage, decodePersistedUserMessage, ASSISTANT_TOOL_MESSAGE_PREFIX, USER_MESSAGE_PREFIX } from "@/lib/ai/ui-message";
 import { decodeMediaMessage, IMAGE_MESSAGE_PREFIX, VIDEO_MESSAGE_PREFIX, mediaUrl } from "@/lib/media/message-codec";
 
-export const CONVERSATION_EXPORT_LIMITS = { messages: 5000, sourceBytes: 32 * 1024 * 1024, outputBytes: 16 * 1024 * 1024 } as const;
+const CONVERSATION_EXPORT_LIMITS = { messages: 5000, sourceBytes: 32 * 1024 * 1024, outputBytes: 16 * 1024 * 1024 } as const;
 
 function exportContent(content: string) {
   const user = decodePersistedUserMessage(content);

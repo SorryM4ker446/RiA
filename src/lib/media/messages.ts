@@ -24,11 +24,6 @@ export async function resolveImageInputs(inputs: Array<{ url: string; mediaType?
   return assets;
 }
 
-export async function imageInputBytes(inputs: Array<{ url: string; mediaType?: string }>) {
-  const assets = await resolveImageInputs(inputs);
-  return Promise.all(assets.map(readMediaAsset));
-}
-
 async function normalizeFiles(files: PersistedFilePart[], legacy: boolean) {
   if (files.length > MEDIA_LIMITS.attachmentCount) throw new ApiError({ code: "VALIDATION_ERROR", message: "Too many image attachments" });
   // Legacy payloads are decoded and validated before anything is written: a

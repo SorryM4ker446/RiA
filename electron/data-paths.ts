@@ -51,11 +51,6 @@ export function resolveElectronUserDataDirectory(environment: NodeJS.ProcessEnv 
   return join(configHome, DESKTOP_APP_DIRECTORY_NAME);
 }
 
-export function resolveCheckoutRoot(scriptFile: string): string {
-  // scripts/ -> repository root
-  return resolve(scriptFile, "..", "..");
-}
-
 function absoluteOrResolved(value: string, base: string): string {
   return isAbsolute(value) ? value : resolve(base, value);
 }

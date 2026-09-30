@@ -146,7 +146,6 @@ model AgentStep {
   finishedAt DateTime?
 
   @@unique([runId, position])
-  @@index([runId, position])
   @@map("agent_steps")
 }
 
@@ -187,7 +186,6 @@ model MediaAsset {
   inputs            MediaGenerationInput[] @relation("GenerationOutput")
   usedByGenerations MediaGenerationInput[] @relation("GenerationInput")
 
-  @@index([createdAt])
   @@index([createdAt, id])
   @@index([sourceChatId])
   @@index([kind])

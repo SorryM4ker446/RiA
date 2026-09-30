@@ -3,7 +3,7 @@ import type { Dirent } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { requireActiveGrant, touchGrant } from "@/lib/local-files/grants";
-import { LOCAL_FILE_LIMITS, LocalFileRefused, READABLE_EXTENSIONS } from "@/lib/local-files/limits";
+import { LOCAL_FILE_LIMITS, LocalFileRefused } from "@/lib/local-files/limits";
 import { resolveWithinGrant } from "@/lib/local-files/safe-path";
 import { bindWriteApproval, verifyWriteApproval } from "@/lib/local-files/approval";
 
@@ -49,7 +49,6 @@ export const writeLocalFileInputSchema = z.strictObject({
     .optional(),
 });
 
-export type ListLocalFilesInput = z.infer<typeof listLocalFilesInputSchema>;
 export type ReadLocalFileInput = z.infer<typeof readLocalFileInputSchema>;
 export type WriteLocalFileInput = z.infer<typeof writeLocalFileInputSchema>;
 
@@ -83,10 +82,6 @@ export type WriteLocalFileOutput = {
   byteSize: number;
   created: true;
 };
-
-function isReadable(name: string): boolean {
-  return (READABLE_EXTENSIONS as readonly string[]).includes(path.extname(name).toLowerCase());
-}
 
 /**
  * Walk a granted folder, bounded on every axis that could cost something.
@@ -253,10 +248,3 @@ export async function writeGrantedFile(input: WriteLocalFileInput): Promise<Writ
 
 /** Records what a write proposal assumes, so the approval can be checked against it later. */
 export { bindWriteApproval };
-
-/** What the model is told when it asks for a folder that no longer exists. */
-export function isMissingGrant(error: unknown): boolean {
-  return error instanceof LocalFileRefused && error.reason === "outside-grant";
-}
-
-export { isReadable };

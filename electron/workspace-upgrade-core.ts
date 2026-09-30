@@ -91,19 +91,6 @@ function candidateDatasets(
   return datasets;
 }
 
-/**
- * Other installations found on the machine. Read-only context for the operator;
- * the upgrade itself only ever touches the active database.
- */
-export function describeOtherWorkspaces(input: {
-  checkoutRoot: string;
-  databaseFile: string;
-}): ReturnType<typeof inspectLegacyDataset>[] {
-  return listKnownLocalDatabases(input.checkoutRoot)
-    .filter((candidate) => candidate !== input.databaseFile && existsSync(candidate))
-    .map((candidate) => inspectLegacyDataset({ databaseFile: candidate, mediaDirectory: null }));
-}
-
 function isConverted(inventory: ReturnType<typeof inspectLegacyDataset>): boolean {
   return !inventory.tables.includes("users");
 }
@@ -438,17 +425,6 @@ export function recordAdoptionInDatabase(databaseFile: string, ownerId: string) 
     );`);
     database.prepare(`DELETE FROM "${WORKSPACE_ADOPTION_TABLE}"`).run();
     database.prepare(`INSERT INTO "${WORKSPACE_ADOPTION_TABLE}" ("ownerId") VALUES (?)`).run(ownerId);
-  } finally {
-    database.close();
-  }
-}
-
-/** Removes the temporary adoption table left for the migration to consume. */
-export function clearRecordedAdoption(databaseFile: string) {
-  if (!existsSync(databaseFile)) return;
-  const database = new DatabaseSync(databaseFile);
-  try {
-    database.exec(`DROP TABLE IF EXISTS "${WORKSPACE_ADOPTION_TABLE}";`);
   } finally {
     database.close();
   }

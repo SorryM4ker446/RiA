@@ -61,7 +61,7 @@ export function useTasks() {
 
   useEffect(() => { void loadTasks(); }, [loadTasks]);
   return {
-    tasks, taskStatusFilter, isLoadingTasks, taskPanelError, isTaskListExpanded, filteredTasks,
+    taskStatusFilter, isLoadingTasks, taskPanelError, isTaskListExpanded, filteredTasks,
     visibleTasks, hasHiddenTasks, setTaskStatusFilter, setIsTaskListExpanded, loadTasks, updatingTaskIds,
     updateTaskStatus: (id: string, status: TaskItem["status"]) => mutateTask(id, { status }),
     saveTaskSchedule: (id: string, schedule: TaskScheduleInput) => mutateTask(id, schedule),
