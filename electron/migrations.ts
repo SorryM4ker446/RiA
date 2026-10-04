@@ -27,16 +27,6 @@ function tableExists(database: DatabaseSync, tableName: string): boolean {
   return row?.name === tableName;
 }
 
-function wasAppliedByPrisma(database: DatabaseSync, migrationName: string): boolean {
-  if (!tableExists(database, "_prisma_migrations")) return false;
-  const row = database
-    .prepare(
-      'SELECT migration_name FROM "_prisma_migrations" WHERE migration_name = ? AND finished_at IS NOT NULL AND rolled_back_at IS NULL',
-    )
-    .get(migrationName) as { migration_name?: string } | undefined;
-  return row?.migration_name === migrationName;
-}
-
 function createBackup(databaseFile: string, backupsDirectory: string): string | null {
   if (!existsSync(databaseFile) || statSync(databaseFile).size === 0) return null;
   mkdirSync(backupsDirectory, { recursive: true });
@@ -115,12 +105,6 @@ export function runDesktopMigrations(input: {
 
     for (const migrationName of migrationNames) {
       if (known.has(migrationName)) continue;
-
-      if (wasAppliedByPrisma(database, migrationName)) {
-        database.prepare('INSERT INTO "desktop_migrations" ("name") VALUES (?)').run(migrationName);
-        known.add(migrationName);
-        continue;
-      }
 
       if (!backupFile && tableExists(database, "users")) {
         backupFile = createBackup(input.databaseFile, input.backupsDirectory);

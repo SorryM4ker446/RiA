@@ -54,6 +54,12 @@ jobs:
       - name: Generate Prisma client
         run: npm run db:generate
 
+      - name: Check the schema against the migrations
+        # The Prisma client comes from the schema, not from the database, so a
+        # column added to one and not the other still type-checks. This is the
+        # only thing that compares them.
+        run: npm run db:check
+
       - name: Lint
         run: npm run lint
 

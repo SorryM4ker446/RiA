@@ -996,7 +996,14 @@ async function runSmokeAssertion() {
 
 async function bootstrap() {
   await app.whenReady();
-  app.setAppUserModelId("com.squirrel.PrivateAIAssistant.PrivateAIAssistant");
+  /*
+    Windows groups a taskbar entry and routes a notification by this id, and
+    Squirrel builds it from the installation name it was packaged under. It has
+    to match that name exactly: leaving the old one here while the installer now
+    says RiA gives a window whose taskbar group and notifications belong to an
+    application that no longer exists.
+  */
+  app.setAppUserModelId("com.squirrel.RiA.RiA");
 
   desktopPaths = resolveDesktopPaths({
     isPackaged: packagedRuntime,

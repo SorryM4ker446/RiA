@@ -76,6 +76,25 @@ Run the full suite. `npm run test:desktop` is what catches a migration change;
 `test:server` builds its databases from this folder too, so it will also fail,
 but with a much less obvious message.
 
+### `npm run db:check`
+
+The Prisma client is generated from `schema.prisma`, not from the database, so
+a column added to the schema and not to a migration still type-checks — the
+client believes it exists and the error only appears where a query reads it.
+Nothing else compares the two.
+
+`scripts/check-schema-drift.mjs` builds a database by applying every migration
+and asks Prisma what it would change to bring that database back in line with
+the schema. Anything it reports is drift. It runs in CI, and in `npm run test`.
+
+Full-text search is the one deliberate exception: the FTS5 virtual tables and
+the shadow tables SQLite builds for them are not described by any Prisma model.
+The script finds them by reading the migrations for `CREATE VIRTUAL TABLE`, so a
+new one needs no change to the script.
+
+If it reports a change, the fix is to write the migration — not to edit the
+script, and not to relax the schema.
+
 If you add a migration, do not edit an existing one. An installation that has
 already applied a file will not run it again, so a corrected file would never
 reach it.

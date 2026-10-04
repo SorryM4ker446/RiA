@@ -26,7 +26,15 @@ const config: ForgeConfig = {
       name: "@electron-forge/maker-squirrel",
       platforms: ["win32"],
       config: {
-        name: "PrivateAIAssistant",
+        /*
+          The installation name decides three user-visible things at once: the
+          folder under AppData, the Start-menu entry, and the shortcut on the
+          desktop. It was `PrivateAIAssistant`, which matched the package.json
+          name rather than the product — so the application installed under a
+          name nobody calls it, while the window and the taskbar said RiA.
+          `productName` is the one the interface already uses.
+        */
+        name: "RiA",
         authors: "RiA",
         description: "A private desktop AI assistant",
         setupIcon: "assets/desktop-icon.ico",

@@ -91,7 +91,9 @@ Create the installer:
 npm run desktop:make
 ```
 
-The Squirrel maker produces a versioned `Private AI Assistant-<version> Setup.exe`, a `.nupkg`, and `RELEASES` under `out/make/squirrel.windows/x64/`.
+The Squirrel maker produces a versioned `RiA-<version> Setup.exe`, a `.nupkg`, and `RELEASES` under `out/make/squirrel.windows/x64/`.
+
+`npm run desktop:make` and `npm run desktop:package` raise the patch version in `package.json` before they build. Squirrel identifies an installation by that number and names the installer after it, so repackaging without moving it forward would leave two `0.1.0 Setup.exe` files side by side and produce an update that is not newer than what is installed. The bump happens before `desktop:build`, which reads the same field into the desktop runtime, and it is the patch level only — a major or minor bump stays a decision someone makes. To package without bumping, run `npm run desktop:build` and `electron-forge make` directly.
 
 Before nuget runs, the maker copies the packaged app into a temporary directory, so a path that is safe inside the bundle can still cross the 260-character Windows limit once staged. The runtime's Next.js image cache is excluded from the packaged copy for this reason: its hashed filenames are long enough to overflow the limit on a CI runner while passing on a developer machine, whose temp path is shorter. `npm run desktop:verify` fails with the offending path if a packaged path would overflow.
 
