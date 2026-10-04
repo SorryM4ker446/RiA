@@ -9,6 +9,7 @@ export const RATE_LIMIT_POLICIES = {
   upload: { limit: 20, windowMs: 60_000 },
   documents: { limit: 6, windowMs: 60_000 },
   reminders: { limit: 10, windowMs: 60_000 },
+  documentReferences: { limit: 120, windowMs: 60_000 },
   conversationSearch: { limit: 30, windowMs: 60_000 },
   mediaRegeneration: { limit: 6, windowMs: 60_000 },
   conversationExport: { limit: 6, windowMs: 60_000 },

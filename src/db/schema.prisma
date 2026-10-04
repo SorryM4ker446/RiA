@@ -73,6 +73,8 @@ model Chat {
   summary         String?
   summaryUpToMessageId String?
   summaryModelId  String?
+  historyRevision Int          @default(0)
+  summaryRevision Int?
 
   lastMessageAt   DateTime     @default(now())
   createdAt       DateTime     @default(now())

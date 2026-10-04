@@ -101,11 +101,11 @@ Browser tests build, prepare `.desktop-runtime`, and start the standalone produc
 
 The unique `(userId, key)` migration keeps the most recently updated duplicate under the original key. Older entries are retained with a ` [duplicate:<id>]` suffix; collisions receive additional underscores. No memory values are deleted. Desktop startup creates a backup before applying an unapplied migration to an existing application database.
 
-`db:migrate` uses the same local migration runner as desktop startup. It snapshots an existing account-scoped database, applies pending migrations, and verifies the resulting schema. Automated tests apply migrations only to isolated databases.
+`db:migrate` uses the same local migration runner as desktop startup. It snapshots an existing local database, applies pending migrations, and verifies the resulting schema. Automated tests apply migrations only to isolated databases.
 
 ## Remaining validation boundaries
 
-Document regressions import actual generated PDF/DOCX and UTF-8 text/Markdown through both handlers and production HTTP. They cover incremental chunk reuse, reindex repair, atomic failure, the credential boundary, compressed expansion, quotas, parser timeout/cancellation, source snapshots and deletion. A fixed eight-query Chinese/English retrieval corpus reports Recall@3 and MRR@3 (required baseline: 1.0 each), with forty newer distractors. Run it through the normal server suite; no separate evaluation framework is needed.
+Document regressions import actual generated PDF/DOCX and UTF-8 text/Markdown through both handlers and production HTTP. They cover incremental chunk reuse, reindex repair, atomic failure, the credential boundary, compressed expansion, quotas, parser timeout/cancellation, source snapshots and deletion. A fixed eight-query Chinese/English retrieval corpus reports Recall@3 and MRR@3 (required baseline: 1.0 each), with forty newer distractors, four empty-result queries and four collection checks. Run it through the normal server suite; no separate evaluation framework is needed.
 
 The desktop migration regression upgrades an existing database, checks its backup and preserved chat, then verifies document/index persistence and deletion cascades. Electron smoke imports a real synthetic PDF and DOCX and checks extracted text, page references, authenticated reads and search after a service restart. Binary fixtures are generated from code, contain no private documents and make no model requests. These checks exercise parser runtime dependencies in the prepared standalone artifact, not just the source tree. The existing CI server/browser/desktop commands include these regressions; no new CI service or secret is required.
 
@@ -180,3 +180,32 @@ places its timestamp in yesterday's window to test preview and source navigation
 It checks deletion evidence, no model requests, desktop/mobile layout and weekly
 selection. Screenshots are supplementary visual evidence, not production
 provider or installer certification. Existing CI commands discover these tests.
+
+## History and citation integrity
+
+`tests/server/history-integrity.test.ts` exercises edits, deletion, regeneration,
+replacement and a blocked model call racing a real edit. It also checks that approval metadata, reasoning and attachment bytes are not
+forwarded to compression, and that valid earlier summaries survive a paginated
+history window. It verifies that stale
+compression cannot commit and that the next request uses corrected stored text.
+`tests/desktop/summary-migration.test.ts` checks the pre-upgrade snapshot including uncheckpointed WAL commits, retained
+original messages, cleared unverifiable compression and idempotent restart.
+
+`tests/server/document-references.test.ts` checks preserved chunks in changed
+documents, unchanged reindex, deleted/recreated filenames, old unverified sources,
+collection moves, bounded authorized APIs and portable source/link restoration.
+Reminder regressions inject notice-write failure to verify rollback and one notice
+per accepted claim. They do not certify native OS display.
+
+`tests/e2e/document-versions.spec.ts` uses production HTTP, isolated SQLite and a
+local model protocol fixture. It exercises exact collection selection, local
+search without a model, citation consistency, change warnings for retained chunks,
+current-source navigation, deletion evidence, reload/service restart and mobile
+layout. Screenshots are saved outside the repository. Fixtures are not live paid
+provider or installer validation. Existing CI commands discover these tests.
+
+The execution-history browser suite also claims a reminder through the authenticated
+desktop HTTP boundary and verifies its durable settings notice across restart,
+without claiming that an OS notification was displayed. Post-account workspace
+migrations now snapshot from SQLite itself (`VACUUM INTO`) before changing data;
+this preserves committed WAL data instead of copying only the main database file.

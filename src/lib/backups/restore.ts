@@ -25,11 +25,14 @@ export async function restoreAccountBackup(id: string) {
       ids.set(asset.id, file.id); staged.push(file); offset += asset.byteSize;
     }
     const mapped = (id: string) => ids.get(id) ?? id;
+    const documentLinks = (text: string) => text.replace(/(?<![a-zA-Z0-9:/])\/knowledge\/documents\/([a-zA-Z0-9_-]+)(\?version=[a-f0-9]{64})?(?:#([a-zA-Z0-9_-]+))?/g,
+      (_link, documentId: string, version: string | undefined, chunkId: string | undefined) => `/knowledge/documents/${mapped(documentId)}${version ?? ""}${chunkId ? `#${mapped(chunkId)}` : ""}`);
     function transform(value: unknown, field = ""): unknown {
       if (typeof value === "string") {
+        if (field === "snippet") return value;
         if (["id", "assetId", "inputAssetId", "chatId", "sourceChatId", "messageId", "documentId", "chunkId"].includes(field)) return mapped(value);
-        if (["url", "videoUrl"].includes(field)) return value.replace(/^\/api\/media\/([a-f0-9-]{36})$/, (_match, id) => `/api/media/${mapped(id)}`);
-        return value;
+        if (["url", "videoUrl"].includes(field)) return documentLinks(value.replace(/^\/api\/media\/([a-f0-9-]{36})$/, (_match, id) => `/api/media/${mapped(id)}`));
+        return documentLinks(value);
       }
       if (Array.isArray(value)) return value.map(child => transform(child, field));
       if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).filter(([key]) => key !== "relativePath" && key !== "approval").map(([key, child]) => [key, transform(child, key)]));
@@ -37,7 +40,7 @@ export async function restoreAccountBackup(id: string) {
     }
     function content(text: string) {
       const prefix = /^__(?:USER_MESSAGE|ASSISTANT_TOOL_MESSAGE|IMAGE_RESULT|VIDEO_RESULT)__:/.exec(text)?.[0];
-      if (!prefix) return text;
+      if (!prefix) return documentLinks(text);
       try {
         const payload = JSON.parse(text.slice(prefix.length));
         if (prefix === ASSISTANT_TOOL_MESSAGE_PREFIX && Array.isArray(payload.tools)) {
@@ -65,7 +68,15 @@ export async function restoreAccountBackup(id: string) {
       // to a row that no longer exists: the coverage note would offer an id the
       // reader could never find, and the next summary would treat the restored
       // one as covering nothing.
-      const chats = manifest.chats.map(({ messages: _messages, tags: _tags, ...chat }) => ({ ...chat, id: mapped(chat.id), summaryUpToMessageId: chat.summaryUpToMessageId && ids.has(chat.summaryUpToMessageId) ? mapped(chat.summaryUpToMessageId) : null }));
+      const chats = manifest.chats.map(({ messages, tags: _tags, ...chat }) => {
+        const validSummary = chat.summary && chat.summaryRevision != null && chat.summaryRevision === (chat.historyRevision ?? 0)
+          && messages.some(message => message.id === chat.summaryUpToMessageId);
+        return { ...chat, id: mapped(chat.id), historyRevision: chat.historyRevision ?? 0,
+          summary: validSummary ? chat.summary : null, summaryRevision: validSummary ? chat.summaryRevision : null,
+          summaryModelId: validSummary ? chat.summaryModelId : null,
+          summaryUpToMessageId: validSummary && chat.summaryUpToMessageId ? mapped(chat.summaryUpToMessageId) : null,
+        };
+      });
       for (let i = 0; i < chats.length; i += 250) await tx.chat.createMany({ data: chats.slice(i, i + 250) });
       const tags = manifest.chats.flatMap(chat => chat.tags.map(tag => ({ ...tag, chatId: mapped(tag.chatId) })));
       for (let i = 0; i < tags.length; i += 500) await tx.chatTag.createMany({ data: tags.slice(i, i + 500) });

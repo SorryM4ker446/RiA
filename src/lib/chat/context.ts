@@ -19,7 +19,7 @@ export function isToolApprovalContinuation(messages: UIMessage[]): boolean {
   );
 }
 
-function historicalText(message: UIMessage): string {
+export function historicalText(message: UIMessage): string {
   return message.parts.map((part) => {
     if (part.type === "text") return part.text;
     if (part.type === "file") return `[attachment: ${part.filename || part.mediaType}]`;

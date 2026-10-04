@@ -87,7 +87,8 @@ test("collection names with separators remain exact across scope encoding and re
 
 test("retrying the same long conversation reuses its cached summary without a model call", async () => {
   const messages = Array.from({ length: 44 }, (_, index) => ({ id: `summary-${index}`, role: index % 2 ? "assistant" : "user", text: `text ${index}` }));
-  const chat = await db.chat.create({ data: { title: "Summary reuse", summary: "Keep the original decision", summaryUpToMessageId: "summary-19", summaryModelId: "openrouter:summary-model" } });
+  const chat = await db.chat.create({ data: { title: "Summary reuse", summary: "Keep the original decision", summaryUpToMessageId: "summary-19", summaryModelId: "openrouter:summary-model", summaryRevision: 0 } });
+  await db.message.createMany({ data: messages.map((message, index) => ({ id: message.id, chatId: chat.id, role: message.role as "user" | "assistant", content: message.text, createdAt: new Date(index * 1000) })) });
   const calls = languageModel.doGenerateCalls.length;
   const result = await summarizeOlderTurns({ chatId: chat.id, messages, keepRecent: 24 });
   assert.deepEqual(result, { summary: chat.summary, upToMessageId: "summary-19", modelId: "summary-model" });

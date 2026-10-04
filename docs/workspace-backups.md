@@ -83,3 +83,17 @@ manifest validation may reject archives containing these fields; create and test
 a backup with the target version before rollback. Scheduled execution history
 remains excluded and local to the restoring machine. See [Workspace reviews](workspace-reviews.md)
 for retention and the distinction between current previews and frozen reports.
+
+## Summary and citation evidence
+
+Chat snapshots include optional history/summary revisions. A valid summary keeps
+its covered-message pointer remapped on restore; summaries without matching
+revision evidence are cleared, while original messages remain. Citation snapshots
+keep document hashes and answer-time excerpts; structured IDs and local Markdown
+source links are remapped to the restored documents and chunks. Old citation
+snapshots without hashes remain readable and explicitly unverified.
+
+Pending desktop/local migrations recognize both older account databases and the
+current single-workspace schema. Their pre-upgrade SQLite snapshot includes WAL
+commits and is a standalone database file; failure to create it stops migration.
+This safety snapshot is separate from the portable archive and its retention rules.

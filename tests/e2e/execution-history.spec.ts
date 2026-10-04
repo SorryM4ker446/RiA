@@ -96,3 +96,23 @@ test("desktop restart marks an unfinished execution interrupted without replayin
   expect(app.readRows("SELECT count(*) AS count FROM scheduled_runs")[0]).toMatchObject({ count: 1 });
   expect(app.readRows("SELECT count(*) AS count FROM chats")[0]).toMatchObject({ count: 0 });
 });
+
+
+test("accepted desktop reminder claims remain visible after restart without claiming native delivery", async ({ page, app }) => {
+  await openWorkspace(page, app.origin);
+  const { DatabaseSync } = await import("node:sqlite");
+  const file = app.readRows("PRAGMA database_list")[0] as { file: string };
+  const fixture = new DatabaseSync(file.file);
+  try {
+    fixture.prepare("INSERT INTO tasks (id,title,dueDate,reminderEnabled,updatedAt) VALUES (?,?,?,?,?)").run("durable-reminder", "到期记录浏览器验证", Date.now() - 60_000, 1, Date.now());
+  } finally { fixture.close(); }
+  const accepted = await browserApi(page, "/api/tasks/reminders", "POST");
+  expect(accepted.status).toBe(200); expect(accepted.body.data).toHaveLength(1);
+  expect((await browserApi(page, "/api/tasks/reminders", "POST")).body.data).toEqual([]);
+  await page.goto(`${app.origin}/settings`);
+  await expect(page.getByText("任务已到期", { exact: true })).toBeVisible();
+  await expect(page.getByText(/到期记录浏览器验证.*系统通知可能被拒绝或错过/)).toBeVisible();
+  await app.restart(); await page.reload();
+  await expect(page.getByText("任务已到期", { exact: true })).toBeVisible();
+  expect(app.readRows("SELECT count(*) AS count FROM app_notices WHERE kind='taskReminder'")[0]).toMatchObject({ count: 1 });
+});

@@ -16,6 +16,7 @@ test("local review exposes real recorded changes, current sources and deleted-so
   const fixture = new DatabaseSync(file.file);
   const taskId = "review-task-fixture";
   try {
+    fixture.exec("PRAGMA busy_timeout=5000");
     fixture.prepare("INSERT INTO tasks (id, title, updatedAt) VALUES (?, ?, ?)").run(taskId, "回顾来源任务", Date.now());
   } finally { fixture.close(); }
   expect((await browserApi(page, `/api/tasks/${taskId}`, "PATCH", { status: "done" })).status).toBe(200);
@@ -26,8 +27,10 @@ test("local review exposes real recorded changes, current sources and deleted-so
   // calendar preview, after the real mutation proved idempotent event creation.
   const yesterday = new Date(); yesterday.setUTCDate(yesterday.getUTCDate() - 1); yesterday.setUTCHours(12, 0, 0, 0);
   try {
+    sqlite.exec("PRAGMA busy_timeout=5000; BEGIN IMMEDIATE");
     sqlite.prepare("UPDATE workspace_events SET occurredAt = ?").run(yesterday.getTime());
     sqlite.prepare("UPDATE workspace_activity_state SET recordingStartedAt = ?, completeSince = ? WHERE id = 'local'").run(yesterday.getTime() - 86_400_000, yesterday.getTime() - 86_400_000);
+    sqlite.exec("COMMIT");
   } finally { sqlite.close(); }
   await page.goto(`${app.origin}/settings`);
   const review = page.getByRole("region", { name: "工作区事实回顾" });

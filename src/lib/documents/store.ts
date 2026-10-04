@@ -9,7 +9,7 @@ import { recordWorkspaceEvent } from "@/lib/activity/events";
 
 export const documentSummarySelect = {
   id: true, filename: true, collection: true, format: true, byteSize: true, characterCount: true,
-  indexVersion: true, indexedAt: true, createdAt: true, updatedAt: true,
+  contentHash: true, indexVersion: true, indexedAt: true, createdAt: true, updatedAt: true,
   _count: { select: { chunks: true } },
 } as const;
 

@@ -1,4 +1,4 @@
-import { MessageRole, MessageStatus } from "@prisma/client";
+import { MessageRole, MessageStatus, type Prisma } from "@prisma/client";
 import type { UIMessage } from "ai";
 import { db } from "@/db";
 import { decodePersistedAssistantToolMessage, encodePersistedAssistantToolMessage, truncateTitle } from "@/lib/ai/ui-message";
@@ -81,6 +81,7 @@ export async function saveChatMessage(params: {
       status,
       ...(normalizedClientMessageId ? { clientMessageId: normalizedClientMessageId } : {}),
     };
+    if (updateExisting) await invalidateChatSummary(tx, chatId);
     const message = normalizedClientMessageId
       ? await tx.message.upsert({
           where: { chatId_clientMessageId: { chatId, clientMessageId: normalizedClientMessageId } },
@@ -199,6 +200,7 @@ export async function saveRegeneratedResponse(params: {
     if (index < 0) throw new ApiError({ code: "NOT_FOUND", message: "Message to regenerate was not found" });
     const removedIds = current.slice(index + 1).map((message) => message.id);
     await tx.mediaAsset.updateMany({ where: { references: { some: { messageId: { in: removedIds } } } }, data: { lastUsedAt: new Date() } });
+    await invalidateChatSummary(tx, snapshot.chatId);
     await tx.message.deleteMany({ where: { id: { in: removedIds } } });
     const message = await tx.message.create({ data: {
       chatId: snapshot.chatId,
@@ -210,4 +212,11 @@ export async function saveRegeneratedResponse(params: {
     await tx.chat.update({ where: { id: snapshot.chatId }, data: { lastMessageAt: new Date() } });
     return message;
   });
+}
+
+/** Rewrite evidence invalidates compression in the same transaction. */
+export async function invalidateChatSummary(tx: Prisma.TransactionClient, chatId: string) {
+  await tx.chat.update({ where: { id: chatId }, data: {
+    historyRevision: { increment: 1 }, summary: null, summaryUpToMessageId: null, summaryModelId: null, summaryRevision: null,
+  } });
 }

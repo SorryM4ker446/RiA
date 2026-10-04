@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { db } from "@/db";
 
 /*
@@ -73,8 +74,8 @@ export async function raiseNotice(input: {
   detail?: string | null;
   href?: string | null;
   fingerprint: string;
-}): Promise<AppNoticeView> {
-  const row = await db.$transaction(async (tx) => {
+}, transaction?: Prisma.TransactionClient): Promise<AppNoticeView> {
+  const write = async (tx: Prisma.TransactionClient) => {
     const raised = await tx.appNotice.upsert({
       where: { fingerprint: input.fingerprint },
       create: {
@@ -104,7 +105,8 @@ export async function raiseNotice(input: {
     });
     if (stale.length > 0) await tx.appNotice.deleteMany({ where: { id: { in: stale.map((notice) => notice.id) } } });
     return raised;
-  });
+  };
+  const row = transaction ? await write(transaction) : await db.$transaction(write);
   return toView(row);
 }
 

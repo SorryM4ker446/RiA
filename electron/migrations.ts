@@ -1,4 +1,5 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { DesktopLogger } from "./logger";
@@ -27,12 +28,13 @@ function tableExists(database: DatabaseSync, tableName: string): boolean {
   return row?.name === tableName;
 }
 
-function createBackup(databaseFile: string, backupsDirectory: string): string | null {
+function createBackup(database: DatabaseSync, databaseFile: string, backupsDirectory: string): string | null {
   if (!existsSync(databaseFile) || statSync(databaseFile).size === 0) return null;
   mkdirSync(backupsDirectory, { recursive: true });
   const timestamp = new Date().toISOString().replaceAll(":", "-").replaceAll(".", "-");
-  const backupFile = join(backupsDirectory, `${basename(databaseFile)}.${timestamp}.bak`);
-  copyFileSync(databaseFile, backupFile);
+  const backupFile = join(backupsDirectory, `${basename(databaseFile)}.${timestamp}.${randomUUID()}.bak`);
+  // SQLite snapshots include committed WAL data and produce a standalone file.
+  database.prepare("VACUUM INTO ?").run(backupFile);
   return backupFile;
 }
 
@@ -106,8 +108,8 @@ export function runDesktopMigrations(input: {
     for (const migrationName of migrationNames) {
       if (known.has(migrationName)) continue;
 
-      if (!backupFile && tableExists(database, "users")) {
-        backupFile = createBackup(input.databaseFile, input.backupsDirectory);
+      if (!backupFile && (tableExists(database, "users") || tableExists(database, "chats"))) {
+        backupFile = createBackup(database, input.databaseFile, input.backupsDirectory);
         if (backupFile) input.logger.info("Created database backup before migration", { backupFile });
       }
 

@@ -69,3 +69,9 @@ applicable. Unknown or expired events return 404. It does not return a historica
 copy of the source body. Both endpoints use normal authentication, ownership,
 workspace gate and private/no-store responses. See [Workspace reviews](workspace-reviews.md)
 for event semantics, coverage, immutable scheduled snapshots and backup rules.
+
+Document searches accept optional exact collection names and return retrieval
+method, matched terms and versioned citation snapshots. Bounded current-source
+checks use `POST /api/documents/references`; see [Document knowledge](document-knowledge.md)
+for status and validation rules. Historical excerpts remain unchanged when
+current source text changes or is deleted.

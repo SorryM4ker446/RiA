@@ -65,3 +65,21 @@ While a turn is running, the send control is replaced by **stop**. Stopping aban
 ## Following the scroll
 
 New messages are followed while the reader is already at the bottom, and are ignored once they have scrolled up, where a **jump to latest** control appears. The decision is made by measuring the position at the moment content arrives rather than from a remembered scroll event: a scroll that has not been delivered yet would otherwise read as "still following" and pull the view down in the middle of an answer.
+
+## Summary invalidation
+
+Editing, deleting, replacing a persisted answer or successfully regenerating
+history clears the stored compression and increments its history revision in the
+same transaction. Summaries are built from stored message content rather than a
+stale browser transcript. Stored messages use the existing readable historical
+representation, without replaying approval metadata, reasoning or attachment bytes.
+A model result is saved only if the history revision
+still matches; a slower result cannot restore obsolete decisions after an edit.
+A missing covered message causes fallback to existing bounded history excerpts.
+Cached summaries are reused only when both revision and covered identity match.
+
+The additive migration drops earlier unverifiable summaries while preserving all
+original messages. Desktop startup snapshots existing data before this migration.
+Versioned summaries survive portable restore with remapped message identities;
+legacy or inconsistent summary evidence is discarded and can be recomputed later.
+This is compression invalidation, not deletion of the conversation history.

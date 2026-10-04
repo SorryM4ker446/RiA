@@ -77,3 +77,46 @@ Every memory records where it came from: added by hand, or inferred by the assis
 Editing a candidate is how it is accepted. A memory written by hand is stamped with the time it was last used, and the page shows **last used** so it is clear which memories are doing something and which have gone untouched.
 
 Provenance travels with workspace backups. Restoring an archive does not turn an inference you never accepted into one you are treated as having accepted.
+
+## Retrieval evidence and citation versions
+
+Document search remains local keyword retrieval over the existing inverted index;
+it makes no embedding or chat-model call. The library's collection selector uses
+exact names, including names containing `|`. `POST /api/documents/search` accepts
+optional `collections` (up to 12 names of 40 characters); omitted or empty means
+all collections. Chat and tool retrieval continue using the stored conversation
+scope. Results include `retrieval: "local-keyword"`, matched terms, collection and
+the document content hash. These explain why a fragment matched, not a probability
+that it answers the question. A keyword overlap can be useful yet contain no answer.
+
+New persisted citation snapshots include `contentHash` and collection alongside
+the existing excerpt and source identities. Source links carry `?version=<hash>`.
+A changed document is reported as changed even if that particular chunk survived
+unchanged; a content-preserving reindex leaves the version current. Moving the
+collection changes the captured provenance. No full historical document is retained.
+
+The source panel checks versions on mount and when its window regains focus,
+with cancellation and stale-response protection. It reports current, changed,
+deleted, or old/unverified references. A failed check is explicitly unavailable,
+never a green assertion. The excerpt remains the answer-time snapshot. A deleted
+document, including a new import with the same filename and a new ID, cannot make
+an old reference current again. The viewer shows current extracted text and warns
+if the requested version or chunk no longer matches.
+
+`POST /api/documents/references` accepts `{ "sources": [...] }` with 1–8 existing
+citation objects in a 24 KiB body. It returns `data` entries containing `chunkId`
+and `status` (`current`, `changed`, `deleted`, `unverified`). It performs no model
+call, retains normal credential/Host/Origin/workspace-gate checks, uses private
+no-store responses, and allows 120 bounded read checks per minute. A current
+check describes the time it was read, not continuous filesystem monitoring.
+
+Backup restoration remaps structured source identities and local Markdown
+citation links while preserving hashes and excerpts. Optional snapshot fields keep
+old conversations and archives readable; references without version evidence are
+honestly unverified. No new document table or background watcher is needed.
+
+The fixed corpus now has eight positive Chinese/English questions, four unrelated
+or stop-word queries and four collection checks, plus forty newer distractors.
+Recall@3, MRR@3 and empty-result checks are regression evidence for this corpus,
+not a broad semantic-answer-quality benchmark or a claim that lexical matches
+always contain answers. See [Testing](testing.md) for the real HTTP/browser checks.

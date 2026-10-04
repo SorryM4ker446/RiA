@@ -25,10 +25,12 @@ export async function searchDocuments(query: string, limit = 4, collections: str
     GROUP BY c.id ORDER BY COUNT(*) DESC, c.ordinal ASC, c.id ASC LIMIT 200
   `);
   if (!candidates.length) return [];
-  const chunks = await db.documentChunk.findMany({ where: { id: { in: candidates.map(chunk => chunk.id) }, }, include: { document: { select: { filename: true } } } });
+  const chunks = await db.documentChunk.findMany({ where: { id: { in: candidates.map(chunk => chunk.id) }, }, include: { document: { select: { filename: true, contentHash: true, collection: true } } } });
   const normalizedQuery = query.normalize("NFKC").toLowerCase().trim();
   const ranked = chunks.map(chunk => ({
     documentId: chunk.documentId, chunkId: chunk.id, filename: chunk.document.filename, pageNumber: chunk.pageNumber, ordinal: chunk.ordinal, snippet: chunk.text,
+    contentHash: chunk.document.contentHash, collection: chunk.document.collection, retrieval: "local-keyword" as const,
+    matchedTerms: tokens.filter(token => keywordScore([token], `${chunk.document.filename} ${chunk.text}`) > 0),
     score: keywordScore(tokens, `${chunk.document.filename} ${chunk.text}`) * 0.85
       + (chunk.text.normalize("NFKC").toLowerCase().includes(normalizedQuery) ? 0.1 : 0)
       + keywordScore(tokens, chunk.document.filename) * 0.05,

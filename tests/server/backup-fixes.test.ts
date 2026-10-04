@@ -78,7 +78,7 @@ test("restore rewrites the chat summary pointer onto the message it now covers",
   const covered = await db.message.create({ data: { chatId: original.chat.id, role: "assistant", content: "covered by the summary" } });
   await db.chat.update({
     where: { id: original.chat.id },
-    data: { summary: "Earlier turns, folded in.", summaryUpToMessageId: covered.id, summaryModelId: "openrouter:test/model" }
+    data: { summary: "Earlier turns, folded in.", summaryUpToMessageId: covered.id, summaryModelId: "openrouter:test/model", summaryRevision: 0 }
   });
 
   const backup = await exclusiveDataOperation(() => archive.createAccountBackup());
@@ -251,4 +251,15 @@ test("an export that cannot be written leaves no file and no record at the desti
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+
+test("restoring a summary without a valid history revision discards compression and preserves original messages", async () => {
+  const original = await seed();
+  await db.chat.update({ where: { id: original.chat.id }, data: { summary: "Unverified older summary", summaryUpToMessageId: original.message.id, summaryModelId: "openrouter:test/model", summaryRevision: null } });
+  const backup = await exclusiveDataOperation(() => archive.createAccountBackup());
+  await exclusiveDataOperation(() => restoreAccountBackup(backup.id));
+  const restored = await db.chat.findFirstOrThrow({ include: { messages: true } });
+  assert.equal(restored.summary, null); assert.equal(restored.summaryUpToMessageId, null); assert.equal(restored.summaryRevision, null);
+  assert.ok(restored.messages.some(message => message.content === "before the backup"));
 });

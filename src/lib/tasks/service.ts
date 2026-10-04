@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { t } from "@/lib/locale";
 import { ApiError } from "@/lib/server/api-error";
 import { isTaskTimeZone, nextTaskDueDate, parseTaskDueDate, TASK_REPEAT_RULES, type TaskRepeatRule } from "@/lib/tasks/schedule";
+import { raiseNotice } from "@/lib/scheduler/notices";
 import { recordWorkspaceEvent } from "@/lib/activity/events";
 
 export const taskScheduleFields = {
@@ -84,6 +85,10 @@ export async function claimTaskReminders(now = new Date()) {
       orderBy: [{ dueDate: "asc" }, { id: "asc" }], take: 10,
       select: { id: true, title: true, dueDate: true, timeZone: true },
     });
+    for (const task of tasks) await raiseNotice({ kind: "taskReminder", title: "task-due",
+      detail: `${task.title} · ${task.dueDate!.toISOString()}（${task.timeZone}）· 系统通知可能被拒绝或错过，请查看任务状态。`,
+      href: "/chat", fingerprint: `task-due:${task.id}:${task.dueDate!.getTime()}`,
+    }, tx);
     await tx.task.updateMany({ where: { id: { in: tasks.map(task => task.id) }, remindedAt: null }, data: { remindedAt: now } });
     return tasks;
   });
