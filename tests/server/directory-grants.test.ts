@@ -429,6 +429,20 @@ test("an approval is bound to the folder and the target as they were when it was
   assert.equal(readFileSync(path.join(root, "later.md"), "utf8"), "someone else was here", "the other file is untouched");
 });
 
+test("an approval for one granted folder cannot write to another", async () => {
+  const { bindWriteApproval, writeGrantedFile } = await import("@/lib/local-files/tools");
+  const first = temporaryDirectory("ria-grant-");
+  const second = temporaryDirectory("ria-grant-");
+  const a = await createGrant({ path: first });
+  const b = await createGrant({ path: second });
+  const binding = await bindWriteApproval({ grantId: a.id, path: "summary.md" });
+  assert.equal(await refusedBy(() => writeGrantedFile({ grantId: b.id, path: "summary.md", content: "approved", binding })), "outside-grant");
+  assert.equal(existsSync(path.join(first, "summary.md")), false);
+  assert.equal(existsSync(path.join(second, "summary.md")), false);
+  await writeGrantedFile({ grantId: a.id, path: "summary.md", content: "approved", binding });
+  assert.equal(readFileSync(path.join(first, "summary.md"), "utf8"), "approved");
+});
+
 test("using a folder is not the folder having changed", async () => {
   const { bindWriteApproval, writeGrantedFile } = await import("@/lib/local-files/tools");
   const { verifyWriteApproval } = await import("@/lib/local-files/approval");

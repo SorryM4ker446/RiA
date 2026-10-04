@@ -213,7 +213,7 @@ export async function writeGrantedFile(input: WriteLocalFileInput): Promise<Writ
   // The binding checked one name and the write uses another. Comparing them
   // here is what stops an approval granted for one file being spent on
   // whatever else arrived in the same input.
-  if (input.binding.path !== input.path.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "")) {
+  if (input.binding.grantId !== input.grantId || input.binding.path !== input.path.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "")) {
     throw new LocalFileRefused("outside-grant", "That request was approved for a different file.");
   }
   await verifyWriteApproval(input.binding);
