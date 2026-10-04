@@ -81,6 +81,7 @@ model Chat {
   tags            ChatTag[]
   generatedMedia  MediaAsset[]
   agentRuns       AgentRun[]
+  scheduledRuns   ScheduledRun[]
 
   @@index([lastMessageAt, id])
   @@index([archived, pinned, lastMessageAt, id])
@@ -376,9 +377,34 @@ model ScheduledJob {
   lastError  String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+  runs       ScheduledRun[]
 
   @@index([enabled, nextRunAt])
   @@map("scheduled_jobs")
+}
+
+// Local execution evidence survives schedule deletion and notice dismissal.
+// It is operational history, not portable workspace content.
+model ScheduledRun {
+  id         String @id @default(cuid())
+  jobId      String?
+  job        ScheduledJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  kind       String
+  trigger    String @default("scheduled")
+  retryOf    String? @unique
+  requestId  String
+  status     String @default("running")
+  errorCode  String?
+  chatId     String?
+  chat       Chat? @relation(fields: [chatId], references: [id], onDelete: SetNull)
+  backupId   String?
+  startedAt  DateTime @default(now())
+  finishedAt DateTime?
+
+  @@index([startedAt, id])
+  @@index([jobId, startedAt])
+  @@index([status, startedAt])
+  @@map("scheduled_runs")
 }
 
 // Something the app wants the user to know about, kept in the app as well as

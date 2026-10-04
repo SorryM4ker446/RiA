@@ -31,6 +31,7 @@ const DAY = 24 * HOUR;
 beforeEach(async () => {
   globalThis.__privateAiRateLimitStore?.clear();
   cookie = localAccessCookie();
+  await db.scheduledRun.deleteMany({});
   await db.scheduledJob.deleteMany({});
   await db.appNotice.deleteMany({});
 });

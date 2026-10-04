@@ -8,6 +8,7 @@ import { getApiErrorMessage } from "@/lib/api-error-message";
 import { t } from "@/lib/locale";
 import { cn } from "@/lib/utils/cn";
 import type { RunView } from "@/lib/agent/runs";
+import { executionGuidance } from "@/lib/execution-messages";
 
 type Props = {
   activeChatId: string | null;
@@ -147,6 +148,7 @@ export function RunRecords({ activeChatId, refreshKey }: Props) {
                   {`${t("chat.run.budget")}: ${run.budget.maxSteps} ${t("chat.run.steps")} / ${Math.round(run.budget.deadlineMs / 1000)}s / ${run.budget.maxFailures} ${t("runs.failures")}`}
                 </p>
                 {run.stopReason ? <p className="text-warning">{`${t("chat.run.stopReason")}: ${run.stopReason}`}</p> : null}
+                {run.status === "failed" || run.status === "paused" ? <p className="text-muted-foreground">{executionGuidance(run.stopReason)}</p> : null}
                 <ol className="space-y-1">
                   {run.steps.map((step) => (
                     <li className="flex items-center gap-2" key={step.id}>
@@ -154,9 +156,12 @@ export function RunRecords({ activeChatId, refreshKey }: Props) {
                       <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{String(step.position).padStart(2, "0")}</span>
                       <span className="min-w-0 flex-1 truncate">{step.toolName ?? step.kind}</span>
                       <span className="shrink-0 text-muted-foreground">{t(`runs.step.${step.state}`)}</span>
+                      {step.errorCode ? <span title={executionGuidance(step.errorCode)} className="text-destructive">{step.errorCode}</span> : null}
                     </li>
                   ))}
                 </ol>
+                <p className="text-muted-foreground">恢复前请核对已完成步骤。需要继续时，请重新发送请求；文件和工具写入仍需重新批准。</p>
+                <a className="inline-block underline" href="/api/diagnostics" download>导出脱敏诊断</a>
               </div>
             ) : null}
           </li>

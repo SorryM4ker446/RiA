@@ -113,6 +113,13 @@ These tests do not certify every real OpenRouter model, network outage behavior,
 
 ## Chat interaction regressions
 
+`tests/server/execution-history.test.ts` checks independent execution evidence,
+concurrent retry refusal, current permissions, scheduled execution exclusion,
+restart interruption, sensitive-field exclusion, retention and restore behavior.
+`tests/e2e/execution-history.spec.ts` exercises settings history, manual retry,
+diagnostic download, evidence after schedule deletion and desktop service restart.
+These tests use isolated SQLite data and no paid providers.
+
 `tests/server/tool-contracts.test.ts` checks disabled-memory write refusal,
 atomic step reservations across concurrent tool sets, refusal after reservation
 failure, exact collection names, cached summary reuse without another model

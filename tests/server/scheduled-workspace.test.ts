@@ -14,6 +14,7 @@ const { getModelProvider } = await import("@/lib/models/providers");
 const ref = { providerId: "openrouter" as const, modelId: "test/status-snapshot" };
 
 beforeEach(async () => {
+  await db.scheduledRun.deleteMany({});
   await db.chat.deleteMany({});
   await db.task.deleteMany({});
   await db.modelRequest.deleteMany({});
@@ -73,6 +74,10 @@ test("a running snapshot blocks restore, records one billed attempt and persists
     assert.equal(await runDueScheduledJob(), null);
   } finally { resume(); }
   assert.equal((await execution)?.outcome.ok, true);
+  const scheduledRun = await db.scheduledRun.findFirstOrThrow();
+  assert.equal(scheduledRun.requestId, requestId);
+  assert.equal(scheduledRun.status, "succeeded");
+  assert.ok(scheduledRun.chatId);
   assert.match(prompt, /current totals/i);
   assert.match(prompt, /1 done/);
   assert.doesNotMatch(prompt, /Over today|Over the past week/);

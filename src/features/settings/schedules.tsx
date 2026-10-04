@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { t, tf } from "@/lib/locale";
+import { ScheduleHistory } from "@/features/settings/schedule-history";
+import { executionGuidance } from "@/lib/execution-messages";
 
 type JobRow = {
   id: string;
@@ -63,6 +65,7 @@ export function ScheduleSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [historyRefresh, setHistoryRefresh] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -70,6 +73,7 @@ export function ScheduleSettings() {
       if (!response.ok) throw new Error(await readError(response));
       const payload = await response.json();
       setJobs(Array.isArray(payload.data) ? payload.data : []);
+      setHistoryRefresh(current => current + 1);
       setError(null);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : t("settings.schedules.failed"));
@@ -151,7 +155,7 @@ export function ScheduleSettings() {
                   {job.lastStatus ? (
                     <p className="text-[11px] text-muted-foreground">
                       {tf("settings.schedules.lastRun", { status: job.lastStatus })}
-                      {job.lastError ? ` — ${job.lastError}` : ""}
+                      {job.lastError ? ` — ${executionGuidance(job.lastError)}` : ""}
                     </p>
                   ) : null}
                 </div>
@@ -240,6 +244,7 @@ export function ScheduleSettings() {
         </form>
         <p className="text-[11px] text-muted-foreground">{t("settings.schedules.note")}</p>
         <p className="text-[11px] text-muted-foreground">{t("settings.schedules.briefNote")}</p>
+        <ScheduleHistory refreshKey={historyRefresh} onExecuted={load} />
       </CardContent>
     </Card>
   );

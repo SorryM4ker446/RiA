@@ -1,5 +1,8 @@
 # Local integration API
 
+Scheduled execution history, explicit retry and sanitized diagnostics are
+documented in [execution history and recovery](execution-history.md).
+
 These endpoints are supported for authenticated local integrations as well as the shared browser/Electron UI. They are not anonymous public services. All retain the Cookie, Host, Origin, ownership and error rules in [API security](api-security.md). A caller needs its own valid session; desktop automation must also use the current desktop session boundary. Never copy session secrets into scripts or documentation.
 
 ## Conversation and message pagination

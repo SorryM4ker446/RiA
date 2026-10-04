@@ -2,6 +2,9 @@ import { z } from "zod";
 import { db } from "@/db";
 import { ApiError } from "@/lib/server/api-error";
 import { isTaskTimeZone } from "@/lib/tasks/schedule";
+import { randomUUID } from "node:crypto";
+import { dataRequestContext } from "@/lib/server/data-operations";
+import { pruneScheduledHistory } from "@/lib/scheduler/history";
 
 /*
  * Work the user asked to happen without being present.
@@ -290,8 +293,11 @@ export async function deleteScheduledJob(id: string): Promise<{ deleted: boolean
  * updates nothing and claims nothing. That is what makes two backups at 08:00
  * impossible rather than unlikely.
  */
-export async function claimDueJobs(now = new Date()): Promise<{ id: string; kind: string }[]> {
+export type ClaimedJob = { id: string; kind: string; runId: string; requestId: string };
+
+export async function claimDueJobs(now = new Date()): Promise<ClaimedJob[]> {
   return db.$transaction(async (tx) => {
+    if (await tx.scheduledJob.count({ where: { lastStatus: "running" } }) || await tx.scheduledRun.count({ where: { status: "running" } })) return [];
     const due = await tx.scheduledJob.findMany({
       // `lastStatus` is part of the claim condition, not just a note afterwards:
       // it is the field the claim itself changes, so a second caller that
@@ -309,7 +315,26 @@ export async function claimDueJobs(now = new Date()): Promise<{ id: string; kind
       where: { id: due[0].id, enabled: true, nextRunAt: { lte: now }, OR: [{ lastStatus: null }, { lastStatus: { not: "running" } }] },
       data: { lastStatus: "running", lastRunAt: now, lastError: null }
     });
-    return claimed.count === 1 ? due : [];
+    if (claimed.count !== 1) return [];
+    const run = await tx.scheduledRun.create({ data: { jobId: due[0].id, kind: due[0].kind, startedAt: now, requestId: dataRequestContext()?.requestId ?? randomUUID() } });
+    return [{ ...due[0], runId: run.id, requestId: run.requestId }];
+  });
+}
+
+export async function claimScheduledRetry(jobId: string, previousRunId: string, now = new Date()): Promise<ClaimedJob> {
+  return db.$transaction(async tx => {
+    const job = await tx.scheduledJob.findUnique({ where: { id: jobId } });
+    if (!job) throw new ApiError({ code: "NOT_FOUND", message: "定时任务不存在。" });
+    if (!job.enabled) throw new ApiError({ code: "CONFLICT", message: "请先启用定时任务，再发起新的执行。" });
+    if (await tx.scheduledJob.count({ where: { lastStatus: "running" } }) || await tx.scheduledRun.count({ where: { status: "running" } })) throw new ApiError({ code: "CONFLICT", message: "已有定时任务正在执行，请等待完成。" });
+    const latest = await tx.scheduledRun.findFirst({ where: { jobId }, orderBy: [{ startedAt: "desc" }, { id: "desc" }] });
+    if (!latest || latest.id !== previousRunId || latest.status !== "failed" || latest.chatId || latest.backupId || latest.kind !== job.kind) {
+      throw new ApiError({ code: "CONFLICT", message: "该记录不能重试，请刷新并核对已有结果。" });
+    }
+    if (await tx.scheduledRun.findUnique({ where: { retryOf: previousRunId } })) throw new ApiError({ code: "CONFLICT", message: "该重试已经发起，请刷新执行记录。" });
+    await tx.scheduledJob.update({ where: { id: jobId }, data: { lastStatus: "running", lastRunAt: now, lastError: null } });
+    const run = await tx.scheduledRun.create({ data: { jobId, kind: job.kind, trigger: "manual", retryOf: previousRunId, requestId: dataRequestContext()?.requestId ?? randomUUID(), startedAt: now } });
+    return { id: jobId, kind: job.kind, runId: run.id, requestId: run.requestId };
   });
 }
 
@@ -320,16 +345,24 @@ export async function claimDueJobs(now = new Date()): Promise<{ id: string; kind
  * a machine that was asleep for a week runs once and then resumes. `take: 1`
  * above is what keeps this to one job at a time.
  */
-export async function completeJob(id: string, outcome: { ok: boolean; error?: string }, now = new Date()): Promise<void> {
-  const job = await db.scheduledJob.findUnique({ where: { id }, select: { localTime: true, timeZone: true, interval: true, dayOfWeek: true } });
-  if (!job) return;
-  await db.scheduledJob.update({
-    where: { id },
-    data: {
+export async function completeJob(id: string, outcome: { ok: boolean; error?: string; chatId?: string; backupId?: string }, now = new Date(), runId?: string): Promise<void> {
+  await db.$transaction(async tx => {
+    if (runId) {
+      const closed = await tx.scheduledRun.updateMany({ where: { id: runId, status: "running" }, data: {
+        status: outcome.ok ? "succeeded" : "failed", errorCode: outcome.ok ? null : outcome.error ?? "INTERNAL_ERROR",
+        chatId: outcome.chatId ?? null, backupId: outcome.backupId ?? null, finishedAt: now,
+      } });
+      if (!closed.count) return;
+    }
+    const job = await tx.scheduledJob.findUnique({ where: { id }, select: { localTime: true, timeZone: true, interval: true, dayOfWeek: true, nextRunAt: true } });
+    if (job) await tx.scheduledJob.update({ where: { id }, data: {
       lastStatus: outcome.ok ? "done" : "failed",
       lastError: outcome.ok ? null : (outcome.error ?? "unknown").slice(0, 500),
-      nextRunAt: nextLocalOccurrence(job, now)
-    }
+      // Strictly after completion: an execution finishing exactly at its wall
+      // clock minute must not leave that occurrence due a second time.
+      nextRunAt: nextLocalOccurrence(job, new Date(now.getTime() + 1))
+    } });
+    await pruneScheduledHistory(tx, now);
   });
 }
 
@@ -349,6 +382,8 @@ export async function completeJob(id: string, outcome: { ok: boolean; error?: st
  */
 export async function releaseInterruptedJobs(now = new Date()): Promise<number> {
   return db.$transaction(async (tx) => {
+    await tx.scheduledRun.updateMany({ where: { status: "running" }, data: { status: "interrupted", errorCode: "INTERRUPTED", finishedAt: now } });
+    await pruneScheduledHistory(tx, now);
     const running = await tx.scheduledJob.findMany({
       where: { lastStatus: "running" },
       select: { id: true, localTime: true, timeZone: true, interval: true, dayOfWeek: true }
@@ -356,10 +391,10 @@ export async function releaseInterruptedJobs(now = new Date()): Promise<number> 
     if (running.length === 0) return 0;
     const result = await tx.scheduledJob.updateMany({
       where: { id: { in: running.map((job) => job.id) }, lastStatus: "running" },
-      data: { lastStatus: "interrupted", lastError: "The app stopped before this ran." }
+      data: { lastStatus: "interrupted", lastError: "INTERRUPTED" }
     });
     for (const job of running) {
-      await tx.scheduledJob.update({ where: { id: job.id }, data: { nextRunAt: nextLocalOccurrence(job, now) } });
+      await tx.scheduledJob.update({ where: { id: job.id }, data: { nextRunAt: nextLocalOccurrence(job, new Date(now.getTime() + 1)) } });
     }
     return result.count;
   });

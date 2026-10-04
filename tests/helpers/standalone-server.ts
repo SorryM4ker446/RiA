@@ -10,7 +10,7 @@ import { TEST_ACCESS_TOKEN } from "./workspace-entry";
 
 type ProviderCall = { stream: boolean; messages: Array<{ role: string; content: unknown }> };
 
-export async function startStandaloneServer(options: { modelFixture?: boolean } = {}) {
+export async function startStandaloneServer(options: { modelFixture?: boolean; desktopScheduler?: boolean } = {}) {
   const parent = resolve(".desktop-data/test");
   mkdirSync(parent, { recursive: true });
   const root = mkdtempSync(join(parent, "http-"));
@@ -27,9 +27,11 @@ export async function startStandaloneServer(options: { modelFixture?: boolean } 
   // for one name is never sent to the other, so the whole harness must agree.
   const origin = `http://localhost:${port}`;
   const env: NodeJS.ProcessEnv = {
-    ...process.env, NODE_ENV: "production", NODE_OPTIONS: "", APP_RUNTIME: "test", APP_ORIGIN: "",
+    ...process.env, NODE_ENV: "production", NODE_OPTIONS: "", APP_RUNTIME: options.desktopScheduler ? "desktop" : "test", APP_ORIGIN: "",
     // The harness must present the same credential the page will use.
     LOCAL_ACCESS_TOKEN: TEST_ACCESS_TOKEN,
+    DESKTOP_SERVER_HOST: options.desktopScheduler ? `localhost:${port}` : "",
+    DESKTOP_SESSION_TOKEN: options.desktopScheduler ? TEST_ACCESS_TOKEN : "",
     HOSTNAME: "127.0.0.1", PORT: String(port), LOCAL_DATABASE_FILE: database,
     DATABASE_URL: `file:${database.replaceAll("\\", "/")}`, MEDIA_DIRECTORY: join(root, "media"), LEGACY_VIDEO_DIRECTORY: join(root, "legacy-videos"),
     OPENROUTER_API_KEY: options.modelFixture ? "offline-fixture-placeholder" : "", TAVILY_API_KEY: "", TAVILY_SEARCH_URL: "",
@@ -50,7 +52,10 @@ export async function startStandaloneServer(options: { modelFixture?: boolean } 
   }
   async function start() {
     let launchError = false;
-    server = spawn(process.execPath, ["--import", pathToFileURL(resolve("tests/helpers/offline-http.ts")).href, ".desktop-runtime/server.js"], { env, windowsHide: true, stdio: ["ignore", "ignore", "ignore", "ipc"] });
+    const args = options.desktopScheduler
+      ? [".desktop-runtime/server.js"]
+      : ["--import", pathToFileURL(resolve("tests/helpers/offline-http.ts")).href, ".desktop-runtime/server.js"];
+    server = spawn(process.execPath, args, { env, windowsHide: true, stdio: ["ignore", "ignore", "ignore", "ipc"] });
     server.once("error", () => { launchError = true; });
     server.on("message", (value) => {
       const call = value as ProviderCall & { type?: string };

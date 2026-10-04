@@ -31,6 +31,7 @@ const context = (id: string) => ({ params: Promise.resolve({ id }) });
 beforeEach(async () => {
   globalThis.__privateAiRateLimitStore?.clear();
   cookie = localAccessCookie();
+  await db.scheduledRun.deleteMany({});
   await db.scheduledJob.deleteMany({});
   await db.appNotice.deleteMany({});
 });

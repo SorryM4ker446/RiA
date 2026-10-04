@@ -3,14 +3,17 @@ import { createAccountBackup } from "@/lib/backups/archive";
 import { listBackupFiles } from "@/lib/backups/files";
 import {
   claimDueJobs,
+  claimScheduledRetry,
   completeJob,
   releaseInterruptedJobs,
   SCHEDULE_LIMITS,
-  type ScheduledJobKindValue
+  type ScheduledJobKindValue,
+  type ClaimedJob,
 } from "@/lib/scheduler/jobs";
 import { raiseNotice } from "@/lib/scheduler/notices";
 import { runBackgroundDataOperation } from "@/lib/server/data-operations";
-import { ApiError } from "@/lib/server/api-error";
+import { ApiError, callUpstream } from "@/lib/server/api-error";
+import { scheduledErrorCode } from "@/lib/scheduler/history";
 
 /*
  * The one place scheduled work is executed.
@@ -24,7 +27,7 @@ import { ApiError } from "@/lib/server/api-error";
  * reason about the cost of.
  */
 
-export type JobOutcome = { ok: true; detail: string } | { ok: false; error: string };
+export type JobOutcome = { ok: true; detail: string; chatId?: string; backupId?: string } | { ok: false; error: string };
 
 /** How stale a backup may get before a reminder is worth raising. */
 export const BACKUP_REMINDER_AFTER_DAYS = 7;
@@ -64,8 +67,8 @@ async function runScheduledBackup(): Promise<JobOutcome> {
     // a confirmation on the reminder's own fingerprint would only produce a
     // notice this next line immediately marks read, and would let the following
     // reminder run overwrite the reminder's own wording with a backup id.
-    await db.appNotice.updateMany({ where: { fingerprint: "backup-reminder" }, data: { readAt: new Date() } });
-    return { ok: true, detail: `Created backup ${created.id}.` };
+    await db.appNotice.updateMany({ where: { fingerprint: "backup-reminder" }, data: { readAt: new Date() } }).catch(() => { console.error("scheduler.notice.update_failed"); });
+    return { ok: true, detail: "Backup created.", backupId: created.id };
   } catch (error) {
     // A failure is recorded and the schedule continues. A job that stops itself
     // on the first error would go quiet exactly when the user most needs to know
@@ -73,11 +76,11 @@ async function runScheduledBackup(): Promise<JobOutcome> {
     await raiseNotice({
       kind: "backupReminder",
       title: "backup-failed",
-      detail: error instanceof Error ? error.message : "unknown",
+      detail: scheduledErrorCode(error),
       href: "/backups",
       fingerprint: "backup-reminder"
-    });
-    return { ok: false, error: error instanceof Error ? error.message : "unknown" };
+    }).catch(() => { console.error("scheduler.notice.write_failed"); });
+    return { ok: false, error: scheduledErrorCode(error) };
   }
 }
 
@@ -107,7 +110,7 @@ async function runBrief(options: { now: Date; fingerprint: string; kind: string 
   try {
     modelRef = await preferredModel("chat");
   } catch (error) {
-    if (error instanceof ApiError && error.code === "CONFIGURATION_ERROR") return { ok: false, error: "no-chat-model" };
+    if (error instanceof ApiError && error.code === "CONFIGURATION_ERROR") return { ok: false, error: "CONFIGURATION_ERROR" };
     throw error;
   }
 
@@ -116,14 +119,15 @@ async function runBrief(options: { now: Date; fingerprint: string; kind: string 
   const documents = await db.knowledgeDocument.count();
   const memories = await db.memory.count();
 
-  const text = await generateText({
-    model: getChatModel(modelRef),
+  const model = getChatModel(modelRef);
+  const text = await callUpstream(() => generateText({
+    model,
     maxRetries: 0,
     abortSignal: AbortSignal.timeout(60_000),
     maxOutputTokens: 512,
     system: "Write a short workspace status snapshot in Simplified Chinese. Two or three sentences at most. These are current totals, not activity during a day or week. Do not infer when tasks were completed or documents and memories were added.",
     prompt: `Current workspace totals as of ${now.toISOString()}: ${open} task(s) open, ${done} done, ${documents} knowledge document(s), ${memories} remembered fact(s). Write the status snapshot.`
-  });
+  }));
 
   const conversation = await db.$transaction(async (tx) => {
     const conversation = await tx.chat.create({ data: { title: kind === "weeklySummary" ? "每周工作区概览" : "每日工作区概览" } });
@@ -152,8 +156,8 @@ async function runBrief(options: { now: Date; fingerprint: string; kind: string 
     detail: now.toISOString().slice(0, 10),
     href: `/chat?conversationId=${conversation.id}`,
     fingerprint: `${kind}:${fingerprint}`
-  });
-  return { ok: true, detail: `Wrote a ${kind} for ${now.toISOString().slice(0, 10)}.` };
+  }).catch(() => { console.error("scheduler.notice.write_failed"); });
+  return { ok: true, detail: "Workspace overview created.", chatId: conversation.id };
 }
 
 async function runDailyBrief(now: Date): Promise<JobOutcome> {
@@ -192,21 +196,30 @@ export async function runDueScheduledJob(now = new Date()): Promise<{ id: string
 async function executeDueScheduledJob(now: Date) {
   const [claimed] = await claimDueJobs(now);
   if (!claimed) return null;
+  return executeClaimedJob(claimed, now);
+}
+
+export async function retryScheduledJob(jobId: string, previousRunId: string, now = new Date()) {
+  return runBackgroundDataOperation(async () => executeClaimedJob(await claimScheduledRetry(jobId, previousRunId, now), now));
+}
+
+async function executeClaimedJob(claimed: ClaimedJob, now: Date) {
+  const started = Date.now();
   const runner = RUNNERS[claimed.kind];
   if (!runner) {
     // A kind this version does not know is skipped, not guessed at. It is
     // marked done so it is not retried on every poll forever.
-    const outcome: JobOutcome = { ok: false, error: `unsupported-kind:${claimed.kind}` };
-    await completeJob(claimed.id, outcome, now);
+    const outcome: JobOutcome = { ok: false, error: "UNSUPPORTED_KIND" };
+    await completeJob(claimed.id, outcome, now, claimed.runId);
     return { ...claimed, outcome };
   }
   let outcome: JobOutcome;
   try {
     outcome = await runner({ now });
   } catch (error) {
-    outcome = { ok: false, error: error instanceof Error ? error.message : "unknown" };
+    outcome = { ok: false, error: scheduledErrorCode(error) };
   }
-  await completeJob(claimed.id, outcome, now);
+  await completeJob(claimed.id, outcome, new Date(now.getTime() + Math.max(0, Date.now() - started)), claimed.runId);
   return { ...claimed, outcome };
 }
 
