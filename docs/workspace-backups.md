@@ -36,6 +36,16 @@ Explicit deletion is permanent and may delete the last archive after confirmatio
 
 ## Local API
 
+Scheduled work holds the same workspace operation gate as foreground requests,
+from claiming a job through usage accounting, persistence and completion. A
+restore cannot begin while a job is running. While a restore is active, polling
+leaves due jobs unclaimed; the next poll rechecks whether they are still enabled.
+A successful restore pauses schedules, so deferred jobs do not resume automatically.
+
+Conversation collection scopes support the full normal input limit in archives:
+12 names of 40 characters, plus separators (491 characters). Existing shorter
+version-1 archives remain readable; no database migration is required.
+
 All endpoints retain the normal credential, Host and Origin checks and sanitized error envelope. IDs are server-generated UUIDs; callers cannot select a path.
 
 | Endpoint | Contract |

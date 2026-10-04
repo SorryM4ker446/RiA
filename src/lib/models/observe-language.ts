@@ -2,7 +2,7 @@ import { wrapLanguageModel, wrapEmbeddingModel, type LanguageModel, type Embeddi
 import { t } from "@/lib/locale";
 import { dataRequestContext } from "@/lib/server/data-operations";
 import { ApiError } from "@/lib/server/api-error";
-import { getModelPreferences, modelInLibrary, withModelLease } from "@/lib/models/preferences";
+import { acquireModelLease, getModelPreferences, modelInLibrary, withModelLease } from "@/lib/models/preferences";
 import { canFallback, recordModelAttempt, requestPricing } from "@/lib/models/usage";
 import { modelRefKey, type ModelRef } from "@/lib/models/preferences-schema";
 
@@ -54,15 +54,20 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
         let finished: Extract<Part, { type: "finish" }> | undefined;
         let streamError: unknown;
         let recorded = false;
+        let releaseLease: (() => Promise<void>) | undefined;
         const context = dataRequestContext();
         const record = async (error?: unknown) => {
           if (recorded) return; recorded = true;
-          if (!context) return;
-          const rates = await requestPricing();
-          await recordModelAttempt({ requestId: context.requestId, mode: "chat", modelId: selected.modelId, modelProvider: selected.providerId, started, usage: finished?.usage, metadata: finished?.providerMetadata, error, fallback: attempt > 0, rate: rates[modelRefKey(selected)] });
+          try {
+            if (!context) return;
+            const rates = await requestPricing();
+            await recordModelAttempt({ requestId: context.requestId, mode: "chat", modelId: selected.modelId, modelProvider: selected.providerId, started, usage: finished?.usage, metadata: finished?.providerMetadata, error, fallback: attempt > 0, rate: rates[modelRefKey(selected)] });
+          } finally { await releaseLease?.(); }
         };
         try {
-          const result = await withModelLease("chat", selected, async () => (attempt ? alternate(selected) : model).doStream(params));
+          const lease = await acquireModelLease("chat", selected);
+          releaseLease = lease.release;
+          const result = await (attempt ? alternate(selected) : model).doStream(params);
           reader = result.stream.getReader();
           const buffered: Part[] = [];
           for (;;) {
@@ -82,16 +87,21 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
             async pull(controller) {
               try {
                 const item = await source.read();
-                if (item.done) { await record(streamError ?? (finished?.finishReason.unified === "error" || !finished ? new Error("Incomplete model stream") : undefined)); controller.close(); return; }
+                if (item.done) { source.releaseLock(); await record(streamError ?? (finished?.finishReason.unified === "error" || !finished ? new Error("Incomplete model stream") : undefined)); controller.close(); return; }
                 if (item.value.type === "finish") finished = item.value;
                 if (item.value.type === "error") streamError = item.value.error ?? new Error("Model stream failed");
                 controller.enqueue(item.value);
-              } catch (error) { await record(error); controller.error(error); }
+              } catch (error) {
+                await source.cancel(error).catch(() => undefined);
+                source.releaseLock();
+                await record(error); controller.error(error);
+              }
             },
-            async cancel(reason) { try { await source.cancel(reason); } finally { await record(new DOMException("Cancelled", "AbortError")); } },
+            async cancel(reason) { try { await source.cancel(reason); } finally { source.releaseLock(); await record(new DOMException("Cancelled", "AbortError")); } },
           }) };
         } catch (error) {
           try { await reader?.cancel(); } catch { /* Preserve the original provider failure. */ }
+          reader?.releaseLock();
           await record(error);
           if (attempt + 1 >= candidates.length || !canFallback(error, params.abortSignal)) throw error;
         }

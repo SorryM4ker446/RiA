@@ -4,7 +4,7 @@ import { t } from "@/lib/locale";
 import { ApiError, apiErrorPayload, normalizeApiError } from "@/lib/server/api-error";
 import { createChatToolSet } from "@/tools/catalog";
 import type { ModelMessage } from "ai";
-import { createUIMessageStream, createUIMessageStreamResponse, stepCountIs, streamText } from "ai";
+import { createUIMessageStream, createUIMessageStreamResponse, generateId, stepCountIs, streamText } from "ai";
 import { persistChatResponse, type ChatPersistence } from "@/lib/chat/persistence";
 import type { ChatRequest } from "@/lib/chat/request";
 import type { DocumentSource } from "@/lib/documents/types";
@@ -12,6 +12,7 @@ import { retainDataOperation } from "@/lib/server/data-operations";
 import { addRunCost, finishRun, runStillAllowsStep, runStepCeiling } from "@/lib/agent/runs";
 import { usageCost } from "@/lib/models/usage";
 import { getModelPreferences } from "@/lib/models/preferences";
+import { decodeDocumentScope } from "@/lib/documents/scope";
 type TurnOutcome = { finishReason: unknown; generationFailed: boolean; aborted: boolean };
 
 /**
@@ -101,6 +102,7 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
           modelRef,
           runId,
           usesMemory: params.usesMemory !== false,
+          documentCollections: decodeDocumentScope(chat.documentScope),
         }),
       }
       : {}),
@@ -138,6 +140,7 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
 
   const streamError = (error: unknown) => JSON.stringify(apiErrorPayload(normalizeApiError(error, t("lib.chat.generateFailed"))));
   const stream = result.toUIMessageStream({
+    generateMessageId: generateId,
     onError: (error) => streamError(error instanceof ApiError ? error : new ApiError({ code: "UPSTREAM_FAILED", message: t("lib.chat.providerUnavailable") })),
     originalMessages: messages,
     messageMetadata: ({ part }) => part.type === "start" ? { documentSources: params.documentSources ?? [] } : undefined,

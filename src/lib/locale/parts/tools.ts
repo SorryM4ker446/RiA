@@ -69,6 +69,7 @@ export const toolsMessages = {
   "tools.saveMemory.primaryFieldLabel": "记忆内容",
   "tools.saveMemory.keyLabel": "记忆键",
   "tools.saveMemory.saved": "已记住：{value}（键：{key}）",
+  "tools.saveMemory.disabled": "当前会话已关闭长期记忆，无法保存。请先关闭“不记长期记忆”。",
 
   // --- local files ----------------------------------------------------------
   "tools.listLocalFiles.displayName": "列出资料目录",

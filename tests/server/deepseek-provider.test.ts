@@ -224,7 +224,37 @@ test("a tool call is streamed as tool input and reported as a tool finish", asyn
   const start = parts.find(part => part.type === "tool-input-start");
   assert.deepEqual({ id: start.id, toolName: start.toolName }, { id: "call_1", toolName: "lookup" });
   assert.equal(parts.filter(part => part.type === "tool-input-delta").map(part => part.delta).join(""), '{"q":"天气"}');
+  assert.deepEqual(parts.find(part => part.type === "tool-call"), { type: "tool-call", toolCallId: "call_1", toolName: "lookup", input: '{"q":"天气"}' });
   assert.equal(parts.at(-1).finishReason.unified, "tool-calls");
+});
+
+test("interleaved tool arguments produce one complete call per provider index", async () => {
+  handler = () => ({ sse: [
+    { choices: [{ index: 0, delta: { tool_calls: [
+      { index: 2, id: "call_b", function: { name: "second", arguments: '{"b":' } },
+      { index: 0, id: "call_a", function: { name: "first", arguments: '{"a":' } },
+    ] } }] },
+    { choices: [{ index: 0, delta: { tool_calls: [
+      { index: 0, function: { arguments: '1}' } },
+      { index: 2, function: { arguments: '2}' } },
+    ] } }] },
+    { choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] },
+  ] });
+  const model = createDeepSeekChatModel({ modelId: "deepseek-v4-pro", getApiKey: () => "test-key", baseURL: deepSeekBaseURL() });
+  const parts = await collect((await model.doStream({ prompt: [{ role: "user", content: [{ type: "text", text: "two tools" }] }] })).stream);
+  assert.deepEqual(parts.filter(part => part.type === "tool-call"), [
+    { type: "tool-call", toolCallId: "call_b", toolName: "second", input: '{"b":2}' },
+    { type: "tool-call", toolCallId: "call_a", toolName: "first", input: '{"a":1}' },
+  ]);
+  assert.equal(parts.filter(part => part.type === "tool-input-end").length, 2);
+});
+
+test("a truncated tool stream emits no executable call even if its arguments parse", async () => {
+  handler = () => ({ sse: [{ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "call_incomplete", function: { name: "createTask", arguments: '{"title":"Do not create"}' } }] } }] }] });
+  const model = createDeepSeekChatModel({ modelId: "deepseek-v4-pro", getApiKey: () => "test-key", baseURL: deepSeekBaseURL() });
+  const parts = await collect((await model.doStream({ prompt: [{ role: "user", content: [{ type: "text", text: "create task" }] }] })).stream);
+  assert.equal(parts.filter(part => part.type === "tool-call").length, 0);
+  assert.equal(parts.at(-1).finishReason.unified, "error");
 });
 
 test("reasoning produced in a turn is sent back with the next request that carries tools", async () => {

@@ -1,4 +1,4 @@
-import { getMemorySearchCandidates, keywordScore, KNOWLEDGE_MEMORY_POLICY, rankByScore } from "@/lib/memory/retrieval";
+import { getMemorySearchCandidates, keywordScore, KNOWLEDGE_MEMORY_POLICY, rankByScore, tokenizeQuery } from "@/lib/memory/retrieval";
 import { z } from "zod";
 import { searchDocuments } from "@/lib/documents/retrieval";
 import { documentSourceSchema, type DocumentSource } from "@/lib/documents/types";
@@ -48,10 +48,13 @@ const builtinKnowledgeBase = [
 
 export async function searchKnowledge(
   input: SearchKnowledgeInput,
+  options: { collections?: string[]; usesMemory?: boolean; signal?: AbortSignal } = {},
 ): Promise<SearchKnowledgeOutput> {
   const query = input.query.trim();
   const topK = input.topK ?? 4;
-  const { queryTokens, candidates } = await getMemorySearchCandidates(query, KNOWLEDGE_MEMORY_POLICY);
+  const { queryTokens, candidates } = options.usesMemory === false
+    ? { queryTokens: tokenizeQuery(query), candidates: [] }
+    : await getMemorySearchCandidates(query, KNOWLEDGE_MEMORY_POLICY, options.signal);
   const memoryResults: SearchKnowledgeItem[] = candidates.map(({ memory: row, relevance }) => ({
     id: row.id, title: row.key, snippet: row.value, source: "memory", score: relevance,
   }));
@@ -64,7 +67,7 @@ export async function searchKnowledge(
     score: keywordScore(queryTokens, `${item.title} ${item.content}`),
   }));
 
-  const documentResults: SearchKnowledgeItem[] = (await searchDocuments(query, topK)).map(item => ({ id: item.chunkId, title: item.filename, snippet: item.snippet, source: "document", score: item.score, reference: documentSourceSchema.parse(item) }));
+  const documentResults: SearchKnowledgeItem[] = (await searchDocuments(query, topK, options.collections)).map(item => ({ id: item.chunkId, title: item.filename, snippet: item.snippet, source: "document", score: item.score, reference: documentSourceSchema.parse(item) }));
   const ranked = rankByScore([...documentResults, ...memoryResults, ...builtinResults], (item) => item.score, topK)
     .map((item) => ({
       ...item,

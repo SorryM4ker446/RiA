@@ -37,8 +37,10 @@ export async function summarizeOlderTurns(params: {
   const lastCovered = older.at(-1);
   if (older.length < SUMMARY_TRIGGER_MESSAGES / 2 || !lastCovered) return null;
   // Already covered by a summary: nothing new to fold in.
-  const existing = await db.chat.findUnique({ where: { id: params.chatId }, select: { summaryUpToMessageId: true, summary: true } });
-  if (existing?.summary && existing.summaryUpToMessageId === lastCovered.id) return null;
+  const existing = await db.chat.findUnique({ where: { id: params.chatId }, select: { summaryUpToMessageId: true, summary: true, summaryModelId: true } });
+  if (existing?.summary && existing.summaryUpToMessageId === lastCovered.id) {
+    return { summary: existing.summary, upToMessageId: lastCovered.id, modelId: existing.summaryModelId?.split(":").slice(1).join(":") ?? "" };
+  }
 
   const chosen = await preferredModel("chat").catch(() => null);
   if (!chosen) return null;

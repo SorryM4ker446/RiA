@@ -92,7 +92,7 @@ export function useTools({ setMessages, ensureActiveChatId, loadChats, selectedC
         clientMessageId: userMessageId,
       });
 
-      const payload = await chatApi.runTool(params.tool, params.input, selectedChatModel);
+      const payload = await chatApi.runTool(params.tool, params.input, selectedChatModel, chatId);
       const summary =
         typeof payload.assistantText === "string" && payload.assistantText.trim()
           ? payload.assistantText.trim()

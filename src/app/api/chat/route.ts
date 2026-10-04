@@ -18,6 +18,7 @@ import { NextRequest } from "next/server";
 import { formatDocumentContext, searchDocuments } from "@/lib/documents/retrieval";
 import { listPublicToolCatalog } from "@/tools/catalog";
 import { documentSourceSchema } from "@/lib/documents/types";
+import { decodeDocumentScope } from "@/lib/documents/scope";
 
 async function POSTHandler(req: NextRequest) {
   try {
@@ -64,7 +65,7 @@ async function POSTHandler(req: NextRequest) {
 
     // A conversation that named its document topics only draws on those; an
     // empty scope means every topic, as before.
-    const scope = (conversation.chat.documentScope ?? "").split("|").filter(Boolean);
+    const scope = decodeDocumentScope(conversation.chat.documentScope);
     // Long conversations are compressed by a model-written summary that covers
     // the older turns and names the last message it includes. The bounded
     // excerpts stay in the prompt either way, and a summary never replaces the
@@ -94,7 +95,7 @@ async function POSTHandler(req: NextRequest) {
     // A run exists only for a turn that can actually use tools. Creating one
     // for a plain answer would fill the record with empty runs that did nothing.
     const run = toolsEnabled
-      ? await startRun({ chatId: conversation.chat.id, goal: latestUserMessage?.text ?? t("chat.run.goalFromConversation") }).catch(() => null)
+      ? await startRun({ chatId: conversation.chat.id, goal: latestUserMessage?.text ?? t("chat.run.goalFromConversation") })
       : null;
 
     return await streamChatResponse({

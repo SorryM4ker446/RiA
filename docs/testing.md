@@ -113,6 +113,28 @@ These tests do not certify every real OpenRouter model, network outage behavior,
 
 ## Chat interaction regressions
 
+`tests/server/tool-contracts.test.ts` checks disabled-memory write refusal,
+atomic step reservations across concurrent tool sets, refusal after reservation
+failure, exact collection names, cached summary reuse without another model
+call, and model-removal waiting through stream completion, failure and
+cancellation. Backup tests cover escaped scopes; browser tests select a
+collection containing `|` and retain its selection after reload. These tests
+run with the existing CI commands and need no paid-provider credentials.
+
+`tests/server/deepseek-tools.test.ts` exercises the real DeepSeek adapter, AI SDK
+tool loop, chat route and temporary SQLite database against a local protocol
+fixture. It checks that streamed and persisted assistant message IDs agree and
+covers task approval, denial, duplicate approval refusal, persisted
+tool output, and automatic/manual search respecting collection and memory
+settings. Adapter tests also check complete tool-call events, interleaved argument
+fragments, and refusal to execute a truncated stream.
+
+`tests/e2e/tool-execution.spec.ts` verifies that a response containing only a task
+call displays approval controls immediately, creates exactly one task after
+approval, updates the task panel, and survives reload. It also imports real text
+documents and checks scoped tool results and citation links. Provider responses
+are deterministic HTTP fixtures; these are not live-provider certification.
+
 `tests/e2e/chat-startup.spec.ts` covers three paths that had no automated protection before:
 
 - **An unsent draft** is parked when the conversation is switched away, restored when it is switched back, still there after a reload, and cleared once a sent message has actually been answered.
@@ -122,6 +144,14 @@ These tests do not certify every real OpenRouter model, network outage behavior,
 `tests/e2e/media-storage.spec.ts` covers image generation and attachment upload persistence and protected reads.
 
 ## Interface walkthrough
+
+`tests/server/scheduled-workspace.test.ts` uses the real model middleware with a
+deterministic provider adapter. It verifies restore deferral without consuming
+a due job, paused schedules, mutual exclusion during generation, exactly one
+usage record with configured token pricing, current-total prompts, and gate
+release on provider failure. Backup tests round-trip the maximum accepted
+collection scope; directory-grant tests reject an approval bound to a different
+folder. These tests run under the existing `test:server` CI command.
 
 `tests/e2e/interface-walkthrough.spec.ts` captures the build at the sizes the acceptance list names: 1440px and 390px widths, light and dark themes, 125% and 150% text scaling, keyboard focus, and scrolled to the top.
 

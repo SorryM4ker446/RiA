@@ -78,8 +78,8 @@ async function waitForModelLeases(key: string) {
 
 /**
  * Authorize a provider call at the same settings boundary as model mutations.
- * The provider operation is invoked before the settings lock is released, so
- * removal cannot slip between the membership check and provider submission.
+ * The lease is acquired under the same lock as removal. A removal that starts
+ * after acquisition waits for its release before changing membership.
  * The lease remains until that operation settles; model removal waits for the
  * active call, but it does not cancel or interrupt the provider request.
  *
@@ -87,9 +87,15 @@ async function waitForModelLeases(key: string) {
  * entry never waits on — or is blocked by — an unrelated model with the same id.
  */
 export async function withModelLease<T>(mode: LibraryMode, ref: ModelRef, operation: (model: ModelLibraryItem) => PromiseLike<T> | T): Promise<T> {
+  const lease = await acquireModelLease(mode, ref);
+  try { return await operation(lease.model); }
+  finally { await lease.release(); }
+}
+
+/** The consumer owns this lease until its provider stream terminates. */
+export async function acquireModelLease(mode: LibraryMode, ref: ModelRef) {
   const key = modelRefKey(ref);
-  let result!: Promise<T>;
-  await withModelSettingsLock(async () => {
+  const model = await withModelSettingsLock(async () => {
     if (settingsLock.removingModels.has(key)) {
       throw new ApiError({ code: "CONFIGURATION_ERROR", message: `${t("lib.models.modelWord")} ${ref.modelId} ${t("lib.models.removingSuffix")}` });
     }
@@ -97,14 +103,10 @@ export async function withModelLease<T>(mode: LibraryMode, ref: ModelRef, operat
     const model = libraryModel(settings, mode, ref);
     if (!model) throw new ApiError({ code: "CONFIGURATION_ERROR", message: `${t("lib.models.modelWord")} ${ref.modelId} ${t("lib.models.notInLibrary")}${mode}${t("lib.models.notInLibraryHint")}` });
     incrementLease(key);
-    try { result = Promise.resolve(operation(model)); }
-    catch (error) {
-      decrementLease(key);
-      throw error;
-    }
+    return model;
   });
-  try { return await result; }
-  finally { await releaseModelLease(key); }
+  let release: Promise<void> | undefined;
+  return { model, release: () => release ??= releaseModelLease(key) };
 }
 
 async function persist(tx: PreferenceTx, settings: ModelPreferences) {

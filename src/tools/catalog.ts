@@ -6,7 +6,7 @@ import { getChatModel } from "@/lib/ai/client";
 import { t, tf, formatDateTime } from "@/lib/locale";
 import { saveMemory } from "@/lib/memory/store";
 import { preferredModel, getModelPreferences } from "@/lib/models/preferences";
-import { checkRunAllowance, finishRun, recordStep, updateStep, addRunCost, nextStepPositionForRun, type StepState } from "@/lib/agent/runs";
+import { reserveRunStep, updateStep, type StepState } from "@/lib/agent/runs";
 import { getModelProvider } from "@/lib/models/providers";
 import type { ModelRef } from "@/lib/models/preferences-schema";
 import {
@@ -42,6 +42,8 @@ type ToolExecutionContext<Input> = {
   modelRef?: ModelRef;
   trigger: ToolTriggerType;
   signal?: AbortSignal;
+  documentCollections?: string[];
+  usesMemory?: boolean;
 };
 
 type ToolBudgetExceededContext = {
@@ -392,7 +394,10 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       ],
     },
     inputSchema: saveMemoryInputSchema,
-    execute: async ({ input }) => saveMemory({ key: input.key, value: input.value, score: 0.9 }),
+    execute: async ({ input, usesMemory }) => {
+      if (usesMemory === false) throw new ApiError({ code: "VALIDATION_ERROR", message: t("tools.saveMemory.disabled") });
+      return saveMemory({ key: input.key, value: input.value, score: 0.9 });
+    },
     buildAssistantText: ({ output, input }) => {
       const result = output as { key: string };
       return tf("tools.saveMemory.saved", { key: result.key, value: input.value });
@@ -432,7 +437,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       ],
     },
     inputSchema: searchKnowledgeInputSchema,
-    execute: async ({ input }) => searchKnowledge(input),
+    execute: async ({ input, documentCollections, usesMemory, signal }) => searchKnowledge(input, { collections: documentCollections, usesMemory, signal }),
     buildAssistantText: async ({ output, modelRef }) =>
       buildSearchAssistantText({
         result: output,
@@ -886,24 +891,17 @@ async function skipReasonFor(toolId: string, error: unknown): Promise<ToolSkipRe
   return null;
 }
 
-export async function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: string[]; runId?: string | null; usesMemory?: boolean }): Promise<ToolSet> {
+export async function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: string[]; runId?: string | null; usesMemory?: boolean; documentCollections?: string[] }): Promise<ToolSet> {
   const workspaceId = LOCAL_WORKSPACE_ID;
   const allowed = new Set(options?.toolIds ?? []);
   const hasRestriction = allowed.size > 0;
   const resultBudgetUsed = new Map<string, number>();
   const runId = options?.runId ?? null;
-  let stepCount = await nextStepPositionForRun(runId) - 1;
-  // Positions are per run, not per tool, so the record reads as the sequence
-  // that actually happened rather than one counter per tool. They are counted
-  // from what the run already holds, not from zero, because a second tool set
-  // for the same run used to restart at 1 and collide with the unique
-  // (runId, position) index — and that write is swallowed, so the step was lost
-  // rather than reported.
-  const nextStepPosition = () => ++stepCount;
   // An unconfigured optional tool is filtered out here rather than mounted and
   // failed later. The model never sees it, so it cannot call it, retry it, or
   // report a search that never happened.
-  const candidates = listToolDescriptors("chat").filter((tool) => (hasRestriction ? allowed.has(tool.id) : true));
+  const candidates = listToolDescriptors("chat").filter((tool) =>
+    (hasRestriction ? allowed.has(tool.id) : true) && !(tool.id === "saveMemory" && options?.usesMemory === false));
   const availability = await Promise.all(candidates.map((tool) => toolAvailability(tool.id)));
   const descriptors = candidates.filter((_, index) => availability[index].available);
 
@@ -931,26 +929,12 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; toolIds
         // A run that has been stopped, or has spent its budget, does not get to
         // start another step. The refusal is returned as a result so the model
         // can finish with what it has instead of retrying into a wall.
-        if (runId) {
-          // Fails **closed**. runs.ts states the policy: a budget that cannot be
-          // read refuses, because an unbounded run is the thing worth preventing.
-          // This used to fail open, so a locked SQLite file or a server restart
-          // under an in-flight turn handed a stopped run its side effects anyway.
-          const allowance = await checkRunAllowance(runId).catch(() => ({ allowed: false, reason: "run-budget-unreadable" }));
-          if (!allowance.allowed) {
-            return skippedResult(tool, input, allowance.reason ?? "run-stopped");
-          }
-        }
-        const step = runId
-          ? await recordStep({
-            runId,
-            position: nextStepPosition(),
-            kind: "tool" as const,
-            toolName: tool.id,
-            state: "running" as const,
-            input: summarizeForRecord(input),
-          }).catch(() => null)
+        const reservation = runId
+          ? await reserveRunStep({ runId, toolName: tool.id, input: summarizeForRecord(input) })
+              .catch(() => ({ step: null, reason: "run-budget-unreadable" }))
           : null;
+        if (reservation && !reservation.step) return skippedResult(tool, input, reservation.reason ?? "run-stopped");
+        const step = reservation?.step ?? null;
         /**
          * Closes the recorded step, exactly once, on every exit from this
          * wrapper.
@@ -1116,6 +1100,8 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; toolIds
               modelRef: options?.modelRef,
               trigger: "auto",
               signal,
+              documentCollections: options?.documentCollections,
+              usesMemory: options?.usesMemory,
             });
           } catch (error) {
             // The configuration can disappear between building the tool set and

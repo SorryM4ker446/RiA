@@ -12,6 +12,9 @@ import { assertToolConfiguration, getToolDescriptor, isToolSupportedInMode, type
 import { persistToolMemory } from "@/tools/memory-policy";
 import { modelInLibrary, preferredModel } from "@/lib/models/preferences";
 import { t } from "@/lib/locale";
+import { db } from "@/db";
+import { identifierSchema } from "@/lib/server/request-schemas";
+import { decodeDocumentScope } from "@/lib/documents/scope";
 
 const TOOL_DEBUG = process.env.TOOL_DEBUG === "1";
 
@@ -20,6 +23,7 @@ const runToolSchema = z.strictObject({
   input: z.json(),
   model: chatModelSchema.optional(),
   mode: z.literal("chat"),
+  chatId: identifierSchema.optional(),
 });
 
 async function POSTHandler(req: NextRequest) {
@@ -75,6 +79,11 @@ async function POSTHandler(req: NextRequest) {
       });
     }
 
+    const conversation = parsed.data.chatId
+      ? await db.chat.findUnique({ where: { id: parsed.data.chatId }, select: { documentScope: true, ephemeral: true } })
+      : null;
+    if (parsed.data.chatId && !conversation) throw new ApiError({ code: "NOT_FOUND", message: "Conversation was not found" });
+    const usesMemory = !conversation?.ephemeral;
     await assertToolConfiguration(toolId);
     const modelRef = await preferredModel("chat", parsed.data.model);
     const model = await modelInLibrary("chat", modelRef);
@@ -105,6 +114,9 @@ async function POSTHandler(req: NextRequest) {
       input: preparedParsedInput.data,
       modelRef,
       trigger: "manual",
+      documentCollections: decodeDocumentScope(conversation?.documentScope),
+      usesMemory,
+      signal: req.signal,
     });
     const requestId =
       data && typeof data === "object" && "requestId" in data && typeof data.requestId === "string"
@@ -122,24 +134,26 @@ async function POSTHandler(req: NextRequest) {
     ).trim();
 
     try {
-      const memoryResult = await persistToolMemory({
-        workspaceId: LOCAL_WORKSPACE_ID,
-        toolId,
-        trigger: "manual",
-        state: "output-available",
-        input: preparedParsedInput.data,
-        output: data,
-        assistantText,
-        modelRef,
-      });
-
-      if (TOOL_DEBUG) {
-        console.info("tools.run.memory", {
+      if (usesMemory) {
+        const memoryResult = await persistToolMemory({
+          workspaceId: LOCAL_WORKSPACE_ID,
           toolId,
           trigger: "manual",
-          writeDecision: memoryResult.reason,
-          written: memoryResult.written,
+          state: "output-available",
+          input: preparedParsedInput.data,
+          output: data,
+          assistantText,
+          modelRef,
         });
+
+        if (TOOL_DEBUG) {
+          console.info("tools.run.memory", {
+            toolId,
+            trigger: "manual",
+            writeDecision: memoryResult.reason,
+            written: memoryResult.written,
+          });
+        }
       }
     } catch (memoryError) {
       console.warn("tools.run memory.persist warning", normalizeApiError(memoryError).code);

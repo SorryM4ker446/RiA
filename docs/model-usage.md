@@ -1,5 +1,15 @@
 # Model settings and usage
 
+Model removal waits for an active chat stream to finish, fail or be cancelled,
+including the time after the provider returns its stream object. A submission
+failure releases the lease as well. This does not cancel an ongoing response;
+new calls cannot acquire a lease once removal begins.
+
+Tool-enabled turns require a stored run. Each tool step atomically checks its
+run budget and reserves a unique step position before executing. Concurrent
+tool calls share that budget, and a failed reservation executes no side effect.
+Completed-step reporting remains best-effort after the operation has happened.
+
 Open **模型与用量** from the chat sidebar or Settings. Browser and Electron share the same local SQLite preferences. Browse the official OpenRouter chat, image, video and embedding catalogs, then add models to **我的模型**. Only library members appear in chat selectors or pass server-side call validation.
 
 A model is identified by a **reference**: a provider plus that provider's model id (`{ providerId, modelId }`). The two halves are not interchangeable — the same underlying model reached through OpenRouter and reached directly are separate library entries with separate credentials, pricing and availability, and each keeps its own default, fallback and rate entry. Every call path (chat, image, video, media regeneration, embeddings, tool synthesis, fallback) authorizes against that pair. New installations have an empty library and no selected defaults. Explicitly created new conversations use configured defaults; existing conversations retain their local controls.
@@ -67,6 +77,14 @@ A cached read is not an ordinary input token: providers bill it differently, and
 The known-cost total omits unknown costs and shows the number of unknown attempts beside it. A failed attempt does not get a synthetic per-request charge; an upstream-reported charge is retained. Usage recording is best effort: a storage failure logs the sanitized `model.usage.write_failed` event without discarding a successful model answer. Process termination or provider omissions can leave missing usage. This is an estimate/history view, not a complete billing ledger; check the provider's bill for payment decisions.
 
 ## Local API and configuration
+
+Daily and weekly workspace overviews use the existing model wrapper and appear
+in usage history, including failed attempts and unknown costs. Each scheduled
+execution has its own request ID. Overviews use current workspace totals, not
+activity within the last day or week; the cadence controls when the snapshot is
+generated. Each call has no retries, a 60-second abort deadline and a maximum of
+512 output tokens. Conversation and message rows are committed together after
+generation succeeds. Earlier generated conversations are retained unchanged.
 
 `GET /api/models/catalog?mode=chat|image|video|embedding` returns the normalized catalogs grouped by provider (`{ catalogs: { openrouter: { chat, image, video, embedding } } }`) together with `providers`, which reports each provider's display name and whether this instance holds its credentials. `POST /api/models/catalog` refreshes one category (`{ "mode": "image" }`) or everything (`{}`); both accept an optional `providerId`. `POST /api/models/library` accepts `{ "action": "add"|"remove", "model": { "providerId", "modelId" } }`. `GET /api/models` returns `{ data, availability, recentFailures }`, where `availability` is keyed by `provider:model`; `PUT /api/models` accepts a complete strict preference object within 128 KiB and returns `{ data }`. Selected models and fallbacks must be compatible library members, fallback must differ from primary, and prices must be finite nonnegative numbers (maximum 1,000,000) or null. At most 100 model rate entries are accepted. `GET /api/usage` returns `{ data: { recent, totals, days } }`; it cannot query outside the local workspace. Responses are private/no-store and follow the normal local access checks.
 

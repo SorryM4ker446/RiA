@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { generationRecipeSchema } from "@/lib/media/generation-recipe";
 import { documentPagesSchema } from "@/lib/documents/types";
+import { MAX_DOCUMENT_SCOPE_LENGTH, decodeDocumentScope } from "@/lib/documents/scope";
 import { legacyPreferencesSchema, preferencesSchema, providerAgnosticPreferencesSchema, providerIdSchema } from "@/lib/models/preferences-schema";
 
 export const BACKUP_LIMITS = { bytes: 512 * 1024 * 1024, manifest: 32 * 1024 * 1024, chunk: 8 * 1024 * 1024, rows: 10_000, stagingAgeMs: 60 * 60_000 };
@@ -11,7 +12,10 @@ const count = z.number().int().nonnegative();
 const text = z.string().max(2 * 1024 * 1024);
 const timestamps = { createdAt: date, updatedAt: date };
 const message = z.strictObject({ id, chatId: id, clientMessageId: id.nullable(), role: z.enum(["user", "assistant", "system"]), content: text, status: z.enum(["pending", "success", "error"]), createdAt: date });
-const chat = z.strictObject({ id, title: z.string().max(4000), pinned: z.boolean(), archived: z.boolean(), ephemeral: z.boolean().optional(), documentScope: z.string().max(200).optional(), summary: z.string().nullable().optional(), summaryUpToMessageId: z.string().nullable().optional(), summaryModelId: z.string().nullable().optional(), lastMessageAt: date, ...timestamps, tags: z.array(z.strictObject({ chatId: id, label: z.string().min(1).max(40) })).max(8), messages: z.array(message).max(BACKUP_LIMITS.rows) });
+const storedScope = z.string().max(MAX_DOCUMENT_SCOPE_LENGTH).refine(value => {
+  try { decodeDocumentScope(value); return true; } catch { return false; }
+}, "Invalid document collection scope");
+const chat = z.strictObject({ id, title: z.string().max(4000), pinned: z.boolean(), archived: z.boolean(), ephemeral: z.boolean().optional(), documentScope: storedScope.optional(), summary: z.string().nullable().optional(), summaryUpToMessageId: z.string().nullable().optional(), summaryModelId: z.string().nullable().optional(), lastMessageAt: date, ...timestamps, tags: z.array(z.strictObject({ chatId: id, label: z.string().min(1).max(40) })).max(8), messages: z.array(message).max(BACKUP_LIMITS.rows) });
 // Provenance travels with the entry: restoring a memory the user never
 // accepted must not turn it into one they are treated as having accepted.
 const memory = z.strictObject({ id, key: z.string().max(2000), value: text, score: z.number().nullable(), source: z.enum(["manual", "assistant"]).optional(), confirmed: z.boolean().optional(), lastUsedAt: date.nullable().optional(), embedding: z.array(z.number()).max(16_384).nullable(), embeddingModelId: z.string().max(200).nullable().optional(), embeddingModelProvider: providerIdSchema.nullable().optional(), ...timestamps });

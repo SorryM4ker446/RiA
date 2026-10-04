@@ -48,9 +48,9 @@ export const chatApi = {
   editMessage: (chatId: string, messageId: string, content: string) => requestJson<unknown>(messagePath(chatId, messageId), t("chatApi.saveEditFailed"), jsonBody("PATCH", { content })),
   deleteMessage: (chatId: string, messageId: string) => requestJson<unknown>(messagePath(chatId, messageId), t("chatApi.deleteMessageFailed"), { method: "DELETE" }),
   listTools: () => requestJson<Data<ToolCatalogItem[]>>("/api/tools?mode=chat", t("chatApi.listToolsFailed")),
-  async runTool(tool: string, input: Record<string, unknown>, model: ModelRef) {
+  async runTool(tool: string, input: Record<string, unknown>, model: ModelRef, chatId?: string) {
     const failed = `${tool} ${t("chatApi.runToolFailed")}`;
-    const payload = await requestJson<ToolResult>("/api/tools/run", failed, jsonBody("POST", { tool, input, model, mode: "chat" }));
+    const payload = await requestJson<ToolResult>("/api/tools/run", failed, jsonBody("POST", { tool, input, model, mode: "chat", ...(chatId ? { chatId } : {}) }));
     if (payload.data === undefined) throw new Error(failed);
     return payload;
   },

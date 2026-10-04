@@ -1,4 +1,5 @@
 import { db } from "@/db";
+import type { Prisma } from "@prisma/client";
 import { ApiError } from "@/lib/server/api-error";
 
 /**
@@ -9,10 +10,9 @@ import { ApiError } from "@/lib/server/api-error";
  * is bounded by a budget that is enforced rather than assumed, and stopping the
  * remaining steps is a recorded fact rather than a disappearance.
  *
- * Everything here is best-effort bookkeeping. A run that cannot be written must
- * never be the reason an answer fails, so failures are swallowed where the work
- * itself has already happened — but a budget that cannot be read does refuse,
- * because an unbounded run is the thing worth preventing.
+ * Starting a tool-enabled turn and reserving a step require database success.
+ * Reporting an outcome after the work already happened is best-effort. An
+ * unreadable or unrecordable budget must never authorize a side effect.
  */
 
 export type RunStatus = "running" | "waiting_approval" | "paused" | "succeeded" | "failed" | "cancelled";
@@ -51,19 +51,38 @@ export async function startRun(params: { chatId: string | null; goal: string; bu
  * error: the answer continues with what it already has.
  */
 export async function checkRunAllowance(runId: string): Promise<{ allowed: boolean; reason: string | null }> {
-  const run = await db.agentRun.findUnique({ where: { id: runId } });
+  return readRunAllowance(db, runId);
+}
+
+async function readRunAllowance(client: Prisma.TransactionClient, runId: string): Promise<{ allowed: boolean; reason: string | null }> {
+  const run = await client.agentRun.findUnique({ where: { id: runId } });
   if (!run) return { allowed: false, reason: "run-missing" };
   if (run.status === "cancelled" || run.status === "paused") return { allowed: false, reason: `run-${run.status}` };
   if (Date.now() - run.startedAt.getTime() > run.deadlineMs) {
-    await finishRun(runId, "failed", "deadline-exceeded").catch(() => undefined);
+    await client.agentRun.updateMany({ where: { id: runId, finishedAt: null }, data: { status: "failed", stopReason: "deadline-exceeded", finishedAt: new Date() } });
     return { allowed: false, reason: "deadline-exceeded" };
   }
-  const steps = await db.agentStep.findMany({ where: { runId }, select: { state: true } });
+  const steps = await client.agentStep.findMany({ where: { runId }, select: { state: true } });
   if (steps.length >= run.maxSteps) return { allowed: false, reason: "step-budget" };
   const failures = steps.filter((step) => step.state === "failed").length;
   if (failures >= run.maxFailures) return { allowed: false, reason: "failure-budget" };
   if (run.maxCostUsd !== null && run.spentCostUsd >= run.maxCostUsd) return { allowed: false, reason: "cost-budget" };
   return { allowed: true, reason: null };
+}
+
+/** Reserve budget and a unique position before any tool side effect. */
+export async function reserveRunStep(params: { runId: string; toolName: string; input?: unknown }) {
+  return db.$transaction(async tx => {
+    const allowance = await readRunAllowance(tx, params.runId);
+    if (!allowance.allowed) return { step: null, reason: allowance.reason };
+    const latest = await tx.agentStep.aggregate({ where: { runId: params.runId }, _max: { position: true } });
+    const step = await tx.agentStep.create({ data: {
+      runId: params.runId, position: (latest._max.position ?? 0) + 1,
+      kind: "tool", toolName: params.toolName, state: "running",
+      ...(params.input === undefined ? {} : { input: params.input as Prisma.InputJsonValue }),
+    } });
+    return { step, reason: null };
+  });
 }
 
 /**

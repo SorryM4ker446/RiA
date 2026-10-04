@@ -1,5 +1,12 @@
 # Document knowledge
 
+Automatic `searchKnowledge` tool calls and manual searches from a conversation
+honor that conversation's selected collections. An empty selection searches all
+collections. In a conversation with memory disabled, these tools do not read or
+write long-term memories; imported documents remain available. Manual tool API
+requests may include `chatId` so the server can derive these settings from the
+stored conversation. A missing supplied conversation returns 404.
+
 Open **知识库管理 → 文档知识库** to import a PDF, UTF-8 Markdown (`.md`), UTF-8 text (`.txt`) or Word `.docx` file. The original file is not retained: SQLite stores the extracted text, filename, PDF page numbers and a local search index. Keep the original separately if you need its formatting or binary contents.
 
 Importing a file with the same exact filename updates that user's document. Identical extracted text leaves the index unchanged; changed paragraphs add/remove chunks while unaffected chunks keep their IDs. **重新索引** rebuilds the search terms from the saved text. It does not rerun file extraction; import the original again to apply a parser change. Reindex after a runtime upgrade if its Unicode segmentation has changed. Index replacement is transactional, so validation failures and failed writes preserve the working version.
@@ -51,6 +58,19 @@ All endpoints use the existing [authentication, Origin and error contracts](api-
 PDF.js, Mammoth and JSZip are application dependencies, pinned in the lockfile. The worker uses native Node resolution because bundler module IDs are not filesystem paths. Next's output tracing explicitly includes these packages and their installed runtime dependencies, including PDF character maps/fonts and the optional platform canvas binding when present. Keep that tracing synchronized when upgrading parsers. Browser integration tests import actual generated PDF/DOCX files through the production standalone service; Electron smoke tests repeat binary imports and verify text/index retention after service restart. No paid provider is used by these checks.
 
 ## Memory provenance and candidates
+
+The conversation's memory switch also controls the explicit `saveMemory` tool:
+it is omitted from automatic tools when memory is disabled, and manual calls
+return a validation error without writing. Other conversations can still save
+memory normally.
+
+Collection names containing `|` are supported. Such scopes are stored as a
+versioned JSON string; ordinary scopes retain the previous representation. The
+toolbar, chat retrieval, tool retrieval and backups share the same decoder.
+Existing scopes remain readable. An old scope that used `|` inside a name was
+already ambiguous; clear it and select the intended collection again. No
+document is renamed or deleted. Backups containing the new representation
+require this version or a newer version to restore the scope correctly.
 
 Every memory records where it came from: added by hand, or inferred by the assistant. An inferred entry is stored as a **candidate**: visible, editable and deletable in the knowledge page, but it does not enter the context of any answer until you accept it. An inference therefore does not become a fact on the next turn, and it never takes effect where you cannot see it.
 

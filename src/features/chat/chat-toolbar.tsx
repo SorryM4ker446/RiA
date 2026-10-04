@@ -7,6 +7,7 @@ import { Sparkles } from "lucide-react";
 import type { ChatState } from "@/features/chat/use-chat-state";
 import { t } from "@/lib/locale";
 import { cn } from "@/lib/utils/cn";
+import { decodeDocumentScope } from "@/lib/documents/scope";
 
 type Props = Pick<ChatState, "activeChat" | "isPending" | "modelMode" | "appendQuickPrompt" | "toggleEphemeral" | "isEphemeralSaving" | "documentTopics" | "setDocumentScope" | "loadDocumentTopics">;
 export function ChatToolbar({ activeChat, isPending, modelMode, appendQuickPrompt, toggleEphemeral, isEphemeralSaving, documentTopics, setDocumentScope, loadDocumentTopics }: Props) {
@@ -77,7 +78,7 @@ export function ChatToolbar({ activeChat, isPending, modelMode, appendQuickPromp
           {t("chat.scope.all")}
         </button>
         {documentTopics.map((topic) => {
-          const current = (activeChat?.documentScope ?? "").split("|").filter(Boolean);
+          const current = decodeDocumentScope(activeChat?.documentScope);
           const selected = current.includes(topic);
           return (
             <button

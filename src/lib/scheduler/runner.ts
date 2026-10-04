@@ -9,7 +9,7 @@ import {
   type ScheduledJobKindValue
 } from "@/lib/scheduler/jobs";
 import { raiseNotice } from "@/lib/scheduler/notices";
-import { retainDataOperation } from "@/lib/server/data-operations";
+import { runBackgroundDataOperation } from "@/lib/server/data-operations";
 import { ApiError } from "@/lib/server/api-error";
 
 /*
@@ -52,45 +52,6 @@ async function runBackupReminder(now: Date): Promise<JobOutcome> {
   return { ok: true, detail };
 }
 
-/** How long a scheduled backup waits for a restore in flight before giving up. */
-const BACKUP_GATE_WAIT_MS = 30_000;
-const BACKUP_GATE_STEP_MS = 250;
-
-/**
- * Take the workspace for the length of a read.
- *
- * A backup needs the workspace not to be *replaced* under it, not the workspace
- * to be idle. `retainDataOperation` is that gate: it refuses while a restore
- * holds the exclusive lock, and it keeps a restore from starting part-way
- * through, which is the whole of what a backup depends on.
- *
- * Asking for the exclusive lock instead meant a backup needed nothing else to
- * be happening at all, and `protectDataOperation` holds that read for the whole
- * of a streaming chat turn. So a daily backup was lost whenever the user
- * happened to be mid-conversation at the scheduled minute, and because a
- * failed run is marked done until its next turn, the backup was then a day away
- * with a "backup-failed" notice the user could do nothing about.
- *
- * A restore in flight is the one case left, and it is both rare and short, so
- * it is waited out rather than dropped. Past the window the run is given up and
- * the failure is reported as what it is.
- */
-async function withBackupWorkspace<T>(operation: () => Promise<T>): Promise<T> {
-  const deadline = Date.now() + BACKUP_GATE_WAIT_MS;
-  for (;;) {
-    let release: (() => void) | null = null;
-    try {
-      release = retainDataOperation();
-    } catch (error) {
-      const restoring = error instanceof ApiError && error.code === "SERVICE_UNAVAILABLE";
-      if (!restoring || Date.now() >= deadline) throw error;
-      await new Promise((resolve) => setTimeout(resolve, BACKUP_GATE_STEP_MS));
-      continue;
-    }
-    try { return await operation(); } finally { release(); }
-  }
-}
-
 async function runScheduledBackup(): Promise<JobOutcome> {
   try {
     // The local service has one database and one media store, and a backup reads
@@ -98,7 +59,7 @@ async function runScheduledBackup(): Promise<JobOutcome> {
     // exclusive one so a conversation in progress cannot cost the user a
     // scheduled backup, and a restore can still neither overlap it nor begin
     // while it runs.
-    const created = await withBackupWorkspace(() => createAccountBackup());
+    const created = await createAccountBackup();
     // A successful backup clears the reminder rather than replacing it. Raising
     // a confirmation on the reminder's own fingerprint would only produce a
     // notice this next line immediately marks read, and would let the following
@@ -128,11 +89,11 @@ async function runScheduledBackup(): Promise<JobOutcome> {
  * prompt is fixed and the call is never retried, so a run costs exactly one
  * request whatever the provider decides to do with it.
  *
- * The daily and weekly forms are the same function with a different window and
+ * The daily and weekly forms are the same snapshot with a different cadence and
  * a different fingerprint, so there is one place where the cost rule lives.
  */
-async function runBrief(options: { now: Date; span: string; fingerprint: string; kind: string }): Promise<JobOutcome> {
-  const { now, span, fingerprint, kind } = options;
+async function runBrief(options: { now: Date; fingerprint: string; kind: string }): Promise<JobOutcome> {
+  const { now, fingerprint, kind } = options;
   const { preferredModel } = await import("@/lib/models/preferences");
   const { generateText } = await import("ai");
   const { getChatModel } = await import("@/lib/ai/client");
@@ -158,26 +119,31 @@ async function runBrief(options: { now: Date; span: string; fingerprint: string;
   const text = await generateText({
     model: getChatModel(modelRef),
     maxRetries: 0,
-    system: "You write a short note for one person. No preamble, no headings beyond one line. Two or three sentences at most. Match the language of the numbers you are given.",
-    prompt: `Over ${span}: ${open} task(s) open, ${done} done, ${documents} knowledge document(s), ${memories} remembered fact(s). Write the note.`
+    abortSignal: AbortSignal.timeout(60_000),
+    maxOutputTokens: 512,
+    system: "Write a short workspace status snapshot in Simplified Chinese. Two or three sentences at most. These are current totals, not activity during a day or week. Do not infer when tasks were completed or documents and memories were added.",
+    prompt: `Current workspace totals as of ${now.toISOString()}: ${open} task(s) open, ${done} done, ${documents} knowledge document(s), ${memories} remembered fact(s). Write the status snapshot.`
   });
 
-  const conversation = await db.chat.create({ data: { title: kind === "weeklySummary" ? "Weekly summary" : "Daily brief" } });
-  await db.message.create({
-    data: {
-      chatId: conversation.id,
-      role: "user",
-      content: `${kind === "weeklySummary" ? "Weekly summary" : "Daily brief"} for ${now.toISOString().slice(0, 10)}`,
-      status: "success"
-    }
-  });
-  await db.message.create({
-    data: {
-      chatId: conversation.id,
-      role: "assistant",
-      content: text.text,
-      status: "success",
-    }
+  const conversation = await db.$transaction(async (tx) => {
+    const conversation = await tx.chat.create({ data: { title: kind === "weeklySummary" ? "每周工作区概览" : "每日工作区概览" } });
+    await tx.message.create({
+      data: {
+        chatId: conversation.id,
+        role: "user",
+        content: `截至 ${now.toISOString()} 的工作区状态概览（当前累计数量，不代表今日或本周新增）。`,
+        status: "success"
+      }
+    });
+    await tx.message.create({
+      data: {
+        chatId: conversation.id,
+        role: "assistant",
+        content: text.text,
+        status: "success",
+      }
+    });
+    return conversation;
   });
 
   await raiseNotice({
@@ -191,11 +157,11 @@ async function runBrief(options: { now: Date; span: string; fingerprint: string;
 }
 
 async function runDailyBrief(now: Date): Promise<JobOutcome> {
-  return runBrief({ now, span: "today", fingerprint: now.toISOString().slice(0, 10), kind: "dailyBrief" });
+  return runBrief({ now, fingerprint: now.toISOString().slice(0, 10), kind: "dailyBrief" });
 }
 
 async function runWeeklySummary(now: Date): Promise<JobOutcome> {
-  return runBrief({ now, span: "the past week", fingerprint: now.toISOString().slice(0, 10), kind: "weeklySummary" });
+  return runBrief({ now, fingerprint: now.toISOString().slice(0, 10), kind: "weeklySummary" });
 }
 
 const RUNNERS: Record<string, (context: { now: Date }) => Promise<JobOutcome>> = {
@@ -213,6 +179,17 @@ const RUNNERS: Record<string, (context: { now: Date }) => Promise<JobOutcome>> =
  * creating a backup never competes with a brief.
  */
 export async function runDueScheduledJob(now = new Date()): Promise<{ id: string; kind: string; outcome: JobOutcome } | null> {
+  try {
+    return await runBackgroundDataOperation(() => executeDueScheduledJob(now));
+  } catch (error) {
+    // Leave due jobs unclaimed while restore owns the workspace. The next poll
+    // re-reads permissions, including schedules paused by that restore.
+    if (error instanceof ApiError && error.code === "SERVICE_UNAVAILABLE") return null;
+    throw error;
+  }
+}
+
+async function executeDueScheduledJob(now: Date) {
   const [claimed] = await claimDueJobs(now);
   if (!claimed) return null;
   const runner = RUNNERS[claimed.kind];
@@ -271,7 +248,7 @@ export function startScheduler(options: { now?: () => Date } = {}) {
       // just claimed it. The tick itself is immediate because a schedule that
       // only fired on the next poll could be up to a minute late, which is long
       // enough for a reminder about backups to arrive after the person asked.
-      void releaseInterruptedJobs(readNow())
+      void runBackgroundDataOperation(() => releaseInterruptedJobs(readNow()))
         .catch(() => 0)
         .then(() => this.tick());
       timer = setInterval(() => void this.tick(), SCHEDULE_LIMITS.pollIntervalMs);

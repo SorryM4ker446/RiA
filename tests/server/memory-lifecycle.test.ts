@@ -210,8 +210,11 @@ test("a long conversation is summarized without losing the original messages", a
   assert.equal(stored.summaryUpToMessageId, result.upToMessageId);
   assert.ok((await db.message.count({ where: { chatId: chat.id } })) >= SUMMARY_TRIGGER_MESSAGES, "the messages are kept");
 
-  // Asked again about the same span, nothing is summarized twice.
-  assert.equal(await summarizeOlderTurns({ chatId: chat.id, messages, keepRecent: 10 }), null);
+  // The caller still receives the cached summary, without another model call.
+  const { languageModel } = await import("../helpers/model-provider");
+  const calls = languageModel.doGenerateCalls.length;
+  assert.deepEqual(await summarizeOlderTurns({ chatId: chat.id, messages, keepRecent: 10 }), result);
+  assert.equal(languageModel.doGenerateCalls.length, calls);
   assert.equal(describeSummaryCoverage({ upToMessageId: stored.summaryUpToMessageId }).includes("摘要"), true);
   assert.equal(describeSummaryCoverage({ upToMessageId: null }).length > 0, true);
 
