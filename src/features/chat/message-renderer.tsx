@@ -14,7 +14,9 @@ import {
   safeJson
 } from "@/features/chat/page-utils";
 import { cn } from "@/lib/utils/cn";
+import { writeToClipboard } from "@/lib/clipboard";
 import {
+  AlertCircle,
   ArrowDown,
   Check,
   Copy,
@@ -106,6 +108,7 @@ export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imag
   // rest kept the position the reader left the previous one in.
   const openedChatIdRef = useRef<string | null | undefined>(undefined);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [refusedMessageId, setRefusedMessageId] = useState<string | null>(null);
 
   /**
    * Copying an answer is a first-class action, not something to be done by
@@ -113,15 +116,15 @@ export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imag
    * cannot be left saying "copied" after the reader has moved on.
    */
   async function copyAnswer(message: { id: string; text: string }) {
-    if (!message.text.trim()) return;
-    try {
-      await navigator.clipboard.writeText(message.text);
-      setCopiedMessageId(message.id);
-      setTimeout(() => setCopiedMessageId((current) => (current === message.id ? null : current)), 2000);
-    } catch {
-      // A clipboard the page may not use is not worth interrupting the answer
-      // for; the text stays selectable.
+    const outcome = await writeToClipboard(message.text);
+    if (outcome === "unavailable") return;
+    if (outcome === "refused") {
+      setRefusedMessageId(message.id);
+      setTimeout(() => setRefusedMessageId((current) => (current === message.id ? null : current)), 2000);
+      return;
     }
+    setCopiedMessageId(message.id);
+    setTimeout(() => setCopiedMessageId((current) => (current === message.id ? null : current)), 2000);
   }
   useEffect(() => {
     const onScroll = () => {
@@ -187,13 +190,28 @@ export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imag
         {t("chat.messages.loadOlder")}
       </Button>
     ) : null}
-    {/* A reload that still has messages on screen keeps them; the skeleton is
-        only for a conversation that has nothing to show yet. */}
+    {/*
+      The skeleton is measured against a real exchange rather than picked to
+      look like a placeholder. It stood three fixed bars tall, so a conversation
+      with four messages arrived by collapsing two hundred pixels of reserved
+      space into its true height — the page jumped on every load, which reads as
+      a flicker even though nothing moved on its own. The bars below use the
+      bubble's own metrics, so the swap changes content and not geometry.
+    */}
     {awaitingFirstHistoryLoad ? (
-      <div className="space-y-3">
-        <Skeleton className="h-16 w-2/3" />
-        <Skeleton className="ml-auto h-16 w-1/2" />
-        <Skeleton className="h-20 w-3/4" />
+      <div className="space-y-4" data-testid="message-skeleton">
+        <div className="flex w-full justify-end">
+          <Skeleton className="h-14 w-2/5 rounded-lg" />
+        </div>
+        <div className="flex w-full justify-start">
+          <Skeleton className="h-24 w-4/5 rounded-lg" />
+        </div>
+        <div className="flex w-full justify-end">
+          <Skeleton className="h-14 w-1/3 rounded-lg" />
+        </div>
+        <div className="flex w-full justify-start">
+          <Skeleton className="h-32 w-3/4 rounded-lg" />
+        </div>
       </div>
     ) : messages.length === 0 ? (
       <div className="empty-state">
@@ -275,14 +293,17 @@ export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imag
                     ) : null}
                     {!isUser && text ? (
                       <Button
-                        aria-label={t("chat.messages.copyAnswer")}
+                        aria-label={refusedMessageId === message.id ? t("chat.messages.copyAnswerRefused") : t("chat.messages.copyAnswer")}
                         onClick={() => void copyAnswer({ id: message.id, text })}
                         size="icon"
+                        title={refusedMessageId === message.id ? t("chat.messages.copyAnswerRefused") : undefined}
                         type="button"
                         variant="ghost"
                       >
                         {copiedMessageId === message.id ? (
                           <Check aria-hidden="true" className="h-3.5 w-3.5 text-success" />
+                        ) : refusedMessageId === message.id ? (
+                          <AlertCircle aria-hidden="true" className="h-3.5 w-3.5 text-destructive" />
                         ) : (
                           <Copy aria-hidden="true" className="h-3.5 w-3.5" />
                         )}
@@ -339,6 +360,9 @@ export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imag
                 </details>
               ) : null}
               {!isEditing && text ? <MarkdownMessage text={text} /> : null}
+              {toolParts.some(part => part.state === "approval-requested") ? (
+                <p role="status" className="mt-2 text-sm text-muted-foreground">{t("chat.messages.approvalPending")}</p>
+              ) : null}
               {webSearchSources.length > 0 ? (
                 <details
                   className={cn(
@@ -468,6 +492,7 @@ export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imag
               {toolParts.length > 0 ? (
                 <div className="mt-3">
                   <details
+                    open={toolParts.some(part => part.state === "approval-requested") || undefined}
                     className={cn(
                       "rounded-lg text-xs",
                       isUser ? "bg-foreground/5" : "bg-muted",

@@ -1,5 +1,6 @@
 import { shell, type BrowserWindow, type Session } from "electron";
 import type { DesktopLogger } from "./logger";
+import { isPermissionAllowed } from "./permissions";
 
 function isTrustedExternalUrl(value: string): boolean {
   try {
@@ -15,8 +16,8 @@ export function configureDesktopSession(input: {
   development: boolean;
   logger: DesktopLogger;
 }) {
-  input.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
-  input.session.setPermissionCheckHandler(() => false);
+  input.session.setPermissionRequestHandler((_webContents, permission, callback) => callback(isPermissionAllowed(permission)));
+  input.session.setPermissionCheckHandler((_webContents, permission) => isPermissionAllowed(permission));
 
   const scriptPolicy = input.development
     ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"

@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAwaitingFirstLoad } from "@/lib/use-awaiting-first-load";
@@ -35,35 +35,50 @@ export function TaskPanel({ filteredTasks, isLoadingTasks, loadTasks, setTaskSta
   return (<aside
     aria-label={t("chat.tasks.title")}
     className={cn(
-      "w-full shrink-0 xl:sticky xl:top-[3.75rem] xl:flex xl:max-h-[calc(100vh-5rem)] xl:flex-col xl:overflow-y-auto xl:overscroll-contain xl:animate-panel-in-right",
-      // Matches the conversation rail: the width animates so this one and that
-      // one collapse with the same motion.
+      "relative w-full shrink-0 xl:sticky xl:top-[3.75rem] xl:flex xl:max-h-[calc(100vh-5rem)] xl:flex-col xl:overflow-y-auto xl:overscroll-contain",
+      // Matches the conversation rail: one width and one transition, so this one
+      // and that one collapse with the same motion.
       "xl:transition-[width] xl:duration-[--dur-base] xl:ease-[--ease-out]",
       railOpen ? "xl:w-[17rem]" : "xl:w-12",
     )}
   >
-    {!railOpen ? (
-      <div className="hidden xl:flex xl:flex-col xl:items-center xl:gap-2 xl:pt-5">
-        <Button
-          aria-expanded={false}
-          aria-label={t("chat.tasks.expandRail")}
-          className="h-7 w-7 px-0"
-          onClick={() => togglePanel("tasks")}
-          size="icon"
-          title={t("chat.tasks.expandRail")}
-          type="button"
-          variant="ghost"
-        >
-          <PanelRightOpen aria-hidden="true" className="h-4 w-4" />
-        </Button>
-      </div>
-    ) : (
-    <>
+    {/*
+      Both trees stay mounted and the rail narrows to the width of the one that
+      is showing, for the same reason the conversation rail does it this way: a
+      conditional swapped the subtree on every open, and the fresh one animated
+      in while the width was still moving.
+    */}
+    <div
+      className={cn(
+        "absolute right-0 top-0 hidden shrink-0 xl:flex xl:flex-col xl:items-center xl:gap-2 xl:pt-5",
+        "transition-opacity duration-[--dur-base] ease-[--ease-out]",
+        railOpen ? "pointer-events-none w-0 opacity-0" : "w-12 opacity-100",
+      )}
+    >
+      <Button
+        aria-expanded={false}
+        aria-label={t("chat.tasks.expandRail")}
+        className="h-7 w-7 px-0"
+        onClick={() => togglePanel("tasks")}
+        size="icon"
+        title={t("chat.tasks.expandRail")}
+        type="button"
+        variant="ghost"
+      >
+        <PanelRightOpen aria-hidden="true" className="h-4 w-4" />
+      </Button>
+    </div>
+    <div
+      className={cn(
+        "flex min-w-0 flex-col transition-opacity duration-[--dur-base] ease-[--ease-out]",
+        railOpen ? "opacity-100" : "pointer-events-none w-0 opacity-0",
+      )}
+    >
     <Card className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-none border-0 border-l border-border bg-transparent shadow-none xl:max-h-[calc(100vh-2.5rem)] xl:flex-1 xl:pl-5">
       <CardHeader className="shrink-0 border-b pb-3">
         <div className="flex items-center justify-between gap-2">
-          <CardTitle className="flex items-center gap-2 text-base tracking-title">
-            <ListTodo aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
+          <CardTitle className="flex items-center gap-2 text-sm font-semibold tracking-label">
+            <ListTodo aria-hidden="true" className="h-3.5 w-3.5 text-muted-foreground" />
             {t("chat.tasks.title")}
           </CardTitle>
           <Button
@@ -79,27 +94,34 @@ export function TaskPanel({ filteredTasks, isLoadingTasks, loadTasks, setTaskSta
             <PanelRightClose aria-hidden="true" className="h-4 w-4" />
           </Button>
         </div>
-        <CardDescription>{t("chat.tasks.subtitle")}</CardDescription>
       </CardHeader>
       <CardContent className="chat-list-scroll min-h-0 space-y-5 overflow-y-auto p-4 pr-3">
         <section className="space-y-3" data-testid="task-panel">
-          <p className="text-[11px] leading-4 text-muted-foreground">{t("chat.tasks.desktopNotice")}</p>
+          {/*
+            The desktop notice is a standing condition of the panel, not part of
+            the list: it says the same thing whether there are three tasks or
+            none. It moves below the filter so the heading and the count read as
+            one line, which is what the eye comes for first.
+          */}
           <div className="flex items-center justify-between gap-2">
-            <div>
-              <h3 className="text-sm font-semibold tracking-label">{t("chat.tasks.listTitle")}</h3>
-              <p className="text-[11px] text-muted-foreground">
-                {filteredTasks.length} {t("chat.tasks.matchCountUnit")}
-              </p>
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold tracking-label">
+                {t("chat.tasks.listTitle")}
+                <span className="ml-1.5 font-normal text-muted-foreground">
+                  {filteredTasks.length} {t("chat.tasks.matchCountUnit")}
+                </span>
+              </h3>
             </div>
             <Button
               aria-label={t("chat.tasks.refresh")}
+              className="h-7 w-7 shrink-0 px-0"
               disabled={isLoadingTasks}
               onClick={() => void loadTasks()}
               size="icon"
               type="button"
               variant="ghost"
             >
-              <RefreshCw aria-hidden="true" className={cn("h-4 w-4", isLoadingTasks ? "animate-spin" : "")} />
+              <RefreshCw aria-hidden="true" className={cn("h-3.5 w-3.5", isLoadingTasks ? "animate-spin" : "")} />
             </Button>
           </div>
 
@@ -127,11 +149,17 @@ export function TaskPanel({ filteredTasks, isLoadingTasks, loadTasks, setTaskSta
           <div className="space-y-2">
             {awaitingFirstTaskLoad ? (
               <div className="space-y-2">
-                <Skeleton className="h-20 w-full" />
-                <Skeleton className="h-20 w-full" />
+                <Skeleton className="h-[4.5rem] w-full rounded-lg" />
+                <Skeleton className="h-[4.5rem] w-full rounded-lg" />
               </div>
             ) : filteredTasks.length === 0 ? (
-              <p className="empty-state !p-3 !text-left text-[13px]">
+              /*
+                An empty panel that renders a bordered box the size of one task
+                reads as a task that failed to load. This one says it in a line
+                and stops, so the rail does not carry weight it has no content
+                for.
+              */
+              <p className="px-1 py-2 text-[13px] text-muted-foreground">
                 {t("chat.tasks.emptyFiltered")}
               </p>
             ) : (
@@ -191,6 +219,15 @@ export function TaskPanel({ filteredTasks, isLoadingTasks, loadTasks, setTaskSta
             )}
           </div>
 
+          {/*
+            The notice belongs under the list it qualifies. Above the heading it
+            pushed the tasks themselves below the fold, and it repeated on every
+            state the panel can be in.
+          */}
+          <p className="border-t pt-3 text-[11px] leading-4 text-muted-foreground">
+            {t("chat.tasks.desktopNotice")}
+          </p>
+
           {hasHiddenTasks ? (
             <Button
               className="w-full"
@@ -204,7 +241,6 @@ export function TaskPanel({ filteredTasks, isLoadingTasks, loadTasks, setTaskSta
         </section>
       </CardContent>
     </Card>
-    </>
-  )}
+    </div>
   </aside>);
 }

@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { formatTime } from "@/features/chat/page-utils";
 import { cn } from "@/lib/utils/cn";
@@ -22,35 +22,52 @@ export function ConversationList({ isCreatingChat, createNewChat, chats, visible
   return (<aside
     aria-label={t("chat.conversations.title")}
     className={cn(
-      "w-full shrink-0 xl:sticky xl:top-[3.75rem] xl:flex xl:max-h-[calc(100vh-5rem)] xl:flex-col xl:overflow-y-auto xl:overscroll-contain xl:animate-panel-in-left",
-      // The width is animated so the rail collapses into and out of its
-      // expander instead of jumping; the chat column grows into the space it
-      // hands back during the same transition.
+      "relative w-full shrink-0 xl:sticky xl:top-[3.75rem] xl:flex xl:max-h-[calc(100vh-5rem)] xl:flex-col xl:overflow-y-auto xl:overscroll-contain",
+      // One width, one transition. Splitting the rail into a narrow and a wide
+      // step meant a viewport sitting near the breakpoint animated through two
+      // different widths on the way in, which read as a stutter rather than a
+      // collapse.
       "xl:transition-[width] xl:duration-[--dur-base] xl:ease-[--ease-out]",
       railOpen ? "xl:w-[16.5rem]" : "xl:w-12",
     )}
   >
     {/*
-      Collapsed, the rail keeps only its expander so the toggle never moves and
-      the chat column claims the reclaimed width.
+      Both trees stay mounted and the rail narrows to the width of the one that
+      is showing.
+
+      They used to be swapped by a condition, so opening the rail mounted a
+      fresh subtree that played `panel-in-left` while the width transition was
+      still running. Two animations moving the same box read as a flicker from
+      below, and every opening paid for it. Keeping both mounted lets the width
+      carry the motion on its own: nothing translates, so nothing can disagree
+      about where the rail is.
     */}
-    {!railOpen ? (
-      <div className="hidden xl:flex xl:flex-col xl:items-center xl:gap-2 xl:pt-5">
-        <Button
-          aria-expanded={false}
-          aria-label={t("chat.conversations.expandRail")}
-          className="h-7 w-7 px-0"
-          onClick={() => togglePanel("conversations")}
-          size="icon"
-          title={t("chat.conversations.expandRail")}
-          type="button"
-          variant="ghost"
-        >
-          <PanelLeftOpen aria-hidden="true" className="h-4 w-4" />
-        </Button>
-      </div>
-    ) : (
-    <>
+    <div
+      className={cn(
+        "absolute left-0 top-0 hidden shrink-0 xl:flex xl:flex-col xl:items-center xl:gap-2 xl:pt-5",
+        "transition-opacity duration-[--dur-base] ease-[--ease-out]",
+        railOpen ? "pointer-events-none w-0 opacity-0" : "w-12 opacity-100",
+      )}
+    >
+      <Button
+        aria-expanded={false}
+        aria-label={t("chat.conversations.expandRail")}
+        className="h-7 w-7 px-0"
+        onClick={() => togglePanel("conversations")}
+        size="icon"
+        title={t("chat.conversations.expandRail")}
+        type="button"
+        variant="ghost"
+      >
+        <PanelLeftOpen aria-hidden="true" className="h-4 w-4" />
+      </Button>
+    </div>
+    <div
+      className={cn(
+        "flex min-w-0 flex-col transition-opacity duration-[--dur-base] ease-[--ease-out]",
+        railOpen ? "opacity-100" : "pointer-events-none w-0 opacity-0",
+      )}
+    >
     {/*
       The rail is a column, not a floating card. A rounded card stretched to the
       chat column's height leaves a large void under short content and reads as
@@ -60,11 +77,10 @@ export function ConversationList({ isCreatingChat, createNewChat, chats, visible
       <CardHeader className="shrink-0 border-b pb-3">
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
-            <CardTitle className="flex items-center gap-2 text-base tracking-title">
-              <MessageSquare aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold tracking-label">
+              <MessageSquare aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <span className="truncate">{t("chat.conversations.title")}</span>
             </CardTitle>
-            <CardDescription>{t("chat.conversations.subtitle")}</CardDescription>
           </div>
           {/* Both rail controls sit together on the trailing edge. Splitting
               them across the row left the create button marooned in the middle
@@ -197,7 +213,6 @@ export function ConversationList({ isCreatingChat, createNewChat, chats, visible
         ) : null}
       </CardContent>
     </Card>
-    </>
-  )}
+    </div>
   </aside>);
 }

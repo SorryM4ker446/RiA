@@ -1,12 +1,13 @@
 "use client";
 
-import { Check, Copy } from "lucide-react";
+import { AlertCircle, Check, Copy } from "lucide-react";
 import { useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils/cn";
 import { t } from "@/lib/locale";
+import { writeToClipboard } from "@/lib/clipboard";
 
 type MarkdownMessageProps = {
   text: string;
@@ -45,34 +46,40 @@ function readCodeText(children: React.ReactNode): string {
 }
 
 function CodeBlock({ children }: { children: React.ReactNode }) {
-  const [copied, setCopied] = useState(false);
+  const [state, setState] = useState<"idle" | "copied" | "refused">("idle");
   const code = readCodeText(children);
   async function copy() {
-    if (!code.trim()) return;
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopied(true);
-      // The label has to fall back on its own: the button can be unmounted by
-      // the next thing the reader does.
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // A clipboard the page was not allowed to use is not worth interrupting
-      // the answer for; the text stays selectable.
-    }
+    const outcome = await writeToClipboard(code);
+    // A refusal is shown rather than swallowed: the reader pressed a control
+    // and nothing happened, and telling them so is the only thing that makes
+    // the difference between a broken control and a missed click.
+    setState(outcome === "copied" ? "copied" : outcome === "refused" ? "refused" : "idle");
+    // The label has to fall back on its own: the button can be unmounted by
+    // the next thing the reader does.
+    if (outcome === "copied") setTimeout(() => setState((current) => (current === "copied" ? "idle" : current)), 2000);
   }
   return (
     <div className="group/code relative">
       <pre>{children}</pre>
       <button
-        aria-label={t("chat.copyCode")}
+        aria-label={state === "refused" ? t("chat.copyCodeRefused") : t("chat.copyCode")}
+        aria-live="polite"
         className={cn(
-          "absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-md border border-border bg-background/90 text-muted-foreground transition-opacity",
+          "absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-md border bg-background/90 transition-opacity",
+          state === "refused" ? "border-destructive text-destructive" : "border-border text-muted-foreground",
           "opacity-0 focus-visible:opacity-100 group-hover/code:opacity-100",
         )}
         onClick={copy}
+        title={state === "refused" ? t("chat.copyCodeRefused") : undefined}
         type="button"
       >
-        {copied ? <Check aria-hidden="true" className="h-3.5 w-3.5 text-success" /> : <Copy aria-hidden="true" className="h-3.5 w-3.5" />}
+        {state === "copied" ? (
+          <Check aria-hidden="true" className="h-3.5 w-3.5 text-success" />
+        ) : state === "refused" ? (
+          <AlertCircle aria-hidden="true" className="h-3.5 w-3.5" />
+        ) : (
+          <Copy aria-hidden="true" className="h-3.5 w-3.5" />
+        )}
       </button>
     </div>
   );

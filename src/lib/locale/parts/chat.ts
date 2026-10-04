@@ -115,7 +115,9 @@ export const chatMessages = {
   "chat.run.stop": "停止后续步骤",
   "chat.run.budget": "上限",
   "chat.messages.copyAnswer": "复制这条回答",
+  "chat.messages.copyAnswerRefused": "复制失败，请检查系统剪贴板权限",
   "chat.copyCode": "复制代码",
+  "chat.copyCodeRefused": "复制失败，请检查系统剪贴板权限",
   "chat.messages.jumpToLatest": "回到最新",
   "chat.messages.loadOlder": "加载更早消息",
   "chat.messages.empty": "开始你的第一条消息吧。支持流式回复、会话持久化和工具调用。",
@@ -134,6 +136,7 @@ export const chatMessages = {
   "chat.messages.toolDetails": "工具详情：{name} · {state}{extra}",
   "chat.messages.expandHint": "点开查看",
   "chat.messages.approve": "批准",
+    "chat.messages.approvalPending": "操作尚未执行，请检查下方内容并批准或拒绝。",
   "chat.messages.reject": "拒绝",
   "chat.messages.approvalRejectedReason": "用户拒绝",
   "chat.messages.toolCallFallback": "(工具调用消息)",
@@ -150,7 +153,7 @@ export const chatMessages = {
 
   // --- message role labels ----------------------------------------------
   "chat.role.user": "我",
-  "chat.role.assistant": "助手",
+  "chat.role.assistant": "RiA",
   "chat.role.system": "系统",
 
   // --- task panel --------------------------------------------------------

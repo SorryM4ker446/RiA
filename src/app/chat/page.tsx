@@ -17,11 +17,19 @@ export default function ChatPage() {
   const chat = useChatState();
   const { effectiveError, keyError, setPageError, clearError, clearPreferencesError } = chat;
   return (
-    /* items-stretch gives all three columns one height, so the rails stop
-       floating at half height next to a taller chat. The page itself still
-       scrolls: locking the frame to the viewport clips the message list and
-       leaves its controls underneath the toolbar. */
-    <main className="mx-auto flex w-full max-w-[100rem] flex-col gap-4 p-4 md:p-6 xl:flex-row xl:items-stretch xl:gap-5 xl:p-5">
+    /*
+      The chat column is the one that has to stay readable: a code block or a
+      long answer is where the reading happens, and a rail that crowds it turns
+      both into a horizontal scroll. So the frame is allowed to grow past the
+      old 100rem ceiling, the two rails are held to a width that shrinks as the
+      viewport does, and everything left over belongs to the conversation.
+
+      `items-stretch` gives all three columns one height, so the rails stop
+      floating at half height next to a taller chat. The page itself still
+      scrolls: locking the frame to the viewport clips the message list and
+      leaves its controls underneath the toolbar.
+    */
+    <main className="mx-auto flex w-full max-w-[120rem] flex-col gap-4 p-4 md:p-6 xl:flex-row xl:items-stretch xl:gap-4 xl:p-4 2xl:gap-5 2xl:p-5">
       <ConversationList {...chat} />
 
       <section className="flex min-h-[calc(100vh-2.5rem)] min-w-0 flex-1 flex-col">

@@ -15,6 +15,9 @@ type Props = {
   refreshKey?: number;
 };
 
+/** How often a run in flight is re-read while the turn is still open. */
+const ACTIVE_RUN_POLL_MS = 1500;
+
 /**
  * What a turn actually did.
  *
@@ -33,6 +36,15 @@ export function RunRecords({ activeChatId, refreshKey }: Props) {
   // switching conversations mid-request showed the previous conversation's runs
   // under the new one, and a failure left its message on screen for good.
   const runsRequestRef = useRef(0);
+
+  /**
+   * Whether a turn is still open, from the rows already read.
+   *
+   * One reading of "is something in flight", shared by the stop button and the
+   * poll below: a panel whose button and spinner disagree about the same run is
+   * worse than either being briefly wrong.
+   */
+  const hasActiveRun = runs.some((run) => run.status === "running" || run.status === "waiting_approval");
 
   const load = useCallback(async () => {
     const requestId = ++runsRequestRef.current;
@@ -61,6 +73,24 @@ export function RunRecords({ activeChatId, refreshKey }: Props) {
     return () => { runsRequestRef.current += 1; };
   }, [load, refreshKey]);
 
+  /**
+   * A turn closes its run on the server after the response stream ends, so the
+   * refresh that follows a turn can read the row before it is closed and leave
+   * a finished turn spinning until something else triggers a load. Re-reading
+   * while a run is in flight closes that window: the last poll of a turn that
+   * has ended is the one that replaces the stale row.
+   *
+   * Polling is scoped to the open turn and stops as soon as nothing is running,
+   * so a finished conversation costs no further requests. A run the server has
+   * closed stops being in flight on the next read, which is also what ends the
+   * poll for a turn whose closing write never arrived.
+   */
+  useEffect(() => {
+    if (!hasActiveRun) return;
+    const timer = setInterval(() => { void load(); }, ACTIVE_RUN_POLL_MS);
+    return () => { clearInterval(timer); };
+  }, [hasActiveRun, load]);
+
   async function stop() {
     if (!activeChatId) return;
     setIsStopping(true);
@@ -83,13 +113,12 @@ export function RunRecords({ activeChatId, refreshKey }: Props) {
   }
 
   if (!activeChatId) return null;
-  const running = runs.find((run) => run.status === "running" || run.status === "waiting_approval");
 
   return (
     <section aria-label={t("runs.title")} className="space-y-2">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold tracking-label">{t("runs.title")}</h2>
-        {running ? (
+        {hasActiveRun ? (
           <Button disabled={isStopping} onClick={() => void stop()} size="sm" type="button" variant="outline">
             {isStopping ? <Loader2 aria-hidden="true" className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Square aria-hidden="true" className="mr-1.5 h-3 w-3 fill-current" />}
             {t("chat.run.stop")}
