@@ -8,6 +8,7 @@ import { embedTextWithModel } from "@/lib/ai/embedding";
 import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { requireLocalWorkspace } from "@/lib/local/workspace";
+import { recordWorkspaceEvent } from "@/lib/activity/events";
 
 type Params = {
   params: Promise<{ id: string }>;
@@ -71,7 +72,11 @@ async function PATCHHandler(req: NextRequest, context: Params) {
       ? { embedding: undefined, modelRef: undefined }
       : await embedTextWithModel(`${existing.key} ${nextValue}`);
 
-    const updated = await db.memory.update({
+    const updated = await db.$transaction(async tx => {
+    const current = await tx.memory.findUnique({ where: { id } });
+    if (!current) throw new ApiError({ code: "NOT_FOUND", message: "Knowledge entry not found" });
+    if (parsed.data.value !== undefined && current.value !== existing.value) throw new ApiError({ code: "CONFLICT", message: "Knowledge entry changed during editing" });
+    const result = await tx.memory.update({
       where: { id },
       data: {
         ...(parsed.data.value === undefined ? {} : {
@@ -83,6 +88,9 @@ async function PATCHHandler(req: NextRequest, context: Params) {
         // Writing the text by hand is an implicit acceptance.
         ...(parsed.data.confirmed === undefined ? (parsed.data.value === undefined ? {} : { confirmed: true }) : { confirmed: parsed.data.confirmed }),
       },
+    });
+    if (!current.confirmed && result.confirmed) await recordWorkspaceEvent(tx, { kind: "memory.confirmed", entityId: id, label: result.key });
+    return result;
     });
     return Response.json({ data: knowledgeEntryView(updated) }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {

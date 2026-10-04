@@ -75,7 +75,7 @@ export function ScheduleHistory({ refreshKey, onExecuted }: { refreshKey: number
             <li key={run.id} className="space-y-1 rounded-md border p-3 text-xs">
               <p className="flex flex-wrap justify-between gap-2"><span>{["backupReminder", "scheduledBackup", "dailyBrief", "weeklySummary"].includes(run.kind) ? t(`settings.schedules.kind.${run.kind}` as never) : "不支持的任务类型"}</span><span>{statusLabel(run.status)} · {run.trigger === "manual" ? "手动重试" : "定时执行"}</span></p>
               <p className="text-muted-foreground">开始：{new Date(run.startedAt).toLocaleString()} · 结束：{run.finishedAt ? new Date(run.finishedAt).toLocaleString() : "尚未结束"}</p>
-              {run.errorCode ? <p>{run.errorCode} · {executionGuidance(run.errorCode)}</p> : null}
+              {run.errorCode ? <p>{run.status === "succeeded" ? "本地结果已保存，模型整理未完成。" : ""}{run.errorCode} · {executionGuidance(run.errorCode)}</p> : null}
               {!run.jobId ? <p className="text-muted-foreground">原计划已删除，执行证据仍保留。</p> : null}
               <div className="flex flex-wrap items-center gap-3">
                 {run.chatId ? <Link className="underline" href={`/chat?conversationId=${encodeURIComponent(run.chatId)}`}>打开生成的会话</Link> : null}

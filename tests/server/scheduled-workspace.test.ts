@@ -14,6 +14,9 @@ const { getModelProvider } = await import("@/lib/models/providers");
 const ref = { providerId: "openrouter" as const, modelId: "test/status-snapshot" };
 
 beforeEach(async () => {
+  await db.workspaceReview.deleteMany({});
+  await db.workspaceEvent.deleteMany({});
+  await db.workspaceActivityState.update({ where: { id: "local" }, data: { recordingStartedAt: new Date(0), completeSince: new Date(0) } });
   await db.scheduledRun.deleteMany({});
   await db.chat.deleteMany({});
   await db.task.deleteMany({});
@@ -29,8 +32,11 @@ beforeEach(async () => {
 after(async () => { await db.$disconnect(); cleanup(); });
 
 async function due(kind: "dailyBrief" | "weeklySummary" = "dailyBrief") {
-  const job = await createScheduledJob({ kind, enabled: true, localTime: "09:00", timeZone: "UTC", interval: "daily" });
+  const job = await createScheduledJob({ kind, enabled: true, useModel: true, localTime: "09:00", timeZone: "UTC", interval: "daily" });
   await db.scheduledJob.update({ where: { id: job.id }, data: { nextRunAt: new Date(0) } });
+  const { reviewWindow } = await import("@/lib/activity/window");
+  const window = reviewWindow(kind === "weeklySummary" ? "weekly" : "daily", "UTC");
+  await db.workspaceEvent.create({ data: { kind: "task.completed", entityId: "fixture-task", label: "Recorded completion", occurredAt: window.startAt } });
   return job;
 }
 
@@ -78,9 +84,9 @@ test("a running snapshot blocks restore, records one billed attempt and persists
   assert.equal(scheduledRun.requestId, requestId);
   assert.equal(scheduledRun.status, "succeeded");
   assert.ok(scheduledRun.chatId);
-  assert.match(prompt, /current totals/i);
-  assert.match(prompt, /1 done/);
-  assert.doesNotMatch(prompt, /Over today|Over the past week/);
+  assert.match(prompt, /task.completed/);
+  assert.match(prompt, /startAt/);
+  assert.doesNotMatch(prompt, /Current workspace totals/);
   const [usage] = await db.modelRequest.findMany();
   assert.equal(await db.modelRequest.count(), 1);
   assert.equal(usage.requestId, requestId);
@@ -90,25 +96,26 @@ test("a running snapshot blocks restore, records one billed attempt and persists
   assert.equal(usage.costUsd, 0.000011);
   assert.equal(await db.message.count(), 2);
   const user = await db.message.findFirstOrThrow({ where: { role: "user" } });
-  assert.match(user.content, /当前累计数量/);
+  assert.match(user.content, /完整日/);
   await exclusiveDataOperation(async () => undefined);
   assert.equal(dataRequestContext(), undefined);
 });
 
-test("a failed weekly snapshot records the failed attempt, releases the gate and leaves no partial conversation", async (t) => {
+test("failed model commentary records its attempt and preserves the local weekly facts", async (t) => {
   const model = new MockLanguageModelV3({ doGenerate: async () => { throw new Error("Provider unavailable"); } });
   t.mock.method(getModelProvider(ref.providerId), "createChatModel", () => model);
   await due("weeklySummary");
-  assert.equal((await runDueScheduledJob())?.outcome.ok, false);
+  assert.equal((await runDueScheduledJob())?.outcome.ok, true);
   const records = await db.modelRequest.findMany();
   assert.equal(records.length, 1);
   assert.equal(records[0].status, "error");
   assert.equal(records[0].costUsd, null);
-  assert.equal(await db.chat.count(), 0);
+  assert.equal(await db.chat.count(), 1);
+  assert.equal((await db.workspaceReview.findFirstOrThrow()).modelStatus, "failed");
   await exclusiveDataOperation(async () => undefined);
 });
 
-test("a message persistence failure rolls back the snapshot conversation and retains usage", async (t) => {
+test("a local report persistence failure rolls back before any model request", async (t) => {
   const model = new MockLanguageModelV3({ doGenerate: async () => ({
     content: [{ type: "text", text: "Current snapshot" }],
     finishReason: { unified: "stop", raw: "stop" },
@@ -122,7 +129,7 @@ test("a message persistence failure rolls back the snapshot conversation and ret
     assert.equal((await runDueScheduledJob())?.outcome.ok, false);
     assert.equal(await db.chat.count(), 0);
     assert.equal(await db.message.count(), 0);
-    assert.equal(await db.modelRequest.count(), 1);
+    assert.equal(await db.modelRequest.count(), 0);
     await exclusiveDataOperation(async () => undefined);
   } finally {
     await db.$executeRawUnsafe("DROP TRIGGER reject_snapshot_reply");

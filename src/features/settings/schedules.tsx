@@ -10,11 +10,13 @@ import { Input } from "@/components/ui/input";
 import { t, tf } from "@/lib/locale";
 import { ScheduleHistory } from "@/features/settings/schedule-history";
 import { executionGuidance } from "@/lib/execution-messages";
+import { WorkspaceReviewPreview } from "@/features/settings/workspace-review";
 
 type JobRow = {
   id: string;
   kind: string;
   enabled: boolean;
+  useModel: boolean;
   localTime: string;
   timeZone: string;
   interval: string;
@@ -62,6 +64,7 @@ export function ScheduleSettings() {
   const [interval, setInterval] = useState<"daily" | "weekly">("daily");
   const [dayOfWeek, setDayOfWeek] = useState(1);
   const [enabled, setEnabled] = useState(true);
+  const [useModel, setUseModel] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -106,6 +109,7 @@ export function ScheduleSettings() {
     await send("POST", "/api/schedules", {
       kind,
       enabled,
+      useModel: (kind === "dailyBrief" || kind === "weeklySummary") && useModel,
       localTime,
       timeZone,
       interval,
@@ -152,6 +156,7 @@ export function ScheduleSettings() {
                   <p className="text-xs text-muted-foreground">
                     {t("settings.schedules.next")} {new Date(job.nextRunAt).toLocaleString()}
                   </p>
+                  {job.kind === "dailyBrief" || job.kind === "weeklySummary" ? <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={job.useModel} onChange={() => void send("PATCH", `/api/schedules/${encodeURIComponent(job.id)}`, { useModel: !job.useModel })} />允许模型整理（每个期间最多一次请求）</label> : null}
                   {job.lastStatus ? (
                     <p className="text-[11px] text-muted-foreground">
                       {tf("settings.schedules.lastRun", { status: job.lastStatus })}
@@ -241,10 +246,12 @@ export function ScheduleSettings() {
               {t("settings.schedules.add")}
             </Button>
           </div>
+          {kind === "dailyBrief" || kind === "weeklySummary" ? <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={useModel} onChange={event => setUseModel(event.target.checked)} />允许模型整理（可计费；本地事实回顾始终可用）</label> : null}
         </form>
         <p className="text-[11px] text-muted-foreground">{t("settings.schedules.note")}</p>
         <p className="text-[11px] text-muted-foreground">{t("settings.schedules.briefNote")}</p>
         <ScheduleHistory refreshKey={historyRefresh} onExecuted={load} />
+        <WorkspaceReviewPreview />
       </CardContent>
     </Card>
   );

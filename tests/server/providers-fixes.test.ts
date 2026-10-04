@@ -168,6 +168,8 @@ async function withBriefLibrary(run: () => Promise<void>) {
 }
 
 beforeEach(async () => {
+  await db.workspaceReview.deleteMany({});
+  await db.workspaceEvent.deleteMany({});
   await db.scheduledJob.deleteMany({});
   await db.appNotice.deleteMany({});
   await db.chat.deleteMany({});
@@ -194,8 +196,10 @@ test("the daily brief raises one notice for a day no matter how often the job ru
 
   const notices = await db.appNotice.findMany({ where: { kind: "dailyBrief" } });
   assert.equal(notices.length, 1, "one day's brief is one notice, however many times the job ran");
-  assert.equal(notices[0].fingerprint, `dailyBrief:${notices[0].detail}`);
-  assert.match(notices[0].fingerprint, /^dailyBrief:\d{4}-\d{2}-\d{2}$/, "the fingerprint is the day, not an instant");
+  const review = await db.workspaceReview.findFirstOrThrow();
+  assert.equal(notices[0].fingerprint, `review:${review.id}`);
+  assert.equal(await db.workspaceReview.count(), 1);
+  assert.equal(await db.chat.count(), 1);
 });
 
 after(async () => {

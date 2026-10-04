@@ -155,7 +155,7 @@ are deterministic HTTP fixtures; these are not live-provider certification.
 `tests/server/scheduled-workspace.test.ts` uses the real model middleware with a
 deterministic provider adapter. It verifies restore deferral without consuming
 a due job, paused schedules, mutual exclusion during generation, exactly one
-usage record with configured token pricing, current-total prompts, and gate
+usage record with configured token pricing, recorded-period prompts, and gate
 release on provider failure. Backup tests round-trip the maximum accepted
 collection scope; directory-grant tests reject an approval bound to a different
 folder. These tests run under the existing `test:server` CI command.
@@ -163,3 +163,20 @@ folder. These tests run under the existing `test:server` CI command.
 `tests/e2e/interface-walkthrough.spec.ts` captures the build at the sizes the acceptance list names: 1440px and 390px widths, light and dark themes, 125% and 150% text scaling, keyboard focus, and scrolled to the top.
 
 It also asserts what can be asserted without eyes: no horizontal overflow at either width, and the composer and its send control still visible and reachable at 390px and 150% scaling. **It is not a visual sign-off.** The screenshots need a person; a passing run here does not mean the walkthrough passed.
+
+## Workspace review regressions
+
+`tests/server/workspace-review.test.ts` covers calendar windows across daylight
+saving transitions and skipped midnight, atomic event writes and rollback,
+no-op/concurrent mutations, historical counts after source changes or deletion,
+partial coverage, empty periods, model failure, period reuse, interrupted
+commentary, retention and new/legacy backup restoration. The model adapter is
+simulated; no paid provider is called.
+
+`tests/e2e/workspace-review.spec.ts` runs the prepared production HTTP server
+against isolated SQLite without a configured model. It completes a seeded task
+through the real API, verifies repeated completion produces one event, then
+places its timestamp in yesterday's window to test preview and source navigation.
+It checks deletion evidence, no model requests, desktop/mobile layout and weekly
+selection. Screenshots are supplementary visual evidence, not production
+provider or installer certification. Existing CI commands discover these tests.

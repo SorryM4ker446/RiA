@@ -5,6 +5,7 @@ import { buildDocumentChunks, DOCUMENT_INDEX_VERSION, hashDocumentContent } from
 import { DOCUMENT_LIMITS, documentPagesSchema, type DocumentPage } from "@/lib/documents/types";
 import { tokenizeQuery } from "@/lib/memory/retrieval";
 import { ApiError } from "@/lib/server/api-error";
+import { recordWorkspaceEvent } from "@/lib/activity/events";
 
 export const documentSummarySelect = {
   id: true, filename: true, collection: true, format: true, byteSize: true, characterCount: true,
@@ -57,6 +58,9 @@ export async function indexDocument(input: DocumentInput, expected?: { id: strin
     const terms = indexed.flatMap(chunk => chunk.terms.map(term => ({ chunkId: chunk.id, term })));
     // Keep parameter batches bounded; the enclosing transaction preserves the previous index on failure.
     for (let offset = 0; offset < terms.length; offset += 500) await tx.documentTerm.createMany({ data: terms.slice(offset, offset + 500) });
+    if (!expected && (!existing || existing.contentHash !== contentHash || existing.collection !== document.collection)) {
+      await recordWorkspaceEvent(tx, { kind: existing ? "document.updated" : "document.imported", entityId: document.id, label: document.filename });
+    }
     return {
       document: await tx.knowledgeDocument.findUniqueOrThrow({ where: { id: document.id }, select: documentSummarySelect }),
       change: expected ? "reindexed" : existing ? "updated" : "created", added: created.length, removed: obsolete.length, retained: retained.length,

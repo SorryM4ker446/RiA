@@ -78,13 +78,18 @@ The known-cost total omits unknown costs and shows the number of unknown attempt
 
 ## Local API and configuration
 
-Daily and weekly workspace overviews use the existing model wrapper and appear
-in usage history, including failed attempts and unknown costs. Each scheduled
-execution has its own request ID. Overviews use current workspace totals, not
-activity within the last day or week; the cadence controls when the snapshot is
-generated. Each call has no retries, a 60-second abort deadline and a maximum of
-512 output tokens. Conversation and message rows are committed together after
-generation succeeds. Earlier generated conversations are retained unchanged.
+Daily and weekly [workspace reviews](workspace-reviews.md) count recorded events
+in the previous complete local calendar day or Monday–Sunday week. Local facts
+and their conversation are saved before any optional model request. New and
+upgraded schedules default to `useModel: false`. Explicitly enabling commentary
+allows one model attempt per retained period/time-zone snapshot, with no retries,
+a 60-second deadline and a maximum of 512 output tokens. Empty periods skip the
+model. Missing configuration or provider failure preserves the local report;
+actual attempts appear in usage history under the scheduled execution request ID.
+Only counts and period/coverage metadata are sent for commentary, not source
+names or document bodies. Repeated execution reuses the saved period and does
+not submit another model request, including after failure or interruption.
+Earlier generated conversations are retained unchanged.
 
 `GET /api/models/catalog?mode=chat|image|video|embedding` returns the normalized catalogs grouped by provider (`{ catalogs: { openrouter: { chat, image, video, embedding } } }`) together with `providers`, which reports each provider's display name and whether this instance holds its credentials. `POST /api/models/catalog` refreshes one category (`{ "mode": "image" }`) or everything (`{}`); both accept an optional `providerId`. `POST /api/models/library` accepts `{ "action": "add"|"remove", "model": { "providerId", "modelId" } }`. `GET /api/models` returns `{ data, availability, recentFailures }`, where `availability` is keyed by `provider:model`; `PUT /api/models` accepts a complete strict preference object within 128 KiB and returns `{ data }`. Selected models and fallbacks must be compatible library members, fallback must differ from primary, and prices must be finite nonnegative numbers (maximum 1,000,000) or null. At most 100 model rate entries are accepted. `GET /api/usage` returns `{ data: { recent, totals, days } }`; it cannot query outside the local workspace. Responses are private/no-store and follow the normal local access checks.
 

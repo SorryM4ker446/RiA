@@ -12,22 +12,13 @@ import {
 } from "@/lib/scheduler/jobs";
 import { raiseNotice } from "@/lib/scheduler/notices";
 import { runBackgroundDataOperation } from "@/lib/server/data-operations";
-import { ApiError, callUpstream } from "@/lib/server/api-error";
+import { ApiError } from "@/lib/server/api-error";
 import { scheduledErrorCode } from "@/lib/scheduler/history";
 
-/*
- * The one place scheduled work is executed.
- *
- * One job at a time, and only work the user switched on.
- *
- * Two of the four kinds cost nothing. The brief and the weekly summary do call a
- * model, and the cost is bounded twice over: they are off until the user turns
- * them on, and they make exactly one call per run no matter what the model asks
- * for. A schedule that can decide to spend more is not a schedule the user can
- * reason about the cost of.
- */
+// Scheduled work is claimed once. Period reviews always retain local facts;
+// model commentary is optional and never retried for an existing period.
 
-export type JobOutcome = { ok: true; detail: string; chatId?: string; backupId?: string } | { ok: false; error: string };
+export type JobOutcome = { ok: true; detail: string; chatId?: string; backupId?: string; error?: string } | { ok: false; error: string };
 
 /** How stale a backup may get before a reminder is worth raising. */
 export const BACKUP_REMINDER_AFTER_DAYS = 7;
@@ -84,95 +75,22 @@ async function runScheduledBackup(): Promise<JobOutcome> {
   }
 }
 
-/**
- * The one model call this version of a schedule is allowed to make.
- *
- * It summarises the workspace into a conversation the user can read and reply
- * to, rather than posting a system notification carrying model output. The
- * prompt is fixed and the call is never retried, so a run costs exactly one
- * request whatever the provider decides to do with it.
- *
- * The daily and weekly forms are the same snapshot with a different cadence and
- * a different fingerprint, so there is one place where the cost rule lives.
- */
-async function runBrief(options: { now: Date; fingerprint: string; kind: string }): Promise<JobOutcome> {
-  const { now, fingerprint, kind } = options;
-  const { preferredModel } = await import("@/lib/models/preferences");
-  const { generateText } = await import("ai");
-  const { getChatModel } = await import("@/lib/ai/client");
-
-  // `preferredModel` refuses a missing or unlisted model by throwing, so the
-  // absence is named here. Without this it was recorded as whatever sentence the
-  // provider settings happened to carry, and the one string worth grepping for
-  // was never written. Anything else it throws is a real failure and is left
-  // alone.
-  let modelRef: Awaited<ReturnType<typeof preferredModel>>;
-  try {
-    modelRef = await preferredModel("chat");
-  } catch (error) {
-    if (error instanceof ApiError && error.code === "CONFIGURATION_ERROR") return { ok: false, error: "CONFIGURATION_ERROR" };
-    throw error;
-  }
-
-  const open = await db.task.count({ where: { status: { not: "done" } } });
-  const done = await db.task.count({ where: { status: "done" } });
-  const documents = await db.knowledgeDocument.count();
-  const memories = await db.memory.count();
-
-  const model = getChatModel(modelRef);
-  const text = await callUpstream(() => generateText({
-    model,
-    maxRetries: 0,
-    abortSignal: AbortSignal.timeout(60_000),
-    maxOutputTokens: 512,
-    system: "Write a short workspace status snapshot in Simplified Chinese. Two or three sentences at most. These are current totals, not activity during a day or week. Do not infer when tasks were completed or documents and memories were added.",
-    prompt: `Current workspace totals as of ${now.toISOString()}: ${open} task(s) open, ${done} done, ${documents} knowledge document(s), ${memories} remembered fact(s). Write the status snapshot.`
-  }));
-
-  const conversation = await db.$transaction(async (tx) => {
-    const conversation = await tx.chat.create({ data: { title: kind === "weeklySummary" ? "每周工作区概览" : "每日工作区概览" } });
-    await tx.message.create({
-      data: {
-        chatId: conversation.id,
-        role: "user",
-        content: `截至 ${now.toISOString()} 的工作区状态概览（当前累计数量，不代表今日或本周新增）。`,
-        status: "success"
-      }
-    });
-    await tx.message.create({
-      data: {
-        chatId: conversation.id,
-        role: "assistant",
-        content: text.text,
-        status: "success",
-      }
-    });
-    return conversation;
-  });
-
-  await raiseNotice({
-    kind,
-    title: kind === "weeklySummary" ? "weekly-summary-ready" : "daily-brief-ready",
-    detail: now.toISOString().slice(0, 10),
-    href: `/chat?conversationId=${conversation.id}`,
-    fingerprint: `${kind}:${fingerprint}`
+async function runPeriodReview(claim: ClaimedJob, now: Date): Promise<JobOutcome> {
+  const { generateWorkspaceReview } = await import("@/lib/activity/reviews");
+  const { review } = await generateWorkspaceReview(claim.kind === "weeklySummary" ? "weekly" : "daily", claim.timeZone, claim.useModel, now);
+  await raiseNotice({ kind: claim.kind,
+    title: claim.kind === "weeklySummary" ? "weekly-summary-ready" : "daily-brief-ready",
+    detail: `${review.timeZone}: ${review.startAt.toISOString()} — ${review.endAt.toISOString()}`,
+    href: `/chat?conversationId=${review.chatId}`, fingerprint: `review:${review.id}`,
   }).catch(() => { console.error("scheduler.notice.write_failed"); });
-  return { ok: true, detail: "Workspace overview created.", chatId: conversation.id };
+  return { ok: true, detail: "Period review available.", chatId: review.chatId ?? undefined, error: review.modelError ?? undefined };
 }
 
-async function runDailyBrief(now: Date): Promise<JobOutcome> {
-  return runBrief({ now, fingerprint: now.toISOString().slice(0, 10), kind: "dailyBrief" });
-}
-
-async function runWeeklySummary(now: Date): Promise<JobOutcome> {
-  return runBrief({ now, fingerprint: now.toISOString().slice(0, 10), kind: "weeklySummary" });
-}
-
-const RUNNERS: Record<string, (context: { now: Date }) => Promise<JobOutcome>> = {
+const RUNNERS: Record<string, (context: { now: Date; claim: ClaimedJob }) => Promise<JobOutcome>> = {
   backupReminder: (context) => runBackupReminder(context.now),
   scheduledBackup: runScheduledBackup,
-  dailyBrief: (context) => runDailyBrief(context.now),
-  weeklySummary: (context) => runWeeklySummary(context.now)
+  dailyBrief: (context) => runPeriodReview(context.claim, context.now),
+  weeklySummary: (context) => runPeriodReview(context.claim, context.now)
 };
 
 /**
@@ -215,7 +133,7 @@ async function executeClaimedJob(claimed: ClaimedJob, now: Date) {
   }
   let outcome: JobOutcome;
   try {
-    outcome = await runner({ now });
+    outcome = await runner({ now, claim: claimed });
   } catch (error) {
     outcome = { ok: false, error: scheduledErrorCode(error) };
   }

@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { t } from "@/lib/locale";
 import { ApiError } from "@/lib/server/api-error";
 import { isTaskTimeZone, nextTaskDueDate, parseTaskDueDate, TASK_REPEAT_RULES, type TaskRepeatRule } from "@/lib/tasks/schedule";
+import { recordWorkspaceEvent } from "@/lib/activity/events";
 
 export const taskScheduleFields = {
   dueDate: z.string().max(100).nullable().optional(),
@@ -68,6 +69,9 @@ export async function updateTask(id: string, input: z.infer<typeof updateTaskSch
         title: updated.title, details: updated.details, priority: updated.priority,
         ...schedule, dueDate, repeatAnchor,
       } });
+    }
+    if (updated.status !== existing.status && (updated.status === "done" || existing.status === "done")) {
+      await recordWorkspaceEvent(tx, { kind: updated.status === "done" ? "task.completed" : "task.reopened", entityId: id, label: updated.title }, now);
     }
     return { data: updated, nextTask };
   });

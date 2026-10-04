@@ -49,7 +49,7 @@ this change does not add an agent retention policy.
 Scheduled history is local operational evidence, excluded from portable backups.
 Existing history stays on the restoring machine, links to replaced conversations
 are cleared and schedules are paused. Old version-1 archives remain supported.
-The additive database migration creates only the execution table and indexes.
+The execution-history migration creates only the execution table and indexes.
 Close the service and keep a full data-directory copy before rolling back to an
 older application version.
 
@@ -75,3 +75,15 @@ Stale, repeated, paused or overlapping retries return 409. A missing schedule
 returns 404. The retry request waits for completion; a lost HTTP response does
 not authorize replay of the same failed record. Refresh history to find its
 accepted execution before making a new decision.
+
+## Factual review outcomes
+
+Daily and weekly schedules now generate [factual workspace reviews](workspace-reviews.md).
+A missing model or failed optional commentary is a successful local result with
+an explicit model warning, not a failed execution eligible for retry. New and
+upgraded schedules disable model commentary until explicitly enabled. True
+persistence failures still fail the execution and remain subject to the recovery
+rules above. Unfinished commentary becomes interrupted at service startup; the
+same retained period is reused without another paid attempt. Workspace events
+and review snapshots are portable business data, unlike scheduled execution
+history, and are included in backups.

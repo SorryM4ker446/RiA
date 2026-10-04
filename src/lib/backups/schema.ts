@@ -3,6 +3,7 @@ import { generationRecipeSchema } from "@/lib/media/generation-recipe";
 import { documentPagesSchema } from "@/lib/documents/types";
 import { MAX_DOCUMENT_SCOPE_LENGTH, decodeDocumentScope } from "@/lib/documents/scope";
 import { legacyPreferencesSchema, preferencesSchema, providerAgnosticPreferencesSchema, providerIdSchema } from "@/lib/models/preferences-schema";
+import { eventSchema, factsSchema } from "@/lib/activity/types";
 
 export const BACKUP_LIMITS = { bytes: 512 * 1024 * 1024, manifest: 32 * 1024 * 1024, chunk: 8 * 1024 * 1024, rows: 10_000, stagingAgeMs: 60 * 60_000 };
 export const backupId = z.string().uuid();
@@ -30,6 +31,12 @@ export const backupManifestSchema = z.strictObject({
   // qualified references still imports. Conversion happens on read; the archive
   // itself is never rewritten.
   preferences: z.union([preferencesSchema, providerAgnosticPreferencesSchema, legacyPreferencesSchema]), usage: z.array(usage).max(5000),
+  events: z.array(eventSchema).max(10_000).default([]),
+  activityCoverage: z.strictObject({ recordingStartedAt: date, completeSince: date }).nullable().default(null),
+  reviews: z.array(z.strictObject({ id, period: z.enum(["daily", "weekly"]), timeZone: task.shape.timeZone,
+    startAt: date, endAt: date, facts: factsSchema, chatId: id.nullable(), modelStatus: z.enum(["disabled", "empty", "pending", "succeeded", "failed", "interrupted"]),
+    modelError: z.string().max(60).nullable(), modelText: z.string().max(100_000).nullable(), createdAt: date,
+  })).max(1000).default([]),
 }).superRefine((data, context) => {
   const error = () => context.addIssue({ code: "custom", message: "Backup contains duplicate, inconsistent or excessive relationships" });
   const messages = data.chats.flatMap(chat => chat.messages);
@@ -39,7 +46,12 @@ export const backupManifestSchema = z.strictObject({
   const distinct = (values: string[]) => { if (new Set(values).size !== values.length) error(); };
   const chats = unique(data.chats), messageIds = unique(messages), assetIds = unique(data.assets);
   unique(data.memories); unique(data.tasks); unique(data.documents); unique(chunks); unique(data.usage);
-  unique([...data.chats, ...messages, ...data.memories, ...data.tasks, ...data.documents, ...chunks, ...data.assets, ...data.usage]);
+  unique([...data.chats, ...messages, ...data.memories, ...data.tasks, ...data.documents, ...chunks, ...data.assets, ...data.usage, ...data.events, ...data.reviews]);
+  if (data.events.length && !data.activityCoverage) error();
+  if (data.activityCoverage && Date.parse(data.activityCoverage.completeSince) < Date.parse(data.activityCoverage.recordingStartedAt)) error();
+  distinct(data.reviews.map(review => `${review.period}:${review.timeZone}:${review.startAt}`));
+  distinct(data.reviews.flatMap(review => review.chatId ? [review.chatId] : []));
+  for (const review of data.reviews) if (Date.parse(review.startAt) > Date.parse(review.endAt) || review.chatId && !chats.has(review.chatId)) error();
   distinct(data.memories.map(row => row.key)); distinct(data.documents.map(row => row.filename));
   for (const chat of data.chats) {
     if (chat.messages.some(message => message.chatId !== chat.id) || chat.tags.some(tag => tag.chatId !== chat.id)) error();

@@ -51,3 +51,21 @@ Queries use the runtime's Chinese word segmentation, Unicode compatibility norma
 Memory search combines bounded recent and lexical candidate sets: up to 100 of each for context recall, and 50 of each for explicit knowledge search. Context retains tool memories and its recency/manual weights; explicit knowledge search excludes tool memories and merges built-in entries and imported document results. The first 16 query terms widen lexical candidate selection so older matching notes are not hidden solely by newer unrelated notes. Memory retrieval remains bounded keyword/embedding retrieval, not a guarantee of semantic recall.
 
 Imported documents use a separate local inverted index without embedding calls. See [Document knowledge](document-knowledge.md) for import/reindex/delete/search endpoints and limits. Knowledge-tool document results add `source: "document"` and a `reference` containing document/chunk IDs, filename, excerpt and optional PDF page. Chat streams also include server-produced `metadata.documentSources`; persisted assistant messages retain these snapshots for history rendering. Sources are authorized by their stored owner when opened, and do not provide public file URLs.
+
+## Workspace activity reviews
+
+`GET /api/activity/review?period=daily|weekly&timeZone=Asia%2FShanghai` previews
+the previous complete calendar period in an IANA time zone. Both query fields
+are required; invalid zones, unknown or repeated fields are rejected. The response
+contains `data` with UTC `startAt`/`endAt` (start inclusive, end exclusive), local
+`startDate`/`endDate`, canonical `timeZone`, `period` and `facts`: fixed event
+counts, coverage boundary/completeness, up to 100 source events and the omitted
+source count. Preview does not create a conversation or call a model. It can
+perform event-retention cleanup under the workspace gate.
+
+`GET /api/activity/events/:id` returns `data` with the retained event, current
+source data (or `entity: null` if deleted), and a document viewer link when
+applicable. Unknown or expired events return 404. It does not return a historical
+copy of the source body. Both endpoints use normal authentication, ownership,
+workspace gate and private/no-store responses. See [Workspace reviews](workspace-reviews.md)
+for event semantics, coverage, immutable scheduled snapshots and backup rules.

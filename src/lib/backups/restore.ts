@@ -53,6 +53,8 @@ export async function restoreAccountBackup(id: string) {
       // A restore replaces the workspace: conversations go first so their
       // messages, tags and asset references cascade away with them.
       await tx.chat.deleteMany({});
+      await tx.workspaceReview.deleteMany({});
+      await tx.workspaceEvent.deleteMany({});
       await tx.mediaAsset.deleteMany({});
       await tx.memory.deleteMany({});
       await tx.task.deleteMany({});
@@ -83,6 +85,15 @@ export async function restoreAccountBackup(id: string) {
       const terms = manifest.documents.flatMap(document => document.chunks.flatMap(chunk => chunk.terms.map(term => ({ ...term, chunkId: mapped(term.chunkId) }))));
       for (let i = 0; i < terms.length; i += 500) await tx.documentTerm.createMany({ data: terms.slice(i, i + 500) });
       for (let i = 0; i < manifest.usage.length; i += 250) await tx.modelRequest.createMany({ data: manifest.usage.slice(i, i + 250).map(row => ({ ...row, id: mapped(row.id) })) });
+      for (let i = 0; i < manifest.events.length; i += 250) await tx.workspaceEvent.createMany({ data: manifest.events.slice(i, i + 250).map(event => ({ ...event, entityId: mapped(event.entityId) })) });
+      const coverage = manifest.activityCoverage ?? { recordingStartedAt: new Date().toISOString(), completeSince: new Date().toISOString() };
+      await tx.workspaceActivityState.upsert({ where: { id: "local" }, create: { id: "local", ...coverage }, update: coverage });
+      for (let i = 0; i < manifest.reviews.length; i += 250) await tx.workspaceReview.createMany({ data: manifest.reviews.slice(i, i + 250).map(review => ({
+        ...review, chatId: review.chatId ? mapped(review.chatId) : null,
+        modelStatus: review.modelStatus === "pending" ? "interrupted" : review.modelStatus,
+        modelError: review.modelStatus === "pending" ? "INTERRUPTED" : review.modelError,
+        facts: { ...review.facts, sources: review.facts.sources.map(event => ({ ...event, entityId: mapped(event.entityId) })) },
+      })) });
       await tx.workspacePreference.upsert({ where: { id: PREFERENCE_ROW_ID }, create: { id: PREFERENCE_ROW_ID, settings: restoredPreferences as Prisma.InputJsonValue }, update: { settings: restoredPreferences as Prisma.InputJsonValue } });
       /*
        * Schedules and the folders the user granted are permissions on a

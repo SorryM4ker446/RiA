@@ -56,7 +56,7 @@ function portableContent(content: string) {
 
 export async function createAccountBackup(prune = true) {
   const counts = await Promise.all([db.chat.count(), db.message.count(), db.memory.count(), db.task.count(), db.mediaAsset.count()]);
-  const [documentsCount, termsCount] = await Promise.all([db.knowledgeDocument.count(), db.documentTerm.count()]);
+  const [documentsCount, termsCount, eventCount, reviewCount] = await Promise.all([db.knowledgeDocument.count(), db.documentTerm.count(), db.workspaceEvent.count(), db.workspaceReview.count()]);
   const [volume] = await db.$queryRaw<{ bytes: number | bigint }[]>(Prisma.sql`SELECT
     (SELECT coalesce(sum(length(CAST(content AS BLOB))),0) FROM messages) +
     (SELECT coalesce(sum(length(CAST(title AS BLOB))),0) FROM chats) +
@@ -64,14 +64,19 @@ export async function createAccountBackup(prune = true) {
     (SELECT coalesce(sum(length(CAST(key AS BLOB))+length(CAST(value AS BLOB))+coalesce(length(CAST(embedding AS BLOB)),0)),0) FROM memories) +
     (SELECT coalesce(sum(length(CAST(pages AS BLOB))),0) FROM knowledge_documents) +
     (SELECT coalesce(sum(length(CAST(text AS BLOB))),0) FROM document_chunks) +
-    (SELECT coalesce(sum(coalesce(length(CAST(description AS BLOB)),0)+coalesce(length(CAST(generation AS BLOB)),0)),0) FROM media_assets) AS bytes`);
-  if (counts.some(count => count > BACKUP_LIMITS.rows) || documentsCount > 100 || termsCount > 100_000 || Number(volume.bytes) > BACKUP_LIMITS.manifest) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.backups.workspaceTooLarge") });
-  const [chats, memories, tasks, documents, assets, preferences, usage] = await Promise.all([
+    (SELECT coalesce(sum(coalesce(length(CAST(description AS BLOB)),0)+coalesce(length(CAST(generation AS BLOB)),0)),0) FROM media_assets) +
+    (SELECT coalesce(sum(length(CAST(label AS BLOB))),0) FROM workspace_events) +
+    (SELECT coalesce(sum(length(CAST(facts AS BLOB))+coalesce(length(CAST(modelText AS BLOB)),0)),0) FROM workspace_reviews) AS bytes`);
+  if (counts.some(count => count > BACKUP_LIMITS.rows) || documentsCount > 100 || termsCount > 100_000 || eventCount > 10_000 || reviewCount > 1000 || Number(volume.bytes) > BACKUP_LIMITS.manifest) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.backups.workspaceTooLarge") });
+  const [chats, memories, tasks, documents, assets, preferences, usage, events, activityState, reviews] = await Promise.all([
     db.chat.findMany({ include: { tags: true, messages: true } }),
     db.memory.findMany(), db.task.findMany(),
     db.knowledgeDocument.findMany({ include: { chunks: { include: { terms: true } } } }),
     db.mediaAsset.findMany({ where: { deletedAt: null }, include: { references: true, inputs: true } }),
     getModelPreferences(), db.modelRequest.findMany({ orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 5000 }),
+    db.workspaceEvent.findMany({ orderBy: [{ occurredAt: "asc" }, { id: "asc" }] }),
+    db.workspaceActivityState.findUnique({ where: { id: "local" } }),
+    db.workspaceReview.findMany({ orderBy: [{ createdAt: "desc" }, { id: "desc" }] }),
   ]);
   if (chats.some(chat => chat.messages.some(message => { const media = decodeMediaMessage(message.content); return media?.type === "video-result" && !media.assetId; }))) throw new ApiError({ code: "CONFLICT", message: t("lib.backups.legacyVideos") });
   if (assets.reduce((sum, asset) => sum + asset.byteSize, 0) > BACKUP_LIMITS.bytes) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.backups.overSizeLimit") });
@@ -83,7 +88,8 @@ export async function createAccountBackup(prune = true) {
       media.push({ ...fields, sha256: await copyAndHash(file) });
     } finally { await file.close(); }
   }
-  const manifest = backupManifestSchema.parse(JSON.parse(JSON.stringify({ format: "private-ai-account-backup", version: 1, createdAt: new Date().toISOString(), chats: chats.map(chat => ({ ...chat, messages: chat.messages.map(message => ({ ...message, content: portableContent(message.content) })) })), memories, tasks, documents, assets: media, preferences, usage })));
+  const activityCoverage = activityState ? { recordingStartedAt: activityState.recordingStartedAt, completeSince: activityState.completeSince } : null;
+  const manifest = backupManifestSchema.parse(JSON.parse(JSON.stringify({ format: "private-ai-account-backup", version: 1, createdAt: new Date().toISOString(), chats: chats.map(chat => ({ ...chat, messages: chat.messages.map(message => ({ ...message, content: portableContent(message.content) })) })), memories, tasks, documents, assets: media, preferences, usage, events, activityCoverage, reviews })));
   const json = Buffer.from(JSON.stringify(manifest));
   if (json.length > BACKUP_LIMITS.manifest || 44 + json.length + assets.reduce((sum, asset) => sum + asset.byteSize, 0) > BACKUP_LIMITS.bytes) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.backups.contentTooLarge") });
   const id = randomUUID(), temporary = await backupFile(id, "partial");

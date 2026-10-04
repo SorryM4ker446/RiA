@@ -65,3 +65,21 @@ All endpoints retain the normal credential, Host and Origin checks and sanitized
 | `DELETE /api/backups/import/:id` | Cancel an in-progress upload |
 
 See [API security](api-security.md) for quotas, and [Model settings and usage](model-usage.md) for the preference/usage data contained in archives.
+
+## Activity and review snapshots
+
+Archives include retained workspace events (up to 10,000), their coverage
+boundary and up to 1,000 daily/weekly review snapshots, including saved commentary
+and conversation links. Restore preserves event IDs used by review source links
+and remaps surviving source identities with the rest of the business data.
+Deleted sources remain explicit historical evidence. Restore itself does not
+create completion, document import or memory confirmation events. Pending model
+commentary is restored as interrupted and is never automatically replayed.
+
+Older version-1 archives without activity fields remain importable: restoration
+starts a new coverage boundary and creates no synthetic past events. The archive
+version remains 1 with optional new fields. Older application versions with strict
+manifest validation may reject archives containing these fields; create and test
+a backup with the target version before rollback. Scheduled execution history
+remains excluded and local to the restoring machine. See [Workspace reviews](workspace-reviews.md)
+for retention and the distinction between current previews and frozen reports.

@@ -31,11 +31,14 @@ test("settings exposes failure recovery, a distinct retry and sanitized diagnost
   // environment via the standard SQLite database_list pragma.
   const file = app.readRows("PRAGMA database_list")[0] as { file: string };
   const sqlite = new DatabaseSync(file.file);
-  try { sqlite.prepare("UPDATE scheduled_jobs SET nextRunAt = ? WHERE id = ?").run(0, job.id); } finally { sqlite.close(); }
+  try {
+    sqlite.exec("CREATE TRIGGER reject_period_review BEFORE INSERT ON workspace_reviews BEGIN SELECT RAISE(ABORT, 'fixture-persistence-failure'); END");
+    sqlite.prepare("UPDATE scheduled_jobs SET nextRunAt = ? WHERE id = ?").run(0, job.id);
+  } finally { sqlite.close(); }
   await app.restart();
   await page.goto(`${app.origin}/settings`);
   const history = page.getByRole("region", { name: "定时执行历史" });
-  await expect(history.getByText(/CONFIGURATION_ERROR/)).toBeVisible();
+  await expect(history.getByText(/INTERNAL_ERROR/)).toBeVisible();
   await expect(history.getByRole("button", { name: "重新执行一次" })).toBeEnabled();
   const first = (await browserData(page, "/api/schedules/runs"))[0];
   await history.getByRole("button", { name: "重新执行一次" }).click();
@@ -53,7 +56,7 @@ test("settings exposes failure recovery, a distinct retry and sanitized diagnost
   const diagnostics = JSON.parse(await readFile(downloadedPath!, "utf8"));
   expect(diagnostics.scheduled).toHaveLength(2);
   expect(diagnostics.scheduled[0].id).not.toBe(runs[0].id);
-  expect(diagnostics.scheduled[0].errorCode).toBe("CONFIGURATION_ERROR");
+  expect(diagnostics.scheduled[0].errorCode).toBe("INTERNAL_ERROR");
   expect(JSON.stringify(diagnostics)).not.toContain(file.file);
   const screenshots = join(tmpdir(), "ria-execution-history-qa");
   await mkdir(screenshots, { recursive: true });

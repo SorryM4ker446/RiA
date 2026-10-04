@@ -31,6 +31,8 @@ const context = (id: string) => ({ params: Promise.resolve({ id }) });
 beforeEach(async () => {
   globalThis.__privateAiRateLimitStore?.clear();
   cookie = localAccessCookie();
+  await db.workspaceReview.deleteMany({});
+  await db.workspaceEvent.deleteMany({});
   await db.scheduledRun.deleteMany({});
   await db.scheduledJob.deleteMany({});
   await db.appNotice.deleteMany({});
@@ -95,19 +97,17 @@ test("two polls racing the same due job run it once", async () => {
   assert.notEqual(job.lastStatus, "running", "the claim was released when the run finished");
 });
 
-test("a run that fails leaves the job owed a next run rather than stuck as running", async () => {
-  // No chat model is configured in this suite, so the brief fails before it
-  // spends anything. What matters is that the failure is recorded and the slot
-  // is still owed, not that it succeeded.
+test("a review without a model retains local results and still owes its next occurrence", async () => {
+  // No chat model is configured; local facts must still be available.
   const job = await dueNow({ kind: "dailyBrief" });
 
   const result = await runDueScheduledJob(new Date());
   assert.equal(result?.kind, "dailyBrief");
-  assert.equal(result?.outcome.ok, false);
+  assert.equal(result?.outcome.ok, true);
 
   const [row] = await listScheduledJobs();
   assert.equal(row.id, job.id);
-  assert.equal(row.lastStatus, "failed");
+  assert.equal(row.lastStatus, "done");
   assert.ok(new Date(row.nextRunAt) > new Date(), "a failed run is not left claimable on every poll");
 
   // And it is claimable again when it falls due, rather than being stuck either way.

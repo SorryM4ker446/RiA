@@ -31,6 +31,8 @@ const DAY = 24 * HOUR;
 beforeEach(async () => {
   globalThis.__privateAiRateLimitStore?.clear();
   cookie = localAccessCookie();
+  await db.workspaceReview.deleteMany({});
+  await db.workspaceEvent.deleteMany({});
   await db.scheduledRun.deleteMany({});
   await db.scheduledJob.deleteMany({});
   await db.appNotice.deleteMany({});
@@ -301,15 +303,14 @@ test("notices are read, marked and dismissed only with the local credential", as
 
 // --- 8-4: the one kind that spends money -------------------------------------
 
-test("the daily brief is refused outright when no chat model is configured", async () => {
+test("the daily review remains available when no chat model is configured", async () => {
   await createScheduledJob({ kind: "dailyBrief", enabled: true, localTime: "08:00", timeZone: "UTC", interval: "daily" });
   await db.scheduledJob.updateMany({ data: { nextRunAt: new Date(Date.now() - HOUR) } });
   const result = await runDueScheduledJob(new Date());
-  // No provider is configured in this suite, so the run records why rather than
-  // reaching a model. What matters is that it fails loudly and keeps its slot.
+  // Local facts remain usable without any provider.
   assert.equal(result?.kind, "dailyBrief");
   const [job] = await listScheduledJobs();
-  assert.ok(["failed", "done"].includes(String(job.lastStatus)));
+  assert.equal(job.lastStatus, "done");
   assert.ok(new Date(job.nextRunAt) > new Date(), "a failed brief does not stop tomorrow's");
 });
 
@@ -354,7 +355,7 @@ test("a job whose run is still marked running is not claimed by the next poll", 
 
 // --- 8-4b: the weekly variant, on the same runner and the same budget --------
 
-test("the weekly summary is refused loudly when no chat model is configured", async () => {
+test("the weekly review preserves its cadence without a chat model", async () => {
   const { createScheduledJob } = await import("@/lib/scheduler/jobs");
   await createScheduledJob({ kind: "weeklySummary", enabled: true, localTime: "18:00", timeZone: "UTC", interval: "weekly", dayOfWeek: 0 });
   await db.scheduledJob.updateMany({ data: { nextRunAt: new Date(Date.now() - HOUR) } });

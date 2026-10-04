@@ -43,6 +43,7 @@ export const localTimeSchema = z
 const scheduleFields = z.strictObject({
   kind: z.enum(ScheduledJobKind),
   enabled: z.boolean().default(false),
+  useModel: z.boolean().default(false),
   localTime: localTimeSchema,
   timeZone: z.string().min(1).max(100).refine(isTaskTimeZone, "Invalid IANA time zone"),
   interval: z.enum(["daily", "weekly"]).default("daily"),
@@ -69,12 +70,13 @@ export const scheduleInputSchema = scheduleFields.superRefine((value, ctx) => {
  * checks the merged schedule rather than the patch. */
 export const schedulePatchSchema = scheduleFields.partial();
 
-export type ScheduleInput = z.infer<typeof scheduleInputSchema>;
+export type ScheduleInput = Omit<z.infer<typeof scheduleInputSchema>, "useModel"> & { useModel?: boolean };
 
 export type ScheduledJobView = {
   id: string;
   kind: string;
   enabled: boolean;
+  useModel: boolean;
   localTime: string;
   timeZone: string;
   interval: string;
@@ -89,6 +91,7 @@ const jobViewSelect = {
   id: true,
   kind: true,
   enabled: true,
+  useModel: true,
   localTime: true,
   timeZone: true,
   interval: true,
@@ -103,6 +106,7 @@ function toView(row: {
   id: string;
   kind: string;
   enabled: boolean;
+  useModel: boolean;
   localTime: string;
   timeZone: string;
   interval: string;
@@ -229,6 +233,7 @@ export async function createScheduledJob(input: ScheduleInput): Promise<Schedule
     data: {
       kind: input.kind,
       enabled: input.enabled,
+      useModel: input.useModel ?? false,
       localTime: input.localTime,
       timeZone: input.timeZone,
       interval: input.interval,
@@ -265,6 +270,7 @@ export async function updateScheduledJob(id: string, patch: Partial<ScheduleInpu
     data: {
       ...(patch.kind ? { kind: patch.kind } : {}),
       ...(patch.enabled === undefined ? {} : { enabled: patch.enabled }),
+      ...(patch.useModel === undefined ? {} : { useModel: patch.useModel }),
       localTime: merged.localTime,
       timeZone: merged.timeZone,
       interval: merged.interval,
@@ -293,7 +299,7 @@ export async function deleteScheduledJob(id: string): Promise<{ deleted: boolean
  * updates nothing and claims nothing. That is what makes two backups at 08:00
  * impossible rather than unlikely.
  */
-export type ClaimedJob = { id: string; kind: string; runId: string; requestId: string };
+export type ClaimedJob = { id: string; kind: string; runId: string; requestId: string; timeZone: string; useModel: boolean };
 
 export async function claimDueJobs(now = new Date()): Promise<ClaimedJob[]> {
   return db.$transaction(async (tx) => {
@@ -308,7 +314,7 @@ export async function claimDueJobs(now = new Date()): Promise<ClaimedJob[]> {
       where: { enabled: true, nextRunAt: { lte: now }, OR: [{ lastStatus: null }, { lastStatus: { not: "running" } }] },
       orderBy: [{ nextRunAt: "asc" }, { id: "asc" }],
       take: 1,
-      select: { id: true, kind: true }
+      select: { id: true, kind: true, timeZone: true, useModel: true }
     });
     if (due.length === 0) return [];
     const claimed = await tx.scheduledJob.updateMany({
@@ -334,7 +340,7 @@ export async function claimScheduledRetry(jobId: string, previousRunId: string, 
     if (await tx.scheduledRun.findUnique({ where: { retryOf: previousRunId } })) throw new ApiError({ code: "CONFLICT", message: "该重试已经发起，请刷新执行记录。" });
     await tx.scheduledJob.update({ where: { id: jobId }, data: { lastStatus: "running", lastRunAt: now, lastError: null } });
     const run = await tx.scheduledRun.create({ data: { jobId, kind: job.kind, trigger: "manual", retryOf: previousRunId, requestId: dataRequestContext()?.requestId ?? randomUUID(), startedAt: now } });
-    return { id: jobId, kind: job.kind, runId: run.id, requestId: run.requestId };
+    return { id: jobId, kind: job.kind, runId: run.id, requestId: run.requestId, timeZone: job.timeZone, useModel: job.useModel };
   });
 }
 
@@ -349,7 +355,7 @@ export async function completeJob(id: string, outcome: { ok: boolean; error?: st
   await db.$transaction(async tx => {
     if (runId) {
       const closed = await tx.scheduledRun.updateMany({ where: { id: runId, status: "running" }, data: {
-        status: outcome.ok ? "succeeded" : "failed", errorCode: outcome.ok ? null : outcome.error ?? "INTERNAL_ERROR",
+        status: outcome.ok ? "succeeded" : "failed", errorCode: outcome.error ?? (outcome.ok ? null : "INTERNAL_ERROR"),
         chatId: outcome.chatId ?? null, backupId: outcome.backupId ?? null, finishedAt: now,
       } });
       if (!closed.count) return;
@@ -357,7 +363,7 @@ export async function completeJob(id: string, outcome: { ok: boolean; error?: st
     const job = await tx.scheduledJob.findUnique({ where: { id }, select: { localTime: true, timeZone: true, interval: true, dayOfWeek: true, nextRunAt: true } });
     if (job) await tx.scheduledJob.update({ where: { id }, data: {
       lastStatus: outcome.ok ? "done" : "failed",
-      lastError: outcome.ok ? null : (outcome.error ?? "unknown").slice(0, 500),
+      lastError: outcome.error?.slice(0, 500) ?? (outcome.ok ? null : "INTERNAL_ERROR"),
       // Strictly after completion: an execution finishing exactly at its wall
       // clock minute must not leave that occurrence due a second time.
       nextRunAt: nextLocalOccurrence(job, new Date(now.getTime() + 1))
@@ -382,6 +388,7 @@ export async function completeJob(id: string, outcome: { ok: boolean; error?: st
  */
 export async function releaseInterruptedJobs(now = new Date()): Promise<number> {
   return db.$transaction(async (tx) => {
+    await tx.workspaceReview.updateMany({ where: { modelStatus: "pending" }, data: { modelStatus: "interrupted", modelError: "INTERRUPTED" } });
     await tx.scheduledRun.updateMany({ where: { status: "running" }, data: { status: "interrupted", errorCode: "INTERRUPTED", finishedAt: now } });
     await pruneScheduledHistory(tx, now);
     const running = await tx.scheduledJob.findMany({

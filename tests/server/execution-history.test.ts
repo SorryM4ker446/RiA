@@ -21,6 +21,10 @@ let cookie: string;
 beforeEach(async () => {
   cookie = localAccessCookie();
   globalThis.__privateAiRateLimitStore?.clear();
+  await db.workspaceReview.deleteMany({});
+  await db.workspaceEvent.deleteMany({});
+  await db.$executeRawUnsafe("DROP TRIGGER IF EXISTS reject_period_review");
+  await db.$executeRawUnsafe("CREATE TRIGGER reject_period_review BEFORE INSERT ON workspace_reviews BEGIN SELECT RAISE(ABORT, 'fixture-persistence-failure'); END");
   await db.scheduledRun.deleteMany({});
   await db.scheduledJob.deleteMany({});
   await db.agentRun.deleteMany({});
@@ -43,7 +47,7 @@ test("a failed schedule keeps an independent sanitized execution and a distinct 
   const job = await due();
   await runDueScheduledJob();
   const [first] = await listScheduledRuns();
-  assert.equal(first.errorCode, "CONFIGURATION_ERROR");
+  assert.equal(first.errorCode, "INTERNAL_ERROR");
   assert.equal(first.status, "failed");
   assert.ok(first.finishedAt);
   assert.equal(first.canRetry, true);

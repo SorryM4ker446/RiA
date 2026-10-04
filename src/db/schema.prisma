@@ -82,6 +82,7 @@ model Chat {
   generatedMedia  MediaAsset[]
   agentRuns       AgentRun[]
   scheduledRuns   ScheduledRun[]
+  workspaceReview WorkspaceReview?
 
   @@index([lastMessageAt, id])
   @@index([archived, pinned, lastMessageAt, id])
@@ -357,6 +358,7 @@ model ScheduledJob {
   // Disabled by default and stays that way. A schedule that starts on its own
   // is a background process nobody asked for.
   enabled Boolean @default(false)
+  useModel Boolean @default(false)
   // The local wall-clock time and the zone it is meant in, kept the same way a
   // reminder is, so a job set for 08:30 stays at 08:30 across a daylight saving
   // change that a stored UTC instant would not survive.
@@ -381,6 +383,41 @@ model ScheduledJob {
 
   @@index([enabled, nextRunAt])
   @@map("scheduled_jobs")
+}
+
+model WorkspaceActivityState {
+  id String @id @default("local")
+  recordingStartedAt DateTime @default(now())
+  completeSince DateTime @default(now())
+  @@map("workspace_activity_state")
+}
+
+model WorkspaceEvent {
+  id String @id @default(cuid())
+  kind String
+  entityId String
+  label String
+  occurredAt DateTime @default(now())
+  @@index([occurredAt, id])
+  @@map("workspace_events")
+}
+
+model WorkspaceReview {
+  id String @id @default(cuid())
+  period String
+  timeZone String
+  startAt DateTime
+  endAt DateTime
+  facts Json
+  chatId String? @unique
+  chat Chat? @relation(fields: [chatId], references: [id], onDelete: SetNull)
+  modelStatus String @default("disabled")
+  modelError String?
+  modelText String?
+  createdAt DateTime @default(now())
+  @@unique([period, timeZone, startAt])
+  @@index([createdAt, id])
+  @@map("workspace_reviews")
 }
 
 // Local execution evidence survives schedule deletion and notice dismissal.
