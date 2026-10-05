@@ -97,3 +97,6 @@ Pending desktop/local migrations recognize both older account databases and the
 current single-workspace schema. Their pre-upgrade SQLite snapshot includes WAL
 commits and is a standalone database file; failure to create it stops migration.
 This safety snapshot is separate from the portable archive and its retention rules.
+
+
+Model usage snapshots include optional call source and pre-call estimate fields. Old rows remain unattributed. Restored pending calls become interrupted with unknown billing and are never replayed. Local daily admission counters are not exported or cleared by a restore; restoring older history cannot replenish the current device's allowance. Older strict readers may reject new fields; verify archives before downgrading.

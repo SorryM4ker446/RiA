@@ -10,7 +10,7 @@ import { requireLocalWorkspace } from "@/lib/local/workspace";
 import { logToolExecution } from "@/lib/server/tool-log";
 import { assertToolConfiguration, getToolDescriptor, isToolSupportedInMode, type ToolMode } from "@/tools/catalog";
 import { persistToolMemory } from "@/tools/memory-policy";
-import { modelInLibrary, preferredModel } from "@/lib/models/preferences";
+import { getModelPreferences, preferredModel } from "@/lib/models/preferences";
 import { t } from "@/lib/locale";
 import { db } from "@/db";
 import { identifierSchema } from "@/lib/server/request-schemas";
@@ -85,13 +85,11 @@ async function POSTHandler(req: NextRequest) {
     if (parsed.data.chatId && !conversation) throw new ApiError({ code: "NOT_FOUND", message: "Conversation was not found" });
     const usesMemory = !conversation?.ephemeral;
     await assertToolConfiguration(toolId);
-    const modelRef = await preferredModel("chat", parsed.data.model);
-    const model = await modelInLibrary("chat", modelRef);
-    if (!model?.supportsTools) {
-      // The id sits mid-sentence, so the copy is split around it and the
-      // spacing stays in the template: a translator can reorder the halves.
-      throw new ApiError({ code: "VALIDATION_ERROR", message: `${t("api.tools.modelUnsupportedPrefix")} ${modelRef.modelId} ${t("api.tools.modelUnsupportedSuffix")}` });
-    }
+    // Manual execution is explicit user input. A model is only optional
+    // synthesis, so local tasks and retrieval must work with an empty library.
+    const modelRef = parsed.data.model
+      ? await preferredModel("chat", parsed.data.model)
+      : (await getModelPreferences()).chat.model ?? undefined;
     const preparedInput = descriptor.prepareInput
       ? await descriptor.prepareInput({
           workspaceId: LOCAL_WORKSPACE_ID,
@@ -130,6 +128,7 @@ async function POSTHandler(req: NextRequest) {
         output: data,
         modelRef,
         trigger: "manual",
+        signal: req.signal,
       })
     ).trim();
 

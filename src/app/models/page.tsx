@@ -11,13 +11,14 @@ import { libraryModes, modelModes, modelRefKey, type ModelLibraryItem, type Mode
 import type { LibraryAvailability, ModelAvailability } from "@/lib/models/availability";
 import { formatDateTime, t, tf } from "@/lib/locale";
 
-type UsageRow = { id: string; modelId: string; modelProvider: string; mode: string; status: string; durationMs: number; inputTokens: number | null; outputTokens: number | null; costUsd: number | null; costSource: string; fallback: boolean; errorCode: string | null; createdAt: string };
-type Usage = { recent: UsageRow[]; totals: { requests: number; inputTokens: number | null; outputTokens: number | null; costUsd: number | null; unknownCostRequests: number } };
+type UsageRow = { id: string; source: string; estimatedUsd: number | null; modelId: string; modelProvider: string; mode: string; status: string; durationMs: number; inputTokens: number | null; outputTokens: number | null; costUsd: number | null; costSource: string; fallback: boolean; errorCode: string | null; createdAt: string };
+type Usage = { controls?: ModelPreferences["callLimits"] & { day: string; calls: number; estimatedUsd: number; active: number }; recent: UsageRow[]; totals: { requests: number; inputTokens: number | null; outputTokens: number | null; costUsd: number | null; unknownCostRequests: number } };
 type CatalogModel = Omit<ModelLibraryItem, "addedAt" | "lastSeenAt">;
 type CatalogState = { models: CatalogModel[]; fetchedAt: string | null; stale: boolean; source: "live" | "cache" | "empty"; error: string | null; failure: string | null; skipped: number };
 type ProviderSummary = { providerId: string; displayName: string; configured: boolean };
 type EmbeddingSummary = { total: number; stale: number; embedding: string | null };
 const modeNames: Record<LibraryMode, string> = { chat: t("models.mode.chat"), image: t("models.mode.image"), video: t("models.mode.video"), embedding: t("models.mode.embedding") };
+const sourceNames: Record<string, string> = { chat: "聊天", summary: "历史摘要", scheduled: "定时回顾", tool: "工具综合", embedding: "嵌入", media: "媒体生成", unattributed: "来源未记录" };
 const cost = (value: number | null) => value === null ? t("models.unknown") : `$${value.toFixed(6)}`;
 // Radix reserves the empty string for "no selection" and throws if an item
 // declares it, so "not configured" needs a value that cannot collide with a
@@ -33,6 +34,7 @@ const fromSelectValue = (value: string): ModelRef | null => {
 
 export default function ModelsPage() {
   const [settings, setSettings] = useState<ModelPreferences | null>(null), [usage, setUsage] = useState<Usage | null>(null);
+  const [usageSource, setUsageSource] = useState("all");
   const [catalogMode, setCatalogMode] = useState<LibraryMode>("chat");
   // The catalog is browsed one provider at a time. Two entries with the same
   // model id are different models, so mixing them into one list would hide
@@ -45,14 +47,10 @@ export default function ModelsPage() {
   const [embeddings, setEmbeddings] = useState<EmbeddingSummary | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]), [busy, setBusy] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
   const load = useCallback(async () => {
-    const [preferences, history] = await Promise.all([
-      settingsRequest<{ data: ModelPreferences; availability: LibraryAvailability; providers: ProviderSummary[]; recentFailures: { modelId: string }[] }>("/api/models"),
-      settingsRequest<{ data: Usage }>("/api/usage"),
-    ]);
+    const preferences = await settingsRequest<{ data: ModelPreferences; availability: LibraryAvailability; providers: ProviderSummary[]; recentFailures: { modelId: string }[] }>("/api/models");
     setSettings(current => current ? { ...current, ...preferences.data } : preferences.data);
     setAvailability(preferences.availability ?? {});
     setProviders(preferences.providers ?? []);
-    setUsage(history.data);
     setWarnings([...new Set(preferences.recentFailures.map(item => tf("models.warningForModel", { modelId: item.modelId, reason: t("models.missingModelWarning") })))]);
     // The embedding summary is an aside on this page. A failure reading it must
     // not take the library, the catalog and the preferences down with it, so it
@@ -61,6 +59,13 @@ export default function ModelsPage() {
       .then(response => setEmbeddings(response.data))
       .catch(() => setEmbeddings(null));
   }, []);
+  useEffect(() => {
+    const controller = new AbortController();
+    settingsRequest<{ data: Usage }>(usageSource === "all" ? "/api/usage" : `/api/usage?source=${usageSource}`, { signal: controller.signal })
+      .then(history => { if (!controller.signal.aborted) setUsage(history.data); })
+      .catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "读取用量失败"); });
+    return () => controller.abort();
+  }, [usageSource]);
   const loadCatalog = useCallback(async (providerId: string, mode: LibraryMode, force = false) => {
     const query2 = force ? "" : `?providerId=${encodeURIComponent(providerId)}&mode=${mode}`;
     const response = await settingsRequest<{ catalogs: Record<string, Partial<Record<LibraryMode, CatalogState>>> }>(`/api/models/catalog${query2}`, force ? jsonRequest("POST", { providerId, mode }) : undefined);
@@ -200,11 +205,19 @@ export default function ModelsPage() {
           <p className="text-muted-foreground">{embeddings.stale > 0 ? tf("models.embeddingStale", { count: embeddings.stale }) : t("models.embeddingStaleNone")}</p>
           <Button disabled={busy || embeddings.stale === 0 || !embeddings.embedding} onClick={() => void run(rebuildEmbeddings)} variant="outline">{t("models.embeddingReindex")}</Button>
         </div>}
+        <fieldset className="space-y-3 rounded-lg bg-background p-3 shadow-hairline">
+          <legend className="text-sm font-medium">模型调用限制</legend>
+          <p className="text-xs text-muted-foreground">后台包括历史摘要和定时回顾。次数按所选时区的本地日期计算；失败、取消和中断仍占当日额度。费用是应用预估，不是供应商账单硬上限；设置费用上限后，缺少价格的后台调用会被拒绝。空费用上限表示不限制。</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {([ ["maxConcurrent", "最大并发调用数", 1, 16], ["backgroundDailyCalls", "后台每日调用次数", 0, 1000], ["backgroundMaxEstimatedUsd", "后台单次预估上限 USD", 0, 1000000], ["backgroundDailyEstimatedUsd", "后台每日预估上限 USD", 0, 1000000] ] as const).map(([key, label, min, max]) => <label key={key} className="text-xs">{label}<Input aria-label={label} type="number" min={min} max={max} step={key.includes("Usd") ? "any" : 1} value={settings.callLimits[key] ?? ""} disabled={busy} onChange={event => setSettings({ ...settings, callLimits: { ...settings.callLimits, [key]: event.target.value === "" && key.includes("Usd") ? null : Number(event.target.value) } })} /></label>)}
+            <label className="text-xs">预算时区<Input aria-label="预算时区" value={settings.callLimits.timeZone} disabled={busy} onChange={event => setSettings({ ...settings, callLimits: { ...settings.callLimits, timeZone: event.target.value } })} /></label>
+          </div>
+        </fieldset>
         <details className="rounded-lg bg-background p-3 shadow-hairline"><summary className="cursor-pointer text-sm font-medium tracking-label">{t("models.ratesTitle")}</summary><p className="my-3 text-sm text-muted-foreground">{t("models.ratesDescription")}</p>{rateModels.map(id => <fieldset key={id} className="mb-3 grid gap-2 sm:grid-cols-3"><legend className="break-all font-mono text-xs text-muted-foreground">{id}</legend>{([ ["inputPerMillion", t("models.rateInputLabel")], ["cacheReadPerMillion", t("models.rateCacheReadLabel")], ["cacheWritePerMillion", t("models.rateCacheWriteLabel")], ["outputPerMillion", t("models.rateOutputLabel")], ["perRequest", t("models.rateRequestLabel")] ] as const).map(([key, label]) => <label key={key} className="text-xs">{label}<Input aria-label={`${id} ${label}`} type="number" step="any" min={0} value={settings.rates[id]?.[key] ?? ""} disabled={busy} onChange={event => changeRate(id, key, event.target.value)} /></label>)}</fieldset>)}</details>
-        <div className="flex gap-3"><Button disabled={busy} onClick={() => void run(async () => { await settingsRequest("/api/models", jsonRequest("PUT", settings)); setNotice(t("models.notice.preferencesSaved")); })}>{t("models.savePreferences")}</Button><RefreshButton disabled={busy} onClick={() => void run(load)} label={t("models.reloadUsage")} /></div>
+        <div className="flex gap-3"><Button disabled={busy} onClick={() => void run(async () => { await settingsRequest("/api/models", jsonRequest("PUT", settings)); setNotice(t("models.notice.preferencesSaved")); })}>{t("models.savePreferences")}</Button><RefreshButton disabled={busy} onClick={() => void run(async () => { await load(); const history = await settingsRequest<{ data: Usage }>(usageSource === "all" ? "/api/usage" : `/api/usage?source=${usageSource}`); setUsage(history.data); })} label={t("models.reloadUsage")} /></div>
       </section>
     </>}
-    <section className="space-y-3" aria-label={t("models.usageLabel")}><h2 className="text-lg font-semibold tracking-title">{t("models.usageTitle")}</h2><dl className="flex flex-wrap gap-2">
+    <section className="space-y-3" aria-label={t("models.usageLabel")}><h2 className="text-lg font-semibold tracking-title">{t("models.usageTitle")}</h2><label className="flex items-center gap-2 text-sm">调用来源<select aria-label="调用来源" className="rounded border bg-background p-2" value={usageSource} onChange={event => setUsageSource(event.target.value)}><option value="all">全部来源</option>{Object.entries(sourceNames).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><dl className="flex flex-wrap gap-2">
         {[
           { label: t("models.usage.calls"), value: `${usage?.totals.requests ?? 0} ${t("models.usage.times")}` },
           { label: t("models.usage.input"), value: `${usage?.totals.inputTokens ?? t("models.unknown")} Token` },
@@ -222,7 +235,8 @@ export default function ModelsPage() {
         ))}
       </dl>
       <p className="text-xs text-muted-foreground">{t("models.usageNote")}</p>
-      <div className="overflow-x-auto rounded-lg bg-card shadow-card"><table className="w-full text-left text-sm"><thead><tr className="border-b bg-muted/50 text-xs uppercase tracking-label text-muted-foreground"><th className="p-3 font-medium">{t("models.thTime")}</th><th className="p-3">{t("models.thResult")}</th><th className="p-3">{t("models.thDuration")}</th><th className="p-3">{t("models.thTokens")}</th><th className="p-3">{t("models.thCost")}</th></tr></thead><tbody>{usage?.recent.map(row => <tr key={row.id} className="border-b transition-colors duration-[--dur-fast] last:border-0 hover:bg-muted/40"><td className="max-w-sm break-words p-3">{row.modelId}<br /><span className="text-xs text-muted-foreground">{row.modelProvider}</span><br /><span className="text-xs text-muted-foreground">{formatDateTime(row.createdAt)} · {row.mode}</span></td><td className="p-3">{row.status === "success" ? t("models.statusSuccess") : row.status === "aborted" ? t("models.statusAborted") : t("models.statusFailed")}{row.fallback ? t("models.statusFallback") : ""}<br /><span className="text-xs">{row.errorCode}</span></td><td className="whitespace-nowrap p-3">{row.durationMs} ms</td><td className="p-3">{row.inputTokens ?? t("models.unknown")} / {row.outputTokens ?? t("models.unknown")}</td><td className="whitespace-nowrap p-3">{cost(row.costUsd)}<br /><span className="text-xs text-muted-foreground">{row.costSource === "provider" ? t("models.costSourceProvider") : row.costSource === "configured" ? t("models.costSourceConfigured") : t("models.costSourceUnknown")}</span></td></tr>)}</tbody></table>{!usage?.recent.length && <p className="p-4 text-sm text-muted-foreground">{t("models.usageEmpty")}</p>}</div>
+      {usage?.controls && <p className="text-xs text-muted-foreground">预算日期 {usage.controls.day} · 进行中 {usage.controls.active}/{usage.controls.maxConcurrent} · 后台已领取 {usage.controls.calls}/{usage.controls.backgroundDailyCalls} 次 · 后台已领取预估 {cost(usage.controls.estimatedUsd)}。价格未配置的调用仍可能产生费用；领取额度不会在失败或取消后返还。</p>}
+      <div className="overflow-x-auto rounded-lg bg-card shadow-card"><table className="w-full text-left text-sm"><thead><tr className="border-b bg-muted/50 text-xs uppercase tracking-label text-muted-foreground"><th className="p-3 font-medium">{t("models.thTime")}</th><th className="p-3">{t("models.thResult")}</th><th className="p-3">{t("models.thDuration")}</th><th className="p-3">{t("models.thTokens")}</th><th className="p-3">{t("models.thCost")}</th></tr></thead><tbody>{usage?.recent.map(row => <tr key={row.id} className="border-b transition-colors duration-[--dur-fast] last:border-0 hover:bg-muted/40"><td className="max-w-sm break-words p-3">{row.modelId}<br /><span className="text-xs text-muted-foreground">{row.modelProvider}</span><br /><span className="text-xs text-muted-foreground">{formatDateTime(row.createdAt)} · {row.mode} · {sourceNames[row.source] ?? "来源未记录"}</span></td><td className="p-3">{row.status === "pending" ? "进行中" : row.status === "interrupted" ? "进程中断" : row.status === "success" ? t("models.statusSuccess") : row.status === "aborted" ? t("models.statusAborted") : t("models.statusFailed")}{row.fallback ? t("models.statusFallback") : ""}<br /><span className="text-xs">{row.errorCode}</span></td><td className="whitespace-nowrap p-3">{row.durationMs} ms</td><td className="p-3">{row.inputTokens ?? t("models.unknown")} / {row.outputTokens ?? t("models.unknown")}</td><td className="whitespace-nowrap p-3">{cost(row.costUsd)}<br />{row.estimatedUsd != null && <span className="text-xs">调用前预估 {cost(row.estimatedUsd)}<br /></span>}<span className="text-xs text-muted-foreground">{row.costSource === "provider" ? t("models.costSourceProvider") : row.costSource === "configured" ? t("models.costSourceConfigured") : t("models.costSourceUnknown")}</span></td></tr>)}</tbody></table>{!usage?.recent.length && <p className="p-4 text-sm text-muted-foreground">{t("models.usageEmpty")}</p>}</div>
     </section>
   </main>;
 }

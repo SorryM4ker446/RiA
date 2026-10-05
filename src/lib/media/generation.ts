@@ -11,6 +11,7 @@ import type { GenerationRecipe } from "@/lib/media/generation-recipe";
 import { preferredModel, getModelPreferences, modelInLibrary } from "@/lib/models/preferences";
 import { getModelProvider } from "@/lib/models/providers";
 import { modelRefKey, type ModelRef } from "@/lib/models/preferences-schema";
+import { beginModelAttempt } from "@/lib/models/call-controls";
 import { canFallback, recordModelAttempt } from "@/lib/models/usage";
 
 export async function generateStoredMedia(type: "image" | "video", value: unknown, signal: AbortSignal, allowFallback = true) {
@@ -38,7 +39,8 @@ export async function generateStoredMedia(type: "image" | "video", value: unknow
   let output: { uint8Array: Uint8Array; mediaType: string } | undefined;
   for (let attempt = 0; attempt < candidates.length; attempt++) {
     model = candidates[attempt]; const started = Date.now();
-    const rates = preferences.rates[modelRefKey(model)] ?? undefined;
+    const admission = await beginModelAttempt({ mode: type, ref: model, prompt: body.prompt, fallback: attempt > 0, source: "media", signal });
+    const rates = admission.rate;
     try {
       const validateModel = (authorizedModel: NonNullable<typeof cached>) => {
         if (assets.length && !acceptsImages(authorizedModel)) throw new ApiError({ code: "VALIDATION_ERROR", message: t("lib.media.noImageEndpoint") });
@@ -46,16 +48,16 @@ export async function generateStoredMedia(type: "image" | "video", value: unknow
       if (type === "image") {
         const generated = await generateImage({ model: getImageModel(model, validateModel), n: 1, abortSignal: signal, maxRetries: 0, prompt: bytes.length ? { images: bytes, ...(body.prompt ? { text: body.prompt } : {}) } : body.prompt });
         output = generated.image;
-        await recordModelAttempt({ mode: type, modelId: model.modelId, modelProvider: model.providerId, started, usage: generated.usage, metadata: generated.providerMetadata, fallback: attempt > 0, rate: rates });
+        await recordModelAttempt({ attemptId: admission.id, source: "media", mode: type, modelId: model.modelId, modelProvider: model.providerId, started, usage: generated.usage, metadata: generated.providerMetadata, fallback: attempt > 0, rate: rates });
       } else {
         const video = videoRequestSchema.parse(body);
         const generated = await experimental_generateVideo({ model: getVideoModel(model, validateModel), n: 1, abortSignal: signal, maxRetries: 0, prompt: bytes[0] ? { image: bytes[0], ...(body.prompt ? { text: body.prompt } : {}) } : body.prompt, aspectRatio: video.aspectRatio, duration: video.duration, fps: video.fps });
         output = generated.video;
-        await recordModelAttempt({ mode: type, modelId: model.modelId, modelProvider: model.providerId, started, metadata: generated.providerMetadata, fallback: attempt > 0, rate: rates });
+        await recordModelAttempt({ attemptId: admission.id, source: "media", mode: type, modelId: model.modelId, modelProvider: model.providerId, started, metadata: generated.providerMetadata, fallback: attempt > 0, rate: rates });
       }
       break;
     } catch (error) {
-      await recordModelAttempt({ mode: type, modelId: model.modelId, modelProvider: model.providerId, started, error, fallback: attempt > 0 });
+      await recordModelAttempt({ attemptId: admission.id, source: "media", mode: type, modelId: model.modelId, modelProvider: model.providerId, started, error, fallback: attempt > 0 });
       if (attempt + 1 === candidates.length || !canFallback(error, signal)) await callUpstream(async () => { throw error; });
     }
   }

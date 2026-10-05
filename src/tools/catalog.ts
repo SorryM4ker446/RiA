@@ -1,3 +1,4 @@
+import { withModelCallSource } from "@/lib/models/call-context";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { generateText, Output, type ToolSet } from "ai";
 import { z } from "zod";
@@ -67,6 +68,7 @@ type ToolPrepareInputContext<Input> = {
 };
 
 type ToolAssistantTextContext<Input, Output> = {
+  signal?: AbortSignal;
   input: Input;
   output: Output;
   modelRef?: ModelRef;
@@ -206,6 +208,7 @@ function buildSearchFallbackText(result: Awaited<ReturnType<typeof searchKnowled
 }
 
 async function buildSearchAssistantText(params: {
+  signal?: AbortSignal;
   result: Awaited<ReturnType<typeof searchKnowledge>>;
   modelRef?: ModelRef;
 }): Promise<string> {
@@ -227,10 +230,11 @@ async function buildSearchAssistantText(params: {
   try {
     const selectedModel = await preferredModel("chat", modelRef);
     const providerOptions = await reasoningOptionsFor(selectedModel);
-    const answer = await generateText({
+    const answer = await withModelCallSource("tool", () => generateText({
       model: getChatModel(selectedModel),
       ...(providerOptions ? { providerOptions } : {}),
       system: SEARCH_ANSWER_SYSTEM,
+      maxRetries: 0, maxOutputTokens: 1024, abortSignal: params.signal ? AbortSignal.any([params.signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000),
       prompt: [
         `User question: ${result.query}`,
         "",
@@ -239,7 +243,7 @@ async function buildSearchAssistantText(params: {
         "",
         SEARCH_ANSWER_OUTPUT,
       ].join("\n"),
-    });
+    }));
 
     const text = answer.text.trim();
     if (text) return text;
@@ -309,6 +313,7 @@ async function resolveWebSearchInput(params: {
 }
 
 async function buildWebSearchAssistantText(params: {
+  signal?: AbortSignal;
   result: Awaited<ReturnType<typeof runWebSearch>>;
   modelRef?: ModelRef;
 }): Promise<string> {
@@ -330,10 +335,11 @@ async function buildWebSearchAssistantText(params: {
   try {
     const selectedModel = await preferredModel("chat", modelRef);
     const providerOptions = await reasoningOptionsFor(selectedModel);
-    const answer = await generateText({
+    const answer = await withModelCallSource("tool", () => generateText({
       model: getChatModel(selectedModel),
       ...(providerOptions ? { providerOptions } : {}),
       system: WEB_ANSWER_SYSTEM,
+      maxRetries: 0, maxOutputTokens: 1024, abortSignal: params.signal ? AbortSignal.any([params.signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000),
       prompt: [
         `User question: ${result.query}`,
         "",
@@ -342,7 +348,7 @@ async function buildWebSearchAssistantText(params: {
         "",
         ...WEB_ANSWER_OUTPUT,
       ].join("\n"),
-    });
+    }));
 
     const text = answer.text.trim();
     if (text) return text;
@@ -438,10 +444,10 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     },
     inputSchema: searchKnowledgeInputSchema,
     execute: async ({ input, documentCollections, usesMemory, signal }) => searchKnowledge(input, { collections: documentCollections, usesMemory, signal }),
-    buildAssistantText: async ({ output, modelRef }) =>
+    buildAssistantText: async ({ output, modelRef, signal }) =>
       buildSearchAssistantText({
         result: output,
-        modelRef,
+        modelRef, signal,
       }),
     memory: {
       enabled: true,
@@ -596,10 +602,10 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       };
     },
     execute: async ({ input, signal }) => runWebSearch(input, signal),
-    buildAssistantText: ({ output, modelRef }) =>
+    buildAssistantText: ({ output, modelRef, signal }) =>
       buildWebSearchAssistantText({
         result: output,
-        modelRef,
+        modelRef, signal,
       }),
     memory: {
       enabled: true,

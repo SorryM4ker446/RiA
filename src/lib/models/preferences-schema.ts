@@ -64,6 +64,13 @@ export type ModelLibraryItem = z.infer<typeof modelLibraryItemSchema>;
 
 export const legacyModelCandidateSchema = z.strictObject({ mode: z.enum(libraryModes), ref: modelRefSchema });
 const preferencesShape = {
+  callLimits: z.strictObject({
+    maxConcurrent: z.number().int().min(1).max(16).default(4),
+    backgroundDailyCalls: z.number().int().min(0).max(1000).default(20),
+    backgroundMaxEstimatedUsd: price.default(null),
+    backgroundDailyEstimatedUsd: price.default(null),
+    timeZone: z.string().min(1).max(100).refine(value => { try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; } catch { return false; } }).default("Asia/Shanghai"),
+  }).default({ maxConcurrent: 4, backgroundDailyCalls: 20, backgroundMaxEstimatedUsd: null, backgroundDailyEstimatedUsd: null, timeZone: "Asia/Shanghai" }),
   version: z.literal(3),
   defaultMode: z.enum(modelModes),
   chat: modePreference,
@@ -159,6 +166,7 @@ export const legacyPreferencesSchema = z.strictObject({
 export function defaultModelPreferences(): ModelPreferences {
   return {
     version: 3,
+    callLimits: preferencesShape.callLimits.parse(undefined),
     defaultMode: "chat",
     chat: { model: null, fallback: null },
     image: { model: null, fallback: null },

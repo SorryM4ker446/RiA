@@ -1,5 +1,7 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs" && process.env.NEXT_PHASE !== "phase-production-build") {
+    const { recoverModelAttempts } = await import("@/lib/models/call-controls");
+    await recoverModelAttempts();
     const { startBackupMaintenance } = await import("@/lib/backups/maintenance");
     startBackupMaintenance();
     // Started here rather than from a route: a schedule the user switched on has

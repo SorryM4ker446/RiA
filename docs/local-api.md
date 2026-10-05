@@ -75,3 +75,8 @@ method, matched terms and versioned citation snapshots. Bounded current-source
 checks use `POST /api/documents/references`; see [Document knowledge](document-knowledge.md)
 for status and validation rules. Historical excerpts remain unchanged when
 current source text changes or is deleted.
+
+
+Manual tool execution (`POST /api/tools/run`) accepts an absent model: local task creation, memory operations and deterministic retrieval must work with an empty model library. An explicitly supplied model still needs to be a library member. Manual execution does not require model tool-call capability because the user supplies the command; automatic chat tool calls retain capability checks and approval rules. Search answer synthesis may use the configured chat default, but a missing model or failed synthesis retains deterministic evidence. Manual synthesis receives the request cancellation signal and disables automatic provider retries.
+
+Usage supports an optional `source` query (`chat`, `summary`, `scheduled`, `tool`, `embedding`, `media`, `unattributed`), rejecting invalid or duplicated parameters. Limits and current local-date allowance are returned with usage. A denied admission reports a conflict or configuration problem and submits no provider call; it does not fabricate a usage charge. See [Model settings and usage](model-usage.md).

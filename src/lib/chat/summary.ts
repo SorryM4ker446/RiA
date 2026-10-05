@@ -1,3 +1,4 @@
+import { withModelCallSource } from "@/lib/models/call-context";
 import type { UIMessage } from "ai";
 import { historicalText } from "@/lib/chat/context";
 import { decodePersistedUserMessage, decodePersistedAssistantToolMessage } from "@/lib/ai/ui-message";
@@ -36,6 +37,7 @@ export async function summarizeOlderTurns(params: {
   chatId: string;
   messages: { id: string; role: string; text: string }[];
   keepRecent: number;
+  signal?: AbortSignal;
 }): Promise<SummaryResult> {
   const older = params.messages.slice(0, Math.max(0, params.messages.length - params.keepRecent));
   const lastCovered = older.at(-1);
@@ -69,7 +71,7 @@ export async function summarizeOlderTurns(params: {
   const transcript = snapshot.rows.map((message) => `${message.role}: ${summaryText(message).slice(0, 1500)}`).join("\n\n");
 
   try {
-    const { text } = await generateSummary(chosen, `${previous}Turns to fold in:\n${transcript}`);
+    const { text } = await withModelCallSource("summary", () => generateSummary(chosen, `${previous}Turns to fold in:\n${transcript}`, params.signal));
     const summary = text.trim();
     if (!summary) return null;
     const saved = await db.chat.updateMany({
@@ -85,7 +87,7 @@ export async function summarizeOlderTurns(params: {
   }
 }
 
-async function generateSummary(ref: { providerId: "openrouter" | "deepseek"; modelId: string }, prompt: string) {
+async function generateSummary(ref: { providerId: "openrouter" | "deepseek"; modelId: string }, prompt: string, signal?: AbortSignal) {
   const { generateText } = await import("ai");
   const preferences = await getModelPreferences();
   const providerOptions = (await import("@/lib/models/providers")).getModelProvider(ref.providerId).reasoningOptions?.(preferences.thinking);
@@ -95,6 +97,8 @@ async function generateSummary(ref: { providerId: "openrouter" | "deepseek"; mod
     system: SYSTEM,
     prompt,
     maxRetries: 0,
+    maxOutputTokens: 1024,
+    abortSignal: signal ? AbortSignal.any([signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000),
   });
 }
 

@@ -30,6 +30,7 @@ const { runDueScheduledJob } = await import("@/lib/scheduler/runner");
 const now = new Date("2026-10-05T12:00:00Z");
 let cookie: string;
 beforeEach(async () => {
+  await db.modelCallDay.deleteMany({});
   cookie = localAccessCookie(); globalThis.__privateAiRateLimitStore?.clear();
   delete process.env.PRIVATE_AI_TEST_PROVIDER;
   await db.workspaceReview.deleteMany({}); await db.workspaceEvent.deleteMany({});
@@ -56,6 +57,23 @@ async function configureModel() {
   await db.workspacePreference.create({ data: { id: "local", settings } });
   return ref;
 }
+
+test("scheduled commentary uses background admission and keeps deterministic facts when pricing is unknown", async (t) => {
+  await event("2026-10-04T12:00:00Z");
+  await configureModel();
+  const { getModelPreferences, saveModelPreferences } = await import("@/lib/models/preferences");
+  const preferences = await getModelPreferences();
+  await saveModelPreferences({ ...preferences, callLimits: { ...preferences.callLimits, backgroundMaxEstimatedUsd: 0.05 } });
+  let submitted = 0;
+  t.mock.method(getModelProvider("openrouter"), "createChatModel", () => new MockLanguageModelV3({ doGenerate: async () => { submitted++; throw new Error("must not submit"); } }));
+  const result = await generateWorkspaceReview("daily", "Asia/Shanghai", true, now);
+  assert.equal(result.review.modelStatus, "failed");
+  assert.equal(result.review.modelError, "CONFIGURATION_ERROR");
+  assert.ok(result.review.chatId);
+  assert.equal(submitted, 0);
+  assert.equal(await db.modelRequest.count(), 0);
+  assert.match((await db.message.findFirstOrThrow({ where: { chatId: result.review.chatId!, role: "assistant" } })).content, /事实回顾/);
+});
 
 test("local review boundaries follow calendar dates through DST and skipped midnight", () => {
   const spring = reviewWindow("daily", "Europe/London", new Date("2026-03-30T12:00:00Z"));

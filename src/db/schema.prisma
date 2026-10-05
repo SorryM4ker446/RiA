@@ -36,6 +36,8 @@ model ModelCatalogSnapshot {
 model ModelRequest {
   id           String   @id @default(cuid())
   requestId    String
+  source       String   @default("unattributed")
+  estimatedUsd Float?
   mode         String
   modelId      String
   modelProvider String  @default("openrouter")
@@ -51,6 +53,13 @@ model ModelRequest {
 
   @@index([createdAt, id])
   @@map("model_requests")
+}
+
+model ModelCallDay {
+  day           String @id
+  calls         Int @default(0)
+  estimatedUsd  Float @default(0)
+  @@map("model_call_days")
 }
 
 model Chat {

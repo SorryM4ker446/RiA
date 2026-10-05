@@ -50,6 +50,7 @@ beforeEach(async (t: TestContext) => {
   await db.messageMedia.deleteMany({});
   await db.mediaGenerationInput.deleteMany({});
   await db.modelRequest.deleteMany({});
+  await db.modelCallDay.deleteMany({});
   await db.workspacePreference.deleteMany({});
   await db.scheduledJob.deleteMany({});
   await db.appNotice.deleteMany({});
@@ -60,6 +61,17 @@ beforeEach(async (t: TestContext) => {
 after(async () => {
   await db.$disconnect();
   cleanup();
+});
+
+test("portable restore interrupts pending model calls and retains local daily allowances", async () => {
+  await seed();
+  await db.modelRequest.create({ data: { requestId: "pending-request", mode: "chat", source: "summary", modelId: "fixture", status: "pending", durationMs: 0, costSource: "unknown", estimatedUsd: 0.01 } });
+  await db.modelCallDay.create({ data: { day: "2026-10-05:Asia/Shanghai", calls: 3, estimatedUsd: 0.03 } });
+  const backup = await exclusiveDataOperation(() => archive.createAccountBackup());
+  await exclusiveDataOperation(() => restoreAccountBackup(backup.id));
+  const row = await db.modelRequest.findFirstOrThrow();
+  assert.equal(row.source, "summary"); assert.equal(row.status, "interrupted"); assert.equal(row.costUsd, null); assert.equal(row.estimatedUsd, 0.01);
+  assert.equal((await db.modelCallDay.findUniqueOrThrow({ where: { day: "2026-10-05:Asia/Shanghai" } })).calls, 3);
 });
 
 /** One conversation with a message, plus a media asset referenced by it. */

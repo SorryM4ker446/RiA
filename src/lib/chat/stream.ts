@@ -1,3 +1,4 @@
+import { withModelCallSource } from "@/lib/models/call-context";
 import { getChatModel } from "@/lib/ai/client";
 import { getModelProvider } from "@/lib/models/providers";
 import { t } from "@/lib/locale";
@@ -89,7 +90,8 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
   // in its own request; a provider with no such notion contributes nothing and
   // the call goes out exactly as before.
   const providerOptions = getModelProvider(modelRef.providerId).reasoningOptions?.(input.reasoning);
-  const result = streamText({
+  const tools = toolsEnabled ? await createChatToolSet({ modelRef, runId, usesMemory: params.usesMemory !== false, documentCollections: decodeDocumentScope(chat.documentScope) }) : undefined;
+  const result = withModelCallSource("chat", () => streamText({
     model: getChatModel(modelRef),
     ...(providerOptions ? { providerOptions } : {}),
     maxRetries: 0,
@@ -98,12 +100,7 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
     abortSignal: signal,
     ...(toolsEnabled
       ? {
-        tools: await createChatToolSet({
-          modelRef,
-          runId,
-          usesMemory: params.usesMemory !== false,
-          documentCollections: decodeDocumentScope(chat.documentScope),
-        }),
+        tools,
       }
       : {}),
     /*
@@ -136,7 +133,7 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
         trigger: body.trigger ?? "submit-message",
       });
     },
-  });
+  }));
 
   const streamError = (error: unknown) => JSON.stringify(apiErrorPayload(normalizeApiError(error, t("lib.chat.generateFailed"))));
   const stream = result.toUIMessageStream({

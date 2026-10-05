@@ -75,6 +75,7 @@ async function POSTHandler(req: NextRequest) {
         chatId: conversation.chat.id,
         messages: context.allMessages.map((message) => ({ id: message.id ?? "", role: message.role, text: readText(message) })),
         keepRecent: 24,
+        signal: req.signal,
       }).catch(() => null)
       : null;
 
