@@ -23,17 +23,14 @@ function requireFile(path, label) {
   if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`${label} is missing: ${path}`);
 }
 
-// Windows rejects a fully qualified path of 260 characters or more. Before nuget
-// runs, Squirrel copies the packaged app to a temp directory, so a file that is
-// safe inside the bundle can still overflow once staged. The reserve below
-// covers that re-rooting: %TEMP%\squirrel-maker-XXXXXX\ plus the
-// resources/.desktop-runtime/ prefix it is copied under.
+// Reserve space for the selected installation root, version directory and
+// resources/.desktop-runtime/ prefix under the traditional Windows path limit.
 const windowsPathLimit = 260;
-const squirrelStagingReserve = 102;
-const windowsPathBudget = windowsPathLimit - squirrelStagingReserve;
+const installationPrefixReserve = 102;
+const windowsPathBudget = windowsPathLimit - installationPrefixReserve;
 
 // The packaging hook strips the runtime image cache from the staged copy, so it
-// never reaches nuget. Running the packaged app regenerates it in place, and this
+// never reaches the installer. Running the packaged app regenerates it in place, and this
 // check runs against that same directory, so the cache is skipped here for the
 // same reason: it is not part of what the installer ships.
 const runtimeImageCache = join(".next", "cache");
@@ -47,7 +44,7 @@ function assertPackagedPathsFitWindows(directory) {
   }
   if (longest.length >= windowsPathBudget) {
     throw new Error(
-      `Packaged path is ${longest.length} characters, which reaches the Windows limit of ${windowsPathLimit} once the Squirrel temp directory is prepended: ${longest.path}`,
+      `Packaged path is ${longest.length} characters, which reaches the Windows limit of ${windowsPathLimit} with the reserved installation prefix: ${longest.path}`,
     );
   }
 }
@@ -85,14 +82,11 @@ function verifyRuntime(directory, { enforceWindowsPathBudget = false } = {}) {
     }
   }
 
-  // Only the packaged copy is subject to the Squirrel staging limit. The source
+  // Only the packaged copy is subject to the installation path budget. The source
   // runtime legitimately grows a Next.js image cache while the app runs, and the
   // packaging hook drops that cache from the staged copy.
   if (enforceWindowsPathBudget) {
-    // Squirrel re-copies the packaged app under %TEMP%\squirrel-maker-XXXXXX
-    // before running nuget, which cannot handle a fully qualified path of 260
-    // characters or more. Fail here with the offending path instead of letting
-    // the installer step die on an opaque nuget "path too long" error.
+    // Reject oversized relative paths before they reach the installer.
     assertPackagedPathsFitWindows(directory);
   }
 }

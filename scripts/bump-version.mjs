@@ -2,44 +2,22 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-/**
- * Raises the patch version before a build.
- *
- * Squirrel identifies an installation by its version, and the installer it
- * writes is named after it. Repackaging without moving that number forward
- * produces a second `0.1.0 Setup.exe` beside the first: Windows offers to run
- * the same version again, the RELEASES file gains a duplicate entry, and an
- * update published from it is not newer than what is already installed. The
- * number is the one thing that makes a new installer distinguishable, so it is
- * raised here rather than left to be remembered.
- *
- * `package.json` is the only place the version lives — the main process and the
- * desktop runtime both read it — so one write here reaches every consumer.
- *
- * The increment is the patch level and nothing else. A major or minor bump is a
- * decision about what changed, and a script that made that decision would make
- * it without anyone choosing it.
- *
- * Only the version line is rewritten. Reparsing the manifest and printing it
- * back would drop the CRLF endings this file uses, which turns a one-line
- * change into a whole-file diff and hides the actual change in review.
- */
-const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const packageJsonPath = join(repositoryRoot, "package.json");
-const source = readFileSync(packageJsonPath, "utf8");
-
-const versionLine = /^(\s*"version"\s*:\s*")([^"]+)(".*)$/m;
-const match = versionLine.exec(source);
-if (!match) {
-  console.error("无法递增版本号: package.json 中没有找到 version 字段。");
-  process.exit(1);
+export function bumpVersion(root) {
+  const paths = [join(root, "package.json"), join(root, "package-lock.json")];
+  const originals = paths.map(path => readFileSync(path, "utf8"));
+  const manifest = JSON.parse(originals[0]), lock = JSON.parse(originals[1]);
+  const parts = /^(\d+)\.(\d+)\.(\d+)$/.exec(manifest.version);
+  if (!parts || lock.version !== manifest.version || lock.packages?.[""]?.version !== manifest.version) throw new Error("Package and lockfile versions must agree before changing the version.");
+  const next = `${parts[1]}.${parts[2]}.${Number(parts[3]) + 1}`;
+  const changed = [originals[0].replace(/^(\s*"version"\s*:\s*")[^"]+(".*)$/m, `$1${next}$2`)];
+  lock.version = next;
+  lock.packages[""].version = next;
+  const newline = originals[1].includes("\r\n") ? "\r\n" : "\n";
+  changed[1] = JSON.stringify(lock, null, 2).replaceAll("\n", newline) + newline;
+  try { paths.forEach((path, index) => writeFileSync(path, changed[index])); }
+  catch (error) { paths.forEach((path, index) => writeFileSync(path, originals[index])); throw error; }
+  return next;
 }
-const [, prefix, current, suffix] = match;
-const parsed = /^(\d+)\.(\d+)\.(\d+)$/.exec(current);
-if (!parsed) {
-  console.error(`无法递增版本号: ${current} 不是 major.minor.patch 形式。`);
-  process.exit(1);
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  console.log(`Version: ${bumpVersion(resolve(dirname(fileURLToPath(import.meta.url)), ".."))}`);
 }
-const next = `${parsed[1]}.${parsed[2]}.${Number(parsed[3]) + 1}`;
-writeFileSync(packageJsonPath, source.replace(versionLine, `${prefix}${next}${suffix}`));
-console.log(`版本号: ${current} → ${next}`);

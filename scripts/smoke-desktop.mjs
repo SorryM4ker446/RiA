@@ -11,8 +11,11 @@ const development = process.argv.includes("--development");
 const installed = process.argv.includes("--installed");
 const packaged = installed || process.argv.includes("--packaged");
 const forceStandalone = !development && !packaged;
+if (installed && !process.env.DESKTOP_INSTALL_DIR) {
+  throw new Error("Set DESKTOP_INSTALL_DIR to the directory chosen in the MSI installer");
+}
 const electronExecutable = installed
-  ? join(process.env.LOCALAPPDATA || "", "RiA", `app-${packageVersion}`, "RiA.exe")
+  ? join(process.env.DESKTOP_INSTALL_DIR, `app-${packageVersion}`, "RiA.exe")
   : packaged
     ? join(repositoryRoot, "out", "RiA-win32-x64", "RiA.exe")
     : resolveInstalledElectron();

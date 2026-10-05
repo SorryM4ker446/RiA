@@ -122,7 +122,7 @@ function packageFixture(root, build) {
   return packageDirectory;
 }
 
-test("packaged verification rejects paths that overflow the Squirrel temp directory", () => {
+test("packaged verification rejects paths that overflow the reserved installation prefix", () => {
   fixture("verify-desktop-package.mjs", (root, run) => {
     const packageDirectory = packageFixture(root, seedOverflowingPath);
     const result = run(packageDirectory);
@@ -155,7 +155,7 @@ test("packaged verification ignores the runtime image cache the packaging hook s
   });
 });
 
-test("the packaged bundle drops the runtime image cache before Squirrel reads it", async () => {
+test("the packaged bundle drops the runtime image cache before installer creation", async () => {
   // Reproduce what the packager does: copy the extra resource into the staging
   // resources directory, then run the afterCopyExtraResources hook the way
   // promisifyHooks does, with the completion callback appended last.

@@ -88,14 +88,22 @@ npm run desktop:package
 Create the installer:
 
 ```powershell
+./scripts/provision-wix.ps1
+$env:PATH = "$(Get-Location)\.desktop-data\tooling\wix-3.14.1;$env:PATH"
 npm run desktop:make
 ```
 
-The Squirrel maker produces a versioned `RiA-<version> Setup.exe`, a `.nupkg`, and `RELEASES` under `out/make/squirrel.windows/x64/`.
+The WiX maker produces a Chinese MSI installation wizard with a **Browse** button on the feature/destination page. Choose an application folder such as `D:\Apps\RiA`. Installation is per user; choose a writable directory. The final versioned installer is `out/make/wix/x64/RiA-<version>-x64.msi`. WiX 3.14.1 is a build dependency, downloaded from its official release with a pinned SHA-256 by `provision-wix.ps1`, into the ignored project tooling directory. Users installing the MSI do not need WiX or Node.js.
 
-`npm run desktop:make` and `npm run desktop:package` raise the patch version in `package.json` before they build. Squirrel identifies an installation by that number and names the installer after it, so repackaging without moving it forward would leave two `0.1.0 Setup.exe` files side by side and produce an update that is not newer than what is installed. The bump happens before `desktop:build`, which reads the same field into the desktop runtime, and it is the patch level only — a major or minor bump stays a decision someone makes. To package without bumping, run `npm run desktop:build` and `electron-forge make` directly.
+The installation directory contains application files, including the `app-<version>` subdirectory. Data, credentials and Electron browser caches still use `%APPDATA%\RiA`; selecting D: for installation does not move these. Uninstall removes MSI-owned files and shortcuts, retains user data and does not recursively erase unrelated files in the selected folder. Close RiA before upgrading; keep the chosen directory consistent between releases. To relocate an existing MSI installation, back up and uninstall first, then reinstall in the new directory under the same Windows account.
 
-Before nuget runs, the maker copies the packaged app into a temporary directory, so a path that is safe inside the bundle can still cross the 260-character Windows limit once staged. The runtime's Next.js image cache is excluded from the packaged copy for this reason: its hashed filenames are long enough to overflow the limit on a CI runner while passing on a developer machine, whose temp path is shorter. `npm run desktop:verify` fails with the offending path if a packaged path would overflow.
+Previous Squirrel installers are a different installation system: back up, close and uninstall the old RiA installation before installing the MSI. Keep `%APPDATA%\RiA` intact to retain the workspace and encrypted settings. Do not leave both installations active. The stable MSI upgrade code must not change between releases.
+
+For an installed smoke test, explicitly set `$env:DESKTOP_INSTALL_DIR = 'D:\Apps\RiA'`, then run `node scripts/smoke-desktop.mjs --installed`. The test uses an isolated workspace; it does not exercise your personal data.
+
+Builds and packaging no longer change the version. Choose the version explicitly before a release: `npm run desktop:version` raises the patch number in both `package.json` and the root `package-lock.json` metadata, rejecting mismatched versions before writing. Major/minor changes remain manual and must update both root records. A failed build keeps the chosen version, so fix the failure and rebuild with that same number; do not reuse a version already distributed to users. `desktop:make` writes `verification.json` beside the installer with SHA-256 checksums and explicit unverified manual acceptance checks. Direct Forge builds and CI must run `npm run desktop:release-manifest` separately after making the installer.
+
+The runtime's regenerable Next.js image cache is excluded from the packaged copy. `npm run desktop:verify` conservatively reserves 102 characters for the installation prefix and rejects bundle paths that would exceed the traditional 260-character Windows path limit. Prefer a short installation path such as `D:\Apps\RiA`.
 
 This project does not configure Windows code signing or automatic updates. Windows may display an unknown-publisher warning until a signing certificate is added in a separate release process.
 
@@ -120,14 +128,35 @@ This project does not configure Windows code signing or automatic updates. Windo
 
 After `desktop:package`, `npm run test:desktop:package` repeats the smoke test against the actual packaged executable. `npm run desktop:verify` checks runtime resources, Prisma's native engine, migrations, EXE presence, and absence of `.env` or key-shaped values.
 
-GitHub Actions runs the web validation and a separate Windows desktop job. The desktop job builds the runtime, creates the Squirrel installer, smoke-tests the packaged application, and uploads installer artifacts.
+GitHub Actions runs the web validation and a separate Windows desktop job. The desktop job provisions the pinned WiX compiler, builds the runtime, creates the MSI installer, smoke-tests the packaged application, and uploads the MSI and checksum record.
 
 ## Troubleshooting
 
 If startup fails, inspect:
 
 ```text
-%APPDATA%/Private AI Assistant/data/logs/desktop.log
+%APPDATA%/RiA/data/logs/desktop.log
 ```
 
 Migration failures keep the previous database and create a timestamped backup before applying migrations to an existing application database. Do not delete the data directory while diagnosing a failure.
+
+
+## Offline use, proxies and resume
+
+Startup, persisted conversations, tasks, local document retrieval and backups do not require a model endpoint. Calling a model still requires its provider and credentials; lack of internet must not silently replace it. The explicit outbound proxy overrides inherited HTTP/HTTPS proxy values. Loopback service requests bypass it; changing desktop settings restarts the service to apply the proxy. Environment `NO_PROXY` rules remain effective.
+
+A resume event performs a bounded loopback health check. A healthy service gets its session cookie refreshed before reminder polling; an unhealthy captured service uses the existing serialized restart/recovery path and retains the local route. Duplicate events share one check, and delayed work cannot restart a newer service or continue after quit. An interrupted provider request is recorded as interrupted with unknown billing on startup and is never replayed automatically. A health timeout can interrupt an active call during recovery; inspect usage and original messages before retrying.
+
+The automated smoke invokes the resume handler without physically suspending Windows. Native reminder delivery uses a recording sink. Neither proves Windows notification display or a physical sleep/wake cycle. Follow [Windows release acceptance](windows-release-acceptance.md) on a clean VM before distribution.
+
+
+### Workspace appearance
+
+The chat composer keeps a fixed text-entry height. Multiline prompts and pasted code scroll inside the input instead of moving the dock or transcript. Execution history shares the composer's centered width and stays visually quiet when collapsed. The chat header omits idle status badges and repeated mode hints; generation status, model setup errors and tool readiness feedback remain visible where needed. Only scrollable regions reserve scrollbar space, so the transparent chat window has no exposed desktop strip along its right edge.
+
+The navigation and title bar stay fixed while each page scrolls inside the workspace. Chat messages and conversation history have separate scroll regions; the composer stays docked below the transcript. Tasks live on the dedicated **定时任务** page in the navigation, where creation works without a model, and existing completion, filtering, reminder and recurrence editing remain available. Compact chat windows expose the conversation list through a header button. Escape closes it. The conversation rail animates its width and fades its content; reduced-motion preferences disable these transitions. Reload restores the saved light/dark theme before painting; without a saved preference, the initial theme follows the system. Execution history defaults to a collapsed group, with individual run details inside it; polling and status updates continue while collapsed.
+
+Windows uses a frameless transparent native window with custom caption controls. Only the upper chat canvas is translucent, with an 88% opaque neutral background. The navigation, title bar, recent conversations, composer dock and every other page are opaque. Windows 11 22H2 and newer additionally request native Acrylic; Windows 10 and earlier Windows 11 retain the stronger neutral transparency because Electron's native material API is unsupported there. CSS blur only applies to app layers and cannot blur the desktop on those systems. Other platforms retain an opaque native backdrop. Verify dragging, resizing, maximize/restore, caption clicks and readable contrast on target machines before distribution. See [Electron native material support](https://www.electronjs.org/docs/latest/api/base-window#winsetbackgroundmaterialmaterial-windows).
+
+
+Conversation actions appear on hover or keyboard focus (always visible on touch devices). Tasks expose status filters, completion checkboxes and inline reminder editing; the new-task action opens an independent form with deadline, time zone and recurrence. Completion shows immediate feedback and reverts to the last server status on a failed save. Initial loads show skeletons; refreshing the same list retains its rows. Saved rail widths are applied before hydration. Scrollbars live inside panels and appear when content exceeds the viewport; a home page that fits does not need a scrollbar. Thumb contrast is strengthened for both themes.
