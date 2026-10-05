@@ -1,7 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, CheckCircle2, ChevronRight, Loader2, Square } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  ChevronRight,
+  Loader2,
+  Square,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { getApiErrorMessage } from "@/lib/api-error-message";
@@ -45,7 +51,9 @@ export function RunRecords({ activeChatId, refreshKey }: Props) {
    * poll below: a panel whose button and spinner disagree about the same run is
    * worse than either being briefly wrong.
    */
-  const hasActiveRun = runs.some((run) => run.status === "running" || run.status === "waiting_approval");
+  const hasActiveRun = runs.some(
+    (run) => run.status === "running" || run.status === "waiting_approval",
+  );
 
   const load = useCallback(async () => {
     const requestId = ++runsRequestRef.current;
@@ -55,9 +63,13 @@ export function RunRecords({ activeChatId, refreshKey }: Props) {
       return;
     }
     try {
-      const response = await fetch(`/api/conversations/${activeChatId}/runs?limit=10`, { cache: "no-store" });
+      const response = await fetch(
+        `/api/conversations/${activeChatId}/runs?limit=10`,
+        { cache: "no-store" },
+      );
       const payload = await response.json();
-      if (!response.ok) throw new Error(getApiErrorMessage(payload, t("runs.error.load")));
+      if (!response.ok)
+        throw new Error(getApiErrorMessage(payload, t("runs.error.load")));
       if (requestId !== runsRequestRef.current) return;
       setRuns(Array.isArray(payload.data) ? payload.data : []);
       // The list is what this panel reports, so a message from an earlier
@@ -65,13 +77,17 @@ export function RunRecords({ activeChatId, refreshKey }: Props) {
       setError(null);
     } catch (loadError) {
       if (requestId !== runsRequestRef.current) return;
-      setError(loadError instanceof Error ? loadError.message : t("runs.error.load"));
+      setError(
+        loadError instanceof Error ? loadError.message : t("runs.error.load"),
+      );
     }
   }, [activeChatId]);
 
   useEffect(() => {
     void load();
-    return () => { runsRequestRef.current += 1; };
+    return () => {
+      runsRequestRef.current += 1;
+    };
   }, [load, refreshKey]);
 
   /**
@@ -88,8 +104,12 @@ export function RunRecords({ activeChatId, refreshKey }: Props) {
    */
   useEffect(() => {
     if (!hasActiveRun) return;
-    const timer = setInterval(() => { void load(); }, ACTIVE_RUN_POLL_MS);
-    return () => { clearInterval(timer); };
+    const timer = setInterval(() => {
+      void load();
+    }, ACTIVE_RUN_POLL_MS);
+    return () => {
+      clearInterval(timer);
+    };
   }, [hasActiveRun, load]);
 
   async function stop() {
@@ -103,11 +123,14 @@ export function RunRecords({ activeChatId, refreshKey }: Props) {
         body: JSON.stringify({ action: "stop" }),
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(getApiErrorMessage(payload, t("runs.error.stop")));
+      if (!response.ok)
+        throw new Error(getApiErrorMessage(payload, t("runs.error.stop")));
       setExpanded(null);
       await load();
     } catch (stopError) {
-      setError(stopError instanceof Error ? stopError.message : t("runs.error.stop"));
+      setError(
+        stopError instanceof Error ? stopError.message : t("runs.error.stop"),
+      );
     } finally {
       setIsStopping(false);
     }
@@ -116,69 +139,173 @@ export function RunRecords({ activeChatId, refreshKey }: Props) {
   if (!activeChatId) return null;
 
   return (
-    <section aria-label={t("runs.title")} className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold tracking-label">{t("runs.title")}</h2>
+    <details
+      key={activeChatId}
+      aria-label={t("runs.title")}
+      className="run-records mx-auto w-full max-w-3xl rounded-lg px-1 py-1.5 text-muted-foreground open:bg-card open:px-3 open:py-3"
+    >
+      <summary className="flex cursor-pointer items-center gap-2 text-xs font-medium">
+        <ChevronRight
+          aria-hidden="true"
+          className="run-records-chevron h-3.5 w-3.5 transition-transform"
+        />
+        <span>{t("runs.title")}</span>
+        <span className="text-muted-foreground">{runs.length}</span>
+        {error && <span className="text-destructive">读取失败</span>}
+        {hasActiveRun && (
+          <span className="ml-auto flex items-center gap-1 text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            执行中
+          </span>
+        )}
+      </summary>
+      <div className="mt-3 flex items-center justify-between gap-2">
         {hasActiveRun ? (
-          <Button disabled={isStopping} onClick={() => void stop()} size="sm" type="button" variant="outline">
-            {isStopping ? <Loader2 aria-hidden="true" className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Square aria-hidden="true" className="mr-1.5 h-3 w-3 fill-current" />}
+          <Button
+            disabled={isStopping}
+            onClick={() => void stop()}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            {isStopping ? (
+              <Loader2
+                aria-hidden="true"
+                className="mr-1.5 h-3.5 w-3.5 animate-spin"
+              />
+            ) : (
+              <Square
+                aria-hidden="true"
+                className="mr-1.5 h-3 w-3 fill-current"
+              />
+            )}
             {t("chat.run.stop")}
           </Button>
         ) : null}
       </div>
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
-      {runs.length === 0 ? <p className="text-xs text-muted-foreground">{t("chat.run.empty")}</p> : null}
+      {runs.length === 0 ? (
+        <p className="text-xs text-muted-foreground">{t("chat.run.empty")}</p>
+      ) : null}
       <ul className="space-y-1.5">
         {runs.map((run) => (
           <li className="rounded-md bg-muted/60 text-xs" key={run.id}>
             <button
               aria-expanded={expanded === run.id}
               className="flex w-full items-center gap-2 px-3 py-2 text-left"
-              onClick={() => setExpanded((current) => (current === run.id ? null : run.id))}
+              onClick={() =>
+                setExpanded((current) => (current === run.id ? null : run.id))
+              }
               type="button"
             >
-              <ChevronRight aria-hidden="true" className={cn("h-3.5 w-3.5 shrink-0 transition-transform", expanded === run.id && "rotate-90")} />
+              <ChevronRight
+                aria-hidden="true"
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 transition-transform",
+                  expanded === run.id && "rotate-90",
+                )}
+              />
               <StatusIcon status={run.status} />
               <span className="min-w-0 flex-1 truncate">{run.goal}</span>
-              <Badge variant="outline">{t(`chat.run.status.${run.status}`)}</Badge>
+              <Badge variant="outline">
+                {t(`chat.run.status.${run.status}`)}
+              </Badge>
             </button>
             {expanded === run.id ? (
               <div className="space-y-1 border-t px-3 py-2">
                 <p className="text-muted-foreground">
                   {`${t("chat.run.budget")}: ${run.budget.maxSteps} ${t("chat.run.steps")} / ${Math.round(run.budget.deadlineMs / 1000)}s / ${run.budget.maxFailures} ${t("runs.failures")}`}
                 </p>
-                {run.stopReason ? <p className="text-warning">{`${t("chat.run.stopReason")}: ${run.stopReason}`}</p> : null}
-                {run.status === "failed" || run.status === "paused" ? <p className="text-muted-foreground">{executionGuidance(run.stopReason)}</p> : null}
+                {run.stopReason ? (
+                  <p className="text-warning">{`${t("chat.run.stopReason")}: ${run.stopReason}`}</p>
+                ) : null}
+                {run.status === "failed" || run.status === "paused" ? (
+                  <p className="text-muted-foreground">
+                    {executionGuidance(run.stopReason)}
+                  </p>
+                ) : null}
                 <ol className="space-y-1">
                   {run.steps.map((step) => (
                     <li className="flex items-center gap-2" key={step.id}>
                       <StepIcon state={step.state} />
-                      <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{String(step.position).padStart(2, "0")}</span>
-                      <span className="min-w-0 flex-1 truncate">{step.toolName ?? step.kind}</span>
-                      <span className="shrink-0 text-muted-foreground">{t(`runs.step.${step.state}`)}</span>
-                      {step.errorCode ? <span title={executionGuidance(step.errorCode)} className="text-destructive">{step.errorCode}</span> : null}
+                      <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                        {String(step.position).padStart(2, "0")}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">
+                        {step.toolName ?? step.kind}
+                      </span>
+                      <span className="shrink-0 text-muted-foreground">
+                        {t(`runs.step.${step.state}`)}
+                      </span>
+                      {step.errorCode ? (
+                        <span
+                          title={executionGuidance(step.errorCode)}
+                          className="text-destructive"
+                        >
+                          {step.errorCode}
+                        </span>
+                      ) : null}
                     </li>
                   ))}
                 </ol>
-                <p className="text-muted-foreground">恢复前请核对已完成步骤。需要继续时，请重新发送请求；文件和工具写入仍需重新批准。</p>
-                <a className="inline-block underline" href="/api/diagnostics" download>导出脱敏诊断</a>
+                <p className="text-muted-foreground">
+                  恢复前请核对已完成步骤。需要继续时，请重新发送请求；文件和工具写入仍需重新批准。
+                </p>
+                <a
+                  className="inline-block underline"
+                  href="/api/diagnostics"
+                  download
+                >
+                  导出脱敏诊断
+                </a>
               </div>
             ) : null}
           </li>
         ))}
       </ul>
-    </section>
+    </details>
   );
 }
 
 function StatusIcon({ status }: { status: RunView["status"] }) {
-  if (status === "running") return <Loader2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 animate-spin" />;
-  if (status === "succeeded") return <CheckCircle2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-success" />;
-  return <AlertCircle aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-warning" />;
+  if (status === "running")
+    return (
+      <Loader2
+        aria-hidden="true"
+        className="h-3.5 w-3.5 shrink-0 animate-spin"
+      />
+    );
+  if (status === "succeeded")
+    return (
+      <CheckCircle2
+        aria-hidden="true"
+        className="h-3.5 w-3.5 shrink-0 text-success"
+      />
+    );
+  return (
+    <AlertCircle
+      aria-hidden="true"
+      className="h-3.5 w-3.5 shrink-0 text-warning"
+    />
+  );
 }
 
 function StepIcon({ state }: { state: string }) {
-  if (state === "done") return <CheckCircle2 aria-hidden="true" className="h-3 w-3 shrink-0 text-success" />;
-  if (state === "running" || state === "waiting_approval") return <Loader2 aria-hidden="true" className="h-3 w-3 shrink-0 animate-spin" />;
-  return <AlertCircle aria-hidden="true" className="h-3 w-3 shrink-0 text-muted-foreground" />;
+  if (state === "done")
+    return (
+      <CheckCircle2
+        aria-hidden="true"
+        className="h-3 w-3 shrink-0 text-success"
+      />
+    );
+  if (state === "running" || state === "waiting_approval")
+    return (
+      <Loader2 aria-hidden="true" className="h-3 w-3 shrink-0 animate-spin" />
+    );
+  return (
+    <AlertCircle
+      aria-hidden="true"
+      className="h-3 w-3 shrink-0 text-muted-foreground"
+    />
+  );
 }

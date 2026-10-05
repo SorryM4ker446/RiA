@@ -54,7 +54,6 @@ export function useTools({ setMessages, ensureActiveChatId, loadChats, selectedC
     input: Record<string, unknown>;
     userVisibleText: string;
   }) {
-    if (!selectedChatModel) throw new Error(t("tools.needChatModel"));
     const chatId = await ensureActiveChatId(params.userVisibleText || `${t("tools.manualCallTitlePrefix")} ${params.tool}`);
     const userMessageId = crypto.randomUUID();
     const assistantMessageId = crypto.randomUUID();

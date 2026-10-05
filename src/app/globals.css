@@ -29,8 +29,8 @@
   --warning-foreground: 0 0% 100%;
   --border: 0 0% 92%;
   --input: 0 0% 88%;
-  --ring: 212 100% 48%;
-  --radius: 0.5rem;
+  --ring: 0 0% 50%;
+  --radius: 0.75rem;
   --shadow: 0 0% 9%;
   --selection: 0 0% 92%;
   --surface: 0 0% 98%;
@@ -41,9 +41,9 @@
 }
 
 .dark {
-  --background: 0 0% 0%;
+  --background: 0 0% 5%;
   --foreground: 0 0% 93%;
-  --card: 0 0% 5%;
+  --card: 0 0% 8%;
   --card-foreground: 0 0% 93%;
   --popover: 0 0% 9%;
   --popover-foreground: 0 0% 93%;
@@ -63,7 +63,7 @@
   --warning-foreground: 0 0% 4%;
   --border: 0 0% 18%;
   --input: 0 0% 24%;
-  --ring: 212 100% 48%;
+  --ring: 0 0% 50%;
   --shadow: 0 0% 100%;
   --selection: 0 0% 20%;
   --surface: 0 0% 7%;
@@ -395,13 +395,6 @@ input:-webkit-autofill:focus {
       opacity var(--dur-fast) var(--ease-out);
   }
 
-  /* Presses get a 1px nudge: enough to feel physical, short enough to ignore. */
-  button:active:not(:disabled),
-  [role="button"]:active:not([aria-disabled="true"]) {
-    transform: translateY(0.5px) scale(0.985);
-    transition-duration: var(--dur-instant);
-  }
-
   /* Hover lift for cards and the panels that read as surfaces. */
   .card-surface,
   .card-surface-raised {
@@ -433,12 +426,12 @@ input:-webkit-autofill:focus {
 }
 
 @keyframes panel-in-up {
-  from { opacity: 0; transform: translateY(8px) scale(0.99); }
+  from { opacity: 0; }
   to { opacity: 1; transform: none; }
 }
 
 @keyframes row-in {
-  from { opacity: 0; transform: translateY(4px); }
+  from { opacity: 0; }
   to { opacity: 1; transform: none; }
 }
 
@@ -493,3 +486,90 @@ input:-webkit-autofill:focus {
 .desktop-titlebar-plain {
   -webkit-app-region: no-drag;
 }
+
+/* Each workspace region owns its scrolling; the native window never scrolls. */
+html, body { height: 100%; overflow: hidden; }
+* { scrollbar-width: thin; scrollbar-color: hsl(var(--foreground) / .45) transparent; }
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: hsl(var(--foreground) / .45); border: 2px solid transparent; background-clip: padding-box; border-radius: 20px; }
+*::-webkit-scrollbar-thumb:hover { background-color: hsl(var(--foreground) / .35); }
+.workspace-shell { background: hsl(var(--background)); }
+.workspace-shell[data-chat-page="true"] { background: transparent; }
+.workspace-rail { background: hsl(var(--background)); }
+.workspace-topbar { background: hsl(var(--background)); }
+.workspace-rail { border-color: hsl(var(--border) / .65); }
+.workspace-topbar { border-color: hsl(var(--border) / .55); }
+.workspace-content { scrollbar-gutter: stable; }
+.workspace-shell[data-chat-page="true"] .workspace-content { scrollbar-gutter: auto; }
+.workspace-content > main:not(.chat-workspace) { padding-top: 2.5rem; padding-bottom: 3rem; }
+.workspace-content h1 { letter-spacing: -.035em; }
+.chat-rail { background: hsl(var(--background)); }
+.chat-rail-left.rail-expanded { width: 14.5rem; }
+.chat-rail-right.rail-expanded { width: 16rem; }
+.chat-rail.rail-collapsed { width: 2.5rem; }
+.chat-canvas { background: hsl(var(--background) / .88); backdrop-filter: blur(24px) saturate(.6); }
+.chat-transcript { scrollbar-gutter: stable; overflow-anchor: none; }
+.chat-transcript > :not(.chat-welcome) { max-width: 52rem; margin-left: auto; margin-right: auto; }
+.chat-dock { background: hsl(var(--background)); border-top: 1px solid hsl(var(--border) / .45); }
+.composer-surface { backdrop-filter: blur(20px); }
+.chat-list-scroll::-webkit-scrollbar { width: 7px; height: 7px; }
+.chat-list-scroll::-webkit-scrollbar-thumb { border-width: 2px; }
+html:has([data-desktop="true"]), body:has([data-desktop="true"]) { background: transparent; }
+@media (max-width: 1279px) {
+  .chat-workspace { padding-top: 2.5rem; }
+  .chat-mobile-controls { background: hsl(var(--background) / .9); }
+  .chat-rail { display: none; }
+  .chat-workspace[data-mobile-panel="conversations"] .chat-rail-left,
+  .chat-workspace[data-mobile-panel="tasks"] .chat-rail-right { display: block; position: absolute; top: 2.5rem; bottom: 0; z-index: 20; width: min(18rem, 85%); background: hsl(var(--background)); animation: overlay-in 160ms ease-out; }
+  .chat-rail-left { left: 0; }
+  .chat-rail-right { right: 0; }
+  .chat-workspace[data-mobile-panel] .chat-rail > div:last-child { display: flex; width: auto; opacity: 1; pointer-events: auto; }
+  .chat-workspace[data-mobile-panel] .chat-rail > div:first-child { display: none; }
+}
+@media (max-width: 639px) {
+  .chat-toolbar { padding: .75rem; }
+  .chat-toolbar > div:first-child { gap: .5rem; }
+  .chat-toolbar > div:last-child { gap: .25rem; }
+  .chat-toolbar > div:last-child button { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .chat-dock { max-height: 55%; padding: .5rem .75rem .75rem; }
+}
+
+/* Saved rail widths are available before hydration, just like the theme. */
+@media (min-width: 1280px) {
+  html[data-conversations-open="false"] .chat-rail-left,
+  html[data-tasks-open="false"] .chat-rail-right { width: 2.5rem; }
+  html[data-conversations-open="false"] .conversation-rail-body { opacity: 0; visibility: hidden; }
+  html[data-conversations-open="false"] .chat-rail-left > div:first-child,
+  html[data-tasks-open="false"] .chat-rail-right > div:first-child { display: flex; width: 2.5rem; opacity: 1; pointer-events: auto; }
+}
+
+/* A browser has no native desktop backdrop; keep its canvas opaque. */
+.workspace-shell[data-desktop="false"] { background-color: hsl(var(--background)); }
+
+html[data-desktop-runtime="true"], html[data-desktop-runtime="true"] body { background: transparent; }
+html[data-desktop-runtime="true"] .workspace-shell[data-desktop="false"][data-chat-page="true"] { background: transparent; }
+
+@media (hover: none) { .conversation-actions, .task-delete { opacity: 1; } }
+
+.chat-rail h2 { letter-spacing: -.01em; }
+.chat-rail { border-color: hsl(var(--border) / .45); }
+.composer-surface { border-color: hsl(var(--foreground) / .14); background: hsl(var(--surface)); box-shadow: 0 8px 32px hsl(0 0% 0% / .08); }
+.composer-surface textarea { font-size: 14px; line-height: 1.65; }
+.composer-input { scrollbar-gutter: stable; }
+.chat-toolbar { border-color: hsl(var(--border) / .35); }
+.chat-toolbar h3 { font-weight: 500; }
+.chat-welcome > p { max-width: 24rem; font-size: 13px; text-wrap: balance; }
+.chat-welcome > div button { color: hsl(var(--muted-foreground)); border-color: hsl(var(--border) / .7); }
+.chat-welcome > div button:hover { color: hsl(var(--foreground)); background: hsl(var(--card) / .7); }
+
+/* Width is the only layout transition; the content keeps its measured width. */
+.chat-rail-left { transition: width 220ms cubic-bezier(.22, 1, .36, 1); }
+.conversation-rail-body { width: 14.5rem; transition: opacity 160ms ease, visibility 220ms; }
+.chat-rail-left[data-open="false"] .conversation-rail-body { opacity: 0; visibility: hidden; pointer-events: none; }
+.chat-rail-left[data-open="true"] .conversation-rail-body { opacity: 1; visibility: visible; }
+.run-records summary { list-style: none; }
+.run-records summary::-webkit-details-marker { display: none; }
+.run-records[open] .run-records-chevron { transform: rotate(90deg); }
+.run-records > :not(summary) { animation: row-in 160ms ease; }
+@media (prefers-reduced-motion: reduce) { .chat-rail-left, .conversation-rail-body { transition: none; } .run-records > :not(summary) { animation: none; } }

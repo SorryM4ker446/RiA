@@ -1,3 +1,4 @@
+import { imagePrompts, quickPrompts, videoPrompts } from "@/features/chat/page-utils";
 import { MarkdownMessage } from "@/components/chat/markdown-message";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,7 @@ import {
   Trash2,
   X
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { getDocumentSources, getLocalFileUses, getTurnNotices, getWebSearchSources, resolveMessageSourceTag } from "@/features/chat/message-presentation";
 import { LocalFileUses } from "@/features/settings/local-file-uses";
@@ -87,10 +88,23 @@ export function shouldOpenOnLayout({
   return messageCount > 0;
 }
 
-type Props = Pick<ChatState, "activeChatId" | "isLoadingHistory" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId" | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText" | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel" | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages" | "selectedChatModel">;
-export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, addToolApprovalResponse, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages, selectedChatModel }: Props) {
+type Props = Pick<ChatState, "appendQuickPrompt" | "modelMode" | "activeChatId" | "isLoadingHistory" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId" | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText" | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel" | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages" | "selectedChatModel">;
+export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, isLoadingHistory, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, addToolApprovalResponse, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages, selectedChatModel }: Props) {
   const awaitingFirstHistoryLoad = useAwaitingFirstLoad(isLoadingHistory, activeChatId ?? DRAFT_HISTORY_QUERY);
-  const distanceFromBottom = () => document.documentElement.scrollHeight - window.scrollY - window.innerHeight;
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const followingRef = useRef(true);
+  const olderAnchorRef = useRef<{ height: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const anchor = olderAnchorRef.current;
+    const panel = scrollRef.current;
+    if (!anchor || !panel || isLoadingOlderMessages) return;
+    panel.scrollTop = anchor.top + panel.scrollHeight - anchor.height;
+    olderAnchorRef.current = null;
+  }, [messages.length, isLoadingOlderMessages]);
+  const distanceFromBottom = () => {
+    const panel = scrollRef.current;
+    return panel ? panel.scrollHeight - panel.scrollTop - panel.clientHeight : 0;
+  };
 
   /*
    * Following the conversation is only right while the reader is already at the
@@ -98,9 +112,6 @@ export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imag
    * scrolled to, so the position decides: near the bottom follows new content,
    * anywhere else stays put and offers a way back.
    */
-  // The transcript is scrolled by the page, not by a panel: the chat section
-  // grows with its content, so the message list has no height of its own to
-  // scroll. Following therefore has to watch and move the document.
   const [hasUnreadBelow, setHasUnreadBelow] = useState(false);
   // Which conversation the transcript was last opened for, so the next one is
   // recognised as new rather than as a conversation already being read. Without it
@@ -128,19 +139,18 @@ export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imag
   }
   useEffect(() => {
     const onScroll = () => {
-      if (distanceFromBottom() <= 96) setHasUnreadBelow(false);
+      followingRef.current = distanceFromBottom() <= 96;
+      if (followingRef.current) setHasUnreadBelow(false);
     };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    const panel = scrollRef.current;
+    panel?.addEventListener("scroll", onScroll, { passive: true });
+    return () => panel?.removeEventListener("scroll", onScroll);
   }, [activeChatId]);
 
   const lastMessageSignature = messageFollowSignature(messages);
   useEffect(() => {
-    // Measured here rather than remembered from a scroll event: whether the
-    // reader is at the bottom has to be true at the moment content arrives,
-    // not at the moment they last moved. A scroll event that has not been
-    // delivered yet would otherwise be read as "still following" and yank the
-    // view down mid-answer.
+    // Follow the reader's scroll intent. Growing text changes scrollHeight
+    // even when they have stayed at the end of the conversation.
     const frame = requestAnimationFrame(() => {
       if (shouldOpenOnLayout({
         openedChatId: openedChatIdRef.current,
@@ -149,15 +159,17 @@ export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imag
         messageCount: messages.length,
       })) {
         openedChatIdRef.current = activeChatId;
-        window.scrollTo({ top: document.documentElement.scrollHeight });
+        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+        followingRef.current = true;
         setHasUnreadBelow(false);
         return;
       }
       // Nothing has been opened and nothing to open yet, so the position is the
       // one the page already has. The history that arrives next does the opening.
       if (openedChatIdRef.current === undefined) return;
-      if (distanceFromBottom() <= 96) {
-        window.scrollTo({ top: document.documentElement.scrollHeight });
+      if (followingRef.current) {
+        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+        followingRef.current = true;
         setHasUnreadBelow(false);
       } else if (messages.length > 0) {
         setHasUnreadBelow(true);
@@ -167,15 +179,15 @@ export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imag
   }, [lastMessageSignature, messages.length, activeChatId, awaitingFirstHistoryLoad]);
 
   function jumpToLatest() {
-    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    followingRef.current = true;
     setHasUnreadBelow(false);
   }
 
-  return (<div className="space-y-4 pr-1" data-testid="message-list">
-  {/* Fixed: the page is what scrolls, so the control sits against the viewport
-      rather than inside the transcript. */}
+  return (<div ref={scrollRef} className="chat-transcript relative min-h-0 flex-1 space-y-5 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-6 sm:px-6" data-testid="message-list">
+  {/* The control stays inside the transcript and never overlaps the composer. */}
   {hasUnreadBelow ? (
-    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-20 flex justify-center">
+    <div className="pointer-events-none sticky top-0 z-20 flex h-0 justify-center">
       <Button className="pointer-events-auto shadow-card" onClick={jumpToLatest} size="sm" type="button" variant="secondary">
         <ArrowDown aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
         {t("chat.messages.jumpToLatest")}
@@ -186,7 +198,7 @@ export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imag
         messages load, so the button does not resize and the scroll position
         does not shift. */}
     {olderMessagesCursor && !isLoadingHistory ? (
-      <Button className="w-full" disabled={isPending || isLoadingOlderMessages} onClick={() => void loadOlderMessages()} type="button" variant="secondary">
+      <Button className="w-full" disabled={isPending || isLoadingOlderMessages} onClick={() => { const panel = scrollRef.current; if (panel) olderAnchorRef.current = { height: panel.scrollHeight, top: panel.scrollTop }; void loadOlderMessages(); }} type="button" variant="secondary">
         {t("chat.messages.loadOlder")}
       </Button>
     ) : null}
@@ -214,8 +226,13 @@ export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imag
         </div>
       </div>
     ) : messages.length === 0 ? (
-      <div className="empty-state">
-        {t("chat.messages.empty")}
+      <div className="chat-welcome flex h-full min-h-40 flex-col items-center justify-center text-center">
+        <span className="mb-5 font-mono text-[10px] tracking-[0.14em] text-muted-foreground">本地 · 私密 · 随时继续</span>
+        <h1 className="text-7xl font-medium tracking-[-0.08em] sm:text-8xl">RiA<span className="text-muted-foreground">.</span></h1>
+        <p className="mt-5 max-w-md text-sm leading-7 text-muted-foreground">{t("chat.messages.empty")}</p>
+        <div className="mt-8 flex max-w-xl flex-wrap justify-center gap-2">
+          {(modelMode === "image" ? imagePrompts : modelMode === "video" ? videoPrompts : quickPrompts).map(prompt => <Button key={prompt} variant="outline" size="sm" className="h-auto whitespace-normal rounded-xl bg-card/40 px-4 py-3 text-xs font-normal" onClick={() => appendQuickPrompt(prompt)}>{prompt.replace(/[:：]$/, "")}</Button>)}
+        </div>
       </div>
     ) : (
       messages.map((message, index) => {
@@ -241,8 +258,8 @@ export function MessageRenderer({ activeChatId, isLoadingHistory, messages, imag
           <div className={cn("flex w-full", isUser ? "justify-end" : "justify-start")} key={message.id}>
             <article
               className={cn(
-                "group max-w-[92%] rounded-lg px-4 py-3 text-sm md:max-w-[80%]",
-                isUser ? "chat-user-bubble" : "bg-card text-card-foreground shadow-card",
+                "group min-w-0 max-w-[92%] rounded-xl px-4 py-3 text-sm md:max-w-[80%]",
+                isUser ? "chat-user-bubble" : "bg-transparent text-card-foreground",
               )}
             >
               <header className="mb-2 flex items-center justify-between gap-2">

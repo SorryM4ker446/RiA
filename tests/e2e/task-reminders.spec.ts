@@ -27,6 +27,8 @@ test("task reminder settings validate local dates and persist recurrence across 
   await page.getByPlaceholder(/输入任务标题/).fill("重复提醒浏览器验证");
   await page.locator('input[type="datetime-local"]').fill("2026-01-31T09:00");
   await page.getByRole("button", { name: "执行工具" }).click();
+  await expect.poll(async () => (await browserData(page, `${app.origin}/api/tasks`)).length).toBe(1);
+  await page.goto(`${app.origin}/tasks`);
   const panel = page.getByTestId("task-panel");
   const row = panel.getByTestId("task-item").filter({ hasText: "重复提醒浏览器验证" });
   await expect(row.getByText("已逾期", { exact: true })).toBeVisible();
@@ -54,7 +56,7 @@ test("task reminder settings validate local dates and persist recurrence across 
   expect((await browserApi(page, `${app.origin}/api/tasks/reminders`, "POST")).status).toBe(403);
   expect(app.readRows("SELECT remindedAt FROM tasks WHERE id=?", original.id)).toEqual([{ remindedAt: null }]);
   await page.reload();
-  await expect(row.getByText("到期提醒", { exact: true })).toBeVisible();
+  await expect(row.getByRole("img", { name: "到期提醒", exact: true })).toBeVisible();
   await row.getByLabel("任务状态 重复提醒浏览器验证").click();
   await page.getByRole("option", { name: "已完成", exact: true }).click();
   await expect(panel.getByTestId("task-item")).toHaveCount(2);
@@ -110,6 +112,7 @@ test("changing reminder options preserves the stored DST occurrence and sub-minu
   } });
   expect(creation.status).toBe(200);
   const id = creation.body.data.taskId;
+  await page.goto(`${app.origin}/tasks`);
   await page.getByRole("button", { name: "刷新任务" }).click();
   const row = page.getByTestId("task-item").filter({ hasText: "精确时刻保留验证" });
   await row.getByRole("button", { name: "设置时间与提醒" }).click();

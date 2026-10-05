@@ -3,9 +3,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   BookOpen,
+  CalendarClock,
   Boxes,
   DatabaseBackup,
   HardDrive,
@@ -29,6 +30,7 @@ type NavItem = { href: string; label: string; icon: typeof BookOpen };
 const NAV_ITEMS: NavItem[] = [
   { href: "/", label: t("nav.home"), icon: House },
   { href: "/chat", label: t("nav.chat"), icon: MessagesSquare },
+  { href: "/tasks", label: "定时任务", icon: CalendarClock },
   { href: "/conversations", label: t("nav.conversations"), icon: MessagesSquare },
   { href: "/knowledge", label: t("nav.knowledge"), icon: BookOpen },
   { href: "/media", label: t("nav.media"), icon: HardDrive },
@@ -98,10 +100,10 @@ function SidebarBody({
   onNavigate?: () => void;
 }) {
   return (
-    <div className="flex h-full flex-col gap-4 p-3">
+    <div className="flex h-full min-h-0 flex-col gap-6 overflow-y-auto p-4">
       <div className="desktop-titlebar-drag -mx-1 flex items-center rounded-md px-1">
         <Link
-          className="desktop-titlebar-interactive flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-semibold tracking-label"
+          className="desktop-titlebar-interactive flex items-center gap-2 rounded-md px-2 py-1.5 text-lg font-semibold tracking-[-0.04em]"
           href="/chat"
           onClick={onNavigate}
         >
@@ -116,7 +118,7 @@ function SidebarBody({
           {t("brand.name")}
         </Link>
       </div>
-      <NavLinks onNavigate={onNavigate} pathname={pathname} />
+      <div className="space-y-3"><p className="px-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">工作空间</p><NavLinks onNavigate={onNavigate} pathname={pathname} /></div>
       <div className="mt-auto space-y-0.5">
         <Link
           className={cn(
@@ -165,7 +167,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // any means (link, back button) closes it without a synchronizing effect.
   const [openedOn, setOpenedOn] = useState<string | null>(null);
   const open = openedOn === pathname;
+  const drawerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    drawerRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    return () => previous?.focus();
+  }, [open]);
   const setOpen = (next: boolean) => setOpenedOn(next ? pathname : null);
+  useEffect(() => {
+    const wide = window.matchMedia("(min-width: 1024px)");
+    const close = () => setOpenedOn(null);
+    wide.addEventListener("change", close);
+    return () => wide.removeEventListener("change", close);
+  }, []);
   // The preload bridge only exists under Electron. Hide the settings link in the
   // browser, where that page can render nothing but its "desktop only" error.
   // Read as an external store so the server render stays deterministic and no
@@ -185,7 +200,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       seam under it, and it wasted the space the brand and the section name now
       occupy.
     */
-    <div className="min-h-screen">
+    <div data-desktop={isDesktopRuntime} data-chat-page={pathname === "/chat"} className="workspace-shell flex h-dvh min-h-0 overflow-hidden">
       {/*
         No separate drag strip. A `fixed` band above the header is a SIBLING, so
         it wins the hit test and swallows every click on the caption and the
@@ -195,7 +210,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         opt back out of it.
       */}
 
-      <div className="fixed inset-y-0 left-0 z-40 hidden w-52 border-r bg-background lg:block">
+      <div className="workspace-rail z-40 hidden w-48 shrink-0 border-r lg:block">
         <SidebarBody pathname={pathname} isDesktopRuntime={isDesktopRuntime} />
       </div>
 
@@ -206,7 +221,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         transparent — the bar supplies the paint.
       */}
       <header
-        className={cn("desktop-titlebar-drag sticky top-0 z-30 flex h-10 items-center gap-2 bg-background pl-3 lg:hidden", !isDesktopRuntime && "desktop-titlebar-plain")}
+        className={cn("workspace-topbar desktop-titlebar-drag absolute inset-x-0 top-0 z-30 flex h-11 items-center gap-2 border-b pl-3 lg:hidden", !isDesktopRuntime && "desktop-titlebar-plain")}
         onDoubleClick={() => window.privateAiDesktop?.windowControls?.toggleMaximize()}
       >
         <button
@@ -234,7 +249,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             onClick={() => setOpen(false)}
             type="button"
           />
-          <div className="absolute inset-y-0 left-0 w-64 animate-panel-in-left border-r bg-background shadow-pop">
+          <div ref={drawerRef} role="dialog" aria-modal="true" aria-label={t("nav.label")} onKeyDown={event => {
+            if (event.key === "Escape") setOpen(false);
+            if (event.key === "Tab") {
+              const controls = drawerRef.current?.querySelectorAll<HTMLElement>('a[href], button:not(:disabled), input:not(:disabled)');
+              const first = controls?.[0];
+              const last = controls?.[controls.length - 1];
+              if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+              else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+            }
+          }} className="workspace-rail absolute inset-y-0 left-0 w-64 animate-panel-in-left border-r shadow-pop">
             <button
               aria-label={t("nav.closeMenu")}
               className="absolute right-2 top-3 grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
@@ -254,9 +278,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* The header is a sibling of the content and shares this column, so the
           rail's brand and the section name line up in the same row. */}
-      <div className="lg:pl-52">
+      <div inert={open} className="flex min-h-0 min-w-0 flex-1 flex-col pt-11 lg:pt-0">
         <div
-          className={cn("desktop-titlebar-drag sticky top-0 z-30 hidden h-10 items-center gap-2 bg-background pl-5 lg:flex", !isDesktopRuntime && "desktop-titlebar-plain")}
+          className={cn("workspace-topbar desktop-titlebar-drag z-30 hidden h-11 shrink-0 items-center gap-2 border-b pl-5 lg:flex", !isDesktopRuntime && "desktop-titlebar-plain")}
           onDoubleClick={() => window.privateAiDesktop?.windowControls?.toggleMaximize()}
         >
           {/* A span, not a heading: every page owns its own <h1>, and two
@@ -266,7 +290,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </span>
           <WindowControls />
         </div>
-        {children}
+        <div className={cn("workspace-content min-h-0 min-w-0 flex-1", pathname === "/chat" ? "overflow-hidden" : "overflow-y-auto overscroll-contain")}>
+          {children}
+        </div>
       </div>
     </div>
   );

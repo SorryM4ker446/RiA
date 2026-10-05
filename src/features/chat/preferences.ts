@@ -1,5 +1,6 @@
 import { ModelMode } from "@/features/chat/page-utils";
 import { t } from "@/lib/locale";
+import { PANEL_VISIBILITY_STORAGE_KEY } from "@/lib/ui-preferences";
 import type { ChatScopedPreferences, ManualToolSelection } from "@/features/chat/types";
 import { CHAT_PREFS_STORAGE_PREFIX } from "@/features/chat/types";
 import { settingsRequest } from "@/features/settings/api-client";
@@ -70,7 +71,6 @@ export function readChatPreferences(chatId: string): ChatScopedPreferences | nul
  * one: collapsing the task list to read a message should not reset the next
  * time the user opens a different conversation.
  */
-const PANEL_VISIBILITY_STORAGE_KEY = "private-ai.chat.panel-visibility";
 
 export type PanelVisibility = { conversations: boolean; tasks: boolean };
 
@@ -92,6 +92,8 @@ export function readPanelVisibility(): PanelVisibility {
 
 export function writePanelVisibility(value: PanelVisibility): void {
   if (typeof window === "undefined") return;
+  document.documentElement.dataset.conversationsOpen = String(value.conversations);
+  document.documentElement.dataset.tasksOpen = String(value.tasks);
   try {
     window.localStorage.setItem(PANEL_VISIBILITY_STORAGE_KEY, JSON.stringify(value));
   } catch {

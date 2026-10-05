@@ -27,6 +27,19 @@ async function setupToolUiMocks(page: Page) {
   const knowledgeEntries: KnowledgeEntry[] = [];
   const chatId = "e2e-chat";
 
+  await page.route("**/api/tools?mode=chat", async (route) => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    await route.fulfill({
+      json: {
+        ...payload,
+        data: payload.data.map((tool: { id: string }) => tool.id === "webSearch"
+          ? { ...tool, available: true, reason: null }
+          : tool),
+      },
+    });
+  });
+
   await page.route("**/api/models", async (route) => {
     const mode = new URL(route.request().url()).searchParams.get("mode") ?? "chat";
     const models = mode === "chat"
@@ -264,6 +277,8 @@ test("createTask persists to task panel and status can move to done", async ({ p
   await page.getByPlaceholder(/输入任务标题/).fill("UI fixture task");
   await page.getByRole("button", { name: "执行工具" }).click();
 
+  await expect(page.getByText(/UI fixture task/).first()).toBeVisible();
+  await page.goto("/tasks");
   const taskPanel = page.getByTestId("task-panel");
   await expect(taskPanel.getByText("UI fixture task")).toBeVisible();
   await page.getByLabel("任务状态 UI fixture task").click();

@@ -46,7 +46,7 @@ export function useChatState() {
     isLoadingPreferences, preferencesError, modelLibrary, clearPreferencesError,
   } = useChatPreferences(activeChatId);
   const {
-    chats, activeChat, isCreatingChat, editingChatId, editingTitle, setEditingTitle, isChatListExpanded,
+    chats, activeChat, isLoadingChats, isCreatingChat, editingChatId, editingTitle, setEditingTitle, isChatListExpanded,
     setIsChatListExpanded, visibleChats, hasHiddenChats, loadChats, createNewChat, startEditingChat,
     cancelEditingChat, saveEditedTitle, performDeleteChat, ensureActiveChatId,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, toggleEphemeral, isEphemeralSaving,
@@ -491,7 +491,7 @@ export function useChatState() {
     const hasContent = content.length > 0;
 
     if (!hasContent && !hasAttachments) return;
-    if (!selectedModel) { setPageError(t("chatState.noModelSelected")); return; }
+    if (!selectedModel && !(modelMode === "chat" && selectedManualToolConfig)) { setPageError(t("chatState.noModelSelected")); return; }
     if (modelMode === "video" && attachments.length > 1) { setPageError(t("mediaGen.videoReferenceLimit")); return; }
 
     setPageError(null);
@@ -649,12 +649,6 @@ export function useChatState() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
   useEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    textarea.style.height = "0px";
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 220)}px`;
-  }, [input]);
-  useEffect(() => {
     if (!pendingDelete) return;
 
     function onKeyDown(event: globalThis.KeyboardEvent) {
@@ -675,7 +669,7 @@ export function useChatState() {
   return {
     toggleEphemeral, isEphemeralSaving, documentTopics, loadDocumentTopics, setDocumentScope,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages,
-    isCreatingChat, createNewChat, chats, visibleChats, activeChatId, editingChatId, setEditingTitle,
+    isLoadingChats, isCreatingChat, createNewChat, chats, visibleChats, activeChatId, editingChatId, setEditingTitle,
     editingTitle, saveEditedTitle, cancelEditingChat, switchActiveChat, startEditingChat,
     requestDeleteConversation, hasHiddenChats, setIsChatListExpanded, isChatListExpanded, filteredTasks,
     isLoadingTasks, loadTasks, setTaskStatusFilter, taskStatusFilter,

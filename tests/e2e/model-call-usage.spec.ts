@@ -1,0 +1,54 @@
+import { test as base, expect } from "@playwright/test";
+import { mkdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { startStandaloneServer } from "../helpers/standalone-server";
+import { openWorkspace } from "../helpers/workspace-entry";
+import { configureOfflineModels } from "../helpers/model-fixture";
+const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
+  app: async ({}, runTest) => { const app = await startStandaloneServer({ modelFixture: true }); try { await runTest(app); } finally { await app.close(); } },
+});
+test("model limits persist and source filters display real recorded chat calls without changing unsaved settings", async ({ page, app }) => {
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  await openWorkspace(page, app.origin); await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  await page.goto(`${app.origin}/chat`);
+  await page.getByPlaceholder(/输入你的问题/).fill("Describe the local workspace");
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  await expect.poll(() => app.readRows("SELECT status FROM model_requests WHERE source = 'chat'").map(row => row.status)).toEqual(["success"]);
+  await page.goto(`${app.origin}/models`);
+  await page.getByLabel("后台每日调用次数").fill("3");
+  await page.getByLabel("预算时区").fill("America/New_York");
+  await page.getByRole("button", { name: "保存模型偏好", exact: true }).click();
+  await page.reload(); await expect(page.getByLabel("后台每日调用次数")).toHaveValue("3");
+  await expect(page.getByLabel("预算时区")).toHaveValue("America/New_York");
+  await page.getByLabel("后台每日调用次数").fill("2");
+  await page.getByLabel("调用来源").selectOption("summary");
+  await expect(page.locator("tbody tr")).toHaveCount(0);
+  await expect(page.getByLabel("后台每日调用次数")).toHaveValue("2");
+  await page.getByLabel("调用来源").selectOption("chat");
+  await expect(page.locator("tbody tr")).toHaveCount(1);
+  await expect(page.locator("tbody")).toContainText("聊天");
+  await expect(page.locator("tbody")).toContainText("未知");
+  const directory = join(tmpdir(), "ria-model-call-qa"); await mkdir(directory, { recursive: true });
+  await page.getByRole("group", { name: "模型调用限制" }).screenshot({ path: join(directory, "desktop.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.getByRole("group", { name: "模型调用限制" }).screenshot({ path: join(directory, "mobile.png") });
+  expect(errors).toEqual([]);
+});
+test("offline local startup keeps tasks and stored conversations available", async ({ page, app }) => {
+  await openWorkspace(page, app.origin);
+  await page.route(/https?:\/\/(?!localhost[:/]|127\.0\.0\.1[:/])/, route => route.abort("internetdisconnected"));
+  await page.goto(`${app.origin}/chat`);
+  await page.getByLabel("选择手动工具").click();
+  await page.getByRole("option", { name: "手动：创建任务" }).click();
+  await page.getByPlaceholder(/输入任务标题/).fill("Offline task");
+  await page.getByRole("button", { name: "执行工具", exact: true }).click();
+  await expect(page.getByText(/Offline task/).first()).toBeVisible();
+  await page.goto(`${app.origin}/tasks`);
+  await expect(page.getByTestId("task-panel").getByText("Offline task", { exact: true })).toBeVisible();
+  await app.restart(); await page.reload();
+  const retained = await page.evaluate(() => fetch("/api/tasks").then(response => response.json()));
+  expect(JSON.stringify(retained)).toContain("Offline task");
+  expect(app.providerCalls).toHaveLength(0);
+});

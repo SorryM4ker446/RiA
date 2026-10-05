@@ -1,3 +1,5 @@
+import { createResumeRecovery } from "./resume-recovery";
+import { windowAppearance } from "./window-appearance";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
@@ -225,13 +227,13 @@ function serviceStoppedPage(): string {
   return `data:text/html;charset=utf-8,${encodeURIComponent(document)}`;
 }
 
-async function restartLocalService() {
+async function restartLocalService(destination = "/settings?saved=1") {
   if (restartInProgress) return restartInProgress;
   const abort = new AbortController();
   restartAbort = abort;
   restartInProgress = (async () => {
     if (!logger) return;
-    logger.info("Restarting local Next.js service after settings update");
+    logger.info("Restarting local Next.js service");
     await reminderPoller?.stop();
     if (isQuitting) return;
     // Stop the old renderer's HMR reconnect and requests before restarting.
@@ -282,7 +284,7 @@ async function restartLocalService() {
     nextServer = launched;
     await setDesktopCookie(nextServer.origin);
     if (mainWindow && !mainWindow.isDestroyed()) {
-      await mainWindow.loadURL(`${nextServer.origin}/settings?saved=1`);
+      await mainWindow.loadURL(`${nextServer.origin}${destination}`);
     }
     reminderPoller?.start();
 
@@ -675,17 +677,7 @@ async function createMainWindow(initialPath: string): Promise<BrowserWindow> {
     minHeight: 640,
     show: false,
     title: PRODUCT_NAME,
-    // Matches `--background`. The app boots light, so a dark canvas here showed
-    // as a flash of the wrong theme before React painted anything.
-    backgroundColor: "#ffffff",
-    // Hide the caption but keep the native frame, so window resizing, snap
-    // layouts and assistive technology still work.
-    //
-    // `titleBarOverlay` is deliberately NOT set. It makes Windows paint an
-    // opaque, unstyleable strip over the top-right of the page — the band this
-    // design removes — and that strip also covers the document scrollbar. The
-    // app draws its own controls instead; see the caption block below.
-    ...(process.platform === "win32" ? { titleBarStyle: "hidden" as const } : {}),
+    ...windowAppearance(process.platform),
     autoHideMenuBar: true,
     webPreferences: {
       preload: desktopPaths.preloadFile,
@@ -811,6 +803,7 @@ async function runSmokeAssertion() {
         state: typeof controls?.state === "function",
         count: nodes.length,
         heights: nodes.map(node => Math.round(node.getBoundingClientRect().height)),
+        barHeights: nodes.map(node => node.closest(".workspace-topbar")?.clientHeight ?? 0),
         widths: nodes.map(node => Math.round(node.getBoundingClientRect().width)),
         // clientWidth excludes the document scrollbar; anything past it is drawn
         // over the scrollbar gutter.
@@ -834,7 +827,7 @@ async function runSmokeAssertion() {
     true,
   )) as {
     bridge: boolean; verbs: boolean; state: boolean; count: number;
-    heights: number[]; widths: number[]; lastRight: number; contentRight: number;
+    heights: number[]; barHeights: number[]; widths: number[]; lastRight: number; contentRight: number;
     regions: string[]; covering: string[];
   };
   if (!caption.bridge || !caption.verbs || !caption.state) {
@@ -851,12 +844,29 @@ async function runSmokeAssertion() {
   }
   // A zero-height caption button is invisible and unclickable, which is exactly
   // what an `h-full` button inside an auto-height wrapper produces.
-  if (caption.heights.some(height => height !== 40) || caption.widths.some(width => width < 24)) {
+  if (caption.heights.some((height, index) => height < 32 || height !== caption.barHeights[index]) || caption.widths.some(width => width < 24)) {
     throw new Error(`Window controls are not full-height clickable targets: ${JSON.stringify(caption)}`);
   }
   if (caption.lastRight > caption.contentRight) {
     throw new Error(`The window controls overlap the document scrollbar: ${JSON.stringify(caption)}`);
   }
+  async function verifyCanvasTransparency() {
+    if (process.platform !== "win32") return;
+    const image = await mainWindow!.capturePage();
+    const bitmap = image.toBitmap();
+    const size = image.getSize();
+    const alpha = (x: number, y: number) => bitmap[(Math.floor(y * size.height) * size.width + Math.floor(x * size.width)) * 4 + 3];
+    const sidebarAlpha = alpha(0.04, 0.55);
+    const dockAlpha = alpha(0.55, 0.98);
+    const headerAlpha = alpha(0.8, 0.02);
+    const canvasAlpha = [alpha(0.55, 0.3), alpha(0.65, 0.6), alpha(0.7, 0.4)];
+    if (sidebarAlpha !== 255 || dockAlpha !== 255 || headerAlpha !== 255 || !canvasAlpha.some(value => value >= 210 && value < 240)) {
+      throw new Error(`Desktop canvas transparency is incorrect: ${JSON.stringify({ sidebarAlpha, dockAlpha, headerAlpha, canvasAlpha })}`);
+    }
+    logger?.info("Verified opaque sidebar and translucent desktop canvas", { sidebarAlpha, canvasAlpha });
+  }
+
+  await verifyCanvasTransparency();
 
   // Drive the bridge exactly as a click does, and require the window to change.
   const captionWindow = mainWindow;
@@ -872,7 +882,18 @@ async function runSmokeAssertion() {
     if (!(await maximized)) {
       throw new Error(`The maximise caption verb did not reach the window: ${JSON.stringify(caption)}`);
     }
+    await verifyCanvasTransparency();
+    const restored = new Promise<boolean>(resolve => {
+      const timer = setTimeout(() => resolve(false), 8000);
+      captionWindow.once("unmaximize", () => { clearTimeout(timer); resolve(true); });
+    });
     captionWindow.unmaximize();
+    if (!(await restored)) throw new Error("The transparent window did not restore after maximization");
+    const bounds = captionWindow.getBounds();
+    captionWindow.setSize(1100, 720);
+    await captionWindow.webContents.executeJavaScript("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    await verifyCanvasTransparency();
+    captionWindow.setBounds(bounds);
   }
 
   const unauthenticatedResponse = await fetch(`${nextServer.origin}/api/conversations`);
@@ -1084,14 +1105,28 @@ async function bootstrap() {
     const hotkey = await settingsStore?.getGlobalHotkey().catch(() => "");
     if (hotkey) registerGlobalHotkey(hotkey);
   }
-  // One handler for one event. A wake from sleep must not outlive the session
-  // cookie either, so the credential is reissued for a long-lived window.
-  powerMonitor.on("resume", () => {
-    void reminderPoller?.poll();
-    if (nextServer) void setDesktopCookie(nextServer.origin).catch((error) => {
-      logger?.error("Unable to refresh the desktop session cookie after resume", error);
-    });
+  const recoverAfterResume = createResumeRecovery({
+    current: () => nextServer,
+    quitting: () => isQuitting || restartInProgress !== null,
+    healthy: async service => {
+      try { return (await fetch(`${service.origin}/api/health`, { signal: AbortSignal.timeout(5000), redirect: "error" })).ok; }
+      catch { return false; }
+    },
+    refreshSession: service => setDesktopCookie(service.origin),
+    restart: () => {
+      let destination = "/chat";
+      try {
+        const url = new URL(mainWindow?.webContents.getURL() ?? "");
+        if (url.origin === nextServer?.origin) destination = `${url.pathname}${url.search}${url.hash}`;
+      } catch { /* A stopped page has no local route to preserve. */ }
+      return restartLocalService(destination);
+    },
+    poll: () => reminderPoller?.poll() ?? Promise.resolve(),
+    failed: () => logger?.error("Unable to recover the local service after resume"),
   });
+  powerMonitor.on("resume", () => { void recoverAfterResume(); });
+  if (smokeTest) await Promise.all([recoverAfterResume(), recoverAfterResume()]);
+
 
   if (smokeTest) {
     await runSmokeAssertion();

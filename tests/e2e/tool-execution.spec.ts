@@ -34,13 +34,15 @@ test("a task-only response exposes approval, creates the task after approval and
   await page.screenshot({ path: join(screenshots, "task-approval.png"), fullPage: true, animations: "disabled" });
   await approve.click();
   await expect.poll(async () => (await browserData(page, "/api/tasks")).length).toBe(1);
-  await expect(page.getByText("浏览器真实任务", { exact: true })).toBeVisible();
+  await expect(page.getByText("工具详情：createTask · 执行完成", { exact: true })).toBeVisible();
   const messages = await browserData(page, `/api/conversations/${chat.id}/messages`);
   expect(messages.some(message => message.content.includes('"state":"output-available"'))).toBe(true);
   await page.reload();
-  await expect(page.getByText("浏览器真实任务", { exact: true })).toBeVisible();
+  await expect(page.getByText("工具详情：createTask · 执行完成", { exact: true })).toBeVisible();
   await expect(approve).toHaveCount(0);
   expect(await browserData(page, "/api/tasks")).toHaveLength(1);
+  await page.goto(`${app.origin}/tasks`);
+  await expect(page.getByTestId("task-panel").getByText("浏览器真实任务", { exact: true })).toBeVisible();
   await page.screenshot({ path: join(screenshots, "task-created.png"), fullPage: true, animations: "disabled" });
   expect(errors).toEqual([]);
 });
