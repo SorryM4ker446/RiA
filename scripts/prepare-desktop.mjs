@@ -49,6 +49,10 @@ if (existsSync(publicDirectory)) {
 const staticDirectory = join(repositoryRoot, ".next", "static");
 cpSync(staticDirectory, join(runtimeDirectory, ".next", "static"), { recursive: true });
 
+// File tracing need not include third-party license files. Ship the complete
+// production backport so installed document parsers retain its code and license.
+cpSync(join(repositoryRoot, "vendor", "sprintf-js"), join(runtimeDirectory, "node_modules", "sprintf-js"), { recursive: true });
+
 const prismaRuntimeDirectory = join(runtimeDirectory, "prisma");
 mkdirSync(prismaRuntimeDirectory, { recursive: true });
 cpSync(join(repositoryRoot, "src", "db", "migrations"), join(prismaRuntimeDirectory, "migrations"), {

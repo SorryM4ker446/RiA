@@ -19,16 +19,19 @@ Private AI Assistant is a local-first AI assistant built with Next.js, Vercel AI
 ## Requirements
 
 - Node.js 24.9.0 for development and packaging, matching CI
-- Windows x64 for producing the Squirrel installer
+- npm 11.19.1 for dependency installation and lockfile updates, matching CI
+- Windows x64 for producing the MSI installer
 - An OpenRouter API key for AI generation
 - A Tavily API key only when web search is needed
 
 The installed desktop application does not require Node.js or PostgreSQL.
 
+Keep `.npmrc` and `vendor/` in the checkout when installing dependencies. The project uses reviewed local backports for two dependencies without upstream security fixes; see [Dependency security backports](vendor/README.md) for advisories, compatibility limits and maintenance. Run `npx --yes npm@11.19.1 audit --audit-level=low` after dependency changes, together with the regression tests and desktop validation.
+
 ## Local development server
 
 ```powershell
-npm install
+npx --yes npm@11.19.1 ci
 npm run db:generate
 npm run dev
 ```
@@ -65,7 +68,7 @@ npm run desktop:make
 
 - `desktop:build` creates and verifies `.desktop-runtime`.
 - `desktop:package` creates the unpacked Windows application under `out/`.
-- `desktop:make` creates the Windows Setup executable and Squirrel metadata under `out/make/`.
+- `desktop:make` prepares WiX automatically and creates the versioned MSI plus SHA-256 verification metadata under `out/make/wix/x64/`.
 
 ## Validation
 

@@ -1,4 +1,4 @@
-import { dropRuntimeImageCache } from "./scripts/desktop-package-hooks.mjs";
+import { dropRuntimeCaches } from "./scripts/desktop-package-hooks.mjs";
 import { windowsInstallerConfig } from "./scripts/windows-installer-config.mjs";
 
 import type { ForgeConfig } from "@electron-forge/shared-types";
@@ -15,7 +15,7 @@ const config: ForgeConfig = {
     // this the tray is built from a path that does not exist in an installation,
     // which leaves the process resident with an empty notification-area slot.
     extraResource: [".desktop-runtime", "assets"],
-    afterCopyExtraResources: [dropRuntimeImageCache],
+    afterCopyExtraResources: [dropRuntimeCaches],
     ignore: (path) => {
       const normalized = path.replaceAll("\\", "/");
       if (!normalized) return false;

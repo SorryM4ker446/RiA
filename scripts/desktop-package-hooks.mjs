@@ -1,19 +1,24 @@
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 
+export const runtimeCacheDirectories = [join(".next", "cache"), join(".next", "server", "route-cache")];
+
 /**
- * Optimized image caches are regenerable user/runtime artifacts. Their hashed
- * filenames can also exceed the Windows path budget after installation, so
- * exclude them from the staged bundle.
+ * Image caches and scoped response caches are regenerable runtime artifacts.
+ * Next.js without a build adapter retains immutable response seeds under
+ * server/app and server/pages; those files and their metadata must stay intact.
+ * Exclude runtime copies, whose hashed paths can exceed the Windows path budget.
  *
  * The packager promisifies this hook and appends the completion callback after
  * (stagingPath, electronVersion, platform, arch), so the callback must be the
  * final parameter or the packaging step never resolves.
  */
-export function dropRuntimeImageCache(buildPath, _electronVersion, _platform, _arch, done) {
-  rmSync(join(buildPath, "resources", ".desktop-runtime", ".next", "cache"), {
-    recursive: true,
-    force: true,
-  });
+export function dropRuntimeCaches(buildPath, _electronVersion, _platform, _arch, done) {
+  for (const directory of runtimeCacheDirectories) {
+    rmSync(join(buildPath, "resources", ".desktop-runtime", directory), {
+      recursive: true,
+      force: true,
+    });
+  }
   done();
 }

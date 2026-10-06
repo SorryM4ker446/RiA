@@ -78,7 +78,9 @@ test("a settings card that sends one field does not wipe the fields beside it", 
     const runnerFile = join(root, "runner.js");
     writeRunner(runnerFile);
     const result = spawnSync(resolveInstalledElectron(), [runnerFile], {
-      cwd: root, env: electronEnvironment(), encoding: "utf8", windowsHide: true, timeout: 45_000,
+      // Electron helpers can briefly retain the working directory after exit.
+      // The runner uses __dirname for data, so its disposable directory need not be cwd.
+      cwd: repositoryRoot, env: electronEnvironment(), encoding: "utf8", windowsHide: true, timeout: 45_000,
     });
     assert.ifError(result.error);
     const report = readReport(root, result);
@@ -107,7 +109,7 @@ test("a key save and a window-geometry save in flight together both survive", {
     const runnerFile = join(root, "runner.js");
     writeRunner(runnerFile);
     const result = spawnSync(resolveInstalledElectron(), [runnerFile], {
-      cwd: root, env: electronEnvironment(), encoding: "utf8", windowsHide: true, timeout: 45_000,
+      cwd: repositoryRoot, env: electronEnvironment(), encoding: "utf8", windowsHide: true, timeout: 45_000,
     });
     assert.ifError(result.error);
     const report = readReport(root, result);

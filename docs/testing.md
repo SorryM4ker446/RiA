@@ -218,6 +218,14 @@ Desktop resume tests simulate health outcomes, coalesced wakeups and replacement
 `tests/desktop/windows-installer.test.ts` generates a real WiX source using the configured maker options and checks selectable destination, stable upgrade identity, per-user installation, matching notification identity, and removal of recursive directory purge. After making and recording the installer, `scripts/verify-windows-installer.ps1` opens the compiled MSI database read-only and checks version, language, upgrade code, feature destination/Browse wiring and absence of recursive purge actions; CI runs it before upload. Release-artifact tests check versioned MSI naming, obsolete-artifact exclusion, repeatable checksums and unverified acceptance status. These tests do not perform a real install/uninstall or certify migration from Squirrel; follow the Windows release acceptance document for those checks.
 
 
+### Dependency security
+
+Dependency security changes require a clean `npx --yes npm@11.19.1 ci` and the full `npm audit --audit-level=low`, including development dependencies. Keep the project `.npmrc` and `vendor/` in that checkout. `tests/server/dependency-security.test.ts` exercises excessive brace nesting, caller-provided cyclic/shared ASTs, unsupported numeric precision, normal formatting and installed Micromatch, Mammoth and argparse consumers. See [Dependency security backports](../vendor/README.md) for the upstream sources and compatibility limits. An audit result alone does not validate these private backports.
+
+Desktop runtime preparation includes the production formatter source and license. Runtime/package verification resolves it from Mammoth's actual location, requires it to stay inside the bundle and exercises its precision guard. Bundle regressions reject an unpatched nested consumer or a missing license. The settings-store Electron runner uses the repository as its working directory, keeping its disposable data directory independent of transient native helper handles.
+
+Next.js scoped response caches generated during smoke/browser tests are stripped from the staged installer alongside the image cache. Bundle tests seed both caches independently of a previous build and verify removal while retaining immutable prerender responses and ownership metadata. Validate a fresh packaged smoke after changing these paths; changing cache keys or dropping immutable response seeds would invalidate Next.js route isolation.
+
 ### Workspace layout and refresh
 
 `tests/desktop/make-desktop.test.ts` verifies automatic WiX preparation, case-insensitive Windows PATH handling without mutating the parent environment, reuse of an already built CI runtime, and stopping before packaging or release evidence after a failed prerequisite.
