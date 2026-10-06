@@ -143,20 +143,15 @@ jobs:
         run: npm run test:desktop:caption
 
       - name: Create Windows installer
-        run: |
-          ./scripts/provision-wix.ps1
-          $env:PATH = "${{ github.workspace }}\.desktop-data\tooling\wix-3.14.1;$env:PATH"
-          npx electron-forge make --platform win32 --arch x64
+        run: node scripts/make-desktop.mjs --skip-build
 
       - name: Verify and smoke-test packaged application
         run: |
           npm run desktop:verify
           npm run test:desktop:package
 
-      - name: Record installer version and checksums
-        run: |
-          npm run desktop:release-manifest
-          ./scripts/verify-windows-installer.ps1
+      - name: Verify compiled installer
+        run: ./scripts/verify-windows-installer.ps1
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4

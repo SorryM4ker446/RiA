@@ -220,6 +220,8 @@ Desktop resume tests simulate health outcomes, coalesced wakeups and replacement
 
 ### Workspace layout and refresh
 
+`tests/desktop/make-desktop.test.ts` verifies automatic WiX preparation, case-insensitive Windows PATH handling without mutating the parent environment, reuse of an already built CI runtime, and stopping before packaging or release evidence after a failed prerequisite.
+
 The chat layout regression fills short text and forty-line drafts at desktop, compact and mobile widths, verifies unchanged textarea and composer bounds, and scrolls long drafts inside the fixed input. It also verifies that the chat workspace reaches the right viewport edge: the non-scrolling outer chat container must not reserve a scrollbar gutter. Scrollbar space remains reserved inside scrolling transcripts and ordinary workspace pages.
 
 `tests/e2e/workspace-layout.spec.ts` starts an isolated standalone service and checks initial task skeletons, retained task content on a delayed refresh, unchanged composer bounds, internal scrolling, compact-panel controls, and saved theme restoration. It captures chat at 1440, 900 and 390 pixels and other workspace pages under the temporary `ria-workspace-ui` directory. `chat-startup.spec.ts` verifies transcript follow behavior and keeping the reader's position during a streamed answer. These checks require rebuilding and preparing the standalone runtime after UI edits. `tests/desktop/window-appearance.test.ts` covers native Windows transparency options and opaque behavior on other platforms; it does not prove the compositor visually exposes desktop content.

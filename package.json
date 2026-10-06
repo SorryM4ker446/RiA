@@ -1,7 +1,7 @@
 {
   "name": "private-ai-assistant",
   "productName": "RiA",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "packageManager": "npm@11.19.1",
   "description": "A private desktop AI assistant built with Next.js and Electron",
   "author": "RiA",
@@ -27,7 +27,7 @@
     "desktop:dev:electron": "npm run desktop:dev",
     "desktop:build": "node scripts/build-desktop.mjs",
     "desktop:package": "npm run desktop:build && electron-forge package --platform win32 --arch x64",
-    "desktop:make": "npm run desktop:build && electron-forge make --platform win32 --arch x64 && node scripts/desktop-release-manifest.mjs",
+    "desktop:make": "node scripts/make-desktop.mjs",
     "desktop:version": "node scripts/bump-version.mjs",
     "desktop:release-manifest": "node scripts/desktop-release-manifest.mjs",
     "desktop:verify": "node scripts/verify-desktop-package.mjs",
