@@ -3,6 +3,7 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveInstalledElectron } from "./resolve-installed-electron.mjs";
+import { printDesktopSmokeDiagnostics } from "./smoke-desktop-diagnostics.mjs";
 import { textPdf, wordDocument } from "../tests/helpers/document-fixtures.ts";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -54,7 +55,9 @@ const child = spawn(
   },
 );
 
+let timedOut = false;
 const timeout = setTimeout(() => {
+  timedOut = true;
   child.kill("SIGTERM");
   console.error(`Desktop smoke test timed out. Diagnostics: ${testRoot}`);
   process.exitCode = 1;
@@ -63,11 +66,12 @@ const timeout = setTimeout(() => {
 child.on("error", (error) => {
   clearTimeout(timeout);
   console.error(error instanceof Error ? error.message : String(error));
+  printDesktopSmokeDiagnostics(testRoot);
   process.exitCode = 1;
 });
-child.on("exit", (code) => {
+child.on("exit", (code, signal) => {
   clearTimeout(timeout);
-  if (code === 0) {
+  if (code === 0 && !timedOut) {
     if (resolve(dirname(testRoot)) !== expectedParent) {
       throw new Error(`Refusing to clean unexpected smoke-test directory: ${testRoot}`);
     }
@@ -75,7 +79,8 @@ child.on("exit", (code) => {
     console.log("Electron desktop smoke test passed.");
     process.exitCode = 0;
   } else {
-    console.error(`Desktop smoke test failed with code ${code}. Diagnostics: ${testRoot}`);
-    process.exitCode = code ?? 1;
+    console.error(`Desktop smoke test failed with code ${code}${signal ? ` (signal ${signal})` : ""}. Diagnostics: ${testRoot}`);
+    printDesktopSmokeDiagnostics(testRoot);
+    process.exitCode = code && code > 0 ? code : 1;
   }
 });

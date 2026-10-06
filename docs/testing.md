@@ -220,6 +220,10 @@ Desktop resume tests simulate health outcomes, coalesced wakeups and replacement
 
 ### Dependency security
 
+Directory-grant regressions check blocked credential subtrees even when their selected paths do not exist, avoiding dependence on a developer's populated home directory. Grant creation checks both the selected absolute path and the canonical real path: ordinary missing paths retain `not-found`, while aliases into protected locations remain blocked.
+
+Failed Electron smoke runs print the bounded tail of the redacted application log and retain their isolated directory. The desktop CI job uploads only `desktop.log` and its rotated archives from smoke directories, including hidden paths; settings, SQLite databases and Chromium profiles are excluded. A missing log is explicitly reported. A timed-out process cannot become a passing result by later exiting with code zero. Desktop diagnostics tests launch a failing child to verify the error reaches the command output and failure data is retained.
+
 Dependency security changes require a clean `npx --yes npm@11.19.1 ci` and the full `npm audit --audit-level=low`, including development dependencies. Keep the project `.npmrc` and `vendor/` in that checkout. `tests/server/dependency-security.test.ts` exercises excessive brace nesting, caller-provided cyclic/shared ASTs, unsupported numeric precision, normal formatting and installed Micromatch, Mammoth and argparse consumers. See [Dependency security backports](../vendor/README.md) for the upstream sources and compatibility limits. An audit result alone does not validate these private backports.
 
 Desktop runtime preparation includes the production formatter source and license. Runtime/package verification resolves it from Mammoth's actual location, requires it to stay inside the bundle and exercises its precision guard. Bundle regressions reject an unpatched nested consumer or a missing license. The settings-store Electron runner uses the repository as its working directory, keeping its disposable data directory independent of transient native helper handles.

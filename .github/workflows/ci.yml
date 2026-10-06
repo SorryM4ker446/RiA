@@ -153,6 +153,17 @@ jobs:
       - name: Verify compiled installer
         run: ./scripts/verify-windows-installer.ps1
 
+      - name: Upload desktop failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .desktop-data/test/electron-smoke-*/data/logs/desktop.log*
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
