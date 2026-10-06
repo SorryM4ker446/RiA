@@ -134,6 +134,9 @@ jobs:
       - name: Smoke-test Electron with standalone runtime
         run: npm run test:desktop:smoke
 
+      - name: Smoke-test Electron from a maximized window
+        run: npm run test:desktop:smoke -- --maximized
+
       # A synthetic .click() cannot catch this class of defect: the broken
       # version passed every other gate because the React SyntheticEvent was
       # never structured-cloned across the contextBridge. Only a real trusted
@@ -145,10 +148,11 @@ jobs:
       - name: Create Windows installer
         run: node scripts/make-desktop.mjs --skip-build
 
-      - name: Verify and smoke-test packaged application
-        run: |
-          npm run desktop:verify
-          npm run test:desktop:package
+      - name: Verify packaged application
+        run: npm run desktop:verify
+
+      - name: Smoke-test packaged application
+        run: npm run test:desktop:package
 
       - name: Verify compiled installer
         run: ./scripts/verify-windows-installer.ps1
@@ -160,6 +164,7 @@ jobs:
           name: desktop-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             .desktop-data/test/electron-smoke-*/data/logs/desktop.log*
+            .desktop-data/test/caption-click-*/data/logs/desktop.log*
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7

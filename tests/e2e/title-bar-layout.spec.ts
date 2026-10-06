@@ -1,16 +1,6 @@
-import { test as base, expect } from "@playwright/test";
+import { test as base, expect, type Page } from "@playwright/test";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { startStandaloneServer } from "../helpers/standalone-server";
-
-/**
- * The top row is part of the interface, not a band painted above it.
- *
- * Two regressions are cheap to reintroduce and invisible in a screenshot taken
- * after the fact: a border or padding that re-creates the band the design
- * removed, and a sticky panel whose offset still assumes the band is there, so
- * its top edge disappears behind the header. Both are geometry, so both are
- * asserted as geometry.
- */
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => {
@@ -19,70 +9,68 @@ const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>
   },
 });
 
-async function open(page: import("@playwright/test").Page, origin: string, path: string) {
+async function open(page: Page, origin: string, path: string) {
   await openWorkspace(page, origin);
-  await page.goto(`${origin}${path}`);
-  // The sticky rails only exist at the `xl` breakpoint; the suite's desktop
-  // viewport is 1280px, which is exactly it. Fail loudly rather than silently
-  // measuring a stacked layout that has no sticky offset to check.
-  expect(page.viewportSize()!.width, "this test needs the xl breakpoint").toBeGreaterThanOrEqual(1280);
+  await page.goto(origin + path);
+  expect(page.viewportSize()!.width, "this test needs the desktop conversation rail").toBeGreaterThanOrEqual(1280);
+  await expect(page.locator(".workspace-topbar:visible")).toHaveCount(1);
+  await expect(page.locator("main")).toBeVisible();
 }
 
-test("the top row carries no reserved band above the page", { tag: "@integration" }, async ({ page, app }) => {
+test("the top row starts at the window edge and owns its content row", { tag: "@integration" }, async ({ page, app }) => {
   await open(page, app.origin, "/storage");
-
   const geometry = await page.evaluate(() => {
-    const root = document.querySelector("div.min-h-screen") as HTMLElement;
-    const rail = document.querySelector("nav")?.closest("div.fixed") as HTMLElement;
-    const bar = [...document.querySelectorAll<HTMLElement>("div.sticky")].find(node => node.className.includes("h-10") && node.getBoundingClientRect().width > 0)!;
-    const barStyle = getComputedStyle(bar);
+    const root = document.querySelector<HTMLElement>(".workspace-shell")!;
+    const rail = document.querySelector<HTMLElement>(".workspace-rail")!;
+    const bar = [...document.querySelectorAll<HTMLElement>(".workspace-topbar")].find(node => node.getClientRects().length > 0)!;
+    const content = document.querySelector<HTMLElement>(".workspace-content")!;
     return {
       rootPaddingTop: getComputedStyle(root).paddingTop,
+      rootTop: root.getBoundingClientRect().top,
       railTop: rail.getBoundingClientRect().top,
       railPaddingTop: getComputedStyle(rail).paddingTop,
       barTop: bar.getBoundingClientRect().top,
       barHeight: bar.getBoundingClientRect().height,
-      barBorderBottom: barStyle.borderBottomWidth,
-      barBackground: barStyle.backgroundColor,
-      pageBackground: getComputedStyle(document.body).backgroundColor,
+      barBottom: bar.getBoundingClientRect().bottom,
+      barBackground: getComputedStyle(bar).backgroundColor,
+      rootBackground: getComputedStyle(root).backgroundColor,
+      contentTop: content.getBoundingClientRect().top,
+      contentBottom: content.getBoundingClientRect().bottom,
+      viewportHeight: innerHeight,
     };
   });
-
-  // No band: the page starts at the very top of the window.
-  expect(geometry.rootPaddingTop, "the page root reserves a band for the title bar").toBe("0px");
-  expect(geometry.railTop, "the nav rail no longer reaches the top of the window").toBe(0);
-  expect(geometry.railPaddingTop, "the nav rail pads itself away from the title row").toBe("0px");
-  expect(geometry.barTop, "the section header is not at the top of the window").toBe(0);
-  // The row is 40px so the native caption controls sit inside it rather than
-  // over the content.
-  expect(geometry.barHeight).toBe(40);
-  // A rule under the row is what made it read as a separate strip.
-  expect(geometry.barBorderBottom, "a border re-creates the seam under the top row").toBe("0px");
-  // The row and the page are one surface, so they must be one colour.
-  expect(geometry.barBackground).toBe(geometry.pageBackground);
+  expect(geometry.rootPaddingTop).toBe("0px");
+  expect(geometry.rootTop).toBe(0);
+  expect(geometry.railTop).toBe(0);
+  expect(geometry.railPaddingTop).toBe("0px");
+  expect(geometry.barTop).toBe(0);
+  expect(geometry.barHeight).toBe(44);
+  expect(geometry.contentTop).toBe(geometry.barBottom);
+  expect(geometry.contentBottom).toBe(geometry.viewportHeight);
+  expect(geometry.barBackground).toBe(geometry.rootBackground);
 });
 
-test("sticky side panels clear the top row instead of hiding behind it", { tag: "@integration" }, async ({ page, app }) => {
+test("the conversation rail stays below the title row and tasks have their own page", { tag: "@integration" }, async ({ page, app }) => {
   await open(page, app.origin, "/chat");
-
+  const rail = page.getByRole("complementary", { name: "会话列表", exact: true });
+  await expect(rail).toBeVisible();
+  await expect(page.locator(".chat-rail-right")).toHaveCount(0);
   const geometry = await page.evaluate(() => {
-    const bar = [...document.querySelectorAll<HTMLElement>("div.sticky")].find(node => node.className.includes("h-10") && node.getBoundingClientRect().width > 0)!;
-    const panels = [...document.querySelectorAll<HTMLElement>("aside")].map(node => {
-      const style = getComputedStyle(node);
-      return { label: node.getAttribute("aria-label"), position: style.position, top: style.top };
-    });
-    return { barBottom: bar.getBoundingClientRect().bottom, barHeight: bar.getBoundingClientRect().height, panels };
+    const bar = [...document.querySelectorAll<HTMLElement>(".workspace-topbar")].find(node => node.getClientRects().length > 0)!;
+    const rail = document.querySelector<HTMLElement>(".chat-rail-left")!;
+    return { barBottom: bar.getBoundingClientRect().bottom, railTop: rail.getBoundingClientRect().top, railBottom: rail.getBoundingClientRect().bottom, viewportHeight: innerHeight };
   });
-
-  expect(geometry.barHeight).toBe(40);
-  expect(geometry.panels.length, "expected the conversation and task rails").toBeGreaterThanOrEqual(2);
-  for (const panel of geometry.panels) {
-    if (panel.position !== "sticky") continue;
-    const offset = Number.parseFloat(panel.top);
-    // A sticky panel that offsets less than the header's height slides under
-    // it, and the first thing the user loses is the panel's own title row.
-    expect(offset, `the ${panel.label} rail sticks at ${panel.top}, inside the ${geometry.barHeight}px header`).toBeGreaterThanOrEqual(geometry.barHeight);
-  }
+  expect(geometry.railTop).toBe(geometry.barBottom);
+  expect(geometry.railBottom).toBe(geometry.viewportHeight);
+  await page.getByRole("button", { name: "收起会话列表", exact: true }).click();
+  await expect(rail).toHaveCSS("width", "40px");
+  expect((await rail.boundingBox())!.y).toBe(geometry.barBottom);
+  await page.getByRole("button", { name: "展开会话列表", exact: true }).click();
+  await expect(rail).toHaveCSS("width", "232px");
+  expect((await rail.boundingBox())!.y).toBe(geometry.barBottom);
+  await page.getByRole("link", { name: "定时任务", exact: true }).click();
+  await expect(page).toHaveURL(app.origin + "/tasks");
+  await expect(page.getByTestId("task-panel")).toBeVisible();
 });
 
 test("the brand stays clickable inside the drag row", { tag: "@integration" }, async ({ page, app }) => {

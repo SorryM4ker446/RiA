@@ -43,6 +43,7 @@ const child = spawn(
     ...process.env,
     DESKTOP_FORCE_PACKAGED: forceStandalone ? "1" : "0",
     DESKTOP_SMOKE_TEST: "1",
+    DESKTOP_SMOKE_START_MAXIMIZED: process.argv.includes("--maximized") ? "1" : "0",
     DESKTOP_PROJECT_ROOT: repositoryRoot,
     DESKTOP_RUNTIME_DIR: forceStandalone ? join(repositoryRoot, ".desktop-runtime") : "",
     DESKTOP_USER_DATA_DIR: testRoot,

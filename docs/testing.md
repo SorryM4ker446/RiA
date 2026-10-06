@@ -6,6 +6,10 @@ The application ships as a Windows desktop program; there is no browser or web d
 
 Both CI jobs pin Node.js to 24.9.0 to match the local development runtime and log Node.js/npm versions. When upgrading the local Node.js runtime, update both `actions/setup-node` steps in `.github/workflows/ci.yml` and revalidate with that version. A local pass still does not replace a GitHub Actions run.
 
+Chat approval browser tests require pending tool details to be open immediately, then verify that approval or denial sends exactly one continuation. Tool output can render before the end-of-stream database write; the persistence test waits for the completed tool state in the history API before reloading, then requires the restored result and exactly one task. Title-row geometry tests cover the current 44px row, content and conversation rail below it, rail collapse/expansion, and navigation to the independent tasks page.
+
+The trusted caption-click check uses its own `.desktop-data/test/caption-click-*` profile and database, runs the prepared standalone server, and waits for both a native maximize/restore transition and its matching renderer label. Failure prints the bounded application log; CI uploads only the redacted logs from these profiles. Packaged-runtime verification and packaged smoke run in separate CI steps so either failure independently fails the job.
+
 | Command | What it checks | External dependencies |
 | --- | --- | --- |
 | `npm run test:server` | Real route handlers, CRUD, the local credential boundary, tool logging/timeouts, chat persistence/abort, media storage, legacy import, path safety and cleanup | Temporary SQLite/media; deterministic model doubles and a loopback search server; no paid model calls |
@@ -223,6 +227,8 @@ Desktop resume tests simulate health outcomes, coalesced wakeups and replacement
 Directory-grant regressions check blocked credential subtrees even when their selected paths do not exist, avoiding dependence on a developer's populated home directory. Grant creation checks both the selected absolute path and the canonical real path: ordinary missing paths retain `not-found`, while aliases into protected locations remain blocked.
 
 Failed Electron smoke runs print the bounded tail of the redacted application log and retain their isolated directory. The desktop CI job uploads only `desktop.log` and its rotated archives from smoke directories, including hidden paths; settings, SQLite databases and Chromium profiles are excluded. A missing log is explicitly reported. A timed-out process cannot become a passing result by later exiting with code zero. Desktop diagnostics tests launch a failing child to verify the error reaches the command output and failure data is retained.
+
+`npm run test:desktop:smoke -- --maximized` starts the isolated smoke window maximized before loading the renderer; CI exercises this state separately. Both caption checks recognize the middle control as either maximize or restore, and the trusted-click check requires an actual native maximization-state change instead of treating full screen width as evidence of a working click.
 
 Dependency security changes require a clean `npx --yes npm@11.19.1 ci` and the full `npm audit --audit-level=low`, including development dependencies. Keep the project `.npmrc` and `vendor/` in that checkout. `tests/server/dependency-security.test.ts` exercises excessive brace nesting, caller-provided cyclic/shared ASTs, unsupported numeric precision, normal formatting and installed Micromatch, Mammoth and argparse consumers. See [Dependency security backports](../vendor/README.md) for the upstream sources and compatibility limits. An audit result alone does not validate these private backports.
 
