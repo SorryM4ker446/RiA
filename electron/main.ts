@@ -738,6 +738,9 @@ async function createMainWindow(initialPath: string): Promise<BrowserWindow> {
   window.on("closed", () => {
     if (mainWindow === window) mainWindow = null;
   });
+  if (smokeTest && process.env.DESKTOP_SMOKE_START_MAXIMIZED === "1") {
+    window.maximize();
+  }
   await window.loadURL(`${nextServer.origin}${initialPath}`);
   return window;
 }
@@ -789,12 +792,16 @@ async function runSmokeAssertion() {
   const caption = (await mainWindow.webContents.executeJavaScript(
     `(() => {
       const controls = window.privateAiDesktop?.windowControls;
-      const labels = ["最小化", "最大化", "关闭"];
+      const selectors = [
+        'button[aria-label="最小化"]',
+        'button[aria-label="最大化"], button[aria-label="向下还原"]',
+        'button[aria-label="关闭"]'
+      ];
       // The narrow and wide headers each render the controls and only one is
       // displayed at a time, so a hidden copy measures 0x0. Take the visible
       // ones or this fails on a layout that is correct.
-      const nodes = labels
-        .map(label => [...document.querySelectorAll('button[aria-label="' + label + '"]')]
+      const nodes = selectors
+        .map(selector => [...document.querySelectorAll(selector)]
           .find(node => node.getClientRects().length > 0))
         .filter(Boolean);
       return {

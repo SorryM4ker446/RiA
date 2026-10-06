@@ -35,8 +35,12 @@ test("a task-only response exposes approval, creates the task after approval and
   await approve.click();
   await expect.poll(async () => (await browserData(page, "/api/tasks")).length).toBe(1);
   await expect(page.getByText("工具详情：createTask · 执行完成", { exact: true })).toBeVisible();
-  const messages = await browserData(page, `/api/conversations/${chat.id}/messages`);
-  expect(messages.some(message => message.content.includes('"state":"output-available"'))).toBe(true);
+  // A tool output is streamed before the SDK's end-of-stream persistence callback.
+  // Wait for durable history before testing restoration from that history.
+  await expect.poll(async () => {
+    const messages = await browserData(page, `/api/conversations/${chat.id}/messages`);
+    return messages.some(message => message.content.includes('"state":"output-available"'));
+  }).toBe(true);
   await page.reload();
   await expect(page.getByText("工具详情：createTask · 执行完成", { exact: true })).toBeVisible();
   await expect(approve).toHaveCount(0);

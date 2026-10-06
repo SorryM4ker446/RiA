@@ -15,6 +15,7 @@ async function mockHistory(page: Page, history: HistoryMessage[]) {
   await page.route("**/api/models", (route) => route.fulfill({ json: modelsRouteFixture([fixtureLibraryItem("anthropic/claude-opus-4.6", ["chat"])], { chat: "anthropic/claude-opus-4.6" }) }));
   await page.route("**/api/conversations", (route) => route.fulfill({ json: { data: [{ id: "chat-actions", title: "Actions", lastMessageAt: now, messageCount: history.length }] } }));
   await page.route("**/api/conversations/*/messages", (route) => route.fulfill({ json: { data: history } }));
+  await page.route("**/api/conversations/*/runs?*", (route) => route.fulfill({ json: { data: [] } }));
   await page.route("**/api/tasks**", (route) => route.fulfill({ json: { data: [] } }));
   await page.route("**/api/tools?*", (route) => route.fulfill({ json: { data: [] } }));
 }
@@ -57,7 +58,9 @@ for (const approved of [true, false]) {
       ]) });
     });
     await page.goto("/chat");
-    await page.getByText(/工具详情：createTask/).click();
+    const details = page.locator("details").filter({ has: page.getByText(/工具详情：createTask/) });
+    await expect(details).toHaveAttribute("open", "");
+    await expect(page.getByRole("status").filter({ hasText: "操作尚未执行" })).toBeVisible();
     await page.getByRole("button", { name: approved ? "批准" : "拒绝", exact: true }).click();
     await expect.poll(() => calls).toBe(1);
     await expect(page.getByText(/Approval handled/)).toBeVisible();

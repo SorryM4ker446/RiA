@@ -218,7 +218,13 @@ export async function resolveGrant(input: { label: string; path: string }): Prom
     throw new LocalFileRefused("network-location", "Network locations are not available.");
   }
 
-  const realPath = await realPathOf(chosen);
+  // Category refusals do not depend on whether the selected location exists.
+  // Resolve again below so a permitted alias cannot point into a blocked tree.
+  const selectedPath = path.resolve(chosen);
+  if (isBlockedLocation(selectedPath) || path.dirname(selectedPath) === selectedPath) {
+    throw new LocalFileRefused("blocked-location", "This location is not available.");
+  }
+  const realPath = await realPathOf(selectedPath);
   if (isBlockedLocation(realPath)) {
     throw new LocalFileRefused("blocked-location", "This location is not available.");
   }

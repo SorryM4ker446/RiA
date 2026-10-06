@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { after, beforeEach, test } from "node:test";
 import { NextRequest } from "next/server";
@@ -115,7 +116,26 @@ test("hidden files, network locations and system directories are refused as cate
     assert.equal(await refusedBy(async () => resolveGrant({ label: "", path: system })), "blocked-location");
   }
   assert.equal(await refusedBy(async () => resolveGrant({ label: "", path: path.parse(tmpdir()).root })), "blocked-location");
-  assert.equal(await refusedBy(async () => resolveGrant({ label: "", path: path.join(process.env.USERPROFILE ?? ".", ".ssh") })), "blocked-location");
+  assert.equal(await refusedBy(async () => resolveGrant({ label: "", path: path.join(homedir(), ".ssh") })), "blocked-location");
+});
+
+test("credential subtrees remain blocked when the selected path does not exist", async () => {
+  for (const folder of [".ssh", ".aws", ".gnupg", ".kube", ".docker"]) {
+    const missing = path.join(homedir(), folder, `missing-${randomUUID()}`);
+    assert.equal(existsSync(missing), false);
+    assert.equal(await refusedBy(() => resolveGrant({ label: "", path: missing })), "blocked-location");
+  }
+  const ordinaryMissing = path.join(temporaryDirectory("ria-missing-grant-"), "missing");
+  assert.equal(await refusedBy(() => resolveGrant({ label: "", path: ordinaryMissing })), "not-found");
+});
+
+test("grant aliases are checked against the real location as well as the selected name", async () => {
+  const root = temporaryDirectory("ria-grant-alias-");
+  symlinkSync(homedir(), path.join(root, "profile"), "junction");
+  assert.equal(await refusedBy(() => resolveGrant({ label: "", path: path.join(root, "profile") })), "blocked-location");
+  const allowed = temporaryDirectory("ria-allowed-alias-");
+  symlinkSync(allowed, path.join(root, "notes"), "junction");
+  assert.equal((await resolveGrant({ label: "", path: path.join(root, "notes") })).realPath, realpathSync.native(allowed));
 });
 
 test("what may be read is not what may be written", async () => {
