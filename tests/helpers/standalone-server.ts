@@ -80,7 +80,7 @@ export async function startStandaloneServer(options: { modelFixture?: boolean; d
   }
   return {
     origin, providerCalls, close,
-    async restart() { await stop(); await start(); },
+    async restart(prepare?: () => void) { await stop(); prepare?.(); await start(); },
     readRows(sql: string, ...parameters: Array<string | number>) {
       const sqlite = new DatabaseSync(database, { readOnly: true });
       try {

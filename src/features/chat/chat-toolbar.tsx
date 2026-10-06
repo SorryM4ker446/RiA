@@ -10,6 +10,8 @@ type Props = Pick<
   ChatState,
   | "activeChat"
   | "isPending"
+  | "isLoadingChats"
+  | "isDocumentScopeSaving"
   | "modelMode"
   | "appendQuickPrompt"
   | "toggleEphemeral"
@@ -21,6 +23,8 @@ type Props = Pick<
 export function ChatToolbar({
   activeChat,
   isPending,
+  isLoadingChats,
+  isDocumentScopeSaving,
   modelMode,
   toggleEphemeral,
   isEphemeralSaving,
@@ -86,6 +90,7 @@ export function ChatToolbar({
           <span>{t("chat.scope.label")}</span>
           <button
             aria-pressed={!(activeChat?.documentScope ?? "")}
+            disabled={!activeChat || isLoadingChats || isDocumentScopeSaving || isPending}
             className={cn(
               "rounded-full border border-border px-2 py-0.5",
               !(activeChat?.documentScope ?? "") && "bg-accent text-foreground",
@@ -101,6 +106,7 @@ export function ChatToolbar({
             return (
               <button
                 aria-pressed={selected}
+                disabled={!activeChat || isLoadingChats || isDocumentScopeSaving || isPending}
                 className={cn(
                   "rounded-full border border-border px-2 py-0.5",
                   selected && "bg-accent text-foreground",
