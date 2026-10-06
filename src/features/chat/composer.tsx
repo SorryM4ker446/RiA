@@ -27,6 +27,7 @@ type Props = Pick<
   | "onSubmit"
   | "modelMode"
   | "isPending"
+  | "isDocumentScopeSaving"
   | "setSelectedManualTool"
   | "manualToolSelectValue"
   | "manualTools"
@@ -72,6 +73,7 @@ export function Composer({
   onSubmit,
   modelMode,
   isPending,
+  isDocumentScopeSaving,
   setSelectedManualTool,
   manualToolSelectValue,
   manualTools,
@@ -494,7 +496,7 @@ export function Composer({
           ) : (
             <Button
               className="h-8 w-8 shrink-0 rounded-full px-0"
-              disabled={!input.trim() && attachments.length === 0}
+              disabled={isDocumentScopeSaving || (!input.trim() && attachments.length === 0)}
               type="submit"
             >
               <SendHorizonal aria-hidden="true" className="h-4 w-4" />

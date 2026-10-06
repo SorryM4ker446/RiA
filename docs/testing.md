@@ -8,6 +8,10 @@ Both CI jobs pin Node.js to 24.9.0 to match the local development runtime and lo
 
 Chat approval browser tests require pending tool details to be open immediately, then verify that approval or denial sends exactly one continuation. Tool output can render before the end-of-stream database write; the persistence test waits for the completed tool state in the history API before reloading, then requires the restored result and exactly one task. Title-row geometry tests cover the current 44px row, content and conversation rail below it, rail collapse/expansion, and navigation to the independent tasks page.
 
+Knowledge-scope coverage holds the initial conversation-list response while document collections render, requires scope controls to stay disabled until the target conversation loads, and holds a scope PATCH while asserting that scope changes and message sending are disabled. It also rejects a save, verifies unchanged selection and recovery on retry, then checks collection isolation and persisted citations after reload. Collection loading must run once per toolbar mount rather than retriggering on every render. These request gates replace timing assumptions. WiX provisioning tests run the real PowerShell script with `Get-FileHash` unavailable and require both successful verified extraction and rejection of corrupt ZIP bytes; cold-download acceptance uses an empty isolated tooling directory.
+
+Scheduled-execution and reminder restart fixtures write only after the isolated server has stopped and before it starts again, avoiding races with the live scheduler's SQLite transactions.
+
 The trusted caption-click check uses its own `.desktop-data/test/caption-click-*` profile and database, runs the prepared standalone server, and waits for both a native maximize/restore transition and its matching renderer label. Failure prints the bounded application log; CI uploads only the redacted logs from these profiles. Packaged-runtime verification and packaged smoke run in separate CI steps so either failure independently fails the job.
 
 | Command | What it checks | External dependencies |

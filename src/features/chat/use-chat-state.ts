@@ -50,7 +50,7 @@ export function useChatState() {
     setIsChatListExpanded, visibleChats, hasHiddenChats, loadChats, createNewChat, startEditingChat,
     cancelEditingChat, saveEditedTitle, performDeleteChat, ensureActiveChatId,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, toggleEphemeral, isEphemeralSaving,
-    documentTopics, loadDocumentTopics, setDocumentScope,
+    documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving,
   } = useConversations({ activeChatId, setActiveChatId, preferences: { modelMode, selectedChatModel, selectedImageModel, selectedVideoModel, selectedManualTool, manualToolsOnly }, applyChatPreferences, resetConversation, persistCurrentStreamingAssistantIfNeeded, setPageError });
   const transport = useMemo(() => createChatTransport(activeChatId, { selectedChatModel, manualToolsOnly, modelMode }), [activeChatId, selectedChatModel, manualToolsOnly, modelMode]);
   const { messages, setMessages, sendMessage, regenerate, addToolApprovalResponse, status, error, clearError, stop } = useChat({
@@ -443,7 +443,7 @@ export function useChatState() {
   }
 
   async function saveEditedMessage(message: UIMessage) {
-    if (isPending) return;
+    if (isPending || isDocumentScopeSaving) return;
     const nextText = editingMessageText.trim();
     if (!nextText || !activeChatId) return;
 
@@ -467,7 +467,7 @@ export function useChatState() {
   }
 
   async function regenerateMessage(messageId: string) {
-    if (isPending) return;
+    if (isPending || isDocumentScopeSaving) return;
     if (!activeChatId) return;
     setPageError(null);
     try {
@@ -485,7 +485,7 @@ export function useChatState() {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isPending) return;
+    if (isPending || isDocumentScopeSaving) return;
     const content = input.trim();
     const hasAttachments = attachments.length > 0;
     const hasContent = content.length > 0;
@@ -667,7 +667,7 @@ export function useChatState() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [pendingDelete, isDeleting, isPending, onStop]);
   return {
-    toggleEphemeral, isEphemeralSaving, documentTopics, loadDocumentTopics, setDocumentScope,
+    toggleEphemeral, isEphemeralSaving, documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages,
     isLoadingChats, isCreatingChat, createNewChat, chats, visibleChats, activeChatId, editingChatId, setEditingTitle,
     editingTitle, saveEditedTitle, cancelEditingChat, switchActiveChat, startEditingChat,

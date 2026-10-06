@@ -30,12 +30,13 @@ test("settings exposes failure recovery, a distinct retry and sanitized diagnost
   // The harness only exposes reads, so resolve its database from the test
   // environment via the standard SQLite database_list pragma.
   const file = app.readRows("PRAGMA database_list")[0] as { file: string };
-  const sqlite = new DatabaseSync(file.file);
-  try {
-    sqlite.exec("CREATE TRIGGER reject_period_review BEFORE INSERT ON workspace_reviews BEGIN SELECT RAISE(ABORT, 'fixture-persistence-failure'); END");
-    sqlite.prepare("UPDATE scheduled_jobs SET nextRunAt = ? WHERE id = ?").run(0, job.id);
-  } finally { sqlite.close(); }
-  await app.restart();
+  await app.restart(() => {
+    const sqlite = new DatabaseSync(file.file);
+    try {
+      sqlite.exec("CREATE TRIGGER reject_period_review BEFORE INSERT ON workspace_reviews BEGIN SELECT RAISE(ABORT, 'fixture-persistence-failure'); END");
+      sqlite.prepare("UPDATE scheduled_jobs SET nextRunAt = ? WHERE id = ?").run(0, job.id);
+    } finally { sqlite.close(); }
+  });
   await page.goto(`${app.origin}/settings`);
   const history = page.getByRole("region", { name: "定时执行历史" });
   await expect(history.getByText(/INTERNAL_ERROR/)).toBeVisible();
@@ -79,12 +80,13 @@ test("desktop restart marks an unfinished execution interrupted without replayin
   })).body.data;
   const { DatabaseSync } = await import("node:sqlite");
   const file = app.readRows("PRAGMA database_list")[0] as { file: string };
-  const sqlite = new DatabaseSync(file.file);
-  try {
-    sqlite.prepare("UPDATE scheduled_jobs SET lastStatus = 'running', nextRunAt = 0 WHERE id = ?").run(job.id);
-    sqlite.prepare("INSERT INTO scheduled_runs (id, jobId, kind, requestId, status, startedAt) VALUES (?, ?, ?, ?, 'running', ?)").run("interrupted-fixture", job.id, job.kind, "interrupted-request", Date.now() - 60_000);
-  } finally { sqlite.close(); }
-  await app.restart();
+  await app.restart(() => {
+    const sqlite = new DatabaseSync(file.file);
+    try {
+      sqlite.prepare("UPDATE scheduled_jobs SET lastStatus = 'running', nextRunAt = 0 WHERE id = ?").run(job.id);
+      sqlite.prepare("INSERT INTO scheduled_runs (id, jobId, kind, requestId, status, startedAt) VALUES (?, ?, ?, ?, 'running', ?)").run("interrupted-fixture", job.id, job.kind, "interrupted-request", Date.now() - 60_000);
+    } finally { sqlite.close(); }
+  });
   await page.goto(`${app.origin}/settings`);
   const history = page.getByRole("region", { name: "定时执行历史" });
   await expect(history.getByText(/进程中断/)).toBeVisible();
@@ -102,10 +104,12 @@ test("accepted desktop reminder claims remain visible after restart without clai
   await openWorkspace(page, app.origin);
   const { DatabaseSync } = await import("node:sqlite");
   const file = app.readRows("PRAGMA database_list")[0] as { file: string };
-  const fixture = new DatabaseSync(file.file);
-  try {
-    fixture.prepare("INSERT INTO tasks (id,title,dueDate,reminderEnabled,updatedAt) VALUES (?,?,?,?,?)").run("durable-reminder", "到期记录浏览器验证", Date.now() - 60_000, 1, Date.now());
-  } finally { fixture.close(); }
+  await app.restart(() => {
+    const fixture = new DatabaseSync(file.file);
+    try {
+      fixture.prepare("INSERT INTO tasks (id,title,dueDate,reminderEnabled,updatedAt) VALUES (?,?,?,?,?)").run("durable-reminder", "到期记录浏览器验证", Date.now() - 60_000, 1, Date.now());
+    } finally { fixture.close(); }
+  });
   const accepted = await browserApi(page, "/api/tasks/reminders", "POST");
   expect(accepted.status).toBe(200); expect(accepted.body.data).toHaveLength(1);
   expect((await browserApi(page, "/api/tasks/reminders", "POST")).body.data).toEqual([]);

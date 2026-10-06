@@ -1,7 +1,7 @@
 import { ChatSummary } from "@/features/chat/page-utils";
 import { t } from "@/lib/locale";
 import type { Dispatch, SetStateAction } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { chatApi } from "@/features/chat/api-client";
 import { getChatPrefsStorageKey, loadAccountChatDefaults } from "@/features/chat/preferences";
 import type { ChatScopedPreferences } from "@/features/chat/types";
@@ -33,6 +33,8 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   const [isChatListExpanded, setIsChatListExpanded] = useState(false);
   const [isEphemeralSaving, setIsEphemeralSaving] = useState(false);
   const [documentTopics, setDocumentTopics] = useState<string[]>([]);
+  const [isDocumentScopeSaving, setIsDocumentScopeSaving] = useState(false);
+  const scopeSavingRef = useRef(false);
   const [nextChatsCursor, setNextChatsCursor] = useState<string | null>(null);
   const [isLoadingMoreChats, setIsLoadingMoreChats] = useState(false);
   const chatsRequestRef = useRef(0);
@@ -238,7 +240,7 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   }
 
   /** The topics a conversation may draw on. Empty means every topic. */
-  async function loadDocumentTopics() {
+  const loadDocumentTopics = useCallback(async () => {
     try {
       const response = await fetch("/api/documents", { cache: "no-store" });
       if (!response.ok) return;
@@ -250,11 +252,14 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     } catch {
       // A conversation can still be created without a scope.
     }
-  }
+  }, []);
 
   async function setDocumentScope(next: string[]) {
     const chat = chats.find((item) => item.id === activeChatId);
-    if (!chat) return;
+    if (!chat || isLoadingChats || scopeSavingRef.current) return;
+    scopeSavingRef.current = true;
+    setIsDocumentScopeSaving(true);
+    setPageError(null);
     try {
       await chatApi.setDocumentScope(chat.id, next);
     } catch (scopeError) {
@@ -266,11 +271,13 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
       // Once either way, and once: the list is what the chips read, so it has to
       // be the stored scope rather than the one that was asked for.
       await loadChats();
+      scopeSavingRef.current = false;
+      setIsDocumentScopeSaving(false);
     }
   }
 
   return {
-    toggleEphemeral, isEphemeralSaving, documentTopics, loadDocumentTopics, setDocumentScope,
+    toggleEphemeral, isEphemeralSaving, documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving,
     chats, activeChat, isLoadingChats, isCreatingChat, editingChatId, editingTitle, setEditingTitle, isChatListExpanded,
     setIsChatListExpanded, visibleChats, hasHiddenChats, loadChats, createNewChat, startEditingChat,
     cancelEditingChat, saveEditedTitle, performDeleteChat, ensureActiveChatId,
