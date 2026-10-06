@@ -35,7 +35,6 @@ export function useChatState() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingMessageText, setEditingMessageText] = useState("");
-  const [isDesktopRuntime, setIsDesktopRuntime] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const latestHistoryRequestRef = useRef(0);
   const [olderMessagesCursor, setOlderMessagesCursor] = useState<string | null>(null);
@@ -47,7 +46,7 @@ export function useChatState() {
     isLoadingPreferences, preferencesError, modelLibrary, clearPreferencesError,
   } = useChatPreferences(activeChatId);
   const {
-    chats, activeChat, isCreatingChat, editingChatId, editingTitle, setEditingTitle, isChatListExpanded,
+    chats, activeChat, isLoadingChats, isCreatingChat, editingChatId, editingTitle, setEditingTitle, isChatListExpanded,
     setIsChatListExpanded, visibleChats, hasHiddenChats, loadChats, createNewChat, startEditingChat,
     cancelEditingChat, saveEditedTitle, performDeleteChat, ensureActiveChatId,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, toggleEphemeral, isEphemeralSaving,
@@ -69,12 +68,12 @@ export function useChatState() {
   const [pendingSend, setPendingSend] = useState<PendingSend | null>(null);
   const claimedSendRef = useRef<PendingSend | null>(null);
   const {
-    tasks, taskStatusFilter, isLoadingTasks, taskPanelError, isTaskListExpanded, filteredTasks,
+    taskStatusFilter, isLoadingTasks, taskPanelError, isTaskListExpanded, filteredTasks,
     visibleTasks, hasHiddenTasks, setTaskStatusFilter, setIsTaskListExpanded, loadTasks,
     updateTaskStatus, deleteTask, saveTaskSchedule, updatingTaskIds,
   } = useTasks();
   const {
-    isGeneratingImage, isGeneratingVideo, isUploadingAttachments, setIsUploadingAttachments,
+    isGeneratingImage, isGeneratingVideo, isUploadingAttachments,
     imageByMessageId, setImageByMessageId, videoByMessageId, setVideoByMessageId, attachments,
     attachingImageKey, fileInputRef, attachmentNames, reuseImageActionLabel, clearAttachments, removeAttachmentAt, replaceAttachments,
     appendAttachments, onReuseImageForEditing, onAttachmentInputChange, generateImage, generateVideo,
@@ -492,7 +491,7 @@ export function useChatState() {
     const hasContent = content.length > 0;
 
     if (!hasContent && !hasAttachments) return;
-    if (!selectedModel) { setPageError(t("chatState.noModelSelected")); return; }
+    if (!selectedModel && !(modelMode === "chat" && selectedManualToolConfig)) { setPageError(t("chatState.noModelSelected")); return; }
     if (modelMode === "video" && attachments.length > 1) { setPageError(t("mediaGen.videoReferenceLimit")); return; }
 
     setPageError(null);
@@ -650,15 +649,6 @@ export function useChatState() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
   useEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    textarea.style.height = "0px";
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 220)}px`;
-  }, [input]);
-  useEffect(() => {
-    setIsDesktopRuntime(Boolean(window.privateAiDesktop));
-  }, []);
-  useEffect(() => {
     if (!pendingDelete) return;
 
     function onKeyDown(event: globalThis.KeyboardEvent) {
@@ -679,11 +669,11 @@ export function useChatState() {
   return {
     toggleEphemeral, isEphemeralSaving, documentTopics, loadDocumentTopics, setDocumentScope,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages,
-    isCreatingChat, createNewChat, chats, visibleChats, activeChatId, editingChatId, setEditingTitle,
+    isLoadingChats, isCreatingChat, createNewChat, chats, visibleChats, activeChatId, editingChatId, setEditingTitle,
     editingTitle, saveEditedTitle, cancelEditingChat, switchActiveChat, startEditingChat,
     requestDeleteConversation, hasHiddenChats, setIsChatListExpanded, isChatListExpanded, filteredTasks,
     isLoadingTasks, loadTasks, setTaskStatusFilter, taskStatusFilter,
-    taskPanelError: withoutGlobalEcho(taskPanelError), tasks,
+    taskPanelError: withoutGlobalEcho(taskPanelError),
     visibleTasks, updateTaskStatus, deleteTask, saveTaskSchedule, updatingTaskIds, hasHiddenTasks, setIsTaskListExpanded,
     isTaskListExpanded, activeChat, isPending, modelMode, selectedModel, selectedModelInfo, onModeSelect,
     onModelSelect, appendQuickPrompt, isLoadingHistory, messages, imageByMessageId, videoByMessageId,
@@ -697,7 +687,7 @@ export function useChatState() {
     setInput, handleTextareaKeyDown, onTextareaPaste,
     textareaRef, input, isManualToolSelected, onAttachmentInputChange, fileInputRef, attachments,
     clearAttachments, attachmentNames, selectedImageModel, selectedVideoModel, selectedManualTool,
-    selectedChatModel, pendingDelete, isDeleting, closeDeleteDialog, confirmDelete, isDesktopRuntime,
+    selectedChatModel, pendingDelete, isDeleting, closeDeleteDialog, confirmDelete,
     effectiveError, keyError, setPageError, clearError, clearPreferencesError, modelLibrary,
     panelVisibility, togglePanel,
   };

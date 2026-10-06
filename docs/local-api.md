@@ -1,5 +1,8 @@
 # Local integration API
 
+Scheduled execution history, explicit retry and sanitized diagnostics are
+documented in [execution history and recovery](execution-history.md).
+
 These endpoints are supported for authenticated local integrations as well as the shared browser/Electron UI. They are not anonymous public services. All retain the Cookie, Host, Origin, ownership and error rules in [API security](api-security.md). A caller needs its own valid session; desktop automation must also use the current desktop session boundary. Never copy session secrets into scripts or documentation.
 
 ## Conversation and message pagination
@@ -48,3 +51,32 @@ Queries use the runtime's Chinese word segmentation, Unicode compatibility norma
 Memory search combines bounded recent and lexical candidate sets: up to 100 of each for context recall, and 50 of each for explicit knowledge search. Context retains tool memories and its recency/manual weights; explicit knowledge search excludes tool memories and merges built-in entries and imported document results. The first 16 query terms widen lexical candidate selection so older matching notes are not hidden solely by newer unrelated notes. Memory retrieval remains bounded keyword/embedding retrieval, not a guarantee of semantic recall.
 
 Imported documents use a separate local inverted index without embedding calls. See [Document knowledge](document-knowledge.md) for import/reindex/delete/search endpoints and limits. Knowledge-tool document results add `source: "document"` and a `reference` containing document/chunk IDs, filename, excerpt and optional PDF page. Chat streams also include server-produced `metadata.documentSources`; persisted assistant messages retain these snapshots for history rendering. Sources are authorized by their stored owner when opened, and do not provide public file URLs.
+
+## Workspace activity reviews
+
+`GET /api/activity/review?period=daily|weekly&timeZone=Asia%2FShanghai` previews
+the previous complete calendar period in an IANA time zone. Both query fields
+are required; invalid zones, unknown or repeated fields are rejected. The response
+contains `data` with UTC `startAt`/`endAt` (start inclusive, end exclusive), local
+`startDate`/`endDate`, canonical `timeZone`, `period` and `facts`: fixed event
+counts, coverage boundary/completeness, up to 100 source events and the omitted
+source count. Preview does not create a conversation or call a model. It can
+perform event-retention cleanup under the workspace gate.
+
+`GET /api/activity/events/:id` returns `data` with the retained event, current
+source data (or `entity: null` if deleted), and a document viewer link when
+applicable. Unknown or expired events return 404. It does not return a historical
+copy of the source body. Both endpoints use normal authentication, ownership,
+workspace gate and private/no-store responses. See [Workspace reviews](workspace-reviews.md)
+for event semantics, coverage, immutable scheduled snapshots and backup rules.
+
+Document searches accept optional exact collection names and return retrieval
+method, matched terms and versioned citation snapshots. Bounded current-source
+checks use `POST /api/documents/references`; see [Document knowledge](document-knowledge.md)
+for status and validation rules. Historical excerpts remain unchanged when
+current source text changes or is deleted.
+
+
+Manual tool execution (`POST /api/tools/run`) accepts an absent model: local task creation, memory operations and deterministic retrieval must work with an empty model library. An explicitly supplied model still needs to be a library member. Manual execution does not require model tool-call capability because the user supplies the command; automatic chat tool calls retain capability checks and approval rules. Search answer synthesis may use the configured chat default, but a missing model or failed synthesis retains deterministic evidence. Manual synthesis receives the request cancellation signal and disables automatic provider retries.
+
+Usage supports an optional `source` query (`chat`, `summary`, `scheduled`, `tool`, `embedding`, `media`, `unattributed`), rejecting invalid or duplicated parameters. Limits and current local-date allowance are returned with usage. A denied admission reports a conflict or configuration problem and submits no provider call; it does not fabricate a usage charge. See [Model settings and usage](model-usage.md).

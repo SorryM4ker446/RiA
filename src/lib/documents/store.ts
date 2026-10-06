@@ -5,10 +5,11 @@ import { buildDocumentChunks, DOCUMENT_INDEX_VERSION, hashDocumentContent } from
 import { DOCUMENT_LIMITS, documentPagesSchema, type DocumentPage } from "@/lib/documents/types";
 import { tokenizeQuery } from "@/lib/memory/retrieval";
 import { ApiError } from "@/lib/server/api-error";
+import { recordWorkspaceEvent } from "@/lib/activity/events";
 
 export const documentSummarySelect = {
   id: true, filename: true, collection: true, format: true, byteSize: true, characterCount: true,
-  indexVersion: true, indexedAt: true, createdAt: true, updatedAt: true,
+  contentHash: true, indexVersion: true, indexedAt: true, createdAt: true, updatedAt: true,
   _count: { select: { chunks: true } },
 } as const;
 
@@ -27,7 +28,13 @@ export async function indexDocument(input: DocumentInput, expected?: { id: strin
     if (!existing && await tx.knowledgeDocument.count({ where: {} }) >= DOCUMENT_LIMITS.documentsPerUser) {
       throw new ApiError({ code: "CONFLICT", message: t("lib.documents.tooManyDocuments") });
     }
-    if (existing?.contentHash === contentHash && existing.indexVersion === DOCUMENT_INDEX_VERSION && !expected) {
+    // Unchanged content skips the re-chunking, but only when nothing else about
+    // the document changed either. The collection is part of what the request
+    // asked for: importing the same file into a different topic used to answer
+    // "unchanged" and leave the document in the old one, so the move was
+    // silently dropped while the interface reported success.
+    if (existing?.contentHash === contentHash && existing.indexVersion === DOCUMENT_INDEX_VERSION && !expected
+      && (existing.collection ?? null) === (input.collection ?? null)) {
       return { document: await tx.knowledgeDocument.findUniqueOrThrow({ where: { id: existing.id }, select: documentSummarySelect }), change: "unchanged", added: 0, removed: 0, retained: existing.chunks.length };
     }
     const data = { filename: input.filename, collection: input.collection ?? null, format: input.format, byteSize: input.byteSize, pages, contentHash, characterCount, indexVersion: DOCUMENT_INDEX_VERSION, indexedAt: new Date() };
@@ -51,6 +58,9 @@ export async function indexDocument(input: DocumentInput, expected?: { id: strin
     const terms = indexed.flatMap(chunk => chunk.terms.map(term => ({ chunkId: chunk.id, term })));
     // Keep parameter batches bounded; the enclosing transaction preserves the previous index on failure.
     for (let offset = 0; offset < terms.length; offset += 500) await tx.documentTerm.createMany({ data: terms.slice(offset, offset + 500) });
+    if (!expected && (!existing || existing.contentHash !== contentHash || existing.collection !== document.collection)) {
+      await recordWorkspaceEvent(tx, { kind: existing ? "document.updated" : "document.imported", entityId: document.id, label: document.filename });
+    }
     return {
       document: await tx.knowledgeDocument.findUniqueOrThrow({ where: { id: document.id }, select: documentSummarySelect }),
       change: expected ? "reindexed" : existing ? "updated" : "created", added: created.length, removed: obsolete.length, retained: retained.length,

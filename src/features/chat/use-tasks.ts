@@ -7,7 +7,7 @@ import { COLLAPSED_TASK_LIMIT } from "@/features/chat/types";
 export function useTasks() {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [taskStatusFilter, setTaskStatusFilter] = useState<TaskStatusFilter>("all");
-  const [isLoadingTasks, setIsLoadingTasks] = useState(false);
+  const [isLoadingTasks, setIsLoadingTasks] = useState(true);
   const [taskPanelError, setTaskPanelError] = useState<string | null>(null);
   const [isTaskListExpanded, setIsTaskListExpanded] = useState(false);
   const [updatingTaskIds, setUpdatingTaskIds] = useState<string[]>([]);
@@ -61,7 +61,7 @@ export function useTasks() {
 
   useEffect(() => { void loadTasks(); }, [loadTasks]);
   return {
-    tasks, taskStatusFilter, isLoadingTasks, taskPanelError, isTaskListExpanded, filteredTasks,
+    taskStatusFilter, isLoadingTasks, taskPanelError, isTaskListExpanded, filteredTasks,
     visibleTasks, hasHiddenTasks, setTaskStatusFilter, setIsTaskListExpanded, loadTasks, updatingTaskIds,
     updateTaskStatus: (id: string, status: TaskItem["status"]) => mutateTask(id, { status }),
     saveTaskSchedule: (id: string, schedule: TaskScheduleInput) => mutateTask(id, schedule),

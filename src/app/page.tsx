@@ -12,13 +12,13 @@ const FEATURES = [
 
 export default function HomePage() {
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col justify-center gap-6 px-6 py-16 md:px-10">
-      <section className="animate-panel-in-up rounded-xl bg-card p-5 shadow-card md:p-6">
+    <main className="mx-auto flex min-h-full w-full max-w-4xl flex-col justify-center gap-6 px-6 py-16 md:px-10">
+      <section className="animate-panel-in-up py-8">
         <div className="space-y-2">
           {/* The wordmark IS the hero. A logo tile above a headline read as a
               placeholder avatar, and a second small "RiA" eyebrow repeated the
               name at a weight the page did not need. */}
-          <p className="font-mono text-5xl font-semibold leading-none tracking-display text-foreground md:text-6xl">
+          <p className="text-7xl font-semibold leading-none tracking-display text-foreground md:text-8xl">
             {t("brand.name")}
           </p>
           {/* text-balance keeps the CJK headline from leaving a stranded final
@@ -54,7 +54,7 @@ export default function HomePage() {
           // sits at opacity 0 until the animation resolves and the grid then
           // lands as one flat block. Per-row delay is what reads as a stagger.
           <Card
-            className="animate-row-in bg-elevated transition-[box-shadow,transform] duration-[--dur-base] ease-[--ease-out] hover:-translate-y-px hover:shadow-raised"
+            className="bg-card/60 transition-colors hover:border-foreground/20"
             key={feature.title}
             style={{ animationDelay: `${120 + FEATURES.indexOf(feature) * 60}ms` }}
           >

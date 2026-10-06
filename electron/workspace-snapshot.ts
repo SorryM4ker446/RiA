@@ -12,7 +12,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { LegacyDatasetInventory, LegacyOwnerProfile } from "./legacy-inventory";
 
@@ -276,9 +276,4 @@ export function listWorkspaceSnapshots(backupsDirectory: string): string[] {
     .filter((entry) => entry.isDirectory() && existsSync(join(backupsDirectory, entry.name, SNAPSHOT_MANIFEST_NAME)))
     .map((entry) => join(backupsDirectory, entry.name))
     .sort();
-}
-
-export function snapshotSummaryLine(snapshot: WorkspaceSnapshot): string {
-  const manifest = snapshot.manifest;
-  return `${basename(snapshot.directory)}: ${manifest.tableCounts.chats ?? 0} 个会话，${manifest.tableCounts.messages ?? 0} 条消息，${manifest.media.fileCount} 个媒体引用`;
 }

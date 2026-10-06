@@ -15,7 +15,7 @@ const querySchema = z.strictObject({
   cursor: z.string().min(1).max(1500).regex(/^[A-Za-z0-9_-]+$/).optional(),
 });
 
-export function readConversationQuery(params: URLSearchParams) {
+function readConversationQuery(params: URLSearchParams) {
   for (const key of new Set(params.keys())) if (params.getAll(key).length !== 1) throw new ApiError({ code: "VALIDATION_ERROR", message: "Duplicate query parameter" });
   const input = querySchema.parse(Object.fromEntries(params));
   const scope = createHash("sha256").update(JSON.stringify([input.q, input.tag ?? "", input.state])).digest("hex");

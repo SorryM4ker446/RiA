@@ -1,6 +1,6 @@
 # Private AI Assistant
 
-Private AI Assistant is a local-first AI assistant built with Next.js, Vercel AI SDK, Electron, Prisma, and SQLite. It can run in a browser during development or as an installable Windows desktop application.
+Private AI Assistant is a local-first AI assistant built with Next.js, Vercel AI SDK, Electron, Prisma, and SQLite. The delivered application is an installable Windows desktop program; there is no browser or web deployment target.
 
 ## Capabilities
 
@@ -19,29 +19,34 @@ Private AI Assistant is a local-first AI assistant built with Next.js, Vercel AI
 ## Requirements
 
 - Node.js 24.9.0 for development and packaging, matching CI
-- Windows x64 for producing the Squirrel installer
+- npm 11.19.1 for dependency installation and lockfile updates, matching CI
+- Windows x64 for producing the MSI installer
 - An OpenRouter API key for AI generation
 - A Tavily API key only when web search is needed
 
 The installed desktop application does not require Node.js or PostgreSQL.
 
-## Browser development
+Keep `.npmrc` and `vendor/` in the checkout when installing dependencies. The project uses reviewed local backports for two dependencies without upstream security fixes; see [Dependency security backports](vendor/README.md) for advisories, compatibility limits and maintenance. Run `npx --yes npm@11.19.1 audit --audit-level=low` after dependency changes, together with the regression tests and desktop validation.
+
+## Local development server
 
 ```powershell
-npm install
+npx --yes npm@11.19.1 ci
 npm run db:generate
 npm run dev
 ```
 
-The local SQLite database defaults to `.desktop-data/dev/app.db`. There is no application account: `npm run dev` prints a one-time entry link, and opening it on this machine establishes the local access credential the workspace then uses.
+`npm run dev` starts the local Next.js service on its own. It exists to give development and the automated suites a fast loop, and is not a delivery form — the supported application is the Windows desktop build below. The desktop app runs this same service in-process, so anything verified here is the code that ships.
+
+The local SQLite database defaults to `.desktop-data/dev/app.db`. There is no application account: the service prints a one-time entry link, and opening it on this machine establishes the local access credential the workspace then uses.
 
 API requests enforce input/size limits, consistent errors, local quotas and same-origin browser writes. Non-loopback hosts require an explicit `APP_ORIGIN`; see [API contracts and local security](docs/api-security.md) before changing local access or proxy settings.
 
 Conversation and message history loads in bounded pages. See [Local integration API](docs/local-api.md) for cursor contracts and retrieval behavior, and [Model catalog maintenance](docs/model-catalog.md) for offline checks and intentional catalog updates.
 
-Open **管理会话** from the sidebar to search and organize history or download text snapshots. These features work in both browser and desktop; see [Conversation management](docs/conversation-management.md) for export privacy, limits and migration notes.
+Open **管理会话** from the sidebar to search and organize history or download text snapshots. See [Conversation management](docs/conversation-management.md) for export privacy, limits and migration notes.
 
-Open **备份与恢复** for portable workspace recovery, or **模型与用量** to refresh official OpenRouter catalogs, add allowed models, set defaults and review usage estimates. Both work in browser and desktop. Backups are unencrypted and exclude the local access credential and provider keys; restore creates a safety backup before replacing business data. See [Workspace backups](docs/workspace-backups.md) and [Model settings and usage](docs/model-usage.md) for limits and safety rules.
+Open **备份与恢复** for portable workspace recovery, or **模型与用量** to refresh official OpenRouter catalogs, add allowed models, set defaults and review usage estimates. Backups are unencrypted and exclude the local access credential and provider keys; restore creates a safety backup before replacing business data. See [Workspace backups](docs/workspace-backups.md) and [Model settings and usage](docs/model-usage.md) for limits and safety rules.
 
 ## Desktop development
 
@@ -63,7 +68,7 @@ npm run desktop:make
 
 - `desktop:build` creates and verifies `.desktop-runtime`.
 - `desktop:package` creates the unpacked Windows application under `out/`.
-- `desktop:make` creates the Windows Setup executable and Squirrel metadata under `out/make/`.
+- `desktop:make` prepares WiX automatically and creates the versioned MSI plus SHA-256 verification metadata under `out/make/wix/x64/`.
 
 ## Validation
 
@@ -112,7 +117,7 @@ Open **知识库管理** to import, update, search, reindex or delete document t
 
 - `electron`: desktop main process, preload bridge, migrations, settings, and security
 - `src/app`: pages and route handlers
-- `src/features/chat`: browser API client, conversation/media/tool hooks, and chat views
+- `src/features/chat`: renderer API client, conversation/media/tool hooks, and chat views
 - `src/lib/chat`: validated chat requests, model context, tool intent, streaming, and persistence
 - `src/lib/memory`: memory storage and shared retrieval/scoring policies
 - `src/lib/documents`: bounded extraction workers, incremental document indexing and source retrieval

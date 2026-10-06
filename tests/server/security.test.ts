@@ -168,7 +168,7 @@ for (const [policy, name, body] of quotaCases) {
 
 test("automatic tool calls share the manual tool quota and never execute when limited", async () => {
   for (let index = 0; index < RATE_LIMIT_POLICIES.tools.limit; index++) enforceRateLimit("tools");
-  const tools = createChatToolSet();
+  const tools = await createChatToolSet();
   // The SDK always passes the call options with a tool's input; the quota is
   // refused before the tool itself runs.
   await assert.rejects(tools.createTask.execute({ title: "must not execute" }, { toolCallId: "call1", messages: [] }), (error: { code: string }) => error.code === "RATE_LIMITED");

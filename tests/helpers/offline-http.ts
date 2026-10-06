@@ -73,6 +73,17 @@ if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
       const base = { id: "offline-completion", model: body.model, usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } };
       if (body.modalities?.includes("image")) return JSON.stringify({ ...base, choices: [{ index: 0, message: { role: "assistant", content: "", images: [{ type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=" } }] }, finish_reason: "stop" }] });
       if (body.stream) {
+        const taskRequested = prompt.includes("OFFLINE_CREATE_TASK");
+        const knowledgeRequested = prompt.includes("OFFLINE_SEARCH_KNOWLEDGE");
+        if ((taskRequested || knowledgeRequested) && !body.messages.some(message => message.role === "tool") && body.tools?.length) {
+          const name = taskRequested ? "createTask" : "searchKnowledge";
+          const args = taskRequested ? { title: "浏览器真实任务" } : { query: "发布回滚窗口", topK: 4 };
+          const chunks = [
+            { ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "call_browser_fixture", type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: null }] },
+            { ...base, choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] },
+          ];
+          return chunks.map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n";
+        }
         const chunks = [
           { ...base, choices: [{ index: 0, delta: { role: "assistant", content: content.slice(0, 5) }, finish_reason: null }] },
           { ...base, choices: [{ index: 0, delta: { content: content.slice(5) }, finish_reason: null }] },

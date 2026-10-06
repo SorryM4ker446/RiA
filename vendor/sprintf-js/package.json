@@ -1,0 +1,8 @@
+{
+  "name": "@ria/sprintf-js",
+  "version": "1.1.3-ria.1",
+  "private": true,
+  "description": "sprintf-js 1.1.3 with bounded ECMAScript numeric precision",
+  "license": "BSD-3-Clause",
+  "main": "src/sprintf.js"
+}

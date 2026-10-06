@@ -6,15 +6,17 @@ node_modules/
 out/
 dist/
 electron-dist/
-out/
 .desktop-runtime/
 .desktop-data/
+# Scratch database built by `npm run db:check`. The script deletes it when it
+# finishes, including when it exits non-zero; this covers the runs where it
+# cannot — the process killed, the machine losing power — so a stray database
+# never shows up in `git status` waiting to be committed.
+.drift-check/
 public/generated-videos/
 
 # next generated types
 next-env.d.ts
-.next/types/
-.next/dev/types/
 
 # build / cache
 coverage/
@@ -30,6 +32,15 @@ blob-report/
 *.db
 *.sqlite
 *.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
 
 # logs
 *.log

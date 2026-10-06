@@ -6,6 +6,9 @@ type DesktopSettingsView = {
   openrouterSiteName: string;
   openrouterHttpReferer: string;
   encryptionAvailable: boolean;
+  closeBehaviour: "quit" | "tray";
+  windowBounds: { x: number; y: number; width: number; height: number } | null;
+  globalHotkey: string;
 };
 
 type DesktopRuntimeInfo = {
@@ -28,6 +31,9 @@ type DesktopSettingsInput = {
   outboundProxyUrl?: string;
   openrouterSiteName?: string;
   openrouterHttpReferer?: string;
+  closeBehaviour?: "quit" | "tray";
+  globalHotkey?: string;
+  windowBounds?: { x: number; y: number; width: number; height: number };
 };
 
 interface Window {
@@ -37,6 +43,14 @@ interface Window {
     saveSettings: (
       input: DesktopSettingsInput,
     ) => Promise<{ settings: DesktopSettingsView; restarting: boolean }>;
+    chooseFolder: () => Promise<{ canceled: boolean; path: string }>;
+    revealPath: (target: string) => Promise<{ revealed: boolean }>;
+    quitToTray: () => Promise<{ quitting: boolean }>;
+    showFromTray: () => Promise<{ shown: boolean }>;
+    globalHotkey: string;
+    setGlobalHotkey: (
+      accelerator: string,
+    ) => Promise<{ ok: boolean; hotkey: string; reason?: "conflict" | "invalid" | "not-stored" }>;
     windowControls?: {
       minimize: () => void;
       toggleMaximize: () => void;

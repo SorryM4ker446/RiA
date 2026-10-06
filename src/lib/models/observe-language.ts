@@ -2,38 +2,36 @@ import { wrapLanguageModel, wrapEmbeddingModel, type LanguageModel, type Embeddi
 import { t } from "@/lib/locale";
 import { dataRequestContext } from "@/lib/server/data-operations";
 import { ApiError } from "@/lib/server/api-error";
-import { getModelPreferences, modelInLibrary, withModelLease } from "@/lib/models/preferences";
-import { canFallback, recordModelAttempt, requestPricing } from "@/lib/models/usage";
-import { modelRefKey, type ModelRef } from "@/lib/models/preferences-schema";
+import { acquireModelLease, getModelPreferences, modelInLibrary, withModelLease } from "@/lib/models/preferences";
+import { canFallback, recordModelAttempt } from "@/lib/models/usage";
+import { modelCallSource } from "./call-context";
+import { beginModelAttempt } from "./call-controls";
+import { type ModelRef } from "@/lib/models/preferences-schema";
 
 type Model = Extract<LanguageModel, { specificationVersion: "v3" }>;
 type Embed = Extract<EmbeddingModel, { specificationVersion: "v3" }>;
 type StreamResult = Awaited<ReturnType<Model["doStream"]>>;
 type Part = StreamResult["stream"] extends ReadableStream<infer T> ? T : never;
 
-/**
- * Authorization, fallback and usage accounting for one chat model.
- *
- * The library check is not conditional on there being a request in flight.
- * Skipping the whole wrapper when no request context was present also skipped
- * the membership check, which is the one thing that must never depend on where
- * the call came from. Only usage recording needs a request to attribute the
- * attempt to, so that is the part that stays conditional.
- */
+/** Membership, persistent admission and accounting surround each provider attempt. */
 export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (ref: ModelRef) => Model) {
   const modelRef = ref;
+  const callSource = modelCallSource();
   return wrapLanguageModel({ model, middleware: {
     specificationVersion: "v3",
-    async wrapGenerate({ doGenerate }) {
+    async wrapGenerate({ doGenerate, params }) {
       const context = dataRequestContext();
       const started = Date.now();
-      const rates = context ? await requestPricing() : {};
+      let admission: Awaited<ReturnType<typeof beginModelAttempt>> | undefined;
       try {
-        const result = await withModelLease("chat", modelRef, () => doGenerate());
-        if (context) await recordModelAttempt({ requestId: context.requestId, mode: "chat", modelId: modelRef.modelId, modelProvider: modelRef.providerId, started, usage: result.usage, metadata: result.providerMetadata, rate: rates[modelRefKey(modelRef)] });
+        const result = await withModelLease("chat", modelRef, async () => {
+          admission = await beginModelAttempt({ mode: "chat", ref: modelRef, source: callSource, prompt: params.prompt, maxOutputTokens: params.maxOutputTokens, signal: params.abortSignal });
+          return doGenerate();
+        });
+        if (admission) await recordModelAttempt({ attemptId: admission.id, requestId: context?.requestId, mode: "chat", modelId: modelRef.modelId, modelProvider: modelRef.providerId, started, usage: result.usage, metadata: result.providerMetadata, rate: admission.rate });
         return result;
       } catch (error) {
-        if (context) await recordModelAttempt({ requestId: context.requestId, mode: "chat", modelId: modelRef.modelId, modelProvider: modelRef.providerId, started, error });
+        if (admission) await recordModelAttempt({ attemptId: admission.id, requestId: context?.requestId, mode: "chat", modelId: modelRef.modelId, modelProvider: modelRef.providerId, started, error });
         throw error;
       }
     },
@@ -54,15 +52,21 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
         let finished: Extract<Part, { type: "finish" }> | undefined;
         let streamError: unknown;
         let recorded = false;
+        let admission: Awaited<ReturnType<typeof beginModelAttempt>> | undefined;
+        let releaseLease: (() => Promise<void>) | undefined;
         const context = dataRequestContext();
         const record = async (error?: unknown) => {
           if (recorded) return; recorded = true;
-          if (!context) return;
-          const rates = await requestPricing();
-          await recordModelAttempt({ requestId: context.requestId, mode: "chat", modelId: selected.modelId, modelProvider: selected.providerId, started, usage: finished?.usage, metadata: finished?.providerMetadata, error, fallback: attempt > 0, rate: rates[modelRefKey(selected)] });
+          try {
+            if (!admission) return;
+            await recordModelAttempt({ attemptId: admission.id, requestId: context?.requestId, mode: "chat", modelId: selected.modelId, modelProvider: selected.providerId, started, usage: finished?.usage, metadata: finished?.providerMetadata, error, fallback: attempt > 0, rate: admission.rate });
+          } finally { await releaseLease?.(); }
         };
         try {
-          const result = await withModelLease("chat", selected, async () => (attempt ? alternate(selected) : model).doStream(params));
+          const lease = await acquireModelLease("chat", selected);
+          releaseLease = lease.release;
+          admission = await beginModelAttempt({ mode: "chat", ref: selected, source: callSource, prompt: params.prompt, maxOutputTokens: params.maxOutputTokens, fallback: attempt > 0, signal: params.abortSignal });
+          const result = await (attempt ? alternate(selected) : model).doStream(params);
           reader = result.stream.getReader();
           const buffered: Part[] = [];
           for (;;) {
@@ -77,21 +81,29 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
             if (!["stream-start", "response-metadata", "text-start", "reasoning-start"].includes(item.value.type) || buffered.length >= 32) break;
           }
           const source = reader;
+          let cancelled = false;
           return { ...result, stream: new ReadableStream<Part>({
             start(controller) { for (const part of buffered) controller.enqueue(part); },
             async pull(controller) {
               try {
                 const item = await source.read();
-                if (item.done) { await record(streamError ?? (finished?.finishReason.unified === "error" || !finished ? new Error("Incomplete model stream") : undefined)); controller.close(); return; }
+                if (cancelled) return;
+                if (item.done) { source.releaseLock(); await record(streamError ?? (finished?.finishReason.unified === "error" || !finished ? new Error("Incomplete model stream") : undefined)); controller.close(); return; }
                 if (item.value.type === "finish") finished = item.value;
                 if (item.value.type === "error") streamError = item.value.error ?? new Error("Model stream failed");
                 controller.enqueue(item.value);
-              } catch (error) { await record(error); controller.error(error); }
+              } catch (error) {
+                if (cancelled) return;
+                await source.cancel(error).catch(() => undefined);
+                source.releaseLock();
+                await record(error); controller.error(error);
+              }
             },
-            async cancel(reason) { try { await source.cancel(reason); } finally { await record(new DOMException("Cancelled", "AbortError")); } },
+            async cancel(reason) { cancelled = true; try { await source.cancel(reason); } finally { source.releaseLock(); await record(new DOMException("Cancelled", "AbortError")); } },
           }) };
         } catch (error) {
           try { await reader?.cancel(); } catch { /* Preserve the original provider failure. */ }
+          reader?.releaseLock();
           await record(error);
           if (attempt + 1 >= candidates.length || !canFallback(error, params.abortSignal)) throw error;
         }
@@ -103,15 +115,18 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
 
 export function observeEmbeddingModel(model: Embed, ref: ModelRef) {
   const modelRef = ref;
-  return wrapEmbeddingModel({ model, middleware: { specificationVersion: "v3", async wrapEmbed({ doEmbed }) {
+  return wrapEmbeddingModel({ model, middleware: { specificationVersion: "v3", async wrapEmbed({ doEmbed, params }) {
    const context = dataRequestContext();
    const started = Date.now();
-   const rates = context ? await requestPricing() : {};
-   return withModelLease("embedding", modelRef, () => doEmbed()).then(async result => {
-     if (context) await recordModelAttempt({ requestId: context.requestId, mode: "embedding", modelId: modelRef.modelId, modelProvider: modelRef.providerId, started, usage: result.usage, metadata: result.providerMetadata, rate: rates[modelRefKey(modelRef)] });
+   let admission: Awaited<ReturnType<typeof beginModelAttempt>> | undefined;
+   return withModelLease("embedding", modelRef, async () => {
+     admission = await beginModelAttempt({ mode: "embedding", ref: modelRef, prompt: params.values, source: "embedding", signal: params.abortSignal });
+     return doEmbed();
+   }).then(async result => {
+     if (admission) await recordModelAttempt({ attemptId: admission.id, source: "embedding", requestId: context?.requestId, mode: "embedding", modelId: modelRef.modelId, modelProvider: modelRef.providerId, started, usage: result.usage, metadata: result.providerMetadata, rate: admission!.rate });
      return result;
    }).catch(async error => {
-     if (context) await recordModelAttempt({ requestId: context.requestId, mode: "embedding", modelId: modelRef.modelId, modelProvider: modelRef.providerId, started, error });
+     if (admission) await recordModelAttempt({ attemptId: admission.id, source: "embedding", requestId: context?.requestId, mode: "embedding", modelId: modelRef.modelId, modelProvider: modelRef.providerId, started, error });
      throw error;
    });
   } } });

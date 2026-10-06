@@ -32,6 +32,17 @@ test("Chinese and English retrieval maintains recall and ranking against a fixed
   assert.equal(metrics.recallAt3, 1);
   assert.equal(metrics.meanReciprocalRankAt3, 1);
   assert.deepEqual(await searchDocuments( "罕见外星矿石 zirconiumxyz"), []);
+  let rejected = 0;
+  for (const query of corpus.negativeQueries) {
+    const results = await searchDocuments(query, 3);
+    assert.deepEqual(results, [], query); rejected += Number(results.length === 0);
+  }
+  for (const query of corpus.scopedQueries) {
+    const results = await searchDocuments(query.query, 3, query.collections);
+    assert.equal(results[0]?.filename ?? null, query.expected, JSON.stringify(query));
+    assert.ok(results.every(result => query.collections.includes(result.collection)));
+  }
+  t.diagnostic(JSON.stringify({ noAnswerRejection: rejected / corpus.negativeQueries.length, collectionChecks: corpus.scopedQueries.length }));
   const tool = await searchKnowledge( { query: "星河项目回滚窗口", topK: 4 });
   assert.equal(tool.results[0].source, "document");
   assert.equal(tool.results[0].reference.filename, "星河发布.md");

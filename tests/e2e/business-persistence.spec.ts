@@ -80,6 +80,8 @@ test("manual tasks and knowledge use real APIs, persist across restart and remai
   await page.getByRole("option", { name: "手动：创建任务" }).click();
   await page.getByPlaceholder(/输入任务标题/).fill("浏览器持久化任务");
   await page.getByRole("button", { name: "执行工具" }).click();
+  await expect.poll(async () => (await browserData(page, `${app.origin}/api/tasks`)).length).toBe(1);
+  await page.goto(`${app.origin}/tasks`);
   const taskPanel = page.getByTestId("task-panel");
   await expect(taskPanel.getByText("浏览器持久化任务", { exact: true })).toBeVisible();
   const task = (await browserData(page, `${app.origin}/api/tasks`))[0];
@@ -111,14 +113,15 @@ test("manual tasks and knowledge use real APIs, persist across restart and remai
   const chatId = chats[0].id;
   await expect.poll(() => app.readRows("SELECT id FROM messages WHERE chatId = ?", chatId).length).toBe(4);
   await page.getByRole("button", { name: "重命名", exact: true }).click();
-  await page.locator("aside input").fill("真实业务记录");
+  await page.getByRole("textbox", { name: "重命名", exact: true }).fill("真实业务记录");
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("heading", { name: "真实业务记录", exact: true })).toBeVisible();
   await app.restart();
   await page.reload();
   await expect(page.getByRole("heading", { name: "真实业务记录", exact: true })).toBeVisible();
-  await expect(taskPanel.getByText("已完成", { exact: true }).first()).toBeVisible();
   await expect(page.getByText(/工具详情：searchKnowledge/)).toBeVisible();
+  await page.goto(`${app.origin}/tasks`);
+  await expect(taskPanel.getByText("已完成", { exact: true }).first()).toBeVisible();
 
   const stranger = await browser.newContext({ storageState: NO_CREDENTIAL_STATE });
   try {
@@ -133,6 +136,7 @@ test("manual tasks and knowledge use real APIs, persist across restart and remai
   // The refused calls changed nothing.
   expect(app.readRows("SELECT status FROM tasks WHERE id = ?", task.id)).toEqual([{ status: "done" }]);
   expect(app.readRows("SELECT id FROM memories WHERE id = ?", entry.id)).toHaveLength(1);
+  await page.goto(`${app.origin}/tasks`);
   await page.getByLabel("删除任务 浏览器持久化任务").click();
   await expect.poll(() => app.readRows("SELECT id FROM tasks WHERE id = ?", task.id).length).toBe(0);
   await page.getByRole("link", { name: /知识库/ }).click();
@@ -146,5 +150,6 @@ test("manual tasks and knowledge use real APIs, persist across restart and remai
   expect((await browserApi(page, `${app.origin}/api/conversations/${chatId}`)).status).toBe(404);
   await page.reload();
   await expect(page.getByRole("heading", { name: "真实业务记录", exact: true })).toHaveCount(0);
+  await page.goto(`${app.origin}/tasks`);
   await expect(taskPanel.getByText("浏览器持久化任务", { exact: true })).toHaveCount(0);
 });

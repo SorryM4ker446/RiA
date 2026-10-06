@@ -32,7 +32,7 @@ export function getChatModel(ref: ModelRef) {
   return observeLanguageModel(
     provider.createChatModel(ref.modelId),
     ref,
-    alternate => provider.createChatModel(alternate.modelId),
+    alternate => getModelProvider(alternate.providerId).createChatModel(alternate.modelId),
   );
 }
 

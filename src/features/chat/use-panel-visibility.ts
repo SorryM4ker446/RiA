@@ -28,6 +28,9 @@ function subscribe(onChange: () => void): () => void {
   const onStorage = (event: StorageEvent) => {
     if (event.key === null || event.key.endsWith("panel-visibility")) {
       cache = null;
+      const next = readPanelVisibility();
+      document.documentElement.dataset.conversationsOpen = String(next.conversations);
+      document.documentElement.dataset.tasksOpen = String(next.tasks);
       onChange();
     }
   };

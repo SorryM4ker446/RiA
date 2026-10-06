@@ -6,7 +6,7 @@
  * materialized it. Every provider adapter uses this instead of rolling its own
  * reader, so the cap cannot drift between them.
  */
-export type BodyReadFailure = "tooLarge" | "empty" | "notJson" | "invalidShape";
+type BodyReadFailure = "tooLarge" | "empty" | "notJson" | "invalidShape";
 
 export class BodyReadError extends Error {
   constructor(readonly failure: BodyReadFailure) {

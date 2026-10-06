@@ -3,6 +3,7 @@ import Link from "next/link";
 import { BackToChatLink } from "@/components/layout/back-to-chat-link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { useAwaitingFirstLoad } from "@/lib/use-awaiting-first-load";
 import { RefreshButton } from "@/components/ui/refresh-button";
@@ -130,7 +131,7 @@ export default function MediaPage() {
     </article>)}</div>
     {/* Only announce a load when there is nothing on screen yet. Re-announcing
         it over an intact list is what made a refresh read as a re-render. */}
-    {awaitingFirstAssetLoad && <p role="status">{t("media.loading")}</p>}
+    {awaitingFirstAssetLoad && <div role="status" aria-label={t("media.loading")} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{[0,1,2].map(key => <Skeleton key={key} className="h-64 rounded-xl" />)}</div>}
     {!assets.length && !awaitingFirstAssetLoad && !error && <p className="empty-state">{t("media.empty")}</p>}
     {cursor && <Button className="w-full" disabled={disabled} variant="outline" onClick={() => void load(cursor)}>{t("media.loadMore")}</Button>}
     <p className="text-xs text-muted-foreground">{t("media.footnote")}</p>

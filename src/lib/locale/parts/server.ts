@@ -48,6 +48,7 @@ export const serverMessages = {
   "lib.models.notYetAddedSuffix": "清单中",
   "lib.models.fallbackMustDiffer": "备用模型必须与默认模型不同",
   "lib.models.embeddingNotAdded": "嵌入模型尚未添加到“我的模型”",
+  "lib.tools.localFilesNotGranted": "尚未授权任何资料目录，本轮没有读取本机文件。",
   "lib.tools.webSearchNotConfigured": "联网搜索尚未配置，本轮没有访问互联网。",
   "lib.models.providerNotConfigured": "该服务商尚未配置密钥，请先在设置中填写后再试。",
   "lib.models.providerNoModePrefix": "该服务商不提供",
@@ -77,8 +78,6 @@ export const serverMessages = {
   "lib.models.catalogEmptySuffix": "目录为空。",
   "lib.models.catalogTimeoutSuffix": "目录连接超时。",
   "lib.models.catalogReadFailed": "模型目录读取失败。",
-  "lib.models.catalogUnknownMode": "未知的模型目录类型。",
-  "lib.models.catalogUnknownProvider": "未知的服务商。",
 
   // --- media library and attachments ---------------------------------------
   "lib.media.regenerateNoRecipe": "此资源没有完整生成参数，无法重新生成。旧资源不会推测参数。",

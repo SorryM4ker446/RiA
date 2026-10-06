@@ -39,7 +39,22 @@ export async function appendBackupImport(id: string, offset: number, request: Re
   try {
     if ((await file.stat()).size !== offset) throw new ApiError({ code: "CONFLICT", message: t("lib.backups.sizeMismatch") });
     let written = 0;
-    while (written < bytes.length) { const result = await file.write(bytes, written, bytes.length - written, offset + written); if (!result.bytesWritten) throw new Error("Backup write failed"); written += result.bytesWritten; }
+    try {
+      while (written < bytes.length) { const result = await file.write(bytes, written, bytes.length - written, offset + written); if (!result.bytesWritten) throw new Error("Backup write failed"); written += result.bytesWritten; }
+    } catch (error) {
+      // A write that lands part of a chunk and then fails — a full disk, a
+      // handle revoked mid-write — leaves the staged file longer than the
+      // offset the chunk was sent at, and `upload.offset` was never advanced.
+      // Every retry is then refused by the size check above until the staging
+      // window expires an hour later, so one transient fault costs the user
+      // the whole import. Truncating back to `offset` puts the file where the
+      // tracked offset says it is, which is exactly the state the retry
+      // expects. The file is known to be `offset` long at this point, so this
+      // can only shrink it, and a truncation that fails must not replace the
+      // write error the caller needs to see.
+      await file.truncate(offset).catch(() => undefined);
+      throw error;
+    }
   }
   finally { await file.close(); }
   upload.offset += bytes.length;

@@ -1,4 +1,5 @@
-import { dropRuntimeImageCache } from "./scripts/desktop-package-hooks.mjs";
+import { dropRuntimeCaches } from "./scripts/desktop-package-hooks.mjs";
+import { windowsInstallerConfig } from "./scripts/windows-installer-config.mjs";
 
 import type { ForgeConfig } from "@electron-forge/shared-types";
 
@@ -9,8 +10,12 @@ const config: ForgeConfig = {
     asar: true,
     prune: false,
     icon: "assets/desktop-icon.ico",
-    extraResource: [".desktop-runtime"],
-    afterCopyExtraResources: [dropRuntimeImageCache],
+    // The tray icon is loaded from `resources/assets` at run time, so it has to
+    // be a loose file there rather than a copy sealed inside app.asar. Without
+    // this the tray is built from a path that does not exist in an installation,
+    // which leaves the process resident with an empty notification-area slot.
+    extraResource: [".desktop-runtime", "assets"],
+    afterCopyExtraResources: [dropRuntimeCaches],
     ignore: (path) => {
       const normalized = path.replaceAll("\\", "/");
       if (!normalized) return false;
@@ -19,15 +24,9 @@ const config: ForgeConfig = {
   },
   makers: [
     {
-      name: "@electron-forge/maker-squirrel",
+      name: "@electron-forge/maker-wix",
       platforms: ["win32"],
-      config: {
-        name: "PrivateAIAssistant",
-        authors: "RiA",
-        description: "A private desktop AI assistant",
-        setupIcon: "assets/desktop-icon.ico",
-        noMsi: true,
-      },
+      config: windowsInstallerConfig,
     },
   ],
 };

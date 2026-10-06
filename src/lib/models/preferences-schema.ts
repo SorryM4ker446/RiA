@@ -64,6 +64,13 @@ export type ModelLibraryItem = z.infer<typeof modelLibraryItemSchema>;
 
 export const legacyModelCandidateSchema = z.strictObject({ mode: z.enum(libraryModes), ref: modelRefSchema });
 const preferencesShape = {
+  callLimits: z.strictObject({
+    maxConcurrent: z.number().int().min(1).max(16).default(4),
+    backgroundDailyCalls: z.number().int().min(0).max(1000).default(20),
+    backgroundMaxEstimatedUsd: price.default(null),
+    backgroundDailyEstimatedUsd: price.default(null),
+    timeZone: z.string().min(1).max(100).refine(value => { try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; } catch { return false; } }).default("Asia/Shanghai"),
+  }).default({ maxConcurrent: 4, backgroundDailyCalls: 20, backgroundMaxEstimatedUsd: null, backgroundDailyEstimatedUsd: null, timeZone: "Asia/Shanghai" }),
   version: z.literal(3),
   defaultMode: z.enum(modelModes),
   chat: modePreference,
@@ -159,6 +166,7 @@ export const legacyPreferencesSchema = z.strictObject({
 export function defaultModelPreferences(): ModelPreferences {
   return {
     version: 3,
+    callLimits: preferencesShape.callLimits.parse(undefined),
     defaultMode: "chat",
     chat: { model: null, fallback: null },
     image: { model: null, fallback: null },
@@ -177,6 +185,22 @@ export function defaultModelPreferences(): ModelPreferences {
 const ref = (modelId: string | null | undefined): ModelRef | null =>
   modelId ? { providerId: "openrouter", modelId } : null;
 
+/**
+ * Whether a stored rate key already names the provider it belongs to.
+ *
+ * A colon cannot decide this on its own: an OpenRouter model id is
+ * `vendor/model` and commonly carries a variant suffix after a colon
+ * (`…:free`, `…:online`), so a bare legacy id contains one too. Only a known
+ * provider id in front of the first colon marks the key as qualified — no
+ * OpenRouter vendor is named after a provider and followed by `:`.
+ */
+function isProviderQualifiedRateKey(key: string) {
+  const separator = key.indexOf(":");
+  return separator > 0 && (providerIds as readonly string[]).includes(key.slice(0, separator));
+}
+
+const qualifyRateKey = (key: string) => (isProviderQualifiedRateKey(key) ? key : `openrouter:${key}`);
+
 function upgradeProviderAgnosticSettings(legacy: z.infer<typeof providerAgnosticPreferencesSchema>): ModelPreferences {
   const modes = Object.fromEntries(modelModes.map(mode => [mode, {
     model: ref(legacy[mode].modelId),
@@ -190,7 +214,7 @@ function upgradeProviderAgnosticSettings(legacy: z.infer<typeof providerAgnostic
     embedding: ref(legacy.embeddingModelId),
     legacyCandidates: legacy.legacyCandidates ?? [],
     library: legacy.library,
-    rates: Object.fromEntries(Object.entries(legacy.rates).map(([key, rate]) => [key.includes(":") ? key : `openrouter:${key}`, rate])),
+    rates: Object.fromEntries(Object.entries(legacy.rates).map(([key, rate]) => [qualifyRateKey(key), rate])),
     backupRetentionDays: legacy.backupRetentionDays,
     backupMaxCount: legacy.backupMaxCount,
   };
@@ -219,7 +243,7 @@ export function upgradeModelPreferences(value: unknown, legacyEmbeddingModelId?:
     ...defaultModelPreferences(),
     defaultMode: legacy.data.defaultMode,
     legacyCandidates: uniqueCandidates,
-    rates: Object.fromEntries(Object.entries(legacy.data.rates).map(([key, rate]) => [key.includes(":") ? key : `openrouter:${key}`, rate])),
+    rates: Object.fromEntries(Object.entries(legacy.data.rates).map(([key, rate]) => [qualifyRateKey(key), rate])),
     backupRetentionDays: legacy.data.backupRetentionDays,
     backupMaxCount: legacy.data.backupMaxCount,
   };

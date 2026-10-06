@@ -9,6 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { t } from "@/lib/locale";
+import { DirectoryGrantSettings } from "@/features/settings/directory-grants";
+import { ScheduleSettings } from "@/features/settings/schedules";
+import { CloseBehaviourSettings } from "@/features/settings/close-behaviour";
+import { HotkeySettings } from "@/features/settings/hotkey";
+import { NoticeCenter } from "@/features/settings/notice-center";
 
 export default function DesktopSettingsPage() {
   const [settings, setSettings] = useState<DesktopSettingsView | null>(null);
@@ -91,8 +96,10 @@ export default function DesktopSettingsPage() {
       setSettings(result.settings);
       setOpenrouterApiKey("");
       setTavilyApiKey("");
+      setDeepseekApiKey("");
       setClearOpenrouterApiKey(false);
       setClearTavilyApiKey(false);
+      setClearDeepseekApiKey(false);
       setNotice(t("settings.notice.saving"));
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : t("settings.error.save"));
@@ -334,6 +341,22 @@ export default function DesktopSettingsPage() {
             </CardContent>
           </Card>
         </div>
+      </div>
+
+      {/*
+        What the application itself is told to do, what it may read, what it runs
+        on its own, and what it wanted to say. These are controls the settings
+        screen exists for: the close behaviour and the shortcut have no other way
+        in, so a section that is imported but never rendered is a feature nothing
+        in the app can reach. The two that only mean something inside the desktop
+        shell stand themselves down when there is no bridge.
+      */}
+      <div className="space-y-4">
+        <CloseBehaviourSettings />
+        <HotkeySettings />
+        <DirectoryGrantSettings />
+        <ScheduleSettings />
+        <NoticeCenter />
       </div>
     </main>
   );

@@ -83,8 +83,14 @@ export async function prepareChatPersistence(input: ChatRequest) {
     try {
       await claimToolApproval(chat.id, lastMessage);
     } catch (claimError) {
-      // A validation refusal must not consume the pending approval.
-      await releaseUnclaimedToolApproval(chat.id, lastMessage).catch(() => {});
+      // A validation refusal must not consume the pending approval. A claim
+      // that lost the race is the opposite case: the row already holds another
+      // request's decision, and releasing it would hand the same approval back
+      // as pending while that request is executing the tool, so the user could
+      // approve — and replay — the same side effect.
+      if (claimError instanceof ApiError && claimError.code === "VALIDATION_ERROR") {
+        await releaseUnclaimedToolApproval(chat.id, lastMessage).catch(() => {});
+      }
       throw claimError;
     }
   }

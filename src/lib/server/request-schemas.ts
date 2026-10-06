@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { IMAGE_MEDIA_TYPES, MEDIA_LIMITS } from "@/lib/media/limits";
 import { modelRefSchema } from "@/lib/models/preferences-schema";
-import { getToolDescriptor } from "@/tools/catalog";
+import { getToolDescriptor, listToolDescriptors } from "@/tools/catalog";
 
 export const identifierSchema = z.string().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/);
 // A client names a model by provider as well as id. Validating the pair here
@@ -19,8 +19,22 @@ const textPart = z.strictObject({
   state: z.enum(["streaming", "done"]).optional(), providerMetadata,
 });
 const filePart = imageReference.extend({ type: z.literal("file"), mediaType: z.enum(IMAGE_MEDIA_TYPES), filename: z.string().max(255).optional(), providerMetadata });
+/**
+ * The tool parts a chat request may carry, derived from the catalog rather than
+ * written out.
+ *
+ * This list has to stay in step with the tools that exist. A name missing here
+ * is not a rejected message, it is a dead conversation: the assistant tool part
+ * is persisted, rehydrated by the client as `tool-<name>`, and echoed back on
+ * every later request, so one tool absent from the list makes each following
+ * message fail validation with no way for the user to recover.
+ */
+const chatToolPartTypes = listToolDescriptors("chat").map((tool) => `tool-${tool.id}` as const);
 const toolPart = z.strictObject({
-  type: z.enum(["tool-createTask", "tool-searchKnowledge", "tool-webSearch"]),
+  // The cast keeps `tool-${string}` as the field's type so the parts union below
+  // still discriminates on `type`; the values it accepts are still exactly the
+  // catalog's, checked at parse time.
+  type: z.enum(chatToolPartTypes as [string, ...string[]]) as unknown as z.ZodType<`tool-${string}`>,
   toolCallId: identifierSchema,
   state: z.enum(["input-streaming", "input-available", "approval-requested", "approval-responded", "output-available", "output-error", "output-denied"]),
   input: z.json().optional(), output: z.json().optional(), rawInput: z.json().optional(),

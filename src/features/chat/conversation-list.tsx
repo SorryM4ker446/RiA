@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
+import { useAwaitingFirstLoad } from "@/lib/use-awaiting-first-load";
 import { formatTime } from "@/features/chat/page-utils";
 import { cn } from "@/lib/utils/cn";
 import {
@@ -10,130 +11,193 @@ import {
   PencilLine,
   Plus,
   Trash2,
-  X
-, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+  X,
+  Pin,
+  PanelLeftClose,
+  PanelLeftOpen,
+} from "lucide-react";
 import { COLLAPSED_CHAT_LIMIT } from "@/features/chat/types";
 import type { ChatState } from "@/features/chat/use-chat-state";
 import { t, tf } from "@/lib/locale";
 
-type Props = Pick<ChatState, "isCreatingChat" | "createNewChat" | "chats" | "visibleChats" | "activeChatId" | "editingChatId" | "setEditingTitle" | "editingTitle" | "saveEditedTitle" | "cancelEditingChat" | "switchActiveChat" | "startEditingChat" | "requestDeleteConversation" | "hasHiddenChats" | "setIsChatListExpanded" | "isChatListExpanded" | "nextChatsCursor" | "isLoadingMoreChats" | "loadMoreChats" | "panelVisibility" | "togglePanel">;
-export function ConversationList({ isCreatingChat, createNewChat, chats, visibleChats, activeChatId, editingChatId, setEditingTitle, editingTitle, saveEditedTitle, cancelEditingChat, switchActiveChat, startEditingChat, requestDeleteConversation, hasHiddenChats, setIsChatListExpanded, isChatListExpanded, nextChatsCursor, isLoadingMoreChats, loadMoreChats, panelVisibility, togglePanel }: Props) {
+type Props = Pick<
+  ChatState,
+  | "isLoadingChats"
+  | "isCreatingChat"
+  | "createNewChat"
+  | "chats"
+  | "visibleChats"
+  | "activeChatId"
+  | "editingChatId"
+  | "setEditingTitle"
+  | "editingTitle"
+  | "saveEditedTitle"
+  | "cancelEditingChat"
+  | "switchActiveChat"
+  | "startEditingChat"
+  | "requestDeleteConversation"
+  | "hasHiddenChats"
+  | "setIsChatListExpanded"
+  | "isChatListExpanded"
+  | "nextChatsCursor"
+  | "isLoadingMoreChats"
+  | "loadMoreChats"
+  | "panelVisibility"
+  | "togglePanel"
+>;
+export function ConversationList({
+  isLoadingChats,
+  isCreatingChat,
+  createNewChat,
+  chats,
+  visibleChats,
+  activeChatId,
+  editingChatId,
+  setEditingTitle,
+  editingTitle,
+  saveEditedTitle,
+  cancelEditingChat,
+  switchActiveChat,
+  startEditingChat,
+  requestDeleteConversation,
+  hasHiddenChats,
+  setIsChatListExpanded,
+  isChatListExpanded,
+  nextChatsCursor,
+  isLoadingMoreChats,
+  loadMoreChats,
+  panelVisibility,
+  togglePanel,
+}: Props) {
+  const awaitingFirstLoad = useAwaitingFirstLoad(
+    isLoadingChats,
+    "conversations",
+  );
   const railOpen = panelVisibility?.conversations !== false;
-  return (<aside
-    aria-label={t("chat.conversations.title")}
-    className={cn(
-      "w-full shrink-0 xl:sticky xl:top-[3.75rem] xl:flex xl:max-h-[calc(100vh-5rem)] xl:flex-col xl:overflow-y-auto xl:overscroll-contain xl:animate-panel-in-left",
-      // The width is animated so the rail collapses into and out of its
-      // expander instead of jumping; the chat column grows into the space it
-      // hands back during the same transition.
-      "xl:transition-[width] xl:duration-[--dur-base] xl:ease-[--ease-out]",
-      railOpen ? "xl:w-[16.5rem]" : "xl:w-12",
-    )}
-  >
-    {/*
-      Collapsed, the rail keeps only its expander so the toggle never moves and
-      the chat column claims the reclaimed width.
-    */}
-    {!railOpen ? (
-      <div className="hidden xl:flex xl:flex-col xl:items-center xl:gap-2 xl:pt-5">
+  return (
+    <aside
+      aria-label={t("chat.conversations.title")}
+      data-open={railOpen}
+      className={cn(
+        "chat-rail chat-rail-left relative min-h-0 shrink-0 overflow-hidden border-r",
+        railOpen ? "rail-expanded" : "rail-collapsed",
+      )}
+    >
+      <div
+        className={cn(
+          "absolute inset-x-0 top-4 flex justify-center",
+          railOpen ? "hidden" : "w-10",
+        )}
+      >
         <Button
           aria-expanded={false}
           aria-label={t("chat.conversations.expandRail")}
-          className="h-7 w-7 px-0"
           onClick={() => togglePanel("conversations")}
-          size="icon"
-          title={t("chat.conversations.expandRail")}
-          type="button"
           variant="ghost"
+          size="icon"
+          className="h-7 w-7"
         >
-          <PanelLeftOpen aria-hidden="true" className="h-4 w-4" />
+          <PanelLeftOpen className="h-4 w-4" />
         </Button>
       </div>
-    ) : (
-    <>
-    {/*
-      The rail is a column, not a floating card. A rounded card stretched to the
-      chat column's height leaves a large void under short content and reads as
-      an unfinished panel; a hairline rule reads as deliberate structure.
-    */}
-    <Card className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-none border-0 border-r border-border bg-transparent shadow-none xl:max-h-[calc(100vh-2.5rem)] xl:flex-1 xl:pr-5">
-      <CardHeader className="shrink-0 border-b pb-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <CardTitle className="flex items-center gap-2 text-base tracking-title">
-              <MessageSquare aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="truncate">{t("chat.conversations.title")}</span>
-            </CardTitle>
-            <CardDescription>{t("chat.conversations.subtitle")}</CardDescription>
-          </div>
-          {/* Both rail controls sit together on the trailing edge. Splitting
-              them across the row left the create button marooned in the middle
-              with the collapse toggle adrift at the far right. */}
-          <div className="flex shrink-0 items-center gap-0.5">
-            <Button
-              aria-label={t("chat.conversations.create")}
-              className="h-7 w-7 px-0"
-              disabled={isCreatingChat}
-              onClick={() => void createNewChat()}
-              size="icon"
-              type="button"
-            >
-              {isCreatingChat ? <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" /> : <Plus aria-hidden="true" className="h-3.5 w-3.5" />}
-            </Button>
+      <div
+        inert={!railOpen}
+        aria-hidden={!railOpen}
+        className="conversation-rail-body flex h-full min-h-0 flex-col"
+      >
+        <header className="shrink-0 space-y-4 px-3 pb-3 pt-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-medium text-muted-foreground">
+              {t("chat.conversations.recent")}
+              <span className="ml-2 font-mono text-[10px] tabular-nums text-muted-foreground/60">
+                {chats.length}
+              </span>
+            </h2>
             <Button
               aria-expanded={railOpen}
-              aria-label={t(railOpen ? "chat.conversations.collapseRail" : "chat.conversations.expandRail")}
-              className="h-7 w-7 shrink-0 px-0"
+              aria-label={t("chat.conversations.collapseRail")}
               onClick={() => togglePanel("conversations")}
-              size="icon"
-              title={t(railOpen ? "chat.conversations.collapseRail" : "chat.conversations.expandRail")}
-              type="button"
               variant="ghost"
+              size="icon"
+              className="h-6 w-6 text-muted-foreground"
             >
-              {railOpen ? <PanelLeftClose aria-hidden="true" className="h-3.5 w-3.5" /> : <PanelLeftOpen aria-hidden="true" className="h-3.5 w-3.5" />}
+              <PanelLeftClose className="h-3.5 w-3.5" />
             </Button>
           </div>
-        </div>
-      </CardHeader>
-      <CardContent className="chat-list-scroll min-h-0 space-y-2 overflow-y-auto overscroll-contain pr-3">
-        {chats.length === 0 ? (
-          <p className="empty-state !p-3 !text-left text-[13px]">
-            {t("chat.conversations.empty")}
-          </p>
-        ) : (
-          <>
-            {visibleChats.map((chat) => {
+          <Button
+            aria-label={t("chat.conversations.create")}
+            disabled={isCreatingChat}
+            onClick={() => void createNewChat()}
+            variant="outline"
+            className="h-9 w-full justify-start gap-2 rounded-lg bg-card/50 text-xs shadow-none"
+          >
+            {isCreatingChat ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}{" "}
+            {t("chat.toolbar.newChat")}
+          </Button>
+        </header>
+        <div className="chat-list-scroll min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain px-2 pb-4">
+          {awaitingFirstLoad ? (
+            <div role="status" aria-label="加载会话" className="space-y-2">
+              <Skeleton className="h-14" />
+              <Skeleton className="h-14" />
+              <Skeleton className="h-14" />
+            </div>
+          ) : chats.length === 0 ? (
+            <div className="px-3 py-10 text-center">
+              <MessageSquare className="mx-auto mb-3 h-6 w-6 text-muted-foreground/40" />
+              <p className="whitespace-pre-line text-xs leading-6 text-muted-foreground">
+                {t("chat.conversations.empty")}
+              </p>
+            </div>
+          ) : (
+            visibleChats.map((chat) => {
               const isActive = activeChatId === chat.id;
-              const isEditing = editingChatId === chat.id;
-
               return (
                 <div
-                  className={cn(
-                    "animate-row-in rounded-lg p-2.5",
-                    "transition-[background-color,color] duration-[--dur-fast] ease-[--ease-out]",
-                    isActive ? "bg-accent text-accent-foreground" : "hover:bg-accent/60",
-                  )}
                   key={chat.id}
+                  className={cn(
+                    "conversation-row group relative rounded-lg transition-colors",
+                    isActive ? "bg-accent/80" : "hover:bg-accent/40",
+                  )}
                 >
-                  {isEditing ? (
-                    <div className="space-y-2">
+                  {editingChatId === chat.id ? (
+                    <div className="space-y-2 p-2">
                       <Input
                         autoFocus
-                        onChange={(event) => setEditingTitle(event.target.value)}
+                        aria-label={t("chat.conversations.rename")}
+                        className="h-8 text-xs"
                         value={editingTitle}
+                        onChange={(event) =>
+                          setEditingTitle(event.target.value)
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            void saveEditedTitle(chat.id);
+                          }
+                          if (event.key === "Escape") cancelEditingChat();
+                        }}
                       />
-                      <div className="flex items-center gap-1">
+                      <div className="flex justify-end gap-1">
                         <Button
-                          onClick={() => void saveEditedTitle(chat.id)}
                           size="sm"
-                          type="button"
-                          variant="default"
+                          className="h-7 text-xs"
+                          onClick={() => void saveEditedTitle(chat.id)}
                         >
-                          <Check aria-hidden="true" className="mr-1 h-3.5 w-3.5" />
+                          <Check className="mr-1 h-3 w-3" />
                           {t("chat.common.save")}
                         </Button>
-                        <Button onClick={cancelEditingChat} size="sm" type="button" variant="ghost">
-                          <X aria-hidden="true" className="mr-1 h-3.5 w-3.5" />
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs"
+                          onClick={cancelEditingChat}
+                        >
+                          <X className="mr-1 h-3 w-3" />
                           {t("chat.common.cancel")}
                         </Button>
                       </div>
@@ -141,63 +205,76 @@ export function ConversationList({ isCreatingChat, createNewChat, chats, visible
                   ) : (
                     <>
                       <button
-                        className="w-full text-left"
-                        onClick={() => void switchActiveChat(chat.id)}
                         type="button"
+                        aria-current={isActive ? "true" : undefined}
+                        className="block w-full rounded-lg px-3 py-3 pr-14 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        onClick={() => void switchActiveChat(chat.id)}
                       >
-                        <p className="truncate text-sm font-medium tracking-label">{chat.pinned ? "📌 " : ""}{chat.title}</p>
-                        <p className="label-mono mt-1">
-                          {chat.messageCount} {t("chat.conversations.messageCountUnit")} · {formatTime(chat.lastMessageAt)}
-                        </p>
+                        <span className="flex min-w-0 items-center gap-1">
+                          <span className="truncate text-[13px] font-medium">
+                            {chat.title}
+                          </span>
+                          {chat.pinned && (
+                            <Pin className="h-3 w-3 shrink-0 text-muted-foreground" />
+                          )}
+                        </span>
+                        <span className="mt-1.5 block truncate text-[11px] tabular-nums text-muted-foreground">
+                          {formatTime(chat.lastMessageAt)}
+                        </span>
                       </button>
-                      <div className="mt-2 flex items-center gap-1">
+                      <div className="conversation-actions absolute right-1 top-2 flex gap-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                         <Button
-                          onClick={() => startEditingChat(chat)}
-                          size="sm"
-                          type="button"
+                          aria-label={t("chat.conversations.rename")}
+                          title={t("chat.conversations.rename")}
+                          size="icon"
                           variant="ghost"
+                          className="h-6 w-6"
+                          onClick={() => startEditingChat(chat)}
                         >
-                          <PencilLine aria-hidden="true" className="mr-1 h-3.5 w-3.5" />
-                          {t("chat.conversations.rename")}
+                          <PencilLine className="h-3 w-3" />
                         </Button>
                         <Button
-                          onClick={() => requestDeleteConversation(chat)}
-                          size="sm"
-                          type="button"
+                          aria-label={t("chat.common.delete")}
+                          title={t("chat.common.delete")}
+                          size="icon"
                           variant="ghost"
+                          className="h-6 w-6"
+                          onClick={() => requestDeleteConversation(chat)}
                         >
-                          <Trash2 aria-hidden="true" className="mr-1 h-3.5 w-3.5" />
-                          {t("chat.common.delete")}
+                          <Trash2 className="h-3 w-3" />
                         </Button>
                       </div>
                     </>
                   )}
                 </div>
               );
-            })}
-            {hasHiddenChats ? (
-              <Button
-                className="w-full"
-                onClick={() => setIsChatListExpanded((prev) => !prev)}
-                type="button"
-                variant="secondary"
-              >
-                {isChatListExpanded ? t("chat.conversations.collapse") : tf("chat.common.expandMore", { count: chats.length - COLLAPSED_CHAT_LIMIT })}
-              </Button>
-            ) : null}
-          </>
-        )}
-        {/* The label must not change to "加载中…" while the request runs: the
-            button would resize under the pointer and the list below would jump.
-            Disabling it is enough feedback, and the rows stay put. */}
-        {nextChatsCursor && (isChatListExpanded || !hasHiddenChats) ? (
-          <Button className="w-full" disabled={isLoadingMoreChats} onClick={() => void loadMoreChats()} type="button" variant="secondary">
-            {t("chat.conversations.loadMore")}
-          </Button>
-        ) : null}
-      </CardContent>
-    </Card>
-    </>
-  )}
-  </aside>);
+            })
+          )}
+          {hasHiddenChats && (
+            <Button
+              variant="ghost"
+              className="mt-2 h-8 w-full text-xs text-muted-foreground"
+              onClick={() => setIsChatListExpanded((previous) => !previous)}
+            >
+              {isChatListExpanded
+                ? t("chat.conversations.collapse")
+                : tf("chat.common.expandMore", {
+                    count: chats.length - COLLAPSED_CHAT_LIMIT,
+                  })}
+            </Button>
+          )}
+          {nextChatsCursor && (isChatListExpanded || !hasHiddenChats) && (
+            <Button
+              variant="ghost"
+              className="h-8 w-full text-xs"
+              disabled={isLoadingMoreChats}
+              onClick={() => void loadMoreChats()}
+            >
+              {t("chat.conversations.loadMore")}
+            </Button>
+          )}
+        </div>
+      </div>
+    </aside>
+  );
 }

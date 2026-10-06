@@ -26,10 +26,6 @@ export type LocalWorkspace = { id: string };
 
 const WORKSPACE: LocalWorkspace = { id: LOCAL_WORKSPACE_ID };
 
-export function localWorkspace(): LocalWorkspace {
-  return WORKSPACE;
-}
-
 /**
  * Validates local access for one request and returns the workspace it belongs
  * to. Use this in every protected API route.

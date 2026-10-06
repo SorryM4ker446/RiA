@@ -2,6 +2,8 @@
 
 Use Node.js 24.9.0 and the dependencies already installed for this project. No separate server or desktop testing framework is required.
 
+The application ships as a Windows desktop program; there is no browser or web deployment target. "Browser tests" below means a Chromium renderer driving the application's own HTTP surface — the same renderer the desktop shell embeds — and is a description of the harness, not a supported form of the product.
+
 Both CI jobs pin Node.js to 24.9.0 to match the local development runtime and log Node.js/npm versions. When upgrading the local Node.js runtime, update both `actions/setup-node` steps in `.github/workflows/ci.yml` and revalidate with that version. A local pass still does not replace a GitHub Actions run.
 
 | Command | What it checks | External dependencies |
@@ -99,17 +101,46 @@ Browser tests build, prepare `.desktop-runtime`, and start the standalone produc
 
 The unique `(userId, key)` migration keeps the most recently updated duplicate under the original key. Older entries are retained with a ` [duplicate:<id>]` suffix; collisions receive additional underscores. No memory values are deleted. Desktop startup creates a backup before applying an unapplied migration to an existing application database.
 
-`db:migrate` and `db:deploy` use the same local migration runner as desktop startup. They snapshot an existing account-scoped database, apply pending migrations, and verify the resulting schema. Automated tests apply migrations only to isolated databases.
+`db:migrate` uses the same local migration runner as desktop startup. It snapshots an existing local database, applies pending migrations, and verifies the resulting schema. Automated tests apply migrations only to isolated databases.
 
 ## Remaining validation boundaries
 
-Document regressions import actual generated PDF/DOCX and UTF-8 text/Markdown through both handlers and production HTTP. They cover incremental chunk reuse, reindex repair, atomic failure, the credential boundary, compressed expansion, quotas, parser timeout/cancellation, source snapshots and deletion. A fixed eight-query Chinese/English retrieval corpus reports Recall@3 and MRR@3 (required baseline: 1.0 each), with forty newer distractors. Run it through the normal server suite; no separate evaluation framework is needed.
+Document regressions import actual generated PDF/DOCX and UTF-8 text/Markdown through both handlers and production HTTP. They cover incremental chunk reuse, reindex repair, atomic failure, the credential boundary, compressed expansion, quotas, parser timeout/cancellation, source snapshots and deletion. A fixed eight-query Chinese/English retrieval corpus reports Recall@3 and MRR@3 (required baseline: 1.0 each), with forty newer distractors, four empty-result queries and four collection checks. Run it through the normal server suite; no separate evaluation framework is needed.
 
 The desktop migration regression upgrades an existing database, checks its backup and preserved chat, then verifies document/index persistence and deletion cascades. Electron smoke imports a real synthetic PDF and DOCX and checks extracted text, page references, authenticated reads and search after a service restart. Binary fixtures are generated from code, contain no private documents and make no model requests. These checks exercise parser runtime dependencies in the prepared standalone artifact, not just the source tree. The existing CI server/browser/desktop commands include these regressions; no new CI service or secret is required.
 
 These tests do not certify every real OpenRouter model, network outage behavior, or clean-machine installation/uninstallation. Desktop path isolation and restart persistence are tested, but a full installer upgrade/uninstall cycle remains a separate check. Distinguish the real media HTTP/SQLite chain from the mocked UI tests when reporting coverage.
 
 ## Chat interaction regressions
+
+`tests/server/execution-history.test.ts` checks independent execution evidence,
+concurrent retry refusal, current permissions, scheduled execution exclusion,
+restart interruption, sensitive-field exclusion, retention and restore behavior.
+`tests/e2e/execution-history.spec.ts` exercises settings history, manual retry,
+diagnostic download, evidence after schedule deletion and desktop service restart.
+These tests use isolated SQLite data and no paid providers.
+
+`tests/server/tool-contracts.test.ts` checks disabled-memory write refusal,
+atomic step reservations across concurrent tool sets, refusal after reservation
+failure, exact collection names, cached summary reuse without another model
+call, and model-removal waiting through stream completion, failure and
+cancellation. Backup tests cover escaped scopes; browser tests select a
+collection containing `|` and retain its selection after reload. These tests
+run with the existing CI commands and need no paid-provider credentials.
+
+`tests/server/deepseek-tools.test.ts` exercises the real DeepSeek adapter, AI SDK
+tool loop, chat route and temporary SQLite database against a local protocol
+fixture. It checks that streamed and persisted assistant message IDs agree and
+covers task approval, denial, duplicate approval refusal, persisted
+tool output, and automatic/manual search respecting collection and memory
+settings. Adapter tests also check complete tool-call events, interleaved argument
+fragments, and refusal to execute a truncated stream.
+
+`tests/e2e/tool-execution.spec.ts` verifies that a response containing only a task
+call displays approval controls immediately, creates exactly one task after
+approval, updates the task panel, and survives reload. It also imports real text
+documents and checks scoped tool results and citation links. Provider responses
+are deterministic HTTP fixtures; these are not live-provider certification.
 
 `tests/e2e/chat-startup.spec.ts` covers three paths that had no automated protection before:
 
@@ -121,6 +152,87 @@ These tests do not certify every real OpenRouter model, network outage behavior,
 
 ## Interface walkthrough
 
+`tests/server/scheduled-workspace.test.ts` uses the real model middleware with a
+deterministic provider adapter. It verifies restore deferral without consuming
+a due job, paused schedules, mutual exclusion during generation, exactly one
+usage record with configured token pricing, recorded-period prompts, and gate
+release on provider failure. Backup tests round-trip the maximum accepted
+collection scope; directory-grant tests reject an approval bound to a different
+folder. These tests run under the existing `test:server` CI command.
+
 `tests/e2e/interface-walkthrough.spec.ts` captures the build at the sizes the acceptance list names: 1440px and 390px widths, light and dark themes, 125% and 150% text scaling, keyboard focus, and scrolled to the top.
 
 It also asserts what can be asserted without eyes: no horizontal overflow at either width, and the composer and its send control still visible and reachable at 390px and 150% scaling. **It is not a visual sign-off.** The screenshots need a person; a passing run here does not mean the walkthrough passed.
+
+## Workspace review regressions
+
+`tests/server/workspace-review.test.ts` covers calendar windows across daylight
+saving transitions and skipped midnight, atomic event writes and rollback,
+no-op/concurrent mutations, historical counts after source changes or deletion,
+partial coverage, empty periods, model failure, period reuse, interrupted
+commentary, retention and new/legacy backup restoration. The model adapter is
+simulated; no paid provider is called.
+
+`tests/e2e/workspace-review.spec.ts` runs the prepared production HTTP server
+against isolated SQLite without a configured model. It completes a seeded task
+through the real API, verifies repeated completion produces one event, then
+places its timestamp in yesterday's window to test preview and source navigation.
+It checks deletion evidence, no model requests, desktop/mobile layout and weekly
+selection. Screenshots are supplementary visual evidence, not production
+provider or installer certification. Existing CI commands discover these tests.
+
+## History and citation integrity
+
+`tests/server/history-integrity.test.ts` exercises edits, deletion, regeneration,
+replacement and a blocked model call racing a real edit. It also checks that approval metadata, reasoning and attachment bytes are not
+forwarded to compression, and that valid earlier summaries survive a paginated
+history window. It verifies that stale
+compression cannot commit and that the next request uses corrected stored text.
+`tests/desktop/summary-migration.test.ts` checks the pre-upgrade snapshot including uncheckpointed WAL commits, retained
+original messages, cleared unverifiable compression and idempotent restart.
+
+`tests/server/document-references.test.ts` checks preserved chunks in changed
+documents, unchanged reindex, deleted/recreated filenames, old unverified sources,
+collection moves, bounded authorized APIs and portable source/link restoration.
+Reminder regressions inject notice-write failure to verify rollback and one notice
+per accepted claim. They do not certify native OS display.
+
+`tests/e2e/document-versions.spec.ts` uses production HTTP, isolated SQLite and a
+local model protocol fixture. It exercises exact collection selection, local
+search without a model, citation consistency, change warnings for retained chunks,
+current-source navigation, deletion evidence, reload/service restart and mobile
+layout. Screenshots are saved outside the repository. Fixtures are not live paid
+provider or installer validation. Existing CI commands discover these tests.
+
+The execution-history browser suite also claims a reminder through the authenticated
+desktop HTTP boundary and verifies its durable settings notice across restart,
+without claiming that an OS notification was displayed. Post-account workspace
+migrations now snapshot from SQLite itself (`VACUUM INTO`) before changing data;
+this preserves committed WAL data instead of copying only the main database file.
+
+
+Model call regression coverage uses isolated SQLite and the real observer with mock provider streams: concurrent admission, unknown pricing, estimated ceilings, pre-cancellation, cancellation during a pending read, restart recovery, late settlement and cache pricing. The HTTP proxy regression uses a real local proxy and local endpoint, exercising global fetch with conflicting inherited proxy values. Browser usage tests exercise a real built service and offline provider fixture, settings persistence, source filters, unsaved edits and offline task persistence.
+
+Desktop resume tests simulate health outcomes, coalesced wakeups and replacement/quit races; the Electron smoke executes healthy recovery. Release-artifact tests validate root version synchronization and SHA-256 metadata without claiming a clean install. Physical sleep, native OS notification visibility and an installer upgrade on a clean Windows VM remain manual acceptance checks. CI configuration is updated locally; a local pass is not a remote CI result.
+
+`tests/desktop/windows-installer.test.ts` generates a real WiX source using the configured maker options and checks selectable destination, stable upgrade identity, per-user installation, matching notification identity, and removal of recursive directory purge. After making and recording the installer, `scripts/verify-windows-installer.ps1` opens the compiled MSI database read-only and checks version, language, upgrade code, feature destination/Browse wiring and absence of recursive purge actions; CI runs it before upload. Release-artifact tests check versioned MSI naming, obsolete-artifact exclusion, repeatable checksums and unverified acceptance status. These tests do not perform a real install/uninstall or certify migration from Squirrel; follow the Windows release acceptance document for those checks.
+
+
+### Dependency security
+
+Dependency security changes require a clean `npx --yes npm@11.19.1 ci` and the full `npm audit --audit-level=low`, including development dependencies. Keep the project `.npmrc` and `vendor/` in that checkout. `tests/server/dependency-security.test.ts` exercises excessive brace nesting, caller-provided cyclic/shared ASTs, unsupported numeric precision, normal formatting and installed Micromatch, Mammoth and argparse consumers. See [Dependency security backports](../vendor/README.md) for the upstream sources and compatibility limits. An audit result alone does not validate these private backports.
+
+Desktop runtime preparation includes the production formatter source and license. Runtime/package verification resolves it from Mammoth's actual location, requires it to stay inside the bundle and exercises its precision guard. Bundle regressions reject an unpatched nested consumer or a missing license. The settings-store Electron runner uses the repository as its working directory, keeping its disposable data directory independent of transient native helper handles.
+
+Next.js scoped response caches generated during smoke/browser tests are stripped from the staged installer alongside the image cache. Bundle tests seed both caches independently of a previous build and verify removal while retaining immutable prerender responses and ownership metadata. Validate a fresh packaged smoke after changing these paths; changing cache keys or dropping immutable response seeds would invalidate Next.js route isolation.
+
+### Workspace layout and refresh
+
+`tests/desktop/make-desktop.test.ts` verifies automatic WiX preparation, case-insensitive Windows PATH handling without mutating the parent environment, reuse of an already built CI runtime, and stopping before packaging or release evidence after a failed prerequisite.
+
+The chat layout regression fills short text and forty-line drafts at desktop, compact and mobile widths, verifies unchanged textarea and composer bounds, and scrolls long drafts inside the fixed input. It also verifies that the chat workspace reaches the right viewport edge: the non-scrolling outer chat container must not reserve a scrollbar gutter. Scrollbar space remains reserved inside scrolling transcripts and ordinary workspace pages.
+
+`tests/e2e/workspace-layout.spec.ts` starts an isolated standalone service and checks initial task skeletons, retained task content on a delayed refresh, unchanged composer bounds, internal scrolling, compact-panel controls, and saved theme restoration. It captures chat at 1440, 900 and 390 pixels and other workspace pages under the temporary `ria-workspace-ui` directory. `chat-startup.spec.ts` verifies transcript follow behavior and keeping the reader's position during a streamed answer. These checks require rebuilding and preparing the standalone runtime after UI edits. `tests/desktop/window-appearance.test.ts` covers native Windows transparency options and opaque behavior on other platforms; it does not prove the compositor visually exposes desktop content.
+
+
+The layout test also verifies navigation focus containment, animated/saved conversation rail widths, creating a task on the independent tasks page, immediate completion feedback and rollback after a rejected save. A renderer test simulates preload presence to check that only the upper chat canvas is translucent, other pages and the dock are opaque, overflowing home content remains scrollable, and execution history can be expanded/collapsed. Desktop smoke samples captured alpha values for opaque navigation/titlebar/dock and a strongly tinted translucent main canvas, including after maximize/restore and resizing. Native appearance tests check the Windows 11 22H2 material guard. This checks native capture output; actual Acrylic appearance on Windows 11 and final contrast against varied desktop backgrounds still require human review.

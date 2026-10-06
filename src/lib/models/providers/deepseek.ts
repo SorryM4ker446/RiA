@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { BodyReadError, readLimitedJson } from "@/lib/models/catalog-read";
-import { createDeepSeekChatModel, deepSeekBaseURL, DEEPSEEK_BASE_URL, type DeepSeekThinking } from "@/lib/models/providers/deepseek-chat";
+import { createDeepSeekChatModel, deepSeekBaseURL, type DeepSeekThinking } from "@/lib/models/providers/deepseek-chat";
 import { CatalogFetchError, type CatalogModel, type LanguageModelV3, type ModelProvider } from "@/lib/models/providers/types";
 import type { LibraryMode } from "@/lib/models/preferences-schema";
 
@@ -125,7 +125,14 @@ async function fetchDeepSeekCatalog(_mode: LibraryMode, signal: AbortSignal) {
 
   let decoded: unknown;
   try { decoded = await readLimitedJson(response, catalogMaxBodyBytes); }
-  catch (error) { throw new CatalogFetchError(error instanceof BodyReadError ? error.failure : "invalidShape"); }
+  catch (error) {
+    if (error instanceof BodyReadError) throw new CatalogFetchError(error.failure);
+    // The body failing to arrive is this machine's connection, not a catalog
+    // DeepSeek returned in a shape it did not intend. Reported separately from
+    // a malformed one, because only one of the two is worth retrying.
+    if (error instanceof Error && error.name === "AbortError") throw new CatalogFetchError("timeout");
+    throw new CatalogFetchError("network");
+  }
 
   const envelope = catalogEnvelope.safeParse(decoded);
   if (!envelope.success) throw new CatalogFetchError("invalidShape");

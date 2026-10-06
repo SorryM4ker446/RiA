@@ -220,7 +220,7 @@ test("a streaming answer does not drag the view away from history, and offers a 
     ].map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n" });
   });
 
-  const distanceFromBottom = () => page.evaluate(() => document.documentElement.scrollHeight - window.scrollY - window.innerHeight);
+  const distanceFromBottom = () => page.getByTestId("message-list").evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight);
   const scroller = page.getByTestId("message-list");
   await page.goto("/chat");
   await expect(scroller).toContainText("第 1 条较长的历史回答");
@@ -230,12 +230,12 @@ test("a streaming answer does not drag the view away from history, and offers a 
   await page.getByPlaceholder(/输入你的问题/).fill("接着问");
   await page.getByRole("button", { name: "发送", exact: true }).click();
   // Reading history while the answer is still being produced.
-  await page.evaluate(() => window.scrollTo({ top: 0 }));
+  await page.getByTestId("message-list").evaluate(element => element.scrollTo({ top: 0 }));
   release();
   await expect(page.getByText("最新的一条回答", { exact: true })).toBeAttached();
 
   // The view stayed where the reader put it, and a way back is offered.
-  expect(await page.evaluate(() => window.scrollY)).toBeLessThan(120);
+  expect(await scroller.evaluate(element => element.scrollTop)).toBeLessThan(120);
   const wayBack = page.getByRole("button", { name: "回到最新" });
   await expect(wayBack).toBeVisible();
   // The control is meant to disappear the moment it has done its job, so it

@@ -31,8 +31,9 @@ test("interface walkthrough at the acceptance sizes", async ({ page }, info) => 
   expect(["A", "BUTTON", "INPUT", "TEXTAREA", "SUMMARY"]).toContain(focused);
   await shot("02-keyboard-focus");
 
-  await page.evaluate(() => window.scrollTo({ top: 0 }));
-  await page.emulateMedia({ colorScheme: "dark" });
+  await page.getByTestId("message-list").evaluate(element => element.scrollTo({ top: 0 }));
+  await page.getByRole("button", { name: "切换主题" }).click();
+  await expect(page.locator("html")).toHaveClass(/dark/);
   await shot("03-dark-scrolled-up");
 
   await page.setViewportSize({ width: 390, height: 780 });

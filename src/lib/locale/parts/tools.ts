@@ -52,7 +52,6 @@ export const toolsMessages = {
   // --- webSearch ---------------------------------------------------------
   "tools.webSearch.primaryFieldLabel": "搜索词",
   "tools.webSearch.skippedBudget": "本轮未再检索：已用完本轮的结果额度。",
-  "tools.webSearch.notConfigured": "联网搜索尚未配置，本轮没有访问互联网。可在“设置 → 工具与联网”完成配置。",
   "tools.webSearch.description": "通过网络搜索获取外部信息。",
   "tools.webSearch.manualLabel": "手动：Web 搜索",
   "tools.webSearch.placeholder": "输入要搜索的关键词...（Enter 手动触发）",
@@ -70,4 +69,25 @@ export const toolsMessages = {
   "tools.saveMemory.primaryFieldLabel": "记忆内容",
   "tools.saveMemory.keyLabel": "记忆键",
   "tools.saveMemory.saved": "已记住：{value}（键：{key}）",
+  "tools.saveMemory.disabled": "当前会话已关闭长期记忆，无法保存。请先关闭“不记长期记忆”。",
+
+  // --- local files ----------------------------------------------------------
+  "tools.listLocalFiles.displayName": "列出资料目录",
+  "tools.listLocalFiles.description": "列出你授权的目录里有什么，可按层级展开。",
+  "tools.listLocalFiles.result": "{folder} 中有 {count} 项：",
+  "tools.readLocalFile.displayName": "读取资料文件",
+  "tools.readLocalFile.description": "读取授权目录中的一个文本、Markdown、PDF 或 Word 文件。",
+  "tools.readLocalFile.result": "已读取 {path}：",
+  "tools.writeLocalFile.displayName": "新建资料文件",
+  "tools.writeLocalFile.description": "在授权目录中新建一个 Markdown 或纯文本文件；同名文件一律不覆盖。",
+  "tools.writeLocalFile.result": "已新建 {path}（{size} 字节）。",
+  "tools.localFiles.manualLabel": "手动：资料目录",
+  "tools.localFiles.placeholder": "输入相对路径...（Enter 手动触发）",
+  "tools.localFiles.pathPlaceholder": "相对授权目录的路径...",
+  "tools.localFiles.pathLabel": "相对路径",
+  "tools.localFiles.grantLabel": "授权目录 ID",
+  "tools.localFiles.contentLabel": "文件内容",
+  "tools.localFiles.emptyFolder": "（空）",
+  "tools.localFiles.truncated": "（内容过长，已截断）",
+  "tools.localFiles.noGrant": "你还没有授权任何资料目录。",
 } as const;

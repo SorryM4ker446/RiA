@@ -1,5 +1,15 @@
 # Model settings and usage
 
+Model removal waits for an active chat stream to finish, fail or be cancelled,
+including the time after the provider returns its stream object. A submission
+failure releases the lease as well. This does not cancel an ongoing response;
+new calls cannot acquire a lease once removal begins.
+
+Tool-enabled turns require a stored run. Each tool step atomically checks its
+run budget and reserves a unique step position before executing. Concurrent
+tool calls share that budget, and a failed reservation executes no side effect.
+Completed-step reporting remains best-effort after the operation has happened.
+
 Open **模型与用量** from the chat sidebar or Settings. Browser and Electron share the same local SQLite preferences. Browse the official OpenRouter chat, image, video and embedding catalogs, then add models to **我的模型**. Only library members appear in chat selectors or pass server-side call validation.
 
 A model is identified by a **reference**: a provider plus that provider's model id (`{ providerId, modelId }`). The two halves are not interchangeable — the same underlying model reached through OpenRouter and reached directly are separate library entries with separate credentials, pricing and availability, and each keeps its own default, fallback and rate entry. Every call path (chat, image, video, media regeneration, embeddings, tool synthesis, fallback) authorizes against that pair. New installations have an empty library and no selected defaults. Explicitly created new conversations use configured defaults; existing conversations retain their local controls.
@@ -68,8 +78,34 @@ The known-cost total omits unknown costs and shows the number of unknown attempt
 
 ## Local API and configuration
 
+Daily and weekly [workspace reviews](workspace-reviews.md) count recorded events
+in the previous complete local calendar day or Monday–Sunday week. Local facts
+and their conversation are saved before any optional model request. New and
+upgraded schedules default to `useModel: false`. Explicitly enabling commentary
+allows one model attempt per retained period/time-zone snapshot, with no retries,
+a 60-second deadline and a maximum of 512 output tokens. Empty periods skip the
+model. Missing configuration or provider failure preserves the local report;
+actual attempts appear in usage history under the scheduled execution request ID.
+Only counts and period/coverage metadata are sent for commentary, not source
+names or document bodies. Repeated execution reuses the saved period and does
+not submit another model request, including after failure or interruption.
+Earlier generated conversations are retained unchanged.
+
 `GET /api/models/catalog?mode=chat|image|video|embedding` returns the normalized catalogs grouped by provider (`{ catalogs: { openrouter: { chat, image, video, embedding } } }`) together with `providers`, which reports each provider's display name and whether this instance holds its credentials. `POST /api/models/catalog` refreshes one category (`{ "mode": "image" }`) or everything (`{}`); both accept an optional `providerId`. `POST /api/models/library` accepts `{ "action": "add"|"remove", "model": { "providerId", "modelId" } }`. `GET /api/models` returns `{ data, availability, recentFailures }`, where `availability` is keyed by `provider:model`; `PUT /api/models` accepts a complete strict preference object within 128 KiB and returns `{ data }`. Selected models and fallbacks must be compatible library members, fallback must differ from primary, and prices must be finite nonnegative numbers (maximum 1,000,000) or null. At most 100 model rate entries are accepted. `GET /api/usage` returns `{ data: { recent, totals, days } }`; it cannot query outside the local workspace. Responses are private/no-store and follow the normal local access checks.
 
 Preferences include `version: 3`, `defaultMode`, three nullable `{ model, fallback }` mode objects whose members are model references, a nullable `embedding` reference, `library`, `legacyCandidates`, `rates`, `backupRetentionDays` and `backupMaxCount`. Version 1 and version 2 documents are still accepted and converted on read: version 1 becomes explicit migration candidates, and version 2's bare ids become OpenRouter references, because every model this application has called so far was reached through OpenRouter. `rates` is keyed by `provider:model`. Read the latest object before replacing it; the server owns and preserves the library field. Rates contain `inputPerMillion`, `outputPerMillion` and `perRequest`; null means unspecified. Semantic memory embeddings run only when an embedding model has been explicitly added and selected. Stored vectors are tagged with their model **and provider** and are only compared with vectors written by the same pair; a row without a recorded provider is left out of semantic matching rather than assumed. Changing the embedding model therefore falls back to keyword retrieval — the 嵌入模型 section on the page reports how many memories are in that state and offers an explicit, confirmed rebuild. Rebuilding issues one embedding request per memory and is never triggered automatically.
 
 OpenRouter's official catalog endpoints are called by the local server and use the existing `OPENROUTER_API_KEY` when configured; the key is never returned to the browser. `EMBEDDING_MODEL_ID` is read only as a migration candidate when upgrading pre-library preferences and does not select a runtime model. Desktop encrypted key handling is unchanged. Preferences and library membership are included in [workspace backups](workspace-backups.md); catalog snapshots are a refreshable cache.
+
+
+## Call attribution and admission
+
+Usage distinguishes `chat`, `summary`, `scheduled`, `tool`, `embedding`, `media` and `unattributed`. Historical rows are unattributed, without guessing their source. `GET /api/usage?source=summary` filters both the recent list and 30-day totals. Pending and interrupted attempts count as unknown cost, not zero; configured estimates remain distinct from provider-reported charges. No prompt, attachment or credential is stored in this ledger.
+
+**模型调用限制** sets global concurrency (default 4), background daily attempts (default 20), optional single-call and daily estimated USD ceilings, and an IANA budget time zone (default Asia/Shanghai). Automatic history summaries and opted-in scheduled commentary share the background allowance; normal chat, tool synthesis, embeddings and media share concurrency. Setting background daily calls to zero disables new paid background work while keeping cached summaries and deterministic review facts available. Existing settings acquire these defaults on read.
+
+Admission writes a pending attempt and consumes the background allowance in one SQLite transaction before calling the provider. A fallback is a separate admitted attempt; automatic SDK retries are disabled in synthesis/summary paths. Pre-aborted requests and denied admissions consume nothing. Failure, cancellation and process interruption release concurrency but keep the daily count and estimated allowance: a possibly billed attempt is not made free by stopping it. Reservations use the rate snapshot at admission. Failed settlement leaves a pending slot as a conservative block until service restart; restart converts pending rows to interrupted without reissuing requests. The desktop owns one local service; running independent services on one workspace is unsupported.
+
+The estimate uses serialized prompt UTF-8 byte length and the bounded output token setting with configured prices; it is not a provider tokenizer or a guaranteed bill. Monetary ceilings apply to that estimate only. Missing prices block background admission when a monetary ceiling is enabled; with only a count limit they remain unknown. Provider routing, reasoning and additional provider fees can differ. Use provider-side limits for a strict billing cap. Summary output is bounded to 1,024 tokens and 60 seconds, and receives the chat cancellation signal; scheduled commentary is bounded to 512 tokens and 60 seconds. Tool synthesis also receives manual cancellation and has no automatic retries.
+
+Daily allowances are keyed by local date and time zone, retained for 90 days, and kept locally across portable backup restores; usage rows remain bounded to 90 days/5,000 completed entries. Changing the budget time zone selects a different period, not a conversion of prior allowances. Pending backup rows restore as interrupted/unknown. Provider bills, daily counters and the portable usage history have different ownership and are not interchangeable.

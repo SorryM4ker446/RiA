@@ -182,7 +182,7 @@ test("removing a model clears only the references that named it",async()=>{
 test("a chat model is refused without a request context, not only inside one",async()=>{
   // The membership check used to be skipped when no request context was
   // present, which meant any caller that simply did not come through a route
-  // could reach the provider. Only usage recording may depend on the context.
+  // could reach the provider. Admission and recording now apply to every call.
   const unknown=ref("acme/not-added");
   const call=reference=>observeLanguageModel(getChatModel(),reference,()=>getChatModel());
   await assert.rejects(async()=>{await call(unknown).doStream({prompt:[{role:"user",content:[{type:"text",text:"Test"}]}]});},/不在“我的模型”|已从“我的模型”中移除/);
@@ -192,7 +192,10 @@ test("a chat model is refused without a request context, not only inside one",as
   const allowed=await call(CHAT_MODEL_REF).doStream({prompt:[{role:"user",content:[{type:"text",text:"Test"}]}]});
   const parts=[];for await(const part of allowed.stream)parts.push(part);
   assert.ok(parts.some(part=>part.type==="finish"));
-  assert.equal(await db.modelRequest.count({where:{}}),0);
+  const recorded = await db.modelRequest.findMany({});
+  assert.equal(recorded.length, 1);
+  assert.equal(recorded[0].source, "unattributed");
+  assert.equal(recorded[0].status, "success");
 });
 test("media provider calls acquire the model lease at the provider boundary",async()=>{
   const settings=await getModelPreferences();

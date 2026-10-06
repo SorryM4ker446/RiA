@@ -1,4 +1,5 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { DesktopLogger } from "./logger";
@@ -27,22 +28,13 @@ function tableExists(database: DatabaseSync, tableName: string): boolean {
   return row?.name === tableName;
 }
 
-function wasAppliedByPrisma(database: DatabaseSync, migrationName: string): boolean {
-  if (!tableExists(database, "_prisma_migrations")) return false;
-  const row = database
-    .prepare(
-      'SELECT migration_name FROM "_prisma_migrations" WHERE migration_name = ? AND finished_at IS NOT NULL AND rolled_back_at IS NULL',
-    )
-    .get(migrationName) as { migration_name?: string } | undefined;
-  return row?.migration_name === migrationName;
-}
-
-function createBackup(databaseFile: string, backupsDirectory: string): string | null {
+function createBackup(database: DatabaseSync, databaseFile: string, backupsDirectory: string): string | null {
   if (!existsSync(databaseFile) || statSync(databaseFile).size === 0) return null;
   mkdirSync(backupsDirectory, { recursive: true });
   const timestamp = new Date().toISOString().replaceAll(":", "-").replaceAll(".", "-");
-  const backupFile = join(backupsDirectory, `${basename(databaseFile)}.${timestamp}.bak`);
-  copyFileSync(databaseFile, backupFile);
+  const backupFile = join(backupsDirectory, `${basename(databaseFile)}.${timestamp}.${randomUUID()}.bak`);
+  // SQLite snapshots include committed WAL data and produce a standalone file.
+  database.prepare("VACUUM INTO ?").run(backupFile);
   return backupFile;
 }
 
@@ -51,6 +43,11 @@ function createBackup(databaseFile: string, backupsDirectory: string): string | 
  * that rebuilds tables has to be applied with enforcement disabled around the
  * transaction and checked again afterwards. Dropping "users" or "chats" while
  * enforcement is on would cascade and delete the user's content.
+ *
+ * The chain this reads is also the test corpus the workspace fixtures and the
+ * tests/desktop/*-migration.test.ts version ranges are built from, so several
+ * migration names are referenced by name in code. See
+ * src/db/migrations/README.md before renaming or merging one.
  */
 function applyMigrationSql(database: DatabaseSync, sql: string, migrationName: string) {
   database.exec("PRAGMA foreign_keys = OFF;");
@@ -111,14 +108,8 @@ export function runDesktopMigrations(input: {
     for (const migrationName of migrationNames) {
       if (known.has(migrationName)) continue;
 
-      if (wasAppliedByPrisma(database, migrationName)) {
-        database.prepare('INSERT INTO "desktop_migrations" ("name") VALUES (?)').run(migrationName);
-        known.add(migrationName);
-        continue;
-      }
-
-      if (!backupFile && tableExists(database, "users")) {
-        backupFile = createBackup(input.databaseFile, input.backupsDirectory);
+      if (!backupFile && (tableExists(database, "users") || tableExists(database, "chats"))) {
+        backupFile = createBackup(database, input.databaseFile, input.backupsDirectory);
         if (backupFile) input.logger.info("Created database backup before migration", { backupFile });
       }
 

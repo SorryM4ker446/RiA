@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { db } from "@/db";
 import { t } from "@/lib/locale";
-import { ApiError } from "@/lib/server/api-error";
 import { libraryModes, modelIdSchema, providerIdSchema, type LibraryMode, type ProviderId } from "@/lib/models/preferences-schema";
 import { CatalogFetchError, getModelProvider, listModelProviders, type CatalogFailureReason, type CatalogModel } from "@/lib/models/providers";
 
@@ -164,10 +163,30 @@ function offeredModes(providerId: ProviderId): LibraryMode[] {
 }
 
 export async function getCatalog(providerId: ProviderId, mode: LibraryMode, force = false): Promise<CatalogState> {
+  // Refused here, where every caller passes through, rather than in each one.
+  // Asking a provider for a mode it does not offer does not come back empty:
+  // the fetch ignores the mode and answers with the provider's other models,
+  // which would then be written to this mode's snapshot and shown to the user
+  // as models that serve it. The mode is part of the request, so the request
+  // has to be the one that is checkable.
+  if (!getModelProvider(providerId).offeredModes.includes(mode)) {
+    return { providerId, mode, models: [], fetchedAt: null, stale: false, source: "empty", error: null, failure: null, skipped: 0 };
+  }
   const key = cacheKey(providerId, mode);
   const old = await cachedSnapshot(providerId, mode);
   if (!force && old && Date.now() - old.fetchedAt.getTime() < cacheDurationMs) {
-    return { providerId, mode, models: old.models, fetchedAt: old.fetchedAt.toISOString(), stale: false, source: "cache", error: null, failure: null, skipped: 0 };
+    // The snapshot remembers how the last refresh went, and that is still the
+    // truth about this provider: reporting a rejected key as a current,
+    // error-free catalog hides a credential the user has to fix, for as long as
+    // the cached models stay inside the window.
+    const providerName = getModelProvider(providerId).displayName;
+    return {
+      providerId, mode, models: old.models, fetchedAt: old.fetchedAt.toISOString(), stale: old.lastFailure !== null,
+      source: "cache",
+      error: old.lastFailure ? describeFailure(old.lastFailure, providerName, mode) : null,
+      failure: old.lastFailure,
+      skipped: 0,
+    };
   }
   const failure = failures.get(key);
   if (!force && failure && Date.now() - failure.at < failureCooldownMs) {
@@ -189,9 +208,4 @@ export async function getCatalogs(force = false): Promise<ProviderCatalogs> {
     return [provider.id, Object.fromEntries(states.map(state => [state.mode, state]))] as const;
   }));
   return Object.fromEntries(result) as ProviderCatalogs;
-}
-
-export function assertCatalogMode(value: unknown): LibraryMode {
-  if (typeof value === "string" && libraryModes.includes(value as LibraryMode)) return value as LibraryMode;
-  throw new ApiError({ code: "VALIDATION_ERROR", message: t("lib.models.catalogUnknownMode") });
 }

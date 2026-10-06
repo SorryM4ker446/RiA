@@ -33,6 +33,7 @@ export function DocumentLibrary() {
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [searchCollection, setSearchCollection] = useState("");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<DocumentSource[] | null>(null);
   async function refresh() { setDocuments(await documentRequest<DocumentSummary[]>("/api/documents")); }
@@ -73,7 +74,7 @@ export function DocumentLibrary() {
   }
   async function search(event: FormEvent) {
     event.preventDefault();
-    await run(async () => setResults(await documentRequest<DocumentSource[]>("/api/documents/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query }) })));
+    await run(async () => setResults(await documentRequest<DocumentSource[]>("/api/documents/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, collections: searchCollection ? [searchCollection] : [] }) })));
   }
 
   return <Card>
@@ -152,6 +153,10 @@ export function DocumentLibrary() {
         </li>)}
       </ul>}
       <form className="flex flex-wrap gap-2 border-t pt-4" onSubmit={event => void search(event)}>
+        <select aria-label="检索资料集合" disabled={busy} value={searchCollection} onChange={event => { setSearchCollection(event.target.value); setResults(null); }} className="max-w-full rounded-md border bg-background px-2 text-sm">
+          <option value="">全部集合</option>
+          {[...new Set([...documents.flatMap(document => document.collection ? [document.collection] : []), ...(searchCollection ? [searchCollection] : [])])].sort().map(name => <option key={name} value={name}>{name}{documents.some(document => document.collection === name) ? "" : "（暂无资料）"}</option>)}
+        </select>
         <Input aria-label={t("documents.searchLabel")} className="min-w-0 flex-1" disabled={busy} maxLength={2000} onChange={event => setQuery(event.target.value)} placeholder={t("documents.searchPlaceholder")} required value={query} />
         <Button disabled={busy || !query.trim()} type="submit" variant="secondary">{t("documents.search")}</Button>
       </form>

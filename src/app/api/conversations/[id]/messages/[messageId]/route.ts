@@ -7,6 +7,8 @@ import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/serve
 import { readJsonBody } from "@/lib/server/request-body";
 import { migrateMessageMedia, prepareMessageMedia, replaceMessageMedia } from "@/lib/media/messages";
 
+import { invalidateChatSummary } from "@/lib/chat/store";
+
 const updateMessageSchema = z.strictObject({
   content: z.string().min(1).max(1_000_000).optional(),
   status: z.enum(["pending", "success", "error"]).optional(),
@@ -57,6 +59,7 @@ async function PATCHHandler(req: NextRequest, context: Params) {
 
     const prepared = parsed.data.content ? await prepareMessageMedia(parsed.data.content) : null;
     const updated = await db.$transaction(async (tx) => {
+      await invalidateChatSummary(tx, conversationId);
       const message = await tx.message.update({
         where: { id: existing.id },
         data: {
@@ -86,6 +89,7 @@ async function DELETEHandler(req: NextRequest, context: Params) {
 
     await db.$transaction(async (tx) => {
       await tx.mediaAsset.updateMany({ where: { references: { some: { messageId: existing.id } } }, data: { lastUsedAt: new Date() } });
+      await invalidateChatSummary(tx, conversationId);
       await tx.message.delete({ where: { id: existing.id } });
     });
 

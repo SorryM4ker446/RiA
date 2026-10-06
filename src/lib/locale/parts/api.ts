@@ -33,6 +33,14 @@ export const apiMessages = {
   "api.documents.singleFileField": "每次只能上传一个 file 文件字段。",
   "api.documents.importCancelled": "文档导入已取消。",
 
+  // --- directory grants ----------------------------------------------------
+  // Granting a folder is a standing permission on this machine, so each failure
+  // says the permission was not added rather than that a request went wrong.
+  "api.directoryGrants.listFailed": "无法读取资料目录授权。",
+  "api.directoryGrants.createFailed": "未能授权该目录，授权未生效。",
+  "api.directoryGrants.revealFailed": "无法定位该文件，它不在已授权的目录内。",
+  "api.directoryGrants.revokeFailed": "撤销授权失败，该目录仍然可用。",
+
   // --- media library -------------------------------------------------------
   "api.media.libraryFailed": "无法读取媒体资源库。",
   "api.media.detailFailed": "无法读取媒体详情。",
@@ -71,4 +79,11 @@ export const apiMessages = {
   "api.localAccess.notTopLevel": "本地访问凭证只能通过本机的直接访问获取。",
   "api.localAccess.codeExpired": "启动凭证已失效，请从本地服务的启动输出重新打开应用。",
   "api.localAccess.establishFailed": "无法建立本地访问凭证。",
+  // --- schedules -----------------------------------------------------------
+  "api.schedules.listFailed": "无法读取计划列表。",
+  "api.schedules.createFailed": "无法创建计划。",
+  "api.schedules.updateFailed": "无法更新计划，原设置保持不变。",
+  "api.schedules.deleteFailed": "无法删除计划。",
+  "api.notices.listFailed": "无法读取提醒中心。",
+  "api.notices.updateFailed": "无法更新提醒。",
 } as const;

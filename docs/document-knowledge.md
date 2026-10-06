@@ -1,5 +1,12 @@
 # Document knowledge
 
+Automatic `searchKnowledge` tool calls and manual searches from a conversation
+honor that conversation's selected collections. An empty selection searches all
+collections. In a conversation with memory disabled, these tools do not read or
+write long-term memories; imported documents remain available. Manual tool API
+requests may include `chatId` so the server can derive these settings from the
+stored conversation. A missing supplied conversation returns 404.
+
 Open **知识库管理 → 文档知识库** to import a PDF, UTF-8 Markdown (`.md`), UTF-8 text (`.txt`) or Word `.docx` file. The original file is not retained: SQLite stores the extracted text, filename, PDF page numbers and a local search index. Keep the original separately if you need its formatting or binary contents.
 
 Importing a file with the same exact filename updates that user's document. Identical extracted text leaves the index unchanged; changed paragraphs add/remove chunks while unaffected chunks keep their IDs. **重新索引** rebuilds the search terms from the saved text. It does not rerun file extraction; import the original again to apply a parser change. Reindex after a runtime upgrade if its Unicode segmentation has changed. Index replacement is transactional, so validation failures and failed writes preserve the working version.
@@ -52,8 +59,64 @@ PDF.js, Mammoth and JSZip are application dependencies, pinned in the lockfile. 
 
 ## Memory provenance and candidates
 
+The conversation's memory switch also controls the explicit `saveMemory` tool:
+it is omitted from automatic tools when memory is disabled, and manual calls
+return a validation error without writing. Other conversations can still save
+memory normally.
+
+Collection names containing `|` are supported. Such scopes are stored as a
+versioned JSON string; ordinary scopes retain the previous representation. The
+toolbar, chat retrieval, tool retrieval and backups share the same decoder.
+Existing scopes remain readable. An old scope that used `|` inside a name was
+already ambiguous; clear it and select the intended collection again. No
+document is renamed or deleted. Backups containing the new representation
+require this version or a newer version to restore the scope correctly.
+
 Every memory records where it came from: added by hand, or inferred by the assistant. An inferred entry is stored as a **candidate**: visible, editable and deletable in the knowledge page, but it does not enter the context of any answer until you accept it. An inference therefore does not become a fact on the next turn, and it never takes effect where you cannot see it.
 
 Editing a candidate is how it is accepted. A memory written by hand is stamped with the time it was last used, and the page shows **last used** so it is clear which memories are doing something and which have gone untouched.
 
 Provenance travels with workspace backups. Restoring an archive does not turn an inference you never accepted into one you are treated as having accepted.
+
+## Retrieval evidence and citation versions
+
+Document search remains local keyword retrieval over the existing inverted index;
+it makes no embedding or chat-model call. The library's collection selector uses
+exact names, including names containing `|`. `POST /api/documents/search` accepts
+optional `collections` (up to 12 names of 40 characters); omitted or empty means
+all collections. Chat and tool retrieval continue using the stored conversation
+scope. Results include `retrieval: "local-keyword"`, matched terms, collection and
+the document content hash. These explain why a fragment matched, not a probability
+that it answers the question. A keyword overlap can be useful yet contain no answer.
+
+New persisted citation snapshots include `contentHash` and collection alongside
+the existing excerpt and source identities. Source links carry `?version=<hash>`.
+A changed document is reported as changed even if that particular chunk survived
+unchanged; a content-preserving reindex leaves the version current. Moving the
+collection changes the captured provenance. No full historical document is retained.
+
+The source panel checks versions on mount and when its window regains focus,
+with cancellation and stale-response protection. It reports current, changed,
+deleted, or old/unverified references. A failed check is explicitly unavailable,
+never a green assertion. The excerpt remains the answer-time snapshot. A deleted
+document, including a new import with the same filename and a new ID, cannot make
+an old reference current again. The viewer shows current extracted text and warns
+if the requested version or chunk no longer matches.
+
+`POST /api/documents/references` accepts `{ "sources": [...] }` with 1–8 existing
+citation objects in a 24 KiB body. It returns `data` entries containing `chunkId`
+and `status` (`current`, `changed`, `deleted`, `unverified`). It performs no model
+call, retains normal credential/Host/Origin/workspace-gate checks, uses private
+no-store responses, and allows 120 bounded read checks per minute. A current
+check describes the time it was read, not continuous filesystem monitoring.
+
+Backup restoration remaps structured source identities and local Markdown
+citation links while preserving hashes and excerpts. Optional snapshot fields keep
+old conversations and archives readable; references without version evidence are
+honestly unverified. No new document table or background watcher is needed.
+
+The fixed corpus now has eight positive Chinese/English questions, four unrelated
+or stop-word queries and four collection checks, plus forty newer distractors.
+Recall@3, MRR@3 and empty-result checks are regression evidence for this corpus,
+not a broad semantic-answer-quality benchmark or a claim that lexical matches
+always contain answers. See [Testing](testing.md) for the real HTTP/browser checks.

@@ -46,7 +46,6 @@ export function deepSeekBaseURL() {
   return override.replace(/\/+$/, "");
 }
 
-const modelId = z.string().min(1).max(200).regex(/^[a-zA-Z0-9][\w.-]{0,199}$/);
 const toolId = z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/);
 
 const completionChunk = z.object({
@@ -284,7 +283,7 @@ function toTools(options: LanguageModelV3CallOptions, thinking: DeepSeekThinking
   return { tools, tool_choice: "auto" as const };
 }
 
-function toRequestBody(options: LanguageModelV3CallOptions, carriesTools: boolean, defaultThinking: DeepSeekThinking) {
+function toRequestBody(modelId: string, options: LanguageModelV3CallOptions, carriesTools: boolean, defaultThinking: DeepSeekThinking) {
   const thinking = readThinking(options, defaultThinking);
   const mapped = toTools(options, thinking);
   const body: Record<string, unknown> = {
@@ -347,7 +346,7 @@ function createDeepSeekChatModel(options: { modelId: string; getApiKey: () => st
     supportedUrls: {},
     async doGenerate(callOptions): Promise<LanguageModelV3GenerateResult> {
       const carriesTools = (callOptions.tools ?? []).length > 0;
-      const { body } = toRequestBody(callOptions, carriesTools, defaultThinking);
+      const { body } = toRequestBody(options.modelId, callOptions, carriesTools, defaultThinking);
       const { value, responseHeaders } = await post(body, callOptions.abortSignal, false);
       const parsed = completion.safeParse(value as unknown);
       if (!parsed.success) throw new InvalidResponseDataError({ data: value, message: "DeepSeek returned a chat completion this adapter cannot read" });
@@ -380,7 +379,7 @@ function createDeepSeekChatModel(options: { modelId: string; getApiKey: () => st
     },
     async doStream(callOptions) {
       const carriesTools = (callOptions.tools ?? []).length > 0;
-      const { body } = toRequestBody(callOptions, carriesTools, defaultThinking);
+      const { body } = toRequestBody(options.modelId, callOptions, carriesTools, defaultThinking);
       const { value, responseHeaders } = await post(body, callOptions.abortSignal, true);
       return {
         stream: streamResponse({ source: value as ReadableStream<unknown>, modelId: options.modelId, warnings: [] }),
@@ -414,7 +413,7 @@ function streamResponse(options: {
   let reasoningOpen = false;
   let usage: LanguageModelV3Usage | undefined;
   let finishReason: LanguageModelV3FinishReason | null = null;
-  let toolCallIds: string[] = [];
+  const toolCalls = new Map<number, { id: string; name: string; input: string; started: boolean }>();
 
   /**
    * Turns one provider chunk into stream parts. Returns how many it produced.
@@ -451,14 +450,23 @@ function streamResponse(options: {
       emitted += 1;
     }
     for (const call of delta?.tool_calls ?? []) {
-      if (call.index >= toolCallIds.length) {
+      let pending = toolCalls.get(call.index);
+      if (!pending) {
         const id = call.id && toolId.safeParse(call.id).success ? call.id : `call-${call.index}`;
-        toolCallIds.push(id);
-        controller.enqueue({ type: "tool-input-start", id, toolName: call.function?.name ?? "unknown" });
+        pending = { id, name: "", input: "", started: false };
+        toolCalls.set(call.index, pending);
+      }
+      if (call.function?.name) pending.name += call.function.name;
+      if (call.function?.arguments) pending.input += call.function.arguments;
+      if (!pending.started && pending.name) {
+        controller.enqueue({ type: "tool-input-start", id: pending.id, toolName: pending.name });
+        pending.started = true;
+        emitted += 1;
+        if (pending.input) { controller.enqueue({ type: "tool-input-delta", id: pending.id, delta: pending.input }); emitted += 1; }
+      } else if (pending.started && call.function?.arguments) {
+        controller.enqueue({ type: "tool-input-delta", id: pending.id, delta: call.function.arguments });
         emitted += 1;
       }
-      const id = toolCallIds[call.index];
-      if (call.function?.arguments) { controller.enqueue({ type: "tool-input-delta", id, delta: call.function.arguments }); emitted += 1; }
     }
     return emitted;
   }
@@ -471,12 +479,21 @@ function streamResponse(options: {
       for (;;) {
         const { done, value } = await reader.read();
         if (done) {
-          closeOpen(controller, { textOpen, reasoningOpen, toolCallIds });
-          textOpen = false; reasoningOpen = false; toolCallIds = [];
+          closeOpen(controller, { textOpen, reasoningOpen, toolCallIds: [...toolCalls.values()].filter(call => call.started).map(call => call.id) });
+          textOpen = false; reasoningOpen = false;
           // A stream that ends without a finish reason was cut off. Reporting
           // it as an ordinary stop would store a half answer as a successful
           // one, so it is surfaced as an error and the answer is not trusted.
           const ended = finishReason ?? { unified: "error" as const, raw: "stream-ended-without-finish" };
+          // Input deltas only update the preview. The SDK executes or requests
+          // approval when it receives this complete call. A truncated stream
+          // must never commit a side effect from partially received arguments.
+          if (ended.unified !== "error" && ended.unified !== "content-filter") {
+            for (const call of toolCalls.values()) {
+              controller.enqueue({ type: "tool-call", toolCallId: call.id, toolName: call.name || "unknown", input: call.input || "{}" });
+            }
+          }
+          toolCalls.clear();
           controller.enqueue({ type: "finish", finishReason: ended, usage: usage ?? toUsage(null) });
           controller.close();
           return;

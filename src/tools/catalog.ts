@@ -1,3 +1,4 @@
+import { withModelCallSource } from "@/lib/models/call-context";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { generateText, Output, type ToolSet } from "ai";
 import { z } from "zod";
@@ -6,7 +7,7 @@ import { getChatModel } from "@/lib/ai/client";
 import { t, tf, formatDateTime } from "@/lib/locale";
 import { saveMemory } from "@/lib/memory/store";
 import { preferredModel, getModelPreferences } from "@/lib/models/preferences";
-import { checkRunAllowance, finishRun, recordStep, updateStep, addRunCost } from "@/lib/agent/runs";
+import { reserveRunStep, updateStep, type StepState } from "@/lib/agent/runs";
 import { getModelProvider } from "@/lib/models/providers";
 import type { ModelRef } from "@/lib/models/preferences-schema";
 import {
@@ -21,6 +22,16 @@ import { searchKnowledge, searchKnowledgeInputSchema } from "@/tools/definitions
 import { documentSourceUrl } from "@/lib/documents/types";
 import { runWebSearch, webSearchInput } from "@/tools/definitions/web-search";
 import { LOCAL_WORKSPACE_ID } from "@/lib/local/workspace";
+import { listActiveGrants } from "@/lib/local-files/grants";
+import {
+  bindWriteApproval,
+  listGrantedFiles,
+  listLocalFilesInputSchema,
+  readGrantedFile,
+  readLocalFileInputSchema,
+  writeGrantedFile,
+  writeLocalFileInputSchema
+} from "@/lib/local-files/tools";
 
 export type ToolMode = "chat" | "image" | "video";
 export type ToolTriggerType = "manual" | "auto";
@@ -32,6 +43,8 @@ type ToolExecutionContext<Input> = {
   modelRef?: ModelRef;
   trigger: ToolTriggerType;
   signal?: AbortSignal;
+  documentCollections?: string[];
+  usesMemory?: boolean;
 };
 
 type ToolBudgetExceededContext = {
@@ -40,7 +53,7 @@ type ToolBudgetExceededContext = {
 };
 
 /** Why an optional tool did not produce a result, in terms the model can read. */
-export type ToolSkipReason = "notConfigured" | "budget" | "temporarilyUnavailable" | "runStopped";
+export type ToolSkipReason = "notConfigured" | "noDirectoryGranted" | "budget" | "temporarilyUnavailable" | "runStopped" | "run-budget-unreadable";
 
 /** How many sources a search brings back when nothing more specific applies. */
 const DEFAULT_SEARCH_RESULTS = 5;
@@ -55,6 +68,7 @@ type ToolPrepareInputContext<Input> = {
 };
 
 type ToolAssistantTextContext<Input, Output> = {
+  signal?: AbortSignal;
   input: Input;
   output: Output;
   modelRef?: ModelRef;
@@ -136,6 +150,16 @@ type ToolDescriptor<Input = unknown, Output = unknown> = {
   };
   inputSchema: z.ZodType<Input>;
   requiresApproval?: boolean;
+  /**
+   * Attaches whatever an approval is bound to, on the tool call itself.
+   *
+   * Runs at the moment the model produced the call and before the user is
+   * asked, which is the only point where "what the user read on screen" and
+   * "what was recorded" are the same thing. Returning the bound input is
+   * preferred; the SDK stores the caller object, so a tool may also write
+   * through the reference it is handed.
+   */
+  bindForApproval?: (input: unknown) => Promise<unknown>;
   prepareInput?: (context: ToolPrepareInputContext<Input>) => Promise<Input> | Input;
   buildBudgetExceededOutput?: (context: ToolBudgetExceededContext) => Output;
   /**
@@ -155,7 +179,7 @@ export type AnyToolDescriptor = ToolDescriptor<any, any>;
 export type PublicToolCatalogItem = {
   /** Whether this tool can run right now, and why not when it cannot. */
   available: boolean;
-  reason: "notConfigured" | null;
+  reason: ToolAvailabilityReason | null;
   /** Where the missing configuration is configured. */
   configEntry: string | null;
   id: string;
@@ -184,6 +208,7 @@ function buildSearchFallbackText(result: Awaited<ReturnType<typeof searchKnowled
 }
 
 async function buildSearchAssistantText(params: {
+  signal?: AbortSignal;
   result: Awaited<ReturnType<typeof searchKnowledge>>;
   modelRef?: ModelRef;
 }): Promise<string> {
@@ -205,10 +230,11 @@ async function buildSearchAssistantText(params: {
   try {
     const selectedModel = await preferredModel("chat", modelRef);
     const providerOptions = await reasoningOptionsFor(selectedModel);
-    const answer = await generateText({
+    const answer = await withModelCallSource("tool", () => generateText({
       model: getChatModel(selectedModel),
       ...(providerOptions ? { providerOptions } : {}),
       system: SEARCH_ANSWER_SYSTEM,
+      maxRetries: 0, maxOutputTokens: 1024, abortSignal: params.signal ? AbortSignal.any([params.signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000),
       prompt: [
         `User question: ${result.query}`,
         "",
@@ -217,7 +243,7 @@ async function buildSearchAssistantText(params: {
         "",
         SEARCH_ANSWER_OUTPUT,
       ].join("\n"),
-    });
+    }));
 
     const text = answer.text.trim();
     if (text) return text;
@@ -287,6 +313,7 @@ async function resolveWebSearchInput(params: {
 }
 
 async function buildWebSearchAssistantText(params: {
+  signal?: AbortSignal;
   result: Awaited<ReturnType<typeof runWebSearch>>;
   modelRef?: ModelRef;
 }): Promise<string> {
@@ -308,10 +335,11 @@ async function buildWebSearchAssistantText(params: {
   try {
     const selectedModel = await preferredModel("chat", modelRef);
     const providerOptions = await reasoningOptionsFor(selectedModel);
-    const answer = await generateText({
+    const answer = await withModelCallSource("tool", () => generateText({
       model: getChatModel(selectedModel),
       ...(providerOptions ? { providerOptions } : {}),
       system: WEB_ANSWER_SYSTEM,
+      maxRetries: 0, maxOutputTokens: 1024, abortSignal: params.signal ? AbortSignal.any([params.signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000),
       prompt: [
         `User question: ${result.query}`,
         "",
@@ -320,7 +348,7 @@ async function buildWebSearchAssistantText(params: {
         "",
         ...WEB_ANSWER_OUTPUT,
       ].join("\n"),
-    });
+    }));
 
     const text = answer.text.trim();
     if (text) return text;
@@ -372,7 +400,10 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       ],
     },
     inputSchema: saveMemoryInputSchema,
-    execute: async ({ input }) => saveMemory({ key: input.key, value: input.value, score: 0.9 }),
+    execute: async ({ input, usesMemory }) => {
+      if (usesMemory === false) throw new ApiError({ code: "VALIDATION_ERROR", message: t("tools.saveMemory.disabled") });
+      return saveMemory({ key: input.key, value: input.value, score: 0.9 });
+    },
     buildAssistantText: ({ output, input }) => {
       const result = output as { key: string };
       return tf("tools.saveMemory.saved", { key: result.key, value: input.value });
@@ -412,11 +443,11 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       ],
     },
     inputSchema: searchKnowledgeInputSchema,
-    execute: async ({ input }) => searchKnowledge(input),
-    buildAssistantText: async ({ output, modelRef }) =>
+    execute: async ({ input, documentCollections, usesMemory, signal }) => searchKnowledge(input, { collections: documentCollections, usesMemory, signal }),
+    buildAssistantText: async ({ output, modelRef, signal }) =>
       buildSearchAssistantText({
         result: output,
-        modelRef,
+        modelRef, signal,
       }),
     memory: {
       enabled: true,
@@ -571,10 +602,10 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       };
     },
     execute: async ({ input, signal }) => runWebSearch(input, signal),
-    buildAssistantText: ({ output, modelRef }) =>
+    buildAssistantText: ({ output, modelRef, signal }) =>
       buildWebSearchAssistantText({
         result: output,
-        modelRef,
+        modelRef, signal,
       }),
     memory: {
       enabled: true,
@@ -594,6 +625,106 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       },
     },
   },
+  listLocalFiles: {
+    id: "listLocalFiles",
+    displayName: t("tools.listLocalFiles.displayName"),
+    description: t("tools.listLocalFiles.description"),
+    modelDescription:
+      "List what is inside a folder the user has opened to you. Returns names, kinds, sizes and modification times, and says when the listing was cut short. Use it before reading, so you name files that exist rather than guessing. Do not use it to search the whole disk: only the granted folders can be listed at all. Do not use it when the user asked about a topic rather than a file.",
+    modeSupport: ["chat"],
+    manual: {
+      // No manual entry. Choosing a tool from the picker is a way of
+      // choosing a tool, not a waiver of the confirmation one that touches the
+      // disk asked for, and a file written from a dropdown happens with nothing
+      // shown and nothing recorded.
+      enabled: false,
+      label: t("tools.localFiles.manualLabel"),
+      placeholder: t("tools.localFiles.placeholder"),
+      submitLabel: t("tools.common.submitLabel"),
+      primaryFieldKey: "path",
+      primaryFieldLabel: t("tools.localFiles.pathLabel"),
+      fields: [
+        { key: "grantId", label: t("tools.localFiles.grantLabel"), type: "text", required: true },
+        { key: "depth", label: "depth", type: "number", min: 1, max: 8, step: 1 },
+      ],
+    },
+    inputSchema: listLocalFilesInputSchema,
+    execute: async ({ input }) => listGrantedFiles(input),
+    buildAssistantText: ({ output }) => {
+      const lines = (output.entries as { kind: string; path: string }[]).slice(0, 20).map((entry: { kind: string; path: string }) => `${entry.kind === "folder" ? "[dir]" : "     "} ${entry.path}`);
+      const body = lines.length > 0 ? lines.join("\n") : t("tools.localFiles.emptyFolder");
+      return [tf("tools.listLocalFiles.result", { folder: output.folder, count: output.entries.length }), body, output.truncated].filter(Boolean).join("\n");
+    },
+    buildUnavailableOutput: ({ reason }) => ({ folder: "", grantLabel: "", entries: [], truncated: reason === "noDirectoryGranted" ? t("tools.localFiles.noGrant") : reason }),
+    memory: { enabled: false, minQuality: 1, summarize: () => null },
+  },
+  readLocalFile: {
+    id: "readLocalFile",
+    displayName: t("tools.readLocalFile.displayName"),
+    description: t("tools.readLocalFile.description"),
+    modelDescription:
+      "Read one text or Markdown file from a folder the user has opened to you. The path is relative to that folder. Use it only for a file the user pointed you at or that a listing just showed you. Do not use it to read configuration, credentials or anything outside the granted folder: those are refused, and asking again wastes the turn. PDFs and Word documents are refused here; the knowledge base is where those are read.",
+    modeSupport: ["chat"],
+    manual: {
+      // No manual entry. Choosing a tool from the picker is a way of
+      // choosing a tool, not a waiver of the confirmation one that touches the
+      // disk asked for, and a file written from a dropdown happens with nothing
+      // shown and nothing recorded.
+      enabled: false,
+      label: t("tools.localFiles.manualLabel"),
+      placeholder: t("tools.localFiles.pathPlaceholder"),
+      submitLabel: t("tools.common.submitLabel"),
+      primaryFieldKey: "path",
+      primaryFieldLabel: t("tools.localFiles.pathLabel"),
+      fields: [{ key: "grantId", label: t("tools.localFiles.grantLabel"), type: "text", required: true }],
+    },
+    inputSchema: readLocalFileInputSchema,
+    execute: async ({ input }) => readGrantedFile(input),
+    buildAssistantText: ({ output }) => [
+      tf("tools.readLocalFile.result", { path: output.path }),
+      output.text.slice(0, 2000),
+      output.truncated ? t("tools.localFiles.truncated") : null,
+    ].filter(Boolean).join("\n"),
+    buildUnavailableOutput: ({ reason }) => ({ path: "", grantLabel: "", byteSize: 0, text: "", truncated: false, unavailable: reason === "noDirectoryGranted" ? t("tools.localFiles.noGrant") : reason } as never),
+    memory: { enabled: false, minQuality: 1, summarize: () => null },
+  },
+  writeLocalFile: {
+    id: "writeLocalFile",
+    displayName: t("tools.writeLocalFile.displayName"),
+    description: t("tools.writeLocalFile.description"),
+    modelDescription:
+      "Create a new Markdown or plain text file inside a folder the user has opened to you. The user is asked to approve each one, and an existing file with the same name is never replaced. Use it when the user asked for a file to be produced. Do not use it to edit, patch or overwrite something that already exists, and do not use it to write code that will be executed.",
+    modeSupport: ["chat"],
+    requiresApproval: true,
+    manual: {
+      // No manual entry. Choosing a tool from the picker is a way of
+      // choosing a tool, not a waiver of the confirmation one that touches the
+      // disk asked for, and a file written from a dropdown happens with nothing
+      // shown and nothing recorded.
+      enabled: false,
+      label: t("tools.localFiles.manualLabel"),
+      placeholder: t("tools.localFiles.pathPlaceholder"),
+      submitLabel: t("tools.common.submitLabel"),
+      primaryFieldKey: "path",
+      primaryFieldLabel: t("tools.localFiles.pathLabel"),
+      fields: [
+        { key: "grantId", label: t("tools.localFiles.grantLabel"), type: "text", required: true },
+        { key: "content", label: t("tools.localFiles.contentLabel"), type: "text", required: true },
+      ],
+    },
+    inputSchema: writeLocalFileInputSchema,
+    /*
+     * The binding is taken here, when the input is prepared for the approval,
+     * rather than when the file is written. That is the moment the user is
+     * looking at the proposal, so it is the moment the world it assumes should
+     * be recorded. It travels inside the input, which is what the approval
+     * request is stored with and what comes back when the user answers.
+     */
+    bindForApproval: async (input) => { const bound = { ...(input as object), binding: await bindWriteApproval(input as { grantId: string; path: string }) }; Object.assign(input as object, bound); return bound; },
+    execute: async ({ input }) => writeGrantedFile(input),
+    buildAssistantText: ({ output }) => tf("tools.writeLocalFile.result", { path: output.path, size: output.byteSize }),
+    memory: { enabled: false, minQuality: 1, summarize: () => null },
+  },
 };
 
 export function getToolDescriptor(toolId: string): AnyToolDescriptor | null {
@@ -606,9 +737,11 @@ export function listToolDescriptors(mode?: ToolMode): AnyToolDescriptor[] {
   return tools.filter((tool) => tool.modeSupport.includes(mode));
 }
 
-export function listPublicToolCatalog(mode?: ToolMode): PublicToolCatalogItem[] {
-  return listToolDescriptors(mode).map((tool) => ({
-    ...toolAvailability(tool.id),
+export async function listPublicToolCatalog(mode?: ToolMode): Promise<PublicToolCatalogItem[]> {
+  const descriptors = listToolDescriptors(mode);
+  const availability = await Promise.all(descriptors.map((tool) => toolAvailability(tool.id)));
+  return descriptors.map((tool, index) => ({
+    ...availability[index],
     id: tool.id,
     displayName: tool.displayName,
     description: tool.description,
@@ -630,6 +763,21 @@ export function isToolSupportedInMode(toolId: string, mode: ToolMode): boolean {
  * preview rather than a second copy of the full payload.
  */
 /**
+ * The condition that stopped the run, in the vocabulary a tool result carries.
+ *
+ * `checkRunAllowance` names what the run ran out of; a tool result has to say
+ * why *this step* did not run. Every refusal collapsed to "runStopped" made a
+ * run that had spent its budget indistinguishable from one the user stopped,
+ * which is exactly the distinction the model needs to decide whether asking
+ * again could ever work.
+ */
+function skipReasonForRunRefusal(reason: string): ToolSkipReason {
+  if (reason === "run-budget-unreadable") return "run-budget-unreadable";
+  if (reason.endsWith("-budget")) return "budget";
+  return "runStopped";
+}
+
+/**
  * The result a refused step returns. It says the step did not run and why,
  * which is different from a tool that ran and found nothing — the model can act
  * on the first and would be misled by the second.
@@ -638,7 +786,8 @@ function skippedResult(tool: AnyToolDescriptor, input: unknown, reason: string) 
   const query = input && typeof input === "object" && "query" in input && typeof (input as { query?: unknown }).query === "string"
     ? (input as { query: string }).query
     : "";
-  return tool.buildUnavailableOutput?.({ input, reason: "runStopped", error: new Error(reason) }) ?? { query, results: [], skipped: reason };
+  const skipReason = skipReasonForRunRefusal(reason);
+  return tool.buildUnavailableOutput?.({ input, reason: skipReason, error: new Error(reason) }) ?? { query, results: [], skipped: skipReason };
 }
 
 function summarizeForRecord(value: unknown): Record<string, unknown> {
@@ -683,20 +832,50 @@ function readNumericInputValue(input: unknown, key: string): number | null {
  * burn a step on it. The manual entry point still refuses it explicitly,
  * because there the user asked for that tool by name.
  */
-export type ToolAvailability = { available: boolean; reason: "notConfigured" | null; configEntry: string | null };
+export type ToolAvailabilityReason = "notConfigured" | "noDirectoryGranted";
 
-export function toolAvailability(toolId: string): ToolAvailability {
+export type ToolAvailability = { available: boolean; reason: ToolAvailabilityReason | null; configEntry: string | null };
+
+const LOCAL_FILE_TOOL_IDS = new Set(["listLocalFiles", "readLocalFile", "writeLocalFile"]);
+
+/**
+ * Async because one kind of missing configuration is not a missing key: the
+ * local-file tools need a folder the user granted, which lives in the database
+ * and can be withdrawn between turns. The check is made here, where the tool set
+ * is built, so a withdrawn folder means the tool is simply not offered — the
+ * model cannot pick it, retry it, or report a read that never happened.
+ */
+export async function toolAvailability(toolId: string): Promise<ToolAvailability> {
   if (toolId === "webSearch" && !process.env.TAVILY_API_KEY?.trim()) {
     // The reason a tool is missing comes with where to fix it, so the interface
     // can offer the way out instead of only reporting the absence.
     return { available: false, reason: "notConfigured", configEntry: "/settings" };
   }
+  if (LOCAL_FILE_TOOL_IDS.has(toolId)) {
+    const active = await listActiveGrants().catch(() => []);
+    if (active.length === 0) {
+      return { available: false, reason: "noDirectoryGranted", configEntry: "/settings" };
+    }
+  }
   return { available: true, reason: null, configEntry: null };
 }
 
-export function assertToolConfiguration(toolId: string) {
-  if (toolAvailability(toolId).available) return;
-  throw new ApiError({ code: "CONFIGURATION_ERROR", message: t("lib.tools.webSearchNotConfigured") });
+/**
+ * The refusal a missing prerequisite turns into, worded for the reason that is
+ * actually missing. Built once so the manual entry point and the mid-turn
+ * branch cannot drift apart and report a web-search key to a local-file tool.
+ */
+function unavailabilityError(reason: ToolAvailabilityReason): ApiError {
+  return new ApiError({
+    code: "CONFIGURATION_ERROR",
+    message: reason === "noDirectoryGranted" ? t("lib.tools.localFilesNotGranted") : t("lib.tools.webSearchNotConfigured"),
+  });
+}
+
+export async function assertToolConfiguration(toolId: string) {
+  const availability = await toolAvailability(toolId);
+  if (availability.available) return;
+  throw unavailabilityError(availability.reason ?? "notConfigured");
 }
 
 export /**
@@ -705,8 +884,9 @@ export /**
  * into a result: a rejected approval, a bad argument or a refused write is
  * never quietly absorbed into "the tool was unavailable".
  */
-function skipReasonFor(toolId: string, error: unknown): ToolSkipReason | null {
-  if (!toolAvailability(toolId).available) return "notConfigured";
+async function skipReasonFor(toolId: string, error: unknown): Promise<ToolSkipReason | null> {
+  const availability = await toolAvailability(toolId);
+  if (!availability.available) return availability.reason ?? "notConfigured";
   if (!(error instanceof ApiError)) return null;
   // Transient upstream conditions: a lookup that failed is not a lookup that
   // found nothing, and the model should not keep asking a service that is
@@ -717,29 +897,36 @@ function skipReasonFor(toolId: string, error: unknown): ToolSkipReason | null {
   return null;
 }
 
-export function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: string[]; runId?: string | null; usesMemory?: boolean }): ToolSet {
+export async function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: string[]; runId?: string | null; usesMemory?: boolean; documentCollections?: string[] }): Promise<ToolSet> {
   const workspaceId = LOCAL_WORKSPACE_ID;
   const allowed = new Set(options?.toolIds ?? []);
   const hasRestriction = allowed.size > 0;
   const resultBudgetUsed = new Map<string, number>();
   const runId = options?.runId ?? null;
-  let stepCount = 0;
-  // Positions are per run, not per tool, so the record reads as the sequence
-  // that actually happened rather than one counter per tool.
-  const nextStepPosition = () => ++stepCount;
   // An unconfigured optional tool is filtered out here rather than mounted and
   // failed later. The model never sees it, so it cannot call it, retry it, or
   // report a search that never happened.
-  const descriptors = listToolDescriptors("chat").filter((tool) =>
-    (hasRestriction ? allowed.has(tool.id) : true) && toolAvailability(tool.id).available,
-  );
+  const candidates = listToolDescriptors("chat").filter((tool) =>
+    (hasRestriction ? allowed.has(tool.id) : true) && !(tool.id === "saveMemory" && options?.usesMemory === false));
+  const availability = await Promise.all(candidates.map((tool) => toolAvailability(tool.id)));
+  const descriptors = candidates.filter((_, index) => availability[index].available);
 
   const entries = descriptors.map((tool) => [
     tool.id,
     {
       description: tool.modelDescription,
       inputSchema: tool.inputSchema,
-      ...(tool.requiresApproval ? { needsApproval: true } : {}),
+        // Mounted as a function so the binding is taken here, not in
+        // `prepareInput` — which the SDK calls from inside `execute`, long
+        // after the user answered.
+        ...(tool.requiresApproval
+          ? {
+              needsApproval: async (input: unknown) => {
+                if (tool.bindForApproval) await tool.bindForApproval(input);
+                return true;
+              },
+            }
+          : {}),
       execute: async (input: unknown, callOptions?: { abortSignal?: AbortSignal }) => {
         const startedAt = Date.now();
         // The SDK passes call options as the second argument when a tool runs;
@@ -748,22 +935,34 @@ export function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: str
         // A run that has been stopped, or has spent its budget, does not get to
         // start another step. The refusal is returned as a result so the model
         // can finish with what it has instead of retrying into a wall.
-        if (runId) {
-          const allowance = await checkRunAllowance(runId).catch(() => ({ allowed: true, reason: null }));
-          if (!allowance.allowed) {
-            return skippedResult(tool, input, allowance.reason ?? "run-stopped");
-          }
-        }
-        const step = runId
-          ? await recordStep({
-            runId,
-            position: nextStepPosition(),
-            kind: "tool" as const,
-            toolName: tool.id,
-            state: "running" as const,
-            input: summarizeForRecord(input),
-          }).catch(() => null)
+        const reservation = runId
+          ? await reserveRunStep({ runId, toolName: tool.id, input: summarizeForRecord(input) })
+              .catch(() => ({ step: null, reason: "run-budget-unreadable" }))
           : null;
+        if (reservation && !reservation.step) return skippedResult(tool, input, reservation.reason ?? "run-stopped");
+        const step = reservation?.step ?? null;
+        /**
+         * Closes the recorded step, exactly once, on every exit from this
+         * wrapper.
+         *
+         * `checkRunAllowance` counts steps by row, so a step left in "running"
+         * would spend budget forever and would appear in the run record as work
+         * that never ended. Several exits below — the per-turn result budget, a
+         * tool that is not configured, a tool that became unavailable
+         * mid-execution — return a normal tool output *without* having executed
+         * the tool, so they settle as "skipped": the step was recorded, but
+         * nothing ran. Only the real execution path reports "done", and a thrown
+         * error reports "failed". The flag keeps a later exit from overwriting a
+         * state the wrapper already committed, and the write is swallowed
+         * because failed bookkeeping must not turn a successful tool result into
+         * a failed turn.
+         */
+        let stepSettled = false;
+        const settleStep = async (data: { state: StepState; output?: unknown; errorCode?: string | null }) => {
+          if (!step || stepSettled) return;
+          stepSettled = true;
+          await updateStep(step.id, { ...data, finished: true }).catch(() => undefined);
+        };
         try {
           enforceRateLimit("tools");
           const budget = tool.resultBudget;
@@ -815,11 +1014,17 @@ export function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: str
           // away does not spend a planning call first. An optional tool answers
           // instead of failing the turn; anything else still refuses here, where
           // the manual entry point refuses it.
-          if (!toolAvailability(tool.id).available) {
+          // Whatever the tool was missing is what the model is told. A folder
+          // the user withdrew and a search key that was cleared are both a
+          // configuration problem, but only one of them is fixed in settings.
+          const unavailability = await toolAvailability(tool.id);
+          if (!unavailability.available) {
+            const reason = unavailability.reason ?? "notConfigured";
+            const error = unavailabilityError(reason);
             const builder = tool.buildUnavailableOutput;
-            if (!builder) { assertToolConfiguration(tool.id); }
-            logToolExecution({ toolId: tool.id, trigger: "auto", state: "output-available", durationMs: Date.now() - startedAt, errorCode: "CONFIGURATION_ERROR" });
-            return builder!({ input, reason: "notConfigured", error: new ApiError({ code: "CONFIGURATION_ERROR", message: t("lib.tools.webSearchNotConfigured") }) });
+            if (!builder) throw error;
+            logToolExecution({ toolId: tool.id, trigger: "auto", state: "output-available", durationMs: Date.now() - startedAt, errorCode: error.code });
+            return builder({ input, reason, error });
           }
           const preparedInput = tool.prepareInput
             ? await tool.prepareInput({
@@ -901,6 +1106,8 @@ export function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: str
               modelRef: options?.modelRef,
               trigger: "auto",
               signal,
+              documentCollections: options?.documentCollections,
+              usesMemory: options?.usesMemory,
             });
           } catch (error) {
             // The configuration can disappear between building the tool set and
@@ -908,7 +1115,7 @@ export function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: str
             // between turns. An optional tool that is merely unavailable
             // answers instead of failing the turn, so the model is told once
             // and spends the rest of the turn on what it can do.
-            const reason = skipReasonFor(tool.id, error);
+            const reason = await skipReasonFor(tool.id, error);
             const builder = tool.buildUnavailableOutput;
             if (!reason || !builder) throw error;
             logToolExecution({
@@ -916,7 +1123,11 @@ export function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: str
               trigger: "auto",
               state: "output-available",
               durationMs: Date.now() - startedAt,
-              errorCode: reason === "notConfigured" ? "CONFIGURATION_ERROR" : "UPSTREAM_FAILED",
+              // The log has to agree with the reason it is logging. A withdrawn
+              // folder is the same configuration problem the check above the
+              // execution reports, and only a genuinely transient upstream
+              // condition is an upstream failure.
+              errorCode: reason === "temporarilyUnavailable" ? "UPSTREAM_FAILED" : "CONFIGURATION_ERROR",
             });
             return builder({ input: preparedParsedInput.data, reason, error });
           }
@@ -932,11 +1143,9 @@ export function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: str
             durationMs: Date.now() - startedAt,
             requestId,
           });
-          if (step) {
-            // The step carries the same facts as the log, plus the artifact when
-            // the step produced one, so the record and the log cannot disagree.
-            await updateStep(step.id, { state: "done", output: summarizeForRecord(output), finished: true }).catch(() => undefined);
-          }
+          // The step carries the same facts as the log, plus the artifact when
+          // the step produced one, so the record and the log cannot disagree.
+          await settleStep({ state: "done", output: summarizeForRecord(output) });
 
           return output;
         } catch (error) {
@@ -948,10 +1157,14 @@ export function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: str
             durationMs: Date.now() - startedAt,
             errorCode,
           });
-          if (step) {
-            await updateStep(step.id, { state: "failed", errorCode, finished: true }).catch(() => undefined);
-          }
+          await settleStep({ state: "failed", errorCode });
           throw error;
+        } finally {
+          // Reached by every early return above that has not already settled the
+          // step. Those returns are all refusals to execute the tool, so this
+          // only fires for a step that is genuinely "skipped"; a settled step is
+          // left alone, which is what keeps the state from being rewritten.
+          await settleStep({ state: "skipped" });
         }
       },
     },

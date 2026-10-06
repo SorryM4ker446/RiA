@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { ApiError } from "@/lib/server/api-error";
 import { truncateTitle } from "@/lib/ai/ui-message";
 import { chatTagSchema, conversationSummary } from "@/lib/conversations/query";
+import { encodeDocumentScope } from "@/lib/documents/scope";
 
 export const updateConversationSchema = z.strictObject({
   title: z.string().trim().min(1).max(200).optional(),
@@ -26,9 +27,7 @@ export async function updateConversation(id: string, input: z.infer<typeof updat
       ...(input.pinned !== undefined ? { pinned: input.pinned } : {}),
       ...(input.archived !== undefined ? { archived: input.archived } : {}),
       ...(input.ephemeral !== undefined ? { ephemeral: input.ephemeral } : {}),
-      // Stored as one string so the scope travels with the conversation and in a
-      // backup without another table.
-      ...(input.documentScope !== undefined ? { documentScope: [...new Set(input.documentScope)].sort().join("|") } : {}),
+      ...(input.documentScope !== undefined ? { documentScope: encodeDocumentScope(input.documentScope) } : {}),
       ...(input.tags !== undefined ? { tags: { deleteMany: {}, create: input.tags.map(label => ({ label })) } } : {}),
     }, include: { tags: { orderBy: { label: "asc" } }, _count: { select: { messages: true } } } });
     return conversationSummary(chat);

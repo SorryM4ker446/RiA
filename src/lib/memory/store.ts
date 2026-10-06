@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { embedTextWithModel } from "@/lib/ai/embedding";
 import { Prisma } from "@prisma/client";
 import { CONTEXT_MEMORY_POLICY, getMemorySearchCandidates, rankByScore } from "@/lib/memory/retrieval";
+import { recordWorkspaceEvent } from "@/lib/activity/events";
 
 export type SaveMemoryInput = {
   key: string;
@@ -35,7 +36,15 @@ export async function saveMemory(input: SaveMemoryInput) {
   const source = input.source ?? "manual";
   const confirmed = source === "manual";
 
-  return db.memory.upsert({
+  // An inference the user never saw does not take the place of something they
+  // accepted. Left alone, the update would replace the confirmed text with the
+  // assistant's, relabel it as inferred, and leave it confirmed — so the
+  // rejected candidate would keep entering the model's context in place of the
+  // memory the user agreed to.
+  return db.$transaction(async tx => {
+  const existing = await tx.memory.findUnique({ where: { key: normalizedKey } });
+  if (!confirmed && existing?.confirmed) return existing;
+  const saved = await tx.memory.upsert({
     where: { key: normalizedKey },
     update: {
       value: normalizedValue,
@@ -59,6 +68,9 @@ export async function saveMemory(input: SaveMemoryInput) {
       embeddingModelId: embedding ? modelRef?.modelId : null,
       embeddingModelProvider: embedding ? modelRef?.providerId : null,
     },
+  });
+  if (confirmed && !existing?.confirmed) await recordWorkspaceEvent(tx, { kind: "memory.confirmed", entityId: saved.id, label: saved.key });
+  return saved;
   });
 }
 

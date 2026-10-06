@@ -63,7 +63,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function findPage() {
   for (let attempt = 0; attempt < 60; attempt++) {
     try {
-      const list = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json();
+      const list = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`, { signal: AbortSignal.timeout(2000) })).json();
       const page = list.find((t) => t.type === "page" && t.webSocketDebuggerUrl);
       if (page) return page;
     } catch {}
@@ -131,6 +131,7 @@ try {
               y: Math.round(box.top + box.height / 2),
               width: Math.round(box.width),
               height: Math.round(box.height),
+              barHeight: node.closest(".workspace-topbar")?.clientHeight ?? 0,
               right: Math.round(box.right),
             };
           })
@@ -146,7 +147,7 @@ try {
   if (caption.regions.some((region) => region !== "no-drag")) {
     throw new Error(`a window control sits inside a drag region: ${JSON.stringify(caption.regions)}`);
   }
-  if (caption.boxes.some((box) => box.height !== 40 || box.width < 24)) {
+  if (caption.boxes.some((box) => box.height < 32 || box.height !== box.barHeight || box.width < 24)) {
     throw new Error(`a window control is not a full-size target: ${JSON.stringify(caption.boxes)}`);
   }
   // The layout viewport excludes the document scrollbar, so a control ending at

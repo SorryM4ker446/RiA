@@ -7,6 +7,7 @@ import { streamChatResponse } from "@/lib/chat/stream";
 import { getRelevantMemories } from "@/lib/memory/store";
 import { startRun } from "@/lib/agent/runs";
 import { getModelPreferences } from "@/lib/models/preferences";
+import { getModelProvider } from "@/lib/models/providers";
 import { summarizeOlderTurns } from "@/lib/chat/summary";
 import { getTextFromUIMessage as readText } from "@/lib/ai/ui-message";
 import { t } from "@/lib/locale";
@@ -17,6 +18,7 @@ import { NextRequest } from "next/server";
 import { formatDocumentContext, searchDocuments } from "@/lib/documents/retrieval";
 import { listPublicToolCatalog } from "@/tools/catalog";
 import { documentSourceSchema } from "@/lib/documents/types";
+import { decodeDocumentScope } from "@/lib/documents/scope";
 
 async function POSTHandler(req: NextRequest) {
   try {
@@ -24,10 +26,14 @@ async function POSTHandler(req: NextRequest) {
     enforceRateLimit("chat");
     const input = await readChatRequest(req);
     const { body, modelRef, latestUserMessage, isApprovalResume } = input;
-    if (!process.env.OPENROUTER_API_KEY?.trim()) {
+    // Checked against the provider the chosen model actually belongs to. Naming
+    // OpenRouter here refused every DeepSeek-only install before it could say so,
+    // which is the one thing a user who only ever added a DeepSeek model needs
+    // to be able to run.
+    if (!getModelProvider(modelRef.providerId).isConfigured()) {
       throw new ApiError({
         code: "CONFIGURATION_ERROR",
-        message: "OPENROUTER_API_KEY is not configured. Set it in .env and restart the dev server before chatting.",
+        message: `${modelRef.providerId.toUpperCase()}_API_KEY is not configured. Set it in .env and restart the dev server before chatting.`,
       });
     }
     setupServerProxy();
@@ -43,7 +49,7 @@ async function POSTHandler(req: NextRequest) {
     // and each tool's modelDescription, not from a second LLM call that would
     // have to guess from the latest message alone.
     const toolsEnabled = canUseTools && (isApprovalResume || !body.manualToolsOnly);
-  const unavailableTools = toolsEnabled ? unavailableChatTools() : [];
+  const unavailableTools = toolsEnabled ? await unavailableChatTools() : [];
 
     // An ephemeral conversation neither reads long-term memory nor writes any.
     // It is a memory switch, not a promise that nothing is kept: the messages,
@@ -59,7 +65,7 @@ async function POSTHandler(req: NextRequest) {
 
     // A conversation that named its document topics only draws on those; an
     // empty scope means every topic, as before.
-    const scope = (conversation.chat.documentScope ?? "").split("|").filter(Boolean);
+    const scope = decodeDocumentScope(conversation.chat.documentScope);
     // Long conversations are compressed by a model-written summary that covers
     // the older turns and names the last message it includes. The bounded
     // excerpts stay in the prompt either way, and a summary never replaces the
@@ -67,8 +73,9 @@ async function POSTHandler(req: NextRequest) {
     const summary = latestUserMessage?.text
       ? await summarizeOlderTurns({
         chatId: conversation.chat.id,
-        messages: context.messages.map((message) => ({ id: message.id ?? "", role: message.role, text: readText(message) })),
+        messages: context.allMessages.map((message) => ({ id: message.id ?? "", role: message.role, text: readText(message) })),
         keepRecent: 24,
+        signal: req.signal,
       }).catch(() => null)
       : null;
 
@@ -89,12 +96,18 @@ async function POSTHandler(req: NextRequest) {
     // A run exists only for a turn that can actually use tools. Creating one
     // for a plain answer would fill the record with empty runs that did nothing.
     const run = toolsEnabled
-      ? await startRun({ chatId: conversation.chat.id, goal: latestUserMessage?.text ?? t("chat.run.goalFromConversation") }).catch(() => null)
+      ? await startRun({ chatId: conversation.chat.id, goal: latestUserMessage?.text ?? t("chat.run.goalFromConversation") })
       : null;
 
-    return streamChatResponse({
+    return await streamChatResponse({
       input, conversation, systemPrompt, modelMessages, toolsEnabled, signal: req.signal,
       documentSources, runId: run?.id ?? null, usesMemory,
+      // The prompt has been telling the model which tools this turn could not
+      // use. Without this the list never reaches persistence, so the turn's own
+      // record could not show it and the "this turn had no web search" badge
+      // never rendered — including after a reload, which is the one thing the
+      // stored metadata is for.
+      unavailableTools,
     });
   } catch (error) {
     console.error("/api/chat error", normalizeApiError(error).code);
@@ -107,8 +120,8 @@ async function POSTHandler(req: NextRequest) {
  * tool set is built from, so the prompt and the tools can never disagree about
  * what was available.
  */
-function unavailableChatTools() {
-  return listPublicToolCatalog("chat").filter(tool => !tool.available).map(tool => tool.id);
+async function unavailableChatTools() {
+  return (await listPublicToolCatalog("chat")).filter(tool => !tool.available).map(tool => tool.id);
 }
 
 export const POST = protectDataOperation(POSTHandler);

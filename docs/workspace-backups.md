@@ -14,6 +14,10 @@ Backups are private files under `backups/<workspace>/` beside the configured med
 
 ## Restore safety
 
+Scheduled execution history is local operational evidence, excluded from portable
+archives. Restore keeps it on this machine, clears links to replaced conversations
+and pauses schedules. See [execution history](execution-history.md).
+
 Stop generation and wait for other requests to finish first. Backup, import and restore operations use a single-process maintenance gate: an in-flight request returns HTTP 409 to a maintenance operation, and a business request during maintenance receives HTTP 503. Chat consumption and persistence retain the gate even after an HTTP reader disconnects. There are no forced cancellations or unlimited retries.
 
 Restore validates files, stages new immutable media paths, and creates a safety archive of the current workspace before changing business rows in one SQLite transaction. The safety backup and the transaction are serialized with model-settings mutations, so a concurrent model removal or settings save cannot interleave with the restored snapshot. The access credential is not part of a restore and stays as it is. Any database failure rolls back the business changes. IDs and internal media/document/source references are remapped, so the same archive can be imported repeatedly without collisions. A restore requires space for the archive, the safety archive and another copy of its media. Large restores remain subject to the existing SQLite transaction timeout; a timeout rolls back rather than extending it indefinitely.
@@ -36,6 +40,16 @@ Explicit deletion is permanent and may delete the last archive after confirmatio
 
 ## Local API
 
+Scheduled work holds the same workspace operation gate as foreground requests,
+from claiming a job through usage accounting, persistence and completion. A
+restore cannot begin while a job is running. While a restore is active, polling
+leaves due jobs unclaimed; the next poll rechecks whether they are still enabled.
+A successful restore pauses schedules, so deferred jobs do not resume automatically.
+
+Conversation collection scopes support the full normal input limit in archives:
+12 names of 40 characters, plus separators (491 characters). Existing shorter
+version-1 archives remain readable; no database migration is required.
+
 All endpoints retain the normal credential, Host and Origin checks and sanitized error envelope. IDs are server-generated UUIDs; callers cannot select a path.
 
 | Endpoint | Contract |
@@ -51,3 +65,38 @@ All endpoints retain the normal credential, Host and Origin checks and sanitized
 | `DELETE /api/backups/import/:id` | Cancel an in-progress upload |
 
 See [API security](api-security.md) for quotas, and [Model settings and usage](model-usage.md) for the preference/usage data contained in archives.
+
+## Activity and review snapshots
+
+Archives include retained workspace events (up to 10,000), their coverage
+boundary and up to 1,000 daily/weekly review snapshots, including saved commentary
+and conversation links. Restore preserves event IDs used by review source links
+and remaps surviving source identities with the rest of the business data.
+Deleted sources remain explicit historical evidence. Restore itself does not
+create completion, document import or memory confirmation events. Pending model
+commentary is restored as interrupted and is never automatically replayed.
+
+Older version-1 archives without activity fields remain importable: restoration
+starts a new coverage boundary and creates no synthetic past events. The archive
+version remains 1 with optional new fields. Older application versions with strict
+manifest validation may reject archives containing these fields; create and test
+a backup with the target version before rollback. Scheduled execution history
+remains excluded and local to the restoring machine. See [Workspace reviews](workspace-reviews.md)
+for retention and the distinction between current previews and frozen reports.
+
+## Summary and citation evidence
+
+Chat snapshots include optional history/summary revisions. A valid summary keeps
+its covered-message pointer remapped on restore; summaries without matching
+revision evidence are cleared, while original messages remain. Citation snapshots
+keep document hashes and answer-time excerpts; structured IDs and local Markdown
+source links are remapped to the restored documents and chunks. Old citation
+snapshots without hashes remain readable and explicitly unverified.
+
+Pending desktop/local migrations recognize both older account databases and the
+current single-workspace schema. Their pre-upgrade SQLite snapshot includes WAL
+commits and is a standalone database file; failure to create it stops migration.
+This safety snapshot is separate from the portable archive and its retention rules.
+
+
+Model usage snapshots include optional call source and pre-call estimate fields. Old rows remain unattributed. Restored pending calls become interrupted with unknown billing and are never replayed. Local daily admission counters are not exported or cleared by a restore; restoring older history cannot replenish the current device's allowance. Older strict readers may reject new fields; verify archives before downgrading.

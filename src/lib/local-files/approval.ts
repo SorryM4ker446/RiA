@@ -1,0 +1,89 @@
+import { stat } from "node:fs/promises";
+import { requireActiveGrant } from "@/lib/local-files/grants";
+import { LocalFileRefused } from "@/lib/local-files/limits";
+import { resolveWithinGrant } from "@/lib/local-files/safe-path";
+
+/*
+ * What an approval is bound to.
+ *
+ * The user approves a concrete act: write this content to this path in this
+ * folder. Between the moment the assistant proposes it and the moment the user
+ * answers, any of three things can change — the folder can be withdrawn or
+ * moved, the path can start pointing somewhere else, or a file can appear where
+ * the assistant said there was none. An approval that survives any of those is
+ * not approval of the act the user actually read on screen.
+ *
+ * The record is carried inside the tool input rather than beside it, because the
+ * input is what the approval request is stored with and what comes back when
+ * the user answers. Anything held elsewhere would be a second source of truth
+ * about what was approved.
+ *
+ * The resource version is the row's own `updatedAt` plus its revocation state.
+ * Every table an approval can name already carries `updatedAt`, so this needs
+ * no new column and no migration to keep in step.
+ */
+
+export type ApprovalBinding = {
+  /** The grant the act was proposed against, and the state it was in. */
+  grantId: string;
+  grantRealPath: string;
+  grantUpdatedAt: string;
+  /** The name that was proposed. */
+  path: string;
+  /** False at proposal time, and still false at execution: nothing to replace. */
+  targetWasAbsent: boolean;
+};
+
+/**
+ * What the assistant's proposal assumes to be true, recorded now so the same
+ * facts can be checked again when the user has answered.
+ */
+export async function bindWriteApproval(input: { grantId: string; path: string }): Promise<ApprovalBinding> {
+  const grant = await requireActiveGrant(input.grantId);
+  const target = await resolveWithinGrant(grant, input.path, "write");
+  // A write resolves to something that does not exist yet; the exclusive create
+  // refuses otherwise, so this records the fact rather than assuming it.
+  const existing = await stat(target.absolutePath).catch(() => null);
+  const row = await readGrantVersion(grant.id);
+  return {
+    grantId: grant.id,
+    grantRealPath: grant.realPath,
+    grantUpdatedAt: row.updatedAt,
+    path: target.relativePath,
+    targetWasAbsent: existing === null
+  };
+}
+
+async function readGrantVersion(grantId: string): Promise<{ updatedAt: string }> {
+  const { db } = await import("@/db");
+  const row = await db.directoryGrant.findUnique({ where: { id: grantId }, select: { updatedAt: true } });
+  if (!row) throw new LocalFileRefused("outside-grant", "That folder is not available.");
+  return { updatedAt: row.updatedAt.toISOString() };
+}
+
+/**
+ * Check an approval against the world as it is now.
+ *
+ * Returns nothing when the act is still the act that was approved, and throws
+ * with a reason the model can read when it is not. It does not fall back to
+ * asking again: a re-prompt is a second decision the user did not expect to be
+ * asked for, and the safer failure is to do nothing and say why.
+ */
+export async function verifyWriteApproval(binding: ApprovalBinding): Promise<void> {
+  const grant = await requireActiveGrant(binding.grantId);
+  if (grant.realPath !== binding.grantRealPath) {
+    throw new LocalFileRefused("outside-grant", "The granted folder changed while you were deciding, so this was not carried out.");
+  }
+  const current = await readGrantVersion(grant.id);
+  if (current.updatedAt !== binding.grantUpdatedAt) {
+    throw new LocalFileRefused("outside-grant", "The granted folder changed while you were deciding, so this was not carried out.");
+  }
+  const target = await resolveWithinGrant(grant, binding.path, "write");
+  const existing = await stat(target.absolutePath).catch(() => null);
+  if (existing !== null && binding.targetWasAbsent) {
+    throw new LocalFileRefused(
+      "not-a-file",
+      "A file with that name appeared while you were deciding. Nothing was written, because you approved creating a new file rather than replacing one."
+    );
+  }
+}

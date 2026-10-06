@@ -113,3 +113,45 @@ export function getWebSearchSources(
       }));
   });
 }
+
+const LOCAL_FILE_TOOLS = new Set(["listLocalFiles", "readLocalFile", "writeLocalFile"]);
+
+/**
+ * What a turn read or produced from a folder the user granted.
+ *
+ * Read off the tool parts rather than kept beside them, so the disclosure
+ * cannot drift from the calls that actually happened: there is one source for
+ * both the work and the statement about it. Only successful calls count — a
+ * refused one read nothing, and claiming otherwise would overstate what left
+ * the machine.
+ */
+export function getLocalFileUses(message: UIMessage): { grantLabel: string; grantId: string; path: string; toolId: string }[] {
+  if (!Array.isArray(message.parts)) return [];
+  const seen = new Set<string>();
+  const uses: { grantLabel: string; grantId: string; path: string; toolId: string }[] = [];
+  for (const part of message.parts) {
+    if (typeof part?.type !== "string") continue;
+    // A tool part is named `tool-<name>` everywhere else in the app — that is
+    // the shape the request schema accepts and the transcript renders. Matching
+    // the bare name against the prefixed one found nothing, and the disclosure
+    // this function exists for never appeared.
+    const toolId = part.type.replace(/^tool-/, "");
+    if (!LOCAL_FILE_TOOLS.has(toolId)) continue;
+    const tool = part as {
+      type: string;
+      input?: { grantId?: unknown; path?: unknown };
+      output?: { grantLabel?: unknown; path?: unknown };
+      state?: string;
+    };
+    if (tool.state !== "output-available") continue;
+    const grantId = typeof tool.input?.grantId === "string" ? tool.input.grantId : "";
+    const path = typeof tool.output?.path === "string" ? tool.output.path : typeof tool.input?.path === "string" ? tool.input.path : "";
+    const grantLabel = typeof tool.output?.grantLabel === "string" ? tool.output.grantLabel : "";
+    if (!path) continue;
+    const key = `${toolId}:${path}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uses.push({ grantLabel, grantId, path, toolId });
+  }
+  return uses;
+}

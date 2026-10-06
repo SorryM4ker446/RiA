@@ -14,7 +14,7 @@ One body of business code, three ways to start it:
 
 | Runtime | `APP_RUNTIME` | Started by | Data location |
 | --- | --- | --- | --- |
-| Browser development | `web` (default) | `npm run dev` | `.desktop-data/dev/` |
+| Local development server | `web` (default) | `npm run dev` | `.desktop-data/dev/` |
 | Desktop application | `desktop` | `npm run desktop:dev` / installed build | development: `.desktop-data/dev/`; installed: `%APPDATA%\Private AI Assistant\data\` |
 | Automated tests | `test` | Playwright / Node Test | `.desktop-data/test/<run>/` or a system temporary directory |
 
@@ -39,8 +39,8 @@ src/lib/            Shared infrastructure
   memory/           Memory storage, retrieval scoring and vector rebuild
   models/           Provider adapters, dynamic catalogs, my models, availability, preferences and usage
   local/            Local workspace identity
+  local-files/      User-granted directories: path safety, grants and their limits
   server/           Request boundary: security, quotas, body size, errors
-src/prompts/        Prompt templates
 src/tools/          Tool definitions and registry
 electron/           Desktop main process: window, service lifecycle, encrypted settings, migrations
 scripts/            Local database, build, packaging and verification scripts
@@ -61,7 +61,7 @@ Media and backup directories are still named `sha256(<workspace id>)`, so files 
 ## 5. Request path
 
 ```
-Browser / Electron renderer
+Electron renderer
     │
     ├─ Local access credential (HttpOnly cookie)
     ▼
@@ -93,8 +93,8 @@ Two standing rules:
 
 | Layer | Location | Covers |
 | --- | --- | --- |
-| Server | `tests/server/` | Real route handlers, an isolated SQLite database, a deterministic model double |
-| Browser | `tests/e2e/` | Key paths over real HTTP and SQLite, production build plus standalone |
+| Server | `tests/server/` | Real route handlers, an isolated SQLite database, a deterministic model double; directory grants resolve against real temporary folders and real junctions, never mocks |
+| Interface | `tests/e2e/` | Key paths over real HTTP and SQLite, production build plus standalone; a Chromium renderer driving the app, not a browser product |
 | Desktop | `tests/desktop/` | Path resolution, migrations, packaging boundaries and the Electron smoke |
 
 Tests always use an isolated database and media directory and never read or write real user data. A boundary assertion checks that a request **without** the local credential is refused, rather than the cross-account isolation that no longer exists. See [Testing and local verification](testing.md).

@@ -173,3 +173,18 @@ test("schedule mutations reject a missing task and a request without the local c
   assert.equal((await reminders.POST(new NextRequest("http://localhost/api/tasks/reminders", { method: "POST", headers: { host: "localhost", "content-type": "application/json" } }))).status, 401);
   assert.equal((await db.task.findUnique({ where: { id: owned.taskId } })).remindedAt, null);
 });
+
+
+test("a reminder claim saves a durable notice and notice failure rolls the claim back", async () => {
+  await db.appNotice.deleteMany({});
+  const task = await makeTask();
+  await db.$executeRawUnsafe("CREATE TRIGGER reject_due_notice BEFORE INSERT ON app_notices BEGIN SELECT RAISE(ABORT, 'fixture-notice-failure'); END");
+  try {
+    await assert.rejects(() => claimTaskReminders(now));
+    assert.equal((await db.task.findUniqueOrThrow({ where: { id: task.taskId } })).remindedAt, null);
+  } finally { await db.$executeRawUnsafe("DROP TRIGGER reject_due_notice"); }
+  assert.equal((await claimTaskReminders(now)).length, 1);
+  const notice = await db.appNotice.findFirstOrThrow({ where: { kind: "taskReminder" } });
+  assert.equal(notice.title, "task-due"); assert.match(notice.detail!, /系统通知可能被拒绝或错过/);
+  await claimTaskReminders(now); assert.equal(await db.appNotice.count({ where: { kind: "taskReminder" } }), 1);
+});

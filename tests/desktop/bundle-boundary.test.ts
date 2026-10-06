@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
-import { dropRuntimeImageCache } from "../../scripts/desktop-package-hooks.mjs";
+import { dropRuntimeCaches } from "../../scripts/desktop-package-hooks.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -90,6 +90,7 @@ function seedValidRuntime(root, runtime) {
   for (const entry of ["pdfjs-dist/legacy/build/pdf.mjs", "pdfjs-dist/legacy/build/pdf.worker.mjs", "mammoth/lib/index.js", "jszip/lib/index.js"]) {
     write(`node_modules/${entry}`);
   }
+  cpSync(join(repositoryRoot, "vendor", "sprintf-js"), join(runtime, "node_modules", "sprintf-js"), { recursive: true });
   write("node_modules/.prisma/client/query_engine.dll.node");
   return runtime;
 }
@@ -111,12 +112,18 @@ function packageFixture(root, build) {
   const packageDirectory = join(root, "out", "RiA-win32-x64");
   mkdirSync(packageDirectory, { recursive: true });
   writeFileSync(join(packageDirectory, "RiA.exe"), "");
+  // Staged loose under `resources`, the way `extraResource` puts it. A real
+  // package has it, and verification requires it: a tray without an icon is a
+  // process the user cannot find.
+  const icon = join(packageDirectory, "resources", "assets", "desktop-icon.png");
+  mkdirSync(dirname(icon), { recursive: true });
+  writeFileSync(icon, "");
   const runtime = seedValidRuntime(root, join(packageDirectory, "resources", ".desktop-runtime"));
   build(runtime);
   return packageDirectory;
 }
 
-test("packaged verification rejects paths that overflow the Squirrel temp directory", () => {
+test("packaged verification rejects paths that overflow the reserved installation prefix", () => {
   fixture("verify-desktop-package.mjs", (root, run) => {
     const packageDirectory = packageFixture(root, seedOverflowingPath);
     const result = run(packageDirectory);
@@ -134,7 +141,31 @@ test("packaged verification accepts a package whose longest path still fits", ()
   });
 });
 
-test("packaged verification ignores the runtime image cache the packaging hook strips", () => {
+test("packaged verification rejects a document consumer using an unpatched nested formatter", () => {
+  fixture("verify-desktop-package.mjs", (root, run) => {
+    const packageDirectory = packageFixture(root, (runtime) => {
+      const nested = join(runtime, "node_modules", "mammoth", "node_modules", "sprintf-js");
+      mkdirSync(nested, { recursive: true });
+      writeFileSync(join(nested, "index.js"), "exports.sprintf = (format, value) => value.toFixed(Number(format.match(/\\d+/)[0]));");
+    });
+    const result = run(packageDirectory);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /RangeError|precision guard/);
+  });
+});
+
+test("packaged verification requires the document formatter license", () => {
+  fixture("verify-desktop-package.mjs", (root, run) => {
+    const packageDirectory = packageFixture(root, (runtime) => {
+      rmSync(join(runtime, "node_modules", "sprintf-js", "LICENSE"));
+    });
+    const result = run(packageDirectory);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Document formatter backport is missing.*LICENSE/);
+  });
+});
+
+test("packaged verification ignores regenerated caches stripped by the packaging hook", () => {
   fixture("verify-desktop-package.mjs", (root, run) => {
     // Running the packaged app regenerates this cache in place, so verification
     // must not fail on a directory the installer never ships.
@@ -142,6 +173,9 @@ test("packaged verification ignores the runtime image cache the packaging hook s
       const cached = join(runtime, ".next", "cache", "images", "a".repeat(40), `${"b".repeat(150)}.png`);
       mkdirSync(dirname(cached), { recursive: true });
       writeFileSync(cached, "");
+      const response = join(runtime, ".next", "server", "route-cache", "APP_PAGE", "a".repeat(64), "$", "conversations.segments", "conversations", "__PAGE__.segment.rsc");
+      mkdirSync(dirname(response), { recursive: true });
+      writeFileSync(response, "");
     });
     const result = run(packageDirectory);
     assert.equal(result.status, 0, result.stderr);
@@ -149,19 +183,29 @@ test("packaged verification ignores the runtime image cache the packaging hook s
   });
 });
 
-test("the packaged bundle drops the runtime image cache before Squirrel reads it", async () => {
+test("packaging drops runtime caches and preserves immutable prerender seeds and metadata", async () => {
   // Reproduce what the packager does: copy the extra resource into the staging
   // resources directory, then run the afterCopyExtraResources hook the way
   // promisifyHooks does, with the completion callback appended last.
   const staging = mkdtempSync(join(tmpdir(), "private-ai-staging-"));
   try {
-    const runtime = join(repositoryRoot, ".desktop-runtime");
-    if (!existsSync(join(runtime, "server.js"))) return; // Runtime not built in this checkout.
+    const runtime = seedValidRuntime(staging, join(staging, "source"));
+    const cacheDirectory = join(runtime, ".next", "cache");
+    const cached = join(cacheDirectory, "images", "a".repeat(40), `${"b".repeat(150)}.png`);
+    mkdirSync(dirname(cached), { recursive: true });
+    writeFileSync(cached, "");
+    const response = join(runtime, ".next", "server", "route-cache", "APP_PAGE", "a".repeat(64), "$", "chat.rsc");
+    mkdirSync(dirname(response), { recursive: true });
+    writeFileSync(response, "Runtime copy");
+    const seedDirectory = join(runtime, ".next", "server", "app");
+    mkdirSync(seedDirectory, { recursive: true });
+    writeFileSync(join(seedDirectory, "chat.rsc"), "Immutable seed");
+    writeFileSync(join(seedDirectory, "chat.meta"), "Source owner metadata");
     cpSync(runtime, join(staging, "resources", ".desktop-runtime"), { recursive: true });
     assert.equal(existsSync(join(staging, "resources", ".desktop-runtime", ".next", "cache", "images")), true);
 
     await new Promise<void>((resolvePromise, reject) => {
-      const returned: unknown = dropRuntimeImageCache(staging, "1.0.0", "win32", "x64", (error) =>
+      const returned: unknown = dropRuntimeCaches(staging, "1.0.0", "win32", "x64", (error) =>
         error ? reject(error) : resolvePromise(),
       );
       // A hook that never calls back hangs the packaging step, so surface it.
@@ -171,8 +215,13 @@ test("the packaged bundle drops the runtime image cache before Squirrel reads it
     });
 
     assert.equal(existsSync(join(staging, "resources", ".desktop-runtime", ".next", "cache")), false);
+    assert.equal(existsSync(join(staging, "resources", ".desktop-runtime", ".next", "server", "route-cache")), false);
+    assert.equal(readFileSync(join(staging, "resources", ".desktop-runtime", ".next", "server", "app", "chat.rsc"), "utf8"), "Immutable seed");
+    assert.equal(readFileSync(join(staging, "resources", ".desktop-runtime", ".next", "server", "app", "chat.meta"), "utf8"), "Source owner metadata");
     assert.equal(existsSync(join(staging, "resources", ".desktop-runtime", "server.js")), true);
+    assert.equal(existsSync(join(runtime, ".next", "server", "route-cache")), true);
   } finally {
+    if (resolve(dirname(staging)) !== resolve(tmpdir())) throw new Error("Unexpected test directory");
     rmSync(staging, { recursive: true, force: true });
   }
 });

@@ -1,6 +1,6 @@
 import { DocumentViewer } from "@/features/knowledge/document-viewer";
 
-export default async function DocumentPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  return <DocumentViewer id={id} key={id} />;
+export default async function DocumentPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ version?: string }> }) {
+  const [{ id }, { version }] = await Promise.all([params, searchParams]);
+  return <DocumentViewer id={id} version={version} key={`${id}:${version ?? ""}`} />;
 }

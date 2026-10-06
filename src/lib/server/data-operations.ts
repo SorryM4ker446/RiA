@@ -17,6 +17,15 @@ export function retainDataOperation() {
   return () => { if (!released) { released = true; operations.active--; } };
 }
 
+export async function runBackgroundDataOperation<T>(operation: () => Promise<T>): Promise<T> {
+  const release = retainDataOperation();
+  try {
+    return await operations.context.run({ requestId: randomUUID() }, operation);
+  } finally {
+    release();
+  }
+}
+
 // The local service has one database and one media store. Never restore while a
 // request can still persist an answer, execute a tool, or migrate old media.
 export function protectDataOperation<Args extends [NextRequest, ...unknown[]]>(handler: (...args: Args) => Promise<Response>) {

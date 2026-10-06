@@ -1,6 +1,8 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runtimeCacheDirectories } from "./desktop-package-hooks.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const runtimeDirectory = join(repositoryRoot, ".desktop-runtime");
@@ -23,31 +25,25 @@ function requireFile(path, label) {
   if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`${label} is missing: ${path}`);
 }
 
-// Windows rejects a fully qualified path of 260 characters or more. Before nuget
-// runs, Squirrel copies the packaged app to a temp directory, so a file that is
-// safe inside the bundle can still overflow once staged. The reserve below
-// covers that re-rooting: %TEMP%\squirrel-maker-XXXXXX\ plus the
-// resources/.desktop-runtime/ prefix it is copied under.
+// Reserve space for the selected installation root, version directory and
+// resources/.desktop-runtime/ prefix under the traditional Windows path limit.
 const windowsPathLimit = 260;
-const squirrelStagingReserve = 102;
-const windowsPathBudget = windowsPathLimit - squirrelStagingReserve;
+const installationPrefixReserve = 102;
+const windowsPathBudget = windowsPathLimit - installationPrefixReserve;
 
-// The packaging hook strips the runtime image cache from the staged copy, so it
-// never reaches nuget. Running the packaged app regenerates it in place, and this
-// check runs against that same directory, so the cache is skipped here for the
-// same reason: it is not part of what the installer ships.
-const runtimeImageCache = join(".next", "cache");
+// Running the packaged app regenerates the caches stripped by the packaging
+// hook. Their paths do not describe files shipped in the installer.
 
 function assertPackagedPathsFitWindows(directory) {
   let longest = { length: 0, path: "" };
   for (const file of walk(directory)) {
     const relativePath = relative(directory, file);
-    if (relativePath.split(sep).join("/").startsWith(`${runtimeImageCache.split(sep).join("/")}/`)) continue;
+    if (runtimeCacheDirectories.some((cache) => relativePath.startsWith(`${cache}${sep}`))) continue;
     if (relativePath.length > longest.length) longest = { length: relativePath.length, path: relativePath };
   }
   if (longest.length >= windowsPathBudget) {
     throw new Error(
-      `Packaged path is ${longest.length} characters, which reaches the Windows limit of ${windowsPathLimit} once the Squirrel temp directory is prepended: ${longest.path}`,
+      `Packaged path is ${longest.length} characters, which reaches the Windows limit of ${windowsPathLimit} with the reserved installation prefix: ${longest.path}`,
     );
   }
 }
@@ -62,6 +58,19 @@ function verifyRuntime(directory, { enforceWindowsPathBudget = false } = {}) {
   requireFile(join(directory, "prisma", "schema.prisma"), "Prisma schema");
   for (const entry of ["pdfjs-dist/legacy/build/pdf.mjs", "pdfjs-dist/legacy/build/pdf.worker.mjs", "mammoth/lib/index.js", "jszip/lib/index.js"]) {
     requireFile(join(directory, "node_modules", entry), "Document parser dependency");
+  }
+
+  for (const entry of ["package.json", "src/sprintf.js", "LICENSE"]) {
+    requireFile(join(directory, "node_modules", "sprintf-js", entry), "Document formatter backport");
+  }
+  const documentRequire = createRequire(join(directory, "node_modules", "mammoth", "lib", "index.js"));
+  const formatterPath = documentRequire.resolve("sprintf-js");
+  if (relative(directory, formatterPath).startsWith(`..${sep}`)) {
+    throw new Error("Document formatter resolves outside the desktop runtime.");
+  }
+  const { sprintf } = documentRequire("sprintf-js");
+  if (sprintf("%.999999f", 1.25) !== sprintf("%.100f", 1.25)) {
+    throw new Error("Document formatter precision guard is missing from the desktop runtime.");
   }
 
   const files = walk(directory);
@@ -85,14 +94,11 @@ function verifyRuntime(directory, { enforceWindowsPathBudget = false } = {}) {
     }
   }
 
-  // Only the packaged copy is subject to the Squirrel staging limit. The source
-  // runtime legitimately grows a Next.js image cache while the app runs, and the
+  // Only the packaged copy is subject to the installation path budget. The source
+  // runtime legitimately grows Next.js caches while the app runs, and the
   // packaging hook drops that cache from the staged copy.
   if (enforceWindowsPathBudget) {
-    // Squirrel re-copies the packaged app under %TEMP%\squirrel-maker-XXXXXX
-    // before running nuget, which cannot handle a fully qualified path of 260
-    // characters or more. Fail here with the offending path instead of letting
-    // the installer step die on an opaque nuget "path too long" error.
+    // Reject oversized relative paths before they reach the installer.
     assertPackagedPathsFitWindows(directory);
   }
 }
@@ -101,6 +107,11 @@ verifyRuntime(runtimeDirectory);
 
 if (packageDirectory) {
   requireFile(join(packageDirectory, "RiA.exe"), "Packaged application executable");
+  // The tray icon is only reachable as a loose file under `resources`. Nothing
+  // else in the application reads it, so its absence is invisible until someone
+  // chooses to run in the tray and the app becomes a process with no icon and
+  // possibly no window.
+  requireFile(join(packageDirectory, "resources", "assets", "desktop-icon.png"), "Tray icon resource");
   verifyRuntime(join(packageDirectory, "resources", ".desktop-runtime"), { enforceWindowsPathBudget: true });
   const packagedFiles = walk(packageDirectory);
   if (packagedFiles.some((path) => /^\.env(?:\.|$)/i.test(path.split(/[\\/]/).pop() || ""))) {

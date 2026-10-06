@@ -26,8 +26,14 @@ export const documentSourceSchema = z.object({
   pageNumber: z.number().int().positive().nullable(),
   ordinal: z.number().int().nonnegative(),
   snippet: z.string().max(1200),
+  contentHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  collection: z.string().max(40).nullable().optional(),
+  retrieval: z.literal("local-keyword").optional(),
+  matchedTerms: z.array(z.string().max(100)).max(16).optional(),
 });
 export type DocumentSource = z.infer<typeof documentSourceSchema>;
-export function documentSourceUrl(source: Pick<DocumentSource, "documentId" | "chunkId">) {
-  return `/knowledge/documents/${encodeURIComponent(source.documentId)}#${encodeURIComponent(source.chunkId)}`;
+export function documentSourceUrl(source: Pick<DocumentSource, "documentId" | "chunkId" | "contentHash">) {
+  return `/knowledge/documents/${encodeURIComponent(source.documentId)}${source.contentHash ? `?version=${source.contentHash}` : ""}#${encodeURIComponent(source.chunkId)}`;
 }
+
+export type DocumentReferenceStatus = { chunkId: string; status: "current" | "changed" | "deleted" | "unverified" };

@@ -99,6 +99,17 @@ test("manual task execution persists data and emits one success log", async () =
   assert.deepEqual(logs.map((call) => call.arguments[1].state), ["output-available"]);
 });
 
+test("manual tasks work without any model and reject an explicitly removed selection", async () => {
+  await db.workspacePreference.deleteMany({});
+  const response = await tools.POST(request("/api/tools/run", "POST", { tool: "createTask", mode: "chat", input: { title: "Offline local task" } }, cookie));
+  assert.equal(response.status, 200);
+  assert.equal(await db.task.count({ where: { title: "Offline local task" } }), 1);
+  assert.equal(await db.modelRequest.count(), 0);
+  const invalid = await tools.POST(request("/api/tools/run", "POST", { tool: "createTask", mode: "chat", model: { providerId: "openrouter", modelId: "removed/model" }, input: { title: "Must not be created" } }, cookie));
+  assert.equal(invalid.status, 503);
+  assert.equal(await db.task.count({ where: { title: "Must not be created" } }), 0);
+});
+
 for (const code of ["TIMEOUT", "UPSTREAM_FAILED"] as const) {
   test(`manual ${code} execution emits only one failure log`, async (t) => {
     t.mock.method(getToolDescriptor("createTask"), "execute", async () => { throw new ApiError({ code, message: "Simulated failure" }); });

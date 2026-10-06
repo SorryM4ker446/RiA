@@ -3,6 +3,8 @@ import { db } from "@/db";
 import { ApiError, normalizeApiError } from "@/lib/server/api-error";
 import { getModelPreferences } from "@/lib/models/preferences";
 import { dataRequestContext } from "@/lib/server/data-operations";
+import { budgetDay } from "./call-controls";
+import { modelCallSource, type CallSource } from "./call-context";
 import type { ModelPreferences } from "@/lib/models/preferences-schema";
 
 type Mode = "chat" | "image" | "video" | "embedding";
@@ -31,7 +33,7 @@ export function usageCost(mode: Mode, usage: unknown, metadata: unknown, rate?: 
   // to the input rate, so a configuration without one means what it always did.
   const cacheRead = finite(input.cacheRead);
   const cacheWrite = finite(input.cacheWrite);
-  const noCache = finite(input.noCache) ?? (inputTokens !== null && cacheRead !== null ? inputTokens - cacheRead : null);
+  const noCache = finite(input.noCache) ?? (inputTokens !== null && (cacheRead !== null || cacheWrite !== null) ? Math.max(0, inputTokens - (cacheRead ?? 0) - (cacheWrite ?? 0)) : null);
   const provider = object(object(metadata).openrouter);
   const upstream = finite(provider.cost ?? object(provider.usage).cost);
   if (upstream !== null) return { inputTokens, outputTokens, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite, costUsd: upstream, costSource: "provider" };
@@ -45,15 +47,15 @@ export function usageCost(mode: Mode, usage: unknown, metadata: unknown, rate?: 
   }
   return { inputTokens, outputTokens, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite, costUsd: cost, costSource: cost === null ? "unknown" : "configured" };
 }
-export async function recordModelAttempt(input: { requestId?: string; mode: Mode; modelId: string; modelProvider?: string; started: number; usage?: unknown; metadata?: unknown; error?: unknown; fallback?: boolean; rate?: ModelPreferences["rates"][string] }) {
+export async function recordModelAttempt(input: { attemptId?: string; source?: CallSource; requestId?: string; mode: Mode; modelId: string; modelProvider?: string; started: number; usage?: unknown; metadata?: unknown; error?: unknown; fallback?: boolean; rate?: ModelPreferences["rates"][string] }) {
   const errorCode = input.error === undefined ? null : modelErrorCode(input.error);
   const measured = usageCost(input.mode, input.usage, input.metadata, input.rate);
   // A failed or interrupted request may still have been billed. Never present
   // a configured per-request price as an observed charge for that failure.
   if (errorCode && measured.costSource === "configured") { measured.costUsd = null; measured.costSource = "unknown"; }
   try {
-    await db.modelRequest.create({ data: {
-      requestId: input.requestId ?? dataRequestContext()?.requestId ?? randomUUID(), mode: input.mode, modelId: input.modelId, modelProvider: input.modelProvider ?? "openrouter",
+    const data = {
+      source: input.source ?? modelCallSource(), requestId: input.requestId ?? dataRequestContext()?.requestId ?? randomUUID(), mode: input.mode, modelId: input.modelId, modelProvider: input.modelProvider ?? "openrouter",
       status: errorCode === "ABORTED" ? "aborted" : errorCode ? "error" : "success", errorCode, durationMs: Math.min(2_147_483_647, Math.max(0, Math.round(Date.now() - input.started))),
       // Spelled out rather than spread: the measured value carries the cache
       // split for display, and an unknown key here would fail the whole write.
@@ -61,20 +63,31 @@ export async function recordModelAttempt(input: { requestId?: string; mode: Mode
       inputTokens: measured.inputTokens === null ? null : Math.min(2_147_483_647, Math.round(measured.inputTokens)),
       outputTokens: measured.outputTokens === null ? null : Math.min(2_147_483_647, Math.round(measured.outputTokens)),
       fallback: input.fallback ?? false,
-    } });
-    await db.modelRequest.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 90 * 86_400_000) } } });
-    const boundary = await db.modelRequest.findMany({ where: {}, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: 5000, take: 1, select: { id: true, createdAt: true } });
-    if (boundary[0]) await db.modelRequest.deleteMany({ where: { OR: [{ createdAt: { lt: boundary[0].createdAt } }, { createdAt: boundary[0].createdAt, id: { lte: boundary[0].id } }] } });
+    };
+    if (input.attemptId) {
+      const settlement = { ...data };
+      delete (settlement as Partial<typeof data>).source;
+      delete (settlement as Partial<typeof data>).requestId;
+      await db.modelRequest.updateMany({ where: { id: input.attemptId, status: "pending" }, data: settlement });
+    }
+    else await db.modelRequest.create({ data });
+    await db.modelRequest.deleteMany({ where: { status: { not: "pending" }, createdAt: { lt: new Date(Date.now() - 90 * 86_400_000) } } });
+    const boundary = await db.modelRequest.findMany({ where: { status: { not: "pending" } }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: 5000, take: 1, select: { id: true, createdAt: true } });
+    if (boundary[0]) await db.modelRequest.deleteMany({ where: { status: { not: "pending" }, OR: [{ createdAt: { lt: boundary[0].createdAt } }, { createdAt: boundary[0].createdAt, id: { lte: boundary[0].id } }] } });
   } catch { console.error("model.usage.write_failed"); }
 }
-export async function usageSummary() {
+export async function usageSummary(source?: CallSource) {
   const since = new Date(Date.now() - 30 * 86_400_000);
-  const where = { createdAt: { gte: since } };
+  const where = { createdAt: { gte: since }, ...(source ? { source } : {}) };
   const [recent, totals, unknown] = await Promise.all([
-    db.modelRequest.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 100, select: { id: true, requestId: true, mode: true, modelId: true, modelProvider: true, status: true, durationMs: true, inputTokens: true, outputTokens: true, costUsd: true, costSource: true, errorCode: true, fallback: true, createdAt: true } }),
+    db.modelRequest.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 100, select: { id: true, source: true, estimatedUsd: true, requestId: true, mode: true, modelId: true, modelProvider: true, status: true, durationMs: true, inputTokens: true, outputTokens: true, costUsd: true, costSource: true, errorCode: true, fallback: true, createdAt: true } }),
     db.modelRequest.aggregate({ where, _count: true, _sum: { inputTokens: true, outputTokens: true, costUsd: true } }),
     db.modelRequest.count({ where: { ...where, costUsd: null } }),
   ]);
-  return { recent, totals: { requests: totals._count, inputTokens: totals._sum.inputTokens, outputTokens: totals._sum.outputTokens, costUsd: totals._sum.costUsd, unknownCostRequests: unknown }, days: 30 };
+  const preferences = await getModelPreferences();
+  const day = budgetDay(new Date(), preferences.callLimits.timeZone);
+  const counter = await db.modelCallDay.findUnique({ where: { day } });
+  const active = await db.modelRequest.count({ where: { status: "pending" } });
+  return { controls: { ...preferences.callLimits, day, calls: counter?.calls ?? 0, estimatedUsd: counter?.estimatedUsd ?? 0, active }, recent, totals: { requests: totals._count, inputTokens: totals._sum.inputTokens, outputTokens: totals._sum.outputTokens, costUsd: totals._sum.costUsd, unknownCostRequests: unknown }, days: 30 };
 }
 export async function requestPricing() { return (await getModelPreferences()).rates; }

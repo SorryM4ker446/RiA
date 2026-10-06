@@ -162,20 +162,6 @@ export function dedupeAttachmentNames(names: string[]): string[] {
   return [...new Set(names.filter(Boolean))];
 }
 
-export function dedupeFiles(files: File[]): File[] {
-  const seen = new Set<string>();
-  const result: File[] = [];
-
-  for (const file of files) {
-    const key = `${file.name}::${file.size}::${file.type}::${file.lastModified}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(file);
-  }
-
-  return result;
-}
-
 export function mapStoredMessagesToUI(messages: StoredMessage[]): {
   uiMessages: UIMessage[];
   imageMap: Record<string, string>;

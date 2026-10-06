@@ -36,6 +36,8 @@ model ModelCatalogSnapshot {
 model ModelRequest {
   id           String   @id @default(cuid())
   requestId    String
+  source       String   @default("unattributed")
+  estimatedUsd Float?
   mode         String
   modelId      String
   modelProvider String  @default("openrouter")
@@ -51,6 +53,13 @@ model ModelRequest {
 
   @@index([createdAt, id])
   @@map("model_requests")
+}
+
+model ModelCallDay {
+  day           String @id
+  calls         Int @default(0)
+  estimatedUsd  Float @default(0)
+  @@map("model_call_days")
 }
 
 model Chat {
@@ -73,6 +82,8 @@ model Chat {
   summary         String?
   summaryUpToMessageId String?
   summaryModelId  String?
+  historyRevision Int          @default(0)
+  summaryRevision Int?
 
   lastMessageAt   DateTime     @default(now())
   createdAt       DateTime     @default(now())
@@ -81,6 +92,8 @@ model Chat {
   tags            ChatTag[]
   generatedMedia  MediaAsset[]
   agentRuns       AgentRun[]
+  scheduledRuns   ScheduledRun[]
+  workspaceReview WorkspaceReview?
 
   @@index([lastMessageAt, id])
   @@index([archived, pinned, lastMessageAt, id])
@@ -141,14 +154,11 @@ model AgentStep {
   // list without copying a whole result into a second store.
   input     Json?
   output    Json?
-  // What the step produced, when it produced something viewable.
-  artifactAssetId String?
   errorCode String?
   startedAt DateTime @default(now())
   finishedAt DateTime?
 
   @@unique([runId, position])
-  @@index([runId, position])
   @@map("agent_steps")
 }
 
@@ -189,7 +199,6 @@ model MediaAsset {
   inputs            MediaGenerationInput[] @relation("GenerationOutput")
   usedByGenerations MediaGenerationInput[] @relation("GenerationInput")
 
-  @@index([createdAt])
   @@index([createdAt, id])
   @@index([sourceChatId])
   @@index([kind])
@@ -318,6 +327,178 @@ model DocumentTerm {
   @@id([chunkId, term])
   @@index([term, chunkId])
   @@map("document_terms")
+}
+
+// A directory the user explicitly opened to the assistant. This is a permission
+// on one machine, not workspace content: a Windows path means nothing on
+// another machine, and carrying it in a backup would hand a restored archive a
+// permission the person restoring it never granted. Grants are therefore
+// created on the machine that holds the files and deliberately stay out of
+// workspace backup/restore.
+model DirectoryGrant {
+  id    String @id @default(cuid())
+  // What the user recognised when granting, kept so a list of absolute paths
+  // stays readable.
+  label String
+  // The path the user chose, verbatim.
+  path  String
+  // The resolved real path. Containment is always decided against this rather
+  // than `path`, and deliberately against the string as it was when the user
+  // granted it: re-resolving the root on every use would move the boundary
+  // along with a junction swapped in afterwards, instead of refusing it. What
+  // is re-resolved each time is the target inside the grant, and that is what
+  // catches such a swap.
+  realPath  String @unique
+  createdAt DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt DateTime?
+  updatedAt DateTime  @updatedAt
+
+  @@index([revokedAt])
+  @@map("directory_grants")
+}
+
+// A time the user asked something to happen without being present. One local
+// process runs these, so a job that is due is claimed rather than merely seen:
+// two of them firing at once would create two backups or two reminders.
+model ScheduledJob {
+  id       String @id @default(cuid())
+  // Kept as a string so a kind this version does not know is skipped rather
+  // than guessed at, and so a new kind needs no migration to be readable.
+  kind    String
+  // Disabled by default and stays that way. A schedule that starts on its own
+  // is a background process nobody asked for.
+  enabled Boolean @default(false)
+  useModel Boolean @default(false)
+  // The local wall-clock time and the zone it is meant in, kept the same way a
+  // reminder is, so a job set for 08:30 stays at 08:30 across a daylight saving
+  // change that a stored UTC instant would not survive.
+  localTime String
+  timeZone  String
+  // "daily" or "weekly". Weekly also needs a day; a job that is not weekly
+  // ignores it.
+  interval  String  @default("daily")
+  dayOfWeek Int?
+  // When this job is next owed, recomputed after every run rather than advanced
+  // blindly, so a machine that was asleep catches up once instead of replaying
+  // every interval it slept through.
+  nextRunAt  DateTime
+  lastRunAt  DateTime?
+  // "running" while a run is in flight. A job left running by a process that
+  // went away is released on the next start rather than waiting forever.
+  lastStatus String?
+  lastError  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  runs       ScheduledRun[]
+
+  @@index([enabled, nextRunAt])
+  @@map("scheduled_jobs")
+}
+
+model WorkspaceActivityState {
+  id String @id @default("local")
+  recordingStartedAt DateTime @default(now())
+  completeSince DateTime @default(now())
+  @@map("workspace_activity_state")
+}
+
+model WorkspaceEvent {
+  id String @id @default(cuid())
+  kind String
+  entityId String
+  label String
+  occurredAt DateTime @default(now())
+  @@index([occurredAt, id])
+  @@map("workspace_events")
+}
+
+model WorkspaceReview {
+  id String @id @default(cuid())
+  period String
+  timeZone String
+  startAt DateTime
+  endAt DateTime
+  facts Json
+  chatId String? @unique
+  chat Chat? @relation(fields: [chatId], references: [id], onDelete: SetNull)
+  modelStatus String @default("disabled")
+  modelError String?
+  modelText String?
+  createdAt DateTime @default(now())
+  @@unique([period, timeZone, startAt])
+  @@index([createdAt, id])
+  @@map("workspace_reviews")
+}
+
+// Local execution evidence survives schedule deletion and notice dismissal.
+// It is operational history, not portable workspace content.
+model ScheduledRun {
+  id         String @id @default(cuid())
+  jobId      String?
+  job        ScheduledJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  kind       String
+  trigger    String @default("scheduled")
+  retryOf    String? @unique
+  requestId  String
+  status     String @default("running")
+  errorCode  String?
+  chatId     String?
+  chat       Chat? @relation(fields: [chatId], references: [id], onDelete: SetNull)
+  backupId   String?
+  startedAt  DateTime @default(now())
+  finishedAt DateTime?
+
+  @@index([startedAt, id])
+  @@index([jobId, startedAt])
+  @@index([status, startedAt])
+  @@map("scheduled_runs")
+}
+
+// Something the app wants the user to know about, kept in the app as well as
+// possibly on screen. A notification the system refuses to show - disabled, or
+// unsupported - must not take the message with it, so the reminder centre reads
+// from here rather than from what happened to be displayed.
+model AppNotice {
+  id    String @id @default(cuid())
+  // "backupReminder", "dailyBrief", "taskReminder" and whatever a later version
+  // adds. Kept as a string so an unknown kind is shown as itself rather than
+  // dropped.
+  kind   String
+  title  String
+  detail String?
+  // Where in the app this leads, so clicking it goes somewhere rather than
+  // nowhere.
+  href String?
+  // Repeated notices collapse onto the row they repeat rather than stacking a
+  // new one daily.
+  fingerprint String
+  createdAt   DateTime  @default(now())
+  readAt      DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([fingerprint])
+  @@index([readAt, createdAt])
+  @@map("app_notices")
+}
+
+// A copy the application itself wrote to a place the user chose.
+//
+// Backups the workspace created and backups the user took elsewhere are
+// different things: only the first keeps ageing on this machine, and only the
+// second is off it. The reminder reads the created ones; this records the
+// exported ones so the page can tell the user which is which.
+model BackupExport {
+  id       String @id @default(cuid())
+  backupId String
+  // Where the copy was written, on this machine. Shown to the user; never
+  // resolved by the application afterwards.
+  path       String
+  byteSize   Int
+  exportedAt DateTime @default(now())
+
+  @@index([exportedAt])
+  @@map("backup_exports")
 }
 
 enum MessageRole {

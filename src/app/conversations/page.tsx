@@ -4,6 +4,7 @@ import Link from "next/link";
 import { BackToChatLink } from "@/components/layout/back-to-chat-link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { useAwaitingFirstLoad } from "@/lib/use-awaiting-first-load";
 import { Input } from "@/components/ui/input";
@@ -134,7 +135,7 @@ export default function ConversationsPage() {
         open={() => open(chat)} update={value => update(chat, value)}
         download={format => { void act(async () => { await conversationsApi.download(chat.id, format); setNotice(t("conversations.notice.exported")); }); }} />)}
       {!chats.length && !awaitingFirstChatLoad && !error && <p className="empty-state">{t("conversations.empty")}</p>}
-      {awaitingFirstChatLoad && <p role="status" className="text-sm text-muted-foreground">{t("conversations.loading")}</p>}
+      {awaitingFirstChatLoad && <div role="status" aria-label={t("conversations.loading")} className="space-y-3">{[0,1,2].map(key => <Skeleton key={key} className="h-32 rounded-xl" />)}</div>}
     </div>
     {cursor && <Button variant="outline" className="w-full" disabled={disabled} onClick={() => void load(cursor)}>{t("conversations.loadMore")}</Button>}
     <p className="text-xs leading-relaxed text-muted-foreground">{t("conversations.footnote")}</p>

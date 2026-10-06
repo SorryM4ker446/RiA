@@ -86,8 +86,8 @@ export function useChatPreferences(activeChatId: string | null) {
     selectedVideoModel,
   ]);
   return {
-    modelMode, setModelMode, selectedChatModel, setSelectedChatModel, selectedImageModel,
-    setSelectedImageModel, selectedVideoModel, setSelectedVideoModel, selectedManualTool,
+    modelMode, setModelMode, selectedChatModel, selectedImageModel,
+    selectedVideoModel, selectedManualTool,
     setSelectedManualTool, manualToolsOnly, setManualToolsOnly, applyChatPreferences, onModelSelect,
     isLoadingPreferences: !defaultsLoaded, preferencesError, modelLibrary,
     clearPreferencesError() { defaultsErrorRef.current = null; setPreferencesError(null); },

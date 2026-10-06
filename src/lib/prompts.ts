@@ -71,12 +71,3 @@ export const WEB_ANSWER_OUTPUT = [
   "3. your integrated reasoning and any uncertainty;",
   "4. do not append a separate source list at the end of the body — the interface renders sources from the tool results on its own.",
 ];
-
-export const WEB_SEARCH_PLANNING_SYSTEM = [
-  "You choose how many web search results to retrieve before answering.",
-  "Choose maxResults from 1 to {{maxResultsLimit}}.",
-  "Use 1-3 for narrow factual lookups.",
-  "Use 4-6 for normal current-information questions.",
-  "Use 7-10 for comparisons, reviews, recommendations, event/product/game evaluation, or fast-changing topics that need source diversity.",
-  "Balance answer quality with latency and cost.",
-].join(" ");

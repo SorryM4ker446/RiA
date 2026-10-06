@@ -9,6 +9,7 @@ export const RATE_LIMIT_POLICIES = {
   upload: { limit: 20, windowMs: 60_000 },
   documents: { limit: 6, windowMs: 60_000 },
   reminders: { limit: 10, windowMs: 60_000 },
+  documentReferences: { limit: 120, windowMs: 60_000 },
   conversationSearch: { limit: 30, windowMs: 60_000 },
   mediaRegeneration: { limit: 6, windowMs: 60_000 },
   conversationExport: { limit: 6, windowMs: 60_000 },
@@ -20,6 +21,13 @@ export const RATE_LIMIT_POLICIES = {
   // Each run re-embeds up to a bounded batch of memories, so the budget is a
   // handful of runs per minute, not a bulk operation to retry until empty.
   memoryReindex: { limit: 2, windowMs: 60_000 },
+  // Every memory search embeds the query, so it is a metered model call like
+  // any other. The routes that reach one had no quota at all while the heavier
+  // reindex next to them did, which is the wrong way round.
+  memory: { limit: 30, windowMs: 60_000 },
+  // Granting a folder opens a standing permission, so it is deliberately slower
+  // than the operations that use one.
+  directoryGrants: { limit: 10, windowMs: 60_000 },
 } as const;
 
 type RateLimitRecord = {

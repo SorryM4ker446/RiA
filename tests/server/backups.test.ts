@@ -49,6 +49,34 @@ async function seed() {
   await indexDocument({filename:"backup.txt",format:"txt",byteSize:6,pages:[{pageNumber:null,text:"备份检索示例"}]});
   return {chat,input,output};
 }
+
+test("the maximum accepted document scope survives backup and restore", async () => {
+  const { updateConversation, updateConversationSchema } = await import("@/lib/conversations/mutations");
+  const scope = Array.from({ length: 12 }, (_, index) => String(index).padEnd(40, "x"));
+  const chat = await db.chat.create({ data: { title: "Scoped conversation" } });
+  await updateConversation(chat.id, updateConversationSchema.parse({ documentScope: scope }));
+  const original = await db.chat.findUniqueOrThrow({ where: { id: chat.id } });
+  assert.equal(original.documentScope.length, 491);
+  const backup = await exclusiveDataOperation(() => archive.createAccountBackup(false));
+  await exclusiveDataOperation(() => restoreAccountBackup(backup.id));
+  const restored = await db.chat.findFirstOrThrow({ where: { title: original.title } });
+  assert.equal(restored.documentScope, original.documentScope);
+});
+
+test("escaped collection scopes and their documents survive backup and restore", async () => {
+  const { updateConversation } = await import("@/lib/conversations/mutations");
+  const { decodeDocumentScope } = await import("@/lib/documents/scope");
+  const { searchDocuments } = await import("@/lib/documents/retrieval");
+  const scope = Array.from({ length: 12 }, (_, index) => `${index}|`.padEnd(40, "x"));
+  const chat = await db.chat.create({ data: { title: "Escaped scopes" } });
+  await updateConversation(chat.id, { documentScope: scope });
+  await indexDocument({ filename: "scoped.txt", collection: scope[0], format: "txt", byteSize: 10, pages: [{ pageNumber: null, text: "scopebackupneedle" }] });
+  const backup = await exclusiveDataOperation(() => archive.createAccountBackup(false));
+  await exclusiveDataOperation(() => restoreAccountBackup(backup.id));
+  const restored = await db.chat.findFirstOrThrow({ where: { title: chat.title } });
+  assert.deepEqual(decodeDocumentScope(restored.documentScope), [...scope].sort());
+  assert.equal((await searchDocuments("scopebackupneedle", 4, decodeDocumentScope(restored.documentScope))).length, 1);
+});
 test("backup preview reports models that restore would add or remove",async()=>{
   const current=defaultModelPreferences();
   current.library=[{providerId:"openrouter",modelId:"anthropic/claude-opus-4.6",name:"Claude",description:"",modes:["chat"],supportsImageInput:false,endpointImageInput:null,supportsTools:true,contextLength:null,pricing:{},addedAt:new Date().toISOString(),lastSeenAt:new Date().toISOString()}];
@@ -271,4 +299,33 @@ test("restore refuses active writes and streams and releases its gate after fail
   const streaming=protectDataOperation(async()=>new Response(new ReadableStream({start(controller){controller.enqueue(new TextEncoder().encode("data: sample\n\n"));controller.close();}}),{headers:{"Content-Type":"text/event-stream"}}));
   const response=await streaming(req("/api/test")); await assert.rejects(exclusiveDataOperation(async()=>{}),/仍有请求/); await response.text();
   await assert.rejects(exclusiveDataOperation(async()=>{throw new Error("Expected");}),/Expected/); await exclusiveDataOperation(async()=>{});
+});
+test("an export is written where the user said and recorded as a copy they own", async () => {
+  const { createAccountBackup } = await import("@/lib/backups/archive");
+  const { exportBackupCopy, listBackupExports } = await import("@/lib/backups/exports");
+  const { mkdtempSync, existsSync, readFileSync, realpathSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const path = await import("node:path");
+
+  const destination = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ria-export-")));
+  try {
+    const backup = await createAccountBackup(false);
+    const target = path.join(destination, `${backup.id}.paib`);
+    const exported = await exportBackupCopy(backup.id, target);
+
+    assert.equal(exported.backupId, backup.id);
+    assert.equal(exported.path, target);
+    assert.ok(existsSync(target), "the copy is where the user asked for it");
+    assert.ok(exported.byteSize > 0);
+    assert.equal(readFileSync(target).length, exported.byteSize);
+    assert.equal((await listBackupExports()).length, 1);
+
+    // The record is for showing, not for acting on: the application never
+    // resolves the path again, so a destination it could reach is one it could
+    // get wrong.
+    await assert.rejects(() => exportBackupCopy(backup.id, ""));
+    await assert.rejects(() => exportBackupCopy("not-a-uuid", target));
+  } finally {
+    rmSync(destination, { recursive: true, force: true });
+  }
 });
