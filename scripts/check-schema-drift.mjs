@@ -21,18 +21,14 @@
  */
 import { spawnSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const migrationsDirectory = join(repositoryRoot, "src", "db", "migrations");
 const schemaFile = join(repositoryRoot, "src", "db", "schema.prisma");
-
-// A scratch database, not the workspace's own. The real one lives in
-// .desktop-data/ and this must never be pointed at it.
-const scratchDirectory = join(repositoryRoot, ".drift-check");
-const databaseFile = join(scratchDirectory, "drift.db");
 
 const migrationNames = readdirSync(migrationsDirectory, { withFileTypes: true })
   .filter((entry) => entry.isDirectory() && existsSync(join(migrationsDirectory, entry.name, "migration.sql")))
@@ -52,8 +48,10 @@ function isHandMaintained(name) {
   return [...virtualTables].some((virtual) => name === virtual || name.startsWith(`${virtual}_`));
 }
 
-rmSync(scratchDirectory, { recursive: true, force: true });
-mkdirSync(scratchDirectory, { recursive: true });
+// A scratch database, never the workspace in .desktop-data/. Each process owns
+// its directory outside ESLint's repository traversal.
+const scratchDirectory = mkdtempSync(join(tmpdir(), "ria-schema-check-"));
+const databaseFile = join(scratchDirectory, "drift.db");
 
 /**
  * `process.exit()` inside the try would skip the cleanup below, and the run that
@@ -65,10 +63,13 @@ let exitCode = 0;
 
 try {
   const database = new DatabaseSync(databaseFile);
-  for (const name of migrationNames) {
-    database.exec(readFileSync(join(migrationsDirectory, name, "migration.sql"), "utf8"));
+  try {
+    for (const name of migrationNames) {
+      database.exec(readFileSync(join(migrationsDirectory, name, "migration.sql"), "utf8"));
+    }
+  } finally {
+    database.close();
   }
-  database.close();
 
   // `--from-url` rather than `--from-schema-datasource`: the latter takes the
   // url from schema.prisma, which is env("DATABASE_URL"), and Prisma loads
@@ -114,6 +115,9 @@ try {
     }
   }
 } finally {
+  if (dirname(scratchDirectory) !== resolve(tmpdir()) || !basename(scratchDirectory).startsWith("ria-schema-check-")) {
+    throw new Error("Refusing to remove an unexpected schema-check directory");
+  }
   rmSync(scratchDirectory, { recursive: true, force: true });
 }
 

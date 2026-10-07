@@ -75,6 +75,9 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install chromium
 
+      - name: Verify first-failure browser diagnostics
+        run: npm run test:e2e:diagnostics
+
       - name: Build application and run browser tests
         run: npm run test:e2e
 

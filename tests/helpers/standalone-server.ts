@@ -1,20 +1,23 @@
-import { expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
 import { TEST_ACCESS_TOKEN } from "./workspace-entry";
+import { createDesktopLogger, createDesktopLogSink } from "../../electron/logger";
 
 
 type ProviderCall = { stream: boolean; messages: Array<{ role: string; content: unknown }> };
 
-export async function startStandaloneServer(options: { modelFixture?: boolean; desktopScheduler?: boolean } = {}) {
+export async function startStandaloneServer(options: { modelFixture?: boolean; desktopScheduler?: boolean; serverEntry?: string } = {}) {
   const parent = resolve(".desktop-data/test");
   mkdirSync(parent, { recursive: true });
   const root = mkdtempSync(join(parent, "http-"));
   const database = join(root, "app.db");
+  const logFile = join(root, "server.log");
+  const logger = createDesktopLogger(logFile, { maxBytes: 256 * 1024, backupCount: 1 });
   const listener = createServer();
   await new Promise<void>((resolve, reject) => {
     listener.once("error", reject);
@@ -34,12 +37,18 @@ export async function startStandaloneServer(options: { modelFixture?: boolean; d
     DESKTOP_SESSION_TOKEN: options.desktopScheduler ? TEST_ACCESS_TOKEN : "",
     HOSTNAME: "127.0.0.1", PORT: String(port), LOCAL_DATABASE_FILE: database,
     DATABASE_URL: `file:${database.replaceAll("\\", "/")}`, MEDIA_DIRECTORY: join(root, "media"), LEGACY_VIDEO_DIRECTORY: join(root, "legacy-videos"),
-    OPENROUTER_API_KEY: options.modelFixture ? "offline-fixture-placeholder" : "", TAVILY_API_KEY: "", TAVILY_SEARCH_URL: "",
+    OPENROUTER_API_KEY: options.modelFixture ? "offline-fixture-placeholder" : "", DEEPSEEK_API_KEY: "", TAVILY_API_KEY: "", TAVILY_SEARCH_URL: "",
     OUTBOUND_PROXY_URL: "", HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "", http_proxy: "", https_proxy: "", all_proxy: "",
     PRIVATE_AI_HTTP_FIXTURE: options.modelFixture ? "1" : "0",
   };
   let server: ChildProcess | undefined;
   const providerCalls: ProviderCall[] = [];
+
+  async function attachLogs() {
+    for (const file of [logFile, `${logFile}.1`]) {
+      if (existsSync(file)) await test.info().attach("standalone-server-log", { path: file, contentType: "text/plain" });
+    }
+  }
 
   async function stop() {
     if (!server?.pid || server.exitCode !== null || server.signalCode !== null) return;
@@ -52,22 +61,29 @@ export async function startStandaloneServer(options: { modelFixture?: boolean; d
   }
   async function start() {
     let launchError = false;
+    const entry = options.serverEntry ?? ".desktop-runtime/server.js";
     const args = options.desktopScheduler
-      ? [".desktop-runtime/server.js"]
-      : ["--import", pathToFileURL(resolve("tests/helpers/offline-http.ts")).href, ".desktop-runtime/server.js"];
-    server = spawn(process.execPath, args, { env, windowsHide: true, stdio: ["ignore", "ignore", "ignore", "ipc"] });
-    server.once("error", () => { launchError = true; });
+      ? [entry]
+      : ["--import", pathToFileURL(resolve("tests/helpers/offline-http.ts")).href, entry];
+    server = spawn(process.execPath, args, { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe", "ipc"] });
+    server.stdout?.pipe(createDesktopLogSink(logger, "server stdout"));
+    server.stderr?.pipe(createDesktopLogSink(logger, "server stderr"));
+    server.once("error", error => { launchError = true; logger.error("Server launch failed", error); });
     server.on("message", (value) => {
       const call = value as ProviderCall & { type?: string };
       if (call.type === "provider-call" && providerCalls.length < 100) providerCalls.push(call);
     });
     await expect.poll(async () => {
-      if (launchError || server?.exitCode !== null) throw new Error("Isolated test server exited before readiness");
+      if (launchError || server?.exitCode !== null || server?.signalCode !== null) {
+        const tail = existsSync(logFile) ? readFileSync(logFile, "utf8").slice(-8_000) : "No server log was produced.";
+        throw new Error(`Isolated test server exited before readiness (code ${server?.exitCode}, signal ${server?.signalCode}).\n${tail}`);
+      }
       return fetch(`${origin}/api/health`, { signal: AbortSignal.timeout(2_000) }).then((response) => response.status).catch(() => 0);
     }, { timeout: 30_000 }).toBe(200);
   }
   async function close() {
-    await stop();
+    try { await stop(); } catch (error) { await attachLogs(); throw error; }
+    if (test.info().status !== test.info().expectedStatus) await attachLogs();
     if (dirname(root) !== parent) throw new Error("Unexpected standalone test directory");
     rmSync(root, { recursive: true, force: true });
   }
@@ -75,7 +91,10 @@ export async function startStandaloneServer(options: { modelFixture?: boolean; d
     execFileSync(process.execPath, ["scripts/run-with-local-db.mjs", "--migrate", "node", "--version"], { env, windowsHide: true, timeout: 30_000, stdio: "pipe" });
     await start();
   } catch (error) {
-    await close();
+    await stop();
+    await attachLogs();
+    if (dirname(root) !== parent) throw new Error("Unexpected standalone test directory");
+    rmSync(root, { recursive: true, force: true });
     throw error;
   }
   return {

@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit && tsc -p tests/tsconfig.json",
     "models:check": "node scripts/check-model-catalog.mjs",
     "test:e2e": "playwright test",
+    "test:e2e:diagnostics": "node --import ./tests/helpers/register-typescript.ts --test tests/harness/*.test.ts",
     "test:server": "node --import ./tests/helpers/register-typescript.ts --test tests/server/*.test.ts",
     "test:db": "npm run desktop:compile && node scripts/test-local-db.mjs",
     "db:generate": "node scripts/run-with-local-db.mjs prisma generate --schema src/db/schema.prisma",
@@ -41,7 +42,7 @@
     "workspace:inventory": "node --import ./tests/helpers/register-typescript.ts scripts/inventory-local-data.mjs",
     "test:desktop:caption": "node scripts/verify-caption-click.mjs",
     "test:desktop:window": "npm run test:desktop:caption && npm run test:desktop:smoke",
-    "test": "npm run typecheck && npm run lint && npm run db:check && npm run test:server && npm run test:desktop && npm run test:e2e"
+    "test": "npm run typecheck && npm run lint && npm run db:check && npm run test:server && npm run test:desktop && npm run test:e2e:diagnostics && npm run test:e2e"
   },
   "dependencies": {
     "@ai-sdk/react": "3.0.216",

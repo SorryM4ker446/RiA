@@ -28,6 +28,17 @@ const payload = async (response: Response, status = 200) => {
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
+async function waitForCompletedJob(id: string) {
+  const deadline = Date.now() + 10_000;
+  let job = await db.scheduledJob.findUniqueOrThrow({ where: { id } });
+  while (job.lastStatus !== "done" && job.lastStatus !== "failed" && job.lastStatus !== "interrupted" && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    job = await db.scheduledJob.findUniqueOrThrow({ where: { id } });
+  }
+  assert.equal(job.lastStatus, "done", "the poller must finish its persisted execution before the test continues");
+  return job;
+}
+
 beforeEach(async () => {
   globalThis.__privateAiRateLimitStore?.clear();
   cookie = localAccessCookie();
@@ -177,21 +188,24 @@ test("schedules are created, changed and removed over the local credential only"
 
 test("the poller starts once per process and can be stopped", async () => {
   const { startScheduler } = await import("@/lib/scheduler/runner");
-  await createScheduledJob({ kind: "backupReminder", enabled: true, localTime: "09:00", timeZone: "UTC", interval: "daily" });
+  const created = await createScheduledJob({ kind: "backupReminder", enabled: true, localTime: "09:00", timeZone: "UTC", interval: "daily" });
   await db.scheduledJob.updateMany({ data: { nextRunAt: new Date(Date.now() - HOUR) } });
 
   const first = startScheduler();
   const second = startScheduler();
-  first.start();
-  // A second start on the same process must not add a second set of claims for
-  // the same jobs, which is what `register()` running twice would otherwise do.
-  second.start();
-  await new Promise((resolve) => setTimeout(resolve, 150));
-  first.stop();
-  second.stop();
-
-  const [job] = await listScheduledJobs();
-  assert.ok(job.lastRunAt, "the due job ran exactly through the poller");
+  try {
+    first.start();
+    // A second start must use the existing process-wide timer.
+    const timer = (globalThis as typeof globalThis & { schedulerTimer?: ReturnType<typeof setInterval> }).schedulerTimer;
+    second.start();
+    assert.equal((globalThis as typeof globalThis & { schedulerTimer?: ReturnType<typeof setInterval> }).schedulerTimer, timer);
+    const job = await waitForCompletedJob(created.id);
+    assert.ok(job.lastRunAt, "the due job ran exactly through the poller");
+    assert.equal(await db.scheduledRun.count({ where: { jobId: created.id } }), 1);
+  } finally {
+    first.stop();
+    second.stop();
+  }
 });
 
 test("registering the app starts the poller alongside backup maintenance", async () => {
@@ -319,24 +333,29 @@ test("the daily review remains available when no chat model is configured", asyn
 test("a service restart does not give the poller a second claim on the same jobs", async () => {
   const { startScheduler } = await import("@/lib/scheduler/runner");
   const { createScheduledJob } = await import("@/lib/scheduler/jobs");
-  await createScheduledJob({ kind: "backupReminder", enabled: true, localTime: "09:00", timeZone: "UTC", interval: "daily" });
+  const created = await createScheduledJob({ kind: "backupReminder", enabled: true, localTime: "09:00", timeZone: "UTC", interval: "daily" });
   await db.scheduledJob.updateMany({ data: { nextRunAt: new Date(Date.now() - HOUR) } });
 
-  const before = await startScheduler();
-  before.start();
-  await new Promise((resolve) => setTimeout(resolve, 150));
+  const before = startScheduler();
   // A settings save restarts the local service, which re-runs registration. If
   // the poller started a second time the same job would be claimed twice in one
   // interval, and a scheduled backup would be made twice.
-  const after = await startScheduler();
-  after.start();
-  await new Promise((resolve) => setTimeout(resolve, 150));
-  before.stop();
-  after.stop();
-
-  const [job] = await listScheduledJobs();
-  assert.equal(job.lastStatus, "done", "the job completed once and stayed completed");
-  assert.ok(new Date(job.nextRunAt) > new Date(), "it was not run again in the same interval");
+  const after = startScheduler();
+  try {
+    before.start();
+    await waitForCompletedJob(created.id);
+    after.start();
+    // Explicit ticks are awaited, so the repeated-registration assertion has
+    // observed both pollers rather than guessed when their timers ran.
+    await Promise.all([before.tick(), after.tick()]);
+    const [job] = await listScheduledJobs();
+    assert.equal(job.lastStatus, "done", "the job completed once and stayed completed");
+    assert.ok(new Date(job.nextRunAt) > new Date(), "it was not run again in the same interval");
+    assert.equal(await db.scheduledRun.count({ where: { jobId: created.id } }), 1);
+  } finally {
+    before.stop();
+    after.stop();
+  }
 });
 
 test("a job whose run is still marked running is not claimed by the next poll", async () => {

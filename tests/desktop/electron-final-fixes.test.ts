@@ -90,6 +90,9 @@ function writeLauncher(root: string, worker: string): string {
    * process that is still alive rather than as a symptom further downstream.
    */
   writeFileSync(file, `
+    const fs = require("node:fs");
+    const path = require("node:path");
+    fs.writeFileSync(path.join(__dirname, "launcher.pid"), String(process.pid));
     const { fork } = require("node:child_process");
     const worker = fork(${JSON.stringify(worker)}, { stdio: "inherit" });
     const forward = () => { try { worker.kill("SIGKILL"); } catch {} };
@@ -140,31 +143,18 @@ const listeningWorker = `
   setInterval(() => {}, 1 << 30);
 `;
 
-const slowWorker = `
-  const http = require("node:http");
-  setTimeout(() => {
-    const server = http.createServer((request, response) => {
-      if (request.url === "/api/health") {
-        response.writeHead(200, { "content-type": "application/json" });
-        response.end(JSON.stringify({ status: "ok" }));
-        return;
-      }
-      response.writeHead(404);
-      response.end();
-    });
-    server.listen(Number(process.env.PORT), "127.0.0.1");
-    setInterval(() => {}, 1 << 30);
-  }, Number(process.env.DESKTOP_TEST_BOOT_DELAY_MS));
-`;
+// Remains in startup until cancelled, independently of the machine's speed.
+const waitingWorker = `setInterval(() => {}, 1 << 30);`;
 
 test("an abandoned launch is stopped instead of finishing into an unsupervised service", {
   timeout: 90_000,
 }, async () => {
   const root = mkdtempSync(join(tmpdir(), "private-ai-service-abandoned-"));
+  const abort = new AbortController();
+  let launch: ReturnType<typeof startNextServer> | undefined;
   try {
-    const launcher = writeLauncher(root, writeWorker(root, slowWorker));
+    const launcher = writeLauncher(root, writeWorker(root, waitingWorker));
     const port = await findAvailablePort();
-    const abort = new AbortController();
 
     /*
      * The shell quitting mid-restart: the launch is still booting, so the child
@@ -172,21 +162,33 @@ test("an abandoned launch is stopped instead of finishing into an unsupervised s
      * than hand it to a caller that walked away, or it outlives the application
      * holding the port and the database.
      */
-    const launch = startNextServer(
-      serverOptions(root, launcher, port, quietLogger(), abort.signal, { DESKTOP_TEST_BOOT_DELAY_MS: "3000" }),
+    launch = startNextServer(
+      serverOptions(root, launcher, port, quietLogger(), abort.signal),
     );
-    setTimeout(() => abort.abort(new Error("The application is quitting.")), 400);
-
-    await assert.rejects(launch, /cancelled: The application is quitting\./);
+    // Observe early launch failures without leaving an unhandled rejection.
+    void launch.catch(() => {});
+    assert.equal(await waitUntilGone(() => recordedWorkerPid(root) === 0), true,
+      "the fixture worker must exist before cancellation is exercised");
 
     const workerPid = recordedWorkerPid(root);
-    assert.ok(workerPid > 0, "the cancelled launch should have spawned a process it then has to stop");
+    const launcherPid = Number(readFileSync(join(root, "launcher.pid"), "utf8"));
+    assert.ok(isProcessAlive(workerPid), "the fixture worker must still be running");
+    assert.equal(await canConnect(port), false, "the fixture must still be starting");
+    abort.abort(new Error("The application is quitting."));
+    await assert.rejects(launch, /cancelled: The application is quitting\./);
     assert.equal(
       await waitUntilGone(() => isProcessAlive(workerPid)),
       true,
       "the cancelled launch left its process running after the caller gave up",
     );
+    assert.equal(await waitUntilGone(() => isProcessAlive(launcherPid)), true,
+      "the cancelled launch left its launcher running");
+    assert.equal(await canConnect(port), false);
   } finally {
+    abort.abort(new Error("The application is quitting."));
+    // Settle startup before removing files, including when a readiness check fails.
+    const running = await launch?.catch(() => undefined);
+    await running?.stop();
     killRecordedWorker(root);
     rmSync(root, { recursive: true, force: true });
   }

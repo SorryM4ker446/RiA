@@ -49,7 +49,7 @@ function assertPackagedPathsFitWindows(directory) {
 }
 
 function verifyRuntime(directory, { enforceWindowsPathBudget = false } = {}) {
-  for (const forbidden of [".desktop-data", ".desktop-runtime", ".git", "out", "public/generated-videos"]) {
+  for (const forbidden of [".desktop-data", ".desktop-runtime", ".git", "out", "test-results", "playwright-report", "public/generated-videos"]) {
     if (existsSync(join(directory, forbidden))) throw new Error(`User/development data must not be packaged: ${forbidden}`);
   }
   requireFile(join(directory, "server.js"), "Standalone server");

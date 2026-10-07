@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname } from "node:path";
+import type { FullConfig } from "@playwright/test";
 import { TEST_ACCESS_TOKEN } from "../helpers/workspace-entry";
 
 /**
@@ -9,11 +10,11 @@ import { TEST_ACCESS_TOKEN } from "../helpers/workspace-entry";
  * credential, so a run only has to install the matching cookie before any
  * browser context or API request context is created.
  */
-export const STORAGE_STATE = resolve(".desktop-data/test/playwright-storage-state.json");
-
-export default function globalSetup() {
-  mkdirSync(dirname(STORAGE_STATE), { recursive: true });
-  writeFileSync(STORAGE_STATE, `${JSON.stringify({
+export default function globalSetup(config: FullConfig) {
+  const storageState = config.projects[0]?.use.storageState;
+  if (typeof storageState !== "string") throw new Error("E2E storage state must be a run-specific file.");
+  mkdirSync(dirname(storageState), { recursive: true });
+  writeFileSync(storageState, `${JSON.stringify({
     cookies: [{
       name: "local_access",
       value: TEST_ACCESS_TOKEN,
