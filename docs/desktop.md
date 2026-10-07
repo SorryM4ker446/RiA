@@ -109,6 +109,8 @@ The runtime's regenerable Next.js image and scoped response caches are excluded 
 
 This project does not configure Windows code signing or automatic updates. Windows may display an unknown-publisher warning until a signing certificate is added in a separate release process.
 
+Before distribution, run `npm run desktop:acceptance -- --init` to create an unverified, installer-bound manual record. Complete the Windows VM scenarios and then run `npm run desktop:acceptance -- --check --output out/make/wix/x64/acceptance-verified.json`. The check requires all manual results and evidence, rejects stale installer checksums, and preserves existing records/receipts. See [Windows release acceptance](windows-release-acceptance.md) for fields, commands and the distinction between recorded attestations and real test execution. CI uploads the unverified template; it does not claim manual acceptance.
+
 ## Validation and CI
 
 `npm run test:desktop` checks path isolation, fresh-database migration, idempotent migration, persistence, duplicate-memory preservation, and migration backups without downloading a separate testing package.

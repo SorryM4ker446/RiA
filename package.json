@@ -31,6 +31,7 @@
     "desktop:make": "node scripts/make-desktop.mjs",
     "desktop:version": "node scripts/bump-version.mjs",
     "desktop:release-manifest": "node scripts/desktop-release-manifest.mjs",
+    "desktop:acceptance": "node scripts/desktop-release-acceptance.mjs",
     "desktop:verify": "node scripts/verify-desktop-package.mjs",
     "test:desktop": "npm run desktop:compile && node --import ./tests/helpers/register-typescript.ts --test tests/desktop/*.test.ts",
     "test:desktop:smoke": "node scripts/smoke-desktop.mjs",
