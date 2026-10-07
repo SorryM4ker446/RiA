@@ -113,6 +113,8 @@ Images, videos, and attachments use private file-backed media assets instead of 
 
 Open **知识库管理** to import, update, search, reindex or delete document text. Import and document search are local; relevant snippets are sent to the configured model when chatting. See [Document knowledge](docs/document-knowledge.md) for supported formats, citations, retention and limits.
 
+Memory entries on the same page support local title/content search, all/confirmed/candidate filters, and previous/next navigation with 25 entries per page. Older entries remain accessible beyond the first 100. Search does not call an embedding model. Successful creates, edits, confirmations and deletions return the current search/filter to its first page because writes can change ordering or membership; failed edits retain their draft. If a write succeeds but its list refresh fails, the page explains that the write was saved and disables obsolete pagination until a refresh succeeds. Candidates remain excluded from model context until confirmed or edited.
+
 ## Project layout
 
 - `electron`: desktop main process, preload bridge, migrations, settings, and security

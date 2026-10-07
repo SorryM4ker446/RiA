@@ -3,7 +3,7 @@
 import { getApiErrorMessage as readApiErrorMessage } from "@/lib/api-error-message";
 import { formatDateTime } from "@/lib/locale";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
 import { useAwaitingFirstLoad } from "@/lib/use-awaiting-first-load";
 import Link from "next/link";
@@ -31,6 +31,10 @@ type KnowledgeEntry = {
   updatedAt: string;
 };
 
+type KnowledgeView = "all" | "confirmed" | "candidates";
+type EntryPage = { q: string; view: KnowledgeView; cursors: Array<string | null>; nextCursor: string | null };
+const firstEntryPage: EntryPage = { q: "", view: "all", cursors: [null], nextCursor: null };
+
 function formatTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -44,6 +48,10 @@ function formatTime(value: string): string {
 
 export default function KnowledgePage() {
   const [entries, setEntries] = useState<KnowledgeEntry[]>([]);
+  const [entryPage, setEntryPage] = useState<EntryPage>(firstEntryPage);
+  const [pageNeedsRefresh, setPageNeedsRefresh] = useState(false);
+  const [search, setSearch] = useState("");
+  const entryRequest = useRef<AbortController | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [persona, setPersona] = useState({ name: "", language: "", answerStyle: "", notes: "" });
   const [isSavingPersona, setIsSavingPersona] = useState(false);
@@ -86,24 +94,35 @@ export default function KnowledgePage() {
   const [error, setError] = useState<string | null>(null);
   const awaitingFirstEntryLoad = useAwaitingFirstLoad(isLoading, "entries");
 
-  async function loadEntries(options?: { silent?: boolean }) {
-    if (!options?.silent) {
-      setIsLoading(true);
-    }
+  async function loadEntries(target: EntryPage = pageNeedsRefresh ? { ...entryPage, cursors: [null], nextCursor: null } : entryPage) {
+    entryRequest.current?.abort();
+    const controller = new AbortController();
+    entryRequest.current = controller;
+    setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/knowledge?limit=100", { cache: "no-store" });
+      const params = new URLSearchParams({ limit: "25", view: target.view });
+      if (target.q) params.set("q", target.q);
+      const cursor = target.cursors.at(-1);
+      if (cursor) params.set("cursor", cursor);
+      const response = await fetch(`/api/knowledge?${params}`, { cache: "no-store", signal: controller.signal });
       const payload = await response.json();
       if (!response.ok) {
         throw new Error(readApiErrorMessage(payload, t("knowledge.error.load")));
       }
 
+      if (controller.signal.aborted) return;
       setEntries(Array.isArray(payload.data) ? payload.data : []);
-      void loadPersona();
+      setEntryPage({ ...target, nextCursor: payload.pageInfo?.nextCursor ?? null });
+      setPageNeedsRefresh(false);
+      if (target.q !== entryPage.q || target.view !== entryPage.view || target.cursors.length !== entryPage.cursors.length) {
+        setEditingId(null);
+      }
     } catch (loadError) {
+      if (controller.signal.aborted) return;
       setError(loadError instanceof Error ? loadError.message : t("knowledge.error.load"));
     } finally {
-      if (!options?.silent) {
+      if (!controller.signal.aborted) {
         setIsLoading(false);
       }
     }
@@ -111,6 +130,7 @@ export default function KnowledgePage() {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSaving || isLoading) return;
     const normalizedKey = key.trim();
     const normalizedValue = value.trim();
     if (!normalizedKey || !normalizedValue) {
@@ -136,7 +156,8 @@ export default function KnowledgePage() {
 
       setKey("");
       setValue("");
-      await loadEntries({ silent: true });
+      setPageNeedsRefresh(true);
+      await loadEntries({ ...entryPage, cursors: [null], nextCursor: null });
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : t("knowledge.error.save"));
     } finally {
@@ -150,6 +171,8 @@ export default function KnowledgePage() {
    * stored — including a write that quietly did nothing.
    */
   async function updateEntry(entryId: string, body: { value?: string; confirmed?: boolean }) {
+    if (isSaving || isLoading) return;
+    setIsSaving(true);
     setError(null);
     try {
       const response = await fetch(`/api/knowledge/${entryId}`, {
@@ -162,14 +185,19 @@ export default function KnowledgePage() {
         throw new Error(readApiErrorMessage(payload, t("knowledge.error.update")));
       }
       setEntries((current) => current.map((entry) => (entry.id === entryId ? payload.data : entry)));
+      setEditingId(null);
+      setPageNeedsRefresh(true);
+      await loadEntries({ ...entryPage, cursors: [null], nextCursor: null });
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : t("knowledge.error.update"));
+    } finally {
+      setIsSaving(false);
     }
   }
 
   async function deleteEntry(entryId: string) {
-    const previous = entries;
-    setEntries((current) => current.filter((entry) => entry.id !== entryId));
+    if (isSaving || isLoading) return;
+    setIsSaving(true);
     setError(null);
     try {
       const response = await fetch(`/api/knowledge/${entryId}`, { method: "DELETE" });
@@ -177,15 +205,21 @@ export default function KnowledgePage() {
       if (!response.ok) {
         throw new Error(readApiErrorMessage(payload, t("knowledge.error.delete")));
       }
+      setEntries((current) => current.filter((entry) => entry.id !== entryId));
+      if (editingId === entryId) setEditingId(null);
+      setPageNeedsRefresh(true);
+      await loadEntries({ ...entryPage, cursors: [null], nextCursor: null });
     } catch (deleteError) {
-      setEntries(previous);
       setError(deleteError instanceof Error ? deleteError.message : t("knowledge.error.delete"));
+    } finally {
+      setIsSaving(false);
     }
   }
 
   useEffect(() => {
-    // Loads the entries and, with them, the preferences shown above them.
-    void loadEntries();
+    void loadEntries(firstEntryPage);
+    void loadPersona();
+    return () => entryRequest.current?.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one load on mount
   }, []);
 
@@ -209,7 +243,7 @@ export default function KnowledgePage() {
         {/* `refreshing` keeps the label and width fixed while the request is in
             flight, so the header does not reflow under the spinner. */}
         <RefreshButton
-          disabled={isLoading && entries.length === 0}
+          disabled={isSaving || (isLoading && entries.length === 0)}
           onClick={() => void loadEntries()}
           refreshing={isLoading}
           variant="outline"
@@ -240,7 +274,7 @@ export default function KnowledgePage() {
                 placeholder={t("knowledge.valuePlaceholder")}
                 value={value}
               />
-              <Button className="w-full" disabled={isSaving} type="submit">
+              <Button className="w-full" disabled={isSaving || isLoading} type="submit">
                 {isSaving ? <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" /> : <Plus aria-hidden="true" className="mr-2 h-4 w-4" />}
                 {t("knowledge.create")}
               </Button>
@@ -248,15 +282,33 @@ export default function KnowledgePage() {
           </CardContent>
         </Card>
 
-        <Card className="min-h-[520px] overflow-hidden">
+        <Card aria-busy={isLoading} className="min-h-[520px] overflow-hidden">
           <CardHeader className="border-b">
             <div className="flex items-center justify-between gap-2">
               <div>
                 <CardTitle>{t("knowledge.entriesTitle")}</CardTitle>
                 <CardDescription>{t("knowledge.entriesDescription")}</CardDescription>
               </div>
-              <Badge variant="outline">{`${entries.length} ${t("knowledge.entryCountUnit")}`}</Badge>
+              <Badge variant="outline">{`${t("knowledge.currentPage")} ${entries.length} ${t("knowledge.entryCountUnit")}`}</Badge>
             </div>
+            <form className="mt-3 flex flex-wrap gap-2" onSubmit={(event) => {
+              event.preventDefault();
+              if (!isSaving) void loadEntries({ ...entryPage, q: search.trim(), cursors: [null], nextCursor: null });
+            }}>
+              <Input aria-label={t("knowledge.searchLabel")} className="min-w-0 flex-1 basis-40" maxLength={120}
+                placeholder={t("knowledge.searchPlaceholder")} value={search} onChange={(event) => setSearch(event.target.value)} />
+              <select aria-label={t("knowledge.viewLabel")} className="h-9 rounded-md border bg-background px-2 text-sm"
+                disabled={isLoading || isSaving} value={entryPage.view} onChange={(event) => {
+                  void loadEntries({ ...entryPage, view: event.target.value as KnowledgeView, cursors: [null], nextCursor: null });
+                }}>
+                <option value="all">{t("knowledge.view.all")}</option>
+                <option value="confirmed">{t("knowledge.view.confirmed")}</option>
+                <option value="candidates">{t("knowledge.view.candidates")}</option>
+              </select>
+              <Button disabled={isSaving} type="submit" variant="outline">{t("knowledge.search")}</Button>
+            </form>
+            {entryPage.q ? <p className="mt-2 text-xs text-muted-foreground">{t("knowledge.searchApplied")} {entryPage.q}</p> : null}
+            {pageNeedsRefresh && !isLoading ? <p className="mt-2 text-xs text-warning">{t("knowledge.refreshRequired")}</p> : null}
           </CardHeader>
           <CardContent className="chat-list-scroll max-h-[calc(100vh-15rem)] overflow-y-auto p-4 pr-3">
             {/* The skeleton is a first-load placeholder, not a refresh state.
@@ -270,7 +322,7 @@ export default function KnowledgePage() {
                 <Skeleton className="h-24 w-full" />
               </div>
             ) : entries.length === 0 ? (
-              <p className="empty-state !p-4 !text-left">{t("knowledge.empty")}</p>
+              <p className="empty-state !p-4 !text-left">{entryPage.q || entryPage.view !== "all" || entryPage.cursors.length > 1 ? t("knowledge.noMatches") : t("knowledge.empty")}</p>
             ) : (
               <div className="space-y-3">
                 {entries.map((entry) => (
@@ -295,13 +347,14 @@ export default function KnowledgePage() {
                             />
                             <div className="flex gap-2">
                               <Button
-                                onClick={() => void updateEntry(entry.id, { value: editingValue }).then(() => setEditingId(null))}
+                                disabled={isSaving || isLoading}
+                                onClick={() => void updateEntry(entry.id, { value: editingValue })}
                                 size="sm"
                                 type="button"
                               >
                                 {t("knowledge.saveEdit")}
                               </Button>
-                              <Button onClick={() => setEditingId(null)} size="sm" type="button" variant="ghost">
+                              <Button disabled={isSaving} onClick={() => setEditingId(null)} size="sm" type="button" variant="ghost">
                                 {t("knowledge.cancelEdit")}
                               </Button>
                             </div>
@@ -317,13 +370,14 @@ export default function KnowledgePage() {
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
                         {!entry.confirmed ? (
-                          <Button onClick={() => void updateEntry(entry.id, { confirmed: true })} size="sm" type="button" variant="secondary">
+                          <Button disabled={isSaving || isLoading} onClick={() => void updateEntry(entry.id, { confirmed: true })} size="sm" type="button" variant="secondary">
                             {t("knowledge.accept")}
                           </Button>
                         ) : null}
                         {editingId !== entry.id ? (
                           <Button
                             aria-label={`${t("knowledge.edit")} ${entry.key}`}
+                            disabled={isSaving || isLoading}
                             onClick={() => { setEditingId(entry.id); setEditingValue(entry.value); }}
                             size="icon"
                             type="button"
@@ -334,6 +388,7 @@ export default function KnowledgePage() {
                         ) : null}
                         <Button
                           aria-label={`${t("knowledge.deleteLabel")} ${entry.key}`}
+                          disabled={isSaving || isLoading}
                           onClick={() => void deleteEntry(entry.id)}
                           size="icon"
                           type="button"
@@ -351,6 +406,15 @@ export default function KnowledgePage() {
               </div>
             )}
           </CardContent>
+          <nav aria-label={t("knowledge.paginationLabel")} className="flex flex-wrap items-center justify-between gap-2 border-t p-4">
+            <Button disabled={isLoading || isSaving || pageNeedsRefresh || entryPage.cursors.length === 1} variant="outline" onClick={() => {
+              void loadEntries({ ...entryPage, cursors: entryPage.cursors.slice(0, -1), nextCursor: null });
+            }}>{t("knowledge.previousPage")}</Button>
+            <span className="text-sm text-muted-foreground" aria-live="polite">{t("knowledge.pagePrefix")} {entryPage.cursors.length} {t("knowledge.pageSuffix")}</span>
+            <Button disabled={isLoading || isSaving || pageNeedsRefresh || !entryPage.nextCursor} variant="outline" onClick={() => {
+              void loadEntries({ ...entryPage, cursors: [...entryPage.cursors, entryPage.nextCursor], nextCursor: null });
+            }}>{t("knowledge.nextPage")}</Button>
+          </nav>
         </Card>
       </div>
     </main>
