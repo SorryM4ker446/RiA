@@ -4,6 +4,15 @@ Open **备份与恢复** from the chat sidebar or Settings in either the browser
 
 ## Contents and privacy
 
+Document semantic vectors are regenerable and excluded from portable archives.
+Extracted text, chunk identities, Markdown headings, token counts and term
+frequencies are preserved. After restoration, explicitly build **语义索引** again;
+keyword retrieval works immediately. Old archives default missing frequencies to
+one, token counts to zero and headings to absent. Raw SQLite safety copies still
+include vectors. Memory embeddings retain their existing archive behavior.
+Archives exported with the new document index fields require this version or a
+newer version to restore; earlier builds reject those additional fields.
+
 An archive includes conversations/messages/tags, memories and embeddings (tagged with the provider and model that created each vector), tasks, extracted document text and indexes, private media files and references, generation recipes, model preferences and the **我的模型** library, retention settings, and up to 5,000 recorded model attempts. OpenRouter catalog snapshots are a refreshable cache and are not included. Older preference and memory records remain importable. Preference documents from before model references were provider-qualified are converted on read: the earliest format becomes explicit migration candidates that are not automatically enabled, and the bare-id format becomes OpenRouter references, because every model this application has called so far was reached through that provider. Original PDF/Word source files are not retained by document import and are not included.
 
 The local access credential, desktop encrypted settings, provider API keys, proxy configuration, logs and other archives are excluded. Structured media paths and tool approval credentials are omitted. Conversation text, tool outputs, recipes and documents can themselves contain sensitive information that the user entered; this content is preserved. **Archives are not encrypted.** Protect exported files like the original data and only import trusted archives. Checksums detect corruption, not who authored the file.

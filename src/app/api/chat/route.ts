@@ -15,7 +15,7 @@ import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/serve
 import { setupServerProxy } from "@/lib/server/proxy";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { NextRequest } from "next/server";
-import { formatDocumentContext, searchDocuments } from "@/lib/documents/retrieval";
+import { documentRetrievalQuery, formatDocumentContext, searchDocuments } from "@/lib/documents/retrieval";
 import { listPublicToolCatalog } from "@/tools/catalog";
 import { documentSourceSchema } from "@/lib/documents/types";
 import { decodeDocumentScope } from "@/lib/documents/scope";
@@ -59,6 +59,7 @@ async function POSTHandler(req: NextRequest) {
       ? await getRelevantMemories({
         query: latestUserMessage.text,
         limit: 6,
+        signal: req.signal,
       })
       : [];
 
@@ -79,7 +80,8 @@ async function POSTHandler(req: NextRequest) {
       }).catch(() => null)
       : null;
 
-    const documentSources = latestUserMessage?.text ? (await searchDocuments(latestUserMessage.text, 4, scope)).map(source => documentSourceSchema.parse(source)) : [];
+    const knowledgeQuery = documentRetrievalQuery(context.allMessages.map(message => ({ role: message.role, text: readText(message) })));
+    const documentSources = latestUserMessage?.text ? (await searchDocuments(knowledgeQuery || latestUserMessage.text, 8, scope, req.signal)).map(source => documentSourceSchema.parse(source)) : [];
     // The optional tools that are configured away this turn are named in the
     // prompt, so the model can answer honestly about what it could not check.
     const systemPrompt = buildSystemPrompt(

@@ -9,17 +9,32 @@ stored conversation. A missing supplied conversation returns 404.
 
 Open **知识库管理 → 文档知识库** to import a PDF, UTF-8 Markdown (`.md`), UTF-8 text (`.txt`) or Word `.docx` file. The original file is not retained: SQLite stores the extracted text, filename, PDF page numbers and a local search index. Keep the original separately if you need its formatting or binary contents.
 
-Importing a file with the same exact filename updates that user's document. Identical extracted text leaves the index unchanged; changed paragraphs add/remove chunks while unaffected chunks keep their IDs. **重新索引** rebuilds the search terms from the saved text. It does not rerun file extraction; import the original again to apply a parser change. Reindex after a runtime upgrade if its Unicode segmentation has changed. Index replacement is transactional, so validation failures and failed writes preserve the working version.
+Importing a file with the same exact filename updates the document. Identical extracted text and collection leave the index unchanged; changed paragraphs add/remove chunks while unaffected chunks keep their IDs. **重新索引** rebuilds local terms, frequencies and Markdown section paths from saved text. It does not call an embedding model or rerun file extraction. Reindex existing documents once after this upgrade to populate section paths and term frequencies. Index replacement is transactional, so validation failures and failed writes preserve the working version.
 
-The document panel provides local search without requiring a model key. Chat automatically retrieves up to four relevant snippets; the knowledge-search tool also combines document results with existing memories and built-in notes. Filenames, excerpts and source links appear below the answer. PDF sources identify their page; other formats identify their chunk. Sources are retrieved evidence, not a guarantee that the model used every excerpt or answered correctly. The source page requires the same authentication as the knowledge library and renders extracted text rather than document HTML.
+The document panel supports keyword search without a model key, and hybrid search when compatible semantic vectors exist. Chat automatically supplies up to eight versioned snippets to the configured chat model. Retrieval expands adjacent paragraphs to retain conditions and exceptions. The knowledge-search tool prioritizes document evidence before filling remaining slots with confirmed memories and built-in notes. Filenames, excerpts and source links appear below the answer. PDF sources identify their page; other formats identify their chunk. The source page requires the same authentication as the knowledge library and renders extracted text rather than document HTML.
+
+## Configure and build semantic retrieval
+
+1. Select an embedding model from the existing model settings and configure its provider.
+2. Import documents and inspect their extracted text. For older documents, use **重新索引** first.
+3. Click **语义索引** for each document and confirm sending its filename, collection, section paths and text snippets to that model. The panel shows indexed/total chunks for the selected model.
+4. Ask a paraphrased question in the library or chat. Select the appropriate collections to narrow evidence. A short follow-up can reuse the preceding user question; assistant speculation is excluded from this query context.
+
+Import never starts billable indexing automatically. Each explicit indexing request processes at most 32 pending chunks, with a 30-second provider deadline. The page makes at most eight sequential requests for a document. Completed batches persist if a later batch fails; click the button again to continue. An unchanged completed index makes no new provider call. Embedding calls have no automatic retries. Duplicate requests for one document return conflict; document/model changes or cancellation prevent an obsolete batch from committing. Leaving the library cancels its in-flight request.
+
+Vectors are stored in local SQLite, qualified by provider, model and the hash of the contextual text used for embedding. A changed paragraph, section, filename or collection invalidates affected vectors. A model change excludes vectors from the old model; explicitly build the new index. Missing credentials or a query embedding failure leave keyword retrieval available. Query cancellation still cancels the operation. Vectors must contain finite numeric values, have a nonzero norm and at most 4,096 dimensions; different dimensions are never compared.
+
+Keyword ranking uses BM25 with term frequencies, corpus rarity and chunk length. Semantic ranking scans every compatible chunk in the selected collections, in 64-row pages, retaining bounded candidates. Reciprocal rank fusion combines these rankings. Highly overlapping passages within one document are reduced, while evidence from separate documents remains available to expose conflicts. There is no two-chunks-per-document cap. Adjacent excerpts have their own source IDs and URLs. Markdown heading paths supply context without a second model call.
+
+This is exact local vector retrieval under the existing 100-document/256-chunk limits, without a separate vector server or approximate-nearest-neighbor extension. The cosine cutoff (0.35) is a relevance heuristic, not calibrated confidence. Scores cannot prove that a passage answers a question. Larger corpora and model-specific thresholds need measurement before increasing these limits. There is no generative query rewriting or paid reranking step.
 
 ## Privacy and retention
 
-Import and document search run locally and do not call an embedding service. When you ask a chat question, retrieved excerpts are sent to your configured model with the conversation. Imported text is marked as untrusted reference data in the prompt; this is not a guarantee against every model prompt-injection attack. Do not import material you are unwilling to share with that model when relevant to a question.
+Parsing, keyword indexing and keyword-only searches run locally. Explicit semantic indexing sends document snippets and their context to the selected embedding provider and may incur costs. Searching or chatting with compatible indexed documents sends the retrieval query to that provider, including the preceding user question for a contextual follow-up; this may also incur costs. Retrieved excerpts are sent to the configured chat model with the conversation. Vectors stay local, but provider handling of submitted text depends on that provider's policies. Imported text is marked as untrusted reference data in the prompt; this is not a guarantee against every model prompt-injection attack.
 
 Deleting a document removes its saved text and search index. Existing chat citation snapshots, answers and tool memories can still contain excerpts or facts from the document; delete those separately when needed. A link to a deleted document reports that it is unavailable. If an individual chunk changed, its old link explains that the current document differs while the chat retains the earlier excerpt. Backups can also retain deleted content; this is logical deletion, not secure disk erasure.
 
-Document data lives in the existing SQLite database, not `public/` or a new filesystem directory. Existing SQLite backup procedures include it. A complete application backup must still include the private media directory for images/videos. Desktop startup backs up an existing database before applying the document migration; back up manually before applying migrations through the Web CLI. No model, storage or cloud-service configuration is needed for importing or searching documents.
+Document data lives in the existing SQLite database, not `public/` or a new filesystem directory. Raw SQLite backups include vectors. Portable workspace archives preserve extracted text, headings and lexical indexes, but omit regenerable document vectors to keep archives bounded; rebuild semantic indexes after restoration. Older archives remain readable with default frequencies and absent headings. A complete application backup must still include the private media directory for images/videos. Desktop startup backs up an existing database before applying migrations; back up manually before applying migrations through the Web CLI. The migration preserves existing chunks, source identities and terms; it neither sends data to a provider nor builds vectors.
 
 ## Bounds and supported content
 
@@ -31,25 +46,25 @@ Document data lives in the existing SQLite database, not `public/` or a new file
 | Chunks | 256 per document; at most 1,000 code units with 100-character overlap within long paragraphs |
 | Documents | 100 per user |
 | Import and reindex | Shared local instance quota of 6 attempts/minute |
+| Semantic indexing | 12 batch requests/minute; at most 32 chunks/request |
 | Parsing | At most two workers per service; 15-second deadline; 128 MiB old-generation JS heap per worker |
 | Word archive | 500 non-directory entries; at most 12 MiB of actual decompressed data |
 
 Workers receive no inherited environment variables, use buffer input and have `fetch` disabled. PDF JavaScript evaluation and image rendering are disabled; Word import extracts raw text and does not enable external-file access. The heap limit does not cap all native allocations; these controls bound common local resource abuse and are not an OS sandbox for hostile public uploads. Existing media and Proxy body limits are unchanged.
 
-Scanned/image-only PDFs need OCR before import. Encrypted PDFs, legacy `.doc`, macro-enabled Word, arbitrary binary text and malformed files are rejected. No OCR, original-file download, table-layout preservation, automatic background parsing or semantic document embeddings are provided. Complex layouts/fonts may extract imperfectly; inspect the source page before relying on them.
-
-Document search uses the shared Chinese word segmentation, Unicode normalization and stop words, then a SQLite inverted index. Up to 16 query terms select 200 candidates across all indexed documents. Coverage, exact phrase and filename matches determine ranking, with stable ties and at most two chunks per document. It is lexical retrieval; synonyms and facts beyond retrieved chunks may be missed.
+Scanned/image-only PDFs need OCR before import. Encrypted PDFs, legacy `.doc`, macro-enabled Word, arbitrary binary text and malformed files are rejected. No OCR, original-file download, table-layout preservation or automatic background parsing is provided. Complex layouts/fonts may extract imperfectly; inspect the source page before relying on them. Keyword ranking uses up to 24 normalized query terms and 200 lexical candidates; semantic candidates cover the full selected corpus independently of those matches and document recency.
 
 ## API and validation
 
 | Endpoint | Contract |
 | --- | --- |
-| `GET /api/documents` | Bounded document summaries; no query parameters |
+| `GET /api/documents` | Bounded summaries with `semantic: { modelRef, indexed, total }` for the selected model; no query parameters |
 | `POST /api/documents` | Multipart `file`; returns `data.document`, `change`, `added`, `retained`, `removed`; HTTP 201 for creation, 200 for updates/unchanged content |
 | `GET /api/documents/:id` | Document summary and extracted chunks; no raw original file |
 | `POST /api/documents/:id` | Reindex saved text; empty body or `{}` |
 | `DELETE /api/documents/:id` | Delete saved document and index; empty body or `{}` |
-| `POST /api/documents/search` | JSON `{ "query": "search terms" }`, 1–2,000 characters; up to six source snippets; shares the tool request quota |
+| `POST /api/documents/:id/embeddings` | JSON `{ "confirm": true, "contentHash": "<64 hex>", "modelRef": { "providerId": "openrouter", "modelId": "<selected embedding ID>" } }`; returns `indexed`, `total`, `remaining`, `modelRef`; matching document version and selected model required |
+| `POST /api/documents/search` | JSON `{ "query": "question", "collections": [] }`, 1–2,000 characters; up to eight source snippets; shares the tool request quota |
 
 All endpoints use the existing [authentication, Origin and error contracts](api-security.md). Foreign and missing document IDs return the same 404. Parser capacity returns 503 with `Retry-After`; parsing deadline returns 504. Import quota exhaustion returns 429. Oversized files, extracted text, archives or chunk counts return 413.
 
@@ -80,14 +95,24 @@ Provenance travels with workspace backups. Restoring an archive does not turn an
 
 ## Retrieval evidence and citation versions
 
-Document search remains local keyword retrieval over the existing inverted index;
-it makes no embedding or chat-model call. The library's collection selector uses
+Document search and automatic chat context use the same hybrid retrieval. Preview
+search does not call a chat model. The library's collection selector uses
 exact names, including names containing `|`. `POST /api/documents/search` accepts
 optional `collections` (up to 12 names of 40 characters); omitted or empty means
 all collections. Chat and tool retrieval continue using the stored conversation
-scope. Results include `retrieval: "local-keyword"`, matched terms, collection and
-the document content hash. These explain why a fragment matched, not a probability
+scope. Results distinguish `local-keyword`, `semantic`, `hybrid` and `neighbor`,
+and include section paths, matched terms, collection and document content hash.
+These explain how a fragment was selected, not a probability
 that it answers the question. A keyword overlap can be useful yet contain no answer.
+
+The model prompt requires applying and combining evidence, preserving quantities,
+units, prerequisites and exceptions, citing supported claims, disclosing conflicting
+documents and stating when evidence is insufficient. Empty retrieval has an explicit
+instruction against inventing knowledge-base facts. This directs the model; it does
+not guarantee compliance. Answer sources show whether the generated Markdown actually
+links to each versioned snippet. **回答已引用此片段** means a link was present, not
+that its associated claim was verified. **回答未引用此片段** identifies retrieved
+references that the answer did not cite. Both states persist across restart.
 
 New persisted citation snapshots include `contentHash` and collection alongside
 the existing excerpt and source identities. Source links carry `?version=<hash>`.
@@ -115,8 +140,19 @@ citation links while preserving hashes and excerpts. Optional snapshot fields ke
 old conversations and archives readable; references without version evidence are
 honestly unverified. No new document table or background watcher is needed.
 
-The fixed corpus now has eight positive Chinese/English questions, four unrelated
+The lexical corpus has eight positive Chinese/English questions, four unrelated
 or stop-word queries and four collection checks, plus forty newer distractors.
 Recall@3, MRR@3 and empty-result checks are regression evidence for this corpus,
 not a broad semantic-answer-quality benchmark or a claim that lexical matches
 always contain answers. See [Testing](testing.md) for the real HTTP/browser checks.
+
+`tests/fixtures/document-rag-evaluation.json` adds four indirect questions with
+required facts/conditions across finance, operations, HR and identity recovery.
+Controlled synthetic vectors demonstrate lexical Recall@8 of 0.25, hybrid Recall@8
+of 1.0, complete required-evidence coverage and four empty unrelated queries.
+This tests retrieval mechanics, not live embedding or answer quality. For a live
+evaluation, use your selected embedding/chat models on representative documents,
+check paraphrases, multi-paragraph conditions, contradictions, collection isolation,
+unsupported details and follow-ups, and verify every cited claim against its excerpt.
+Record model IDs, question set, recall, evidence coverage, unsupported claims,
+latency and costs. These calls are explicit and can incur charges.

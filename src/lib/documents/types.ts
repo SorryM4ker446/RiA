@@ -28,7 +28,12 @@ export const documentSourceSchema = z.object({
   snippet: z.string().max(1200),
   contentHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   collection: z.string().max(40).nullable().optional(),
-  retrieval: z.literal("local-keyword").optional(),
+  retrieval: z.enum(["local-keyword", "semantic", "hybrid", "neighbor"]).optional(),
+  heading: z.string().max(600).nullable().optional(),
+  semanticScore: z.number().min(0).max(1.000001).optional(),
+  lexicalScore: z.number().nonnegative().optional(),
+  anchorChunkId: documentIdSchema.optional(),
+  citationStatus: z.enum(["cited", "not-cited"]).optional(),
   matchedTerms: z.array(z.string().max(100)).max(16).optional(),
 });
 export type DocumentSource = z.infer<typeof documentSourceSchema>;

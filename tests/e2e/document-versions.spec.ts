@@ -27,7 +27,7 @@ test("local search explains scope and old chat citations distinguish changed and
   await page.getByLabel("检索资料集合").selectOption("Support");
   await page.getByLabel("检索文档", { exact: true }).fill("星河回滚窗口");
   await page.getByRole("button", { name: "检索文档", exact: true }).click();
-  await expect(page.getByText("没有匹配的文档片段，请尝试文档中的关键词。", { exact: true })).toBeVisible();
+  await expect(page.getByText("当前未检索到支持这个问题的资料。可换一种表述、调整集合，或补充资料并构建语义索引。", { exact: true })).toBeVisible();
   await page.getByLabel("检索资料集合").selectOption("Manual|操作");
   await page.getByRole("button", { name: "检索文档", exact: true }).click();
   await expect(page.getByText(/本地关键词检索 · 集合：Manual/)).toHaveCount(2);

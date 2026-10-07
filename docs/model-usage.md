@@ -100,6 +100,16 @@ OpenRouter's official catalog endpoints are called by the local server and use t
 
 ## Call attribution and admission
 
+Document semantic indexing reuses the selected embedding model and the existing
+allowlist, admission and per-attempt usage recording. It is explicitly confirmed
+in the knowledge library and batches up to 32 pending snippets per request;
+completed snippets are reused. Hybrid document queries make an embedding request
+only when compatible indexed vectors exist. Both indexing and queries may incur
+provider costs; neither performs automatic embedding retries. Vectors stay in
+SQLite and are isolated by provider/model/context. Changing the model excludes
+old vectors until an explicit rebuild. See [Document knowledge](document-knowledge.md)
+for indexing progress, failure recovery, data sharing and backup behavior.
+
 Usage distinguishes `chat`, `summary`, `scheduled`, `tool`, `embedding`, `media` and `unattributed`. Historical rows are unattributed, without guessing their source. `GET /api/usage?source=summary` filters both the recent list and 30-day totals. Pending and interrupted attempts count as unknown cost, not zero; configured estimates remain distinct from provider-reported charges. No prompt, attachment or credential is stored in this ledger.
 
 **模型调用限制** sets global concurrency (default 4), background daily attempts (default 20), optional single-call and daily estimated USD ceilings, and an IANA budget time zone (default Asia/Shanghai). Automatic history summaries and opted-in scheduled commentary share the background allowance; normal chat, tool synthesis, embeddings and media share concurrency. Setting background daily calls to zero disables new paid background work while keeping cached summaries and deterministic review facts available. Existing settings acquire these defaults on read.

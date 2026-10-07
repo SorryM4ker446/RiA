@@ -9,13 +9,17 @@ import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { readLimitedBody } from "@/lib/server/request-body";
 import { t } from "@/lib/locale";
+import { semanticCoverage } from "@/lib/documents/semantic";
 
 async function GETHandler(req: NextRequest) {
   try {
     await requireLocalWorkspace(req);
     if (req.nextUrl.searchParams.size) throw new ApiError({ code: "VALIDATION_ERROR", message: "Unexpected query parameter" });
     const data = await db.knowledgeDocument.findMany({ where: {}, orderBy: [{ updatedAt: "desc" }, { id: "desc" }], take: DOCUMENT_LIMITS.documentsPerUser, select: documentSummarySelect });
-    return Response.json({ data }, { headers: { "Cache-Control": "no-store" } });
+    const coverage = await semanticCoverage(data.map(document => document.id));
+    return Response.json({ data: data.map(document => ({ ...document, semantic: {
+      modelRef: coverage.modelRef, indexed: coverage.counts.get(document.id) ?? 0, total: document._count.chunks,
+    } })) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return createApiErrorResponse(error, t("api.documents.listFailed")); }
 }
 

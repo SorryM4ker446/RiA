@@ -311,17 +311,25 @@ model DocumentChunk {
   ordinal    Int
   pageNumber Int?
   text       String
+  heading    String?
+  tokenCount Int @default(0)
+  embedding  Json?
+  embeddingModelId String?
+  embeddingModelProvider String?
+  embeddingContextHash String?
   document   KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
   terms      DocumentTerm[]
 
   @@unique([documentId, chunkKey])
   @@index([documentId, ordinal])
+  @@index([embeddingModelProvider, embeddingModelId, id])
   @@map("document_chunks")
 }
 
 model DocumentTerm {
   chunkId String
   term    String
+  frequency Int @default(1)
   chunk   DocumentChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
 
   @@id([chunkId, term])

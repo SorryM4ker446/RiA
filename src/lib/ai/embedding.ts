@@ -81,7 +81,7 @@ export async function embedTextsWithModel(values: string[], signal?: AbortSignal
     if (!modelRef || !await modelInLibrary("embedding", modelRef)) return { embeddings: values.map(() => null), modelRef: null };
     if (!getModelProvider(modelRef.providerId).isConfigured()) return { embeddings: values.map(() => null), modelRef: null };
     setupServerProxy();
-    const { embeddings } = await embedMany({ model: getEmbeddingModel(modelRef), values: normalized, abortSignal: signal });
+    const { embeddings } = await embedMany({ model: getEmbeddingModel(modelRef), values: normalized, abortSignal: signal, maxRetries: 0, maxParallelCalls: 1 });
     return { embeddings: embeddings.map((embedding) => (Array.isArray(embedding) ? embedding : null)), modelRef };
   } catch (error) {
     console.warn("embedding generation failed, falling back to keyword scoring", error instanceof Error ? error.name : "UnknownError");

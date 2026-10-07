@@ -1,7 +1,7 @@
 "use client";
 
 import { Loader2, Upload } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { useAwaitingFirstLoad } from "@/lib/use-awaiting-first-load";
 import Link from "next/link";
@@ -15,7 +15,8 @@ import { getApiErrorMessage } from "@/lib/api-error-message";
 import { DOCUMENT_LIMITS, type DocumentSource } from "@/lib/documents/types";
 import { t, tf } from "@/lib/locale";
 
-type DocumentSummary = { id: string; filename: string; collection?: string | null; characterCount: number; indexedAt: string; _count: { chunks: number } };
+type DocumentSummary = { id: string; filename: string; contentHash: string; collection?: string | null; characterCount: number; indexedAt: string; _count: { chunks: number };
+  semantic?: { indexed: number; total: number; modelRef: { providerId: string; modelId: string } | null } };
 
 export async function documentRequest<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { cache: "no-store", ...init });
@@ -36,13 +37,17 @@ export function DocumentLibrary() {
   const [searchCollection, setSearchCollection] = useState("");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<DocumentSource[] | null>(null);
-  async function refresh() { setDocuments(await documentRequest<DocumentSummary[]>("/api/documents")); }
+  const indexRequest = useRef<AbortController | null>(null);
+  async function refresh(signal?: AbortSignal) {
+    const updated = await documentRequest<DocumentSummary[]>("/api/documents", { signal });
+    if (!signal?.aborted) setDocuments(updated);
+  }
   useEffect(() => {
     const controller = new AbortController();
     documentRequest<DocumentSummary[]>("/api/documents", { signal: controller.signal }).then(setDocuments).catch(error => {
       if (!controller.signal.aborted) setError(error.message);
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => controller.abort();
+    return () => { controller.abort(); indexRequest.current?.abort(); };
   }, []);
 
   async function run(operation: () => Promise<void>, options?: { keepNotice?: boolean }) {
@@ -75,6 +80,37 @@ export function DocumentLibrary() {
   async function search(event: FormEvent) {
     event.preventDefault();
     await run(async () => setResults(await documentRequest<DocumentSource[]>("/api/documents/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, collections: searchCollection ? [searchCollection] : [] }) })));
+  }
+
+  async function buildSemanticIndex(document: DocumentSummary) {
+    if (busy || !document.semantic?.modelRef) return;
+    const modelRef = document.semantic.modelRef;
+    if (!window.confirm(`将「${document.filename}」的片段发送给 ${modelRef.modelId} 构建语义索引，可能产生费用。继续？`)) return;
+    const controller = new AbortController();
+    indexRequest.current = controller;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      for (let batch = 0; batch < 8; batch++) {
+        const progress = await documentRequest<{ indexed: number; total: number; remaining: number }>(`/api/documents/${document.id}/embeddings`, {
+          method: "POST", signal: controller.signal, headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ confirm: true, contentHash: document.contentHash, modelRef }),
+        });
+        if (controller.signal.aborted) return;
+        setNotice(`语义索引：${progress.indexed}/${progress.total} 个片段`);
+        setDocuments(current => current.map(item => item.id === document.id
+          ? { ...item, semantic: { modelRef, indexed: progress.indexed, total: progress.total } } : item));
+        if (!progress.remaining) break;
+      }
+      await refresh(controller.signal);
+      if (!controller.signal.aborted) setResults(null);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setError(error instanceof Error ? error.message : "语义索引构建失败；已完成的批次保留，再次构建可继续。");
+      }
+    } finally {
+      if (indexRequest.current === controller) indexRequest.current = null;
+      if (!controller.signal.aborted) setBusy(false);
+    }
   }
 
   return <Card>
@@ -139,8 +175,10 @@ export function DocumentLibrary() {
           <div className="min-w-0">
             <Link className="break-all text-sm font-medium tracking-label underline underline-offset-4 hover:no-underline" href={`/knowledge/documents/${document.id}`}>{document.filename}</Link>
             <p className="mt-1 text-xs text-muted-foreground">{document._count.chunks} {t("documents.chunkUnit")} · {document.characterCount.toLocaleString()} {t("documents.characterUnit")} · {t("documents.indexedAt")} {new Date(document.indexedAt).toLocaleString(t("documents.dateLocale"))}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{document.semantic?.modelRef ? `语义索引 ${document.semantic.indexed}/${document.semantic.total} · ${document.semantic.modelRef.modelId}${document.semantic.indexed < document.semantic.total ? " · 构建后可检索间接表述和同义问题" : ""}` : "当前使用本地关键词检索；配置 embedding 模型后可构建语义索引。"}</p>
           </div>
           <div className="flex gap-1">
+            <Button aria-label={`构建语义索引 ${document.filename}`} disabled={busy || !document.semantic?.modelRef} size="sm" variant="outline" onClick={() => void buildSemanticIndex(document)}>语义索引</Button>
             <Button aria-label={`${t("documents.reindex")} ${document.filename}`} disabled={busy} size="sm" variant="secondary" onClick={() => void run(async () => {
               await documentRequest(`/api/documents/${document.id}`, { method: "POST" }); await refresh(); setResults(null); setNotice(t("documents.reindexed"));
             })}>{t("documents.reindex")}</Button>

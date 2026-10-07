@@ -2,7 +2,10 @@ import { MockEmbeddingModelV3, MockLanguageModelV3, MockImageModelV3 } from "ai/
 import type { LanguageModelV3GenerateResult } from "@ai-sdk/provider";
 import type { LibraryMode, ModelLibraryItem, ModelRef } from "@/lib/models/preferences-schema";
 
-export const providerState = { streamError: false, streamGate: undefined, imageGate: undefined, imageEntered: undefined, imageCalls: [], videoCalls: [] };
+export const providerState = { streamError: false, streamGate: undefined, imageGate: undefined, imageEntered: undefined, imageCalls: [], videoCalls: [],
+  embeddingFunction: undefined as ((text: string) => number[]) | undefined,
+  embeddingGate: undefined as Promise<void> | undefined, embeddingEntered: undefined as (() => void) | undefined,
+  embeddingError: false, embeddingCalls: [] as string[][] };
 export function resetProviderState() {
   providerState.streamError = false;
   providerState.streamGate = undefined;
@@ -10,6 +13,11 @@ export function resetProviderState() {
   providerState.imageEntered = undefined;
   providerState.imageCalls.length = 0;
   providerState.videoCalls.length = 0;
+  providerState.embeddingFunction = undefined;
+  providerState.embeddingGate = undefined;
+  providerState.embeddingEntered = undefined;
+  providerState.embeddingError = false;
+  providerState.embeddingCalls.length = 0;
 }
 export const testPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=", "base64");
 export const testVideo = Buffer.from([0, 0, 0, 24, 102, 116, 121, 112, 105, 115, 111, 109, 0, 0, 0, 0, 105, 115, 111, 109]);
@@ -55,7 +63,13 @@ export const languageModel = new MockLanguageModelV3({
     }),
   }),
 });
-const embeddingModel = new MockEmbeddingModelV3({ doEmbed: async ({ values }) => ({ embeddings: values.map(() => [1, 0, 0]), warnings: [] }) });
+const embeddingModel = new MockEmbeddingModelV3({ doEmbed: async ({ values }) => {
+  providerState.embeddingCalls.push(values);
+  providerState.embeddingEntered?.();
+  if (providerState.embeddingGate) await providerState.embeddingGate;
+  if (providerState.embeddingError) throw new Error("Synthetic embedding outage");
+  return { embeddings: values.map(value => providerState.embeddingFunction?.(value) ?? [1, 0, 0]), warnings: [] };
+} });
 export const getChatModel = () => languageModel;
 export const getEmbeddingModel = () => embeddingModel;
 // Provider calls take a lease on the exact model they will reach, so the mock

@@ -67,8 +67,10 @@ export async function searchKnowledge(
     score: keywordScore(queryTokens, `${item.title} ${item.content}`),
   }));
 
-  const documentResults: SearchKnowledgeItem[] = (await searchDocuments(query, topK, options.collections)).map(item => ({ id: item.chunkId, title: item.filename, snippet: item.snippet, source: "document", score: item.score, reference: documentSourceSchema.parse(item) }));
-  const ranked = rankByScore([...documentResults, ...memoryResults, ...builtinResults], (item) => item.score, topK)
+  const documentResults: SearchKnowledgeItem[] = (await searchDocuments(query, topK, options.collections, options.signal)).map(item => ({ id: item.chunkId, title: item.filename, snippet: item.snippet, source: "document", score: item.score, reference: documentSourceSchema.parse(item) }));
+  // Imported evidence retains its fused order and adjacent context. Uncalibrated
+  // memory weights and built-in developer notes must not crowd it out.
+  const ranked = [...documentResults, ...rankByScore([...memoryResults, ...builtinResults], item => item.score, topK)].slice(0, topK)
     .map((item) => ({
       ...item,
       score: Number(item.score.toFixed(3)),

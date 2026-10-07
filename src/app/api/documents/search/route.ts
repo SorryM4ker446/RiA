@@ -14,7 +14,7 @@ async function POSTHandler(req: NextRequest) {
     await requireLocalWorkspace(req);
     enforceRateLimit("tools");
     const { query, collections } = schema.parse(await readJsonBody(req));
-    return Response.json({ data: await searchDocuments(query, 6, collections) }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ data: await searchDocuments(query, 8, collections, req.signal) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return createApiErrorResponse(error, t("api.documents.searchFailed")); }
 }
 

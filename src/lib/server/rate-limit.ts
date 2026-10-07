@@ -21,6 +21,9 @@ export const RATE_LIMIT_POLICIES = {
   // Each run re-embeds up to a bounded batch of memories, so the budget is a
   // handful of runs per minute, not a bulk operation to retry until empty.
   memoryReindex: { limit: 2, windowMs: 60_000 },
+  // Each explicit request embeds at most 32 document chunks; a full document
+  // (256 chunks) can complete in eight batches without automatic retries.
+  documentEmbeddings: { limit: 12, windowMs: 60_000 },
   // Every memory search embeds the query, so it is a metered model call like
   // any other. The routes that reach one had no quota at all while the heavier
   // reindex next to them did, which is the wrong way round.

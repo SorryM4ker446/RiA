@@ -195,6 +195,35 @@ provider or installer certification. Existing CI commands discover these tests.
 
 ## History and citation integrity
 
+### Hybrid knowledge retrieval
+
+ESLint excludes generated Playwright reports, traces and result directories so
+failure diagnostics do not become lint inputs on subsequent runs. Application,
+test and harness source files retain the existing lint rules.
+
+`tests/server/document-rag.test.ts` verifies semantic-only paraphrases, required
+exception evidence, heading-context invalidation, conflicting documents, scoped
+full-corpus vector ranking beyond two 64-row pages (1,536 dimensions), model
+and dimensional isolation, unchanged-index reuse, cancelled/obsolete/duplicate
+work, failure recovery without automatic retries, explicit authenticated indexing,
+follow-up user context, actual versioned answer links and portable backup restore.
+The fixed four-domain corpus reports lexical Recall@8, hybrid Recall@8,
+required-fact coverage and unrelated empty results. Synthetic vectors measure
+mechanics and do not certify a live embedding model.
+
+`tests/e2e/document-rag.spec.ts` exercises the production standalone service and
+real provider adapter with network-disabled protocol fixtures. It checks explicit
+indexing, no repeat charges for completed chunks, partial-batch progress/recovery,
+semantic preview, desktop/mobile layout, evidence in the provider request, actual
+streamed citations, unused references, persisted metadata, restart and disabled
+embedding selection. The controlled answer fixture verifies transport and link
+tracking rather than live reasoning quality. Screenshots stay outside the repository.
+`tests/desktop/document-semantic-migration.test.ts` checks legacy chunk/term
+preservation, default values, a pre-upgrade SQLite snapshot, deletion cascades and
+idempotent restart. Existing CI globs include these tests; no new service, native
+extension, dependency or secret is needed. See [Document knowledge](document-knowledge.md)
+for explicit live-model evaluation and its billable data flow.
+
 `tests/server/history-integrity.test.ts` exercises edits, deletion, regeneration,
 replacement and a blocked model call racing a real edit. It also checks that approval metadata, reasoning and attachment bytes are not
 forwarded to compression, and that valid earlier summaries survive a paginated

@@ -60,6 +60,7 @@ Quotas belong to the local instance, not to a caller. Every request from this in
 | Media library regeneration attempts; valid recipes also consume the image/video quota above | 6 attempts / minute |
 | Attachment upload | 20 requests / minute |
 | Document import/reindex, shared between both operations | 6 attempts / minute |
+| Explicit document semantic indexing | 12 requests / minute; at most 32 chunks per request, no automatic retry |
 | Desktop task reminder claims | 10 checks / minute; at most 10 due tasks per check |
 | Conversation text search | 30 requests / minute |
 | Conversation export | 6 requests / minute |

@@ -14,6 +14,7 @@ import { type UIMessage } from "ai";
 import { persistResponseToolMemories } from "@/lib/chat/memory";
 import type { ChatRequest } from "@/lib/chat/request";
 import type { DocumentSource } from "@/lib/documents/types";
+import { markDocumentCitations } from "@/lib/documents/references";
 async function getOrCreateChat(params: {
   requestedChatId?: string;
   fallbackTitle: string;
@@ -146,7 +147,7 @@ export async function persistChatResponse(params: { input: ChatRequest; conversa
           // prose or only in the live stream.
           ...(unavailableTools.length ? { unavailableTools } : {}),
           tools: toolItems,
-          ...(params.documentSources?.length ? { documentSources: params.documentSources } : {}),
+          ...(params.documentSources?.length ? { documentSources: markDocumentCitations(params.documentSources, assistantText) } : {}),
         })
         : assistantText;
 
