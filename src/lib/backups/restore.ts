@@ -14,7 +14,7 @@ export async function restoreAccountBackup(id: string) {
   try {
     const { manifest, offset: start } = await readBackupManifest(archive);
     const ids = new Map<string, string>();
-    const rows = [...manifest.assistantTemplates, ...manifest.chats, ...manifest.chats.flatMap(chat => chat.messages), ...manifest.memories, ...manifest.tasks, ...manifest.documents, ...manifest.documents.flatMap(document => document.chunks), ...manifest.usage];
+    const rows = [...manifest.topics, ...manifest.artifacts, ...manifest.assistantTemplates, ...manifest.chats, ...manifest.chats.flatMap(chat => chat.messages), ...manifest.memories, ...manifest.tasks, ...manifest.documents, ...manifest.documents.flatMap(document => document.chunks), ...manifest.usage];
     for (const row of rows) ids.set(row.id, randomUUID());
     const templateIds = new Map(manifest.assistantTemplates.map(template => [template.id, ids.get(template.id)!]));
     const staged: Awaited<ReturnType<typeof stageMediaFile>>[] = [];
@@ -31,7 +31,7 @@ export async function restoreAccountBackup(id: string) {
     function transform(value: unknown, field = ""): unknown {
       if (typeof value === "string") {
         if (field === "snippet") return value;
-        if (["id", "assetId", "inputAssetId", "chatId", "sourceChatId", "messageId", "documentId", "chunkId"].includes(field)) return mapped(value);
+        if (["id", "topicId", "assistantTemplateId", "templateId", "assetId", "inputAssetId", "chatId", "sourceChatId", "messageId", "documentId", "chunkId"].includes(field)) return mapped(value);
         if (["url", "videoUrl"].includes(field)) return documentLinks(value.replace(/^\/api\/media\/([a-f0-9-]{36})$/, (_match, id) => `/api/media/${mapped(id)}`));
         return documentLinks(value);
       }
@@ -57,8 +57,10 @@ export async function restoreAccountBackup(id: string) {
       // A restore replaces the workspace: conversations go first so their
       // messages, tags and asset references cascade away with them.
       await tx.chat.deleteMany({});
+      await tx.knowledgeTopic.deleteMany({});
       await tx.assistantTemplate.deleteMany({});
       await tx.assistantTemplate.createMany({ data: manifest.assistantTemplates.map(template => ({ ...template, id: mapped(template.id) })) });
+      await tx.knowledgeTopic.createMany({ data: manifest.topics.map(topic => ({ ...topic, id: mapped(topic.id), config: { ...topic.config, assistantTemplateId: topic.config.assistantTemplateId ? templateIds.get(topic.config.assistantTemplateId) ?? topic.config.assistantTemplateId : null } })) });
       await tx.workspaceReview.deleteMany({});
       await tx.workspaceEvent.deleteMany({});
       await tx.mediaAsset.deleteMany({});
@@ -74,7 +76,7 @@ export async function restoreAccountBackup(id: string) {
       const chats = manifest.chats.map(({ messages, tags: _tags, ...chat }) => {
         const validSummary = chat.summary && chat.summaryRevision != null && chat.summaryRevision === (chat.historyRevision ?? 0)
           && messages.some(message => message.id === chat.summaryUpToMessageId);
-        return { ...chat, assistantConfig: chat.assistantConfig ? { ...chat.assistantConfig, templateId: templateIds.get(chat.assistantConfig.templateId) ?? chat.assistantConfig.templateId } : Prisma.DbNull, id: mapped(chat.id), historyRevision: chat.historyRevision ?? 0,
+        return { ...chat, topicId: chat.topicId ? mapped(chat.topicId) : null, assistantConfig: chat.assistantConfig ? { ...chat.assistantConfig, templateId: templateIds.get(chat.assistantConfig.templateId) ?? chat.assistantConfig.templateId } : Prisma.DbNull, id: mapped(chat.id), historyRevision: chat.historyRevision ?? 0,
           summary: validSummary ? chat.summary : null, summaryRevision: validSummary ? chat.summaryRevision : null,
           summaryModelId: validSummary ? chat.summaryModelId : null,
           summaryUpToMessageId: validSummary && chat.summaryUpToMessageId ? mapped(chat.summaryUpToMessageId) : null,
@@ -98,6 +100,15 @@ export async function restoreAccountBackup(id: string) {
       for (let i = 0; i < chunks.length; i += 250) await tx.documentChunk.createMany({ data: chunks.slice(i, i + 250) });
       const terms = manifest.documents.flatMap(document => document.chunks.flatMap(chunk => chunk.terms.map(term => ({ ...term, chunkId: mapped(term.chunkId) }))));
       for (let i = 0; i < terms.length; i += 500) await tx.documentTerm.createMany({ data: terms.slice(i, i + 500) });
+      await tx.knowledgeArtifact.createMany({ data: manifest.artifacts.map(artifact => ({ ...artifact, id: mapped(artifact.id), topicId: mapped(artifact.topicId),
+        status: artifact.status === "generating" ? "interrupted" : artifact.status, errorCode: artifact.status === "generating" ? "PROCESS_INTERRUPTED" : artifact.errorCode,
+        content: artifact.content ? documentLinks(artifact.content) : null, metadata: {
+          ...artifact.metadata,
+          topic: { ...artifact.metadata.topic, assistantTemplateId: artifact.metadata.topic.assistantTemplateId ? templateIds.get(artifact.metadata.topic.assistantTemplateId) ?? artifact.metadata.topic.assistantTemplateId : null },
+          assistant: artifact.metadata.assistant ? { ...artifact.metadata.assistant, templateId: templateIds.get(artifact.metadata.assistant.templateId) ?? artifact.metadata.assistant.templateId } : null,
+          sources: artifact.metadata.sources.map(source => ({ ...source, documentId: mapped(source.documentId), chunkId: mapped(source.chunkId), ...(source.anchorChunkId ? { anchorChunkId: mapped(source.anchorChunkId) } : {}) })),
+          unknownCitations: artifact.metadata.unknownCitations.map(documentLinks),
+        } })) });
       for (let i = 0; i < manifest.usage.length; i += 250) await tx.modelRequest.createMany({ data: manifest.usage.slice(i, i + 250).map(row => ({ ...row, ...(row.status === "pending" ? { status: "interrupted", errorCode: "PROCESS_INTERRUPTED", costUsd: null, costSource: "unknown" } : {}), id: mapped(row.id) })) });
       for (let i = 0; i < manifest.events.length; i += 250) await tx.workspaceEvent.createMany({ data: manifest.events.slice(i, i + 250).map(event => ({ ...event, entityId: mapped(event.entityId) })) });
       const coverage = manifest.activityCoverage ?? { recordingStartedAt: new Date().toISOString(), completeSince: new Date().toISOString() };

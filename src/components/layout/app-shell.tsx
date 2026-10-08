@@ -34,6 +34,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/tasks", label: "定时任务", icon: CalendarClock },
   { href: "/conversations", label: t("nav.conversations"), icon: MessagesSquare },
   { href: "/knowledge", label: t("nav.knowledge"), icon: BookOpen },
+  { href: "/topics", label: "知识专题", icon: Boxes },
   { href: "/media", label: t("nav.media"), icon: HardDrive },
   { href: "/models", label: t("nav.models"), icon: Boxes },
   { href: "/backups", label: t("nav.backups"), icon: DatabaseBackup },

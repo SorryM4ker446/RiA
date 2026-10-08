@@ -17,6 +17,7 @@ import { RefreshButton } from "@/components/ui/refresh-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { DocumentLibrary } from "@/features/knowledge/document-library";
+import { TopicEntry } from "@/features/topics/topic-entry";
 import { t } from "@/lib/locale";
 
 type KnowledgeEntry = {
@@ -258,7 +259,8 @@ export default function KnowledgePage() {
         </Alert>
       ) : null}
 
-      <DocumentLibrary />
+        <TopicEntry />
+        <DocumentLibrary />
       <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
         <Card className="h-fit">
           <CardHeader>

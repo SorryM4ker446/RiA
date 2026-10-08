@@ -124,6 +124,8 @@ Memory entries on the same page support local title/content search, all/confirme
 
 ## Project layout
 
+Open **知识专题** to bind document collections and a default assistant, start scoped conversations, and generate reports, plans or summaries with versioned citations. Artifacts retain generation-time evidence and model snapshots, support Markdown/JSON export, and preserve failed or interrupted states without automatic model retries. See [Knowledge topics and cited artifacts](docs/knowledge-topics.md) for usage, costs, recovery, limits and backup compatibility.
+
 - `electron`: desktop main process, preload bridge, migrations, settings, and security
 - `src/app`: pages and route handlers
 - `src/features/chat`: renderer API client, conversation/media/tool hooks, and chat views

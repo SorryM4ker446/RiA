@@ -115,3 +115,9 @@ This safety snapshot is separate from the portable archive and its retention rul
 
 
 Model usage snapshots include optional call source and pre-call estimate fields. Old rows remain unattributed. Restored pending calls become interrupted with unknown billing and are never replayed. Local daily admission counters are not exported or cleared by a restore; restoring older history cannot replenish the current device's allowance. Older strict readers may reject new fields; verify archives before downgrading.
+
+## Knowledge topic data
+
+Archives now include topic configurations and revisions, artifact histories with model/evidence snapshots, and nullable conversation topic associations. Restore remaps their identities and generated document links alongside document/chunk IDs. Literal evidence excerpts and document hashes remain unchanged. Pending artifact generation is restored as interrupted and never invokes a model automatically.
+
+Older archives lacking these fields are accepted as empty topic/artifact lists. Because restore replaces the workspace, restoring such an archive removes current topics and artifacts; confirmation reports the archive's topic and artifact counts. Keep the automatically created safety backup. New archives are not guaranteed to import into older application versions. See [Knowledge topics](knowledge-topics.md).

@@ -77,6 +77,8 @@ model Chat {
   // what the user put in scope for this conversation.
   documentScope   String       @default("")
   assistantConfig Json?
+  topicId         String?
+  topic           KnowledgeTopic? @relation(fields: [topicId], references: [id], onDelete: SetNull)
   // A model-written summary of the turns before `summaryUpToMessageId`. Kept
   // alongside the messages it came from, so the original text is never replaced
   // by it and can still be read.
@@ -100,7 +102,37 @@ model Chat {
   @@index([archived, pinned, lastMessageAt, id])
   @@index([pinned, lastMessageAt, id])
   @@index([createdAt])
+  @@index([topicId, lastMessageAt, id])
   @@map("chats")
+}
+
+model KnowledgeTopic {
+  id        String @id @default(cuid())
+  config    Json
+  revision  Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  chats     Chat[]
+  artifacts KnowledgeArtifact[]
+  @@map("knowledge_topics")
+}
+
+model KnowledgeArtifact {
+  id            String @id
+  topicId       String
+  topic         KnowledgeTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  requestHash   String
+  title         String
+  kind          String
+  topicRevision Int
+  status        String
+  errorCode     String?
+  content       String?
+  metadata      Json
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  @@index([topicId, createdAt, id])
+  @@map("knowledge_artifacts")
 }
 
 model AssistantTemplate {

@@ -79,6 +79,7 @@ test("semantic indexing delivers evidence to chat, marks actual citations and su
   await expect(article.getByText("检索参考：回答未引用此片段", { exact: true })).toHaveCount(1);
   expect(JSON.stringify(app.providerCalls.filter(call => call.stream).at(-1)?.messages)).toContain("十个工作日");
   expect(JSON.stringify(app.providerCalls.filter(call => call.stream).at(-1)?.messages)).not.toContain("医院接诊");
+  await expect.poll(() => app.readRows("SELECT content FROM messages WHERE role='assistant'").map(row => String(row.content)).join("\n")).toContain('"citationStatus":"cited"');
   const saved = app.readRows("SELECT content FROM messages WHERE role='assistant'").map(row => String(row.content)).join("\n");
   expect(saved).toContain('"citationStatus":"cited"'); expect(saved).toContain('"citationStatus":"not-cited"');
   await app.restart(); await page.reload();
