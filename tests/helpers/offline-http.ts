@@ -83,6 +83,19 @@ if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
           ? `保留税务票据，在回程后的十个工作日内提交费用核销申请。[差旅规程](${main.url})\n\n逾期需要主管提供书面说明。[例外条款](${exception.url})`
           : "现有知识库证据不足，无法确认申领规则。";
       }
+      const systemText = body.messages.filter(message => message.role === "system").map(message => typeof message.content === "string" ? message.content
+        : message.content.filter(part => part.type === "text").map(part => part.text).join("\n")).join("\n");
+      if (prompt === "木星表面温度" && systemText.startsWith("Answer using the provided knowledge evidence.")) content = "知识库没有该信息，现有证据不足，无法确定木星表面温度。";
+      if (!body.stream && systemText.startsWith("You assess knowledge-grounded answers.")) {
+        const evaluation = JSON.parse(prompt);
+        // This is a deterministic UI fixture, not a semantic-quality oracle.
+        content = JSON.stringify({ checks: evaluation.criteria.map(criterion => ({
+          id: criterion.id, verdict: !evaluation.answerable && criterion.id !== "answerability" ? "not-applicable" : "pass",
+          reason: "离线界面测试评审结果，不代表真实模型质量。", answerQuote: evaluation.answer.slice(0, 100),
+          evidence: evaluation.sources.length ? [{ chunkId: evaluation.sources[0].chunkId, quote: evaluation.sources[0].excerpt.slice(0, 100) }] : [],
+        })) });
+        if (evaluation.criteria.some(criterion => criterion.statement === "OFFLINE_REVIEW_INVALID_JSON")) content = "Synthetic malformed judge response";
+      }
       const base = { id: "offline-completion", model: body.model, usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } };
       if (body.modalities?.includes("image")) return JSON.stringify({ ...base, choices: [{ index: 0, message: { role: "assistant", content: "", images: [{ type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=" } }] }, finish_reason: "stop" }] });
       if (body.stream) {

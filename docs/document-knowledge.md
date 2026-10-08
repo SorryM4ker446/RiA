@@ -116,23 +116,32 @@ is correct and do not contain query or document text.
 
 Open **检索质量评测** in the document library, replace the example questions with
 representative cases from your own documents, and optionally choose an assistant
-template. Run retrieval alone or enable **同时生成回答**. Both paths can call the
-configured embedding model; answer generation also calls the selected chat model
-with excerpts and template instructions. The UI confirms these potentially paid
-calls. No tools or long-term memories are used in this document evaluation.
+template. Run retrieval alone, enable **同时生成回答**, or additionally enable
+**模型语义评审**. The latter sends the generated answer, retrieved excerpts and
+scoring criteria to a chat model for another potentially billed call per question.
+The UI confirms the data flow and fees. It defaults to reviewing with the answer
+model, so this is not an independent reviewer. The API can explicitly select a
+different allowed chat model. Model fallback can cause additional provider attempts.
+No tools or long-term memories are used. Template-loading failures are visible and
+can be retried; default-model evaluation remains available.
 
 `POST /api/documents/evaluate` requires `confirm: true`, optional `generateAnswers`
-(default false), optional `assistantTemplateId` or `policy` (mutually exclusive),
+(default false), optional `judgeAnswers` (default false, requires answer generation),
+optional `judgeModel: {providerId, modelId}` (requires judging; existing chat-model
+allowlist/credentials apply), optional `assistantTemplateId` or `policy` (mutually exclusive),
 and 1–12 `cases`. Each case contains `question`, optional `collections`,
-`expectedFilenames`, `requiredFacts`, and `answerable` (default true). An unanswerable
-case must leave expected documents and facts empty. Explicit case collections
+`expectedFilenames`, `requiredFacts`, optional `expectations` (up to 12 objects with
+`kind: fact|condition|exception|quantity|conflict` and a complete `statement` of at
+most 400 characters), and `answerable` (default true). An unanswerable
+case must leave expected documents, facts and expectations empty. Explicit case collections
 override template collections for that evaluation; normal chat uses its own saved scope.
 
 The returned report includes each case's actual excerpts, diagnostics, filename
 recall, exact-text fact coverage in evidence/answer, matching citation count,
 unknown knowledge links, generated text, response model ID and timing. Missing
-expectations produce null metrics. Expected facts and filenames are scored locally
-and never added to the generation prompt. Per-case failures retain retrieved
+expectations produce null metrics. Expected facts, filenames and typed expectations
+never reach the answer-generation prompt. Facts and expectations are supplied only
+to the separate judge. Per-case failures retain retrieved
 evidence and report a failure instead of fabricating an answer. Calls are sequential,
 have no SDK retries, and obey existing model admission, fallback and usage recording.
 Attempts appear under embedding and tool usage; costs are unknown unless the provider
@@ -140,16 +149,43 @@ or configured rates report them, not assumed free. The report's model names the
 requested model; `responseModelId` and usage records identify actual responses.
 
 The endpoint allows two runs/minute, caps the request at two minutes and each
-answer call at thirty seconds, and propagates cancellation. Already-sent calls may
+answer/judge call at thirty seconds, and propagates cancellation. Judge output is
+bounded to 6,000 tokens and answer output to 1,500. Twelve questions can exceed the
+overall deadline, especially with review enabled; use smaller batches rather than
+expecting every maximum-sized run to finish. Already-sent calls may
 still be charged. A cancelled run yields no completed report. Reports are kept in
 page state and may be explicitly downloaded as JSON; exports contain questions,
 source excerpts and answers. They are not automatically written to the workspace.
 
-Fact coverage is literal text matching, not entailment. Citation matching checks
+Fact coverage remains explicitly labeled literal matching. Citation matching checks
 that a link points at retrieved evidence, not whether the adjacent claim follows
-from it. Human review remains necessary for paraphrases, conditions, contradictions,
-unsupported claims and appropriate refusal. Automated suites use synthetic vectors
-and offline HTTP models; passing them is not a live-model accuracy claim.
+from it. Optional review checks grounding, claim-to-citation support, answer/refusal,
+each required fact and each typed expectation. Verdicts are pass/fail/uncertain/
+not-applicable, with reasons and exact answer/evidence quotes. Only grounding and
+citations can be not-applicable when no document facts are asserted. Negated facts,
+omitted prerequisites/exceptions, altered quantities/units and hidden conflicts
+must not pass merely because matching words or valid links occur. Related retrieval
+for an unanswerable question is a diagnostic, not an automatic refusal failure.
+
+The server validates every check ID exactly once, quote membership in the actual
+answer/source, and evidence for passed facts/expectations. Malformed, incomplete or
+invented quotes yield a failed review with no scored checks; the generated answer
+and retrieval metrics remain available. Provider failures behave the same way.
+Reports record the requested judge model and actual response model ID. Model verdicts
+and reasons are fallible, even with verified quotes: these checks do not prove
+entailment, and the judge can also be affected by untrusted document content.
+Human review is still required. Automated suites use synthetic vectors and offline
+HTTP models; passing them is not a live-model accuracy claim.
+
+`tests/fixtures/document-quality-evaluation.json` contains eight sample documents,
+40 answerable questions with structured expectations, ten unanswerable questions
+(including related evidence and missing scope), and six correct/incorrect answer
+pairs covering negation, conditions, exceptions, units, conflict and fabrication.
+For an explicit live evaluation, import those sample documents or replace them with
+representative private documents; submit `cases` in batches of at most 12. Answer
+examples are for human calibration, never additions to the generation prompt.
+The offline regression validates all 50 case contracts and local retrieval of the
+40 named-document cases; it does not measure real semantic judgment quality.
 
 Document search and automatic chat context use the same hybrid retrieval. Preview
 search does not call a chat model. The library's collection selector uses

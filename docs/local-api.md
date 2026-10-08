@@ -49,7 +49,11 @@ Media browsing uses `GET /api/media/library` with filtered cursor pagination and
 Assistant template CRUD and conversation snapshot fields are documented in
 [Assistant templates](assistant-templates.md). Preview retrieval retains its `data`
 array and adds diagnostics; `POST /api/documents/evaluate` supports confirmed,
-bounded retrieval/answer evaluation. See [Document knowledge](document-knowledge.md).
+bounded retrieval/answer evaluation. Optional `judgeAnswers` adds structured
+semantic review; `judgeModel` selects an allowed chat model, and per-case
+`expectations` specify facts, conditions, exceptions, quantities or conflicts.
+Judging requires generated answers and explicit paid-call confirmation; malformed
+review results remain failures while preserving answers. See [Document knowledge](document-knowledge.md).
 
 Queries use the runtime's Chinese word segmentation, Unicode compatibility normalization, duplicate removal and a small stop-word list. Word boundaries may vary with the runtime's ICU version. Ranking evaluates scores once and uses deterministic ordering for ties. Unrelated entries cannot rank solely because they are recent or manually weighted.
 

@@ -7,7 +7,7 @@ Private AI Assistant is a local-first AI assistant built with Next.js, Vercel AI
 - Streaming, persisted multi-turn chat through OpenRouter
 - Local conversations, messages, memories, knowledge, and tasks
 - Built-in and custom assistant templates with persistent conversation snapshots, model binding, tool scope and retrieval policies
-- Knowledge retrieval diagnostics and explicit, exportable retrieval/answer quality evaluations
+- Knowledge retrieval diagnostics and exportable quality evaluations with optional model review of facts, conditions, exceptions, quantities, conflicts and refusals
 - Conversation text search, pinning, tags, archive, confirmed bulk deletion and Markdown/JSON export
 - Semantic knowledge retrieval with keyword fallback
 - PDF, Markdown, text and Word `.docx` knowledge import with local indexing and cited excerpts

@@ -9,11 +9,31 @@ metadata and evaluator input/cancellation boundaries. Expected facts stay outsid
 the answer prompt; citation matches and fact coverage are contract checks, not
 semantic correctness judgments.
 
+Optional model review adds structured facts/conditions/exceptions/quantities/
+conflicts plus grounding, citation support and refusal criteria. Server regressions
+cover a negated answer with perfect literal coverage and a valid citation, correct
+refusal despite related evidence, uncertain verdicts, opt-in and model validation,
+malformed output, invented quotations, missing/duplicate checks, review failure
+with preserved answers and cancellation before the next question. They validate
+the assessment contract using controlled judge responses, not model intelligence.
+The 50-question `document-quality-evaluation.json` corpus covers eight documents,
+five expectation kinds, English and Chinese, conflicts and ten unanswerable cases.
+All 40 named-document questions must retain filename recall in local keyword
+retrieval; missing facts with related hits must remain distinguishable from empty
+retrieval. Its six answer pairs support manual/live judge calibration.
+
 `tests/e2e/assistant-templates.spec.ts` runs the production standalone application
 against isolated SQLite and offline HTTP provider fixtures. It checks template
 creation/edit/copy/delete, explicit snapshot update, service restart, model picker
 binding, manual tool refusal and the evaluation UI/report. Desktop and 390px
-screenshots are saved outside the repository under the OS temporary directory
+screens also show semantic-review reasons and source quotes. UI checks verify
+review opt-in/reset, paid-call confirmation, refusal results and template-loading
+failure/retry using a deliberately invalid response. These fixtures simulate
+responses only; semantic evaluation against a real model is separately billable.
+Template prompt assertions wait for the actual provider IPC record; start metadata
+can reach the renderer before that record arrives, so seeing retrieval diagnostics
+alone does not establish that a model call has been observed.
+Desktop and 390px screenshots are saved outside the repository under the OS temporary directory
 (`ria-assistant-qa` and `ria-retrieval-evaluation-qa`). The browser plugin is not
 available in this environment, so validation uses the project's existing Playwright
 harness. Desktop migration tests verify pre-upgrade safety copies and idempotent
