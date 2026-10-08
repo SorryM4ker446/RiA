@@ -7,6 +7,7 @@ import { DOCUMENT_LIMITS, documentPagesSchema, type DocumentPage } from "@/lib/d
 import { documentEmbeddingText, documentTerms } from "@/lib/documents/lexical";
 import { ApiError } from "@/lib/server/api-error";
 import { recordWorkspaceEvent } from "@/lib/activity/events";
+import type { DocumentRevision } from "./upload";
 
 export const documentSummarySelect = {
   id: true, filename: true, collection: true, format: true, byteSize: true, characterCount: true,
@@ -15,7 +16,7 @@ export const documentSummarySelect = {
 } as const;
 
 type DocumentInput = { filename: string; collection?: string | null; format: string; byteSize: number; pages: DocumentPage[] };
-export async function indexDocument(input: DocumentInput, expected?: { id: string; contentHash: string }) {
+export async function indexDocument(input: DocumentInput, expected?: { id: string; contentHash: string }, importBase?: DocumentRevision | null) {
   const pages = documentPagesSchema.parse(input.pages);
   const characterCount = pages.reduce((sum, page) => sum + page.text.length, 0);
   if (characterCount > DOCUMENT_LIMITS.characters) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.documents.charLimit") });
@@ -23,8 +24,11 @@ export async function indexDocument(input: DocumentInput, expected?: { id: strin
   const contentHash = hashDocumentContent(JSON.stringify(pages));
   return db.$transaction(async tx => {
     const existing = await tx.knowledgeDocument.findUnique({ where: { filename: input.filename }, include: { chunks: true } });
-    if (expected && (!existing || existing.id !== expected.id || existing.contentHash !== expected.contentHash)) {
+    if (expected && (!existing || existing.id !== expected.id || existing.contentHash !== expected.contentHash || existing.collection !== (input.collection ?? null))) {
       throw new ApiError({ code: "CONFLICT", message: t("lib.documents.modifiedOrDeleted") });
+    }
+    if (importBase !== undefined && (importBase === null ? Boolean(existing) : !existing || existing.id !== importBase.id || existing.contentHash !== importBase.contentHash || existing.collection !== importBase.collection)) {
+      throw new ApiError({ code: "CONFLICT", message: "同名文档在预览后已改变，请重新预览再确认保存。" });
     }
     if (!existing && await tx.knowledgeDocument.count({ where: {} }) >= DOCUMENT_LIMITS.documentsPerUser) {
       throw new ApiError({ code: "CONFLICT", message: t("lib.documents.tooManyDocuments") });

@@ -66,6 +66,7 @@ test("knowledge evaluation exposes real adapter results, citations and an export
   await page.getByLabel("所属主题（可选）").fill("财务");
   await page.getByLabel("选择知识文档").setInputFiles({ name: "差旅规程.md", mimeType: "text/markdown", buffer: Buffer.from("# 差旅规程\n\n公务出行的开支需要保留税务票据，回程后的十个工作日内提交费用核销申请。\n\n超过期限需要主管提供书面说明。") });
   await page.getByRole("button", { name: "导入文档", exact: true }).click(); await expect(page.getByRole("button", { name: "导入文档", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "确认保存文档", exact: true }).click();
   page.once("dialog", dialog => dialog.accept()); await page.getByLabel("构建语义索引 差旅规程.md").click(); await expect(page.getByLabel("构建语义索引 差旅规程.md")).toBeEnabled();
   await page.getByText("检索质量评测", { exact: true }).click();
   await page.getByLabel("评测问题 JSON（最多 12 个）").fill(JSON.stringify([{ question: "出门办事的钱怎样领回来", collections: ["财务"], expectedFilenames: ["差旅规程.md"], requiredFacts: ["十个工作日", "书面说明"], expectations: [{ kind: "exception", statement: "逾期须主管提供书面说明。" }], answerable: true }, { question: "木星表面温度", answerable: false }]));

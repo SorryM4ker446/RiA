@@ -18,6 +18,7 @@ async function upload(page: Page, filename: string, text: string, collection: st
   await page.getByLabel("选择知识文档").setInputFiles({ name: filename, mimeType: "text/markdown", buffer: Buffer.from(text) });
   const response = page.waitForResponse(response => response.url().endsWith("/api/documents") && response.request().method() === "POST");
   await page.getByRole("button", { name: "导入文档", exact: true }).click();
+  await page.getByRole("button", { name: "确认保存文档", exact: true }).click();
   const result = await response; expect(result.ok(), await result.text()).toBe(true);
   await expect(page.getByRole("button", { name: "导入文档", exact: true })).toBeEnabled();
   return (await result.json()).data.document;
@@ -50,7 +51,11 @@ test("semantic indexing delivers evidence to chat, marks actual citations and su
   expect(progress.indexed).toBe(finance._count.chunks);
   expect(app.readRows("SELECT embeddingModelId,embeddingContextHash FROM document_chunks WHERE documentId=? AND embedding IS NOT NULL", finance.id)).toHaveLength(progress.total);
   const charged = app.readRows("SELECT id FROM model_requests WHERE mode='embedding'").length;
-  await build(page, "差旅规程.md");
+  // Complete indices now skip the HTTP batch as well as the provider call.
+  page.once("dialog", dialog => dialog.accept());
+  await page.getByLabel("构建语义索引 差旅规程.md").click();
+  await expect(page.getByLabel("构建语义索引 差旅规程.md")).toBeEnabled();
+  await expect(page.getByTestId("index-maintenance")).toContainText("差旅规程.md：已完成");
   expect(app.readRows("SELECT id FROM model_requests WHERE mode='embedding'")).toHaveLength(charged);
   await page.getByLabel("检索资料集合").selectOption("财务");
   await page.getByRole("button", { name: "检索文档", exact: true }).click();

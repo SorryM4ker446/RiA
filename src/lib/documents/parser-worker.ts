@@ -1,4 +1,5 @@
 import { t } from "@/lib/locale";
+import { serializeWordDocument } from "./word-structure";
 
 /**
  * User-facing copy for the parser worker.
@@ -30,6 +31,7 @@ const { bytes, format, limits, messages, pdfPath, pdfWorkerPath, mammothPath, zi
 const fail = (message, code = 'VALIDATION_ERROR') => { throw Object.assign(new Error(message), { code }); };
 const tooLarge = () => fail(messages.expandedTooLarge, 'PAYLOAD_TOO_LARGE');
 const normalize = text => text.replace(/\r\n?/g, '\n').replace(/\u0000/g, '').trim();
+const serializeWordDocument = ${serializeWordDocument.toString()};
 async function parse() {
   let pages;
   if (format === 'pdf') {
@@ -87,8 +89,15 @@ async function parse() {
         stream.on('error', reject);
       });
     }
-    const result = await require(mammothPath).extractRawText({ buffer: Buffer.from(bytes) });
-    pages = [{ pageNumber: null, text: normalize(result.value) }];
+    let structuredText = '';
+    await require(mammothPath).convertToHtml({ buffer: Buffer.from(bytes) }, {
+      externalFileAccess: false, includeEmbeddedStyleMap: false,
+      transformDocument: document => {
+        structuredText = serializeWordDocument(document, limits.characters);
+        return { ...document, children: [] };
+      },
+    });
+    pages = [{ pageNumber: null, text: normalize(structuredText) }];
   } else {
     let text;
     try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }

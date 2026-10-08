@@ -122,7 +122,7 @@ export const libraryMessages = {
   "documents.noMatches": "当前未检索到支持这个问题的资料。可换一种表述、调整集合，或补充资料并构建语义索引。",
   "documents.backToLibrary": "返回知识库",
   "documents.fallbackTitle": "文档来源",
-  "documents.extractedTextNote": "以下为当前保存的提取文本，可能与原文件排版不同。相邻长片段包含少量重叠。",
+  "documents.extractedTextNote": "以下为当前保存的提取文本，可能与原文件排版不同。普通长片段含少量重叠，表格片段重复表头以保留行列关系。",
   "documents.outdated": "资料版本或原引用片段已变化，以下展示文档当前版本；聊天中的摘录保留了回答时的内容。",
   "documents.sourcesTitle": "文档参考",
   "documents.sourcesNote": "回答的参考证据，包含命中片段及必要的相邻上下文。请核对引用；没有资料支持的事实不应由模型补造。",

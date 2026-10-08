@@ -46,6 +46,19 @@ Media browsing uses `GET /api/media/library` with filtered cursor pagination and
 
 ## Retrieval behavior
 
+Document imports now offer `POST /api/documents/preview` (multipart `file` and optional
+`collection`), returning local extraction chunks, notes, `previewHash` and nullable
+`base` without saving or calling a model. To confirm via `POST /api/documents`, send
+the original file and collection plus `previewHash` and JSON-string `base` together.
+The server verifies extraction and the current same-filename revision atomically;
+concurrent changes return 409 and require a fresh preview. Direct imports without
+these fields remain compatible. Unknown/duplicate upload fields and collection
+names over 40 trimmed characters are rejected. Preview has a separate six-attempt
+minute quota. Summaries add `lexicalCurrent`, `stale`, `differentModel` and `invalid`
+inside `semantic`; only fresh valid vectors count as indexed. Bulk maintenance uses
+the existing bounded embedding endpoint, with no background job or new write API.
+See [Document knowledge](document-knowledge.md) for structure, limits and continuation.
+
 Assistant template CRUD and conversation snapshot fields are documented in
 [Assistant templates](assistant-templates.md). Preview retrieval retains its `data`
 array and adds diagnostics; `POST /api/documents/evaluate` supports confirmed,

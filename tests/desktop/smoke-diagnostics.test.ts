@@ -20,7 +20,7 @@ test("a failed desktop child prints its application error and retains failure ev
       copyFileSync(join(repositoryRoot, "scripts", script), join(root, "scripts", script));
     }
     writeFileSync(join(root, "scripts", "resolve-installed-electron.mjs"), "export const resolveInstalledElectron = () => process.execPath;");
-    writeFileSync(join(root, "tests", "helpers", "document-fixtures.ts"), "export const textPdf = () => Buffer.from('fixture'); export const wordDocument = async () => Buffer.from('fixture');");
+    writeFileSync(join(root, "tests", "helpers", "document-fixtures.ts"), "export const textPdf = () => Buffer.from('fixture'); export const wordTableDocument = async () => Buffer.from('fixture');");
     writeFileSync(join(root, ".desktop-runtime", "server.js"), "");
     writeFileSync(join(root, "electron-dist", "main.js"), `
       import { mkdirSync, writeFileSync } from 'node:fs';

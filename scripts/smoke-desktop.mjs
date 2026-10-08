@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveInstalledElectron } from "./resolve-installed-electron.mjs";
 import { printDesktopSmokeDiagnostics } from "./smoke-desktop-diagnostics.mjs";
-import { textPdf, wordDocument } from "../tests/helpers/document-fixtures.ts";
+import { textPdf, wordTableDocument } from "../tests/helpers/document-fixtures.ts";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packageVersion = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")).version;
@@ -24,7 +24,7 @@ const testRoot = join(repositoryRoot, ".desktop-data", "test", `electron-smoke-$
 const expectedParent = resolve(repositoryRoot, ".desktop-data", "test");
 const documentFixtures = JSON.stringify([
   { filename: "support.pdf", data: textPdf().toString("base64"), expected: "Aurora support hours", pageNumber: 1 },
-  { filename: "release.docx", data: (await wordDocument()).toString("base64"), expected: "回滚窗口", pageNumber: null },
+  { filename: "release.docx", data: (await wordTableDocument()).toString("base64"), expected: "| 住宿 | 500 元 | 主管审批 |", pageNumber: null },
 ]);
 
 if (!existsSync(join(repositoryRoot, ".desktop-runtime", "server.js"))) {

@@ -1,13 +1,14 @@
 import { protectDataOperation } from "@/lib/server/data-operations";
 import { NextRequest } from "next/server";
 import { db } from "@/db";
-import { currentWorkspaceId, requireLocalWorkspace } from "@/lib/local/workspace";
-import { parseDocument, validateDocumentFile } from "@/lib/documents/parser";
+import { requireLocalWorkspace } from "@/lib/local/workspace";
+import { parseDocument } from "@/lib/documents/parser";
 import { documentSummarySelect, indexDocument } from "@/lib/documents/store";
 import { DOCUMENT_LIMITS } from "@/lib/documents/types";
 import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
-import { readLimitedBody } from "@/lib/server/request-body";
+import { readDocumentUpload } from "@/lib/documents/upload";
+import { hashDocumentContent, DOCUMENT_INDEX_VERSION } from "@/lib/documents/chunks";
 import { t } from "@/lib/locale";
 import { semanticCoverage } from "@/lib/documents/semantic";
 
@@ -18,7 +19,8 @@ async function GETHandler(req: NextRequest) {
     const data = await db.knowledgeDocument.findMany({ where: {}, orderBy: [{ updatedAt: "desc" }, { id: "desc" }], take: DOCUMENT_LIMITS.documentsPerUser, select: documentSummarySelect });
     const coverage = await semanticCoverage(data.map(document => document.id));
     return Response.json({ data: data.map(document => ({ ...document, semantic: {
-      modelRef: coverage.modelRef, indexed: coverage.counts.get(document.id) ?? 0, total: document._count.chunks,
+      modelRef: coverage.modelRef, indexed: coverage.counts.get(document.id) ?? 0, total: document._count.chunks, lexicalCurrent: document.indexVersion === DOCUMENT_INDEX_VERSION,
+      ...(coverage.details.get(document.id) ?? { stale: 0, differentModel: 0, invalid: 0 }),
     } })) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return createApiErrorResponse(error, t("api.documents.listFailed")); }
 }
@@ -27,22 +29,11 @@ async function POSTHandler(req: NextRequest) {
   try {
     await requireLocalWorkspace(req);
     enforceRateLimit("documents");
-    const contentType = req.headers.get("content-type") ?? "";
-    if (!contentType.toLowerCase().startsWith("multipart/form-data;")) throw new ApiError({ code: "UNSUPPORTED_MEDIA_TYPE", message: "Content-Type must be multipart/form-data" });
-    const bytes = await readLimitedBody(req, DOCUMENT_LIMITS.bodyBytes);
-    let form: FormData;
-    try { form = await new Response(bytes, { headers: { "Content-Type": contentType } }).formData(); }
-    catch { throw new ApiError({ code: "VALIDATION_ERROR", message: t("api.documents.invalidUpload") }); }
-    const file = form.get("file");
-    if (![...form.keys()].every((key) => key === "file" || key === "collection")) throw new ApiError({ code: "VALIDATION_ERROR", message: t("api.documents.singleFileField") });
-    if (!(file instanceof File)) throw new ApiError({ code: "VALIDATION_ERROR", message: t("api.documents.singleFileField") });
-    // An optional topic, so a document can be filed without a second form.
-    const rawCollection = form.get("collection");
-    const collection = typeof rawCollection === "string" && rawCollection.trim() ? rawCollection.trim().slice(0, 40) : null;
-    const { filename, format } = validateDocumentFile(file);
+    const { file, filename, format, collection, previewHash, base } = await readDocumentUpload(req);
     const pages = await parseDocument(new Uint8Array(await file.arrayBuffer()), format, req.signal);
     if (req.signal.aborted) throw new ApiError({ code: "VALIDATION_ERROR", message: t("api.documents.importCancelled") });
-    const data = await indexDocument({ filename, collection, format, byteSize: file.size, pages });
+    if (previewHash && previewHash !== hashDocumentContent(JSON.stringify(pages))) throw new ApiError({ code: "CONFLICT", message: "文件与预览内容不同，请重新预览。" });
+    const data = await indexDocument({ filename, collection, format, byteSize: file.size, pages }, undefined, base);
     return Response.json({ data }, { status: data.change === "created" ? 201 : 200, headers: { "Cache-Control": "no-store" } });
   } catch (error) { return createApiErrorResponse(error, t("api.documents.importFailed")); }
 }

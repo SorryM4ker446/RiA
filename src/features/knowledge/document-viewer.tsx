@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { documentRequest } from "@/features/knowledge/document-library";
+import { documentRequest } from "@/features/knowledge/document-client";
 import { t } from "@/lib/locale";
 
 type DocumentView = { contentHash: string; filename: string; chunks: { id: string; text: string; ordinal: number; pageNumber: number | null }[] };

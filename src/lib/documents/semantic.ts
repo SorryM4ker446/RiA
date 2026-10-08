@@ -19,11 +19,24 @@ export async function selectedDocumentEmbeddingModel(): Promise<ModelRef | null>
 }
 export async function semanticCoverage(ids: string[]) {
   const modelRef = await selectedDocumentEmbeddingModel();
-  const rows = modelRef && ids.length ? await db.documentChunk.groupBy({ by: ["documentId"],
-    where: { documentId: { in: ids }, embeddingModelProvider: modelRef.providerId, embeddingModelId: modelRef.modelId, embedding: { not: Prisma.AnyNull }, embeddingContextHash: { not: null } },
-    _count: { _all: true },
-  }) : [];
-  return { modelRef, counts: new Map(rows.map(row => [row.documentId, row._count._all])) };
+  const counts = new Map<string, number>();
+  const details = new Map<string, { stale: number; differentModel: number; invalid: number }>();
+  let after: string | undefined;
+  if (modelRef && ids.length) while (true) {
+    const rows = await db.documentChunk.findMany({ where: { documentId: { in: ids }, embedding: { not: Prisma.AnyNull }, ...(after ? { id: { gt: after } } : {}) },
+      take: 64, orderBy: { id: "asc" }, include: { document: { select: { filename: true, collection: true } } } });
+    for (const row of rows) {
+      const info = details.get(row.documentId) ?? { stale: 0, differentModel: 0, invalid: 0 };
+      if (row.embeddingModelProvider !== modelRef.providerId || row.embeddingModelId !== modelRef.modelId) info.differentModel++;
+      else if (!validDocumentVector(row.embedding)) info.invalid++;
+      else if (row.embeddingContextHash !== hashDocumentContent(documentEmbeddingText(row, row.document))) info.stale++;
+      else counts.set(row.documentId, (counts.get(row.documentId) ?? 0) + 1);
+      details.set(row.documentId, info);
+    }
+    if (rows.length < 64) break;
+    after = rows.at(-1)!.id;
+  }
+  return { modelRef, counts, details };
 }
 
 const activeIndexes = (globalThis as typeof globalThis & { documentSemanticIndexes?: Set<string> }).documentSemanticIndexes ??= new Set<string>();

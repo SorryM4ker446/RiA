@@ -12,6 +12,7 @@ async function upload(page: Page, filename: string, text: string) {
   await page.getByLabel("选择知识文档").setInputFiles({ name: filename, mimeType: "text/plain", buffer: Buffer.from(text) });
   const response = page.waitForResponse(response => response.url().endsWith("/api/documents") && response.request().method() === "POST");
   await page.getByRole("button", { name: "导入文档", exact: true }).click();
+  await page.getByRole("button", { name: "确认保存文档", exact: true }).click();
   const result = await response; expect(result.ok(), await result.text()).toBe(true);
   await expect(page.getByRole("button", { name: "导入文档", exact: true })).toBeEnabled();
   return (await result.json()).data.document;

@@ -17,15 +17,10 @@ import { getApiErrorMessage } from "@/lib/api-error-message";
 import { DOCUMENT_LIMITS, type DocumentSource } from "@/lib/documents/types";
 import { t, tf } from "@/lib/locale";
 
-type DocumentSummary = { id: string; filename: string; contentHash: string; collection?: string | null; characterCount: number; indexedAt: string; _count: { chunks: number };
-  semantic?: { indexed: number; total: number; modelRef: { providerId: string; modelId: string } | null } };
-
-export async function documentRequest<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, { cache: "no-store", ...init });
-  const payload = await response.json();
-  if (!response.ok) throw new Error(getApiErrorMessage(payload, t("documents.requestFailed")));
-  return payload.data as T;
-}
+import { documentRequest, type DocumentSummary, type DocumentPreview } from "./document-client";
+import { maintainDocumentIndexes, type IndexProgress } from "./index-maintenance";
+import { IndexStatus } from "./index-status";
+export { documentRequest } from "./document-client";
 
 export function DocumentLibrary() {
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
@@ -40,86 +35,84 @@ export function DocumentLibrary() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<DocumentSource[] | null>(null);
   const [diagnostics, setDiagnostics] = useState<unknown>(null);
-  const indexRequest = useRef<AbortController | null>(null);
+  const operation = useRef<AbortController | null>(null);
+  const initialRequest = useRef<AbortController | null>(null);
+  const [preview, setPreview] = useState<DocumentPreview | null>(null);
+  const previewData = useRef<FormData | null>(null);
+  const [progress, setProgress] = useState<IndexProgress[]>([]);
   async function refresh(signal?: AbortSignal) {
     const updated = await documentRequest<DocumentSummary[]>("/api/documents", { signal });
     if (!signal?.aborted) setDocuments(updated);
   }
   useEffect(() => {
     const controller = new AbortController();
-    documentRequest<DocumentSummary[]>("/api/documents", { signal: controller.signal }).then(setDocuments).catch(error => {
+    initialRequest.current = controller;
+    documentRequest<DocumentSummary[]>("/api/documents", { signal: controller.signal }).then(value => { if (!controller.signal.aborted) setDocuments(value); }).catch(error => {
       if (!controller.signal.aborted) setError(error.message);
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => { controller.abort(); indexRequest.current?.abort(); };
+    return () => { controller.abort(); operation.current?.abort(); operation.current = null; };
   }, []);
 
-  async function run(operation: () => Promise<void>, options?: { keepNotice?: boolean }) {
-    setBusy(true); setError("");
-    if (!options?.keepNotice) setNotice("");
-    try { await operation(); }
-    catch (error) { setError(error instanceof Error ? error.message : t("documents.actionFailed")); }
-    finally { setBusy(false); }
+  async function run(action: (signal: AbortSignal) => Promise<void>, options?: { keepNotice?: boolean }) {
+    if (operation.current) return;
+    initialRequest.current?.abort(); setLoading(false);
+    const controller = new AbortController(); operation.current = controller;
+    setBusy(true); setError(""); if (!options?.keepNotice) setNotice("");
+    try { await action(controller.signal); }
+    catch (error) { if (operation.current === controller) { if (controller.signal.aborted) setNotice("操作已取消；已经保存的批次保留。"); else setError(error instanceof Error ? error.message : t("documents.actionFailed")); } }
+    finally { if (operation.current === controller) { operation.current = null; setBusy(false); } }
   }
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const file = data.get("file");
+    const data = new FormData(event.currentTarget); const file = data.get("file");
     if (!(file instanceof File) || !file.size) { setError(t("documents.selectFirst")); return; }
-    // Filed under a topic when one was given, so a conversation can be scoped
-    // to it later.
     if (collection.trim()) data.set("collection", collection.trim());
     if (file.size > DOCUMENT_LIMITS.fileBytes) { setError(t("documents.tooLarge")); return; }
-    await run(async () => {
+    setPreview(null); previewData.current = null;
+    await run(async signal => {
       setImporting(true);
-      const result = await documentRequest<{ change: string; added: number; retained: number; removed: number }>("/api/documents", { method: "POST", body: data });
-      form.reset(); setResults(null);
-      await refresh();
-      // The `change` value is the API's own enum and is compared as-is.
-      setNotice(result.change === "unchanged" ? t("documents.unchanged") : tf("documents.savedSummary", { added: result.added, retained: result.retained, removed: result.removed }));
+      try {
+        const value = await documentRequest<DocumentPreview>("/api/documents/preview", { method: "POST", body: data, signal });
+        if (!signal.aborted) { setPreview(value); previewData.current = data; }
+      } finally { setImporting(false); }
     });
-    setImporting(false);
+  }
+  async function savePreview() {
+    if (!preview || !previewData.current) return;
+    const data = previewData.current; data.set("previewHash", preview.previewHash); data.set("base", JSON.stringify(preview.base));
+    await run(async signal => {
+      const result = await documentRequest<{ change: string; added: number; retained: number; removed: number }>("/api/documents", { method: "POST", body: data, signal });
+      if (signal.aborted) return;
+      setPreview(null); previewData.current = null; setResults(null); setDiagnostics(null);
+      setNotice(result.change === "unchanged" ? t("documents.unchanged") : tf("documents.savedSummary", { added: result.added, retained: result.retained, removed: result.removed }));
+      try { await refresh(signal); } catch { if (!signal.aborted) setError("文档已保存，但列表刷新失败，请刷新文档；无需重复保存。"); }
+    });
   }
   async function search(event: FormEvent) {
     event.preventDefault();
     setResults(null); setDiagnostics(null);
-    await run(async () => {
-      const response = await fetch("/api/documents/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, collections: searchCollection ? [searchCollection] : [] }) });
+    await run(async signal => {
+      const response = await fetch("/api/documents/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, collections: searchCollection ? [searchCollection] : [] }), signal });
       const payload = await response.json();
       if (!response.ok) throw new Error(getApiErrorMessage(payload, t("documents.requestFailed")));
       setResults(payload.data); setDiagnostics(payload.diagnostics);
     });
   }
 
-  async function buildSemanticIndex(document: DocumentSummary) {
-    if (busy || !document.semantic?.modelRef) return;
-    const modelRef = document.semantic.modelRef;
-    if (!window.confirm(`将「${document.filename}」的片段发送给 ${modelRef.modelId} 构建语义索引，可能产生费用。继续？`)) return;
-    const controller = new AbortController();
-    indexRequest.current = controller;
-    setBusy(true); setError(""); setNotice("");
-    try {
-      for (let batch = 0; batch < 8; batch++) {
-        const progress = await documentRequest<{ indexed: number; total: number; remaining: number }>(`/api/documents/${document.id}/embeddings`, {
-          method: "POST", signal: controller.signal, headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ confirm: true, contentHash: document.contentHash, modelRef }),
-        });
-        if (controller.signal.aborted) return;
-        setNotice(`语义索引：${progress.indexed}/${progress.total} 个片段`);
-        setDocuments(current => current.map(item => item.id === document.id
-          ? { ...item, semantic: { modelRef, indexed: progress.indexed, total: progress.total } } : item));
-        if (!progress.remaining) break;
-      }
-      await refresh(controller.signal);
-      if (!controller.signal.aborted) setResults(null);
-    } catch (error) {
-      if (!controller.signal.aborted) {
-        setError(error instanceof Error ? error.message : "语义索引构建失败；已完成的批次保留，再次构建可继续。");
-      }
-    } finally {
-      if (indexRequest.current === controller) indexRequest.current = null;
-      if (!controller.signal.aborted) setBusy(false);
-    }
+  async function buildSemanticIndexes(targets: DocumentSummary[]) {
+    if (operation.current || !targets.length) return;
+    const models = [...new Set(targets.flatMap(document => document.semantic?.modelRef ? [document.semantic.modelRef.modelId] : []))];
+    if (!models.length || !window.confirm(`将 ${targets.length} 个文档的待索引片段发送给 ${models.join("、")}，可能产生费用。已完成批次保留。继续？`)) return;
+    await run(async signal => {
+      const items = await maintainDocumentIndexes(targets, signal, items => { if (!signal.aborted || operation.current?.signal === signal) setProgress(items); });
+      if (!signal.aborted) {
+        const failure = items.find(item => item.status === "failed");
+        if (failure) setError(failure.error ?? "索引构建失败，已完成批次保留。");
+        setNotice(`索引处理：完成 ${items.filter(item => item.status === "complete").length}/${items.length} 个文档；未完成项可继续。`);
+        try { await refresh(signal); } catch { if (!signal.aborted) setError("索引批次处理结束，但状态刷新失败，请刷新文档；已完成批次保留。"); }
+        setResults(null); setDiagnostics(null);
+      } else if (operation.current?.signal === signal) setNotice("索引构建已取消，已完成批次保留；刷新文档后可继续。");
+    });
   }
 
   return <Card>
@@ -128,7 +121,7 @@ export function DocumentLibrary() {
       <CardDescription>{t("documents.libraryDescription")}</CardDescription>
     </CardHeader>
     <CardContent className="space-y-4">
-      <p className="text-sm leading-6 text-muted-foreground">{t("documents.textOnlyNote")}</p>
+      <p className="text-sm leading-6 text-muted-foreground">{t("documents.textOnlyNote")} 导入会先展示提取预览，确认保存后才写入知识库。</p>
       <form className="flex flex-wrap items-end gap-2" onSubmit={event => void upload(event)}>
         {/* A div, not a label: FileInput renders its own label for the trigger,
             and nesting the two makes the association ambiguous. The input keeps
@@ -141,6 +134,7 @@ export function DocumentLibrary() {
             buttonLabel={t("documents.fileButton")}
             disabled={busy}
             name="file"
+            onChange={() => { setPreview(null); previewData.current = null; }}
             required
           />
         </div>
@@ -151,7 +145,7 @@ export function DocumentLibrary() {
             disabled={busy}
             list="document-collections"
             name="collection"
-            onChange={(event) => setCollection(event.target.value)}
+            onChange={(event) => { setCollection(event.target.value); setPreview(null); previewData.current = null; }}
             placeholder={t("documents.collectionPlaceholder")}
             value={collection}
           />
@@ -170,6 +164,14 @@ export function DocumentLibrary() {
           {t("documents.import")}
         </Button>
       </form>
+      {preview ? <section className="space-y-2 rounded-lg border p-3" aria-label="文档导入预览">
+        <h3 className="break-words text-sm font-medium">预览：{preview.filename} · {preview.chunks.length} 个片段 · {preview.characterCount} 字符</h3>
+        {preview.notes.map(note => <p className="text-xs text-muted-foreground" key={note}>{note}</p>)}
+        {preview.base ? <p className="text-xs">确认保存将更新同名文档。原有引用保留旧片段快照。</p> : null}
+        <div className="max-h-64 space-y-2 overflow-y-auto">{preview.chunks.map(chunk => <div key={chunk.ordinal}><p className="text-xs text-muted-foreground">片段 {chunk.ordinal + 1}{chunk.heading ? ` · ${chunk.heading}` : ""}{chunk.pageNumber ? ` · 第 ${chunk.pageNumber} 页` : ""}</p><pre className="whitespace-pre-wrap break-words text-xs">{chunk.text}</pre></div>)}</div>
+        <div className="flex flex-wrap gap-2"><Button disabled={busy} onClick={() => void savePreview()}>确认保存文档</Button><Button disabled={busy} variant="outline" onClick={() => { setPreview(null); previewData.current = null; }}>放弃预览</Button></div>
+      </section> : null}
+      <IndexStatus documents={documents} progress={progress} busy={busy} start={() => void buildSemanticIndexes(documents.filter(document => document.semantic?.modelRef && document.semantic.indexed < document.semantic.total))} cancel={() => operation.current?.abort()} />
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
       {notice ? <p role="status" className="text-sm text-muted-foreground">{notice}</p> : null}
       <div className="flex items-center justify-between">
@@ -184,10 +186,11 @@ export function DocumentLibrary() {
           <div className="min-w-0">
             <Link className="break-all text-sm font-medium tracking-label underline underline-offset-4 hover:no-underline" href={`/knowledge/documents/${document.id}`}>{document.filename}</Link>
             <p className="mt-1 text-xs text-muted-foreground">{document._count.chunks} {t("documents.chunkUnit")} · {document.characterCount.toLocaleString()} {t("documents.characterUnit")} · {t("documents.indexedAt")} {new Date(document.indexedAt).toLocaleString(t("documents.dateLocale"))}</p>
+            {document.semantic?.lexicalCurrent === false ? <p className="mt-1 text-xs text-muted-foreground">本地索引待更新，请重新索引以保留表头上下文。</p> : null}
             <p className="mt-1 text-xs text-muted-foreground">{document.semantic?.modelRef ? `语义索引 ${document.semantic.indexed}/${document.semantic.total} · ${document.semantic.modelRef.modelId}${document.semantic.indexed < document.semantic.total ? " · 构建后可检索间接表述和同义问题" : ""}` : "当前使用本地关键词检索；配置 embedding 模型后可构建语义索引。"}</p>
           </div>
           <div className="flex gap-1">
-            <Button aria-label={`构建语义索引 ${document.filename}`} disabled={busy || !document.semantic?.modelRef} size="sm" variant="outline" onClick={() => void buildSemanticIndex(document)}>语义索引</Button>
+            <Button aria-label={`构建语义索引 ${document.filename}`} disabled={busy || !document.semantic?.modelRef} size="sm" variant="outline" onClick={() => void buildSemanticIndexes([document])}>语义索引</Button>
             <Button aria-label={`${t("documents.reindex")} ${document.filename}`} disabled={busy} size="sm" variant="secondary" onClick={() => void run(async () => {
               await documentRequest(`/api/documents/${document.id}`, { method: "POST" }); await refresh(); setResults(null); setNotice(t("documents.reindexed"));
             })}>{t("documents.reindex")}</Button>

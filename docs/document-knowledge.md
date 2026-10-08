@@ -7,9 +7,20 @@ write long-term memories; imported documents remain available. Manual tool API
 requests may include `chatId` so the server can derive these settings from the
 stored conversation. A missing supplied conversation returns 404.
 
-Open **知识库管理 → 文档知识库** to import a PDF, UTF-8 Markdown (`.md`), UTF-8 text (`.txt`) or Word `.docx` file. The original file is not retained: SQLite stores the extracted text, filename, PDF page numbers and a local search index. Keep the original separately if you need its formatting or binary contents.
+Open **知识库管理 → 文档知识库** to select a PDF, UTF-8 Markdown (`.md`), UTF-8 text (`.txt`) or Word `.docx` file. **导入文档** first shows a local, read-only extraction preview: inspect headings, rows, amounts, conditions and missing content, then click **确认保存文档**. **放弃预览** writes nothing. The original file is not retained: SQLite stores the extracted text, filename, PDF page numbers and a local search index. Keep the original separately if you need its formatting or binary contents.
 
-Importing a file with the same exact filename updates the document. Identical extracted text and collection leave the index unchanged; changed paragraphs add/remove chunks while unaffected chunks keep their IDs. **重新索引** rebuilds local terms, frequencies and Markdown section paths from saved text. It does not call an embedding model or rerun file extraction. Reindex existing documents once after this upgrade to populate section paths and term frequencies. Index replacement is transactional, so validation failures and failed writes preserve the working version.
+Confirmation extracts the file again and verifies that the preview text and same-filename document identity, content hash and collection still match. A concurrent import, deletion/recreation or collection move returns conflict instead of overwriting newer data; preview again before saving. Preview data lives only on the open page. There is no server preview cache, durable upload or model call. If a first-save response is lost, refresh and preview again to see the saved document before repeating confirmation.
+
+Importing a file with the same exact filename updates the document. Identical extracted text and collection leave the index unchanged; changed paragraphs add/remove chunks while unaffected chunks keep their IDs. **重新索引** rebuilds local terms, frequencies, section paths and table chunks from saved text. It does not call an embedding model or rerun file extraction. Index version 3 retains table headers with each complete group of rows. Old local indices are marked **本地索引待更新**; reindex them explicitly before building semantic vectors. There is no automatic paid upgrade. Index replacement is transactional, so validation failures and failed writes preserve the working version.
+
+Word extraction preserves standard Heading 1–6 styles, list membership and table rows/columns as plain Markdown. Ordered list items use neutral `1.` markers rather than reproducing the original numbering. An explicitly marked Word header row becomes the table header; otherwise generated labels such as `列 1` keep the first row as data. Merged cells repeat their value at each occupied coordinate with a merge marker; this representation needs human review. Markdown pipe tables keep complete rows and repeat their original header and divider in every table chunk. Escaped pipes and inline code delimiters do not split cells. Ordinary long paragraphs retain the existing overlap. Saved text from older Word imports cannot recover previously flattened rows, headings or merged cells: **reimport the original Word file** to obtain the new structure. Reindex alone cannot restore missing source information.
+
+Headings inside fenced code examples remain literal reference text and do not
+change the section path of later evidence. Escaped trailing backslashes do not
+hide a table's closing delimiter. If documents were indexed before these fixes,
+use **重新索引** to repair their saved headings/table chunks; affected semantic
+vectors are invalidated and need explicit rebuilding. Unchanged paragraphs retain
+their IDs, and a content-preserving reindex keeps document citation versions.
 
 The document panel supports keyword search without a model key, and hybrid search when compatible semantic vectors exist. Chat automatically supplies up to eight versioned snippets to the configured chat model. Retrieval expands adjacent paragraphs to retain conditions and exceptions. The knowledge-search tool prioritizes document evidence before filling remaining slots with confirmed memories and built-in notes. Filenames, excerpts and source links appear below the answer. PDF sources identify their page; other formats identify their chunk. The source page requires the same authentication as the knowledge library and renders extracted text rather than document HTML.
 
@@ -17,10 +28,12 @@ The document panel supports keyword search without a model key, and hybrid searc
 
 1. Select an embedding model from the existing model settings and configure its provider.
 2. Import documents and inspect their extracted text. For older documents, use **重新索引** first.
-3. Click **语义索引** for each document and confirm sending its filename, collection, section paths and text snippets to that model. The panel shows indexed/total chunks for the selected model.
+3. Click **语义索引** for one document or **批量构建或继续** for pending documents in the current library, and confirm sending their filenames, collections, section paths and text snippets to that model. The panel shows indexed/total chunks for the selected model.
 4. Ask a paraphrased question in the library or chat. Select the appropriate collections to narrow evidence. A short follow-up can reuse the preceding user question; assistant speculation is excluded from this query context.
 
-Import never starts billable indexing automatically. Each explicit indexing request processes at most 32 pending chunks, with a 30-second provider deadline. The page makes at most eight sequential requests for a document. Completed batches persist if a later batch fails; click the button again to continue. An unchanged completed index makes no new provider call. Embedding calls have no automatic retries. Duplicate requests for one document return conflict; document/model changes or cancellation prevent an obsolete batch from committing. Leaving the library cancels its in-flight request.
+Import never starts billable indexing automatically. Each explicit indexing request processes at most 32 pending chunks, with a 30-second provider deadline. One page operation makes at most 12 sequential requests in total and at most eight for a document. Completed batches persist if a later batch fails, hits quota or is cancelled; refresh and click the button again to continue, including after a service restart. An unchanged completed index makes no new provider call. Quota and conflict stop the operation; other document failures are reported while remaining documents can proceed. Embedding calls have no automatic retries. Duplicate requests for one document return conflict; document/model changes or cancellation prevent an obsolete batch from committing. **取消索引构建** and leaving the library cancel its in-flight request. Cancellation cannot undo an already committed batch or guarantee a provider has not charged for submitted work.
+
+**索引维护** derives completed, stale, malformed and different-model vector counts from stored data, checking the actual vector and contextual hash rather than counting non-null fields. It also identifies old local indices. The per-document progress list describes this page's latest operation; it is not a persistent background queue. Saved vectors are the source for continuation. There are no timers, automatic retries or background paid calls. These status checks do not prove semantic quality or compatibility with a provider whose output dimensions change without a model-ID change; retrieval diagnoses incompatible dimensions separately.
 
 Vectors are stored in local SQLite, qualified by provider, model and the hash of the contextual text used for embedding. A changed paragraph, section, filename or collection invalidates affected vectors. A model change excludes vectors from the old model; explicitly build the new index. Missing credentials or a query embedding failure leave keyword retrieval available. Query cancellation still cancels the operation. Vectors must contain finite numeric values, have a nonzero norm and at most 4,096 dimensions; different dimensions are never compared.
 
@@ -43,23 +56,26 @@ Document data lives in the existing SQLite database, not `public/` or a new file
 | Upload | One file, 8 MiB; 9 MiB multipart request, counted from the actual stream |
 | Stored text | 100,000 UTF-16 code units per document |
 | PDF pages | 200 |
-| Chunks | 256 per document; at most 1,000 code units with 100-character overlap within long paragraphs |
+| Chunks | 256 per document; at most 1,000 code units with 100-character overlap within long paragraphs; tables repeat headers with complete rows |
+| Table row | Header + divider + any single row must fit within 1,000 code units; split wider tables or long cells before importing |
 | Documents | 100 per user |
 | Import and reindex | Shared local instance quota of 6 attempts/minute |
+| Import preview | Separate local instance quota of 6 attempts/minute; no database write or model call |
 | Semantic indexing | 12 batch requests/minute; at most 32 chunks/request |
-| Parsing | At most two workers per service; 15-second deadline; 128 MiB old-generation JS heap per worker |
+| Parsing | At most two workers per service; 30-second deadline; 128 MiB old-generation JS heap per worker |
 | Word archive | 500 non-directory entries; at most 12 MiB of actual decompressed data |
 
-Workers receive no inherited environment variables, use buffer input and have `fetch` disabled. PDF JavaScript evaluation and image rendering are disabled; Word import extracts raw text and does not enable external-file access. The heap limit does not cap all native allocations; these controls bound common local resource abuse and are not an OS sandbox for hostile public uploads. Existing media and Proxy body limits are unchanged.
+Workers receive no inherited environment variables, use buffer input and have `fetch` disabled. PDF JavaScript evaluation and image rendering are disabled; Word import serializes its parsed structure as text, discards the HTML conversion tree and does not enable external-file access or embedded style maps. Word structures are bounded to 64 nesting levels, 100,000 visited nodes and tables of at most 2,000 rows and 64 columns. The heap limit does not cap all native allocations; these controls bound common local resource abuse and are not an OS sandbox for hostile public uploads. Existing media and Proxy body limits are unchanged.
 
-Scanned/image-only PDFs need OCR before import. Encrypted PDFs, legacy `.doc`, macro-enabled Word, arbitrary binary text and malformed files are rejected. No OCR, original-file download, table-layout preservation or automatic background parsing is provided. Complex layouts/fonts may extract imperfectly; inspect the source page before relying on them. Keyword ranking uses up to 24 normalized query terms and 200 lexical candidates; semantic candidates cover the full selected corpus independently of those matches and document recency.
+Scanned/image-only PDFs need OCR before import. Encrypted PDFs, legacy `.doc`, macro-enabled Word, arbitrary binary text and malformed files are rejected. No OCR, original-file download, original visual table-layout preservation or automatic background parsing is provided. PDF retains page numbers and extracted text order; complex PDF tables and columns require manual review rather than assuming Word-style structure. Complex layouts/fonts may extract imperfectly; inspect the source page before relying on them. Keyword ranking uses up to 24 normalized query terms and 200 lexical candidates; semantic candidates cover the full selected corpus independently of those matches and document recency.
 
 ## API and validation
 
 | Endpoint | Contract |
 | --- | --- |
-| `GET /api/documents` | Bounded summaries with `semantic: { modelRef, indexed, total }` for the selected model; no query parameters |
-| `POST /api/documents` | Multipart `file`; returns `data.document`, `change`, `added`, `retained`, `removed`; HTTP 201 for creation, 200 for updates/unchanged content |
+| `GET /api/documents` | Bounded summaries with `semantic: { modelRef, indexed, total, lexicalCurrent, stale, differentModel, invalid }` for the selected model; no query parameters |
+| `POST /api/documents/preview` | Multipart `file`, optional `collection`; local read-only extraction with filename, format, byte size, character count, index version, chunks, notes, `previewHash` and nullable `base` |
+| `POST /api/documents` | Multipart `file`, optional `collection`; UI confirmation additionally sends `previewHash` and JSON-string `base` together; returns `data.document`, `change`, `added`, `retained`, `removed`; HTTP 201 for creation, 200 for updates/unchanged content |
 | `GET /api/documents/:id` | Document summary and extracted chunks; no raw original file |
 | `POST /api/documents/:id` | Reindex saved text; empty body or `{}` |
 | `DELETE /api/documents/:id` | Delete saved document and index; empty body or `{}` |
@@ -67,6 +83,8 @@ Scanned/image-only PDFs need OCR before import. Encrypted PDFs, legacy `.doc`, m
 | `POST /api/documents/search` | JSON `{ "query": "question", "collections": [] }`, 1–2,000 characters; up to eight source snippets; shares the tool request quota |
 
 All endpoints use the existing [authentication, Origin and error contracts](api-security.md). Foreign and missing document IDs return the same 404. Parser capacity returns 503 with `Retry-After`; parsing deadline returns 504. Import quota exhaustion returns 429. Oversized files, extracted text, archives or chunk counts return 413.
+
+Multipart requests reject unknown/duplicate fields, require one file and reject collections longer than 40 characters after trimming. `base` is `null` for an absent filename or `{ id, contentHash, collection }` for the existing document. `previewHash` is the hash of extracted pages, not a credential. It must match the confirmation extraction; `base` is checked inside the write transaction. Mismatches return 409. Legacy authenticated integrations may still import directly without both confirmation fields; the preview workflow is enforced by the UI, not a new API authorization requirement. A header plus row too wide for one chunk returns 400 with a request to split it, preserving any saved version.
 
 `tests/fixtures/document-retrieval.json` is the minimal fixed evaluation corpus: six source documents and eight Chinese/English questions, supplemented with forty newer distractors in the test. `npm run test:server` reports Recall@3 and MRR@3 and requires both to remain 1.0 for this small corpus. This is a regression baseline, not a claim about arbitrary document accuracy.
 

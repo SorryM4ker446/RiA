@@ -1,5 +1,31 @@
 # Test coverage and local validation
 
+Document structure regressions run actual generated Word files through the bounded
+worker and verify headings, amounts, row/column relationships, literal untrusted
+text, unmarked first rows and escaped delimiters. Table chunk tests require repeated
+headers, complete rows, bounded size and unchanged ordinary-paragraph identities;
+oversized rows must preserve the saved version. Preview tests cover authentication,
+no writes or embedding calls, extraction mismatch, concurrent creation/content
+change/collection move and deleted/recreated identities. Vector summaries check
+context hashes and malformed/model-mismatched data before selective repair.
+Maintenance tests exercise persisted 32+8 batches, cancellation, quota/conflict
+stops, individual failures, local-index upgrades and the 12-request ceiling.
+Regressions also require fenced heading examples to leave later evidence under
+its real section, with reindex repair preserving IDs and invalidating wrong-context
+vectors. Compact table rows ending in an escaped backslash must retain their
+closing delimiter and repeated headers without losing or duplicating rows.
+
+`tests/e2e/document-structure.spec.ts` uses production standalone HTTP and isolated
+SQLite. It checks read-only preview, discard/confirmation, Word table evidence after
+restart, optimistic save conflicts and two-document bulk cancellation/resumption.
+Markdown code examples and compact escaped paths must also retain correct section
+paths and table headers through the production preview, save and retrieval flow.
+Request gates hold the second batch after the first commits; no sleeps or retries
+mask the boundary. Provider calls are offline fixtures. Desktop and 390-pixel
+screenshots and page/console checks validate the rendered preview. Existing document,
+RAG, citation, template and refresh cases use the same confirmation workflow.
+No live provider accuracy or real Windows installer acceptance is implied.
+
 Assistant template tests cover immutable conversation snapshots, explicit update,
 read-only built-ins, stale revision rejection, bound-model validation, server tool
 restrictions (including an empty allowlist), scoped chat evidence and portable
@@ -158,7 +184,7 @@ The unique `(userId, key)` migration keeps the most recently updated duplicate u
 
 Document regressions import actual generated PDF/DOCX and UTF-8 text/Markdown through both handlers and production HTTP. They cover incremental chunk reuse, reindex repair, atomic failure, the credential boundary, compressed expansion, quotas, parser timeout/cancellation, source snapshots and deletion. A fixed eight-query Chinese/English retrieval corpus reports Recall@3 and MRR@3 (required baseline: 1.0 each), with forty newer distractors, four empty-result queries and four collection checks. Run it through the normal server suite; no separate evaluation framework is needed.
 
-The desktop migration regression upgrades an existing database, checks its backup and preserved chat, then verifies document/index persistence and deletion cascades. Electron smoke imports a real synthetic PDF and DOCX and checks extracted text, page references, authenticated reads and search after a service restart. Binary fixtures are generated from code, contain no private documents and make no model requests. These checks exercise parser runtime dependencies in the prepared standalone artifact, not just the source tree. The existing CI server/browser/desktop commands include these regressions; no new CI service or secret is required.
+The desktop migration regression upgrades an existing database, checks its backup and preserved chat, then verifies document/index persistence and deletion cascades. Electron smoke imports a real synthetic PDF and a Word table, checks the literal row linking accommodation, 500 yuan and manager approval, and verifies extracted text, page references, authenticated reads and search after a service restart. Binary fixtures are generated from code, contain no private documents and make no model requests. These checks exercise parser runtime dependencies in the prepared standalone artifact, not just the source tree. The existing CI server/browser/desktop commands include these regressions; no new CI service or secret is required.
 
 These tests do not certify every real OpenRouter model, network outage behavior, or clean-machine installation/uninstallation. Desktop path isolation and restart persistence are tested, but a full installer upgrade/uninstall cycle remains a separate check. Distinguish the real media HTTP/SQLite chain from the mocked UI tests when reporting coverage.
 
