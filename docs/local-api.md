@@ -46,6 +46,11 @@ Media browsing uses `GET /api/media/library` with filtered cursor pagination and
 
 ## Retrieval behavior
 
+Assistant template CRUD and conversation snapshot fields are documented in
+[Assistant templates](assistant-templates.md). Preview retrieval retains its `data`
+array and adds diagnostics; `POST /api/documents/evaluate` supports confirmed,
+bounded retrieval/answer evaluation. See [Document knowledge](document-knowledge.md).
+
 Queries use the runtime's Chinese word segmentation, Unicode compatibility normalization, duplicate removal and a small stop-word list. Word boundaries may vary with the runtime's ICU version. Ranking evaluates scores once and uses deterministic ordering for ties. Unrelated entries cannot rank solely because they are recent or manually weighted.
 
 Memory search combines bounded recent and lexical candidate sets: up to 100 of each for context recall, and 50 of each for explicit knowledge search. Context retains tool memories and its recency/manual weights; explicit knowledge search excludes tool memories and merges built-in entries and imported document results. The first 16 query terms widen lexical candidate selection so older matching notes are not hidden solely by newer unrelated notes. Memory retrieval remains bounded keyword/embedding retrieval, not a guarantee of semantic recall.

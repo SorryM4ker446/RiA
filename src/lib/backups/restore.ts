@@ -14,8 +14,9 @@ export async function restoreAccountBackup(id: string) {
   try {
     const { manifest, offset: start } = await readBackupManifest(archive);
     const ids = new Map<string, string>();
-    const rows = [...manifest.chats, ...manifest.chats.flatMap(chat => chat.messages), ...manifest.memories, ...manifest.tasks, ...manifest.documents, ...manifest.documents.flatMap(document => document.chunks), ...manifest.usage];
+    const rows = [...manifest.assistantTemplates, ...manifest.chats, ...manifest.chats.flatMap(chat => chat.messages), ...manifest.memories, ...manifest.tasks, ...manifest.documents, ...manifest.documents.flatMap(document => document.chunks), ...manifest.usage];
     for (const row of rows) ids.set(row.id, randomUUID());
+    const templateIds = new Map(manifest.assistantTemplates.map(template => [template.id, ids.get(template.id)!]));
     const staged: Awaited<ReturnType<typeof stageMediaFile>>[] = [];
     let offset = start;
     // Validate every file before changing business rows. New immutable files do
@@ -56,6 +57,8 @@ export async function restoreAccountBackup(id: string) {
       // A restore replaces the workspace: conversations go first so their
       // messages, tags and asset references cascade away with them.
       await tx.chat.deleteMany({});
+      await tx.assistantTemplate.deleteMany({});
+      await tx.assistantTemplate.createMany({ data: manifest.assistantTemplates.map(template => ({ ...template, id: mapped(template.id) })) });
       await tx.workspaceReview.deleteMany({});
       await tx.workspaceEvent.deleteMany({});
       await tx.mediaAsset.deleteMany({});
@@ -71,7 +74,7 @@ export async function restoreAccountBackup(id: string) {
       const chats = manifest.chats.map(({ messages, tags: _tags, ...chat }) => {
         const validSummary = chat.summary && chat.summaryRevision != null && chat.summaryRevision === (chat.historyRevision ?? 0)
           && messages.some(message => message.id === chat.summaryUpToMessageId);
-        return { ...chat, id: mapped(chat.id), historyRevision: chat.historyRevision ?? 0,
+        return { ...chat, assistantConfig: chat.assistantConfig ? { ...chat.assistantConfig, templateId: templateIds.get(chat.assistantConfig.templateId) ?? chat.assistantConfig.templateId } : Prisma.DbNull, id: mapped(chat.id), historyRevision: chat.historyRevision ?? 0,
           summary: validSummary ? chat.summary : null, summaryRevision: validSummary ? chat.summaryRevision : null,
           summaryModelId: validSummary ? chat.summaryModelId : null,
           summaryUpToMessageId: validSummary && chat.summaryUpToMessageId ? mapped(chat.summaryUpToMessageId) : null,

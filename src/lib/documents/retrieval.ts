@@ -6,22 +6,38 @@ import { documentEmbeddingText } from "@/lib/documents/lexical";
 import { hashDocumentContent } from "@/lib/documents/chunks";
 import { selectedDocumentEmbeddingModel, validDocumentVector } from "@/lib/documents/semantic";
 import { documentSourceUrl, type DocumentSource } from "@/lib/documents/types";
+import { defaultRetrievalPolicy, retrievalPolicySchema, type RetrievalPolicy } from "@/lib/assistants/schema";
+import type { DocumentDiagnostics } from "./diagnostics";
 
 type Hit = { id: string; lexical: number; semantic: number; fusion: number };
 const documentFields = { filename: true, contentHash: true, collection: true } as const;
 
 /** Chat, tools and preview share scoped hybrid retrieval. Exact vector ranking
  * scans the whole scoped corpus in bounded batches without a recency cutoff. */
-export async function searchDocuments(query: string, limit = 6, collections: string[] = [], signal?: AbortSignal): Promise<(DocumentSource & { score: number })[]> {
+export async function searchDocuments(query: string, limit = 6, collections: string[] = [], signal?: AbortSignal, policy?: RetrievalPolicy): Promise<(DocumentSource & { score: number })[]> {
+  return (await retrieveDocuments(query, limit, collections, signal, policy)).sources;
+}
+export async function retrieveDocuments(query: string, limit = 8, collections: string[] = [], signal?: AbortSignal, inputPolicy: RetrievalPolicy = defaultRetrievalPolicy) {
+  const started = performance.now();
+  const policy = retrievalPolicySchema.parse(inputPolicy);
+  const diagnostics: DocumentDiagnostics = { outcome: "empty-query", semantic: "not-run", corpusChunks: 0, compatibleVectors: 0, scannedVectors: 0, staleVectors: 0, invalidVectors: 0, lexicalCandidates: 0, semanticCandidates: 0, selectedSources: 0, contextChars: 0, durationMs: 0, policy };
+  const finish = (sources: (DocumentSource & { score: number })[]) => {
+    diagnostics.selectedSources = sources.length;
+    diagnostics.contextChars = sources.reduce((sum, source) => sum + source.snippet.length, 0);
+    diagnostics.durationMs = performance.now() - started;
+    return { sources, diagnostics };
+  };
   signal?.throwIfAborted();
   const normalized = query.normalize("NFKC").toLowerCase().trim().slice(0, 2000);
   const tokens = tokenizeQuery(normalized).filter(token => token.length <= 100).slice(0, 24);
-  if (!normalized || !tokens.length) return [];
+  if (!normalized || !tokens.length) return finish([]);
   const scope = collections.map(value => value.trim()).filter(Boolean);
   const where = { document: scope.length ? { collection: { in: scope } } : {} };
   const scopeSql = scope.length ? Prisma.sql`AND d.collection IN (${Prisma.join(scope)})` : Prisma.empty;
   const stats = await db.documentChunk.aggregate({ where, _count: { _all: true }, _avg: { tokenCount: true } });
-  if (!stats._count._all) return [];
+  diagnostics.corpusChunks = stats._count._all;
+  diagnostics.outcome = stats._count._all ? "no-hits" : "empty-library";
+  if (!stats._count._all) return finish([]);
   const frequencies = await db.documentTerm.groupBy({ by: ["term"], where: { term: { in: tokens }, chunk: where }, _count: { _all: true } });
   const idf = new Map(frequencies.map(row => [row.term, Math.log(1 + (stats._count._all - row._count._all + 0.5) / (row._count._all + 0.5))]));
   const weights = frequencies.length ? Prisma.sql`CASE t.term ${Prisma.join(frequencies.map(row => Prisma.sql`WHEN ${row.term} THEN ${idf.get(row.term)!}`), " ")} ELSE 0 END` : Prisma.sql`0`;
@@ -42,12 +58,17 @@ export async function searchDocuments(query: string, limit = 6, collections: str
   let queryVector: number[] | null = null;
   const modelRef = await selectedDocumentEmbeddingModel();
   const vectorWhere = modelRef ? { ...where, embeddingModelProvider: modelRef.providerId, embeddingModelId: modelRef.modelId, embedding: { not: Prisma.AnyNull } } : null;
-  if (vectorWhere && await db.documentChunk.count({ where: vectorWhere })) {
+  diagnostics.lexicalCandidates = lexical.length;
+  diagnostics.semantic = modelRef ? "unindexed" : "not-configured";
+  diagnostics.compatibleVectors = vectorWhere ? await db.documentChunk.count({ where: vectorWhere }) : 0;
+  if (vectorWhere && diagnostics.compatibleVectors) {
+    diagnostics.semantic = "failed";
     const timeout = AbortSignal.timeout(12_000);
     const result = await embedTextWithModel(normalized, signal ? AbortSignal.any([signal, timeout]) : timeout);
     signal?.throwIfAborted();
     const vector = validDocumentVector(result.embedding);
     if (vector && result.modelRef?.providerId === modelRef!.providerId && result.modelRef.modelId === modelRef!.modelId) {
+      diagnostics.semantic = "ready";
       queryVector = vector;
       let after: string | undefined;
       while (true) {
@@ -55,9 +76,12 @@ export async function searchDocuments(query: string, limit = 6, collections: str
         const batch = await db.documentChunk.findMany({ where: { ...vectorWhere, ...(after ? { id: { gt: after } } : {}) },
           orderBy: { id: "asc" }, take: 64, include: { document: { select: documentFields } } });
         for (const chunk of batch) {
-          if (chunk.embeddingContextHash !== hashDocumentContent(documentEmbeddingText(chunk, chunk.document))) continue;
-          const score = cosineSimilarity(vector, validDocumentVector(chunk.embedding));
-          if (Number.isFinite(score) && score >= 0.35) semantic.push({ id: chunk.id, score });
+          diagnostics.scannedVectors++;
+          if (chunk.embeddingContextHash !== hashDocumentContent(documentEmbeddingText(chunk, chunk.document))) { diagnostics.staleVectors++; continue; }
+          const storedVector = validDocumentVector(chunk.embedding);
+          if (!storedVector || storedVector.length !== vector.length) { diagnostics.invalidVectors++; continue; }
+          const score = cosineSimilarity(vector, storedVector);
+          if (Number.isFinite(score) && score >= policy.semanticThreshold) semantic.push({ id: chunk.id, score });
         }
         semantic = semantic.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id)).slice(0, 64);
         if (batch.length < 64) break;
@@ -65,13 +89,14 @@ export async function searchDocuments(query: string, limit = 6, collections: str
       }
     }
   }
+  diagnostics.semanticCandidates = semantic.length;
   const fused = new Map<string, Hit>();
   for (const [rank, item] of lexical.entries()) fused.set(item.id, { id: item.id, lexical: item.score, semantic: 0, fusion: 1 / (61 + rank) });
   for (const [rank, item] of semantic.entries()) {
     const hit = fused.get(item.id) ?? { id: item.id, lexical: 0, semantic: 0, fusion: 0 };
     hit.semantic = item.score; hit.fusion += 1 / (61 + rank); fused.set(item.id, hit);
   }
-  if (!fused.size) return [];
+  if (!fused.size) return finish([]);
   // Re-read current rows and scope after provider work, rather than returning
   // old text or moving evidence into another collection during an update.
   const rows = await db.documentChunk.findMany({ where: { ...where, id: { in: [...fused.keys()] } }, include: { document: { select: documentFields } } });
@@ -82,22 +107,19 @@ export async function searchDocuments(query: string, limit = 6, collections: str
     const sameSpace = chunk.embeddingModelId === modelRef?.modelId && chunk.embeddingModelProvider === modelRef?.providerId;
     const currentSimilarity = sameSpace && chunk.embeddingContextHash === hashDocumentContent(currentText)
       ? cosineSimilarity(queryVector, validDocumentVector(chunk.embedding)) : 0;
-    if (currentSimilarity < 0.35 || !Number.isFinite(currentSimilarity)) hit.semantic = 0;
+    if (currentSimilarity < policy.semanticThreshold || !Number.isFinite(currentSimilarity)) hit.semantic = 0;
     if (!hit.lexical && !hit.semantic) return [];
     hit.fusion = (hit.lexical ? 1 / (61 + lexical.findIndex(row => row.id === chunk.id)) : 0)
       + (hit.semantic ? 1 / (61 + semantic.findIndex(row => row.id === chunk.id)) : 0);
     if (/^(?:#{1,6}\s+[^\n]+\s*)+$/u.test(chunk.text)) return [];
     return [{ chunk, hit }];
   }).sort((a, b) => b.hit.fusion - a.hit.fusion || b.hit.semantic - a.hit.semantic || b.hit.lexical - a.hit.lexical || a.chunk.ordinal - b.chunk.ordinal || a.chunk.id.localeCompare(b.chunk.id));
-  const count = Math.max(1, Math.min(8, limit));
+  const count = Math.max(1, Math.min(policy.maxSources, limit));
   const selected: Array<(typeof hits)[number]> = [];
   for (const item of hits) {
-    const words = new Set(tokenizeQuery(item.chunk.text));
-    if (selected.some(previous => {
-      if (previous.chunk.documentId !== item.chunk.documentId) return false;
-      const prior = new Set(tokenizeQuery(previous.chunk.text));
-      return words.size && [...words].filter(word => prior.has(word)).length / Math.max(words.size, prior.size) > 0.9;
-    })) continue;
+    // Similar wording can carry different limits or exceptions. Only exact
+    // duplicate excerpts in the same document are interchangeable evidence.
+    if (selected.some(previous => previous.chunk.documentId === item.chunk.documentId && previous.chunk.text === item.chunk.text)) continue;
     selected.push(item);
     if (selected.length === Math.max(1, count - Math.floor(count / 4))) break;
   }
@@ -133,7 +155,15 @@ export async function searchDocuments(query: string, limit = 6, collections: str
     if (sources.some(source => source.chunkId === item.chunk.id || (source.documentId === item.chunk.documentId && source.snippet === item.chunk.text))) continue;
     sources.push(sourceFor(item));
   }
-  return sources;
+  let remaining = policy.contextChars;
+  const bounded: typeof sources = [];
+  for (const source of sources) {
+    if (source.snippet.length > remaining || (source.anchorChunkId && !bounded.some(anchor => anchor.chunkId === source.anchorChunkId))) continue;
+    remaining -= source.snippet.length;
+    bounded.push(source);
+  }
+  diagnostics.outcome = bounded.length ? "hits" : "no-hits";
+  return finish(bounded);
 }
 
 export function documentRetrievalQuery(messages: Array<{ role: string; text: string }>) {

@@ -1,0 +1,82 @@
+import { test as base, expect } from "@playwright/test";
+import { mkdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { startStandaloneServer } from "../helpers/standalone-server";
+import { openWorkspace } from "../helpers/workspace-entry";
+import { configureOfflineModels } from "../helpers/model-fixture";
+import { browserApi, browserData } from "../helpers/browser-api";
+
+const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
+  app: async ({}, runTest) => { const app = await startStandaloneServer({ modelFixture: true }); try { await runTest(app); } finally { await app.close(); } },
+});
+
+test("template editing, copying and deletion preserve conversation snapshots across service restart", { tag: "@integration" }, async ({ page, app }) => {
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  const consoleErrors: string[] = []; page.on("console", message => { if (message.type() === "error") consoleErrors.push(message.text()); });
+  await openWorkspace(page, app.origin); await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  await page.goto(`${app.origin}/assistants`);
+  await expect(page.getByTestId("assistant-template-builtin_writing")).toBeVisible();
+  await expect(page.getByTestId("assistant-template-builtin_writing").getByRole("button", { name: "编辑", exact: true })).toHaveCount(0);
+  await page.getByLabel("模板名称", { exact: true }).fill("财务测试助理");
+  await page.getByLabel("助理指令", { exact: true }).fill("Keep original financial evidence. ASSISTANT_SNAPSHOT_V1");
+  await page.getByLabel("知识集合（每行一个，留空为全部）").fill("财务");
+  await page.getByLabel("使用长期记忆").uncheck();
+  await page.getByLabel("绑定聊天模型").selectOption("openrouter:anthropic/claude-opus-4.6");
+  await page.getByRole("button", { name: "保存模板", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("模板已保存");
+  const saved = (await browserData(page, "/api/assistants")).find(item => item.config.name === "财务测试助理");
+  const card = page.getByTestId(`assistant-template-${saved.id}`);
+  await card.getByRole("button", { name: "使用模板新建会话" }).click();
+  await expect(page.getByLabel("助理模板", { exact: true })).toHaveValue(saved.id);
+  await expect(page.getByText(/快照 v1 · 0 个工具/)).toBeVisible();
+  await expect(page.getByLabel("选择模型")).toBeDisabled();
+  const chat = (await browserData(page, "/api/conversations"))[0]; expect(chat.ephemeral).toBe(true); expect(chat.documentScope).toBe("财务");
+  await page.getByPlaceholder(/输入你的问题/).fill("Explain the working rules"); await page.getByRole("button", { name: "发送", exact: true }).click();
+  await expect(page.locator("article").last()).toContainText("检索诊断");
+  expect(JSON.stringify(app.providerCalls.filter(call => call.stream).at(-1)?.messages)).toContain("ASSISTANT_SNAPSHOT_V1");
+  await page.goto(`${app.origin}/assistants`); await card.getByRole("button", { name: "编辑", exact: true }).click();
+  await page.getByLabel("助理指令", { exact: true }).fill("ASSISTANT_SNAPSHOT_V2");
+  await page.getByRole("button", { name: "保存模板", exact: true }).click(); await expect(page.getByRole("status")).toContainText("模板已保存");
+  await page.goto(`${app.origin}/chat`); await expect(page.getByText(/快照 v1 · 0 个工具/)).toBeVisible();
+  await page.getByRole("button", { name: "更新为最新模板" }).click(); await expect(page.getByText(/快照 v2 · 0 个工具/)).toBeVisible();
+  await app.restart(); await page.reload(); await expect(page.getByText(/快照 v2 · 0 个工具/)).toBeVisible();
+  await page.goto(`${app.origin}/assistants`); await card.getByRole("button", { name: "复制", exact: true }).click();
+  await expect(page.getByLabel("模板名称", { exact: true })).toHaveValue("财务测试助理 副本");
+  await page.getByRole("button", { name: "保存模板", exact: true }).click(); await expect(page.getByRole("status")).toContainText("模板已保存");
+  const dir = join(tmpdir(), "ria-assistant-qa"); await mkdir(dir, { recursive: true });
+  await page.screenshot({ path: join(dir, "desktop.png"), fullPage: true, animations: "disabled" });
+  await page.setViewportSize({ width: 390, height: 844 }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: join(dir, "mobile.png"), fullPage: true, animations: "disabled" }); await page.setViewportSize({ width: 1280, height: 900 });
+  page.once("dialog", dialog => dialog.accept()); await card.getByRole("button", { name: "删除", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("模板已删除"); await page.goto(`${app.origin}/chat`);
+  await expect(page.getByLabel("助理模板", { exact: true })).toHaveValue(saved.id); await expect(page.getByText(/快照 v2 · 0 个工具/)).toBeVisible();
+  const restored = (await browserApi(page, `/api/conversations/${chat.id}`)).body.data; expect(restored.assistantConfig.instructions).toBe("ASSISTANT_SNAPSHOT_V2");
+  expect(consoleErrors).toEqual([]);
+  const denied = await browserApi(page, "/api/tools/run", "POST", { mode: "chat", chatId: chat.id, tool: "createTask", input: { title: "Denied by template" } }); expect(denied.status).toBe(400);
+  await page.getByLabel("助理模板", { exact: true }).selectOption(""); await expect(page.getByLabel("选择模型")).toBeEnabled();
+  expect(errors).toEqual([]);
+});
+
+test("knowledge evaluation exposes real adapter results, citations and an exportable report", { tag: "@integration" }, async ({ page, app }) => {
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  const consoleErrors: string[] = []; page.on("console", message => { if (message.type() === "error") consoleErrors.push(message.text()); });
+  await openWorkspace(page, app.origin); await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6", embedding: "openai/text-embedding-3-small" });
+  await page.goto(`${app.origin}/knowledge`);
+  await page.getByLabel("所属主题（可选）").fill("财务");
+  await page.getByLabel("选择知识文档").setInputFiles({ name: "差旅规程.md", mimeType: "text/markdown", buffer: Buffer.from("# 差旅规程\n\n公务出行的开支需要保留税务票据，回程后的十个工作日内提交费用核销申请。\n\n超过期限需要主管提供书面说明。") });
+  await page.getByRole("button", { name: "导入文档", exact: true }).click(); await expect(page.getByRole("button", { name: "导入文档", exact: true })).toBeEnabled();
+  page.once("dialog", dialog => dialog.accept()); await page.getByLabel("构建语义索引 差旅规程.md").click(); await expect(page.getByLabel("构建语义索引 差旅规程.md")).toBeEnabled();
+  await page.getByText("检索质量评测", { exact: true }).click();
+  await page.getByLabel("评测问题 JSON（最多 12 个）").fill(JSON.stringify([{ question: "出门办事的钱怎样领回来", collections: ["财务"], expectedFilenames: ["差旅规程.md"], requiredFacts: ["十个工作日", "书面说明"], answerable: true }, { question: "木星表面温度", answerable: false }]));
+  await page.getByLabel("同时生成回答（调用已配置聊天模型）").check(); page.once("dialog", dialog => dialog.accept());
+  const response = page.waitForResponse(response => response.url().endsWith("/api/documents/evaluate"));
+  await page.getByRole("button", { name: "运行评测", exact: true }).click(); const result = await response; expect(result.ok(), await result.text()).toBe(true);
+  const report = (await result.json()).data; expect(report.cases[0].documentRecall).toBe(1); expect(report.cases[0].evidenceFactCoverage).toBe(1); expect(report.cases[0].answerFactCoverage).toBe(1); expect(report.cases[0].citedSources).toBeGreaterThan(0);
+  expect(report.cases[1].sources).toEqual([]); expect(report.cases[0].responseModelId).toBeTruthy();
+  await expect(page.getByText(/评测完成：2\/2/)).toBeVisible(); await expect(page.getByRole("link", { name: "下载评测报告" })).toBeVisible();
+  const dir = join(tmpdir(), "ria-retrieval-evaluation-qa"); await mkdir(dir, { recursive: true }); await page.screenshot({ path: join(dir, "desktop.png"), fullPage: true, animations: "disabled" });
+  await page.setViewportSize({ width: 390, height: 844 }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true); await page.screenshot({ path: join(dir, "mobile.png"), fullPage: true, animations: "disabled" });
+  expect(errors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});

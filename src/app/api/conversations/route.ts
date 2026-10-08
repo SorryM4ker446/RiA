@@ -8,10 +8,12 @@ import { createApiErrorResponse, normalizeApiError } from "@/lib/server/api-erro
 import { createChat } from "@/lib/chat/store";
 import { listConversations } from "@/lib/conversations/query";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
+import { assistantIdSchema } from "@/lib/assistants/schema";
 
 const createConversationSchema = z.strictObject({
   id: z.string().trim().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/).optional(),
   title: z.string().trim().min(1).max(200).optional(),
+  assistantTemplateId: assistantIdSchema.optional(),
 });
 
 async function GETHandler(req: NextRequest) {
@@ -37,6 +39,7 @@ async function POSTHandler(req: NextRequest) {
 
     const conversation = await createChat({
       chatId: parsed.data.id,
+      assistantTemplateId: parsed.data.assistantTemplateId,
       title: truncateTitle(parsed.data.title ?? "New Chat"),
     });
 

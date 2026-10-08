@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { browserApi, browserData } from "../helpers/browser-api";
 import { configureOfflineModels } from "../helpers/model-fixture";
+import { decodePersistedAssistantToolMessage } from "../../src/lib/ai/ui-message";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => {
@@ -52,7 +53,9 @@ test("streamed chat, follow-up context and edited regeneration survive a service
   await editor.locator("textarea").fill("修改后的问题");
   await editor.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("离线回答：修改后的问题", { exact: true })).toBeVisible();
-  await expect.poll(async () => (await history()).map((row: { content: string }) => row.content)).toEqual(["修改后的问题", "离线回答：修改后的问题"]);
+  await expect.poll(async () => (await history()).map((row: { content: string }) => decodePersistedAssistantToolMessage(row.content)?.text ?? row.content)).toEqual(["修改后的问题", "离线回答：修改后的问题"]);
+  const savedAnswer = (await history()).find((row: { role: string }) => row.role === "assistant");
+  expect(decodePersistedAssistantToolMessage(savedAnswer.content)?.documentDiagnostics?.outcome).toBe("empty-library");
   expect(app.readRows("SELECT status FROM messages WHERE chatId = ?", chatId)).toEqual([{ status: "success" }, { status: "success" }]);
 
   await app.restart();

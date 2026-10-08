@@ -11,6 +11,8 @@ import { FileInput } from "@/components/ui/file-input";
 import { Input } from "@/components/ui/input";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { DocumentSources } from "@/components/knowledge/document-sources";
+import { RetrievalDiagnostics } from "@/components/knowledge/retrieval-diagnostics";
+import { RetrievalEvaluation } from "./retrieval-evaluation";
 import { getApiErrorMessage } from "@/lib/api-error-message";
 import { DOCUMENT_LIMITS, type DocumentSource } from "@/lib/documents/types";
 import { t, tf } from "@/lib/locale";
@@ -37,6 +39,7 @@ export function DocumentLibrary() {
   const [searchCollection, setSearchCollection] = useState("");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<DocumentSource[] | null>(null);
+  const [diagnostics, setDiagnostics] = useState<unknown>(null);
   const indexRequest = useRef<AbortController | null>(null);
   async function refresh(signal?: AbortSignal) {
     const updated = await documentRequest<DocumentSummary[]>("/api/documents", { signal });
@@ -79,7 +82,13 @@ export function DocumentLibrary() {
   }
   async function search(event: FormEvent) {
     event.preventDefault();
-    await run(async () => setResults(await documentRequest<DocumentSource[]>("/api/documents/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, collections: searchCollection ? [searchCollection] : [] }) })));
+    setResults(null); setDiagnostics(null);
+    await run(async () => {
+      const response = await fetch("/api/documents/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, collections: searchCollection ? [searchCollection] : [] }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(getApiErrorMessage(payload, t("documents.requestFailed")));
+      setResults(payload.data); setDiagnostics(payload.diagnostics);
+    });
   }
 
   async function buildSemanticIndex(document: DocumentSummary) {
@@ -200,6 +209,8 @@ export function DocumentLibrary() {
       </form>
       {results?.length === 0 ? <p role="status" className="text-sm text-muted-foreground">{t("documents.noMatches")}</p> : null}
       <DocumentSources sources={results ?? []} />
+      {results !== null ? <RetrievalDiagnostics value={diagnostics} /> : null}
+      <RetrievalEvaluation />
     </CardContent>
   </Card>;
 }

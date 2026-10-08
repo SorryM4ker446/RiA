@@ -95,6 +95,62 @@ Provenance travels with workspace backups. Restoring an archive does not turn an
 
 ## Retrieval evidence and citation versions
 
+Templates can tune the semantic threshold, source count and excerpt character
+budget. Chat context, preview and `searchKnowledge` share these limits. Near-identical
+clauses remain separate when their actual wording differs, so quantities and
+exceptions in one document are not discarded as duplicates. Only identical excerpts
+within a document are deduplicated. Evidence budgets retain complete source snippets.
+See [Assistant templates](assistant-templates.md) for defaults and scope overrides.
+
+Preview search accepts optional `policy: {semanticThreshold, maxSources, contextChars}`
+and retains the existing `data` array. Its additional `diagnostics` explains empty
+scope (without claiming an untested model is missing), no hits, missing model, absent compatible indices or embedding failure with
+keyword fallback. Counts include scoped chunks, compatible/scanned/stale vectors,
+candidate counts, invalid or mismatched vector dimensions, selected excerpts, excerpt characters, duration and policy.
+Automatic chat records the initial retrieval diagnostics in message metadata,
+including turns with no sources; they survive reload and backup. Tool search returns
+its own diagnostics with its output. Diagnostics never assert that a model answer
+is correct and do not contain query or document text.
+
+### Explicit quality evaluation
+
+Open **检索质量评测** in the document library, replace the example questions with
+representative cases from your own documents, and optionally choose an assistant
+template. Run retrieval alone or enable **同时生成回答**. Both paths can call the
+configured embedding model; answer generation also calls the selected chat model
+with excerpts and template instructions. The UI confirms these potentially paid
+calls. No tools or long-term memories are used in this document evaluation.
+
+`POST /api/documents/evaluate` requires `confirm: true`, optional `generateAnswers`
+(default false), optional `assistantTemplateId` or `policy` (mutually exclusive),
+and 1–12 `cases`. Each case contains `question`, optional `collections`,
+`expectedFilenames`, `requiredFacts`, and `answerable` (default true). An unanswerable
+case must leave expected documents and facts empty. Explicit case collections
+override template collections for that evaluation; normal chat uses its own saved scope.
+
+The returned report includes each case's actual excerpts, diagnostics, filename
+recall, exact-text fact coverage in evidence/answer, matching citation count,
+unknown knowledge links, generated text, response model ID and timing. Missing
+expectations produce null metrics. Expected facts and filenames are scored locally
+and never added to the generation prompt. Per-case failures retain retrieved
+evidence and report a failure instead of fabricating an answer. Calls are sequential,
+have no SDK retries, and obey existing model admission, fallback and usage recording.
+Attempts appear under embedding and tool usage; costs are unknown unless the provider
+or configured rates report them, not assumed free. The report's model names the
+requested model; `responseModelId` and usage records identify actual responses.
+
+The endpoint allows two runs/minute, caps the request at two minutes and each
+answer call at thirty seconds, and propagates cancellation. Already-sent calls may
+still be charged. A cancelled run yields no completed report. Reports are kept in
+page state and may be explicitly downloaded as JSON; exports contain questions,
+source excerpts and answers. They are not automatically written to the workspace.
+
+Fact coverage is literal text matching, not entailment. Citation matching checks
+that a link points at retrieved evidence, not whether the adjacent claim follows
+from it. Human review remains necessary for paraphrases, conditions, contradictions,
+unsupported claims and appropriate refusal. Automated suites use synthetic vectors
+and offline HTTP models; passing them is not a live-model accuracy claim.
+
 Document search and automatic chat context use the same hybrid retrieval. Preview
 search does not call a chat model. The library's collection selector uses
 exact names, including names containing `|`. `POST /api/documents/search` accepts

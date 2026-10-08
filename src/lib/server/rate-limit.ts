@@ -17,6 +17,8 @@ export const RATE_LIMIT_POLICIES = {
   backups: { limit: 6, windowMs: 60_000 },
   backupChunks: { limit: 120, windowMs: 60_000 },
   modelSettings: { limit: 20, windowMs: 60_000 },
+  assistantTemplates: { limit: 30, windowMs: 60_000 },
+  documentEvaluation: { limit: 2, windowMs: 60_000 },
   modelCatalog: { limit: 8, windowMs: 60_000 },
   // Each run re-embeds up to a bounded batch of memories, so the budget is a
   // handful of runs per minute, not a bulk operation to retry until empty.

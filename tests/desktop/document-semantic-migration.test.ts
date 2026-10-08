@@ -28,7 +28,7 @@ test("semantic document migration preserves old evidence and terms with a pre-up
     } finally { before.close(); }
     const options = { databaseFile, migrationsDirectory, backupsDirectory: join(root, "backups"), logger: { info() {}, warn() {}, error() {} } };
     const result = runDesktopMigrations(options);
-    assert.deepEqual(result.applied, [migration]); assert.ok(result.backupFile);
+    assert.deepEqual(result.applied, readdirSync(migrationsDirectory, { withFileTypes: true }).filter(entry => entry.isDirectory() && entry.name >= migration).map(entry => entry.name).sort()); assert.ok(result.backupFile);
     const backup = new DatabaseSync(result.backupFile, { readOnly: true });
     try {
       assert.equal(backup.prepare("SELECT text FROM document_chunks WHERE id='chunk'").get().text, "hello");

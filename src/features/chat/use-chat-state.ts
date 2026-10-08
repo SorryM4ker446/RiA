@@ -41,7 +41,7 @@ export function useChatState() {
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const olderRequestRef = useRef(false);
   const {
-    modelMode, setModelMode, selectedChatModel, selectedImageModel, selectedVideoModel, selectedManualTool,
+    modelMode, setModelMode, selectedChatModel: preferredChatModel, selectedImageModel, selectedVideoModel, selectedManualTool,
     setSelectedManualTool, manualToolsOnly, setManualToolsOnly, applyChatPreferences, onModelSelect,
     isLoadingPreferences, preferencesError, modelLibrary, clearPreferencesError,
   } = useChatPreferences(activeChatId);
@@ -50,8 +50,9 @@ export function useChatState() {
     setIsChatListExpanded, visibleChats, hasHiddenChats, loadChats, createNewChat, startEditingChat,
     cancelEditingChat, saveEditedTitle, performDeleteChat, ensureActiveChatId,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, toggleEphemeral, isEphemeralSaving,
-    documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving,
-  } = useConversations({ activeChatId, setActiveChatId, preferences: { modelMode, selectedChatModel, selectedImageModel, selectedVideoModel, selectedManualTool, manualToolsOnly }, applyChatPreferences, resetConversation, persistCurrentStreamingAssistantIfNeeded, setPageError });
+    documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
+  } = useConversations({ activeChatId, setActiveChatId, preferences: { modelMode, selectedChatModel: preferredChatModel, selectedImageModel, selectedVideoModel, selectedManualTool, manualToolsOnly }, applyChatPreferences, resetConversation, persistCurrentStreamingAssistantIfNeeded, setPageError });
+  const selectedChatModel = activeChat?.assistantConfig?.model ?? preferredChatModel;
   const transport = useMemo(() => createChatTransport(activeChatId, { selectedChatModel, manualToolsOnly, modelMode }), [activeChatId, selectedChatModel, manualToolsOnly, modelMode]);
   const { messages, setMessages, sendMessage, regenerate, addToolApprovalResponse, status, error, clearError, stop } = useChat({
     id: activeChatId ?? "draft",
@@ -82,7 +83,7 @@ export function useChatState() {
     toolCatalogError, unavailableTools, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors,
     setManualToolFieldErrors, isRunningManualTool, manualTools, selectedManualToolConfig,
     manualToolSelectValue, isManualToolSelected, runManualTool,
-  } = useTools({ setMessages, ensureActiveChatId, loadChats, selectedChatModel, modelMode, selectedManualTool, setSelectedManualTool, loadTasks, taskStatusFilter });
+  } = useTools({ allowedToolIds: activeChat?.assistantConfig?.tools, setMessages, ensureActiveChatId, loadChats, selectedChatModel, modelMode, selectedManualTool, setSelectedManualTool, loadTasks, taskStatusFilter });
   const isPending =
     isLoadingPreferences ||
     pendingSend !== null ||
@@ -667,7 +668,7 @@ export function useChatState() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [pendingDelete, isDeleting, isPending, onStop]);
   return {
-    toggleEphemeral, isEphemeralSaving, documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving,
+    toggleEphemeral, isEphemeralSaving, documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages,
     isLoadingChats, isCreatingChat, createNewChat, chats, visibleChats, activeChatId, editingChatId, setEditingTitle,
     editingTitle, saveEditedTitle, cancelEditingChat, switchActiveChat, startEditingChat,

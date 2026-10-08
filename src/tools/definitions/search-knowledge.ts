@@ -1,6 +1,8 @@
 import { getMemorySearchCandidates, keywordScore, KNOWLEDGE_MEMORY_POLICY, rankByScore, tokenizeQuery } from "@/lib/memory/retrieval";
 import { z } from "zod";
-import { searchDocuments } from "@/lib/documents/retrieval";
+import type { RetrievalPolicy } from "@/lib/assistants/schema";
+import type { DocumentDiagnostics } from "@/lib/documents/diagnostics";
+import { retrieveDocuments } from "@/lib/documents/retrieval";
 import { documentSourceSchema, type DocumentSource } from "@/lib/documents/types";
 
 export const searchKnowledgeInputSchema = z.strictObject({
@@ -23,6 +25,7 @@ export type SearchKnowledgeOutput = {
   query: string;
   total: number;
   results: SearchKnowledgeItem[];
+  diagnostics: DocumentDiagnostics;
 };
 
 const builtinKnowledgeBase = [
@@ -48,7 +51,7 @@ const builtinKnowledgeBase = [
 
 export async function searchKnowledge(
   input: SearchKnowledgeInput,
-  options: { collections?: string[]; usesMemory?: boolean; signal?: AbortSignal } = {},
+  options: { collections?: string[]; policy?: RetrievalPolicy; usesMemory?: boolean; signal?: AbortSignal } = {},
 ): Promise<SearchKnowledgeOutput> {
   const query = input.query.trim();
   const topK = input.topK ?? 4;
@@ -67,7 +70,8 @@ export async function searchKnowledge(
     score: keywordScore(queryTokens, `${item.title} ${item.content}`),
   }));
 
-  const documentResults: SearchKnowledgeItem[] = (await searchDocuments(query, topK, options.collections, options.signal)).map(item => ({ id: item.chunkId, title: item.filename, snippet: item.snippet, source: "document", score: item.score, reference: documentSourceSchema.parse(item) }));
+  const retrieved = await retrieveDocuments(query, topK, options.collections, options.signal, options.policy);
+  const documentResults: SearchKnowledgeItem[] = retrieved.sources.map(item => ({ id: item.chunkId, title: item.filename, snippet: item.snippet, source: "document", score: item.score, reference: documentSourceSchema.parse(item) }));
   // Imported evidence retains its fused order and adjacent context. Uncalibrated
   // memory weights and built-in developer notes must not crowd it out.
   const ranked = [...documentResults, ...rankByScore([...memoryResults, ...builtinResults], item => item.score, topK)].slice(0, topK)
@@ -78,6 +82,7 @@ export async function searchKnowledge(
 
   return {
     query,
+    diagnostics: retrieved.diagnostics,
     total: ranked.length,
     results: ranked,
   };

@@ -15,10 +15,11 @@ import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/serve
 import { setupServerProxy } from "@/lib/server/proxy";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { NextRequest } from "next/server";
-import { documentRetrievalQuery, formatDocumentContext, searchDocuments } from "@/lib/documents/retrieval";
+import { documentRetrievalQuery, formatDocumentContext, retrieveDocuments } from "@/lib/documents/retrieval";
 import { listPublicToolCatalog } from "@/tools/catalog";
 import { documentSourceSchema } from "@/lib/documents/types";
 import { decodeDocumentScope } from "@/lib/documents/scope";
+import { formatAssistantInstructions } from "@/lib/assistants/schema";
 
 async function POSTHandler(req: NextRequest) {
   try {
@@ -48,13 +49,13 @@ async function POSTHandler(req: NextRequest) {
     // attached for the whole turn. Restraint comes from TOOL_ENABLED_INSTRUCTIONS
     // and each tool's modelDescription, not from a second LLM call that would
     // have to guess from the latest message alone.
-    const toolsEnabled = canUseTools && (isApprovalResume || !body.manualToolsOnly);
-  const unavailableTools = toolsEnabled ? await unavailableChatTools() : [];
+    const toolsEnabled = canUseTools && (isApprovalResume || !body.manualToolsOnly) && (!input.assistant || input.assistant.tools.length > 0);
+  const unavailableTools = toolsEnabled ? await unavailableChatTools(input.assistant?.tools) : [];
 
     // An ephemeral conversation neither reads long-term memory nor writes any.
     // It is a memory switch, not a promise that nothing is kept: the messages,
     // uploads and usage stay exactly as they otherwise would.
-    const usesMemory = !conversation.chat.ephemeral;
+    const usesMemory = !(input.conversationPolicy?.ephemeral ?? conversation.chat.ephemeral);
     const relevantMemories = usesMemory && latestUserMessage?.text
       ? await getRelevantMemories({
         query: latestUserMessage.text,
@@ -66,7 +67,7 @@ async function POSTHandler(req: NextRequest) {
 
     // A conversation that named its document topics only draws on those; an
     // empty scope means every topic, as before.
-    const scope = decodeDocumentScope(conversation.chat.documentScope);
+    const scope = decodeDocumentScope(input.conversationPolicy?.documentScope ?? conversation.chat.documentScope);
     // Long conversations are compressed by a model-written summary that covers
     // the older turns and names the last message it includes. The bounded
     // excerpts stay in the prompt either way, and a summary never replaces the
@@ -81,7 +82,8 @@ async function POSTHandler(req: NextRequest) {
       : null;
 
     const knowledgeQuery = documentRetrievalQuery(context.allMessages.map(message => ({ role: message.role, text: readText(message) })));
-    const documentSources = latestUserMessage?.text ? (await searchDocuments(knowledgeQuery || latestUserMessage.text, 8, scope, req.signal)).map(source => documentSourceSchema.parse(source)) : [];
+    const retrieved = latestUserMessage?.text ? await retrieveDocuments(knowledgeQuery || latestUserMessage.text, 8, scope, req.signal, input.assistant?.retrieval) : null;
+    const documentSources = retrieved?.sources.map(source => documentSourceSchema.parse(source)) ?? [];
     // The optional tools that are configured away this turn are named in the
     // prompt, so the model can answer honestly about what it could not check.
     const systemPrompt = buildSystemPrompt(
@@ -93,7 +95,7 @@ async function POSTHandler(req: NextRequest) {
       toolsEnabled,
       unavailableTools,
       (await getModelPreferences()).persona,
-    ) + formatDocumentContext(documentSources);
+    ) + formatAssistantInstructions(input.assistant) + formatDocumentContext(documentSources);
 
     // A run exists only for a turn that can actually use tools. Creating one
     // for a plain answer would fill the record with empty runs that did nothing.
@@ -103,7 +105,7 @@ async function POSTHandler(req: NextRequest) {
 
     return await streamChatResponse({
       input, conversation, systemPrompt, modelMessages, toolsEnabled, signal: req.signal,
-      documentSources, runId: run?.id ?? null, usesMemory,
+      documentSources, documentDiagnostics: retrieved?.diagnostics, runId: run?.id ?? null, usesMemory,
       // The prompt has been telling the model which tools this turn could not
       // use. Without this the list never reaches persistence, so the turn's own
       // record could not show it and the "this turn had no web search" badge
@@ -122,8 +124,8 @@ async function POSTHandler(req: NextRequest) {
  * tool set is built from, so the prompt and the tools can never disagree about
  * what was available.
  */
-async function unavailableChatTools() {
-  return (await listPublicToolCatalog("chat")).filter(tool => !tool.available).map(tool => tool.id);
+async function unavailableChatTools(allowedToolIds?: string[]) {
+  return (await listPublicToolCatalog("chat")).filter(tool => !tool.available || (allowedToolIds !== undefined && !allowedToolIds.includes(tool.id))).map(tool => tool.id);
 }
 
 export const POST = protectDataOperation(POSTHandler);

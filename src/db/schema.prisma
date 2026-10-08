@@ -76,6 +76,7 @@ model Chat {
   // every topic, which is the default; naming topics narrows the retrieval to
   // what the user put in scope for this conversation.
   documentScope   String       @default("")
+  assistantConfig Json?
   // A model-written summary of the turns before `summaryUpToMessageId`. Kept
   // alongside the messages it came from, so the original text is never replaced
   // by it and can still be read.
@@ -100,6 +101,16 @@ model Chat {
   @@index([pinned, lastMessageAt, id])
   @@index([createdAt])
   @@map("chats")
+}
+
+model AssistantTemplate {
+  id        String   @id @default(cuid())
+  config    Json
+  revision  Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("assistant_templates")
 }
 
 model ChatTag {

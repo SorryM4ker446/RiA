@@ -107,6 +107,7 @@ export function Composer({
   selectedVideoModel,
   selectedManualTool,
   selectedChatModel,
+  activeChat,
   selectedModelInfo,
   selectedModel,
   onModeSelect,
@@ -346,7 +347,7 @@ export function Composer({
               </SelectContent>
             </Select>
             <Select
-              disabled={isPending}
+              disabled={isPending || isDocumentScopeSaving || (modelMode === "chat" && !!activeChat?.assistantConfig?.model)}
               onValueChange={onModelSelect}
               value={selectedModel ? modelRefKey(selectedModel) : "none"}
             >

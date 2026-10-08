@@ -4,6 +4,12 @@ Open **备份与恢复** from the chat sidebar or Settings in either the browser
 
 ## Contents and privacy
 
+Custom assistant templates and conversation configuration snapshots are included.
+The restore preview reports the template count. Restoring maps custom template
+identities and preserves snapshots whose original template was deleted. Old
+archives default to no templates and no conversation snapshot; newly exported
+archives require this version or later. Templates do not grant filesystem access.
+
 Document semantic vectors are regenerable and excluded from portable archives.
 Extracted text, chunk identities, Markdown headings, token counts and term
 frequencies are preserved. After restoration, explicitly build **语义索引** again;

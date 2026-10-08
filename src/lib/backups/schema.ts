@@ -1,3 +1,4 @@
+import { assistantConfigSchema, assistantSnapshotSchema } from "@/lib/assistants/schema";
 import { z } from "zod";
 import { generationRecipeSchema } from "@/lib/media/generation-recipe";
 import { documentPagesSchema } from "@/lib/documents/types";
@@ -16,7 +17,7 @@ const message = z.strictObject({ id, chatId: id, clientMessageId: id.nullable(),
 const storedScope = z.string().max(MAX_DOCUMENT_SCOPE_LENGTH).refine(value => {
   try { decodeDocumentScope(value); return true; } catch { return false; }
 }, "Invalid document collection scope");
-const chat = z.strictObject({ id, title: z.string().max(4000), pinned: z.boolean(), archived: z.boolean(), ephemeral: z.boolean().optional(), documentScope: storedScope.optional(), summary: z.string().nullable().optional(), summaryUpToMessageId: z.string().nullable().optional(), summaryModelId: z.string().nullable().optional(), historyRevision: count.optional(), summaryRevision: count.nullable().optional(), lastMessageAt: date, ...timestamps, tags: z.array(z.strictObject({ chatId: id, label: z.string().min(1).max(40) })).max(8), messages: z.array(message).max(BACKUP_LIMITS.rows) });
+const chat = z.strictObject({ id, title: z.string().max(4000), pinned: z.boolean(), archived: z.boolean(), ephemeral: z.boolean().optional(), documentScope: storedScope.optional(), assistantConfig: assistantSnapshotSchema.nullable().default(null), summary: z.string().nullable().optional(), summaryUpToMessageId: z.string().nullable().optional(), summaryModelId: z.string().nullable().optional(), historyRevision: count.optional(), summaryRevision: count.nullable().optional(), lastMessageAt: date, ...timestamps, tags: z.array(z.strictObject({ chatId: id, label: z.string().min(1).max(40) })).max(8), messages: z.array(message).max(BACKUP_LIMITS.rows) });
 // Provenance travels with the entry: restoring a memory the user never
 // accepted must not turn it into one they are treated as having accepted.
 const memory = z.strictObject({ id, key: z.string().max(2000), value: text, score: z.number().nullable(), source: z.enum(["manual", "assistant"]).optional(), confirmed: z.boolean().optional(), lastUsedAt: date.nullable().optional(), embedding: z.array(z.number()).max(16_384).nullable(), embeddingModelId: z.string().max(200).nullable().optional(), embeddingModelProvider: providerIdSchema.nullable().optional(), ...timestamps });
@@ -27,6 +28,7 @@ const asset = z.strictObject({ id: backupId, mediaType: z.enum(["image/png", "im
 const usage = z.strictObject({ id, requestId: id, mode: z.enum(["chat", "image", "video", "embedding"]), modelId: z.string().max(200), modelProvider: providerIdSchema.optional(), source: z.enum(["chat", "summary", "scheduled", "tool", "embedding", "media", "unattributed"]).optional(), estimatedUsd: z.number().nonnegative().nullable().optional(), status: z.enum(["success", "error", "aborted", "pending", "interrupted"]), durationMs: count, inputTokens: count.nullable(), outputTokens: count.nullable(), costUsd: z.number().nonnegative().nullable(), costSource: z.enum(["provider", "configured", "unknown"]), errorCode: z.string().max(60).nullable(), fallback: z.boolean(), createdAt: date });
 export const backupManifestSchema = z.strictObject({
   format: z.literal("private-ai-account-backup"), version: z.literal(1), createdAt: date,
+  assistantTemplates: z.array(z.strictObject({ id, config: assistantConfigSchema, revision: count.positive(), ...timestamps })).max(50).default([]),
   chats: z.array(chat).max(BACKUP_LIMITS.rows), memories: z.array(memory).max(BACKUP_LIMITS.rows), tasks: z.array(task).max(BACKUP_LIMITS.rows), documents: z.array(document).max(100), assets: z.array(asset).max(BACKUP_LIMITS.rows), // Every shape the library has had, so an archive written before provider
   // qualified references still imports. Conversion happens on read; the archive
   // itself is never rewritten.
@@ -45,8 +47,8 @@ export const backupManifestSchema = z.strictObject({
   const unique = (rows: { id: string }[]) => { const ids = new Set(rows.map(row => row.id)); if (ids.size !== rows.length) error(); return ids; };
   const distinct = (values: string[]) => { if (new Set(values).size !== values.length) error(); };
   const chats = unique(data.chats), messageIds = unique(messages), assetIds = unique(data.assets);
-  unique(data.memories); unique(data.tasks); unique(data.documents); unique(chunks); unique(data.usage);
-  unique([...data.chats, ...messages, ...data.memories, ...data.tasks, ...data.documents, ...chunks, ...data.assets, ...data.usage, ...data.events, ...data.reviews]);
+  unique(data.assistantTemplates); unique(data.memories); unique(data.tasks); unique(data.documents); unique(chunks); unique(data.usage);
+  unique([...data.assistantTemplates, ...data.chats, ...messages, ...data.memories, ...data.tasks, ...data.documents, ...chunks, ...data.assets, ...data.usage, ...data.events, ...data.reviews]);
   if (data.events.length && !data.activityCoverage) error();
   if (data.activityCoverage && Date.parse(data.activityCoverage.completeSince) < Date.parse(data.activityCoverage.recordingStartedAt)) error();
   distinct(data.reviews.map(review => `${review.period}:${review.timeZone}:${review.startAt}`));

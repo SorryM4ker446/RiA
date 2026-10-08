@@ -30,6 +30,7 @@ type NavItem = { href: string; label: string; icon: typeof BookOpen };
 const NAV_ITEMS: NavItem[] = [
   { href: "/", label: t("nav.home"), icon: House },
   { href: "/chat", label: t("nav.chat"), icon: MessagesSquare },
+  { href: "/assistants", label: "助理模板", icon: Boxes },
   { href: "/tasks", label: "定时任务", icon: CalendarClock },
   { href: "/conversations", label: t("nav.conversations"), icon: MessagesSquare },
   { href: "/knowledge", label: t("nav.knowledge"), icon: BookOpen },

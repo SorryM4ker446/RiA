@@ -1,5 +1,24 @@
 # Test coverage and local validation
 
+Assistant template tests cover immutable conversation snapshots, explicit update,
+read-only built-ins, stale revision rejection, bound-model validation, server tool
+restrictions (including an empty allowlist), scoped chat evidence and portable
+restore. Retrieval diagnostics tests cover missing indices, provider outages,
+thresholds, excerpt budgets, conflicting clauses in one document, empty-result
+metadata and evaluator input/cancellation boundaries. Expected facts stay outside
+the answer prompt; citation matches and fact coverage are contract checks, not
+semantic correctness judgments.
+
+`tests/e2e/assistant-templates.spec.ts` runs the production standalone application
+against isolated SQLite and offline HTTP provider fixtures. It checks template
+creation/edit/copy/delete, explicit snapshot update, service restart, model picker
+binding, manual tool refusal and the evaluation UI/report. Desktop and 390px
+screenshots are saved outside the repository under the OS temporary directory
+(`ria-assistant-qa` and `ria-retrieval-evaluation-qa`). The browser plugin is not
+available in this environment, so validation uses the project's existing Playwright
+harness. Desktop migration tests verify pre-upgrade safety copies and idempotent
+restart. Live evaluation requires a deliberate application action and may be billed.
+
 Use Node.js 24.9.0 and the dependencies already installed for this project. No separate server or desktop testing framework is required.
 
 The application ships as a Windows desktop program; there is no browser or web deployment target. "Browser tests" below means a Chromium renderer driving the application's own HTTP surface — the same renderer the desktop shell embeds — and is a description of the harness, not a supported form of the product.

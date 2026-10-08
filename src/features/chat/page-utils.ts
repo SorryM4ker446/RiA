@@ -1,3 +1,4 @@
+import type { AssistantSnapshot } from "@/lib/assistants/schema";
 import {
   decodePersistedAssistantToolMessage,
   decodePersistedUserMessage,
@@ -16,6 +17,7 @@ export type ChatSummary = {
   archived?: boolean;
   ephemeral?: boolean;
   documentScope?: string;
+  assistantConfig?: AssistantSnapshot | null;
   tags?: string[];
 };
 
@@ -228,8 +230,9 @@ export function mapStoredMessagesToUI(messages: StoredMessage[]): {
       return {
         id: uiMessageId,
         role: message.role,
-        ...(parsedAssistantToolMessage.documentSources?.length || parsedAssistantToolMessage.unavailableTools?.length
+        ...(parsedAssistantToolMessage.documentSources?.length || parsedAssistantToolMessage.unavailableTools?.length || parsedAssistantToolMessage.documentDiagnostics
           ? { metadata: {
+              ...(parsedAssistantToolMessage.documentDiagnostics ? { documentDiagnostics: parsedAssistantToolMessage.documentDiagnostics } : {}),
               ...(parsedAssistantToolMessage.documentSources?.length ? { documentSources: parsedAssistantToolMessage.documentSources } : {}),
               ...(parsedAssistantToolMessage.unavailableTools?.length ? { unavailableTools: parsedAssistantToolMessage.unavailableTools } : {}),
             } }

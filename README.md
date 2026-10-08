@@ -6,6 +6,8 @@ Private AI Assistant is a local-first AI assistant built with Next.js, Vercel AI
 
 - Streaming, persisted multi-turn chat through OpenRouter
 - Local conversations, messages, memories, knowledge, and tasks
+- Built-in and custom assistant templates with persistent conversation snapshots, model binding, tool scope and retrieval policies
+- Knowledge retrieval diagnostics and explicit, exportable retrieval/answer quality evaluations
 - Conversation text search, pinning, tags, archive, confirmed bulk deletion and Markdown/JSON export
 - Semantic knowledge retrieval with keyword fallback
 - PDF, Markdown, text and Word `.docx` knowledge import with local indexing and cited excerpts
@@ -45,6 +47,11 @@ API requests enforce input/size limits, consistent errors, local quotas and same
 Conversation and message history loads in bounded pages. See [Local integration API](docs/local-api.md) for cursor contracts and retrieval behavior, and [Model catalog maintenance](docs/model-catalog.md) for offline checks and intentional catalog updates.
 
 Open **管理会话** from the sidebar to search and organize history or download text snapshots. See [Conversation management](docs/conversation-management.md) for export privacy, limits and migration notes.
+
+Open **助理模板** to create or copy a working style and apply it to a conversation.
+See [Assistant templates](docs/assistant-templates.md). Knowledge preview and chat
+show retrieval diagnostics; **检索质量评测** compares expected documents and facts
+against actual evidence and optional model answers. See [Document knowledge](docs/document-knowledge.md).
 
 Open **备份与恢复** for portable workspace recovery, or **模型与用量** to refresh official OpenRouter catalogs, add allowed models, set defaults and review usage estimates. Backups are unencrypted and exclude the local access credential and provider keys; restore creates a safety backup before replacing business data. See [Workspace backups](docs/workspace-backups.md) and [Model settings and usage](docs/model-usage.md) for limits and safety rules.
 

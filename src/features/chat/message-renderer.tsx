@@ -33,6 +33,7 @@ import { getDocumentSources, getLocalFileUses, getTurnNotices, getWebSearchSourc
 import { LocalFileUses } from "@/features/settings/local-file-uses";
 import { t, tf } from "@/lib/locale";
 import { DocumentSources } from "@/components/knowledge/document-sources";
+import { RetrievalDiagnostics } from "@/components/knowledge/retrieval-diagnostics";
 import type { ChatState } from "@/features/chat/use-chat-state";
 import type { UIMessage } from "ai";
 
@@ -410,6 +411,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
                 </details>
               ) : null}
               <DocumentSources sources={getDocumentSources(message)} />
+              {message.role === "assistant" ? <RetrievalDiagnostics value={(message.metadata as { documentDiagnostics?: unknown } | undefined)?.documentDiagnostics} /> : null}
               {!isUser ? <LocalFileUses modelLabel={selectedChatModel?.modelId} uses={getLocalFileUses(message)} /> : null}
               {imageUrl ? (
                 <div className="mt-3 space-y-2">

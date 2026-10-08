@@ -15,6 +15,7 @@ import { t } from "@/lib/locale";
 import { db } from "@/db";
 import { identifierSchema } from "@/lib/server/request-schemas";
 import { decodeDocumentScope } from "@/lib/documents/scope";
+import { readAssistantSnapshot } from "@/lib/assistants/schema";
 
 const TOOL_DEBUG = process.env.TOOL_DEBUG === "1";
 
@@ -80,15 +81,19 @@ async function POSTHandler(req: NextRequest) {
     }
 
     const conversation = parsed.data.chatId
-      ? await db.chat.findUnique({ where: { id: parsed.data.chatId }, select: { documentScope: true, ephemeral: true } })
+      ? await db.chat.findUnique({ where: { id: parsed.data.chatId }, select: { documentScope: true, ephemeral: true, assistantConfig: true } })
       : null;
     if (parsed.data.chatId && !conversation) throw new ApiError({ code: "NOT_FOUND", message: "Conversation was not found" });
+    const assistant = readAssistantSnapshot(conversation?.assistantConfig);
+    if (assistant && !assistant.tools.includes(toolId)) throw new ApiError({ code: "VALIDATION_ERROR", message: "当前助理模板不允许执行此工具。" });
+    if (assistant?.model && parsed.data.model && (assistant.model.providerId !== parsed.data.model.providerId || assistant.model.modelId !== parsed.data.model.modelId)) throw new ApiError({ code: "VALIDATION_ERROR", message: "会话使用模板绑定的模型。" });
     const usesMemory = !conversation?.ephemeral;
     await assertToolConfiguration(toolId);
     // Manual execution is explicit user input. A model is only optional
     // synthesis, so local tasks and retrieval must work with an empty library.
-    const modelRef = parsed.data.model
-      ? await preferredModel("chat", parsed.data.model)
+    const chosenModel = assistant?.model ?? parsed.data.model;
+    const modelRef = chosenModel
+      ? await preferredModel("chat", chosenModel)
       : (await getModelPreferences()).chat.model ?? undefined;
     const preparedInput = descriptor.prepareInput
       ? await descriptor.prepareInput({
@@ -113,6 +118,7 @@ async function POSTHandler(req: NextRequest) {
       modelRef,
       trigger: "manual",
       documentCollections: decodeDocumentScope(conversation?.documentScope),
+      documentRetrievalPolicy: assistant?.retrieval,
       usesMemory,
       signal: req.signal,
     });

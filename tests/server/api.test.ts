@@ -185,7 +185,9 @@ test("chat sends assistant history to the model and persists the streamed answer
   assert.equal(response.status, 200);
   await response.text();
   assert.ok(languageModel.doStreamCalls.at(-1).prompt.some((item) => item.role === "assistant" && textPart(item.content[0]).text === "Original answer"));
-  assert.equal(await db.message.count({ where: { chatId: owned.id, content: "Generated answer" } }), 1);
+  const answers = await db.message.findMany({ where: { chatId: owned.id, role: "assistant" } });
+  assert.equal(answers.filter(row => decodePersistedAssistantToolMessage(row.content)?.text === "Generated answer").length, 1);
+  assert.equal(decodePersistedAssistantToolMessage(answers.find(row => decodePersistedAssistantToolMessage(row.content)?.text === "Generated answer")!.content)?.documentDiagnostics?.outcome, "empty-library");
 });
 
 test("failed regeneration leaves the original answer intact", async () => {
@@ -210,7 +212,7 @@ test("successful regeneration replaces old history only after the stream finishe
   await response.text();
   const rows = await db.message.findMany({ where: { chatId: owned.id } });
   assert.equal(rows.length, 2);
-  assert.ok(rows.some((row) => row.content === "Generated answer"));
+  assert.ok(rows.some((row) => decodePersistedAssistantToolMessage(row.content)?.text === "Generated answer"));
   assert.equal(rows.some((row) => row.content === "Original answer"), false);
 });
 
