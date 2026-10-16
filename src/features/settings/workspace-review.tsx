@@ -1,4 +1,5 @@
 "use client";
+import { SelectField, SelectOption } from "@/components/ui/select";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,7 @@ export function WorkspaceReviewPreview() {
     <h2 className="text-base font-semibold">工作区事实回顾</h2>
     <p className="text-xs text-muted-foreground">每日统计上一个完整本地日；每周统计上一个完整周一至周日。预览只读取本地事件，不调用模型。</p>
     <form className="flex flex-wrap gap-2" onSubmit={event => { event.preventDefault(); setLoading(true); setError(null); setResult(null); setQuery({ period, timeZone }); }}>
-      <select aria-label="回顾期间" className="rounded-md border bg-background px-2 text-sm" value={period} onChange={event => setPeriod(event.target.value as "daily" | "weekly")}><option value="daily">上一个完整日</option><option value="weekly">上一个完整周</option></select>
+      <SelectField aria-label="回顾期间" className="rounded-md border bg-background px-2 text-sm" value={period} onValueChange={value => setPeriod(value as "daily" | "weekly")}><SelectOption value="daily">上一个完整日</SelectOption><SelectOption value="weekly">上一个完整周</SelectOption></SelectField>
       <Input className="w-44" aria-label="回顾时区" value={timeZone} onChange={event => setTimeZone(event.target.value)} />
       <Button disabled={loading} type="submit" variant="outline">查看事实回顾</Button>
     </form>

@@ -6,6 +6,7 @@ import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture
 // sideways, and the composer stays reachable. The pictures are for a person to
 // look at; a passing run here is not a visual sign-off.
 test("interface walkthrough at the acceptance sizes", async ({ page }, info) => {
+  await page.addInitScript(() => localStorage.setItem("ui:theme", "light"));
   const chat = { id: "walk", title: "界面走查", lastMessageAt: "2026-09-28T00:00:00Z", messageCount: 3 };
   const history = [
     { id: "h1", clientMessageId: null, role: "user" as const, content: "帮我看看这段很长的中文说明有没有问题，以及它在窄窗口和放大显示下是否还读得下去。", status: "success" as const },

@@ -63,8 +63,8 @@ export default function BackupsPage() {
       setSelected(null); await refresh();
     });
   }
-  return <main className="mx-auto max-w-4xl space-y-8 px-4 py-8">
-    <header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-semibold tracking-headline">{t("backups.title")}</h1><p className="mt-2 text-sm text-muted-foreground">{t("backups.description")}</p></div><BackToChatLink /></header>
+  return <main className="mx-auto flex max-w-5xl flex-col gap-7">
+    <header className="workspace-page-header"><div><h1>{t("backups.title")}</h1><p className="mt-2 text-sm text-muted-foreground">{t("backups.description")}</p></div><BackToChatLink /></header>
     <p className="text-sm text-muted-foreground">{t("backups.overview")}</p>
     <div className="flex flex-wrap gap-3"><Button disabled={busy} onClick={() => void run(async () => { setNotice(t("backups.notice.creating")); await settingsRequest("/api/backups", { method: "POST" }); await refresh(); setNotice(t("backups.notice.created")); })}>{t("backups.create")}</Button><RefreshButton disabled={busy} onClick={() => void run(refresh)} refreshing={busy} label={t("backups.refresh")} /></div><div className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed bg-background/40 p-4"><span className="shrink-0 text-sm font-medium tracking-label">{t("backups.importLabel")}</span><FileInput accept=".paib" aria-label={t("backups.importLabel")} buttonLabel={t("backups.importButton")} disabled={busy} className="min-w-0 max-w-sm flex-1" onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void run(() => importFile(file)); }} />{importing && <Button variant="outline" onClick={() => uploadController.current?.abort()}>{t("backups.cancelImport")}</Button>}</div>
     {error && <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-sm text-destructive shadow-hairline">{error}</p>}{notice && <p role="status" className="break-words text-sm text-muted-foreground">{notice}</p>}

@@ -185,7 +185,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
     setHasUnreadBelow(false);
   }
 
-  return (<div ref={scrollRef} className="chat-transcript relative min-h-0 flex-1 space-y-5 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-6 sm:px-6" data-testid="message-list">
+  return (<div ref={scrollRef} className="chat-transcript relative min-h-0 flex-1 space-y-5 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-6 sm:px-7" data-testid="message-list">
   {/* The control stays inside the transcript and never overlaps the composer. */}
   {hasUnreadBelow ? (
     <div className="pointer-events-none sticky top-0 z-20 flex h-0 justify-center">
@@ -227,12 +227,11 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
         </div>
       </div>
     ) : messages.length === 0 ? (
-      <div className="chat-welcome flex h-full min-h-40 flex-col items-center justify-center text-center">
-        <span className="mb-5 font-mono text-[10px] tracking-[0.14em] text-muted-foreground">本地 · 私密 · 随时继续</span>
-        <h1 className="text-7xl font-medium tracking-[-0.08em] sm:text-8xl">RiA<span className="text-muted-foreground">.</span></h1>
-        <p className="mt-5 max-w-md text-sm leading-7 text-muted-foreground">{t("chat.messages.empty")}</p>
-        <div className="mt-8 flex max-w-xl flex-wrap justify-center gap-2">
-          {(modelMode === "image" ? imagePrompts : modelMode === "video" ? videoPrompts : quickPrompts).map(prompt => <Button key={prompt} variant="outline" size="sm" className="h-auto whitespace-normal rounded-xl bg-card/40 px-4 py-3 text-xs font-normal" onClick={() => appendQuickPrompt(prompt)}>{prompt.replace(/[:：]$/, "")}</Button>)}
+      <div className="chat-welcome flex h-full min-h-40 flex-col items-center justify-center gap-4 text-center">
+        <h1 className="chat-welcome-title">{modelMode === "image" ? "让想象，有图可见。" : modelMode === "video" ? "把灵感，变成动态画面。" : "今天，有什么想一起完成？"}</h1>
+        <p className="chat-welcome-description">{t("chat.messages.empty")}</p>
+        <div className="mt-4 flex max-w-2xl flex-wrap justify-center gap-3">
+          {(modelMode === "image" ? imagePrompts : modelMode === "video" ? videoPrompts : quickPrompts).map(prompt => <Button key={prompt} variant="outline" className="h-auto min-h-10 whitespace-normal py-2.5" onClick={() => appendQuickPrompt(prompt)}>{prompt.replace(/[:：]$/, "")}</Button>)}
         </div>
       </div>
     ) : (
@@ -259,8 +258,8 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
           <div className={cn("flex w-full", isUser ? "justify-end" : "justify-start")} key={message.id}>
             <article
               className={cn(
-                "group min-w-0 max-w-[92%] rounded-xl px-4 py-3 text-sm md:max-w-[80%]",
-                isUser ? "chat-user-bubble" : "bg-transparent text-card-foreground",
+                "group min-w-0 rounded-xl px-4 py-3 text-sm",
+                isUser ? "chat-user-bubble max-w-[92%] md:max-w-[80%]" : "w-full bg-transparent text-card-foreground",
               )}
             >
               <header className="mb-2 flex items-center justify-between gap-2">

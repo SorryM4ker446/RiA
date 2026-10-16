@@ -1,4 +1,5 @@
 "use client";
+import { SelectField, SelectOption } from "@/components/ui/select";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -101,7 +102,7 @@ export function TopicWorkspace({ topicId }: { topicId: string }) {
       <Card><CardHeader><CardTitle>生成有引用的成果</CardTitle></CardHeader><CardContent className="space-y-3">
         <form className="space-y-3" onSubmit={event => { event.preventDefault(); if (confirmed) void run(generate); }}>
           <label className="block space-y-1 text-sm">成果标题<Input aria-label="成果标题" required maxLength={120} disabled={busy} value={title} onChange={event => setTitle(event.target.value)} /></label>
-          <label className="block space-y-1 text-sm">成果类型<select aria-label="成果类型" className="w-full rounded-md border bg-background p-2" disabled={busy} value={kind} onChange={event => setKind(event.target.value as ArtifactInput["kind"])}><option value="summary">总结</option><option value="report">报告</option><option value="plan">方案</option></select></label>
+          <label className="block space-y-1 text-sm">成果类型<SelectField aria-label="成果类型" className="w-full rounded-md border bg-background p-2" disabled={busy} value={kind} onValueChange={value => setKind(value as ArtifactInput["kind"])}><SelectOption value="summary">总结</SelectOption><SelectOption value="report">报告</SelectOption><SelectOption value="plan">方案</SelectOption></SelectField></label>
           <label className="block space-y-1 text-sm">生成要求<Textarea aria-label="生成要求" required maxLength={2000} disabled={busy} value={brief} onChange={event => setBrief(event.target.value)} placeholder="说明需要解决的问题、适用条件和输出内容" /></label>
           <label className="flex items-start gap-2 text-sm"><input type="checkbox" aria-label="确认模型调用" disabled={busy} checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />允许向已配置的检索和聊天模型发送问题与专题资料片段，可能产生费用。成果不使用个人记忆；引用内容仍需人工核对。</label>
           <div className="flex flex-wrap gap-2"><Button disabled={busy || !confirmed || !scoped.length} type="submit">生成成果</Button>{generating ? <Button variant="outline" type="button" onClick={() => { operation.current?.abort(); setNotice("已取消请求；已发出的模型调用可能产生费用。请刷新成果查看保存状态，不会自动重新生成。"); }}>取消生成</Button> : null}</div>

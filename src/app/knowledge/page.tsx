@@ -1,4 +1,5 @@
 "use client";
+import { SelectField, SelectOption } from "@/components/ui/select";
 
 import { getApiErrorMessage as readApiErrorMessage } from "@/lib/api-error-message";
 import { formatDateTime } from "@/lib/locale";
@@ -226,7 +227,7 @@ export default function KnowledgePage() {
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 md:px-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+      <header className="workspace-page-header">
         <div className="min-w-0">
           <Link
             className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
@@ -299,14 +300,14 @@ export default function KnowledgePage() {
             }}>
               <Input aria-label={t("knowledge.searchLabel")} className="min-w-0 flex-1 basis-40" maxLength={120}
                 placeholder={t("knowledge.searchPlaceholder")} value={search} onChange={(event) => setSearch(event.target.value)} />
-              <select aria-label={t("knowledge.viewLabel")} className="h-9 rounded-md border bg-background px-2 text-sm"
-                disabled={isLoading || isSaving} value={entryPage.view} onChange={(event) => {
-                  void loadEntries({ ...entryPage, view: event.target.value as KnowledgeView, cursors: [null], nextCursor: null });
+              <SelectField aria-label={t("knowledge.viewLabel")} className="h-9 rounded-md border bg-background px-2 text-sm"
+                disabled={isLoading || isSaving} value={entryPage.view} onValueChange={(value) => {
+                  void loadEntries({ ...entryPage, view: value as KnowledgeView, cursors: [null], nextCursor: null });
                 }}>
-                <option value="all">{t("knowledge.view.all")}</option>
-                <option value="confirmed">{t("knowledge.view.confirmed")}</option>
-                <option value="candidates">{t("knowledge.view.candidates")}</option>
-              </select>
+                <SelectOption value="all">{t("knowledge.view.all")}</SelectOption>
+                <SelectOption value="confirmed">{t("knowledge.view.confirmed")}</SelectOption>
+                <SelectOption value="candidates">{t("knowledge.view.candidates")}</SelectOption>
+              </SelectField>
               <Button disabled={isSaving} type="submit" variant="outline">{t("knowledge.search")}</Button>
             </form>
             {entryPage.q ? <p className="mt-2 text-xs text-muted-foreground">{t("knowledge.searchApplied")} {entryPage.q}</p> : null}

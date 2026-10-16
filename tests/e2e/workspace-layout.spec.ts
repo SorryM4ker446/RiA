@@ -140,23 +140,15 @@ test("workspace separates scheduled tasks and retains content during refresh", a
   await page.keyboard.press("Escape");
   await expect(navigation).not.toBeVisible();
   await page.setViewportSize({ width: 1440, height: 960 });
-  await page.getByRole("button", { name: "收起会话列表", exact: true }).click();
-  await expect(
-    page.getByRole("complementary", { name: "会话列表", exact: true }),
-  ).toHaveCSS("width", "40px");
-  const collapsed = await page
-    .getByRole("complementary", { name: "会话列表", exact: true })
-    .boundingBox();
+  const recent = page.getByRole("button", { name: "会话列表", exact: true });
+  const composerBeforeMenu = await page.locator(".composer-surface").boundingBox();
+  await recent.click();
+  await expect(page.getByRole("complementary", { name: "会话列表", exact: true })).toBeVisible();
+  expect(await page.locator(".composer-surface").boundingBox()).toEqual(composerBeforeMenu);
+  await page.keyboard.press("Escape");
+  await expect(recent).toBeFocused();
   await page.reload();
-  await expect(
-    page.getByRole("button", { name: "展开会话列表", exact: true }),
-  ).toBeVisible();
-  expect(
-    await page
-      .getByRole("complementary", { name: "会话列表", exact: true })
-      .boundingBox(),
-  ).toEqual(collapsed);
-  await page.getByRole("button", { name: "展开会话列表", exact: true }).click();
+  await expect(recent).toHaveAttribute("aria-expanded", "false");
   for (const route of [
     "/",
     "/tasks",
@@ -242,7 +234,7 @@ test("workspace separates scheduled tasks and retains content during refresh", a
   expect(errors).toEqual([]);
 });
 
-test("chat alone exposes the desktop and execution history can be collapsed", async ({
+test("desktop chat stays translucent and execution history opens without moving the composer", async ({
   page,
   app,
 }) => {
@@ -282,30 +274,41 @@ test("chat alone exposes the desktop and execution history can be collapsed", as
     }),
   );
   await page.goto(`${app.origin}/chat?conversationId=${conversation.id}`);
-  await expect(page.locator(".chat-canvas")).toHaveCSS(
+  await expect(page.locator(".workspace-main")).toHaveCSS(
     "background-color",
     /0\.88/,
   );
-  await expect(page.locator(".chat-rail-left")).toHaveCSS(
-    "background-color",
-    /rgb\(/,
-  );
+  await expect(page.locator(".chat-canvas")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await expect(page.locator(".chat-dock")).toHaveCSS(
     "background-color",
-    /rgb\(/,
+    "rgba(0, 0, 0, 0)",
   );
+  await expect(page.locator(".composer-surface")).toHaveCSS("background-color", /rgb\(/);
+  expect((await page.locator(".composer-surface").boundingBox())!.width).toBeLessThanOrEqual(672);
+  const memory = page.getByRole("checkbox", { name: "不记长期记忆", exact: true });
+  await memory.click();
+  await expect(memory).toBeChecked();
+  await expect.poll(async () => (await browserApi(page, "/api/conversations/" + conversation.id)).body.data.ephemeral).toBe(true);
+  await page.reload();
+  await expect(memory).toBeChecked();
+  await memory.click();
+  await expect(memory).not.toBeChecked();
+  await expect.poll(async () => (await browserApi(page, "/api/conversations/" + conversation.id)).body.data.ephemeral).toBe(false);
   const records = page.locator(".run-records");
-  await expect(records.locator("summary")).toContainText("1");
+  await expect(records.getByRole("button", { name: "执行记录", exact: true })).toContainText("1");
+  const composerBounds = await page.locator(".composer-surface").boundingBox();
   await expect(
     records.getByText("检查执行步骤", { exact: true }),
   ).not.toBeVisible();
-  await records.locator("summary").click();
+  await records.getByRole("button", { name: "执行记录", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "执行记录", exact: true });
   await expect(
-    records.getByText("检查执行步骤", { exact: true }),
+    drawer.getByText("检查执行步骤", { exact: true }),
   ).toBeVisible();
-  await records.locator("summary").click();
+  expect(await page.locator(".composer-surface").boundingBox()).toEqual(composerBounds);
+  await page.keyboard.press("Escape");
   await expect(
-    records.getByText("检查执行步骤", { exact: true }),
+    drawer.getByText("检查执行步骤", { exact: true }),
   ).not.toBeVisible();
   for (const route of ["/", "/tasks", "/knowledge", "/settings", "/models"]) {
     await page.goto(`${app.origin}${route}`);
@@ -329,9 +332,7 @@ test("chat alone exposes the desktop and execution history can be collapsed", as
   await content.evaluate((element) =>
     element.scrollTo(0, element.scrollHeight),
   );
-  expect(
-    await content.evaluate((element) => element.scrollTop),
-  ).toBeGreaterThan(0);
+  await expect.poll(() => content.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
   await expect(content).toHaveCSS("overflow-y", "auto");
 });
 
@@ -352,7 +353,7 @@ test("scheduled task creation validates time and persists without a model", asyn
   expect(app.readRows("SELECT id FROM tasks")).toHaveLength(0);
   await form.getByLabel("时区", { exact: true }).fill("Asia/Shanghai");
   await form.getByLabel("到期时间", { exact: true }).fill("2026-11-20T09:00");
-  await form.getByRole("combobox", { name: /^重复/ }).selectOption("weekly");
+  await form.getByRole("combobox", { name: /^重复/ }).click(); await page.getByRole("option", { name: "每周", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 780 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: join(tmpdir(), "ria-workspace-ui", "tasks-create-mobile.png"), animations: "disabled" });

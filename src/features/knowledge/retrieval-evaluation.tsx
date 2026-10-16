@@ -1,4 +1,5 @@
 "use client";
+import { SelectField, SelectOption } from "@/components/ui/select";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -58,7 +59,7 @@ export function RetrievalEvaluation() {
     <p className="text-xs text-muted-foreground">把示例改为自己的资料文件名、问题和必须覆盖的事实。字面覆盖率和引用数不代表回答正确。可开启模型语义评审，检查事实、条件、例外、数值、冲突和拒答；评审结果需人工复核。报告含查询、片段、回答及评判标准，仅在主动下载时导出。</p>
     <p className="text-xs text-muted-foreground">expectations 可填写 kind（fact、condition、exception、quantity、conflict）与 statement（完整期望）。期望只进入评分与评审，不发送给回答生成模型。无答案题使用 answerable: false，留空期望事实和文档。</p>
     <label className="block space-y-1 text-sm"><span>评测问题 JSON（最多 12 个）</span><Textarea aria-label="评测问题 JSON（最多 12 个）" className="min-h-64 font-mono text-xs" disabled={busy} value={cases} onChange={event => setCases(event.target.value)} /></label>
-    <label className="block space-y-1 text-sm"><span>评测助理模板</span><select disabled={busy || templatesLoading} className="max-w-full rounded border bg-background p-2" value={templateId} onChange={event => setTemplateId(event.target.value)}><option value="">默认检索与聊天模型</option>{templates.map(template => <option key={template.id} value={template.id}>{template.config.name}</option>)}</select></label>
+    <label className="block space-y-1 text-sm"><span>评测助理模板</span><SelectField disabled={busy || templatesLoading} className="max-w-full rounded border bg-background p-2" value={templateId} onValueChange={value => setTemplateId(value)}><SelectOption value="">默认检索与聊天模型</SelectOption>{templates.map(template => <SelectOption key={template.id} value={template.id}>{template.config.name}</SelectOption>)}</SelectField></label>
     {templateError ? <div className="space-y-1 text-xs"><p role="alert">{templateError}</p><Button variant="outline" disabled={busy || templatesLoading} onClick={() => setTemplateAttempt(value => value + 1)}>重试加载模板</Button></div> : null}
     <label className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={busy} checked={generate} onChange={event => { setGenerate(event.target.checked); if (!event.target.checked) setJudge(false); }} />同时生成回答（调用已配置聊天模型）</label>
     <label className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={busy || !generate} checked={judge} onChange={event => setJudge(event.target.checked)} />模型语义评审（额外调用聊天模型）</label>

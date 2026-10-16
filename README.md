@@ -32,6 +32,8 @@ Keep `.npmrc` and `vendor/` in the checkout when installing dependencies. The pr
 
 ## Local development server
 
+The interface groups navigation into daily work, reference material, and management. Shared controls support light and dark themes, keyboard focus, and short panel/menu transitions. New workspaces start in dark mode; a manually selected theme persists. The RiA wordmark uses the active theme’s text color. Recent conversations are grouped by pin status and local calendar date, with message counts, two-line titles, and a menu for rename/delete. Model catalogs reveal rows in batches while scrolling; form selectors use keyboard-accessible menus. Execution records open in a separate sheet. Settings group service/model configuration, application preferences, automation/notifications and directory permissions into tabs. The default chat model can be saved directly without restarting the local service; readiness reflects persisted workspace preferences. Recent conversations open in an animated popover rather than a fixed sidebar. The Windows chat canvas is translucent, with rounded window corners when restored. The system's reduced-motion preference disables nonessential animation. UI tokens and motion rules live in `src/app/globals.css`; reusable controls live in `src/components/ui/`.
+
 ```powershell
 npx --yes npm@11.19.1 ci
 npm run db:generate

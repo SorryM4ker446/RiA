@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { t } from "@/lib/locale";
+import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
 
 /**
  * One global shortcut, and it only brings this window forward.
@@ -17,6 +18,7 @@ import { t } from "@/lib/locale";
  * is told another program already owns.
  */
 export function HotkeySettings() {
+  const isDesktopRuntime = useDesktopRuntime();
   const [hotkey, setHotkey] = useState("");
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<"conflict" | "invalid" | "not-stored" | null>(null);
@@ -29,7 +31,7 @@ export function HotkeySettings() {
       .catch(() => setProblem("invalid"));
   }, []);
 
-  if (typeof window === "undefined" || !window.privateAiDesktop) return null;
+  if (!isDesktopRuntime) return null;
 
   async function apply(event: { preventDefault: () => void }) {
     event.preventDefault();

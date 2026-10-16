@@ -2,6 +2,7 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { z } from "zod";
 import { BodyReadError, readLimitedJson } from "@/lib/models/catalog-read";
 import { libraryModes } from "@/lib/models/preferences-schema";
+import { openRouterImagePrices, openRouterVideoPrices } from "@/lib/models/catalog-prices";
 import { CatalogFetchError, type CatalogModel, type ModelProvider } from "@/lib/models/providers/types";
 
 const catalogMaxBodyBytes = 8 * 1024 * 1024;
@@ -33,8 +34,8 @@ const rawModel = z.object({
   supported_durations: z.array(z.unknown()).nullable().optional(),
   supported_resolutions: z.array(z.unknown()).nullable().optional(),
   supported_aspect_ratios: z.array(z.unknown()).nullable().optional(),
-  pricing: z.record(z.string(), z.union([z.string(), z.number()]).nullable()).nullable().optional(),
-  pricing_skus: z.record(z.string(), z.union([z.string(), z.number()]).nullable()).nullable().optional(),
+  pricing: z.record(z.string(), z.unknown()).nullable().optional(),
+  pricing_skus: z.record(z.string(), z.unknown()).nullable().optional(),
 }).passthrough();
 
 const catalogEnvelope = z.object({ data: z.array(z.unknown()).max(20_000) }).passthrough();
@@ -75,7 +76,8 @@ function normalizeOpenRouterRow(value: unknown, mode: (typeof libraryModes)[numb
     // discover on an invoice.
     providerSearch: /:online$/.test(row.id) || Object.keys(row.pricing ?? row.pricing_skus ?? {}).some(key => key.includes("search")) || parameterNames.some(x => /web[_-]?search/i.test(x)),
     contextLength: row.context_length ?? null,
-    pricing: Object.fromEntries(Object.entries(row.pricing ?? row.pricing_skus ?? {}).filter(([, v]) => ["string", "number"].includes(typeof v)).slice(0, 12).map(([k, v]) => [k, String(v)])),
+    pricing: Object.fromEntries(Object.entries({ ...row.pricing_skus, ...row.pricing }).filter(([k, v]) => k.length <= 40 && ["string", "number"].includes(typeof v) && String(v).length <= 80).slice(0, 12).map(([k, v]) => [k, String(v)])),
+    ...(mode === "video" ? { priceInfo: { rates: openRouterVideoPrices(row.pricing_skus ?? row.pricing ?? {}), updatedAt: new Date().toISOString(), error: false } } : {}),
   };
 }
 
@@ -129,6 +131,37 @@ async function fetchOpenRouterCatalog(mode: (typeof libraryModes)[number], signa
     models.push(item);
   }
   if (models.length === 0) throw new CatalogFetchError("emptyCatalog", invalidRows ? String(invalidRows) : undefined);
+  if (mode === "image") {
+    // Price discovery is bounded and shares the catalog's cancellation. Never
+    // follow the feed's endpoint URLs: construct them on the trusted API host.
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(6, models.length) }, async () => {
+      while (next < models.length) {
+        const model = models[next++];
+        model.priceInfo = { rates: [], updatedAt: null, error: true };
+        if (signal.aborted) continue;
+        const controller = new AbortController();
+        const abort = () => controller.abort();
+        signal.addEventListener("abort", abort, { once: true });
+        const timer = setTimeout(abort, 3_000);
+        try {
+          const [author, slug] = model.modelId.split("/");
+          const response = await fetch(`https://openrouter.ai/api/v1/images/models/${encodeURIComponent(author)}/${encodeURIComponent(slug)}/endpoints`, {
+            method: "GET", cache: "no-store", redirect: "error", signal: controller.signal,
+            headers: { Accept: "application/json", ...(openRouterKey() ? { Authorization: `Bearer ${openRouterKey()}` } : {}) },
+          });
+          if (!response.ok) { await response.body?.cancel(); continue; }
+          const prices = openRouterImagePrices(await readLimitedJson(response, 512 * 1024));
+          model.priceInfo = { ...prices, updatedAt: new Date().toISOString() };
+        } catch {
+          // Missing optional prices must not make a usable model disappear.
+        } finally {
+          clearTimeout(timer);
+          signal.removeEventListener("abort", abort);
+        }
+      }
+    }));
+  }
   return { models, invalidRows };
 }
 

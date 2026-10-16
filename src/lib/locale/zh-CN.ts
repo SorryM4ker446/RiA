@@ -43,9 +43,9 @@ const base = {
   "common.noFileChosen": "未选择文件",
 
   // --- home --------------------------------------------------------------
-  "home.title": "用对话、记忆与工具调用，构建属于你的私人助手。",
+  "home.title": "把想法，变成下一步。",
   "home.description":
-    "Next.js App Router + Vercel AI SDK + SQLite。核心流程已可用于日常使用，并为后续的 RAG 扩展做好准备。",
+    "你的私人 AI 工作空间。在对话中梳理想法，让资料连接知识，让计划有序推进。",
   "home.primaryAction": "开始对话",
   "home.secondaryAction": "AI SDK 文档",
   "home.feature.chat.title": "流式对话",

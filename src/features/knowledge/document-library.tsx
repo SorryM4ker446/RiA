@@ -1,4 +1,5 @@
 "use client";
+import { SelectField, SelectOption } from "@/components/ui/select";
 
 import { Loader2, Upload } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -203,10 +204,10 @@ export function DocumentLibrary() {
         </li>)}
       </ul>}
       <form className="flex flex-wrap gap-2 border-t pt-4" onSubmit={event => void search(event)}>
-        <select aria-label="检索资料集合" disabled={busy} value={searchCollection} onChange={event => { setSearchCollection(event.target.value); setResults(null); }} className="max-w-full rounded-md border bg-background px-2 text-sm">
-          <option value="">全部集合</option>
-          {[...new Set([...documents.flatMap(document => document.collection ? [document.collection] : []), ...(searchCollection ? [searchCollection] : [])])].sort().map(name => <option key={name} value={name}>{name}{documents.some(document => document.collection === name) ? "" : "（暂无资料）"}</option>)}
-        </select>
+        <SelectField aria-label="检索资料集合" disabled={busy} value={searchCollection} onValueChange={value => { setSearchCollection(value); setResults(null); }} className="max-w-full rounded-md border bg-background px-2 text-sm">
+          <SelectOption value="">全部集合</SelectOption>
+          {[...new Set([...documents.flatMap(document => document.collection ? [document.collection] : []), ...(searchCollection ? [searchCollection] : [])])].sort().map(name => <SelectOption key={name} value={name}>{name}{documents.some(document => document.collection === name) ? "" : "（暂无资料）"}</SelectOption>)}
+        </SelectField>
         <Input aria-label={t("documents.searchLabel")} className="min-w-0 flex-1" disabled={busy} maxLength={2000} onChange={event => setQuery(event.target.value)} placeholder={t("documents.searchPlaceholder")} required value={query} />
         <Button disabled={busy || !query.trim()} type="submit" variant="secondary">{t("documents.search")}</Button>
       </form>

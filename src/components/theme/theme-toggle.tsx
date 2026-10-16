@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { Moon, SunMedium } from "lucide-react";
 import { t } from "@/lib/locale";
 
-import { THEME_STORAGE_KEY } from "@/lib/ui-preferences";
+import { DEFAULT_THEME, THEME_STORAGE_KEY } from "@/lib/ui-preferences";
 
 type ThemeMode = "light" | "dark";
 
@@ -18,7 +18,7 @@ function applyTheme(theme: ThemeMode) {
 export function ThemeToggle() {
   useEffect(() => {
     const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
-    applyTheme(stored === "dark" || (stored !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light");
+    applyTheme(stored === "light" ? "light" : DEFAULT_THEME);
   }, []);
 
   function onToggleTheme() {

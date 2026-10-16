@@ -56,6 +56,10 @@ pnpm-debug.log*
 .local-access-token
 access-diagnostic.log
 
+# local development skills
+/.agents/skills/
+/skills-lock.json
+
 # editor / os
 .vscode/
 .idea/

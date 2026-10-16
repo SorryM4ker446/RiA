@@ -67,7 +67,7 @@ const config: Config = {
       },
       boxShadow: {
         hairline: "0 0 0 1px hsl(var(--border))",
-        card: "0 0 0 1px hsl(var(--border)), 0 1px 2px hsl(var(--shadow) / 0.05)",
+        card: "0 2px 8px hsl(var(--shadow) / 0.08)",
         raised:
           "0 0 0 1px hsl(var(--border)), 0 2px 4px hsl(var(--shadow) / 0.06), 0 24px 48px -24px hsl(var(--shadow) / 0.24)",
         pop: "0 0 0 1px hsl(var(--border)), 0 8px 28px -8px hsl(var(--shadow) / 0.28)",

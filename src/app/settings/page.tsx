@@ -2,12 +2,18 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, CheckCircle2, KeyRound, Loader2, MonitorCog, ShieldCheck } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ChevronDown, KeyRound, Loader2, MonitorCog, ShieldCheck } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { SelectField, SelectOption } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { jsonRequest, settingsRequest } from "@/features/settings/api-client";
+import { libraryModel, modelRefKey, type ModelPreferences } from "@/lib/models/preferences-schema";
+import { parseModelRefValue } from "@/features/chat/preferences";
 import { t } from "@/lib/locale";
 import { DirectoryGrantSettings } from "@/features/settings/directory-grants";
 import { ScheduleSettings } from "@/features/settings/schedules";
@@ -17,7 +23,12 @@ import { NoticeCenter } from "@/features/settings/notice-center";
 
 export default function DesktopSettingsPage() {
   const [settings, setSettings] = useState<DesktopSettingsView | null>(null);
-  const [modelState, setModelState] = useState<{ library: unknown[]; chat: { model: unknown } } | null>(null);
+  const [modelState, setModelState] = useState<ModelPreferences | null>(null);
+  const [defaultModel, setDefaultModel] = useState("");
+  const [modelError, setModelError] = useState<string | null>(null);
+  const [modelNotice, setModelNotice] = useState<string | null>(null);
+  const [savingModel, setSavingModel] = useState(false);
+  const [activeTab, setActiveTab] = useState("services");
   const [runtime, setRuntime] = useState<DesktopRuntimeInfo | null>(null);
   const [openrouterApiKey, setOpenrouterApiKey] = useState("");
   const [tavilyApiKey, setTavilyApiKey] = useState("");
@@ -49,14 +60,19 @@ export default function DesktopSettingsPage() {
       // The readiness steps describe what is configured, and two of the three
       // live in model settings rather than in the desktop store. A failure here
       // must not block the page, so it is settled separately below.
-      fetch("/api/models", { credentials: "same-origin" })
-        .then((response) => (response.ok ? response.json() : null))
-        .catch(() => null),
+      settingsRequest<{ data: ModelPreferences }>("/api/models")
+        .catch((error: unknown) => {
+          setModelError(error instanceof Error ? error.message : "无法读取模型配置");
+          return null;
+        }),
     ])
       .then(([loadedSettings, loadedRuntime, models]) => {
         setSettings(loadedSettings);
         setRuntime(loadedRuntime);
-        if (models?.data) setModelState({ library: models.data.library ?? [], chat: models.data.chat ?? { model: null } });
+        if (models?.data) {
+          setModelState(models.data);
+          setDefaultModel(models.data.chat.model ? modelRefKey(models.data.chat.model) : "");
+        }
         setOutboundProxyUrl(loadedSettings.outboundProxyUrl);
         setOpenrouterSiteName(loadedSettings.openrouterSiteName);
         setOpenrouterHttpReferer(loadedSettings.openrouterHttpReferer);
@@ -71,7 +87,29 @@ export default function DesktopSettingsPage() {
   }, []);
 
   const modelCount = modelState?.library.length ?? 0;
-  const hasDefaultModel = Boolean((modelState?.chat.model as { modelId?: unknown } | null)?.modelId);
+  const hasDefaultModel = Boolean(modelState && libraryModel(modelState, "chat", modelState.chat.model));
+  const savedDefault = modelState?.chat.model ? modelRefKey(modelState.chat.model) : "";
+
+  async function saveDefaultModel() {
+    if (savingModel) return;
+    setSavingModel(true);
+    setModelError(null);
+    setModelNotice(null);
+    try {
+      // Read the other preferences at save time so editing this field preserves them.
+      const { data: latest } = await settingsRequest<{ data: ModelPreferences }>("/api/models");
+      const { data } = await settingsRequest<{ data: ModelPreferences }>("/api/models", jsonRequest("PUT", {
+        ...latest, chat: { ...latest.chat, model: parseModelRefValue(defaultModel) },
+      }));
+      setModelState(data);
+      setDefaultModel(data.chat.model ? modelRefKey(data.chat.model) : "");
+      setModelNotice("默认聊天模型已保存，新建会话将使用此模型。");
+    } catch (error) {
+      setModelError(error instanceof Error ? error.message : "保存默认模型失败");
+    } finally {
+      setSavingModel(false);
+    }
+  }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -108,256 +146,108 @@ export default function DesktopSettingsPage() {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8 md:px-6">
-      <header>
-        <Link
-          className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
-          href="/chat"
-        >
-          <ArrowLeft aria-hidden="true" className="h-3.5 w-3.5" />
-          {t("settings.backToChat")}
-        </Link>
-        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-headline">
-          <MonitorCog aria-hidden="true" className="h-5 w-5 text-muted-foreground" />
-          {t("settings.title")}
-        </h1>
-        <p className="mt-2 text-sm text-muted-foreground">{t("settings.description")}</p>
+    <main className="settings-page mx-auto flex w-full max-w-4xl flex-col gap-5 px-4 py-8 md:px-6">
+      <header className="workspace-page-header">
+        <div className="flex flex-col gap-2">
+          <h1 className="flex items-center gap-2"><MonitorCog aria-hidden="true" className="size-5 text-muted-foreground" />{t("settings.title")}</h1>
+          <p className="text-sm text-muted-foreground">密钥、默认模型和应用偏好，在这里统一管理。</p>
+        </div>
+        <Button asChild variant="ghost" size="sm"><Link href="/chat"><ArrowLeft data-icon="inline-start" aria-hidden="true" />{t("settings.backToChat")}</Link></Button>
       </header>
 
-      <nav className="flex flex-wrap gap-2"><Link href="/models" className="text-sm text-muted-foreground transition-colors hover:text-foreground">{t("settings.navModels")}</Link><span aria-hidden="true" className="text-muted-foreground/40">/</span><Link href="/backups" className="text-sm text-muted-foreground transition-colors hover:text-foreground">{t("settings.navBackups")}</Link></nav>
+      {error && <Alert variant="destructive"><AlertTitle>{t("settings.error.title")}</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
+      {notice && <Alert><CheckCircle2 aria-hidden="true" className="size-4" /><AlertTitle>{t("settings.notice.title")}</AlertTitle><AlertDescription>{notice}</AlertDescription></Alert>}
 
-      {error ? (
-        <Alert variant="destructive">
-          <AlertTitle>{t("settings.error.title")}</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      ) : null}
-      {notice ? (
-        <Alert>
-          <CheckCircle2 aria-hidden="true" className="h-4 w-4" />
-          <AlertTitle>{t("settings.notice.title")}</AlertTitle>
-          <AlertDescription>{notice}</AlertDescription>
-        </Alert>
-      ) : null}
-
-      {/*
-        What the workspace can actually do right now, and the one thing that
-        unlocks the next step. A user who has configured nothing is told the
-        order rather than left to infer it from a form.
-      */}
-      {settings ? (
-        <ol className="grid gap-2 sm:grid-cols-3" aria-label={t("settings.readinessLabel")}>
+      {settings && (
+        <ol className="settings-readiness" aria-label={t("settings.readinessLabel")}>
           {[
-            { done: settings.hasOpenrouterApiKey || settings.hasDeepseekApiKey, label: t("settings.step.provider"), detail: t("settings.step.providerDetail") },
-            { done: modelCount > 0, label: t("settings.step.models"), detail: t("settings.step.modelsDetail") },
-            { done: hasDefaultModel, label: t("settings.step.default"), detail: t("settings.step.defaultDetail") },
+            { done: settings.hasOpenrouterApiKey || settings.hasDeepseekApiKey, known: true, label: t("settings.step.provider"), href: "#service-keys", detail: "至少配置一个模型服务商" },
+            { done: modelCount > 0, known: Boolean(modelState), label: t("settings.step.models"), href: "/models#model-library", detail: modelState ? modelCount + " 个已添加模型" : "模型配置尚未读取" },
+            { done: hasDefaultModel, known: Boolean(modelState), label: t("settings.step.default"), href: "#default-chat-model", detail: hasDefaultModel ? libraryModel(modelState!, "chat", modelState!.chat.model)!.name : modelState ? "尚未保存全局默认模型" : "模型配置尚未读取" },
           ].map((step, index) => (
-            <li className="rounded-lg border border-border bg-card p-3 text-sm shadow-hairline" key={step.label}>
-              <span className="flex items-center gap-2 font-medium tracking-label">
-                {step.done ? (
-                  <CheckCircle2 aria-hidden="true" className="h-4 w-4 text-success" />
-                ) : (
-                  <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full border border-border text-[10px] text-muted-foreground">
-                    {index + 1}
-                  </span>
-                )}
-                {step.label}
-              </span>
-              <span className="mt-1 block text-xs text-muted-foreground">{step.detail}</span>
+            <li key={step.label} data-complete={step.known ? step.done : "unknown"}>
+              <Link href={step.href} className="settings-readiness-link" onClick={() => { if (step.href.startsWith("#")) setActiveTab("services"); }}>
+                {step.done ? <CheckCircle2 aria-hidden="true" className="size-4 shrink-0 text-success" /> : <span aria-hidden="true" className="settings-step-number">{step.known ? index + 1 : "—"}</span>}
+                <span className="min-w-0"><span className="block text-sm font-medium">{step.label}<span className="sr-only">{step.known ? step.done ? "，已完成" : "，未完成" : "，状态未知"}</span></span><span className="block truncate text-xs text-muted-foreground" title={step.detail}>{step.detail}</span></span>
+              </Link>
             </li>
           ))}
         </ol>
-      ) : null}
+      )}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <KeyRound aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
-              {t("settings.serviceTitle")}
-            </CardTitle>
-            <CardDescription>{t("settings.serviceDescription")}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {/* Once the settings have been read they stay on screen. Replacing
-                the form with a spinner on every re-read meant saving a key made
-                the whole panel blink out and back. */}
-            {isLoading && !settings ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> {t("settings.loading")}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex min-w-0 flex-col gap-5">
+        <TabsList aria-label="设置分类">
+          <TabsTrigger value="services">服务与模型</TabsTrigger>
+          <TabsTrigger value="application">应用偏好</TabsTrigger>
+          <TabsTrigger value="automation">自动化与通知</TabsTrigger>
+          <TabsTrigger value="files">文件权限</TabsTrigger>
+        </TabsList>
+        <TabsContent value="services" forceMount className="flex flex-col gap-4 data-[state=inactive]:hidden">
+          <Card id="service-keys">
+            <CardHeader><CardTitle className="flex items-center gap-2"><KeyRound aria-hidden="true" className="size-4 text-muted-foreground" />{t("settings.serviceTitle")}</CardTitle><CardDescription>{t("settings.serviceDescription")}</CardDescription></CardHeader>
+            <CardContent>
+              {isLoading && !settings ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 aria-hidden="true" className="size-4 animate-spin" />{t("settings.loading")}</p> : (
+                <form className="flex flex-col gap-5" onSubmit={onSubmit}>
+                  <FieldGroup className="gap-4">
+                    {[
+                      { id: "openrouter-key", label: "OpenRouter API Key", value: openrouterApiKey, onChange: setOpenrouterApiKey, configured: settings?.hasOpenrouterApiKey, clear: clearOpenrouterApiKey, onClear: setClearOpenrouterApiKey, clearLabel: t("settings.clearOpenrouter"), placeholder: "sk-or-v1-…", hint: "聊天、图片与视频生成" },
+                      { id: "deepseek-key", label: "DeepSeek API Key", value: deepseekApiKey, onChange: setDeepseekApiKey, configured: settings?.hasDeepseekApiKey, clear: clearDeepseekApiKey, onClear: setClearDeepseekApiKey, clearLabel: t("settings.clearDeepseek"), placeholder: t("settings.deepseekPlaceholder"), hint: "仅用于聊天" },
+                      { id: "tavily-key", label: "Tavily API Key", value: tavilyApiKey, onChange: setTavilyApiKey, configured: settings?.hasTavilyApiKey, clear: clearTavilyApiKey, onClear: setClearTavilyApiKey, clearLabel: t("settings.clearTavily"), placeholder: t("settings.tavilyPlaceholder"), hint: "联网搜索，可选" },
+                    ].map(field => (
+                      <Field key={field.id} orientation="horizontal" className="settings-field" data-disabled={!settings?.encryptionAvailable || field.clear}>
+                        <FieldContent><FieldLabel htmlFor={field.id}>{field.label}</FieldLabel><FieldDescription>{field.hint}</FieldDescription></FieldContent>
+                        <div className="flex min-w-0 flex-1 flex-col gap-2">
+                          <div className="flex items-center gap-3"><Input id={field.id} autoComplete="off" disabled={!settings?.encryptionAvailable || field.clear} onChange={event => field.onChange(event.target.value)} placeholder={field.placeholder} type="password" value={field.value} /><Badge variant={field.configured ? "success" : "outline"} className="shrink-0">{field.configured ? t("settings.configured") : t("settings.notConfigured")}</Badge></div>
+                          {field.configured && <label className="flex items-center gap-2 text-xs text-muted-foreground"><input checked={field.clear} onChange={event => field.onClear(event.target.checked)} type="checkbox" />{field.clearLabel}</label>}
+                        </div>
+                      </Field>
+                    ))}
+                  </FieldGroup>
+                  <details className="settings-disclosure">
+                    <summary className="settings-disclosure-trigger">连接与站点选项<span className="ml-auto text-xs text-muted-foreground">代理 / OpenRouter</span><ChevronDown aria-hidden="true" className="size-4" /></summary>
+                    <FieldGroup className="gap-4 pt-4">
+                      {[
+                        { id: "outbound-proxy", label: t("settings.proxyLabel"), value: outboundProxyUrl, onChange: setOutboundProxyUrl, placeholder: t("settings.proxyPlaceholder") },
+                        { id: "site-name", label: t("settings.siteNameLabel"), value: openrouterSiteName, onChange: setOpenrouterSiteName, placeholder: "RiA Desktop" },
+                        { id: "http-referrer", label: "OpenRouter HTTP Referrer", value: openrouterHttpReferer, onChange: setOpenrouterHttpReferer, placeholder: t("settings.refererPlaceholder") },
+                      ].map(field => <Field key={field.id} orientation="horizontal" className="settings-field"><FieldLabel htmlFor={field.id}>{field.label}</FieldLabel><Input id={field.id} onChange={event => field.onChange(event.target.value)} placeholder={field.placeholder} value={field.value} /></Field>)}
+                    </FieldGroup>
+                  </details>
+                  {!settings?.encryptionAvailable && <Alert variant="destructive"><AlertTitle>{t("settings.encryptionUnavailableTitle")}</AlertTitle><AlertDescription>{t("settings.encryptionUnavailableBody")}</AlertDescription></Alert>}
+                  <div className="flex justify-end"><Button disabled={isSaving || !settings?.encryptionAvailable} type="submit" size="sm">{isSaving && <Loader2 data-icon="inline-start" aria-hidden="true" className="animate-spin" />}{t("settings.saveAndRestart")}</Button></div>
+                </form>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card id="default-chat-model">
+            <CardHeader><CardTitle>默认聊天模型</CardTitle><CardDescription>用于新建会话；聊天输入栏中的模型选择仅对当前会话生效。</CardDescription></CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              {modelError && <Alert variant="destructive"><AlertTitle>模型配置未更新</AlertTitle><AlertDescription>{modelError}</AlertDescription></Alert>}
+              {modelNotice && <p role="status" className="text-sm text-success">{modelNotice}</p>}
+              <div className="flex flex-wrap items-center gap-3">
+                <SelectField aria-label="默认聊天模型" className="min-w-0 flex-1 sm:min-w-48" value={defaultModel} disabled={!modelState || savingModel} onValueChange={setDefaultModel}>
+                  <SelectOption value="">不设置默认模型</SelectOption>
+                  {modelState?.library.filter(model => model.modes.includes("chat")).map(model => <SelectOption key={modelRefKey(model)} value={modelRefKey(model)}>{model.name} · {model.providerId}</SelectOption>)}
+                </SelectField>
+                <Button size="sm" disabled={!modelState || savingModel || defaultModel === savedDefault} onClick={() => void saveDefaultModel()}>{savingModel && <Loader2 data-icon="inline-start" aria-hidden="true" className="animate-spin" />}保存默认模型</Button>
               </div>
-            ) : (
-              <form className="space-y-5" onSubmit={onSubmit}>
-                <label className="block space-y-2 text-sm">
-                  <span className="flex items-center justify-between text-sm font-medium tracking-label">
-                    OpenRouter API Key
-                    <Badge variant={settings?.hasOpenrouterApiKey ? "success" : "outline"}>
-                      {settings?.hasOpenrouterApiKey ? t("settings.configured") : t("settings.notConfigured")}
-                    </Badge>
-                  </span>
-                  <Input
-                    autoComplete="off"
-                    disabled={!settings?.encryptionAvailable || clearOpenrouterApiKey}
-                    onChange={(event) => setOpenrouterApiKey(event.target.value)}
-                    placeholder="sk-or-v1-…"
-                    type="password"
-                    value={openrouterApiKey}
-                  />
-                  {settings?.hasOpenrouterApiKey ? (
-                    <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <input
-                        checked={clearOpenrouterApiKey}
-                        onChange={(event) => setClearOpenrouterApiKey(event.target.checked)}
-                        type="checkbox"
-                      />
-                      {t("settings.clearOpenrouter")}
-                    </span>
-                  ) : null}
-                </label>
-
-                <label className="block space-y-2 text-sm">
-                  <span className="flex items-center justify-between text-sm font-medium tracking-label">
-                    Tavily API Key
-                    <Badge variant={settings?.hasTavilyApiKey ? "success" : "outline"}>
-                      {settings?.hasTavilyApiKey ? t("settings.configured") : t("settings.notConfigured")}
-                    </Badge>
-                  </span>
-                  <Input
-                    autoComplete="off"
-                    disabled={!settings?.encryptionAvailable || clearTavilyApiKey}
-                    onChange={(event) => setTavilyApiKey(event.target.value)}
-                    placeholder={t("settings.tavilyPlaceholder")}
-                    type="password"
-                    value={tavilyApiKey}
-                  />
-                  {settings?.hasTavilyApiKey ? (
-                    <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <input
-                        checked={clearTavilyApiKey}
-                        onChange={(event) => setClearTavilyApiKey(event.target.checked)}
-                        type="checkbox"
-                      />
-                      {t("settings.clearTavily")}
-                    </span>
-                  ) : null}
-                </label>
-
-                <label className="block space-y-2 text-sm">
-                  <span className="flex items-center justify-between text-sm font-medium tracking-label">
-                    DeepSeek API Key
-                    <Badge variant={settings?.hasDeepseekApiKey ? "success" : "outline"}>
-                      {settings?.hasDeepseekApiKey ? t("settings.configured") : t("settings.notConfigured")}
-                    </Badge>
-                  </span>
-                  <Input
-                    autoComplete="off"
-                    disabled={!settings?.encryptionAvailable || clearDeepseekApiKey}
-                    onChange={(event) => setDeepseekApiKey(event.target.value)}
-                    placeholder={t("settings.deepseekPlaceholder")}
-                    type="password"
-                    value={deepseekApiKey}
-                  />
-                  {/* DeepSeek serves chat only. Saying so here is what stops the
-                      key from looking like a way to enable image or video. */}
-                  <span className="block text-xs text-muted-foreground">{t("settings.deepseekHint")}</span>
-                  {settings?.hasDeepseekApiKey ? (
-                    <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <input
-                        checked={clearDeepseekApiKey}
-                        onChange={(event) => setClearDeepseekApiKey(event.target.checked)}
-                        type="checkbox"
-                      />
-                      {t("settings.clearDeepseek")}
-                    </span>
-                  ) : null}
-                </label>
-
-                <label className="block space-y-2 text-sm">
-                  <span className="text-sm font-medium tracking-label">{t("settings.proxyLabel")}</span>
-                  <Input
-                    onChange={(event) => setOutboundProxyUrl(event.target.value)}
-                    placeholder={t("settings.proxyPlaceholder")}
-                    value={outboundProxyUrl}
-                  />
-                </label>
-                <label className="block space-y-2 text-sm">
-                  <span className="text-sm font-medium tracking-label">{t("settings.siteNameLabel")}</span>
-                  <Input
-                    onChange={(event) => setOpenrouterSiteName(event.target.value)}
-                    placeholder="RiA Desktop"
-                    value={openrouterSiteName}
-                  />
-                </label>
-                <label className="block space-y-2 text-sm">
-                  <span className="text-sm font-medium tracking-label">OpenRouter HTTP Referrer</span>
-                  <Input
-                    onChange={(event) => setOpenrouterHttpReferer(event.target.value)}
-                    placeholder={t("settings.refererPlaceholder")}
-                    value={openrouterHttpReferer}
-                  />
-                </label>
-
-                {!settings?.encryptionAvailable ? (
-                  <Alert variant="destructive">
-                    <AlertTitle>{t("settings.encryptionUnavailableTitle")}</AlertTitle>
-                    <AlertDescription>{t("settings.encryptionUnavailableBody")}</AlertDescription>
-                  </Alert>
-                ) : null}
-
-                <Button disabled={isSaving || !settings?.encryptionAvailable} type="submit">
-                  {isSaving ? <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  {t("settings.saveAndRestart")}
-                </Button>
-              </form>
-            )}
-          </CardContent>
-        </Card>
-
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <ShieldCheck aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
-                {t("settings.securityTitle")}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-xs text-muted-foreground">
-              <p>{t("settings.securityKey")}</p>
-              <p>{t("settings.securityNoPlaintext")}</p>
-              <p>{t("settings.securityLocalApi")}</p>
+              <div className="flex flex-wrap gap-4 text-xs"><Link className="text-muted-foreground hover:text-foreground" href="/models#model-preferences">管理各模式默认与备用模型 ↗</Link><Link className="text-muted-foreground hover:text-foreground" href="/backups">{t("settings.navBackups")} ↗</Link></div>
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">{t("settings.runtimeTitle")}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 break-all text-xs text-muted-foreground">
-              <p>{`${t("settings.runtimeVersion")}${runtime?.appVersion || "—"}`}</p>
-              <p>{`${t("settings.runtimeMode")}${runtime?.packaged ? t("settings.runtimePackaged") : t("settings.runtimeDev")}`}</p>
-              <p>{`${t("settings.runtimeDataDirectory")}${runtime?.dataDirectory || "—"}`}</p>
-              <p>{`${t("settings.runtimeMediaDirectory")}${runtime?.mediaDirectory || "—"}`}</p>
-              <Link className="inline-block text-sm text-foreground underline underline-offset-4" href="/storage">{t("settings.manageStorage")}</Link>
-              <p>{`${t("settings.runtimeLogFile")}${runtime?.logFile || "—"}`}</p>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
 
-      {/*
-        What the application itself is told to do, what it may read, what it runs
-        on its own, and what it wanted to say. These are controls the settings
-        screen exists for: the close behaviour and the shortcut have no other way
-        in, so a section that is imported but never rendered is a feature nothing
-        in the app can reach. The two that only mean something inside the desktop
-        shell stand themselves down when there is no bridge.
-      */}
-      <div className="space-y-4">
-        <CloseBehaviourSettings />
-        <HotkeySettings />
-        <DirectoryGrantSettings />
-        <ScheduleSettings />
-        <NoticeCenter />
-      </div>
+          <details className="settings-disclosure px-1">
+            <summary className="settings-disclosure-trigger"><ShieldCheck aria-hidden="true" className="size-4" />本地安全与运行信息<ChevronDown aria-hidden="true" className="ml-auto size-4" /></summary>
+            <div className="grid gap-5 pb-2 pt-4 sm:grid-cols-2">
+              <section className="flex flex-col gap-2 text-xs text-muted-foreground" aria-label={t("settings.securityTitle")}><h2 className="text-sm font-medium text-foreground">{t("settings.securityTitle")}</h2><p>{t("settings.securityKey")}</p><p>{t("settings.securityNoPlaintext")}</p><p>{t("settings.securityLocalApi")}</p></section>
+              <section className="flex flex-col gap-2 break-all text-xs text-muted-foreground" aria-label={t("settings.runtimeTitle")}><h2 className="text-sm font-medium text-foreground">{t("settings.runtimeTitle")}</h2><p>{t("settings.runtimeVersion")}{runtime?.appVersion || "—"} · {runtime?.packaged ? t("settings.runtimePackaged") : t("settings.runtimeDev")}</p><p>{t("settings.runtimeDataDirectory")}{runtime?.dataDirectory || "—"}</p><p>{t("settings.runtimeMediaDirectory")}{runtime?.mediaDirectory || "—"}</p><p>{t("settings.runtimeLogFile")}{runtime?.logFile || "—"}</p><Link className="text-foreground underline underline-offset-4" href="/storage">{t("settings.manageStorage")}</Link></section>
+            </div>
+          </details>
+        </TabsContent>
+        <TabsContent value="application" forceMount className="flex flex-col gap-4 data-[state=inactive]:hidden"><CloseBehaviourSettings /><HotkeySettings /></TabsContent>
+        <TabsContent value="automation" forceMount className="flex flex-col gap-4 data-[state=inactive]:hidden"><ScheduleSettings /><NoticeCenter /></TabsContent>
+        <TabsContent value="files" forceMount className="data-[state=inactive]:hidden"><DirectoryGrantSettings /></TabsContent>
+      </Tabs>
     </main>
   );
 }

@@ -77,7 +77,7 @@ async function findPage() {
   for (let attempt = 0; attempt < 60; attempt++) {
     try {
       const list = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`, { signal: AbortSignal.timeout(2000) })).json();
-      const page = list.find((t) => t.type === "page" && t.webSocketDebuggerUrl);
+      const page = list.find((t) => t.type === "page" && t.webSocketDebuggerUrl && /^http:\/\/127\.0\.0\.1:\d+\//.test(t.url));
       if (page) return page;
     } catch {}
     await sleep(1000);
@@ -130,6 +130,7 @@ try {
             .map(selector => [...document.querySelectorAll(selector)]
               .find(node => node.getClientRects().length > 0));
           if (nodes.some(node => !node)) return null;
+          if (document.documentElement.getAnimations().some(animation => animation.playState === "running" || animation.pending)) return null;
           return {
             maximized: (await window.privateAiDesktop.windowControls.state()).maximized,
             windowWidth: window.innerWidth,

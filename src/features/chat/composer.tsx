@@ -117,7 +117,7 @@ export function Composer({
   return (
     <form
       className={cn(
-        "mx-auto w-full max-w-3xl space-y-2 rounded-xl transition-shadow duration-[--dur-fast]",
+        "mx-auto flex w-full max-w-[42rem] flex-col gap-2 rounded-xl transition-shadow duration-[--dur-fast]",
         // Only lit while a real file drag is over the composer, so a drag of
         // selected text does not look like an invitation to drop a file.
         isDraggingFiles &&
@@ -235,9 +235,9 @@ export function Composer({
       {/* One bordered surface holds the prompt, the controls that shape it, and the
         send action. Scattering those across separate full-width rows left the
         send button visually unconnected to what it submits. */}
-      <div className="composer-surface rounded-2xl border border-border bg-surface/80 shadow-card transition-colors duration-[--dur-base] focus-within:border-foreground/20">
+      <div className="composer-surface">
         <Textarea
-          className="composer-input block h-28 min-h-0 resize-none overflow-y-auto rounded-none border-0 bg-transparent px-4 py-3 shadow-none focus-visible:ring-0"
+          className="composer-input block h-28 min-h-0 resize-none overflow-y-auto rounded-none px-4 py-4 shadow-none focus-visible:ring-0"
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={handleTextareaKeyDown}
           onPaste={onTextareaPaste}
@@ -330,7 +330,9 @@ export function Composer({
             >
               <SelectTrigger
                 aria-label={t("chat.toolbar.modeChat")}
-                className="h-7 w-auto gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/60"
+                variant="ghost"
+                size="sm"
+                className="w-auto"
               >
                 <SelectValue />
               </SelectTrigger>
@@ -353,7 +355,9 @@ export function Composer({
             >
               <SelectTrigger
                 aria-label={t("chat.toolbar.modelSelectLabel")}
-                className="h-7 w-auto max-w-[180px] gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/60"
+                variant="ghost"
+                size="sm"
+                className="w-auto max-w-[180px]"
               >
                 <SelectValue className="truncate" />
               </SelectTrigger>
@@ -390,10 +394,6 @@ export function Composer({
 
             {modelMode === "chat" ? (
               <>
-                <span
-                  aria-hidden="true"
-                  className="mx-0.5 h-4 w-px bg-border"
-                />
                 <Select
                   disabled={isPending}
                   onValueChange={(value) =>
@@ -403,7 +403,9 @@ export function Composer({
                 >
                   <SelectTrigger
                     aria-label={t("chat.composer.toolSelectLabel")}
-                    className="h-7 w-auto max-w-[160px] gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/60"
+                    variant="ghost"
+                    size="sm"
+                    className="w-auto max-w-[160px]"
                   >
                     <SelectValue />
                   </SelectTrigger>
@@ -486,7 +488,7 @@ export function Composer({
           {isPending ? (
             <Button
               aria-label={t("chat.composer.stop")}
-              className="h-8 w-8 shrink-0 rounded-full px-0"
+              size="icon"
               onClick={onStop}
               type="button"
               variant="secondary"
@@ -496,7 +498,7 @@ export function Composer({
             </Button>
           ) : (
             <Button
-              className="h-8 w-8 shrink-0 rounded-full px-0"
+              size="icon"
               disabled={isDocumentScopeSaving || (!input.trim() && attachments.length === 0)}
               type="submit"
             >

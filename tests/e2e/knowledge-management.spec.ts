@@ -55,12 +55,12 @@ test("knowledge pagination reaches older entries and local search combines confi
   await page.getByRole("button", { name: "搜索", exact: true }).click();
   await expect(page.locator("article")).toHaveCount(3);
   await expect(pagination.getByText("第 1 页", { exact: true })).toBeVisible();
-  await page.getByRole("combobox", { name: "知识确认状态" }).selectOption("candidates");
+  await page.getByRole("combobox", { name: "知识确认状态" }).click(); await page.getByRole("option", { name: "待确认", exact: true }).click();
   await expect(page.locator("article")).toHaveCount(2);
   await page.locator("article").filter({ has: page.getByRole("heading", { name: "记忆 001", exact: true }) }).getByRole("button", { name: "确认使用" }).click();
   await expect(page.locator("article")).toHaveCount(1);
   await expect(page.getByRole("heading", { name: "记忆 000", exact: true })).toBeVisible();
-  await page.getByRole("combobox", { name: "知识确认状态" }).selectOption("confirmed");
+  await page.getByRole("combobox", { name: "知识确认状态" }).click(); await page.getByRole("option", { name: "已确认", exact: true }).click();
   await expect(page.locator("article")).toHaveCount(2);
   await expect(page.getByRole("heading", { name: "记忆 001", exact: true })).toBeVisible();
   expect(app.readRows("SELECT confirmed FROM memories WHERE id='fixture-001'")[0]).toEqual({ confirmed: 1 });
@@ -99,7 +99,7 @@ test("a saved write with a failed list refresh disables obsolete pagination and 
 });
 
 test("failed knowledge writes preserve drafts and rows, then successful writes refill the filtered page", { tag: "@integration" }, async ({ page, app }) => {
-  await page.getByRole("combobox", { name: "知识确认状态" }).selectOption("candidates");
+  await page.getByRole("combobox", { name: "知识确认状态" }).click(); await page.getByRole("option", { name: "待确认", exact: true }).click();
   await expect(page.locator("article")).toHaveCount(2);
   await page.getByRole("button", { name: "编辑 记忆 001", exact: true }).click();
   await page.getByRole("textbox", { name: "修改这条记忆的内容" }).fill("修正后的内容");

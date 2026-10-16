@@ -4,8 +4,8 @@ import { t } from "@/lib/locale";
 
 export default function StoragePage() {
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-6 py-8">
-      <header>
+    <main className="mx-auto flex w-full max-w-4xl flex-col gap-7">
+      <header className="workspace-page-header flex-col !items-start">
         <Link className="text-sm text-muted-foreground transition-colors hover:text-foreground" href="/chat">
           {t("storage.backToChat")}
         </Link>

@@ -6,6 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { t } from "@/lib/locale";
+import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
 
 /**
  * What happens when the window is closed.
@@ -17,6 +18,7 @@ import { t } from "@/lib/locale";
  * clicks the X.
  */
 export function CloseBehaviourSettings() {
+  const isDesktopRuntime = useDesktopRuntime();
   const [behaviour, setBehaviour] = useState<"quit" | "tray" | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,10 +32,8 @@ export function CloseBehaviourSettings() {
     return () => { cancelled = true; };
   }, []);
 
-  // This page is prerendered on the server as well as rendered in the desktop
-  // shell, and `window` does not exist during the prerender. Reading it to
-  // decide whether to stand down is still a read of it.
-  if (typeof window === "undefined" || !window.privateAiDesktop) {
+  // Keep the prerender and first client render identical before exposing IPC controls.
+  if (!isDesktopRuntime) {
     // Outside the desktop shell the question does not exist: closing the window
     // ends the app, and there is nothing to choose.
     return null;

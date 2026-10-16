@@ -1,9 +1,8 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import {
   BookOpen,
   CalendarClock,
@@ -14,12 +13,17 @@ import {
   MessagesSquare,
   PanelLeft,
   Settings,
-  X,
+  Layers3,
+  Images,
+  SlidersHorizontal,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { WindowControls } from "@/components/layout/window-controls";
 import { t } from "@/lib/locale";
 import { cn } from "@/lib/utils/cn";
+import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
 
 type NavItem = { href: string; label: string; icon: typeof BookOpen };
 
@@ -27,20 +31,24 @@ type NavItem = { href: string; label: string; icon: typeof BookOpen };
  * The workspace navigation is one list, rendered once, so every page reaches
  * the same destinations under the same names.
  */
-const NAV_ITEMS: NavItem[] = [
+const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
+  { label: "日常", items: [
   { href: "/", label: t("nav.home"), icon: House },
   { href: "/chat", label: t("nav.chat"), icon: MessagesSquare },
   { href: "/assistants", label: "助理模板", icon: Boxes },
   { href: "/tasks", label: "定时任务", icon: CalendarClock },
+  ] },
+  { label: "资料", items: [
   { href: "/conversations", label: t("nav.conversations"), icon: MessagesSquare },
   { href: "/knowledge", label: t("nav.knowledge"), icon: BookOpen },
-  { href: "/topics", label: "知识专题", icon: Boxes },
-  { href: "/media", label: t("nav.media"), icon: HardDrive },
-  { href: "/models", label: t("nav.models"), icon: Boxes },
+  { href: "/topics", label: "知识专题", icon: Layers3 },
+  { href: "/media", label: t("nav.media"), icon: Images },
+  ] },
+  { label: "管理", items: [
+  { href: "/models", label: t("nav.models"), icon: SlidersHorizontal },
   { href: "/backups", label: t("nav.backups"), icon: DatabaseBackup },
+  ] },
 ];
-
-const noopSubscribe = () => () => {};
 
 /**
  * Names the section for the top bar, so the row that holds the window controls
@@ -48,7 +56,7 @@ const noopSubscribe = () => () => {};
  * because the sections nest (`/knowledge/documents` under `/knowledge`).
  */
 const SECTION_LABELS: { prefix: string; label: string }[] = [
-  ...NAV_ITEMS.map(item => ({ prefix: item.href, label: item.label })),
+  ...NAV_GROUPS.flatMap(group => group.items.map(item => ({ prefix: item.href, label: item.label }))),
   { prefix: "/storage", label: t("nav.storage") },
   { prefix: "/settings", label: t("nav.settings") },
 ];
@@ -67,27 +75,24 @@ function isActive(pathname: string, href: string) {
 
 function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
   return (
-    <nav aria-label={t("nav.label")} className="flex flex-col gap-0.5">
-      {NAV_ITEMS.map((item) => {
+    <nav aria-label={t("nav.label")} className="workspace-navigation flex flex-col gap-6">
+      {NAV_GROUPS.map(group => <div key={group.label} className="flex flex-col gap-1">
+        <p className="workspace-nav-label px-3 pb-1">{group.label}</p>
+        {group.items.map((item) => {
         const active = isActive(pathname, item.href);
         return (
           <Link
             aria-current={active ? "page" : undefined}
-            className={cn(
-              "group flex h-8 items-center gap-2 rounded-md px-2 text-sm transition-colors",
-              active
-                ? "bg-accent font-medium text-accent-foreground"
-                : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-            )}
+            className="workspace-nav-link group"
             href={item.href}
             key={item.href}
             onClick={onNavigate}
           >
-            <item.icon aria-hidden="true" className="h-4 w-4 shrink-0" />
+            <item.icon aria-hidden="true" className="size-4 shrink-0" />
             <span className="truncate">{item.label}</span>
           </Link>
         );
-      })}
+      })}</div>)}
     </nav>
   );
 }
@@ -102,33 +107,22 @@ function SidebarBody({
   onNavigate?: () => void;
 }) {
   return (
-    <div className="flex h-full min-h-0 flex-col gap-6 overflow-y-auto p-4">
-      <div className="desktop-titlebar-drag -mx-1 flex items-center rounded-md px-1">
+    <div className="flex h-full min-h-0 flex-col gap-7 overflow-y-auto px-3 pb-4">
+      <div className="desktop-titlebar-drag flex h-16 shrink-0 items-center px-2">
         <Link
-          className="desktop-titlebar-interactive flex items-center gap-2 rounded-md px-2 py-1.5 text-lg font-semibold tracking-[-0.04em]"
+          className="desktop-titlebar-interactive workspace-brand flex items-center gap-2.5 rounded-lg px-1 py-2 text-xl font-semibold tracking-title"
           href="/chat"
+          aria-label={t("brand.name")}
           onClick={onNavigate}
         >
-          <Image
-            alt=""
-            aria-hidden="true"
-            className="h-5 w-5 rounded-[5px]"
-            height={20}
-            src="/icon.png"
-            width={20}
-          />
-          {t("brand.name")}
+          <span className="workspace-brand-wordmark">{t("brand.name")}</span>
         </Link>
       </div>
-      <div className="space-y-3"><p className="px-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">工作空间</p><NavLinks onNavigate={onNavigate} pathname={pathname} /></div>
-      <div className="mt-auto space-y-0.5">
+      <NavLinks onNavigate={onNavigate} pathname={pathname} />
+      <div className="mt-auto flex flex-col gap-1 border-t pt-3">
         <Link
-          className={cn(
-            "flex h-8 items-center gap-2 rounded-md px-2 text-sm transition-colors",
-            isActive(pathname, "/storage")
-              ? "bg-accent font-medium text-accent-foreground"
-              : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-          )}
+          aria-current={isActive(pathname, "/storage") ? "page" : undefined}
+          className="workspace-nav-link"
           href="/storage"
           onClick={onNavigate}
         >
@@ -137,12 +131,8 @@ function SidebarBody({
         </Link>
         {isDesktopRuntime ? (
           <Link
-            className={cn(
-              "flex h-8 items-center gap-2 rounded-md px-2 text-sm transition-colors",
-              isActive(pathname, "/settings")
-                ? "bg-accent font-medium text-accent-foreground"
-                : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-            )}
+            aria-current={isActive(pathname, "/settings") ? "page" : undefined}
+            className="workspace-nav-link"
             href="/settings"
             onClick={onNavigate}
           >
@@ -151,7 +141,7 @@ function SidebarBody({
           </Link>
         ) : null}
         <div className="flex items-center justify-between px-2 pt-2">
-          <span className="label-mono">{t("nav.environment")}</span>
+          <span className="text-xs text-muted-foreground">本地工作空间</span>
           <ThemeToggle />
         </div>
       </div>
@@ -169,13 +159,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // any means (link, back button) closes it without a synchronizing effect.
   const [openedOn, setOpenedOn] = useState<string | null>(null);
   const open = openedOn === pathname;
-  const drawerRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const previous = document.activeElement as HTMLElement | null;
-    drawerRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
-    return () => previous?.focus();
-  }, [open]);
   const setOpen = (next: boolean) => setOpenedOn(next ? pathname : null);
   useEffect(() => {
     const wide = window.matchMedia("(min-width: 1024px)");
@@ -187,11 +170,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // browser, where that page can render nothing but its "desktop only" error.
   // Read as an external store so the server render stays deterministic and no
   // effect has to cascade a second render to discover it.
-  const isDesktopRuntime = useSyncExternalStore(
-    noopSubscribe,
-    () => Boolean(window.privateAiDesktop),
-    () => false,
-  );
+  const isDesktopRuntime = useDesktopRuntime();
 
   return (
     /*
@@ -202,6 +181,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       seam under it, and it wasted the space the brand and the section name now
       occupy.
     */
+    <Sheet open={open} onOpenChange={setOpen}>
     <div data-desktop={isDesktopRuntime} data-chat-page={pathname === "/chat"} className="workspace-shell flex h-dvh min-h-0 overflow-hidden">
       {/*
         No separate drag strip. A `fixed` band above the header is a SIBLING, so
@@ -212,7 +192,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         opt back out of it.
       */}
 
-      <div className="workspace-rail z-40 hidden w-48 shrink-0 border-r lg:block">
+      <div className="workspace-rail hidden w-52 shrink-0 border-r lg:block">
         <SidebarBody pathname={pathname} isDesktopRuntime={isDesktopRuntime} />
       </div>
 
@@ -226,15 +206,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         className={cn("workspace-topbar desktop-titlebar-drag absolute inset-x-0 top-0 z-30 flex h-11 items-center gap-2 border-b pl-3 lg:hidden", !isDesktopRuntime && "desktop-titlebar-plain")}
         onDoubleClick={() => window.privateAiDesktop?.windowControls?.toggleMaximize()}
       >
-        <button
+        <SheetTrigger asChild><Button
           aria-expanded={open}
           aria-label={t("nav.openMenu")}
-          className="desktop-titlebar-interactive grid h-8 w-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
-          onClick={() => setOpen(true)}
+          className="desktop-titlebar-interactive"
+          variant="ghost"
+          size="icon-sm"
           type="button"
         >
           <PanelLeft aria-hidden="true" className="h-4 w-4" />
-        </button>
+        </Button></SheetTrigger>
         {/* A span, not a heading: every page owns its own <h1>, and two
             headings per page would break the document outline. */}
         <span className="min-w-0 flex-1 truncate text-sm font-semibold tracking-label">
@@ -243,44 +224,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <WindowControls />
       </header>
 
-      {open ? (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <button
-            aria-label={t("nav.closeMenu")}
-            className="absolute inset-0 animate-overlay-in bg-foreground/20"
-            onClick={() => setOpen(false)}
-            type="button"
-          />
-          <div ref={drawerRef} role="dialog" aria-modal="true" aria-label={t("nav.label")} onKeyDown={event => {
-            if (event.key === "Escape") setOpen(false);
-            if (event.key === "Tab") {
-              const controls = drawerRef.current?.querySelectorAll<HTMLElement>('a[href], button:not(:disabled), input:not(:disabled)');
-              const first = controls?.[0];
-              const last = controls?.[controls.length - 1];
-              if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-              else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
-            }
-          }} className="workspace-rail absolute inset-y-0 left-0 w-64 animate-panel-in-left border-r shadow-pop">
-            <button
-              aria-label={t("nav.closeMenu")}
-              className="absolute right-2 top-3 grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
-              onClick={() => setOpen(false)}
-              type="button"
-            >
-              <X aria-hidden="true" className="h-4 w-4" />
-            </button>
+      <SheetContent className="workspace-rail" closeLabel={t("nav.closeMenu")} aria-describedby={undefined}>
+            <SheetTitle className="sr-only">{t("nav.label")}</SheetTitle>
             <SidebarBody
               isDesktopRuntime={isDesktopRuntime}
               onNavigate={() => setOpen(false)}
               pathname={pathname}
             />
-          </div>
-        </div>
-      ) : null}
+      </SheetContent>
 
       {/* The header is a sibling of the content and shares this column, so the
           rail's brand and the section name line up in the same row. */}
-      <div inert={open} className="flex min-h-0 min-w-0 flex-1 flex-col pt-11 lg:pt-0">
+      <div className="workspace-main flex min-h-0 min-w-0 flex-1 flex-col pt-11 lg:pt-0">
         <div
           className={cn("workspace-topbar desktop-titlebar-drag z-30 hidden h-11 shrink-0 items-center gap-2 border-b pl-5 lg:flex", !isDesktopRuntime && "desktop-titlebar-plain")}
           onDoubleClick={() => window.privateAiDesktop?.windowControls?.toggleMaximize()}
@@ -297,5 +252,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </div>
     </div>
+    </Sheet>
   );
 }

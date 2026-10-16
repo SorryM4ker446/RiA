@@ -6,10 +6,10 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
     return (
       <input
         className={cn(
-          "flex h-9 w-full rounded-md bg-elevated px-3 text-sm text-foreground shadow-hairline",
+          "flex h-9 w-full rounded-lg border border-input bg-card px-3 text-sm text-foreground",
           "placeholder:text-muted-foreground",
           "transition-[box-shadow,background-color] duration-[--dur-fast] ease-[--ease-out]",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20",
           "disabled:cursor-not-allowed disabled:opacity-50",
           className,
         )}

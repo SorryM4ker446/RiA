@@ -5,10 +5,12 @@ import {
   AlertCircle,
   CheckCircle2,
   ChevronRight,
+  History,
   Loader2,
   Square,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTitle, SheetTrigger, SheetDescription } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { getApiErrorMessage } from "@/lib/api-error-message";
 import { t } from "@/lib/locale";
@@ -139,26 +141,23 @@ export function RunRecords({ activeChatId, refreshKey }: Props) {
   if (!activeChatId) return null;
 
   return (
-    <details
-      key={activeChatId}
-      aria-label={t("runs.title")}
-      className="run-records mx-auto w-full max-w-3xl rounded-lg px-1 py-1.5 text-muted-foreground open:bg-card open:px-3 open:py-3"
-    >
-      <summary className="flex cursor-pointer items-center gap-2 text-xs font-medium">
-        <ChevronRight
-          aria-hidden="true"
-          className="run-records-chevron h-3.5 w-3.5 transition-transform"
-        />
-        <span>{t("runs.title")}</span>
-        <span className="text-muted-foreground">{runs.length}</span>
-        {error && <span className="text-destructive">读取失败</span>}
-        {hasActiveRun && (
-          <span className="ml-auto flex items-center gap-1 text-muted-foreground">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            执行中
-          </span>
-        )}
-      </summary>
+    <Sheet key={activeChatId}>
+      <div className="run-records mx-auto flex w-full max-w-[42rem] items-center justify-between gap-2">
+        <SheetTrigger asChild>
+          <Button variant="ghost" size="sm" aria-label={t("runs.title")}>
+            <History data-icon="inline-start" aria-hidden="true" />
+            {t("runs.title")}<Badge variant="secondary">{runs.length}</Badge>
+            {error && <span className="text-destructive">读取失败</span>}
+            {hasActiveRun && <span className="flex items-center gap-1 text-muted-foreground"><Loader2 className="animate-spin" aria-hidden="true" />执行中</span>}
+          </Button>
+        </SheetTrigger>
+      </div>
+      <SheetContent side="right" className="run-records-sheet flex flex-col gap-5 p-5">
+        <header className="flex flex-col gap-2 pr-8">
+          <SheetTitle className="text-lg font-semibold">{t("runs.title")}</SheetTitle>
+          <SheetDescription className="text-sm leading-6 text-muted-foreground">查看每次请求的状态、工具调用和执行结果。</SheetDescription>
+        </header>
+        <div className="run-records-scroll flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain">
       <div className="mt-3 flex items-center justify-between gap-2">
         {hasActiveRun ? (
           <Button
@@ -187,12 +186,12 @@ export function RunRecords({ activeChatId, refreshKey }: Props) {
       {runs.length === 0 ? (
         <p className="text-xs text-muted-foreground">{t("chat.run.empty")}</p>
       ) : null}
-      <ul className="space-y-1.5">
+      <ul className="flex flex-col gap-2">
         {runs.map((run) => (
           <li className="rounded-md bg-muted/60 text-xs" key={run.id}>
             <button
               aria-expanded={expanded === run.id}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left"
+              className="run-record-trigger flex w-full items-start gap-2 rounded-lg px-3 py-3 text-left"
               onClick={() =>
                 setExpanded((current) => (current === run.id ? null : run.id))
               }
@@ -206,13 +205,14 @@ export function RunRecords({ activeChatId, refreshKey }: Props) {
                 )}
               />
               <StatusIcon status={run.status} />
-              <span className="min-w-0 flex-1 truncate">{run.goal}</span>
+              <span className="min-w-0 flex-1 break-words leading-5">{run.goal}</span>
               <Badge variant="outline">
                 {t(`chat.run.status.${run.status}`)}
               </Badge>
             </button>
-            {expanded === run.id ? (
-              <div className="space-y-1 border-t px-3 py-2">
+            <div className="run-detail" data-state={expanded === run.id ? "open" : "closed"} inert={expanded !== run.id} aria-hidden={expanded !== run.id}>
+              <div className="min-h-0 overflow-hidden">
+                <div className="flex flex-col gap-3 border-t px-3 py-3">
                 <p className="text-muted-foreground">
                   {`${t("chat.run.budget")}: ${run.budget.maxSteps} ${t("chat.run.steps")} / ${Math.round(run.budget.deadlineMs / 1000)}s / ${run.budget.maxFailures} ${t("runs.failures")}`}
                 </p>
@@ -224,7 +224,7 @@ export function RunRecords({ activeChatId, refreshKey }: Props) {
                     {executionGuidance(run.stopReason)}
                   </p>
                 ) : null}
-                <ol className="space-y-1">
+                <ol className="flex flex-col gap-2">
                   {run.steps.map((step) => (
                     <li className="flex items-center gap-2" key={step.id}>
                       <StepIcon state={step.state} />
@@ -258,12 +258,15 @@ export function RunRecords({ activeChatId, refreshKey }: Props) {
                 >
                   导出脱敏诊断
                 </a>
+                </div>
               </div>
-            ) : null}
+            </div>
           </li>
         ))}
       </ul>
-    </details>
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 

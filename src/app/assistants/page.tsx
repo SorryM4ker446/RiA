@@ -1,4 +1,5 @@
 "use client";
+import { SelectField, SelectOption } from "@/components/ui/select";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
@@ -72,8 +73,8 @@ export default function AssistantsPage() {
       try { await load(); } catch { setError("模板已保存，但列表刷新失败，请刷新列表后继续操作。"); }
     });
   }
-  return <main className="page-container mx-auto w-full max-w-6xl space-y-6 overflow-y-auto p-4 sm:p-8">
-    <div><h1 className="text-2xl font-semibold">助理模板</h1><p className="mt-2 text-sm text-muted-foreground">保存工作方式，选择知识范围和可用工具。应用后保存在会话内，修改模板不会自动改变旧会话。</p></div>
+  return <main className="page-container mx-auto flex w-full max-w-6xl flex-col gap-7">
+    <header className="workspace-page-header"><div><h1>助理模板</h1><p className="mt-2 text-sm text-muted-foreground">保存工作方式，选择知识范围和可用工具。应用后保存在会话内，修改模板不会自动改变旧会话。</p></div></header>
     {error ? <p role="alert" className="text-sm text-destructive">{error} <button type="button" className="underline" disabled={busy} onClick={() => void run(() => load())}>刷新列表</button></p> : null}
     {notice ? <p role="status" className="text-sm">{notice}</p> : null}
     <div className="grid gap-6 lg:grid-cols-2">
@@ -90,7 +91,7 @@ export default function AssistantsPage() {
         <label className="block space-y-1 text-sm"><span>模板名称</span><Input required maxLength={60} value={config.name} onChange={event => setConfig({ ...config, name: event.target.value })} /></label>
         <label className="block space-y-1 text-sm"><span>简介</span><Input maxLength={300} value={config.description} onChange={event => setConfig({ ...config, description: event.target.value })} /></label>
         <label className="block space-y-1 text-sm"><span>助理指令</span><Textarea aria-label="助理指令" required maxLength={6000} className="min-h-40" value={config.instructions} onChange={event => setConfig({ ...config, instructions: event.target.value })} /></label>
-        <label className="block space-y-1 text-sm"><span>绑定聊天模型</span><select className="w-full rounded-md border bg-background p-2" value={config.model ? modelRefKey(config.model) : ""} onChange={event => { const item = models.find(model => modelRefKey(model) === event.target.value); setConfig({ ...config, model: item ? { providerId: item.providerId, modelId: item.modelId } : null }); }}><option value="">跟随会话选择</option>{config.model && !models.some(model => modelRefKey(model) === modelRefKey(config.model!)) ? <option value={modelRefKey(config.model)}>已移除：{config.model.modelId}</option> : null}{models.map(model => <option key={modelRefKey(model)} value={modelRefKey(model)}>{model.name} · {model.providerId}</option>)}</select></label>
+        <label className="block space-y-1 text-sm"><span>绑定聊天模型</span><SelectField className="w-full rounded-md border bg-background p-2" value={config.model ? modelRefKey(config.model) : ""} onValueChange={value => { const item = models.find(model => modelRefKey(model) === value); setConfig({ ...config, model: item ? { providerId: item.providerId, modelId: item.modelId } : null }); }}><SelectOption value="">跟随会话选择</SelectOption>{config.model && !models.some(model => modelRefKey(model) === modelRefKey(config.model!)) ? <SelectOption value={modelRefKey(config.model)}>已移除：{config.model.modelId}</SelectOption> : null}{models.map(model => <SelectOption key={modelRefKey(model)} value={modelRefKey(model)}>{model.name} · {model.providerId}</SelectOption>)}</SelectField></label>
         <fieldset className="space-y-2"><legend className="text-sm">可用工具（全部不选即禁用工具）</legend><div className="flex flex-wrap gap-3">{tools.map(tool => <label className="flex items-center gap-2 text-sm" key={tool.id}><input type="checkbox" checked={config.tools.includes(tool.id)} onChange={event => setConfig({ ...config, tools: event.target.checked ? [...config.tools, tool.id] : config.tools.filter(id => id !== tool.id) })} />{tool.displayName}</label>)}</div></fieldset>
         <label className="block space-y-1 text-sm"><span>知识集合（每行一个，留空为全部）</span><Textarea aria-label="知识集合（每行一个，留空为全部）" maxLength={600} value={collections} onChange={event => setCollections(event.target.value)} /></label>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={config.usesMemory} onChange={event => setConfig({ ...config, usesMemory: event.target.checked })} />使用长期记忆</label>

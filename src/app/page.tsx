@@ -1,75 +1,46 @@
 import Link from "next/link";
-import { ArrowRight, MessageSquare, Sparkles, Workflow } from "lucide-react";
+import { ArrowRight, BookOpen, CalendarClock, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { t } from "@/lib/locale";
 
-const FEATURES = [
-  { icon: MessageSquare, title: t("home.feature.chat.title"), body: t("home.feature.chat.body") },
-  { icon: Sparkles, title: t("home.feature.memory.title"), body: t("home.feature.memory.body") },
-  { icon: Workflow, title: t("home.feature.tools.title"), body: t("home.feature.tools.body") },
+const SHORTCUTS = [
+  { href: "/chat", icon: MessageSquare, title: "从对话开始", description: "梳理思路、打磨文字，把复杂问题一步步展开。", action: "开始对话" },
+  { href: "/knowledge", icon: BookOpen, title: "让资料为你所用", description: "整理文档与长期记忆，带着自己的知识继续思考。", action: "打开知识库" },
+  { href: "/tasks", icon: CalendarClock, title: "给计划留个位置", description: "记录待办、设置提醒，让下一步有条不紊。", action: "查看定时任务" },
 ] as const;
 
 export default function HomePage() {
   return (
-    <main className="mx-auto flex min-h-full w-full max-w-4xl flex-col justify-center gap-6 px-6 py-16 md:px-10">
-      <section className="animate-panel-in-up py-8">
-        <div className="space-y-2">
-          {/* The wordmark IS the hero. A logo tile above a headline read as a
-              placeholder avatar, and a second small "RiA" eyebrow repeated the
-              name at a weight the page did not need. */}
-          <p className="text-7xl font-semibold leading-none tracking-display text-foreground md:text-8xl">
-            {t("brand.name")}
-          </p>
-          {/* text-balance keeps the CJK headline from leaving a stranded final
-              line; text-pretty does the same for the paragraph below. */}
-          <h1 className="text-balance pt-2 text-3xl font-semibold leading-tight tracking-headline md:text-4xl">
-            {t("home.title")}
-          </h1>
-          <p className="text-pretty text-sm leading-6 text-muted-foreground">
-            {t("home.description")}
-          </p>
+    <main className="mx-auto flex min-h-full max-w-5xl flex-col justify-center gap-12">
+      <section className="flex max-w-2xl flex-col items-start gap-6">
+        <h1 className="text-4xl font-semibold leading-tight tracking-headline sm:text-5xl">{t("home.title")}</h1>
+        <p className="max-w-xl text-base leading-8 text-muted-foreground">{t("home.description")}</p>
+        <div className="flex flex-wrap gap-3">
+          <Button asChild size="lg"><Link href="/chat">{t("home.primaryAction")}<ArrowRight data-icon="inline-end" aria-hidden="true" /></Link></Button>
+          <Button asChild variant="outline" size="lg"><Link href="/knowledge">打开知识库</Link></Button>
         </div>
       </section>
-
-      <div
-        className="animate-row-in flex flex-wrap items-center gap-3"
-        style={{ animationDelay: "60ms" }}
-      >
-        <Link href="/chat">
-          <Button size="lg">
-            {t("home.primaryAction")} <ArrowRight aria-hidden="true" className="h-4 w-4" />
-          </Button>
-        </Link>
-        <a href="https://sdk.vercel.ai/docs" rel="noreferrer" target="_blank">
-          <Button size="lg" variant="outline">
-            {t("home.secondaryAction")}
-          </Button>
-        </a>
-      </div>
-
-      <section className="grid gap-3 md:grid-cols-3">
-        {FEATURES.map((feature) => (
-          // The enter keyframes fill backwards, so a row without its own delay
-          // sits at opacity 0 until the animation resolves and the grid then
-          // lands as one flat block. Per-row delay is what reads as a stagger.
-          <Card
-            className="bg-card/60 transition-colors hover:border-foreground/20"
-            key={feature.title}
-            style={{ animationDelay: `${120 + FEATURES.indexOf(feature) * 60}ms` }}
-          >
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 tracking-title">
-                <feature.icon aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
-                {feature.title}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="text-pretty text-[13px] leading-5 text-muted-foreground">
-              {feature.body}
-            </CardContent>
-          </Card>
+      <section aria-label="工作空间入口" className="grid gap-4 md:grid-cols-3">
+        {SHORTCUTS.map(item => (
+          <Link href={item.href} key={item.href} className="group rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <Card className="home-shortcut flex h-full flex-col">
+              <CardHeader>
+                <item.icon aria-hidden="true" className="mb-4 size-5 text-muted-foreground" />
+                <CardTitle>{item.title}</CardTitle>
+                <CardDescription>{item.description}</CardDescription>
+              </CardHeader>
+              <CardContent className="mt-auto flex items-center justify-between gap-3 pt-3">
+                <span className="text-sm font-medium">{item.action}</span><ArrowRight aria-hidden="true" className="shortcut-arrow size-4 text-muted-foreground" />
+              </CardContent>
+            </Card>
+          </Link>
         ))}
       </section>
+      <footer className="flex flex-wrap items-center justify-between gap-3 border-t pt-5 text-xs leading-6 text-muted-foreground">
+        <span>会话与资料保存在本地，随时继续你的工作。</span>
+        <a className="rounded underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" href="https://sdk.vercel.ai/docs" rel="noreferrer" target="_blank">{t("home.secondaryAction")}</a>
+      </footer>
     </main>
   );
 }

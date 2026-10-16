@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openRecentConversations } from "../helpers/conversations";
 
 const summary = (id: string) => ({ id, title: `Conversation ${id}`, messageCount: 1, lastMessageAt: "2026-08-30T00:00:00Z" });
 const message = (id: string) => ({ id, clientMessageId: id, role: "assistant", content: `History ${id}`, createdAt: "2026-08-30T00:00:00Z" });
@@ -27,6 +28,7 @@ test("conversation and history controls fetch only requested pages and deduplica
   await expect(page.getByText("History old", { exact: true })).toBeVisible();
   await expect(page.getByText("History new", { exact: true })).toHaveCount(1);
   await expect(page.getByRole("button", { name: "加载更早消息", exact: true })).toHaveCount(0);
+  await openRecentConversations(page);
   await page.getByRole("button", { name: "加载更多会话", exact: true }).click();
   await expect(page.getByRole("button", { name: /^Conversation b/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Conversation a/ })).toHaveCount(1);
@@ -68,6 +70,7 @@ for (const failure of [false, true]) {
       const request = page.waitForRequest(/messages\?cursor=/);
       await page.getByRole("button", { name: "加载更早消息", exact: true }).click();
       await request;
+      await openRecentConversations(page);
       await page.getByRole("button", { name: /^Conversation b/ }).click();
       await expect(page.getByText("History b-new", { exact: true })).toBeVisible();
       const response = page.waitForResponse(/messages\?cursor=/);

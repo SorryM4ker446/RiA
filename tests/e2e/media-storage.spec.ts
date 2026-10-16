@@ -1,3 +1,4 @@
+import { openRecentConversations } from "../helpers/conversations";
 import { expect, test, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { request as httpRequest } from "node:http";
@@ -66,7 +67,8 @@ test("real uploaded media renders after reload and survives conversation deletio
     } });
     expect(saved.status()).toBe(201);
     await page.goto("/chat");
-    await page.getByRole("button", { name: new RegExp(title) }).click();
+    await openRecentConversations(page);
+    await page.getByRole("button", { name: new RegExp("^" + title) }).click();
     const image = page.getByRole("img", { name: "Generated", exact: true });
     await expect(image).toHaveAttribute("src", asset.url);
     await expect.poll(() => image.evaluate((element) => (element as HTMLImageElement).naturalWidth)).toBe(1);
@@ -112,7 +114,8 @@ test("composer uploads binary attachments and sends only references to chat", as
   });
   try {
     await page.goto("/chat");
-    await page.getByRole("button", { name: new RegExp(title) }).click();
+    await openRecentConversations(page);
+    await page.getByRole("button", { name: new RegExp("^" + title) }).click();
     await page.locator('input[type="file"]').setInputFiles({ name: "attached.png", mimeType: "image/png", buffer: png });
     await page.getByPlaceholder(/输入你的问题/).fill("Describe this");
     await page.getByRole("button", { name: "发送", exact: true }).click();
@@ -133,7 +136,8 @@ test("image generation UI persists the asset response and reloads the protected 
   await page.route("**/api/image", (route) => { expect(route.request().postDataJSON().model).toEqual({ providerId: "openrouter", modelId: "google/gemini-3.1-flash-image-preview" }); return route.fulfill({ json: { modelId: "test-image", modelProvider: "openrouter", asset } }); });
   try {
     await page.goto("/chat");
-    await page.getByRole("button", { name: new RegExp(title) }).click();
+    await openRecentConversations(page);
+    await page.getByRole("button", { name: new RegExp("^" + title) }).click();
     await page.getByRole("combobox").filter({ hasText: "聊天模式" }).click();
     await page.getByRole("option", { name: "文生图模式", exact: true }).click();
     await page.getByPlaceholder(/描述你想生成的图片/).fill("A tiny image");

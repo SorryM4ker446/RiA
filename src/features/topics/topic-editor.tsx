@@ -1,4 +1,5 @@
 "use client";
+import { SelectField, SelectOption } from "@/components/ui/select";
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,10 +23,10 @@ export function TopicEditor({ initial, collections, assistants, busy, save, canc
       <div className="flex max-h-48 flex-wrap gap-3 overflow-y-auto">{names.map(name => <label className="flex min-w-0 items-center gap-1 break-all text-sm" key={name}><input type="checkbox" checked={config.collections.includes(name)} onChange={event => setConfig({ ...config, collections: event.target.checked ? [...config.collections, name] : config.collections.filter(value => value !== name) })} />{name}</label>)}</div>
       <div className="flex flex-wrap gap-2"><Input className="min-w-0 flex-1" aria-label="添加资料集合" maxLength={40} value={custom} onChange={event => setCustom(event.target.value)} /><Button type="button" variant="outline" disabled={!custom.trim() || config.collections.length >= 12} onClick={() => { setConfig({ ...config, collections: [...new Set([...config.collections, custom.trim()])] }); setCustom(""); }}>添加集合</Button></div>
     </fieldset>
-    <label className="block space-y-1 text-sm">默认助理模板<select aria-label="默认助理模板" className="w-full rounded-md border bg-background p-2" disabled={busy} value={config.assistantTemplateId ?? ""} onChange={event => setConfig({ ...config, assistantTemplateId: event.target.value || null })}>
-      <option value="">使用当前聊天默认模型</option>{assistants.map(assistant => <option value={assistant.id} key={assistant.id}>{assistant.config.name}</option>)}
-      {config.assistantTemplateId && !assistants.some(assistant => assistant.id === config.assistantTemplateId) ? <option value={config.assistantTemplateId}>原模板已不可用，请重新选择</option> : null}
-    </select></label>
+    <label className="block space-y-1 text-sm">默认助理模板<SelectField aria-label="默认助理模板" className="w-full rounded-md border bg-background p-2" disabled={busy} value={config.assistantTemplateId ?? ""} onValueChange={value => setConfig({ ...config, assistantTemplateId: value || null })}>
+      <SelectOption value="">使用当前聊天默认模型</SelectOption>{assistants.map(assistant => <SelectOption value={assistant.id} key={assistant.id}>{assistant.config.name}</SelectOption>)}
+      {config.assistantTemplateId && !assistants.some(assistant => assistant.id === config.assistantTemplateId) ? <SelectOption value={config.assistantTemplateId}>原模板已不可用，请重新选择</SelectOption> : null}
+    </SelectField></label>
     {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     <div className="flex gap-2"><Button disabled={busy} type="submit">保存专题</Button>{cancel ? <Button disabled={busy} variant="outline" type="button" onClick={cancel}>取消编辑</Button> : null}</div>
   </form>;

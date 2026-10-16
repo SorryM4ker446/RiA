@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { t } from "@/lib/locale";
 import { libraryModes, modelIdSchema, providerIdSchema, type LibraryMode, type ProviderId } from "@/lib/models/preferences-schema";
 import { CatalogFetchError, getModelProvider, listModelProviders, type CatalogFailureReason, type CatalogModel } from "@/lib/models/providers";
+import { catalogPriceInfoSchema } from "@/lib/models/catalog-prices";
 
 export type { CatalogModel } from "@/lib/models/providers";
 
@@ -49,6 +50,7 @@ const storedCatalogModel = z.object({
   supportsTools: z.boolean(),
   contextLength: z.number().int().positive().nullable(),
   pricing: z.record(z.string(), z.string()),
+  priceInfo: catalogPriceInfoSchema.optional(),
 });
 
 function describeFailure(reason: CatalogFailureReason, providerName: string, mode: LibraryMode, detail?: string): string {
@@ -89,6 +91,14 @@ async function refresh(providerId: ProviderId, mode: LibraryMode): Promise<Catal
   const timer = setTimeout(() => controller.abort(), catalogTimeoutMs);
   try {
     const { models, invalidRows } = await provider.fetchCatalog(mode, controller.signal);
+    for (const model of models) {
+      if (!model.priceInfo?.error) continue;
+      const previous = old?.models.find(row => row.modelId === model.modelId)?.priceInfo;
+      if (previous?.rates.length) {
+        // Preserve a complete prior quote if this price refresh was incomplete.
+        model.priceInfo = { ...previous, error: true };
+      }
+    }
     const fetchedAt = new Date();
     await db.modelCatalogSnapshot.upsert({
       where: { providerId_mode: { providerId, mode } },
@@ -174,7 +184,8 @@ export async function getCatalog(providerId: ProviderId, mode: LibraryMode, forc
   }
   const key = cacheKey(providerId, mode);
   const old = await cachedSnapshot(providerId, mode);
-  if (!force && old && Date.now() - old.fetchedAt.getTime() < cacheDurationMs) {
+  const needsMediaPrices = providerId === "openrouter" && (mode === "image" || mode === "video") && old?.models.some(model => !model.priceInfo);
+  if (!force && old && !needsMediaPrices && Date.now() - old.fetchedAt.getTime() < cacheDurationMs) {
     // The snapshot remembers how the last refresh went, and that is still the
     // truth about this provider: reporting a rejected key as a current,
     // error-free catalog hides a credential the user has to fix, for as long as

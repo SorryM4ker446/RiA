@@ -2,6 +2,7 @@ import type { EmbeddingModel, ImageModel, LanguageModel } from "ai";
 import type { SharedV3ProviderOptions } from "@ai-sdk/provider";
 import type { Experimental_VideoModelV3 } from "@ai-sdk/provider";
 import type { LibraryMode, ProviderId } from "@/lib/models/preferences-schema";
+import type { CatalogPriceInfo } from "@/lib/models/catalog-prices";
 
 // The AI SDK names these by version rather than a stable alias. Deriving the
 // versioned shape keeps a provider adapter typed without pinning the
@@ -35,6 +36,7 @@ export type CatalogModel = {
   providerSearch: boolean;
   contextLength: number | null;
   pricing: Record<string, string>;
+  priceInfo?: CatalogPriceInfo;
 };
 
 /**

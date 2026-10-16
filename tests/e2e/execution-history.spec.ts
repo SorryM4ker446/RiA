@@ -38,6 +38,7 @@ test("settings exposes failure recovery, a distinct retry and sanitized diagnost
     } finally { sqlite.close(); }
   });
   await page.goto(`${app.origin}/settings`);
+  await page.getByRole("tab", { name: "自动化与通知", exact: true }).click();
   const history = page.getByRole("region", { name: "定时执行历史" });
   await expect(history.getByText(/INTERNAL_ERROR/)).toBeVisible();
   await expect(history.getByRole("button", { name: "重新执行一次" })).toBeEnabled();
@@ -68,6 +69,7 @@ test("settings exposes failure recovery, a distinct retry and sanitized diagnost
   await page.screenshot({ path: join(screenshots, "mobile.png"), fullPage: true, animations: "disabled" });
   await browserApi(page, `/api/schedules/${job.id}`, "DELETE");
   await page.reload();
+  await page.getByRole("tab", { name: "自动化与通知", exact: true }).click();
   await expect(history.getByText("原计划已删除，执行证据仍保留。")).toHaveCount(2);
   await expect(history.getByRole("button", { name: "重新执行一次" })).toHaveCount(0);
   expect(errors).toEqual([]);
@@ -88,6 +90,7 @@ test("desktop restart marks an unfinished execution interrupted without replayin
     } finally { sqlite.close(); }
   });
   await page.goto(`${app.origin}/settings`);
+  await page.getByRole("tab", { name: "自动化与通知", exact: true }).click();
   const history = page.getByRole("region", { name: "定时执行历史" });
   await expect(history.getByText(/进程中断/)).toBeVisible();
   await expect(history.getByText(/应用退出前执行未完成/)).toBeVisible();
@@ -114,9 +117,11 @@ test("accepted desktop reminder claims remain visible after restart without clai
   expect(accepted.status).toBe(200); expect(accepted.body.data).toHaveLength(1);
   expect((await browserApi(page, "/api/tasks/reminders", "POST")).body.data).toEqual([]);
   await page.goto(`${app.origin}/settings`);
+  await page.getByRole("tab", { name: "自动化与通知", exact: true }).click();
   await expect(page.getByText("任务已到期", { exact: true })).toBeVisible();
   await expect(page.getByText(/到期记录浏览器验证.*系统通知可能被拒绝或错过/)).toBeVisible();
   await app.restart(); await page.reload();
+  await page.getByRole("tab", { name: "自动化与通知", exact: true }).click();
   await expect(page.getByText("任务已到期", { exact: true })).toBeVisible();
   expect(app.readRows("SELECT count(*) AS count FROM app_notices WHERE kind='taskReminder'")[0]).toMatchObject({ count: 1 });
 });

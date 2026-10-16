@@ -1,3 +1,4 @@
+import { openRecentConversations } from "../helpers/conversations";
 import { test as base, expect, type Page } from "@playwright/test";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { randomUUID } from "node:crypto";
@@ -77,7 +78,7 @@ test("backup validation and a missing credential surface errors without changing
 
 test("saved mode defaults apply to new conversations and model settings survive service restart", { tag: "@integration" }, async ({ page, app }, info) => {
   await register(page, app.origin); await page.getByRole("link", { name: "模型与用量", exact: true }).click();
-  await page.getByRole("button", { name: "图片生成", exact: true }).click();
+  await page.getByRole("tab", { name: "图片生成", exact: true }).click();
   const imageCatalogRow = page.locator("li").filter({ hasText: "google/gemini-3.1-flash-image-preview" });
   await imageCatalogRow.getByRole("button", { name: "添加", exact: true }).click();
   await expect(imageCatalogRow.getByRole("button", { name: "已添加", exact: true })).toBeVisible();
@@ -107,6 +108,7 @@ test("saved mode defaults apply to new conversations and model settings survive 
     const { data: chat } = await response.json();
     expect(chat).toMatchObject({ id: expect.any(String), title: "New Chat" });
     await expect(createButton).toBeEnabled();
+    await openRecentConversations(page);
     await expect(page.getByRole("button", { name: /^New Chat/ })).toBeVisible();
     expect(await browserData(page, "/api/conversations")).toEqual([expect.objectContaining({ id: chat.id })]);
     await expect.poll(() => page.evaluate(id =>
@@ -157,7 +159,12 @@ test("configured chat fallback runs through the real provider adapter and persis
   await expect.poll(async () => (await browserData(page, "/api/usage")).recent.filter((row: { fallback: boolean }) => row.fallback).length).toBe(1);
   const usage = await browserData(page, "/api/usage"); const backup = usage.recent.find((row: { fallback: boolean }) => row.fallback); expect(backup).toMatchObject({ modelId: "google/gemini-3-flash-preview", inputTokens: 10, outputTokens: 10, costSource: "configured", costUsd: 0.00006 });
   expect(app.providerCalls.filter(call => call.stream)).toHaveLength(2);
-  await app.restart(); await page.goto(`${app.origin}/models`); await expect(page.getByRole("cell", { name: "成功（备用）" })).toBeVisible(); await expect(page.getByRole("cell").filter({ hasText: "$0.000060" })).toBeVisible();
+  await app.restart(); await page.goto(`${app.origin}/models`);
+  await page.getByRole("button", { name: "查看调用明细", exact: true }).click();
+  const usageDrawer = page.getByRole("dialog", { name: "模型调用明细", exact: true });
+  const fallbackRow = usageDrawer.getByRole("listitem").filter({ hasText: "成功（备用）" });
+  await expect(fallbackRow).toHaveCount(1);
+  await expect(fallbackRow.getByText("$0.000060", { exact: true })).toBeVisible();
 });
 
 test("model settings and usage reject invalid prices and a missing credential over HTTP", { tag: "@integration" }, async ({ page, app }) => {

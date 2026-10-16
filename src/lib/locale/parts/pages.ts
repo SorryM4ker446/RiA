@@ -112,7 +112,7 @@ export const pageMessages = {
   "models.catalog.countUnit": "个目录条目",
   "models.catalog.updatedAt": "更新于",
   "models.catalog.cachedData": "缓存数据",
-  "models.catalog.limit": "最多展示匹配结果前 300 项",
+  "models.catalog.limit": "向下滚动分批展示",
   "models.catalog.imageInput": "图片输入能力",
   "models.catalog.toolCall": "工具调用",
   "models.catalog.pricing": "价格：{value}",
