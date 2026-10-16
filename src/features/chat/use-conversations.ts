@@ -6,6 +6,7 @@ import { chatApi } from "@/features/chat/api-client";
 import { getChatPrefsStorageKey, loadAccountChatDefaults } from "@/features/chat/preferences";
 import type { ChatScopedPreferences } from "@/features/chat/types";
 import { COLLAPSED_CHAT_LIMIT, LAST_ACTIVE_CHAT_STORAGE_KEY } from "@/features/chat/types";
+import type { AssistantTemplate } from "@/lib/assistants/schema";
 
 type Options = {
   activeChatId: string | null;
@@ -35,6 +36,8 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   const [documentTopics, setDocumentTopics] = useState<string[]>([]);
   const [isDocumentScopeSaving, setIsDocumentScopeSaving] = useState(false);
   const scopeSavingRef = useRef(false);
+  const [assistants, setAssistants] = useState<AssistantTemplate[]>([]);
+  const [assistantsError, setAssistantsError] = useState("");
   const [nextChatsCursor, setNextChatsCursor] = useState<string | null>(null);
   const [isLoadingMoreChats, setIsLoadingMoreChats] = useState(false);
   const chatsRequestRef = useRef(0);
@@ -276,7 +279,23 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     }
   }
 
+  const loadAssistants = useCallback(async (signal?: AbortSignal) => {
+    try { const payload = await chatApi.listAssistants(signal); if (!signal?.aborted) { setAssistants(payload.data); setAssistantsError(""); } }
+    catch (error) { if (!signal?.aborted) setAssistantsError(error instanceof Error ? error.message : "无法加载助理模板"); }
+  }, []);
+  async function applyAssistant(templateId: string | null) {
+    const chat = chats.find(item => item.id === activeChatId);
+    if (!chat || isLoadingChats || scopeSavingRef.current) return;
+    scopeSavingRef.current = true; setIsDocumentScopeSaving(true); setPageError(null);
+    try {
+      const payload = await chatApi.setAssistant(chat.id, templateId);
+      setChats(previous => previous.map(item => item.id === chat.id ? payload.data : item));
+    } catch (error) { setPageError(error instanceof Error ? error.message : "无法应用助理模板"); }
+    finally { scopeSavingRef.current = false; setIsDocumentScopeSaving(false); }
+  }
+
   return {
+    assistants, assistantsError, loadAssistants, applyAssistant,
     toggleEphemeral, isEphemeralSaving, documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving,
     chats, activeChat, isLoadingChats, isCreatingChat, editingChatId, editingTitle, setEditingTitle, isChatListExpanded,
     setIsChatListExpanded, visibleChats, hasHiddenChats, loadChats, createNewChat, startEditingChat,

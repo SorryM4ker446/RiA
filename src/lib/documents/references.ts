@@ -1,5 +1,11 @@
 import { db } from "@/db";
 import type { DocumentReferenceStatus, DocumentSource } from "@/lib/documents/types";
+import { documentSourceUrl } from "@/lib/documents/types";
+
+export function markDocumentCitations(sources: DocumentSource[], answer: string): DocumentSource[] {
+  const urls = new Set([...answer.matchAll(/\[[^\]]+\]\(([^\s)]+)\)/gu)].map(match => match[1]));
+  return sources.map(source => ({ ...source, citationStatus: urls.has(documentSourceUrl(source)) ? "cited" : "not-cited" }));
+}
 
 export async function checkDocumentReferences(sources: DocumentSource[]): Promise<DocumentReferenceStatus[]> {
   const documents = await db.knowledgeDocument.findMany({ where: { id: { in: sources.map(source => source.documentId) } },

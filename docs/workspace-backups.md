@@ -4,6 +4,21 @@ Open **备份与恢复** from the chat sidebar or Settings in either the browser
 
 ## Contents and privacy
 
+Custom assistant templates and conversation configuration snapshots are included.
+The restore preview reports the template count. Restoring maps custom template
+identities and preserves snapshots whose original template was deleted. Old
+archives default to no templates and no conversation snapshot; newly exported
+archives require this version or later. Templates do not grant filesystem access.
+
+Document semantic vectors are regenerable and excluded from portable archives.
+Extracted text, chunk identities, Markdown headings, token counts and term
+frequencies are preserved. After restoration, explicitly build **语义索引** again;
+keyword retrieval works immediately. Old archives default missing frequencies to
+one, token counts to zero and headings to absent. Raw SQLite safety copies still
+include vectors. Memory embeddings retain their existing archive behavior.
+Archives exported with the new document index fields require this version or a
+newer version to restore; earlier builds reject those additional fields.
+
 An archive includes conversations/messages/tags, memories and embeddings (tagged with the provider and model that created each vector), tasks, extracted document text and indexes, private media files and references, generation recipes, model preferences and the **我的模型** library, retention settings, and up to 5,000 recorded model attempts. OpenRouter catalog snapshots are a refreshable cache and are not included. Older preference and memory records remain importable. Preference documents from before model references were provider-qualified are converted on read: the earliest format becomes explicit migration candidates that are not automatically enabled, and the bare-id format becomes OpenRouter references, because every model this application has called so far was reached through that provider. Original PDF/Word source files are not retained by document import and are not included.
 
 The local access credential, desktop encrypted settings, provider API keys, proxy configuration, logs and other archives are excluded. Structured media paths and tool approval credentials are omitted. Conversation text, tool outputs, recipes and documents can themselves contain sensitive information that the user entered; this content is preserved. **Archives are not encrypted.** Protect exported files like the original data and only import trusted archives. Checksums detect corruption, not who authored the file.
@@ -100,3 +115,9 @@ This safety snapshot is separate from the portable archive and its retention rul
 
 
 Model usage snapshots include optional call source and pre-call estimate fields. Old rows remain unattributed. Restored pending calls become interrupted with unknown billing and are never replayed. Local daily admission counters are not exported or cleared by a restore; restoring older history cannot replenish the current device's allowance. Older strict readers may reject new fields; verify archives before downgrading.
+
+## Knowledge topic data
+
+Archives now include topic configurations and revisions, artifact histories with model/evidence snapshots, and nullable conversation topic associations. Restore remaps their identities and generated document links alongside document/chunk IDs. Literal evidence excerpts and document hashes remain unchanged. Pending artifact generation is restored as interrupted and never invokes a model automatically.
+
+Older archives lacking these fields are accepted as empty topic/artifact lists. Because restore replaces the workspace, restoring such an archive removes current topics and artifacts; confirmation reports the archive's topic and artifact counts. Keep the automatically created safety backup. New archives are not guaranteed to import into older application versions. See [Knowledge topics](knowledge-topics.md).

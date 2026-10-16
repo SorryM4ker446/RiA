@@ -1,5 +1,6 @@
 import { createResumeRecovery } from "./resume-recovery";
 import { windowAppearance } from "./window-appearance";
+import { createWindowTransitions, type WindowAction } from "./window-transitions";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
@@ -55,6 +56,7 @@ if (!squirrelEventHandled && !singleInstanceLock) {
 }
 
 let mainWindow: BrowserWindow | null = null;
+const windowTransitions = new WeakMap<BrowserWindow, ReturnType<typeof createWindowTransitions>>();
 let nextServer: RunningNextServer | null = null;
 let desktopPaths: DesktopPaths | null = null;
 let logger: DesktopLogger | null = null;
@@ -304,6 +306,14 @@ async function restartLocalService(destination = "/settings?saved=1") {
   return restartInProgress;
 }
 
+function performWindowAction(target: BrowserWindow, action: WindowAction) {
+  const transitions = windowTransitions.get(target);
+  if (transitions) { transitions.request(action); return; }
+  if (action === "minimize") target.minimize();
+  else if (action === "close") target.close();
+  else if (target.isMaximized()) target.unmaximize(); else target.maximize();
+}
+
 function registerIpcHandlers() {
   // The caption is drawn by the page, so the verbs live here rather than in the
   // window factory: `createMainWindow` runs a second time from `activate`, and
@@ -325,13 +335,13 @@ function registerIpcHandlers() {
     if (target && !target.isDestroyed()) action(target);
   };
   ipcMain.on("desktop:window:minimize", (event) => {
-    guarded(event, (target) => target.minimize());
+    guarded(event, (target) => performWindowAction(target, "minimize"));
   });
   ipcMain.on("desktop:window:toggle-maximize", (event) => {
-    guarded(event, (target) => (target.isMaximized() ? target.unmaximize() : target.maximize()));
+    guarded(event, (target) => performWindowAction(target, "toggle-maximize"));
   });
   ipcMain.on("desktop:window:close", (event) => {
-    guarded(event, (target) => target.close());
+    guarded(event, (target) => performWindowAction(target, "close"));
   });
   // The page mounts before it can have observed a maximise event, so the initial
   // state has to be pullable. This one is an `invoke`, so a rejected sender
@@ -691,6 +701,10 @@ async function createMainWindow(initialPath: string): Promise<BrowserWindow> {
   if (usableBounds) {
     window.setBounds(usableBounds);
   }
+  const transitions = process.platform === "win32"
+    ? createWindowTransitions(window, error => logger?.warn("Window transition failed", error))
+    : null;
+  if (transitions) windowTransitions.set(window, transitions);
 
   Menu.setApplicationMenu(null);
   secureBrowserWindow({ window, origin: nextServer.origin, logger });
@@ -719,6 +733,11 @@ async function createMainWindow(initialPath: string): Promise<BrowserWindow> {
   window.on("resize", rememberBounds);
   window.on("move", rememberBounds);
   window.on("close", (event) => {
+    if (!isQuitting && !smokeTest && transitions && !transitions.isClosing()) {
+      event.preventDefault();
+      transitions.request("close");
+      return;
+    }
     // Everything this needs is already known: anything read here would be a
     // promise, and by the time it settled the window would already be gone.
     if (isQuitting || smokeTest || closeBehaviour !== "tray" || !tray) return;
@@ -857,23 +876,47 @@ async function runSmokeAssertion() {
   if (caption.lastRight > caption.contentRight) {
     throw new Error(`The window controls overlap the document scrollbar: ${JSON.stringify(caption)}`);
   }
-  async function verifyCanvasTransparency() {
+  async function verifyWorkspaceTransparency() {
     if (process.platform !== "win32") return;
-    const image = await mainWindow!.capturePage();
-    const bitmap = image.toBitmap();
-    const size = image.getSize();
-    const alpha = (x: number, y: number) => bitmap[(Math.floor(y * size.height) * size.width + Math.floor(x * size.width)) * 4 + 3];
-    const sidebarAlpha = alpha(0.04, 0.55);
-    const dockAlpha = alpha(0.55, 0.98);
-    const headerAlpha = alpha(0.8, 0.02);
-    const canvasAlpha = [alpha(0.55, 0.3), alpha(0.65, 0.6), alpha(0.7, 0.4)];
-    if (sidebarAlpha !== 255 || dockAlpha !== 255 || headerAlpha !== 255 || !canvasAlpha.some(value => value >= 210 && value < 240)) {
-      throw new Error(`Desktop canvas transparency is incorrect: ${JSON.stringify({ sidebarAlpha, dockAlpha, headerAlpha, canvasAlpha })}`);
+    const captureWindow = mainWindow!;
+    const restoreHidden = !captureWindow.isVisible();
+    if (restoreHidden) captureWindow.showInactive();
+    try {
+      await mainWindow!.webContents.executeJavaScript(`Promise.allSettled(
+        document.getAnimations().filter(animation => animation.effect?.getComputedTiming().endTime !== Infinity).map(animation => animation.finished)
+      ).then(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))`);
+      const image = await mainWindow!.capturePage();
+      const bitmap = image.toBitmap();
+      const size = image.getSize();
+      const alpha = (x: number, y: number) => bitmap[(Math.floor(y * size.height) * size.width + Math.floor(x * size.width)) * 4 + 3];
+      const sidebarAlpha = alpha(0.04, 0.55);
+      const dockAlpha = alpha(0.98, 0.98);
+      const headerAlpha = alpha(0.8, 0.02);
+      const canvasAlpha = [alpha(0.55, 0.3), alpha(0.65, 0.6), alpha(0.7, 0.4)];
+      const composerPoint = await captureWindow.webContents.executeJavaScript(`(() => {
+        const node = document.querySelector(".composer-surface");
+        if (!node) throw new Error("The composer surface did not render");
+        const rect = node.getBoundingClientRect();
+        return { x: (rect.left + rect.width / 2) / innerWidth, y: (rect.top + 12) / innerHeight };
+      })()`) as { x: number; y: number };
+      const composerAlpha = alpha(composerPoint.x, composerPoint.y);
+      if ([sidebarAlpha, composerAlpha].some(value => value !== 255) || [dockAlpha, headerAlpha].some(value => value < 210 || value >= 240) || !canvasAlpha.some(value => value >= 210 && value < 240)) {
+        const surfaces = await mainWindow!.webContents.executeJavaScript(`({
+          route: location.pathname, desktop: document.documentElement.dataset.desktopRuntime,
+          surfaces: ["body", ".workspace-shell", ".workspace-content", ".chat-canvas", ".chat-transcript"].map(selector => {
+            const node = document.querySelector(selector); if (!node) return {selector, absent: true};
+            const style = getComputedStyle(node); return {selector, background: style.backgroundColor, opacity: style.opacity};
+          })
+        })`);
+        throw new Error(`Desktop workspace transparency is incorrect: ${JSON.stringify({ sidebarAlpha, dockAlpha, composerAlpha, headerAlpha, canvasAlpha, surfaces })}`);
+      }
+      logger?.info("Verified solid composer with translucent canvas and dock", { sidebarAlpha, dockAlpha, composerAlpha, headerAlpha, canvasAlpha });
+    } finally {
+      if (restoreHidden && !captureWindow.isDestroyed()) captureWindow.hide();
     }
-    logger?.info("Verified opaque sidebar and translucent desktop canvas", { sidebarAlpha, canvasAlpha });
   }
 
-  await verifyCanvasTransparency();
+  await verifyWorkspaceTransparency();
 
   // Drive the bridge exactly as a click does, and require the window to change.
   const captionWindow = mainWindow;
@@ -889,7 +932,7 @@ async function runSmokeAssertion() {
     if (!(await maximized)) {
       throw new Error(`The maximise caption verb did not reach the window: ${JSON.stringify(caption)}`);
     }
-    await verifyCanvasTransparency();
+    await verifyWorkspaceTransparency();
     const restored = new Promise<boolean>(resolve => {
       const timer = setTimeout(() => resolve(false), 8000);
       captionWindow.once("unmaximize", () => { clearTimeout(timer); resolve(true); });
@@ -898,8 +941,7 @@ async function runSmokeAssertion() {
     if (!(await restored)) throw new Error("The transparent window did not restore after maximization");
     const bounds = captionWindow.getBounds();
     captionWindow.setSize(1100, 720);
-    await captionWindow.webContents.executeJavaScript("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
-    await verifyCanvasTransparency();
+    await verifyWorkspaceTransparency();
     captionWindow.setBounds(bounds);
   }
 

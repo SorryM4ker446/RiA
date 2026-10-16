@@ -25,3 +25,21 @@ export async function wordDocument(text = "星河项目每周五发布，回滚�
   for (const [name, value] of Object.entries(extras)) zip.file(name, value);
   return zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
 }
+
+export async function wordTableDocument(rows: string[][] = [["项目", "金额", "条件"], ["住宿", "500 元", "主管审批"], ["交通", "200 元", "保留票据"]], header = true) {
+  const escape = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  const table = rows.map((row, index) => `<w:tr>${header && index === 0 ? "<w:trPr><w:tblHeader/></w:trPr>" : ""}${row.map(cell => `<w:tc><w:p><w:r><w:t>${escape(cell)}</w:t></w:r></w:p></w:tc>`).join("")}</w:tr>`).join("");
+  return wordDocument("", { "word/document.xml": `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>费用标准</w:t></w:r></w:p><w:tbl>${table}</w:tbl><w:p><w:r><w:t>超过金额需要额外审批。</w:t></w:r></w:p></w:body></w:document>` });
+}
+
+export async function wordMergedDocument() {
+  return wordDocument("", {
+    "word/document.xml": `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+      <w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>先保留票据</w:t></w:r></w:p>
+      <w:tbl><w:tr><w:tc><w:tcPr><w:gridSpan w:val="2"/><w:vMerge w:val="restart"/></w:tcPr><w:p><w:r><w:t>主管审批</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>500 元</w:t></w:r></w:p></w:tc></w:tr>
+      <w:tr><w:tc><w:tcPr><w:gridSpan w:val="2"/><w:vMerge/></w:tcPr><w:p/></w:tc><w:tc><w:p><w:r><w:t>200 元</w:t></w:r></w:p></w:tc></w:tr></w:tbl>
+      </w:body></w:document>`,
+    "word/_rels/document.xml.rels": '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="numbering" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/></Relationships>',
+    "word/numbering.xml": '<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/></w:lvl></w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num></w:numbering>',
+  });
+}

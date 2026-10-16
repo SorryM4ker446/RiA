@@ -33,6 +33,7 @@ test("local review exposes real recorded changes, current sources and deleted-so
     sqlite.exec("COMMIT");
   } finally { sqlite.close(); }
   await page.goto(`${app.origin}/settings`);
+  await page.getByRole("tab", { name: "自动化与通知", exact: true }).click();
   const review = page.getByRole("region", { name: "工作区事实回顾" });
   await review.getByRole("textbox", { name: "回顾时区" }).fill("UTC");
   await review.getByRole("button", { name: "查看事实回顾" }).click();
@@ -46,6 +47,7 @@ test("local review exposes real recorded changes, current sources and deleted-so
   await page.reload();
   await expect(page.getByText("原任务、资料或记忆已删除，历史事件仍然保留。")).toBeVisible();
   await page.getByRole("link", { name: "返回设置与回顾" }).click();
+  await page.getByRole("tab", { name: "自动化与通知", exact: true }).click();
   await review.getByRole("textbox", { name: "回顾时区" }).fill("UTC");
   await review.getByRole("button", { name: "查看事实回顾" }).click();
   await expect(review.getByText("任务完成：1 次", { exact: true })).toBeVisible();
@@ -55,7 +57,7 @@ test("local review exposes real recorded changes, current sources and deleted-so
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await review.screenshot({ path: join(screenshots, "mobile.png"), animations: "disabled" });
-  await review.getByRole("combobox", { name: "回顾期间" }).selectOption("weekly");
+  await review.getByRole("combobox", { name: "回顾期间" }).click(); await page.getByRole("option", { name: "上一个完整周", exact: true }).click();
   await review.getByRole("button", { name: "查看事实回顾" }).click();
   await expect(review.getByText(/结束日期不包含/)).toBeVisible();
   expect(errors).toEqual([]);

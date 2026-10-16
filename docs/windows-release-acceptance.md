@@ -4,6 +4,26 @@ Run installation and upgrade checks in a disposable Windows VM, under the same W
 
 Record the installer version, SHA-256 from `verification.json`, Windows build, installation type, tester and date. A checksum identifies an artifact; it does not prove publisher authenticity. Generated manifests mark manual checks unverified until a tester records evidence.
 
+Initialize the structured acceptance record after building the MSI:
+
+```powershell
+npm run desktop:acceptance -- --init
+```
+
+This reads `out/make/wix/x64/verification.json`, verifies the actual MSI size and SHA-256, and creates `acceptance.json` beside it. Every scenario starts as `not-run`; initialization fails rather than overwriting an existing record. CI uploads this unverified template together with the MSI and checksum manifest. Keep older records and evidence in their own release directory; if rebuilding an undistributed version, archive its old record before initializing a fresh one. A same-version rebuild with different installer bytes invalidates the old acceptance.
+
+Fill `environment.windowsBuild`, `vm` (disposable VM identity), `installationType`, `tester`, and `previousVersion` (the lower release used for upgrade). For each of the ten scenarios below, set `result` to `pass`, `fail` or `not-run`, `testedAt` to a UTC ISO timestamp (for example `2026-10-07T08:30:00Z`), and `evidence` to one or more nonempty file paths. Relative paths are resolved from the acceptance record's directory; absolute paths are also supported. Use screenshots and sanitized logs, never provider keys, passwords or connection strings. Do not use the installer, checksum manifest or acceptance record itself as scenario evidence.
+
+After performing and reviewing every scenario, verify the completed record:
+
+```powershell
+npm run desktop:acceptance -- --check --output out/make/wix/x64/acceptance-verified.json
+```
+
+The check rejects changed installer bytes/version, missing or duplicate scenarios, failed/unperformed results, missing environment information, invalid/future timestamps, and missing/empty evidence. It creates a receipt with SHA-256 hashes of the record and evidence files, without copying their contents. Existing output files are preserved; choose a new receipt filename for a later check. Omitting `--output` prints the JSON receipt without writing a file. `--manifest <path>` and `--record <path>` allow checking an archived release outside this checkout.
+
+`verification.json` remains the artifact identity record with initial unverified placeholders; `acceptance.json` is the tester's manual result record. A passing check validates those attestations and their file references, not screenshot contents, publisher identity, or whether a physical test actually occurred. Keep the receipt with the exact MSI and reviewed evidence, and use the CI logs separately for automated build/package/smoke results. This command neither installs software nor publishes artifacts.
+
 | Scenario | Procedure | Evidence required |
 | --- | --- | --- |
 | Clean installation | Install the built MSI in a clean VM without Node/npm or repository files. Use the Chinese wizard's destination Browse control to choose a writable D: folder, including spaces and Chinese characters. Launch from Start menu. | Destination screenshot, actual executable under the chosen folder, version, successful local startup and bounded diagnostics. |

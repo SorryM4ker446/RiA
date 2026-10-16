@@ -2,11 +2,13 @@ import { protectDataOperation } from "@/lib/server/data-operations";
 import { readJsonBody } from "@/lib/server/request-body";
 import { NextRequest } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { db } from "@/db";
 import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { requireLocalWorkspace } from "@/lib/local/workspace";
 import { saveMemory } from "@/lib/memory/store";
+import { pageResult, readPageOptions } from "@/lib/server/pagination";
 
 const createKnowledgeSchema = z.strictObject({
   key: z.string().trim().min(1).max(120),
@@ -46,20 +48,23 @@ function knowledgeEntryView(row: {
 }
 
 const knowledgeListQuerySchema = z.strictObject({
-  limit: z.coerce.number().int().min(1).max(100).optional().default(50),
-  // What the assistant inferred is listed separately, so the default view
-  // stays "what I decided to keep" and the candidates do not bury it.
   view: z.enum(["all", "confirmed", "candidates"]).optional().default("all"),
+  q: z.string().trim().max(120).regex(/^[^\u0000-\u001f\u007f]*$/).optional().default(""),
+  limit: z.string().optional(),
+  cursor: z.string().optional(),
 });
 
 async function GETHandler(req: NextRequest) {
   try {
     await requireLocalWorkspace(req);
     enforceRateLimit("memory");
-    const parsed = knowledgeListQuerySchema.safeParse({
-      limit: req.nextUrl.searchParams.get("limit") ?? undefined,
-      view: req.nextUrl.searchParams.get("view") ?? undefined,
-    });
+    const params = req.nextUrl.searchParams;
+    for (const key of new Set(params.keys())) {
+      if (params.getAll(key).length !== 1) {
+        throw new ApiError({ code: "VALIDATION_ERROR", message: "Duplicate knowledge query parameter" });
+      }
+    }
+    const parsed = knowledgeListQuerySchema.safeParse(Object.fromEntries(params));
 
     if (!parsed.success) {
       throw new ApiError({
@@ -69,23 +74,32 @@ async function GETHandler(req: NextRequest) {
       });
     }
 
-    // Everything is listed, including what the assistant inferred: a memory the
-    // user cannot see is a memory they cannot correct. Confirmation is what
-    // decides whether it is used, not visibility.
-    const memories = await db.memory.findMany({
-      // Everything is listed, including what the assistant inferred: a memory
-      // the user cannot see is one they cannot correct. The tool-facing search
-      // still keeps them out of its own results — that is a different question.
-      where: {
-        ...(parsed.data.view === "confirmed" ? { confirmed: true } : {}),
-        ...(parsed.data.view === "candidates" ? { confirmed: false } : {}),
-      },
-      orderBy: [{ updatedAt: "desc" }],
-      take: parsed.data.limit,
-      select: knowledgeEntrySelect,
+    const { view, q } = parsed.data;
+    const scope = JSON.stringify(["knowledge", view, q]);
+    const pagination = new URLSearchParams();
+    if (parsed.data.limit !== undefined) pagination.set("limit", parsed.data.limit);
+    if (parsed.data.cursor !== undefined) pagination.set("cursor", parsed.data.cursor);
+    const options = readPageOptions(pagination, scope, 50);
+    const filter = view === "all" ? Prisma.empty : Prisma.sql`AND confirmed=${view === "confirmed"}`;
+    const boundary = options.cursor ? Prisma.sql`AND (updatedAt < ${options.cursor.date}
+      OR (updatedAt=${options.cursor.date} AND id < ${options.cursor.id}))` : Prisma.empty;
+    // instr treats '%' and '_' as literal text. Search is local and does not
+    // embed queries or change which memories are eligible for model context.
+    const search = q ? Prisma.sql`AND (instr(lower(key),lower(${q})) > 0
+      OR instr(lower(value),lower(${q})) > 0)` : Prisma.empty;
+    const result = await db.$transaction(async tx => {
+      const ids = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT id FROM memories WHERE 1=1 ${filter} ${boundary} ${search}
+        ORDER BY updatedAt DESC,id DESC LIMIT ${options.limit + 1}`);
+      const rows = await tx.memory.findMany({
+        where: { id: { in: ids.map(row => row.id) } },
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        select: knowledgeEntrySelect,
+      });
+      return pageResult(rows, options, scope, row => row.updatedAt);
     });
 
-    return Response.json({ data: memories });
+    return Response.json(result);
   } catch (error) {
     console.error("/api/knowledge GET error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to fetch knowledge entries");

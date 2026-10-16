@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { db } from "@/db";
+import { Prisma } from "@prisma/client";
 import { t } from "@/lib/locale";
 import { buildDocumentChunks, DOCUMENT_INDEX_VERSION, hashDocumentContent } from "@/lib/documents/chunks";
 import { DOCUMENT_LIMITS, documentPagesSchema, type DocumentPage } from "@/lib/documents/types";
-import { tokenizeQuery } from "@/lib/memory/retrieval";
+import { documentEmbeddingText, documentTerms } from "@/lib/documents/lexical";
 import { ApiError } from "@/lib/server/api-error";
 import { recordWorkspaceEvent } from "@/lib/activity/events";
+import type { DocumentRevision } from "./upload";
 
 export const documentSummarySelect = {
   id: true, filename: true, collection: true, format: true, byteSize: true, characterCount: true,
@@ -14,16 +16,19 @@ export const documentSummarySelect = {
 } as const;
 
 type DocumentInput = { filename: string; collection?: string | null; format: string; byteSize: number; pages: DocumentPage[] };
-export async function indexDocument(input: DocumentInput, expected?: { id: string; contentHash: string }) {
+export async function indexDocument(input: DocumentInput, expected?: { id: string; contentHash: string }, importBase?: DocumentRevision | null) {
   const pages = documentPagesSchema.parse(input.pages);
   const characterCount = pages.reduce((sum, page) => sum + page.text.length, 0);
   if (characterCount > DOCUMENT_LIMITS.characters) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.documents.charLimit") });
-  const prepared = buildDocumentChunks(pages).map(chunk => ({ ...chunk, terms: tokenizeQuery(`${input.filename} ${chunk.text}`).filter(term => term.length <= 100) }));
+  const prepared = buildDocumentChunks(pages).map(chunk => ({ ...chunk, ...documentTerms(documentEmbeddingText(chunk, input)) }));
   const contentHash = hashDocumentContent(JSON.stringify(pages));
   return db.$transaction(async tx => {
     const existing = await tx.knowledgeDocument.findUnique({ where: { filename: input.filename }, include: { chunks: true } });
-    if (expected && (!existing || existing.id !== expected.id || existing.contentHash !== expected.contentHash)) {
+    if (expected && (!existing || existing.id !== expected.id || existing.contentHash !== expected.contentHash || existing.collection !== (input.collection ?? null))) {
       throw new ApiError({ code: "CONFLICT", message: t("lib.documents.modifiedOrDeleted") });
+    }
+    if (importBase !== undefined && (importBase === null ? Boolean(existing) : !existing || existing.id !== importBase.id || existing.contentHash !== importBase.contentHash || existing.collection !== importBase.collection)) {
+      throw new ApiError({ code: "CONFLICT", message: "同名文档在预览后已改变，请重新预览再确认保存。" });
     }
     if (!existing && await tx.knowledgeDocument.count({ where: {} }) >= DOCUMENT_LIMITS.documentsPerUser) {
       throw new ApiError({ code: "CONFLICT", message: t("lib.documents.tooManyDocuments") });
@@ -50,12 +55,19 @@ export async function indexDocument(input: DocumentInput, expected?: { id: strin
     const retained = prepared.filter(chunk => old.has(chunk.chunkKey));
     for (const chunk of retained) {
       const previous = old.get(chunk.chunkKey)!;
-      if (previous.ordinal !== chunk.ordinal) await tx.documentChunk.update({ where: { id: previous.id }, data: { ordinal: chunk.ordinal } });
+      await tx.documentChunk.update({ where: { id: previous.id }, data: { ordinal: chunk.ordinal, heading: chunk.heading, tokenCount: chunk.tokenCount } });
     }
-    const rebuild = Boolean(expected) || (existing && existing.indexVersion !== DOCUMENT_INDEX_VERSION);
-    if (rebuild) await tx.documentTerm.deleteMany({ where: { chunk: { documentId: document.id } } });
-    const indexed = rebuild ? prepared.map(chunk => ({ ...chunk, id: old.get(chunk.chunkKey)?.id ?? created.find(item => item.chunkKey === chunk.chunkKey)!.id })) : created;
-    const terms = indexed.flatMap(chunk => chunk.terms.map(term => ({ chunkId: chunk.id, term })));
+    await tx.documentTerm.deleteMany({ where: { chunk: { documentId: document.id } } });
+    const indexed = prepared.map(chunk => ({ ...chunk, id: old.get(chunk.chunkKey)?.id ?? created.find(item => item.chunkKey === chunk.chunkKey)!.id }));
+    const terms = indexed.flatMap(chunk => chunk.terms.map(term => ({ chunkId: chunk.id, ...term })));
+    // Retain only vectors whose contextual text still describes this chunk.
+    // Document edits and collection moves cannot leave stale semantic evidence.
+    for (const chunk of indexed) {
+      const previous = old.get(chunk.chunkKey);
+      if (previous?.embeddingContextHash && previous.embeddingContextHash !== hashDocumentContent(documentEmbeddingText(chunk, input))) {
+        await tx.documentChunk.update({ where: { id: chunk.id }, data: { embedding: Prisma.DbNull, embeddingModelId: null, embeddingModelProvider: null, embeddingContextHash: null } });
+      }
+    }
     // Keep parameter batches bounded; the enclosing transaction preserves the previous index on failure.
     for (let offset = 0; offset < terms.length; offset += 500) await tx.documentTerm.createMany({ data: terms.slice(offset, offset + 500) });
     if (!expected && (!existing || existing.contentHash !== contentHash || existing.collection !== document.collection)) {

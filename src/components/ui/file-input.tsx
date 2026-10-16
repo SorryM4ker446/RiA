@@ -27,7 +27,7 @@ type FileInputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, "type" |
  * survive while the visible control is ours.
  */
 export const FileInput = React.forwardRef<HTMLInputElement, FileInputProps>(
-  ({ className, triggerClassName, buttonLabel, placeholder, disabled, id, ...props }, ref) => {
+  ({ className, triggerClassName, buttonLabel, placeholder, disabled, id, onChange, ...props }, ref) => {
     const generatedId = React.useId();
     const inputId = id ?? generatedId;
     const [names, setNames] = React.useState<string[]>([]);
@@ -58,7 +58,7 @@ export const FileInput = React.forwardRef<HTMLInputElement, FileInputProps>(
           id={inputId}
           onChange={(event) => {
             setNames(Array.from(event.target.files ?? []).map((file) => file.name));
-            props.onChange?.(event);
+            onChange?.(event);
           }}
           ref={ref}
           type="file"

@@ -4,6 +4,7 @@ import { t } from "@/lib/locale";
 import type { MediaReference } from "@/lib/media/message-codec";
 import { DefaultChatTransport } from "ai";
 import type { ModelRef } from "@/lib/models/preferences-schema";
+import type { AssistantTemplate } from "@/lib/assistants/schema";
 import type { ChatSummary, MessageStatus, StoredMessage, UploadableFilePart } from "@/features/chat/page-utils";
 import type { ChatScopedPreferences, TaskItem, TaskScheduleInput, TaskStatusFilter, ToolCatalogItem } from "@/features/chat/types";
 
@@ -39,7 +40,9 @@ export const chatApi = {
       throw error;
     }
   },
-  createConversation: (title: string) => requestJson<Data<ChatSummary>>("/api/conversations", t("chatApi.createConversationFailed"), jsonBody("POST", { title })),
+  createConversation: (title: string, assistantTemplateId?: string) => requestJson<Data<ChatSummary>>("/api/conversations", t("chatApi.createConversationFailed"), jsonBody("POST", { title, assistantTemplateId })),
+  listAssistants: (signal?: AbortSignal) => requestJson<Data<AssistantTemplate[]>>("/api/assistants", "无法加载助理模板", { signal }),
+  setAssistant: (id: string, assistantTemplateId: string | null) => requestJson<Data<ChatSummary>>(conversationPath(id), "无法应用助理模板", jsonBody("PATCH", { assistantTemplateId })),
   renameConversation: (id: string, title: string) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatApi.renameConversationFailed"), jsonBody("PATCH", { title })),
   setDocumentScope: (id: string, documentScope: string[]) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatApi.setDocumentScopeFailed"), jsonBody("PATCH", { documentScope })),
   setEphemeral: (id: string, ephemeral: boolean) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatApi.setEphemeralFailed"), jsonBody("PATCH", { ephemeral })),

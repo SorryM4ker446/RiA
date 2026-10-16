@@ -1,3 +1,4 @@
+import { openRecentConversations } from "../helpers/conversations";
 import { expect, test } from "@playwright/test";
 import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
 
@@ -117,27 +118,33 @@ test("an unsent draft survives switching conversations and a reload, and is clea
 
   const composer = page.getByPlaceholder(/输入你的问题/);
   await page.goto("/chat");
-  await page.getByRole("button", { name: /First/ }).click();
+  await openRecentConversations(page);
+  await page.getByRole("button", { name: /^First/ }).click();
   await expect(composer).toBeVisible();
   await composer.fill("写到一半的草稿");
 
   // Leaving the conversation parks the draft; coming back restores it.
-  await page.getByRole("button", { name: /Second/ }).click();
+  await openRecentConversations(page);
+  await page.getByRole("button", { name: /^Second/ }).click();
   await expect(composer).toHaveValue("");
-  await page.getByRole("button", { name: /First/ }).click();
+  await openRecentConversations(page);
+  await page.getByRole("button", { name: /^First/ }).click();
   await expect(composer).toHaveValue("写到一半的草稿");
 
   // A reload is the case a memory-only composer loses.
   await page.reload();
-  await page.getByRole("button", { name: /First/ }).click();
+  await openRecentConversations(page);
+  await page.getByRole("button", { name: /^First/ }).click();
   await expect(composer).toHaveValue("写到一半的草稿");
 
   // Sending it clears the draft, so it does not come back on the next visit.
   await composer.fill("真正发出的问题");
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByText("已回答", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: /Second/ }).click();
-  await page.getByRole("button", { name: /First/ }).click();
+  await openRecentConversations(page);
+  await page.getByRole("button", { name: /^Second/ }).click();
+  await openRecentConversations(page);
+  await page.getByRole("button", { name: /^First/ }).click();
   await expect(composer).toHaveValue("");
 });
 
@@ -185,7 +192,8 @@ test("stopping a turn ends it without re-sending the question", async ({ page })
   // The question was delivered and is in the conversation, so the composer is
   // left empty rather than offering to send it a second time.
   await expect(composer).toHaveValue("");
-  await expect(page.getByRole("button", { name: /Stopping/ })).toBeVisible();
+  await openRecentConversations(page);
+  await expect(page.getByRole("button", { name: /^Stopping/ })).toBeVisible();
 });
 
 test("a streaming answer does not drag the view away from history, and offers a way back", async ({ page }) => {

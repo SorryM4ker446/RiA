@@ -104,6 +104,7 @@ test("document library refresh keeps imported documents on screen", { tag: "@int
   await page.getByLabel("选择知识文档").setInputFiles({ name: "静默刷新.md", mimeType: "text/markdown", buffer: Buffer.from("# 静默刷新\n\n刷新时文档列表不应消失。") });
   const uploaded = page.waitForResponse(response => response.url().endsWith("/api/documents") && response.request().method() === "POST");
   await page.getByRole("button", { name: "导入文档", exact: true }).click();
+  await page.getByRole("button", { name: "确认保存文档", exact: true }).click();
   expect((await uploaded).ok()).toBe(true);
   await expect(page.getByRole("link", { name: "静默刷新.md", exact: true })).toBeVisible();
 
@@ -126,6 +127,7 @@ test("a refresh never resizes the import button or the page around it", { tag: "
   await page.getByLabel("选择知识文档").setInputFiles({ name: "按钮宽度.md", mimeType: "text/markdown", buffer: Buffer.from("# 按钮宽度\n\n刷新不应改变按钮宽度。") });
   const uploaded = page.waitForResponse(response => response.url().endsWith("/api/documents") && response.request().method() === "POST");
   await page.getByRole("button", { name: "导入文档", exact: true }).click();
+  await page.getByRole("button", { name: "确认保存文档", exact: true }).click();
   expect((await uploaded).ok()).toBe(true);
   await expect(page.getByRole("link", { name: "按钮宽度.md", exact: true })).toBeVisible();
 

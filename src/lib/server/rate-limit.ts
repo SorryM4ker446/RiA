@@ -8,6 +8,7 @@ export const RATE_LIMIT_POLICIES = {
   video: { limit: 3, windowMs: 60_000 },
   upload: { limit: 20, windowMs: 60_000 },
   documents: { limit: 6, windowMs: 60_000 },
+  documentPreview: { limit: 6, windowMs: 60_000 },
   reminders: { limit: 10, windowMs: 60_000 },
   documentReferences: { limit: 120, windowMs: 60_000 },
   conversationSearch: { limit: 30, windowMs: 60_000 },
@@ -17,10 +18,17 @@ export const RATE_LIMIT_POLICIES = {
   backups: { limit: 6, windowMs: 60_000 },
   backupChunks: { limit: 120, windowMs: 60_000 },
   modelSettings: { limit: 20, windowMs: 60_000 },
+  assistantTemplates: { limit: 30, windowMs: 60_000 },
+  topics: { limit: 30, windowMs: 60_000 },
+  topicGeneration: { limit: 4, windowMs: 60_000 },
+  documentEvaluation: { limit: 2, windowMs: 60_000 },
   modelCatalog: { limit: 8, windowMs: 60_000 },
   // Each run re-embeds up to a bounded batch of memories, so the budget is a
   // handful of runs per minute, not a bulk operation to retry until empty.
   memoryReindex: { limit: 2, windowMs: 60_000 },
+  // Each explicit request embeds at most 32 document chunks; a full document
+  // (256 chunks) can complete in eight batches without automatic retries.
+  documentEmbeddings: { limit: 12, windowMs: 60_000 },
   // Every memory search embeds the query, so it is a metered model call like
   // any other. The routes that reach one had no quota at all while the heavier
   // reindex next to them did, which is the wrong way round.

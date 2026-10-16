@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -35,8 +36,8 @@ export function ConversationRow({ chat, selected, disabled, selectionFull, selec
       <Button size="sm" variant="outline" disabled={disabled} onClick={() => void update({ pinned: !chat.pinned })}>{chat.pinned ? t("conversationRow.unpin") : t("conversationRow.pin")}</Button>
       <Button size="sm" variant="outline" disabled={disabled} onClick={() => void update({ archived: !chat.archived })}>{chat.archived ? t("conversationRow.restore") : t("conversationRow.archive")}</Button>
       <Button size="sm" variant="outline" disabled={disabled} onClick={() => { setTags(chat.tags.join(", ")); setEditing(true); }}>{t("conversationRow.editTags")}</Button>
-      <Button size="sm" variant="ghost" disabled={disabled} onClick={() => download("markdown")}>{`${t("conversationRow.export")} Markdown`}</Button>
-      <Button size="sm" variant="ghost" disabled={disabled} onClick={() => download("json")}>{`${t("conversationRow.export")} JSON`}</Button>
+      <Button size="sm" variant="outline" disabled={disabled} onClick={() => download("markdown")}><Download data-icon="inline-start" aria-hidden="true" />{`${t("conversationRow.export")} Markdown`}</Button>
+      <Button size="sm" variant="outline" disabled={disabled} onClick={() => download("json")}><Download data-icon="inline-start" aria-hidden="true" />{`${t("conversationRow.export")} JSON`}</Button>
     </div>
     {editing && <form className="mt-3 space-y-2" onSubmit={event => { event.preventDefault(); void update({ tags: tags.split(/[,，]/).map(tag => tag.trim()).filter(Boolean) }).then(saved => { if (saved) setEditing(false); }); }}>
       <label className="block text-sm">{t("conversationRow.tagsLabel")}<Input className="mt-1.5" autoFocus value={tags} disabled={disabled} onChange={event => setTags(event.target.value)} maxLength={300} /></label>

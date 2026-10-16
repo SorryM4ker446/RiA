@@ -41,15 +41,20 @@ export function WindowControls() {
   useEffect(() => {
     if (!controls) return;
     let cancelled = false;
+    const updateMaximized = (value: boolean) => {
+      if (cancelled) return;
+      setMaximized(value);
+      document.documentElement.dataset.windowMaximized = String(value);
+    };
     // The state pull is an invoke, so it rejects if the sender is refused.
     // `restartLocalService` parks the window on about:blank for a moment,
     // whose origin parses as the string "null" and fails the trust check, so
     // this is a reachable path and not a defensive nicety.
     void controls
       .state()
-      .then(state => { if (!cancelled) setMaximized(state.maximized); })
+      .then(state => updateMaximized(state.maximized))
       .catch(() => { /* the caption simply keeps its current glyph */ });
-    const off = controls.onMaximizedChange(setMaximized);
+    const off = controls.onMaximizedChange(updateMaximized);
     return () => { cancelled = true; off(); };
   }, [controls]);
 

@@ -40,14 +40,16 @@ function fixture(script, check) {
   }
 }
 
-test("runtime preparation rejects traced user data before replacing existing output", () => {
-  fixture("prepare-desktop.mjs", (root, run) => {
-    mkdirSync(join(root, ".next", "standalone", ".desktop-data"));
-    const result = run();
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /Standalone output contains .desktop-data/);
-    assert.equal(readFileSync(join(root, ".desktop-runtime", "retain.txt"), "utf8"), "Existing runtime");
-  });
+test("runtime preparation rejects traced user data and test diagnostics before replacing existing output", () => {
+  for (const forbidden of [".desktop-data", "test-results", "playwright-report"]) {
+    fixture("prepare-desktop.mjs", (root, run) => {
+      mkdirSync(join(root, ".next", "standalone", forbidden));
+      const result = run();
+      assert.notEqual(result.status, 0);
+      assert.ok(result.stderr.includes(`Standalone output contains ${forbidden}`));
+      assert.equal(readFileSync(join(root, ".desktop-runtime", "retain.txt"), "utf8"), "Existing runtime");
+    });
+  }
 });
 
 test("runtime preparation refuses to discard legacy generated videos", () => {
@@ -63,7 +65,7 @@ test("runtime preparation refuses to discard legacy generated videos", () => {
 });
 
 test("runtime verification rejects private data and public generated media", () => {
-  for (const forbidden of [".desktop-data", ".desktop-runtime", ".git", "out", "public/generated-videos"]) {
+  for (const forbidden of [".desktop-data", ".desktop-runtime", ".git", "out", "test-results", "playwright-report", "public/generated-videos"]) {
     fixture("verify-desktop-package.mjs", (root, run) => {
       mkdirSync(join(root, ".desktop-runtime", forbidden), { recursive: true });
       const result = run();

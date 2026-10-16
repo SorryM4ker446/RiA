@@ -84,8 +84,8 @@ export default function MediaPage() {
     });
   }
   const disabled = busy || loading;
-  return <main className="mx-auto max-w-6xl space-y-5 px-4 py-8 sm:px-6">
-    <header className="flex flex-wrap items-center justify-between gap-3">
+  return <main className="mx-auto flex max-w-6xl flex-col gap-7">
+    <header className="workspace-page-header">
       <div>
         <h1 className="text-2xl font-semibold tracking-headline">{t("media.title")}</h1>
         <p className="mt-2 text-sm text-muted-foreground">{t("media.description")}</p>

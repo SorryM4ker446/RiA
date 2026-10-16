@@ -1,5 +1,70 @@
 # Test coverage and local validation
 
+Document structure regressions run actual generated Word files through the bounded
+worker and verify headings, amounts, row/column relationships, literal untrusted
+text, unmarked first rows and escaped delimiters. Table chunk tests require repeated
+headers, complete rows, bounded size and unchanged ordinary-paragraph identities;
+oversized rows must preserve the saved version. Preview tests cover authentication,
+no writes or embedding calls, extraction mismatch, concurrent creation/content
+change/collection move and deleted/recreated identities. Vector summaries check
+context hashes and malformed/model-mismatched data before selective repair.
+Maintenance tests exercise persisted 32+8 batches, cancellation, quota/conflict
+stops, individual failures, local-index upgrades and the 12-request ceiling.
+Regressions also require fenced heading examples to leave later evidence under
+its real section, with reindex repair preserving IDs and invalidating wrong-context
+vectors. Compact table rows ending in an escaped backslash must retain their
+closing delimiter and repeated headers without losing or duplicating rows.
+
+`tests/e2e/document-structure.spec.ts` uses production standalone HTTP and isolated
+SQLite. It checks read-only preview, discard/confirmation, Word table evidence after
+restart, optimistic save conflicts and two-document bulk cancellation/resumption.
+Markdown code examples and compact escaped paths must also retain correct section
+paths and table headers through the production preview, save and retrieval flow.
+Request gates hold the second batch after the first commits; no sleeps or retries
+mask the boundary. Provider calls are offline fixtures. Desktop and 390-pixel
+screenshots and page/console checks validate the rendered preview. Existing document,
+RAG, citation, template and refresh cases use the same confirmation workflow.
+No live provider accuracy or real Windows installer acceptance is implied.
+
+Assistant template tests cover immutable conversation snapshots, explicit update,
+read-only built-ins, stale revision rejection, bound-model validation, server tool
+restrictions (including an empty allowlist), scoped chat evidence and portable
+restore. Retrieval diagnostics tests cover missing indices, provider outages,
+thresholds, excerpt budgets, conflicting clauses in one document, empty-result
+metadata and evaluator input/cancellation boundaries. Expected facts stay outside
+the answer prompt; citation matches and fact coverage are contract checks, not
+semantic correctness judgments.
+
+Optional model review adds structured facts/conditions/exceptions/quantities/
+conflicts plus grounding, citation support and refusal criteria. Server regressions
+cover a negated answer with perfect literal coverage and a valid citation, correct
+refusal despite related evidence, uncertain verdicts, opt-in and model validation,
+malformed output, invented quotations, missing/duplicate checks, review failure
+with preserved answers and cancellation before the next question. They validate
+the assessment contract using controlled judge responses, not model intelligence.
+The 50-question `document-quality-evaluation.json` corpus covers eight documents,
+five expectation kinds, English and Chinese, conflicts and ten unanswerable cases.
+All 40 named-document questions must retain filename recall in local keyword
+retrieval; missing facts with related hits must remain distinguishable from empty
+retrieval. Its six answer pairs support manual/live judge calibration.
+
+`tests/e2e/assistant-templates.spec.ts` runs the production standalone application
+against isolated SQLite and offline HTTP provider fixtures. It checks template
+creation/edit/copy/delete, explicit snapshot update, service restart, model picker
+binding, manual tool refusal and the evaluation UI/report. Desktop and 390px
+screens also show semantic-review reasons and source quotes. UI checks verify
+review opt-in/reset, paid-call confirmation, refusal results and template-loading
+failure/retry using a deliberately invalid response. These fixtures simulate
+responses only; semantic evaluation against a real model is separately billable.
+Template prompt assertions wait for the actual provider IPC record; start metadata
+can reach the renderer before that record arrives, so seeing retrieval diagnostics
+alone does not establish that a model call has been observed.
+Desktop and 390px screenshots are saved outside the repository under the OS temporary directory
+(`ria-assistant-qa` and `ria-retrieval-evaluation-qa`). The browser plugin is not
+available in this environment, so validation uses the project's existing Playwright
+harness. Desktop migration tests verify pre-upgrade safety copies and idempotent
+restart. Live evaluation requires a deliberate application action and may be billed.
+
 Use Node.js 24.9.0 and the dependencies already installed for this project. No separate server or desktop testing framework is required.
 
 The application ships as a Windows desktop program; there is no browser or web deployment target. "Browser tests" below means a Chromium renderer driving the application's own HTTP surface — the same renderer the desktop shell embeds — and is a description of the harness, not a supported form of the product.
@@ -47,6 +112,10 @@ The access browser test starts an additional server from the already-built stand
 
 `business-persistence.spec.ts` also uses isolated standalone servers, with no browser route interception and no database mocks. One flow opens the workspace, sends a first message from an empty conversation, streams a reply, sends a follow-up, edits/regenerates, restarts the service, and checks history. Another creates and updates tasks, upserts and retrieves knowledge, renames the conversation, restarts and deletes the records. Assertions inspect both HTTP results and persisted SQLite rows. Synthetic embedding/completion responses are the only provider replacements; this is not a model-quality test.
 
+`knowledge-pagination.test.ts` traverses 127 equal-timestamp memories without omissions or duplicates, checks deleted cursor anchors and newer inserts, literal title/content searches (including `%` and `_`), confirmation filters, query validation/authentication and cursor scope. List responses retain the existing lightweight `data` array and add `pageInfo: { nextCursor, hasMore }`; the default limit remains 50, with a maximum of 100. `q` is trimmed, limited to 120 characters, and searched locally; `view` accepts `all`, `confirmed` or `candidates`. Unknown/repeated parameters are rejected. The existing database indexes support the stable `updatedAt DESC, id DESC` order; no migration is needed.
+
+`knowledge-management.spec.ts` seeds only its isolated SQLite database while the standalone service is stopped. Browser tests reach memories past the first 100, navigate backwards, search and filter, accept/edit/delete through real APIs, and inspect persisted rows. Separate HTTP failure doubles check retained edit drafts/deletion rows, failed search scope, and a successful write followed by a failed list refresh (obsolete pagination is disabled until first-page recovery succeeds); an explicitly held response checks superseded search cancellation without timing sleeps. Desktop/mobile screenshots are saved to the system temporary directory, with their paths attached to the test result. Existing silent-refresh tests continue to require that refresh preserves visible rows.
+
 The test-only `offline-http.ts` preload intercepts fetch in those child processes using the existing Undici dependency. It uses matching fetch/dispatcher versions, bridges native Request/Response, denies unmatched destinations and endpoints, and emits synthetic model prompts over IPC for context assertions. It does not store request headers or add a test switch to application code. A server regression checks both provider-disabled and simulated-provider modes and rejects unmatched external and loopback fetches. This guard covers fetch, not every possible socket API; Tavily is disabled in these browser fixtures. The separate search adapter tests point Tavily explicitly at an isolated loopback server.
 
 Run `npm run test:e2e -- --grep '@integration'` to select authenticated HTTP/SQLite flows, or add `--repeat-each=3` to check repeatability. Quote the tag in PowerShell to avoid splatting. This still builds and prepares the production runtime; do not run it alongside another browser run, desktop build or smoke using the same output. The full `test:e2e` command includes these tagged cases automatically.
@@ -79,7 +148,7 @@ One regression holds an application write transaction for 6.5 seconds (longer th
 
 Multipart fixtures are serialized to wire bytes before reaching the handler. This avoids racing Node's client-side FormData encoder when the server rejects and cancels an oversized request. A separate streaming test verifies that requests without `Content-Length` still hit the byte limit and cancel their source; the production limit is not bypassed or disabled.
 
-Server tests create and clean their own temporary databases. Browser tests use `.desktop-data/test/playwright-run/app.db`, and a global setup installs the pinned access cookie for the suite that shares one web server. Neither suite uses the development database. The standalone `test:db` command creates and cleans a temporary database by default; when `LOCAL_DATABASE_FILE` is already provided, it uses that explicit path instead. Use `db:migrate` when you intentionally need to migrate the development database.
+Server tests create and clean their own temporary databases. Each browser run has a unique `.desktop-data/test/e2e-<UUID>/` directory containing its database, media and storage state, plus an OS-selected loopback port. The parent passes the same run identity and port to config reloads and workers; invalid inherited values are rejected. Global setup installs the pinned test-only access cookie in that run's storage-state file. Neither suite uses the development database. The standalone `test:db` command creates and cleans a temporary database by default; when `LOCAL_DATABASE_FILE` is already provided, it uses that explicit path instead. Use `db:migrate` when you intentionally need to migrate the development database.
 
 Media tests cover authenticated file reads, range/HEAD responses, signature/type/size restrictions, remote-reference rejection, shared references, fresh cleanup grace periods after deletion, legacy import, path traversal, and Windows junction rejection. The small video provider fixture tests transport/storage, not actual video decoding. One browser chain uploads and stores a real PNG through HTTP, reloads it from SQLite-backed history, and verifies reference-safe deletion without mocking business APIs.
 
@@ -115,7 +184,7 @@ The unique `(userId, key)` migration keeps the most recently updated duplicate u
 
 Document regressions import actual generated PDF/DOCX and UTF-8 text/Markdown through both handlers and production HTTP. They cover incremental chunk reuse, reindex repair, atomic failure, the credential boundary, compressed expansion, quotas, parser timeout/cancellation, source snapshots and deletion. A fixed eight-query Chinese/English retrieval corpus reports Recall@3 and MRR@3 (required baseline: 1.0 each), with forty newer distractors, four empty-result queries and four collection checks. Run it through the normal server suite; no separate evaluation framework is needed.
 
-The desktop migration regression upgrades an existing database, checks its backup and preserved chat, then verifies document/index persistence and deletion cascades. Electron smoke imports a real synthetic PDF and DOCX and checks extracted text, page references, authenticated reads and search after a service restart. Binary fixtures are generated from code, contain no private documents and make no model requests. These checks exercise parser runtime dependencies in the prepared standalone artifact, not just the source tree. The existing CI server/browser/desktop commands include these regressions; no new CI service or secret is required.
+The desktop migration regression upgrades an existing database, checks its backup and preserved chat, then verifies document/index persistence and deletion cascades. Electron smoke imports a real synthetic PDF and a Word table, checks the literal row linking accommodation, 500 yuan and manager approval, and verifies extracted text, page references, authenticated reads and search after a service restart. Binary fixtures are generated from code, contain no private documents and make no model requests. These checks exercise parser runtime dependencies in the prepared standalone artifact, not just the source tree. The existing CI server/browser/desktop commands include these regressions; no new CI service or secret is required.
 
 These tests do not certify every real OpenRouter model, network outage behavior, or clean-machine installation/uninstallation. Desktop path isolation and restart persistence are tested, but a full installer upgrade/uninstall cycle remains a separate check. Distinguish the real media HTTP/SQLite chain from the mocked UI tests when reporting coverage.
 
@@ -191,6 +260,35 @@ provider or installer certification. Existing CI commands discover these tests.
 
 ## History and citation integrity
 
+### Hybrid knowledge retrieval
+
+ESLint excludes generated Playwright reports, traces and result directories so
+failure diagnostics do not become lint inputs on subsequent runs. Application,
+test and harness source files retain the existing lint rules.
+
+`tests/server/document-rag.test.ts` verifies semantic-only paraphrases, required
+exception evidence, heading-context invalidation, conflicting documents, scoped
+full-corpus vector ranking beyond two 64-row pages (1,536 dimensions), model
+and dimensional isolation, unchanged-index reuse, cancelled/obsolete/duplicate
+work, failure recovery without automatic retries, explicit authenticated indexing,
+follow-up user context, actual versioned answer links and portable backup restore.
+The fixed four-domain corpus reports lexical Recall@8, hybrid Recall@8,
+required-fact coverage and unrelated empty results. Synthetic vectors measure
+mechanics and do not certify a live embedding model.
+
+`tests/e2e/document-rag.spec.ts` exercises the production standalone service and
+real provider adapter with network-disabled protocol fixtures. It checks explicit
+indexing, no repeat charges for completed chunks, partial-batch progress/recovery,
+semantic preview, desktop/mobile layout, evidence in the provider request, actual
+streamed citations, unused references, persisted metadata, restart and disabled
+embedding selection. The controlled answer fixture verifies transport and link
+tracking rather than live reasoning quality. Screenshots stay outside the repository.
+`tests/desktop/document-semantic-migration.test.ts` checks legacy chunk/term
+preservation, default values, a pre-upgrade SQLite snapshot, deletion cascades and
+idempotent restart. Existing CI globs include these tests; no new service, native
+extension, dependency or secret is needed. See [Document knowledge](document-knowledge.md)
+for explicit live-model evaluation and its billable data flow.
+
 `tests/server/history-integrity.test.ts` exercises edits, deletion, regeneration,
 replacement and a blocked model call racing a real edit. It also checks that approval metadata, reasoning and attachment bytes are not
 forwarded to compression, and that valid earlier summaries survive a paginated
@@ -223,6 +321,8 @@ Model call regression coverage uses isolated SQLite and the real observer with m
 
 Desktop resume tests simulate health outcomes, coalesced wakeups and replacement/quit races; the Electron smoke executes healthy recovery. Release-artifact tests validate root version synchronization and SHA-256 metadata without claiming a clean install. Physical sleep, native OS notification visibility and an installer upgrade on a clean Windows VM remain manual acceptance checks. CI configuration is updated locally; a local pass is not a remote CI result.
 
+`tests/desktop/release-acceptance.test.ts` exercises the actual acceptance CLI and file hashing with synthetic artifacts/evidence in system-temporary directories. It checks all ten required scenarios, unverified initialization, refusal to overwrite records/receipts, same-version rebuild and version mismatch rejection, unsafe installer paths, failure/unperformed statuses, environment/preceding-version requirements, missing/empty evidence and timestamp validation. A successful synthetic record proves the checker contract only; it is not real Windows installation evidence. The existing `test:desktop` command automatically includes these tests. CI initializes and uploads an unverified manual record after MSI verification; completion requires the VM procedures in [Windows release acceptance](windows-release-acceptance.md).
+
 `tests/desktop/windows-installer.test.ts` generates a real WiX source using the configured maker options and checks selectable destination, stable upgrade identity, per-user installation, matching notification identity, and removal of recursive directory purge. After making and recording the installer, `scripts/verify-windows-installer.ps1` opens the compiled MSI database read-only and checks version, language, upgrade code, feature destination/Browse wiring and absence of recursive purge actions; CI runs it before upload. Release-artifact tests check versioned MSI naming, obsolete-artifact exclusion, repeatable checksums and unverified acceptance status. These tests do not perform a real install/uninstall or certify migration from Squirrel; follow the Windows release acceptance document for those checks.
 
 
@@ -249,4 +349,32 @@ The chat layout regression fills short text and forty-line drafts at desktop, co
 `tests/e2e/workspace-layout.spec.ts` starts an isolated standalone service and checks initial task skeletons, retained task content on a delayed refresh, unchanged composer bounds, internal scrolling, compact-panel controls, and saved theme restoration. It captures chat at 1440, 900 and 390 pixels and other workspace pages under the temporary `ria-workspace-ui` directory. `chat-startup.spec.ts` verifies transcript follow behavior and keeping the reader's position during a streamed answer. These checks require rebuilding and preparing the standalone runtime after UI edits. `tests/desktop/window-appearance.test.ts` covers native Windows transparency options and opaque behavior on other platforms; it does not prove the compositor visually exposes desktop content.
 
 
-The layout test also verifies navigation focus containment, animated/saved conversation rail widths, creating a task on the independent tasks page, immediate completion feedback and rollback after a rejected save. A renderer test simulates preload presence to check that only the upper chat canvas is translucent, other pages and the dock are opaque, overflowing home content remains scrollable, and execution history can be expanded/collapsed. Desktop smoke samples captured alpha values for opaque navigation/titlebar/dock and a strongly tinted translucent main canvas, including after maximize/restore and resizing. Native appearance tests check the Windows 11 22H2 material guard. This checks native capture output; actual Acrylic appearance on Windows 11 and final contrast against varied desktop backgrounds still require human review.
+The layout test also verifies navigation focus containment, recent-conversation popover bounds, dismissal and focus restoration, creating a task on the independent tasks page, immediate completion feedback and rollback after a rejected save. A renderer test simulates preload presence to check a translucent chat canvas, opaque controls, scrolling when home content exceeds the viewport, and an execution-records sheet that preserves composer bounds. Desktop smoke samples captured alpha values for opaque global navigation/composer and the translucent chat caption, canvas and dock, including after maximize/restore and resizing. Alpha capture briefly shows the isolated smoke window without activating it, waits for finite UI animations and painted frames, then restores its hidden state. Chromium can flatten a hidden backdrop-filter surface to opaque pixels, so hidden capture cannot establish visible-window transparency. Native appearance tests retain coverage of rounded-corner options, Windows host configuration and the Windows 11 22H2 material guard. `workspace-polish.spec.ts` checks scroll-triggered catalog batches, idle behavior, searching beyond 300 entries, independent run-record scrolling, retained drafts, focus restoration, equal-height transparent header controls and menu-animation endpoints without position jumps. Shared Select/Popover/Dropdown primitives resolve to the same Radix dismissal layer to preserve nested Escape handling. `ui-transitions.spec.ts` covers dark first launch, saved light theme, theme-aware wordmark, preload hydration, keyboard focus, sheet transitions and reduced motion. `settings-layout.spec.ts` verifies persisted default-model readiness, clearing the selection, rejected writes, unknown status on read failure, preservation of unrelated preferences, field retention across tabs and compact layouts. `chat-lifecycle.spec.ts` exercises recent-conversation date groups, long titles, keyboard menus, rename and confirmed deletion at desktop and compact widths.
+
+## Test stability and failure diagnostics
+
+Browser tests use zero retries. The first failing attempt retains its Playwright trace and screenshot, rather than waiting for a retry to collect evidence. Each run writes `test-results/e2e-<UUID>/results.json`, attachments under that run's `artifacts/` directory, and an HTML report under `playwright-report/e2e-<UUID>/`. Reports do not open automatically. The run ID and origin are recorded in report metadata. The serialized web-server configuration contains only explicit test overrides, never a copy of the inherited process environment; Playwright performs normal environment inheritance when launching the server. A synthetic-secret regression protects that boundary. Open a trace with `npx playwright show-trace <trace.zip>` or a report with `npx playwright show-report playwright-report/e2e-<UUID>`. CI uploads these report trees after failure with seven-day retention; it does not upload the isolated workspace database, encrypted settings or browser profile.
+
+Isolated HTTP fixtures capture stdout/stderr through the existing bounded desktop log sink, including split-line credential redaction. A failed startup includes the exit code or signal and up to 8,000 characters of the redacted log tail. Startup failures and failed-test fixture teardown attach the redacted server log before deleting their temporary workspace. Logs are capped at 256 KiB plus one rotated archive. A server that cannot be stopped keeps its workspace and reports failure rather than deleting data beneath a live process. The diagnostic fixtures use synthetic data; traces and screenshots are test evidence, not general-purpose production support exports.
+
+`npm run test:e2e:diagnostics` deliberately fails one nested, isolated Chromium test and requires exactly one attempt, a readable trace ZIP, a PNG screenshot, JSON/HTML reports, and a redacted server-log attachment from failed fixture teardown. The outer test passes only when those artifacts exist. It uses the installed Playwright browser, temporary fixtures and local SQLite; it needs no live provider keys. CI runs it after installing Chromium, and `npm test` includes it. `tests/e2e/server-diagnostics.spec.ts` additionally verifies startup failure evidence and redaction through the real isolated-server helper.
+
+The desktop cancellation regression waits for an actual live fixture worker while health is still unavailable, then cancels startup and requires both launcher and worker to exit. It no longer assumes the worker starts within 400 ms. Scheduler registration/restart tests likewise wait for persisted completion, require one execution record and await subsequent explicit polls instead of assuming work finishes within 150 ms; timer ownership is checked on repeated registration. Schema checks each own a `ria-schema-check-*` directory in the system temporary directory, close SQLite even after migration failure and remove only their directory. Real subprocess regressions cover simultaneous checks and failure cleanup. This allows lint and schema validation to run together without deleting a directory ESLint is traversing.
+
+Run-specific workspace and report paths prevent stale data or diagnostics from a previous browser run being reused. They do not isolate `.next` and `.desktop-runtime`: builds and full browser runs sharing one checkout must still run sequentially, as described above. An OS-selected port is checked again by Playwright's web-server startup; an intervening process taking it produces a startup failure, not a reused foreign service. Local report and test-workspace directories remain available for inspection; remove old runs when no longer needed. Desktop tracing, runtime preparation and package verification exclude/reject browser diagnostic directories so test reports cannot enter the shipped runtime.
+
+## Knowledge topic and artifact validation
+
+`tests/server/knowledge-topics.test.ts` verifies authenticated topic configuration, exact scoped retrieval, immutable conversation defaults, citation snapshots, idempotent paid request IDs, insufficient evidence, invalid citations, provider failure, cancellation/concurrent deletion, obsolete topic/document work, interruption recovery, export contracts and backup remapping/old archive defaults.
+
+`tests/e2e/knowledge-topics.spec.ts` exercises topic creation, index status, hybrid retrieval, a scoped conversation, confirmed artifact generation through the real SDK adapter against an offline HTTP fixture, downloads, topic updates, service restart, deletion and explicit load-failure recovery. Desktop and 390-pixel screenshots are saved outside the repository to the system temporary `ria-knowledge-topics-qa` directory. The Browser plugin is not available; validation uses the project's Playwright harness. Fixtures establish application transport/lifecycle behavior, not live-provider reasoning quality.
+
+Run database and desktop upgrade tests for the additive migration. Keep production builds/browser runs sequential with desktop runtime verification or smoke testing, because they share `.next` and `.desktop-runtime`.
+
+The shared-selector regressions exercise repeated trigger clicks and touch taps at desktop and compact widths, require dismissal without a value change or write, verify focus restoration and Enter/Escape handling, and confirm that keyboard selection still changes the value. The saved-model list regression verifies that descriptions are omitted from both lists but still match catalog searches. Catalog price checks cover USD per million tokens, free and missing prices, original non-token units, and desktop/compact layouts. `catalog-pricing.test.ts` verifies scale conversion, very small positive rates, malformed values and unknown billing units.
+
+Media price regressions in `media-catalog-pricing.test.ts` cover image units/providers/variants, cent conversion, video-token scaling, minimum charges, unknown and invalid units, bounded trusted-host endpoint discovery and cancellation. `model-management.test.ts` checks upgrading old media snapshots, persistence, model addition and preserving prior quotes after endpoint failure. `media-pricing.spec.ts` verifies all price details, popup dismissal/focus, mobile overflow and usage drawer batches/filtering at desktop and 390px widths. `model-call-usage.spec.ts` verifies the drawer against real locally recorded calls and keeps unsaved model limits intact. Browser plugin unavailable; these checks use the repository’s Playwright harness.
+
+`window-transitions.test.ts` checks deferred native actions, maximize coalescing, queued close priority, tray-compatible close guards, renderer failure/timeout and teardown cleanup. The caption-click acceptance check still exercises trusted native mouse input rather than synthetic DOM clicks. Native transition QA must also check minimize/restore, maximize/unmaximize, close-to-tray/reopen, quit and reduced motion in the real Electron window.
+
+Browser acceptance follows the current disclosure controls: open recent conversations before paging/selecting them, select “自动化与通知” before checking scheduled history/reviews (including after reload), and open the model usage drawer before asserting recorded fallback charges. Conversation selectors distinguish the primary conversation button from its action menu; all persistence, ownership and billing assertions remain in place.

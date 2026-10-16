@@ -25,7 +25,7 @@ if (resolve(runtimeDirectory) !== expectedRuntimeDirectory || dirname(runtimeDir
 }
 
 // Fail before copying or replacing anything if tracing captured development/user data.
-for (const forbidden of [".desktop-data", ".desktop-runtime", ".git", "out"]) {
+for (const forbidden of [".desktop-data", ".desktop-runtime", ".git", "out", "test-results", "playwright-report"]) {
   if (existsSync(join(standaloneDirectory, forbidden))) {
     throw new Error(`Standalone output contains ${forbidden}; fix runtime file tracing before preparing a desktop bundle.`);
   }

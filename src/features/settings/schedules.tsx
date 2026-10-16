@@ -1,4 +1,5 @@
 "use client";
+import { SelectField, SelectOption } from "@/components/ui/select";
 
 import { useCallback, useEffect, useState } from "react";
 import { CalendarClock, Loader2, Trash2 } from "lucide-react";
@@ -190,16 +191,16 @@ export function ScheduleSettings() {
 
         <form className="space-y-2 rounded-md border border-dashed border-border p-3" onSubmit={create}>
           <div className="flex flex-wrap items-center gap-2">
-            <select
+            <SelectField
               aria-label={t("settings.schedules.kindLabel")}
               className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-              onChange={(event) => setKind(event.target.value as (typeof KINDS)[number])}
+              onValueChange={(value) => setKind(value as (typeof KINDS)[number])}
               value={kind}
             >
               {KINDS.map((option) => (
-                <option key={option} value={option}>{t(`settings.schedules.kind.${option}` as never)}</option>
+                <SelectOption key={option} value={option}>{t(`settings.schedules.kind.${option}` as never)}</SelectOption>
               ))}
-            </select>
+            </SelectField>
             <Input
               aria-label={t("settings.schedules.timeLabel")}
               className="w-28"
@@ -207,26 +208,26 @@ export function ScheduleSettings() {
               type="time"
               value={localTime}
             />
-            <select
+            <SelectField
               aria-label={t("settings.schedules.intervalLabel")}
               className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-              onChange={(event) => setInterval(event.target.value as "daily" | "weekly")}
+              onValueChange={(value) => setInterval(value as "daily" | "weekly")}
               value={interval}
             >
-              <option value="daily">{t("settings.schedules.daily")}</option>
-              <option value="weekly">{t("settings.schedules.weekly")}</option>
-            </select>
+              <SelectOption value="daily">{t("settings.schedules.daily")}</SelectOption>
+              <SelectOption value="weekly">{t("settings.schedules.weekly")}</SelectOption>
+            </SelectField>
             {interval === "weekly" ? (
-              <select
+              <SelectField
                 aria-label={t("settings.schedules.weekdayLabel")}
                 className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-                onChange={(event) => setDayOfWeek(Number(event.target.value))}
+                onValueChange={(value) => setDayOfWeek(Number(value))}
                 value={dayOfWeek}
               >
                 {WEEKDAYS.map((day) => (
-                  <option key={day} value={day}>{t(`settings.schedules.weekday.${day}` as never)}</option>
+                  <SelectOption key={day} value={day}>{t(`settings.schedules.weekday.${day}` as never)}</SelectOption>
                 ))}
-              </select>
+              </SelectField>
             ) : null}
           </div>
           <div className="flex items-center gap-2">

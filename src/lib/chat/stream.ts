@@ -8,7 +8,9 @@ import type { ModelMessage } from "ai";
 import { createUIMessageStream, createUIMessageStreamResponse, generateId, stepCountIs, streamText } from "ai";
 import { persistChatResponse, type ChatPersistence } from "@/lib/chat/persistence";
 import type { ChatRequest } from "@/lib/chat/request";
+import type { DocumentDiagnostics } from "@/lib/documents/diagnostics";
 import type { DocumentSource } from "@/lib/documents/types";
+import { markDocumentCitations } from "@/lib/documents/references";
 import { retainDataOperation } from "@/lib/server/data-operations";
 import { addRunCost, finishRun, runStillAllowsStep, runStepCeiling } from "@/lib/agent/runs";
 import { usageCost } from "@/lib/models/usage";
@@ -52,8 +54,9 @@ async function costOfTurn(params: { usage: unknown; providerMetadata: unknown; m
   }
 }
 
-export async function streamChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; documentSources?: DocumentSource[]; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean }) {
+export async function streamChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; documentSources?: DocumentSource[]; documentDiagnostics?: DocumentDiagnostics; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean }) {
   const { input, conversation, systemPrompt, modelMessages, toolsEnabled, signal } = params;
+  let answerText = "";
   const { modelRef, body, messages } = input;
   const { chat } = conversation;
   if (toolsEnabled && input.model?.supportsTools !== true) {
@@ -90,7 +93,7 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
   // in its own request; a provider with no such notion contributes nothing and
   // the call goes out exactly as before.
   const providerOptions = getModelProvider(modelRef.providerId).reasoningOptions?.(input.reasoning);
-  const tools = toolsEnabled ? await createChatToolSet({ modelRef, runId, usesMemory: params.usesMemory !== false, documentCollections: decodeDocumentScope(chat.documentScope) }) : undefined;
+  const tools = toolsEnabled ? await createChatToolSet({ modelRef, runId, toolIds: input.assistant?.tools, usesMemory: params.usesMemory !== false, documentCollections: decodeDocumentScope(input.conversationPolicy?.documentScope ?? chat.documentScope), documentRetrievalPolicy: input.assistant?.retrieval }) : undefined;
   const result = withModelCallSource("chat", () => streamText({
     model: getChatModel(modelRef),
     ...(providerOptions ? { providerOptions } : {}),
@@ -98,6 +101,7 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
     system: systemPrompt,
     messages: modelMessages,
     abortSignal: signal,
+    onChunk: ({ chunk }) => { if (chunk.type === "text-delta") answerText += chunk.text; },
     ...(toolsEnabled
       ? {
         tools,
@@ -140,7 +144,8 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
     generateMessageId: generateId,
     onError: (error) => streamError(error instanceof ApiError ? error : new ApiError({ code: "UPSTREAM_FAILED", message: t("lib.chat.providerUnavailable") })),
     originalMessages: messages,
-    messageMetadata: ({ part }) => part.type === "start" ? { documentSources: params.documentSources ?? [] } : undefined,
+    messageMetadata: ({ part }) => part.type === "start" ? { documentSources: params.documentSources ?? [], documentDiagnostics: params.documentDiagnostics }
+      : part.type === "finish" ? { documentSources: markDocumentCitations(params.documentSources ?? [], answerText), documentDiagnostics: params.documentDiagnostics } : undefined,
     onFinish: async ({ responseMessage, isAborted }) => {
       // A stopped turn never reaches the generator's finish, so this is what
       // closes it. The cost is unknown rather than zero: the provider never
@@ -150,6 +155,7 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
       await persistChatResponse({
         input, conversation, responseMessage, isAborted, generationFailed,
         documentSources: params.documentSources,
+        documentDiagnostics: params.documentDiagnostics,
         unavailableTools: params.unavailableTools,
         usesMemory: params.usesMemory !== false,
       });

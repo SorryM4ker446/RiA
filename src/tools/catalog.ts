@@ -1,3 +1,4 @@
+import type { RetrievalPolicy } from "@/lib/assistants/schema";
 import { withModelCallSource } from "@/lib/models/call-context";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { generateText, Output, type ToolSet } from "ai";
@@ -44,6 +45,7 @@ type ToolExecutionContext<Input> = {
   trigger: ToolTriggerType;
   signal?: AbortSignal;
   documentCollections?: string[];
+  documentRetrievalPolicy?: RetrievalPolicy;
   usesMemory?: boolean;
 };
 
@@ -443,7 +445,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       ],
     },
     inputSchema: searchKnowledgeInputSchema,
-    execute: async ({ input, documentCollections, usesMemory, signal }) => searchKnowledge(input, { collections: documentCollections, usesMemory, signal }),
+    execute: async ({ input, documentCollections, documentRetrievalPolicy, usesMemory, signal }) => searchKnowledge(input, { collections: documentCollections, policy: documentRetrievalPolicy, usesMemory, signal }),
     buildAssistantText: async ({ output, modelRef, signal }) =>
       buildSearchAssistantText({
         result: output,
@@ -897,10 +899,10 @@ async function skipReasonFor(toolId: string, error: unknown): Promise<ToolSkipRe
   return null;
 }
 
-export async function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: string[]; runId?: string | null; usesMemory?: boolean; documentCollections?: string[] }): Promise<ToolSet> {
+export async function createChatToolSet(options?: { modelRef?: ModelRef; toolIds?: string[]; runId?: string | null; usesMemory?: boolean; documentCollections?: string[]; documentRetrievalPolicy?: RetrievalPolicy }): Promise<ToolSet> {
   const workspaceId = LOCAL_WORKSPACE_ID;
   const allowed = new Set(options?.toolIds ?? []);
-  const hasRestriction = allowed.size > 0;
+  const hasRestriction = options?.toolIds !== undefined;
   const resultBudgetUsed = new Map<string, number>();
   const runId = options?.runId ?? null;
   // An unconfigured optional tool is filtered out here rather than mounted and
@@ -1107,6 +1109,7 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; toolIds
               trigger: "auto",
               signal,
               documentCollections: options?.documentCollections,
+              documentRetrievalPolicy: options?.documentRetrievalPolicy,
               usesMemory: options?.usesMemory,
             });
           } catch (error) {

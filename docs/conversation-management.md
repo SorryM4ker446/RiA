@@ -1,13 +1,13 @@
 # Conversation management
 
-Open **管理会话** from the chat sidebar. Browser and Electron share the same page and authenticated APIs. No search service, model key or paid API call is needed.
+Open **管理会话** from the workspace navigation or the **最近会话** popover. Browser and Electron share the same page and authenticated APIs. No search service, model key or paid API call is needed.
 
 ## Organizing history
 
 - Search matches literal fragments in conversation titles and all stored message text, including older messages outside the loaded chat page. Enter 2–200 characters and submit **搜索 / 筛选**. Search returns conversations, not individual message locations; use **加载更早消息** to read older history after opening one.
 - Pinned conversations appear first, followed by last-message time and ID. Metadata edits do not change the last-message time.
 - Tags are normalized with Unicode NFKC, trimmed and lowercased. Each conversation supports eight tags of up to 32 characters. Commas/control characters are invalid; duplicate normalized tags collapse into one. Tag filtering matches a complete tag.
-- Archived conversations disappear from the default sidebar and can be searched with **已归档** or **全部**. **恢复并打开** makes one active again. Archiving does not delete messages or revoke API access. It does not make a conversation read-only or stop its independent tasks/reminders.
+- Archived conversations disappear from the default recent-conversation list and can be searched with **已归档** or **全部**. **恢复并打开** makes one active again. Archiving does not delete messages or revoke API access. It does not make a conversation read-only or stop its independent tasks/reminders.
 - Select up to 50 loaded conversations to delete. The confirmation dialog lists exactly those titles. Changing filters or refreshing clears selection. Deletion is irreversible; an invalid, missing or foreign ID rejects the entire batch without deleting any conversation. Shared media references are retained, and unreferenced files still require the separate storage-cleanup confirmation.
 
 The manager loads 30 conversations at a time. Pinning, archiving and new messages can move rows between requests, so refresh to see concurrent changes. A loaded page is not a frozen snapshot; changes from another browser window are not pushed live.
@@ -43,6 +43,10 @@ Queries of three or more Unicode characters use case-insensitive trigram matchin
 FTS tables/triggers are intentionally managed by SQL migrations, outside the Prisma schema models. Keep them when reviewing generated migrations or introspection changes. Indexes duplicate searchable text inside the private database and increase its size; they contain the same private message content as the source records. Do not copy them to a public directory.
 
 Desktop startup backs up an existing database before applying pending migrations. Local Web migration commands do not create that backup automatically: back up an existing database before migration. Automatic tests use isolated databases, media and download directories. They verify legacy backfill, punctuation/Chinese search, archive restoration, atomic deletion, export boundaries, authenticated browser downloads and actual Electron downloads after a service restart. Installer upgrade/uninstall/reinstall acceptance remains a separate release check.
+
+## Recent conversations
+
+The **最近会话** header popover groups the loaded conversations into pinned, today, yesterday, recent seven days and older sections. Each row shows its title, message count and time; its menu contains rename and delete, with deletion still requiring confirmation. The popover initially shows five conversations, keeps the existing expand and load-more controls, and links to the full management page. Its count describes loaded conversations rather than the total stored in the database.
 
 ## Unsent drafts
 
@@ -83,3 +87,5 @@ original messages. Desktop startup snapshots existing data before this migration
 Versioned summaries survive portable restore with remapped message identities;
 legacy or inconsistent summary evidence is discarded and can be recomputed later.
 This is compression invalidation, not deletion of the conversation history.
+
+The popover starts closed, opens without resizing the transcript or composer, and supports Escape and outside-click dismissal with keyboard focus restoration. Selecting a conversation closes it. A nested row menu consumes Escape before the outer popover; cancelling a rename retains the list. Export actions on management cards use the same icon-and-button treatment as the other secondary actions.

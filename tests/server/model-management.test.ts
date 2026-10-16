@@ -417,10 +417,8 @@ test("dynamic catalog snapshots preserve stale data and explicit membership cont
   // Only one row is actually malformed: an id past the 200-character bound.
   assert.equal(openrouterCatalog(invalidImage).image.skipped, 1);
   assert.equal(openrouterCatalog(invalidImage).image.models.some(row => row.modelId === "acme/paint"), true);
-  // `acme/price` has over-long pricing keys, but nothing constrains their length
-  // and the value is sliced rather than rejected, so it is a usable row. It was
-  // previously absent only because the whole fetch used to throw and serve a
-  // stale snapshot from before that row existed.
+  // Over-long legacy price keys/values are omitted without rejecting a usable
+  // model. Structured media quotes are independent of that library price map.
   assert.equal(openrouterCatalog(invalidImage).image.models.some(row => row.modelId === "acme/price"), true);
   // The one genuinely malformed row is the only thing dropped.
   assert.equal(openrouterCatalog(invalidImage).image.models.some(row => row.modelId.startsWith("acme/xxx")), false);
@@ -455,6 +453,38 @@ test("dynamic catalog snapshots preserve stale data and explicit membership cont
   assert.equal(openrouterCatalog(delistedCatalog).chat.models.some(row=>row.modelId===CHAT_MODEL_REF.modelId),false);
   assert.deepEqual((await payload(await models.GET(req("/api/models")))).availability[`openrouter:${CHAT_MODEL_REF.modelId}`],{state:"notInCatalog",reason:null});
 });
+test("media prices upgrade cached catalogs, survive reloads and retain prior quotes after endpoint failure", async t => {
+  const { getCatalog } = await import("@/lib/models/catalog");
+  let reads = 0, failure = false, empty = false;
+  await storeSnapshot("image", [catalogRow("price-fixture/image", ["image"])]);
+  t.mock.method(globalThis, "fetch", async input => {
+    reads++;
+    if (String(input).endsWith("/images/models")) return Response.json({ data: [{ id: "price-fixture/image" }] });
+    return failure ? new Response("failed", { status: 503 }) : Response.json({ endpoints: [{ provider_name: "Fixture", pricing: empty ? [] : [{ billable: "output_image", unit: "image", cost_usd: 0.04, variant: "2k" }] }] });
+  });
+  const upgraded = await getCatalog("openrouter", "image");
+  assert.equal(upgraded.source, "live");
+  const prior = upgraded.models[0].priceInfo;
+  assert.equal(prior.rates[0].costUsd, "0.04");
+  assert.equal(reads, 2);
+  const cached = await getCatalog("openrouter", "image");
+  assert.equal(cached.source, "cache");
+  assert.deepEqual(cached.models[0].priceInfo, prior);
+  assert.equal(reads, 2);
+  const added = await (await import("@/lib/models/preferences")).addModel(ref("price-fixture/image"));
+  assert.equal(added.data.modelId, "price-fixture/image");
+  assert.equal("priceInfo" in added.data, false);
+  failure = true;
+  const failed = await getCatalog("openrouter", "image", true);
+  assert.equal(failed.models.length, 1);
+  assert.deepEqual(failed.models[0].priceInfo, { ...prior, error: true });
+  assert.deepEqual((await getCatalog("openrouter", "image")).models[0].priceInfo, { ...prior, error: true });
+  failure = false; empty = true;
+  const cleared = await getCatalog("openrouter", "image", true);
+  assert.equal(cleared.models[0].priceInfo.rates.length, 0);
+  assert.equal(cleared.models[0].priceInfo.error, false);
+});
+
 test("a provider-searching model is recognised from the catalog rather than left to the invoice",async()=>{
   await storeSnapshot("chat",[
     {...catalogRow("acme/online-search",["chat"]),providerSearch:true},

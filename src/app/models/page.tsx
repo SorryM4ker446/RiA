@@ -1,24 +1,26 @@
 "use client";
+import { SelectField, SelectOption } from "@/components/ui/select";
 import Link from "next/link";
 import { BackToChatLink } from "@/components/layout/back-to-chat-link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { CatalogResults } from "@/features/models/catalog-results";
+import { UsageHistory, sourceNames, type UsageRow } from "@/features/models/usage-history";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { settingsRequest, jsonRequest } from "@/features/settings/api-client";
 import { libraryModes, modelModes, modelRefKey, type ModelLibraryItem, type ModelPreferences, type ModelRef, type GenerationMode, type LibraryMode } from "@/lib/models/preferences-schema";
 import type { LibraryAvailability, ModelAvailability } from "@/lib/models/availability";
+import type { CatalogModel } from "@/lib/models/providers/types";
 import { formatDateTime, t, tf } from "@/lib/locale";
 
-type UsageRow = { id: string; source: string; estimatedUsd: number | null; modelId: string; modelProvider: string; mode: string; status: string; durationMs: number; inputTokens: number | null; outputTokens: number | null; costUsd: number | null; costSource: string; fallback: boolean; errorCode: string | null; createdAt: string };
 type Usage = { controls?: ModelPreferences["callLimits"] & { day: string; calls: number; estimatedUsd: number; active: number }; recent: UsageRow[]; totals: { requests: number; inputTokens: number | null; outputTokens: number | null; costUsd: number | null; unknownCostRequests: number } };
-type CatalogModel = Omit<ModelLibraryItem, "addedAt" | "lastSeenAt">;
 type CatalogState = { models: CatalogModel[]; fetchedAt: string | null; stale: boolean; source: "live" | "cache" | "empty"; error: string | null; failure: string | null; skipped: number };
 type ProviderSummary = { providerId: string; displayName: string; configured: boolean };
 type EmbeddingSummary = { total: number; stale: number; embedding: string | null };
 const modeNames: Record<LibraryMode, string> = { chat: t("models.mode.chat"), image: t("models.mode.image"), video: t("models.mode.video"), embedding: t("models.mode.embedding") };
-const sourceNames: Record<string, string> = { chat: "聊天", summary: "历史摘要", scheduled: "定时回顾", tool: "工具综合", embedding: "嵌入", media: "媒体生成", unattributed: "来源未记录" };
 const cost = (value: number | null) => value === null ? t("models.unknown") : `$${value.toFixed(6)}`;
 // Radix reserves the empty string for "no selection" and throws if an item
 // declares it, so "not configured" needs a value that cannot collide with a
@@ -35,6 +37,8 @@ const fromSelectValue = (value: string): ModelRef | null => {
 export default function ModelsPage() {
   const [settings, setSettings] = useState<ModelPreferences | null>(null), [usage, setUsage] = useState<Usage | null>(null);
   const [usageSource, setUsageSource] = useState("all");
+  const [usageError, setUsageError] = useState("");
+  const changeUsageSource = (value: string) => { if (value !== usageSource) { setUsage(null); setUsageError(""); setUsageSource(value); } };
   const [catalogMode, setCatalogMode] = useState<LibraryMode>("chat");
   // The catalog is browsed one provider at a time. Two entries with the same
   // model id are different models, so mixing them into one list would hide
@@ -62,8 +66,8 @@ export default function ModelsPage() {
   useEffect(() => {
     const controller = new AbortController();
     settingsRequest<{ data: Usage }>(usageSource === "all" ? "/api/usage" : `/api/usage?source=${usageSource}`, { signal: controller.signal })
-      .then(history => { if (!controller.signal.aborted) setUsage(history.data); })
-      .catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "读取用量失败"); });
+      .then(history => { if (!controller.signal.aborted) { setUsage(history.data); setUsageError(""); } })
+      .catch(cause => { if (!controller.signal.aborted) setUsageError(cause instanceof Error ? cause.message : "读取用量失败"); });
     return () => controller.abort();
   }, [usageSource]);
   const loadCatalog = useCallback(async (providerId: string, mode: LibraryMode, force = false) => {
@@ -97,7 +101,7 @@ export default function ModelsPage() {
     if (settings.embedding) refs.push(settings.embedding);
     return [...new Set(refs.map(ref => modelRefKey(ref)))];
   }, [settings]);
-  const filteredModels = useMemo(() => (activeCatalog?.models ?? []).filter(item => `${item.modelId} ${item.name} ${item.description}`.toLowerCase().includes(query.toLowerCase())).slice(0, 300), [activeCatalog, query]);
+  const filteredModels = useMemo(() => (activeCatalog?.models ?? []).filter(item => `${item.modelId} ${item.name} ${item.description}`.toLowerCase().includes(query.toLowerCase())), [activeCatalog, query]);
   const added = useMemo(() => new Set(settings?.library.map(item => modelRefKey(item)) ?? []), [settings]);
   function updateSettings(next: ModelPreferences) { setSettings(next); }
   const providerName = (providerId: string) => providers.find(provider => provider.providerId === providerId)?.displayName ?? providerId;
@@ -125,17 +129,26 @@ export default function ModelsPage() {
     setNotice(tf("models.notice.embeddingReindexed", { reindexed: response.data.reindexed, remaining: response.data.remaining }));
     setEmbeddings(current => current ? { ...current, stale: response.data.remaining } : current);
   }
-  return <main className="mx-auto max-w-6xl space-y-8 px-4 py-8">
-    <header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-semibold tracking-headline">{t("models.title")}</h1><p className="mt-2 text-sm text-muted-foreground">{t("models.description")}</p></div><BackToChatLink /></header>
+  return <main className="mx-auto flex max-w-6xl flex-col gap-7">
+    <header className="workspace-page-header"><div><h1>{t("models.title")}</h1><p className="mt-2 text-sm text-muted-foreground">{t("models.description")}</p></div><BackToChatLink /></header>
+    <nav className="models-section-nav" aria-label="模型页面分区">
+      <a href="#model-library">我的模型</a><a href="#model-catalog">官方目录</a><a href="#model-preferences">默认与调用设置</a><a href="#model-usage">用量记录</a>
+    </nav>
     <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{t("models.sourceNote")}</p>
     {error && <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-sm text-destructive shadow-hairline">{error}</p>}{notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}{warnings.map(warning => <p role="alert" key={warning} className="break-words rounded-lg bg-warning/5 p-3 text-sm text-warning shadow-hairline">{warning}</p>)}
     {settings && <>
-      <section className="space-y-4 rounded-lg bg-card p-5 shadow-card" aria-label={t("models.libraryLabel")}><div><h2 className="text-lg font-semibold tracking-title">{t("models.libraryTitle")}</h2><p className="text-sm text-muted-foreground">{t("models.libraryDescription")}</p><p className="text-xs text-muted-foreground">{t("models.availability.note")}</p></div>
-        {settings.library.length ? <ul className="grid gap-3 md:grid-cols-2">{settings.library.map(item => <li key={`${item.providerId}:${item.modelId}`} className="animate-row-in min-w-0 rounded-lg bg-elevated p-3 shadow-hairline transition-[box-shadow,transform] duration-[--dur-base] ease-[--ease-out] hover:-translate-y-px hover:shadow-card"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h3 className="break-all font-medium tracking-label">{item.name}</h3><p className="break-all font-mono text-xs text-muted-foreground">{item.modelId}</p><p className="mt-1 text-xs text-muted-foreground">{`${t("models.providerLabel")}: ${providerName(item.providerId)}`}</p>{item.description && <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{item.description}</p>}<div className="mt-2 flex flex-wrap gap-1 text-xs">{item.modes.map(mode => <span className="rounded-full bg-muted px-2 py-0.5" key={mode}>{modeNames[mode]}</span>)}{item.supportsImageInput && <span className="rounded-full bg-muted px-2 py-0.5">{t("models.badge.imageInput")}</span>}{item.modes.includes("image") && <span className="rounded-full bg-muted px-2 py-0.5">{tf("models.badge.imageEndpoint", { status: item.endpointImageInput === null ? t("models.badge.endpointUnverified") : item.endpointImageInput ? t("models.badge.endpointCompatible") : t("models.badge.endpointIncompatible") })}</span>}{item.supportsTools && <span className="rounded-full bg-muted px-2 py-0.5">{t("models.badge.tools")}</span>}<span className={availabilityBadgeClass(availability[modelRefKey(item)]?.state)}>{availabilityLabel(availability[modelRefKey(item)]?.state)}</span>{item.providerSearch && <span className="rounded-full bg-warning/15 px-2 py-0.5 text-warning">{t("models.badge.providerSearch")}</span>}</div></div><Button variant="outline" size="sm" disabled={busy} onClick={() => void run(async () => { const result = await settingsRequest<{ data: ModelPreferences }>("/api/models/library", jsonRequest("POST", { action: "remove", model: { providerId: item.providerId, modelId: item.modelId } })); updateSettings(result.data); setNotice(tf("models.removedFromLibrary", { modelId: item.modelId })); })}>{t("models.remove")}</Button></div></li>)}</ul> : <p className="empty-state !p-4 !text-left">{t("models.libraryEmpty")}</p>}
+      <section id="model-library" className="models-section flex flex-col gap-4 rounded-xl bg-card p-6 shadow-card" aria-label={t("models.libraryLabel")}><div className="flex flex-col gap-2"><h2 className="text-lg font-semibold tracking-title">{t("models.libraryTitle")}</h2></div>
+        {settings.library.length ? <ul className="flex flex-col gap-2">{settings.library.map(item => <li key={`${item.providerId}:${item.modelId}`} className="catalog-library-row min-w-0 rounded-lg p-3 transition-colors hover:bg-muted/50"><div className="flex items-start justify-between gap-3"><div className="min-w-0 flex-1"><h3 className="break-all font-medium tracking-label">{item.name}</h3><p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"><span className="break-all font-mono">{item.modelId}</span><span>{providerName(item.providerId)}</span></p><div className="mt-2 flex flex-wrap gap-1 text-xs">{item.modes.map(mode => <span className="rounded-full bg-muted px-2 py-0.5" key={mode}>{modeNames[mode]}</span>)}{item.supportsImageInput && <span className="rounded-full bg-muted px-2 py-0.5">{t("models.badge.imageInput")}</span>}{item.modes.includes("image") && <span className="rounded-full bg-muted px-2 py-0.5">{tf("models.badge.imageEndpoint", { status: item.endpointImageInput === null ? t("models.badge.endpointUnverified") : item.endpointImageInput ? t("models.badge.endpointCompatible") : t("models.badge.endpointIncompatible") })}</span>}{item.supportsTools && <span className="rounded-full bg-muted px-2 py-0.5">{t("models.badge.tools")}</span>}<span className={availabilityBadgeClass(availability[modelRefKey(item)]?.state)}>{availabilityLabel(availability[modelRefKey(item)]?.state)}</span>{item.providerSearch && <span className="rounded-full bg-warning/15 px-2 py-0.5 text-warning">{t("models.badge.providerSearch")}</span>}</div></div><Button variant="outline" size="sm" disabled={busy} onClick={() => void run(async () => { const result = await settingsRequest<{ data: ModelPreferences }>("/api/models/library", jsonRequest("POST", { action: "remove", model: { providerId: item.providerId, modelId: item.modelId } })); updateSettings(result.data); setNotice(tf("models.removedFromLibrary", { modelId: item.modelId })); })}>{t("models.remove")}</Button></div></li>)}</ul> : <p className="empty-state !p-4 !text-left">{t("models.libraryEmpty")}</p>}
       </section>
-      <section className="space-y-4 rounded-lg bg-card p-5 shadow-card" aria-label={t("models.catalogLabel")}><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold tracking-title">{t("models.catalogTitle")}</h2><p className="text-sm text-muted-foreground">{t("models.catalogDescription")}</p></div><RefreshButton disabled={busy} onClick={() => void run(async () => { if (activeProvider) await loadCatalog(activeProvider, catalogMode, true); setNotice(t("models.notice.catalogRefreshed")); })} label={t("models.refreshCatalog")} /></div>
-        <div className="flex flex-wrap gap-2" role="tablist" aria-label={t("models.providerTabsLabel")}>{providers.map(provider => <Button key={provider.providerId} size="sm" variant={provider.providerId === activeProvider ? "default" : "outline"} onClick={() => { setQuery(""); setCatalogProvider(provider.providerId); }}>{provider.displayName}</Button>)}</div>
-        <div className="flex flex-wrap gap-2" role="tablist" aria-label={t("models.modeTabsLabel")}>{libraryModes.map(mode => <Button key={mode} size="sm" variant={mode === catalogMode ? "default" : "outline"} onClick={() => { setQuery(""); setCatalogMode(mode); }}>{modeNames[mode]}</Button>)}</div>
+      <section id="model-catalog" className="models-section flex flex-col gap-5 rounded-xl bg-card p-6 shadow-card" aria-label={t("models.catalogLabel")}><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-col gap-2"><h2 className="text-lg font-semibold tracking-title">{t("models.catalogTitle")}</h2><p className="text-sm leading-6 text-muted-foreground">{t("models.catalogDescription")}</p></div><RefreshButton disabled={busy} onClick={() => void run(async () => { if (activeProvider) await loadCatalog(activeProvider, catalogMode, true); setNotice(t("models.notice.catalogRefreshed")); })} label={t("models.refreshCatalog")} /></div>
+        <label className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">模型服务
+          <SelectField aria-label={t("models.providerTabsLabel")} value={activeProvider ?? ""} onValueChange={value => { setQuery(""); setCatalogProvider(value); }}>
+            {providers.map(provider => <SelectOption key={provider.providerId} value={provider.providerId}>{provider.displayName}</SelectOption>)}
+          </SelectField>
+        </label>
+        <Tabs value={catalogMode} onValueChange={value => { setQuery(""); setCatalogMode(value as LibraryMode); }} className="flex flex-col gap-5">
+        <TabsList aria-label={t("models.modeTabsLabel")}>{libraryModes.map(mode => <TabsTrigger key={mode} value={mode}>{modeNames[mode]}</TabsTrigger>)}</TabsList>
+        {libraryModes.map(mode => <TabsContent key={mode} value={mode} className="flex flex-col gap-4">{mode === catalogMode ? <>
         {/* A provider with no key cannot return a catalog, and saying so beats
             an empty list that looks like the provider offers nothing. */}
         {activeProvider && !providers.find(provider => provider.providerId === activeProvider)?.configured && <p className="text-sm text-warning">{tf("models.providerKeyMissing", { provider: providerName(activeProvider) })}</p>}
@@ -148,9 +161,13 @@ export default function ModelsPage() {
             is announced — it is already visible in the list below. */}
         {!activeCatalog?.error && (activeCatalog?.skipped ?? 0) > 0 && <p className="text-xs text-muted-foreground">{tf("models.notice.catalogSkipped", { count: activeCatalog!.skipped })}</p>}
         <p className="text-xs text-muted-foreground">{`${activeCatalog?.models.length ?? 0} ${t("models.catalog.countUnit")}${activeCatalog?.fetchedAt ? ` ${t("models.divider")} ${t("models.catalog.updatedAt")} ${formatDateTime(activeCatalog.fetchedAt)}` : ""}${activeCatalog?.stale ? ` ${t("models.divider")} ${t("models.catalog.cachedData")}` : ""} ${t("models.divider")} ${t("models.catalog.limit")}`}</p>
-        <ul className="divide-y rounded-lg bg-background shadow-hairline">{filteredModels.map(item => <li key={modelRefKey(item)} className="flex min-w-0 items-center justify-between gap-3 p-3"><div className="min-w-0"><p className="break-all font-medium tracking-label">{item.name}</p><p className="break-all font-mono text-xs text-muted-foreground">{`${item.modelId}${item.contextLength ? ` ${t("models.divider")} ${item.contextLength.toLocaleString()} context` : ""}${item.supportsImageInput ? ` ${t("models.divider")} ${t("models.catalog.imageInput")}` : ""}${item.supportsTools ? ` ${t("models.divider")} ${t("models.catalog.toolCall")}` : ""}`}</p>{item.description && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.description}</p>}{Object.keys(item.pricing).length > 0 && <p className="mt-1 break-words text-xs text-muted-foreground">{tf("models.catalog.pricing", { value: Object.entries(item.pricing).map(([key, value]) => `${key} ${value}`).join(" · ") })}</p>}</div><Button size="sm" variant={added.has(modelRefKey(item)) ? "outline" : "default"} disabled={busy || added.has(modelRefKey(item))} onClick={() => void run(() => addFromCatalog(item))}>{added.has(modelRefKey(item)) ? t("models.alreadyAdded") : t("models.add")}</Button></li>)}</ul>
+        <CatalogResults key={`${activeProvider}:${catalogMode}:${query}:${activeCatalog?.fetchedAt}`} models={filteredModels} added={added} busy={busy} onAdd={item => void run(() => addFromCatalog(item))} />
+        </> : null}</TabsContent>)}
+        </Tabs>
       </section>
-      <section className="space-y-4 rounded-lg bg-card p-5 shadow-card" aria-label={t("models.preferencesLabel")}><div className="flex items-center gap-3 text-sm"><span>{t("models.defaultModeLabel")}</span>
+      <section id="model-preferences" className="models-section flex flex-col gap-5 rounded-xl bg-card p-6 shadow-card" aria-label={t("models.preferencesLabel")}>
+        <div className="flex flex-col gap-2"><h2 className="text-lg font-semibold tracking-title">默认与调用设置</h2><p className="text-sm text-muted-foreground">选择各模式的默认模型，管理备用模型与调用限额。</p></div>
+        <div className="flex flex-wrap items-center gap-3 text-sm"><span>{t("models.defaultModeLabel")}</span>
         <Select disabled={busy} onValueChange={value => setSettings({ ...settings, defaultMode: value as GenerationMode })} value={settings.defaultMode}>
           <SelectTrigger aria-label={t("models.defaultModeLabel")} className="w-auto min-w-32"><SelectValue /></SelectTrigger>
           <SelectContent>{modelModes.map(mode => <SelectItem key={mode} value={mode}>{modeNames[mode]}</SelectItem>)}</SelectContent>
@@ -214,10 +231,10 @@ export default function ModelsPage() {
           </div>
         </fieldset>
         <details className="rounded-lg bg-background p-3 shadow-hairline"><summary className="cursor-pointer text-sm font-medium tracking-label">{t("models.ratesTitle")}</summary><p className="my-3 text-sm text-muted-foreground">{t("models.ratesDescription")}</p>{rateModels.map(id => <fieldset key={id} className="mb-3 grid gap-2 sm:grid-cols-3"><legend className="break-all font-mono text-xs text-muted-foreground">{id}</legend>{([ ["inputPerMillion", t("models.rateInputLabel")], ["cacheReadPerMillion", t("models.rateCacheReadLabel")], ["cacheWritePerMillion", t("models.rateCacheWriteLabel")], ["outputPerMillion", t("models.rateOutputLabel")], ["perRequest", t("models.rateRequestLabel")] ] as const).map(([key, label]) => <label key={key} className="text-xs">{label}<Input aria-label={`${id} ${label}`} type="number" step="any" min={0} value={settings.rates[id]?.[key] ?? ""} disabled={busy} onChange={event => changeRate(id, key, event.target.value)} /></label>)}</fieldset>)}</details>
-        <div className="flex gap-3"><Button disabled={busy} onClick={() => void run(async () => { await settingsRequest("/api/models", jsonRequest("PUT", settings)); setNotice(t("models.notice.preferencesSaved")); })}>{t("models.savePreferences")}</Button><RefreshButton disabled={busy} onClick={() => void run(async () => { await load(); const history = await settingsRequest<{ data: Usage }>(usageSource === "all" ? "/api/usage" : `/api/usage?source=${usageSource}`); setUsage(history.data); })} label={t("models.reloadUsage")} /></div>
+        <div className="flex gap-3"><Button disabled={busy} onClick={() => void run(async () => { await settingsRequest("/api/models", jsonRequest("PUT", settings)); setNotice(t("models.notice.preferencesSaved")); })}>{t("models.savePreferences")}</Button><RefreshButton disabled={busy} onClick={() => void run(async () => { await load(); const history = await settingsRequest<{ data: Usage }>(usageSource === "all" ? "/api/usage" : `/api/usage?source=${usageSource}`); setUsage(history.data); setUsageError(""); })} label={t("models.reloadUsage")} /></div>
       </section>
     </>}
-    <section className="space-y-3" aria-label={t("models.usageLabel")}><h2 className="text-lg font-semibold tracking-title">{t("models.usageTitle")}</h2><label className="flex items-center gap-2 text-sm">调用来源<select aria-label="调用来源" className="rounded border bg-background p-2" value={usageSource} onChange={event => setUsageSource(event.target.value)}><option value="all">全部来源</option>{Object.entries(sourceNames).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><dl className="flex flex-wrap gap-2">
+    <section id="model-usage" className="models-section flex flex-col gap-5 rounded-xl bg-card p-6 shadow-card" aria-label={t("models.usageLabel")}><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold tracking-title">{t("models.usageTitle")}</h2><UsageHistory rows={usage?.recent} source={usageSource} onSourceChange={changeUsageSource} error={usageError} /></div><label className="flex items-center gap-3 text-sm">调用来源<SelectField aria-label="调用来源" value={usageSource} onValueChange={changeUsageSource}><SelectOption value="all">全部来源</SelectOption>{Object.entries(sourceNames).map(([value, label]) => <SelectOption key={value} value={value}>{label}</SelectOption>)}</SelectField></label>{usageError && <p role="alert" className="text-sm text-destructive">{usageError}</p>}<dl className="flex flex-wrap gap-2">
         {[
           { label: t("models.usage.calls"), value: `${usage?.totals.requests ?? 0} ${t("models.usage.times")}` },
           { label: t("models.usage.input"), value: `${usage?.totals.inputTokens ?? t("models.unknown")} Token` },
@@ -236,7 +253,6 @@ export default function ModelsPage() {
       </dl>
       <p className="text-xs text-muted-foreground">{t("models.usageNote")}</p>
       {usage?.controls && <p className="text-xs text-muted-foreground">预算日期 {usage.controls.day} · 进行中 {usage.controls.active}/{usage.controls.maxConcurrent} · 后台已领取 {usage.controls.calls}/{usage.controls.backgroundDailyCalls} 次 · 后台已领取预估 {cost(usage.controls.estimatedUsd)}。价格未配置的调用仍可能产生费用；领取额度不会在失败或取消后返还。</p>}
-      <div className="overflow-x-auto rounded-lg bg-card shadow-card"><table className="w-full text-left text-sm"><thead><tr className="border-b bg-muted/50 text-xs uppercase tracking-label text-muted-foreground"><th className="p-3 font-medium">{t("models.thTime")}</th><th className="p-3">{t("models.thResult")}</th><th className="p-3">{t("models.thDuration")}</th><th className="p-3">{t("models.thTokens")}</th><th className="p-3">{t("models.thCost")}</th></tr></thead><tbody>{usage?.recent.map(row => <tr key={row.id} className="border-b transition-colors duration-[--dur-fast] last:border-0 hover:bg-muted/40"><td className="max-w-sm break-words p-3">{row.modelId}<br /><span className="text-xs text-muted-foreground">{row.modelProvider}</span><br /><span className="text-xs text-muted-foreground">{formatDateTime(row.createdAt)} · {row.mode} · {sourceNames[row.source] ?? "来源未记录"}</span></td><td className="p-3">{row.status === "pending" ? "进行中" : row.status === "interrupted" ? "进程中断" : row.status === "success" ? t("models.statusSuccess") : row.status === "aborted" ? t("models.statusAborted") : t("models.statusFailed")}{row.fallback ? t("models.statusFallback") : ""}<br /><span className="text-xs">{row.errorCode}</span></td><td className="whitespace-nowrap p-3">{row.durationMs} ms</td><td className="p-3">{row.inputTokens ?? t("models.unknown")} / {row.outputTokens ?? t("models.unknown")}</td><td className="whitespace-nowrap p-3">{cost(row.costUsd)}<br />{row.estimatedUsd != null && <span className="text-xs">调用前预估 {cost(row.estimatedUsd)}<br /></span>}<span className="text-xs text-muted-foreground">{row.costSource === "provider" ? t("models.costSourceProvider") : row.costSource === "configured" ? t("models.costSourceConfigured") : t("models.costSourceUnknown")}</span></td></tr>)}</tbody></table>{!usage?.recent.length && <p className="p-4 text-sm text-muted-foreground">{t("models.usageEmpty")}</p>}</div>
     </section>
   </main>;
 }

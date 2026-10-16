@@ -1,0 +1,8 @@
+ALTER TABLE "chats" ADD COLUMN "assistantConfig" JSONB;
+CREATE TABLE "assistant_templates" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "config" JSONB NOT NULL,
+  "revision" INTEGER NOT NULL DEFAULT 1,
+  "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" DATETIME NOT NULL
+);

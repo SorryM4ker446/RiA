@@ -6,6 +6,8 @@ Private AI Assistant is a local-first AI assistant built with Next.js, Vercel AI
 
 - Streaming, persisted multi-turn chat through OpenRouter
 - Local conversations, messages, memories, knowledge, and tasks
+- Built-in and custom assistant templates with persistent conversation snapshots, model binding, tool scope and retrieval policies
+- Knowledge retrieval diagnostics and exportable quality evaluations with optional model review of facts, conditions, exceptions, quantities, conflicts and refusals
 - Conversation text search, pinning, tags, archive, confirmed bulk deletion and Markdown/JSON export
 - Semantic knowledge retrieval with keyword fallback
 - PDF, Markdown, text and Word `.docx` knowledge import with local indexing and cited excerpts
@@ -30,6 +32,8 @@ Keep `.npmrc` and `vendor/` in the checkout when installing dependencies. The pr
 
 ## Local development server
 
+The interface groups navigation into daily work, reference material, and management. Shared controls support light and dark themes, keyboard focus, and short panel/menu transitions. New workspaces start in dark mode; a manually selected theme persists. The RiA wordmark uses the active theme’s text color. Recent conversations are grouped by pin status and local calendar date, with message counts, two-line titles, and a menu for rename/delete. Model catalogs reveal rows in batches while scrolling; form selectors use keyboard-accessible menus. Execution records open in a separate sheet. Settings group service/model configuration, application preferences, automation/notifications and directory permissions into tabs. The default chat model can be saved directly without restarting the local service; readiness reflects persisted workspace preferences. Recent conversations open in an animated popover rather than a fixed sidebar. The Windows chat canvas is translucent, with rounded window corners when restored. The system's reduced-motion preference disables nonessential animation. UI tokens and motion rules live in `src/app/globals.css`; reusable controls live in `src/components/ui/`.
+
 ```powershell
 npx --yes npm@11.19.1 ci
 npm run db:generate
@@ -45,6 +49,11 @@ API requests enforce input/size limits, consistent errors, local quotas and same
 Conversation and message history loads in bounded pages. See [Local integration API](docs/local-api.md) for cursor contracts and retrieval behavior, and [Model catalog maintenance](docs/model-catalog.md) for offline checks and intentional catalog updates.
 
 Open **管理会话** from the sidebar to search and organize history or download text snapshots. See [Conversation management](docs/conversation-management.md) for export privacy, limits and migration notes.
+
+Open **助理模板** to create or copy a working style and apply it to a conversation.
+See [Assistant templates](docs/assistant-templates.md). Knowledge preview and chat
+show retrieval diagnostics; **检索质量评测** compares expected documents and facts
+against actual evidence and optional model answers. See [Document knowledge](docs/document-knowledge.md).
 
 Open **备份与恢复** for portable workspace recovery, or **模型与用量** to refresh official OpenRouter catalogs, add allowed models, set defaults and review usage estimates. Backups are unencrypted and exclude the local access credential and provider keys; restore creates a safety backup before replacing business data. See [Workspace backups](docs/workspace-backups.md) and [Model settings and usage](docs/model-usage.md) for limits and safety rules.
 
@@ -111,9 +120,13 @@ See [Desktop development and release](docs/desktop.md) for data paths, security 
 
 Images, videos, and attachments use private file-backed media assets instead of inline message data. Open **媒体资源库** from the sidebar to browse, filter, inspect and download files, or confirm regeneration/deletion. Its disk-usage panel shares the existing **存储管理** cleanup controls. See [Media library](docs/media-library.md) for generation parameters and reference protection, and [Media storage and migration](docs/media-storage.md) for limits, legacy-data handling and backup requirements.
 
-Open **知识库管理** to import, update, search, reindex or delete document text. Import and document search are local; relevant snippets are sent to the configured model when chatting. See [Document knowledge](docs/document-knowledge.md) for supported formats, citations, retention and limits.
+Open **知识库管理** to preview and confirm document imports, update, search, reindex or delete document text. Word headings and table rows are retained as text; table chunks repeat headers to keep amounts and conditions interpretable. Imports and keyword indexing are local. Select an embedding model and explicitly build **语义索引** or use **批量构建或继续** to enable semantic + BM25 hybrid retrieval, with vectors stored in SQLite. Index maintenance reports stale/malformed vectors and old local indices; cancelled or failed operations can continue from saved batches. Indexing sends snippets to that provider; hybrid queries also call it and may incur costs. Chat receives versioned evidence with neighboring conditions and exceptions, and sources distinguish actual answer citations from unused references. See [Document knowledge](docs/document-knowledge.md) for setup, privacy, evaluation, upgrade notes and limits.
+
+Memory entries on the same page support local title/content search, all/confirmed/candidate filters, and previous/next navigation with 25 entries per page. Older entries remain accessible beyond the first 100. Search does not call an embedding model. Successful creates, edits, confirmations and deletions return the current search/filter to its first page because writes can change ordering or membership; failed edits retain their draft. If a write succeeds but its list refresh fails, the page explains that the write was saved and disables obsolete pagination until a refresh succeeds. Candidates remain excluded from model context until confirmed or edited.
 
 ## Project layout
+
+Open **知识专题** to bind document collections and a default assistant, start scoped conversations, and generate reports, plans or summaries with versioned citations. Artifacts retain generation-time evidence and model snapshots, support Markdown/JSON export, and preserve failed or interrupted states without automatic model retries. See [Knowledge topics and cited artifacts](docs/knowledge-topics.md) for usage, costs, recovery, limits and backup compatibility.
 
 - `electron`: desktop main process, preload bridge, migrations, settings, and security
 - `src/app`: pages and route handlers

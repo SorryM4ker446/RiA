@@ -1,9 +1,11 @@
+import { openRecentConversations } from "../helpers/conversations";
 import { test as base, expect, type Page } from "@playwright/test";
 import { NO_CREDENTIAL_STATE, openWorkspace } from "../helpers/workspace-entry";
 import { randomUUID } from "node:crypto";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { browserApi, browserData } from "../helpers/browser-api";
 import { configureOfflineModels } from "../helpers/model-fixture";
+import { decodePersistedAssistantToolMessage } from "../../src/lib/ai/ui-message";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => {
@@ -52,7 +54,9 @@ test("streamed chat, follow-up context and edited regeneration survive a service
   await editor.locator("textarea").fill("修改后的问题");
   await editor.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("离线回答：修改后的问题", { exact: true })).toBeVisible();
-  await expect.poll(async () => (await history()).map((row: { content: string }) => row.content)).toEqual(["修改后的问题", "离线回答：修改后的问题"]);
+  await expect.poll(async () => (await history()).map((row: { content: string }) => decodePersistedAssistantToolMessage(row.content)?.text ?? row.content)).toEqual(["修改后的问题", "离线回答：修改后的问题"]);
+  const savedAnswer = (await history()).find((row: { role: string }) => row.role === "assistant");
+  expect(decodePersistedAssistantToolMessage(savedAnswer.content)?.documentDiagnostics?.outcome).toBe("empty-library");
   expect(app.readRows("SELECT status FROM messages WHERE chatId = ?", chatId)).toEqual([{ status: "success" }, { status: "success" }]);
 
   await app.restart();
@@ -112,7 +116,9 @@ test("manual tasks and knowledge use real APIs, persist across restart and remai
   const chats = await browserData(page, `${app.origin}/api/conversations`);
   const chatId = chats[0].id;
   await expect.poll(() => app.readRows("SELECT id FROM messages WHERE chatId = ?", chatId).length).toBe(4);
-  await page.getByRole("button", { name: "重命名", exact: true }).click();
+  await openRecentConversations(page);
+  await page.getByRole("button", { name: /^会话操作：/ }).first().click();
+  await page.getByRole("menuitem", { name: "重命名", exact: true }).click();
   await page.getByRole("textbox", { name: "重命名", exact: true }).fill("真实业务记录");
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("heading", { name: "真实业务记录", exact: true })).toBeVisible();
@@ -144,7 +150,9 @@ test("manual tasks and knowledge use real APIs, persist across restart and remai
   await page.getByLabel("删除知识 月光档案").click();
   await expect.poll(() => app.readRows("SELECT id FROM memories WHERE id = ?", entry.id).length).toBe(0);
   await page.getByRole("link", { name: /返回聊天/ }).click();
-  await page.getByRole("button", { name: "删除", exact: true }).click();
+  await openRecentConversations(page);
+  await page.getByRole("button", { name: /^会话操作：/ }).first().click();
+  await page.getByRole("menuitem", { name: "删除", exact: true }).click();
   await page.getByRole("button", { name: "确认删除", exact: true }).click();
   await expect.poll(() => app.readRows("SELECT id FROM messages WHERE chatId = ?", chatId).length).toBe(0);
   expect((await browserApi(page, `${app.origin}/api/conversations/${chatId}`)).status).toBe(404);

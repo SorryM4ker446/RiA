@@ -1,7 +1,8 @@
 "use client";
+import { SelectField, SelectOption } from "@/components/ui/select";
 
 import { useRef, useState } from "react";
-import { CalendarClock, X } from "lucide-react";
+import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TaskPanel } from "@/features/chat/task-panel";
@@ -14,13 +15,9 @@ export default function TasksPage() {
   const tasks = useTasks();
   const [creating, setCreating] = useState(false);
   return (
-    <main className="mx-auto w-full max-w-6xl space-y-8 px-6 md:px-10">
-      <header className="space-y-2">
-        <p className="flex items-center gap-2 text-xs text-muted-foreground">
-          <CalendarClock className="h-4 w-4" />
-          计划与提醒
-        </p>
-        <h1 className="text-3xl font-semibold tracking-tight">定时任务</h1>
+    <main className="mx-auto flex w-full max-w-6xl flex-col gap-7">
+      <header className="workspace-page-header flex-col !items-start">
+        <h1>定时任务</h1>
         <p className="text-sm text-muted-foreground">
           把待办和提醒放在这里，按自己的节奏完成。
         </p>
@@ -139,28 +136,29 @@ function CreateTaskForm({
         </label>
         <label className="space-y-2 text-xs">
           优先级
-          <select
+          <SelectField
             name="priority"
             defaultValue="medium"
             className="block h-9 w-full rounded-md border bg-background px-3"
           >
-            <option value="low">低</option>
-            <option value="medium">中</option>
-            <option value="high">高</option>
-          </select>
+            <SelectOption value="low">低</SelectOption>
+            <SelectOption value="medium">中</SelectOption>
+            <SelectOption value="high">高</SelectOption>
+          </SelectField>
         </label>
         <label className="space-y-2 text-xs">
           重复
-          <select
+          <SelectField
             name="repeatRule"
+            defaultValue="none"
             className="block h-9 w-full rounded-md border bg-background px-3"
           >
             {Object.entries(repeatLabels).map(([value, label]) => (
-              <option key={value} value={value}>
+              <SelectOption key={value} value={value}>
                 {label}
-              </option>
+              </SelectOption>
             ))}
-          </select>
+          </SelectField>
         </label>
         <label className="flex items-center gap-2 text-xs">
           <input type="checkbox" name="reminder" />

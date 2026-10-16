@@ -5,6 +5,7 @@ import { windowAppearance } from "../../electron/window-appearance";
 test("Windows exposes a transparent native canvas with custom controls", () => {
   assert.deepEqual(windowAppearance("win32", "10.0.19045"), {
     frame: false,
+    roundedCorners: true,
     transparent: true,
     backgroundColor: "#00000000",
   });

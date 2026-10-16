@@ -13,7 +13,9 @@ import { ApiError, normalizeApiError } from "@/lib/server/api-error";
 import { type UIMessage } from "ai";
 import { persistResponseToolMemories } from "@/lib/chat/memory";
 import type { ChatRequest } from "@/lib/chat/request";
+import type { DocumentDiagnostics } from "@/lib/documents/diagnostics";
 import type { DocumentSource } from "@/lib/documents/types";
+import { markDocumentCitations } from "@/lib/documents/references";
 async function getOrCreateChat(params: {
   requestedChatId?: string;
   fallbackTitle: string;
@@ -123,7 +125,7 @@ export async function prepareChatPersistence(input: ChatRequest) {
   return { chat, regenerationSnapshot };
 }
 export type ChatPersistence = Awaited<ReturnType<typeof prepareChatPersistence>>;
-export async function persistChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; documentSources?: DocumentSource[]; unavailableTools?: string[]; usesMemory?: boolean }) {
+export async function persistChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; documentSources?: DocumentSource[]; documentDiagnostics?: DocumentDiagnostics; unavailableTools?: string[]; usesMemory?: boolean }) {
   const { input, conversation, responseMessage, isAborted, generationFailed } = params;
   const { latestUserMessage, modelRef } = input;
   const { unavailableTools = [] } = params;
@@ -136,7 +138,7 @@ export async function persistChatResponse(params: { input: ChatRequest; conversa
     // after the fact.
     const reasoning = getReasoningFromUIMessage(responseMessage);
     const content =
-      toolItems.length > 0 || reasoning || (params.documentSources?.length && assistantText)
+      toolItems.length > 0 || reasoning || (params.documentSources?.length && assistantText) || (params.documentDiagnostics && assistantText)
         ? encodePersistedAssistantToolMessage({
           type: "assistant-tool-message",
           text: assistantText,
@@ -146,7 +148,8 @@ export async function persistChatResponse(params: { input: ChatRequest; conversa
           // prose or only in the live stream.
           ...(unavailableTools.length ? { unavailableTools } : {}),
           tools: toolItems,
-          ...(params.documentSources?.length ? { documentSources: params.documentSources } : {}),
+          ...(params.documentDiagnostics ? { documentDiagnostics: params.documentDiagnostics } : {}),
+          ...(params.documentSources?.length ? { documentSources: markDocumentCitations(params.documentSources, assistantText) } : {}),
         })
         : assistantText;
 

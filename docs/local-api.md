@@ -46,11 +46,33 @@ Media browsing uses `GET /api/media/library` with filtered cursor pagination and
 
 ## Retrieval behavior
 
+Document imports now offer `POST /api/documents/preview` (multipart `file` and optional
+`collection`), returning local extraction chunks, notes, `previewHash` and nullable
+`base` without saving or calling a model. To confirm via `POST /api/documents`, send
+the original file and collection plus `previewHash` and JSON-string `base` together.
+The server verifies extraction and the current same-filename revision atomically;
+concurrent changes return 409 and require a fresh preview. Direct imports without
+these fields remain compatible. Unknown/duplicate upload fields and collection
+names over 40 trimmed characters are rejected. Preview has a separate six-attempt
+minute quota. Summaries add `lexicalCurrent`, `stale`, `differentModel` and `invalid`
+inside `semantic`; only fresh valid vectors count as indexed. Bulk maintenance uses
+the existing bounded embedding endpoint, with no background job or new write API.
+See [Document knowledge](document-knowledge.md) for structure, limits and continuation.
+
+Assistant template CRUD and conversation snapshot fields are documented in
+[Assistant templates](assistant-templates.md). Preview retrieval retains its `data`
+array and adds diagnostics; `POST /api/documents/evaluate` supports confirmed,
+bounded retrieval/answer evaluation. Optional `judgeAnswers` adds structured
+semantic review; `judgeModel` selects an allowed chat model, and per-case
+`expectations` specify facts, conditions, exceptions, quantities or conflicts.
+Judging requires generated answers and explicit paid-call confirmation; malformed
+review results remain failures while preserving answers. See [Document knowledge](document-knowledge.md).
+
 Queries use the runtime's Chinese word segmentation, Unicode compatibility normalization, duplicate removal and a small stop-word list. Word boundaries may vary with the runtime's ICU version. Ranking evaluates scores once and uses deterministic ordering for ties. Unrelated entries cannot rank solely because they are recent or manually weighted.
 
 Memory search combines bounded recent and lexical candidate sets: up to 100 of each for context recall, and 50 of each for explicit knowledge search. Context retains tool memories and its recency/manual weights; explicit knowledge search excludes tool memories and merges built-in entries and imported document results. The first 16 query terms widen lexical candidate selection so older matching notes are not hidden solely by newer unrelated notes. Memory retrieval remains bounded keyword/embedding retrieval, not a guarantee of semantic recall.
 
-Imported documents use a separate local inverted index without embedding calls. See [Document knowledge](document-knowledge.md) for import/reindex/delete/search endpoints and limits. Knowledge-tool document results add `source: "document"` and a `reference` containing document/chunk IDs, filename, excerpt and optional PDF page. Chat streams also include server-produced `metadata.documentSources`; persisted assistant messages retain these snapshots for history rendering. Sources are authorized by their stored owner when opened, and do not provide public file URLs.
+Imported documents use local BM25 ranking plus optional semantic vectors in SQLite. Explicit indexing and queries against compatible vectors call the selected embedding provider and may incur costs; import/reindex remain local. See [Document knowledge](document-knowledge.md) for endpoints, confirmation, batching and limits. Knowledge-tool results preserve fused document ranking and adjacent evidence before filling remaining slots with confirmed memories and built-in entries. Each document result has `source: "document"` and a versioned `reference` containing document/chunk IDs, filename, excerpt, heading, retrieval method and optional PDF page. Chat streams include server-produced `metadata.documentSources`; persisted assistant messages retain these snapshots and actual citation-link status for history rendering. Source pages require the local workspace credential and do not provide public file URLs.
 
 ## Workspace activity reviews
 
@@ -80,3 +102,25 @@ current source text changes or is deleted.
 Manual tool execution (`POST /api/tools/run`) accepts an absent model: local task creation, memory operations and deterministic retrieval must work with an empty model library. An explicitly supplied model still needs to be a library member. Manual execution does not require model tool-call capability because the user supplies the command; automatic chat tool calls retain capability checks and approval rules. Search answer synthesis may use the configured chat default, but a missing model or failed synthesis retains deterministic evidence. Manual synthesis receives the request cancellation signal and disables automatic provider retries.
 
 Usage supports an optional `source` query (`chat`, `summary`, `scheduled`, `tool`, `embedding`, `media`, `unattributed`), rejecting invalid or duplicated parameters. Limits and current local-date allowance are returned with usage. A denied admission reports a conflict or configuration problem and submits no provider call; it does not fabricate a usage charge. See [Model settings and usage](model-usage.md).
+
+## Knowledge topics
+
+All topic routes require the same local workspace access, Host/Origin validation and data-operation gate as other workspace APIs. Bodies are bounded JSON and reject unknown fields. Query parameters are rejected except deletion confirmation parameters and the export's single `format` parameter. DELETE requests retain the workspace's empty-body contract.
+
+| Route | Behavior |
+| --- | --- |
+| `GET /api/topics` | List up to 50 topics, config revisions and conversation/artifact counts |
+| `POST /api/topics` | Create `{name, description?, collections, assistantTemplateId?}`; 1–12 unique nonempty collections |
+| `GET /api/topics/:id` | Read current topic configuration |
+| `PATCH /api/topics/:id` | Update configuration fields plus the current `revision`; reject stale changes |
+| `DELETE /api/topics/:id?confirm=true&revision=N` | Require the current revision; cascade artifacts, unlink conversations, retain documents |
+| `GET /api/topics/:id/conversations` | Latest 50 associated conversations |
+| `POST /api/topics/:id/conversations` | Create `{revision,title}` with scope and assistant snapshot |
+| `POST /api/topics/:id/search` | Retrieve `{revision,query}` using server-owned topic collections and assistant policy |
+| `GET /api/topics/:id/artifacts` | List up to 50 saved artifact summaries; recover orphaned generating records as interrupted |
+| `POST /api/topics/:id/artifacts` | Generate `{confirm:true, requestId:UUID, revision, title, kind:"report"\|"plan"\|"summary", brief}` |
+| `GET /api/topics/:id/artifacts/:artifactId` | Body, state and saved provenance metadata |
+| `DELETE /api/topics/:id/artifacts/:artifactId?confirm=true` | Require explicit confirmation; active generation cannot be deleted |
+| `GET /api/topics/:id/artifacts/:artifactId/export?format=markdown\|json` | Download an existing body and source snapshots without generation |
+
+Artifact POST returns a saved record even when generation failed, was cancelled or needs review; inspect `status` and `errorCode`. Validation, authorization, revision or concurrency conflicts before claiming the request return normal API errors. Reusing a saved request ID with identical input reads the existing record; different input returns conflict. This is not a retry endpoint. See [Knowledge topics](knowledge-topics.md) for lifecycle and limits.

@@ -1,7 +1,7 @@
 import type { BrowserWindowConstructorOptions } from "electron";
 import { release } from "node:os";
 
-/** Keep the sidebar opaque in CSS while the main canvas exposes the desktop. */
+/** CSS clips rounded corners and supplies readable translucent workspace surfaces. */
 export function windowAppearance(
   platform: string,
   osRelease = release(),
@@ -10,6 +10,7 @@ export function windowAppearance(
     const build = Number(osRelease.split(".")[2]);
     return {
       frame: false,
+      roundedCorners: true,
       transparent: true,
       backgroundColor: "#00000000",
       ...(build >= 22621 ? { backgroundMaterial: "acrylic" as const } : {}),

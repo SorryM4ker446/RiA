@@ -6,12 +6,14 @@ import { ApiError } from "@/lib/server/api-error";
 import { migrateMessageMedia, prepareMessageMedia, replaceMessageMedia } from "@/lib/media/messages";
 import { pageResult, type PageOptions } from "@/lib/server/pagination";
 import { deleteConversations, updateConversation } from "@/lib/conversations/mutations";
+import { resolveAssistant } from "@/lib/assistants/store";
+import { encodeDocumentScope } from "@/lib/documents/scope";
 
 export async function getChat(chatId: string) {
   return db.chat.findFirst({ where: { id: chatId } });
 }
 
-export async function createChat(params: { chatId?: string; title?: string }) {
+export async function createChat(params: { chatId?: string; title?: string; assistantTemplateId?: string }) {
   const { chatId, title } = params;
 
   if (chatId) {
@@ -19,8 +21,10 @@ export async function createChat(params: { chatId?: string; title?: string }) {
     if (existing) return existing;
   }
 
+  const assistant = params.assistantTemplateId ? await resolveAssistant(params.assistantTemplateId) : null;
   return db.chat.create({
     data: {
+      ...(assistant ? { assistantConfig: assistant, documentScope: encodeDocumentScope(assistant.collections), ephemeral: !assistant.usesMemory } : {}),
       ...(chatId ? { id: chatId } : {}),
       title: truncateTitle(title ?? "New Chat"),
       lastMessageAt: new Date(),

@@ -1,3 +1,4 @@
+import { openRecentConversations } from "../helpers/conversations";
 import { expect, test, type Page } from "@playwright/test";
 import { DEFAULT_IMAGE_MODEL, DEFAULT_MODEL, DEFAULT_VIDEO_MODEL } from "../../src/config/model";
 import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
@@ -41,9 +42,11 @@ for (const lateFailure of [false, true]) {
       await expect(page.getByText("Alpha answer", { exact: true })).toBeVisible();
       await expect(page.getByPlaceholder(/描述你想生成的图片/)).toBeVisible();
       const betaRequest = page.waitForRequest("**/api/conversations/b/messages");
+      await openRecentConversations(page);
       await page.getByRole("button", { name: /^Beta/ }).click();
       await betaRequest;
       await expect(page.getByRole("checkbox", { name: "仅手动" })).toBeChecked();
+      await openRecentConversations(page);
       await page.getByRole("button", { name: /^Alpha/ }).click();
       await expect(page.getByText("Alpha answer", { exact: true })).toBeVisible();
       await expect(page.getByPlaceholder(/描述你想生成的图片/)).toBeVisible();
@@ -87,18 +90,25 @@ test("conversation create, rename and confirmed deletion preserve the remaining 
   await page.goto("/chat");
   await expect(page.getByText("Alpha answer", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "创建会话", exact: true }).click();
+  await openRecentConversations(page);
   const row = page.getByRole("button", { name: /^New Chat/ }).locator("..");
-  await row.getByRole("button", { name: "重命名" }).click();
-  const sidebar = page.locator("aside").first();
+  await row.getByRole("button", { name: /^会话操作：/ }).click();
+  await page.getByRole("menuitem", { name: "重命名", exact: true }).click();
+  const sidebar = page.getByRole("complementary", { name: "会话列表", exact: true });
+  await expect(sidebar.getByRole("textbox")).toBeFocused();
   await sidebar.getByRole("textbox").fill("Renamed conversation");
   await sidebar.getByRole("button", { name: "保存", exact: true }).click();
   const renamed = page.getByRole("button", { name: /^Renamed conversation/ }).locator("..");
-  await renamed.getByRole("button", { name: "删除", exact: true }).click();
+  await renamed.getByRole("button", { name: /^会话操作：/ }).click();
+  await page.getByRole("menuitem", { name: "删除", exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "取消" }).click();
   expect(deletes).toBe(0);
-  await renamed.getByRole("button", { name: "删除", exact: true }).click();
+  await openRecentConversations(page);
+  await renamed.getByRole("button", { name: /^会话操作：/ }).click();
+  await page.getByRole("menuitem", { name: "删除", exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "确认删除", exact: true }).click();
   await expect(page.getByText("Alpha answer", { exact: true })).toBeVisible();
+  await openRecentConversations(page);
   await expect(page.getByRole("button", { name: /^Renamed conversation/ })).toHaveCount(0);
   expect(deletes).toBe(1);
 });
@@ -136,3 +146,52 @@ test("video generation preserves the asset reference and renders it after reload
   await expect(page.locator("video")).toHaveAttribute("src", asset.url);
   await expect(page.getByPlaceholder(/描述你想生成的视频/)).toBeVisible();
 });
+
+for (const narrow of [false, true]) {
+  test(`recent conversations keep date groups, long titles and keyboard menus usable ${narrow ? "in a narrow window" : "on desktop"}`, async ({ page }) => {
+    await page.clock.setFixedTime(new Date("2026-10-16T19:00:00Z"));
+    if (narrow) await page.setViewportSize({ width: 390, height: 780 });
+    await emptyPanels(page);
+    const longTitle = "梳理产品界面的交互细节与下一阶段的完整设计计划";
+    const chats = [
+      { ...summary("pinned", "本周工作计划"), pinned: true, lastMessageAt: "2026-09-01T19:00:00Z" },
+      { ...summary("today", longTitle), lastMessageAt: "2026-10-16T18:00:00Z" },
+      { ...summary("yesterday", "读书笔记"), lastMessageAt: "2026-10-15T19:00:00Z" },
+      { ...summary("week", "下周学习安排"), lastMessageAt: "2026-10-13T19:00:00Z" },
+      { ...summary("older", "项目需求讨论"), lastMessageAt: "2026-09-20T19:00:00Z" },
+      { ...summary("hidden", "知识库文档总结"), lastMessageAt: "2026-09-19T19:00:00Z" },
+    ];
+    await page.route("**/api/conversations", route => route.fulfill({ json: { data: chats } }));
+    await page.route("**/api/conversations/*/messages", route => route.fulfill({ json: { data: [] } }));
+    await page.goto("/chat");
+    await openRecentConversations(page);
+    const sidebar = page.getByRole("complementary", { name: "会话列表", exact: true });
+    for (const [group, title] of [["置顶", "本周工作计划"], ["今天", longTitle], ["昨天", "读书笔记"], ["近 7 天", "下周学习安排"], ["更早", "项目需求讨论"]]) {
+      await expect(sidebar.getByRole("region", { name: group, exact: true }).getByRole("button", { name: new RegExp(`^${title}`) })).toBeVisible();
+    }
+    await expect(sidebar.getByRole("button", { name: /^知识库文档总结/ })).toHaveCount(0);
+    await sidebar.getByRole("button", { name: /展开更多/ }).click();
+    await expect(sidebar.getByRole("button", { name: /^知识库文档总结/ })).toBeVisible();
+    await expect(sidebar.getByText("已加载 6 个会话", { exact: true })).toBeVisible();
+    const action = sidebar.getByRole("button", { name: `会话操作：${longTitle}`, exact: true });
+    await action.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("menu")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await expect(action).toBeFocused();
+    if (narrow) await expect(page.getByRole("button", { name: "会话列表", exact: true })).toHaveAttribute("aria-expanded", "true");
+    await page.keyboard.press("Enter");
+    await page.getByRole("menuitem", { name: "重命名", exact: true }).click();
+    const editor = sidebar.getByRole("textbox", { name: "重命名", exact: true });
+    await expect(editor).toBeFocused();
+    await editor.fill("还未保存的标题");
+    await page.keyboard.press("Escape");
+    await expect(sidebar.getByRole("button", { name: new RegExp(`^${longTitle}`) })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    if (narrow) {
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("button", { name: "会话列表", exact: true })).toHaveAttribute("aria-expanded", "false");
+    }
+  });
+}

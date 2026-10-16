@@ -3,6 +3,7 @@ import { Prisma, type Chat } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/db";
 import { ApiError } from "@/lib/server/api-error";
+import { readAssistantSnapshot } from "@/lib/assistants/schema";
 
 export const chatTagSchema = z.string().trim().min(1).max(32)
   .transform(value => value.normalize("NFKC").trim().toLowerCase()).pipe(z.string().min(1).max(32).regex(/^[^,\u0000-\u001f\u007f]+$/));
@@ -32,6 +33,7 @@ function readConversationQuery(params: URLSearchParams) {
 export function conversationSummary(chat: Chat & { tags: { label: string }[]; _count: { messages: number } }) {
   return {
     id: chat.id, title: chat.title, pinned: chat.pinned, archived: chat.archived, ephemeral: chat.ephemeral, documentScope: chat.documentScope,
+    assistantConfig: readAssistantSnapshot(chat.assistantConfig),
     createdAt: chat.createdAt, updatedAt: chat.updatedAt, lastMessageAt: chat.lastMessageAt,
     tags: chat.tags.map(tag => tag.label), messageCount: chat._count.messages,
   };

@@ -37,6 +37,7 @@ export function modelsRouteFixture(
       version: 3,
       callLimits: { maxConcurrent: 4, backgroundDailyCalls: 20, backgroundMaxEstimatedUsd: null, backgroundDailyEstimatedUsd: null, timeZone: "Asia/Shanghai" },
       defaultMode: "chat",
+      thinking: { enabled: true, effort: "high" },
       chat: { model: libraryItem(selected.chat) ? modelRef(selected.chat!) : null, fallback: libraryItem(selected.chatFallback) ? modelRef(selected.chatFallback!) : null },
       image: { model: libraryItem(selected.image) ? modelRef(selected.image!) : null, fallback: null },
       video: { model: libraryItem(selected.video) ? modelRef(selected.video!) : null, fallback: null },

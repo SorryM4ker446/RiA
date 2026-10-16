@@ -1,0 +1,919 @@
+{
+  "version": 1,
+  "documents": [
+    {
+      "filename": "差旅规程.md",
+      "collection": "财务",
+      "text": "# 差旅规程\n\n公务出行的费用核销须保留税务票据，在回程后的十个工作日内提交。\n\n超过提交期限需要主管提供书面说明；不能把工作日改成自然日。"
+    },
+    {
+      "filename": "育儿规程.md",
+      "collection": "人事",
+      "text": "# 育儿规程\n\n育儿照护假为十五天，须由直属经理审批并提供出生证明。\n\n试用期员工也适用育儿照护假。该条款没有规定假期工资比例。"
+    },
+    {
+      "filename": "发布规程.md",
+      "collection": "运维",
+      "text": "# 发布规程\n\n版本发布异常时须先由值班负责人审批，再恢复到最近的稳定版本。\n\n数据库结构变更须先检查向后兼容性，不得直接覆盖现有数据。\n\n紧急发布仍需保留审计记录。"
+    },
+    {
+      "filename": "身份规程.md",
+      "collection": "信息",
+      "text": "# 身份规程\n\n身份凭证遗失后联系服务台，核验本人身份后执行重置。\n\n服务台不得通过邮件发送明文临时凭证。重置后应撤销旧身份凭证。"
+    },
+    {
+      "filename": "备份规程.md",
+      "collection": "恢复",
+      "text": "# 备份规程\n\n工作区备份每天一次，保留七天。\n\n工作区恢复前必须验证备份校验和，并创建安全副本。\n\n工作区备份不包含服务商密钥；恢复后需重新配置密钥。"
+    },
+    {
+      "filename": "Support policy.md",
+      "collection": "Support",
+      "text": "# Support policy\n\nSupport tickets must include a request ID.\n\nThe support response deadline is two business days, not two hours.\n\nCritical incidents require an on-call manager approval. Passwords must never be attached to a support ticket."
+    },
+    {
+      "filename": "采购旧版.md",
+      "collection": "采购",
+      "text": "# 采购旧版\n\n旧版采购规程（2024）：设备采购额度为每人每月五千元。\n\n设备采购申请须由部门主管审批。资料未说明旧版是否已经废止。"
+    },
+    {
+      "filename": "采购新版.md",
+      "collection": "采购",
+      "text": "# 采购新版\n\n新版采购规程（2025）：设备采购额度为每人每月八千元。\n\n设备采购申请须由部门主管审批。资料未说明新版生效日期及是否替代旧版。"
+    }
+  ],
+  "cases": [
+    {
+      "question": "差旅费用核销需要什么凭证",
+      "collections": [
+        "财务"
+      ],
+      "expectedFilenames": [
+        "差旅规程.md"
+      ],
+      "requiredFacts": [
+        "税务票据"
+      ],
+      "expectations": [
+        {
+          "kind": "condition",
+          "statement": "必须保留税务票据。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "差旅费用核销期限是多少",
+      "collections": [
+        "财务"
+      ],
+      "expectedFilenames": [
+        "差旅规程.md"
+      ],
+      "requiredFacts": [
+        "十个工作日"
+      ],
+      "expectations": [
+        {
+          "kind": "quantity",
+          "statement": "期限为回程后的十个工作日，不是自然日。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "差旅费用核销超过期限怎么办",
+      "collections": [
+        "财务"
+      ],
+      "expectedFilenames": [
+        "差旅规程.md"
+      ],
+      "requiredFacts": [
+        "书面说明"
+      ],
+      "expectations": [
+        {
+          "kind": "exception",
+          "statement": "超过期限需要主管书面说明。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "差旅费用核销是否可以不留票据",
+      "collections": [
+        "财务"
+      ],
+      "expectedFilenames": [
+        "差旅规程.md"
+      ],
+      "requiredFacts": [
+        "税务票据"
+      ],
+      "expectations": [
+        {
+          "kind": "fact",
+          "statement": "不能省略税务票据。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "差旅费用核销有哪些前提和例外",
+      "collections": [
+        "财务"
+      ],
+      "expectedFilenames": [
+        "差旅规程.md"
+      ],
+      "requiredFacts": [
+        "书面说明"
+      ],
+      "expectations": [
+        {
+          "kind": "condition",
+          "statement": "同时说明票据、期限和逾期书面说明。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "育儿照护假可以休几天",
+      "collections": [
+        "人事"
+      ],
+      "expectedFilenames": [
+        "育儿规程.md"
+      ],
+      "requiredFacts": [
+        "十五天"
+      ],
+      "expectations": [
+        {
+          "kind": "quantity",
+          "statement": "育儿照护假为十五天。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "育儿照护假由谁审批",
+      "collections": [
+        "人事"
+      ],
+      "expectedFilenames": [
+        "育儿规程.md"
+      ],
+      "requiredFacts": [
+        "直属经理"
+      ],
+      "expectations": [
+        {
+          "kind": "condition",
+          "statement": "须由直属经理审批。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "育儿照护假试用期可以申请吗",
+      "collections": [
+        "人事"
+      ],
+      "expectedFilenames": [
+        "育儿规程.md"
+      ],
+      "requiredFacts": [
+        "试用期"
+      ],
+      "expectations": [
+        {
+          "kind": "exception",
+          "statement": "试用期也适用。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "育儿照护假要提供什么材料",
+      "collections": [
+        "人事"
+      ],
+      "expectedFilenames": [
+        "育儿规程.md"
+      ],
+      "requiredFacts": [
+        "出生证明"
+      ],
+      "expectations": [
+        {
+          "kind": "condition",
+          "statement": "须提供出生证明。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "育儿照护假能否无需审批",
+      "collections": [
+        "人事"
+      ],
+      "expectedFilenames": [
+        "育儿规程.md"
+      ],
+      "requiredFacts": [
+        "直属经理"
+      ],
+      "expectations": [
+        {
+          "kind": "fact",
+          "statement": "仍需要直属经理审批。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "版本发布异常谁批准恢复",
+      "collections": [
+        "运维"
+      ],
+      "expectedFilenames": [
+        "发布规程.md"
+      ],
+      "requiredFacts": [
+        "值班负责人"
+      ],
+      "expectations": [
+        {
+          "kind": "condition",
+          "statement": "由值班负责人审批。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "版本发布异常恢复到哪个版本",
+      "collections": [
+        "运维"
+      ],
+      "expectedFilenames": [
+        "发布规程.md"
+      ],
+      "requiredFacts": [
+        "稳定版本"
+      ],
+      "expectations": [
+        {
+          "kind": "fact",
+          "statement": "恢复最近的稳定版本，不是任意旧版本。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "版本发布数据库结构变更注意什么",
+      "collections": [
+        "运维"
+      ],
+      "expectedFilenames": [
+        "发布规程.md"
+      ],
+      "requiredFacts": [
+        "向后兼容性"
+      ],
+      "expectations": [
+        {
+          "kind": "condition",
+          "statement": "先检查向后兼容性。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "版本发布数据库能直接覆盖吗",
+      "collections": [
+        "运维"
+      ],
+      "expectedFilenames": [
+        "发布规程.md"
+      ],
+      "requiredFacts": [
+        "不得直接覆盖"
+      ],
+      "expectations": [
+        {
+          "kind": "exception",
+          "statement": "不得直接覆盖现有数据。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "版本发布紧急时能免审计吗",
+      "collections": [
+        "运维"
+      ],
+      "expectedFilenames": [
+        "发布规程.md"
+      ],
+      "requiredFacts": [
+        "审计记录"
+      ],
+      "expectations": [
+        {
+          "kind": "exception",
+          "statement": "紧急发布仍需保留审计记录。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "身份凭证遗失联系谁",
+      "collections": [
+        "信息"
+      ],
+      "expectedFilenames": [
+        "身份规程.md"
+      ],
+      "requiredFacts": [
+        "服务台"
+      ],
+      "expectations": [
+        {
+          "kind": "fact",
+          "statement": "联系服务台。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "身份凭证重置前做什么",
+      "collections": [
+        "信息"
+      ],
+      "expectedFilenames": [
+        "身份规程.md"
+      ],
+      "requiredFacts": [
+        "核验本人身份"
+      ],
+      "expectations": [
+        {
+          "kind": "condition",
+          "statement": "先核验本人身份。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "身份凭证可以邮件发临时口令吗",
+      "collections": [
+        "信息"
+      ],
+      "expectedFilenames": [
+        "身份规程.md"
+      ],
+      "requiredFacts": [
+        "不得通过邮件"
+      ],
+      "expectations": [
+        {
+          "kind": "exception",
+          "statement": "不得通过邮件发送明文临时凭证。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "身份凭证重置旧凭证如何处理",
+      "collections": [
+        "信息"
+      ],
+      "expectedFilenames": [
+        "身份规程.md"
+      ],
+      "requiredFacts": [
+        "撤销旧身份凭证"
+      ],
+      "expectations": [
+        {
+          "kind": "fact",
+          "statement": "撤销旧身份凭证。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "身份凭证忘记以后怎样恢复访问",
+      "collections": [
+        "信息"
+      ],
+      "expectedFilenames": [
+        "身份规程.md"
+      ],
+      "requiredFacts": [
+        "核验本人身份"
+      ],
+      "expectations": [
+        {
+          "kind": "condition",
+          "statement": "联系服务台核验身份后重置。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "工作区备份频率是多少",
+      "collections": [
+        "恢复"
+      ],
+      "expectedFilenames": [
+        "备份规程.md"
+      ],
+      "requiredFacts": [
+        "每天一次"
+      ],
+      "expectations": [
+        {
+          "kind": "quantity",
+          "statement": "每天一次。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "工作区备份保留多久",
+      "collections": [
+        "恢复"
+      ],
+      "expectedFilenames": [
+        "备份规程.md"
+      ],
+      "requiredFacts": [
+        "七天"
+      ],
+      "expectations": [
+        {
+          "kind": "quantity",
+          "statement": "保留七天。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "工作区恢复前要检查什么",
+      "collections": [
+        "恢复"
+      ],
+      "expectedFilenames": [
+        "备份规程.md"
+      ],
+      "requiredFacts": [
+        "校验和"
+      ],
+      "expectations": [
+        {
+          "kind": "condition",
+          "statement": "验证备份校验和并创建安全副本。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "工作区备份包含密钥吗",
+      "collections": [
+        "恢复"
+      ],
+      "expectedFilenames": [
+        "备份规程.md"
+      ],
+      "requiredFacts": [
+        "不包含服务商密钥"
+      ],
+      "expectations": [
+        {
+          "kind": "exception",
+          "statement": "不包含服务商密钥。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "工作区恢复以后密钥怎么办",
+      "collections": [
+        "恢复"
+      ],
+      "expectedFilenames": [
+        "备份规程.md"
+      ],
+      "requiredFacts": [
+        "重新配置密钥"
+      ],
+      "expectations": [
+        {
+          "kind": "fact",
+          "statement": "需重新配置密钥。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "What must a support ticket include?",
+      "collections": [
+        "Support"
+      ],
+      "expectedFilenames": [
+        "Support policy.md"
+      ],
+      "requiredFacts": [
+        "request ID"
+      ],
+      "expectations": [
+        {
+          "kind": "condition",
+          "statement": "A request ID is required."
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "What is the support response deadline?",
+      "collections": [
+        "Support"
+      ],
+      "expectedFilenames": [
+        "Support policy.md"
+      ],
+      "requiredFacts": [
+        "two business days"
+      ],
+      "expectations": [
+        {
+          "kind": "quantity",
+          "statement": "Two business days, not two hours."
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "Who approves critical support incidents?",
+      "collections": [
+        "Support"
+      ],
+      "expectedFilenames": [
+        "Support policy.md"
+      ],
+      "requiredFacts": [
+        "on-call manager"
+      ],
+      "expectations": [
+        {
+          "kind": "condition",
+          "statement": "An on-call manager must approve."
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "Can I attach passwords to a support ticket?",
+      "collections": [
+        "Support"
+      ],
+      "expectedFilenames": [
+        "Support policy.md"
+      ],
+      "requiredFacts": [
+        "Passwords must never"
+      ],
+      "expectations": [
+        {
+          "kind": "exception",
+          "statement": "Passwords must never be attached."
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "Is the support deadline two hours?",
+      "collections": [
+        "Support"
+      ],
+      "expectedFilenames": [
+        "Support policy.md"
+      ],
+      "requiredFacts": [
+        "two business days"
+      ],
+      "expectations": [
+        {
+          "kind": "quantity",
+          "statement": "Reject two hours; the deadline is two business days."
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "设备采购额度两份文件一致吗",
+      "collections": [
+        "采购"
+      ],
+      "expectedFilenames": [
+        "采购旧版.md",
+        "采购新版.md"
+      ],
+      "requiredFacts": [
+        "五千元"
+      ],
+      "expectations": [
+        {
+          "kind": "conflict",
+          "statement": "旧版五千元与新版八千元冲突，不能确定哪个生效。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "设备采购旧版额度是多少",
+      "collections": [
+        "采购"
+      ],
+      "expectedFilenames": [
+        "采购旧版.md"
+      ],
+      "requiredFacts": [
+        "五千元"
+      ],
+      "expectations": [
+        {
+          "kind": "quantity",
+          "statement": "旧版规定每人每月五千元。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "设备采购旧版需要谁审批",
+      "collections": [
+        "采购"
+      ],
+      "expectedFilenames": [
+        "采购旧版.md"
+      ],
+      "requiredFacts": [
+        "部门主管"
+      ],
+      "expectations": [
+        {
+          "kind": "condition",
+          "statement": "旧版须部门主管审批。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "设备采购旧版是否明确废止",
+      "collections": [
+        "采购"
+      ],
+      "expectedFilenames": [
+        "采购旧版.md"
+      ],
+      "requiredFacts": [
+        "未说明"
+      ],
+      "expectations": [
+        {
+          "kind": "fact",
+          "statement": "资料未说明旧版是否已经废止。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "设备采购两份规程如何比较",
+      "collections": [
+        "采购"
+      ],
+      "expectedFilenames": [
+        "采购旧版.md",
+        "采购新版.md"
+      ],
+      "requiredFacts": [
+        "五千元"
+      ],
+      "expectations": [
+        {
+          "kind": "conflict",
+          "statement": "披露额度差异及生效状态不明。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "设备采购新版额度是多少",
+      "collections": [
+        "采购"
+      ],
+      "expectedFilenames": [
+        "采购新版.md"
+      ],
+      "requiredFacts": [
+        "八千元"
+      ],
+      "expectations": [
+        {
+          "kind": "quantity",
+          "statement": "新版规定每人每月八千元。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "设备采购新版审批能免吗",
+      "collections": [
+        "采购"
+      ],
+      "expectedFilenames": [
+        "采购新版.md"
+      ],
+      "requiredFacts": [
+        "部门主管"
+      ],
+      "expectations": [
+        {
+          "kind": "condition",
+          "statement": "仍须部门主管审批。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "设备采购新版生效日期明确吗",
+      "collections": [
+        "采购"
+      ],
+      "expectedFilenames": [
+        "采购新版.md"
+      ],
+      "requiredFacts": [
+        "未说明"
+      ],
+      "expectations": [
+        {
+          "kind": "fact",
+          "statement": "资料未说明新版生效日期。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "设备采购新版能直接替代旧版吗",
+      "collections": [
+        "采购"
+      ],
+      "expectedFilenames": [
+        "采购旧版.md",
+        "采购新版.md"
+      ],
+      "requiredFacts": [
+        "八千元"
+      ],
+      "expectations": [
+        {
+          "kind": "conflict",
+          "statement": "不能确认替代关系，披露两版差异。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "设备采购额度为什么有不同数字",
+      "collections": [
+        "采购"
+      ],
+      "expectedFilenames": [
+        "采购旧版.md",
+        "采购新版.md"
+      ],
+      "requiredFacts": [
+        "八千元"
+      ],
+      "expectations": [
+        {
+          "kind": "conflict",
+          "statement": "两版分别五千元与八千元，生效状态不明。"
+        }
+      ],
+      "answerable": true
+    },
+    {
+      "question": "差旅费用核销住宿最高金额是多少",
+      "collections": [
+        "财务"
+      ],
+      "answerable": false
+    },
+    {
+      "question": "育儿照护假工资比例是多少",
+      "collections": [
+        "人事"
+      ],
+      "answerable": false
+    },
+    {
+      "question": "版本发布负责人电话号码是多少",
+      "collections": [
+        "运维"
+      ],
+      "answerable": false
+    },
+    {
+      "question": "身份凭证重置收费多少钱",
+      "collections": [
+        "信息"
+      ],
+      "answerable": false
+    },
+    {
+      "question": "工作区备份所在服务器地址是什么",
+      "collections": [
+        "恢复"
+      ],
+      "answerable": false
+    },
+    {
+      "question": "What is the support manager phone number?",
+      "collections": [
+        "Support"
+      ],
+      "answerable": false
+    },
+    {
+      "question": "设备采购新版确切生效日期是什么",
+      "collections": [
+        "采购"
+      ],
+      "answerable": false
+    },
+    {
+      "question": "木星表面温度是多少",
+      "collections": [
+        "财务"
+      ],
+      "answerable": false
+    },
+    {
+      "question": "深海鲸鱼寿命是多少",
+      "collections": [
+        "人事"
+      ],
+      "answerable": false
+    },
+    {
+      "question": "知识库中不存在的集合有什么规则",
+      "collections": [
+        "不存在的集合"
+      ],
+      "answerable": false
+    }
+  ],
+  "answerExamples": [
+    {
+      "question": "差旅费用核销期限是多少",
+      "correct": "回程后的十个工作日内提交，需保留税务票据；逾期须主管书面说明。",
+      "incorrect": "费用核销不需要在十个工作日内提交。",
+      "failure": "negated-fact"
+    },
+    {
+      "question": "育儿照护假可以休几天",
+      "correct": "十五天，须直属经理审批并提供出生证明，试用期也适用。",
+      "incorrect": "十五天，无需审批。",
+      "failure": "missing-condition"
+    },
+    {
+      "question": "差旅费用核销超过期限怎么办",
+      "correct": "逾期须主管提供书面说明。",
+      "incorrect": "超过十个工作日一律不能提交。",
+      "failure": "missing-exception"
+    },
+    {
+      "question": "What is the support response deadline?",
+      "correct": "Two business days.",
+      "incorrect": "Two hours.",
+      "failure": "wrong-unit"
+    },
+    {
+      "question": "设备采购额度两份文件一致吗",
+      "correct": "旧版五千元、新版八千元；生效和替代关系不明，需要确认适用版本。",
+      "incorrect": "所有人每月额度都是八千元。",
+      "failure": "hidden-conflict"
+    },
+    {
+      "question": "育儿照护假工资比例是多少",
+      "correct": "资料没有规定工资比例，证据不足。",
+      "incorrect": "工资比例为百分之百。",
+      "failure": "fabricated-answer"
+    }
+  ]
+}

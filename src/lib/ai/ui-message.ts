@@ -1,3 +1,4 @@
+import { documentDiagnosticsSchema, type DocumentDiagnostics } from "@/lib/documents/diagnostics";
 import { UIMessage } from "ai";
 import { documentSourceSchema, type DocumentSource } from "@/lib/documents/types";
 
@@ -43,6 +44,7 @@ export type PersistedAssistantToolMessagePayload = {
   /** Optional tools this turn could not use, recorded for the note below. */
   unavailableTools?: string[];
   documentSources?: DocumentSource[];
+  documentDiagnostics?: DocumentDiagnostics;
 };
 
 export const USER_MESSAGE_PREFIX = "__USER_MESSAGE__:";
@@ -200,6 +202,7 @@ export function decodePersistedAssistantToolMessage(
       ...(reasoning ? { reasoning } : {}),
       ...(unavailableTools?.length ? { unavailableTools } : {}),
       tools,
+      ...(documentDiagnosticsSchema.safeParse(parsed.documentDiagnostics).success ? { documentDiagnostics: documentDiagnosticsSchema.parse(parsed.documentDiagnostics) } : {}),
       ...(Array.isArray(parsed.documentSources) ? { documentSources: parsed.documentSources.slice(0, 8).flatMap(source => {
         const result = documentSourceSchema.safeParse(source);
         return result.success ? [result.data] : [];

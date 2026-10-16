@@ -69,7 +69,33 @@ if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
       const latest = body.messages.findLast((message) => message.role === "user");
       const prompt = typeof latest?.content === "string" ? latest.content
         : (latest?.content ?? []).filter((part) => part.type === "text").map((part) => part.text).join("\n");
-      const content = `离线回答：${prompt}`;
+      let content = `离线回答：${prompt}`;
+      // Controlled grounded response for the real streaming/citation workflow.
+      // It exercises evidence transport, never measures a live model's reasoning.
+      if (prompt === "出门办事的钱怎样领回来") {
+        const system = body.messages.filter(message => message.role === "system").map(message => typeof message.content === "string"
+          ? message.content : message.content.filter(part => part.type === "text").map(part => part.text).join("\n")).join("\n");
+        const line = system.split("\n").find(value => value.startsWith('[{"reference":'));
+        const evidence = line ? JSON.parse(line) : [];
+        const main = evidence.find(source => source.excerpt.includes("十个工作日"));
+        const exception = evidence.find(source => source.excerpt.includes("书面说明"));
+        content = main && exception
+          ? `保留税务票据，在回程后的十个工作日内提交费用核销申请。[差旅规程](${main.url})\n\n逾期需要主管提供书面说明。[例外条款](${exception.url})`
+          : "现有知识库证据不足，无法确认申领规则。";
+      }
+      const systemText = body.messages.filter(message => message.role === "system").map(message => typeof message.content === "string" ? message.content
+        : message.content.filter(part => part.type === "text").map(part => part.text).join("\n")).join("\n");
+      if (prompt === "木星表面温度" && systemText.startsWith("Answer using the provided knowledge evidence.")) content = "知识库没有该信息，现有证据不足，无法确定木星表面温度。";
+      if (!body.stream && systemText.startsWith("You assess knowledge-grounded answers.")) {
+        const evaluation = JSON.parse(prompt);
+        // This is a deterministic UI fixture, not a semantic-quality oracle.
+        content = JSON.stringify({ checks: evaluation.criteria.map(criterion => ({
+          id: criterion.id, verdict: !evaluation.answerable && criterion.id !== "answerability" ? "not-applicable" : "pass",
+          reason: "离线界面测试评审结果，不代表真实模型质量。", answerQuote: evaluation.answer.slice(0, 100),
+          evidence: evaluation.sources.length ? [{ chunkId: evaluation.sources[0].chunkId, quote: evaluation.sources[0].excerpt.slice(0, 100) }] : [],
+        })) });
+        if (evaluation.criteria.some(criterion => criterion.statement === "OFFLINE_REVIEW_INVALID_JSON")) content = "Synthetic malformed judge response";
+      }
       const base = { id: "offline-completion", model: body.model, usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } };
       if (body.modalities?.includes("image")) return JSON.stringify({ ...base, choices: [{ index: 0, message: { role: "assistant", content: "", images: [{ type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=" } }] }, finish_reason: "stop" }] });
       if (body.stream) {
@@ -97,7 +123,9 @@ if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
   provider.intercept({ path: "/api/v1/embeddings", method: "POST" }).reply(200, (options) => {
     const body = JSON.parse(String(options.body));
     const values = Array.isArray(body.input) ? body.input : [body.input];
-    return JSON.stringify({ data: values.map((_, index) => ({ index, embedding: [1, 0, 0] })), usage: { prompt_tokens: values.length, total_tokens: values.length } });
+    const vector = (text: string) => /公务出行|费用核销|出门办事|差旅/u.test(text) ? [1, 0, 0]
+      : /医疗|医院/u.test(text) ? [0, 1, 0] : [0, 0, 1];
+    return JSON.stringify({ object: "list", model: body.model, data: values.map((text, index) => ({ object: "embedding", index, embedding: vector(text) })), usage: { prompt_tokens: values.length, total_tokens: values.length } });
   }, { headers: { "content-type": "application/json" } }).persist();
   provider.intercept({ path: "/api/v1/videos", method: "POST" }).reply(200, options => {
     const body = JSON.parse(String(options.body));

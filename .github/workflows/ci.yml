@@ -75,6 +75,9 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install chromium
 
+      - name: Verify first-failure browser diagnostics
+        run: npm run test:e2e:diagnostics
+
       - name: Build application and run browser tests
         run: npm run test:e2e
 
@@ -157,6 +160,9 @@ jobs:
       - name: Verify compiled installer
         run: ./scripts/verify-windows-installer.ps1
 
+      - name: Prepare unverified manual Windows acceptance record
+        run: npm run desktop:acceptance -- --init
+
       - name: Upload desktop failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
@@ -176,5 +182,6 @@ jobs:
           path: |
             out/make/wix/x64/*.msi
             out/make/wix/x64/verification.json
+            out/make/wix/x64/acceptance.json
           if-no-files-found: error
           retention-days: 14

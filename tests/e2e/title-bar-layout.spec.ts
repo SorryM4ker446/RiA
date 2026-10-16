@@ -34,6 +34,8 @@ test("the top row starts at the window edge and owns its content row", { tag: "@
       barBottom: bar.getBoundingClientRect().bottom,
       barBackground: getComputedStyle(bar).backgroundColor,
       rootBackground: getComputedStyle(root).backgroundColor,
+      mainBackground: getComputedStyle(document.querySelector(".workspace-main")!).backgroundColor,
+      contentBackground: getComputedStyle(content).backgroundColor,
       contentTop: content.getBoundingClientRect().top,
       contentBottom: content.getBoundingClientRect().bottom,
       viewportHeight: innerHeight,
@@ -47,27 +49,26 @@ test("the top row starts at the window edge and owns its content row", { tag: "@
   expect(geometry.barHeight).toBe(44);
   expect(geometry.contentTop).toBe(geometry.barBottom);
   expect(geometry.contentBottom).toBe(geometry.viewportHeight);
-  expect(geometry.barBackground).toBe(geometry.rootBackground);
+  expect(geometry.barBackground).toBe("rgba(0, 0, 0, 0)");
+  expect(geometry.mainBackground).toBe(geometry.contentBackground);
+  expect(geometry.mainBackground).toBe(geometry.rootBackground);
 });
 
-test("the conversation rail stays below the title row and tasks have their own page", { tag: "@integration" }, async ({ page, app }) => {
+test("recent conversations open over the canvas without reserving a sidebar", { tag: "@integration" }, async ({ page, app }) => {
   await open(page, app.origin, "/chat");
-  const rail = page.getByRole("complementary", { name: "会话列表", exact: true });
-  await expect(rail).toBeVisible();
-  await expect(page.locator(".chat-rail-right")).toHaveCount(0);
-  const geometry = await page.evaluate(() => {
-    const bar = [...document.querySelectorAll<HTMLElement>(".workspace-topbar")].find(node => node.getClientRects().length > 0)!;
-    const rail = document.querySelector<HTMLElement>(".chat-rail-left")!;
-    return { barBottom: bar.getBoundingClientRect().bottom, railTop: rail.getBoundingClientRect().top, railBottom: rail.getBoundingClientRect().bottom, viewportHeight: innerHeight };
-  });
-  expect(geometry.railTop).toBe(geometry.barBottom);
-  expect(geometry.railBottom).toBe(geometry.viewportHeight);
-  await page.getByRole("button", { name: "收起会话列表", exact: true }).click();
-  await expect(rail).toHaveCSS("width", "40px");
-  expect((await rail.boundingBox())!.y).toBe(geometry.barBottom);
-  await page.getByRole("button", { name: "展开会话列表", exact: true }).click();
-  await expect(rail).toHaveCSS("width", "232px");
-  expect((await rail.boundingBox())!.y).toBe(geometry.barBottom);
+  const trigger = page.getByRole("button", { name: "会话列表", exact: true });
+  const list = page.getByRole("complementary", { name: "会话列表", exact: true });
+  await expect(list).toHaveCount(0);
+  const before = await page.locator(".chat-canvas").boundingBox();
+  await trigger.click();
+  await expect(list).toBeVisible();
+  expect(await page.locator(".chat-canvas").boundingBox()).toEqual(before);
+  const box = await list.boundingBox();
+  expect(box!.y).toBeGreaterThanOrEqual(44);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+  await page.keyboard.press("Escape");
+  await expect(list).toHaveCount(0);
+  await expect(trigger).toBeFocused();
   await page.getByRole("link", { name: "定时任务", exact: true }).click();
   await expect(page).toHaveURL(app.origin + "/tasks");
   await expect(page.getByTestId("task-panel")).toBeVisible();

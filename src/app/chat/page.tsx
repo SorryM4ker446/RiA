@@ -11,22 +11,9 @@ import { RunRecords } from "@/features/chat/run-records";
 import { useChatState } from "@/features/chat/use-chat-state";
 import { TriangleAlert } from "lucide-react";
 import { t } from "@/lib/locale";
-import { useEffect, useState } from "react";
-import { MessagesSquare, X } from "lucide-react";
 
 export default function ChatPage() {
   const chat = useChatState();
-  const [mobilePanel, setMobilePanel] = useState<"conversations" | null>(null);
-  useEffect(() => {
-    const wide = window.matchMedia("(min-width: 1280px)");
-    const close = () => setMobilePanel(null);
-    wide.addEventListener("change", close);
-    return () => wide.removeEventListener("change", close);
-  }, []);
-  const togglePanel: typeof chat.togglePanel = (panel) => {
-    if (mobilePanel === panel) setMobilePanel(null);
-    else chat.togglePanel(panel);
-  };
   const {
     effectiveError,
     keyError,
@@ -35,64 +22,17 @@ export default function ChatPage() {
     clearPreferencesError,
   } = chat;
   return (
-    <main
-      data-mobile-panel={mobilePanel ?? ""}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") setMobilePanel(null);
-      }}
-      className="chat-workspace relative flex h-full min-h-0 w-full overflow-hidden"
-    >
-      <div className="chat-mobile-controls absolute inset-x-0 top-0 z-20 flex h-10 items-center justify-between border-b px-3 xl:hidden">
-        <Button
-          size="sm"
-          variant="ghost"
-          aria-expanded={mobilePanel === "conversations"}
-          onClick={() =>
-            setMobilePanel((current) =>
-              current === "conversations" ? null : "conversations",
-            )
-          }
-        >
-          <MessagesSquare className="mr-2 h-4 w-4" />
-          {t("chat.conversations.title")}
-        </Button>
-      </div>
-      {mobilePanel ? (
-        <button
-          className="absolute inset-0 top-10 z-10 bg-background/60 backdrop-blur-sm xl:hidden"
-          aria-label="关闭侧栏"
-          onClick={() => setMobilePanel(null)}
-        >
-          <X className="absolute right-3 top-3 h-4 w-4" />
-        </button>
-      ) : null}
-      <ConversationList
-        {...chat}
-        togglePanel={togglePanel}
-        panelVisibility={
-          mobilePanel === "conversations"
-            ? { ...chat.panelVisibility, conversations: true }
-            : chat.panelVisibility
-        }
-        switchActiveChat={async (id) => {
-          setMobilePanel(null);
-          await chat.switchActiveChat(id);
-        }}
-      />
-
-      <section
-        inert={mobilePanel !== null}
-        className="flex min-h-0 min-w-0 flex-1 flex-col"
-      >
+    <main className="chat-workspace relative flex h-full min-h-0 w-full overflow-hidden">
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Card className="chat-canvas relative flex h-full min-h-0 flex-col overflow-hidden rounded-none border-0 bg-transparent shadow-none">
-          <ChatToolbar {...chat} />
+          <ChatToolbar {...chat} conversationControls={<ConversationList {...chat} />} />
 
           <CardContent className="flex min-h-0 flex-1 flex-col gap-0 p-0">
             <MessageRenderer {...chat} />
 
             {/* What the turn did, above the composer: the place someone looks
                 when an answer mentions a task or a search they did not see. */}
-            <div className="chat-dock max-h-[50%] shrink-0 space-y-2 overflow-y-auto px-4 pb-4 pt-2 sm:px-6">
+            <div className="chat-dock flex max-h-[50%] shrink-0 flex-col gap-3 overflow-y-auto px-4 pb-5 pt-2 sm:px-7">
               <RunRecords
                 activeChatId={chat.activeChatId}
                 refreshKey={chat.messages.length}

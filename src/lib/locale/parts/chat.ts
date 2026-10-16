@@ -76,6 +76,16 @@ export const chatMessages = {
 
   // --- conversation list -------------------------------------------------
   "chat.conversations.recent": "最近会话",
+  "chat.conversations.actions": "会话操作：{title}",
+  "chat.conversations.pinned": "置顶",
+  "chat.conversations.today": "今天",
+  "chat.conversations.yesterday": "昨天",
+  "chat.conversations.week": "近 7 天",
+  "chat.conversations.older": "更早",
+  "chat.conversations.loaded": "已加载 {count} 个会话",
+  "chat.conversations.manageAll": "管理全部会话",
+  "chat.conversations.emptyTitle": "从一段对话开始",
+  "chat.conversations.emptyDescription": "点击上方新会话，把想法留在这里，随时回来继续。",
   "chat.composer.configureModels": "添加模型",
   "chat.conversations.title": "会话列表",
   "chat.conversations.subtitle": "置顶优先，按最近消息排序",

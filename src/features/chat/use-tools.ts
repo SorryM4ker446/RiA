@@ -9,8 +9,8 @@ import { buildDefaultManualFieldValues } from "@/features/chat/tool-input";
 import type { ManualToolFieldValues, ManualToolSelection, TaskStatusFilter, ToolCatalogItem } from "@/features/chat/types";
 import type { useTasks } from "@/features/chat/use-tasks";
 import type { ModelRef } from "@/lib/models/preferences-schema";
-type Options = { setMessages: Dispatch<SetStateAction<UIMessage[]>>; ensureActiveChatId: (title: string) => Promise<string>; loadChats: () => Promise<void>; selectedChatModel: ModelRef | null; modelMode: ModelMode; selectedManualTool: ManualToolSelection; setSelectedManualTool: Dispatch<SetStateAction<ManualToolSelection>>; loadTasks: ReturnType<typeof useTasks>["loadTasks"]; taskStatusFilter: TaskStatusFilter; };
-export function useTools({ setMessages, ensureActiveChatId, loadChats, selectedChatModel, modelMode, selectedManualTool, setSelectedManualTool, loadTasks, taskStatusFilter }: Options) {
+type Options = { allowedToolIds?: string[]; setMessages: Dispatch<SetStateAction<UIMessage[]>>; ensureActiveChatId: (title: string) => Promise<string>; loadChats: () => Promise<void>; selectedChatModel: ModelRef | null; modelMode: ModelMode; selectedManualTool: ManualToolSelection; setSelectedManualTool: Dispatch<SetStateAction<ManualToolSelection>>; loadTasks: ReturnType<typeof useTasks>["loadTasks"]; taskStatusFilter: TaskStatusFilter; };
+export function useTools({ allowedToolIds, setMessages, ensureActiveChatId, loadChats, selectedChatModel, modelMode, selectedManualTool, setSelectedManualTool, loadTasks, taskStatusFilter }: Options) {
   const [availableTools, setAvailableTools] = useState<ToolCatalogItem[]>([]);
   const [toolCatalogError, setToolCatalogError] = useState<string | null>(null);
   const [hasLoadedToolCatalog, setHasLoadedToolCatalog] = useState(false);
@@ -27,7 +27,7 @@ export function useTools({ setMessages, ensureActiveChatId, loadChats, selectedC
   function getManualToolsForChat(): ToolCatalogItem[] {
     // A tool that cannot run is not offered as a manual action either: the
     // user is told why instead of pressing a button that only errors.
-    return availableTools.filter((tool) => tool.manual.enabled && tool.available && tool.modeSupport.includes("chat"));
+    return availableTools.filter((tool) => (allowedToolIds === undefined || allowedToolIds.includes(tool.id)) && tool.manual.enabled && tool.available && tool.modeSupport.includes("chat"));
   }
 
   function getSelectedManualToolConfig(): ToolCatalogItem | null {

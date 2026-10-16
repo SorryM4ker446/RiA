@@ -20,6 +20,7 @@ async function importFile(page: Page, name: string, buffer: Buffer) {
   await page.getByLabel("选择知识文档").setInputFiles({ name, mimeType: "application/octet-stream", buffer });
   const response = page.waitForResponse(response => response.url().endsWith("/api/documents") && response.request().method() === "POST");
   await page.getByRole("button", { name: "导入文档", exact: true }).click();
+  await page.getByRole("button", { name: "确认保存文档", exact: true }).click();
   const result = await response;
   expect(result.ok(), await result.text()).toBe(true);
   await expect(page.getByRole("button", { name: "导入文档", exact: true })).toBeEnabled();
@@ -102,7 +103,8 @@ test("document validation, Origin boundary and ingestion throttling work over au
   const denied = await fetch(`${localHostOrigin(app.origin)}/api/documents`, { method: "POST", headers: { cookie, origin: "https://outside.invalid", "content-type": "application/json" }, body: "{}" });
   expect(denied.status).toBe(403);
   const result = await importFile(page, "valid.txt", Buffer.from("本地文档限流回归。"));
-  for (let count = 0; count < 4; count++) expect((await browserApi(page, `${localHostOrigin(app.origin)}/api/documents/${result.document.id}`, "POST")).status).toBe(200);
+  // Invalid preview uses its separate read-only quota; saving plus five reindexes fills the mutation quota.
+  for (let count = 0; count < 5; count++) expect((await browserApi(page, `${localHostOrigin(app.origin)}/api/documents/${result.document.id}`, "POST")).status).toBe(200);
   expect((await browserApi(page, `${localHostOrigin(app.origin)}/api/documents/${result.document.id}`, "POST")).status).toBe(429);
   // Dropping the credential makes the workspace unreachable again.
   await page.context().clearCookies();
