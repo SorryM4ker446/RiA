@@ -59,6 +59,42 @@ async function ask(page: Page, app: App) {
 }
 const shots = join(tmpdir(), "ria-extensions-qa");
 
+test("long extension names stay inside narrow cards and tool sheets without covering status labels", async ({ page, app }) => {
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  const name = "AnExtensionNameWithoutAnyBreaks".repeat(2);
+  const row = await create(page, app, name, "mcp-http");
+  const card = page.getByTestId(`extension-${row.id}`);
+  const title = card.getByRole("heading", { name, exact: true });
+  const status = (await card.getByText("待检测", { exact: true }).boundingBox())!;
+  const textRight = await title.evaluate(node => { const range = document.createRange(); range.selectNodeContents(node); return Math.max(...Array.from(range.getClientRects(), rect => rect.right)); });
+  expect(textRight).toBeLessThanOrEqual(status.x - 8);
+  await mkdir(shots, { recursive: true });
+  await page.screenshot({ path: join(shots, "mobile-long-name.png"), animations: "disabled" });
+  const trigger = card.getByRole("button", { name: "检测连接", exact: true });
+  await trigger.click();
+  const sheet = page.getByRole("dialog", { name: `${name} · 工具`, exact: true });
+  await expect(sheet).toBeVisible();
+  await expect(sheet).toHaveCSS("animation-name", "sheet-in");
+  await sheet.evaluate(node => Promise.all(node.getAnimations().map(animation => animation.finished)));
+  const heading = sheet.getByRole("heading", { name: `${name} · 工具`, exact: true });
+  const right = await heading.evaluate(node => { const range = document.createRange(); range.selectNodeContents(node); return Math.max(...Array.from(range.getClientRects(), rect => rect.right)); });
+  expect(right).toBeLessThan(390 - 24);
+  await page.screenshot({ path: join(shots, "mobile-long-name-tools.png"), animations: "disabled" });
+  await page.keyboard.press("Escape"); await expect(sheet).toBeHidden(); await expect(trigger).toBeFocused();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await card.getByRole("button", { name: "管理工具", exact: true }).click();
+  await expect(sheet).toHaveCSS("animation-name", "none");
+  await page.keyboard.press("Escape");
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.getByRole("button", { name: "切换主题", exact: true }).click();
+  await expect(page.locator("html")).not.toHaveClass(/dark/);
+  await expect(title).toBeVisible();
+  await page.screenshot({ path: join(shots, "desktop-light.png"), animations: "disabled" });
+  expect(errors).toEqual([]);
+});
+
 test("HTTP extension management, approved calls and encrypted credentials survive restart and uninstall preserves chat", { tag: "@integration" }, async ({ page, app }) => {
   test.setTimeout(60_000);
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));

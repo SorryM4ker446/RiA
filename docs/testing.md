@@ -6,6 +6,10 @@ scoped chat tools and obsolete source versions. Renderer cases check actual file
 downloads, isolated preview, narrow layouts, cancellation/stale responses, error
 recovery and tool-result downloads after restart. Screenshots and generated test
 files stay under the OS temporary directory (`ria-document-processor-qa`). The
+responsive regression checks that creating a draft is reachable in the first
+narrow viewport, editing precedes export settings, replacement can be declined,
+and dropdowns close on a second click without shifting their triggers. Light
+themes, preview transitions and reduced-motion behavior are also exercised. The
 preview intentionally disallows scripts, including automation recorder injection;
 tests permit only that exact Chromium diagnostic and still require no script
 elements, external image requests or other application console errors.
@@ -15,7 +19,9 @@ local stdio process. They check discovery, mandatory approval, denial, stale
 configuration, cancellation, bounded responses, timeouts, credential encryption
 and isolation, and existing manual-tool behavior. The production-renderer tests
 cover management, narrow windows, connection failures, restart and chat history
-after uninstall. Migration tests retain existing conversations and verify safety
+after uninstall. Long unbroken names must remain inside cards and tool sheets
+without overlapping status labels; drawers must restore focus and respect reduced
+motion. Migration tests retain existing conversations and verify safety
 copies; portable restore disables machine-local connections without exporting
 their settings or credentials. These fixtures do not establish compatibility with
 every third-party MCP server or a plugin marketplace. See [Extensions](extensions.md).

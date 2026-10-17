@@ -14,6 +14,55 @@ const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>
 } });
 const screenshots = join(tmpdir(), "ria-document-processor-qa");
 const sample = "# 差旅标准\n\n**住宿**上限为 500 元。\n\n| 项目 | 金额 | 条件 |\n| --- | --- | --- |\n| 住宿 | 500 元 | 主管审批 |\n| 交通 | 200 元 | 保留票据 |\n\n- 第一项\n- 第二项\n\n```c\nif (a < b) return 1;\n```\n\n<script>window.__documentScriptRan = true</script>\n\n![外部图](https://foreign.invalid/private.png)";
+
+test("narrow document workspaces put editing before export settings and keep dropdown triggers stable", async ({ page, app }) => {
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto(`${app.origin}/document-processor`);
+  const create = page.getByRole("button", { name: "新建内容", exact: true });
+  await expect(create).toBeVisible();
+  const createBox = (await create.boundingBox())!;
+  expect(createBox.y + createBox.height).toBeLessThan(844);
+  await create.click();
+  const content = page.getByLabel("文档内容", { exact: true });
+  await content.fill("# 可编辑草稿\n\n保留本次修改。");
+  const editor = page.getByRole("heading", { name: "内容与预览", exact: true });
+  const settings = page.getByRole("heading", { name: "导出设置", exact: true });
+  expect((await editor.boundingBox())!.y).toBeLessThan((await settings.boundingBox())!.y);
+  expect((await content.boundingBox())!.height).toBe(320);
+  const select = page.getByLabel("导出格式", { exact: true });
+  await select.scrollIntoViewIfNeeded();
+  const before = (await select.boundingBox())!;
+  await select.click();
+  await expect(page.getByRole("listbox")).toBeVisible();
+  await expect(page.getByRole("listbox")).toHaveCSS("animation-name", "pop-in");
+  const opened = (await select.boundingBox())!;
+  expect(opened.x).toBeCloseTo(before.x, 1); expect(opened.y).toBeCloseTo(before.y, 1);
+  await select.click();
+  await expect(page.getByRole("listbox")).toBeHidden();
+  await expect(select).toBeFocused();
+  await create.scrollIntoViewIfNeeded();
+  page.once("dialog", dialog => dialog.dismiss()); await create.click();
+  await expect(content).toHaveValue("# 可编辑草稿\n\n保留本次修改。");
+  await content.scrollIntoViewIfNeeded();
+  await mkdir(screenshots, { recursive: true });
+  await page.screenshot({ path: join(screenshots, "mobile-layout.png"), animations: "disabled" });
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.locator(".workspace-content").evaluate(node => { node.scrollTop = 0; });
+  expect((await editor.boundingBox())!.x).toBeGreaterThan((await settings.boundingBox())!.x);
+  await page.getByRole("button", { name: "切换主题", exact: true }).click();
+  await expect(page.locator("html")).not.toHaveClass(/dark/);
+  await page.getByRole("tab", { name: "版式预览", exact: true }).click();
+  await expect(page.frameLocator('iframe[title="文档版式预览"]').getByRole("heading", { name: "可编辑草稿", exact: true })).toBeVisible();
+  await page.screenshot({ path: join(screenshots, "desktop-light.png"), animations: "disabled" });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.getByRole("tab", { name: "编辑内容", exact: true }).click();
+  await expect(page.getByRole("tabpanel").filter({ has: content })).toHaveCSS("animation-name", "none");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
 async function upload(page: Page, name: string, buffer: Buffer) {
   await page.getByLabel("选择待处理文档", { exact: true }).setInputFiles({ name, mimeType: "application/octet-stream", buffer });
   await expect(page.getByLabel("文档内容", { exact: true })).toBeVisible();
