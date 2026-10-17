@@ -142,7 +142,7 @@ export function RunRecords({ activeChatId, refreshKey }: Props) {
 
   return (
     <Sheet key={activeChatId}>
-      <div className="run-records mx-auto flex w-full max-w-xl items-center justify-between gap-2">
+      <div className="run-records mx-auto flex w-full max-w-[42rem] items-center justify-between gap-2">
         <SheetTrigger asChild>
           <Button variant="ghost" size="sm" aria-label={t("runs.title")}>
             <History data-icon="inline-start" aria-hidden="true" />

@@ -15,7 +15,7 @@ import { lastAssistantMessageIsCompleteWithApprovalResponses, UIMessage } from "
 import { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { chatApi, createChatTransport } from "@/features/chat/api-client";
 import { clearChatDraft, readChatDraft, writeChatDraft } from "@/features/chat/draft";
-import { buildDefaultManualFieldValues, normalizeManualToolInput, validateManualToolFields } from "@/features/chat/tool-input";
+import { normalizeManualToolInput, validateManualToolFields } from "@/features/chat/tool-input";
 import type { DeleteTarget } from "@/features/chat/types";
 import type { ModelLibraryItem } from "@/lib/models/preferences-schema";
 
@@ -41,8 +41,8 @@ export function useChatState() {
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const olderRequestRef = useRef(false);
   const {
-    modelMode, setModelMode, selectedChatModel: preferredChatModel, selectedImageModel, selectedVideoModel, selectedManualTool,
-    setSelectedManualTool, manualToolsOnly, setManualToolsOnly, applyChatPreferences, onModelSelect,
+    modelMode, setModelMode, selectedChatModel: preferredChatModel, selectedImageModel, selectedVideoModel,
+    applyChatPreferences, onModelSelect,
     isLoadingPreferences, preferencesError, modelLibrary, clearPreferencesError,
   } = useChatPreferences(activeChatId);
   const {
@@ -51,9 +51,9 @@ export function useChatState() {
     cancelEditingChat, saveEditedTitle, performDeleteChat, ensureActiveChatId,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, toggleEphemeral, isEphemeralSaving,
     documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
-  } = useConversations({ activeChatId, setActiveChatId, preferences: { modelMode, selectedChatModel: preferredChatModel, selectedImageModel, selectedVideoModel, selectedManualTool, manualToolsOnly }, applyChatPreferences, resetConversation, persistCurrentStreamingAssistantIfNeeded, setPageError });
+  } = useConversations({ activeChatId, setActiveChatId, preferences: { modelMode, selectedChatModel: preferredChatModel, selectedImageModel, selectedVideoModel }, applyChatPreferences, resetConversation, persistCurrentStreamingAssistantIfNeeded, setPageError });
   const selectedChatModel = activeChat?.assistantConfig?.model ?? preferredChatModel;
-  const transport = useMemo(() => createChatTransport(activeChatId, { selectedChatModel, manualToolsOnly, modelMode }), [activeChatId, selectedChatModel, manualToolsOnly, modelMode]);
+  const transport = useMemo(() => createChatTransport(activeChatId, { selectedChatModel, modelMode }), [activeChatId, selectedChatModel, modelMode]);
   const { messages, setMessages, sendMessage, regenerate, addToolApprovalResponse, status, error, clearError, stop } = useChat({
     id: activeChatId ?? "draft",
     transport,
@@ -82,8 +82,9 @@ export function useChatState() {
   const {
     toolCatalogError, unavailableTools, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors,
     setManualToolFieldErrors, isRunningManualTool, manualTools, selectedManualToolConfig,
+    selectedManualTool, setSelectedManualTool, selectedToolDocument, setSelectedToolDocument,
     manualToolSelectValue, isManualToolSelected, runManualTool,
-  } = useTools({ allowedToolIds: activeChat?.assistantConfig?.tools, setMessages, ensureActiveChatId, loadChats, selectedChatModel, modelMode, selectedManualTool, setSelectedManualTool, loadTasks, taskStatusFilter });
+  } = useTools({ activeChatId, allowedToolIds: activeChat?.assistantConfig?.tools, setMessages, ensureActiveChatId, loadChats, selectedChatModel, modelMode, loadTasks, taskStatusFilter });
   const isPending =
     isLoadingPreferences ||
     pendingSend !== null ||
@@ -477,7 +478,7 @@ export function useChatState() {
       // current preferences must travel with the request itself.
       await regenerate({
         messageId,
-        body: { chatId: activeChatId, ...(selectedChatModel ? { model: selectedChatModel } : {}), manualToolsOnly, mode: modelMode },
+        body: { chatId: activeChatId, ...(selectedChatModel ? { model: selectedChatModel } : {}), mode: modelMode },
       });
       await loadChats();
     } catch (regenerateError) {
@@ -488,20 +489,36 @@ export function useChatState() {
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isPending || isDocumentScopeSaving) return;
+    if (modelMode === "chat" && selectedManualToolConfig) {
+      const isDocumentTool = ["readDocument", "convertDocument"].includes(selectedManualToolConfig.id);
+      const content = isDocumentTool ? selectedToolDocument?.id ?? "" : input.trim();
+      if (!content) { setPageError(isDocumentTool ? "请先选择知识库文档。" : t("chatState.toolParamsRequired")); return; }
+      if (attachments.length) { setPageError(t("chatState.manualToolAttachmentBlocked")); return; }
+      const nextFieldErrors = validateManualToolFields(selectedManualToolConfig, manualToolFieldValues);
+      setManualToolFieldErrors(nextFieldErrors);
+      if (Object.keys(nextFieldErrors).length > 0) return;
+      setPageError(null);
+      try {
+        const result = await runManualTool({
+          tool: selectedManualToolConfig.id,
+          input: normalizeManualToolInput({ tool: selectedManualToolConfig, text: content, fieldValues: manualToolFieldValues }),
+          userVisibleText: isDocumentTool ? `${selectedManualToolConfig.displayName}：${selectedToolDocument!.filename}` : content,
+        });
+        if (result.isCurrent && !isDocumentTool) setInput(current => current.trim() === content ? "" : current);
+      } catch (submitError) {
+        setPageError(submitError instanceof Error ? submitError.message : t("chatState.toolRunFailed"));
+      }
+      return;
+    }
     const content = input.trim();
     const hasAttachments = attachments.length > 0;
     const hasContent = content.length > 0;
 
     if (!hasContent && !hasAttachments) return;
-    if (!selectedModel && !(modelMode === "chat" && selectedManualToolConfig)) { setPageError(t("chatState.noModelSelected")); return; }
+    if (!selectedModel) { setPageError(t("chatState.noModelSelected")); return; }
     if (modelMode === "video" && attachments.length > 1) { setPageError(t("mediaGen.videoReferenceLimit")); return; }
 
     setPageError(null);
-
-    if (modelMode === "chat" && selectedManualToolConfig && hasAttachments) {
-      setPageError(t("chatState.manualToolAttachmentBlocked"));
-      return;
-    }
 
     if (modelMode === "chat" && hasAttachments && !selectedModelInfo?.supportsImageInput) {
       setPageError(`${t("chatState.imageInputUnsupportedPrefix")} ${selectedChatModel?.modelId ?? ""} ${t("chatState.imageInputUnsupportedSuffix")}`);
@@ -521,38 +538,6 @@ export function useChatState() {
     // also removes the window where a send could be started from a composer that
     // belonged to a conversation the user had already left.
     const uploadParts: UploadableFilePart[] = attachments;
-
-    if (modelMode === "chat" && selectedManualToolConfig) {
-      try {
-        if (!hasContent) {
-          throw new Error(t("chatState.toolParamsRequired"));
-        }
-
-        const nextFieldErrors = validateManualToolFields(selectedManualToolConfig, manualToolFieldValues);
-        setManualToolFieldErrors(nextFieldErrors);
-        if (Object.keys(nextFieldErrors).length > 0) {
-          return;
-        }
-        const normalizedInput = normalizeManualToolInput({
-          tool: selectedManualToolConfig,
-          text: content,
-          fieldValues: manualToolFieldValues,
-        });
-
-        await runManualTool({
-          tool: selectedManualToolConfig.id,
-          input: normalizedInput,
-          userVisibleText: content,
-        });
-
-        setManualToolFieldValues(buildDefaultManualFieldValues(selectedManualToolConfig));
-        setManualToolFieldErrors({});
-      } catch (submitError) {
-        setPageError(submitError instanceof Error ? submitError.message : t("chatState.toolRunFailed"));
-      }
-
-      return;
-    }
 
     if (modelMode === "image") {
       await generateImage(content, uploadParts);
@@ -580,7 +565,7 @@ export function useChatState() {
       await new Promise<void>((resolve, reject) => setPendingSend({
         chatId,
         message: hasAttachments ? { ...(hasContent ? { text: content } : {}), files: uploadParts } : { text: content },
-        options: { body: { chatId, ...(selectedChatModel ? { model: selectedChatModel } : {}), manualToolsOnly, mode: "chat" } },
+        options: { body: { chatId, ...(selectedChatModel ? { model: selectedChatModel } : {}), mode: "chat" } },
         resolve, reject,
       }));
 
@@ -598,7 +583,7 @@ export function useChatState() {
       const hasAttachments = attachments.length > 0;
       const hasContent = input.trim().length > 0;
       if (isPending) return;
-      if (!hasContent && !hasAttachments) return;
+      if (!hasContent && !hasAttachments && !selectedToolDocument) return;
       void onSubmit(event as unknown as FormEvent<HTMLFormElement>);
     }
   }
@@ -677,13 +662,13 @@ export function useChatState() {
     isLoadingTasks, loadTasks, setTaskStatusFilter, taskStatusFilter,
     taskPanelError: withoutGlobalEcho(taskPanelError),
     visibleTasks, updateTaskStatus, deleteTask, saveTaskSchedule, updatingTaskIds, hasHiddenTasks, setIsTaskListExpanded,
-    isTaskListExpanded, activeChat, isPending, modelMode, selectedModel, selectedModelInfo, onModeSelect,
+    isTaskListExpanded, activeChat, isPending, isRunningManualTool, modelMode, selectedModel, selectedModelInfo, onModeSelect,
     onModelSelect, appendQuickPrompt, isLoadingHistory, messages, imageByMessageId, videoByMessageId,
     status, editingMessageId, startEditingMessage, regenerateMessage, requestDeleteMessage,
     setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage,
     attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, addToolApprovalResponse, onStop, onSubmit,
     removeAttachmentAt, isUploadingAttachments, isDraggingFiles, onComposerDragOver, onComposerDragLeave, onComposerDrop,
-    setSelectedManualTool, manualToolSelectValue, manualTools, manualToolsOnly, setManualToolsOnly,
+    setSelectedManualTool, manualToolSelectValue, manualTools, selectedToolDocument, setSelectedToolDocument,
     selectedManualToolConfig, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors,
     setManualToolFieldErrors, unavailableTools, toolCatalogError: withoutGlobalEcho(toolCatalogError),
     setInput, handleTextareaKeyDown, onTextareaPaste,

@@ -108,6 +108,15 @@ current source text changes or is deleted.
 
 Manual tool execution (`POST /api/tools/run`) accepts an absent model: local task creation, memory operations and deterministic retrieval must work with an empty model library. An explicitly supplied model still needs to be a library member. Manual execution does not require model tool-call capability because the user supplies the command; automatic chat tool calls retain capability checks and approval rules. Search answer synthesis may use the configured chat default, but a missing model or failed synthesis retains deterministic evidence. Manual synthesis receives the request cancellation signal and disables automatic provider retries.
 
+Normal chat offers all available tools allowed by the current assistant to a
+tool-capable model. The retired `manualToolsOnly` boolean remains accepted by
+`POST /api/chat` for older clients but is ignored; it cannot disable automatic
+tools. The renderer no longer saves that flag or tool selections with conversation
+model preferences. Selecting an action in the tool picker executes only that
+action through `/api/tools/run` and returns to automatic selection after success.
+Failed actions retain their input for correction or retry. This selection never
+changes the assistant's tool allowlist or bypasses external-tool approval.
+
 Usage supports an optional `source` query (`chat`, `summary`, `scheduled`, `tool`, `embedding`, `media`, `unattributed`), rejecting invalid or duplicated parameters. Limits and current local-date allowance are returned with usage. A denied admission reports a conflict or configuration problem and submits no provider call; it does not fabricate a usage charge. See [Model settings and usage](model-usage.md).
 
 ## Knowledge topics

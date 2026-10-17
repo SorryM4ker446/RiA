@@ -1,7 +1,7 @@
 import { ModelMode } from "@/features/chat/page-utils";
 import { t } from "@/lib/locale";
 import { PANEL_VISIBILITY_STORAGE_KEY } from "@/lib/ui-preferences";
-import type { ChatScopedPreferences, ManualToolSelection } from "@/features/chat/types";
+import type { ChatScopedPreferences } from "@/features/chat/types";
 import { CHAT_PREFS_STORAGE_PREFIX } from "@/features/chat/types";
 import { settingsRequest } from "@/features/settings/api-client";
 import { providerIds, type ModelLibraryItem, type ModelPreferences, type ModelRef } from "@/lib/models/preferences-schema";
@@ -9,7 +9,7 @@ import { providerIds, type ModelLibraryItem, type ModelPreferences, type ModelRe
 export async function loadAccountChatDefaults(): Promise<{ preferences: ChatScopedPreferences; library: ModelLibraryItem[] }> {
   const { data } = await settingsRequest<{ data: ModelPreferences }>("/api/models");
   return {
-    preferences: { modelMode: data.defaultMode, selectedChatModel: data.chat.model, selectedImageModel: data.image.model, selectedVideoModel: data.video.model, selectedManualTool: "none", manualToolsOnly: false },
+    preferences: { modelMode: data.defaultMode, selectedChatModel: data.chat.model, selectedImageModel: data.image.model, selectedVideoModel: data.video.model },
     library: data.library,
   };
 }
@@ -25,7 +25,7 @@ export function staleChatModelWarning(chatId: string, library: ModelLibraryItem[
 }
 
 export function getDefaultChatPreferences(): ChatScopedPreferences {
-  return { modelMode: "chat", selectedChatModel: null, selectedImageModel: null, selectedVideoModel: null, selectedManualTool: "none", manualToolsOnly: false };
+  return { modelMode: "chat", selectedChatModel: null, selectedImageModel: null, selectedVideoModel: null };
 }
 
 export function getChatPrefsStorageKey(chatId: string): string { return `${CHAT_PREFS_STORAGE_PREFIX}${chatId}`; }
@@ -61,8 +61,7 @@ export function readChatPreferences(chatId: string): ChatScopedPreferences | nul
   try {
     const parsed = JSON.parse(raw) as Partial<ChatScopedPreferences>;
     const modelMode: ModelMode = parsed.modelMode === "chat" || parsed.modelMode === "image" || parsed.modelMode === "video" ? parsed.modelMode : "chat";
-    const selectedManualTool: ManualToolSelection = typeof parsed.selectedManualTool === "string" && parsed.selectedManualTool.trim() ? parsed.selectedManualTool : "none";
-    return { modelMode, selectedChatModel: readStoredModelRef(parsed.selectedChatModel), selectedImageModel: readStoredModelRef(parsed.selectedImageModel), selectedVideoModel: readStoredModelRef(parsed.selectedVideoModel), selectedManualTool, manualToolsOnly: parsed.manualToolsOnly === true };
+    return { modelMode, selectedChatModel: readStoredModelRef(parsed.selectedChatModel), selectedImageModel: readStoredModelRef(parsed.selectedImageModel), selectedVideoModel: readStoredModelRef(parsed.selectedVideoModel) };
   } catch { return null; }
 }
 

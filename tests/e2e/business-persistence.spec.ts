@@ -22,7 +22,7 @@ async function register(page: Page, origin: string) {
 test("streamed chat, follow-up context and edited regeneration survive a service restart", { tag: "@integration" }, async ({ page, browser, app }) => {
   await register(page, app.origin);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
-  await page.getByRole("checkbox").check();
+  await expect(page.getByRole("checkbox", { name: "仅手动", exact: true })).toHaveCount(0);
   const send = async (text: string) => {
     await page.getByPlaceholder(/输入你的问题/).fill(text);
     const response = page.waitForResponse((response) => response.url() === `${app.origin}/api/chat`);
@@ -80,8 +80,8 @@ test("streamed chat, follow-up context and edited regeneration survive a service
 test("manual tasks and knowledge use real APIs, persist across restart and remain private", { tag: "@integration" }, async ({ page, browser, app }) => {
   await register(page, app.origin);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
-  await page.getByLabel("选择手动工具").click();
-  await page.getByRole("option", { name: "手动：创建任务" }).click();
+  await page.getByLabel("选择工具").click();
+  await page.getByRole("option", { name: "创建任务" }).click();
   await page.getByPlaceholder(/输入任务标题/).fill("浏览器持久化任务");
   await page.getByRole("button", { name: "执行工具" }).click();
   await expect.poll(async () => (await browserData(page, `${app.origin}/api/tasks`)).length).toBe(1);
@@ -106,8 +106,8 @@ test("manual tasks and knowledge use real APIs, persist across restart and remai
   await expect(page.locator("article").getByText("月光档案更新后仍然只有一份。", { exact: true })).toBeVisible();
   await expect.poll(() => app.readRows("SELECT id, value FROM memories WHERE key = ?", "月光档案")).toEqual([{ id: entry.id, value: "月光档案更新后仍然只有一份。" }]);
   await page.getByRole("link", { name: /返回聊天/ }).click();
-  await page.getByLabel("选择手动工具").click();
-  await page.getByRole("option", { name: "手动：知识检索" }).click();
+  await page.getByLabel("选择工具").click();
+  await page.getByRole("option", { name: "知识检索" }).click();
   await page.getByPlaceholder(/输入要检索的关键词/).fill("月光档案");
   const toolResponse = page.waitForResponse((response) => response.url() === `${app.origin}/api/tools/run`);
   await page.getByRole("button", { name: "执行工具" }).click();

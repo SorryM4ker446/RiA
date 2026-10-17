@@ -6,6 +6,7 @@ import { UIMessage } from "ai";
 import type { ModelRef } from "@/lib/models/preferences-schema";
 
 export type ManualToolSelection = "none" | string;
+export type ToolDocumentSelection = { id: string; filename: string };
 
 export type ManualToolFieldMeta = {
   key: string;
@@ -77,8 +78,6 @@ export type ChatScopedPreferences = {
   selectedChatModel: ModelRef | null;
   selectedImageModel: ModelRef | null;
   selectedVideoModel: ModelRef | null;
-  selectedManualTool: ManualToolSelection;
-  manualToolsOnly: boolean;
 };
 
 export type DeleteTarget =

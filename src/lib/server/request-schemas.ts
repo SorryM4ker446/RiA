@@ -77,7 +77,9 @@ const messageSchema = z.strictObject({
 export const chatRequestSchema = z.strictObject({
   id: identifierSchema.optional(), chatId: identifierSchema.optional(), conversationId: identifierSchema.optional(),
   messageId: identifierSchema.optional(), model: chatModelSchema.optional(),
-  mode: z.literal("chat").optional(), manualToolsOnly: z.boolean().optional(),
+  mode: z.literal("chat").optional(),
+  // Accepted for older clients; tool availability no longer depends on this flag.
+  manualToolsOnly: z.boolean().optional(),
   trigger: z.enum(["submit-message", "regenerate-message"]).optional(),
   messages: z.array(messageSchema).min(1).max(1000),
 }).superRefine((body, ctx) => {

@@ -34,7 +34,8 @@ servers, arbitrary UI plugins and DSH/Cordis plugins are not implemented here.
 1. Open 扩展管理 → 添加扩展, choose the connection type and save its configuration.
 2. Run 检测连接. Inspect the descriptions and parameter schemas returned by the server.
 3. Select the tools you need and choose 启用所选工具. New connections and newly discovered tools start disabled.
-4. Use normal chat with a tool-capable model and automatic tools enabled, or select
+4. Use normal chat with a tool-capable model; automatic tool selection is the
+   default. You can also select
    the external tools in a custom assistant template. A template grants no additional
    process, filesystem or service permissions.
 5. Review each proposed external call in chat and approve or reject it. The manual

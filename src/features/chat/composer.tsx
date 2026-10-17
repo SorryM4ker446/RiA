@@ -2,6 +2,7 @@ import { modelRefKey } from "@/lib/models/preferences-schema";
 import { attachmentLabel } from "@/features/chat/draft";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import {
   Select,
   SelectContent,
@@ -13,7 +14,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { t, tf } from "@/lib/locale";
 import { IMAGE_MEDIA_TYPES } from "@/lib/media/limits";
 import { cn } from "@/lib/utils/cn";
-import { Loader2, Paperclip, SendHorizonal, Square, X } from "lucide-react";
+import { ArrowUp, Loader2, Paperclip, Square, X } from "lucide-react";
+import { DocumentToolInput } from "@/features/chat/document-tool-input";
 import { getManualToolFieldError } from "@/features/chat/tool-input";
 import type { ManualToolSelection } from "@/features/chat/types";
 import type { ChatState } from "@/features/chat/use-chat-state";
@@ -26,12 +28,13 @@ type Props = Pick<
   | "onSubmit"
   | "modelMode"
   | "isPending"
+  | "isRunningManualTool"
+  | "selectedToolDocument"
+  | "setSelectedToolDocument"
   | "isDocumentScopeSaving"
   | "setSelectedManualTool"
   | "manualToolSelectValue"
   | "manualTools"
-  | "manualToolsOnly"
-  | "setManualToolsOnly"
   | "selectedManualToolConfig"
   | "manualToolFieldValues"
   | "setManualToolFieldValues"
@@ -67,12 +70,13 @@ export function Composer({
   onSubmit,
   modelMode,
   isPending,
+  isRunningManualTool,
+  selectedToolDocument,
+  setSelectedToolDocument,
   isDocumentScopeSaving,
   setSelectedManualTool,
   manualToolSelectValue,
   manualTools,
-  manualToolsOnly,
-  setManualToolsOnly,
   selectedManualToolConfig,
   manualToolFieldValues,
   setManualToolFieldValues,
@@ -103,10 +107,11 @@ export function Composer({
   onModelSelect,
   modelLibrary,
 }: Props) {
+  const isDocumentTool = modelMode === "chat" && ["readDocument", "convertDocument"].includes(selectedManualToolConfig?.id ?? "");
   return (
     <form
       className={cn(
-        "mx-auto flex w-full max-w-xl flex-col gap-2 rounded-xl transition-shadow duration-[--dur-fast]",
+        "mx-auto flex w-full max-w-[42rem] flex-col gap-2 rounded-xl transition-shadow duration-[--dur-fast]",
         // Only lit while a real file drag is over the composer, so a drag of
         // selected text does not look like an invitation to drop a file.
         isDraggingFiles &&
@@ -121,43 +126,48 @@ export function Composer({
       {modelMode === "chat" &&
       selectedManualToolConfig &&
       selectedManualToolConfig.manual.fields.length > 0 ? (
-        <div className="grid gap-2 rounded-xl border border-border/60 bg-card/70 p-3 md:grid-cols-3">
+        <FieldGroup className="gap-2 rounded-xl border border-border/60 bg-card/70 p-3 md:grid md:grid-cols-3">
           {selectedManualToolConfig.manual.fields.map((field) => {
             const value = manualToolFieldValues[field.key] ?? "";
+            const fieldId = `manual-tool-${field.key}`;
             if (field.type === "select") {
               return (
-                <Select
-                  key={field.key}
-                  onValueChange={(nextValue) =>
-                    setManualToolFieldValues((prev) => ({
-                      ...prev,
-                      [field.key]: nextValue,
-                    }))
-                  }
-                  value={value || field.defaultValue || ""}
-                >
-                  <SelectTrigger className="h-8">
-                    <SelectValue placeholder={field.label} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(field.options ?? []).map((option) => (
-                      <SelectItem
-                        key={`${field.key}-${option.value}`}
-                        value={option.value}
-                      >
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Field key={field.key}>
+                  <FieldLabel htmlFor={fieldId} className="sr-only">{field.label}</FieldLabel>
+                  <Select
+                    onValueChange={(nextValue) =>
+                      setManualToolFieldValues((prev) => ({
+                        ...prev,
+                        [field.key]: nextValue,
+                      }))
+                    }
+                    value={value || field.defaultValue || ""}
+                  >
+                    <SelectTrigger id={fieldId} className="h-8">
+                      <SelectValue placeholder={field.label} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(field.options ?? []).map((option) => (
+                        <SelectItem
+                          key={`${field.key}-${option.value}`}
+                          value={option.value}
+                        >
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
               );
             }
 
             const error = manualToolFieldErrors[field.key];
             const fieldErrorId = `manual-tool-${field.key}-error`;
             return (
-              <div className="space-y-1.5" key={field.key}>
+              <Field className="gap-1.5" key={field.key} data-invalid={!!error}>
+                <FieldLabel htmlFor={fieldId} className="sr-only">{field.label}</FieldLabel>
                 <Input
+                  id={fieldId}
                   aria-describedby={error ? fieldErrorId : undefined}
                   aria-invalid={error ? true : undefined}
                   className={cn(
@@ -199,20 +209,16 @@ export function Composer({
                     <span>{error}</span>
                   </p>
                 ) : null}
-              </div>
+              </Field>
             );
           })}
-        </div>
+        </FieldGroup>
       ) : null}
 
       {modelMode === "chat" ? (
         toolCatalogError ? (
           <p className="text-[11px] text-warning">
             {tf("chat.composer.toolCatalogError", { detail: toolCatalogError })}
-          </p>
-        ) : manualTools.length === 0 ? (
-          <p className="text-[11px] text-muted-foreground">
-            {t("chat.composer.noManualTools")}
           </p>
         ) : selectedManualToolConfig ? (
           <p className="text-[11px] text-muted-foreground">
@@ -225,8 +231,8 @@ export function Composer({
         send action. Scattering those across separate full-width rows left the
         send button visually unconnected to what it submits. */}
       <div className="composer-surface">
-        <Textarea
-          className="composer-input block h-28 min-h-0 resize-none overflow-y-auto rounded-none px-4 py-4 shadow-none focus-visible:ring-0"
+        {isDocumentTool ? <DocumentToolInput key={`${activeChat?.documentScope ?? ""}:${selectedManualToolConfig?.id}`} value={selectedToolDocument} onChange={setSelectedToolDocument} scope={activeChat?.documentScope} disabled={isPending || isDocumentScopeSaving} /> : <Textarea
+          className="composer-input block h-20 min-h-0 resize-none overflow-y-auto rounded-none px-4 py-3 shadow-none focus-visible:ring-0"
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={handleTextareaKeyDown}
           onPaste={onTextareaPaste}
@@ -240,9 +246,9 @@ export function Composer({
                   : t("chat.composer.placeholderChat")
           }
           ref={textareaRef}
-          rows={4}
+          rows={3}
           value={input}
-        />
+        />}
         {/*
         A thumbnail is worth more than a file name here: the user is deciding
         whether the right picture got attached, and a name cannot answer that.
@@ -413,23 +419,12 @@ export function Composer({
                     ))}
                     {manualTools.map((tool) => (
                       <SelectItem key={tool.id} value={tool.id}>
-                        {tool.manual.label}
+                        {tool.displayName}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <input
-                    checked={manualToolsOnly}
-                    className="h-3.5 w-3.5"
-                    disabled={isPending}
-                    onChange={(event) =>
-                      setManualToolsOnly(event.target.checked)
-                    }
-                    type="checkbox"
-                  />
-                  <span>{t("chat.composer.manualOnly")}</span>
-                </label>
+
               </>
             ) : null}
 
@@ -474,24 +469,26 @@ export function Composer({
           {/* Stopping replaces sending while a turn is running. The label says
             exactly that: the request to the provider is abandoned, not undone,
             and anything already produced stays on screen. */}
-          {isPending ? (
+          {isRunningManualTool ? <Button size="icon" className="rounded-full" disabled aria-label="正在执行工具"><Loader2 data-icon="inline-start" className="animate-spin" /></Button> : isPending ? (
             <Button
               aria-label={t("chat.composer.stop")}
+              className="rounded-full"
               size="icon"
               onClick={onStop}
               type="button"
               variant="secondary"
             >
-              <Square aria-hidden="true" className="h-3.5 w-3.5 fill-current" />
+              <Square aria-hidden="true" className="fill-current" />
               <span className="sr-only">{t("chat.composer.stop")}</span>
             </Button>
           ) : (
             <Button
               size="icon"
-              disabled={isDocumentScopeSaving || (!input.trim() && attachments.length === 0)}
+              className="rounded-full"
+              disabled={isDocumentScopeSaving || (isDocumentTool ? !selectedToolDocument : !input.trim() && attachments.length === 0)}
               type="submit"
             >
-              <SendHorizonal aria-hidden="true" className="h-4 w-4" />
+              <ArrowUp aria-hidden="true" strokeWidth={2.25} />
               <span className="sr-only">
                 {isManualToolSelected
                   ? (selectedManualToolConfig?.manual.submitLabel ??
@@ -502,7 +499,6 @@ export function Composer({
           )}
         </div>
       </div>
-
     </form>
   );
 }

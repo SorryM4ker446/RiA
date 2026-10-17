@@ -173,6 +173,11 @@ function offeredModes(providerId: ProviderId): LibraryMode[] {
 }
 
 export async function getCatalog(providerId: ProviderId, mode: LibraryMode, force = false): Promise<CatalogState> {
+  // OpenRouter's public endpoint is anonymous-capable, but this application
+  // requires a configured key for browsing, including existing cached rows.
+  if (providerId === "openrouter" && !getModelProvider(providerId).isConfigured()) {
+    return { providerId, mode, models: [], fetchedAt: null, stale: false, source: "empty", error: null, failure: null, skipped: 0 };
+  }
   // Refused here, where every caller passes through, rather than in each one.
   // Asking a provider for a mode it does not offer does not come back empty:
   // the fetch ignores the mode and answers with the provider's other models,

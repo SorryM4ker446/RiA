@@ -14,6 +14,14 @@ preview intentionally disallows scripts, including automation recorder injection
 tests permit only that exact Chromium diagnostic and still require no script
 elements, external image requests or other application console errors.
 
+Chat tool regressions distinguish actions from document resources, select a
+document by filename within the conversation's collections, retain failed action
+parameters, and return to automatic tools after a successful explicit action.
+They load obsolete manual-only preferences and verify that later model turns
+still offer other tools with their normal approvals. The composer retains its
+672px desktop width and uses an 80px scrolling text area. Persisted model choices
+and assistant restrictions remain covered by conversation-switching tests.
+
 Extension regressions use real loopback HTTP and MCP JSON-RPC services, plus a
 local stdio process. They check discovery, mandatory approval, denial, stale
 configuration, cancellation, bounded responses, timeouts, credential encryption

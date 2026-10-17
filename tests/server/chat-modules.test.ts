@@ -88,8 +88,8 @@ test("per-conversation preferences preserve stale model references for explicit 
   // A selection saved before model references were provider-qualified was a
   // bare id, and it was always OpenRouter, so it is read back that way instead
   // of being discarded on upgrade.
-  raw = JSON.stringify({ modelMode: "invalid", selectedChatModel: "removed-model", manualToolsOnly: true });
-  assert.deepEqual(readChatPreferences("conversation"), { ...getDefaultChatPreferences(), selectedChatModel: { providerId: "openrouter", modelId: "removed-model" }, manualToolsOnly: true });
+  raw = JSON.stringify({ modelMode: "invalid", selectedChatModel: "removed-model", selectedManualTool: "readDocument", manualToolsOnly: true });
+  assert.deepEqual(readChatPreferences("conversation"), { ...getDefaultChatPreferences(), selectedChatModel: { providerId: "openrouter", modelId: "removed-model" } });
   raw = JSON.stringify({ selectedImageModel: { providerId: "openrouter", modelId: "image/one" }, selectedVideoModel: { providerId: "openrouter" } });
   assert.deepEqual(readChatPreferences("conversation"), { ...getDefaultChatPreferences(), selectedImageModel: { providerId: "openrouter", modelId: "image/one" } });
 });

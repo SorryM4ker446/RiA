@@ -77,6 +77,103 @@ async function importKnowledge(page: Page, content: string) {
   }, content);
 }
 
+test("document actions select files as parameters and return to automatic tools after one explicit execution", async ({ page, app }) => {
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.goto(`${app.origin}/document-processor`);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  const document = await importKnowledge(page, "# 执行说明\n\n请保留这些文档内容。");
+  const chat = (await browserApi(page, "/api/conversations", "POST", { title: "显式文档操作" })).body.data;
+  await page.evaluate(id => {
+    localStorage.setItem("chat:last-active-id", id);
+    localStorage.setItem(`chat:prefs:${id}`, JSON.stringify({ modelMode: "chat", selectedChatModel: { providerId: "openrouter", modelId: "anthropic/claude-opus-4.6" }, selectedManualTool: "readDocument", manualToolsOnly: true }));
+  }, chat.id);
+  await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
+  const tools = page.getByRole("combobox", { name: "选择工具", exact: true });
+  await expect(tools).toContainText("自动工具");
+  await expect(page.getByRole("checkbox", { name: "仅手动", exact: true })).toHaveCount(0);
+  await expect(page.locator(".composer-input")).toHaveCSS("height", "80px");
+  expect((await page.locator(".composer-surface").boundingBox())!.width).toBe(672);
+  await page.getByPlaceholder(/输入你的问题/).fill("保留这份普通对话草稿");
+  await tools.click();
+  await expect(page.getByRole("option", { name: "文档 ID", exact: true })).toHaveCount(0);
+  await page.getByRole("option", { name: "读取文档", exact: true }).click();
+  const submit = page.getByRole("button", { name: "读取文档", exact: true });
+  await expect(submit).toBeDisabled();
+  const source = page.getByRole("combobox", { name: "知识库文档", exact: true });
+  await expect(source).toBeEnabled(); await source.click();
+  await page.getByRole("option", { name: "差旅标准.md", exact: true }).click();
+  const calls = app.providerCalls.length;
+  await submit.click();
+  await expect(tools).toContainText("自动工具");
+  await expect(page.getByText("读取文档：差旅标准.md", { exact: true })).toBeVisible();
+  await expect(page.getByText(/请保留这些文档内容。/).first()).toBeVisible();
+  await expect(page.getByPlaceholder(/输入你的问题/)).toHaveValue("保留这份普通对话草稿");
+  expect(app.providerCalls.length).toBe(calls);
+  const requests: unknown[] = []; page.on("request", request => { if (request.url().endsWith("/api/chat") && request.method() === "POST") requests.push(request.postDataJSON()); });
+  await page.getByPlaceholder(/输入你的问题/).fill("OFFLINE_CREATE_TASK 帮我创建任务");
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  await expect(page.getByRole("button", { name: "批准", exact: true })).toBeVisible();
+  expect((requests[0] as { manualToolsOnly?: boolean }).manualToolsOnly).toBeUndefined();
+  await page.getByRole("button", { name: "批准", exact: true }).click();
+  await expect.poll(async () => (await browserData(page, "/api/tasks")).length).toBe(1);
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
+  const history = await browserData(page, `/api/conversations/${chat.id}/messages`);
+  expect(history.some(message => message.content.includes(`"documentId":"${document.id}"`))).toBe(true);
+  await mkdir(screenshots, { recursive: true });
+  await page.screenshot({ path: join(screenshots, "automatic-tools.png"), animations: "disabled" });
+  expect(errors).toEqual([]);
+});
+
+test("document action failures retain the chosen resource and scope changes discard obsolete choices", async ({ page, app }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${app.origin}/document-processor`);
+  const docs = await page.evaluate(async () => {
+    const docs = [];
+    for (const collection of ["本次资料", "其他资料"]) {
+      const form = new FormData(); form.set("file", new File([`# ${collection}\n\n可导出内容。`], `${collection}.md`)); form.set("collection", collection);
+      const response = await fetch("/api/documents", { method: "POST", body: form }); if (!response.ok) throw new Error(`Import failed ${response.status}`);
+      docs.push((await response.json()).data.document);
+    }
+    return docs;
+  });
+  const chat = (await browserApi(page, "/api/conversations", "POST", { title: "文档操作恢复" })).body.data;
+  await browserApi(page, `/api/conversations/${chat.id}`, "PATCH", { documentScope: ["本次资料"] });
+  await page.evaluate(id => localStorage.setItem("chat:last-active-id", id), chat.id);
+  await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
+  const tools = page.getByRole("combobox", { name: "选择工具", exact: true });
+  await tools.click(); await page.getByRole("option", { name: "转换并导出文档", exact: true }).click();
+  const source = page.getByRole("combobox", { name: "知识库文档", exact: true });
+  await expect(source).toBeEnabled(); await source.click();
+  await expect(page.getByRole("option", { name: "其他资料.md · 其他资料", exact: true })).toHaveCount(0);
+  await page.getByRole("option", { name: "本次资料.md · 本次资料", exact: true }).click();
+  await page.route("**/api/tools/run", route => route.fulfill({ status: 503, json: { error: { code: "SERVICE_UNAVAILABLE", message: "文档服务暂不可用" } } }), { times: 1 });
+  await page.getByRole("button", { name: "转换并导出文档", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "请求失败" })).toContainText("文档服务暂不可用");
+  await expect(tools).toContainText("转换并导出文档"); await expect(source).toContainText("本次资料.md");
+  await mkdir(screenshots, { recursive: true });
+  await page.screenshot({ path: join(screenshots, "document-action-mobile.png"), animations: "disabled" });
+  await page.getByRole("button", { name: "转换并导出文档", exact: true }).click();
+  await expect(tools).toContainText("自动工具");
+  await expect(page.getByRole("button", { name: "下载 Word · 本次资料.docx", exact: true })).toBeVisible();
+  await tools.click(); await page.getByRole("option", { name: "读取文档", exact: true }).click();
+  await expect(source).toBeEnabled(); await source.click();
+  await page.getByRole("option", { name: "本次资料.md · 本次资料", exact: true }).click();
+  await browserApi(page, `/api/conversations/${chat.id}`, "PATCH", { documentScope: ["其他资料"] });
+  await page.reload();
+  await expect(tools).toContainText("自动工具");
+  await tools.click(); await page.getByRole("option", { name: "读取文档", exact: true }).click();
+  await expect(page.getByRole("button", { name: "读取文档", exact: true })).toBeDisabled();
+  await expect(source).toBeEnabled(); await source.click();
+  await expect(page.getByRole("option", { name: "本次资料.md · 本次资料", exact: true })).toHaveCount(0);
+  await page.getByRole("option", { name: "其他资料.md · 其他资料", exact: true }).click();
+  await page.getByRole("button", { name: "读取文档", exact: true }).click();
+  await expect(tools).toContainText("自动工具");
+  expect((await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes(`"documentId":"${docs[1].id}"`))).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(app.providerCalls).toHaveLength(0);
+});
+
 test("local documents preview safely and download all four formats without saving originals or calling a model", async ({ page, app }) => {
   const errors: string[] = [], consoleErrors: string[] = [], remoteRequests: string[] = [];
   page.on("pageerror", error => errors.push(error.message));

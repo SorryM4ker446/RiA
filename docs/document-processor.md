@@ -54,7 +54,12 @@ The existing unified registry exposes two additional built-in tools:
 
 The model can find document IDs through `searchKnowledge`. Both tools obey the
 conversation's document collections, assistant tool allowlist, shared execution
-records and run/step budgets. They also support the existing manual tool picker.
+records and run/step budgets. The tool picker lists the actions **读取文档** and
+**转换并导出文档**, not document IDs or filenames. After selecting an action,
+choose its document parameter by filename from the current knowledge collections;
+the internal ID is supplied automatically. An explicit action runs once and
+returns to automatic tools on success, without changing which tools the model
+can use in subsequent chat. Failure retains the selected document and format.
 They do not read arbitrary filesystem paths, write files to granted folders or
 upload content. File saving happens when the user clicks download. Model-assisted
 chat remains subject to normal provider usage; standalone document processing

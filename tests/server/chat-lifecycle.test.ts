@@ -51,6 +51,14 @@ function request(body, signal = undefined) {
   return new NextRequest("http://localhost/api/chat", { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ manualToolsOnly: true, ...body }), signal });
 }
 
+test("chat keeps automatic tools available when an older client sends the retired manual-only flag", async () => {
+  const response = await chat.POST(request({ messages: [ui("auto-tools", "user", "Explain the available actions")] }));
+  assert.equal(response.status, 200);
+  await response.text();
+  const names = languageModel.doStreamCalls.at(-1).tools.map(tool => tool.name);
+  for (const id of ["createTask", "searchKnowledge", "readDocument", "convertDocument"]) assert.ok(names.includes(id), id);
+});
+
 test("long persisted conversations pass bounded historical excerpts and the active turn through the chat route", async () => {
   const owned = await db.chat.create({ data: { title: "Long conversation" } });
   const history = Array.from({ length: 40 }, (_, index) => ui(`turn-${index}`, index % 2 ? "assistant" : "user", `Recorded turn ${index}`));

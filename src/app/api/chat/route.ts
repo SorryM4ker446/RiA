@@ -26,7 +26,7 @@ async function POSTHandler(req: NextRequest) {
     await requireLocalWorkspace(req);
     enforceRateLimit("chat");
     const input = await readChatRequest(req);
-    const { body, modelRef, latestUserMessage, isApprovalResume } = input;
+    const { body, modelRef, latestUserMessage } = input;
     // Checked against the provider the chosen model actually belongs to. Naming
     // OpenRouter here refused every DeepSeek-only install before it could say so,
     // which is the one thing a user who only ever added a DeepSeek model needs
@@ -49,7 +49,7 @@ async function POSTHandler(req: NextRequest) {
     // attached for the whole turn. Restraint comes from TOOL_ENABLED_INSTRUCTIONS
     // and each tool's modelDescription, not from a second LLM call that would
     // have to guess from the latest message alone.
-    const toolsEnabled = canUseTools && (isApprovalResume || !body.manualToolsOnly) && (!input.assistant || input.assistant.tools.length > 0);
+    const toolsEnabled = canUseTools && (!input.assistant || input.assistant.tools.length > 0);
   const unavailableTools = toolsEnabled ? await unavailableChatTools(input.assistant?.tools) : [];
 
     // An ephemeral conversation neither reads long-term memory nor writes any.

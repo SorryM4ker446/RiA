@@ -3,7 +3,7 @@ import { t } from "@/lib/locale";
 import type { ModelLibraryItem, ModelRef } from "@/lib/models/preferences-schema";
 import { useEffect, useRef, useState } from "react";
 import { getChatPrefsStorageKey, getDefaultChatPreferences, readChatPreferences, loadAccountChatDefaults, parseModelRefValue, staleChatModelWarning } from "@/features/chat/preferences";
-import type { ChatScopedPreferences, ManualToolSelection } from "@/features/chat/types";
+import type { ChatScopedPreferences } from "@/features/chat/types";
 
 export function useChatPreferences(activeChatId: string | null) {
   const [modelMode, setModelMode] = useState<ModelMode>("chat");
@@ -11,8 +11,6 @@ export function useChatPreferences(activeChatId: string | null) {
   const [selectedImageModel, setSelectedImageModel] = useState<ModelRef | null>(null);
   const [selectedVideoModel, setSelectedVideoModel] = useState<ModelRef | null>(null);
   const [modelLibrary, setModelLibrary] = useState<ModelLibraryItem[]>([]);
-  const [selectedManualTool, setSelectedManualTool] = useState<ManualToolSelection>("none");
-  const [manualToolsOnly, setManualToolsOnly] = useState(false);
   const [hydratedChatId, setHydratedChatId] = useState<string | null>(null);
   const [defaultsLoaded, setDefaultsLoaded] = useState(false), [preferencesError, setPreferencesError] = useState<string | null>(null);
   const accountDefaults = useRef(getDefaultChatPreferences());
@@ -29,8 +27,6 @@ export function useChatPreferences(activeChatId: string | null) {
     setSelectedChatModel(preferences.selectedChatModel);
     setSelectedImageModel(preferences.selectedImageModel);
     setSelectedVideoModel(preferences.selectedVideoModel);
-    setSelectedManualTool(preferences.modelMode === "chat" ? preferences.selectedManualTool : "none");
-    setManualToolsOnly(preferences.manualToolsOnly);
   }
 
   function onModelSelect(value: string) {
@@ -69,8 +65,6 @@ export function useChatPreferences(activeChatId: string | null) {
       selectedChatModel,
       selectedImageModel,
       selectedVideoModel,
-      selectedManualTool,
-      manualToolsOnly,
     };
 
     window.localStorage.setItem(getChatPrefsStorageKey(activeChatId), JSON.stringify(preferences));
@@ -78,17 +72,14 @@ export function useChatPreferences(activeChatId: string | null) {
     activeChatId,
     defaultsLoaded,
     hydratedChatId,
-    manualToolsOnly,
     modelMode,
     selectedChatModel,
     selectedImageModel,
-    selectedManualTool,
     selectedVideoModel,
   ]);
   return {
     modelMode, setModelMode, selectedChatModel, selectedImageModel,
-    selectedVideoModel, selectedManualTool,
-    setSelectedManualTool, manualToolsOnly, setManualToolsOnly, applyChatPreferences, onModelSelect,
+    selectedVideoModel, applyChatPreferences, onModelSelect,
     isLoadingPreferences: !defaultsLoaded, preferencesError, modelLibrary,
     clearPreferencesError() { defaultsErrorRef.current = null; setPreferencesError(null); },
   };

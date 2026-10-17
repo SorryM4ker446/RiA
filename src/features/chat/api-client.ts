@@ -50,6 +50,7 @@ export const chatApi = {
   listMessages: (id: string, cursor?: string) => requestJson<Page<StoredMessage>>(withCursor(`${conversationPath(id)}/messages`, cursor), t("chatApi.listMessagesFailed")),
   editMessage: (chatId: string, messageId: string, content: string) => requestJson<unknown>(messagePath(chatId, messageId), t("chatApi.saveEditFailed"), jsonBody("PATCH", { content })),
   deleteMessage: (chatId: string, messageId: string) => requestJson<unknown>(messagePath(chatId, messageId), t("chatApi.deleteMessageFailed"), { method: "DELETE" }),
+  listDocuments: (signal: AbortSignal) => requestJson<Data<Array<{ id: string; filename: string; collection: string | null }>>>("/api/documents", "无法加载知识库文档。", { signal }),
   listTools: () => requestJson<Data<ToolCatalogItem[]>>("/api/tools?mode=chat", t("chatApi.listToolsFailed")),
   async runTool(tool: string, input: Record<string, unknown>, model: ModelRef | null, chatId?: string) {
     const failed = `${tool} ${t("chatApi.runToolFailed")}`;
@@ -101,13 +102,12 @@ export async function filesToUploadParts(files: File[]): Promise<UploadableFileP
   return payload.data.map((asset) => ({ type: "file", url: asset.url, mediaType: asset.mediaType, filename: asset.filename }));
 }
 
-export function createChatTransport(activeChatId: string | null, preferences: Pick<ChatScopedPreferences, "selectedChatModel" | "manualToolsOnly" | "modelMode">) {
+export function createChatTransport(activeChatId: string | null, preferences: Pick<ChatScopedPreferences, "selectedChatModel" | "modelMode">) {
   return new DefaultChatTransport({
     api: "/api/chat",
     body: {
       ...(activeChatId ? { chatId: activeChatId } : {}),
       ...(preferences.selectedChatModel ? { model: preferences.selectedChatModel } : {}),
-      manualToolsOnly: preferences.modelMode === "chat" ? preferences.manualToolsOnly : true,
       mode: preferences.modelMode,
     },
     prepareSendMessagesRequest: ({ id, messages, trigger, messageId, body }) => ({

@@ -17,14 +17,14 @@ test("chat transport bounds loaded history while retaining the active turn and r
     return new Response("data: [DONE]\n\n", { headers: { "Content-Type": "text/event-stream" } });
   });
   const messages: UIMessage[] = Array.from({ length: 125 }, (_, i) => ({ id: `message-${i}`, role: i % 2 ? "assistant" : "user", parts: [{ type: "text", text: `text-${i}` }] }));
-  const transport = createChatTransport("chat", { selectedChatModel: { providerId: "openrouter", modelId: "anthropic/claude-opus-4.6" }, manualToolsOnly: true, modelMode: "chat" });
+  const transport = createChatTransport("chat", { selectedChatModel: { providerId: "openrouter", modelId: "anthropic/claude-opus-4.6" }, modelMode: "chat" });
   await transport.sendMessages({ chatId: "sdk-chat", messages, trigger: "regenerate-message", messageId: "message-124", abortSignal: undefined });
   assert.equal(sent.messages.length, 100);
   assert.equal(sent.messages.at(-1).id, "message-124");
   assert.equal(sent.messageId, "message-124");
   assert.equal(sent.trigger, "regenerate-message");
   assert.equal(sent.chatId, "chat");
-  assert.equal(sent.manualToolsOnly, true);
+  assert.equal(sent.manualToolsOnly, undefined);
   // The transport names the model by provider as well as id; a bare id is not
   // a model the server would accept.
   assert.deepEqual(sent.model, { providerId: "openrouter", modelId: "anthropic/claude-opus-4.6" });

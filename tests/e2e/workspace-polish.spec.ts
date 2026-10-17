@@ -15,7 +15,7 @@ for (const pointer of ["mouse", "touch"] as const) {
         page.on("request", request => { if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) writes++; });
         await page.goto("/chat");
         const click = async (locator: import("@playwright/test").Locator) => pointer === "touch" ? locator.tap() : locator.click();
-        for (const name of ["助理模板", "聊天模式", "选择模型", "选择手动工具"]) {
+        for (const name of ["助理模板", "聊天模式", "选择模型", "选择工具"]) {
           const trigger = page.getByRole("combobox", { name, exact: true, includeHidden: true });
           await expect(trigger).toBeEnabled();
           const selected = await trigger.textContent();
@@ -132,7 +132,7 @@ test("shared menus finish their transitions without a position jump and toolbar 
   const memory = page.getByRole("checkbox", { name: "不记长期记忆", exact: true });
   await expect(memory).toHaveAttribute("aria-checked", "false");
   expect((await memory.boundingBox())!.y).toBe((await assistant.boundingBox())!.y);
-  for (const control of [assistant, page.getByRole("combobox", { name: "聊天模式", exact: true, includeHidden: true }), page.getByRole("combobox", { name: "选择模型", exact: true, includeHidden: true }), page.getByRole("combobox", { name: "选择手动工具", exact: true, includeHidden: true })]) {
+  for (const control of [assistant, page.getByRole("combobox", { name: "聊天模式", exact: true, includeHidden: true }), page.getByRole("combobox", { name: "选择模型", exact: true, includeHidden: true }), page.getByRole("combobox", { name: "选择工具", exact: true, includeHidden: true })]) {
     const before = await control.boundingBox();
     await control.click();
     await expectStableAnimationEnd(page.getByRole("listbox"));
@@ -200,8 +200,8 @@ for (const narrow of [false, true]) {
     const composer = (await page.locator(".composer-surface").boundingBox())!;
     expect(Math.abs((message.x + message.width / 2) - (composer.x + composer.width / 2))).toBeLessThan(.5);
     if (!narrow) {
-      expect(composer.width).toBe(576);
-      expect(composer.width).toBeLessThan(message.width);
+      expect(composer.width).toBe(672);
+      expect(composer.width).toBe(message.width);
     }
     const trigger = page.getByRole("button", { name: "执行记录", exact: true });
     await expect(trigger).toContainText("10");
