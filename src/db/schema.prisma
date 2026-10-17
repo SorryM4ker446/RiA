@@ -552,6 +552,26 @@ model BackupExport {
   @@map("backup_exports")
 }
 
+// Extensions are machine-local connections; credentials never enter portable backups.
+model Extension {
+  id          String   @id
+  name        String
+  kind        String
+  config      Json
+  credentials String?
+  tools       Json
+  enabled     Boolean  @default(false)
+  revision    Int      @default(1)
+  testedRevision Int?
+  testId      String?
+  lastTestAt  DateTime?
+  lastError   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("extensions")
+}
+
 enum MessageRole {
   user
   assistant

@@ -36,7 +36,9 @@ export type ManualToolMeta = {
 export type ToolCatalogItem = {
   /** Whether the tool can run right now; an unconfigured one is not offered. */
   available: boolean;
-  reason: "notConfigured" | null;
+  reason: "notConfigured" | "noDirectoryGranted" | "disabled" | "notTested" | "toolDisabled" | null;
+  configEntry?: string | null;
+  extensionId?: string;
   id: string;
   displayName: string;
   description: string;

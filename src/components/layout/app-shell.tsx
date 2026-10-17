@@ -16,6 +16,7 @@ import {
   Layers3,
   Images,
   SlidersHorizontal,
+  Puzzle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -46,6 +47,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   ] },
   { label: "管理", items: [
   { href: "/models", label: t("nav.models"), icon: SlidersHorizontal },
+  { href: "/extensions", label: "扩展管理", icon: Puzzle },
   { href: "/backups", label: t("nav.backups"), icon: DatabaseBackup },
   ] },
 ];

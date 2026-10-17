@@ -401,6 +401,7 @@ export function useChatState() {
           text: text || fallbackText,
           tools: toolParts.map((toolPart) => ({
             toolName: toolPart.type.replace(/^tool-/, ""),
+            ...(toolPart.title ? { title: toolPart.title } : {}),
             toolCallId: toolPart.toolCallId,
             state: toolPart.state,
             ...(toolPart.input !== undefined ? { input: toolPart.input } : {}),

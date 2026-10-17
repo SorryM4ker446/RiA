@@ -17,6 +17,7 @@ export type PersistedUserMessagePayload = {
 };
 
 export type PersistedAssistantToolItem = {
+  title?: string;
   toolName: string;
   toolCallId: string;
   state: string;
@@ -181,6 +182,7 @@ export function decodePersistedAssistantToolMessage(
           tool.state.length > 0,
       )
       .map((tool) => ({
+        ...(typeof tool.title === "string" ? { title: tool.title.slice(0, 500) } : {}),
         toolName: tool.toolName,
         toolCallId: tool.toolCallId,
         state: tool.state,

@@ -1,5 +1,15 @@
 # Test coverage and local validation
 
+Extension regressions use real loopback HTTP and MCP JSON-RPC services, plus a
+local stdio process. They check discovery, mandatory approval, denial, stale
+configuration, cancellation, bounded responses, timeouts, credential encryption
+and isolation, and existing manual-tool behavior. The production-renderer tests
+cover management, narrow windows, connection failures, restart and chat history
+after uninstall. Migration tests retain existing conversations and verify safety
+copies; portable restore disables machine-local connections without exporting
+their settings or credentials. These fixtures do not establish compatibility with
+every third-party MCP server or a plugin marketplace. See [Extensions](extensions.md).
+
 Document structure regressions run actual generated Word files through the bounded
 worker and verify headings, amounts, row/column relationships, literal untrusted
 text, unmarked first rows and escaped delimiters. Table chunk tests require repeated

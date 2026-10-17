@@ -8,7 +8,7 @@ import { z } from "zod";
 import { ApiError, normalizeApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { requireLocalWorkspace } from "@/lib/local/workspace";
 import { logToolExecution } from "@/lib/server/tool-log";
-import { assertToolConfiguration, getToolDescriptor, isToolSupportedInMode, type ToolMode } from "@/tools/catalog";
+import { executeRegisteredTool, resolveToolDescriptor, type ToolMode } from "@/tools/catalog";
 import { persistToolMemory } from "@/tools/memory-policy";
 import { getModelPreferences, preferredModel } from "@/lib/models/preferences";
 import { t } from "@/lib/locale";
@@ -30,7 +30,7 @@ const runToolSchema = z.strictObject({
 async function POSTHandler(req: NextRequest) {
   const startedAt = Date.now();
   let logContext: { toolId: string; requestId?: string } | null = null;
-  let succeeded = false;
+  let executionStarted = false;
 
   try {
     await requireLocalWorkspace(req);
@@ -49,7 +49,7 @@ async function POSTHandler(req: NextRequest) {
     const mode = parsed.data.mode as ToolMode;
     logContext = { toolId };
 
-    const descriptor = getToolDescriptor(toolId);
+    const descriptor = await resolveToolDescriptor(toolId);
     if (!descriptor) {
       throw new ApiError({
         code: "VALIDATION_ERROR",
@@ -57,7 +57,7 @@ async function POSTHandler(req: NextRequest) {
       });
     }
 
-    if (!isToolSupportedInMode(toolId, mode)) {
+    if (!descriptor.modeSupport.includes(mode)) {
       throw new ApiError({
         code: "VALIDATION_ERROR",
         message: `Tool ${toolId} is not supported in mode: ${mode}`,
@@ -88,39 +88,17 @@ async function POSTHandler(req: NextRequest) {
     if (assistant && !assistant.tools.includes(toolId)) throw new ApiError({ code: "VALIDATION_ERROR", message: "当前助理模板不允许执行此工具。" });
     if (assistant?.model && parsed.data.model && (assistant.model.providerId !== parsed.data.model.providerId || assistant.model.modelId !== parsed.data.model.modelId)) throw new ApiError({ code: "VALIDATION_ERROR", message: "会话使用模板绑定的模型。" });
     const usesMemory = !conversation?.ephemeral;
-    await assertToolConfiguration(toolId);
     // Manual execution is explicit user input. A model is only optional
     // synthesis, so local tasks and retrieval must work with an empty library.
     const chosenModel = assistant?.model ?? parsed.data.model;
     const modelRef = chosenModel
       ? await preferredModel("chat", chosenModel)
       : (await getModelPreferences()).chat.model ?? undefined;
-    const preparedInput = descriptor.prepareInput
-      ? await descriptor.prepareInput({
-          workspaceId: LOCAL_WORKSPACE_ID,
-          input: parsedInput.data,
-          modelRef,
-          trigger: "manual",
-        })
-      : parsedInput.data;
-    const preparedParsedInput = descriptor.inputSchema.safeParse(preparedInput);
-    if (!preparedParsedInput.success) {
-      throw new ApiError({
-        code: "VALIDATION_ERROR",
-        message: "Invalid tool input",
-        details: preparedParsedInput.error.flatten(),
-      });
-    }
-
-    const data = await descriptor.execute({
-      workspaceId: LOCAL_WORKSPACE_ID,
-      input: preparedParsedInput.data,
-      modelRef,
-      trigger: "manual",
+    executionStarted = true;
+    const { input: preparedInput, output: data } = await executeRegisteredTool(descriptor, parsedInput.data, {
+      modelRef, trigger: "manual", signal: req.signal,
       documentCollections: decodeDocumentScope(conversation?.documentScope),
-      documentRetrievalPolicy: assistant?.retrieval,
-      usesMemory,
-      signal: req.signal,
+      documentRetrievalPolicy: assistant?.retrieval, usesMemory,
     });
     const requestId =
       data && typeof data === "object" && "requestId" in data && typeof data.requestId === "string"
@@ -130,7 +108,7 @@ async function POSTHandler(req: NextRequest) {
 
     const assistantText = (
       await descriptor.buildAssistantText({
-        input: preparedParsedInput.data,
+        input: preparedInput,
         output: data,
         modelRef,
         trigger: "manual",
@@ -145,7 +123,7 @@ async function POSTHandler(req: NextRequest) {
           toolId,
           trigger: "manual",
           state: "output-available",
-          input: preparedParsedInput.data,
+          input: preparedInput,
           output: data,
           assistantText,
           modelRef,
@@ -169,11 +147,10 @@ async function POSTHandler(req: NextRequest) {
       data,
       assistantText,
     });
-    succeeded = true;
     return response;
   } catch (error) {
     console.error("/api/tools/run POST error", normalizeApiError(error).code);
-    if (logContext) {
+    if (logContext && !executionStarted) {
       logToolExecution({
         toolId: logContext.toolId,
         trigger: "manual",
@@ -184,16 +161,6 @@ async function POSTHandler(req: NextRequest) {
       });
     }
     return createApiErrorResponse(error, "Failed to run tool");
-  } finally {
-    if (succeeded && logContext) {
-      logToolExecution({
-        toolId: logContext.toolId,
-        trigger: "manual",
-        state: "output-available",
-        durationMs: Date.now() - startedAt,
-        requestId: logContext.requestId,
-      });
-    }
   }
 }
 

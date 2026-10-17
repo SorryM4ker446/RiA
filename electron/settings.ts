@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { safeStorage } from "electron";
+import { randomBytes } from "node:crypto";
 
 /**
  * What closing the window does.
@@ -50,6 +51,7 @@ type StoredDesktopSettings = {
   // Each provider keeps its own key. They are not interchangeable and neither
   // is derivable from the other, so a provider can be configured on its own.
   encryptedDeepseekApiKey?: string;
+  encryptedExtensionKey?: string;
   outboundProxyUrl?: string;
   openrouterSiteName?: string;
   openrouterHttpReferer?: string;
@@ -242,7 +244,19 @@ export class DesktopSettingsStore {
     const openrouterApiKey = await this.decrypt(stored.encryptedOpenrouterApiKey);
     const tavilyApiKey = await this.decrypt(stored.encryptedTavilyApiKey);
     const deepseekApiKey = await this.decrypt(stored.encryptedDeepseekApiKey);
+    // One persistent, OS-protected key encrypts extension credentials in SQLite.
+    // Keep it out of the renderer view and portable workspace archives.
+    const extensionKey = safeStorage.isEncryptionAvailable() ? await this.enqueue(async () => {
+      const current = this.readStored();
+      // An unreadable wrapping key disables credential-backed extensions. Do
+      // not replace it silently or prevent the rest of the workspace opening.
+      if (current.encryptedExtensionKey) return this.decrypt(current.encryptedExtensionKey).catch(() => "");
+      const key = randomBytes(32).toString("base64");
+      this.writeStored({ ...current, encryptedExtensionKey: await this.encrypt(key) });
+      return key;
+    }) : "";
     return {
+      RIA_EXTENSION_KEY: extensionKey,
       OPENROUTER_API_KEY: openrouterApiKey,
       TAVILY_API_KEY: tavilyApiKey,
       DEEPSEEK_API_KEY: deepseekApiKey,

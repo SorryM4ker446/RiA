@@ -24,7 +24,7 @@ const compiledStore = join(repositoryRoot, "electron-dist", "settings.js");
 const runner = `
 const { app } = require("electron");
 const { join } = require("node:path");
-const { writeFileSync } = require("node:fs");
+const { writeFileSync, readFileSync } = require("node:fs");
 const { DesktopSettingsStore } = require(${JSON.stringify(compiledStore)});
 
 const root = __dirname;
@@ -36,7 +36,7 @@ function finish(report, code) {
 }
 
 app.whenReady().then(async () => {
-  const report = { encryptionAvailable: false, partialSave: null, concurrentWrites: null, error: null };
+  const report = { encryptionAvailable: false, partialSave: null, concurrentWrites: null, extensionKeyStable: false, extensionKeyEncrypted: false, unreadableExtensionKeyIsolated: false, error: null };
   try {
     // Each case gets its own file: the first must not depend on what the second left.
     const card = new DesktopSettingsStore(join(root, "card.json"));
@@ -60,6 +60,15 @@ app.whenReady().then(async () => {
       await concurrent.saveWindowBounds(bounds);
       await savingKey;
       report.concurrentWrites = await concurrent.getView();
+      const firstEnvironment = await concurrent.getServerEnvironment();
+      const reopened = new DesktopSettingsStore(join(root, "concurrent.json"));
+      const secondEnvironment = await reopened.getServerEnvironment();
+      report.extensionKeyStable = Buffer.from(firstEnvironment.RIA_EXTENSION_KEY, "base64").length === 32 && firstEnvironment.RIA_EXTENSION_KEY === secondEnvironment.RIA_EXTENSION_KEY;
+      report.extensionKeyEncrypted = !readFileSync(join(root, "concurrent.json"), "utf8").includes(firstEnvironment.RIA_EXTENSION_KEY) && !JSON.stringify(await reopened.getView()).includes(firstEnvironment.RIA_EXTENSION_KEY);
+      const damagedFile = join(root, "damaged-extension-key.json");
+      writeFileSync(damagedFile, JSON.stringify({ version: 1, encryptedExtensionKey: "not-a-valid-encrypted-key", openrouterSiteName: "Retained workspace" }));
+      const damaged = new DesktopSettingsStore(damagedFile);
+      report.unreadableExtensionKeyIsolated = (await damaged.getServerEnvironment()).RIA_EXTENSION_KEY === "" && (await damaged.getView()).openrouterSiteName === "Retained workspace" && JSON.parse(readFileSync(damagedFile, "utf8")).encryptedExtensionKey === "not-a-valid-encrypted-key";
     }
     finish(report, 0);
   } catch (error) {
@@ -120,6 +129,9 @@ test("a key save and a window-geometry save in flight together both survive", {
     // Without serialising the writers, the geometry write lands during the
     // encryption and is then overwritten by the snapshot taken before it.
     assert.deepEqual(report.concurrentWrites.windowBounds, { x: 120, y: 80, width: 1180, height: 820 });
+    assert.equal(report.extensionKeyStable, true);
+    assert.equal(report.extensionKeyEncrypted, true);
+    assert.equal(report.unreadableExtensionKeyIsolated, true);
   } finally {
     if (resolve(dirname(root)) !== resolve(tmpdir())) throw new Error("Unexpected test directory");
     rmSync(root, { recursive: true, force: true });
@@ -129,6 +141,9 @@ test("a key save and a window-geometry save in flight together both survive", {
 type SettingsReport = {
   error: string | null;
   encryptionAvailable: boolean;
+  extensionKeyStable: boolean;
+  extensionKeyEncrypted: boolean;
+  unreadableExtensionKeyIsolated: boolean;
   partialSave: Record<string, never> | null;
   concurrentWrites: Record<string, never> | null;
 };

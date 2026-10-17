@@ -4,7 +4,7 @@
 
 ## 1. What this is
 
-A local AI assistant for one person on one machine. Data, media and the knowledge base live on the machine; the network is used only when a model is called or a search is run.
+A local AI assistant for one person on one machine. Data, media and the knowledge base live on the machine; network requests serve models, search and explicitly configured external extensions.
 
 The application has **no account system**: no registration, no sign-in, no sign-out and no multi-tenant isolation. What protects the data is a *local access credential* that only a process or page on this machine can obtain. See [Local access and security](api-security.md).
 
@@ -40,8 +40,9 @@ src/lib/            Shared infrastructure
   models/           Provider adapters, dynamic catalogs, my models, availability, preferences and usage
   local/            Local workspace identity
   local-files/      User-granted directories: path safety, grants and their limits
+  extensions/       Machine-local MCP/HTTP connections, encrypted credentials and lifecycle
   server/           Request boundary: security, quotas, body size, errors
-src/tools/          Tool definitions and registry
+src/tools/          Built-in definitions, unified registry and shared execution pipeline
 electron/           Desktop main process: window, service lifecycle, encrypted settings, migrations
 scripts/            Local database, build, packaging and verification scripts
 tests/              Browser, server and desktop regression tests

@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { IMAGE_MEDIA_TYPES, MEDIA_LIMITS } from "@/lib/media/limits";
 import { modelRefSchema } from "@/lib/models/preferences-schema";
-import { getToolDescriptor, listToolDescriptors } from "@/tools/catalog";
+import { getToolDescriptor, listToolDescriptors } from "@/tools/builtins";
+import { externalToolIdPattern, externalInputSchema } from "@/lib/extensions/schema";
 
 export const identifierSchema = z.string().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/);
 // A client names a model by provider as well as id. Validating the pair here
@@ -34,7 +35,7 @@ const toolPart = z.strictObject({
   // The cast keeps `tool-${string}` as the field's type so the parts union below
   // still discriminates on `type`; the values it accepts are still exactly the
   // catalog's, checked at parse time.
-  type: z.enum(chatToolPartTypes as [string, ...string[]]) as unknown as z.ZodType<`tool-${string}`>,
+  type: z.string().refine(value => chatToolPartTypes.includes(value as `tool-${string}`) || (value.startsWith("tool-") && externalToolIdPattern.test(value.slice(5)))) as z.ZodType<`tool-${string}`>,
   toolCallId: identifierSchema,
   state: z.enum(["input-streaming", "input-available", "approval-requested", "approval-responded", "output-available", "output-error", "output-denied"]),
   input: z.json().optional(), output: z.json().optional(), rawInput: z.json().optional(),
@@ -52,7 +53,7 @@ const toolPart = z.strictObject({
   if (part.state === "approval-requested" && part.approval?.approved !== undefined) fail("Pending approval cannot include a decision");
   if (part.state === "approval-responded" && typeof part.approval?.approved !== "boolean") fail("Approval decision is required");
   if (part.state === "output-denied" && part.approval?.approved !== false) fail("Denied output requires a rejected approval");
-  if (!["input-streaming", "output-error"].includes(part.state) && !getToolDescriptor(part.type.slice(5))?.inputSchema.safeParse(part.input).success) fail("Invalid tool input");
+  if (!["input-streaming", "output-error"].includes(part.state) && !(externalToolIdPattern.test(part.type.slice(5)) ? externalInputSchema : getToolDescriptor(part.type.slice(5))?.inputSchema)?.safeParse(part.input).success) fail("Invalid tool input");
   if (part.output !== undefined && part.state !== "output-available") fail("Tool output is not allowed in this state");
   if (part.errorText !== undefined && part.state !== "output-error") fail("Tool error is not allowed in this state");
   if (part.approval && ["input-streaming", "input-available"].includes(part.state)) fail("Approval is not allowed in this state");

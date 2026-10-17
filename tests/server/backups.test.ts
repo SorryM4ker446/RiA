@@ -37,7 +37,8 @@ beforeEach(async (t: TestContext) => { t.mock.method(console,"error",()=>{}); gl
  await db.knowledgeDocument.deleteMany({});
  await db.mediaAsset.deleteMany({});
  await db.modelRequest.deleteMany({});
- await db.workspacePreference.deleteMany({}); });
+ await db.workspacePreference.deleteMany({});
+ await db.extension.deleteMany({}); });
 after(async()=>{await db.$disconnect();cleanup();});
 async function seed() {
   const chat=await db.chat.create({data:{ title:"Backup source",tags:{create:{label:"保留"}}}});
@@ -49,6 +50,32 @@ async function seed() {
   await indexDocument({filename:"backup.txt",format:"txt",byteSize:6,pages:[{pageNumber:null,text:"备份检索示例"}]});
   return {chat,input,output};
 }
+
+test("portable restore retains machine-local extensions but disables them and invalidates old approvals", async () => {
+  const id = randomUUID();
+  const { encryptCredentials } = await import("@/lib/extensions/secrets");
+  const originalKey = process.env.RIA_EXTENSION_KEY;
+  process.env.RIA_EXTENSION_KEY = Buffer.alloc(32, 42).toString("base64");
+  try {
+    const credentials = encryptCredentials(id, { Authorization: "Bearer synthetic-backup-token" });
+    await db.extension.create({ data: { id, name: "Machine-local connection", kind: "http", config: { type: "http", url: "http://localhost/machine-only", method: "POST", description: "Test connection", inputSchema: { type: "object" } }, tools: [], credentials, enabled: true, revision: 1, testedRevision: 1 } });
+    const backup = await exclusiveDataOperation(() => archive.createAccountBackup(false));
+    const raw = await readFile(await files.backupFile(backup.id));
+    const manifest = readManifest(raw, raw.readUInt32BE(8));
+    assert.equal("extensions" in manifest, false);
+    assert.equal(raw.includes(Buffer.from("machine-only")), false);
+    assert.equal(raw.includes(Buffer.from(credentials!)), false);
+    await exclusiveDataOperation(() => restoreAccountBackup(backup.id));
+    const retained = await db.extension.findUniqueOrThrow({ where: { id } });
+    assert.equal(retained.credentials, credentials);
+    assert.equal(retained.enabled, false);
+    assert.equal(retained.revision, 2);
+    assert.equal(retained.testedRevision, null);
+  } finally {
+    if (originalKey === undefined) delete process.env.RIA_EXTENSION_KEY;
+    else process.env.RIA_EXTENSION_KEY = originalKey;
+  }
+});
 
 test("the maximum accepted document scope survives backup and restore", async () => {
   const { updateConversation, updateConversationSchema } = await import("@/lib/conversations/mutations");

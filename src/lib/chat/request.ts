@@ -9,6 +9,8 @@ import { chatRequestSchema } from "@/lib/server/request-schemas";
 import { preferredModel, modelInLibrary, getModelPreferences } from "@/lib/models/preferences";
 import { validateUIMessages, type UIMessage } from "ai";
 import { readAssistantSnapshot } from "@/lib/assistants/schema";
+import { externalInputSchema, externalToolIdPattern } from "@/lib/extensions/schema";
+import { resolveToolDescriptor, toolAvailability } from "@/tools/registry";
 
 export async function readChatRequest(req: Request) {
   const body = chatRequestSchema.parse(await readJsonBody(req));
@@ -29,6 +31,18 @@ export async function readChatRequest(req: Request) {
   const reasoning = settings.thinking;
   const latestUserMessage = getLatestUserMessage(messages);
   const isApprovalResume = isToolApprovalContinuation(messages);
+  if (isApprovalResume) {
+    for (const part of messages.at(-1)!.parts) {
+      if (!part.type.startsWith("tool-") || !("state" in part) || part.state !== "approval-responded" || !("approval" in part) || !part.approval?.approved) continue;
+      const id = part.type.slice(5);
+      if (!externalToolIdPattern.test(id)) continue;
+      const tool = await resolveToolDescriptor(id);
+      const parsed = "input" in part ? externalInputSchema.safeParse(part.input) : null;
+      if (!tool || !(await toolAvailability(id)).available || !parsed?.success || parsed.data.binding?.revision !== tool.extensionRevision || parsed.data.binding?.extensionId !== tool.extensionId || !tool.inputSchema.safeParse(parsed.data).success) {
+        throw new ApiError({ code: "CONFLICT", message: "扩展已停用、删除或配置已变化。请重新发起操作并确认。" });
+      }
+    }
+  }
   if (requestedChatId) {
     // Resuming an approval requires the conversation that holds the pending request.
     if (!existing && isApprovalResume) {

@@ -1,5 +1,9 @@
 # Local integration API
 
+External tool discovery, connection configuration and activation are documented
+in [Extensions](extensions.md#local-management-api). These endpoints use the same
+local authentication and restore gates; tool calls still require chat approval.
+
 Scheduled execution history, explicit retry and sanitized diagnostics are
 documented in [execution history and recovery](execution-history.md).
 

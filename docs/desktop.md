@@ -54,6 +54,14 @@ Open the Settings page from the chat header. OpenRouter, DeepSeek and Tavily key
 
 Saving settings restarts the local Next.js service so that server-only environment variables are refreshed. Plaintext API keys are not written to SQLite, normal logs, the standalone runtime, or the installer.
 
+Extension credentials use authenticated encryption in SQLite with a separate,
+stable encryption key protected by Electron `safeStorage`. Only the local service
+receives that key; the renderer receives configured status. A lost or inaccessible
+key requires entering the connection credentials again. Machine-local extension
+connections are excluded from portable workspace archives, and restoring an
+archive disables retained connections until they are checked and enabled again.
+See [Extensions](extensions.md) for HTTP/MCP transports and permission boundaries.
+
 The settings page also supports an outbound HTTP proxy, OpenRouter site name, and HTTP referrer. Chat and media model choices remain conversation-scoped preferences in the chat UI.
 
 Task deadlines, time zones, reminders and repetition are configured from **设置时间与提醒** in the task panel. Electron checks due reminders while running, including after startup and resume; closing the app stops checks. The notification API may be supported even when Windows notification settings or Focus Assist suppress display. See [Task reminders](task-reminders.md) for persisted claims, recurrence rules, privacy and manual release checks.

@@ -520,7 +520,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
                       <span className="truncate">
                         {(() => {
                           const first = toolParts[0];
-                          const firstName = first.type.replace(/^tool-/, "");
+                          const firstName = first.title ?? first.type.replace(/^tool-/, "");
                           const firstState = formatToolState(first.state).label;
                           const extra = toolParts.length > 1 ? `${t("chat.messages.extraCallsPrefix")} ${toolParts.length - 1} ${t("chat.messages.extraCallsSuffix")}` : "";
                           return tf("chat.messages.toolDetails", { name: firstName, state: firstState, extra });
@@ -531,7 +531,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
                     <div className="space-y-2 border-t px-3 py-2">
                       {toolParts.map((toolPart, toolIndex) => {
                         const toolState = formatToolState(toolPart.state);
-                        const toolName = toolPart.type.replace(/^tool-/, "");
+                        const toolName = toolPart.title ?? toolPart.type.replace(/^tool-/, "");
                         return (
                           <div
                             className={cn(
@@ -580,7 +580,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
                             ) : null}
                             {toolPart.input !== undefined ? (
                               <pre className="chat-list-scroll overflow-x-auto whitespace-pre-wrap rounded-md bg-foreground/5 p-2 font-mono text-[11px]">
-                                input: {safeJson(toolPart.input)}
+                                input: {safeJson(toolPart.input && typeof toolPart.input === "object" && "arguments" in toolPart.input && "binding" in toolPart.input ? toolPart.input.arguments : toolPart.input)}
                               </pre>
                             ) : null}
                             {toolPart.state === "output-available" && toolPart.output !== undefined ? (

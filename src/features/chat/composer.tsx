@@ -419,7 +419,7 @@ export function Composer({
                         key={tool.id}
                         value={`unavailable-${tool.id}`}
                       >
-                        {`${tool.displayName}（${t("chat.composer.toolNotConfigured")}）`}
+                        {`${tool.displayName}（${tool.extensionId ? tool.reason === "disabled" ? "已停用" : tool.reason === "notTested" ? "待检测" : tool.reason === "toolDisabled" ? "工具未启用" : "凭据不可用" : t("chat.composer.toolNotConfigured")}）`}
                       </SelectItem>
                     ))}
                     {manualTools.map((tool) => (

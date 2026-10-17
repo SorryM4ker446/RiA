@@ -64,6 +64,7 @@ function getToolItemsFromResponseMessage(message: UIMessage): PersistedAssistant
     )
     .map((part) => ({
       toolName: part.type.replace(/^tool-/, ""),
+      ...("title" in part && typeof part.title === "string" ? { title: part.title } : {}),
       toolCallId: part.toolCallId,
       state: part.state,
       ...("input" in part && part.input !== undefined ? { input: part.input } : {}),
@@ -133,6 +134,15 @@ export async function persistChatResponse(params: { input: ChatRequest; conversa
   try {
     const assistantText = getTextFromUIMessage(responseMessage).trim();
     const toolItems = getToolItemsFromResponseMessage(responseMessage);
+    // Approval continuations can emit a result without repeating the SDK tool
+    // title. Preserve the label from the call whose decision is being resumed.
+    for (const item of toolItems) {
+      if (item.title) continue;
+      for (const message of input.body.messages) {
+        const original = message.parts.find(part => "toolCallId" in part && part.toolCallId === item.toolCallId && "title" in part && typeof part.title === "string");
+        if (original && "title" in original && typeof original.title === "string") item.title = original.title;
+      }
+    }
     // Reasoning is kept with the message whether or not this answer used a
     // tool: the next turn's request may need it, and it cannot be recovered
     // after the fact.

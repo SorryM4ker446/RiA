@@ -6,6 +6,13 @@ if (process.env.APP_RUNTIME !== "test" || !process.send) {
 }
 const agent = new MockAgent();
 agent.disableNetConnect();
+// A test may opt into exactly one isolated loopback extension fixture. All
+// other external and loopback destinations remain blocked by the default guard.
+if (process.env.PRIVATE_AI_EXTENSION_FIXTURE_ORIGIN) {
+  const allowed = new URL(process.env.PRIVATE_AI_EXTENSION_FIXTURE_ORIGIN);
+  if (allowed.protocol !== "http:" || allowed.hostname !== "127.0.0.1" || allowed.pathname !== "/" || !allowed.port) throw new Error("Invalid extension fixture origin");
+  agent.enableNetConnect(host => host === allowed.host);
+}
 setGlobalDispatcher(agent);
 // Use matching fetch/dispatcher versions and bridge native Request/Response.
 // Node's bundled Undici need not share the installed package's global symbol.
@@ -101,9 +108,11 @@ if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
       if (body.stream) {
         const taskRequested = prompt.includes("OFFLINE_CREATE_TASK");
         const knowledgeRequested = prompt.includes("OFFLINE_SEARCH_KNOWLEDGE");
-        if ((taskRequested || knowledgeRequested) && !body.messages.some(message => message.role === "tool") && body.tools?.length) {
-          const name = taskRequested ? "createTask" : "searchKnowledge";
-          const args = taskRequested ? { title: "浏览器真实任务" } : { query: "发布回滚窗口", topK: 4 };
+        const extensionRequested = prompt.includes("OFFLINE_EXTENSION_TOOL");
+        if ((taskRequested || knowledgeRequested || extensionRequested) && !body.messages.some(message => message.role === "tool") && body.tools?.length) {
+          const name = taskRequested ? "createTask" : knowledgeRequested ? "searchKnowledge" : body.tools.find(tool => tool.function?.name?.startsWith("ext"))?.function.name;
+          if (!name) throw new Error("The requested extension tool was not offered to the fixture model");
+          const args = taskRequested ? { title: "浏览器真实任务" } : knowledgeRequested ? { query: "发布回滚窗口", topK: 4 } : { arguments: { text: "browser-extension-result" } };
           const chunks = [
             { ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "call_browser_fixture", type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: null }] },
             { ...base, choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] },

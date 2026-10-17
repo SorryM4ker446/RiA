@@ -1,7 +1,7 @@
 import { db } from "@/db";
 import { ApiError } from "@/lib/server/api-error";
 import { modelInLibrary } from "@/lib/models/preferences";
-import { getToolDescriptor } from "@/tools/catalog";
+import { resolveToolDescriptor } from "@/tools/catalog";
 import { assistantConfigSchema, type AssistantConfig, type AssistantTemplate, type AssistantSnapshot } from "./schema";
 import type { Prisma } from "@prisma/client";
 
@@ -29,7 +29,7 @@ export async function resolveAssistant(id: string, tx: Prisma.TransactionClient 
 }
 export async function saveAssistant(input: AssistantConfig, id?: string, revision?: number) {
   const config = assistantConfigSchema.parse(input);
-  if (config.tools.some(tool => !getToolDescriptor(tool))) throw new ApiError({ code: "VALIDATION_ERROR", message: "模板包含不支持的工具。" });
+  if ((await Promise.all(config.tools.map(resolveToolDescriptor))).some(tool => !tool)) throw new ApiError({ code: "VALIDATION_ERROR", message: "模板包含不支持的工具。" });
   if (config.model && !await modelInLibrary("chat", config.model)) throw new ApiError({ code: "VALIDATION_ERROR", message: "只能绑定已添加的聊天模型。" });
   if (id?.startsWith("builtin_")) throw new ApiError({ code: "VALIDATION_ERROR", message: "内置模板只读，请先复制为自定义模板。" });
   return db.$transaction(async tx => {
