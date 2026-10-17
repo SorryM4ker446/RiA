@@ -35,6 +35,7 @@ src/lib/            Shared infrastructure
   chat/             Request validation, context, streaming and persistence
   conversations/    Conversation queries, changes and export
   documents/        Extraction, index and retrieval
+  document-processor/ Editable extraction snapshots and on-demand Markdown/TXT/HTML/DOCX exports
   media/            Private media storage, generation and migration
   memory/           Memory storage, retrieval scoring and vector rebuild
   models/           Provider adapters, dynamic catalogs, my models, availability, preferences and usage

@@ -27,6 +27,8 @@ const VALID_INPUTS: Record<string, unknown> = {
   listLocalFiles: { grantId: "grant-1", path: "" },
   readLocalFile: { grantId: "grant-1", path: "notes.md" },
   writeLocalFile: { grantId: "grant-1", path: "notes.md", content: "x" },
+  readDocument: { documentId: "document-1" },
+  convertDocument: { documentId: "document-1", format: "docx" },
 };
 
 /**

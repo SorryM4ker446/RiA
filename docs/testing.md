@@ -1,5 +1,15 @@
 # Test coverage and local validation
 
+Document-processor tests cover PDF/Word/Markdown/TXT extraction without importing
+or calling a model, four download formats, DOCX read-back and literal symbols,
+scoped chat tools and obsolete source versions. Renderer cases check actual file
+downloads, isolated preview, narrow layouts, cancellation/stale responses, error
+recovery and tool-result downloads after restart. Screenshots and generated test
+files stay under the OS temporary directory (`ria-document-processor-qa`). The
+preview intentionally disallows scripts, including automation recorder injection;
+tests permit only that exact Chromium diagnostic and still require no script
+elements, external image requests or other application console errors.
+
 Extension regressions use real loopback HTTP and MCP JSON-RPC services, plus a
 local stdio process. They check discovery, mandatory approval, denial, stale
 configuration, cancellation, bounded responses, timeouts, credential encryption

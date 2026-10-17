@@ -18,6 +18,7 @@ import { createTask, createTaskInputSchema } from "@/tools/definitions/create-ta
 import { searchKnowledge, searchKnowledgeInputSchema } from "@/tools/definitions/search-knowledge";
 import { documentSourceUrl } from "@/lib/documents/types";
 import { runWebSearch, webSearchInput } from "@/tools/definitions/web-search";
+import { documentProcessorTools } from "@/tools/definitions/document-processor";
 import { listActiveGrants } from "@/lib/local-files/grants";
 import {
   bindWriteApproval,
@@ -215,6 +216,7 @@ const saveMemoryInputSchema = z.strictObject({
 });
 
 const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
+  ...documentProcessorTools,
   saveMemory: {
     id: "saveMemory",
     displayName: t("tools.saveMemory.displayName"),

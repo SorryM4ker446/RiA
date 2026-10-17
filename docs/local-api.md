@@ -1,5 +1,8 @@
 # Local integration API
 
+Local document parsing, draft conversion and version-bound downloads are described
+in [Document processing and export](document-processor.md#local-api).
+
 External tool discovery, connection configuration and activation are documented
 in [Extensions](extensions.md#local-management-api). These endpoints use the same
 local authentication and restore gates; tool calls still require chat approval.

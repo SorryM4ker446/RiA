@@ -33,6 +33,7 @@ import { seedTaskReminderSmoke } from "./task-reminders-smoke";
 import { prepareConversationSmoke, verifyConversationSmoke } from "./conversations-smoke";
 import { seedMediaLibrarySmoke, verifyMediaLibrarySmoke } from "./media-library-smoke";
 import { prepareAccountSettingsSmoke, verifyAccountBackupSmoke } from "./account-backup-smoke";
+import { verifyDocumentProcessorSmoke } from "./document-processor-smoke";
 
 const PRODUCT_NAME = "RiA";
 const DESKTOP_COOKIE_NAME = "desktop_session";
@@ -1053,6 +1054,9 @@ async function runSmokeAssertion() {
     const results = await search.json() as { data?: Array<{ documentId: string }> };
     if (!search.ok || !results.data?.some(result => result.documentId === document.id)) throw new Error("Desktop document index did not survive a service restart");
   }
+  const wordDocument = importedDocuments.find(document => document.pageNumber === null);
+  if (!wordDocument) throw new Error("Desktop Word fixture is missing");
+  await verifyDocumentProcessorSmoke(mainWindow!, nextServer.origin, `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}`, wordDocument.id, dirname(desktopPaths.databaseFile));
   await verifyConversationSmoke(mainWindow!, nextServer.origin, `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}`, conversationId, dirname(desktopPaths.databaseFile));
   await verifyMediaLibrarySmoke(mainWindow!, nextServer.origin, `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}`, libraryFixture, asset.assetId, mediaBytes, dirname(desktopPaths.databaseFile));
   await reminderPoller?.stop();

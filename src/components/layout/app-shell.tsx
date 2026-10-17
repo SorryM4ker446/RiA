@@ -17,6 +17,7 @@ import {
   Images,
   SlidersHorizontal,
   Puzzle,
+  FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -42,6 +43,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   { label: "资料", items: [
   { href: "/conversations", label: t("nav.conversations"), icon: MessagesSquare },
   { href: "/knowledge", label: t("nav.knowledge"), icon: BookOpen },
+  { href: "/document-processor", label: "文档处理器", icon: FileText },
   { href: "/topics", label: "知识专题", icon: Layers3 },
   { href: "/media", label: t("nav.media"), icon: Images },
   ] },

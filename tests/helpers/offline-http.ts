@@ -109,10 +109,11 @@ if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
         const taskRequested = prompt.includes("OFFLINE_CREATE_TASK");
         const knowledgeRequested = prompt.includes("OFFLINE_SEARCH_KNOWLEDGE");
         const extensionRequested = prompt.includes("OFFLINE_EXTENSION_TOOL");
-        if ((taskRequested || knowledgeRequested || extensionRequested) && !body.messages.some(message => message.role === "tool") && body.tools?.length) {
-          const name = taskRequested ? "createTask" : knowledgeRequested ? "searchKnowledge" : body.tools.find(tool => tool.function?.name?.startsWith("ext"))?.function.name;
+        const documentRequested = prompt.includes("OFFLINE_CONVERT_DOCUMENT");
+        if ((taskRequested || knowledgeRequested || extensionRequested || documentRequested) && !body.messages.some(message => message.role === "tool") && body.tools?.length) {
+          const name = taskRequested ? "createTask" : knowledgeRequested ? "searchKnowledge" : documentRequested ? "convertDocument" : body.tools.find(tool => tool.function?.name?.startsWith("ext"))?.function.name;
           if (!name) throw new Error("The requested extension tool was not offered to the fixture model");
-          const args = taskRequested ? { title: "浏览器真实任务" } : knowledgeRequested ? { query: "发布回滚窗口", topK: 4 } : { arguments: { text: "browser-extension-result" } };
+          const args = taskRequested ? { title: "浏览器真实任务" } : knowledgeRequested ? { query: "发布回滚窗口", topK: 4 } : documentRequested ? { documentId: /DOCUMENT_ID=([a-zA-Z0-9_-]+)/.exec(prompt)?.[1], format: "docx" } : { arguments: { text: "browser-extension-result" } };
           const chunks = [
             { ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "call_browser_fixture", type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: null }] },
             { ...base, choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] },

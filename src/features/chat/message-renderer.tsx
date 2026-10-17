@@ -33,6 +33,7 @@ import { getDocumentSources, getLocalFileUses, getTurnNotices, getWebSearchSourc
 import { LocalFileUses } from "@/features/settings/local-file-uses";
 import { t, tf } from "@/lib/locale";
 import { DocumentSources } from "@/components/knowledge/document-sources";
+import { DocumentDownload } from "@/features/document-processor/document-download";
 import { RetrievalDiagnostics } from "@/components/knowledge/retrieval-diagnostics";
 import type { ChatState } from "@/features/chat/use-chat-state";
 import type { UIMessage } from "ai";
@@ -509,6 +510,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
 
               {toolParts.length > 0 ? (
                 <div className="mt-3">
+                  {toolParts.map(part => part.type === "tool-convertDocument" && part.state === "output-available" ? <DocumentDownload key={`download-${part.toolCallId}`} output={part.output} /> : null)}
                   <details
                     open={toolParts.some(part => part.state === "approval-requested") || undefined}
                     className={cn(

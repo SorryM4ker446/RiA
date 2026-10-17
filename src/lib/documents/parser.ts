@@ -22,7 +22,7 @@ export function validateDocumentFile(file: File): { filename: string; format: Do
   return { filename, format: format as DocumentFormat };
 }
 
-export async function parseDocument(bytes: Uint8Array, format: DocumentFormat, signal?: AbortSignal): Promise<DocumentPage[]> {
+export async function parseDocument(bytes: Uint8Array, format: DocumentFormat, signal?: AbortSignal, options?: { escapeMarkdown?: boolean }): Promise<DocumentPage[]> {
   if (!bytes.length || bytes.length > DOCUMENT_LIMITS.fileBytes) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.documents.invalidSize") });
   if ((format === "pdf" && Buffer.from(bytes.subarray(0, 5)).toString() !== "%PDF-") || (format === "docx" && (bytes[0] !== 0x50 || bytes[1] !== 0x4b))) {
     throw new ApiError({ code: "VALIDATION_ERROR", message: t("lib.documents.magicMismatch") });
@@ -35,7 +35,7 @@ export async function parseDocument(bytes: Uint8Array, format: DocumentFormat, s
     worker = new Worker(DOCUMENT_PARSER_WORKER, {
       eval: true, execArgv: [], env: {}, stdout: true, stderr: true,
       resourceLimits: { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 16 },
-      workerData: { bytes, format, limits: DOCUMENT_LIMITS, messages: documentParserMessages(),
+      workerData: { bytes, format, escapeMarkdown: options?.escapeMarkdown ?? false, limits: DOCUMENT_LIMITS, messages: documentParserMessages(),
         pdfPath: runtimeRequire.resolve("pdfjs-dist/legacy/build/pdf.mjs"),
         pdfWorkerPath: runtimeRequire.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs"),
         mammothPath: runtimeRequire.resolve("mammoth"), zipPath: runtimeRequire.resolve("jszip"),
