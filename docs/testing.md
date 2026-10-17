@@ -56,6 +56,11 @@ screens also show semantic-review reasons and source quotes. UI checks verify
 review opt-in/reset, paid-call confirmation, refusal results and template-loading
 failure/retry using a deliberately invalid response. These fixtures simulate
 responses only; semantic evaluation against a real model is separately billable.
+The template-loading failure case uses the global setup's access cookie to enter
+the knowledge page directly and verifies that the malformed response belongs to
+a request from that page.
+Opening chat first can let its delayed hydration request consume the one-shot
+fault before the evaluation component requests templates.
 Template prompt assertions wait for the actual provider IPC record; start metadata
 can reach the renderer before that record arrives, so seeing retrieval diagnostics
 alone does not establish that a model call has been observed.
