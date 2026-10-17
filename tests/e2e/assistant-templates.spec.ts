@@ -107,9 +107,14 @@ test("knowledge evaluation exposes real adapter results, citations and an export
 test("evaluation template loading failures are visible and recover through explicit retry", { tag: "@integration" }, async ({ page, app }) => {
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
   const consoleErrors: string[] = []; page.on("console", message => { if (message.type() === "error") consoleErrors.push(message.text()); });
-  await openWorkspace(page, app.origin);
+  // Global setup supplies the access cookie. Enter knowledge directly so a late
+  // chat hydration request cannot consume the one-shot malformed response.
   await page.route("**/api/assistants", route => route.fulfill({ status: 200, contentType: "application/json", body: "null" }), { times: 1 });
+  const failedTemplates = page.waitForResponse(response => response.url() === `${app.origin}/api/assistants`);
   await page.goto(`${app.origin}/knowledge`); await page.getByText("检索质量评测", { exact: true }).click();
+  const failure = await failedTemplates;
+  expect(failure.request().headers().referer).toBe(`${app.origin}/knowledge`);
+  expect(await failure.json()).toBeNull();
   await expect(page.getByRole("alert").filter({ hasText: "无法加载助理模板" })).toBeVisible();
   await page.getByRole("button", { name: "重试加载模板", exact: true }).click();
   await expect(page.getByRole("alert").filter({ hasText: "无法加载助理模板" })).toHaveCount(0);
