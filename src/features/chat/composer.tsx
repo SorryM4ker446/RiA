@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { modelRefKey } from "@/lib/models/preferences-schema";
 import { attachmentLabel } from "@/features/chat/draft";
 import { Button } from "@/components/ui/button";
@@ -57,12 +56,7 @@ type Props = Pick<
   | "clearAttachments"
   | "removeAttachmentAt"
   | "attachmentNames"
-  | "selectedImageModel"
-  | "selectedVideoModel"
-  | "selectedManualTool"
-  | "selectedChatModel"
   | "activeChat"
-  | "selectedModelInfo"
   | "selectedModel"
   | "onModeSelect"
   | "onModelSelect"
@@ -103,12 +97,7 @@ export function Composer({
   clearAttachments,
   removeAttachmentAt,
   attachmentNames,
-  selectedImageModel,
-  selectedVideoModel,
-  selectedManualTool,
-  selectedChatModel,
   activeChat,
-  selectedModelInfo,
   selectedModel,
   onModeSelect,
   onModelSelect,
@@ -117,7 +106,7 @@ export function Composer({
   return (
     <form
       className={cn(
-        "mx-auto flex w-full max-w-[42rem] flex-col gap-2 rounded-xl transition-shadow duration-[--dur-fast]",
+        "mx-auto flex w-full max-w-xl flex-col gap-2 rounded-xl transition-shadow duration-[--dur-fast]",
         // Only lit while a real file drag is over the composer, so a drag of
         // selected text does not look like an invitation to drop a file.
         isDraggingFiles &&
@@ -514,65 +503,6 @@ export function Composer({
         </div>
       </div>
 
-      {/*
-      With no model configured there is no capability to report, and the
-      `!selectedModelInfo?.supportsImageInput` test is true precisely because
-      the model is missing. Rendering the notice there interpolated a null
-      model id into the UI, so the unconfigured case gets its own setup hint
-      and the capability notice is only reachable once a model is selected.
-    */}
-      {modelMode === "image" ? (
-        <p className="text-[11px] leading-4 text-muted-foreground">
-          {tf("chat.composer.statusImageModel", {
-            modelId:
-              selectedImageModel?.modelId ?? t("chat.composer.notSelected"),
-          })}
-        </p>
-      ) : selectedModelInfo?.providerSearch ? (
-        /* A model that searches on its own bills the search itself. Saying so at
-         the point of selection is the only place the user can still change
-         their mind before the next message costs anything. */
-        <p className="text-[13px] text-warning">
-          {t("chat.composer.providerSearchNote")}
-        </p>
-      ) : modelMode === "video" ? (
-        <p className="text-[11px] leading-4 text-muted-foreground">
-          {tf("chat.composer.statusVideoModel", {
-            modelId:
-              selectedVideoModel?.modelId ?? t("chat.composer.notSelected"),
-          })}
-        </p>
-      ) : isManualToolSelected ? (
-        <p className="text-[11px] leading-4 text-muted-foreground">
-          {t("chat.composer.statusManualTool")} ·{" "}
-          {selectedManualToolConfig?.id ?? selectedManualTool} ·{" "}
-          {t("chat.composer.autoToolCall")}
-          {manualToolsOnly
-            ? t("chat.composer.disabled")
-            : t("chat.composer.enabled")}
-        </p>
-      ) : !selectedChatModel ? (
-        <p className="text-xs text-muted-foreground">
-          {t("chat.composer.noModelSelected")}{" "}
-          <Link
-            href="/models"
-            className="ml-1 text-foreground underline decoration-border underline-offset-4"
-          >
-            {t("chat.composer.configureModels")}
-          </Link>
-        </p>
-      ) : attachments.length > 0 && !selectedModelInfo?.supportsImageInput ? (
-        <p className="text-[11px] leading-4 text-muted-foreground">
-          {tf("chat.composer.textOnlyModel", {
-            modelId: selectedChatModel.modelId,
-          })}
-        </p>
-      ) : attachments.length > 0 ? (
-        <p className="text-[11px] leading-4 text-muted-foreground">
-          {t("chat.composer.selectedAttachmentsPrefix")} {attachments.length}{" "}
-          {t("chat.composer.selectedAttachmentsSuffix")}
-        </p>
-      ) : null}
     </form>
   );
 }

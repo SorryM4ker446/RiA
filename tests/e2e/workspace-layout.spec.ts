@@ -284,7 +284,7 @@ test("desktop chat stays translucent and execution history opens without moving 
     "rgba(0, 0, 0, 0)",
   );
   await expect(page.locator(".composer-surface")).toHaveCSS("background-color", /rgb\(/);
-  expect((await page.locator(".composer-surface").boundingBox())!.width).toBeLessThanOrEqual(672);
+  expect((await page.locator(".composer-surface").boundingBox())!.width).toBeLessThanOrEqual(576);
   const memory = page.getByRole("checkbox", { name: "不记长期记忆", exact: true });
   await memory.click();
   await expect(memory).toBeChecked();

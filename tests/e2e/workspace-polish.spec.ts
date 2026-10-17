@@ -199,7 +199,10 @@ for (const narrow of [false, true]) {
     const message = (await article.locator("..").boundingBox())!;
     const composer = (await page.locator(".composer-surface").boundingBox())!;
     expect(Math.abs((message.x + message.width / 2) - (composer.x + composer.width / 2))).toBeLessThan(.5);
-    if (!narrow) expect(Math.abs(message.x - composer.x)).toBeLessThan(.5);
+    if (!narrow) {
+      expect(composer.width).toBe(576);
+      expect(composer.width).toBeLessThan(message.width);
+    }
     const trigger = page.getByRole("button", { name: "执行记录", exact: true });
     await expect(trigger).toContainText("10");
     await page.getByPlaceholder(/输入你的问题/).fill("保留未发送的草稿");
