@@ -1,47 +1,32 @@
-# Web Search Budget and Quality Notes
+# Web search routing and evidence
 
-## Current P0 Guardrail
+RiA exposes one `webSearch` tool. The model decides when it helps; ordinary questions do not start a mandatory lookup. Template restrictions continue to apply. Missing optional Tavily configuration never disables provider search.
 
-The current Web Search tool keeps a per-turn result budget for automatic search. In one assistant turn, `webSearch` can retrieve at most 10 web results total. If the model asks for more than the remaining budget, the request is downgraded to the remaining budget. If the budget is already exhausted, the tool returns an empty result instead of interrupting the model response.
+| Selected provider | Preferred search path |
+| --- | --- |
+| DeepSeek `deepseek-v4-pro` | Native `web_search` through the official Responses API |
+| Other DeepSeek chat models, including Flash | Official independent `POST /v1/tools/search`; structured results go back to the chat model |
+| OpenRouter | Gateway `openrouter:web_search`, with gateway engine selection |
+| No configured provider search route | Optional configured Tavily connection |
 
-This is a P0 safety guardrail, not the final search-quality strategy.
+The native DeepSeek capability is documented for that exact model. Independent DeepSeek searches accept up to 128 Unicode characters; oversized queries are reported for reformulation instead of silently truncating operators. Configure the selected provider key normally. `DEEPSEEK_BASE_URL` also applies to search; Tavily retains `TAVILY_API_KEY` and optional `TAVILY_SEARCH_URL`.
 
-## Why This Limit Helps
+Sources: [DeepSeek Search](https://api-docs.deepseek.com/guides/search/), [DeepSeek Responses](https://api-docs.deepseek.com/guides/responses_api/), [OpenRouter server search](https://openrouter.ai/docs/guides/features/server-tools/web-search), reviewed 2026-10-18. OpenRouter server tools are beta. Deprecated web plugins and `:online` suffixes are not used.
 
-- Keeps search latency and provider cost bounded.
-- Prevents repeated tool calls from expanding one answer into 20, 30, or more sources.
-- Keeps the source panel readable and focused.
-- Makes behavior explainable: one assistant turn has a clear external-search budget.
-- Encourages the model to synthesize from a limited set of sources instead of blindly fetching more.
+## Limits and failure handling
 
-## Known Limitations
+The conversation model chooses `maxResults` according to the question. RiA has no fixed five-result default, ten-result call limit or per-turn result-count quota. Manual Web Search shows only the query; when the count is absent, the selected chat model produces a structured count plan before the search. That planning call uses normal model admission and usage accounting; if planning fails or is cancelled, no search is started and no fixed count is substituted.
 
-- Some research-style questions may need more than 10 raw sources to cover enough angles.
-- If the first query is poorly phrased, the model may spend the budget before finding the best sources.
-- A numeric cap does not guarantee source quality. Ten weak sources are still weak.
-- The current limit couples fetched sources, model context, and UI-visible sources too tightly.
-- Budget exhaustion prevents further web access in the same turn, even when a second narrower query would be useful.
+Only the search services' documented per-request limits are applied at transport: DeepSeek independent Search accepts up to 50 results, OpenRouter gateway search up to 25, and Tavily up to 20. Native engines may ignore requested counts; the DeepSeek native request includes the model's target in its prompt. Requests larger than a service's ceiling are capped to that ceiling; the model can make further focused searches within the existing run step, time and failure limits. All normalized requested results are available to answer synthesis, rather than only the first five.
 
-## Better Future Direction
+Provider requests and count planning have a 60-second transport deadline; Tavily retains 12 seconds. OpenRouter still receives `max_tool_calls: 1` and `max_uses: 1` per tool invocation. DeepSeek does not support a server-side `max_tool_calls` bound. These execution controls remain separate from result counts and do not bound all upstream internal searches. Source: [Tavily Search API](https://docs.tavily.com/documentation/api-reference/endpoint/search), alongside the provider references above.
 
-- Separate raw retrieval volume from final reasoning/display volume.
-- Allow broader multi-query retrieval, then deduplicate and rerank before selecting the best sources.
-- Feed only the top sources into the model context, even if more pages were fetched upstream.
-- Show only a concise source set in the UI, with optional expansion for full retrieval traces.
-- Add source quality scoring based on authority, recency, duplication, and relevance.
-- Add reranking for query-result fit before synthesis.
-- Use dynamic budgets by task type:
-  - Simple factual lookup: 3-5 sources.
-  - Normal current-information answer: 5-10 sources.
-  - Product/game/event comparison or review: 10-15 sources after reranking.
-  - Deep research mode: higher raw retrieval, but still capped context and UI output.
-- Track and display search budget usage, such as fetched count and selected source count.
+Native searches run as a tool subrequest, then pass citations, excerpts and any evidence summary to the conversation model. Requests use existing model-library leases, admission and usage accounting. Provider-reported OpenRouter cost is recorded; unreported charges remain unknown. Search fees may be additional to token costs. These limits are not a guaranteed total-spend cap.
 
-## Open Product Question
+No matches, no search executed and provider failure remain distinct. Configured Tavily may handle a provider search route explicitly unavailable with HTTP 404/501. Permission, balance, quota, timeout and ambiguous upstream failures do not trigger a second paid search or bypass provider policies. The actual engine and fallback origin remain in the result. Tavily is never a requirement for native search. Cancellation reaches the HTTP transport. Provider results are deduplicated and bounded by the requested count and response-size limits; source links are restricted to HTTP(S). Retrieved material is untrusted reference data.
 
-For P1, decide whether Web Search should remain a simple bounded tool or become a two-stage retrieval pipeline:
+## Presentation and verification
 
-1. Fetch more candidate sources across one or more queries.
-2. Deduplicate, rerank, and select the best sources for model reasoning and UI display.
+Web/document sources, tool input/output and retrieval diagnostics appear in **执行记录**. Its compact list shows the request and status; expansion groups individual tool calls and approvals, used sources and diagnostic information. Sources and verbose input/output are disclosed on demand; pending approvals open automatically. Inline answer citations remain in chat. A limitation is explained only when a requested action cannot be completed, distinguishing template restrictions from missing configuration.
 
-The second design is better for research quality, but it requires stronger observability, ranking logic, and tests.
+Offline tests cover each protocol, no-Tavily availability, routing priority, missing searches versus empty results, cancellation, errors, usage accounting and template restrictions. Browser tests cover autonomous gateway search and persisted execution details. These verify integration contracts; real account access, search quality and billing require live-service validation.

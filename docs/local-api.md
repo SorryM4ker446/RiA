@@ -43,6 +43,7 @@ Chat submissions send at most the latest 100 loaded messages. The existing serve
 | --- | --- |
 | `GET /api/conversations/:id` | Conversation summary: ID, title, timestamps and message count; used by selection restoration |
 | `GET /api/conversations/:id/messages/:messageId` | Message by persisted or client message ID; returns `data` with role, content, status and timestamps; retains private-media migration |
+| `GET /api/conversations/:id/runs?runId=...` | Persisted assistant message associated with a server-issued run ID, or `null` when unavailable; verifies run ownership in this conversation and uses private/no-store caching |
 | `GET /api/tasks/:id` | Task detail, including title, details, due date, priority and status |
 | `PATCH /api/tasks/:id` | Task update, including deadline, time zone, reminder and recurrence; returns `data` plus `nextTask` when completion creates a successor |
 | `GET /api/memory?query=...&limit=5` | Relevant local memories; maximum 20, empty query returns an empty list |
@@ -50,6 +51,12 @@ Chat submissions send at most the latest 100 loaded messages. The existing serve
 | `POST /api/retrieval` | Retrieve local memories using JSON `query` (1–2000 characters) and optional `limit` (1–20, default 6); returns `data` |
 
 The memory and retrieval endpoints remain deliberate local integration contracts even though the UI uses the knowledge page and tools. Missing or foreign detail records return `404`; unauthenticated requests return `401`. Mutations use the same bounded JSON parsing and same-origin checks as UI requests. Embedding configuration is optional; keyword retrieval remains available without a provider key.
+
+File actions are offered through `runTerminalCommand` with separate folder terminal
+permission and per-command human approval. Retired `listLocalFiles`, `readLocalFile`
+and `writeLocalFile` IDs are no longer executable catalog entries. Legacy template
+selections normalize to the terminal without enabling folder permission. Old
+transcripts remain readable; old file-tool approvals cannot execute after upgrade.
 
 Task schedule formats, recurrence rules and the desktop-only reminder claim endpoint are documented in [Task reminders](task-reminders.md). Claiming is a mutation with delivery consequences, so integrations must not poll it as a task-list endpoint.
 

@@ -1,146 +1,147 @@
-# Private AI Assistant
+# RiA
 
-Private AI Assistant is a local-first AI assistant built with Next.js, Vercel AI SDK, Electron, Prisma, and SQLite. The delivered application is an installable Windows desktop program; there is no browser or web deployment target.
+A local-first desktop AI agent with knowledge, tools, and plugins.
+
+RiA brings streaming chat, document retrieval, and tool execution into a Windows desktop workspace. Tool-capable models can select tools and work through multiple steps, with execution records, directory permissions, and approval controls.
+
+Conversations, knowledge, attachments, and workspace settings are stored locally. Model, embedding, search, and connector requests send the content needed for that operation to the configured service.
+
+Built with Electron, Next.js, Vercel AI SDK, Prisma, and SQLite.
 
 ## Capabilities
 
-- Windows PowerShell commands with separate folder permissions, exact-command approval, live output and stop controls; see [Desktop terminal tool](docs/terminal-tools.md)
+| Area | What you can do |
+| --- | --- |
+| Chat and assistants | Stream multi-turn conversations, use built-in or custom assistant templates, attach images/PDF/Word documents, and search, tag, archive or export history. [Templates](docs/assistant-templates.md) · [Conversations](docs/conversation-management.md) |
+| Knowledge | Import PDF, DOCX, Markdown and TXT with preview and confirmation; use local keyword or optional semantic + BM25 hybrid retrieval, versioned citations, index maintenance and retrieval evaluations. [Knowledge library](docs/document-knowledge.md) |
+| Documents | Preview and edit extracted text; export Markdown, TXT, HTML or DOCX; read and convert documents through chat tools. [Document processor](docs/document-processor.md) |
+| Agent tools | Let the model select tools automatically or request a one-shot explicit action; inspect tool inputs, outputs, steps, failures and execution limits. [Execution records](docs/execution-history.md) |
+| Terminal and files | Authorize folders and use one general PowerShell tool for file management, editing and development commands, with live output and stop controls. Every command requires human approval. [Terminal tool](docs/terminal-tools.md) |
+| Plugins and Skills | Discover official MCP Registry servers and skills.sh community Skills, or import RiA packages combining Skill instructions with MCP/HTTP connections. [Plugins](docs/plugin-packages.md) · [Connections](docs/extensions.md) |
+| Models and media | Use OpenRouter or direct DeepSeek chat, maintain a provider-aware model allowlist and defaults, review usage estimates, and generate images/videos through supported OpenRouter models. [Models and usage](docs/model-usage.md) · [Media library](docs/media-library.md) |
+| Tasks and topics | Manage time zones, recurring tasks and due reminders; organize knowledge topics and generate reports, plans or summaries with saved evidence. [Reminders](docs/task-reminders.md) · [Knowledge topics](docs/knowledge-topics.md) |
+| Local workspace | Back up and restore workspace data, manage media storage, and keep desktop API keys in the system-encrypted store. [Backups](docs/workspace-backups.md) · [Storage](docs/media-storage.md) |
 
-- Local PDF/Word/Markdown/TXT processing with editable previews, Markdown/TXT/HTML/Word downloads and scoped chat tools; see [Document processor](docs/document-processor.md)
+The interface supports light/dark themes, compact management views, keyboard navigation and reduced motion. Windows includes a translucent chat canvas, window transitions and a theme-aware startup animation.
 
-- Streaming, persisted multi-turn chat through OpenRouter
-- Local conversations, messages, memories, knowledge, and tasks
-- Built-in and custom assistant templates with persistent conversation snapshots, model binding, tool scope and retrieval policies
-- Knowledge retrieval diagnostics and exportable quality evaluations with optional model review of facts, conditions, exceptions, quantities, conflicts and refusals
-- Conversation text search, pinning, tags, archive, confirmed bulk deletion and Markdown/JSON export
-- Semantic knowledge retrieval with keyword fallback
-- PDF, Markdown, text and Word `.docx` knowledge import with local indexing and cited excerpts
-- Tavily web search and tool-call approval flows
-- Image and video generation modes
-- Private media library with source conversations, generation parameters, downloads and confirmed regeneration/deletion
-- Portable workspace backup/import/export, confirmed restore with a safety backup, and automatic expired-backup cleanup
-- Dynamic provider catalogs for chat, image, video and embedding models behind a small provider-adapter seam; an explicit **我的模型** allowlist keyed by provider and model; per-model availability states; an explicit embedding-rebuild workflow; optional bounded fallback; and per-attempt latency/token/cost estimates
-- Windows desktop shell with encrypted API-key storage
+## Start using RiA
 
-## Requirements
+1. Install the Windows x64 `RiA-<version>-x64.msi` produced by the [build instructions](#build-an-installer). The installed application does not require a separate Node.js installation or database server.
+2. Open **设置** and configure OpenRouter or DeepSeek. OpenRouter is required for the supported image, video and embedding features. Provider search works without Tavily, which is an optional fallback.
+3. In **模型与用量**, add models to **我的模型** and select a default chat model. Agent tool use and on-demand community Skill reading require a tool-capable model.
+4. Start a conversation or apply an assistant template. Image, PDF and Word (`.docx`) attachments are available in chat. Documents are parsed for the conversation without being added automatically to the knowledge library. [Chat attachments](docs/media-storage.md#pdf-and-word-in-chat)
+5. To build a reusable knowledge library, open **知识库**, preview an import and confirm saving. Keyword indexing is local; semantic indexing is optional and sends snippets to the selected embedding provider.
+6. Open **扩展管理** for Skills, plugin packages and tool connections. Grant local folders through the file-permissions entry beside **执行记录**, or through Settings, then explicitly enable terminal access. In **执行记录**, expand a request to review individual tool calls and approvals, source documents/files, and debug information. Web Search result counts are chosen by the model; RiA has no per-turn result-count quota, while provider API limits still apply.
 
-- Node.js 24.9.0 for development and packaging, matching CI
-- npm 11.19.1 for dependency installation and lockfile updates, matching CI
-- Windows x64 for producing the MSI installer
-- An OpenRouter API key for AI generation
-- A Tavily API key only when web search is needed
+Stored history, local keyword retrieval and manual task management remain available without a model service. Generation, remote search and external connectors need their configured services. Desktop reminders and scheduled work require RiA to remain running.
 
-The installed desktop application does not require Node.js or PostgreSQL.
+## Extend RiA
 
-Keep `.npmrc` and `vendor/` in the checkout when installing dependencies. The project uses reviewed local backports for two dependencies without upstream security fixes; see [Dependency security backports](vendor/README.md) for advisories, compatibility limits and maintenance. Run `npx --yes npm@11.19.1 audit --audit-level=low` after dependency changes, together with the regression tests and desktop validation.
+- **Community Skills:** open **扩展管理 → 插件市场 → 发现 Skill**, search, inspect the instructions and files, install, then enable the package under **我的扩展 → 我的插件**. Relevant text resources are loaded on demand during chat.
+- **MCP and HTTP tools:** discover a server through **发现扩展**, or configure a Streamable HTTP MCP, local stdio MCP or HTTP API connection manually. Supply required credentials, detect the connection, review its tools and explicitly enable them.
+- **RiA plugin packages:** import a `.ria-plugin.json` file or paste its manifest, review the preview, install, configure its connections and enable it. Packages can combine Skills with MCP/HTTP connections; disabling or uninstalling preserves historical conversations and results.
 
-## Local development server
+Installing a Skill adds instructions and reference files. It does not install required software, execute bundled scripts or grant file access. Local MCP processes require separate consent and an installed runtime. Tool allowlists, directory permissions and per-call approvals still apply. The terminal runs a fresh non-interactive process for each command.
 
-The interface groups navigation into daily work, reference material, and management. Shared controls support light and dark themes, keyboard focus, and short panel/menu transitions. New workspaces start in dark mode; a manually selected theme persists. The RiA wordmark uses the active theme’s text color. Recent conversations are grouped by pin status and local calendar date, with message counts, two-line titles, and a menu for rename/delete. Model catalogs reveal rows in batches while scrolling; form selectors use keyboard-accessible menus. Execution records open in a separate sheet. Settings group service/model configuration, application preferences, automation/notifications and directory permissions into tabs. The default chat model can be saved directly without restarting the local service; readiness reflects persisted workspace preferences. Recent conversations open in an animated popover rather than a fixed sidebar. The Windows chat canvas is translucent, with rounded window corners when restored. The system's reduced-motion preference disables nonessential animation. UI tokens and motion rules live in `src/app/globals.css`; reusable controls live in `src/components/ui/`.
+Automatic plugin updates and rollback are not implemented. RiA does not execute arbitrary Claude or DSH plugin runtimes. See [plugin formats, compatibility and limits](docs/plugin-packages.md) and [connection setup](docs/extensions.md).
+
+## Development
+
+Use Windows x64 for desktop packaging. Development and CI use Node.js **24.9.0** and npm **11.19.1**.
 
 ```powershell
 npx --yes npm@11.19.1 ci
 npm run db:generate
-npm run dev
-```
-
-`npm run dev` starts the local Next.js service on its own. It exists to give development and the automated suites a fast loop, and is not a delivery form — the supported application is the Windows desktop build below. The desktop app runs this same service in-process, so anything verified here is the code that ships.
-
-The local SQLite database defaults to `.desktop-data/dev/app.db`. There is no application account: the service prints a one-time entry link, and opening it on this machine establishes the local access credential the workspace then uses.
-
-API requests enforce input/size limits, consistent errors, local quotas and same-origin browser writes. Non-loopback hosts require an explicit `APP_ORIGIN`; see [API contracts and local security](docs/api-security.md) before changing local access or proxy settings.
-
-Conversation and message history loads in bounded pages. See [Local integration API](docs/local-api.md) for cursor contracts and retrieval behavior, and [Model catalog maintenance](docs/model-catalog.md) for offline checks and intentional catalog updates.
-
-Open **管理会话** from the sidebar to search and organize history or download text snapshots. See [Conversation management](docs/conversation-management.md) for export privacy, limits and migration notes.
-
-Open **助理模板** to create or copy a working style and apply it to a conversation.
-See [Assistant templates](docs/assistant-templates.md). Knowledge preview and chat
-show retrieval diagnostics; **检索质量评测** compares expected documents and facts
-against actual evidence and optional model answers. See [Document knowledge](docs/document-knowledge.md).
-
-Open **备份与恢复** for portable workspace recovery, or **模型与用量** to refresh official OpenRouter catalogs, add allowed models, set defaults and review usage estimates. Backups are unencrypted and exclude the local access credential and provider keys; restore creates a safety backup before replacing business data. See [Workspace backups](docs/workspace-backups.md) and [Model settings and usage](docs/model-usage.md) for limits and safety rules.
-
-## Desktop development
-
-```powershell
 npm run desktop:dev
 ```
 
-Electron starts and stops the local Next.js development service automatically. Use the desktop Settings page to store API keys with Windows encryption.
+Electron starts and stops the local Next.js service as a child process. Configure credentials through desktop Settings; no application account is required.
 
-Task-panel **设置时间与提醒** supports time zones, due notifications and daily/weekly/monthly recurrence. Notifications require the desktop app to remain running; repetition creates the next task when the current one is completed. See [Task reminders](docs/task-reminders.md) for delivery and calendar rules.
+For a browser-based development/test loop, run `npm run dev`. This prints a one-time local entry link and uses `.desktop-data/dev/app.db` by default. The browser server is a development tool; the supported delivered application is the Windows desktop build.
 
-## Build and package
+Keep `.npmrc` and `vendor/` when installing dependencies. Reviewed local dependency backports and their maintenance requirements are documented in [vendor/README.md](vendor/README.md). After dependency changes, run `npx --yes npm@11.19.1 audit --audit-level=low` and the relevant regression checks.
+
+Local API requests enforce access credentials, Host/Origin checks, input limits and quotas. See [API security](docs/api-security.md), [local API contracts](docs/local-api.md) and [model catalog maintenance](docs/model-catalog.md).
+
+## Build an installer
 
 ```powershell
-npm run desktop:build
-npm run desktop:package
 npm run desktop:make
 ```
 
-- `desktop:build` creates and verifies `.desktop-runtime`.
-- `desktop:package` creates the unpacked Windows application under `out/`.
-- `desktop:make` prepares WiX automatically and creates the versioned MSI plus SHA-256 verification metadata under `out/make/wix/x64/`.
+This prepares WiX, builds the desktop runtime and packages the application into a versioned MSI with SHA-256 verification metadata:
+
+```text
+out/make/wix/x64/RiA-<version>-x64.msi
+out/make/wix/x64/verification.json
+```
+
+The installer supports choosing the program directory; installed workspace data lives under `%APPDATA%\RiA` by default. Changing the program directory does not move the workspace.
+
+For a new version, run `npm run desktop:version` once before building. It synchronizes `package.json` and the lockfile; builds do not increment the version automatically.
+
+| Command | Output |
+| --- | --- |
+| `npm run desktop:build` | Verified standalone runtime in `.desktop-runtime/` |
+| `npm run desktop:package` | Unpacked Windows application in `out/RiA-win32-x64/` |
+| `npm run desktop:make` | MSI and verification metadata in `out/make/wix/x64/` |
+
+CI builds and validates the Windows package but uploads failure diagnostics only, rather than installers. Windows code signing and automatic application updates are not configured. Building or smoke-testing an MSI does not establish that clean installation and upgrades have passed. See [desktop development and release](docs/desktop.md) and [Windows release acceptance](docs/windows-release-acceptance.md).
 
 ## Validation
+
+`npm test` runs the configured type, lint, schema, server, desktop, diagnostic and browser checks. Individual checks include:
 
 ```powershell
 npm run lint
 npm run typecheck
 npm run test:server
 npm run test:db
-npm run test:e2e
 npm run test:desktop
+npm run test:e2e:diagnostics
+npm run test:e2e
+```
+
+After preparing the corresponding runtime/package, validate desktop resources and startup with:
+
+```powershell
 npm run test:desktop:smoke
 npm run desktop:verify
 npm run test:desktop:package
 ```
 
-## Local data upgrade
+Tests use isolated SQLite databases and deterministic external-service fixtures. They verify application behavior without proving live-provider answer quality or replacing Windows installation/upgrade acceptance. See [testing and validation](docs/testing.md).
 
-An existing installation may still hold the earlier account-scoped database.
-`npm run dev` and the desktop application inventory that database, snapshot it,
-and record which old account the workspace adopts. Nothing is converted until
-that snapshot verifies.
+## Data and recovery
+
+**备份与恢复** exports workspace business data and media, and creates a safety backup before restoring. Portable archives are unencrypted and exclude provider keys and the local access credential. Plugin/connector declarations are machine-local and omitted from portable archives; restoring keeps existing local declarations but disables them and invalidates approvals. See [backup rules](docs/workspace-backups.md) and [plugin persistence](docs/plugin-packages.md#persistence-and-api).
+
+Private media assets hold images, videos and document attachments. **存储管理** provides explicit cleanup with reference protection. See [media storage](docs/media-storage.md).
+
+Older account-scoped databases are inventoried and snapshotted before adopting a local workspace. Data spread across several accounts requires an explicit ownership decision instead of a silent merge.
 
 ```powershell
-npm run workspace:status     # read-only plan and current state
-npm run workspace:inventory  # read-only report of every local data file
-npm run workspace:prepare    # snapshot and record the adopted workspace owner
-npm run workspace:restore    # restore the newest verified snapshot
+npm run workspace:status
+npm run workspace:inventory
+npm run workspace:prepare
+npm run workspace:restore
 ```
 
-A database whose content is spread over several accounts stops the upgrade with
-an explanation instead of merging silently. See
-[Local workspace upgrade and recovery](docs/workspace-upgrade.md) for the
-decision rules, the snapshot format and the recovery procedure.
-
-Desktop validation uses Node's built-in test runner and a hidden Electron window; it does not require an additional desktop test framework.
-
-Server regression tests use real route handlers and temporary SQLite databases, with only the external AI provider replaced by a deterministic test double. See [Test coverage and local validation](docs/testing.md) for the boundary between UI tests, server tests, and live-provider validation.
-
-See [Desktop development and release](docs/desktop.md) for data paths, security behavior, troubleshooting, and release checks.
-
-Images, videos, and attachments use private file-backed media assets instead of inline message data. Open **媒体资源库** from the sidebar to browse, filter, inspect and download files, or confirm regeneration/deletion. Its disk-usage panel shares the existing **存储管理** cleanup controls. See [Media library](docs/media-library.md) for generation parameters and reference protection, and [Media storage and migration](docs/media-storage.md) for limits, legacy-data handling and backup requirements.
-
-Chat attachments also accept PDF and Word (`.docx`): the existing local parser extracts text for the selected chat model without importing files into the knowledge library. Document cards support individual removal and original-file downloads; drafts, conversation history and portable backups retain file references. See [PDF and Word in chat](docs/media-storage.md#pdf-and-word-in-chat) for supported formats and limits.
-
-Open **知识库管理** to preview and confirm document imports, update, search, reindex or delete document text. Word headings and table rows are retained as text; table chunks repeat headers to keep amounts and conditions interpretable. Imports and keyword indexing are local. Select an embedding model and explicitly build **语义索引** or use **批量构建或继续** to enable semantic + BM25 hybrid retrieval, with vectors stored in SQLite. Index maintenance reports stale/malformed vectors and old local indices; cancelled or failed operations can continue from saved batches. Indexing sends snippets to that provider; hybrid queries also call it and may incur costs. Chat receives versioned evidence with neighboring conditions and exceptions, and sources distinguish actual answer citations from unused references. See [Document knowledge](docs/document-knowledge.md) for setup, privacy, evaluation, upgrade notes and limits.
-
-Memory entries on the same page support local title/content search, all/confirmed/candidate filters, and previous/next navigation with 25 entries per page. Older entries remain accessible beyond the first 100. Search does not call an embedding model. Successful creates, edits, confirmations and deletions return the current search/filter to its first page because writes can change ordering or membership; failed edits retain their draft. If a write succeeds but its list refresh fails, the page explains that the write was saved and disables obsolete pagination until a refresh succeeds. Candidates remain excluded from model context until confirmed or edited.
+See [local workspace upgrade and recovery](docs/workspace-upgrade.md) for the migration and restore procedure.
 
 ## Project layout
 
-Open **知识专题** to bind document collections and a default assistant, start scoped conversations, and generate reports, plans or summaries with versioned citations. Artifacts retain generation-time evidence and model snapshots, support Markdown/JSON export, and preserve failed or interrupted states without automatic model retries. See [Knowledge topics and cited artifacts](docs/knowledge-topics.md) for usage, costs, recovery, limits and backup compatibility.
-
-- `electron`: desktop main process, preload bridge, migrations, settings, and security
-- `src/app`: pages and route handlers
-- `src/features/chat`: renderer API client, conversation/media/tool hooks, and chat views
-- `src/lib/chat`: validated chat requests, model context, tool intent, streaming, and persistence
-- `src/lib/memory`: memory storage and shared retrieval/scoring policies
-- `src/lib/documents`: bounded extraction workers, incremental document indexing and source retrieval
-- `src/db`: Prisma schema and SQLite migrations
-- `src/tools`: tool definitions and registry
-- `scripts`: local database, desktop build, packaging, and verification helpers
-- `tests`: browser and desktop regression tests
+| Path | Responsibility |
+| --- | --- |
+| `electron/` | Main process, preload bridge, settings, migrations and desktop security |
+| `src/app/` | Pages and local API route handlers |
+| `src/features/chat/` | Chat views, API client and conversation/media/tool hooks |
+| `src/lib/chat/` | Validated requests, context, streaming and persistence |
+| `src/tools/` | Shared tool registry, descriptors and execution |
+| `src/lib/documents/` | Extraction, indexing, retrieval and document processing |
+| `src/lib/plugins/` | Plugin packages and community Skill integration |
+| `src/lib/extensions/` | MCP/HTTP connections and official Registry discovery |
+| `src/lib/memory/` | Memory storage and retrieval policies |
+| `src/db/` | Prisma schema and SQLite migrations |
+| `scripts/` | Development, migration, packaging and validation utilities |
+| `tests/` | Server, browser and desktop regression coverage |

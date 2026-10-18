@@ -7,8 +7,10 @@ The Windows desktop application is a thin Electron shell around the existing Nex
 The first desktop window reveals the RiA lettering through a subtle mask, then
 fades the lettering out before the workspace enters with a short upward fade.
 The 1.28-second sequence keeps the workspace invisible until the lettering is
-gone, avoiding overlapping text. It uses the existing theme tokens and saved light/dark preference;
-there is no second theme setting or separate splash window. The animation ends
+gone, avoiding overlapping text. It uses the existing theme tokens and saved
+light/dark preference. The startup backdrop fades to transparent alongside the workspace entrance, so
+its final frame already matches the chat canvas transparency before teardown.
+There is no second theme setting or separate splash window. The animation ends
 automatically, with no skip button or Escape shortcut. Reduced motion bypasses
 the animation. Window controls remain available while workspace interaction is
 paused.
@@ -122,6 +124,19 @@ npm run desktop:make
 
 The WiX maker produces a Chinese MSI installation wizard with a **Browse** button on the feature/destination page. Choose an application folder such as `D:\Apps\RiA`. Installation is per user; choose a writable directory. The final versioned installer is `out/make/wix/x64/RiA-<version>-x64.msi`. WiX 3.14.1 is a build dependency, downloaded from its official release with a pinned SHA-256 by `provision-wix.ps1`, into the ignored project tooling directory. Users installing the MSI do not need WiX or Node.js.
 
+New MSI builds enable [default verbose Windows Installer logging](https://learn.microsoft.com/en-us/windows/win32/msi/msilogging) (`MsiLogging=voicewarmup`), including double-click launches. Windows creates an `MSI*.LOG` file, normally in the installing account's temporary directory; the log's `MsiLogFileLocation` identifies its location. Policies or explicit logging options can override this. Existing installers must be rebuilt to gain this property. Logs may contain local paths and must be reviewed/redacted before sharing.
+
+For a failed upgrade, close RiA including its tray process and capture the failure on the affected machine with an explicit log path. From PowerShell, replacing the installer path:
+
+```powershell
+msiexec.exe /i 'C:\Downloads\RiA-<version>-x64.msi' /L*V "$env:TEMP\RiA-upgrade.log"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\diagnose-windows-installer.ps1 -InstallDirectory 'E:\Apps\RiA' -LogPath "$env:TEMP\RiA-upgrade.log"
+```
+
+The first command starts the installer; the second is read-only and can also run without `-LogPath`. It reports elevation, selected-volume/rollback-directory security readability and bounded relevant log lines, without launching an installer, changing ACLs or modifying registry settings. An unreadable protected rollback folder alone does not prove corruption.
+
+An error setting security for `<volume>:\Config.Msi\*.rbf` with system error 5 means the installer was denied access while securing a rollback file. Correlate error 1926, the failing action, installation context and actual volume permissions in that machine's log. A package build or smoke-test does not verify this upgrade operation. Preserve the existing per-user scope, upgrade identity and rollback; do not disable rollback, grant Everyone full control, recursively reset a drive's permissions or switch installation scope as a generic workaround. If elevation is needed, use the same Windows account and an authorized administrator, then record whether it changes the outcome.
+
 First-time WiX preparation computes SHA-256 through .NET without requiring the `Get-FileHash` cmdlet. Windows PowerShell downloads use basic parsing to avoid an Internet Explorer dependency on unattended runners. The checksum must match before extraction; an invalid cached ZIP stops the build. Cached and first-time preparation both require validation when this flow changes.
 
 The installation directory contains application files, including the `app-<version>` subdirectory. Data, credentials and Electron browser caches still use `%APPDATA%\RiA`; selecting D: for installation does not move these. Uninstall removes MSI-owned files and shortcuts, retains user data and does not recursively erase unrelated files in the selected folder. Close RiA before upgrading; keep the chosen directory consistent between releases. To relocate an existing MSI installation, back up and uninstall first, then reinstall in the new directory under the same Windows account.
@@ -159,7 +174,7 @@ Before distribution, run `npm run desktop:acceptance -- --init` to create an unv
 
 After `desktop:package`, `npm run test:desktop:package` repeats the smoke test against the actual packaged executable. `npm run desktop:verify` checks runtime resources, Prisma's native engine, migrations, EXE presence, and absence of `.env` or key-shaped values.
 
-GitHub Actions runs the web validation and a separate Windows desktop job. The desktop job provisions the pinned WiX compiler, builds the runtime, creates and verifies the MSI installer, and smoke-tests the packaged application. Routine CI does not upload the MSI, checksum manifest or manual acceptance record. Only failure diagnostics are uploaded, with seven-day retention; local release commands still produce the installer and records.
+GitHub Actions runs static/database checks, browser workflows and three isolated server-test shards in parallel, plus a separate Windows desktop job. The aggregate validation check requires all validation groups to pass. The desktop job provisions the pinned WiX compiler, builds the runtime, creates and verifies the MSI installer, and smoke-tests the packaged application. Routine CI does not upload the MSI, checksum manifest or manual acceptance record. Only failure diagnostics are uploaded, with seven-day retention; local release commands still produce the installer and records.
 
 ## Troubleshooting
 
