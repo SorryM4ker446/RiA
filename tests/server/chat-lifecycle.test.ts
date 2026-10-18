@@ -59,6 +59,19 @@ test("chat keeps automatic tools available when an older client sends the retire
   for (const id of ["createTask", "searchKnowledge", "readDocument", "convertDocument"]) assert.ok(names.includes(id), id);
 });
 
+test("ordinary chat receives task-oriented agent instructions without empty retrieval or memory scaffolding", async () => {
+  const response = await chat.POST(request({ messages: [ui("agent-goal", "user", "Help me plan a short story")] }));
+  assert.equal(response.status, 200);
+  await response.text();
+  const prompt = languageModel.doStreamCalls.at(-1).prompt.find(item => item.role === "system").content;
+  assert.match(prompt, /RiA, a local-first desktop AI agent/);
+  assert.match(prompt, /carry authorized work through/);
+  assert.match(prompt, /each exact command still requires human approval/);
+  assert.match(prompt, /If a requested workspace fact lacks evidence/);
+  assert.doesNotMatch(prompt, /\[Knowledge evidence|\[Long-Term Memory|\[Earlier Conversation Excerpts|\[Tooling Policy/);
+  assert.doesNotMatch(prompt, /No supporting document excerpts|No relevant long-term memory|No earlier messages omitted|Prefer a direct answer for ordinary questions|Order: factual points/);
+});
+
 test("long persisted conversations pass bounded historical excerpts and the active turn through the chat route", async () => {
   const owned = await db.chat.create({ data: { title: "Long conversation" } });
   const history = Array.from({ length: 40 }, (_, index) => ui(`turn-${index}`, index % 2 ? "assistant" : "user", `Recorded turn ${index}`));

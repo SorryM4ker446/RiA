@@ -5,14 +5,14 @@ import { resolveToolDescriptor } from "@/tools/catalog";
 import { assistantConfigSchema, type AssistantConfig, type AssistantTemplate, type AssistantSnapshot } from "./schema";
 import type { Prisma } from "@prisma/client";
 
-const builtin = (id: string, name: string, description: string, instructions: string, tools: string[]): AssistantTemplate => ({
-  id, revision: 1, builtin: true, config: assistantConfigSchema.parse({ name, description, instructions, tools }),
+const builtin = (id: string, name: string, description: string, instructions: string, tools: string[], revision = 1): AssistantTemplate => ({
+  id, revision, builtin: true, config: assistantConfigSchema.parse({ name, description, instructions, tools }),
 });
 export const builtinAssistants = [
   builtin("builtin_knowledge", "知识问答助理", "结合资料回答，保留条件、例外和引用。", "Use the scoped knowledge evidence to answer. Combine passages where needed. Preserve conditions, exceptions, numbers and units. Cite each supported claim. Explain conflicting documents and explicitly state missing evidence. Do not replace missing workspace facts with general knowledge.", ["searchKnowledge"]),
   builtin("builtin_writing", "写作助理", "润色和组织文字，保留原意与事实。", "Help draft, revise and organize writing. Preserve the user's intended meaning and documented facts. Mark assumptions and ask for missing audience or purpose when necessary. Do not invent quotations or sources.", []),
-  builtin("builtin_coding", "代码助理", "解释代码、排查问题、提出可验证的修改。", "Help understand and improve software. Separate observed behavior from hypotheses. Explain the failure mechanism, propose the smallest coherent change and provide relevant validation steps. Never claim code was executed unless a tool actually executed it.", ["searchKnowledge", "runTerminalCommand"]),
-  builtin("builtin_research", "资料研究助理", "比较资料与观点，区分事实和推断。", "Research the user's question using available documents and permitted web search. Compare sources, dates and differing claims. Clearly distinguish documented facts from inference and cite the evidence actually obtained. Disclose missing or unavailable searches.", ["searchKnowledge", "webSearch"]),
+  builtin("builtin_coding", "代码助理", "理解代码、排查问题，在授权范围内修改并验证。", "Help understand and improve software. For implementation requests, inspect the relevant project, make the smallest coherent change using available tools and obtain approval for every terminal command. Preserve unrelated work and validate the affected behavior. Distinguish observed results from hypotheses; report what changed, what was verified and any remaining blocker without claiming unperformed work.", ["searchKnowledge", "runTerminalCommand"], 2),
+  builtin("builtin_research", "资料研究助理", "比较资料与观点，区分事实和推断。", "Research the user's question using relevant documents and available web search. Compare sources, dates and differing claims; cite evidence actually obtained and distinguish facts from inference when material. Explain an unavailable search only when it prevents research the user requested. Fit the answer to the question rather than imposing a fixed report format.", ["searchKnowledge", "webSearch"], 2),
 ];
 
 export async function listAssistants(): Promise<AssistantTemplate[]> {

@@ -15,6 +15,7 @@ const { defaultModelPreferences } = await import("@/lib/models/preferences-schem
 const { indexDocument, deleteDocument } = await import("@/lib/documents/store");
 const { indexDocumentEmbeddings, semanticCoverage, validDocumentVector } = await import("@/lib/documents/semantic");
 const { searchDocuments, documentRetrievalQuery, formatDocumentContext } = await import("@/lib/documents/retrieval");
+const { buildSystemPrompt } = await import("@/lib/chat/model-context");
 const { markDocumentCitations } = await import("@/lib/documents/references");
 const { documentSourceUrl } = await import("@/lib/documents/types");
 const route = await import("@/app/api/documents/[id]/embeddings/route");
@@ -63,10 +64,15 @@ test("semantic retrieval finds indirect questions with no lexical matches and pr
   assert.deepEqual(await searchDocuments(query, 8, ["医疗"]), []);
   assert.deepEqual(await searchDocuments("木星表面温度"), []);
   const context = formatDocumentContext(sources);
+  assert.match(context, /only when relevant to the user's current task/);
   assert.match(context, /applying and synthesizing/);
   assert.match(context, /prerequisites, exceptions, quantities and units/);
   assert.match(context, /evidence is insufficient/);
   assert.match(context, /十个工作日/);
+});
+
+test("empty document retrieval contributes no knowledge-answer instructions to unrelated chat", () => {
+  assert.equal(formatDocumentContext([]), "");
 });
 
 test("semantic retrieval reaches older chunks across multiple bounded vector batches", async () => {
@@ -116,7 +122,7 @@ test("separate documents with conflicting quantities remain visible as distinct 
   const sources = await searchDocuments("费用核销时限", 8);
   assert.ok(sources.some(source => source.documentId === first.id && source.snippet.includes("十个工作日")));
   assert.ok(sources.some(source => source.documentId === second.id && source.snippet.includes("二十个工作日")));
-  assert.match(formatDocumentContext(sources), /Disclose conflicting evidence/);
+  assert.match(formatDocumentContext(sources), /disclose material conflicts/);
 });
 
 test("heading changes preserve chunk identities but invalidate embeddings and respect unseparated sections", async () => {
@@ -212,7 +218,9 @@ test("embedding API requires authentication, explicit confirmation and matching 
 test("follow-up retrieval uses prior user context without importing assistant speculation", () => {
   assert.equal(documentRetrievalQuery([{ role: "user", text: "星河项目的发布流程是什么" }, { role: "assistant", text: "invented secret topic" }, { role: "user", text: "那它需要多久？" }]), "星河项目的发布流程是什么\nFollow-up: 那它需要多久？");
   assert.equal(documentRetrievalQuery([{ role: "user", text: "差旅申请" }, { role: "user", text: "医疗预约流程" }]), "医疗预约流程");
-  assert.match(formatDocumentContext([]), /do not invent document content/);
+  const prompt = buildSystemPrompt("", "", true) + formatDocumentContext([]);
+  assert.match(prompt, /If a requested workspace fact lacks evidence/);
+  assert.match(prompt, /rather than inventing document content or citations/);
 });
 
 test("citation status requires the actual versioned source link and never implies verified claim support", async () => {
