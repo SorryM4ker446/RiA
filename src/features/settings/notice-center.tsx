@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Bell, CheckCheck, Loader2, Trash2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { SettingsSection } from "@/features/settings/settings-section";
 import { t } from "@/lib/locale";
 
 type Notice = {
@@ -55,18 +56,12 @@ export function NoticeCenter({ onCountChange }: { onCountChange?: (unread: numbe
   const unread = notices.filter((notice) => !notice.readAt);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Bell aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
+    <SettingsSection title={<><Bell aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
           {t("notices.title")}
           {unread.length > 0 ? (
-            <span className="rounded-full bg-destructive px-1.5 text-[10px] text-destructive-foreground">{unread.length}</span>
-          ) : null}
-        </CardTitle>
-        <CardDescription>{t("notices.description")}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
+            <Badge variant="secondary">{unread.length} 未读</Badge>
+          ) : null}</>} description="未处理的任务与备份提醒会保留在这里。">
+        <div className="flex flex-col gap-4">
         {loading ? (
           <p className="flex items-center gap-2 text-xs text-muted-foreground">
             <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />
@@ -76,10 +71,10 @@ export function NoticeCenter({ onCountChange }: { onCountChange?: (unread: numbe
           <p className="text-xs text-muted-foreground">{t("notices.empty")}</p>
         ) : (
           <>
-            <ul className="space-y-2">
+            <ul className="settings-list">
               {notices.slice(0, 20).map((notice) => (
                 <li
-                  className={`flex items-start justify-between gap-3 rounded-md border px-3 py-2 ${notice.readAt ? "border-border opacity-70" : "border-border bg-muted/40"}`}
+                  className="flex items-start justify-between gap-3"
                   key={notice.id}
                 >
                   <div className="min-w-0">
@@ -118,7 +113,7 @@ export function NoticeCenter({ onCountChange }: { onCountChange?: (unread: numbe
             ) : null}
           </>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </SettingsSection>
   );
 }

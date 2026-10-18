@@ -6,7 +6,7 @@ import { ArrowLeft, CheckCircle2, ChevronDown, KeyRound, Loader2, MonitorCog, Sh
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { SettingsSection } from "@/features/settings/settings-section";
 import { Input } from "@/components/ui/input";
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { SelectField, SelectOption } from "@/components/ui/select";
@@ -146,11 +146,11 @@ export default function DesktopSettingsPage() {
   }
 
   return (
-    <main className="settings-page mx-auto flex w-full max-w-4xl flex-col gap-5 px-4 py-8 md:px-6">
+    <main className="settings-page mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8 md:px-6">
       <header className="workspace-page-header">
         <div className="flex flex-col gap-2">
           <h1 className="flex items-center gap-2"><MonitorCog aria-hidden="true" className="size-5 text-muted-foreground" />{t("settings.title")}</h1>
-          <p className="text-sm text-muted-foreground">密钥、默认模型和应用偏好，在这里统一管理。</p>
+          <p className="text-sm text-muted-foreground">管理模型服务、应用偏好与工作区授权。</p>
         </div>
         <Button asChild variant="ghost" size="sm"><Link href="/chat"><ArrowLeft data-icon="inline-start" aria-hidden="true" />{t("settings.backToChat")}</Link></Button>
       </header>
@@ -158,37 +158,34 @@ export default function DesktopSettingsPage() {
       {error && <Alert variant="destructive"><AlertTitle>{t("settings.error.title")}</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
       {notice && <Alert><CheckCircle2 aria-hidden="true" className="size-4" /><AlertTitle>{t("settings.notice.title")}</AlertTitle><AlertDescription>{notice}</AlertDescription></Alert>}
 
-      {settings && (
-        <ol className="settings-readiness" aria-label={t("settings.readinessLabel")}>
-          {[
-            { done: settings.hasOpenrouterApiKey || settings.hasDeepseekApiKey, known: true, label: t("settings.step.provider"), href: "#service-keys", detail: "至少配置一个模型服务商" },
-            { done: modelCount > 0, known: Boolean(modelState), label: t("settings.step.models"), href: "/models#model-library", detail: modelState ? modelCount + " 个已添加模型" : "模型配置尚未读取" },
-            { done: hasDefaultModel, known: Boolean(modelState), label: t("settings.step.default"), href: "#default-chat-model", detail: hasDefaultModel ? libraryModel(modelState!, "chat", modelState!.chat.model)!.name : modelState ? "尚未保存全局默认模型" : "模型配置尚未读取" },
-          ].map((step, index) => (
-            <li key={step.label} data-complete={step.known ? step.done : "unknown"}>
-              <Link href={step.href} className="settings-readiness-link" onClick={() => { if (step.href.startsWith("#")) setActiveTab("services"); }}>
-                {step.done ? <CheckCircle2 aria-hidden="true" className="size-4 shrink-0 text-success" /> : <span aria-hidden="true" className="settings-step-number">{step.known ? index + 1 : "—"}</span>}
-                <span className="min-w-0"><span className="block text-sm font-medium">{step.label}<span className="sr-only">{step.known ? step.done ? "，已完成" : "，未完成" : "，状态未知"}</span></span><span className="block truncate text-xs text-muted-foreground" title={step.detail}>{step.detail}</span></span>
-              </Link>
-            </li>
-          ))}
-        </ol>
-      )}
-
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex min-w-0 flex-col gap-5">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="settings-tabs flex min-w-0 flex-col gap-6">
         <TabsList aria-label="设置分类">
           <TabsTrigger value="services">服务与模型</TabsTrigger>
           <TabsTrigger value="application">应用偏好</TabsTrigger>
           <TabsTrigger value="automation">自动化与通知</TabsTrigger>
           <TabsTrigger value="files">文件权限</TabsTrigger>
         </TabsList>
-        <TabsContent value="services" forceMount className="flex flex-col gap-4 data-[state=inactive]:hidden">
-          <Card id="service-keys">
-            <CardHeader><CardTitle className="flex items-center gap-2"><KeyRound aria-hidden="true" className="size-4 text-muted-foreground" />{t("settings.serviceTitle")}</CardTitle><CardDescription>{t("settings.serviceDescription")}</CardDescription></CardHeader>
-            <CardContent>
+        <TabsContent value="services" forceMount className="settings-panel flex flex-col data-[state=inactive]:hidden">
+          {settings && (
+            <ol className="settings-readiness" aria-label={t("settings.readinessLabel")}>
+              {[
+                { done: settings.hasOpenrouterApiKey || settings.hasDeepseekApiKey, known: true, label: t("settings.step.provider"), href: "#service-keys", detail: "至少配置一个模型服务商" },
+                { done: modelCount > 0, known: Boolean(modelState), label: t("settings.step.models"), href: "/models#model-library", detail: modelState ? modelCount + " 个已添加模型" : "模型配置尚未读取" },
+                { done: hasDefaultModel, known: Boolean(modelState), label: t("settings.step.default"), href: "#default-chat-model", detail: hasDefaultModel ? libraryModel(modelState!, "chat", modelState!.chat.model)!.name : modelState ? "尚未保存全局默认模型" : "模型配置尚未读取" },
+              ].map((step, index) => (
+                <li key={step.label} data-complete={step.known ? step.done : "unknown"}>
+                  <Link href={step.href} className="settings-readiness-link" onClick={() => { if (step.href.startsWith("#")) setActiveTab("services"); }}>
+                    {step.done ? <CheckCircle2 aria-hidden="true" className="size-4 shrink-0 text-success" /> : <span aria-hidden="true" className="settings-step-number">{step.known ? index + 1 : "—"}</span>}
+                    <span className="min-w-0"><span className="block text-sm font-medium">{step.label}<span className="sr-only">{step.known ? step.done ? "，已完成" : "，未完成" : "，状态未知"}</span></span><span className="block truncate text-xs text-muted-foreground" title={step.detail}>{step.detail}</span></span>
+                  </Link>
+                </li>
+              ))}
+            </ol>
+          )}
+          <SettingsSection id="service-keys" title={<span className="flex items-center gap-2"><KeyRound aria-hidden="true" className="size-4 text-muted-foreground" />{t("settings.serviceTitle")}</span>} description="配置模型服务密钥。密钥加密保存在此设备，不会随备份迁移。">
               {isLoading && !settings ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 aria-hidden="true" className="size-4 animate-spin" />{t("settings.loading")}</p> : (
                 <form className="flex flex-col gap-5" onSubmit={onSubmit}>
-                  <FieldGroup className="gap-4">
+                  <FieldGroup className="settings-fields gap-0">
                     {[
                       { id: "openrouter-key", label: "OpenRouter API Key", value: openrouterApiKey, onChange: setOpenrouterApiKey, configured: settings?.hasOpenrouterApiKey, clear: clearOpenrouterApiKey, onClear: setClearOpenrouterApiKey, clearLabel: t("settings.clearOpenrouter"), placeholder: "sk-or-v1-…", hint: "聊天、图片与视频生成" },
                       { id: "deepseek-key", label: "DeepSeek API Key", value: deepseekApiKey, onChange: setDeepseekApiKey, configured: settings?.hasDeepseekApiKey, clear: clearDeepseekApiKey, onClear: setClearDeepseekApiKey, clearLabel: t("settings.clearDeepseek"), placeholder: t("settings.deepseekPlaceholder"), hint: "仅用于聊天" },
@@ -210,19 +207,17 @@ export default function DesktopSettingsPage() {
                         { id: "outbound-proxy", label: t("settings.proxyLabel"), value: outboundProxyUrl, onChange: setOutboundProxyUrl, placeholder: t("settings.proxyPlaceholder") },
                         { id: "site-name", label: t("settings.siteNameLabel"), value: openrouterSiteName, onChange: setOpenrouterSiteName, placeholder: "RiA Desktop" },
                         { id: "http-referrer", label: "OpenRouter HTTP Referrer", value: openrouterHttpReferer, onChange: setOpenrouterHttpReferer, placeholder: t("settings.refererPlaceholder") },
-                      ].map(field => <Field key={field.id} orientation="horizontal" className="settings-field"><FieldLabel htmlFor={field.id}>{field.label}</FieldLabel><Input id={field.id} onChange={event => field.onChange(event.target.value)} placeholder={field.placeholder} value={field.value} /></Field>)}
+                      ].map(field => <Field key={field.id} orientation="horizontal" className="settings-field"><FieldContent><FieldLabel htmlFor={field.id}>{field.label}</FieldLabel></FieldContent><Input className="min-w-0 flex-1" id={field.id} onChange={event => field.onChange(event.target.value)} placeholder={field.placeholder} value={field.value} /></Field>)}
                     </FieldGroup>
                   </details>
                   {!settings?.encryptionAvailable && <Alert variant="destructive"><AlertTitle>{t("settings.encryptionUnavailableTitle")}</AlertTitle><AlertDescription>{t("settings.encryptionUnavailableBody")}</AlertDescription></Alert>}
                   <div className="flex justify-end"><Button disabled={isSaving || !settings?.encryptionAvailable} type="submit" size="sm">{isSaving && <Loader2 data-icon="inline-start" aria-hidden="true" className="animate-spin" />}{t("settings.saveAndRestart")}</Button></div>
                 </form>
               )}
-            </CardContent>
-          </Card>
+          </SettingsSection>
 
-          <Card id="default-chat-model">
-            <CardHeader><CardTitle>默认聊天模型</CardTitle><CardDescription>用于新建会话；聊天输入栏中的模型选择仅对当前会话生效。</CardDescription></CardHeader>
-            <CardContent className="flex flex-col gap-3">
+          <SettingsSection id="default-chat-model" title="默认聊天模型" description="新建会话使用此模型。聊天栏中的选择仅影响当前会话。">
+            <div className="flex flex-col gap-3">
               {modelError && <Alert variant="destructive"><AlertTitle>模型配置未更新</AlertTitle><AlertDescription>{modelError}</AlertDescription></Alert>}
               {modelNotice && <p role="status" className="text-sm text-success">{modelNotice}</p>}
               <div className="flex flex-wrap items-center gap-3">
@@ -233,8 +228,8 @@ export default function DesktopSettingsPage() {
                 <Button size="sm" disabled={!modelState || savingModel || defaultModel === savedDefault} onClick={() => void saveDefaultModel()}>{savingModel && <Loader2 data-icon="inline-start" aria-hidden="true" className="animate-spin" />}保存默认模型</Button>
               </div>
               <div className="flex flex-wrap gap-4 text-xs"><Link className="text-muted-foreground hover:text-foreground" href="/models#model-preferences">管理各模式默认与备用模型 ↗</Link><Link className="text-muted-foreground hover:text-foreground" href="/backups">{t("settings.navBackups")} ↗</Link></div>
-            </CardContent>
-          </Card>
+            </div>
+          </SettingsSection>
 
           <details className="settings-disclosure px-1">
             <summary className="settings-disclosure-trigger"><ShieldCheck aria-hidden="true" className="size-4" />本地安全与运行信息<ChevronDown aria-hidden="true" className="ml-auto size-4" /></summary>
@@ -244,9 +239,9 @@ export default function DesktopSettingsPage() {
             </div>
           </details>
         </TabsContent>
-        <TabsContent value="application" forceMount className="flex flex-col gap-4 data-[state=inactive]:hidden"><CloseBehaviourSettings /><HotkeySettings /></TabsContent>
-        <TabsContent value="automation" forceMount className="flex flex-col gap-4 data-[state=inactive]:hidden"><ScheduleSettings /><NoticeCenter /></TabsContent>
-        <TabsContent value="files" forceMount className="data-[state=inactive]:hidden"><DirectoryGrantSettings /></TabsContent>
+        <TabsContent value="application" forceMount className="settings-panel flex flex-col data-[state=inactive]:hidden"><CloseBehaviourSettings /><HotkeySettings /></TabsContent>
+        <TabsContent value="automation" forceMount className="settings-panel flex flex-col data-[state=inactive]:hidden"><ScheduleSettings /><NoticeCenter /></TabsContent>
+        <TabsContent value="files" forceMount className="settings-panel data-[state=inactive]:hidden"><DirectoryGrantSettings /></TabsContent>
       </Tabs>
     </main>
   );

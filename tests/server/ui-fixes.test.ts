@@ -61,9 +61,17 @@ test("a streaming answer changes what the transcript reacts to", async () => {
   // A rerender that changes nothing must not look like new content.
   assert.equal(messageFollowSignature(settled), messageFollowSignature([message("a", "Once upon a time")]));
 
-  // A new message, a new part and an empty transcript are all still changes.
+  // Only visible content changes should affect follow behavior.
   assert.notEqual(messageFollowSignature(settled), messageFollowSignature([...settled, message("b", "")]));
-  assert.notEqual(messageFollowSignature(settled), messageFollowSignature([message("a", "Once upon a time", 2)]));
+  assert.equal(messageFollowSignature(settled), messageFollowSignature([message("a", "Once upon a time", 2)]));
+  const reasoning = message("a", "Once upon a time");
+  reasoning.parts.push({ type: "reasoning", text: "Considering options", state: "streaming" });
+  assert.notEqual(messageFollowSignature(settled), messageFollowSignature([reasoning]));
+  const pending = message("a", "Once upon a time");
+  pending.parts.push({ type: "dynamic-tool", toolName: "createTask", toolCallId: "call", state: "approval-requested", input: {}, approval: { id: "approval" } });
+  assert.equal(messageFollowSignature(settled), messageFollowSignature([pending]));
+  pending.parts[1] = { type: "dynamic-tool", toolName: "createTask", toolCallId: "call", state: "output-available", input: {}, output: {} };
+  assert.equal(messageFollowSignature(settled), messageFollowSignature([pending]));
   assert.equal(messageFollowSignature([]), "0");
 });
 

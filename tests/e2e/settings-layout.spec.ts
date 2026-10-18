@@ -102,3 +102,75 @@ test("an unreadable model configuration reports unknown readiness while secret s
   await expect(page.getByLabel("OpenRouter API Key", { exact: true })).toBeEnabled();
   await expect(page.getByRole("button", { name: "保存默认模型", exact: true })).toBeDisabled();
 });
+
+
+for (const theme of ["dark", "light"] as const) {
+  test(`settings sections and schedule creation remain usable in ${theme} theme`, async ({ page, app }, testInfo) => {
+    await desktopBridge(page);
+    await page.emulateMedia({ reducedMotion: theme === "light" ? "reduce" : "no-preference" });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await openWorkspace(page, app.origin);
+    await page.goto(`${app.origin}/settings`);
+    if (theme === "light") await page.getByRole("button", { name: "切换主题", exact: true }).click();
+    await page.getByRole("tab", { name: "自动化与通知", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "定时任务", exact: true })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "任务类型", exact: true })).toHaveCount(0);
+    await expect(page.getByText("运行规则与模型用量", { exact: true })).toBeVisible();
+    const review = page.getByRole("region", { name: "工作区事实回顾", exact: true });
+    await expect(review.getByRole("button", { name: "查看事实回顾", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "添加计划", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "添加计划", exact: true });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("combobox", { name: "重复", exact: true }).click();
+    await page.getByRole("option", { name: "每周", exact: true }).click();
+    await dialog.getByRole("textbox", { name: "时区", exact: true }).fill("UTC");
+    await dialog.getByRole("checkbox", { name: "创建后立即启用", exact: true }).uncheck();
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "添加计划", exact: true })).toBeFocused();
+    expect(await browserData(page, "/api/schedules")).toEqual([]);
+    await page.getByRole("button", { name: "添加计划", exact: true }).click();
+    await expect(dialog.getByRole("combobox", { name: "重复", exact: true })).toContainText("每周");
+    await expect(dialog.getByRole("textbox", { name: "时区", exact: true })).toHaveValue("UTC");
+    await page.route("**/api/schedules", route => route.request().method() === "POST" ? route.fulfill({ status: 503, json: { error: { message: "计划暂时无法保存" } } }) : route.continue());
+    await dialog.getByRole("button", { name: "添加", exact: true }).click();
+    await expect(dialog.getByRole("alert")).toContainText("计划暂时无法保存");
+    await expect(dialog.getByRole("button", { name: "添加", exact: true })).toBeEnabled();
+    await page.unroute("**/api/schedules");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(dialog.getByRole("button", { name: "添加", exact: true })).toBeInViewport();
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`settings-${theme}-create-mobile.png`) });
+    await dialog.getByRole("button", { name: "添加", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    const plans = page.getByRole("list", { name: "已添加的计划", exact: true });
+    await expect(plans).toContainText("已关闭");
+    await expect(plans).toContainText("UTC");
+    const jobs = await browserData(page, "/api/schedules");
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]).toMatchObject({ enabled: false, useModel: false, interval: "weekly", dayOfWeek: 1, timeZone: "UTC" });
+    await plans.getByRole("button", { name: "启用", exact: true }).click();
+    await expect(plans).toContainText("已启用");
+    await expect(plans).toContainText("周一");
+    expect((await browserData(page, "/api/schedules"))[0]).toMatchObject({ enabled: true, useModel: false, interval: "weekly", dayOfWeek: 1, timeZone: "UTC", nextRunAt: jobs[0].nextRunAt });
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 });
+      for (const tab of ["服务与模型", "应用偏好", "自动化与通知", "文件权限"]) {
+        await page.getByRole("tab", { name: tab, exact: true }).click();
+        await expect(page.getByRole("tab", { name: tab, exact: true })).toHaveAttribute("aria-selected", "true");
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+        if (theme === "light") await expect(page.getByRole("tabpanel", { name: tab, exact: true })).toHaveCSS("animation-name", "none");
+        await page.locator(".workspace-content").evaluate(element => element.scrollTop = 0);
+        await page.screenshot({ path: testInfo.outputPath(`settings-${theme}-${width}-${tab}.png`), fullPage: true, animations: "disabled" });
+      }
+    }
+    await page.getByRole("tab", { name: "自动化与通知", exact: true }).click();
+    await plans.getByRole("button", { name: "删除定时任务", exact: true }).click();
+    await expect(plans).toHaveCount(0);
+    expect(await browserData(page, "/api/schedules")).toEqual([]);
+    expect(app.readRows("SELECT count(*) AS count FROM model_requests")[0]).toMatchObject({ count: 0 });
+    expect(errors).toEqual([]);
+  });
+}

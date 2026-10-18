@@ -140,9 +140,13 @@ test("the model's reasoning is shown above the answer and stays out of it", asyn
   // what the eye lands on, and it is not folded into the answer text.
   const answer = page.getByText("结论是这样", { exact: true });
   await expect(answer).toBeVisible();
-  const summary = page.getByText("查看思考过程", { exact: true });
+  const summary = page.getByText("思考过程", { exact: true });
   await expect(summary).toBeVisible();
   await expect(answer.locator("xpath=ancestor::details[1]")).toHaveCount(0);
+  await expect(page.getByText("先比较两种做法", { exact: true })).toBeVisible();
+  await summary.click();
+  await expect(page.getByText("先比较两种做法", { exact: true })).toBeHidden();
+  await expect(answer).toBeVisible();
   await summary.click();
   await expect(page.getByText("先比较两种做法", { exact: true })).toBeVisible();
   await expect(answer).toBeVisible();

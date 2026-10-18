@@ -42,11 +42,11 @@ export const localTimeSchema = z
 
 const scheduleFields = z.strictObject({
   kind: z.enum(ScheduledJobKind),
-  enabled: z.boolean().default(false),
-  useModel: z.boolean().default(false),
+  enabled: z.boolean(),
+  useModel: z.boolean(),
   localTime: localTimeSchema,
   timeZone: z.string().min(1).max(100).refine(isTaskTimeZone, "Invalid IANA time zone"),
-  interval: z.enum(["daily", "weekly"]).default("daily"),
+  interval: z.enum(["daily", "weekly"]),
   dayOfWeek: z.number().int().min(0).max(6).nullable().optional()
 });
 
@@ -59,7 +59,13 @@ const scheduleFields = z.strictObject({
  * answering six extra times a month. The request is refused here instead, so
  * the caller finds out rather than the bill does.
  */
-export const scheduleInputSchema = scheduleFields.superRefine((value, ctx) => {
+// Creation defaults must not reach PATCH: optional defaulted fields are still
+// filled by Zod, overwriting saved timing and consent during a one-field edit.
+export const scheduleInputSchema = scheduleFields.extend({
+  enabled: scheduleFields.shape.enabled.default(false),
+  useModel: scheduleFields.shape.useModel.default(false),
+  interval: scheduleFields.shape.interval.default("daily"),
+}).superRefine((value, ctx) => {
   if (value.interval === "weekly" && (value.dayOfWeek === undefined || value.dayOfWeek === null)) {
     ctx.addIssue({ code: "custom", path: ["dayOfWeek"], message: "A weekly schedule needs a day of the week" });
   }

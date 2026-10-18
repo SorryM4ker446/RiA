@@ -1,7 +1,9 @@
 # Factual workspace reviews
 
-Settings → Scheduled tasks includes a local review preview and optional daily
-and weekly schedules. Counts come from persisted events, not current totals,
+**设置 → 自动化与通知** has a separate **工作区事实回顾** section and optional daily
+and weekly schedules. Use **添加计划** to configure a schedule in the side panel;
+opening or cancelling the panel does not save or run a job. The review section
+provides its own period and time-zone controls, with statistics and source links. Counts come from persisted events, not current totals,
 `updatedAt`, or a model's reconstruction. A daily review covers the previous
 complete local calendar day; a weekly review covers the previous complete
 Monday–Sunday week. The schedule's IANA time zone determines the boundaries.

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Power } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { SettingsSection } from "@/features/settings/settings-section";
 import { t } from "@/lib/locale";
 import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
 
@@ -59,15 +59,9 @@ export function CloseBehaviourSettings() {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Power aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
-          {t("settings.close.title")}
-        </CardTitle>
-        <CardDescription>{t("settings.close.description")}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
+    <SettingsSection title={<><Power aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
+          {t("settings.close.title")}</>} description="选择关闭窗口后退出应用，或继续在托盘运行。">
+        <div className="flex flex-col gap-4">
         {error ? (
           <Alert variant="destructive">
             <AlertTitle>{t("settings.close.failedTitle")}</AlertTitle>
@@ -93,7 +87,7 @@ export function CloseBehaviourSettings() {
           </Button>
         </div>
         {behaviour === "tray" ? (
-          <div className="space-y-2 rounded-md border border-border px-3 py-2 text-xs text-muted-foreground">
+          <div className="flex flex-col gap-2 rounded-md border border-border px-3 py-2 text-xs text-muted-foreground">
             <p>{t("settings.close.trayNote")}</p>
             <Button disabled={saving} onClick={() => void window.privateAiDesktop?.quitToTray()} size="sm" type="button" variant="outline">
               {t("settings.close.quitNow")}
@@ -102,7 +96,7 @@ export function CloseBehaviourSettings() {
         ) : (
           <p className="text-[11px] text-muted-foreground">{t("settings.close.quitNote")}</p>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </SettingsSection>
   );
 }

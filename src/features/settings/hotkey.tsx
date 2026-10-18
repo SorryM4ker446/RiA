@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Keyboard } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { SettingsSection } from "@/features/settings/settings-section";
 import { Input } from "@/components/ui/input";
 import { t } from "@/lib/locale";
 import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
@@ -55,15 +55,9 @@ export function HotkeySettings() {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Keyboard aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
-          {t("settings.hotkey.title")}
-        </CardTitle>
-        <CardDescription>{t("settings.hotkey.description")}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
+    <SettingsSection title={<><Keyboard aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
+          {t("settings.hotkey.title")}</>} description="在其他程序中快速唤起 RiA。">
+        <div className="flex flex-col gap-4">
         {problem ? (
           <Alert variant="destructive">
             <AlertTitle>
@@ -83,8 +77,9 @@ export function HotkeySettings() {
           </Alert>
         ) : null}
         {saved ? <p className="text-xs text-success">{t("settings.hotkey.saved")}</p> : null}
-        <form className="flex items-center gap-2" onSubmit={apply}>
+        <form className="flex flex-wrap items-center gap-2" onSubmit={apply}>
           <Input
+            className="min-w-0 flex-1 sm:max-w-sm"
             aria-label={t("settings.hotkey.label")}
             onChange={(event) => { setHotkey(event.target.value); setSaved(false); }}
             placeholder="Ctrl+Shift+R"
@@ -98,7 +93,7 @@ export function HotkeySettings() {
           ) : null}
         </form>
         <p className="text-[11px] text-muted-foreground">{t("settings.hotkey.note")}</p>
-      </CardContent>
-    </Card>
+      </div>
+    </SettingsSection>
   );
 }

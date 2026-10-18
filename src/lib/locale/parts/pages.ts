@@ -442,7 +442,7 @@ export const pageMessages = {
   "settings.schedules.lastRun": "上次结果：{status}",
   "settings.schedules.empty": "还没有定时任务。",
   "settings.schedules.loading": "正在读取定时任务…",
-  "settings.schedules.note": "任务默认关闭，只有你打开才会运行。错过的时段只补跑一次，不会把睡着期间的时间全部补上。",
+  "settings.schedules.note": "任务仅在桌面应用运行时自动执行。是否立即启用，由你在创建时选择；错过的时段只补跑一次。",
   "settings.schedules.failedTitle": "定时任务操作失败",
   "settings.schedules.failed": "定时任务操作失败。",
   "settings.close.title": "关闭窗口时",
