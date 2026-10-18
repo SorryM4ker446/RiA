@@ -1,21 +1,18 @@
 import { imagePrompts, quickPrompts, videoPrompts } from "@/features/chat/page-utils";
-import { TerminalResult } from "./terminal-result";
 import { MarkdownMessage } from "@/components/chat/markdown-message";
 import { DocumentAttachment } from "@/components/chat/document-attachment";
+import { DocumentDownload } from "@/features/document-processor/document-download";
 import { isDocumentAttachment } from "@/lib/media/limits";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAwaitingFirstLoad } from "@/lib/use-awaiting-first-load";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  formatToolState,
   getFileParts,
   getMessageRoleLabel,
   isToolPart,
   readReasoning,
   readText,
-  safeJson
 } from "@/features/chat/page-utils";
 import { cn } from "@/lib/utils/cn";
 import { writeToClipboard } from "@/lib/clipboard";
@@ -32,12 +29,7 @@ import {
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { getDocumentSources, getLocalFileUses, getWebSearchSources } from "@/features/chat/message-presentation";
-import { LocalFileUses } from "@/features/settings/local-file-uses";
 import { t, tf } from "@/lib/locale";
-import { DocumentSources } from "@/components/knowledge/document-sources";
-import { DocumentDownload } from "@/features/document-processor/document-download";
-import { RetrievalDiagnostics } from "@/components/knowledge/retrieval-diagnostics";
 import type { ChatState } from "@/features/chat/use-chat-state";
 import type { UIMessage } from "ai";
 
@@ -94,7 +86,7 @@ export function shouldOpenOnLayout({
 }
 
 type Props = Pick<ChatState, "appendQuickPrompt" | "modelMode" | "activeChatId" | "isLoadingHistory" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId" | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText" | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel" | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages" | "selectedChatModel">;
-export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, isLoadingHistory, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, addToolApprovalResponse, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages, selectedChatModel }: Props) {
+export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, isLoadingHistory, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages }: Props) {
   const awaitingFirstHistoryLoad = useAwaitingFirstLoad(isLoadingHistory, activeChatId ?? DRAFT_HISTORY_QUERY);
   const scrollRef = useRef<HTMLDivElement>(null);
   const followingRef = useRef(true);
@@ -247,8 +239,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
         const videoUrl = videoByMessageId[message.id];
         const toolParts = message.parts.filter(isToolPart);
         const reasoning = readReasoning(message);
-        const webSearchSources = getWebSearchSources(toolParts);
-        const isLastAssistantStreaming =
+          const isLastAssistantStreaming =
           status === "streaming" && index === messages.length - 1 && message.role === "assistant";
         const isEditing = editingMessageId === message.id;
         const isEditable = isUser && fileParts.length === 0 && !isEditing && !isPending;
@@ -367,41 +358,10 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
                 </details>
               ) : null}
               {!isEditing && text ? <MarkdownMessage text={text} /> : null}
+              {toolParts.map(part => part.type === "tool-convertDocument" && part.state === "output-available" ? <DocumentDownload key={`download-${part.toolCallId}`} output={part.output} /> : null)}
               {toolParts.some(part => part.state === "approval-requested") ? (
                 <p role="status" className="mt-2 text-sm text-muted-foreground">{t("chat.messages.approvalPending")}</p>
               ) : null}
-              {webSearchSources.length > 0 ? (
-                <details
-                  className={cn(
-                    "mt-3 rounded-lg text-xs",
-                    isUser ? "bg-foreground/5" : "bg-muted",
-                  )}
-                >
-                  <summary className="cursor-pointer px-3 py-2 font-medium">
-                    {tf("chat.messages.searchSourcesPrefix", { count: webSearchSources.length })} {t("chat.messages.searchSourcesToggle")}
-                  </summary>
-                  <ol className="space-y-2 border-t px-3 py-2">
-                    {webSearchSources.map((source, sourceIndex) => (
-                      <li className="leading-5" key={`${source.url}-${sourceIndex}`}>
-                        <a
-                          className="font-medium text-ring underline decoration-ring/40 underline-offset-4 transition-colors duration-[--dur-fast] hover:decoration-ring"
-                          href={source.url}
-                          rel="noreferrer"
-                          target="_blank"
-                        >
-                          {sourceIndex + 1}. {source.title}
-                        </a>
-                        {source.snippet ? (
-                          <p className="mt-1 line-clamp-3 text-muted-foreground">{source.snippet}</p>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ol>
-                </details>
-              ) : null}
-              <DocumentSources sources={getDocumentSources(message)} />
-              {message.role === "assistant" ? <RetrievalDiagnostics value={(message.metadata as { documentDiagnostics?: unknown } | undefined)?.documentDiagnostics} /> : null}
-              {!isUser ? <LocalFileUses modelLabel={selectedChatModel?.modelId} uses={getLocalFileUses(message)} /> : null}
               {imageUrl ? (
                 <div className="mt-3 space-y-2">
                   <Image
@@ -500,99 +460,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
                 );
               })}
 
-              {toolParts.length > 0 ? (
-                <div className="mt-3">
-                  {toolParts.map(part => part.type === "tool-convertDocument" && part.state === "output-available" ? <DocumentDownload key={`download-${part.toolCallId}`} output={part.output} /> : null)}
-                  <details
-                    open={toolParts.some(part => part.state === "approval-requested" || (part.type === "tool-runTerminalCommand" && index === messages.length - 1 && (part.state === "approval-responded" || part.state === "output-available"))) || undefined}
-                    className={cn(
-                      "rounded-lg text-xs",
-                      isUser ? "bg-foreground/5" : "bg-muted",
-                    )}
-                  >
-                    <summary className="flex cursor-pointer items-center justify-between px-3 py-2">
-                      <span className="truncate">
-                        {(() => {
-                          const first = toolParts[0];
-                          const firstName = first.title ?? first.type.replace(/^tool-/, "");
-                          const firstState = formatToolState(first.state).label;
-                          const extra = toolParts.length > 1 ? `${t("chat.messages.extraCallsPrefix")} ${toolParts.length - 1} ${t("chat.messages.extraCallsSuffix")}` : "";
-                          return tf("chat.messages.toolDetails", { name: firstName, state: firstState, extra });
-                        })()}
-                      </span>
-                      <span className="label-mono ml-2 shrink-0">{t("chat.messages.expandHint")}</span>
-                    </summary>
-                    <div className="space-y-2 border-t px-3 py-2">
-                      {toolParts.map((toolPart, toolIndex) => {
-                        const toolState = formatToolState(toolPart.state);
-                        const toolName = toolPart.title ?? toolPart.type.replace(/^tool-/, "");
-                        return (
-                          <div
-                            className={cn(
-                              "rounded-lg px-3 py-2 text-xs",
-                              isUser ? "bg-foreground/5" : "bg-muted",
-                            )}
-                            key={`${message.id}-${toolPart.toolCallId}-${toolIndex}`}
-                          >
-                            <div className="mb-1 flex items-center gap-2">
-                              <Badge variant="outline">{toolName}</Badge>
-                              <Badge variant={toolState.variant}>{toolState.label}</Badge>
-                            </div>
-                            {toolPart.type === "tool-runTerminalCommand" ? <TerminalResult input={toolPart.input} output={toolPart.state === "output-available" ? toolPart.output : undefined} active={toolPart.state === "approval-responded" && "approval" in toolPart && !!toolPart.approval?.approved} /> : null}
-                            {toolPart.state === "approval-requested" && "approval" in toolPart && toolPart.approval ? (
-                              <div className="mt-2 flex items-center gap-2">
-                                <Button
-                                  disabled={isPending || index !== messages.length - 1}
-                                  onClick={() =>
-                                    void addToolApprovalResponse({
-                                      id: toolPart.approval.id,
-                                      approved: true,
-                                    })
-                                  }
-                                  size="sm"
-                                  type="button"
-                                >
-                                  <Check aria-hidden="true" className="mr-1 h-3.5 w-3.5" />
-                                  {t("chat.messages.approve")}
-                                </Button>
-                                <Button
-                                  disabled={isPending || index !== messages.length - 1}
-                                  onClick={() =>
-                                    void addToolApprovalResponse({
-                                      id: toolPart.approval.id,
-                                      approved: false,
-                                      reason: t("chat.messages.approvalRejectedReason"),
-                                    })
-                                  }
-                                  size="sm"
-                                  type="button"
-                                  variant="outline"
-                                >
-                                  <X aria-hidden="true" className="mr-1 h-3.5 w-3.5" />
-                                  {t("chat.messages.reject")}
-                                </Button>
-                              </div>
-                            ) : null}
-                            {toolPart.type !== "tool-runTerminalCommand" && toolPart.input !== undefined ? (
-                              <pre className="chat-list-scroll overflow-x-auto whitespace-pre-wrap rounded-md bg-foreground/5 p-2 font-mono text-[11px]">
-                                input: {safeJson(toolPart.input && typeof toolPart.input === "object" && "arguments" in toolPart.input && "binding" in toolPart.input ? toolPart.input.arguments : toolPart.input)}
-                              </pre>
-                            ) : null}
-                            {toolPart.type !== "tool-runTerminalCommand" && toolPart.state === "output-available" && toolPart.output !== undefined ? (
-                              <pre className="chat-list-scroll mt-1 overflow-x-auto whitespace-pre-wrap rounded-md bg-foreground/5 p-2 font-mono text-[11px]">
-                                output: {safeJson(toolPart.output)}
-                              </pre>
-                            ) : null}
-                            {toolPart.state === "output-error" && toolPart.errorText ? (
-                              <p className="mt-1 text-[11px] text-destructive">error: {toolPart.errorText}</p>
-                            ) : null}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </details>
-                </div>
-              ) : null}
+
             </article>
           </div>
         );

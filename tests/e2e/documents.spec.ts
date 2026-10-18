@@ -5,6 +5,7 @@ import { startStandaloneServer } from "../helpers/standalone-server";
 import { browserApi, browserData } from "../helpers/browser-api";
 import { textPdf, wordDocument } from "../helpers/document-fixtures";
 import { configureOfflineModels } from "../helpers/model-fixture";
+import { openExecutionDetails } from "../helpers/execution-records";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => {
@@ -56,13 +57,16 @@ test("document imports, local retrieval and chat citations persist across reload
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByText("离线回答：星河补给什么时候送达", { exact: true })).toBeVisible();
   const source = page.getByRole("link", { name: "星河运行手册.md · 片段 2", exact: true });
+  await openExecutionDetails(page);
   await expect(source).toBeVisible();
-  await expect(page.locator("article").getByText(/星河补给每周四送达/)).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "执行记录", exact: true }).getByText(/星河补给每周四送达/)).toBeVisible();
   expect(JSON.stringify(app.providerCalls.filter(call => call.stream).at(-1)?.messages)).toContain("每周四");
   await page.reload();
+  await openExecutionDetails(page);
   await expect(source).toBeVisible();
   await app.restart();
   await page.reload();
+  await openExecutionDetails(page);
   await expect(source).toBeVisible();
   await source.click();
   await expect(page.getByRole("heading", { name: "星河运行手册.md", exact: true })).toBeVisible();
@@ -86,6 +90,7 @@ test("document imports, local retrieval and chat citations persist across reload
   expect(app.readRows("SELECT id FROM document_chunks WHERE documentId = ?", documentId)).toEqual([]);
   expect((await browserApi(page, `${localHostOrigin(app.origin)}/api/documents/${documentId}`)).status).toBe(404);
   await page.getByRole("link", { name: /返回聊天/ }).click();
+  await openExecutionDetails(page);
   await expect(source).toBeVisible();
   await source.click();
   await expect(page.locator("main").getByRole("alert")).toContainText("文档不存在或已删除");

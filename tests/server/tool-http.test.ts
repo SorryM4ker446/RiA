@@ -52,19 +52,34 @@ async function upstream(t, respond) {
   });
   return { requests, closed };
 }
-function run() {
+function run(maxResults = 2) {
   return tools.POST(new NextRequest("http://localhost/api/tools/run", {
     method: "POST", headers: { cookie, "content-type": "application/json" },
-    body: JSON.stringify({ tool: "webSearch", mode: "chat", input: { query: " Local HTTP search ", maxResults: 2 } }),
+    body: JSON.stringify({ tool: "webSearch", mode: "chat", input: { query: " Local HTTP search ", maxResults } }),
   }));
 }
 const logs = () => (console.info as Mock<(...data: any[]) => void>).mock.calls.filter((call) => call.arguments[0] === "tool.execution").map((call) => call.arguments[1]);
+
+test("Tavily preserves counts above ten and caps only at its own twenty-result API ceiling", async t => {
+  const fixture = await upstream(t, res => {
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ results: Array.from({ length: 24 }, (_, i) => ({ title: `Source ${i}`, url: `https://example.invalid/${i}`, content: "Evidence" })) }));
+  });
+  for (const [requested, expected] of [[17, 17], [50, 20]]) {
+    const response = await run(requested);
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).data.results.length, expected);
+    assert.equal(fixture.requests.at(-1).body.max_results, expected);
+  }
+});
 
 test("web search sends real HTTP requests, normalizes sources and records one successful execution", async (t) => {
   const fixture = await upstream(t, (res) => {
     res.setHeader("content-type", "application/json");
     res.end(JSON.stringify({ query: "Local HTTP search", request_id: "local-request", response_time: 0.1, images: [], results: [
+      { title: "Unsafe source", url: "javascript:alert(1)", content: "Ignore" },
       { title: " Local source ", url: "https://example.invalid/source", content: " First\n  source ", score: 0.94567 },
+      { title: "Duplicate", url: "https://example.invalid/source", content: "Ignore duplicate" },
       { title: "Missing URL", content: "Ignored" },
       { title: "Second source", url: "https://example.invalid/second", content: "x".repeat(700) },
       { title: "Extra source", url: "https://example.invalid/extra", content: "Outside limit" },
@@ -117,4 +132,14 @@ test("web search actually times out a stalled HTTP connection and later requests
   assert.equal((await run()).status, 200);
   assert.equal(fixture.requests.length, 2);
   assert.deepEqual(logs().map((entry) => entry.state), ["output-error", "output-available"]);
+});
+
+
+test("cancelling a search aborts its actual HTTP transport without recording an empty success", async t => {
+  const controller = new AbortController();
+  const fixture = await upstream(t, () => controller.abort());
+  const { runWebSearch } = await import("@/tools/definitions/web-search");
+  await assert.rejects(runWebSearch({ query: "cancel this" }, controller.signal), /cancelled/);
+  await fixture.closed;
+  assert.equal(fixture.requests.length, 1);
 });

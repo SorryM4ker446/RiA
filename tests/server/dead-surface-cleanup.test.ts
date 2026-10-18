@@ -85,19 +85,22 @@ test("every provider still answers whether a model id is one of its own", () => 
 
 // --- 3: a withdrawn folder is a configuration problem, not an upstream one ----
 
-test("a folder withdrawn while the tool is running is logged as a configuration error", async (t: TestContext) => {
+test("a search connection withdrawn while the tool is running is logged as a configuration error", async (t: TestContext) => {
   const root = temporaryDirectory();
   mkdirSync(path.join(root, "notes"), { recursive: true });
   writeFileSync(path.join(root, "notes", "a.md"), "# A");
   const grant = await createGrant({ path: root });
 
-  const tools = await createChatToolSet({ toolIds: ["readLocalFile"] });
+  const previous = process.env.TAVILY_API_KEY;
+  process.env.TAVILY_API_KEY = "offline-search";
+  t.after(() => { if (previous === undefined) delete process.env.TAVILY_API_KEY; else process.env.TAVILY_API_KEY = previous; });
+  const tools = await createChatToolSet({ toolIds: ["webSearch"] });
   // The folder is withdrawn while the tool is running: the availability check
   // that ran before the call still saw the grant, so this is the mid-execute
   // branch rather than the one that refuses before the tool starts.
-  const descriptor = getToolDescriptor("readLocalFile");
+  const descriptor = getToolDescriptor("webSearch");
   t.mock.method(descriptor, "execute", async () => {
-    await revokeGrant(grant.id);
+    delete process.env.TAVILY_API_KEY;
     throw new Error("the folder is gone");
   });
 
@@ -108,10 +111,10 @@ test("a folder withdrawn while the tool is running is logged as a configuration 
     logged.push({ toolId: row.toolId, state: row.state, errorCode: row.errorCode });
   });
 
-  const refused = await tools.readLocalFile.execute({ grantId: grant.id, path: "notes/a.md" }, toolOptions);
-  assert.equal(typeof refused.unavailable, "string", "the turn continues with the refusal as a result");
+  const refused = await tools.webSearch.execute({ query: "notes", maxResults: 8 }, toolOptions);
+  assert.equal(refused.skipped, "notConfigured");
 
-  const entry = logged.find(row => row.toolId === "readLocalFile");
+  const entry = logged.find(row => row.toolId === "webSearch");
   assert.ok(entry, "the execution was logged");
   assert.equal(entry.state, "output-available");
   // The folder was withdrawn by the user, which is fixed in settings — the same
@@ -125,10 +128,13 @@ test("a genuinely transient failure is still logged as an upstream failure", asy
   writeFileSync(path.join(root, "a.md"), "# A");
   await createGrant({ path: root });
 
-  const tools = await createChatToolSet({ toolIds: ["readLocalFile"] });
+  const previous = process.env.TAVILY_API_KEY;
+  process.env.TAVILY_API_KEY = "offline-search";
+  t.after(() => { if (previous === undefined) delete process.env.TAVILY_API_KEY; else process.env.TAVILY_API_KEY = previous; });
+  const tools = await createChatToolSet({ toolIds: ["webSearch"] });
   // The folder stays granted, so this refusal is about the provider rather
   // than about anything the user has to set up.
-  const descriptor = getToolDescriptor("readLocalFile");
+  const descriptor = getToolDescriptor("webSearch");
   t.mock.method(descriptor, "execute", async () => {
     throw new ApiError({ code: "UPSTREAM_FAILED", message: "the lookup service is refusing" });
   });
@@ -140,10 +146,10 @@ test("a genuinely transient failure is still logged as an upstream failure", asy
     logged.push({ toolId: row.toolId, errorCode: row.errorCode });
   });
 
-  const refused = await tools.readLocalFile.execute({ grantId: (await listActiveGrants())[0].id, path: "a.md" }, toolOptions);
-  assert.equal(typeof refused.unavailable, "string");
+  const refused = await tools.webSearch.execute({ query: "notes", maxResults: 8 }, toolOptions);
+  assert.equal(refused.skipped, "temporarilyUnavailable");
 
-  const entry = logged.find(row => row.toolId === "readLocalFile");
+  const entry = logged.find(row => row.toolId === "webSearch");
   assert.ok(entry, "the execution was logged");
   assert.equal(entry.errorCode, "UPSTREAM_FAILED");
 });

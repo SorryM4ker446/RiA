@@ -97,9 +97,9 @@ function normalizeRow(value: unknown): CatalogModel | null {
     providerSupportsImageInput: inputs.includes("image"),
     endpointImageInput: null,
     supportsTools: DEEPSEEK_CAPABILITY_RULES.tools.supported,
-    // This provider exposes no search of its own; searching is either the
-    // application's own tool or the model's own knowledge.
-    providerSearch: false,
+    // Native Responses search is documented for this exact model. Other models
+    // use the independent Search API through the application tool.
+    providerSearch: row.id === "deepseek-v4-pro",
     contextLength: row.context_window ?? null,
     // The endpoint carries no price. Cost stays unknown until the user enters
     // a rate; a price scraped from a web page would not be a bill.

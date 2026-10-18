@@ -1,3 +1,4 @@
+import { openExecutionDetails } from "../helpers/execution-records";
 import { test, expect, type Page } from "@playwright/test";
 import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
 
@@ -257,10 +258,13 @@ test("manual webSearch shows traceable source in chat UI", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "E2E Chat", exact: true })).toBeVisible();
   await page.getByLabel("选择工具").click();
   await page.getByRole("option", { name: "Web Search" }).click();
+  await expect(page.locator("#manual-tool-maxResults")).toHaveCount(0);
+  await expect(page.getByPlaceholder("留空由模型决定")).toHaveCount(0);
   await page.getByPlaceholder(/输入要搜索的关键词/).fill("tool UI flow");
   await page.getByRole("button", { name: "执行工具" }).click();
 
   await expect(page.getByText("已完成 Web Search")).toBeVisible();
+  await openExecutionDetails(page);
   await page.getByText(/搜索来源（1）/).click();
   await expect(page.getByRole("link", { name: "Tool UI Fixture Source" })).toHaveAttribute(
     "href",
@@ -307,5 +311,6 @@ test("new knowledge entry can be retrieved by searchKnowledge", async ({ page })
   await page.getByRole("button", { name: "执行工具" }).click();
 
   await expect(page.getByText(/^根据你的知识库记忆，UI fixture knowledge entry/)).toBeVisible();
+  await openExecutionDetails(page);
   await expect(page.getByText(/工具详情：searchKnowledge/)).toBeVisible();
 });

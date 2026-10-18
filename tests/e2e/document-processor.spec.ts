@@ -117,6 +117,7 @@ test("document actions select files as parameters and return to automatic tools 
   expect((requests[0] as { manualToolsOnly?: boolean }).manualToolsOnly).toBeUndefined();
   await page.getByRole("button", { name: "批准", exact: true }).click();
   await expect.poll(async () => (await browserData(page, "/api/tasks")).length).toBe(1);
+  await page.getByRole("dialog", { name: "执行记录", exact: true }).getByRole("button", { name: "关闭", exact: true }).click();
   await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
   const history = await browserData(page, `/api/conversations/${chat.id}/messages`);
   expect(history.some(message => message.content.includes(`"documentId":"${document.id}"`))).toBe(true);

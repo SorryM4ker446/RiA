@@ -240,7 +240,7 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
       <Sheet open={!!terminalGrant} onOpenChange={open => { if (!open && !permissionSaving) setTerminalGrant(null); }}>
         <SheetContent side="right" className="directory-permissions-sheet flex flex-col gap-5 overflow-y-auto p-6">
           <SheetTitle>开启终端权限</SheetTitle>
-          <SheetDescription>允许 RiA 在此目录启动 PowerShell，每条命令仍需你确认。</SheetDescription>
+          <SheetDescription>允许 RiA 在此目录读取、搜索、新建、编辑、复制、移动和删除文件，并执行开发命令。每条命令仍需你确认。</SheetDescription>
           <p className="break-all font-mono text-xs">{terminalGrant?.realPath}</p>
           <Alert>
             <Terminal aria-hidden="true" />

@@ -126,7 +126,7 @@ export async function prepareChatPersistence(input: ChatRequest) {
   return { chat, regenerationSnapshot };
 }
 export type ChatPersistence = Awaited<ReturnType<typeof prepareChatPersistence>>;
-export async function persistChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; documentSources?: DocumentSource[]; documentDiagnostics?: DocumentDiagnostics; unavailableTools?: string[]; usesMemory?: boolean }) {
+export async function persistChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; documentSources?: DocumentSource[]; documentDiagnostics?: DocumentDiagnostics; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean }) {
   const { input, conversation, responseMessage, isAborted, generationFailed } = params;
   const { latestUserMessage, modelRef } = input;
   const { unavailableTools = [] } = params;
@@ -148,7 +148,7 @@ export async function persistChatResponse(params: { input: ChatRequest; conversa
     // after the fact.
     const reasoning = getReasoningFromUIMessage(responseMessage);
     const content =
-      toolItems.length > 0 || reasoning || (params.documentSources?.length && assistantText) || (params.documentDiagnostics && assistantText)
+      params.runId || toolItems.length > 0 || reasoning || (params.documentSources?.length && assistantText) || (params.documentDiagnostics && assistantText)
         ? encodePersistedAssistantToolMessage({
           type: "assistant-tool-message",
           text: assistantText,
@@ -156,6 +156,8 @@ export async function persistChatResponse(params: { input: ChatRequest; conversa
           // Recorded so the note about a tool this turn could not use survives a
           // reload and is stated once, instead of only existing in the model's
           // prose or only in the live stream.
+          ...(params.runId ? { runId: params.runId } : {}),
+          modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}`,
           ...(unavailableTools.length ? { unavailableTools } : {}),
           tools: toolItems,
           ...(params.documentDiagnostics ? { documentDiagnostics: params.documentDiagnostics } : {}),

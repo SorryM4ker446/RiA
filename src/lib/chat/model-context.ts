@@ -5,6 +5,7 @@ import {
   TOOL_DISABLED_INSTRUCTIONS,
   TOOL_ENABLED_INSTRUCTIONS,
   unavailableToolInstruction,
+  type UnavailableTool,
   TOOLING_POLICY_LINE
 } from "@/lib/prompts";
 import { convertToModelMessages, type UIMessage } from "ai";
@@ -69,7 +70,7 @@ export function buildSystemPrompt(
   shortTermContext: string,
   longTermMemoryContext: string,
   toolsEnabled: boolean,
-  unavailableTools: string[] = [],
+  unavailableTools: (string | UnavailableTool)[] = [],
   persona?: { name?: string; language?: string; answerStyle?: string; notes?: string } | null,
 ): string {
   const toolInstruction = toolsEnabled ? TOOL_ENABLED_INSTRUCTIONS : TOOL_DISABLED_INSTRUCTIONS;

@@ -1,3 +1,4 @@
+import { openExecutionDetails } from "../helpers/execution-records";
 import { expect, test as base, type Page } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -116,6 +117,7 @@ test("HTTP extension management, approved calls and encrypted credentials surviv
   expect(app.service.state.calls[0].authorization).toBe("Bearer synthetic-browser-token");
   await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes('"state":"output-available"'))).toBe(true);
   await app.runtime.restart(); await page.reload();
+  await openExecutionDetails(page);
   await expect(page.getByText("工具详情：HTTP echo · request · 执行完成", { exact: true })).toBeVisible();
   const config = await browserData(page, "/api/extensions");
   expect(config.items[0].enabled).toBe(true); expect(JSON.stringify(config)).not.toContain("synthetic-browser-token");

@@ -91,28 +91,27 @@ test("a step whose tool throws is recorded as failed and the error still propaga
   assert.ok(steps[0].finishedAt);
 });
 
-test("a step refused by the per-turn result budget is recorded as skipped, not as running", async () => {
-  const run = await startRun({ chatId: null, goal: "结果预算被用尽" });
+test("successive searches complete after exceeding the former per-turn result quota", async () => {
+  const run = await startRun({ chatId: null, goal: "多次搜索收集证据" });
   await withLocalSearchServer(async () => {
     const tools = await createChatToolSet({ toolIds: ["webSearch"], runId: run.id });
-    // The first call spends the whole per-turn budget, so the second is the one
-    // that returns early from the budget branch.
-    await tools.webSearch.execute({ query: "first", maxResults: 10 }, toolOptions);
-    const refused = await tools.webSearch.execute({ query: "second", maxResults: 5 }, toolOptions);
-    assert.equal(refused.skipped, "resultBudget");
+    await tools.webSearch.execute({ query: "first", maxResults: 15 }, toolOptions);
+    const second = await tools.webSearch.execute({ query: "second", maxResults: 12 }, toolOptions);
+    assert.equal(second.skipped, undefined);
+    assert.equal(second.results.length, 1);
   });
 
   const steps = await stepsOf(run.id);
   assert.equal(steps.length, 2);
   assert.equal(steps[0].state, "done");
-  // The early return produced a usable tool output, but the tool never ran, so
-  // the step is skipped rather than done.
-  assert.equal(steps[1].state, "skipped");
+  assert.equal(steps[1].state, "done");
   assert.ok(steps[1].finishedAt);
   assert.equal(steps.filter((step) => step.state === "running").length, 0);
 });
 
 test("a step whose tool is no longer configured is recorded as skipped", async () => {
+  process.env.OPENROUTER_API_KEY = "";
+  process.env.DEEPSEEK_API_KEY = "";
   const run = await startRun({ chatId: null, goal: "工具在执行前失效" });
   await withLocalSearchServer(async () => {
     const tools = await createChatToolSet({ toolIds: ["webSearch"], runId: run.id });
@@ -154,7 +153,7 @@ test("a turn leaves no step still running once every exit has been taken", async
 
   const steps = await stepsOf(run.id);
   const states = steps.map((step) => step.state).sort();
-  assert.deepEqual(states, ["done", "done", "failed", "skipped"]);
+  assert.deepEqual(states, ["done", "done", "done", "failed"]);
   // This is the invariant the budget depends on: `checkRunAllowance` counts step
   // rows, so a step left "running" would spend budget forever and would be shown
   // in the run record as work that never ended.

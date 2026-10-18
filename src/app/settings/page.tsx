@@ -192,7 +192,7 @@ export default function DesktopSettingsPage() {
                     {[
                       { id: "openrouter-key", label: "OpenRouter API Key", value: openrouterApiKey, onChange: setOpenrouterApiKey, configured: settings?.hasOpenrouterApiKey, clear: clearOpenrouterApiKey, onClear: setClearOpenrouterApiKey, clearLabel: t("settings.clearOpenrouter"), placeholder: "sk-or-v1-…", hint: "聊天、图片与视频生成" },
                       { id: "deepseek-key", label: "DeepSeek API Key", value: deepseekApiKey, onChange: setDeepseekApiKey, configured: settings?.hasDeepseekApiKey, clear: clearDeepseekApiKey, onClear: setClearDeepseekApiKey, clearLabel: t("settings.clearDeepseek"), placeholder: t("settings.deepseekPlaceholder"), hint: "仅用于聊天" },
-                      { id: "tavily-key", label: "Tavily API Key", value: tavilyApiKey, onChange: setTavilyApiKey, configured: settings?.hasTavilyApiKey, clear: clearTavilyApiKey, onClear: setClearTavilyApiKey, clearLabel: t("settings.clearTavily"), placeholder: t("settings.tavilyPlaceholder"), hint: "联网搜索，可选" },
+                      { id: "tavily-key", label: "Tavily API Key", value: tavilyApiKey, onChange: setTavilyApiKey, configured: settings?.hasTavilyApiKey, clear: clearTavilyApiKey, onClear: setClearTavilyApiKey, clearLabel: t("settings.clearTavily"), placeholder: t("settings.tavilyPlaceholder"), hint: "备用搜索，不影响服务商自主搜索" },
                     ].map(field => (
                       <Field key={field.id} orientation="horizontal" className="settings-field" data-disabled={!settings?.encryptionAvailable || field.clear}>
                         <FieldContent><FieldLabel htmlFor={field.id}>{field.label}</FieldLabel><FieldDescription>{field.hint}</FieldDescription></FieldContent>

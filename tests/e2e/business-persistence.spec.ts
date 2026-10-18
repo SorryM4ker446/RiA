@@ -1,3 +1,4 @@
+import { openExecutionDetails } from "../helpers/execution-records";
 import { openRecentConversations } from "../helpers/conversations";
 import { test as base, expect, type Page } from "@playwright/test";
 import { NO_CREDENTIAL_STATE, openWorkspace } from "../helpers/workspace-entry";
@@ -127,6 +128,7 @@ test("manual tasks and knowledge use real APIs, persist across restart and remai
   await app.restart();
   await page.reload();
   await expect(page.getByRole("heading", { name: "真实业务记录", exact: true })).toBeVisible();
+  await openExecutionDetails(page);
   await expect(page.getByText(/工具详情：searchKnowledge/)).toBeVisible();
   await page.goto(`${app.origin}/tasks`);
   await expect(taskPanel.getByText("已完成", { exact: true }).first()).toBeVisible();

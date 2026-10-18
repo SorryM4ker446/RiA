@@ -46,6 +46,8 @@ export type PersistedAssistantToolMessagePayload = {
   unavailableTools?: string[];
   documentSources?: DocumentSource[];
   documentDiagnostics?: DocumentDiagnostics;
+  runId?: string;
+  modelLabel?: string;
 };
 
 export const USER_MESSAGE_PREFIX = "__USER_MESSAGE__:";
@@ -201,6 +203,8 @@ export function decodePersistedAssistantToolMessage(
     return {
       type: "assistant-tool-message",
       text: parsed.text,
+      ...(typeof parsed.runId === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(parsed.runId) ? { runId: parsed.runId } : {}),
+      ...(typeof parsed.modelLabel === "string" ? { modelLabel: parsed.modelLabel.slice(0, 240) } : {}),
       ...(reasoning ? { reasoning } : {}),
       ...(unavailableTools?.length ? { unavailableTools } : {}),
       tools,

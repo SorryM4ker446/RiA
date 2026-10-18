@@ -99,6 +99,9 @@ if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
       const body = JSON.parse(String(options.body));
       // Record synthetic prompts over IPC, never headers, credentials or disk logs.
       process.send({ type: "provider-call", stream: body.stream === true, messages: body.messages });
+      if (body.tools?.some(tool => tool.type === "openrouter:web_search")) {
+        return JSON.stringify({ id: "offline-gateway-search", choices: [{ message: { role: "assistant", content: "官方发布说明中的更新。", annotations: [{ type: "url_citation", url_citation: { title: "Offline official release", url: "https://example.invalid/official-release", content: "Official search evidence from the gateway." } }] }, finish_reason: "stop" }], usage: { prompt_tokens: 12, completion_tokens: 8, cost: 0.002, server_tool_use: { web_search_requests: 1 } } });
+      }
       const latest = body.messages.findLast((message) => message.role === "user");
       const prompt = typeof latest?.content === "string" ? latest.content
         : (latest?.content ?? []).filter((part) => part.type === "text").map((part) => part.text).join("\n");
@@ -119,6 +122,7 @@ if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
       const systemText = body.messages.filter(message => message.role === "system").map(message => typeof message.content === "string" ? message.content
         : message.content.filter(part => part.type === "text").map(part => part.text).join("\n")).join("\n");
       if (prompt === "木星表面温度" && systemText.startsWith("Answer using the provided knowledge evidence.")) content = "知识库没有该信息，现有证据不足，无法确定木星表面温度。";
+      if (!body.stream && systemText.startsWith("Choose the number of web search results")) content = JSON.stringify({ maxResults: 14 });
       if (!body.stream && systemText.startsWith("You assess knowledge-grounded answers.")) {
         const evaluation = JSON.parse(prompt);
         // This is a deterministic UI fixture, not a semantic-quality oracle.
@@ -153,13 +157,14 @@ if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
           return chunks.map(chunk => `data: ${JSON.stringify({ ...base, ...chunk })}\n\n`).join("") + "data: [DONE]\n\n";
         }
         const taskRequested = prompt.includes("OFFLINE_CREATE_TASK");
+        const webRequested = prompt.includes("OFFLINE_WEB_SEARCH");
         const knowledgeRequested = prompt.includes("OFFLINE_SEARCH_KNOWLEDGE");
         const extensionRequested = prompt.includes("OFFLINE_EXTENSION_TOOL");
         const documentRequested = prompt.includes("OFFLINE_CONVERT_DOCUMENT");
-        if ((taskRequested || knowledgeRequested || extensionRequested || documentRequested) && !body.messages.some(message => message.role === "tool") && body.tools?.length) {
-          const name = taskRequested ? "createTask" : knowledgeRequested ? "searchKnowledge" : documentRequested ? "convertDocument" : body.tools.find(tool => tool.function?.name?.startsWith("ext"))?.function.name;
+        if ((taskRequested || webRequested || knowledgeRequested || extensionRequested || documentRequested) && !body.messages.some(message => message.role === "tool") && body.tools?.length) {
+          const name = taskRequested ? "createTask" : webRequested ? "webSearch" : knowledgeRequested ? "searchKnowledge" : documentRequested ? "convertDocument" : body.tools.find(tool => tool.function?.name?.startsWith("ext"))?.function.name;
           if (!name) throw new Error("The requested extension tool was not offered to the fixture model");
-          const args = taskRequested ? { title: "浏览器真实任务" } : knowledgeRequested ? { query: "发布回滚窗口", topK: 4 } : documentRequested ? { documentId: /DOCUMENT_ID=([a-zA-Z0-9_-]+)/.exec(prompt)?.[1], format: "docx" } : { arguments: { text: "browser-extension-result" } };
+          const args = webRequested ? { query: "official release", maxResults: 2 } : taskRequested ? { title: "浏览器真实任务" } : knowledgeRequested ? { query: "发布回滚窗口", topK: 4 } : documentRequested ? { documentId: /DOCUMENT_ID=([a-zA-Z0-9_-]+)/.exec(prompt)?.[1], format: "docx" } : { arguments: { text: "browser-extension-result" } };
           const chunks = [
             { ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "call_browser_fixture", type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: null }] },
             { ...base, choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] },

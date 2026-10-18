@@ -13,7 +13,7 @@ export const assistantConfigSchema = z.strictObject({
   description: z.string().trim().max(300).default(""),
   instructions: z.string().trim().min(1).max(6000),
   model: modelRefSchema.nullable().default(null),
-  tools: z.array(z.string().regex(/^[a-zA-Z][a-zA-Z0-9]{0,99}$/)).max(20).refine(ids => new Set(ids).size === ids.length, "Duplicate tool IDs"),
+  tools: z.array(z.string().regex(/^[a-zA-Z][a-zA-Z0-9]{0,99}$/)).max(20).refine(ids => new Set(ids).size === ids.length, "Duplicate tool IDs").transform(ids => [...new Set(ids.map(id => ["listLocalFiles", "readLocalFile", "writeLocalFile"].includes(id) ? "runTerminalCommand" : id))]),
   collections: z.array(z.string().trim().min(1).max(40)).max(12).refine(names => new Set(names).size === names.length, "Duplicate collections").default([]),
   usesMemory: z.boolean().default(true),
   retrieval: retrievalPolicySchema.default(defaultRetrievalPolicy),

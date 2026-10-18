@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { configureOfflineModels } from "../helpers/model-fixture";
+import { openExecutionDetails } from "../helpers/execution-records";
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => { const app = await startStandaloneServer({ modelFixture: true }); try { await runTest(app); } finally { await app.close(); } },
 });
@@ -39,6 +40,7 @@ test("local search explains scope and old chat citations distinguish changed and
   await expect(page.getByRole("checkbox", { name: "仅手动", exact: true })).toHaveCount(0);
   await page.getByPlaceholder(/输入你的问题/).fill("星河回滚窗口是多少");
   await page.getByRole("button", { name: "发送", exact: true }).click();
+  await openExecutionDetails(page);
   const source = page.getByRole("link", { name: "星河手册.txt · 片段 1", exact: true });
   await expect(source).toBeVisible();
   await expect(source.locator("..").getByText("引用版本一致（已核对）", { exact: true })).toBeVisible();
@@ -48,10 +50,11 @@ test("local search explains scope and old chat citations distinguish changed and
   const changed = await upload(page, "星河手册.txt", "星河回滚窗口为三十分钟。\n\n备用线路每天巡检。");
   expect(changed.id).toBe(original.id);
   await page.goto(chatUrl);
+  await openExecutionDetails(page);
   await expect(source).toBeVisible();
   await expect(source.locator("..").getByText("资料已更新：下方保留回答时的摘录，链接展示当前资料。", { exact: true })).toBeVisible();
   const dir = join(tmpdir(), "ria-citation-version-qa"); await mkdir(dir, { recursive: true });
-  const evidence = page.locator("article details").filter({ hasText: "资料已更新" }).first();
+  const evidence = page.getByRole("dialog", { name: "执行记录", exact: true }).locator("details").filter({ hasText: "资料已更新" }).first();
   await evidence.screenshot({ path: join(dir, "desktop.png"), animations: "disabled" });
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -69,9 +72,11 @@ test("local search explains scope and old chat citations distinguish changed and
   await expect(page.getByRole("option", { name: "Manual|操作（暂无资料）", exact: true })).toHaveAttribute("aria-selected", "true");
   await page.keyboard.press("Escape");
   await page.goto(chatUrl);
+  await openExecutionDetails(page);
   await expect(source.locator("..").getByText("资料已删除：下方仅为历史摘录，原文已不可访问。", { exact: true })).toBeVisible();
-  await expect(page.locator("article").getByText("星河回滚窗口为三十分钟。", { exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "执行记录", exact: true }).getByText("星河回滚窗口为三十分钟。", { exact: true })).toBeVisible();
   await app.restart(); await page.reload();
+  await openExecutionDetails(page);
   await expect(source.locator("..").getByText("资料已删除：下方仅为历史摘录，原文已不可访问。", { exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });

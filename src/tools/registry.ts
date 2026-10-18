@@ -1,3 +1,4 @@
+import type { ModelRef } from "@/lib/models/preferences-schema";
 import { jsonSchema } from "ai";
 import { z } from "zod";
 import { db } from "@/db";
@@ -89,8 +90,8 @@ export async function resolveToolDescriptor(id: string): Promise<AnyToolDescript
   const definition = row && extensionToolsSchema.parse(row.tools).find(tool => externalToolId(row.id, tool.name) === id);
   return row && definition ? extensionDescriptor(row, definition) : null;
 }
-export async function toolAvailability(id: string): Promise<ToolAvailability> {
-  if (getToolDescriptor(id)) return builtinToolAvailability(id);
+export async function toolAvailability(id: string, modelRef?: ModelRef): Promise<ToolAvailability> {
+  if (getToolDescriptor(id)) return builtinToolAvailability(id, modelRef);
   const connectionId = extensionIdFromTool(id);
   const row = connectionId ? await db.extension.findUnique({ where: { id: connectionId }, include: { plugin: { select: { enabled: true } } } }) : null;
   const tool = row && extensionToolsSchema.parse(row.tools).find(tool => externalToolId(row.id, tool.name) === id);
@@ -111,18 +112,18 @@ export async function skipReasonFor(id: string, error: unknown) {
   if (error instanceof ApiError && ["TIMEOUT", "RATE_LIMITED", "UPSTREAM_FAILED", "SERVICE_UNAVAILABLE"].includes(error.code)) return "temporarilyUnavailable" as const;
   return null;
 }
-export async function listPublicToolCatalog(mode?: ToolMode): Promise<PublicToolCatalogItem[]> {
-  const entries = await registryEntries(mode);
+export async function listPublicToolCatalog(mode?: ToolMode, modelRef?: ModelRef): Promise<PublicToolCatalogItem[]> {
+  const entries = await registryEntries(mode, modelRef);
   return entries.filter(({ tool }) => tool.id !== "readPluginSkill").map(({ tool, status }) => ({ ...status, id: tool.id, displayName: tool.displayName, description: tool.description, modeSupport: tool.modeSupport, manual: tool.manual, resultBudget: tool.resultBudget, extensionId: tool.extensionId }));
 }
-async function registryEntries(mode?: ToolMode) {
+async function registryEntries(mode?: ToolMode, modelRef?: ModelRef) {
   const builtins = listToolDescriptors(mode);
-  const [statuses, rows] = await Promise.all([Promise.all(builtins.map(tool => builtinToolAvailability(tool.id))), db.extension.findMany({ include: { plugin: { select: { enabled: true } } }, orderBy: { id: "asc" }, take: EXTENSION_LIMITS.connections })]);
+  const [statuses, rows] = await Promise.all([Promise.all(builtins.map(tool => builtinToolAvailability(tool.id, modelRef))), db.extension.findMany({ include: { plugin: { select: { enabled: true } } }, orderBy: { id: "asc" }, take: EXTENSION_LIMITS.connections })]);
   return [...builtins.map((tool, index) => ({ tool, status: statuses[index] })), ...rows.flatMap(row => {
     const definitions = extensionToolsSchema.parse(row.tools);
     return definitions.map(definition => ({ tool: extensionDescriptor(row, definition), status: extensionAvailability(row, definition.name, definitions) }));
   }).filter(entry => !mode || entry.tool.modeSupport.includes(mode))];
 }
-export async function listAvailableRegisteredTools(mode?: ToolMode) {
-  return (await registryEntries(mode)).filter(entry => entry.status.available).map(entry => entry.tool);
+export async function listAvailableRegisteredTools(mode?: ToolMode, modelRef?: ModelRef) {
+  return (await registryEntries(mode, modelRef)).filter(entry => entry.status.available).map(entry => entry.tool);
 }

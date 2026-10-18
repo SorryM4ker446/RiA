@@ -1,3 +1,4 @@
+import { openExecutionDetails } from "../helpers/execution-records";
 import { test as base, expect } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -42,6 +43,7 @@ test("a task-only response exposes approval, creates the task after approval and
     return messages.some(message => message.content.includes('"state":"output-available"'));
   }).toBe(true);
   await page.reload();
+  await openExecutionDetails(page);
   await expect(page.getByText("工具详情：createTask · 执行完成", { exact: true })).toBeVisible();
   await expect(approve).toHaveCount(0);
   expect(await browserData(page, "/api/tasks")).toHaveLength(1);
@@ -121,6 +123,8 @@ test("knowledge tool results stay within the conversation collection and remain 
   expect(topicLoads).toBe(1);
   await expect(page.getByRole("alert").filter({ hasText: "Scope save rejected" })).toHaveCount(0);
   await page.getByRole("button", { name: "发送", exact: true }).click();
+  await openExecutionDetails(page);
+  await page.getByText(/^文档参考/).click();
   await expect(page.getByRole("link", { name: /发布A.txt/ }).first()).toBeVisible();
   await expect(page.getByRole("link", { name: /发布B.txt/ })).toHaveCount(0);
   await expect.poll(async () => {
@@ -133,6 +137,55 @@ test("knowledge tool results stay within the conversation collection and remain 
   expect(payload.tools[0].output.results.map(result => result.reference.filename)).toEqual(["发布A.txt"]);
   await page.reload();
   await expect(scope).toHaveAttribute("aria-pressed", "true");
+  await openExecutionDetails(page);
+  await page.getByText(/^文档参考/).click();
   await expect(page.getByRole("link", { name: /发布A.txt/ }).first()).toBeVisible();
   expect(topicLoads).toBe(2);
+});
+
+
+test("manual provider search hides result controls and lets the selected model plan the count", async ({ page, app }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await openWorkspace(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  const chat = (await browserApi(page, "/api/conversations", "POST", { title: "搜索数量由模型决定" })).body.data;
+  await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
+  await page.getByLabel("选择工具").click();
+  await page.getByRole("option", { name: "Web Search", exact: true }).click();
+  await expect(page.locator("#manual-tool-maxResults")).toHaveCount(0);
+  const query = page.getByPlaceholder(/输入要搜索的关键词/);
+  await query.fill("Compare current official release options");
+  await page.screenshot({ path: join(tmpdir(), "ria-model-search-count.png"), animations: "disabled" });
+  await page.getByRole("button", { name: "执行工具", exact: true }).click();
+  await expect(page.locator("article").last()).toContainText("离线回答：User question: Compare current official release options");
+  expect(app.providerCalls.some(call => JSON.stringify(call.messages).includes("Choose the number of web search results"))).toBe(true);
+  expect(app.providerCalls.some(call => JSON.stringify(call.messages).includes("14 relevant sources"))).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test("autonomous provider search works without Tavily and all evidence lives in execution details", async ({ page, app }) => {
+  await openWorkspace(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  const chat = (await browserApi(page, "/api/conversations", "POST", { title: "自主搜索" })).body.data;
+  await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
+  await page.getByPlaceholder(/输入你的问题/).fill("OFFLINE_WEB_SEARCH 帮我搜索官方发布说明");
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes('"provider":"openrouter"'))).toBe(true);
+  await expect(page.locator("article").last()).not.toContainText("工具详情");
+  await expect(page.locator("article").last()).not.toContainText("检索诊断");
+  await expect(page.locator("article").getByRole("link", { name: /Offline official release/ })).toHaveCount(0);
+  const details = await openExecutionDetails(page);
+  await expect(details.locator(".run-record-trigger").first()).toContainText("已完成");
+  await expect(details).toContainText("检索诊断");
+  await details.getByText(/搜索来源（1）/).click();
+  await expect(details.getByRole("link", { name: /Offline official release/ })).toHaveAttribute("href", "https://example.invalid/official-release");
+  await expect(details).toContainText("工具详情：webSearch");
+  await details.screenshot({ path: join(tmpdir(), "ria-execution-details-desktop.png"), animations: "disabled" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await details.screenshot({ path: join(tmpdir(), "ria-execution-details-mobile.png"), animations: "disabled" });
+  await page.reload();
+  await openExecutionDetails(page);
+  await expect(page.getByRole("dialog", { name: "执行记录", exact: true })).toContainText("工具详情：webSearch");
 });
