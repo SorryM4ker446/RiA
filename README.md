@@ -4,6 +4,8 @@ Private AI Assistant is a local-first AI assistant built with Next.js, Vercel AI
 
 ## Capabilities
 
+- Windows PowerShell commands with separate folder permissions, exact-command approval, live output and stop controls; see [Desktop terminal tool](docs/terminal-tools.md)
+
 - Local PDF/Word/Markdown/TXT processing with editable previews, Markdown/TXT/HTML/Word downloads and scoped chat tools; see [Document processor](docs/document-processor.md)
 
 - Streaming, persisted multi-turn chat through OpenRouter

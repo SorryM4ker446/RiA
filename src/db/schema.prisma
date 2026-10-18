@@ -400,6 +400,7 @@ model DirectoryGrant {
   // is re-resolved each time is the target inside the grant, and that is what
   // catches such a swap.
   realPath  String @unique
+  terminalEnabled Boolean @default(false)
   createdAt DateTime  @default(now())
   lastUsedAt DateTime?
   revokedAt DateTime?

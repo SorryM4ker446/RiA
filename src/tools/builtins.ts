@@ -22,6 +22,8 @@ import { documentProcessorTools } from "@/tools/definitions/document-processor";
 import { readPluginSkill } from "@/tools/definitions/plugin-skill";
 import { db } from "@/db";
 import { listActiveGrants } from "@/lib/local-files/grants";
+import { terminalTool } from "./terminal";
+import { terminalRuntimeAllowed } from "@/lib/terminal/schema";
 import {
   bindWriteApproval,
   listGrantedFiles,
@@ -218,6 +220,7 @@ const saveMemoryInputSchema = z.strictObject({
 });
 
 const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
+  runTerminalCommand: terminalTool,
   readPluginSkill,
   ...documentProcessorTools,
   saveMemory: {
@@ -592,6 +595,10 @@ const LOCAL_FILE_TOOL_IDS = new Set(["listLocalFiles", "readLocalFile", "writeLo
  * model cannot pick it, retry it, or report a read that never happened.
  */
 export async function builtinToolAvailability(toolId: string): Promise<ToolAvailability> {
+  if (toolId === "runTerminalCommand") {
+    const enabled = terminalRuntimeAllowed() && await db.directoryGrant.count({ where: { revokedAt: null, terminalEnabled: true } });
+    return enabled ? { available: true, reason: null, configEntry: null } : { available: false, reason: "notConfigured", configEntry: "/settings" };
+  }
   if (toolId === "readPluginSkill") {
     const packages = await db.pluginPackage.findMany({ where: { enabled: true }, select: { manifest: true } });
     return packages.some(row => !!(row.manifest as Record<string, unknown>).marketplace) ? { available: true, reason: null, configEntry: null } : { available: false, reason: "disabled", configEntry: "/extensions" };

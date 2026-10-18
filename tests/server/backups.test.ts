@@ -54,6 +54,16 @@ async function seed() {
   return {chat,input,output};
 }
 
+test("portable restore revokes terminal permission without transporting directory grants", async () => {
+  const grant = await db.directoryGrant.create({ data: { label: "Synthetic", path: "fixture/terminal", realPath: "fixture/terminal", terminalEnabled: true } });
+  await seed();
+  const backup = await exclusiveDataOperation(() => archive.createAccountBackup(false));
+  await exclusiveDataOperation(() => restoreAccountBackup(backup.id));
+  const restored = await db.directoryGrant.findUniqueOrThrow({ where: { id: grant.id } });
+  assert.equal(restored.terminalEnabled, false);
+  assert.ok(restored.revokedAt);
+});
+
 test("portable backup restores PDF and Word chat attachment bytes and message references without knowledge documents", async () => {
   const chat = await db.chat.create({ data: { title: "Document attachments" } });
   const bytes = [textPdf("Portable attachment support hours."), await wordDocument("备份还原后保留附件正文。")];

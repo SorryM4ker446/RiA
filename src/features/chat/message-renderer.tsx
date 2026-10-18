@@ -1,4 +1,5 @@
 import { imagePrompts, quickPrompts, videoPrompts } from "@/features/chat/page-utils";
+import { TerminalResult } from "./terminal-result";
 import { MarkdownMessage } from "@/components/chat/markdown-message";
 import { DocumentAttachment } from "@/components/chat/document-attachment";
 import { isDocumentAttachment } from "@/lib/media/limits";
@@ -503,7 +504,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
                 <div className="mt-3">
                   {toolParts.map(part => part.type === "tool-convertDocument" && part.state === "output-available" ? <DocumentDownload key={`download-${part.toolCallId}`} output={part.output} /> : null)}
                   <details
-                    open={toolParts.some(part => part.state === "approval-requested") || undefined}
+                    open={toolParts.some(part => part.state === "approval-requested" || (part.type === "tool-runTerminalCommand" && index === messages.length - 1 && (part.state === "approval-responded" || part.state === "output-available"))) || undefined}
                     className={cn(
                       "rounded-lg text-xs",
                       isUser ? "bg-foreground/5" : "bg-muted",
@@ -537,6 +538,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
                               <Badge variant="outline">{toolName}</Badge>
                               <Badge variant={toolState.variant}>{toolState.label}</Badge>
                             </div>
+                            {toolPart.type === "tool-runTerminalCommand" ? <TerminalResult input={toolPart.input} output={toolPart.state === "output-available" ? toolPart.output : undefined} active={toolPart.state === "approval-responded" && "approval" in toolPart && !!toolPart.approval?.approved} /> : null}
                             {toolPart.state === "approval-requested" && "approval" in toolPart && toolPart.approval ? (
                               <div className="mt-2 flex items-center gap-2">
                                 <Button
@@ -571,12 +573,12 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
                                 </Button>
                               </div>
                             ) : null}
-                            {toolPart.input !== undefined ? (
+                            {toolPart.type !== "tool-runTerminalCommand" && toolPart.input !== undefined ? (
                               <pre className="chat-list-scroll overflow-x-auto whitespace-pre-wrap rounded-md bg-foreground/5 p-2 font-mono text-[11px]">
                                 input: {safeJson(toolPart.input && typeof toolPart.input === "object" && "arguments" in toolPart.input && "binding" in toolPart.input ? toolPart.input.arguments : toolPart.input)}
                               </pre>
                             ) : null}
-                            {toolPart.state === "output-available" && toolPart.output !== undefined ? (
+                            {toolPart.type !== "tool-runTerminalCommand" && toolPart.state === "output-available" && toolPart.output !== undefined ? (
                               <pre className="chat-list-scroll mt-1 overflow-x-auto whitespace-pre-wrap rounded-md bg-foreground/5 p-2 font-mono text-[11px]">
                                 output: {safeJson(toolPart.output)}
                               </pre>

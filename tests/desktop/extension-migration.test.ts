@@ -24,7 +24,7 @@ test("extension migration preserves existing chats, makes a safety copy and surv
     } finally { before.close(); }
     const options = { databaseFile, migrationsDirectory, backupsDirectory: join(root, "backups"), logger: { info() {}, warn() {}, error() {} } };
     const result = runDesktopMigrations(options);
-    assert.deepEqual(result.applied, [migration, "20261018120000_plugin_packages"]);
+    assert.deepEqual(result.applied, readdirSync(migrationsDirectory, { withFileTypes: true }).filter(entry => entry.isDirectory() && entry.name >= migration).map(entry => entry.name).sort());
     assert.ok(result.backupFile);
     const backup = new DatabaseSync(result.backupFile, { readOnly: true });
     try {

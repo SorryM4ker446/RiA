@@ -22,7 +22,7 @@ test("plugin migration preserves standalone connections, backs up the prior sche
       old.exec(`INSERT INTO extensions(id,name,kind,config,tools,enabled,revision,testedRevision,updatedAt) VALUES ('standalone','Existing','mcp-http','{"type":"mcp-http","url":"http://localhost/mcp"}','[]',1,3,3,CURRENT_TIMESTAMP)`);
     } finally { old.close(); }
     const options = { databaseFile, migrationsDirectory, backupsDirectory: join(root, "backups"), logger: { info() {}, warn() {}, error() {} } };
-    const result = runDesktopMigrations(options); assert.deepEqual(result.applied, [migration]); assert.ok(result.backupFile);
+    const result = runDesktopMigrations(options); assert.deepEqual(result.applied, readdirSync(migrationsDirectory, { withFileTypes: true }).filter(entry => entry.isDirectory() && entry.name >= migration).map(entry => entry.name).sort()); assert.ok(result.backupFile);
     const backup = new DatabaseSync(result.backupFile, { readOnly: true });
     try { assert.equal(backup.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE name='plugin_packages'").get().count, 0); } finally { backup.close(); }
     assert.deepEqual(runDesktopMigrations(options).applied, []);

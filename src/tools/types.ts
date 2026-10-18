@@ -13,6 +13,7 @@ type ToolExecutionContext<Input> = {
   modelRef?: ModelRef;
   trigger: ToolTriggerType;
   signal?: AbortSignal;
+  runId?: string | null;
   documentCollections?: string[];
   documentRetrievalPolicy?: RetrievalPolicy;
   usesMemory?: boolean;
