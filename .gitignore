@@ -17,6 +17,7 @@ public/generated-videos/
 next-env.d.ts
 
 # build / cache
+/output/
 coverage/
 test-results/
 playwright-report/
