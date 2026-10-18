@@ -24,6 +24,7 @@ async function send(page: Page, app: App, text: string) {
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "Plugin skill acceptance" })).body.data;
   await page.evaluate(id => localStorage.setItem("chat:last-active-id", id), chat.id);
   await page.goto(`${app.runtime.origin}/chat`);
+  await expect(page.getByRole("heading", { name: "Plugin skill acceptance", exact: true })).toBeVisible();
   await page.getByPlaceholder(/输入你的问题/).fill(text);
   await page.getByRole("button", { name: "发送", exact: true }).click();
   return chat;

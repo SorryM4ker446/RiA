@@ -28,6 +28,8 @@ import { useTools } from "@/features/chat/use-tools";
 export function useChatState() {
   const [input, setInput] = useState("");
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const activeChatIdRef = useRef(activeChatId);
+  activeChatIdRef.current = activeChatId;
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [historyState, setHistoryState] = useState<{ chatId: string; status: "loading" | "ready" | "error" } | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
@@ -103,6 +105,7 @@ export function useChatState() {
     isUploadingAttachments ||
     isLoadingOlderMessages ||
     isRunningManualTool;
+  const isConversationReady = activeChatId !== null || !isLoadingChats;
   const selectedModel =
     modelMode === "chat"
       ? selectedChatModel
@@ -241,7 +244,9 @@ export function useChatState() {
    * would drop the text on the floor at exactly the moment it is most fragile.
    */
   function pendingCoversCurrentChat(pending: { chatId: string; pendingChat?: boolean } | null) {
-    return pending !== null && (pending.pendingChat === true || pending.chatId === activeChatId);
+    // Creating the first conversation changes its id while onSubmit is awaiting
+    // history. Its older closure must still restore that conversation's draft.
+    return pending !== null && (pending.pendingChat === true || pending.chatId === activeChatIdRef.current);
   }
 
   function restorePendingSendDraft(messageId: string) {
@@ -302,7 +307,8 @@ export function useChatState() {
     } catch (loadError) {
       if (latestHistoryRequestRef.current === requestId) {
         setHistoryState({ chatId, status: "error" });
-        setPageError(loadError instanceof Error ? loadError.message : t("chatApi.listMessagesFailed"));
+        const reason = loadError instanceof Error ? loadError.message : t("chatApi.listMessagesFailed");
+        setPageError(`${reason} ${t("chatState.historyRecovery")}`);
       }
     } finally {
       if (latestHistoryRequestRef.current === requestId) {
@@ -497,7 +503,7 @@ export function useChatState() {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isPending || isDocumentScopeSaving) return;
+    if (isPending || isDocumentScopeSaving || !isConversationReady) return;
     if (modelMode === "chat" && selectedManualToolConfig) {
       const isDocumentTool = ["readDocument", "convertDocument"].includes(selectedManualToolConfig.id);
       const content = isDocumentTool ? selectedToolDocument?.id ?? "" : input.trim();
@@ -598,7 +604,7 @@ export function useChatState() {
       event.preventDefault();
       const hasAttachments = attachments.length > 0;
       const hasContent = input.trim().length > 0;
-      if (isPending) return;
+      if (isPending || !isConversationReady) return;
       if (!hasContent && !hasAttachments && !selectedToolDocument) return;
       void onSubmit(event as unknown as FormEvent<HTMLFormElement>);
     }
@@ -684,7 +690,7 @@ export function useChatState() {
     isLoadingTasks, loadTasks, setTaskStatusFilter, taskStatusFilter,
     taskPanelError: withoutGlobalEcho(taskPanelError),
     visibleTasks, updateTaskStatus, deleteTask, saveTaskSchedule, updatingTaskIds, hasHiddenTasks, setIsTaskListExpanded,
-    isTaskListExpanded, activeChat, isPending, isRunningManualTool, modelMode, selectedModel, selectedModelInfo, onModeSelect,
+    isTaskListExpanded, activeChat, isPending, isConversationReady, isRunningManualTool, modelMode, selectedModel, selectedModelInfo, onModeSelect,
     onModelSelect, appendQuickPrompt, isLoadingHistory, messages, imageByMessageId, videoByMessageId,
     status, editingMessageId, startEditingMessage, regenerateMessage, requestDeleteMessage,
     setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage,

@@ -5,8 +5,15 @@ import type { DesktopSettingsInput } from "./settings";
 // every other platform `titleBarStyle` is left alone, so the OS keeps drawing
 // minimise/maximise/close and a page-drawn set would sit on top of them.
 const drawsOwnCaption = process.platform === "win32";
+// One claim per document, shared by React's development effect replay. A reload
+// gets a new preload, while the main process keeps the window's consumed claim.
+let startupClaim: Promise<string | null> | undefined;
 
 contextBridge.exposeInMainWorld("privateAiDesktop", {
+  startup: {
+    claim: () => startupClaim ??= ipcRenderer.invoke("desktop:startup:claim"),
+    present: (token: string) => ipcRenderer.invoke("desktop:startup:present", token) as Promise<boolean>,
+  },
   getRuntimeInfo: () => ipcRenderer.invoke("desktop:runtime:get"),
   getSettings: () => ipcRenderer.invoke("desktop:settings:get"),
   saveSettings: (input: DesktopSettingsInput) => ipcRenderer.invoke("desktop:settings:save", input),

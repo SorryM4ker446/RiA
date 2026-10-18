@@ -92,6 +92,7 @@ export const clientMessages = {
   "chatState.defaultChatTitle": "聊天消息",
   "chatState.sendFailed": "发送消息失败",
   "chatState.sendContextLost": "会话已切换或历史加载失败，请重新加载会话后再发送。",
+  "chatState.historyRecovery": "请重新加载会话后再发送。",
 
   // --- manual tool field validation (src/features/chat/tool-input.ts) ------
   "tools.fieldRequired": "请填写此项",

@@ -29,6 +29,7 @@ type Props = Pick<
   | "onSubmit"
   | "modelMode"
   | "isPending"
+  | "isConversationReady"
   | "isRunningManualTool"
   | "selectedToolDocument"
   | "setSelectedToolDocument"
@@ -71,6 +72,7 @@ export function Composer({
   onSubmit,
   modelMode,
   isPending,
+  isConversationReady,
   isRunningManualTool,
   selectedToolDocument,
   setSelectedToolDocument,
@@ -490,7 +492,7 @@ export function Composer({
             <Button
               size="icon"
               className="rounded-full"
-              disabled={isDocumentScopeSaving || (isDocumentTool ? !selectedToolDocument : !input.trim() && attachments.length === 0)}
+              disabled={!isConversationReady || isDocumentScopeSaving || (isDocumentTool ? !selectedToolDocument : !input.trim() && attachments.length === 0)}
               type="submit"
             >
               <ArrowUp aria-hidden="true" strokeWidth={2.25} />

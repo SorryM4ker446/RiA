@@ -38,6 +38,10 @@ type DesktopSettingsInput = {
 
 interface Window {
   privateAiDesktop?: {
+    startup?: {
+      claim: () => Promise<string | null>;
+      present: (token: string) => Promise<boolean>;
+    };
     getRuntimeInfo: () => Promise<DesktopRuntimeInfo>;
     getSettings: () => Promise<DesktopSettingsView>;
     saveSettings: (

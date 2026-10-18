@@ -2,6 +2,25 @@
 
 The Windows desktop application is a thin Electron shell around the existing Next.js application. Electron owns the window, local service lifecycle, API-key encryption, data paths, and operating-system integration. Chat and tool behavior remains in Next.js.
 
+## Startup presentation
+
+The first desktop window reveals the RiA lettering through a subtle mask, then
+fades the lettering out before the workspace enters with a short upward fade.
+The 1.28-second sequence keeps the workspace invisible until the lettering is
+gone, avoiding overlapping text. It uses the existing theme tokens and saved light/dark preference;
+there is no second theme setting or separate splash window. The animation ends
+automatically, with no skip button or Escape shortcut. Reduced motion bypasses
+the animation. Window controls remain available while workspace interaction is
+paused.
+
+The main process owns a one-time presentation claim for the first window. The
+renderer prepares its themed frame before the native window is shown. Reloads,
+route changes, tray restoration and service restarts do not replay the animation.
+If the renderer fails to hydrate, native readiness reveals the window after at
+most two seconds; a separate bounded renderer cleanup releases any pending visual
+overlay. No minimum loading delay or simulated progress is added. Hidden desktop
+smoke tests retain their existing hidden-window behavior.
+
 ## Runtime layout
 
 Development data is stored in:
@@ -117,7 +136,7 @@ The runtime's regenerable Next.js image and scoped response caches are excluded 
 
 This project does not configure Windows code signing or automatic updates. Windows may display an unknown-publisher warning until a signing certificate is added in a separate release process.
 
-Before distribution, run `npm run desktop:acceptance -- --init` to create an unverified, installer-bound manual record. Complete the Windows VM scenarios and then run `npm run desktop:acceptance -- --check --output out/make/wix/x64/acceptance-verified.json`. The check requires all manual results and evidence, rejects stale installer checksums, and preserves existing records/receipts. See [Windows release acceptance](windows-release-acceptance.md) for fields, commands and the distinction between recorded attestations and real test execution. CI uploads the unverified template; it does not claim manual acceptance.
+Before distribution, run `npm run desktop:acceptance -- --init` to create an unverified, installer-bound manual record. Complete the Windows VM scenarios and then run `npm run desktop:acceptance -- --check --output out/make/wix/x64/acceptance-verified.json`. The check requires all manual results and evidence, rejects stale installer checksums, and preserves existing records/receipts. See [Windows release acceptance](windows-release-acceptance.md) for fields, commands and the distinction between recorded attestations and real test execution. CI initializes the unverified template for validation but does not upload installer artifacts or claim manual acceptance.
 
 ## Validation and CI
 
@@ -140,7 +159,7 @@ Before distribution, run `npm run desktop:acceptance -- --init` to create an unv
 
 After `desktop:package`, `npm run test:desktop:package` repeats the smoke test against the actual packaged executable. `npm run desktop:verify` checks runtime resources, Prisma's native engine, migrations, EXE presence, and absence of `.env` or key-shaped values.
 
-GitHub Actions runs the web validation and a separate Windows desktop job. The desktop job provisions the pinned WiX compiler, builds the runtime, creates the MSI installer, smoke-tests the packaged application, and uploads the MSI and checksum record.
+GitHub Actions runs the web validation and a separate Windows desktop job. The desktop job provisions the pinned WiX compiler, builds the runtime, creates and verifies the MSI installer, and smoke-tests the packaged application. Routine CI does not upload the MSI, checksum manifest or manual acceptance record. Only failure diagnostics are uploaded, with seven-day retention; local release commands still produce the installer and records.
 
 ## Troubleshooting
 
