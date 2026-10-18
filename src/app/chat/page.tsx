@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -8,6 +9,7 @@ import { ConversationList } from "@/features/chat/conversation-list";
 import { DeleteDialog } from "@/features/chat/delete-dialog";
 import { MessageRenderer } from "@/features/chat/message-renderer";
 import { RunRecords } from "@/features/chat/run-records";
+import { ApprovalDock } from "@/features/chat/approval-dock";
 import { DirectoryPermissions } from "@/features/chat/directory-permissions";
 import { useChatState } from "@/features/chat/use-chat-state";
 import { TriangleAlert } from "lucide-react";
@@ -15,6 +17,10 @@ import { t } from "@/lib/locale";
 
 export default function ChatPage() {
   const chat = useChatState();
+  const [executionPanel, setExecutionPanel] = useState<{ chatId: string; messageId?: string } | null>(null);
+  const showExecutionDetails = (messageId: string) => {
+    if (chat.activeChatId) setExecutionPanel({ chatId: chat.activeChatId, messageId });
+  };
   const {
     effectiveError,
     keyError,
@@ -34,16 +40,18 @@ export default function ChatPage() {
             {/* What the turn did, above the composer: the place someone looks
                 when an answer mentions a task or a search they did not see. */}
             <div className="chat-dock flex max-h-[50%] shrink-0 flex-col gap-3 overflow-y-auto px-4 pb-5 pt-2 sm:px-7">
+              {chat.isHistoryReady ? <ApprovalDock key={chat.activeChatId} {...chat} onDetails={showExecutionDetails} /> : null}
               <div className="mx-auto flex w-full max-w-[42rem] flex-wrap items-center gap-1">
+                {chat.modelMode === "chat" ? <DirectoryPermissions onChange={() => void chat.loadToolCatalog()} /> : null}
                 <RunRecords
                   key={chat.activeChatId ?? "draft"}
                   messages={chat.isHistoryReady ? chat.messages : []}
-                  isPending={chat.isPending}
-                  addToolApprovalResponse={chat.addToolApprovalResponse}
+                  open={!!chat.activeChatId && executionPanel?.chatId === chat.activeChatId}
+                  focusedMessageId={executionPanel?.chatId === chat.activeChatId ? executionPanel.messageId : undefined}
+                  onOpenChange={open => setExecutionPanel(previous => open && chat.activeChatId ? { chatId: chat.activeChatId, ...(previous?.chatId === chat.activeChatId ? { messageId: previous.messageId } : {}) } : null)}
                   activeChatId={chat.activeChatId}
                   refreshKey={chat.messages.length}
                 />
-                {chat.modelMode === "chat" ? <DirectoryPermissions onChange={() => void chat.loadToolCatalog()} /> : null}
               </div>
 
               {effectiveError ? (

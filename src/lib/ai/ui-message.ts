@@ -47,6 +47,7 @@ export type PersistedAssistantToolMessagePayload = {
   documentSources?: DocumentSource[];
   documentDiagnostics?: DocumentDiagnostics;
   runId?: string;
+  runIds?: string[];
   modelLabel?: string;
 };
 
@@ -204,6 +205,7 @@ export function decodePersistedAssistantToolMessage(
       type: "assistant-tool-message",
       text: parsed.text,
       ...(typeof parsed.runId === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(parsed.runId) ? { runId: parsed.runId } : {}),
+      ...(Array.isArray(parsed.runIds) ? { runIds: [...new Set(parsed.runIds.filter((id): id is string => typeof id === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(id)))].slice(-100) } : {}),
       ...(typeof parsed.modelLabel === "string" ? { modelLabel: parsed.modelLabel.slice(0, 240) } : {}),
       ...(reasoning ? { reasoning } : {}),
       ...(unavailableTools?.length ? { unavailableTools } : {}),

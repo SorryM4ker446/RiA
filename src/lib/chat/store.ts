@@ -152,6 +152,7 @@ export async function claimToolApproval(chatId: string, message: UIMessage) {
   if (claimed.count !== 1) {
     throw new ApiError({ code: "CONFLICT", message: "This approval has already been processed" });
   }
+  return [...new Set([...(persisted.runIds ?? []), ...(persisted.runId ? [persisted.runId] : [])])];
 }
 
 /**

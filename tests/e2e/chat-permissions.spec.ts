@@ -49,7 +49,7 @@ test("chat permissions choose and grant a directory without sending the draft, a
   const trigger = page.getByRole("button", { name: "文件权限", exact: true });
   const records = await page.getByRole("button", { name: "执行记录", exact: true }).boundingBox();
   const permissions = await trigger.boundingBox();
-  expect(permissions!.x).toBeGreaterThanOrEqual(records!.x + records!.width);
+  expect(records!.x).toBeGreaterThanOrEqual(permissions!.x + permissions!.width);
   expect(permissions!.y).toBe(records!.y);
   await page.screenshot({ path: join(tmpdir(), "ria-chat-permissions-entry.png"), animations: "disabled" });
   await trigger.click();

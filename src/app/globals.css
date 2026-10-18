@@ -641,8 +641,9 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .run-record-trigger[aria-expanded="true"] { background: hsl(var(--muted) / .5); }
 .run-record-trigger:hover { background: hsl(var(--accent)); }
 .run-record-trigger:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: -2px; }
-.run-detail { display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden; transition: grid-template-rows var(--dur-base) var(--ease-out), opacity var(--dur-fast), visibility var(--dur-base); }
-.run-detail[data-state="open"] { grid-template-rows: 1fr; opacity: 1; visibility: visible; }
+.run-detail, .approval-details { display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden; transition: grid-template-rows var(--dur-base) var(--ease-out), opacity var(--dur-fast), visibility var(--dur-base); }
+.run-detail[data-state="open"], .approval-details[data-state="open"] { grid-template-rows: 1fr; opacity: 1; visibility: visible; }
+.approval-details .execution-code { max-height: 12rem; }
 .execution-disclosure > summary { display: flex; min-height: 32px; align-items: center; gap: 6px; border-radius: 6px; cursor: pointer; list-style: none; color: hsl(var(--muted-foreground)); }
 .execution-disclosure > summary::-webkit-details-marker { display: none; }
 .execution-disclosure > summary:hover { color: hsl(var(--foreground)); }
@@ -684,6 +685,7 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 @keyframes sheet-out { from { opacity: 1; transform: translateX(0); } to { opacity: .7; transform: translateX(var(--sheet-offset)); } }
 @keyframes pop-out { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(.97); } }
 @media (prefers-reduced-motion: no-preference) {
+  .approval-card { animation: content-in var(--dur-base) var(--ease-out); }
   :where(button, a, input, textarea, select, summary, [role="tab"], [role="button"]) { transition: color var(--dur-fast), background-color var(--dur-fast), border-color var(--dur-fast), box-shadow var(--dur-fast), opacity var(--dur-fast); }
   details { interpolate-size: allow-keywords; }
   details::details-content { height: 0; opacity: 0; overflow: clip; transition: height var(--dur-base) var(--ease-out), opacity var(--dur-fast), content-visibility var(--dur-base) allow-discrete; }
@@ -714,6 +716,7 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 @media (max-height: 700px) { .workspace-navigation { gap: 1rem; } .chat-welcome { gap: .5rem; padding: .5rem 0; } }
 @media (hover: none) { .conversation-actions, .task-delete { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
+  .approval-details { transition: none; }
   .workspace-content { scroll-behavior: auto; }
   .sheet-overlay, .sheet-content, .ui-select-content, .ui-tabs-content, .run-records > :not(summary) { animation: none; }
   .home-shortcut:hover, .home-shortcut:hover .shortcut-arrow, .workspace-nav-link:active { transform: none; }

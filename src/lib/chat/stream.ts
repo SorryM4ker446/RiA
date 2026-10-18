@@ -64,6 +64,7 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
   }
   let generationFailed = false;
   const runId = params.runId ?? null;
+  const runIds = [...new Set([...(conversation.previousRunIds ?? []), ...(runId ? [runId] : [])])];
   // Read once, before the first request: the ceiling is a property of the run,
   // and asking the database between every step would put a query in the hot path.
   const stepCeiling = await runStepCeiling(runId);
@@ -144,8 +145,8 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
     generateMessageId: generateId,
     onError: (error) => streamError(error instanceof ApiError ? error : new ApiError({ code: "UPSTREAM_FAILED", message: t("lib.chat.providerUnavailable") })),
     originalMessages: messages,
-    messageMetadata: ({ part }) => part.type === "start" ? { documentSources: params.documentSources ?? [], documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}` }
-      : part.type === "finish" ? { documentSources: markDocumentCitations(params.documentSources ?? [], answerText), documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}` } : undefined,
+    messageMetadata: ({ part }) => part.type === "start" ? { documentSources: params.documentSources ?? [], documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}` }
+      : part.type === "finish" ? { documentSources: markDocumentCitations(params.documentSources ?? [], answerText), documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}` } : undefined,
     onFinish: async ({ responseMessage, isAborted }) => {
       // A stopped turn never reaches the generator's finish, so this is what
       // closes it. The cost is unknown rather than zero: the provider never
