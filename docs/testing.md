@@ -1,5 +1,14 @@
 # Test coverage and local validation
 
+Approval-card regressions verify decisions above the composer without automatic
+sheet opening, sequential approval queues, exact terminal command review,
+rejection, reload, execution-once behavior and narrow layouts. Run-detail tests
+cover server-owned continuation links, one combined request entry, legacy file
+details, ambiguous-history refusal and explicit missing-detail summaries. Pending
+approvals remain individual decisions; no approval or command is replayed during
+history reconciliation. The message payload adds optional `runIds`; no schema
+migration, CI service or new dependency is required.
+
 Search-count regressions cover model-selected counts above ten, sequential and
 parallel requests without a RiA result-count quota, provider API ceilings,
 structured count planning and its cancellation/failure paths, and synthesis using
@@ -449,7 +458,11 @@ Browser tests use zero retries. The first failing attempt retains its Playwright
 
 Isolated HTTP fixtures capture stdout/stderr through the existing bounded desktop log sink, including split-line credential redaction. A failed startup includes the exit code or signal and up to 8,000 characters of the redacted log tail. Startup failures and failed-test fixture teardown attach the redacted server log before deleting their temporary workspace. Logs are capped at 256 KiB plus one rotated archive. A server that cannot be stopped keeps its workspace and reports failure rather than deleting data beneath a live process. The diagnostic fixtures use synthetic data; traces and screenshots are test evidence, not general-purpose production support exports.
 
-`npm run test:e2e:diagnostics` deliberately fails one nested, isolated Chromium test and requires exactly one attempt, a readable trace ZIP, a PNG screenshot, JSON/HTML reports, and a redacted server-log attachment from failed fixture teardown. The outer test passes only when those artifacts exist. It uses the installed Playwright browser, temporary fixtures and local SQLite; it needs no live provider keys. CI runs it after installing Chromium, and `npm test` includes it. `tests/e2e/server-diagnostics.spec.ts` additionally verifies startup failure evidence and redaction through the real isolated-server helper.
+`npm run test:e2e:diagnostics` first compiles the desktop migration runtime required by its isolated HTTP fixture, so it also works before the application build on a clean checkout. It then deliberately fails one nested, isolated Chromium test and requires exactly one attempt, a readable trace ZIP, a PNG screenshot, JSON/HTML reports, and a redacted server-log attachment from failed fixture teardown. The outer test also verifies that the nested test reached its intentional page assertion; a fixture startup failure cannot masquerade as the expected failure. It uses the installed Playwright browser, temporary fixtures and local SQLite; it needs no live provider keys. CI runs it after installing Chromium, and `npm test` includes it. `tests/e2e/server-diagnostics.spec.ts` additionally verifies startup failure evidence and redaction through the real isolated-server helper.
+
+Installer diagnostic tests canonicalize temporary paths before comparison and cleanup, treating Windows 8.3 aliases and long names as the same directory. The missing-runtime terminal regression explicitly looks for an `Application` with `Get-Command`, requires a failed result, nonzero exit and the requested name in stderr, and uses a same-name PowerShell module fixture to verify that no module is imported instead. This isolates external executable discovery from machine-dependent module discovery without disabling application features, increasing timeouts or accepting a timeout as success. Existing terminal timeout, arbitrary-command, PATH discovery and approval tests remain enabled.
+
+Document citation browser workflows explicitly expand **文档参考** inside the execution record before checking links and excerpts. They continue verifying the same source content after reload, service restart and document deletion; collapsed reference groups do not change the persistence contract.
 
 The desktop cancellation regression waits for an actual live fixture worker while health is still unavailable, then cancels startup and requires both launcher and worker to exit. It no longer assumes the worker starts within 400 ms. Scheduler registration/restart tests likewise wait for persisted completion, require one execution record and await subsequent explicit polls instead of assuming work finishes within 150 ms; timer ownership is checked on repeated registration. Schema checks each own a `ria-schema-check-*` directory in the system temporary directory, close SQLite even after migration failure and remove only their directory. Real subprocess regressions cover simultaneous checks and failure cleanup. This allows lint and schema validation to run together without deleting a directory ESLint is traversing.
 
@@ -493,6 +506,20 @@ The offline HTTP fixture mocks only the public skills.sh search/download endpoin
 Knowledge entry presentation additionally has pure regression coverage in `tests/server/knowledge-entry-presentation.test.ts` for tool envelopes, multiline content, unsupported versions, duplicate/malformed fields and plain-note fallback. The tool-record case in `knowledge-layout.spec.ts` verifies compact previews, formatted excerpts without remote images, raw-record access, unchanged raw editing/search, multiline note expansion and dark/light narrow layouts.
 
 ## Provider search and execution details
+
+Agent prompt regressions in `chat-lifecycle.test.ts`, `assistant-templates.test.ts`,
+`document-rag.test.ts` and `provider-search.test.ts` inspect the actual model request
+and reference formatting: task execution, human approval, relevant-only evidence,
+empty context omission, configuration versus template restrictions, and explicit
+updates of immutable template snapshots. They do not establish real-model response
+quality. `chat-actions.spec.ts` measures the file-permissions entry before and after
+execution activity appears at desktop and narrow widths. It also captures an actual
+approval card with a simulated, unexecuted HTML-file command, checks its compact
+default height and placement above the permission toolbar, hidden command content,
+keyboard expansion/collapse, intermediate motion and reduced-motion behavior,
+light/dark themes and visible approval controls at narrow widths. The execution
+drawer remains closed until explicitly opened; full execution records remain the
+source of detailed tool inputs, outputs, evidence and diagnostics.
 
 `tests/server/provider-search.test.ts` checks the native DeepSeek, independent
 Search API and OpenRouter gateway wire formats, provider priority without

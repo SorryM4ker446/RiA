@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 
 test("installer diagnostics inspect an upgrade failure without installing, changing permissions or exposing unrelated properties", { skip: process.platform !== "win32" }, () => {
-  const root = mkdtempSync(join(tmpdir(), "ria-installer-diagnostics-"));
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ria-installer-diagnostics-")));
   const log = join(root, "upgrade.log");
   const source = [
     "Property(S): UNRELATED_TEST_PROPERTY = REDACTED_TEST_VALUE",
@@ -29,7 +29,7 @@ test("installer diagnostics inspect an upgrade failure without installing, chang
     assert.equal(readFileSync(log, "utf8"), source);
     assert.deepEqual(readdirSync(root), ["upgrade.log"]);
   } finally {
-    assert.equal(dirname(root), resolve(tmpdir()));
+    assert.equal(dirname(root), realpathSync.native(tmpdir()));
     rmSync(root, { recursive: true, force: true });
   }
 });
