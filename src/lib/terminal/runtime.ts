@@ -64,9 +64,13 @@ export function stopTerminalCommandsForRun(runId: string) {
   for (const session of sessions().values()) if (session.runId === runId) session.stop();
 }
 
-export function terminalEnvironment(): NodeJS.ProcessEnv {
-  const allowed = /^(PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|TEMP|TMP|USERPROFILE|HOMEDRIVE|HOMEPATH|APPDATA|LOCALAPPDATA|PROGRAMFILES|PROGRAMFILES\(X86\)|PROGRAMDATA|HOME|LANG|LC_ALL|PSMODULEPATH)$/i;
-  return { ...Object.fromEntries(Object.entries(process.env).filter(([key, value]) => allowed.test(key) && value !== undefined)), NODE_ENV: "production" };
+export function terminalEnvironment(environment: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  // Inherit executable discovery and development-tool locations, rather than
+  // the service's credentials, Node preload options or production-only mode.
+  const allowed = /^(PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|TEMP|TMP|USERPROFILE|HOMEDRIVE|HOMEPATH|APPDATA|LOCALAPPDATA|PROGRAMFILES|PROGRAMFILES\(X86\)|PROGRAMDATA|HOME|LANG|LC_ALL|PSMODULEPATH|GOROOT|GOPATH|GOBIN|GOCACHE|GOMODCACHE|GOENV|GOWORK|GOTOOLCHAIN|PYTHONHOME|PYTHONPATH|PYTHONIOENCODING|PYTHONUTF8|PYTHONNOUSERSITE|VIRTUAL_ENV|CONDA_PREFIX|CONDA_DEFAULT_ENV|CONDA_EXE|PYENV_ROOT|PYENV_HOME|PYENV_VERSION|NODE_PATH|NODE_EXTRA_CA_CERTS|NVM_HOME|NVM_SYMLINK|VOLTA_HOME|NPM_CONFIG_PREFIX|NPM_CONFIG_CACHE|COREPACK_HOME|JAVA_HOME|JDK_HOME|DOTNET_ROOT|DOTNET_ROOT_X64|CARGO_HOME|RUSTUP_HOME|RUSTUP_TOOLCHAIN)$/i;
+  // Next augments ProcessEnv with a required NODE_ENV for its own service;
+  // an ordinary child process can correctly omit it.
+  return Object.fromEntries(Object.entries(environment).filter(([key, value]) => allowed.test(key) && value !== undefined)) as NodeJS.ProcessEnv;
 }
 
 export async function runTerminalCommand(raw: TerminalInput, signal?: AbortSignal, runId?: string | null): Promise<TerminalSessionView> {

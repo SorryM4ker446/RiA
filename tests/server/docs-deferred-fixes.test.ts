@@ -96,14 +96,14 @@ test("the step record carries no artifact column, in code or in the schema", asy
 
 test("the tools readiness document no longer promises a step artifact", async () => {
   const document = await readFile(join(repositoryRoot, "docs", "TOOLS_READINESS.md"), "utf8");
-  const row = document.split("\n").find((line) => line.startsWith("| Common | Execution records"));
-  assert.ok(row, "the execution-record row is still present");
+  const contract = document.match(/## Shared execution contract([\s\S]*?)(?=\n## |$)/)?.[1];
+  assert.ok(contract, "the shared execution contract is documented");
   // It has to describe the fields a step really holds, and it must not claim
   // the artifact the application cannot produce.
   for (const field of ["kind", "tool name", "state", "error code", "summary"]) {
-    assert.ok(row.includes(field), `the row still describes ${field}`);
+    assert.ok(contract.includes(field), `the contract still describes ${field}`);
   }
-  assert.ok(!/\band artifacts\b/.test(row), "the row no longer claims artifacts");
+  assert.ok(!/\band artifacts\b/.test(contract), "the contract does not claim step artifacts");
 });
 
 // --- restore keeps the archived last-used stamp ------------------------------

@@ -47,25 +47,12 @@ after(async () => {
   cleanup();
 });
 
-test("a local-file tool whose folder is withdrawn mid-turn says the folder is gone", async () => {
+test("retired file tools cannot bypass terminal permission or manual review", async () => {
   const grant = await createGrant({ path: temporaryDirectory("ria-records-") });
-  // The tool set is built while the folder is granted, so the tool is mounted…
-  const tools = await createChatToolSet({ toolIds: ["listLocalFiles", "readLocalFile"] });
-  assert.ok(tools.listLocalFiles, "the local-file tool is offered while a folder is granted");
-  assert.ok(tools.readLocalFile, "the local-file tool is offered while a folder is granted");
-  // …and the folder is withdrawn before it runs, as it would be from another window.
+  const tools = await createChatToolSet({ toolIds: ["listLocalFiles", "readLocalFile", "writeLocalFile", "runTerminalCommand"] });
+  for (const id of ["listLocalFiles", "readLocalFile", "writeLocalFile", "runTerminalCommand"]) assert.equal(tools[id], undefined);
   await revokeGrant(grant.id);
-
-  const listed = await tools.listLocalFiles.execute({ grantId: grant.id }, toolOptions);
-  const read = await tools.readLocalFile.execute({ grantId: grant.id, path: "notes.md" }, toolOptions);
-
-  // The reason is the tool's own, not the web-search one. Before the fix both
-  // carried "notConfigured" and the model was told to check the settings page
-  // for a search key it never needed.
-  assert.equal(listed.truncated, t("tools.localFiles.noGrant"));
-  assert.deepEqual(listed.entries, []);
-  assert.equal(read.unavailable, t("tools.localFiles.noGrant"));
-  assert.equal(read.text, "");
+  assert.equal((await createChatToolSet({ toolIds: ["runTerminalCommand"] })).runTerminalCommand, undefined);
 });
 
 test("a step refused by the run's step budget says the budget, not that the run was stopped", async () => {

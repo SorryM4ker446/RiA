@@ -1,7 +1,10 @@
+param([string]$Artifact)
+
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $package = Get-Content -LiteralPath (Join-Path $repositoryRoot 'package.json') -Raw | ConvertFrom-Json
-$artifact = (Resolve-Path -LiteralPath (Join-Path $repositoryRoot "out/make/wix/x64/RiA-$($package.version)-x64.msi")).Path
+if (-not $Artifact) { $Artifact = Join-Path $repositoryRoot "out/make/wix/x64/RiA-$($package.version)-x64.msi" }
+$artifact = (Resolve-Path -LiteralPath $Artifact).Path
 $configJson = & node --input-type=module -e "import { windowsInstallerConfig } from './scripts/windows-installer-config.mjs'; console.log(JSON.stringify(windowsInstallerConfig))"
 if ($LASTEXITCODE -ne 0) { throw 'Cannot read installer configuration' }
 $config = $configJson | ConvertFrom-Json
@@ -29,8 +32,9 @@ $properties = @{}
 Read-MsiTable 'Property' | ForEach-Object { $properties[$_[0]] = $_[1] }
 if ($properties.ProductVersion -ne "$($package.version).0" -or
     $properties.UpgradeCode -ne "{$($config.upgradeCode)}" -or
-    $properties.ProductLanguage -ne '2052' -or $properties.MSIINSTALLPERUSER -ne '1') {
-    throw 'MSI version, upgrade identity, language or installation scope is incorrect'
+    $properties.ProductLanguage -ne '2052' -or $properties.MSIINSTALLPERUSER -ne '1' -or
+    $properties.MsiLogging -ne 'voicewarmup') {
+    throw 'MSI version, upgrade identity, language, installation scope or default logging is incorrect'
 }
 $selectable = @(Read-MsiTable 'Feature' | Where-Object { $_[6] -eq 'APPLICATIONROOTDIRECTORY' })
 $browse = @(Read-MsiTable 'ControlEvent' | Where-Object { $_[0] -eq 'CustomizeDlg' -and $_[1] -eq 'Browse' -and $_[2] -eq 'SelectionBrowse' -and $_[3] -eq 'BrowseDlg' })
@@ -42,4 +46,4 @@ $responseCache = @(Read-MsiTable 'Directory' | Where-Object { $_[2] -match '(^|\
 if ($responseCache.Count -ne 0) {
     throw 'Compiled MSI contains regenerable Next.js response caches'
 }
-Write-Output "Verified compiled MSI version, Chinese directory selection, per-user scope and uninstall actions: $artifact"
+Write-Output "Verified compiled MSI version, Chinese directory selection, per-user scope, default logging and uninstall actions: $artifact"

@@ -1,3 +1,4 @@
+import { openExecutionDetails } from "../helpers/execution-records";
 import { expect, test as base, type Page } from "@playwright/test";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -73,6 +74,7 @@ test("desktop folder permission, exact command approval and persisted output sur
   await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes('"state":"output-available"'))).toBe(true);
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
   await app.restart(); await page.reload();
+  await openExecutionDetails(page);
   await expect(page.getByLabel("终端输出", { exact: true })).toContainText("terminal-ready-你好");
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
   await page.setViewportSize({ width: 390, height: 844 });
@@ -86,6 +88,7 @@ test("rejection executes nothing and a long command exposes live output and can 
   await ask(page, app, grant.id);
   await page.getByRole("button", { name: "拒绝", exact: true }).click();
   await expect(page.getByRole("button", { name: "批准", exact: true })).toHaveCount(0);
+  await page.getByRole("dialog", { name: "执行记录", exact: true }).getByRole("button", { name: "关闭", exact: true }).click();
   await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
   expect(existsSync(join(app.folder, "terminal-proof.txt"))).toBe(false);
   const chat = await ask(page, app, grant.id, true);

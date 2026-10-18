@@ -23,5 +23,11 @@ export const windowsInstallerConfig = {
       throw new Error("Review the changed MSI uninstall template before packaging");
     }
     creator.wixTemplate = creator.wixTemplate.replace(purge, "");
+    // Keep rollback enabled and record failures even when launched by double-click.
+    const loggingAnchor = '<Property Id="REINSTALLMODE" Value="emus" />';
+    if (!creator.wixTemplate.includes(loggingAnchor) || creator.wixTemplate.includes('Id="MsiLogging"')) {
+      throw new Error("Review the changed MSI logging template before packaging");
+    }
+    creator.wixTemplate = creator.wixTemplate.replace(loggingAnchor, `${loggingAnchor}\n    <Property Id="MsiLogging" Value="voicewarmup" />`);
   },
 };

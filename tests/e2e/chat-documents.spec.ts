@@ -22,8 +22,55 @@ async function openChat(page: Page, origin: string) {
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "文档附件分析" })).body.data;
   await page.goto(`${origin}/chat?conversationId=${chat.id}`);
   await expect(page.locator(".composer-input")).toBeVisible();
+  await expect(page.getByLabel("选择要上传的附件", { exact: true })).toBeEnabled();
   return chat;
 }
+
+test("restoring a conversation blocks file selection, paste and drop until attachments have a stable owner", async ({ page, app }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  const chat = await openChat(page, app.origin);
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let markRestoring!: () => void;
+  const restoring = new Promise<void>(resolve => { markRestoring = resolve; });
+  let uploadCount = 0;
+  page.on("request", request => { if (request.url().endsWith("/api/media/upload")) uploadCount += 1; });
+  await page.route("**/api/conversations", async route => {
+    if (route.request().method() === "GET") { markRestoring(); await gate; }
+    await route.continue();
+  });
+  const input = page.getByLabel("选择要上传的附件", { exact: true });
+  const pdf = { name: "恢复后的附件.pdf", mimeType: "application/pdf", buffer: textPdf("A restored conversation owns this attachment.") };
+  try {
+    await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
+    await restoring;
+    await expect(input).toBeDisabled();
+    // setInputFiles can dispatch a change even on a disabled native input.
+    // The operation guard must also cover that path, paste and drag/drop.
+    await input.setInputFiles(pdf);
+    await page.locator(".composer-input").evaluate(element => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File(["image"], "early.png", { type: "image/png" }));
+      element.dispatchEvent(new ClipboardEvent("paste", { clipboardData: transfer, bubbles: true, cancelable: true }));
+      element.closest("form")!.dispatchEvent(new DragEvent("drop", { dataTransfer: transfer, bubbles: true, cancelable: true }));
+    });
+    expect(uploadCount).toBe(0);
+    await expect(page.getByRole("list", { name: "已添加的附件", exact: true })).toBeHidden();
+    release();
+    await expect(page.getByRole("heading", { name: chat.title, exact: true })).toBeVisible();
+    await expect(input).toBeEnabled();
+    await input.setInputFiles(pdf);
+    const attachment = page.getByRole("list", { name: "已添加的附件", exact: true }).getByText(pdf.name, { exact: true });
+    await expect(attachment).toBeVisible();
+    expect(uploadCount).toBe(1);
+    await page.reload();
+    await expect(attachment).toBeVisible();
+    await expect(page.getByRole("heading", { name: chat.title, exact: true })).toBeVisible();
+    expect(app.readRows('SELECT id FROM "knowledge_documents"')).toHaveLength(0);
+    expect(errors).toEqual([]);
+  } finally { release(); }
+});
 
 test("mixed chat attachments survive draft reload and restart, send document text and download originals without knowledge ingestion", async ({ page, app }) => {
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));

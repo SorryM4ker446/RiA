@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { documentSourceUrl, type DocumentReferenceStatus, type DocumentSource } from "@/lib/documents/types";
 import { t } from "@/lib/locale";
+import { ChevronRight } from "lucide-react";
+import { cn } from "@/lib/utils/cn";
 
-export function DocumentSources({ sources }: { sources: DocumentSource[] }) {
+export function DocumentSources({ sources, compact = false }: { sources: DocumentSource[]; compact?: boolean }) {
   const key = JSON.stringify(sources.slice(0, 8));
   const [check, setCheck] = useState<{ key: string; rows: DocumentReferenceStatus[]; failed: boolean } | null>(null);
   useEffect(() => {
@@ -26,10 +28,10 @@ export function DocumentSources({ sources }: { sources: DocumentSource[] }) {
   }, [key]);
   const statuses = check?.key === key ? check : null;
   if (!sources.length) return null;
-  return <details className="mt-3 rounded-lg bg-muted text-xs" open>
-    <summary className="cursor-pointer px-3 py-2 font-medium tracking-label">{t("documents.sourcesTitle")}{t("documents.countOpen")}{sources.length}{t("documents.countClose")}</summary>
-    <p className="px-3 text-muted-foreground">{t("documents.sourcesNote")}</p>
-    <ol className="space-y-3 p-3">
+  return <details className={cn(compact ? "execution-disclosure text-xs" : "mt-3 rounded-lg bg-muted text-xs")} open={!compact || undefined}>
+    <summary className={cn(!compact && "cursor-pointer px-3 py-2 font-medium tracking-label")}>{compact ? <ChevronRight aria-hidden="true" /> : null}{t("documents.sourcesTitle")}{t("documents.countOpen")}{sources.length}{t("documents.countClose")}</summary>
+    <p className={cn("text-muted-foreground", compact ? "py-1 pl-5" : "px-3")}>{t("documents.sourcesNote")}</p>
+    <ol className={cn("flex min-w-0 flex-col gap-3", compact ? "py-2 pl-5" : "p-3")}>
       {sources.map(source => <li key={source.chunkId}>
         {source.citationStatus ? <p className="mb-1 font-medium">{source.citationStatus === "cited" ? "回答已引用此片段（仍需核对内容）" : "检索参考：回答未引用此片段"}</p> : null}
         <Link className="font-medium tracking-label underline underline-offset-4 hover:no-underline" href={documentSourceUrl(source)}>{source.filename} · {source.pageNumber ? `${t("documents.pageLabel")} ${source.pageNumber} ${t("documents.pageUnit")}` : `${t("documents.chunkLabel")} ${source.ordinal + 1}`}</Link>

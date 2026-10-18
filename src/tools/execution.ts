@@ -160,7 +160,7 @@ export async function executeRegisteredTool(tool: AnyToolDescriptor, input: unkn
     // Whatever the tool was missing is what the model is told. A folder
     // the user withdrew and a search key that was cleared are both a
     // configuration problem, but only one of them is fixed in settings.
-    const unavailability = await toolAvailability(tool.id);
+    const unavailability = await toolAvailability(tool.id, options.modelRef);
     if (!unavailability.available) {
       const reason = unavailability.reason ?? "notConfigured";
       const error = unavailabilityError(reason, tool.id);
@@ -292,7 +292,8 @@ export async function executeRegisteredTool(tool: AnyToolDescriptor, input: unkn
     });
     // The step carries the same facts as the log, plus the artifact when
     // the step produced one, so the record and the log cannot disagree.
-    await settleStep({ state: "done", output: summarizeForRecord(output) });
+    const skipped = output && typeof output === "object" && "skipped" in output && typeof output.skipped === "string";
+    await settleStep({ state: skipped ? "skipped" : "done", output: summarizeForRecord(output) });
 
     return { output, input: preparedParsedInput.data };
   } catch (error) {
@@ -324,7 +325,7 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; toolIds
   // report a search that never happened.
   // Reading already-enabled skill guidance grants no external capability;
   // assistant tool restrictions still apply to every action a skill suggests.
-  const descriptors = (await listAvailableRegisteredTools("chat")).filter((tool) =>
+  const descriptors = (await listAvailableRegisteredTools("chat", options?.modelRef)).filter((tool) =>
     (hasRestriction ? allowed.has(tool.id) || tool.id === "readPluginSkill" : true) && !(tool.id === "saveMemory" && options?.usesMemory === false));
 
   const terminalFolders = descriptors.some(tool => tool.id === "runTerminalCommand")

@@ -36,6 +36,10 @@ export default function ChatPage() {
             <div className="chat-dock flex max-h-[50%] shrink-0 flex-col gap-3 overflow-y-auto px-4 pb-5 pt-2 sm:px-7">
               <div className="mx-auto flex w-full max-w-[42rem] flex-wrap items-center gap-1">
                 <RunRecords
+                  key={chat.activeChatId ?? "draft"}
+                  messages={chat.isHistoryReady ? chat.messages : []}
+                  isPending={chat.isPending}
+                  addToolApprovalResponse={chat.addToolApprovalResponse}
                   activeChatId={chat.activeChatId}
                   refreshKey={chat.messages.length}
                 />

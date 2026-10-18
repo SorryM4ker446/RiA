@@ -4,6 +4,7 @@ import { useState } from "react";
 import { FolderOpen, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { t, tf } from "@/lib/locale";
+import { cn } from "@/lib/utils/cn";
 
 export type LocalFileUse = {
   /** The granted folder, as the assistant named it. */
@@ -24,7 +25,7 @@ export type LocalFileUse = {
  * so a surprising disclosure is visible before the next turn rather than
  * discovered later.
  */
-export function LocalFileUses({ uses, modelLabel }: { uses: LocalFileUse[]; modelLabel?: string }) {
+export function LocalFileUses({ uses, modelLabel, compact = false }: { uses: LocalFileUse[]; modelLabel?: string; compact?: boolean }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   if (uses.length === 0) return null;
@@ -58,8 +59,8 @@ export function LocalFileUses({ uses, modelLabel }: { uses: LocalFileUse[]; mode
   }
 
   return (
-    <div className="mt-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs">
-      <p className="font-medium text-foreground">{t("localFiles.usedTitle")}</p>
+    <div className={cn("text-xs", compact ? "py-2 pl-5" : "mt-2 rounded-lg border border-border bg-muted/40 px-3 py-2")}>
+      {!compact ? <p className="font-medium text-foreground">{t("localFiles.usedTitle")}</p> : null}
       <ul className="mt-1 space-y-1 text-muted-foreground">
         {uses.map((use) => (
           <li className="flex items-center justify-between gap-2" key={`${use.toolId}:${use.path}`}>

@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 for (const pointer of ["mouse", "touch"] as const) {
   test.describe(`select trigger using ${pointer}`, () => {
@@ -190,7 +192,7 @@ for (const narrow of [false, true]) {
     await page.route("**/api/conversations", route => route.fulfill({ json: { data: [{ id: "runs", title: "执行记录布局", messageCount: 2, lastMessageAt: new Date().toISOString() }] } }));
     await page.route("**/api/conversations/*/messages", route => route.fulfill({ json: { data: [{ id: "alignment", role: "assistant", content: "正文与输入框保持同一中线。".repeat(100) }] } }));
     const runs = Array.from({ length: 10 }, (_, i) => ({ id: `run-${i}`, goal: `${i + 1}：检查一段很长的执行记录标题与详细步骤。`.repeat(4), status: "succeeded", budget: { maxSteps: 8, maxFailures: 2, deadlineMs: 120000, maxCostUsd: null }, stopReason: null, steps: [{ id: `step-${i}`, position: 1, kind: "tool", toolName: "searchKnowledge", state: "done", errorCode: null }] }));
-    await page.route("**/api/conversations/*/runs?*", route => route.fulfill({ json: { data: runs } }));
+    await page.route("**/api/conversations/*/runs?*", route => route.fulfill({ json: { data: new URL(route.request().url()).searchParams.has("runId") ? null : runs } }));
     await page.route("**/api/tasks**", route => route.fulfill({ json: { data: [] } }));
     await page.route("**/api/tools?*", route => route.fulfill({ json: { data: [] } }));
     await page.goto("/chat");
@@ -212,20 +214,26 @@ for (const narrow of [false, true]) {
     const drawer = page.getByRole("dialog", { name: "执行记录", exact: true });
     await expect(drawer).toBeVisible();
     const firstRun = drawer.getByRole("button", { name: /^1：检查/ });
-    await expect(firstRun.locator("span.line-clamp-2")).toHaveCSS("-webkit-line-clamp", "2");
-    expect((await firstRun.boundingBox())!.height).toBeLessThanOrEqual(70);
+    await expect(firstRun.locator("span.truncate")).toHaveCSS("white-space", "nowrap");
+    expect((await firstRun.boundingBox())!.height).toBeLessThanOrEqual(44);
     await expect(drawer.getByTestId("run-full-goal").first()).not.toBeVisible();
     await firstRun.click();
     await expect(firstRun).toHaveAttribute("aria-expanded", "true");
     await expect(drawer.getByTestId("run-full-goal").first()).toHaveText(runs[0].goal);
     await expect(drawer.getByTestId("run-full-goal").first()).toBeVisible();
     await expect(drawer.getByText("searchKnowledge", { exact: true }).first()).toBeVisible();
+    await expect(drawer.getByText(/^预算:/)).not.toBeVisible();
+    await drawer.getByText("调试信息", { exact: true }).first().click();
+    await expect(drawer.getByRole("link", { name: "导出脱敏诊断" }).first()).toBeVisible();
+    await page.screenshot({ path: join(tmpdir(), `ria-run-records-${narrow ? "mobile" : "desktop"}.png`), animations: "disabled" });
     await firstRun.click();
     await expect(firstRun).toHaveAttribute("aria-expanded", "false");
     const scroller = drawer.locator(".run-records-scroll");
+    await page.setViewportSize({ width: narrow ? 390 : 1440, height: 400 });
     expect(await scroller.evaluate(node => node.scrollHeight > node.clientHeight)).toBe(true);
     await scroller.evaluate(node => node.scrollTo({ top: node.scrollHeight }));
     await expect(drawer.getByRole("button", { name: /^10：检查/ })).toBeInViewport();
+    await page.setViewportSize(narrow ? { width: 390, height: 780 } : { width: 1440, height: 960 });
     expect(await page.locator(".composer-surface").boundingBox()).toEqual(before);
     await page.keyboard.press("Escape");
     await expect(drawer).toBeHidden();

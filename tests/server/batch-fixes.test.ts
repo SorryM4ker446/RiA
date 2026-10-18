@@ -129,19 +129,17 @@ async function withLocalSearchServer(run) {
   }
 }
 
-test("parallel tool executions cannot double-spend the per-turn result budget", async () => {
-  await withLocalSearchServer(async () => {
+test("parallel searches execute independently without a shared result-count quota", async () => {
+  await withLocalSearchServer(async requests => {
     const toolSet = await createChatToolSet({ toolIds: ["webSearch"] });
     const webSearch = toolSet.webSearch;
-    // The tool really runs: both calls reach the fixture, so the budget being
-    // respected is a fact and not the result of every call being rejected.
-    const first = webSearch.execute({ query: "parallel one" }, toolOptions);
-    const second = webSearch.execute({ query: "parallel two" }, toolOptions);
+    const first = webSearch.execute({ query: "parallel one", maxResults: 16 }, toolOptions);
+    const second = webSearch.execute({ query: "parallel two", maxResults: 18 }, toolOptions);
     const results = await Promise.allSettled([first, second]);
     const outputs = results.filter((entry) => entry.status === "fulfilled").map((entry) => entry.value);
     assert.equal(outputs.length, 2, "both parallel searches should have run");
-    const plannedTotal = outputs.reduce((sum, output) => sum + (output.results?.length ?? 0), 0);
-    assert.ok(plannedTotal <= 10, `parallel searches must not exceed the shared budget (planned ${plannedTotal})`);
+    assert.equal(requests(), 2);
+    assert.ok(outputs.every(output => output.results.length === 1 && !output.skipped));
   });
 });
 
@@ -153,6 +151,8 @@ test("the local entry redirect keeps cookie scope for IPv6 loopback as well", (t
   assert.equal(new URL(response.headers.get("location"), entryUrl).origin, entryUrl.origin);
 });
 test("an unconfigured optional tool is not handed to the model at all", async()=>{
+  process.env.OPENROUTER_API_KEY = "";
+  process.env.DEEPSEEK_API_KEY = "";
   const {createChatToolSet,toolAvailability,listPublicToolCatalog,assertToolConfiguration}=await import("@/tools/catalog");
   const previous=process.env.TAVILY_API_KEY;
   try{
@@ -180,34 +180,31 @@ test("an unconfigured optional tool is not handed to the model at all", async()=
   }
 });
 
-test("the chat prompt names the tool this turn cannot use", async()=>{
+test("capability context explains a failed requested action without volunteering unused-tool disclaimers", async()=>{
   const {buildSystemPrompt}=await import("@/lib/chat/model-context");
-  const withSearch=buildSystemPrompt("none","none",true,[]);
-  const withoutSearch=buildSystemPrompt("none","none",true,["webSearch"]);
-  assert.equal(withSearch.includes("Web search is not configured"),false);
-  // The model has to be told, or a question that needed live information is
-  // answered from memory as though it had been checked.
-  assert.equal(withoutSearch.includes("Web search is not configured"),true);
-  assert.equal(withoutSearch.includes("say plainly that this turn did not search the web"),true);
+  const available=buildSystemPrompt("none","none",true,[]);
+  const missing=buildSystemPrompt("none","none",true,[{id:"webSearch",reason:"notConfigured"}]);
+  assert.doesNotMatch(available,/webSearch is not configured/);
+  assert.match(missing,/webSearch is not configured/);
+  assert.match(missing,/only if the user requested this capability/);
+  assert.doesNotMatch(missing,/say plainly that this turn did not search the web/);
 });
 
-test("an exhausted result budget is reported as skipped, not as an empty search", async()=>{
+test("a subsequent search still reaches the provider after requesting more than ten results", async()=>{
   const {createChatToolSet}=await import("@/tools/catalog");
   await withLocalSearchServer(async requests=>{
     const webSearch=(await createChatToolSet({toolIds:["webSearch"]})).webSearch;
-    // The first call spends the whole budget; the second is the one that
-    // matters, because this is the call that used to look like a search that
-    // ran and found nothing.
-    await webSearch.execute({query:"first",maxResults:10},toolOptions);
-    const skipped=await webSearch.execute({query:"second",maxResults:5},toolOptions);
-    assert.deepEqual(skipped,{query:"second",results:[],skipped:"resultBudget"});
-    // The skipped call made no provider request, which is the whole point of
-    // marking it: it is not an empty result set, it is no result set.
-    assert.equal(requests(),1);
+    await webSearch.execute({query:"first",maxResults:18},toolOptions);
+    const second=await webSearch.execute({query:"second",maxResults:15},toolOptions);
+    assert.equal(second.skipped, undefined);
+    assert.equal(second.results.length, 1);
+    assert.equal(requests(),2);
   });
 });
 
 test("an optional tool that becomes unavailable mid-turn answers instead of failing the turn", async()=>{
+  process.env.OPENROUTER_API_KEY = "";
+  process.env.DEEPSEEK_API_KEY = "";
   await withLocalSearchServer(async()=>{
     const {createChatToolSet}=await import("@/tools/catalog");
     // Built while the key is present, so the tool is mounted…
@@ -235,7 +232,7 @@ test("a transient search failure is a skipped result, while a refused call still
     const previousUrl=process.env.TAVILY_SEARCH_URL;
     process.env.TAVILY_SEARCH_URL="http://127.0.0.1:1/search";
     try{
-      const output=await webSearch.execute({query:"unreachable"},toolOptions);
+      const output=await webSearch.execute({query:"unreachable",maxResults:4},toolOptions);
       assert.equal(output.skipped,"temporarilyUnavailable");
       assert.deepEqual(output.results,[]);
       // And it is not written to memory as something that was found.

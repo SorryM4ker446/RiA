@@ -6,6 +6,7 @@ import { readChatRequest } from "@/lib/chat/request";
 import { streamChatResponse } from "@/lib/chat/stream";
 import { getRelevantMemories } from "@/lib/memory/store";
 import { startRun } from "@/lib/agent/runs";
+import type { ModelRef } from "@/lib/models/preferences-schema";
 import { getModelPreferences } from "@/lib/models/preferences";
 import { getModelProvider } from "@/lib/models/providers";
 import { summarizeOlderTurns } from "@/lib/chat/summary";
@@ -51,7 +52,8 @@ async function POSTHandler(req: NextRequest) {
     // and each tool's modelDescription, not from a second LLM call that would
     // have to guess from the latest message alone.
     const toolsEnabled = canUseTools && (!input.assistant || input.assistant.tools.length > 0);
-  const unavailableTools = toolsEnabled ? await unavailableChatTools(input.assistant?.tools) : [];
+    const unavailableStatuses = await unavailableChatTools(input.assistant?.tools, canUseTools, modelRef);
+    const unavailableTools = unavailableStatuses.map(tool => tool.id);
 
     // An ephemeral conversation neither reads long-term memory nor writes any.
     // It is a memory switch, not a promise that nothing is kept: the messages,
@@ -94,7 +96,7 @@ async function POSTHandler(req: NextRequest) {
       ].filter(Boolean).join(String.fromCharCode(10, 10)),
       formatLongTermContext(relevantMemories),
       toolsEnabled,
-      unavailableTools,
+      unavailableStatuses,
       (await getModelPreferences()).persona,
     ) + formatAssistantInstructions(input.assistant) + await formatPluginSkills() + formatDocumentContext(documentSources);
 
@@ -125,8 +127,12 @@ async function POSTHandler(req: NextRequest) {
  * tool set is built from, so the prompt and the tools can never disagree about
  * what was available.
  */
-async function unavailableChatTools(allowedToolIds?: string[]) {
-  return (await listPublicToolCatalog("chat")).filter(tool => !tool.available || (allowedToolIds !== undefined && !allowedToolIds.includes(tool.id))).map(tool => tool.id);
+async function unavailableChatTools(allowedToolIds?: string[], modelSupportsTools = true, modelRef?: ModelRef) {
+  return (await listPublicToolCatalog("chat", modelRef)).flatMap(tool => {
+    const reason = allowedToolIds !== undefined && !allowedToolIds.includes(tool.id) ? "templateDisabled"
+      : !modelSupportsTools ? "modelUnsupported" : !tool.available ? tool.reason ?? "unavailable" : null;
+    return reason ? [{ id: tool.id, reason }] : [];
+  });
 }
 
 export const POST = protectDataOperation(POSTHandler);

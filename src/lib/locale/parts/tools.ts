@@ -72,6 +72,8 @@ export const toolsMessages = {
   "tools.saveMemory.disabled": "当前会话已关闭长期记忆，无法保存。请先关闭“不记长期记忆”。",
 
   // --- local files ----------------------------------------------------------
+  "tools.webSearch.skippedStopped": "搜索已停止，未获得搜索结果。",
+  "tools.webSearch.skippedUnavailable": "搜索服务未完成有效搜索，请检查服务商搜索权限或稍后重试。",
   "tools.listLocalFiles.displayName": "列出资料目录",
   "tools.listLocalFiles.description": "列出你授权的目录里有什么，可按层级展开。",
   "tools.listLocalFiles.result": "{folder} 中有 {count} 项：",

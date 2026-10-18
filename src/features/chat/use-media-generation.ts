@@ -17,6 +17,7 @@ type MediaView = {
 };
 type Options = {
   activeChatId: string | null;
+  isConversationReady: boolean;
   isHistoryReady: boolean;
   setMessages: MediaView["setMessages"];
   reloadMessages: MediaView["reloadMessages"];
@@ -63,6 +64,7 @@ export type UploadLock = ReturnType<typeof createUploadLock>;
 
 export type AttachmentUploadOptions = {
   files: File[];
+  isReady?: () => boolean;
   modelMode: ModelMode;
   /** The names already in the composer, which the limits are counted against. */
   existingNames: string[];
@@ -84,7 +86,10 @@ export type AttachmentUploadOptions = {
  * interesting behaviour is what happens to a result that arrives after the
  * conversation on screen has changed, which a renderer cannot express.
  */
-export async function runAttachmentUpload({ files, modelMode, existingNames, upload, setPageError, getVersion, getConversationId, getModelMode, commit, setUploading, lock }: AttachmentUploadOptions) {
+export async function runAttachmentUpload({ files, isReady, modelMode, existingNames, upload, setPageError, getVersion, getConversationId, getModelMode, commit, setUploading, lock }: AttachmentUploadOptions) {
+  // Initial history restoration can replace the draft conversation's identity.
+  // File selection, paste and drop must all wait for that identity to settle.
+  if (isReady && !isReady()) return;
   const combined = dedupeAttachmentNames([...existingNames, ...files.map((file) => file.name ?? "")]);
   const validation = attachmentValidationError(files, modelMode === "chat") || (modelMode === "video" && combined.length > 1 ? t("mediaGen.videoReferenceLimit") : null);
   if (validation) { setPageError(validation); return; }
@@ -203,7 +208,7 @@ export function remainingAttachments(current: UploadableFilePart[], sent: Upload
   return current.filter((part) => !sentUrls.has(part.url));
 }
 
-export function useMediaGeneration({ activeChatId, isHistoryReady, setMessages, reloadMessages, ensureActiveChatId, loadChats, setPageError, modelMode, selectedImageModel, selectedVideoModel, textareaRef }: Options) {
+export function useMediaGeneration({ activeChatId, isConversationReady, isHistoryReady, setMessages, reloadMessages, ensureActiveChatId, loadChats, setPageError, modelMode, selectedImageModel, selectedVideoModel, textareaRef }: Options) {
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
@@ -250,6 +255,7 @@ export function useMediaGeneration({ activeChatId, isHistoryReady, setMessages, 
     if (uploadLockRef.current.busy) { setPageError("附件正在处理，请稍候再添加。"); return; }
     await runAttachmentUpload({
       files: nextFiles,
+      isReady: () => isConversationReady,
       modelMode,
       existingNames: attachments.map((part) => part.filename ?? ""),
       upload: filesToUploadParts,

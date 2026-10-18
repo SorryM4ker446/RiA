@@ -634,11 +634,22 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 @media (hover: none) { .message-actions { opacity: 1; } }
 .usage-history-sheet { width: min(38rem, 100vw); }
 .usage-history-row { animation: row-in var(--dur-base) var(--ease-out); }
+.run-record-list { gap: 2px; }
+.run-record-entry { border-bottom: 1px solid hsl(var(--border) / .45); }
+.run-record-entry:last-child { border-bottom: 0; }
 .run-record-trigger { transition: background-color var(--dur-fast); }
+.run-record-trigger[aria-expanded="true"] { background: hsl(var(--muted) / .5); }
 .run-record-trigger:hover { background: hsl(var(--accent)); }
 .run-record-trigger:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: -2px; }
 .run-detail { display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden; transition: grid-template-rows var(--dur-base) var(--ease-out), opacity var(--dur-fast), visibility var(--dur-base); }
 .run-detail[data-state="open"] { grid-template-rows: 1fr; opacity: 1; visibility: visible; }
+.execution-disclosure > summary { display: flex; min-height: 32px; align-items: center; gap: 6px; border-radius: 6px; cursor: pointer; list-style: none; color: hsl(var(--muted-foreground)); }
+.execution-disclosure > summary::-webkit-details-marker { display: none; }
+.execution-disclosure > summary:hover { color: hsl(var(--foreground)); }
+.execution-disclosure > summary:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+.execution-disclosure > summary > svg { width: 14px; height: 14px; flex-shrink: 0; transition: transform var(--dur-base) var(--ease-out); }
+.execution-disclosure[open] > summary > svg { transform: rotate(90deg); }
+.execution-code { max-height: 18rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; border-radius: 6px; background: hsl(var(--muted) / .5); padding: 8px; font-family: var(--font-mono); font-size: 11px; line-height: 1.7; }
 .catalog-scroll { max-height: min(30rem, 65dvh); overflow-y: auto; overscroll-behavior-y: contain; border: 1px solid hsl(var(--border)); border-radius: 12px; background: hsl(var(--background)); scrollbar-gutter: stable; }
 .catalog-scroll:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
 .catalog-row { animation: row-in var(--dur-base) var(--ease-out); transition: background-color var(--dur-fast); }

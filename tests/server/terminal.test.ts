@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -234,4 +234,105 @@ test("Windows shells and ordinary children stop when the local service exits", {
     worker.kill();
     await eventually(() => [pids.shell, pids.child].every(pid => { try { process.kill(pid, 0); return false; } catch { return true; } }));
   } finally { if (worker.exitCode === null && worker.signalCode === null) worker.kill(); }
+});
+
+
+test("the general terminal replaces separate file tools and advertises only currently authorized folders", async () => {
+  const grant = await folder();
+  const { listPublicToolCatalog, getToolDescriptor } = await import("@/tools/catalog");
+  const catalog = await listPublicToolCatalog("chat");
+  for (const id of ["listLocalFiles", "readLocalFile", "writeLocalFile"]) {
+    assert.equal(catalog.some(tool => tool.id === id), false);
+    assert.equal(getToolDescriptor(id), null);
+  }
+  const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"] });
+  assert.equal(getToolDescriptor("runTerminalCommand")?.requiresApproval, true);
+  assert.equal(typeof tools.runTerminalCommand.needsApproval, "function");
+  assert.match(tools.runTerminalCommand.description!, /edit or overwrite existing files/);
+  assert.ok(tools.runTerminalCommand.description!.includes(JSON.stringify(grant.realPath)));
+  await revokeGrant(grant.id);
+  assert.ok(!(await createChatToolSet({ toolIds: ["runTerminalCommand"] })).runTerminalCommand?.description?.includes(grant.id));
+});
+
+test("approved PowerShell can create, read, edit, search, copy, move, rename and delete source files", { skip: !win }, async () => {
+  const grant = await folder();
+  const command = [
+    "$ErrorActionPreference = 'Stop'",
+    "New-Item -ItemType Directory -Path 'operations' | Out-Null",
+    "Set-Content -LiteralPath 'operations/source.js' -Value 'const answer = 1;' -Encoding UTF8",
+    "[Console]::WriteLine((Get-Content -LiteralPath 'operations/source.js' -Raw))",
+    "Set-Content -LiteralPath 'operations/source.js' -Value 'const answer = 42;' -Encoding UTF8",
+    "Select-String -LiteralPath 'operations/source.js' -Pattern '42' | ForEach-Object { [Console]::WriteLine($_.Line) }",
+    "Copy-Item -LiteralPath 'operations/source.js' -Destination 'operations/copy.js'",
+    "Rename-Item -LiteralPath 'operations/copy.js' -NewName 'renamed.js'",
+    "Move-Item -LiteralPath 'operations/renamed.js' -Destination 'moved.js'",
+    "Remove-Item -LiteralPath 'operations/source.js'",
+    "Remove-Item -LiteralPath 'operations'",
+    "[Console]::WriteLine((Get-ChildItem -File | Select-Object -ExpandProperty Name))",
+  ].join("; ");
+  const approved = await prepared(grant.id, command);
+  assert.equal(existsSync(path.join(grant.realPath, "moved.js")), false, "preparing the review must not execute anything");
+  const result = await runTerminalCommand(approved);
+  assert.equal(result.status, "completed", result.stderr);
+  assert.equal(result.exitCode, 0);
+  assert.match(result.stdout, /const answer = 1/);
+  assert.match(result.stdout, /const answer = 42/);
+  assert.match(result.stdout, /moved.js/);
+  assert.match(readFileSync(path.join(grant.realPath, "moved.js"), "utf8"), /42/);
+  assert.equal(existsSync(path.join(grant.realPath, "operations")), false);
+});
+
+
+test("terminal environment preserves installed-tool discovery and runtime paths while excluding RiA secrets and service flags", () => {
+  const inherited = terminalEnvironment({ Path: "C:/Tools;C:/Python;C:/Go/bin", PATHEXT: ".EXE;.CMD", GOPATH: "C:/work/go", GOROOT: "C:/Go", NODE_PATH: "C:/modules", NVM_HOME: "C:/nvm", PYTHONPATH: "C:/python-modules", VIRTUAL_ENV: "C:/project/.venv", JAVA_HOME: "C:/jdk", NODE_ENV: "production", NODE_OPTIONS: "--require internal-loader", ELECTRON_RUN_AS_NODE: "1", OPENROUTER_API_KEY: "excluded", DEEPSEEK_API_KEY: "excluded", DATABASE_URL: "excluded", LOCAL_ACCESS_TOKEN: "excluded", CUSTOM_SECRET: "excluded" });
+  assert.equal(inherited.Path, "C:/Tools;C:/Python;C:/Go/bin");
+  assert.equal(inherited.PATHEXT, ".EXE;.CMD");
+  for (const [key, expected] of Object.entries({ GOPATH: "C:/work/go", GOROOT: "C:/Go", NODE_PATH: "C:/modules", NVM_HOME: "C:/nvm", PYTHONPATH: "C:/python-modules", VIRTUAL_ENV: "C:/project/.venv", JAVA_HOME: "C:/jdk" })) assert.equal(inherited[key], expected);
+  for (const key of ["NODE_ENV", "NODE_OPTIONS", "ELECTRON_RUN_AS_NODE", "OPENROUTER_API_KEY", "DEEPSEEK_API_KEY", "DATABASE_URL", "LOCAL_ACCESS_TOKEN", "CUSTOM_SECRET"]) assert.equal(inherited[key], undefined);
+  assert.deepEqual(terminalEnvironment({ NODE_ENV: "production" }), {});
+});
+
+test("approved PowerShell discovers optional installed runtimes without requiring a particular toolchain", { skip: !win }, async () => {
+  const grant = await folder();
+  const command = [
+    "$ErrorActionPreference = 'Stop'",
+    "[Console]::WriteLine('shell-ready')",
+    "foreach ($toolName in @('node', 'python', 'go')) { $resolvedTool = Get-Command $toolName -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1; if ($resolvedTool) { [Console]::WriteLine(('discovered:' + $toolName)); if ($toolName -eq 'go') { & $toolName version } else { & $toolName --version }; if ($LASTEXITCODE -ne 0) { [Console]::WriteLine(('unavailable:' + $toolName)) } } }; exit 0",
+  ].join("; ");
+  const result = await runTerminalCommand(await prepared(grant.id, command));
+  assert.equal(result.status, "completed", result.stderr);
+  assert.equal(result.exitCode, 0);
+  assert.match(result.stdout, /shell-ready/);
+});
+
+test("commands discover arbitrary installed tools in custom Unicode paths and observe environment changes between approvals", { skip: !win }, async () => {
+  const grant = await folder();
+  const key = Object.keys(process.env).find(key => key.toUpperCase() === "PATH") ?? "PATH";
+  const previous = process.env[key];
+  const previousExtensions = process.env.PATHEXT;
+  try {
+    process.env.PATHEXT = ".COM;.EXE;.BAT;.CMD";
+    for (const version of ["first", "second"]) {
+      const bin = path.join(grant.realPath, `自定义 tools ${version}`);
+      mkdirSync(bin);
+      writeFileSync(path.join(bin, "ria-runtime-probe.cmd"), `@echo off\r\necho portable-${version}\r\nexit /b 0\r\n`);
+      process.env[key] = `${bin};${previous ?? ""}`;
+      const result = await runTerminalCommand(await prepared(grant.id, "& (Get-Command ria-runtime-probe -ErrorAction Stop)"));
+      assert.equal(result.status, "completed", result.stderr);
+      assert.equal(result.exitCode, 0);
+      assert.match(result.stdout, new RegExp(`portable-${version}`));
+    }
+  } finally {
+    if (previous === undefined) delete process.env[key]; else process.env[key] = previous;
+    if (previousExtensions === undefined) delete process.env.PATHEXT; else process.env.PATHEXT = previousExtensions;
+  }
+});
+
+test("a missing installed command fails visibly without assuming a runtime or installing a replacement", { skip: !win }, async () => {
+  const grant = await folder();
+  const missing = `ria-missing-runtime-${Date.now()}`;
+  const result = await runTerminalCommand(await prepared(grant.id, `& '${missing}'`));
+  assert.equal(result.status, "failed");
+  assert.notEqual(result.exitCode, 0);
+  assert.ok(result.stderr.includes(missing));
 });

@@ -1,3 +1,4 @@
+import { openExecutionDetails } from "../helpers/execution-records";
 import { test as base, expect, type Page } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -47,7 +48,10 @@ test("template editing, copying and deletion preserve conversation snapshots acr
   await expect(page.getByLabel("选择模型")).toBeDisabled();
   const chat = (await browserData(page, "/api/conversations"))[0]; expect(chat.ephemeral).toBe(true); expect(chat.documentScope).toBe("财务");
   await page.getByPlaceholder(/输入你的问题/).fill("Explain the working rules"); await page.getByRole("button", { name: "发送", exact: true }).click();
-  await expect(page.locator("article").last()).toContainText("检索诊断");
+  await expect(page.locator("article").last()).not.toContainText("检索诊断");
+  const executionDetails = await openExecutionDetails(page);
+  await expect(executionDetails).toContainText("检索诊断");
+  await executionDetails.getByRole("button", { name: "关闭", exact: true }).click();
   await expect.poll(() => JSON.stringify(app.providerCalls.filter(call => call.stream).at(-1)?.messages) ?? "").toContain("ASSISTANT_SNAPSHOT_V1");
   await page.goto(`${app.origin}/assistants`); await card.getByRole("button", { name: /更多操作/ }).click(); await page.getByRole("menuitem", { name: "编辑", exact: true }).click();
   await page.getByLabel("助理指令", { exact: true }).fill("ASSISTANT_SNAPSHOT_V2");

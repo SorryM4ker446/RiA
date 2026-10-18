@@ -261,25 +261,17 @@ test("the withdrawn folders the plain listing hides are still there to be asked 
 
 // --- 7-2 and 7-3: the tools the assistant may run inside a grant -------------
 
-test("the local-file tools are not offered at all until a folder is granted", async () => {
-  const { toolAvailability, listPublicToolCatalog, assertToolConfiguration } = await import("@/tools/catalog");
-
-  const withoutGrant = await toolAvailability("readLocalFile");
-  assert.equal(withoutGrant.available, false);
-  assert.equal(withoutGrant.reason, "noDirectoryGranted");
-  assert.equal(withoutGrant.configEntry, "/settings");
-  assert.equal((await toolAvailability("createTask")).available, true);
-  await assert.rejects(() => assertToolConfiguration("readLocalFile"), /资料目录/);
-
+test("granting a folder does not restore retired tools or silently enable terminal execution", async () => {
+  const { toolAvailability, listPublicToolCatalog, getToolDescriptor } = await import("@/tools/catalog");
   await createGrant({ path: temporaryDirectory("ria-grant-") });
-  assert.equal((await toolAvailability("readLocalFile")).available, true);
   const catalog = await listPublicToolCatalog("chat");
-  assert.equal(catalog.find((tool) => tool.id === "listLocalFiles")?.available, true);
-
-  // Withdrawing every folder takes the tools away again, with no switch to flip.
-  const { listGrants, revokeGrant } = await import("@/lib/local-files/grants");
-  for (const grant of await listGrants()) await revokeGrant(grant.id);
-  assert.equal((await toolAvailability("writeLocalFile")).available, false);
+  for (const id of ["listLocalFiles", "readLocalFile", "writeLocalFile"]) {
+    assert.equal(getToolDescriptor(id), null);
+    assert.equal(catalog.some(tool => tool.id === id), false);
+    assert.equal((await toolAvailability(id)).available, false);
+  }
+  assert.equal((await toolAvailability("runTerminalCommand")).available, false);
+  assert.equal((await toolAvailability("createTask")).available, true);
 });
 
 test("listing walks a granted folder within its limits and says when it stopped", async () => {

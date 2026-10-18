@@ -144,8 +144,8 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
     generateMessageId: generateId,
     onError: (error) => streamError(error instanceof ApiError ? error : new ApiError({ code: "UPSTREAM_FAILED", message: t("lib.chat.providerUnavailable") })),
     originalMessages: messages,
-    messageMetadata: ({ part }) => part.type === "start" ? { documentSources: params.documentSources ?? [], documentDiagnostics: params.documentDiagnostics }
-      : part.type === "finish" ? { documentSources: markDocumentCitations(params.documentSources ?? [], answerText), documentDiagnostics: params.documentDiagnostics } : undefined,
+    messageMetadata: ({ part }) => part.type === "start" ? { documentSources: params.documentSources ?? [], documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}` }
+      : part.type === "finish" ? { documentSources: markDocumentCitations(params.documentSources ?? [], answerText), documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}` } : undefined,
     onFinish: async ({ responseMessage, isAborted }) => {
       // A stopped turn never reaches the generator's finish, so this is what
       // closes it. The cost is unknown rather than zero: the provider never
@@ -157,6 +157,7 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
         documentSources: params.documentSources,
         documentDiagnostics: params.documentDiagnostics,
         unavailableTools: params.unavailableTools,
+        runId: params.runId,
         usesMemory: params.usesMemory !== false,
       });
     },

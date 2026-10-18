@@ -1,5 +1,17 @@
 # Test coverage and local validation
 
+Search-count regressions cover model-selected counts above ten, sequential and
+parallel requests without a RiA result-count quota, provider API ceilings,
+structured count planning and its cancellation/failure paths, and synthesis using
+all selected evidence. Manual search browser coverage verifies the count field is
+absent and the selected model's plan reaches the provider transport.
+
+Execution-record browser checks cover compact single-line rows, full requests on
+expansion, independent scrolling in short windows, keyboard focus restoration,
+preserved drafts, individual tool disclosures, approval continuation, terminal
+output and expandable sources. Compact source and diagnostic presentation is
+scoped to execution details; other knowledge surfaces retain their defaults.
+
 RiA plugin packages are covered by `plugin-packages.test.ts`,
 `plugin-packages.spec.ts` and `plugin-migration.test.ts`. They exercise inactive,
 atomic installation; strict manifests and preview digests; credentials and process
@@ -124,9 +136,23 @@ Use Node.js 24.9.0 and the dependencies already installed for this project. No s
 
 The application ships as a Windows desktop program; there is no browser or web deployment target. "Browser tests" below means a Chromium renderer driving the application's own HTTP surface — the same renderer the desktop shell embeds — and is a description of the harness, not a supported form of the product.
 
-Both CI jobs pin Node.js to 24.9.0 to match the local development runtime and log Node.js/npm versions. When upgrading the local Node.js runtime, update both `actions/setup-node` steps in `.github/workflows/ci.yml` and revalidate with that version. A local pass still does not replace a GitHub Actions run.
+All CI execution jobs pin Node.js to 24.9.0 and install with npm 11.19.1. When upgrading the runtime, update every `actions/setup-node` step in `.github/workflows/ci.yml` and revalidate with that version. A local pass still does not replace a GitHub Actions run.
+
+CI runs static/database checks, browser workflows and three server-test shards independently. Each server shard uses Node's `--test-shard=N/3` with `--test-concurrency=2`, retaining per-file process/SQLite isolation and all assertions. The matrix disables fail-fast so a failed shard does not cancel the others. Browser checks keep two workers on the hosted runner, zero retries and the existing timeouts. The existing **Validate application and local database** check aggregates all three groups and fails on a failed, cancelled or skipped dependency; branch protection can continue using that check name. Desktop packaging remains a separate required check where configured. Splitting reduces the sequential path; actual wall-clock improvement depends on runner availability and must be measured in Actions.
+
+For local reproduction of a CI server shard:
+
+```powershell
+node --import ./tests/helpers/register-typescript.ts --test --test-concurrency=2 --test-shard=1/3 tests/server/*.test.ts
+```
+
+Run shards 1, 2 and 3 to cover the whole server suite. A single shard is not a full-suite pass. The normal `npm run test:server` command still runs every file.
 
 Chat approval browser tests require pending tool details to be open immediately, then verify that approval or denial sends exactly one continuation. Tool output can render before the end-of-stream database write; the persistence test waits for the completed tool state in the history API before reloading, then requires the restored result and exactly one task. Title-row geometry tests cover the current 44px row, content and conversation rail below it, rail collapse/expansion, and navigation to the independent tasks page.
+
+Attachment restoration coverage holds the initial conversation-list request after hydration, asserts the file input is disabled, and dispatches file-selection, paste and drop events while it is held. No upload may start. Once restored, a PDF must upload exactly once, stay attached after reload and leave the knowledge library unchanged. The existing mixed PDF/DOCX/image case waits for the usable attachment control rather than textarea visibility; upload isolation across conversation/mode changes and failure-lock release retain unit coverage. The Browser plugin is unavailable; the repository Playwright harness exercises this rendered flow.
+
+Windows installer tests generate the real WiX template and require per-user scope, stable upgrade identity, safe uninstall and default verbose logging, while rejecting rollback-disabling or elevation-policy changes. The read-only diagnostic-script regression uses a synthetic failure log and verifies relevant lines are extracted without echoing unrelated properties or changing fixture files. Template compilation/property checks remain separate from real installation/upgrade acceptance on the affected machine.
 
 Knowledge-scope coverage holds the initial conversation-list response while document collections render, requires scope controls to stay disabled until the target conversation loads, and holds a scope PATCH while asserting that scope changes and message sending are disabled. It also rejects a save, verifies unchanged selection and recovery on retry, then checks collection isolation and persisted citations after reload. Collection loading must run once per toolbar mount rather than retriggering on every render. These request gates replace timing assumptions. WiX provisioning tests run the real PowerShell script with `Get-FileHash` unavailable and require both successful verified extraction and rejection of corrupt ZIP bytes; cold-download acceptance uses an empty isolated tooling directory.
 
@@ -171,11 +197,11 @@ The access browser test starts an additional server from the already-built stand
 
 `knowledge-management.spec.ts` seeds only its isolated SQLite database while the standalone service is stopped. Browser tests reach memories past the first 100, navigate backwards, search and filter, accept/edit/delete through real APIs, and inspect persisted rows. Separate HTTP failure doubles check retained edit drafts/deletion rows, failed search scope, and a successful write followed by a failed list refresh (obsolete pagination is disabled until first-page recovery succeeds); an explicitly held response checks superseded search cancellation without timing sleeps. Desktop/mobile screenshots are saved to the system temporary directory, with their paths attached to the test result. Existing silent-refresh tests continue to require that refresh preserves visible rows.
 
-The test-only `offline-http.ts` preload intercepts fetch in those child processes using the existing Undici dependency. It uses matching fetch/dispatcher versions, bridges native Request/Response, denies unmatched destinations and endpoints, and emits synthetic model prompts over IPC for context assertions. It does not store request headers or add a test switch to application code. A server regression checks both provider-disabled and simulated-provider modes and rejects unmatched external and loopback fetches. This guard covers fetch, not every possible socket API; Tavily is disabled in these browser fixtures. The separate search adapter tests point Tavily explicitly at an isolated loopback server.
+The test-only `offline-http.ts` preload intercepts fetch in those child processes using the existing Undici dependency. It uses matching fetch/dispatcher versions, bridges native Request/Response, denies unmatched destinations and endpoints, and emits synthetic model prompts over IPC for context assertions. It does not store request headers or add a test switch to application code. A server regression checks both provider-disabled and simulated-provider modes and rejects unmatched external and loopback fetches. This guard covers fetch, not every possible socket API; Tavily is disabled in these browser fixtures, while autonomous provider-search tests use an offline OpenRouter server-tool response. Separate search HTTP tests point Tavily explicitly at an isolated loopback server.
 
 Run `npm run test:e2e -- --grep '@integration'` to select authenticated HTTP/SQLite flows, or add `--repeat-each=3` to check repeatability. Quote the tag in PowerShell to avoid splatting. This still builds and prepares the production runtime; do not run it alongside another browser run, desktop build or smoke using the same output. The full `test:e2e` command includes these tagged cases automatically.
 
-CRUD route tests cover message retries/client-ID scoping, edits/deletion/counts/cascades, task status filters and atomic rejection of invalid dates, and knowledge upserts/deletion while keeping internal tool memories isolated. Search HTTP tests exercise the actual installed Tavily adapter, source normalization, upstream 403/500 conversion, the existing 12-second timeout against a deliberately stalled socket, and recovery on the next request. They check exactly one execution log and no successful memory on failure. They do not shorten production timeouts or directly throw a timeout in place of waiting for the adapter.
+CRUD route tests cover message retries/client-ID scoping, edits/deletion/counts/cascades, task status filters and atomic rejection of invalid dates, and knowledge upserts/deletion while keeping internal tool memories isolated. Search HTTP tests exercise the Tavily HTTP integration, source normalization, upstream 403/500 conversion, the existing 12-second timeout against a deliberately stalled socket, cancellation and recovery on the next request. They check exactly one execution log and no successful memory on failure. They do not shorten production timeouts or directly throw a timeout in place of waiting for the transport.
 
 These cases are discovered by the existing CI `test:server`, `test:e2e` and desktop smoke commands; no additional CI job, dependency, browser download or deployment infrastructure is required for local validation. A local pass is not a GitHub Actions result.
 
@@ -465,3 +491,29 @@ The offline HTTP fixture mocks only the public skills.sh search/download endpoin
 
 
 Knowledge entry presentation additionally has pure regression coverage in `tests/server/knowledge-entry-presentation.test.ts` for tool envelopes, multiline content, unsupported versions, duplicate/malformed fields and plain-note fallback. The tool-record case in `knowledge-layout.spec.ts` verifies compact previews, formatted excerpts without remote images, raw-record access, unchanged raw editing/search, multiline note expansion and dark/light narrow layouts.
+
+## Provider search and execution details
+
+`tests/server/provider-search.test.ts` checks the native DeepSeek, independent
+Search API and OpenRouter gateway wire formats, provider priority without
+Tavily, supported-endpoint fallback, refusal to bypass access/quota failures,
+empty versus unexecuted searches, cancellation and usage accounting.
+`execution-details.test.ts` verifies server-issued run identity, restored
+metadata, authentication, cross-conversation rejection and template/configuration
+reasons. Shared execution tests retain budget, approval and cancellation checks.
+
+Terminal regressions execute a real file-operation workflow and discover a
+temporary executable in custom paths containing spaces and Unicode. They change
+PATH between approved commands and check missing-command failure. The portable
+cases do not require Python, Go or Node to be preinstalled or use a fixed tool
+version. Optional installed runtimes are probed separately. These are isolated
+local scenarios, not proof of deployment on every Windows machine.
+
+Browser regressions open **执行记录 → 详情** to check tool inputs/results, web and
+document evidence, citation versions, deleted-source snapshots and diagnostics.
+They retain inline-answer and downloadable-artifact checks and verify approval,
+live terminal output, stop, restart recovery and narrow layouts. The Browser
+plugin is unavailable; the repository Playwright harness provides verification.
+Test globs already include the new files; no additional CI secret, service,
+dependency or schema migration is required. Live search quality and account
+access require separate real-service validation.

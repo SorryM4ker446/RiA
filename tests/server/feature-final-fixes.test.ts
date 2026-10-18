@@ -61,6 +61,25 @@ test("an upload that finishes after the conversation changed still releases the 
   assert.equal(run.state.locked, false);
 });
 
+test("attachments wait for initial conversation restoration without starting an upload or lock", async () => {
+  const run = harness();
+  let ready = false;
+  let calls = 0;
+  const options = { ...run.options, isReady: () => ready, upload: async () => {
+    calls += 1;
+    return [{ type: "file" as const, url: "/api/media/ready", mediaType: "image/png", filename: "one.png" }];
+  } };
+  await runAttachmentUpload(options);
+  assert.equal(calls, 0);
+  assert.deepEqual(run.state.calls, []);
+  assert.deepEqual(run.state.committed, []);
+  ready = true;
+  await runAttachmentUpload(options);
+  assert.equal(calls, 1);
+  assert.deepEqual(run.state.committed, ["/api/media/ready"]);
+  assert.equal(run.state.locked, false);
+});
+
 test("a second attachment keeps the composer locked until it has actually arrived", async () => {
   const run = harness();
   const first = deferred<Uploaded>();

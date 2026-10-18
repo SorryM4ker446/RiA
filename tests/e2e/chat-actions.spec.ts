@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
+import { openExecutionDetails } from "../helpers/execution-records";
 
 type HistoryMessage = { id: string; clientMessageId: string; role: "user" | "assistant"; content: string; createdAt: string };
 const now = "2026-08-30T00:00:00Z";
@@ -23,6 +24,47 @@ async function mockHistory(page: Page, history: HistoryMessage[]) {
 function streamBody(chunks: object[]) {
   return chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n";
 }
+
+test("an unavailable search is shown as skipped in execution details and leaves chat prose free of diagnostics", async ({ page }) => {
+  await mockHistory(page, [userMessage, {
+    ...assistantMessage,
+    content: "__ASSISTANT_TOOL_MESSAGE__:" + JSON.stringify({ type: "assistant-tool-message", text: "Search could not be completed.", tools: [{ toolName: "webSearch", toolCallId: "skipped-search", state: "output-available", input: { query: "latest release" }, output: { query: "latest release", results: [], skipped: "temporarilyUnavailable" } }] }),
+  }]);
+  await page.goto("/chat");
+  await expect(page.locator("article").last()).not.toContainText("工具详情");
+  const details = await openExecutionDetails(page);
+  await expect(details.getByText("工具详情：webSearch · 已跳过", { exact: true })).toBeVisible();
+  await expect(details.getByText(/搜索来源/)).toHaveCount(0);
+});
+
+test("execution details summarize the user request and disclose each tool independently", async ({ page }) => {
+  await mockHistory(page, [userMessage, {
+    ...assistantMessage,
+    content: "__ASSISTANT_TOOL_MESSAGE__:" + JSON.stringify({
+      type: "assistant-tool-message", text: "A long synthesized answer. ".repeat(80),
+      tools: [
+        { toolName: "webSearch", toolCallId: "search-one", state: "output-available", input: { query: "latest release", maxResults: 14 }, output: { query: "latest release", results: [{ title: "Release source", url: "https://example.com/release", snippet: "Official release notes" }] } },
+        { toolName: "searchKnowledge", toolCallId: "search-two", state: "output-available", input: { query: "release" }, output: { query: "release", total: 0, results: [] } },
+      ],
+    }),
+  }]);
+  await page.goto("/chat");
+  const details = await openExecutionDetails(page);
+  const row = details.locator(".run-record-trigger").first();
+  await expect(row).toContainText("Original question");
+  await expect(row).not.toContainText("A long synthesized answer");
+  const calls = details.getByRole("region", { name: "工具调用", exact: true }).locator("details");
+  await expect(calls).toHaveCount(2);
+  await calls.first().locator("summary").click();
+  await expect(calls.first().getByText("输入参数", { exact: true })).toBeVisible();
+  await expect(calls.nth(1)).not.toHaveAttribute("open");
+  await calls.nth(1).locator("summary").focus();
+  await page.keyboard.press("Enter");
+  await expect(calls.nth(1).getByText("执行结果", { exact: true })).toBeVisible();
+  await expect(calls.first()).toHaveAttribute("open", "");
+  await details.getByText(/搜索来源（1）/).click();
+  await expect(details.getByRole("link", { name: /Release source/ })).toHaveAttribute("href", "https://example.com/release");
+});
 
 for (const code of ["RATE_LIMITED", "CONFLICT"]) {
   test(`chat displays a readable ${code} error`, async ({ page }) => {
@@ -58,12 +100,14 @@ for (const approved of [true, false]) {
       ]) });
     });
     await page.goto("/chat");
+    await expect(page.getByRole("dialog", { name: "执行记录", exact: true })).toBeVisible();
+    await expect(page.locator("article").last()).not.toContainText("工具详情");
     const details = page.locator("details").filter({ has: page.getByText(/工具详情：createTask/) });
     await expect(details).toHaveAttribute("open", "");
     await expect(page.getByRole("status").filter({ hasText: "操作尚未执行" })).toBeVisible();
     await page.getByRole("button", { name: approved ? "批准" : "拒绝", exact: true }).click();
     await expect.poll(() => calls).toBe(1);
-    await expect(page.getByText(/Approval handled/)).toBeVisible();
+    await expect(page.locator("article").last().getByText(/Approval handled/)).toBeVisible();
     await expect(page.getByRole("button", { name: "批准", exact: true })).toHaveCount(0);
     expect(calls).toBe(1);
   });

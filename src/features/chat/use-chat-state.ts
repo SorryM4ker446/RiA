@@ -54,6 +54,7 @@ export function useChatState() {
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, toggleEphemeral, isEphemeralSaving,
     documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
   } = useConversations({ activeChatId, setActiveChatId, preferences: { modelMode, selectedChatModel: preferredChatModel, selectedImageModel, selectedVideoModel }, applyChatPreferences, resetConversation, persistCurrentStreamingAssistantIfNeeded, setPageError });
+  const isConversationReady = !isLoadingPreferences && (activeChatId !== null || !isLoadingChats);
   const selectedChatModel = activeChat?.assistantConfig?.model ?? preferredChatModel;
   const transport = useMemo(() => createChatTransport(activeChatId, { selectedChatModel, modelMode }), [activeChatId, selectedChatModel, modelMode]);
   const { messages, setMessages, sendMessage, regenerate, addToolApprovalResponse, status, error, clearError, stop } = useChat({
@@ -88,7 +89,7 @@ export function useChatState() {
     imageByMessageId, setImageByMessageId, videoByMessageId, setVideoByMessageId, attachments,
     attachingImageKey, fileInputRef, attachmentNames, reuseImageActionLabel, clearAttachments, removeAttachmentAt, replaceAttachments,
     appendAttachments, onReuseImageForEditing, onAttachmentInputChange, generateImage, generateVideo,
-  } = useMediaGeneration({ activeChatId, isHistoryReady: historyState?.chatId === activeChatId && historyState.status === "ready", setMessages, reloadMessages: loadMessages, ensureActiveChatId, loadChats, setPageError, modelMode, selectedImageModel, selectedVideoModel, textareaRef });
+  } = useMediaGeneration({ activeChatId, isConversationReady, isHistoryReady: historyState?.chatId === activeChatId && historyState.status === "ready", setMessages, reloadMessages: loadMessages, ensureActiveChatId, loadChats, setPageError, modelMode, selectedImageModel, selectedVideoModel, textareaRef });
   const {
     toolCatalogError, unavailableTools, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors,
     setManualToolFieldErrors, isRunningManualTool, manualTools, selectedManualToolConfig,
@@ -105,7 +106,6 @@ export function useChatState() {
     isUploadingAttachments ||
     isLoadingOlderMessages ||
     isRunningManualTool;
-  const isConversationReady = activeChatId !== null || !isLoadingChats;
   const selectedModel =
     modelMode === "chat"
       ? selectedChatModel
@@ -691,7 +691,7 @@ export function useChatState() {
     taskPanelError: withoutGlobalEcho(taskPanelError),
     visibleTasks, updateTaskStatus, deleteTask, saveTaskSchedule, updatingTaskIds, hasHiddenTasks, setIsTaskListExpanded,
     isTaskListExpanded, activeChat, isPending, isConversationReady, isRunningManualTool, modelMode, selectedModel, selectedModelInfo, onModeSelect,
-    onModelSelect, appendQuickPrompt, isLoadingHistory, messages, imageByMessageId, videoByMessageId,
+    onModelSelect, appendQuickPrompt, isHistoryReady: historyState?.chatId === activeChatId && historyState.status === "ready", isLoadingHistory, messages, imageByMessageId, videoByMessageId,
     status, editingMessageId, startEditingMessage, regenerateMessage, requestDeleteMessage,
     setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage,
     attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, addToolApprovalResponse, onStop, onSubmit,
