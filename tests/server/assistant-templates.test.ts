@@ -76,6 +76,29 @@ test("an idempotent conversation creation preserves its applied snapshot", async
   assert.deepEqual(repeated.assistantConfig, chat.assistantConfig);
 });
 
+test("template changes update default conversation titles and preserve independently named conversations", async () => {
+  const chat = await createChat({ assistantTemplateId: "builtin_knowledge" });
+  assert.equal(chat.title, "知识问答助理");
+  assert.equal((await updateConversation(chat.id, { assistantTemplateId: "builtin_writing" })).title, "写作助理");
+  assert.equal((await updateConversation(chat.id, { assistantTemplateId: "builtin_coding" })).title, "代码助理");
+  assert.equal((await updateConversation(chat.id, { assistantTemplateId: null })).title, "New Chat");
+  assert.equal((await updateConversation(chat.id, { assistantTemplateId: "builtin_research" })).title, "资料研究助理");
+  await updateConversation(chat.id, { title: "自己的研究主题" });
+  assert.equal((await updateConversation(chat.id, { assistantTemplateId: "builtin_writing" })).title, "自己的研究主题");
+  assert.equal((await updateConversation(chat.id, { assistantTemplateId: null })).title, "自己的研究主题");
+  assert.equal((await updateConversation(chat.id, { assistantTemplateId: "builtin_coding", title: "指定标题" })).title, "指定标题");
+});
+
+test("updating a renamed template follows the previous snapshot name without rewriting custom conversation names", async () => {
+  const saved = await saveAssistant(config());
+  const chat = await createChat({ assistantTemplateId: saved.id });
+  await saveAssistant(config({ name: "新版财务助理" }), saved.id, 1);
+  assert.equal((await updateConversation(chat.id, { assistantTemplateId: saved.id })).title, "新版财务助理");
+  await updateConversation(chat.id, { title: "财务核对记录" });
+  await saveAssistant(config({ name: "第三版财务助理" }), saved.id, 2);
+  assert.equal((await updateConversation(chat.id, { assistantTemplateId: saved.id })).title, "财务核对记录");
+});
+
 test("empty tool restrictions disable tools and manual execution cannot bypass the conversation policy", async () => {
   assert.deepEqual(await createChatToolSet({ toolIds: [] }), {});
   const allowed = await createChatToolSet({ toolIds: ["searchKnowledge"] }); assert.deepEqual(Object.keys(allowed), ["searchKnowledge"]);

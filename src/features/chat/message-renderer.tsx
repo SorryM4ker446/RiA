@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { getDocumentSources, getLocalFileUses, getTurnNotices, getWebSearchSources, resolveMessageSourceTag } from "@/features/chat/message-presentation";
+import { getDocumentSources, getLocalFileUses, getWebSearchSources } from "@/features/chat/message-presentation";
 import { LocalFileUses } from "@/features/settings/local-file-uses";
 import { t, tf } from "@/lib/locale";
 import { DocumentSources } from "@/components/knowledge/document-sources";
@@ -245,10 +245,6 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
         const toolParts = message.parts.filter(isToolPart);
         const reasoning = readReasoning(message);
         const webSearchSources = getWebSearchSources(toolParts);
-        const sourceTag = resolveMessageSourceTag({ role: message.role, toolParts });
-        // Stated once per turn and kept across reloads, so a turn that had no
-        // internet access says so in the same place every time it is read.
-        const turnNotices = getTurnNotices(message);
         const isLastAssistantStreaming =
           status === "streaming" && index === messages.length - 1 && message.role === "assistant";
         const isEditing = editingMessageId === message.id;
@@ -268,16 +264,6 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
                   <span className="label-mono">
                     {getMessageRoleLabel(message.role)}
                   </span>
-                  {sourceTag ? (
-                    <Badge className="h-5 px-2 text-[10px]" variant={sourceTag.variant}>
-                      {sourceTag.label}
-                    </Badge>
-                  ) : null}
-                  {turnNotices.map((notice) => (
-                    <Badge className="h-5 px-2 text-[10px]" key={notice} variant="outline">
-                      {notice}
-                    </Badge>
-                  ))}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   {isLastAssistantStreaming ? (
@@ -286,7 +272,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
                       streaming
                     </span>
                   ) : null}
-                  <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                  <div className="message-actions flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                     {isEditable ? (
                       <Button
                         aria-label={t("chat.messages.edit")}

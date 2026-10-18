@@ -45,12 +45,18 @@ export async function verifyConversationSmoke(window: BrowserWindow, origin: str
     try {
       const click = window.webContents.executeJavaScript(`(async () => {
         const deadline = Date.now() + 10000;
+        let opened = false;
         while (Date.now() < deadline) {
-          const button = [...document.querySelectorAll('button')].find(button => button.textContent === ${JSON.stringify(`导出 ${format}`)} && !button.disabled);
-          if (button) { button.click(); return; }
+          const trigger = document.getElementById(${JSON.stringify(`chat-actions-${id}`)});
+          if (!opened && trigger && !trigger.disabled) {
+            trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+            opened = true;
+          }
+          const item = [...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent.trim() === ${JSON.stringify(`导出 ${format}`)});
+          if (opened && item && item.getAttribute('aria-disabled') !== 'true') { item.click(); return; }
           await new Promise(resolve => setTimeout(resolve, 100));
         }
-        throw new Error('Desktop conversation export button unavailable');
+        throw new Error('Desktop conversation export action unavailable');
       })()`);
       const [file] = await Promise.all([downloaded, click]);
       const contents = readFileSync(file, "utf8");

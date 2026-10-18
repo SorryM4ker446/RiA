@@ -205,14 +205,15 @@ export function RunRecords({ activeChatId, refreshKey }: Props) {
                 )}
               />
               <StatusIcon status={run.status} />
-              <span className="min-w-0 flex-1 break-words leading-5">{run.goal}</span>
-              <Badge variant="outline">
+              <span className="line-clamp-2 min-w-0 flex-1 break-words leading-5">{run.goal}</span>
+              <Badge variant="outline" className="shrink-0">
                 {t(`chat.run.status.${run.status}`)}
               </Badge>
             </button>
             <div className="run-detail" data-state={expanded === run.id ? "open" : "closed"} inert={expanded !== run.id} aria-hidden={expanded !== run.id}>
               <div className="min-h-0 overflow-hidden">
-                <div className="flex flex-col gap-3 border-t px-3 py-3">
+                <div className="flex flex-col gap-3 px-3 pb-3 pt-1">
+                <p className="whitespace-pre-wrap break-words leading-6" data-testid="run-full-goal">{run.goal}</p>
                 <p className="text-muted-foreground">
                   {`${t("chat.run.budget")}: ${run.budget.maxSteps} ${t("chat.run.steps")} / ${Math.round(run.budget.deadlineMs / 1000)}s / ${run.budget.maxFailures} ${t("runs.failures")}`}
                 </p>

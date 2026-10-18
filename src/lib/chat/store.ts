@@ -26,7 +26,7 @@ export async function createChat(params: { chatId?: string; title?: string; assi
     data: {
       ...(assistant ? { assistantConfig: assistant, documentScope: encodeDocumentScope(assistant.collections), ephemeral: !assistant.usesMemory } : {}),
       ...(chatId ? { id: chatId } : {}),
-      title: truncateTitle(title ?? "New Chat"),
+      title: truncateTitle(title ?? assistant?.name ?? "New Chat"),
       lastMessageAt: new Date(),
     },
   });

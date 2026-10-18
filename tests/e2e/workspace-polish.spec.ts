@@ -196,6 +196,7 @@ for (const narrow of [false, true]) {
     await page.goto("/chat");
     const article = page.locator(".chat-transcript article").first();
     await expect(article).toBeVisible();
+    await expect(article.locator("header")).not.toContainText("来源：");
     const message = (await article.locator("..").boundingBox())!;
     const composer = (await page.locator(".composer-surface").boundingBox())!;
     expect(Math.abs((message.x + message.width / 2) - (composer.x + composer.width / 2))).toBeLessThan(.5);
@@ -211,8 +212,13 @@ for (const narrow of [false, true]) {
     const drawer = page.getByRole("dialog", { name: "执行记录", exact: true });
     await expect(drawer).toBeVisible();
     const firstRun = drawer.getByRole("button", { name: /^1：检查/ });
+    await expect(firstRun.locator("span.line-clamp-2")).toHaveCSS("-webkit-line-clamp", "2");
+    expect((await firstRun.boundingBox())!.height).toBeLessThanOrEqual(70);
+    await expect(drawer.getByTestId("run-full-goal").first()).not.toBeVisible();
     await firstRun.click();
     await expect(firstRun).toHaveAttribute("aria-expanded", "true");
+    await expect(drawer.getByTestId("run-full-goal").first()).toHaveText(runs[0].goal);
+    await expect(drawer.getByTestId("run-full-goal").first()).toBeVisible();
     await expect(drawer.getByText("searchKnowledge", { exact: true }).first()).toBeVisible();
     await firstRun.click();
     await expect(firstRun).toHaveAttribute("aria-expanded", "false");
