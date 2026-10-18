@@ -40,7 +40,7 @@ async function POSTHandler(req: NextRequest) {
     const conversation = await createChat({
       chatId: parsed.data.id,
       assistantTemplateId: parsed.data.assistantTemplateId,
-      title: truncateTitle(parsed.data.title ?? "New Chat"),
+      ...(parsed.data.title ? { title: truncateTitle(parsed.data.title) } : {}),
     });
 
     return Response.json({ data: conversation }, { status: 201 });

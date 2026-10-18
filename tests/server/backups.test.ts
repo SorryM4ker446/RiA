@@ -21,6 +21,8 @@ const { exclusiveDataOperation, protectDataOperation } = await import("@/lib/ser
 const { indexDocument } = await import("@/lib/documents/store");
 const { saveChatMessage } = await import("@/lib/chat/store");
 const { encodeMediaMessage } = await import("@/lib/media/message-codec");
+const { encodePersistedUserMessage, decodePersistedUserMessage } = await import("@/lib/ai/ui-message");
+import { textPdf, wordDocument } from "../helpers/document-fixtures";
 const routes = { root: await import("@/app/api/backups/route"), item: await import("@/app/api/backups/[id]/route"), begin: await import("@/app/api/backups/import/route"), upload: await import("@/app/api/backups/import/[id]/route") };
 let cookie;
 const req = (path, method="GET", body=undefined, session=cookie, headers={}) => new NextRequest(`http://localhost${path}`, { method, headers: { cookie: session, "content-type": "application/json", ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -37,7 +39,9 @@ beforeEach(async (t: TestContext) => { t.mock.method(console,"error",()=>{}); gl
  await db.knowledgeDocument.deleteMany({});
  await db.mediaAsset.deleteMany({});
  await db.modelRequest.deleteMany({});
- await db.workspacePreference.deleteMany({}); });
+ await db.workspacePreference.deleteMany({});
+ await db.pluginPackage.deleteMany({});
+ await db.extension.deleteMany({}); });
 after(async()=>{await db.$disconnect();cleanup();});
 async function seed() {
   const chat=await db.chat.create({data:{ title:"Backup source",tags:{create:{label:"保留"}}}});
@@ -49,6 +53,77 @@ async function seed() {
   await indexDocument({filename:"backup.txt",format:"txt",byteSize:6,pages:[{pageNumber:null,text:"备份检索示例"}]});
   return {chat,input,output};
 }
+
+test("portable restore revokes terminal permission without transporting directory grants", async () => {
+  const grant = await db.directoryGrant.create({ data: { label: "Synthetic", path: "fixture/terminal", realPath: "fixture/terminal", terminalEnabled: true } });
+  await seed();
+  const backup = await exclusiveDataOperation(() => archive.createAccountBackup(false));
+  await exclusiveDataOperation(() => restoreAccountBackup(backup.id));
+  const restored = await db.directoryGrant.findUniqueOrThrow({ where: { id: grant.id } });
+  assert.equal(restored.terminalEnabled, false);
+  assert.ok(restored.revokedAt);
+});
+
+test("portable backup restores PDF and Word chat attachment bytes and message references without knowledge documents", async () => {
+  const chat = await db.chat.create({ data: { title: "Document attachments" } });
+  const bytes = [textPdf("Portable attachment support hours."), await wordDocument("备份还原后保留附件正文。")];
+  const mimeTypes = ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"];
+  const assets = [];
+  for (let index = 0; index < bytes.length; index++) assets.push(await storage.createMediaAsset({ bytes: bytes[index], mediaType: mimeTypes[index], kind: "attachment", description: index ? "备份.docx" : "备份.pdf" }));
+  await saveChatMessage({ chatId: chat.id, role: "user", content: encodePersistedUserMessage({ type: "user-message", text: "Analyze these documents", files: assets.map(asset => ({ url: `/api/media/${asset.id}`, mediaType: asset.mediaType, filename: asset.description })) }) });
+  const backup = await exclusiveDataOperation(() => archive.createAccountBackup(false));
+  await exclusiveDataOperation(() => restoreAccountBackup(backup.id));
+  assert.equal(await db.knowledgeDocument.count(), 0);
+  const message = await db.message.findFirstOrThrow({ where: { role: "user" } });
+  const restored = decodePersistedUserMessage(message.content).files;
+  assert.equal(restored.length, 2);
+  for (let index = 0; index < restored.length; index++) {
+    assert.notEqual(restored[index].assetId, assets[index].id);
+    const asset = await storage.getMediaAsset(restored[index].assetId);
+    assert.deepEqual(await storage.readMediaAsset(asset), bytes[index]);
+    assert.equal(await db.messageMedia.count({ where: { messageId: message.id, assetId: asset.id } }), 1);
+  }
+  const { materializeChatAttachments } = await import("@/lib/media/messages");
+  const materialized = await materializeChatAttachments([{ id: message.id, role: "user", parts: restored.map(file => ({ type: "file", url: file.url, mediaType: file.mediaType })) }]);
+  assert.ok(JSON.stringify(materialized).includes("备份还原后保留附件正文。"));
+});
+
+test("portable restore retains machine-local extensions but disables them and invalidates old approvals", async () => {
+  const id = randomUUID();
+  const { encryptCredentials } = await import("@/lib/extensions/secrets");
+  const originalKey = process.env.RIA_EXTENSION_KEY;
+  process.env.RIA_EXTENSION_KEY = Buffer.alloc(32, 42).toString("base64");
+  try {
+    const { parsePlugin } = await import("@/lib/plugins/schema");
+    const { installPlugin, setPluginState, formatPluginSkills } = await import("@/lib/plugins/store");
+    const { pluginFixture } = await import("../helpers/plugin-fixture");
+    const plugin = await installPlugin(parsePlugin(pluginFixture()));
+    await setPluginState(plugin.id, { revision: plugin.revision, enabled: true });
+    assert.match(await formatPluginSkills(), /PLUGIN_SKILL_EVIDENCE/);
+    const credentials = encryptCredentials(id, { Authorization: "Bearer synthetic-backup-token" });
+    await db.extension.create({ data: { id, name: "Machine-local connection", kind: "http", config: { type: "http", url: "http://localhost/machine-only", method: "POST", description: "Test connection", inputSchema: { type: "object" } }, tools: [], credentials, enabled: true, revision: 1, testedRevision: 1 } });
+    const backup = await exclusiveDataOperation(() => archive.createAccountBackup(false));
+    const raw = await readFile(await files.backupFile(backup.id));
+    const manifest = readManifest(raw, raw.readUInt32BE(8));
+    assert.equal("extensions" in manifest, false);
+    assert.equal("pluginPackages" in manifest, false);
+    assert.equal(raw.includes(Buffer.from("PLUGIN_SKILL_EVIDENCE")), false);
+    assert.equal(raw.includes(Buffer.from("machine-only")), false);
+    assert.equal(raw.includes(Buffer.from(credentials!)), false);
+    await exclusiveDataOperation(() => restoreAccountBackup(backup.id));
+    const retained = await db.extension.findUniqueOrThrow({ where: { id } });
+    assert.equal(retained.credentials, credentials);
+    assert.equal(retained.enabled, false);
+    assert.equal(retained.revision, 2);
+    assert.equal(retained.testedRevision, null);
+    const retainedPlugin = await db.pluginPackage.findUniqueOrThrow({ where: { id: plugin.id } });
+    assert.equal(retainedPlugin.enabled, false); assert.equal(retainedPlugin.revision, 3);
+    assert.equal(await formatPluginSkills(), "");
+  } finally {
+    if (originalKey === undefined) delete process.env.RIA_EXTENSION_KEY;
+    else process.env.RIA_EXTENSION_KEY = originalKey;
+  }
+});
 
 test("the maximum accepted document scope survives backup and restore", async () => {
   const { updateConversation, updateConversationSchema } = await import("@/lib/conversations/mutations");

@@ -374,6 +374,9 @@ input:-webkit-autofill:focus {
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  .chat-document-attachment {
+    animation: dialog-panel-in var(--dur-fast) var(--ease-out) both;
+  }
   /* Every interactive surface transitions its paint, not its layout, so
      hovering a row never reflows the page. */
   a,
@@ -532,6 +535,8 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .sheet-content { position: fixed; top: 0; bottom: 0; z-index: 50; width: min(19rem, 88vw); background: hsl(var(--background)); color: hsl(var(--foreground)); box-shadow: 0 12px 48px hsl(var(--shadow) / .15); outline: none; }
 .sheet-content[data-side="left"] { left: 0; border-right: 1px solid hsl(var(--border)); --sheet-offset: -100%; }
 .sheet-content[data-side="right"] { right: 0; border-left: 1px solid hsl(var(--border)); --sheet-offset: 100%; }
+.sheet-content.extension-editor { width: min(36rem, 100vw); }
+.sheet-content.directory-permissions-sheet { width: min(32rem, 100vw); }
 .sheet-overlay[data-state="open"] { animation: overlay-in var(--dur-base) var(--ease-out); }
 .sheet-overlay[data-state="closed"] { animation: overlay-out var(--dur-fast) var(--ease-in-out); }
 .sheet-content[data-state="open"] { animation: sheet-in var(--dur-slow) var(--ease-out); }
@@ -594,6 +599,28 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .chat-list-scroll::-webkit-scrollbar { width: 7px; height: 7px; }
 .chat-list-scroll::-webkit-scrollbar-thumb { border-width: 2px; }
 .run-records-sheet { width: min(30rem, 100vw); }
+.template-editor-sheet { width: min(34rem, 100vw); }
+.template-details-sheet { width: min(30rem, 100vw); }
+.registry-details-sheet { width: min(34rem, 100vw); }
+.plugin-package-sheet { width: min(36rem, 100vw); }
+.knowledge-entry-sheet { width: min(32rem, 100vw); }
+.knowledge-disclosure > summary { list-style: none; }
+.knowledge-disclosure > summary::-webkit-details-marker { display: none; }
+.knowledge-document-row, .knowledge-entry-row, .knowledge-preview { animation: content-in var(--dur-base) var(--ease-out); }
+.knowledge-entry-disclosure:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 4px; }
+.knowledge-entry-excerpt .markdown-message { font-size: 14px; line-height: 1.8; }
+.knowledge-entry-excerpt .markdown-message :is(h1, h2, h3, h4, h5, h6) { font-size: 14px; line-height: 1.6; margin-block: .75rem .35rem; }
+.knowledge-entry-excerpt .markdown-message > :first-child { margin-top: 0; }
+.plugin-preview { animation: content-in var(--dur-base) var(--ease-out); }
+.registry-results-scroll { height: min(34rem, 60dvh); scrollbar-gutter: stable; overflow-anchor: none; border-radius: 12px; }
+.registry-results-scroll.skill-results-scroll { height: auto; max-height: min(28rem, 52dvh); }
+.registry-results-scroll:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+.registry-result-row { animation: row-in var(--dur-base) var(--ease-out); }
+.management-row { background: hsl(var(--card) / .22); transition: background-color var(--dur-fast), box-shadow var(--dur-fast); }
+.management-row:hover, .management-row:focus-within { background: hsl(var(--accent) / .4); }
+.management-row[data-selected="true"] { background: hsl(var(--accent) / .65); }
+@media (min-width: 768px) { .conversation-filters { grid-template-columns: minmax(12rem, 1fr) minmax(7rem, 10rem) 8rem auto; } }
+@media (hover: none) { .message-actions { opacity: 1; } }
 .usage-history-sheet { width: min(38rem, 100vw); }
 .usage-history-row { animation: row-in var(--dur-base) var(--ease-out); }
 .run-record-trigger { transition: background-color var(--dur-fast); }
@@ -623,6 +650,7 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .settings-disclosure-trigger:hover { color: hsl(var(--foreground)); }
 .settings-disclosure-trigger > svg:last-child { transition: transform var(--dur-base) var(--ease-out); }
 .settings-disclosure[open] > summary > svg:last-child { transform: rotate(180deg); }
+.settings-disclosure.knowledge-disclosure[open] > summary > svg:last-child { transform: rotate(90deg); }
 .settings-page :is(#service-keys, #default-chat-model) { scroll-margin-top: 1rem; }
 .models-section-nav { display: flex; flex-wrap: wrap; gap: 6px; }
 .models-section-nav a { border: 1px solid hsl(var(--border)); border-radius: 8px; padding: 8px 14px; background: hsl(var(--card)); font-size: 13px; color: hsl(var(--muted-foreground)); }

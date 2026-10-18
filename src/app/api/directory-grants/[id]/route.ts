@@ -6,6 +6,9 @@ import { identifierSchema } from "@/lib/server/request-schemas";
 import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { t } from "@/lib/locale";
+import { z } from "zod";
+import { readJsonBody } from "@/lib/server/request-body";
+import { setTerminalPermission } from "@/lib/terminal/permissions";
 
 type Params = {
   params: Promise<{ id: string }>;
@@ -34,3 +37,20 @@ async function DELETEHandler(req: NextRequest, context: Params) {
 }
 
 export const DELETE = protectDataOperation(DELETEHandler);
+
+async function PATCHHandler(req: NextRequest, context: Params) {
+  try {
+    await requireLocalWorkspace(req);
+    enforceRateLimit("directoryGrants");
+    const parsedId = identifierSchema.safeParse((await context.params).id);
+    if (!parsedId.success) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid id" });
+    const id = parsedId.data;
+    if (req.nextUrl.searchParams.size) throw new ApiError({ code: "VALIDATION_ERROR", message: "Unexpected query parameter" });
+    const parsed = z.strictObject({ terminalEnabled: z.boolean(), revision: z.iso.datetime() }).safeParse(await readJsonBody(req, 1024));
+    if (!parsed.success) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid terminal permission" });
+    await setTerminalPermission(id, parsed.data.terminalEnabled, parsed.data.revision);
+    return Response.json({ data: { updated: true } }, { headers: { "Cache-Control": "no-store" } });
+  } catch (error) { return createApiErrorResponse(error, "无法更新终端权限。"); }
+}
+
+export const PATCH = protectDataOperation(PATCHHandler);

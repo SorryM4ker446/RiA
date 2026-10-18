@@ -27,7 +27,7 @@ const { parentPort, workerData } = require('node:worker_threads');
 const { pathToFileURL } = require('node:url');
 const { dirname, join } = require('node:path');
 globalThis.fetch = async () => { throw new Error('Network access is disabled during document import'); };
-const { bytes, format, limits, messages, pdfPath, pdfWorkerPath, mammothPath, zipPath } = workerData;
+const { bytes, format, escapeMarkdown, limits, messages, pdfPath, pdfWorkerPath, mammothPath, zipPath } = workerData;
 const fail = (message, code = 'VALIDATION_ERROR') => { throw Object.assign(new Error(message), { code }); };
 const tooLarge = () => fail(messages.expandedTooLarge, 'PAYLOAD_TOO_LARGE');
 const normalize = text => text.replace(/\r\n?/g, '\n').replace(/\u0000/g, '').trim();
@@ -93,7 +93,7 @@ async function parse() {
     await require(mammothPath).convertToHtml({ buffer: Buffer.from(bytes) }, {
       externalFileAccess: false, includeEmbeddedStyleMap: false,
       transformDocument: document => {
-        structuredText = serializeWordDocument(document, limits.characters);
+        structuredText = serializeWordDocument(document, limits.characters, escapeMarkdown);
         return { ...document, children: [] };
       },
     });

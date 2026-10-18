@@ -1,4 +1,5 @@
 import { db } from "@/db";
+import { stopTerminalCommandsForRun } from "@/lib/terminal/runtime";
 import type { Prisma } from "@prisma/client";
 import { ApiError } from "@/lib/server/api-error";
 
@@ -126,8 +127,8 @@ export async function recordStep(params: {
 }
 
 export async function updateStep(stepId: string, data: { state?: StepState; output?: unknown; errorCode?: string | null; finished?: boolean }) {
-  return db.agentStep.update({
-    where: { id: stepId },
+  return db.agentStep.updateMany({
+    where: { id: stepId, finishedAt: null },
     data: {
       ...(data.state ? { state: data.state } : {}),
       ...(data.output === undefined ? {} : { output: data.output as never }),
@@ -201,6 +202,7 @@ export async function cancelRun(runId: string, reason: string) {
     where: { runId, state: { in: ["running", "waiting_approval"] } },
     data: { state: "cancelled", finishedAt: new Date() },
   });
+  stopTerminalCommandsForRun(runId);
   return finishRun(runId, "cancelled", reason);
 }
 

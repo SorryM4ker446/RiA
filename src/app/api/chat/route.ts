@@ -20,13 +20,14 @@ import { listPublicToolCatalog } from "@/tools/catalog";
 import { documentSourceSchema } from "@/lib/documents/types";
 import { decodeDocumentScope } from "@/lib/documents/scope";
 import { formatAssistantInstructions } from "@/lib/assistants/schema";
+import { formatPluginSkills } from "@/lib/plugins/store";
 
 async function POSTHandler(req: NextRequest) {
   try {
     await requireLocalWorkspace(req);
     enforceRateLimit("chat");
     const input = await readChatRequest(req);
-    const { body, modelRef, latestUserMessage, isApprovalResume } = input;
+    const { body, modelRef, latestUserMessage } = input;
     // Checked against the provider the chosen model actually belongs to. Naming
     // OpenRouter here refused every DeepSeek-only install before it could say so,
     // which is the one thing a user who only ever added a DeepSeek model needs
@@ -40,7 +41,7 @@ async function POSTHandler(req: NextRequest) {
     setupServerProxy();
 
 
-    const { context, modelMessages } = await prepareModelContext(input);
+    const { context, modelMessages } = await prepareModelContext(input, req.signal);
     const conversation = await prepareChatPersistence(input);
     const mode = body.mode ?? "chat";
     const isChatMode = mode === "chat";
@@ -49,7 +50,7 @@ async function POSTHandler(req: NextRequest) {
     // attached for the whole turn. Restraint comes from TOOL_ENABLED_INSTRUCTIONS
     // and each tool's modelDescription, not from a second LLM call that would
     // have to guess from the latest message alone.
-    const toolsEnabled = canUseTools && (isApprovalResume || !body.manualToolsOnly) && (!input.assistant || input.assistant.tools.length > 0);
+    const toolsEnabled = canUseTools && (!input.assistant || input.assistant.tools.length > 0);
   const unavailableTools = toolsEnabled ? await unavailableChatTools(input.assistant?.tools) : [];
 
     // An ephemeral conversation neither reads long-term memory nor writes any.
@@ -95,7 +96,7 @@ async function POSTHandler(req: NextRequest) {
       toolsEnabled,
       unavailableTools,
       (await getModelPreferences()).persona,
-    ) + formatAssistantInstructions(input.assistant) + formatDocumentContext(documentSources);
+    ) + formatAssistantInstructions(input.assistant) + await formatPluginSkills() + formatDocumentContext(documentSources);
 
     // A run exists only for a turn that can actually use tools. Creating one
     // for a plain answer would fill the record with empty runs that did nothing.

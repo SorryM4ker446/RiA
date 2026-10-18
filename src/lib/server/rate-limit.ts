@@ -9,6 +9,7 @@ export const RATE_LIMIT_POLICIES = {
   upload: { limit: 20, windowMs: 60_000 },
   documents: { limit: 6, windowMs: 60_000 },
   documentPreview: { limit: 6, windowMs: 60_000 },
+  documentExport: { limit: 20, windowMs: 60_000 },
   reminders: { limit: 10, windowMs: 60_000 },
   documentReferences: { limit: 120, windowMs: 60_000 },
   conversationSearch: { limit: 30, windowMs: 60_000 },
@@ -36,6 +37,9 @@ export const RATE_LIMIT_POLICIES = {
   // Granting a folder opens a standing permission, so it is deliberately slower
   // than the operations that use one.
   directoryGrants: { limit: 10, windowMs: 60_000 },
+  extensions: { limit: 30, windowMs: 60_000 },
+  extensionRegistry: { limit: 30, windowMs: 60_000 },
+  skillMarketplace: { limit: 30, windowMs: 60_000 },
 } as const;
 
 type RateLimitRecord = {

@@ -20,6 +20,7 @@ after(async () => { await db.$disconnect(); cleanup(); });
 
 /** One input each tool's own schema accepts, so the part is valid for its tool. */
 const VALID_INPUTS: Record<string, unknown> = {
+  runTerminalCommand: { grantId: "grant-1", command: "Get-Date" },
   saveMemory: { key: "units", value: "metric" },
   searchKnowledge: { query: "notes" },
   createTask: { title: "buy milk" },
@@ -27,6 +28,9 @@ const VALID_INPUTS: Record<string, unknown> = {
   listLocalFiles: { grantId: "grant-1", path: "" },
   readLocalFile: { grantId: "grant-1", path: "notes.md" },
   writeLocalFile: { grantId: "grant-1", path: "notes.md", content: "x" },
+  readDocument: { documentId: "document-1" },
+  convertDocument: { documentId: "document-1", format: "docx" },
+  readPluginSkill: { packageId: "skills.sh.sample", path: "SKILL.md" },
 };
 
 /**

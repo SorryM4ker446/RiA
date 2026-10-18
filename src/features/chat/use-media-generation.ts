@@ -53,6 +53,7 @@ export function createUploadLock() {
   let inFlight = 0;
   return {
     begin() { inFlight += 1; },
+    get busy() { return inFlight > 0; },
     /** Whether the composer is free again, so it can stop being locked. */
     end() { inFlight = Math.max(0, inFlight - 1); return inFlight === 0; }
   };
@@ -70,6 +71,7 @@ export type AttachmentUploadOptions = {
   getVersion: () => number;
   /** The conversation on screen, for callers that can name it. */
   getConversationId?: () => string | null;
+  getModelMode?: () => ModelMode;
   commit: (uploaded: UploadableFilePart[]) => void;
   setUploading: (uploading: boolean) => void;
   lock: UploadLock;
@@ -82,11 +84,11 @@ export type AttachmentUploadOptions = {
  * interesting behaviour is what happens to a result that arrives after the
  * conversation on screen has changed, which a renderer cannot express.
  */
-export async function runAttachmentUpload({ files, modelMode, existingNames, upload, setPageError, getVersion, getConversationId, commit, setUploading, lock }: AttachmentUploadOptions) {
+export async function runAttachmentUpload({ files, modelMode, existingNames, upload, setPageError, getVersion, getConversationId, getModelMode, commit, setUploading, lock }: AttachmentUploadOptions) {
   const combined = dedupeAttachmentNames([...existingNames, ...files.map((file) => file.name ?? "")]);
-  const validation = attachmentValidationError(files) || (modelMode === "video" && combined.length > 1 ? t("mediaGen.videoReferenceLimit") : null);
+  const validation = attachmentValidationError(files, modelMode === "chat") || (modelMode === "video" && combined.length > 1 ? t("mediaGen.videoReferenceLimit") : null);
   if (validation) { setPageError(validation); return; }
-  if (existingNames.length + files.length > MEDIA_LIMITS.attachmentCount) { setPageError(t("mediaGen.videoReferenceLimit")); return; }
+  if (existingNames.length + files.length > MEDIA_LIMITS.attachmentCount) { setPageError(t("lib.media.tooManyAttachments")); return; }
   const version = getVersion();
   const conversationId = getConversationId?.() ?? null;
   // A finished upload belongs to the conversation it was started in, so that is
@@ -94,7 +96,7 @@ export async function runAttachmentUpload({ files, modelMode, existingNames, upl
   // conversation and coming back is not a different conversation: the reference
   // is still the user's and is still offered to them. Without an identity to
   // compare, the counter is all there is and it still decides.
-  const isStillOurs = () => (getConversationId ? getConversationId() === conversationId : version === getVersion());
+  const isStillOurs = () => (!getModelMode || getModelMode() === modelMode) && (getConversationId ? getConversationId() === conversationId : version === getVersion());
   lock.begin();
   setUploading(true);
   setPageError(null);
@@ -215,7 +217,9 @@ export function useMediaGeneration({ activeChatId, isHistoryReady, setMessages, 
   const viewRef = useRef<MediaView>({ chatId: activeChatId, ready: isHistoryReady, setMessages, reloadMessages });
   const viewVersionRef = useRef(0);
   const uploadLockRef = useRef(createUploadLock());
+  const modeRef = useRef(modelMode);
   useLayoutEffect(() => {
+    modeRef.current = modelMode;
     if (viewRef.current.chatId !== activeChatId) viewVersionRef.current += 1;
     viewRef.current = { chatId: activeChatId, ready: isHistoryReady, setMessages, reloadMessages };
   });
@@ -242,6 +246,8 @@ export function useMediaGeneration({ activeChatId, isHistoryReady, setMessages, 
   }
 
   async function appendAttachments(nextFiles: File[]) {
+    if (!nextFiles.length) return;
+    if (uploadLockRef.current.busy) { setPageError("附件正在处理，请稍候再添加。"); return; }
     await runAttachmentUpload({
       files: nextFiles,
       modelMode,
@@ -250,6 +256,7 @@ export function useMediaGeneration({ activeChatId, isHistoryReady, setMessages, 
       setPageError,
       getVersion: () => viewVersionRef.current,
       getConversationId: () => viewRef.current.chatId,
+      getModelMode: () => modeRef.current,
       commit: (uploaded) => setAttachments((current) => [...current, ...uploaded]),
       setUploading: setIsUploadingAttachments,
       lock: uploadLockRef.current

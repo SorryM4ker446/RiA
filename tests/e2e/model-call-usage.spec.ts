@@ -50,10 +50,11 @@ test("offline local startup keeps tasks and stored conversations available", asy
   await openWorkspace(page, app.origin);
   await page.route(/https?:\/\/(?!localhost[:/]|127\.0\.0\.1[:/])/, route => route.abort("internetdisconnected"));
   await page.goto(`${app.origin}/chat`);
-  await page.getByLabel("选择手动工具").click();
-  await page.getByRole("option", { name: "手动：创建任务" }).click();
+  await page.getByLabel("选择工具").click();
+  await page.getByRole("option", { name: "创建任务" }).click();
   await page.getByPlaceholder(/输入任务标题/).fill("Offline task");
   await page.getByRole("button", { name: "执行工具", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "选择工具", exact: true })).toContainText("自动工具");
   await expect(page.getByText(/Offline task/).first()).toBeVisible();
   await page.goto(`${app.origin}/tasks`);
   await expect(page.getByTestId("task-panel").getByText("Offline task", { exact: true })).toBeVisible();

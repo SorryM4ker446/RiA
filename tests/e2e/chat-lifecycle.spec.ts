@@ -45,7 +45,7 @@ for (const lateFailure of [false, true]) {
       await openRecentConversations(page);
       await page.getByRole("button", { name: /^Beta/ }).click();
       await betaRequest;
-      await expect(page.getByRole("checkbox", { name: "仅手动" })).toBeChecked();
+      await expect(page.getByRole("checkbox", { name: "仅手动" })).toHaveCount(0);
       await openRecentConversations(page);
       await page.getByRole("button", { name: /^Alpha/ }).click();
       await expect(page.getByText("Alpha answer", { exact: true })).toBeVisible();
@@ -60,7 +60,8 @@ for (const lateFailure of [false, true]) {
       const preferences = await page.evaluate(() => [JSON.parse(localStorage.getItem("chat:prefs:a")!), JSON.parse(localStorage.getItem("chat:prefs:b")!)]);
       expect(preferences[0].modelMode).toBe("image");
       expect(preferences[1].modelMode).toBe("chat");
-      expect(preferences[1].manualToolsOnly).toBe(true);
+      expect(preferences[1].manualToolsOnly).toBeUndefined();
+      expect(preferences[1].selectedManualTool).toBeUndefined();
     } finally { release(); }
   });
 }

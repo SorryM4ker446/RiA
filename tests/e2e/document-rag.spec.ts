@@ -70,7 +70,7 @@ test("semantic indexing delivers evidence to chat, marks actual citations and su
   await evidence.screenshot({ path: join(dir, "mobile.png"), animations: "disabled" });
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(`${app.origin}/chat`);
-  await page.getByRole("checkbox").check();
+  await expect(page.getByRole("checkbox", { name: "仅手动", exact: true })).toHaveCount(0);
   await page.getByPlaceholder(/输入你的问题/).fill("出门办事的钱怎样领回来");
   await page.getByRole("button", { name: "发送", exact: true }).click();
   const article = page.locator("article").last();

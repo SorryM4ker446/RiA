@@ -12,6 +12,12 @@ Completed-step reporting remains best-effort after the operation has happened.
 
 Open **模型与用量** from the chat sidebar or Settings. Browser and Electron share the same local SQLite preferences. Browse the official OpenRouter chat, image, video and embedding catalogs, then add models to **我的模型**. Only library members appear in chat selectors or pass server-side call validation.
 
+OpenRouter catalog browsing requires a configured API key in this application.
+Without a key, all four catalog categories return no rows and make no upstream
+requests, including forced refreshes. Existing catalog snapshots are hidden but
+retained, so configuring a key restores normal cache and refresh behavior. Saved
+library entries and model preferences are preserved.
+
 A model is identified by a **reference**: a provider plus that provider's model id (`{ providerId, modelId }`). The two halves are not interchangeable — the same underlying model reached through OpenRouter and reached directly are separate library entries with separate credentials, pricing and availability, and each keeps its own default, fallback and rate entry. Every call path (chat, image, video, media regeneration, embeddings, tool synthesis, fallback) authorizes against that pair. New installations have an empty library and no selected defaults. Explicitly created new conversations use configured defaults; existing conversations retain their local controls.
 
 Catalog categories refresh on demand and are cached locally for 24 hours, per provider and per category. Browsing initially renders eight matching models in a bounded scroll region. Scrolling downward near its bottom reveals eight more; staying idle does not reveal rows or force a provider refresh. Search covers the entire loaded catalog, including matches beyond the former 300-row display limit. Changing provider, category, search or catalog snapshot resets the visible batch. The refresh button remains the explicit way to request a fresh provider snapshot. A failed refresh keeps the last successful snapshot, marks it stale, and records the reason next to it so the next page load can still say whether the credential was rejected, the host was unreachable or the response was unusable. Each response is bounded, timed out and validated before it replaces a snapshot. A provider that is not configured locally, one whose credential was rejected, and one that is merely unreachable are reported as different states, because they call for different action.
@@ -57,6 +63,10 @@ Each turn records which optional tools it could not use, and the message carries
 Automatic fallback is disabled by default. Each mode can specify one distinct backup model. Enabling it authorizes at most one additional model attempt and can incur additional charges. Successful media results and generation recipes identify the model actually used; the usage table lists primary and fallback attempts separately.
 
 Chat falls back only before content is exposed and when no tools participate. After text, reasoning or a tool call starts, failure is reported without switching models. Cancellation, timeouts, provider authentication/permission/parameter errors and incompatible image input never trigger fallback. Eligible failures include an unavailable model (404), provider throttling (429), server errors and transport failures. Auxiliary nonstreaming chat/tool-planning and embedding calls are observed but do not use the configured chat fallback. Their existing SDK retry behavior remains separate from the main chat/media attempt limit.
+
+For tool-free chat in the interface, select an assistant with an empty tool
+allowlist, such as **写作助理**. The tool picker selects a single explicit action;
+it does not disable automatic tools for normal conversations.
 
 Image/video fallback retains the request's prompt/options and requires a library model compatible with reference images. For image generation, reference-image support must be confirmed by endpoint data; if endpoint data cannot be read, text-only generation remains available. The media library's **按原参数重新生成** action always uses the recorded model, so its reproducibility contract is unchanged. A quota counts logical generation requests; fallback attempts are bounded but are not a provider spending limit. Failed or interrupted requests can still be billed.
 

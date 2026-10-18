@@ -1,5 +1,51 @@
 # Test coverage and local validation
 
+RiA plugin packages are covered by `plugin-packages.test.ts`,
+`plugin-packages.spec.ts` and `plugin-migration.test.ts`. They exercise inactive,
+atomic installation; strict manifests and preview digests; credentials and process
+consent; instruction/connection bounds; ownership and cascade uninstall; stale
+approvals; active-call cancellation; real chat prompt inclusion/removal; both HTTP
+and MCP approval; restart persistence; import validation and responsive animated
+sheets. Backup tests ensure portable restore disables retained local packages.
+Fixtures use synthetic credentials, local services and deterministic model replies.
+The Browser plugin is unavailable; rendered checks use Playwright, with screenshots
+outside the repository under temporary `ria-plugins-qa`. Existing CI globs include
+these tests. No dependency or workflow change is required.
+
+Document-processor tests cover PDF/Word/Markdown/TXT extraction without importing
+or calling a model, four download formats, DOCX read-back and literal symbols,
+scoped chat tools and obsolete source versions. Renderer cases check actual file
+downloads, isolated preview, narrow layouts, cancellation/stale responses, error
+recovery and tool-result downloads after restart. Screenshots and generated test
+files stay under the OS temporary directory (`ria-document-processor-qa`). The
+responsive regression checks that creating a draft is reachable in the first
+narrow viewport, editing precedes export settings, replacement can be declined,
+and dropdowns close on a second click without shifting their triggers. Light
+themes, preview transitions and reduced-motion behavior are also exercised. The
+preview intentionally disallows scripts, including automation recorder injection;
+tests permit only that exact Chromium diagnostic and still require no script
+elements, external image requests or other application console errors.
+
+Chat tool regressions distinguish actions from document resources, select a
+document by filename within the conversation's collections, retain failed action
+parameters, and return to automatic tools after a successful explicit action.
+They load obsolete manual-only preferences and verify that later model turns
+still offer other tools with their normal approvals. The composer retains its
+672px desktop width and uses an 80px scrolling text area. Persisted model choices
+and assistant restrictions remain covered by conversation-switching tests.
+
+Extension regressions use real loopback HTTP and MCP JSON-RPC services, plus a
+local stdio process. They check discovery, mandatory approval, denial, stale
+configuration, cancellation, bounded responses, timeouts, credential encryption
+and isolation, and existing manual-tool behavior. The production-renderer tests
+cover management, narrow windows, connection failures, restart and chat history
+after uninstall. Long unbroken names must remain inside cards and tool sheets
+without overlapping status labels; drawers must restore focus and respect reduced
+motion. Migration tests retain existing conversations and verify safety
+copies; portable restore disables machine-local connections without exporting
+their settings or credentials. These fixtures do not establish compatibility with
+every third-party MCP server or a plugin marketplace. See [Extensions](extensions.md).
+
 Document structure regressions run actual generated Word files through the bounded
 worker and verify headings, amounts, row/column relationships, literal untrusted
 text, unmarked first rows and escaped delimiters. Table chunk tests require repeated
@@ -52,6 +98,10 @@ retrieval. Its six answer pairs support manual/live judge calibration.
 against isolated SQLite and offline HTTP provider fixtures. It checks template
 creation/edit/copy/delete, explicit snapshot update, service restart, model picker
 binding, manual tool refusal and the evaluation UI/report. Desktop and 390px
+template detail drawers keep snapshot versions and tool counts out of the chat
+header while preserving the saved version after template edits, deletion and
+restart; keyboard focus, opening transitions and reduced motion are verified.
+Desktop and 390px
 screens also show semantic-review reasons and source quotes. UI checks verify
 review opt-in/reset, paid-call confirmation, refusal results and template-loading
 failure/retry using a deliberately invalid response. These fixtures simulate
@@ -232,6 +282,8 @@ are deterministic HTTP fixtures; these are not live-provider certification.
 
 `tests/e2e/media-storage.spec.ts` covers image generation and attachment upload persistence and protected reads.
 
+`tests/e2e/chat-documents.spec.ts` exercises real PDF/Word parsing through the chat paperclip, mixed image/document provider payloads, draft reload and application restart, original-file downloads, failed-send retry, late failures after conversation switching, generation-mode restrictions, compact mobile layout and reduced motion. Failed SDK requests retain the text and attachments instead of treating a resolved send Promise as success; completion results are matched to their user-message IDs. It uses the repository Playwright harness because the Browser plugin is not available. Server media and backup regressions additionally verify text-only model support, table extraction, malformed files, MIME spoofing, aggregate text limits, cancellation, reference protection and PDF/Word portable restore. These fixtures confirm that attachment handling does not create knowledge documents or chunks; provider replies are deterministic and do not measure live model analysis quality.
+
 ## Interface walkthrough
 
 `tests/server/scheduled-workspace.test.ts` uses the real model middleware with a
@@ -354,7 +406,7 @@ The chat layout regression fills short text and forty-line drafts at desktop, co
 `tests/e2e/workspace-layout.spec.ts` starts an isolated standalone service and checks initial task skeletons, retained task content on a delayed refresh, unchanged composer bounds, internal scrolling, compact-panel controls, and saved theme restoration. It captures chat at 1440, 900 and 390 pixels and other workspace pages under the temporary `ria-workspace-ui` directory. `chat-startup.spec.ts` verifies transcript follow behavior and keeping the reader's position during a streamed answer. These checks require rebuilding and preparing the standalone runtime after UI edits. `tests/desktop/window-appearance.test.ts` covers native Windows transparency options and opaque behavior on other platforms; it does not prove the compositor visually exposes desktop content.
 
 
-The layout test also verifies navigation focus containment, recent-conversation popover bounds, dismissal and focus restoration, creating a task on the independent tasks page, immediate completion feedback and rollback after a rejected save. A renderer test simulates preload presence to check a translucent chat canvas, opaque controls, scrolling when home content exceeds the viewport, and an execution-records sheet that preserves composer bounds. Desktop smoke samples captured alpha values for opaque global navigation/composer and the translucent chat caption, canvas and dock, including after maximize/restore and resizing. Alpha capture briefly shows the isolated smoke window without activating it, waits for finite UI animations and painted frames, then restores its hidden state. Chromium can flatten a hidden backdrop-filter surface to opaque pixels, so hidden capture cannot establish visible-window transparency. Native appearance tests retain coverage of rounded-corner options, Windows host configuration and the Windows 11 22H2 material guard. `workspace-polish.spec.ts` checks scroll-triggered catalog batches, idle behavior, searching beyond 300 entries, independent run-record scrolling, retained drafts, focus restoration, equal-height transparent header controls and menu-animation endpoints without position jumps. Shared Select/Popover/Dropdown primitives resolve to the same Radix dismissal layer to preserve nested Escape handling. `ui-transitions.spec.ts` covers dark first launch, saved light theme, theme-aware wordmark, preload hydration, keyboard focus, sheet transitions and reduced motion. `settings-layout.spec.ts` verifies persisted default-model readiness, clearing the selection, rejected writes, unknown status on read failure, preservation of unrelated preferences, field retention across tabs and compact layouts. `chat-lifecycle.spec.ts` exercises recent-conversation date groups, long titles, keyboard menus, rename and confirmed deletion at desktop and compact widths.
+The layout test also verifies navigation focus containment, recent-conversation popover bounds, dismissal and focus restoration, creating a task on the independent tasks page, immediate completion feedback and rollback after a rejected save. A renderer test simulates preload presence to check a translucent chat canvas, opaque controls, scrolling when home content exceeds the viewport, and an execution-records sheet that preserves composer bounds. Desktop smoke samples captured alpha values for opaque global navigation/composer and the translucent chat caption, canvas and dock, including after maximize/restore and resizing. Alpha capture briefly shows the isolated smoke window without activating it, waits for finite UI animations and painted frames, then restores its hidden state. Chromium can flatten a hidden backdrop-filter surface to opaque pixels, so hidden capture cannot establish visible-window transparency. Native appearance tests retain coverage of rounded-corner options, Windows host configuration and the shared Windows 10/11 configuration without native frosted material. `workspace-polish.spec.ts` checks scroll-triggered catalog batches, idle behavior, searching beyond 300 entries, independent run-record scrolling, retained drafts, focus restoration, equal-height transparent header controls and menu-animation endpoints without position jumps. Shared Select/Popover/Dropdown primitives resolve to the same Radix dismissal layer to preserve nested Escape handling. `ui-transitions.spec.ts` covers dark first launch, saved light theme, theme-aware wordmark, preload hydration, keyboard focus, sheet transitions and reduced motion. `settings-layout.spec.ts` verifies persisted default-model readiness, clearing the selection, rejected writes, unknown status on read failure, preservation of unrelated preferences, field retention across tabs and compact layouts. `chat-lifecycle.spec.ts` exercises recent-conversation date groups, long titles, keyboard menus, rename and confirmed deletion at desktop and compact widths.
 
 ## Test stability and failure diagnostics
 
@@ -383,3 +435,24 @@ Media price regressions in `media-catalog-pricing.test.ts` cover image units/pro
 `window-transitions.test.ts` checks deferred native actions, maximize coalescing, queued close priority, tray-compatible close guards, renderer failure/timeout and teardown cleanup. The caption-click acceptance check still exercises trusted native mouse input rather than synthetic DOM clicks. Native transition QA must also check minimize/restore, maximize/unmaximize, close-to-tray/reopen, quit and reduced motion in the real Electron window.
 
 Browser acceptance follows the current disclosure controls: open recent conversations before paging/selecting them, select “自动化与通知” before checking scheduled history/reviews (including after reload), and open the model usage drawer before asserting recorded fallback charges. Conversation selectors distinguish the primary conversation button from its action menu; all persistence, ownership and billing assertions remain in place.
+
+Template regressions verify default-title changes after template switching, persistence after reload/restart and preservation of independently named titles. Clipboard tests read the actual copied instructions, simulate a refused write and distinguish copying instructions from creating an editable template copy. Template editing opens in a keyboard-accessible sheet with collapsed retrieval settings and reduced-motion support. Compact conversation tests exercise row menus, tag-input focus, pin/archive/export actions, dark/light themes and 390px layouts. Execution-record tests check two-line previews, the complete stored goal on expansion and unchanged composer bounds. Screenshots stay in the system temporary directory. Browser plugin unavailable; these checks use the repository's Playwright harness.
+
+Conversation status changes load immediately without a separate submit. Held-response browser tests verify that search/reset/status reads do not disable or repaint the search controls, and a delayed archived response cannot replace a newer all-conversations result. Archive/restore tests also switch statuses directly before and after service restart.
+
+Official MCP Registry discovery is covered by `extension-registry.test.ts` and `extension-discovery.spec.ts`. Metadata requests are bounded to the fixed official host and do not probe listed services. Tests exercise exact-version details, compatibility labels, credentials withheld until explicitly configured, pagination/cache limits, malformed/removed metadata, cancellation, timeouts and local access/quotas. The isolated offline HTTP fixture serves official-shaped responses while allowing only the explicitly configured loopback MCP test server; unmatched network requests remain blocked. Browser acceptance follows discovery → details → connection draft → save inactive → detect → select tools → enable → chat approval, and verifies that browsing/saving alone executes no tools. Result-panel checks cover independent bounded scrolling, keyboard scrolling, one request per page while pending, preserved rows and scroll position after failure/retry, and reset on a new search. Dark/light, 390px layouts, focus transfer and reduced-motion screenshots remain in the temporary `ria-registry-qa` directory. No CI workflow or dependency change is needed: existing test globs discover these files. DSH bridge compatibility findings and their operational limits are documented in `extensions.md`; third-party services and package installation are not added to the deterministic CI suite.
+
+
+## Community Skill marketplace
+
+`tests/server/skill-marketplace.test.ts` covers search identity/source validation, fixed hosts and redirect policy, omitted credentials, bounded and cancellable streams, frontmatter, file paths and duplicate rejection, full snapshot retention, digest binding, inactive installation, local resource pagination, permission boundaries and disable/uninstall. `tests/e2e/skill-marketplace.spec.ts` exercises search, previewing references, installation, real chat tool execution against an offline model fixture, persistence across restart, empty/outage states, stale responses, narrow layouts, light/dark themes, focus return and reduced motion. Browser plugin not available; use the repository Playwright harness.
+
+The offline HTTP fixture mocks only the public skills.sh search/download endpoints; CI does not install an external CLI, run skill scripts or depend on a live marketplace. Live read-only search/download checks are separate compatibility evidence, not model-quality or CI evidence. Existing test globs include the new files. The `yaml` runtime dependency and lockfile support bounded SKILL.md metadata parsing; no new CI service or environment secret is required.
+
+
+## Knowledge library presentation
+
+`tests/e2e/knowledge-layout.spec.ts` checks the compact document library, import preview/save, retrieval, expandable help and maintenance, long-entry disclosure, draft preservation after a failed create, focus return and narrow light/reduced-motion sheets. Existing knowledge-management, document structure, document retrieval, assistant evaluation and business-persistence suites retain their behavior assertions; create and batch-index workflows now explicitly open their sheet/disclosure. Screenshots are written outside the repository to the temporary `ria-knowledge-layout-qa` directory. The Browser plugin is unavailable; verification uses the existing Playwright harness. No schema, dependency or CI workflow change is required.
+
+
+Knowledge entry presentation additionally has pure regression coverage in `tests/server/knowledge-entry-presentation.test.ts` for tool envelopes, multiline content, unsupported versions, duplicate/malformed fields and plain-note fallback. The tool-record case in `knowledge-layout.spec.ts` verifies compact previews, formatted excerpts without remote images, raw-record access, unchanged raw editing/search, multiline note expansion and dark/light narrow layouts.

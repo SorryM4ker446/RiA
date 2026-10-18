@@ -1,4 +1,6 @@
 import { fetch as undiciFetch, MockAgent, setGlobalDispatcher } from "undici";
+import { registryFixtureEntries } from "./registry-fixture.ts";
+import { marketSearchItem, marketSnapshot } from "./skill-marketplace-fixture.ts";
 
 // Loaded only by the isolated test server, never by application code or builds.
 if (process.env.APP_RUNTIME !== "test" || !process.send) {
@@ -6,6 +8,13 @@ if (process.env.APP_RUNTIME !== "test" || !process.send) {
 }
 const agent = new MockAgent();
 agent.disableNetConnect();
+// A test may opt into exactly one isolated loopback extension fixture. All
+// other external and loopback destinations remain blocked by the default guard.
+if (process.env.PRIVATE_AI_EXTENSION_FIXTURE_ORIGIN) {
+  const allowed = new URL(process.env.PRIVATE_AI_EXTENSION_FIXTURE_ORIGIN);
+  if (allowed.protocol !== "http:" || allowed.hostname !== "127.0.0.1" || allowed.pathname !== "/" || !allowed.port) throw new Error("Invalid extension fixture origin");
+  agent.enableNetConnect(host => host === allowed.host);
+}
 setGlobalDispatcher(agent);
 // Use matching fetch/dispatcher versions and bridge native Request/Response.
 // Node's bundled Undici need not share the installed package's global symbol.
@@ -22,6 +31,30 @@ globalThis.fetch = async (input, options) => {
 };
 
 if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
+  const skills = agent.get("https://skills.sh");
+  skills.intercept({ path: /^\/api\/(?:search|download)/, method: "GET" }).reply(options => {
+    const url = new URL(options.path, "https://skills.sh");
+    if (url.pathname === "/api/search") {
+      const query = url.searchParams.get("q");
+      return { statusCode: query === "unavailable" ? 503 : 200, data: JSON.stringify({ skills: query === "nothing" ? [] : [marketSearchItem] }) };
+    }
+    return { statusCode: 200, data: JSON.stringify(marketSnapshot()) };
+  }).persist();
+  const registry = agent.get("https://registry.modelcontextprotocol.io");
+  const entries = registryFixtureEntries(process.env.PRIVATE_AI_EXTENSION_FIXTURE_ORIGIN || "https://service.example.invalid");
+  registry.intercept({ path: /^\/v0\.1\/servers(?:\?|\/)/, method: "GET" }).reply(options => {
+    const url = new URL(options.path, "https://registry.modelcontextprotocol.io");
+    if (url.pathname === "/v0.1/servers") {
+      const search = url.searchParams.get("search") || "";
+      if (search === "unavailable") return { statusCode: 503, data: JSON.stringify({ error: "Synthetic registry outage" }) };
+      const selected = entries.filter(entry => entry.server.name.includes(search));
+      const offset = url.searchParams.get("cursor") === "fixture:20" ? 20 : 0;
+      return { statusCode: 200, data: JSON.stringify({ servers: selected.slice(offset, offset + 20), metadata: { nextCursor: offset + 20 < selected.length ? "fixture:20" : null } }) };
+    }
+    const match = url.pathname.match(/^\/v0\.1\/servers\/([^/]+)\/versions\/([^/]+)$/);
+    const entry = match && entries.find(item => item.server.name === decodeURIComponent(match[1]) && item.server.version === decodeURIComponent(match[2]));
+    return { statusCode: entry ? 200 : 404, data: JSON.stringify(entry || { error: "Not found" }) };
+  }).persist();
   const provider = agent.get("https://openrouter.ai");
   const catalogRow = (id, name, input, output, extra = {}) => ({
     id, name, description: `Offline fixture for ${id}`, context_length: 200000,
@@ -99,11 +132,34 @@ if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
       const base = { id: "offline-completion", model: body.model, usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } };
       if (body.modalities?.includes("image")) return JSON.stringify({ ...base, choices: [{ index: 0, message: { role: "assistant", content: "", images: [{ type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=" } }] }, finish_reason: "stop" }] });
       if (body.stream) {
+        if (prompt.includes("OFFLINE_TERMINAL_COMMAND") && !body.messages.some(message => message.role === "tool")) {
+          const name = "runTerminalCommand";
+          if (!body.tools?.some(tool => tool.function?.name === name)) throw new Error("Terminal tool was not offered to the fixture model");
+          const command = process.platform === "win32"
+            ? "[IO.File]::AppendAllText('terminal-proof.txt', 'once'); [Console]::WriteLine('terminal-ready-你好')" + (prompt.includes("TERMINAL_STOP") ? "; Start-Sleep -Seconds 30" : "")
+            : "printf once >> terminal-proof.txt; printf 'terminal-ready-你好\\n'" + (prompt.includes("TERMINAL_STOP") ? "; sleep 30" : "");
+          const args = { grantId: /GRANT_ID=([a-zA-Z0-9_-]+)/.exec(prompt)?.[1], command, timeoutSeconds: 60 };
+          return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "terminal-fixture-call", type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
+        }
+        const skillRequested = prompt.includes("OFFLINE_READ_PLUGIN_SKILL");
+        const skillResults = body.messages.filter(message => message.role === "tool").length;
+        if (skillRequested && skillResults < 2 && body.tools?.some(tool => tool.function?.name === "readPluginSkill")) {
+          const packageId = systemText.match(/skills\.sh\.[a-f0-9]{40}/)?.[0];
+          const args = { packageId, path: skillResults ? "references/style.md" : "SKILL.md" };
+          const chunks = [
+            { choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: `skill-read-${skillResults}`, type: "function", function: { name: "readPluginSkill", arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] },
+            { choices: [], usage: base.usage },
+          ];
+          return chunks.map(chunk => `data: ${JSON.stringify({ ...base, ...chunk })}\n\n`).join("") + "data: [DONE]\n\n";
+        }
         const taskRequested = prompt.includes("OFFLINE_CREATE_TASK");
         const knowledgeRequested = prompt.includes("OFFLINE_SEARCH_KNOWLEDGE");
-        if ((taskRequested || knowledgeRequested) && !body.messages.some(message => message.role === "tool") && body.tools?.length) {
-          const name = taskRequested ? "createTask" : "searchKnowledge";
-          const args = taskRequested ? { title: "浏览器真实任务" } : { query: "发布回滚窗口", topK: 4 };
+        const extensionRequested = prompt.includes("OFFLINE_EXTENSION_TOOL");
+        const documentRequested = prompt.includes("OFFLINE_CONVERT_DOCUMENT");
+        if ((taskRequested || knowledgeRequested || extensionRequested || documentRequested) && !body.messages.some(message => message.role === "tool") && body.tools?.length) {
+          const name = taskRequested ? "createTask" : knowledgeRequested ? "searchKnowledge" : documentRequested ? "convertDocument" : body.tools.find(tool => tool.function?.name?.startsWith("ext"))?.function.name;
+          if (!name) throw new Error("The requested extension tool was not offered to the fixture model");
+          const args = taskRequested ? { title: "浏览器真实任务" } : knowledgeRequested ? { query: "发布回滚窗口", topK: 4 } : documentRequested ? { documentId: /DOCUMENT_ID=([a-zA-Z0-9_-]+)/.exec(prompt)?.[1], format: "docx" } : { arguments: { text: "browser-extension-result" } };
           const chunks = [
             { ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "call_browser_fixture", type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: null }] },
             { ...base, choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] },

@@ -22,8 +22,8 @@ async function register(page: Page, origin: string) {
 test("task reminder settings validate local dates and persist recurrence across browser and service restarts", { tag: "@integration" }, async ({ page, app, browser }) => {
   await register(page, app.origin);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
-  await page.getByLabel("选择手动工具").click();
-  await page.getByRole("option", { name: "手动：创建任务" }).click();
+  await page.getByLabel("选择工具").click();
+  await page.getByRole("option", { name: "创建任务" }).click();
   await page.getByPlaceholder(/输入任务标题/).fill("重复提醒浏览器验证");
   await page.locator('input[type="datetime-local"]').fill("2026-01-31T09:00");
   await page.getByRole("button", { name: "执行工具" }).click();

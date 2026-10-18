@@ -101,6 +101,22 @@ test("a refused attachment never locks the composer", async () => {
   assert.deepEqual(run.state.calls, []);
 });
 
+test("document upload results cannot enter a different generation mode", async () => {
+  const run = harness();
+  let mode: "chat" | "image" = "chat";
+  const upload = deferred<Uploaded>();
+  const pending = runAttachmentUpload({ ...run.options, files: [new File(["%PDF"], "file.pdf", { type: "application/pdf" })], getModelMode: () => mode, upload: () => upload.promise });
+  assert.equal(run.state.locked, true);
+  mode = "image";
+  upload.resolve([{ type: "file", url: "/api/media/document", mediaType: "application/pdf", filename: "file.pdf" }]);
+  await pending;
+  assert.deepEqual(run.state.committed, []);
+  assert.equal(run.state.locked, false);
+  await runAttachmentUpload({ ...run.options, modelMode: "image", files: [new File(["word"], "file.docx", { type: "" })] });
+  assert.ok(run.state.error);
+  assert.deepEqual(run.state.committed, []);
+});
+
 test("a video turn still refuses a second reference", async () => {
   const run = harness();
   await runAttachmentUpload({

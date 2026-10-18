@@ -4,6 +4,10 @@ Private AI Assistant is a local-first AI assistant built with Next.js, Vercel AI
 
 ## Capabilities
 
+- Windows PowerShell commands with separate folder permissions, exact-command approval, live output and stop controls; see [Desktop terminal tool](docs/terminal-tools.md)
+
+- Local PDF/Word/Markdown/TXT processing with editable previews, Markdown/TXT/HTML/Word downloads and scoped chat tools; see [Document processor](docs/document-processor.md)
+
 - Streaming, persisted multi-turn chat through OpenRouter
 - Local conversations, messages, memories, knowledge, and tasks
 - Built-in and custom assistant templates with persistent conversation snapshots, model binding, tool scope and retrieval policies
@@ -119,6 +123,8 @@ Server regression tests use real route handlers and temporary SQLite databases, 
 See [Desktop development and release](docs/desktop.md) for data paths, security behavior, troubleshooting, and release checks.
 
 Images, videos, and attachments use private file-backed media assets instead of inline message data. Open **媒体资源库** from the sidebar to browse, filter, inspect and download files, or confirm regeneration/deletion. Its disk-usage panel shares the existing **存储管理** cleanup controls. See [Media library](docs/media-library.md) for generation parameters and reference protection, and [Media storage and migration](docs/media-storage.md) for limits, legacy-data handling and backup requirements.
+
+Chat attachments also accept PDF and Word (`.docx`): the existing local parser extracts text for the selected chat model without importing files into the knowledge library. Document cards support individual removal and original-file downloads; drafts, conversation history and portable backups retain file references. See [PDF and Word in chat](docs/media-storage.md#pdf-and-word-in-chat) for supported formats and limits.
 
 Open **知识库管理** to preview and confirm document imports, update, search, reindex or delete document text. Word headings and table rows are retained as text; table chunks repeat headers to keep amounts and conditions interpretable. Imports and keyword indexing are local. Select an embedding model and explicitly build **语义索引** or use **批量构建或继续** to enable semantic + BM25 hybrid retrieval, with vectors stored in SQLite. Index maintenance reports stale/malformed vectors and old local indices; cancelled or failed operations can continue from saved batches. Indexing sends snippets to that provider; hybrid queries also call it and may incur costs. Chat receives versioned evidence with neighboring conditions and exceptions, and sources distinguish actual answer citations from unused references. See [Document knowledge](docs/document-knowledge.md) for setup, privacy, evaluation, upgrade notes and limits.
 

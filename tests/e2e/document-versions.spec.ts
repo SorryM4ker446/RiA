@@ -36,7 +36,7 @@ test("local search explains scope and old chat citations distinguish changed and
   expect(app.providerCalls).toHaveLength(0);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   await page.goto(`${app.origin}/chat`);
-  await page.getByRole("checkbox").check();
+  await expect(page.getByRole("checkbox", { name: "仅手动", exact: true })).toHaveCount(0);
   await page.getByPlaceholder(/输入你的问题/).fill("星河回滚窗口是多少");
   await page.getByRole("button", { name: "发送", exact: true }).click();
   const source = page.getByRole("link", { name: "星河手册.txt · 片段 1", exact: true });

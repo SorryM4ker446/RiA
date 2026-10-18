@@ -5,7 +5,7 @@ import { truncateTitle } from "@/lib/ai/ui-message";
 import { chatTagSchema, conversationSummary } from "@/lib/conversations/query";
 import { encodeDocumentScope } from "@/lib/documents/scope";
 import { Prisma } from "@prisma/client";
-import { assistantIdSchema } from "@/lib/assistants/schema";
+import { assistantIdSchema, readAssistantSnapshot } from "@/lib/assistants/schema";
 import { resolveAssistant } from "@/lib/assistants/store";
 
 export const updateConversationSchema = z.strictObject({
@@ -27,15 +27,22 @@ export const bulkDeleteSchema = z.strictObject({
 export async function updateConversation(id: string, input: z.infer<typeof updateConversationSchema>) {
   const selectedAssistant = input.assistantTemplateId ? await resolveAssistant(input.assistantTemplateId) : null;
   return db.$transaction(async tx => {
-    if (!await tx.chat.findFirst({ where: { id }, select: { id: true } })) throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
+    const current = await tx.chat.findFirst({ where: { id }, select: { title: true, assistantConfig: true } });
+    if (!current) throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
     const assistant = selectedAssistant;
+    // Only a placeholder or the previous template's default name follows the
+    // template. A conversation renamed by the user keeps its own title.
+    const previousAssistant = readAssistantSnapshot(current.assistantConfig);
+    const followsTemplate = ["new chat", "新会话", "untitled"].includes(current.title.trim().toLowerCase())
+      || (previousAssistant !== null && current.title === truncateTitle(previousAssistant.name));
+    const title = input.title ?? (input.assistantTemplateId !== undefined && followsTemplate ? assistant?.name ?? "New Chat" : undefined);
     const chat = await tx.chat.update({ where: { id }, data: {
       ...(input.assistantTemplateId !== undefined ? {
         assistantConfig: assistant ?? Prisma.DbNull,
         ...(assistant ? { documentScope: encodeDocumentScope(assistant.collections), ephemeral: !assistant.usesMemory } : {}),
         historyRevision: { increment: 1 }, summary: null, summaryUpToMessageId: null, summaryModelId: null, summaryRevision: null,
       } : {}),
-      ...(input.title !== undefined ? { title: truncateTitle(input.title) } : {}),
+      ...(title !== undefined ? { title: truncateTitle(title) } : {}),
       ...(input.pinned !== undefined ? { pinned: input.pinned } : {}),
       ...(input.archived !== undefined ? { archived: input.archived } : {}),
       ...(input.ephemeral !== undefined ? { ephemeral: input.ephemeral } : {}),

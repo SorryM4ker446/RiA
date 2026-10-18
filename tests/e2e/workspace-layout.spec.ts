@@ -303,13 +303,11 @@ test("desktop chat stays translucent and execution history opens without moving 
   await records.getByRole("button", { name: "执行记录", exact: true }).click();
   const drawer = page.getByRole("dialog", { name: "执行记录", exact: true });
   await expect(
-    drawer.getByText("检查执行步骤", { exact: true }),
+    drawer.getByRole("button", { name: /检查执行步骤/ }),
   ).toBeVisible();
   expect(await page.locator(".composer-surface").boundingBox()).toEqual(composerBounds);
   await page.keyboard.press("Escape");
-  await expect(
-    drawer.getByText("检查执行步骤", { exact: true }),
-  ).not.toBeVisible();
+  await expect(drawer).toBeHidden();
   for (const route of ["/", "/tasks", "/knowledge", "/settings", "/models"]) {
     await page.goto(`${app.origin}${route}`);
     await expect(page.locator(".workspace-shell")).toHaveAttribute(

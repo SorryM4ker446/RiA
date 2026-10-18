@@ -20,7 +20,7 @@ export async function listMediaLibrary(params: URLSearchParams) {
   const cursor = options.cursor;
   const rows = await db.mediaAsset.findMany({ where: {
     deletedAt: null,
-    ...(query.type === "all" ? {} : { mediaType: { startsWith: `${query.type}/` } }),
+    ...(query.type === "all" ? { OR: [{ mediaType: { startsWith: "image/" } }, { mediaType: { startsWith: "video/" } }] } : { mediaType: { startsWith: `${query.type}/` } }),
     ...(query.kind === "all" ? {} : { kind: query.kind }),
     AND: [
       ...(query.usage === "unused" ? [{ references: { none: {} }, usedByGenerations: { none: {} } }] : query.usage === "referenced" ? [{ OR: [{ references: { some: {} } }, { usedByGenerations: { some: {} } }] }] : []),

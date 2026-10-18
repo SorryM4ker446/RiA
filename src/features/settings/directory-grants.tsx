@@ -1,18 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { FolderOpen, Loader2, ShieldOff } from "lucide-react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { FolderOpen, Loader2, ShieldOff, Terminal } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { t } from "@/lib/locale";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { cn } from "@/lib/utils/cn";
 
 type GrantRow = {
   id: string;
   label: string;
   path: string;
   realPath: string;
+  terminalEnabled: boolean;
+  updatedAt: string;
   createdAt: string;
   lastUsedAt: string | null;
   revokedAt: string | null;
@@ -36,14 +41,37 @@ async function readError(response: Response): Promise<string> {
  * again. Withdrawing is one click and takes effect on the next tool call, not
  * on the next restart.
  */
-export function DirectoryGrantSettings() {
+export function DirectoryGrantSettings({ embedded = false, onChange }: { embedded?: boolean; onChange?: () => void }) {
+  const pathId = useId();
+  const loadRequest = useRef(0);
   const [grants, setGrants] = useState<GrantRow[]>([]);
   const [path, setPath] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [terminalGrant, setTerminalGrant] = useState<GrantRow | null>(null);
+  const [permissionSaving, setPermissionSaving] = useState(false);
+  const [choosing, setChoosing] = useState(false);
+  const busy = saving || permissionSaving || choosing;
+
+  async function changeTerminal(grant: GrantRow, enabled: boolean) {
+    setPermissionSaving(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/directory-grants/${encodeURIComponent(grant.id)}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ terminalEnabled: enabled, revision: grant.updatedAt }),
+      });
+      if (!response.ok) throw new Error(await readError(response));
+      setTerminalGrant(null);
+      onChange?.();
+      await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : t("settings.grants.failed")); }
+    finally { setPermissionSaving(false); }
+  }
 
   const load = useCallback(async () => {
+    const request = ++loadRequest.current;
     try {
       // Withdrawing a grant keeps the record, so it is asked for explicitly:
       // without this the user sees a folder disappear and no way to find out
@@ -51,21 +79,29 @@ export function DirectoryGrantSettings() {
       const response = await fetch("/api/directory-grants?includeRevoked=true", { cache: "no-store" });
       if (!response.ok) throw new Error(await readError(response));
       const payload = await response.json();
+      if (request !== loadRequest.current) return;
       setGrants(Array.isArray(payload.data) ? payload.data : []);
       setError(null);
     } catch (loadError) {
+      if (request !== loadRequest.current) return;
       setError(loadError instanceof Error ? loadError.message : t("settings.grants.failed"));
     } finally {
-      setLoading(false);
+      if (request === loadRequest.current) setLoading(false);
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const requests = loadRequest;
+    void load();
+    return () => { ++requests.current; };
+  }, [load]);
 
-  async function add(event: { preventDefault: () => void }) {
+  async function add(event: { preventDefault: () => void; stopPropagation: () => void }) {
     event.preventDefault();
+    // Directory authorization must not trigger an enclosing form's action.
+    event.stopPropagation();
     const chosen = path.trim();
-    if (!chosen || saving) return;
+    if (!chosen || busy) return;
     setSaving(true);
     setError(null);
     try {
@@ -76,6 +112,7 @@ export function DirectoryGrantSettings() {
       });
       if (!response.ok) throw new Error(await readError(response));
       setPath("");
+      onChange?.();
       await load();
     } catch (addError) {
       setError(addError instanceof Error ? addError.message : t("settings.grants.failed"));
@@ -85,14 +122,17 @@ export function DirectoryGrantSettings() {
   }
 
   async function revoke(id: string) {
+    if (busy) return;
+    setSaving(true);
     setError(null);
     try {
       const response = await fetch(`/api/directory-grants/${encodeURIComponent(id)}`, { method: "DELETE" });
       if (!response.ok) throw new Error(await readError(response));
+      onChange?.();
       await load();
     } catch (revokeError) {
       setError(revokeError instanceof Error ? revokeError.message : t("settings.grants.failed"));
-    }
+    } finally { setSaving(false); }
   }
 
   /**
@@ -104,25 +144,18 @@ export function DirectoryGrantSettings() {
    */
   async function choose() {
     const bridge = window.privateAiDesktop;
-    if (!bridge?.chooseFolder) return;
+    if (!bridge?.chooseFolder || busy) return;
+    setChoosing(true);
     try {
       const chosen = await bridge.chooseFolder();
       if (!chosen.canceled && chosen.path) setPath(chosen.path);
     } catch (chooseError) {
       setError(chooseError instanceof Error ? chooseError.message : t("settings.grants.failed"));
-    }
+    } finally { setChoosing(false); }
   }
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <FolderOpen aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
-          {t("settings.grants.title")}
-        </CardTitle>
-        <CardDescription>{t("settings.grants.description")}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
+  const content = (
+      <div className="flex flex-col gap-4">
         {error ? (
           <Alert variant="destructive">
             <AlertTitle>{t("settings.grants.failedTitle")}</AlertTitle>
@@ -138,10 +171,10 @@ export function DirectoryGrantSettings() {
         ) : grants.length === 0 ? (
           <p className="text-xs text-muted-foreground">{t("settings.grants.empty")}</p>
         ) : (
-          <ul className="space-y-2">
+          <ul className="flex flex-col gap-2">
             {grants.map((grant) => (
-              <li className="flex items-start justify-between gap-3 rounded-md border border-border px-3 py-2" key={grant.id}>
-                <div className="min-w-0">
+              <li className="flex flex-col items-start justify-between gap-3 rounded-md border border-border px-3 py-2 sm:flex-row" key={grant.id}>
+                <div className="w-full min-w-0 sm:w-auto">
                   <p className="truncate text-sm font-medium">{grant.label}</p>
                   <p className="truncate text-xs text-muted-foreground" title={grant.realPath}>{grant.path}</p>
                   <p className="text-[11px] text-muted-foreground">
@@ -154,33 +187,75 @@ export function DirectoryGrantSettings() {
                 </div>
                 {/* A withdrawn folder is shown rather than offered: there is nothing left to withdraw. */}
                 {grant.revokedAt ? null : (
-                  <Button onClick={() => void revoke(grant.id)} size="sm" type="button" variant="outline">
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  {typeof window !== "undefined" && window.privateAiDesktop ? <Button disabled={busy} onClick={() => grant.terminalEnabled ? void changeTerminal(grant, false) : setTerminalGrant(grant)} size="sm" type="button" variant="outline">
+                    <Terminal aria-hidden="true" data-icon="inline-start" />
+                    {grant.terminalEnabled ? "关闭终端" : "开启终端"}
+                  </Button> : null}
+                  <Button disabled={busy} onClick={() => void revoke(grant.id)} size="sm" type="button" variant="outline">
                     <ShieldOff aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
                     {t("settings.grants.revoke")}
                   </Button>
+                  </div>
                 )}
               </li>
             ))}
           </ul>
         )}
 
-        <form className="flex items-center gap-2" onSubmit={add}>
+        <form className={cn("flex gap-2", embedded ? "flex-col" : "flex-wrap items-end sm:flex-nowrap")} onSubmit={add}>
+          <Field className="min-w-0 flex-1 gap-2">
+          <FieldLabel htmlFor={pathId} className={embedded ? undefined : "sr-only"}>目录路径</FieldLabel>
           <Input
+            id={pathId}
+            className="min-w-0"
+            disabled={busy}
             onChange={(event) => setPath(event.target.value)}
             placeholder={t("settings.grants.placeholder")}
             value={path}
           />
-          <Button disabled={saving} onClick={() => void choose()} type="button" variant="outline">
+          </Field>
+          <div className="flex items-center justify-end gap-2">
+          <Button disabled={busy || (typeof window !== "undefined" && !window.privateAiDesktop?.chooseFolder)} onClick={() => void choose()} type="button" variant="outline">
             <FolderOpen aria-hidden="true" className="mr-1.5 h-4 w-4" />
-            {t("settings.grants.browse")}
+            {embedded ? "选择目录" : t("settings.grants.browse")}
           </Button>
-          <Button disabled={saving || !path.trim()} type="submit">
+          <Button disabled={busy || !path.trim()} type="submit">
             {saving ? <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" /> : null}
             {t("settings.grants.add")}
           </Button>
+          </div>
         </form>
         <p className="text-[11px] text-muted-foreground">{t("settings.grants.note")}</p>
-      </CardContent>
-    </Card>
+      </div>
   );
+  return <>
+      {embedded ? content : <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base"><FolderOpen aria-hidden="true" className="size-4 text-muted-foreground" />{t("settings.grants.title")}</CardTitle>
+          <CardDescription>{t("settings.grants.description")}</CardDescription>
+        </CardHeader>
+        <CardContent>{content}</CardContent>
+      </Card>}
+      <Sheet open={!!terminalGrant} onOpenChange={open => { if (!open && !permissionSaving) setTerminalGrant(null); }}>
+        <SheetContent side="right" className="directory-permissions-sheet flex flex-col gap-5 overflow-y-auto p-6">
+          <SheetTitle>开启终端权限</SheetTitle>
+          <SheetDescription>允许 RiA 在此目录启动 PowerShell，每条命令仍需你确认。</SheetDescription>
+          <p className="break-all font-mono text-xs">{terminalGrant?.realPath}</p>
+          <Alert>
+            <Terminal aria-hidden="true" />
+            <AlertTitle>命令以当前 Windows 用户身份运行</AlertTitle>
+            <AlertDescription>工作目录不是文件访问沙箱。命令可能修改目录外的文件、访问网络或启动程序；原有文件工具的路径限制不适用于终端。关闭权限会停止此目录正在运行的命令。</AlertDescription>
+          </Alert>
+          {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
+          <div className="mt-auto flex justify-end gap-2">
+            <Button disabled={permissionSaving} variant="outline" onClick={() => setTerminalGrant(null)}>取消</Button>
+            <Button disabled={permissionSaving || !terminalGrant} onClick={() => terminalGrant && void changeTerminal(terminalGrant, true)}>
+              {permissionSaving ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Terminal data-icon="inline-start" />}
+              确认开启终端权限
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+  </>;
 }

@@ -18,7 +18,7 @@ test("topic migration preserves old conversation settings and enforces cascade a
       before.exec("INSERT INTO chats (id,title,documentScope,ephemeral,assistantConfig,updatedAt) VALUES ('old','Existing conversation','财务',1,'{\"snapshot\":true}',CURRENT_TIMESTAMP)");
     } finally { before.close(); }
     const options = { databaseFile, migrationsDirectory, backupsDirectory: join(root, "backups"), logger: { info() {}, warn() {}, error() {} } };
-    const result = runDesktopMigrations(options); assert.deepEqual(result.applied, [migration]); assert.ok(result.backupFile);
+    const result = runDesktopMigrations(options); assert.deepEqual(result.applied, readdirSync(migrationsDirectory, { withFileTypes: true }).filter(entry => entry.isDirectory() && entry.name >= migration).map(entry => entry.name).sort()); assert.ok(result.backupFile);
     const backup = new DatabaseSync(result.backupFile, { readOnly: true });
     try { assert.equal(backup.prepare("PRAGMA table_info(chats)").all().some(row => row.name === "topicId"), false); } finally { backup.close(); }
     assert.deepEqual(runDesktopMigrations(options).applied, []);

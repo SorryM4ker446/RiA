@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/db";
 import { LocalFileRefused, localGrantLabelSchema } from "@/lib/local-files/limits";
 import { resolveGrant } from "@/lib/local-files/safe-path";
+import { stopTerminalCommandsForGrant } from "@/lib/terminal/runtime";
 
 /**
  * Directories the user has opened to the assistant.
@@ -18,6 +19,8 @@ export type DirectoryGrantView = {
   path: string;
   /** Where the filesystem actually put it. Shown so the user can recognise a grant. */
   realPath: string;
+  terminalEnabled: boolean;
+  updatedAt: string;
   createdAt: string;
   lastUsedAt: string | null;
   revokedAt: string | null;
@@ -28,6 +31,8 @@ const grantViewSelect = {
   label: true,
   path: true,
   realPath: true,
+  terminalEnabled: true,
+  updatedAt: true,
   createdAt: true,
   lastUsedAt: true,
   revokedAt: true
@@ -38,6 +43,8 @@ function toView(row: {
   label: string;
   path: string;
   realPath: string;
+  terminalEnabled: boolean;
+  updatedAt: Date;
   createdAt: Date;
   lastUsedAt: Date | null;
   revokedAt: Date | null;
@@ -47,6 +54,8 @@ function toView(row: {
     label: row.label,
     path: row.path,
     realPath: row.realPath,
+    terminalEnabled: row.terminalEnabled,
+    updatedAt: row.updatedAt.toISOString(),
     createdAt: row.createdAt.toISOString(),
     lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
     revokedAt: row.revokedAt?.toISOString() ?? null
@@ -115,9 +124,10 @@ async function findByRealPath(realPath: string): Promise<{ id: string } | null> 
 async function reviveGrant(id: string, label: string, resolvedPath: string): Promise<DirectoryGrantView> {
   const row = await db.directoryGrant.update({
     where: { id },
-    data: { label, path: resolvedPath, revokedAt: null, lastUsedAt: null },
+    data: { label, path: resolvedPath, revokedAt: null, lastUsedAt: null, terminalEnabled: false },
     select: grantViewSelect
   });
+  stopTerminalCommandsForGrant(id);
   return toView(row);
 }
 
@@ -133,8 +143,9 @@ export async function revokeGrant(id: string): Promise<{ revoked: true }> {
   const existing = await db.directoryGrant.findUnique({ where: { id }, select: { id: true, revokedAt: true } });
   if (!existing) return { revoked: true };
   if (!existing.revokedAt) {
-    await db.directoryGrant.update({ where: { id }, data: { revokedAt: new Date() } });
+    await db.directoryGrant.update({ where: { id }, data: { revokedAt: new Date(), terminalEnabled: false } });
   }
+  stopTerminalCommandsForGrant(id);
   return { revoked: true };
 }
 

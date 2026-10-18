@@ -218,6 +218,7 @@ export function mapStoredMessagesToUI(messages: StoredMessage[]): {
       for (const tool of parsedAssistantToolMessage.tools) {
         parts.push({
           type: `tool-${tool.toolName}` as `tool-${string}`,
+          ...(tool.title ? { title: tool.title } : {}),
           toolCallId: tool.toolCallId,
           state: tool.state,
           ...(tool.input !== undefined ? { input: tool.input } : {}),

@@ -2,14 +2,17 @@ type WordNode = { type: string; value?: string; children?: WordNode[]; body?: Wo
   numbering?: { isOrdered?: boolean }; colSpan?: number; rowSpan?: number; isHeader?: boolean; checked?: boolean };
 
 /** Self-contained because the bounded parser worker runs this function's source. */
-export function serializeWordDocument(document: WordNode, limit: number): string {
+export function serializeWordDocument(document: WordNode, limit: number, escapeMarkdown = false): string {
   let visited = 0;
   const fail = () => { throw Object.assign(new Error("文档结构过大或表格跨度无效。"), { code: "PAYLOAD_TOO_LARGE" }); };
   const bounded = (value: string) => { if (value.length > limit) fail(); return value; };
-  const cellText = (value: string) => value.trim().replace(/\r?\n+/g, " / ").replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/`/g, "\\`");
+  const cellText = (value: string) => {
+    const text = value.trim().replace(/\r?\n+/g, " / ");
+    return escapeMarkdown ? text : text.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/`/g, "\\`");
+  };
   function render(node: WordNode, depth = 0): string {
     if (++visited > 100_000 || depth > 64) fail();
-    if (node.type === "text") return bounded(node.value ?? "");
+    if (node.type === "text") return bounded(escapeMarkdown ? (node.value ?? "").replace(/([\\`*_{}\[\]<>()#+\-.!|~])/g, "\\$1") : node.value ?? "");
     if (node.type === "tab") return "\t";
     if (node.type === "break") return "\n";
     if (node.type === "checkbox") return node.checked ? "[x] " : "[ ] ";

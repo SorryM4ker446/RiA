@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
+import { randomBytes } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
@@ -11,7 +12,7 @@ import { createDesktopLogger, createDesktopLogSink } from "../../electron/logger
 
 type ProviderCall = { stream: boolean; messages: Array<{ role: string; content: unknown }> };
 
-export async function startStandaloneServer(options: { modelFixture?: boolean; desktopScheduler?: boolean; serverEntry?: string } = {}) {
+export async function startStandaloneServer(options: { modelFixture?: boolean; desktopScheduler?: boolean; serverEntry?: string; extensionFixtureOrigin?: string } = {}) {
   const parent = resolve(".desktop-data/test");
   mkdirSync(parent, { recursive: true });
   const root = mkdtempSync(join(parent, "http-"));
@@ -40,6 +41,8 @@ export async function startStandaloneServer(options: { modelFixture?: boolean; d
     OPENROUTER_API_KEY: options.modelFixture ? "offline-fixture-placeholder" : "", DEEPSEEK_API_KEY: "", TAVILY_API_KEY: "", TAVILY_SEARCH_URL: "",
     OUTBOUND_PROXY_URL: "", HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "", http_proxy: "", https_proxy: "", all_proxy: "",
     PRIVATE_AI_HTTP_FIXTURE: options.modelFixture ? "1" : "0",
+    PRIVATE_AI_EXTENSION_FIXTURE_ORIGIN: options.extensionFixtureOrigin ?? "",
+    RIA_EXTENSION_KEY: randomBytes(32).toString("base64"),
   };
   let server: ChildProcess | undefined;
   const providerCalls: ProviderCall[] = [];

@@ -221,7 +221,7 @@ export const pageMessages = {
 
   // --- knowledge ----------------------------------------------------------
   "knowledge.title": "知识库管理",
-  "knowledge.description": "这些条目会进入 searchKnowledge 的可检索范围。",
+  "knowledge.description": "整理文档与常用知识，供助理检索和引用。",
   "knowledge.backToChat": "返回聊天",
   "knowledge.refresh": "刷新",
   "knowledge.error.title": "知识库操作失败",

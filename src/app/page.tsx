@@ -39,7 +39,6 @@ export default function HomePage() {
       </section>
       <footer className="flex flex-wrap items-center justify-between gap-3 border-t pt-5 text-xs leading-6 text-muted-foreground">
         <span>会话与资料保存在本地，随时继续你的工作。</span>
-        <a className="rounded underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" href="https://sdk.vercel.ai/docs" rel="noreferrer" target="_blank">{t("home.secondaryAction")}</a>
       </footer>
     </main>
   );

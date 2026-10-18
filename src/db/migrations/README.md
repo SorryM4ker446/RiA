@@ -1,5 +1,14 @@
 # Database migrations
 
+`20261018180000_terminal_permissions` adds a separate, default-off terminal
+permission to directory grants. Existing file permissions do not gain command
+execution. Terminal permissions are machine-local and revoked on portable restore.
+
+`20261018120000_plugin_packages` adds machine-local plugin manifests and optional
+extension ownership. Existing connections retain their IDs and activation state.
+The plugin migration test verifies the safety backup, repeated startup and owned
+connection cascade, independently of the prior extension migration.
+
 Each subdirectory is one migration, named `YYYYMMDDHHMMSS_description`, and the
 name is the whole of its metadata: it is the primary key in the `desktop_migrations`
 ledger and its sort order is the order the migrations run in.

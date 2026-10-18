@@ -1,4 +1,4 @@
-import { test as base, expect } from "@playwright/test";
+import { test as base, expect, type Page } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,18 @@ const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>
   app: async ({}, runTest) => { const app = await startStandaloneServer({ modelFixture: true }); try { await runTest(app); } finally { await app.close(); } },
 });
 
+async function expectSnapshotDetails(page: Page, revision: number, toolCount: number) {
+  await expect(page.locator(".chat-toolbar").getByText(/快照|个工具/)).toHaveCount(0);
+  const trigger = page.getByRole("button", { name: "模板详情", exact: true });
+  await trigger.click();
+  const details = page.getByRole("dialog", { name: /^模板详情/ });
+  await expect(details.locator("dl > div").filter({ has: page.getByText("快照版本", { exact: true }) })).toContainText(`v${revision}`);
+  await expect(details.getByText(`${toolCount} 个工具`, { exact: true })).toBeVisible();
+  await details.getByRole("button", { name: "关闭", exact: true }).click();
+  await expect(details).toBeHidden();
+  await expect(trigger).toBeFocused();
+}
+
 test("template editing, copying and deletion preserve conversation snapshots across service restart", { tag: "@integration" }, async ({ page, app }) => {
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
   const consoleErrors: string[] = []; page.on("console", message => { if (message.type() === "error") consoleErrors.push(message.text()); });
@@ -18,6 +30,8 @@ test("template editing, copying and deletion preserve conversation snapshots acr
   await page.goto(`${app.origin}/assistants`);
   await expect(page.getByTestId("assistant-template-builtin_writing")).toBeVisible();
   await expect(page.getByTestId("assistant-template-builtin_writing").getByRole("button", { name: "编辑", exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("模板名称", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "新建模板", exact: true }).click();
   await page.getByLabel("模板名称", { exact: true }).fill("财务测试助理");
   await page.getByLabel("助理指令", { exact: true }).fill("Keep original financial evidence. ASSISTANT_SNAPSHOT_V1");
   await page.getByLabel("知识集合（每行一个，留空为全部）").fill("财务");
@@ -29,33 +43,131 @@ test("template editing, copying and deletion preserve conversation snapshots acr
   const card = page.getByTestId(`assistant-template-${saved.id}`);
   await card.getByRole("button", { name: "使用模板新建会话" }).click();
   await expect(page.getByLabel("助理模板", { exact: true })).toContainText("财务测试助理");
-  await expect(page.getByText(/快照 v1 · 0 个工具/)).toBeVisible();
+  await expectSnapshotDetails(page, 1, 0);
   await expect(page.getByLabel("选择模型")).toBeDisabled();
   const chat = (await browserData(page, "/api/conversations"))[0]; expect(chat.ephemeral).toBe(true); expect(chat.documentScope).toBe("财务");
   await page.getByPlaceholder(/输入你的问题/).fill("Explain the working rules"); await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.locator("article").last()).toContainText("检索诊断");
   await expect.poll(() => JSON.stringify(app.providerCalls.filter(call => call.stream).at(-1)?.messages) ?? "").toContain("ASSISTANT_SNAPSHOT_V1");
-  await page.goto(`${app.origin}/assistants`); await card.getByRole("button", { name: "编辑", exact: true }).click();
+  await page.goto(`${app.origin}/assistants`); await card.getByRole("button", { name: /更多操作/ }).click(); await page.getByRole("menuitem", { name: "编辑", exact: true }).click();
   await page.getByLabel("助理指令", { exact: true }).fill("ASSISTANT_SNAPSHOT_V2");
   await page.getByRole("button", { name: "保存模板", exact: true }).click(); await expect(page.getByRole("status")).toContainText("模板已保存");
-  await page.goto(`${app.origin}/chat`); await expect(page.getByText(/快照 v1 · 0 个工具/)).toBeVisible();
-  await page.getByRole("button", { name: "更新为最新模板" }).click(); await expect(page.getByText(/快照 v2 · 0 个工具/)).toBeVisible();
-  await app.restart(); await page.reload(); await expect(page.getByText(/快照 v2 · 0 个工具/)).toBeVisible();
-  await page.goto(`${app.origin}/assistants`); await card.getByRole("button", { name: "复制", exact: true }).click();
+  await page.goto(`${app.origin}/chat`); await expectSnapshotDetails(page, 1, 0);
+  await expect(page.getByRole("button", { name: "更新为最新模板", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "更新为最新模板" }).click(); await expectSnapshotDetails(page, 2, 0);
+  await app.restart(); await page.reload(); await expectSnapshotDetails(page, 2, 0);
+  await page.goto(`${app.origin}/assistants`); await card.getByRole("button", { name: /更多操作/ }).click(); await page.getByRole("menuitem", { name: "创建副本", exact: true }).click();
   await expect(page.getByLabel("模板名称", { exact: true })).toHaveValue("财务测试助理 副本");
   await page.getByRole("button", { name: "保存模板", exact: true }).click(); await expect(page.getByRole("status")).toContainText("模板已保存");
   const dir = join(tmpdir(), "ria-assistant-qa"); await mkdir(dir, { recursive: true });
+  await page.locator(".workspace-content").evaluate(node => node.scrollTo(0, 0));
   await page.screenshot({ path: join(dir, "desktop.png"), fullPage: true, animations: "disabled" });
   await page.setViewportSize({ width: 390, height: 844 }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: join(dir, "mobile.png"), fullPage: true, animations: "disabled" }); await page.setViewportSize({ width: 1280, height: 900 });
-  page.once("dialog", dialog => dialog.accept()); await card.getByRole("button", { name: "删除", exact: true }).click();
+  await card.getByRole("button", { name: /更多操作/ }).click();
+  page.once("dialog", dialog => dialog.accept()); await page.getByRole("menuitem", { name: "删除", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("模板已删除"); await page.goto(`${app.origin}/chat`);
-  await expect(page.getByLabel("助理模板", { exact: true })).toContainText("财务测试助理"); await expect(page.getByText(/快照 v2 · 0 个工具/)).toBeVisible();
+  await expect(page.getByLabel("助理模板", { exact: true })).toContainText("财务测试助理"); await expectSnapshotDetails(page, 2, 0);
   const restored = (await browserApi(page, `/api/conversations/${chat.id}`)).body.data; expect(restored.assistantConfig.instructions).toBe("ASSISTANT_SNAPSHOT_V2");
   expect(consoleErrors).toEqual([]);
   const denied = await browserApi(page, "/api/tools/run", "POST", { mode: "chat", chatId: chat.id, tool: "createTask", input: { title: "Denied by template" } }); expect(denied.status).toBe(400);
   await page.getByLabel("助理模板", { exact: true }).click(); await page.getByRole("option", { name: "通用助理", exact: true }).click(); await expect(page.getByLabel("选择模型")).toBeEnabled();
+  await expect(page.getByRole("button", { name: "模板详情", exact: true })).toHaveCount(0);
   expect(errors).toEqual([]);
+});
+
+test("template details keep snapshot metadata out of the chat header and use accessible responsive sheet transitions", async ({ page, app }) => {
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  await page.goto(`${app.origin}/assistants`);
+  const created = await browserApi(page, "/api/conversations", "POST", { title: "模板详情样式", assistantTemplateId: "builtin_research" });
+  expect(created.status).toBe(201);
+  await page.goto(`${app.origin}/chat?conversationId=${created.body.data.id}`);
+  await expect(page.locator(".chat-toolbar").getByText(/快照|个工具/)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "更新为最新模板", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "管理模板", exact: true })).toBeVisible();
+  const trigger = page.getByRole("button", { name: "模板详情", exact: true });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await trigger.click();
+  const details = page.getByRole("dialog", { name: "模板详情 · 资料研究助理", exact: true });
+  await expect(details).toBeVisible();
+  await expect(details.getByText("2 个工具", { exact: true })).toBeVisible();
+  await expect(details).toHaveCSS("animation-name", "sheet-in");
+  await expect(details.getByRole("textbox")).toHaveCount(0);
+  const dir = join(tmpdir(), "ria-template-details-qa"); await mkdir(dir, { recursive: true });
+  await page.screenshot({ path: join(dir, "desktop-dark.png"), animations: "disabled" });
+  await page.keyboard.press("Escape"); await expect(details).toBeHidden(); await expect(trigger).toBeFocused();
+  await page.getByRole("button", { name: "切换主题", exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await trigger.click();
+  await expect(details).toBeVisible(); await expect(details).toHaveCSS("animation-name", "none");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: join(dir, "mobile-light.png"), animations: "disabled" });
+  await details.getByRole("button", { name: "关闭", exact: true }).click(); await expect(trigger).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
+test("template instructions copy to the clipboard while creating a copy opens an independent editor", async ({ page, app }) => {
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  await openWorkspace(page, app.origin);
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: app.origin });
+  await page.goto(`${app.origin}/assistants`);
+  const card = page.getByTestId("assistant-template-builtin_coding");
+  const templates = await browserData(page, "/api/assistants");
+  const original = templates.find(item => item.id === "builtin_coding");
+  await card.getByRole("button", { name: "复制", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("已复制");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(original.config.instructions);
+  await expect(page.getByRole("dialog", { name: "新建自定义模板" })).toHaveCount(0);
+  expect((await browserData(page, "/api/assistants")).length).toBe(templates.length);
+  await page.evaluate(() => { navigator.clipboard.writeText = async () => { throw new DOMException("Denied", "NotAllowedError"); }; });
+  await card.getByRole("button", { name: "复制", exact: true }).click();
+  await expect(page.locator("main").getByRole("alert")).toContainText("无法写入剪贴板");
+  const more = card.getByRole("button", { name: /更多操作/ });
+  await more.click(); await page.getByRole("menuitem", { name: "创建副本" }).click();
+  const drawer = page.getByRole("dialog", { name: "新建自定义模板" });
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByLabel("模板名称", { exact: true })).toHaveValue("代码助理 副本");
+  await expect(drawer.getByLabel("助理指令", { exact: true })).toHaveValue(original.config.instructions);
+  await expect(drawer.getByLabel("语义阈值")).not.toBeVisible();
+  await drawer.getByText("检索策略", { exact: true }).click();
+  await expect(drawer.getByLabel("语义阈值")).toBeVisible();
+  await page.keyboard.press("Escape"); await expect(drawer).toBeHidden(); await expect(more).toBeFocused();
+  const desktopDir = join(tmpdir(), "ria-template-management-qa"); await mkdir(desktopDir, { recursive: true });
+  await page.screenshot({ path: join(desktopDir, "templates-dark.png"), animations: "disabled" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "新建模板", exact: true }).click();
+  await expect(drawer).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await drawer.getByLabel("助理指令", { exact: true }).fill("移动窗口中保留的指令");
+  const dir = join(tmpdir(), "ria-assistant-qa"); await mkdir(dir, { recursive: true });
+  await page.screenshot({ path: join(dir, "editor-mobile.png"), animations: "disabled" });
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "新建模板", exact: true })).toBeFocused();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.getByRole("button", { name: "新建模板", exact: true }).click();
+  await expect(drawer).toHaveCSS("animation-name", "none");
+  expect(errors).toEqual([]);
+});
+
+test("switching templates refreshes the default title immediately and persists independently named titles", async ({ page, app }) => {
+  await openWorkspace(page, app.origin);
+  await page.goto(`${app.origin}/assistants`);
+  await page.getByTestId("assistant-template-builtin_knowledge").getByRole("button", { name: "使用模板新建会话" }).click();
+  const title = page.locator(".chat-toolbar h3");
+  await expect(title).toHaveText("知识问答助理");
+  const select = page.getByRole("combobox", { name: "助理模板", exact: true });
+  await select.click(); await page.getByRole("option", { name: "写作助理", exact: true }).click();
+  await expect(title).toHaveText("写作助理");
+  await page.reload(); await expect(title).toHaveText("写作助理");
+  const chat = (await browserData(page, "/api/conversations"))[0];
+  await browserApi(page, `/api/conversations/${chat.id}`, "PATCH", { title: "自定义工作记录" });
+  await page.reload(); await expect(title).toHaveText("自定义工作记录");
+  await select.click(); await page.getByRole("option", { name: "代码助理", exact: true }).click();
+  await expect(select).toContainText("代码助理");
+  await expect(title).toHaveText("自定义工作记录");
+  await app.restart(); await page.reload(); await expect(title).toHaveText("自定义工作记录");
+  expect(app.providerCalls).toHaveLength(0);
 });
 
 test("knowledge evaluation exposes real adapter results, citations and an exportable report", { tag: "@integration" }, async ({ page, app }) => {

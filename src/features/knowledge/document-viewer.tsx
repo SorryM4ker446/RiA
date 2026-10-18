@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { documentRequest } from "@/features/knowledge/document-client";
 import { t } from "@/lib/locale";
+import { Button } from "@/components/ui/button";
 
 type DocumentView = { contentHash: string; filename: string; chunks: { id: string; text: string; ordinal: number; pageNumber: number | null }[] };
 export function DocumentViewer({ id, version }: { id: string; version?: string }) {
@@ -38,6 +39,7 @@ export function DocumentViewer({ id, version }: { id: string; version?: string }
     <Link className="text-sm text-muted-foreground transition-colors hover:text-foreground" href="/knowledge">{t("documents.backToLibrary")}</Link>
     <h1 className="break-all text-xl font-semibold tracking-headline">{document?.filename ?? t("documents.fallbackTitle")}</h1>
     <p className="text-sm leading-6 text-muted-foreground">{t("documents.extractedTextNote")}</p>
+    {document && <Button size="sm" variant="outline" asChild><Link href={`/document-processor?document=${encodeURIComponent(id)}`}>转换与导出</Link></Button>}
     {error ? <p role="alert" className="text-destructive">{error}</p> : !document ? <p>{t("documents.loading")}</p> : null}
     {outdated ? <p className="text-sm text-muted-foreground" role="status">{t("documents.outdated")}</p> : null}
     {document?.chunks.map(chunk => <section className="scroll-mt-6 rounded-lg bg-card p-4 shadow-hairline target:ring-2 target:ring-ring/70" id={chunk.id} key={chunk.id}>

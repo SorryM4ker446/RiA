@@ -13,6 +13,7 @@ import { createTestDatabase } from "../helpers/database";
 import { localAccessCookie } from "../helpers/local-access";
 import { testPng, testVideo, languageModel, providerState } from "../helpers/model-provider";
 import { seedTestModelPreferences } from "../helpers/model-library";
+import { textPdf, wordDocument, wordTableDocument } from "../helpers/document-fixtures";
 
 const cleanup = createTestDatabase();
 process.env.PRIVATE_AI_TEST_PROVIDER = "1";
@@ -40,14 +41,14 @@ const context = (id, messageId = undefined) => ({ params: Promise.resolve({ id, 
 function request(path, method = "GET", body = undefined, session = cookie, headers = {}) {
   return new NextRequest(`http://localhost${path}`, { method, headers: { cookie: session || "", ...(body ? { "Content-Type": "application/json" } : {}), ...headers }, ...(body ? { body: JSON.stringify(body) } : {}) });
 }
-async function multipart(files) {
+async function multipart(files, session = cookie) {
   const body = new FormData();
   for (const file of files) body.append("files", file);
   // Route handlers receive wire bytes, not the client's live FormData encoder.
   // Fully encode fixtures so cancelling an oversized request cannot race that encoder.
   const encoded = new Response(body);
   return new NextRequest("http://localhost/api/media/upload", {
-    method: "POST", headers: { cookie, "content-type": encoded.headers.get("content-type") },
+    method: "POST", headers: { cookie: session, "content-type": encoded.headers.get("content-type") },
     body: await encoded.arrayBuffer(),
   });
 }
@@ -182,6 +183,92 @@ test("chat persists attachment references while giving the model authenticated b
   assert.equal(await db.messageMedia.count({ where: { assetId: asset.id } }), 1);
   const modelImage = languageModel.doStreamCalls.at(-1).prompt.flatMap((entry) => (Array.isArray(entry.content) ? entry.content as PromptPart[] : [])).find((part: PromptPart): part is LanguageModelV3FilePart => part.type === "file" && part.mediaType === "image/png");
   assert.deepEqual(typeof modelImage.data === "string" ? Buffer.from(modelImage.data, "base64") : Buffer.from(modelImage.data as Uint8Array), testPng);
+});
+
+test("PDF and Word chat attachments send extracted text to a text-only model without indexing knowledge", async () => {
+  const pdfText = "Attachment-only support hours are 09:00 to 18:00.";
+  const docText = "文档附件的回滚窗口为三十分钟。";
+  const response = await upload.POST(await multipart([
+    new File([textPdf(pdfText)], "支持时间.pdf", { type: "application/pdf" }),
+    new File([new Uint8Array(await wordDocument(docText))], "回滚说明.docx", { type: "application/octet-stream" }),
+  ]));
+  assert.equal(response.status, 201, await response.clone().text());
+  const assets = (await response.json()).data;
+  assert.equal(await db.knowledgeDocument.count(), 0);
+  assert.equal(await db.documentChunk.count(), 0);
+  assert.equal(await db.memory.count(), 0);
+  const settings = await seedTestModelPreferences(db);
+  settings.library = settings.library.map(model => ({ ...model, supportsImageInput: false }));
+  await db.workspacePreference.update({ where: { id: "local" }, data: { settings } });
+  process.env.OPENROUTER_API_KEY = "test-provider-placeholder";
+  const chat = await newChat();
+  const parts = assets.map(asset => ({ type: "file", url: asset.url, mediaType: asset.mediaType, filename: "client-renamed.txt" }));
+  const result = await chatRoute.POST(request("/api/chat", "POST", { chatId: chat.id, messages: [{ id: "document-user", role: "user", parts }] }));
+  assert.equal(result.status, 200, await result.clone().text());
+  await result.text();
+  const prompt = languageModel.doStreamCalls.at(-1).prompt;
+  const user = JSON.stringify(prompt.filter(message => message.role === "user"));
+  assert.ok(user.includes(pdfText)); assert.ok(user.includes(docText));
+  assert.ok(user.includes("支持时间.pdf")); assert.ok(user.includes("回滚说明.docx"));
+  assert.equal(user.includes("/api/media/"), false); assert.equal(user.includes("base64"), false);
+  assert.equal(JSON.stringify(prompt.filter(message => message.role === "system")).includes(docText), false);
+  const stored = await db.message.findFirstOrThrow({ where: { chatId: chat.id, role: "user" } });
+  const files = decodePersistedUserMessage(stored.content).files;
+  assert.deepEqual(files.map(file => file.filename), ["支持时间.pdf", "回滚说明.docx"]);
+  assert.equal(stored.content.includes(docText), false);
+  assert.equal(await db.messageMedia.count({ where: { messageId: stored.id } }), 2);
+  assert.equal(await db.knowledgeDocument.count(), 0); assert.equal(await db.documentChunk.count(), 0);
+  const download = await media.GET(request(`${assets[0].url}?download=1`), context(assets[0].assetId));
+  assert.equal(download.status, 200); assert.match(download.headers.get("content-disposition"), /filename\*=UTF-8/);
+  assert.deepEqual(Buffer.from(await download.arrayBuffer()), textPdf(pdfText));
+  await assert.rejects(storage.deleteMediaAsset(assets[0].assetId), (error: { code?: string }) => error.code === "CONFLICT");
+  await deleteChat(chat.id);
+  await storage.deleteMediaAsset(assets[0].assetId);
+  assert.equal(existsSync(join(process.env.MEDIA_DIRECTORY, assets[0].relativePath)), false);
+});
+
+test("document upload validates every file before storing any attachment", async () => {
+  for (const file of [
+    new File(["not PDF"], "bad.pdf", { type: "application/pdf" }),
+    new File(["%PDF-1.7\nbroken"], "broken.pdf", { type: "application/pdf" }),
+    new File([new Uint8Array(await wordDocument("word"))], "mismatch.pdf", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }),
+    new File(["old office"], "legacy.doc", { type: "application/msword" }),
+    new File([new Uint8Array(await wordDocument(""))], "empty.docx", { type: "" }),
+    new File([new Uint8Array(await wordDocument("x".repeat(100_001)))], "too-long.docx", { type: "" }),
+  ]) {
+    globalThis.__privateAiRateLimitStore?.clear();
+    const result = await upload.POST(await multipart([new File([testPng], "valid.png", { type: "image/png" }), file]));
+    assert.ok([400, 413, 415].includes(result.status), await result.text());
+    assert.equal(await db.mediaAsset.count(), 0);
+  }
+});
+
+test("document references reject MIME spoofing, remote URLs and image generation use", async () => {
+  const asset = await storage.createMediaAsset({ bytes: textPdf(), mediaType: "application/pdf", kind: "attachment", description: "source.pdf" });
+  const { resolveChatAttachments, resolveImageInputs } = await import("@/lib/media/messages");
+  for (const input of [{ url: `/api/media/${asset.id}`, mediaType: "image/png" }, { url: "https://example.invalid/file.pdf", mediaType: "application/pdf" }]) {
+    await assert.rejects(resolveChatAttachments([input]), (error: { code?: string }) => error.code === "VALIDATION_ERROR");
+  }
+  await assert.rejects(resolveImageInputs([{ url: `/api/media/${asset.id}` }]), (error: { code?: string }) => error.code === "VALIDATION_ERROR");
+  const image = await imageRoute.POST(request("/api/image", "POST", { inputImages: [{ url: `/api/media/${asset.id}` }] }));
+  assert.equal(image.status, 400);
+  assert.equal((await upload.POST(await multipart([new File([textPdf()], "source.pdf", { type: "application/pdf" })], ""))).status, 401);
+});
+
+test("document context retains table structure and rejects oversized current attachments without truncation", async () => {
+  const { materializeChatAttachments } = await import("@/lib/media/messages");
+  const word = await storage.createMediaAsset({ bytes: await wordTableDocument(), mediaType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", kind: "attachment", description: "table.docx" });
+  const part = asset => ({ type: "file" as const, url: `/api/media/${asset.id}`, mediaType: asset.mediaType });
+  const result = await materializeChatAttachments([{ id: "table-user", role: "user", parts: [part(word)] }]);
+  const text = JSON.stringify(result);
+  assert.ok(text.includes("住宿")); assert.ok(text.includes("500 元")); assert.ok(text.includes("主管审批"));
+  const big = await storage.createMediaAsset({ bytes: await wordDocument("x".repeat(60_000)), mediaType: word.mediaType, kind: "attachment", description: "long.docx" });
+  await assert.rejects(materializeChatAttachments([{ id: "latest", role: "user", parts: [part(big), part(big)] }]), (error: { code?: string }) => error.code === "PAYLOAD_TOO_LARGE");
+  const bounded = await materializeChatAttachments([{ id: "older", role: "user", parts: [part(big)] }, { id: "latest", role: "user", parts: [part(big)] }]);
+  assert.match(JSON.stringify(bounded[0]), /Earlier document attachment omitted/);
+  assert.ok(JSON.stringify(bounded[1]).includes("x".repeat(100)));
+  const controller = new AbortController(); controller.abort();
+  await assert.rejects(materializeChatAttachments([{ id: "cancelled", role: "user", parts: [part(big)] }], controller.signal));
 });
 
 test("shared media survives deletion of one conversation and has a fresh cleanup grace period", async () => {

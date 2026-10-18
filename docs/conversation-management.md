@@ -2,6 +2,8 @@
 
 Open **管理会话** from the workspace navigation or the **最近会话** popover. Browser and Electron share the same page and authenticated APIs. No search service, model key or paid API call is needed.
 
+The management page uses compact rows and an inline search/filter bar. Changing **会话状态** immediately applies the visible filters and loads that status; text and tag searches can also be submitted with **搜索 / 筛选**. Click a conversation title to open it; pinning remains beside the title. Each row's **更多操作** menu contains archive/restore, tag editing and Markdown/JSON export. Selection, the 50-item bulk-delete limit and explicit deletion confirmation are unchanged. Menus retain keyboard dismissal and focus restoration; tag editing focuses its input.
+
 ## Organizing history
 
 - Search matches literal fragments in conversation titles and all stored message text, including older messages outside the loaded chat page. Enter 2–200 characters and submit **搜索 / 筛选**. Search returns conversations, not individual message locations; use **加载更早消息** to read older history after opening one.

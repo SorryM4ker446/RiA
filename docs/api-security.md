@@ -55,6 +55,8 @@ Quotas belong to the local instance, not to a caller. Every request from this in
 | --- | --- |
 | Chat | 30 requests / minute |
 | Tool execution, shared by manual and automatic calls | 30 attempts / minute |
+| Extension configuration, activation, deletion and detection, shared | 30 attempts / minute |
+| Document export and layout preview, shared | 20 attempts / minute |
 | Image generation | 6 requests / minute |
 | Video generation | 3 requests / minute |
 | Media library regeneration attempts; valid recipes also consume the image/video quota above | 6 attempts / minute |
