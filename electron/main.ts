@@ -1,5 +1,6 @@
 import { createResumeRecovery } from "./resume-recovery";
 import { windowAppearance } from "./window-appearance";
+import { createStartupPresentation } from "./startup-presentation";
 import { createWindowTransitions, type WindowAction } from "./window-transitions";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -58,6 +59,7 @@ if (!squirrelEventHandled && !singleInstanceLock) {
 
 let mainWindow: BrowserWindow | null = null;
 const windowTransitions = new WeakMap<BrowserWindow, ReturnType<typeof createWindowTransitions>>();
+const startupPresentations = new WeakMap<BrowserWindow, ReturnType<typeof createStartupPresentation>>();
 let nextServer: RunningNextServer | null = null;
 let desktopPaths: DesktopPaths | null = null;
 let logger: DesktopLogger | null = null;
@@ -351,6 +353,15 @@ function registerIpcHandlers() {
     assertTrustedIpcSender(event);
     return { maximized: BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false };
   });
+
+  const startupFor = (event: IpcMainInvokeEvent) => {
+    assertTrustedIpcSender(event);
+    if (event.senderFrame !== event.sender.mainFrame) throw new Error("Startup presentation belongs to the main frame.");
+    const target = BrowserWindow.fromWebContents(event.sender);
+    return target && !target.isDestroyed() ? startupPresentations.get(target) : undefined;
+  };
+  ipcMain.handle("desktop:startup:claim", event => startupFor(event)?.claim() ?? null);
+  ipcMain.handle("desktop:startup:present", (event, token: unknown) => startupFor(event)?.present(token) ?? false);
 
   ipcMain.handle("desktop:runtime:get", (event) => {
     assertTrustedIpcSender(event);
@@ -662,7 +673,7 @@ function isBoundsOnAScreen(bounds: { x: number; y: number; width: number; height
   });
 }
 
-async function createMainWindow(initialPath: string): Promise<BrowserWindow> {
+async function createMainWindow(initialPath: string, animateStartup = false): Promise<BrowserWindow> {
   if (!desktopPaths || !nextServer || !logger) throw new Error("Desktop runtime is not initialized.");
 
   configureDesktopSession({
@@ -709,9 +720,11 @@ async function createMainWindow(initialPath: string): Promise<BrowserWindow> {
 
   Menu.setApplicationMenu(null);
   secureBrowserWindow({ window, origin: nextServer.origin, logger });
-  window.once("ready-to-show", () => {
-    if (!smokeTest) window.show();
-  });
+  startupPresentations.set(window, createStartupPresentation(window, {
+    enabled: animateStartup && !smokeTest,
+    show: !smokeTest,
+    onError: error => logger?.warn("Unable to present the desktop window", error),
+  }));
 
   /*
    * Where the window was, and where closing it goes.
@@ -1136,7 +1149,7 @@ async function bootstrap() {
   // the settings screen on every launch, asking for a key it does not need.
   const hasAnyProviderKey = settings.hasOpenrouterApiKey || settings.hasDeepseekApiKey;
   const initialPath = packagedRuntime && !hasAnyProviderKey ? "/settings?welcome=1" : "/chat";
-  mainWindow = await createMainWindow(initialPath);
+  mainWindow = await createMainWindow(initialPath, true);
   reminderPoller = new TaskReminderPoller({
     connection: () => nextServer ? { origin: nextServer.origin, cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}` } : null,
     supported: () => smokeTest || Notification.isSupported(),

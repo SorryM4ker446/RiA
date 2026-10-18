@@ -495,6 +495,17 @@ html[data-desktop-runtime="true"] body { clip-path: inset(0 round 14px); }
 html[data-window-maximized="true"] body { clip-path: none; }
 html[data-desktop-runtime="true"] .workspace-shell { border-radius: 14px; overflow: clip; }
 html[data-window-maximized="true"] .workspace-shell { border-radius: 0; }
+.desktop-startup-stage { height: 100%; }
+.desktop-startup-stage[data-starting="true"] { background: hsl(var(--background)); }
+.desktop-startup-workspace { height: 100%; isolation: isolate; }
+.desktop-startup-workspace[data-starting="true"] { opacity: 0; }
+.desktop-startup { position: fixed; inset: 0; display: grid; place-items: center; background: hsl(var(--background)); color: hsl(var(--foreground)); }
+.desktop-startup-caption { position: absolute; inset: 0 0 auto; display: flex; height: 40px; justify-content: flex-end; }
+.desktop-startup-mark { display: flex; flex-direction: column; align-items: center; gap: 20px; padding-bottom: 16px; }
+.desktop-startup-wordmark { display: inline-flex; font-size: clamp(48px, 6vw, 60px); font-weight: 500; line-height: 1.15; letter-spacing: -.055em; }
+.desktop-startup-letter { display: block; overflow: hidden; padding-inline: .025em; }
+.desktop-startup-glyph { display: block; opacity: 0; transform: translateY(110%); }
+.desktop-startup-note { margin: 0; font-size: 12px; line-height: 1.5; letter-spacing: .08em; color: hsl(var(--muted-foreground)); opacity: 0; }
 * { scrollbar-width: thin; scrollbar-color: hsl(var(--foreground) / .22) transparent; }
 *::-webkit-scrollbar { width: 8px; height: 8px; }
 *::-webkit-scrollbar-track { background: transparent; }

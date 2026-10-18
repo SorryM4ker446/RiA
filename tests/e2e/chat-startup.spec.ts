@@ -4,9 +4,54 @@ import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture
 
 const modelSettings = modelsRouteFixture([fixtureLibraryItem("anthropic/claude-opus-4.6", ["chat"])], { chat: "anthropic/claude-opus-4.6" });
 
+test("restoring the saved conversation blocks early sends and never creates another conversation", async ({ page }) => {
+  const chat = { id: "restored-conversation", title: "Saved conversation", lastMessageAt: "2026-08-30T00:00:00Z", messageCount: 0 };
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let created = 0;
+  const sent: Array<{ chatId: string; messages: unknown[] }> = [];
+  await page.addInitScript(id => localStorage.setItem("chat:last-active-id", id), chat.id);
+  await page.route("**/api/models", route => route.fulfill({ json: modelSettings }));
+  await page.route("**/api/conversations", async route => {
+    if (route.request().method() === "POST") { created++; await route.fulfill({ status: 201, json: { data: { ...chat, id: "unexpected-conversation" } } }); return; }
+    await gate;
+    await route.fulfill({ json: { data: [chat] } });
+  });
+  await page.route("**/api/conversations/*/messages", route => route.fulfill({ json: { data: [] } }));
+  await page.route("**/api/tasks**", route => route.fulfill({ json: { data: [] } }));
+  await page.route("**/api/tools?*", route => route.fulfill({ json: { data: [] } }));
+  await page.route("**/api/chat", route => {
+    sent.push(route.request().postDataJSON());
+    return route.fulfill({ contentType: "text/event-stream", headers: { "x-vercel-ai-ui-message-stream": "v1" }, body: [
+      { type: "start", messageId: "restored-answer" },
+      { type: "text-start", id: "text" },
+      { type: "text-delta", id: "text", delta: "Answer in saved conversation" },
+      { type: "text-end", id: "text" },
+      { type: "finish", finishReason: "stop" },
+    ].map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n" });
+  });
+  try {
+    await page.goto("/chat");
+    const composer = page.getByPlaceholder(/输入你的问题/);
+    await composer.fill("Keep this in the saved conversation");
+    await expect(page.getByRole("button", { name: "发送", exact: true })).toBeDisabled();
+    await composer.press("Enter");
+    expect(created).toBe(0); expect(sent).toHaveLength(0);
+    release();
+    await expect(page.getByRole("heading", { name: chat.title, exact: true })).toBeVisible();
+    await expect(composer).toHaveValue("Keep this in the saved conversation");
+    await page.getByRole("button", { name: "发送", exact: true }).click();
+    await expect(page.getByText("Answer in saved conversation", { exact: true })).toBeVisible();
+    expect(created).toBe(0); expect(sent).toHaveLength(1);
+    expect(sent[0].chatId).toBe(chat.id);
+    expect(sent[0].messages).toHaveLength(1);
+  } finally { release(); }
+});
+
 for (const historyFails of [false, true]) {
   test(`first chat submission waits for initial history ${historyFails ? "and refuses to send after a load failure" : "and stays attached to the active conversation"}`, async ({ page }) => {
     let created = false;
+    let failHistory = historyFails;
     let chatRequests = 0;
     let releaseHistory!: () => void;
     let historyStarted!: () => void;
@@ -21,7 +66,7 @@ for (const historyFails of [false, true]) {
     await page.route("**/api/conversations/*/messages", async (route) => {
       historyStarted();
       await gate;
-      await route.fulfill(historyFails ? { status: 500, json: { error: { code: "INTERNAL_ERROR", message: "History unavailable" } } } : { json: { data: [] } });
+      await route.fulfill(failHistory ? { status: 500, json: { error: { code: "INTERNAL_ERROR", message: "History unavailable" } } } : { json: { data: [] } });
     });
     await page.route("**/api/tasks**", (route) => route.fulfill({ json: { data: [] } }));
     await page.route("**/api/tools?*", (route) => route.fulfill({ json: { data: [] } }));
@@ -45,10 +90,18 @@ for (const historyFails of [false, true]) {
       releaseHistory();
       if (historyFails) {
         await expect(page.getByRole("alert").filter({ hasText: "请求失败" })).toContainText("重新加载会话");
+        await expect(page.getByPlaceholder(/输入你的问题/)).toHaveValue("First question");
         await page.getByPlaceholder(/输入你的问题/).fill("Retry question");
         await page.getByRole("button", { name: "发送", exact: true }).click();
         await expect(page.getByRole("alert").filter({ hasText: "请求失败" })).toContainText("重新加载会话");
         expect(chatRequests).toBe(0);
+        await expect(page.getByPlaceholder(/输入你的问题/)).toHaveValue("Retry question");
+        failHistory = false;
+        await page.reload();
+        await expect(page.getByPlaceholder(/输入你的问题/)).toHaveValue("Retry question");
+        await page.getByRole("button", { name: "发送", exact: true }).click();
+        await expect(page.getByText("First streamed answer", { exact: true })).toBeVisible();
+        expect(chatRequests).toBe(1);
       } else {
         await expect(page.getByText("First streamed answer", { exact: true })).toBeVisible();
         expect(chatRequests).toBe(1);
