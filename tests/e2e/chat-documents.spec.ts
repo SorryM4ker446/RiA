@@ -175,6 +175,9 @@ test("a late failed document send preserves another conversation's attachments a
   await page.reload();
   const input = page.getByLabel("选择要上传的附件", { exact: true });
   const text = page.locator(".composer-input");
+  // setInputFiles dispatches change even on a disabled input. Wait for the
+  // actual user entry point; restoration guards are exercised above.
+  await expect(input).toBeEnabled();
   await input.setInputFiles({ name: "原会话.pdf", mimeType: "application/pdf", buffer: textPdf("Origin attachment only.") });
   await expect(page.getByRole("list", { name: "已添加的附件" }).getByText("原会话.pdf", { exact: true })).toBeVisible();
   await text.fill("分析原会话附件。");

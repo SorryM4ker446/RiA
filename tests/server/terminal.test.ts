@@ -328,7 +328,7 @@ test("commands discover arbitrary installed tools in custom Unicode paths and ob
   }
 });
 
-test("a missing installed command fails visibly without assuming a runtime or installing a replacement", { skip: !win }, async () => {
+test("an explicit missing executable fails visibly without loading a same-named module or installing a replacement", { skip: !win }, async () => {
   const grant = await folder();
   const missing = `ria-missing-runtime-${Date.now()}`;
   const modules = path.join(grant.realPath, "modules");
@@ -339,13 +339,23 @@ test("a missing installed command fails visibly without assuming a runtime or in
   const previousModules = process.env.PSModulePath;
   process.env.PSModulePath = `${modules};${previousModules ?? ""}`;
   try {
-    // Probe an external executable, without triggering discovery of every
-    // installed PowerShell module for an unqualified missing command name.
-    const result = await runTerminalCommand(await prepared(grant.id, `& (Get-Command -Name '${missing}' -CommandType Application -ErrorAction Stop)`));
-    assert.equal(result.status, "failed");
-    assert.notEqual(result.exitCode, 0);
-    assert.ok(result.stderr.includes(missing));
-    assert.equal(existsSync(path.join(fixtureModule, "imported.txt")), false);
+    // An unqualified Get-Command may import a module even with a type filter.
+    // A file-qualified executable has no such ambiguity and must simply fail.
+    for (const policy of ["Restricted", "Bypass"]) {
+      // Set policy only inside this test's approved shell, never in the
+      // machine/user registry. The terminal does not inherit policy overrides.
+      const result = await runTerminalCommand(await prepared(grant.id, `$env:PSExecutionPolicyPreference = '${policy}'; & '.\\${missing}.exe'`));
+      assert.equal(result.status, "failed", policy);
+      assert.notEqual(result.exitCode, 0, policy);
+      assert.ok(result.stderr.includes(missing), `${policy}: ${result.stderr}`);
+      assert.equal(existsSync(path.join(fixtureModule, "imported.txt")), false, policy);
+    }
+    // Import a unique explicit fixture path to prove the test did not merely
+    // rely on local script policy blocking all module loads.
+    const imported = await runTerminalCommand(await prepared(grant.id, `$env:PSExecutionPolicyPreference = 'Bypass'; Import-Module '${path.join(fixtureModule, "MissingRuntimeProbe.psd1").replaceAll("'", "''")}'; & '${missing}'`));
+    assert.equal(imported.status, "completed", imported.stderr);
+    assert.match(imported.stdout, /not an executable/);
+    assert.equal(existsSync(path.join(fixtureModule, "imported.txt")), true);
   } finally {
     if (previousModules === undefined) delete process.env.PSModulePath; else process.env.PSModulePath = previousModules;
   }

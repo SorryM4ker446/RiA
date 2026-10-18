@@ -1,5 +1,28 @@
 # Test coverage and local validation
 
+CI regressions distinguish an unavailable executable from PowerShell module
+command discovery. The terminal fixture invokes a file-qualified missing binary
+under both restricted and permissive child-process policies, checks a nonzero
+exit and visible stderr, and proves a same-named module remains loadable. Module
+search-path overrides are restored, and policy commands use only child-process
+scope; product terminal policy and installed-tool discovery are unchanged.
+
+Document attachment browser tests wait for the enabled file entry point after
+reload. Playwright can dispatch `setInputFiles` on a disabled input; a load event
+alone does not mean preferences and conversation identity have been restored.
+Separate gated tests still require selection, paste and drop to be refused while
+restoration is incomplete, and late-send failures must preserve both drafts.
+
+Windows desktop smoke checks sample transcript padding measured from the DOM,
+rather than fixed positions that can contain opaque messages or skeletons. Image
+dimensions and bitmap bytes use the same scale representation. Opaque navigation
+and composer, translucent caption/dock and all three empty canvas samples remain
+mandatory; invalid geometry or bitmap storage is an error. Tests cover wide,
+narrow and resized layouts, opaque content over the former probes, and an opaque
+canvas that must not pass. A failed check retains pixel values, geometry, computed
+surfaces and `data/logs/transparency-failure.png` in the synthetic smoke profile;
+CI uploads this screenshot alongside desktop logs with seven-day retention.
+
 Approval-card regressions verify decisions above the composer without automatic
 sheet opening, sequential approval queues, exact terminal command review,
 rejection, reload, execution-once behavior and narrow layouts. Run-detail tests
