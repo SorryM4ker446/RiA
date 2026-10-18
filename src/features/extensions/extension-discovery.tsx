@@ -39,6 +39,8 @@ export function ExtensionDiscovery({ canAdd, connectedUrls, onAdd }: Props) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailsSession, setDetailsSession] = useState(0);
   const request = useRef<AbortController | null>(null);
+  const resultsViewport = useRef<HTMLDivElement | null>(null);
+  const previousTop = useRef(0);
   const detailsTrigger = useRef<HTMLElement | null>(null);
   const handingOff = useRef(false);
 
@@ -46,7 +48,11 @@ export function ExtensionDiscovery({ canAdd, connectedUrls, onAdd }: Props) {
     request.current?.abort();
     const controller = new AbortController(); request.current = controller;
     setLoading(true); setError(""); setQuery(search); setFailedCursor(cursor);
-    if (!cursor) setResult(old => old?.query === search ? old : null);
+    if (!cursor) {
+      previousTop.current = 0;
+      resultsViewport.current?.scrollTo({ top: 0, behavior: "instant" });
+      setResult(old => old?.query === search ? old : null);
+    }
     try {
       const params = new URLSearchParams({ search });
       if (cursor) params.set("cursor", cursor);
@@ -58,7 +64,7 @@ export function ExtensionDiscovery({ canAdd, connectedUrls, onAdd }: Props) {
         return { query: search, page: { ...page, skipped: old.page.skipped + page.skipped, items: [...old.page.items, ...page.items.filter(item => !names.has(item.name))] } };
       });
     } catch (failure) { if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : "官方目录加载失败。" ); }
-    finally { if (request.current === controller && !controller.signal.aborted) setLoading(false); }
+    finally { if (request.current === controller && !controller.signal.aborted) { request.current = null; setLoading(false); } }
   }, []);
   useEffect(() => { void load(""); return () => request.current?.abort(); }, [load]);
 
@@ -68,17 +74,27 @@ export function ExtensionDiscovery({ canAdd, connectedUrls, onAdd }: Props) {
       <FieldGroup className="flex-row items-end gap-2"><Field className="min-w-0 flex-1 gap-2"><FieldLabel htmlFor="registry-search" className="sr-only">搜索 MCP 扩展</FieldLabel><Input id="registry-search" maxLength={100} placeholder="按扩展名称搜索…" value={draftSearch} onChange={event => setDraftSearch(event.target.value)} /></Field><Button type="submit" variant="secondary"><Search data-icon="inline-start" />搜索</Button></FieldGroup>
     </form>
     {error && <Alert variant="destructive"><AlertTitle>目录未更新</AlertTitle><AlertDescription>{error}<Button size="sm" variant="ghost" onClick={() => void load(query, failedCursor)}>重试</Button></AlertDescription></Alert>}
-    <div aria-busy={loading} className="flex flex-col gap-2">
+    <div ref={resultsViewport} role="region" aria-label="扩展目录结果" tabIndex={0} aria-busy={loading} className="registry-results-scroll chat-list-scroll flex flex-col gap-2 overflow-y-auto overscroll-contain p-1" onScroll={event => {
+      const node = event.currentTarget;
+      const movingDown = node.scrollTop > previousTop.current;
+      previousTop.current = node.scrollTop;
+      if (movingDown && node.scrollTop + node.clientHeight >= node.scrollHeight - 100 && !loading && !error && !detailsOpen && !request.current && result?.page.nextCursor) {
+        void load(query, result.page.nextCursor);
+      }
+    }}>
       {loading && !result ? <div role="status" aria-label="正在读取官方目录" className="flex flex-col gap-2">{[0, 1, 2].map(key => <Skeleton key={key} className="h-28 rounded-xl" />)}</div> : null}
-      {result?.page.items.map(server => <article key={server.name} aria-label={server.title} className="management-row flex items-start gap-3 rounded-xl p-4">
+      {result?.page.items.map(server => <article key={server.name} aria-label={server.title} className="registry-result-row management-row flex shrink-0 items-start gap-3 rounded-xl p-4">
         <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-secondary text-muted-foreground"><Puzzle className="size-4" aria-hidden="true" /></div>
         <div className="flex min-w-0 flex-1 flex-col gap-1.5"><div className="flex flex-wrap items-center gap-2"><h2 className="min-w-0 break-words text-sm font-semibold [overflow-wrap:anywhere]">{server.title}</h2><Badge variant="outline">{connectionHint(server)}</Badge></div><p className="truncate text-xs text-muted-foreground" title={server.name}>{server.name} · v{server.version}</p>{server.description && <p className="line-clamp-2 break-words text-sm leading-6 text-muted-foreground [overflow-wrap:anywhere]">{server.description}</p>}
           <Button className="self-start" size="sm" variant="ghost" aria-label={`查看详情 ${server.title}`} onClick={event => { detailsTrigger.current = event.currentTarget; handingOff.current = false; setSelection(server); setDetailsSession(value => value + 1); setDetailsOpen(true); }}>查看详情<ArrowRight data-icon="inline-end" /></Button>
         </div>
       </article>)}
       {!loading && !error && result && !result.page.items.length ? <Empty><EmptyHeader><EmptyMedia><Search /></EmptyMedia><EmptyTitle>没有找到匹配的扩展</EmptyTitle><EmptyDescription>试试服务名或英文关键词。目录搜索匹配扩展名称。</EmptyDescription></EmptyHeader></Empty> : null}
+      <div className="flex min-h-14 shrink-0 items-center justify-center py-3" aria-live="polite">
+        {loading && result ? <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3 animate-spin" aria-hidden="true" />{failedCursor ? "正在加载更多扩展…" : "正在更新目录…"}</p> : result?.page.nextCursor && !error ? <Button variant="ghost" size="sm" disabled={detailsOpen} onClick={() => { if (!request.current) void load(query, result.page.nextCursor!); }}>下滚加载更多</Button> : !error && result?.page.items.length && !result.page.nextCursor ? <p className="text-xs text-muted-foreground">已展示全部匹配扩展</p> : null}
+      </div>
     </div>
-    {result && <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-muted-foreground">已展示 {result.page.items.length} 个扩展{result.page.skipped ? ` · 已跳过 ${result.page.skipped} 个不可用或重复条目` : ""}</p>{result.page.nextCursor && <Button variant="outline" size="sm" disabled={loading} onClick={() => void load(query, result.page.nextCursor!)}>{loading && <Loader2 data-icon="inline-start" className="animate-spin" />}加载更多扩展</Button>}</div>}
+    {result && <p className="text-xs text-muted-foreground" aria-live="polite">已展示 {result.page.items.length} 个扩展{result.page.skipped ? ` · 已跳过 ${result.page.skipped} 个不可用或重复条目` : ""}</p>}
     <p className="text-xs leading-6 text-muted-foreground">介绍由扩展发布者提供。添加后需检测连接并选择工具；目录浏览不会执行扩展。</p>
     {selection && <RegistryDetails key={detailsSession} server={selection} open={detailsOpen} canAdd={canAdd} connectedUrls={connectedUrls} onClose={() => setDetailsOpen(false)} returnFocus={() => { if (!handingOff.current && detailsTrigger.current?.isConnected) detailsTrigger.current.focus(); }} onAdd={draft => { handingOff.current = true; setDetailsOpen(false); onAdd(draft, detailsTrigger.current); }} />}
   </section>;

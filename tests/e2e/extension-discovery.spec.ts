@@ -40,10 +40,15 @@ test("official metadata discovery adds a disabled MCP connection and uses the ex
   await expect(region.getByRole("article")).toHaveCount(20);
   await mkdir(shots, { recursive: true });
   await page.screenshot({ path: join(shots, "discover-desktop.png"), animations: "disabled" });
-  await page.getByRole("button", { name: "加载更多扩展", exact: true }).click();
+  const results = page.getByRole("region", { name: "扩展目录结果", exact: true });
+  expect(await results.evaluate(node => node.scrollHeight > node.clientHeight)).toBe(true);
+  const initialHeight = await results.evaluate(node => node.getBoundingClientRect().height);
+  await results.evaluate(node => node.scrollTo({ top: node.scrollHeight, behavior: "instant" }));
   await expect(region.getByRole("article")).toHaveCount(22);
-  await expect(page.getByRole("button", { name: "加载更多扩展", exact: true })).toHaveCount(0);
+  await expect(results.getByText("已展示全部匹配扩展", { exact: true })).toBeVisible();
+  expect(await results.evaluate(node => node.getBoundingClientRect().height)).toBe(initialHeight);
   await search(page, "echo"); await expect(region.getByRole("article")).toHaveCount(1);
+  await expect.poll(() => results.evaluate(node => node.scrollTop)).toBe(0);
   const detailsTrigger = page.getByRole("button", { name: "查看详情 Echo MCP", exact: true });
   await detailsTrigger.click();
   const details = page.getByRole("dialog", { name: "Echo MCP", exact: true });
@@ -105,6 +110,52 @@ test("discovery shows empty/error states, retries explicitly and leaves manual c
   expect(app.service.state.probes).toBe(0); expect(app.service.state.calls).toHaveLength(0);
 });
 
+test("directory scrolling loads one page at a time, preserves rows on failure and resets for a new search", async ({ page, app }) => {
+  let reads = 0, pageReads = 0;
+  let release!: () => void, began!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { began = resolve; });
+  await page.route("**/api/extensions/registry?*", async route => {
+    reads++;
+    if (!new URL(route.request().url()).searchParams.has("cursor")) { await route.continue(); return; }
+    pageReads++;
+    if (pageReads === 1) {
+      began(); await held;
+      if (!route.request().failure()) await route.fulfill({ status: 503, json: { error: { code: "SERVICE_UNAVAILABLE", message: "Synthetic paging failure" } } });
+    } else await route.continue();
+  });
+  try {
+    await discover(page, app);
+    const results = page.getByRole("region", { name: "扩展目录结果", exact: true });
+    await expect(results.getByRole("article")).toHaveCount(20);
+    expect(reads).toBe(1);
+    await results.focus(); await page.keyboard.press("ArrowDown");
+    await expect.poll(() => results.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
+    expect(reads).toBe(1);
+    await results.evaluate(node => node.scrollTo({ top: node.scrollHeight, behavior: "instant" })); await started;
+    await expect(results.getByRole("status")).toContainText("正在加载更多");
+    const scrollPosition = await results.evaluate(node => node.scrollTop);
+    await results.evaluate(node => { node.scrollTop -= 10; node.dispatchEvent(new Event("scroll")); node.scrollTop += 10; node.dispatchEvent(new Event("scroll")); });
+    expect(pageReads).toBe(1);
+    release();
+    await expect(page.getByRole("alert").filter({ hasText: "目录未更新" })).toContainText("Synthetic paging failure");
+    await expect(results.getByRole("article")).toHaveCount(20);
+    await expect(results.getByText("已展示全部匹配扩展", { exact: true })).toHaveCount(0);
+    await results.evaluate(node => { node.scrollTop -= 10; node.dispatchEvent(new Event("scroll")); node.scrollTop += 10; node.dispatchEvent(new Event("scroll")); });
+    expect(pageReads).toBe(1);
+    await page.getByRole("button", { name: "重试", exact: true }).click();
+    await expect(results.getByRole("article")).toHaveCount(22);
+    expect(pageReads).toBe(2);
+    expect(await results.evaluate(node => node.scrollTop)).toBeCloseTo(scrollPosition, 0);
+    await expect(results.getByText("已展示全部匹配扩展", { exact: true })).toBeVisible();
+    await search(page, "echo");
+    await expect(results.getByRole("article")).toHaveCount(1);
+    await expect.poll(() => results.evaluate(node => node.scrollTop)).toBe(0);
+    await expect(results.getByRole("button", { name: "查看详情 Echo MCP", exact: true })).toBeVisible();
+    expect(app.service.state.probes).toBe(0); expect(app.service.state.calls).toHaveLength(0);
+  } finally { release(); }
+});
+
 test("local, legacy and variable-address entries explain compatibility without installing or connecting", async ({ page, app }) => {
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
   await page.setViewportSize({ width: 390, height: 844 }); await discover(page, app);
@@ -117,9 +168,11 @@ test("local, legacy and variable-address entries explain compatibility without i
     await page.keyboard.press("Escape"); await expect(drawer).toBeHidden(); await expect(trigger).toBeFocused();
   }
   await mkdir(shots, { recursive: true });
+  await page.getByRole("region", { name: "扩展目录结果", exact: true }).evaluate(node => node.scrollTo({ top: 0, behavior: "instant" }));
   await page.locator(".workspace-content").evaluate(node => node.scrollTo({ top: 0, behavior: "instant" }));
   await page.screenshot({ path: join(shots, "discover-mobile.png"), animations: "disabled" });
   await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(page.getByRole("region", { name: "扩展目录结果", exact: true }).getByRole("article").first()).toHaveCSS("animation-name", "none");
   await page.getByRole("button", { name: "查看详情 Echo MCP", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Echo MCP", exact: true })).toHaveCSS("animation-name", "none");
   await page.keyboard.press("Escape"); await page.setViewportSize({ width: 1440, height: 960 });

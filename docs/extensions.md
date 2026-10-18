@@ -9,8 +9,15 @@ DSH/Cordis plugins.
 ## Discover extensions
 
 Open **扩展管理 → 发现扩展**. The first page loads only when this tab opens.
-Search matches server names (use a service name or English keyword), and
-**加载更多扩展** reads another page without replacing the loaded entries. Search
+Search matches server names (use a service name or English keyword). The bounded,
+keyboard-focusable result panel scrolls independently of the page. Scrolling down
+near its bottom reads one more page without replacing loaded entries or moving
+the search controls. Opening the tab reads only the first page; staying still or
+scrolling up does not fetch more. The small **下滚加载更多** footer also supports
+explicit activation when using a keyboard or when a page has too few entries to
+overflow. Only one page request runs at a time, failures wait for **重试**, and a
+new search returns the panel to the top. New rows use the existing transition
+tokens and respect reduced-motion preferences. Search
 submission, paging and detail reads can be cancelled by a newer search, closing
 the detail sheet or leaving the tab. A failed request provides an explicit retry;
 existing configured connections remain usable.
@@ -50,6 +57,39 @@ text is sent to the official registry when it is not cached locally. The cache i
 optional and disappears on service restart; connection configuration remains in
 the existing SQLite store. No migration, new account or new environment variable
 is required.
+
+## DSH marketplace compatibility
+
+DSH catalogs can supply discovery metadata, but a DSH bundle is not an MCP server.
+The [DSH architecture](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/architecture.md)
+loads `dsh.bundle` patch files into a Cordis context and a DSH profile. RiA does
+not provide that runtime, its UI extension points or its package lifecycle.
+The [cordis.run public index](https://github.com/web-casa/Awesome-DeepSeek-Harness-Plugins/blob/main/data/plugins.json)
+was readable during compatibility investigation; its timestamp must be checked
+before treating it as current. RiA's discovery tab continues to use the official
+MCP Registry only, with no DSH catalog source added.
+
+An external MCP bridge can expose a DSH catalog or selected DSH tools to RiA.
+An isolated source-build check of the third-party
+[deepseek-harness-plugin-mcp](https://github.com/bobleer/deepseek-harness-plugin-mcp)
+version `0.1.0` used RiA's actual `probeConnection` and `callConnection` functions.
+Both stdio and Streamable HTTP discovered 15 tools and completed the read-only
+`dsh_plugin_status` call. Install/runtime permissions stayed disabled; no DSH
+runtime or plugins were installed or started. The upstream HTTP service raised
+a recursive `transport.onclose` / `server.close` error during shutdown, so that
+mode is not a clean compatibility pass. Stdio completed discovery, status calls
+and child cleanup. The package's npm endpoint returned 404 during this check;
+do not assume its README's `npx` installation command is currently available.
+
+For an independently built bridge on Windows, use **添加扩展 → MCP · 本地程序**:
+select the installed `node.exe` by absolute path, put the absolute `dist/cli.js`
+path in the JSON argument array, choose the bridge's absolute working directory,
+and explicitly grant process permission. Detect, select only the needed tools
+(start with `dsh_plugin_status`) and enable the connection. Keep installation and
+runtime flags off for an initial test. This requires the desktop runtime and an
+external Node installation, not a project dependency. DSH-backed tool execution
+still requires its own DSH installation/profile and has not been verified here.
+UI/theme/sidebar plugins continue to render inside DSH rather than RiA.
 
 ## Supported connections
 

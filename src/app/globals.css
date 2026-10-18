@@ -597,6 +597,9 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .run-records-sheet { width: min(30rem, 100vw); }
 .template-editor-sheet { width: min(34rem, 100vw); }
 .registry-details-sheet { width: min(34rem, 100vw); }
+.registry-results-scroll { height: min(34rem, 60dvh); scrollbar-gutter: stable; overflow-anchor: none; border-radius: 12px; }
+.registry-results-scroll:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+.registry-result-row { animation: row-in var(--dur-base) var(--ease-out); }
 .management-row { background: hsl(var(--card) / .22); transition: background-color var(--dur-fast), box-shadow var(--dur-fast); }
 .management-row:hover, .management-row:focus-within { background: hsl(var(--accent) / .4); }
 .management-row[data-selected="true"] { background: hsl(var(--accent) / .65); }
