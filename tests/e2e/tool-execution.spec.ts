@@ -28,6 +28,7 @@ test("a task-only response exposes approval, creates the task after approval and
   const approve = page.getByRole("button", { name: "批准", exact: true });
   await expect(approve).toBeVisible();
   await expect(approve).toBeEnabled();
+  await expect(page.getByRole("dialog", { name: "执行记录", exact: true })).toBeHidden();
   await expect(page.getByRole("status").filter({ hasText: "操作尚未执行" })).toBeVisible();
   expect(await browserData(page, "/api/tasks")).toHaveLength(0);
   const screenshots = join(tmpdir(), "ria-tool-qa");
@@ -35,6 +36,7 @@ test("a task-only response exposes approval, creates the task after approval and
   await page.screenshot({ path: join(screenshots, "task-approval.png"), fullPage: true, animations: "disabled" });
   await approve.click();
   await expect.poll(async () => (await browserData(page, "/api/tasks")).length).toBe(1);
+  await openExecutionDetails(page);
   await expect(page.getByText("工具详情：createTask · 执行完成", { exact: true })).toBeVisible();
   // A tool output is streamed before the SDK's end-of-stream persistence callback.
   // Wait for durable history before testing restoration from that history.

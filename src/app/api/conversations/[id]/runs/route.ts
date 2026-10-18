@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { decodePersistedAssistantToolMessage } from "@/lib/ai/ui-message";
+import { resolveRunMessage } from "@/lib/agent/run-messages";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { requireLocalWorkspace } from "@/lib/local/workspace";
@@ -23,9 +23,9 @@ async function GETHandler(req: NextRequest, context: Params) {
     const runId = req.nextUrl.searchParams.get("runId");
     if (runId !== null) {
       if (!/^[a-zA-Z0-9_-]{1,128}$/.test(runId)) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid run ID" });
-      if (!await db.agentRun.findFirst({ where: { id: runId, chatId: id }, select: { id: true } })) throw new ApiError({ code: "NOT_FOUND", message: "Execution record not found" });
-      const message = await db.message.findFirst({ where: { chatId: id, role: "assistant", content: { contains: `"runId":"${runId}"` } }, orderBy: { createdAt: "desc" } });
-      return Response.json({ data: message && decodePersistedAssistantToolMessage(message.content)?.runId === runId ? message : null }, { headers: { "Cache-Control": "private, no-store" } });
+      const run = await db.agentRun.findFirst({ where: { id: runId, chatId: id }, select: { id: true, startedAt: true } });
+      if (!run) throw new ApiError({ code: "NOT_FOUND", message: "Execution record not found" });
+      return Response.json({ data: await resolveRunMessage(id, run) }, { headers: { "Cache-Control": "private, no-store" } });
     }
     const limit = Math.min(50, Math.max(1, Number(req.nextUrl.searchParams.get("limit") ?? 20) || 20));
     return Response.json({ data: await listRuns(id, limit) }, { headers: { "Cache-Control": "private, no-store" } });

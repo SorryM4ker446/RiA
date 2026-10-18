@@ -217,8 +217,10 @@ that it answers the question. A keyword overlap can be useful yet contain no ans
 
 The model prompt requires applying and combining evidence, preserving quantities,
 units, prerequisites and exceptions, citing supported claims, disclosing conflicting
-documents and stating when evidence is insufficient. Empty retrieval has an explicit
-instruction against inventing knowledge-base facts. This directs the model; it does
+documents and stating when a requested document fact lacks evidence. Empty retrieval
+adds no knowledge-answer block; the shared agent instructions still prohibit inventing
+workspace facts or citations. Retrieved excerpts apply only to relevant tasks, so
+unrelated conversation does not require a retrieval disclaimer. This directs the model; it does
 not guarantee compliance. Answer sources show whether the generated Markdown actually
 links to each versioned snippet. **回答已引用此片段** means a link was present, not
 that its associated claim was verified. **回答未引用此片段** identifies retrieved

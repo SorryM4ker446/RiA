@@ -44,6 +44,7 @@ Chat submissions send at most the latest 100 loaded messages. The existing serve
 | `GET /api/conversations/:id` | Conversation summary: ID, title, timestamps and message count; used by selection restoration |
 | `GET /api/conversations/:id/messages/:messageId` | Message by persisted or client message ID; returns `data` with role, content, status and timestamps; retains private-media migration |
 | `GET /api/conversations/:id/runs?runId=...` | Persisted assistant message associated with a server-issued run ID, or `null` when unavailable; verifies run ownership in this conversation and uses private/no-store caching |
+| `GET /api/conversations/:id/runs?limit=...` | Execution summaries with optional `messageId` (client message ID when available) for grouping approval continuations; steps include saved bounded `input`/`output` summaries |
 | `GET /api/tasks/:id` | Task detail, including title, details, due date, priority and status |
 | `PATCH /api/tasks/:id` | Task update, including deadline, time zone, reminder and recurrence; returns `data` plus `nextTask` when completion creates a successor |
 | `GET /api/memory?query=...&limit=5` | Relevant local memories; maximum 20, empty query returns an empty list |

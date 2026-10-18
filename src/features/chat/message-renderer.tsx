@@ -360,7 +360,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
               {!isEditing && text ? <MarkdownMessage text={text} /> : null}
               {toolParts.map(part => part.type === "tool-convertDocument" && part.state === "output-available" ? <DocumentDownload key={`download-${part.toolCallId}`} output={part.output} /> : null)}
               {toolParts.some(part => part.state === "approval-requested") ? (
-                <p role="status" className="mt-2 text-sm text-muted-foreground">{t("chat.messages.approvalPending")}</p>
+                <p className="mt-2 text-sm text-muted-foreground">{t(isRegenerable ? "chat.messages.reviewInComposer" : "chat.messages.historicalApprovalPending")}</p>
               ) : null}
               {imageUrl ? (
                 <div className="mt-3 space-y-2">

@@ -331,8 +331,22 @@ test("commands discover arbitrary installed tools in custom Unicode paths and ob
 test("a missing installed command fails visibly without assuming a runtime or installing a replacement", { skip: !win }, async () => {
   const grant = await folder();
   const missing = `ria-missing-runtime-${Date.now()}`;
-  const result = await runTerminalCommand(await prepared(grant.id, `& '${missing}'`));
-  assert.equal(result.status, "failed");
-  assert.notEqual(result.exitCode, 0);
-  assert.ok(result.stderr.includes(missing));
+  const modules = path.join(grant.realPath, "modules");
+  const fixtureModule = path.join(modules, "MissingRuntimeProbe");
+  mkdirSync(fixtureModule, { recursive: true });
+  writeFileSync(path.join(fixtureModule, "MissingRuntimeProbe.psd1"), `@{ RootModule = 'MissingRuntimeProbe.psm1'; ModuleVersion = '1.0'; FunctionsToExport = @('${missing}') }`);
+  writeFileSync(path.join(fixtureModule, "MissingRuntimeProbe.psm1"), `[IO.File]::WriteAllText((Join-Path $PSScriptRoot 'imported.txt'), 'unexpected import'); function ${missing} { 'not an executable' }; Export-ModuleMember -Function '${missing}'`);
+  const previousModules = process.env.PSModulePath;
+  process.env.PSModulePath = `${modules};${previousModules ?? ""}`;
+  try {
+    // Probe an external executable, without triggering discovery of every
+    // installed PowerShell module for an unqualified missing command name.
+    const result = await runTerminalCommand(await prepared(grant.id, `& (Get-Command -Name '${missing}' -CommandType Application -ErrorAction Stop)`));
+    assert.equal(result.status, "failed");
+    assert.notEqual(result.exitCode, 0);
+    assert.ok(result.stderr.includes(missing));
+    assert.equal(existsSync(path.join(fixtureModule, "imported.txt")), false);
+  } finally {
+    if (previousModules === undefined) delete process.env.PSModulePath; else process.env.PSModulePath = previousModules;
+  }
 });

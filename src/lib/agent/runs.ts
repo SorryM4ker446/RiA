@@ -1,4 +1,5 @@
 import { db } from "@/db";
+import { resolveRunMessage } from "./run-messages";
 import { stopTerminalCommandsForRun } from "@/lib/terminal/runtime";
 import type { Prisma } from "@prisma/client";
 import { ApiError } from "@/lib/server/api-error";
@@ -207,6 +208,7 @@ export async function cancelRun(runId: string, reason: string) {
 }
 
 export type RunView = {
+  messageId?: string;
   id: string;
   chatId: string | null;
   goal: string;
@@ -221,6 +223,7 @@ export type RunView = {
     kind: string;
     toolName: string | null;
     state: StepState;
+    input?: unknown;
     output: unknown;
     errorCode: string | null;
     startedAt: string;
@@ -270,7 +273,9 @@ export async function listRuns(chatId: string, limit = 20): Promise<RunView[]> {
     take: limit,
     include: { steps: { orderBy: { position: "asc" } } },
   });
-  return runs.map((run) => ({
+  const messages = await Promise.all(runs.map(run => resolveRunMessage(chatId, run)));
+  return runs.map((run, index) => ({
+    ...(messages[index] ? { messageId: messages[index]!.clientMessageId?.trim() || messages[index]!.id } : {}),
     id: run.id,
     chatId: run.chatId,
     goal: run.goal,
@@ -284,6 +289,7 @@ export async function listRuns(chatId: string, limit = 20): Promise<RunView[]> {
       position: step.position,
       kind: step.kind,
       toolName: step.toolName,
+      input: step.input,
       state: step.state as StepState,
       output: step.output,
       errorCode: step.errorCode,

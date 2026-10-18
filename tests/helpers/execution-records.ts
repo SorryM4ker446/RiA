@@ -8,3 +8,11 @@ export async function openExecutionDetails(page: Page) {
   if (await entry.getAttribute("aria-expanded") !== "true") await entry.click();
   return dialog;
 }
+
+export async function openDocumentReferences(page: Page) {
+  const dialog = await openExecutionDetails(page);
+  const references = dialog.locator("details").filter({ has: page.locator("summary").filter({ hasText: /^文档参考/ }) });
+  await expect(references).toBeVisible();
+  if (await references.getAttribute("open") === null) await references.locator(":scope > summary").click();
+  return dialog;
+}

@@ -54,7 +54,8 @@ async function ask(page: Page, app: App) {
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByRole("button", { name: "批准", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
-  await expect(page.locator("pre").filter({ hasText: "input:" })).not.toContainText("extensionId");
+  await page.getByRole("region", { name: "操作审批", exact: true }).getByRole("button", { name: "查看详情", exact: true }).click();
+  await expect(page.getByLabel("待审批参数", { exact: true })).not.toContainText("extensionId");
   await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes('"state":"approval-requested"') && message.content.includes('"binding"'))).toBe(true);
   return chat;
 }

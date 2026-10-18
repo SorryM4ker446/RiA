@@ -1,19 +1,18 @@
 "use client";
 
 import type { UIMessage } from "ai";
-import { Check, ChevronRight, X } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DocumentSources } from "@/components/knowledge/document-sources";
 import { RetrievalDiagnostics } from "@/components/knowledge/retrieval-diagnostics";
 import { LocalFileUses } from "@/features/settings/local-file-uses";
 import { t, tf } from "@/lib/locale";
-import type { ChatState } from "./use-chat-state";
 import { TerminalResult } from "./terminal-result";
 import { formatToolState, isToolPart, safeJson, type ToolPart } from "./page-utils";
 import { getDocumentSources, getLocalFileUses, getWebSearchSources } from "./message-presentation";
 
-type Props = { message: UIMessage; isLatest: boolean } & Pick<ChatState, "isPending" | "addToolApprovalResponse">;
+type Props = { message: UIMessage; isLatest: boolean; onReviewApproval: () => void };
 
 function executionToolState(part: ToolPart) {
   return part.state === "output-available" && part.output && typeof part.output === "object" && "skipped" in part.output && part.output.skipped
@@ -21,7 +20,7 @@ function executionToolState(part: ToolPart) {
     : formatToolState(part.state);
 }
 
-export function ExecutionTurnDetails({ message, isLatest, isPending, addToolApprovalResponse }: Props) {
+export function ExecutionTurnDetails({ message, isLatest, onReviewApproval }: Props) {
   const toolParts = message.parts.filter(isToolPart);
   const webSources = getWebSearchSources(toolParts);
   const documentSources = getDocumentSources(message);
@@ -46,14 +45,7 @@ export function ExecutionTurnDetails({ message, isLatest, isPending, addToolAppr
               <p className="text-[11px] text-muted-foreground">输入参数</p>
               <pre className="execution-code chat-list-scroll">{safeJson(part.input && typeof part.input === "object" && "arguments" in part.input && "binding" in part.input ? part.input.arguments : part.input)}</pre>
             </div> : null}
-            {pendingApproval ? <div className="flex flex-wrap items-center gap-2 py-1">
-              <Button disabled={isPending || !isLatest} onClick={() => void addToolApprovalResponse({ id: pendingApproval.id, approved: true })} size="sm" type="button">
-                <Check aria-hidden="true" data-icon="inline-start" />{t("chat.messages.approve")}
-              </Button>
-              <Button disabled={isPending || !isLatest} onClick={() => void addToolApprovalResponse({ id: pendingApproval.id, approved: false, reason: t("chat.messages.approvalRejectedReason") })} size="sm" type="button" variant="outline">
-                <X aria-hidden="true" data-icon="inline-start" />{t("chat.messages.reject")}
-              </Button>
-            </div> : null}
+            {pendingApproval ? <Button disabled={!isLatest} onClick={onReviewApproval} size="sm" type="button" variant="outline" className="w-fit">返回聊天批准</Button> : null}
             {!terminal && part.state === "output-available" && part.output !== undefined ? <div className="flex min-w-0 flex-col gap-1">
               <p className="text-[11px] text-muted-foreground">执行结果</p>
               <pre className="execution-code chat-list-scroll">{safeJson(part.output)}</pre>

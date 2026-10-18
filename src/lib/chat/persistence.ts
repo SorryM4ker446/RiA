@@ -81,10 +81,11 @@ export async function prepareChatPersistence(input: ChatRequest) {
     fallbackTitle: truncateTitle(titleSeed),
   });
 
+  let previousRunIds: string[] = [];
   if (isApprovalResume) {
     const lastMessage = messages[messages.length - 1];
     try {
-      await claimToolApproval(chat.id, lastMessage);
+      previousRunIds = await claimToolApproval(chat.id, lastMessage);
     } catch (claimError) {
       // A validation refusal must not consume the pending approval. A claim
       // that lost the race is the opposite case: the row already holds another
@@ -123,9 +124,9 @@ export async function prepareChatPersistence(input: ChatRequest) {
     ? await getRegenerationSnapshot(chat.id, latestUserMessage.id)
     : null;
 
-  return { chat, regenerationSnapshot };
+  return { chat, regenerationSnapshot, previousRunIds };
 }
-export type ChatPersistence = Awaited<ReturnType<typeof prepareChatPersistence>>;
+export type ChatPersistence = Omit<Awaited<ReturnType<typeof prepareChatPersistence>>, "previousRunIds"> & { previousRunIds?: string[] };
 export async function persistChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; documentSources?: DocumentSource[]; documentDiagnostics?: DocumentDiagnostics; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean }) {
   const { input, conversation, responseMessage, isAborted, generationFailed } = params;
   const { latestUserMessage, modelRef } = input;
@@ -157,6 +158,7 @@ export async function persistChatResponse(params: { input: ChatRequest; conversa
           // reload and is stated once, instead of only existing in the model's
           // prose or only in the live stream.
           ...(params.runId ? { runId: params.runId } : {}),
+          ...(params.runId ? { runIds: [...new Set([...(conversation.previousRunIds ?? []), params.runId])] } : {}),
           modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}`,
           ...(unavailableTools.length ? { unavailableTools } : {}),
           tools: toolItems,

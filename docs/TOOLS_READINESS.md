@@ -4,8 +4,9 @@ Updated: 2026-10-18
 
 Chat execution details consolidate tool parameters/results, web/document
 references, legacy local-file uses and retrieval diagnostics. Chat prose retains
-inline citations, attachments and document downloads. Pending approvals open the
-existing detail sheet; each terminal command still requires human review.
+inline citations, attachments and document downloads. Pending approvals appear
+above the composer without opening the detail sheet; each terminal command still
+requires human review. Linked approval continuations share one execution entry.
 
 ## Current scope
 

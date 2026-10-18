@@ -409,12 +409,16 @@ export function useChatState() {
 
     const text = readText(lastMessage).trim();
     const toolParts = lastMessage.parts.filter(isToolPart);
+    const executionMetadata = lastMessage.metadata as { runId?: string; runIds?: string[]; modelLabel?: string } | undefined;
     const fallbackText = t("chatState.streamInterrupted");
     const content =
       toolParts.length > 0
         ? encodePersistedAssistantToolMessage({
           type: "assistant-tool-message",
           text: text || fallbackText,
+          ...(executionMetadata?.runId ? { runId: executionMetadata.runId } : {}),
+          ...(executionMetadata?.runIds ? { runIds: executionMetadata.runIds } : {}),
+          ...(executionMetadata?.modelLabel ? { modelLabel: executionMetadata.modelLabel } : {}),
           tools: toolParts.map((toolPart) => ({
             toolName: toolPart.type.replace(/^tool-/, ""),
             ...(toolPart.title ? { title: toolPart.title } : {}),

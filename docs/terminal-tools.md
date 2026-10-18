@@ -6,19 +6,20 @@ and execution records as other chat tools. It is unavailable in the web runtime.
 
 ## Enable and use
 
-1. Open **文件权限** beside **执行记录** above the chat composer (or
+1. Open **文件权限** to the left of **执行记录** above the chat composer (or
    **Settings → File access**), choose
    a working folder and explicitly grant access. Choosing a folder alone does
    not authorize it. These machine-local permissions apply across conversations.
 2. Choose **开启终端** for that folder and confirm the separate terminal permission.
 3. In a conversation with a model that supports tools, ask for a command, for
    example: “在已授权的项目目录运行 `Get-ChildItem`，列出文件并解释结果。”
-4. Open **执行记录 → 详情** (it opens automatically for pending approval). Review the full PowerShell command, canonical working directory and timeout,
-   then approve or reject it. Nothing executes before approval.
-5. In the same execution detail, expand the tool result to see live stdout, stderr and the exit code. Use
+4. Review the compact approval card above the **文件权限 / 执行记录** toolbar. Its default view shows the operation, canonical working directory and approve/reject controls. Choose **查看详情** to expand the exact command in a bounded scroll area, then **收起详情** to collapse it. Expansion follows the shared motion tokens and respects reduced motion. **执行详情** opens the corresponding execution record; full commands, inputs, outputs, status, sources and diagnostics remain there. Execution records do not open automatically. Each command still needs its own decision; queued approvals are presented one at a time and each new item starts collapsed.
+5. Open **执行详情** to see the timeout, live stdout, stderr and the exit code. Use
    **停止命令** to stop a long command. Stopping the chat request, cancelling its
    execution record, disabling terminal permission or revoking the folder also
    stops the associated command.
+
+Approval continuations retain their server-issued run identities in the saved assistant message and appear as one request in execution records. Existing messages with one `runId` remain supported. Legacy rows without a link are joined only when one user-message window contains exactly one run and one saved assistant reply; ambiguous histories are not matched by title. Missing full details are labeled explicitly and existing step summaries remain expandable. No database migration or replay of old commands is needed.
 
 Conversations created from templates retain their tool allowlist. Add
 **执行终端命令** to a custom template if needed. Legacy file-tool selections normalize to this tool, but no folder gains terminal permission automatically. Old approvals for retired file tools cannot execute; send a fresh request and review its terminal command.

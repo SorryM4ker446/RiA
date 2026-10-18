@@ -59,6 +59,8 @@ test("a first browser failure preserves a trace, screenshot and reports without 
     assert.equal(report.stats.flaky, 0);
     const results = report.suites[0].specs[0].tests[0].results;
     assert.equal(results.length, 1, "a failed first attempt must not depend on a retry");
+    assert.match(results[0].error?.message ?? "", /intentional mismatch/,
+      `The probe must reach its intentional page assertion, rather than fail during fixture setup. Nested failure: ${(results[0].error?.message ?? result.stderr).slice(0, 8000)}`);
     const attachments = results[0].attachments;
     const trace = attachments.find(attachment => attachment.name === "trace");
     const screenshot = attachments.find(attachment => attachment.contentType === "image/png");

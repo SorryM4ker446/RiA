@@ -48,7 +48,7 @@ async function POSTHandler(req: NextRequest) {
     const isChatMode = mode === "chat";
     const canUseTools = isChatMode && input.model?.supportsTools === true;
     // The chat model decides for itself whether a tool helps, so tools stay
-    // attached for the whole turn. Restraint comes from TOOL_ENABLED_INSTRUCTIONS
+    // attached for the whole turn. Selection follows the task instructions
     // and each tool's modelDescription, not from a second LLM call that would
     // have to guess from the latest message alone.
     const toolsEnabled = canUseTools && (!input.assistant || input.assistant.tools.length > 0);
@@ -92,7 +92,7 @@ async function POSTHandler(req: NextRequest) {
     const systemPrompt = buildSystemPrompt(
       [
         summary ? `[Summary of earlier turns - a model-written condensation, not the original text: ${summary.summary}]` : "",
-        context.historyExcerpt || "No earlier messages omitted.",
+        context.historyExcerpt,
       ].filter(Boolean).join(String.fromCharCode(10, 10)),
       formatLongTermContext(relevantMemories),
       toolsEnabled,
