@@ -26,7 +26,8 @@ async function seekStartup(page: Page, time: number) {
   await page.evaluate(time => {
     const surface = document.querySelector(".desktop-startup")!;
     const workspace = document.querySelector(".desktop-startup-workspace")!;
-    for (const animation of [...surface.getAnimations({ subtree: true }), ...workspace.getAnimations()]) {
+    const stage = document.querySelector(".desktop-startup-stage")!;
+    for (const animation of [...surface.getAnimations({ subtree: true }), ...workspace.getAnimations(), ...stage.getAnimations()]) {
       animation.pause();
       animation.currentTime = time;
     }
@@ -37,7 +38,8 @@ async function completeStartup(page: Page) {
   await page.evaluate(() => {
     const surface = document.querySelector(".desktop-startup")!;
     const workspace = document.querySelector(".desktop-startup-workspace")!;
-    [...surface.getAnimations({ subtree: true }), ...workspace.getAnimations()].forEach(animation => animation.finish());
+    const stage = document.querySelector(".desktop-startup-stage")!;
+    [...surface.getAnimations({ subtree: true }), ...workspace.getAnimations(), ...stage.getAnimations()].forEach(animation => animation.finish());
   });
 }
 
@@ -46,7 +48,7 @@ for (const theme of ["dark", "light"]) {
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
     await desktop(page, theme);
-    await page.goto("/");
+    await page.goto("/chat");
     const startup = page.getByRole("region", { name: "RiA 启动动画" });
     await expect(startup).toBeVisible();
     await expect(page.locator(".desktop-startup-wordmark")).toHaveText("RiA");
@@ -63,15 +65,27 @@ for (const theme of ["dark", "light"]) {
     expect(Number(await page.locator(".desktop-startup-mark").evaluate(node => getComputedStyle(node).opacity))).toBeLessThan(.15);
     await expect(startup).toHaveCSS("opacity", "1");
     await expect(page.locator(".desktop-startup-workspace")).toHaveCSS("opacity", "0");
+    await expect(page.locator(".desktop-startup-stage")).toHaveCSS("background-color", theme === "light" ? "rgb(255, 255, 255)" : "rgb(26, 27, 30)");
     await seekStartup(page, 1000);
     await expect(page.locator(".desktop-startup-mark")).toHaveCSS("opacity", "0");
-    await expect(page.locator(".desktop-startup-stage")).toHaveCSS("background-color", theme === "light" ? "rgb(255, 255, 255)" : "rgb(26, 27, 30)");
+    const backdropAlpha = () => page.locator(".desktop-startup-stage").evaluate(node => {
+      const color = getComputedStyle(node).backgroundColor;
+      return color.startsWith("rgba(") ? Number(color.split(",").at(-1)!.replace(")", "")) : 1;
+    });
+    const middleAlpha = await backdropAlpha();
+    expect(middleAlpha).toBeGreaterThan(0);
+    expect(middleAlpha).toBeLessThan(1);
     expect(Number(await page.locator(".desktop-startup-workspace").evaluate(node => getComputedStyle(node).opacity))).toBeGreaterThan(0);
+    await seekStartup(page, 1279);
+    expect(await backdropAlpha()).toBeLessThan(.001);
+    await expect(page.locator(".workspace-main")).toHaveCSS("background-color", /0\.88/);
     await completeStartup(page);
     await expect(startup).toHaveCount(0);
     await expect(page.locator(".desktop-startup-workspace")).not.toHaveAttribute("inert");
     await expect(page.locator(".desktop-startup-workspace")).toHaveCSS("opacity", "1");
     await expect(page.locator(".desktop-startup-workspace")).toHaveCSS("transform", "none");
+    expect(await backdropAlpha()).toBe(0);
+    await expect(page.locator(".workspace-main")).toHaveCSS("background-color", /0\.88/);
     await page.getByRole("link", { name: "知识库", exact: true }).click();
     await expect(page).toHaveURL(/\/knowledge$/);
     await expect(startup).toHaveCount(0);
@@ -120,6 +134,7 @@ test("reduced motion bypasses startup and changing the preference dismisses it",
   await expect(page.locator(".desktop-startup-workspace")).toHaveCSS("opacity", "1");
   await expect(page.locator(".desktop-startup-workspace")).toHaveCSS("transform", "none");
   await expect(page.locator(".desktop-startup-stage")).not.toHaveAttribute("data-starting");
+  await expect(page.locator(".desktop-startup-stage")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 });
 
 test("failed and stalled readiness cannot block the workspace", async ({ page }) => {

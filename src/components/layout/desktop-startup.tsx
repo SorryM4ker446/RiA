@@ -5,6 +5,7 @@ import { WindowControls } from "./window-controls";
 
 export function DesktopStartup({ children }: { children: React.ReactNode }) {
   const [ticket, setTicket] = useState<string | null>(null);
+  const stage = useRef<HTMLDivElement>(null);
   const surface = useRef<HTMLElement>(null);
   const workspace = useRef<HTMLDivElement>(null);
 
@@ -55,6 +56,9 @@ export function DesktopStartup({ children }: { children: React.ReactNode }) {
       animate(mark, [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translateY(-4px)" }], { duration: 180, delay: 680, easing: "ease-in" });
       // The lettering is gone before the workspace appears, so the two never overlap.
       animate(element, [{ opacity: 1 }, { opacity: 0 }], { duration: 240, delay: 860, easing: "ease-in-out" });
+      // Reach the workspace's native transparency before removing the startup
+      // surface; dropping an opaque background at teardown would cause a jump.
+      animate(stage.current!, [{ backgroundColor: getComputedStyle(stage.current!).backgroundColor }, { backgroundColor: "transparent" }], { duration: 420, delay: 860, easing });
       const entrance = animate(workspace.current!, [{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }], { duration: 420, delay: 860, easing });
       void entrance.finished.then(finish, finish);
     }).catch(finish);
@@ -67,7 +71,7 @@ export function DesktopStartup({ children }: { children: React.ReactNode }) {
     };
   }, [ticket]);
 
-  return <div className="desktop-startup-stage" data-starting={ticket ? "true" : undefined}>
+  return <div ref={stage} className="desktop-startup-stage" data-starting={ticket ? "true" : undefined}>
     <div ref={workspace} className="desktop-startup-workspace" data-starting={ticket ? "true" : undefined} inert={ticket ? true : undefined} aria-hidden={ticket ? true : undefined}>{children}</div>
     {ticket ? <section ref={surface} className="desktop-startup" aria-label="RiA 启动动画">
       <div className="desktop-startup-caption desktop-titlebar-drag"><WindowControls /></div>
