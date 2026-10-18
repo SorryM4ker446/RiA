@@ -1,0 +1,21 @@
+{
+  "format": "ria-plugin",
+  "schemaVersion": 1,
+  "id": "example.library-docs",
+  "name": "库文档查询助手",
+  "version": "1.0.0",
+  "author": "Example publisher",
+  "description": "组合技能与 Context7 连接，查询版本文档。服务额度与凭据由服务商管理。",
+  "skills": [{
+    "id": "library-docs",
+    "name": "库文档查询",
+    "description": "用户询问库或框架的 API、用法、版本变化时使用。",
+    "instructions": "先确认库和版本，再通过已确认的 Context7 工具匹配库标识、查询相关文档。外部调用等待授权。依据实际返回材料回答并说明版本；连接不可用时说明情况，不能编造查询结果。"
+  }],
+  "connections": [{
+    "id": "context7",
+    "name": "Context7 docs",
+    "config": { "type": "mcp-http", "url": "https://mcp.context7.com/mcp" },
+    "credentials": [{ "key": "Authorization", "required": false, "description": "可选：Bearer 加你的 Context7 API Key。" }]
+  }]
+}

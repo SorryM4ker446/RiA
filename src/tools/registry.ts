@@ -14,8 +14,10 @@ import type { Extension } from "@prisma/client";
 
 const available: ToolAvailability = { available: true, reason: null, configEntry: null };
 const unavailable = (reason: ToolAvailabilityReason): ToolAvailability => ({ available: false, reason, configEntry: "/extensions" });
-function extensionAvailability(row: Extension | null, name: string, definitions?: ExtensionTool[]): ToolAvailability {
+type OwnedExtension = Extension & { plugin?: { enabled: boolean } | null };
+function extensionAvailability(row: OwnedExtension | null, name: string, definitions?: ExtensionTool[]): ToolAvailability {
   if (!row || !row.enabled) return unavailable("disabled");
+  if (row.pluginId && !row.plugin?.enabled) return unavailable("disabled");
   if (row.kind === "mcp-stdio" && !localProcessConnectionsAllowed()) return unavailable("disabled");
   if (row.testedRevision !== row.revision) return unavailable("notTested");
   if (row.credentials && !credentialEncryptionAvailable()) return unavailable("notConfigured");
@@ -75,7 +77,7 @@ function extensionDescriptor(row: Extension, definition: ExtensionTool): AnyTool
 }
 
 export async function listRegisteredTools(mode?: ToolMode): Promise<AnyToolDescriptor[]> {
-  const extensions = await db.extension.findMany({ orderBy: { id: "asc" }, take: EXTENSION_LIMITS.connections });
+  const extensions = await db.extension.findMany({ include: { plugin: { select: { enabled: true } } }, orderBy: { id: "asc" }, take: EXTENSION_LIMITS.connections });
   return [...listToolDescriptors(mode), ...extensions.flatMap(row => extensionToolsSchema.parse(row.tools).map(tool => extensionDescriptor(row, tool))).filter(tool => !mode || tool.modeSupport.includes(mode))];
 }
 export async function resolveToolDescriptor(id: string): Promise<AnyToolDescriptor | null> {
@@ -83,14 +85,14 @@ export async function resolveToolDescriptor(id: string): Promise<AnyToolDescript
   if (builtin) return builtin;
   const connectionId = extensionIdFromTool(id);
   if (!connectionId) return null;
-  const row = await db.extension.findUnique({ where: { id: connectionId } });
+  const row = await db.extension.findUnique({ where: { id: connectionId }, include: { plugin: { select: { enabled: true } } } });
   const definition = row && extensionToolsSchema.parse(row.tools).find(tool => externalToolId(row.id, tool.name) === id);
   return row && definition ? extensionDescriptor(row, definition) : null;
 }
 export async function toolAvailability(id: string): Promise<ToolAvailability> {
   if (getToolDescriptor(id)) return builtinToolAvailability(id);
   const connectionId = extensionIdFromTool(id);
-  const row = connectionId ? await db.extension.findUnique({ where: { id: connectionId } }) : null;
+  const row = connectionId ? await db.extension.findUnique({ where: { id: connectionId }, include: { plugin: { select: { enabled: true } } } }) : null;
   const tool = row && extensionToolsSchema.parse(row.tools).find(tool => externalToolId(row.id, tool.name) === id);
   if (row && tool) return extensionAvailability(row, tool.name);
   return unavailable("disabled");
@@ -111,11 +113,11 @@ export async function skipReasonFor(id: string, error: unknown) {
 }
 export async function listPublicToolCatalog(mode?: ToolMode): Promise<PublicToolCatalogItem[]> {
   const entries = await registryEntries(mode);
-  return entries.map(({ tool, status }) => ({ ...status, id: tool.id, displayName: tool.displayName, description: tool.description, modeSupport: tool.modeSupport, manual: tool.manual, resultBudget: tool.resultBudget, extensionId: tool.extensionId }));
+  return entries.filter(({ tool }) => tool.id !== "readPluginSkill").map(({ tool, status }) => ({ ...status, id: tool.id, displayName: tool.displayName, description: tool.description, modeSupport: tool.modeSupport, manual: tool.manual, resultBudget: tool.resultBudget, extensionId: tool.extensionId }));
 }
 async function registryEntries(mode?: ToolMode) {
   const builtins = listToolDescriptors(mode);
-  const [statuses, rows] = await Promise.all([Promise.all(builtins.map(tool => builtinToolAvailability(tool.id))), db.extension.findMany({ orderBy: { id: "asc" }, take: EXTENSION_LIMITS.connections })]);
+  const [statuses, rows] = await Promise.all([Promise.all(builtins.map(tool => builtinToolAvailability(tool.id))), db.extension.findMany({ include: { plugin: { select: { enabled: true } } }, orderBy: { id: "asc" }, take: EXTENSION_LIMITS.connections })]);
   return [...builtins.map((tool, index) => ({ tool, status: statuses[index] })), ...rows.flatMap(row => {
     const definitions = extensionToolsSchema.parse(row.tools);
     return definitions.map(definition => ({ tool: extensionDescriptor(row, definition), status: extensionAvailability(row, definition.name, definitions) }));

@@ -320,11 +320,13 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; toolIds
   // An unconfigured optional tool is filtered out here rather than mounted and
   // failed later. The model never sees it, so it cannot call it, retry it, or
   // report a search that never happened.
+  // Reading already-enabled skill guidance grants no external capability;
+  // assistant tool restrictions still apply to every action a skill suggests.
   const descriptors = (await listAvailableRegisteredTools("chat")).filter((tool) =>
-    (hasRestriction ? allowed.has(tool.id) : true) && !(tool.id === "saveMemory" && options?.usesMemory === false));
+    (hasRestriction ? allowed.has(tool.id) || tool.id === "readPluginSkill" : true) && !(tool.id === "saveMemory" && options?.usesMemory === false));
 
   return Object.fromEntries(descriptors.map(tool => [tool.id, {
-    ...(tool.extensionId ? { title: tool.displayName } : {}),
+    ...(tool.extensionId || tool.id === "readPluginSkill" ? { title: tool.displayName } : {}),
     description: tool.modelDescription,
     inputSchema: tool.modelInputSchema ?? tool.inputSchema,
     ...(tool.requiresApproval ? { needsApproval: async (input: unknown) => { if (tool.bindForApproval) await tool.bindForApproval(input); return true; } } : {}),

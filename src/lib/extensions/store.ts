@@ -6,23 +6,25 @@ import { cancelExtensionOperations, startExtensionOperation } from "./activity";
 import { credentialEncryptionAvailable, decryptCredentials, encryptCredentials } from "./secrets";
 import { activationSchema, EXTENSION_LIMITS, extensionConfigSchema, extensionToolsSchema, externalToolId, saveExtensionSchema, type SaveExtension } from "./schema";
 import { canonical, connectionCredentials, probeConnection, publicExtensionError, sameDefinition, validateProcessConfig } from "./transport";
+import { pluginManifestSchema } from "@/lib/plugins/schema";
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const conflict = () => new ApiError({ code: "CONFLICT", message: "扩展配置已变化，请刷新后重试。" });
 export async function requireExtension(id: string) {
-  const extension = await db.extension.findUnique({ where: { id } });
+  const extension = await db.extension.findUnique({ where: { id }, include: { plugin: true } });
   if (!extension) throw new ApiError({ code: "NOT_FOUND", message: "扩展不存在或已删除。" });
   return extension;
 }
-export function extensionView(row: Extension) {
+export function extensionView(row: Extension & { plugin?: { manifest: unknown } | null }) {
   const tools = extensionToolsSchema.parse(row.tools);
   let credentialsAvailable = true;
   if (row.credentials) { try { decryptCredentials(row.id, row.credentials); } catch { credentialsAvailable = false; } }
-  return { id: row.id, name: row.name, kind: row.kind, config: extensionConfigSchema.parse(row.config), revision: row.revision, enabled: row.enabled, hasCredentials: !!row.credentials, credentialsAvailable, tested: row.testedRevision === row.revision, lastTestAt: row.lastTestAt?.toISOString() ?? null, error: row.lastError, tools: tools.map(tool => ({ ...tool, id: externalToolId(row.id, tool.name) })) };
+  const credentialFields = row.plugin ? pluginManifestSchema.parse(row.plugin.manifest).connections.find(connection => connection.id === row.pluginKey)?.credentials ?? [] : [];
+  return { id: row.id, name: row.name, kind: row.kind, config: extensionConfigSchema.parse(row.config), revision: row.revision, enabled: row.enabled, pluginId: row.pluginId, credentialFields, hasCredentials: !!row.credentials, credentialsAvailable, tested: row.testedRevision === row.revision, lastTestAt: row.lastTestAt?.toISOString() ?? null, error: row.lastError, tools: tools.map(tool => ({ ...tool, id: externalToolId(row.id, tool.name) })) };
 }
 export type ExtensionView = ReturnType<typeof extensionView>;
 export async function listExtensions() {
-  return { items: (await db.extension.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }] })).map(extensionView), encryptionAvailable: credentialEncryptionAvailable() };
+  return { items: (await db.extension.findMany({ include: { plugin: true }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] })).map(extensionView), encryptionAvailable: credentialEncryptionAvailable() };
 }
 
 export async function saveExtension(raw: SaveExtension, id?: string) {
@@ -43,7 +45,7 @@ export async function saveExtension(raw: SaveExtension, id?: string) {
     return tx.extension.update({ where: { id, revision: input.revision }, data: { name: input.name, kind: input.config.type, config: json(input.config), enabled: false, revision: { increment: 1 }, testedRevision: null, testId: null, lastError: null, tools: [], credentials: input.credentials ? encryptCredentials(id, input.credentials) : keepCredentials ? current.credentials : null } });
   });
   if (id) cancelExtensionOperations(id);
-  return extensionView(row);
+  return extensionView(await requireExtension(row.id));
 }
 
 export async function testExtension(id: string, revision: number, signal?: AbortSignal) {
@@ -55,7 +57,10 @@ export async function testExtension(id: string, revision: number, signal?: Abort
   const operation = startExtensionOperation(id, signal);
   try {
     const config = extensionConfigSchema.parse(current.config);
-    const tools = await probeConnection(config, decryptCredentials(id, current.credentials), operation.signal);
+    const credentials = decryptCredentials(id, current.credentials);
+    const matchingKey = (key: string) => config.type === "mcp-stdio" && process.platform !== "win32" ? key : key.toLowerCase();
+    if (extensionView(current).credentialFields.some(field => field.required && !Object.entries(credentials).some(([key, value]) => matchingKey(key) === matchingKey(field.key) && value))) throw new ApiError({ code: "CONFIGURATION_ERROR", message: "请先在连接配置中填写插件要求的凭据。" });
+    const tools = await probeConnection(config, credentials, operation.signal);
     operation.signal.throwIfAborted();
     const previous = extensionToolsSchema.parse(current.tools);
     const changed = tools.length !== previous.length || tools.some(tool => !previous.some(old => sameDefinition(old, tool)));
@@ -88,10 +93,11 @@ export async function activateExtension(id: string, raw: unknown) {
     return tx.extension.update({ where: { id, revision: input.revision }, data: { enabled: input.enabled, tools: json(tools.map(tool => ({ ...tool, enabled: selected.has(tool.name) }))), revision, testedRevision: row.testedRevision === row.revision ? revision : null, testId: null } });
   });
   cancelExtensionOperations(id);
-  return extensionView(saved);
+  return extensionView(await requireExtension(saved.id));
 }
 
 export async function deleteExtension(id: string, revision: number) {
+  if ((await requireExtension(id)).pluginId) throw new ApiError({ code: "CONFLICT", message: "此连接由插件管理，请通过卸载插件移除。" });
   const removed = await db.extension.deleteMany({ where: { id, revision } });
   if (!removed.count) throw conflict();
   cancelExtensionOperations(id);

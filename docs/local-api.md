@@ -1,5 +1,8 @@
 # Local integration API
 
+RiA package preview, skills.sh search/details, installation and lifecycle endpoints under `/api/plugins`
+are documented in [Plugin packages](plugin-packages.md#persistence-and-api).
+
 Local document parsing, draft conversion and version-bound downloads are described
 in [Document processing and export](document-processor.md#local-api).
 

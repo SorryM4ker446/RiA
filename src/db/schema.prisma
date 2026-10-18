@@ -568,8 +568,26 @@ model Extension {
   lastError   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  pluginId    String?
+  pluginKey   String?
+  plugin      PluginPackage? @relation(fields: [pluginId], references: [id], onDelete: Cascade)
 
+  @@unique([pluginId, pluginKey])
   @@map("extensions")
+}
+
+model PluginPackage {
+  id        String @id
+  packageId String @unique
+  manifest  Json
+  digest    String
+  enabled   Boolean @default(false)
+  revision  Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  connections Extension[]
+
+  @@map("plugin_packages")
 }
 
 enum MessageRole {

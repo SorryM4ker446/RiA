@@ -29,6 +29,7 @@ const VALID_INPUTS: Record<string, unknown> = {
   writeLocalFile: { grantId: "grant-1", path: "notes.md", content: "x" },
   readDocument: { documentId: "document-1" },
   convertDocument: { documentId: "document-1", format: "docx" },
+  readPluginSkill: { packageId: "skills.sh.sample", path: "SKILL.md" },
 };
 
 /**

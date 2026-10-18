@@ -1,5 +1,6 @@
 import { fetch as undiciFetch, MockAgent, setGlobalDispatcher } from "undici";
 import { registryFixtureEntries } from "./registry-fixture.ts";
+import { marketSearchItem, marketSnapshot } from "./skill-marketplace-fixture.ts";
 
 // Loaded only by the isolated test server, never by application code or builds.
 if (process.env.APP_RUNTIME !== "test" || !process.send) {
@@ -30,6 +31,15 @@ globalThis.fetch = async (input, options) => {
 };
 
 if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
+  const skills = agent.get("https://skills.sh");
+  skills.intercept({ path: /^\/api\/(?:search|download)/, method: "GET" }).reply(options => {
+    const url = new URL(options.path, "https://skills.sh");
+    if (url.pathname === "/api/search") {
+      const query = url.searchParams.get("q");
+      return { statusCode: query === "unavailable" ? 503 : 200, data: JSON.stringify({ skills: query === "nothing" ? [] : [marketSearchItem] }) };
+    }
+    return { statusCode: 200, data: JSON.stringify(marketSnapshot()) };
+  }).persist();
   const registry = agent.get("https://registry.modelcontextprotocol.io");
   const entries = registryFixtureEntries(process.env.PRIVATE_AI_EXTENSION_FIXTURE_ORIGIN || "https://service.example.invalid");
   registry.intercept({ path: /^\/v0\.1\/servers(?:\?|\/)/, method: "GET" }).reply(options => {
@@ -122,6 +132,17 @@ if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
       const base = { id: "offline-completion", model: body.model, usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } };
       if (body.modalities?.includes("image")) return JSON.stringify({ ...base, choices: [{ index: 0, message: { role: "assistant", content: "", images: [{ type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=" } }] }, finish_reason: "stop" }] });
       if (body.stream) {
+        const skillRequested = prompt.includes("OFFLINE_READ_PLUGIN_SKILL");
+        const skillResults = body.messages.filter(message => message.role === "tool").length;
+        if (skillRequested && skillResults < 2 && body.tools?.some(tool => tool.function?.name === "readPluginSkill")) {
+          const packageId = systemText.match(/skills\.sh\.[a-f0-9]{40}/)?.[0];
+          const args = { packageId, path: skillResults ? "references/style.md" : "SKILL.md" };
+          const chunks = [
+            { choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: `skill-read-${skillResults}`, type: "function", function: { name: "readPluginSkill", arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] },
+            { choices: [], usage: base.usage },
+          ];
+          return chunks.map(chunk => `data: ${JSON.stringify({ ...base, ...chunk })}\n\n`).join("") + "data: [DONE]\n\n";
+        }
         const taskRequested = prompt.includes("OFFLINE_CREATE_TASK");
         const knowledgeRequested = prompt.includes("OFFLINE_SEARCH_KNOWLEDGE");
         const extensionRequested = prompt.includes("OFFLINE_EXTENSION_TOOL");

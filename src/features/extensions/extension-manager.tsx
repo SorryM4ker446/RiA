@@ -18,6 +18,8 @@ import type { ToolCatalogItem } from "@/features/chat/types";
 import { ExtensionEditor } from "./extension-editor";
 import { ExtensionDiscovery } from "./extension-discovery";
 import type { RegistryConnectionDraft } from "@/lib/extensions/registry-types";
+import { PluginPackages } from "./plugin-packages";
+import type { PluginPreview, PluginView } from "@/lib/plugins/types";
 
 type ExtensionData = { items: ExtensionView[]; encryptionAvailable: boolean; localProcessesAllowed: boolean };
 async function request<T>(url: string, signal: AbortSignal, method = "GET", body?: unknown): Promise<T> {
@@ -33,6 +35,7 @@ function stateLabel(row: ExtensionView) { return !row.credentialsAvailable ? "�
 export function ExtensionManager() {
   const [data, setData] = useState<ExtensionData>({ items: [], encryptionAvailable: false, localProcessesAllowed: false });
   const [builtins, setBuiltins] = useState<ToolCatalogItem[]>([]);
+  const [plugins, setPlugins] = useState<{ items: PluginView[]; catalog: PluginPreview[] }>({ items: [], catalog: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -52,8 +55,8 @@ export function ExtensionManager() {
   const load = useCallback(async (clearError = true) => {
     loadRequest.current?.abort(); const controller = new AbortController(); loadRequest.current = controller;
     try {
-      const [extensions, tools] = await Promise.all([request<ExtensionData>("/api/extensions", controller.signal), request<ToolCatalogItem[]>("/api/tools?mode=chat", controller.signal)]);
-      if (!controller.signal.aborted) { setData(extensions); setBuiltins(tools.filter(tool => !tool.extensionId)); if (clearError) setError(""); }
+      const [extensions, tools, packages] = await Promise.all([request<ExtensionData>("/api/extensions", controller.signal), request<ToolCatalogItem[]>("/api/tools?mode=chat", controller.signal), request<typeof plugins>("/api/plugins", controller.signal)]);
+      if (!controller.signal.aborted) { setData(extensions); setPlugins(packages); setBuiltins(tools.filter(tool => !tool.extensionId)); if (clearError) setError(""); }
     } catch (failure) { if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : "扩展加载失败。"); }
     finally { if (!controller.signal.aborted) setLoading(false); }
   }, []);
@@ -74,21 +77,55 @@ export function ExtensionManager() {
       else { setNotice("检测已取消。"); await load(); }
     } finally { if (operation.current === controller) { operation.current = null; if (alive.current) setBusy(""); } }
   }
-  const enabledCount = data.items.filter(item => item.enabled).length;
+  function detect(row: ExtensionView, trigger: HTMLElement | null) {
+    void mutate(`${row.id}:test`, async signal => {
+      const updated = await request<ExtensionView>(`/api/extensions/${row.id}/test`, signal, "POST", { revision: row.revision });
+      upsert(updated); openTools(updated, trigger ?? document.getElementById("plugin-import")!);
+      setNotice(updated.tools.length ? "连接成功，请确认需要启用的工具。" : "连接成功，该服务未提供工具。");
+    });
+  }
+  const packageProps = {
+    plugins: plugins.items, catalog: plugins.catalog, connections: data.items, busy: !!busy, loading, actionError: error, localProcessesAllowed: data.localProcessesAllowed,
+    onInstall: (preview: PluginPreview, allowLocalProcesses: boolean, onInstalled: () => void) => void mutate("plugin:install", async signal => {
+      const installed = await request<PluginView>("/api/plugins", signal, "POST", { ...preview, allowLocalProcesses });
+      setPlugins(old => ({ ...old, items: [...old.items, installed] }));
+      await load(false); onInstalled(); setTab("mine"); setNotice(installed.connections.length ? "插件已安装，请打开插件完成连接配置、检测和工具选择。" : "插件已安装，启用后即可在聊天中使用技能。");
+    }),
+    onToggle: (plugin: PluginView) => void mutate(`plugin:${plugin.id}`, async signal => {
+      await request(`/api/plugins/${plugin.id}`, signal, "PATCH", { revision: plugin.revision, enabled: !plugin.enabled });
+      await load(false); setNotice(plugin.enabled ? "插件已停用，包内工具与后续聊天的技能指令已停用。" : "插件已启用，聊天会按任务使用技能和已确认的工具。");
+    }),
+    onUninstall: (plugin: PluginView) => { if (window.confirm(`卸载“${plugin.manifest.name}”及其连接？聊天记录和其他扩展保留。`)) void mutate(`plugin:${plugin.id}:remove`, async signal => {
+      await request(`/api/plugins/${plugin.id}?revision=${plugin.revision}`, signal, "DELETE");
+      setPlugins(old => ({ ...old, items: old.items.filter(item => item.id !== plugin.id) }));
+      setData(old => ({ ...old, items: old.items.filter(item => item.pluginId !== plugin.id) }));
+      setNotice("插件及其连接已卸载。");
+    }); },
+    onConnection: (action: "configure" | "detect" | "tools", row: ExtensionView, trigger: HTMLElement | null) => {
+      if (action === "configure") openEditor(row, undefined, trigger);
+      else if (action === "detect") detect(row, trigger);
+      else { opener.current = trigger; setToolSheet(row); setToolsSession(value => value + 1); setToolsOpen(true); }
+    },
+  };
+  const standalone = data.items.filter(item => !item.pluginId);
+  const enabledCount = standalone.filter(item => item.enabled).length;
   return <main className="mx-auto flex w-full max-w-5xl flex-col gap-7 px-4 py-8 md:px-6">
-    <header className="workspace-page-header"><div className="flex flex-col gap-2"><h1>扩展管理</h1><p className="text-sm text-muted-foreground">连接你的服务，为助理添加更多工具。</p></div><div className="flex items-center gap-2">{tab === "mine" && <Button size="sm" variant="ghost" disabled={loading || !!busy} onClick={() => void load()}><RefreshCw data-icon="inline-start" />刷新</Button>}<Button id="extension-add" size="sm" disabled={loading || !!busy || data.items.length >= 20} onClick={() => openEditor("new")}><Plus data-icon="inline-start" />添加扩展</Button></div></header>
+    <header className="workspace-page-header"><div className="flex flex-col gap-2"><h1>扩展管理</h1><p className="text-sm text-muted-foreground">安装插件，为助理添加技能和工具。</p></div><div className="flex items-center gap-2">{tab === "mine" && <Button size="sm" variant="ghost" disabled={loading || !!busy} onClick={() => void load()}><RefreshCw data-icon="inline-start" />刷新</Button>}<Button id="extension-add" size="sm" disabled={loading || !!busy || data.items.length >= 20} onClick={() => openEditor("new")}><Plus data-icon="inline-start" />添加扩展</Button></div></header>
     {error && <Alert variant="destructive"><AlertTitle>操作未完成</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
     {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
+    {data.items.some(row => row.pluginId && busy === `${row.id}:test`) && <div role="status" className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">正在检测插件连接…<Button variant="ghost" size="sm" onClick={() => operation.current?.abort()}>取消检测</Button></div>}
     <Tabs value={tab} onValueChange={setTab} className="flex min-w-0 flex-col gap-5">
-      <TabsList aria-label="扩展视图" className="self-start"><TabsTrigger value="mine">我的扩展</TabsTrigger><TabsTrigger value="discover">发现扩展</TabsTrigger></TabsList>
+      <TabsList aria-label="扩展视图" className="self-start"><TabsTrigger value="mine">我的扩展</TabsTrigger><TabsTrigger value="market">插件市场</TabsTrigger><TabsTrigger value="discover">发现扩展</TabsTrigger></TabsList>
+      <TabsContent value="market"><PluginPackages mode="market" {...packageProps} /></TabsContent>
       <TabsContent value="discover"><ExtensionDiscovery canAdd={!loading && !busy && data.items.length < 20} connectedUrls={data.items.flatMap(item => item.config.type === "mcp-http" ? [item.config.url] : [])} onAdd={(draft, trigger) => openEditor("new", draft, trigger)} /></TabsContent>
       <TabsContent value="mine" className="flex flex-col gap-5">
+    <PluginPackages mode="installed" {...packageProps} />
     <section aria-label="已配置扩展" className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-3"><h2 className="text-sm font-medium">我的扩展 <span className="ml-2 text-muted-foreground">{data.items.length}</span></h2><span className="text-xs text-muted-foreground">{enabledCount} 个已启用</span></div>
-      {loading ? <><Skeleton className="h-36" /><Skeleton className="h-36" /></> : !data.items.length ? <Empty><EmptyHeader><EmptyMedia><Puzzle /></EmptyMedia><EmptyTitle>连接第一个扩展</EmptyTitle><EmptyDescription>添加 MCP 服务或 HTTP 接口，检测连接后选择需要的工具。</EmptyDescription></EmptyHeader><Button variant="outline" onClick={() => openEditor("new")}><Plus data-icon="inline-start" />添加扩展</Button></Empty> : data.items.map(row => <Card key={row.id} data-testid={`extension-${row.id}`}>
+      <div className="flex items-center justify-between gap-3"><h2 className="text-sm font-medium">独立连接 <span className="ml-2 text-muted-foreground">{standalone.length}</span></h2><span className="text-xs text-muted-foreground">{enabledCount} 个已确认</span></div>
+      {loading ? <><Skeleton className="h-36" /><Skeleton className="h-36" /></> : !standalone.length ? <Empty><EmptyHeader><EmptyMedia><Puzzle /></EmptyMedia><EmptyTitle>连接第一个扩展</EmptyTitle><EmptyDescription>添加 MCP 服务或 HTTP 接口，检测连接后选择需要的工具。</EmptyDescription></EmptyHeader><Button variant="outline" onClick={() => openEditor("new")}><Plus data-icon="inline-start" />添加扩展</Button></Empty> : standalone.map(row => <Card key={row.id} data-testid={`extension-${row.id}`}>
         <CardHeader className="flex-row items-start gap-3"><div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-secondary text-muted-foreground"><Cable className="size-4" aria-hidden="true" /></div><div className="flex min-w-0 flex-1 flex-col gap-1"><CardTitle className="break-words [overflow-wrap:anywhere]">{row.name}</CardTitle><CardDescription className="truncate" title={connectionLabel(row)}>{connectionLabel(row)}</CardDescription></div><Badge className="shrink-0" variant={row.error ? "danger" : row.enabled ? "success" : "secondary"}>{stateLabel(row)}</Badge></CardHeader>
         <CardContent className="flex flex-wrap items-center gap-2"><Badge variant="outline">{labels[row.config.type]}</Badge><span className="text-xs text-muted-foreground">{row.tools.filter(tool => tool.enabled).length} / {row.tools.length} 个工具已选择</span>{row.hasCredentials && <span className="text-xs text-muted-foreground">凭据已配置</span>}{row.error && <p className="w-full break-words text-xs text-destructive">{row.error}</p>}</CardContent>
-        <CardFooter className="flex-wrap gap-1"><Button size="sm" variant="ghost" disabled={!!busy} onClick={event => { const trigger = event.currentTarget; void mutate(`${row.id}:test`, async signal => { const updated = await request<ExtensionView>(`/api/extensions/${row.id}/test`, signal, "POST", { revision: row.revision }); upsert(updated); openTools(updated, trigger); setNotice(updated.tools.length ? "连接成功，请确认需要启用的工具。" : "连接成功，该服务未提供工具。"); }); }}>{busy === `${row.id}:test` ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <RefreshCw data-icon="inline-start" />}检测连接</Button><Button size="sm" variant="ghost" disabled={!!busy || !row.tools.length} onClick={event => openTools(row, event.currentTarget)}>管理工具<ChevronRight data-icon="inline-end" /></Button><Button size="sm" variant="ghost" disabled={!!busy} onClick={() => openEditor(row)}><Settings2 data-icon="inline-start" />配置</Button>{row.enabled && <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => void mutate(`${row.id}:disable`, async signal => { upsert(await request<ExtensionView>(`/api/extensions/${row.id}`, signal, "PATCH", { revision: row.revision, enabled: false, tools: row.tools.filter(tool => tool.enabled).map(tool => tool.name) })); setNotice("扩展已停用，新的工具调用将被阻止。"); })}><Power data-icon="inline-start" />停用</Button>}<Button size="icon-sm" variant="ghost" className="ml-auto" aria-label={`删除扩展 ${row.name}`} disabled={!!busy} onClick={() => { if (window.confirm(`删除扩展“${row.name}”？连接配置和凭据将被移除，已有聊天记录保留。`)) void mutate(`${row.id}:delete`, async signal => { await request(`/api/extensions/${row.id}?revision=${row.revision}`, signal, "DELETE"); setData(old => ({ ...old, items: old.items.filter(item => item.id !== row.id) })); setNotice("扩展已删除。"); }); }}><Trash2 /></Button></CardFooter>
+        <CardFooter className="flex-wrap gap-1"><Button size="sm" variant="ghost" disabled={!!busy} onClick={event => { const trigger = event.currentTarget; void mutate(`${row.id}:test`, async signal => { const updated = await request<ExtensionView>(`/api/extensions/${row.id}/test`, signal, "POST", { revision: row.revision }); upsert(updated); openTools(updated, trigger); setNotice(updated.tools.length ? "连接成功，请确认需要启用的工具。" : "连接成功，该服务未提供工具。"); }); }}>{busy === `${row.id}:test` ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <RefreshCw data-icon="inline-start" />}检测连接</Button><Button size="sm" variant="ghost" disabled={!!busy || !row.tools.length} onClick={event => openTools(row, event.currentTarget)}>管理工具<ChevronRight data-icon="inline-end" /></Button><Button size="sm" variant="ghost" disabled={!!busy} onClick={() => openEditor(row)}><Settings2 data-icon="inline-start" />配置</Button>{row.enabled && <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => void mutate(`${row.id}:disable`, async signal => { upsert(await request<ExtensionView>(`/api/extensions/${row.id}`, signal, "PATCH", { revision: row.revision, enabled: false, tools: row.tools.filter(tool => tool.enabled).map(tool => tool.name) })); setNotice("扩展已停用，新的工具调用将被阻止。"); })}><Power data-icon="inline-start" />停用</Button>}{!row.pluginId && <Button size="icon-sm" variant="ghost" className="ml-auto" aria-label={`删除扩展 ${row.name}`} disabled={!!busy} onClick={() => { if (window.confirm(`删除扩展“${row.name}”？连接配置和凭据将被移除，已有聊天记录保留。`)) void mutate(`${row.id}:delete`, async signal => { await request(`/api/extensions/${row.id}?revision=${row.revision}`, signal, "DELETE"); setData(old => ({ ...old, items: old.items.filter(item => item.id !== row.id) })); setNotice("扩展已删除。"); }); }}><Trash2 /></Button>}</CardFooter>
         {busy === `${row.id}:test` && <CardFooter><Button size="sm" variant="outline" onClick={() => operation.current?.abort()}>取消检测</Button></CardFooter>}
       </Card>)}
     </section>

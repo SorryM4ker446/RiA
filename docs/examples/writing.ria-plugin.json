@@ -1,0 +1,16 @@
+{
+  "format": "ria-plugin",
+  "schemaVersion": 1,
+  "id": "example.writing-assistant",
+  "name": "简洁写作助手",
+  "version": "1.0.0",
+  "author": "Example publisher",
+  "description": "无需外部连接的写作技能示例。",
+  "skills": [{
+    "id": "concise-writing",
+    "name": "简洁写作",
+    "description": "用户要求润色、改写或精简文本时使用。",
+    "instructions": "保留原文事实、数字和语气意图。先给出修改后的文本，再简短说明关键修改；用户只要成稿时不附解释。不补写没有依据的事实，不声称执行过未调用的工具。"
+  }],
+  "connections": []
+}

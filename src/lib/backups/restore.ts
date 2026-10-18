@@ -140,6 +140,7 @@ export async function restoreAccountBackup(id: string) {
       // Machine-local extensions are not imported. Restoring a workspace must
       // not leave its previous external capabilities active for restored chats.
       await tx.extension.updateMany({ data: { enabled: false, revision: { increment: 1 }, testedRevision: null, testId: null } });
+      await tx.pluginPackage.updateMany({ data: { enabled: false, revision: { increment: 1 } } });
       return { pausedSchedules: pausedSchedules.count, revokedDirectoryGrants: revokedGrants.count };
       });
       return { safety, paused };

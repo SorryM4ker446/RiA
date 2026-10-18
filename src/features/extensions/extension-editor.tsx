@@ -29,7 +29,7 @@ export function ExtensionEditor({ row, draft, open, returnFocus, encryptionAvail
   const [method, setMethod] = useState(row?.config.type === "http" ? row.config.method : "POST");
   const [description, setDescription] = useState(row?.config.type === "http" ? row.config.description : "");
   const [schema, setSchema] = useState(row?.config.type === "http" ? JSON.stringify(row.config.inputSchema, null, 2) : defaultSchema);
-  const [credentials, setCredentials] = useState<CredentialDraft[]>(draft?.headers.length ? draft.headers : [{ key: "", value: "" }]);
+  const [credentials, setCredentials] = useState<CredentialDraft[]>(draft?.headers.length ? draft.headers : row?.credentialFields.length ? row.credentialFields.map(field => ({ ...field, value: "", required: field.required && !row.hasCredentials })) : [{ key: "", value: "" }]);
   const [clearCredentials, setClearCredentials] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");

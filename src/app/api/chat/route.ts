@@ -20,6 +20,7 @@ import { listPublicToolCatalog } from "@/tools/catalog";
 import { documentSourceSchema } from "@/lib/documents/types";
 import { decodeDocumentScope } from "@/lib/documents/scope";
 import { formatAssistantInstructions } from "@/lib/assistants/schema";
+import { formatPluginSkills } from "@/lib/plugins/store";
 
 async function POSTHandler(req: NextRequest) {
   try {
@@ -95,7 +96,7 @@ async function POSTHandler(req: NextRequest) {
       toolsEnabled,
       unavailableTools,
       (await getModelPreferences()).persona,
-    ) + formatAssistantInstructions(input.assistant) + formatDocumentContext(documentSources);
+    ) + formatAssistantInstructions(input.assistant) + await formatPluginSkills() + formatDocumentContext(documentSources);
 
     // A run exists only for a turn that can actually use tools. Creating one
     // for a plain answer would fill the record with empty runs that did nothing.

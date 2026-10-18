@@ -1,5 +1,17 @@
 # Test coverage and local validation
 
+RiA plugin packages are covered by `plugin-packages.test.ts`,
+`plugin-packages.spec.ts` and `plugin-migration.test.ts`. They exercise inactive,
+atomic installation; strict manifests and preview digests; credentials and process
+consent; instruction/connection bounds; ownership and cascade uninstall; stale
+approvals; active-call cancellation; real chat prompt inclusion/removal; both HTTP
+and MCP approval; restart persistence; import validation and responsive animated
+sheets. Backup tests ensure portable restore disables retained local packages.
+Fixtures use synthetic credentials, local services and deterministic model replies.
+The Browser plugin is unavailable; rendered checks use Playwright, with screenshots
+outside the repository under temporary `ria-plugins-qa`. Existing CI globs include
+these tests. No dependency or workflow change is required.
+
 Document-processor tests cover PDF/Word/Markdown/TXT extraction without importing
 or calling a model, four download formats, DOCX read-back and literal symbols,
 scoped chat tools and obsolete source versions. Renderer cases check actual file
@@ -423,3 +435,10 @@ Template regressions verify default-title changes after template switching, pers
 Conversation status changes load immediately without a separate submit. Held-response browser tests verify that search/reset/status reads do not disable or repaint the search controls, and a delayed archived response cannot replace a newer all-conversations result. Archive/restore tests also switch statuses directly before and after service restart.
 
 Official MCP Registry discovery is covered by `extension-registry.test.ts` and `extension-discovery.spec.ts`. Metadata requests are bounded to the fixed official host and do not probe listed services. Tests exercise exact-version details, compatibility labels, credentials withheld until explicitly configured, pagination/cache limits, malformed/removed metadata, cancellation, timeouts and local access/quotas. The isolated offline HTTP fixture serves official-shaped responses while allowing only the explicitly configured loopback MCP test server; unmatched network requests remain blocked. Browser acceptance follows discovery → details → connection draft → save inactive → detect → select tools → enable → chat approval, and verifies that browsing/saving alone executes no tools. Result-panel checks cover independent bounded scrolling, keyboard scrolling, one request per page while pending, preserved rows and scroll position after failure/retry, and reset on a new search. Dark/light, 390px layouts, focus transfer and reduced-motion screenshots remain in the temporary `ria-registry-qa` directory. No CI workflow or dependency change is needed: existing test globs discover these files. DSH bridge compatibility findings and their operational limits are documented in `extensions.md`; third-party services and package installation are not added to the deterministic CI suite.
+
+
+## Community Skill marketplace
+
+`tests/server/skill-marketplace.test.ts` covers search identity/source validation, fixed hosts and redirect policy, omitted credentials, bounded and cancellable streams, frontmatter, file paths and duplicate rejection, full snapshot retention, digest binding, inactive installation, local resource pagination, permission boundaries and disable/uninstall. `tests/e2e/skill-marketplace.spec.ts` exercises search, previewing references, installation, real chat tool execution against an offline model fixture, persistence across restart, empty/outage states, stale responses, narrow layouts, light/dark themes, focus return and reduced motion. Browser plugin not available; use the repository Playwright harness.
+
+The offline HTTP fixture mocks only the public skills.sh search/download endpoints; CI does not install an external CLI, run skill scripts or depend on a live marketplace. Live read-only search/download checks are separate compatibility evidence, not model-quality or CI evidence. Existing test globs include the new files. The `yaml` runtime dependency and lockfile support bounded SKILL.md metadata parsing; no new CI service or environment secret is required.

@@ -79,6 +79,7 @@
     "sprintf-js": "file:vendor/sprintf-js",
     "tailwind-merge": "3.5.0",
     "undici": "8.11.2",
+    "yaml": "2.9.1",
     "zod": "4.3.6"
   },
   "devDependencies": {

@@ -6,6 +6,12 @@ The **我的扩展** tab manages connections. **发现扩展** browses the offic
 Registry and prepares connection drafts; it does not install packages or load
 DSH/Cordis plugins.
 
+**插件市场** searches skills.sh for community Skills with preview and direct
+installation, alongside bundled RiA packages combining instructions and optional
+connections. Import, install, enable/disable and uninstall them from the same
+manager; see [RiA plugin packages](plugin-packages.md). Standalone connections
+and official MCP discovery remain available.
+
 ## Discover extensions
 
 Open **扩展管理 → 发现扩展**. The first page loads only when this tab opens.
