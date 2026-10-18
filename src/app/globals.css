@@ -598,6 +598,14 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .template-editor-sheet { width: min(34rem, 100vw); }
 .registry-details-sheet { width: min(34rem, 100vw); }
 .plugin-package-sheet { width: min(36rem, 100vw); }
+.knowledge-entry-sheet { width: min(32rem, 100vw); }
+.knowledge-disclosure > summary { list-style: none; }
+.knowledge-disclosure > summary::-webkit-details-marker { display: none; }
+.knowledge-document-row, .knowledge-entry-row, .knowledge-preview { animation: content-in var(--dur-base) var(--ease-out); }
+.knowledge-entry-disclosure:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 4px; }
+.knowledge-entry-excerpt .markdown-message { font-size: 14px; line-height: 1.8; }
+.knowledge-entry-excerpt .markdown-message :is(h1, h2, h3, h4, h5, h6) { font-size: 14px; line-height: 1.6; margin-block: .75rem .35rem; }
+.knowledge-entry-excerpt .markdown-message > :first-child { margin-top: 0; }
 .plugin-preview { animation: content-in var(--dur-base) var(--ease-out); }
 .registry-results-scroll { height: min(34rem, 60dvh); scrollbar-gutter: stable; overflow-anchor: none; border-radius: 12px; }
 .registry-results-scroll.skill-results-scroll { height: auto; max-height: min(28rem, 52dvh); }
@@ -637,6 +645,7 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .settings-disclosure-trigger:hover { color: hsl(var(--foreground)); }
 .settings-disclosure-trigger > svg:last-child { transition: transform var(--dur-base) var(--ease-out); }
 .settings-disclosure[open] > summary > svg:last-child { transform: rotate(180deg); }
+.settings-disclosure.knowledge-disclosure[open] > summary > svg:last-child { transform: rotate(90deg); }
 .settings-page :is(#service-keys, #default-chat-model) { scroll-margin-top: 1rem; }
 .models-section-nav { display: flex; flex-wrap: wrap; gap: 6px; }
 .models-section-nav a { border: 1px solid hsl(var(--border)); border-radius: 8px; padding: 8px 14px; background: hsl(var(--card)); font-size: 13px; color: hsl(var(--muted-foreground)); }

@@ -8,17 +8,21 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 
 import { useAwaitingFirstLoad } from "@/lib/use-awaiting-first-load";
 import Link from "next/link";
-import { ArrowLeft, BookOpen, Loader2, PencilLine, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, BookOpen, Loader2, PencilLine, Plus, Search, Trash2 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { DocumentLibrary } from "@/features/knowledge/document-library";
 import { TopicEntry } from "@/features/topics/topic-entry";
+import { KnowledgeEntryContent } from "@/features/knowledge/entry-content";
+import { presentToolMemory } from "@/features/knowledge/entry-presentation";
 import { t } from "@/lib/locale";
 
 type KnowledgeEntry = {
@@ -54,6 +58,7 @@ export default function KnowledgePage() {
   const [pageNeedsRefresh, setPageNeedsRefresh] = useState(false);
   const [search, setSearch] = useState("");
   const entryRequest = useRef<AbortController | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [persona, setPersona] = useState({ name: "", language: "", answerStyle: "", notes: "" });
   const [isSavingPersona, setIsSavingPersona] = useState(false);
@@ -160,6 +165,7 @@ export default function KnowledgePage() {
       setValue("");
       setPageNeedsRefresh(true);
       await loadEntries({ ...entryPage, cursors: [null], nextCursor: null });
+      setCreateOpen(false);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : t("knowledge.error.save"));
     } finally {
@@ -229,28 +235,13 @@ export default function KnowledgePage() {
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 md:px-6">
       <header className="workspace-page-header">
         <div className="min-w-0">
-          <Link
-            className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
-            href="/chat"
-          >
-            <ArrowLeft aria-hidden="true" className="h-3.5 w-3.5" />
-            {t("knowledge.backToChat")}
-          </Link>
           <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-headline">
             <BookOpen aria-hidden="true" className="h-5 w-5 text-muted-foreground" />
             {t("knowledge.title")}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">{t("knowledge.description")}</p>
         </div>
-        {/* `refreshing` keeps the label and width fixed while the request is in
-            flight, so the header does not reflow under the spinner. */}
-        <RefreshButton
-          disabled={isSaving || (isLoading && entries.length === 0)}
-          onClick={() => void loadEntries()}
-          refreshing={isLoading}
-          variant="outline"
-          label={t("knowledge.refresh")}
-        />
+        <div className="flex flex-wrap items-center gap-2"><TopicEntry /><Button variant="ghost" size="sm" asChild><Link href="/chat"><ArrowLeft data-icon="inline-start" />{t("knowledge.backToChat")}</Link></Button></div>
       </header>
 
       {error ? (
@@ -260,88 +251,111 @@ export default function KnowledgePage() {
         </Alert>
       ) : null}
 
-        <TopicEntry />
-        <DocumentLibrary />
-      <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
-        <Card className="h-fit">
-          <CardHeader>
-            <CardTitle>{t("knowledge.createTitle")}</CardTitle>
-            <CardDescription>{t("knowledge.createDescription")}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form className="space-y-3" onSubmit={onSubmit}>
-              <Input onChange={(event) => setKey(event.target.value)} placeholder={t("knowledge.keyPlaceholder")} value={key} />
-              <Textarea
-                className="min-h-40"
-                onChange={(event) => setValue(event.target.value)}
-                placeholder={t("knowledge.valuePlaceholder")}
-                value={value}
-              />
-              <Button className="w-full" disabled={isSaving || isLoading} type="submit">
-                {isSaving ? <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" /> : <Plus aria-hidden="true" className="mr-2 h-4 w-4" />}
-                {t("knowledge.create")}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card aria-busy={isLoading} className="min-h-[520px] overflow-hidden">
-          <CardHeader className="border-b">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <CardTitle>{t("knowledge.entriesTitle")}</CardTitle>
-                <CardDescription>{t("knowledge.entriesDescription")}</CardDescription>
-              </div>
-              <Badge variant="outline">{`${t("knowledge.currentPage")} ${entries.length} ${t("knowledge.entryCountUnit")}`}</Badge>
-            </div>
-            <form className="mt-3 flex flex-wrap gap-2" onSubmit={(event) => {
+      <DocumentLibrary />
+      <section aria-label={t("knowledge.entriesTitle")} aria-busy={isLoading} className="flex min-w-0 flex-col gap-4 pt-3">
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2"><h2 className="text-base font-semibold">{t("knowledge.entriesTitle")}</h2><Badge variant="secondary">{`${t("knowledge.currentPage")} ${entries.length} ${t("knowledge.entryCountUnit")}`}</Badge></div>
+          <div className="flex items-center gap-1">
+            <RefreshButton disabled={isSaving || (isLoading && entries.length === 0)} onClick={() => void loadEntries()} refreshing={isLoading} variant="ghost" size="sm" label={t("knowledge.refresh")} />
+            <Sheet open={createOpen} onOpenChange={open => { if (!isSaving) { setCreateOpen(open); if (open) setError(null); } }}>
+              <SheetTrigger asChild><Button size="sm"><Plus data-icon="inline-start" />{t("knowledge.create")}</Button></SheetTrigger>
+              <SheetContent side="right" className="knowledge-entry-sheet flex flex-col gap-5 p-5 sm:p-6" closeLabel="关闭新增知识">
+                <header className="flex flex-col gap-2 pr-8"><SheetTitle>{t("knowledge.createTitle")}</SheetTitle><SheetDescription>{t("knowledge.createDescription")}</SheetDescription></header>
+                <form className="flex min-h-0 flex-1 flex-col gap-5" onSubmit={onSubmit}>
+                  <div className="chat-list-scroll flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
+                    {error && <Alert variant="destructive"><AlertTitle>{t("knowledge.error.title")}</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
+                    <FieldGroup><Field><FieldLabel htmlFor="knowledge-entry-key">{t("knowledge.keyPlaceholder")}</FieldLabel><Input id="knowledge-entry-key" disabled={isSaving} onChange={event => setKey(event.target.value)} placeholder={t("knowledge.keyPlaceholder")} value={key} /></Field><Field><FieldLabel htmlFor="knowledge-entry-value">{t("knowledge.valuePlaceholder")}</FieldLabel><Textarea id="knowledge-entry-value" disabled={isSaving} rows={8} onChange={event => setValue(event.target.value)} placeholder={t("knowledge.valuePlaceholder")} value={value} /></Field></FieldGroup>
+                  </div>
+                  <footer className="flex shrink-0 justify-end gap-2"><Button type="button" variant="ghost" disabled={isSaving} onClick={() => setCreateOpen(false)}>取消</Button><Button disabled={isSaving || isLoading} type="submit">{isSaving ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Plus data-icon="inline-start" />}{t("knowledge.create")}</Button></footer>
+                </form>
+              </SheetContent>
+            </Sheet>
+          </div>
+        </header>
+            <form className="flex flex-wrap gap-2" onSubmit={(event) => {
               event.preventDefault();
               if (!isSaving) void loadEntries({ ...entryPage, q: search.trim(), cursors: [null], nextCursor: null });
             }}>
-              <Input aria-label={t("knowledge.searchLabel")} className="min-w-0 flex-1 basis-40" maxLength={120}
-                placeholder={t("knowledge.searchPlaceholder")} value={search} onChange={(event) => setSearch(event.target.value)} />
-              <SelectField aria-label={t("knowledge.viewLabel")} className="h-9 rounded-md border bg-background px-2 text-sm"
+              <FieldGroup className="flex flex-row flex-wrap items-center gap-2">
+              <Field className="min-w-0 flex-1 basis-40"><FieldLabel className="sr-only" htmlFor="knowledge-entry-search">{t("knowledge.searchLabel")}</FieldLabel><Input id="knowledge-entry-search" aria-label={t("knowledge.searchLabel")} maxLength={120}
+                placeholder={t("knowledge.searchPlaceholder")} value={search} onChange={(event) => setSearch(event.target.value)} /></Field>
+              <Field className="w-auto"><FieldLabel className="sr-only" htmlFor="knowledge-entry-status">{t("knowledge.viewLabel")}</FieldLabel><SelectField id="knowledge-entry-status" aria-label={t("knowledge.viewLabel")}
                 disabled={isLoading || isSaving} value={entryPage.view} onValueChange={(value) => {
                   void loadEntries({ ...entryPage, view: value as KnowledgeView, cursors: [null], nextCursor: null });
                 }}>
                 <SelectOption value="all">{t("knowledge.view.all")}</SelectOption>
                 <SelectOption value="confirmed">{t("knowledge.view.confirmed")}</SelectOption>
                 <SelectOption value="candidates">{t("knowledge.view.candidates")}</SelectOption>
-              </SelectField>
-              <Button disabled={isSaving} type="submit" variant="outline">{t("knowledge.search")}</Button>
+              </SelectField></Field>
+              <Button disabled={isSaving} type="submit" variant="secondary"><Search data-icon="inline-start" />{t("knowledge.search")}</Button>
+              </FieldGroup>
             </form>
             {entryPage.q ? <p className="mt-2 text-xs text-muted-foreground">{t("knowledge.searchApplied")} {entryPage.q}</p> : null}
             {pageNeedsRefresh && !isLoading ? <p className="mt-2 text-xs text-warning">{t("knowledge.refreshRequired")}</p> : null}
-          </CardHeader>
-          <CardContent className="chat-list-scroll max-h-[calc(100vh-15rem)] overflow-y-auto p-4 pr-3">
+          <div className="chat-list-scroll min-w-0 max-h-[36rem] overflow-y-auto">
             {/* The skeleton is a first-load placeholder, not a refresh state.
                 A refresh keeps the entries on screen and only spins the button;
                 replacing them with placeholders made every refresh read as a
                 page reload. */}
             {awaitingFirstEntryLoad ? (
-              <div className="space-y-3">
+              <div className="flex flex-col gap-2">
                 <Skeleton className="h-24 w-full" />
                 <Skeleton className="h-24 w-full" />
                 <Skeleton className="h-24 w-full" />
               </div>
             ) : entries.length === 0 ? (
-              <p className="empty-state !p-4 !text-left">{entryPage.q || entryPage.view !== "all" || entryPage.cursors.length > 1 ? t("knowledge.noMatches") : t("knowledge.empty")}</p>
+              <Empty className="py-6"><EmptyHeader><EmptyMedia><BookOpen /></EmptyMedia><EmptyTitle>{entryPage.q || entryPage.view !== "all" || entryPage.cursors.length > 1 ? t("knowledge.noMatches") : t("knowledge.empty")}</EmptyTitle><EmptyDescription>添加常用信息，或确认助理整理的知识。</EmptyDescription></EmptyHeader></Empty>
             ) : (
-              <div className="space-y-3">
-                {entries.map((entry) => (
+              <div className="flex flex-col gap-2">
+                {entries.map((entry) => {
+                  const toolMemory = presentToolMemory(entry.key, entry.value);
+                  const title = toolMemory?.title ?? entry.key;
+                  const actionLabel = toolMemory ? `${toolMemory.toolLabel} · ${title}` : title;
+                  return (
                   <article
-                    className="rounded-lg bg-background p-4 shadow-hairline transition-shadow duration-200 hover:shadow-card"
+                    className="management-row knowledge-entry-row flex min-w-0 flex-col gap-3 rounded-xl p-4"
                     key={entry.id}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <h2 className="truncate text-sm font-semibold tracking-label">{entry.key}</h2>
-                          <Badge variant="outline">{t(`knowledge.source.${entry.source}`)}</Badge>
+                          <h3 className="break-words text-sm font-medium [overflow-wrap:anywhere]">{title}</h3>
+                          <Badge variant="outline">{toolMemory?.toolLabel ?? t(`knowledge.source.${entry.source}`)}</Badge>
                           {!entry.confirmed ? <Badge variant="warning">{t("knowledge.candidateBadge")}</Badge> : null}
                         </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {!entry.confirmed ? (
+                          <Button disabled={isSaving || isLoading} onClick={() => void updateEntry(entry.id, { confirmed: true })} size="sm" type="button" variant="secondary">
+                            {t("knowledge.accept")}
+                          </Button>
+                        ) : null}
+                        {editingId !== entry.id ? (
+                          <Button
+                            aria-label={`${t("knowledge.edit")} ${actionLabel}`} title={t("knowledge.edit")}
+                            disabled={isSaving || isLoading}
+                            onClick={() => { setEditingId(entry.id); setEditingValue(entry.value); }}
+                            size="icon-sm"
+                            type="button"
+                            variant="ghost"
+                          >
+                            <PencilLine aria-hidden="true" className="h-4 w-4" />
+                          </Button>
+                        ) : null}
+                        <Button
+                          aria-label={`${t("knowledge.deleteLabel")} ${actionLabel}`} title={t("documents.delete")}
+                          disabled={isSaving || isLoading}
+                          onClick={() => void deleteEntry(entry.id)}
+                          size="icon-sm"
+                          type="button"
+                          variant="ghost"
+                        >
+                          <Trash2 aria-hidden="true" className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
                         {editingId === entry.id ? (
-                          <div className="mt-2 space-y-2">
+                          <div className="mt-2 flex flex-col gap-2">
                             <Textarea
                               aria-label={t("knowledge.editValueLabel")}
                               onChange={(event) => setEditingValue(event.target.value)}
@@ -362,54 +376,19 @@ export default function KnowledgePage() {
                               </Button>
                             </div>
                           </div>
-                        ) : (
-                          <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
-                            {entry.value}
-                          </p>
-                        )}
+                        ) : <KnowledgeEntryContent entryKey={entry.key} value={entry.value} toolMemory={toolMemory} />}
                         {!entry.confirmed ? (
                           <p className="mt-2 text-xs text-warning">{t("knowledge.candidateNote")}</p>
                         ) : null}
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        {!entry.confirmed ? (
-                          <Button disabled={isSaving || isLoading} onClick={() => void updateEntry(entry.id, { confirmed: true })} size="sm" type="button" variant="secondary">
-                            {t("knowledge.accept")}
-                          </Button>
-                        ) : null}
-                        {editingId !== entry.id ? (
-                          <Button
-                            aria-label={`${t("knowledge.edit")} ${entry.key}`}
-                            disabled={isSaving || isLoading}
-                            onClick={() => { setEditingId(entry.id); setEditingValue(entry.value); }}
-                            size="icon"
-                            type="button"
-                            variant="ghost"
-                          >
-                            <PencilLine aria-hidden="true" className="h-4 w-4" />
-                          </Button>
-                        ) : null}
-                        <Button
-                          aria-label={`${t("knowledge.deleteLabel")} ${entry.key}`}
-                          disabled={isSaving || isLoading}
-                          onClick={() => void deleteEntry(entry.id)}
-                          size="icon"
-                          type="button"
-                          variant="ghost"
-                        >
-                          <Trash2 aria-hidden="true" className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                    <p className="label-mono mt-3">
+                    <p className="break-words text-xs leading-5 text-muted-foreground">
                       {`${t("knowledge.updatedAt")} ${formatTime(entry.updatedAt)} ${t("knowledge.divider")} ${entry.lastUsedAt ? `${t("knowledge.lastUsed")} ${formatTime(entry.lastUsedAt)}` : t("knowledge.neverUsed")}`}
                     </p>
                   </article>
-                ))}
+                ); })}
               </div>
             )}
-          </CardContent>
-          <nav aria-label={t("knowledge.paginationLabel")} className="flex flex-wrap items-center justify-between gap-2 border-t p-4">
+          </div>
+          <nav aria-label={t("knowledge.paginationLabel")} className="flex flex-wrap items-center justify-between gap-2 py-2">
             <Button disabled={isLoading || isSaving || pageNeedsRefresh || entryPage.cursors.length === 1} variant="outline" onClick={() => {
               void loadEntries({ ...entryPage, cursors: entryPage.cursors.slice(0, -1), nextCursor: null });
             }}>{t("knowledge.previousPage")}</Button>
@@ -418,8 +397,7 @@ export default function KnowledgePage() {
               void loadEntries({ ...entryPage, cursors: [...entryPage.cursors, entryPage.nextCursor], nextCursor: null });
             }}>{t("knowledge.nextPage")}</Button>
           </nav>
-        </Card>
-      </div>
+      </section>
     </main>
   );
 }

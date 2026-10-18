@@ -11,6 +11,7 @@ import { writeToClipboard } from "@/lib/clipboard";
 
 type MarkdownMessageProps = {
   text: string;
+  allowImages?: boolean;
 };
 
 const markdownComponents: Components = {
@@ -85,10 +86,10 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function MarkdownMessage({ text }: MarkdownMessageProps) {
+export function MarkdownMessage({ text, allowImages = true }: MarkdownMessageProps) {
   return (
     <div className="markdown-message">
-      <ReactMarkdown components={markdownComponents} rehypePlugins={[rehypeSanitize]} remarkPlugins={[remarkGfm]}>
+      <ReactMarkdown components={markdownComponents} rehypePlugins={[rehypeSanitize]} remarkPlugins={[remarkGfm]} disallowedElements={allowImages ? undefined : ["img"]}>
         {text}
       </ReactMarkdown>
     </div>

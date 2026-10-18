@@ -123,6 +123,7 @@ test("bulk indexing cancels at a controlled request boundary and resumes persist
     if (++batches === 2) { arrived(); await gate; try { await route.abort(); } finally { finished(); } }
     else await route.continue();
   });
+  await page.getByTestId("index-maintenance").locator("summary").click();
   page.once("dialog", dialog => { expect(dialog.message()).toContain("可能产生费用"); return dialog.accept(); });
   await page.getByRole("button", { name: "批量构建或继续", exact: true }).click();
   await secondRequest;
@@ -138,6 +139,7 @@ test("bulk indexing cancels at a controlled request boundary and resumes persist
   expect(app.readRows("SELECT id FROM model_requests WHERE mode='embedding'")).toHaveLength(1);
   await app.restart(); await page.reload();
   await expect(page.getByText(/语义索引 32\/40/)).toBeVisible();
+  await page.getByTestId("index-maintenance").locator("summary").click();
   page.once("dialog", dialog => dialog.accept()); await page.getByRole("button", { name: "批量构建或继续", exact: true }).click();
   await expect(maintenance).toContainText("长规程.md：已完成 · 40/40");
   await expect(maintenance).toContainText("短规程.md：已完成 · 1/1");

@@ -266,3 +266,13 @@ check paraphrases, multi-paragraph conditions, contradictions, collection isolat
 unsupported details and follow-ups, and verify every cited claim against its excerpt.
 Record model IDs, question set, recall, evidence coverage, unsupported claims,
 latency and costs. These calls are explicit and can incur charges.
+
+
+## Library layout
+
+The knowledge page keeps document import and retrieval above a compact document list. **导入说明与隐私**, **索引维护** and **检索质量评测** expand on demand. Document rows show filename, collection, chunk/character counts, index time and keyword/semantic status; the three labelled icon actions retain semantic indexing, local reindexing and deletion. Open **索引维护** to run or continue a batch, inspect diagnostics or cancel an active build. These layout changes do not start indexing or change confirmation and billing behavior.
+
+Knowledge entries use a full-width searchable list with existing confirmation filters and pagination. **新增知识** opens a keyboard-accessible sheet; failed saves retain the draft, and long entries support an abbreviated preview with **展开全文**. Existing entry edits, confirmation and deletion remain available inline.
+
+
+Recognized `tool-memory-v1` records display a readable subject, tool label and summary instead of their storage envelope. **查看内容** expands a sanitized Markdown answer excerpt; **原始记录** exposes the complete stored key/value. Previewing these excerpts does not load embedded images. This is presentation only: editing still uses the original value, and search, confirmation, IDs and persisted keys remain unchanged. Manual notes and unsupported or malformed envelopes retain their plain text; long or multiline notes use a two-line preview with full expansion.
