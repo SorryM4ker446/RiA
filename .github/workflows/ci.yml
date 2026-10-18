@@ -17,8 +17,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  validate:
-    name: Validate application and local database
+  checks:
+    name: Check types, lint and local database
     runs-on: windows-latest
     timeout-minutes: 30
 
@@ -66,11 +66,62 @@ jobs:
       - name: Check TypeScript
         run: npm run typecheck
 
-      - name: Test server behavior with isolated SQLite
-        run: npm run test:server
-
       - name: Verify SQLite database
         run: npm run test:db
+
+  server:
+    name: Server tests (${{ matrix.shard }}/3)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    env:
+      CI: "true"
+      APP_RUNTIME: test
+      OPENROUTER_API_KEY: ""
+      DEEPSEEK_API_KEY: ""
+      TAVILY_API_KEY: ""
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24.9.0"
+          cache: npm
+      - name: Install dependencies
+        run: npx --yes npm@11.19.1 ci
+      - name: Generate Prisma client
+        run: npm run db:generate
+      - name: Test server behavior with isolated SQLite
+        run: node --import ./tests/helpers/register-typescript.ts --test --test-concurrency=2 --test-shard=${{ matrix.shard }}/3 tests/server/*.test.ts
+
+  browser:
+    name: Build and test browser workflows
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      CI: "true"
+      APP_RUNTIME: test
+      LOCAL_DATABASE_FILE: .desktop-data/ci-browser/${{ github.run_id }}-${{ github.run_attempt }}/app.db
+      OPENROUTER_API_KEY: ""
+      DEEPSEEK_API_KEY: ""
+      TAVILY_API_KEY: test-tavily-key
+      TAVILY_SEARCH_URL: http://127.0.0.1:4010/search
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24.9.0"
+          cache: npm
+      - name: Install dependencies
+        run: npx --yes npm@11.19.1 ci
+      - name: Generate Prisma client
+        run: npm run db:generate
 
       - name: Install Playwright browser
         run: npx playwright install chromium
@@ -91,6 +142,21 @@ jobs:
             test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  validate:
+    name: Validate application and local database
+    if: always()
+    needs: [checks, server, browser]
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every validation group to pass
+        run: |
+          if ('${{ needs.checks.result }}' -ne 'success' -or
+              '${{ needs.server.result }}' -ne 'success' -or
+              '${{ needs.browser.result }}' -ne 'success') {
+            throw 'Type/lint/database, all server shards and browser tests must pass.'
+          }
 
   desktop:
     name: Build and smoke-test Windows desktop package
