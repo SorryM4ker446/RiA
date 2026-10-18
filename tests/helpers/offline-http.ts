@@ -1,4 +1,5 @@
 import { fetch as undiciFetch, MockAgent, setGlobalDispatcher } from "undici";
+import { registryFixtureEntries } from "./registry-fixture.ts";
 
 // Loaded only by the isolated test server, never by application code or builds.
 if (process.env.APP_RUNTIME !== "test" || !process.send) {
@@ -29,6 +30,21 @@ globalThis.fetch = async (input, options) => {
 };
 
 if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
+  const registry = agent.get("https://registry.modelcontextprotocol.io");
+  const entries = registryFixtureEntries(process.env.PRIVATE_AI_EXTENSION_FIXTURE_ORIGIN || "https://service.example.invalid");
+  registry.intercept({ path: /^\/v0\.1\/servers(?:\?|\/)/, method: "GET" }).reply(options => {
+    const url = new URL(options.path, "https://registry.modelcontextprotocol.io");
+    if (url.pathname === "/v0.1/servers") {
+      const search = url.searchParams.get("search") || "";
+      if (search === "unavailable") return { statusCode: 503, data: JSON.stringify({ error: "Synthetic registry outage" }) };
+      const selected = entries.filter(entry => entry.server.name.includes(search));
+      const offset = url.searchParams.get("cursor") === "fixture:20" ? 20 : 0;
+      return { statusCode: 200, data: JSON.stringify({ servers: selected.slice(offset, offset + 20), metadata: { nextCursor: offset + 20 < selected.length ? "fixture:20" : null } }) };
+    }
+    const match = url.pathname.match(/^\/v0\.1\/servers\/([^/]+)\/versions\/([^/]+)$/);
+    const entry = match && entries.find(item => item.server.name === decodeURIComponent(match[1]) && item.server.version === decodeURIComponent(match[2]));
+    return { statusCode: entry ? 200 : 404, data: JSON.stringify(entry || { error: "Not found" }) };
+  }).persist();
   const provider = agent.get("https://openrouter.ai");
   const catalogRow = (id, name, input, output, extra = {}) => ({
     id, name, description: `Offline fixture for ${id}`, context_length: 200000,

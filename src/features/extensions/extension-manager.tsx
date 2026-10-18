@@ -11,10 +11,13 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Field, FieldGroup, FieldLabel, FieldSet, FieldLegend } from "@/components/ui/field";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getApiErrorMessage } from "@/lib/api-error-message";
 import type { ExtensionView } from "@/lib/extensions/store";
 import type { ToolCatalogItem } from "@/features/chat/types";
 import { ExtensionEditor } from "./extension-editor";
+import { ExtensionDiscovery } from "./extension-discovery";
+import type { RegistryConnectionDraft } from "@/lib/extensions/registry-types";
 
 type ExtensionData = { items: ExtensionView[]; encryptionAvailable: boolean; localProcessesAllowed: boolean };
 async function request<T>(url: string, signal: AbortSignal, method = "GET", body?: unknown): Promise<T> {
@@ -40,6 +43,8 @@ export function ExtensionManager() {
   const [toolSheet, setToolSheet] = useState<ExtensionView | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [toolsSession, setToolsSession] = useState(0);
+  const [tab, setTab] = useState("mine");
+  const [registryDraft, setRegistryDraft] = useState<RegistryConnectionDraft | undefined>();
   const opener = useRef<HTMLElement | null>(null);
   const operation = useRef<AbortController | null>(null);
   const loadRequest = useRef<AbortController | null>(null);
@@ -55,9 +60,9 @@ export function ExtensionManager() {
   useEffect(() => { alive.current = true; void load(); return () => { alive.current = false; loadRequest.current?.abort(); operation.current?.abort(); }; }, [load]);
 
   const upsert = (row: ExtensionView) => setData(old => ({ ...old, items: old.items.some(item => item.id === row.id) ? old.items.map(item => item.id === row.id ? row : item) : [...old.items, row] }));
-  function openEditor(row: ExtensionView | "new") { opener.current = document.activeElement as HTMLElement; setEditor(row); setEditorSession(old => old + 1); setEditorOpen(true); }
+  function openEditor(row: ExtensionView | "new", draft?: RegistryConnectionDraft, trigger?: HTMLElement | null) { opener.current = trigger ?? document.activeElement as HTMLElement; setRegistryDraft(draft); setEditor(row); setEditorSession(old => old + 1); setEditorOpen(true); }
   function openTools(row: ExtensionView, trigger: HTMLElement) { opener.current = trigger; setToolSheet(row); setToolsSession(old => old + 1); setToolsOpen(true); }
-  const returnFocus = () => { if (opener.current?.isConnected) opener.current.focus(); };
+  const returnFocus = () => { (opener.current?.isConnected ? opener.current : document.getElementById("extension-add"))?.focus(); };
   async function mutate(key: string, action: (signal: AbortSignal) => Promise<void>) {
     if (operation.current) return;
     loadRequest.current?.abort();
@@ -71,9 +76,13 @@ export function ExtensionManager() {
   }
   const enabledCount = data.items.filter(item => item.enabled).length;
   return <main className="mx-auto flex w-full max-w-5xl flex-col gap-7 px-4 py-8 md:px-6">
-    <header className="workspace-page-header"><div className="flex flex-col gap-2"><h1>扩展管理</h1><p className="text-sm text-muted-foreground">连接你的服务，为助理添加更多工具。</p></div><div className="flex items-center gap-2"><Button size="sm" variant="ghost" disabled={loading || !!busy} onClick={() => void load()}><RefreshCw data-icon="inline-start" />刷新</Button><Button size="sm" disabled={loading || !!busy || data.items.length >= 20} onClick={() => openEditor("new")}><Plus data-icon="inline-start" />添加扩展</Button></div></header>
+    <header className="workspace-page-header"><div className="flex flex-col gap-2"><h1>扩展管理</h1><p className="text-sm text-muted-foreground">连接你的服务，为助理添加更多工具。</p></div><div className="flex items-center gap-2">{tab === "mine" && <Button size="sm" variant="ghost" disabled={loading || !!busy} onClick={() => void load()}><RefreshCw data-icon="inline-start" />刷新</Button>}<Button id="extension-add" size="sm" disabled={loading || !!busy || data.items.length >= 20} onClick={() => openEditor("new")}><Plus data-icon="inline-start" />添加扩展</Button></div></header>
     {error && <Alert variant="destructive"><AlertTitle>操作未完成</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
     {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
+    <Tabs value={tab} onValueChange={setTab} className="flex min-w-0 flex-col gap-5">
+      <TabsList aria-label="扩展视图" className="self-start"><TabsTrigger value="mine">我的扩展</TabsTrigger><TabsTrigger value="discover">发现扩展</TabsTrigger></TabsList>
+      <TabsContent value="discover"><ExtensionDiscovery canAdd={!loading && !busy && data.items.length < 20} connectedUrls={data.items.flatMap(item => item.config.type === "mcp-http" ? [item.config.url] : [])} onAdd={(draft, trigger) => openEditor("new", draft, trigger)} /></TabsContent>
+      <TabsContent value="mine" className="flex flex-col gap-5">
     <section aria-label="已配置扩展" className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3"><h2 className="text-sm font-medium">我的扩展 <span className="ml-2 text-muted-foreground">{data.items.length}</span></h2><span className="text-xs text-muted-foreground">{enabledCount} 个已启用</span></div>
       {loading ? <><Skeleton className="h-36" /><Skeleton className="h-36" /></> : !data.items.length ? <Empty><EmptyHeader><EmptyMedia><Puzzle /></EmptyMedia><EmptyTitle>连接第一个扩展</EmptyTitle><EmptyDescription>添加 MCP 服务或 HTTP 接口，检测连接后选择需要的工具。</EmptyDescription></EmptyHeader><Button variant="outline" onClick={() => openEditor("new")}><Plus data-icon="inline-start" />添加扩展</Button></Empty> : data.items.map(row => <Card key={row.id} data-testid={`extension-${row.id}`}>
@@ -85,7 +94,9 @@ export function ExtensionManager() {
     </section>
     <details className="settings-disclosure"><summary className="settings-disclosure-trigger">内置工具 <Badge variant="secondary">{builtins.length}</Badge><ChevronRight className="ml-auto size-4" aria-hidden="true" /></summary><div className="flex flex-col gap-3 py-4">{builtins.map(tool => <div className="flex items-center justify-between gap-3 px-1" key={tool.id}><div className="flex min-w-0 flex-col gap-1"><span className="text-sm">{tool.displayName}</span><span className="text-xs text-muted-foreground">{tool.description}</span></div><Badge variant={tool.available ? "success" : "outline"}>{tool.available ? "可用" : tool.reason === "noDirectoryGranted" ? "待授权目录" : "待配置"}</Badge></div>)}</div></details>
     <p className="text-xs leading-6 text-muted-foreground">启用的外部工具通过聊天调用，每次执行前需要确认。<Link className="ml-1 underline underline-offset-4" href="/assistants">在助理模板中选择工具</Link>。扩展配置仅保存在本机，工作区恢复后需要重新检测并启用。</p>
-    {editor !== null && <ExtensionEditor key={editorSession} open={editorOpen} returnFocus={returnFocus} row={editor === "new" ? null : editor} encryptionAvailable={data.encryptionAvailable} localProcessesAllowed={data.localProcessesAllowed} onClose={() => setEditorOpen(false)} onSaved={row => { upsert(row); setEditorOpen(false); setNotice("配置已保存，请检测连接。修改配置会停用扩展及旧的待确认调用。"); }} />}
+      </TabsContent>
+    </Tabs>
+    {editor !== null && <ExtensionEditor key={editorSession} open={editorOpen} returnFocus={returnFocus} draft={registryDraft} row={editor === "new" ? null : editor} encryptionAvailable={data.encryptionAvailable} localProcessesAllowed={data.localProcessesAllowed} onClose={() => setEditorOpen(false)} onSaved={row => { upsert(row); setEditorOpen(false); setTab("mine"); setNotice("配置已保存，请检测连接。修改配置会停用扩展及旧的待确认调用。"); }} />}
     {toolSheet && <ExtensionTools key={toolsSession} open={toolsOpen} returnFocus={returnFocus} error={error} row={toolSheet} busy={!!busy} onClose={() => setToolsOpen(false)} onSave={selected => void mutate(`${toolSheet.id}:activate`, async signal => { const updated = await request<ExtensionView>(`/api/extensions/${toolSheet.id}`, signal, "PATCH", { revision: toolSheet.revision, enabled: true, tools: selected }); upsert(updated); setToolsOpen(false); setNotice("所选工具已启用，可在聊天中使用。"); })} />}
   </main>;
 }

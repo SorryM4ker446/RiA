@@ -38,6 +38,7 @@ export const RATE_LIMIT_POLICIES = {
   // than the operations that use one.
   directoryGrants: { limit: 10, windowMs: 60_000 },
   extensions: { limit: 30, windowMs: 60_000 },
+  extensionRegistry: { limit: 30, windowMs: 60_000 },
 } as const;
 
 type RateLimitRecord = {

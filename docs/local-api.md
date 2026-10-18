@@ -4,7 +4,8 @@ Local document parsing, draft conversion and version-bound downloads are describ
 in [Document processing and export](document-processor.md#local-api).
 
 External tool discovery, connection configuration and activation are documented
-in [Extensions](extensions.md#local-management-api). These endpoints use the same
+in [Extensions](extensions.md#local-management-api), including official Registry
+search and exact-version details under `/api/extensions/registry`. These endpoints use the same
 local authentication and restore gates; tool calls still require chat approval.
 
 Scheduled execution history, explicit retry and sanitized diagnostics are

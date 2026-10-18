@@ -2,7 +2,54 @@
 
 RiA's **扩展管理** page connects external tools without rebuilding the application.
 Built-in tool IDs, assistant snapshots and the existing approval flow remain valid.
-This page manages connections; it does not install packages or provide a plugin market.
+The **我的扩展** tab manages connections. **发现扩展** browses the official MCP
+Registry and prepares connection drafts; it does not install packages or load
+DSH/Cordis plugins.
+
+## Discover extensions
+
+Open **扩展管理 → 发现扩展**. The first page loads only when this tab opens.
+Search matches server names (use a service name or English keyword), and
+**加载更多扩展** reads another page without replacing the loaded entries. Search
+submission, paging and detail reads can be cancelled by a newer search, closing
+the detail sheet or leaving the tab. A failed request provides an explicit retry;
+existing configured connections remain usable.
+
+**查看详情** opens an animated sheet with the publisher's description, exact
+version, update date, repository/website, remote transports and local package
+information. Registry inclusion is not a promise that the server implements a
+compatible schema, supplies credentials or supports RiA's tool constraints.
+Deleted/malformed entries are skipped; deprecated versions cannot be added from
+discovery. Descriptions render as plain text and external links are restricted to
+HTTP(S) URLs without embedded credentials. Browsing never probes a listed endpoint.
+
+For a supported static Streamable HTTP address, **添加连接** opens the existing
+configuration sheet with its name, endpoint and supported request-header fields
+prefilled. Secret values and unresolved header placeholders are left empty; fill
+the complete required header value (including an authentication prefix if needed).
+Optional empty header fields are omitted. Review and save the draft, then detect
+the connection, review the returned tools and explicitly enable them. Saving or
+viewing a registry item never enables tools or bypasses per-call approval.
+Connections with the same address can represent different accounts; an existing
+address is indicated but does not prevent adding another configuration.
+
+Local packages, SSE-only endpoints, templated/query-bearing URLs and unsupported
+header configurations explain their requirements instead of running installation
+commands. Use the project's instructions and existing manual connection editor
+when applicable. OAuth sign-in and package/runtime installation remain unsupported.
+
+The local service reads only `https://registry.modelcontextprotocol.io` using the
+[official Registry API](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/api/generic-registry-api.md):
+latest-version search and cursor pagination, then pinned-version details. Requests
+use the existing outbound proxy configuration, omit workspace/provider credentials
+and reject redirects. Each response is limited to 1 MiB and 10 seconds. Successful
+pages/details are cached in memory for one hour, up to 64 entries, following the
+[Registry aggregator guidance](https://github.com/modelcontextprotocol/registry/blob/main/docs/modelcontextprotocol-io/registry-aggregators.mdx).
+Failures and cancelled requests are not cached or automatically retried. Search
+text is sent to the official registry when it is not cached locally. The cache is
+optional and disappears on service restart; connection configuration remains in
+the existing SQLite store. No migration, new account or new environment variable
+is required.
 
 ## Supported connections
 
@@ -102,12 +149,19 @@ All routes use the existing local session, Host/Origin and restore gates.
 
 | Request | Behavior |
 | --- | --- |
+| `GET /api/extensions/registry?search=...&cursor=...` | Latest-version official metadata, 20 entries per requested page; returns `items`, `nextCursor`, `skipped`, `fetchedAt` |
+| `GET /api/extensions/registry/detail?name=...&version=...` | Normalized details for the exact listed server/version; does not connect to the server |
 | `GET /api/extensions` | Public connection metadata and configured/available credential flags; no saved credential values |
 | `POST /api/extensions` | Save `name`, `config` and optional `credentials`; returns an inactive connection |
 | `PUT /api/extensions/:id` | Replace configuration using its current `revision`; disables the connection |
 | `POST /api/extensions/:id/test` | Detect using `{ "revision": 1 }`; returns the current tool definitions and new revision |
 | `PATCH /api/extensions/:id` | Set `{ "revision": 2, "enabled": true, "tools": ["echo"] }` using discovered tool names |
 | `DELETE /api/extensions/:id?revision=3` | Delete only that revision; uses the existing bodyless DELETE contract |
+
+Registry reads share a separate 30-request-per-minute quota. Duplicate or unknown
+query parameters, search text over 100 characters, cursors over 2048 characters
+and unpinned detail versions are rejected. Responses use `Cache-Control: no-store`;
+the bounded one-hour server cache is independent of browser caching.
 
 Writes and detection share 30 attempts per minute. Configuration JSON is capped
 at 128 KiB, activation at 16 KiB and detection at 1 KiB. Revision mismatches return
@@ -138,8 +192,18 @@ and inherited application authentication are not used.
 
 ## Validation
 
-The existing CI globs discover `tests/server/extensions.test.ts` and
-`tests/e2e/extensions.spec.ts`. Server tests use actual isolated HTTP/MCP services
+The existing CI globs discover `tests/server/extensions.test.ts`,
+`tests/server/extension-registry.test.ts`, `tests/e2e/extensions.spec.ts` and
+`tests/e2e/extension-discovery.spec.ts`. Registry tests cover fixed-host requests,
+secret/header handling, invalid/removed entries, exact-version identity, cache
+expiry/eviction, failures, response limits, timeouts, cancellation, query validation
+and local access/quotas. Browser tests consume official-shaped Registry responses
+through the real server adapter using the isolated offline HTTP fixture. They cover
+search, paging, details, unsupported transports, drafts, required credentials and
+the full add/detect/enable/approve flow against an actual loopback MCP server.
+Screenshots are saved outside the repository under the temporary `ria-registry-qa`
+directory. The Browser plugin is unavailable; these checks use Playwright.
+Server tests also use actual isolated HTTP/MCP services
 and a local stdio program, including cancellation, definition changes, credential
 handling, process cleanup, bounded responses and a real operation deadline.
 Browser tests cover configuration, tool selection, approval/rejection, restart,

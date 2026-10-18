@@ -596,6 +596,7 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .chat-list-scroll::-webkit-scrollbar-thumb { border-width: 2px; }
 .run-records-sheet { width: min(30rem, 100vw); }
 .template-editor-sheet { width: min(34rem, 100vw); }
+.registry-details-sheet { width: min(34rem, 100vw); }
 .management-row { background: hsl(var(--card) / .22); transition: background-color var(--dur-fast), box-shadow var(--dur-fast); }
 .management-row:hover, .management-row:focus-within { background: hsl(var(--accent) / .4); }
 .management-row[data-selected="true"] { background: hsl(var(--accent) / .65); }
