@@ -32,6 +32,8 @@ test("Windows installer exposes directory selection and preserves files outside 
     assert.match(xml, /ConfigurableDirectory="APPLICATIONROOTDIRECTORY"/);
     assert.match(xml, /UpgradeCode="918C97A2-902B-42D0-9B52-F979309DAC68"/);
     assert.match(xml, /InstallScope="perUser"/);
+    assert.match(xml, /<Property Id="MsiLogging" Value="voicewarmup" \/>/);
+    assert.doesNotMatch(xml, /DISABLEROLLBACK|AlwaysInstallElevated/);
     assert.match(xml, /com\.squirrel\.RiA\.RiA/);
     assert.doesNotMatch(xml, /<util:RemoveFolderEx/);
     assert.doesNotMatch(xml, /Feature Id="AutoUpdate|Feature Id="AutoLaunch/);
