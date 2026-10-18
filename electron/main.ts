@@ -2,8 +2,9 @@ import { createResumeRecovery } from "./resume-recovery";
 import { windowAppearance } from "./window-appearance";
 import { createStartupPresentation } from "./startup-presentation";
 import { createWindowTransitions, type WindowAction } from "./window-transitions";
+import { canvasSamplePoints, imageAlphaSampler, type CanvasGeometry } from "./workspace-transparency";
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import { request as httpRequest } from "node:http";
 import {
@@ -899,14 +900,22 @@ async function runSmokeAssertion() {
       await mainWindow!.webContents.executeJavaScript(`Promise.allSettled(
         document.getAnimations().filter(animation => animation.effect?.getComputedTiming().endTime !== Infinity).map(animation => animation.finished)
       ).then(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))`);
-      const image = await mainWindow!.capturePage();
-      const bitmap = image.toBitmap();
-      const size = image.getSize();
-      const alpha = (x: number, y: number) => bitmap[(Math.floor(y * size.height) * size.width + Math.floor(x * size.width)) * 4 + 3];
+      const geometry = await captureWindow.webContents.executeJavaScript(`(() => {
+        const node = document.querySelector(".chat-transcript");
+        if (!node) throw new Error("The chat transcript did not render");
+        const rect = node.getBoundingClientRect();
+        return { viewport: { width: innerWidth, height: innerHeight }, transcript: {
+          left: rect.left, top: rect.top, height: rect.height, clientLeft: node.clientLeft,
+          paddingLeft: parseFloat(getComputedStyle(node).paddingLeft)
+        }};
+      })()`) as CanvasGeometry;
+      const image = await captureWindow.capturePage();
+      const alpha = imageAlphaSampler(image);
       const sidebarAlpha = alpha(0.04, 0.55);
       const dockAlpha = alpha(0.98, 0.98);
       const headerAlpha = alpha(0.8, 0.02);
-      const canvasAlpha = [alpha(0.55, 0.3), alpha(0.65, 0.6), alpha(0.7, 0.4)];
+      const canvasPoints = canvasSamplePoints(geometry);
+      const canvasAlpha = canvasPoints.map(point => alpha(point.x, point.y));
       const composerPoint = await captureWindow.webContents.executeJavaScript(`(() => {
         const node = document.querySelector(".composer-surface");
         if (!node) throw new Error("The composer surface did not render");
@@ -914,7 +923,9 @@ async function runSmokeAssertion() {
         return { x: (rect.left + rect.width / 2) / innerWidth, y: (rect.top + 12) / innerHeight };
       })()`) as { x: number; y: number };
       const composerAlpha = alpha(composerPoint.x, composerPoint.y);
-      if ([sidebarAlpha, composerAlpha].some(value => value !== 255) || [dockAlpha, headerAlpha].some(value => value < 210 || value >= 240) || !canvasAlpha.some(value => value >= 210 && value < 240)) {
+      if ([sidebarAlpha, composerAlpha].some(value => value !== 255) || [dockAlpha, headerAlpha, ...canvasAlpha].some(value => value < 210 || value >= 240)) {
+        try { writeFileSync(join(desktopPaths!.logsDirectory, "transparency-failure.png"), image.toPNG()); }
+        catch (error) { logger?.warn("Unable to save transparency failure screenshot", error); }
         const surfaces = await mainWindow!.webContents.executeJavaScript(`({
           route: location.pathname, desktop: document.documentElement.dataset.desktopRuntime,
           surfaces: ["body", ".workspace-shell", ".workspace-content", ".chat-canvas", ".chat-transcript"].map(selector => {
@@ -922,7 +933,7 @@ async function runSmokeAssertion() {
             const style = getComputedStyle(node); return {selector, background: style.backgroundColor, opacity: style.opacity};
           })
         })`);
-        throw new Error(`Desktop workspace transparency is incorrect: ${JSON.stringify({ sidebarAlpha, dockAlpha, composerAlpha, headerAlpha, canvasAlpha, surfaces })}`);
+        throw new Error(`Desktop workspace transparency is incorrect: ${JSON.stringify({ sidebarAlpha, dockAlpha, composerAlpha, headerAlpha, canvasAlpha, canvasPoints, geometry, surfaces })}`);
       }
       logger?.info("Verified solid composer with translucent canvas and dock", { sidebarAlpha, dockAlpha, composerAlpha, headerAlpha, canvasAlpha });
     } finally {

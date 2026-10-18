@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { SettingsHelp, SettingsSection } from "@/features/settings/settings-section";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { executionGuidance } from "@/lib/execution-messages";
 import { t } from "@/lib/locale";
@@ -57,23 +59,20 @@ export function ScheduleHistory({ refreshKey, onExecuted }: { refreshKey: number
   }
 
   return (
-    <section aria-label="定时执行历史" className="space-y-3 border-t pt-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold">最近执行</h3>
-        <div className="flex gap-2">
+    <SettingsSection role="region" aria-label="定时执行历史" title="最近执行" description="查看计划的运行结果，或重试可恢复的失败。" action={
+        <div className="flex flex-wrap items-center gap-3">
           <Button onClick={() => void load()} size="sm" type="button" variant="outline">刷新记录</Button>
           <a className="text-xs underline underline-offset-4 self-center" href="/api/diagnostics" download>导出脱敏诊断</a>
         </div>
-      </div>
-      <p className="text-xs text-muted-foreground">执行记录保留 90 天、最多 1,000 条，展示最近 50 条。提醒已读或删除计划不删除执行记录。诊断仅含时间、状态和错误类别，不含提示词、文件正文、路径或凭证。</p>
+      }><div className="flex flex-col gap-3">
       {!automatic ? <p className="text-xs text-warning">当前为浏览器开发服务，自动调度未启动。定时任务只在桌面应用运行时自动执行。</p> : null}
       {error ? <p role="alert" className="text-xs text-destructive">{error}</p> : null}
       {retryError ? <p role="alert" className="text-xs text-destructive">{retryError}</p> : null}
-      {loading ? <p className="text-xs text-muted-foreground">正在读取执行历史…</p> : runs.length === 0 ? <p className="text-xs text-muted-foreground">暂无执行记录。旧版本的上次状态不会补造成历史。</p> : (
-        <ul className="space-y-2">
+      {loading ? <p className="text-xs text-muted-foreground">正在读取执行历史…</p> : runs.length === 0 ? <p className="text-xs text-muted-foreground">暂无执行记录。</p> : (
+        <ul className="settings-list">
           {runs.map(run => (
-            <li key={run.id} className="space-y-1 rounded-md border p-3 text-xs">
-              <p className="flex flex-wrap justify-between gap-2"><span>{["backupReminder", "scheduledBackup", "dailyBrief", "weeklySummary"].includes(run.kind) ? t(`settings.schedules.kind.${run.kind}` as never) : "不支持的任务类型"}</span><span>{statusLabel(run.status)} · {run.trigger === "manual" ? "手动重试" : "定时执行"}</span></p>
+            <li key={run.id} className="settings-history-row text-xs">
+              <p className="flex flex-wrap justify-between gap-2"><span>{["backupReminder", "scheduledBackup", "dailyBrief", "weeklySummary"].includes(run.kind) ? t(`settings.schedules.kind.${run.kind}` as never) : "不支持的任务类型"}</span><span className="flex items-center gap-2"><Badge variant={run.status === "failed" || run.status === "interrupted" ? "outline" : "secondary"}>{statusLabel(run.status)}</Badge>{run.trigger === "manual" ? "手动重试" : "定时执行"}</span></p>
               <p className="text-muted-foreground">开始：{new Date(run.startedAt).toLocaleString()} · 结束：{run.finishedAt ? new Date(run.finishedAt).toLocaleString() : "尚未结束"}</p>
               {run.errorCode ? <p>{run.status === "succeeded" ? "本地结果已保存，模型整理未完成。" : ""}{run.errorCode} · {executionGuidance(run.errorCode)}</p> : null}
               {!run.jobId ? <p className="text-muted-foreground">原计划已删除，执行证据仍保留。</p> : null}
@@ -86,7 +85,11 @@ export function ScheduleHistory({ refreshKey, onExecuted }: { refreshKey: number
           ))}
         </ul>
       )}
-      <p className="text-xs text-muted-foreground">重新执行会创建新记录，模型任务可能再次计费。仅当前已启用计划的最近失败可重试；中断或已有产物的执行需先人工核对，不自动重放工具写入。</p>
-    </section>
+      <SettingsHelp title="记录保留与重试规则">
+        <p>执行记录保留 90 天、最多 1,000 条，展示最近 50 条。提醒已读或删除计划不删除执行记录。旧版本的上次状态不会补造成历史。</p>
+        <p>诊断仅含时间、状态和错误类别，不含提示词、文件正文、路径或凭证。</p>
+        <p>重新执行会创建新记录，模型任务可能再次计费。仅当前已启用计划的最近失败可重试；中断或已有产物的执行需先人工核对，不自动重放工具写入。</p>
+      </SettingsHelp>
+      </div></SettingsSection>
   );
 }

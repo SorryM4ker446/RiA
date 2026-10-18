@@ -479,3 +479,22 @@ test("releasing an interrupted run only re-anchors the rows it released", async 
   assert.equal(await releaseInterruptedJobs(new Date()), 0, "nothing was running, so nothing was released");
   assert.equal((await listScheduledJobs())[0].nextRunAt, leftBehind, "a job this release never touched keeps the next run it had");
 });
+
+
+test("partial schedule updates preserve timing and model consent across pause and resume", async () => {
+  const created = await payload(await schedulesRoute.POST(req("/api/schedules", "POST", {
+    kind: "weeklySummary", enabled: true, useModel: true, localTime: "18:45", timeZone: "Europe/London", interval: "weekly", dayOfWeek: 5,
+  })), 201);
+  const original = created.data;
+  for (const patch of [{ enabled: false }, { enabled: true }, { useModel: false }, { useModel: true }]) {
+    const expected = { ...original, ...patch };
+    const updated = await payload(await scheduleIdRoute.PATCH(req(`/api/schedules/${original.id}`, "PATCH", patch), context(original.id)));
+    for (const key of ["kind", "localTime", "timeZone", "interval", "dayOfWeek", "nextRunAt", "enabled", "useModel"] as const) {
+      assert.equal(updated.data[key], expected[key], `patch ${JSON.stringify(patch)} must preserve ${key}`);
+    }
+    Object.assign(original, patch);
+  }
+  const unchanged = await payload(await scheduleIdRoute.PATCH(req(`/api/schedules/${original.id}`, "PATCH", {}), context(original.id)));
+  assert.deepEqual(unchanged.data, original);
+  assert.equal(await db.scheduledRun.count(), 0);
+});

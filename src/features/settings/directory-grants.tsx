@@ -4,7 +4,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { FolderOpen, Loader2, ShieldOff, Terminal } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { SettingsSection } from "@/features/settings/settings-section";
 import { Input } from "@/components/ui/input";
 import { t } from "@/lib/locale";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
@@ -171,9 +171,9 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
         ) : grants.length === 0 ? (
           <p className="text-xs text-muted-foreground">{t("settings.grants.empty")}</p>
         ) : (
-          <ul className="flex flex-col gap-2">
+          <ul className="settings-list" aria-label="目录授权">
             {grants.map((grant) => (
-              <li className="flex flex-col items-start justify-between gap-3 rounded-md border border-border px-3 py-2 sm:flex-row" key={grant.id}>
+              <li className="flex flex-col items-start justify-between gap-3 sm:flex-row" key={grant.id}>
                 <div className="w-full min-w-0 sm:w-auto">
                   <p className="truncate text-sm font-medium">{grant.label}</p>
                   <p className="truncate text-xs text-muted-foreground" title={grant.realPath}>{grant.path}</p>
@@ -230,13 +230,9 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
       </div>
   );
   return <>
-      {embedded ? content : <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base"><FolderOpen aria-hidden="true" className="size-4 text-muted-foreground" />{t("settings.grants.title")}</CardTitle>
-          <CardDescription>{t("settings.grants.description")}</CardDescription>
-        </CardHeader>
-        <CardContent>{content}</CardContent>
-      </Card>}
+      {embedded ? content : <SettingsSection title={<><FolderOpen aria-hidden="true" className="size-4 text-muted-foreground" />{t("settings.grants.title")}</>} description="只授权你需要的目录。终端权限单独开启，每条命令仍需人工批准。">
+        <div className="flex flex-col gap-4">{content}</div>
+      </SettingsSection>}
       <Sheet open={!!terminalGrant} onOpenChange={open => { if (!open && !permissionSaving) setTerminalGrant(null); }}>
         <SheetContent side="right" className="directory-permissions-sheet flex flex-col gap-5 overflow-y-auto p-6">
           <SheetTitle>开启终端权限</SheetTitle>

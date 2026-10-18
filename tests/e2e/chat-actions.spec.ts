@@ -207,6 +207,8 @@ for (const approved of [true, false]) {
     await expect.poll(() => calls).toBe(1);
     await expect(page.locator("article").last().getByText(/Approval handled/)).toBeVisible();
     await expect(page.getByRole("button", { name: "批准", exact: true })).toHaveCount(0);
+    await expect(page.locator(".chat-dock").getByText("查看执行详情", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "操作审批", exact: true })).toHaveCount(0);
     expect(calls).toBe(1);
   });
 }
@@ -271,3 +273,102 @@ test("saving an edited user message regenerates from the edited text", async ({ 
   await expect(page.getByText("New answer", { exact: true })).toBeVisible();
   await expect(page.getByText("Original answer", { exact: true })).toHaveCount(0);
 });
+
+
+type ControlledChatStream = { requests: unknown[]; emit: (request: number, chunks: object[], finish?: boolean) => void };
+type StreamWindow = Window & { approvalStream: ControlledChatStream };
+
+// Keep the response open between phases, so layout assertions cover waiting
+// for approval and resuming the same answer, rather than just a final snapshot.
+async function controlledChatStream(page: Page) {
+  await page.addInitScript(() => {
+    const originalFetch = window.fetch.bind(window);
+    const encoder = new TextEncoder();
+    const controllers: ReadableStreamDefaultController<Uint8Array>[] = [];
+    const requests: unknown[] = [];
+    (window as unknown as StreamWindow).approvalStream = {
+      requests,
+      emit(index, chunks, finish = false) {
+        for (const chunk of chunks) controllers[index].enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+        if (finish) { controllers[index].enqueue(encoder.encode('data: [DONE]\n\n')); controllers[index].close(); }
+      },
+    };
+    window.fetch = async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (new URL(url, location.href).pathname !== '/api/chat') return originalFetch(input, init);
+      requests.push(JSON.parse(String(init?.body)));
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) { controllers.push(controller); } }), {
+        headers: { 'content-type': 'text/event-stream', 'x-vercel-ai-ui-message-stream': 'v1' },
+      });
+    };
+  });
+}
+
+for (const width of [1440, 390]) {
+  test(`approval leaves reasoning and the reader's position intact at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mockHistory(page, []);
+    await controlledChatStream(page);
+    await page.goto('/chat');
+    await page.getByPlaceholder(/输入你的问题/).fill('Read the folder and summarize');
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as StreamWindow).approvalStream.requests.length)).toBe(1);
+    await page.evaluate(() => (window as unknown as StreamWindow).approvalStream.emit(0, [
+      { type: 'start', messageId: 'live-approval' },
+      { type: 'reasoning-start', id: 'reasoning' },
+      { type: 'reasoning-delta', id: 'reasoning', delta: Array.from({ length: 100 }, (_, i) => `Reading step ${i}: inspect the granted directory before making changes.`).join('\n') },
+      { type: 'reasoning-end', id: 'reasoning' },
+    ]));
+    const reasoning = page.locator('.message-reasoning');
+    await expect(reasoning).toHaveAttribute('open', '');
+    await expect(reasoning).toContainText('Reading step 99');
+    const before = await page.locator('.chat-transcript').evaluate(async panel => {
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      panel.scrollTop = (panel.scrollHeight - panel.clientHeight) / 2;
+      panel.dispatchEvent(new Event('scroll'));
+      const body = panel.querySelector('.message-reasoning > div')!;
+      body.setAttribute('data-reader-marker', 'same-content');
+      return { top: panel.scrollTop, y: body.getBoundingClientRect().y, height: body.getBoundingClientRect().height };
+    });
+    expect(before.top).toBeGreaterThan(100);
+    await page.evaluate(() => (window as unknown as StreamWindow).approvalStream.emit(0, [
+      { type: 'tool-input-available', toolCallId: 'live-call', toolName: 'createTask', input: { title: 'Task' } },
+      { type: 'tool-approval-request', toolCallId: 'live-call', approvalId: 'live-decision' },
+      { type: 'finish', finishReason: 'tool-calls' },
+    ], true));
+    const card = page.getByRole('region', { name: '操作审批', exact: true });
+    await expect(card.getByRole('button', { name: '批准', exact: true })).toBeEnabled();
+    await expect(reasoning).toHaveAttribute('open', '');
+    await expect(reasoning.locator('[data-reader-marker]')).toHaveCount(1);
+    const position = await page.locator('.chat-transcript').evaluate(panel => ({ top: panel.scrollTop, y: panel.querySelector('.message-reasoning > div')!.getBoundingClientRect().y, height: panel.querySelector('.message-reasoning > div')!.getBoundingClientRect().height }));
+    expect(position.top).toBeCloseTo(before.top, 0);
+    expect(position.y).toBeCloseTo(before.y, 0);
+    expect(position.height).toBeCloseTo(before.height, 0);
+    await expect(page.locator('article').last()).not.toContainText('请在输入框上方的审批卡');
+    await expect(page.getByRole('button', { name: '回到最新', exact: true })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath(`approval-reading-${width}.png`) });
+    // A deliberate disclosure choice also survives approval and continuation.
+    if (width === 390) {
+      await reasoning.locator('summary').click();
+      await expect(reasoning).not.toHaveAttribute('open', '');
+    }
+    await card.getByRole('button', { name: '批准', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as StreamWindow).approvalStream.requests.length)).toBe(2);
+    await expect(card).toHaveCount(0);
+    await expect(page.locator('.chat-dock')).not.toContainText('查看执行详情');
+    await page.evaluate(() => (window as unknown as StreamWindow).approvalStream.emit(1, [
+      { type: 'start', messageId: 'live-approval' },
+      { type: 'tool-output-available', toolCallId: 'live-call', output: { taskId: 'created-task' } },
+      { type: 'text-start', id: 'answer' },
+      { type: 'text-delta', id: 'answer', delta: 'The task was created.' },
+      { type: 'text-end', id: 'answer' },
+      { type: 'finish', finishReason: 'stop' },
+    ], true));
+    await expect(page.locator('article').last()).toContainText('The task was created.');
+    if (width === 390) await expect(reasoning).not.toHaveAttribute('open', '');
+    else await expect(reasoning).toHaveAttribute('open', '');
+    await expect(page.locator('.chat-dock')).not.toContainText('查看执行详情');
+    const records = await openExecutionDetails(page);
+    await expect(records.getByText('工具详情：createTask · 执行完成', { exact: true })).toBeVisible();
+  });
+}

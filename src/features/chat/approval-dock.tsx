@@ -1,35 +1,23 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
-import { Check, ChevronDown, Loader2, Square, X } from "lucide-react";
+import { Check, ChevronDown, Loader2, X } from "lucide-react";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
 import { t } from "@/lib/locale";
-import { formatToolState, isToolPart, safeJson, type ToolPart } from "./page-utils";
+import { isToolPart, safeJson, type ToolPart } from "./page-utils";
 import type { ChatState } from "./use-chat-state";
 
-type Props = Pick<ChatState, "messages" | "isPending" | "addToolApprovalResponse" | "onStop"> & { onDetails: (messageId: string) => void };
+type Props = Pick<ChatState, "messages" | "isPending" | "addToolApprovalResponse"> & { onDetails: (messageId: string) => void };
 
-export function ApprovalDock({ messages, isPending, addToolApprovalResponse, onStop, onDetails }: Props) {
+export function ApprovalDock({ messages, isPending, addToolApprovalResponse, onDetails }: Props) {
   const message = messages.at(-1);
   if (message?.role !== "assistant") return null;
   const tools = message.parts.filter(isToolPart);
   const pending = tools.filter(part => part.state === "approval-requested" && "approval" in part && !!part.approval);
-  if (pending.length) return <ApprovalRequest key={`${message.id}:${pending[0].toolCallId}`} part={pending[0]} count={pending.length} disabled={isPending} respond={addToolApprovalResponse} onDetails={() => onDetails(message.id)} />;
-  const last = [...tools].reverse().find(part => "approval" in part && !!part.approval);
-  if (!last) return null;
-  const rejected = last.state === "output-denied" || ("approval" in last && last.approval?.approved === false);
-  const active = !rejected && last.state === "approval-responded" && isPending;
-  const terminalStatus = last.type === "tool-runTerminalCommand" && last.state === "output-available" && last.output && typeof last.output === "object" && "status" in last.output ? last.output.status : undefined;
-  const resultLabel = terminalStatus === "stopped" ? "已停止" : terminalStatus === "timed-out" ? "已超时" : terminalStatus === "failed" ? "执行失败" : last.state === "approval-responded" ? "已批准，等待执行状态" : formatToolState(last.state).label;
-  return <div className="mx-auto flex w-full max-w-[42rem] items-center gap-2 px-1 text-xs" role="status">
-    {active ? <Loader2 aria-hidden="true" className="size-3.5 shrink-0 animate-spin" /> : <Check aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />}
-    <span className="min-w-0 flex-1 truncate text-muted-foreground">{last.title ?? last.type.replace(/^tool-/, "")} · {rejected ? "已拒绝" : active ? "执行中" : resultLabel}</span>
-    {active ? <Button size="sm" variant="ghost" onClick={() => void onStop()}><Square data-icon="inline-start" />停止</Button> : null}
-    <Button size="sm" variant="ghost" onClick={() => onDetails(message.id)}>查看执行详情</Button>
-  </div>;
+  return pending.length ? <ApprovalRequest key={`${message.id}:${pending[0].toolCallId}`} part={pending[0]} count={pending.length} disabled={isPending} respond={addToolApprovalResponse} onDetails={() => onDetails(message.id)} /> : null;
 }
 
 function ApprovalRequest({ part, count, disabled, respond, onDetails }: {

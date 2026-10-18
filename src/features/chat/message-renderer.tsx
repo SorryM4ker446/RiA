@@ -43,15 +43,25 @@ const DRAFT_HISTORY_QUERY = "draft";
 /**
  * What the follow-the-answer effect reacts to.
  *
- * Text arriving inside the last message is a change too. A streaming answer
- * grows within a single text part, so the message count and the part count are
- * the same for every token of it: a signature built from those two alone never
- * changed while an answer was being written, and the view stopped following it.
+ * Follow visible content as it grows, including reasoning and downloads.
+ * Hidden tool and approval transitions belong to execution records and must
+ * not move the reader or announce new transcript content.
  */
 export function messageFollowSignature(messages: UIMessage[]): string {
   const last = messages.at(-1);
   if (!last) return "0";
-  return `${messages.length}:${last.parts.length}:${readText(last).length}`;
+  const downloads = last.parts.flatMap(part => part.type === "tool-convertDocument" && part.state === "output-available" ? [part.toolCallId] : []).join(",");
+  return `${messages.length}:${last.id}:${readText(last).length}:${readReasoning(last).length}:${getFileParts(last).length}:${downloads}`;
+}
+
+function MessageReasoning({ text, streaming }: { text: string; streaming: boolean }) {
+  const [open, setOpen] = useState(true);
+  return <details className="message-reasoning mb-2 rounded-lg bg-muted text-xs" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary className="cursor-pointer px-3 py-2 font-medium">
+      {streaming ? t("chat.messages.reasoningLive") : t("chat.messages.reasoningTitle")}
+    </summary>
+    <div className="whitespace-pre-wrap border-t px-3 py-2 leading-5 text-muted-foreground">{text}</div>
+  </details>;
 }
 
 type OpenLayoutInput = {
@@ -239,7 +249,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
         const videoUrl = videoByMessageId[message.id];
         const toolParts = message.parts.filter(isToolPart);
         const reasoning = readReasoning(message);
-          const isLastAssistantStreaming =
+        const isLastAssistantStreaming =
           status === "streaming" && index === messages.length - 1 && message.role === "assistant";
         const isEditing = editingMessageId === message.id;
         const isEditable = isUser && fileParts.length === 0 && !isEditing && !isPending;
@@ -340,28 +350,11 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
                   </div>
                 </div>
               ) : null}
-              {/* The reasoning comes before the answer because that is the order
-                  it happened in. It stays collapsed so the answer is what the
-                  eye lands on, and open while it is still arriving so the turn
-                  does not look stuck. */}
-              {reasoning && !isUser ? (
-                <details
-                  className="mb-2 rounded-lg bg-muted text-xs"
-                  open={isLastAssistantStreaming || undefined}
-                >
-                  <summary className="cursor-pointer px-3 py-2 font-medium">
-                    {isLastAssistantStreaming ? t("chat.messages.reasoningLive") : t("chat.messages.reasoningToggle")}
-                  </summary>
-                  <div className="whitespace-pre-wrap border-t px-3 py-2 leading-5 text-muted-foreground">
-                    {reasoning}
-                  </div>
-                </details>
-              ) : null}
+              {/* A stream pausing for approval must not collapse what the user
+                  is reading. Only the reader controls this disclosure. */}
+              {reasoning && !isUser ? <MessageReasoning text={reasoning} streaming={isLastAssistantStreaming} /> : null}
               {!isEditing && text ? <MarkdownMessage text={text} /> : null}
               {toolParts.map(part => part.type === "tool-convertDocument" && part.state === "output-available" ? <DocumentDownload key={`download-${part.toolCallId}`} output={part.output} /> : null)}
-              {toolParts.some(part => part.state === "approval-requested") ? (
-                <p className="mt-2 text-sm text-muted-foreground">{t(isRegenerable ? "chat.messages.reviewInComposer" : "chat.messages.historicalApprovalPending")}</p>
-              ) : null}
               {imageUrl ? (
                 <div className="mt-3 space-y-2">
                   <Image

@@ -54,26 +54,12 @@ export function ChatToolbar({
     <CardHeader className="chat-toolbar max-h-[30%] shrink-0 gap-3 overflow-y-auto border-b px-6 py-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         {conversationControls}
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <CardTitle className="truncate">
-            {activeChat?.title ?? t("chat.toolbar.newChat")}
-          </CardTitle>
-          {isPending && <CardDescription className="text-xs">
-            {isPending
-              ? modelMode === "image"
-                ? t("chat.toolbar.pendingImage")
-                : modelMode === "video"
-                  ? t("chat.toolbar.pendingVideo")
-                  : t("chat.toolbar.pendingChat")
-              : modelMode === "image"
-                ? t("chat.toolbar.hintImage")
-                : modelMode === "video"
-                  ? t("chat.toolbar.hintVideo")
-                  : t("chat.toolbar.hintChat")}
-          </CardDescription>}
-        </div>
-        <div className="flex items-center gap-2">
-          {isPending && <Badge variant="outline">{t("chat.toolbar.statusGenerating")}</Badge>}
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <CardTitle className="min-w-0 truncate">{activeChat?.title ?? t("chat.toolbar.newChat")}</CardTitle>
+          {isPending ? <>
+            <Badge className="shrink-0" variant="outline">{t("chat.toolbar.statusGenerating")}</Badge>
+            <CardDescription role="status" className="sr-only">{modelMode === "image" ? t("chat.toolbar.pendingImage") : modelMode === "video" ? t("chat.toolbar.pendingVideo") : t("chat.toolbar.pendingChat")}</CardDescription>
+          </> : null}
         </div>
         <div className="flex max-w-full flex-wrap items-center gap-2">
           <label className="sr-only" htmlFor="chat-assistant">助理模板</label>

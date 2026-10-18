@@ -1,7 +1,8 @@
 # Execution history and recovery
 
-Settings → Scheduled tasks displays the latest 50 executions separately from
-schedule configuration and notices. Each execution records a stable identity,
+**设置 → 自动化与通知 → 最近执行** displays the latest 50 executions separately from
+schedule configuration, factual reviews and notices. Retention and retry rules
+are available under **记录保留与重试规则**. Each execution records a stable identity,
 trigger, start and finish times, status, fixed failure category and model request
 identity. Generated conversations and backups have an entry point in the list.
 Marking a notice read or deleting a schedule does not erase execution history.
