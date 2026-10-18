@@ -21,6 +21,8 @@ const { exclusiveDataOperation, protectDataOperation } = await import("@/lib/ser
 const { indexDocument } = await import("@/lib/documents/store");
 const { saveChatMessage } = await import("@/lib/chat/store");
 const { encodeMediaMessage } = await import("@/lib/media/message-codec");
+const { encodePersistedUserMessage, decodePersistedUserMessage } = await import("@/lib/ai/ui-message");
+import { textPdf, wordDocument } from "../helpers/document-fixtures";
 const routes = { root: await import("@/app/api/backups/route"), item: await import("@/app/api/backups/[id]/route"), begin: await import("@/app/api/backups/import/route"), upload: await import("@/app/api/backups/import/[id]/route") };
 let cookie;
 const req = (path, method="GET", body=undefined, session=cookie, headers={}) => new NextRequest(`http://localhost${path}`, { method, headers: { cookie: session, "content-type": "application/json", ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -51,6 +53,30 @@ async function seed() {
   await indexDocument({filename:"backup.txt",format:"txt",byteSize:6,pages:[{pageNumber:null,text:"备份检索示例"}]});
   return {chat,input,output};
 }
+
+test("portable backup restores PDF and Word chat attachment bytes and message references without knowledge documents", async () => {
+  const chat = await db.chat.create({ data: { title: "Document attachments" } });
+  const bytes = [textPdf("Portable attachment support hours."), await wordDocument("备份还原后保留附件正文。")];
+  const mimeTypes = ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"];
+  const assets = [];
+  for (let index = 0; index < bytes.length; index++) assets.push(await storage.createMediaAsset({ bytes: bytes[index], mediaType: mimeTypes[index], kind: "attachment", description: index ? "备份.docx" : "备份.pdf" }));
+  await saveChatMessage({ chatId: chat.id, role: "user", content: encodePersistedUserMessage({ type: "user-message", text: "Analyze these documents", files: assets.map(asset => ({ url: `/api/media/${asset.id}`, mediaType: asset.mediaType, filename: asset.description })) }) });
+  const backup = await exclusiveDataOperation(() => archive.createAccountBackup(false));
+  await exclusiveDataOperation(() => restoreAccountBackup(backup.id));
+  assert.equal(await db.knowledgeDocument.count(), 0);
+  const message = await db.message.findFirstOrThrow({ where: { role: "user" } });
+  const restored = decodePersistedUserMessage(message.content).files;
+  assert.equal(restored.length, 2);
+  for (let index = 0; index < restored.length; index++) {
+    assert.notEqual(restored[index].assetId, assets[index].id);
+    const asset = await storage.getMediaAsset(restored[index].assetId);
+    assert.deepEqual(await storage.readMediaAsset(asset), bytes[index]);
+    assert.equal(await db.messageMedia.count({ where: { messageId: message.id, assetId: asset.id } }), 1);
+  }
+  const { materializeChatAttachments } = await import("@/lib/media/messages");
+  const materialized = await materializeChatAttachments([{ id: message.id, role: "user", parts: restored.map(file => ({ type: "file", url: file.url, mediaType: file.mediaType })) }]);
+  assert.ok(JSON.stringify(materialized).includes("备份还原后保留附件正文。"));
+});
 
 test("portable restore retains machine-local extensions but disables them and invalidates old approvals", async () => {
   const id = randomUUID();

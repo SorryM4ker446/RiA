@@ -31,15 +31,26 @@ All media APIs require the local access credential. Desktop requests additionall
 
 `POST /api/image` and `/api/video` now return `{ modelId, modelProvider, asset }`, where `asset` has the same media reference fields as uploads. They no longer return `dataUrl` or a public `videoUrl`. Both accept a `model` reference (`{ providerId, modelId }`) and validate it against **我的模型** before calling the provider. Reference images must use uploaded `/api/media/:id` URLs, not remote URLs, file URLs, or data URLs. Update external clients to upload first.
 
-The chat UI follows this contract automatically and passes the active `chatId` to record the generation source. External image/video clients may omit `chatId`; no source is inferred. Server-side model calls materialize stored image references into bytes only for the current request; providers do not fetch private local API URLs. The model's attachment context is bounded to the newest four images and 20 MiB; older image attachments remain in history but are represented by an omission note for that request. See [Media library](media-library.md) for list/detail contracts and regeneration behavior.
+The chat UI follows this contract automatically and passes the active `chatId` to record the generation source. External image/video clients may omit `chatId`; no source is inferred. Server-side model calls materialize stored image references into bytes and document references into extracted text only for the current request; providers do not fetch private local API URLs. The model's attachment context is bounded to the newest four files, 20 MiB and 100,000 document-text characters. Older attachments outside these limits remain in history and receive an explicit omission note in that request. Current-turn documents exceeding the text limit are rejected instead of silently truncated. See [Media library](media-library.md) for image/video list/detail contracts and regeneration behavior.
+
+## PDF and Word in chat
+
+In chat mode, use the paperclip or drag files into the composer to attach PDF and Word (`.docx`) files alongside images. Uploading parses all selected documents with the existing isolated document parser before storing any file in that batch. The composer displays a compact document card, a processing indicator and individual removal actions. Drafts retain uploaded references across reloads; sent messages offer original-file downloads and retain their references across restarts and portable backup/restore.
+
+Sending resolves each reference under the local workspace credential and parses the original immutable bytes again. Only the extracted text is sent to the configured chat provider, labelled as reference material inside the user message. The database retains the original file reference, not a client-supplied copy of the extracted text. Documents work with text-only chat models; mixed image/document requests still require image input support for the images. Word table structure and PDF page labels use the existing parser. File selection alone does not call the model.
+
+Chat attachment upload does **not** create knowledge documents, chunks, embeddings or knowledge entries. To add a file to the knowledge library, import it there explicitly. Document assets share existing message-reference protection, orphan cleanup and backup handling; they are downloaded from chat rather than listed in the image/video media library. Unsent, unreferenced uploads remain subject to the existing 24-hour cleanup grace period, so an abandoned draft may require reattachment after cleanup.
+
+Legacy `.doc`, encrypted documents and PDFs without searchable text are unsupported. Convert `.doc` to `.docx`; run OCR on scanned PDFs first. Image/video generation continues to accept images only. Switching generation mode while a document is attached requires removing the document or returning to chat before sending.
 
 ## Limits and checks
 
-- Attachments: PNG, JPEG, WebP, and GIF only; no SVG.
+- Chat attachments: PNG, JPEG, WebP, GIF, PDF and Word (`.docx`); no SVG or legacy `.doc`. Generation reference inputs remain image-only.
 - Up to 4 attachments, 8 MiB per file, 20 MiB combined. Video generation accepts one reference image.
 - Multipart requests: 21 MiB including framing; chat, generation, and message-write JSON: 2 MiB.
 - Generated output: images up to 20 MiB, videos up to 100 MiB. Supported video containers are MP4/QuickTime with an `ftyp` header and WebM with an EBML header.
 - MIME types must match recognized file signatures. This is not a malware scan or complete media-decoder validation.
+- Document MIME types must agree with their filename extension and parse successfully. Missing/`application/octet-stream` document MIME hints are normalized by extension and then validated against the actual bytes. Documents also retain the parser's 200-page, 100,000-character, bounded-worker and timeout limits.
 - Size checks read the request stream incrementally; omitting or lying about `Content-Length` does not bypass the limit.
 - Asset lookups resolve managed files before reading them. Managed paths are checked against server-generated names, and symlinks/junctions at the media root, owner directory, or file are rejected.
 - Responses use private/no-store caching, `nosniff`, and a restrictive content security policy. Video range requests return 206 or 416 as appropriate.

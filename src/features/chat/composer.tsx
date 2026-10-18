@@ -1,5 +1,6 @@
 import { modelRefKey } from "@/lib/models/preferences-schema";
 import { attachmentLabel } from "@/features/chat/draft";
+import { DocumentAttachment } from "@/components/chat/document-attachment";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -12,7 +13,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { t, tf } from "@/lib/locale";
-import { IMAGE_MEDIA_TYPES } from "@/lib/media/limits";
+import { CHAT_ATTACHMENT_TYPES, IMAGE_MEDIA_TYPES, isDocumentAttachment } from "@/lib/media/limits";
 import { cn } from "@/lib/utils/cn";
 import { ArrowUp, Loader2, Paperclip, Square, X } from "lucide-react";
 import { DocumentToolInput } from "@/features/chat/document-tool-input";
@@ -260,7 +261,11 @@ export function Composer({
             className="flex flex-wrap gap-2 px-3 pt-3"
             aria-label={t("chat.composer.attachmentListLabel")}
           >
-            {attachments.map((attachment, index) => (
+            {attachments.map((attachment, index) => isDocumentAttachment(attachment.mediaType) ? (
+              <li className="w-56 max-w-full" key={attachment.url}>
+                <DocumentAttachment {...attachment} onRemove={() => removeAttachmentAt(index)} />
+              </li>
+            ) : (
               <li className="group relative" key={`${attachment.url}-${index}`}>
                 {/* eslint-disable-next-line @next/next/no-img-element -- the asset
                   lives behind the local credential, which a next/image loader
@@ -302,16 +307,16 @@ export function Composer({
               className={cn(
                 "inline-flex h-7 w-7 shrink-0 cursor-pointer select-none items-center justify-center rounded-md text-xs text-muted-foreground transition-colors focus-within:ring-1 focus-within:ring-ring",
                 "hover:bg-accent hover:text-foreground",
-                isManualToolSelected && "pointer-events-none opacity-50",
+                (isManualToolSelected || isUploadingAttachments) && "pointer-events-none opacity-50",
               )}
             >
               <Paperclip aria-hidden="true" className="h-3.5 w-3.5" />
               <span className="sr-only">{t("chat.composer.chooseFile")}</span>
               <input
-                accept={IMAGE_MEDIA_TYPES.join(",")}
+                accept={modelMode === "chat" ? [...CHAT_ATTACHMENT_TYPES, ".pdf", ".docx"].join(",") : IMAGE_MEDIA_TYPES.join(",")}
                 aria-label={t("chat.composer.fileInputLabel")}
                 className="sr-only"
-                disabled={isManualToolSelected}
+                disabled={isManualToolSelected || isUploadingAttachments}
                 multiple
                 onChange={onAttachmentInputChange}
                 ref={fileInputRef}

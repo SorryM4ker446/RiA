@@ -93,7 +93,7 @@ export async function persistConversationMessage(params: {
 }
 
 export async function filesToUploadParts(files: File[]): Promise<UploadableFilePart[]> {
-  const validation = attachmentValidationError(files);
+  const validation = attachmentValidationError(files, true);
   if (validation) throw new Error(validation);
   const form = new FormData();
   for (const file of files) form.append("files", file);

@@ -124,7 +124,7 @@ function SidebarBody({
       </div>
       <NavLinks onNavigate={onNavigate} pathname={pathname} />
       <div className="mt-auto flex flex-col gap-1 border-t pt-3">
-        <Link
+        {isDesktopRuntime ? <Link
           aria-current={isActive(pathname, "/storage") ? "page" : undefined}
           className="workspace-nav-link"
           href="/storage"
@@ -132,20 +132,17 @@ function SidebarBody({
         >
           <HardDrive aria-hidden="true" className="h-4 w-4 shrink-0" />
           {t("nav.storage")}
-        </Link>
-        {isDesktopRuntime ? (
+        </Link> : null}
+        <div className="flex items-center gap-1 pr-2">
           <Link
-            aria-current={isActive(pathname, "/settings") ? "page" : undefined}
-            className="workspace-nav-link"
-            href="/settings"
+            aria-current={isActive(pathname, isDesktopRuntime ? "/settings" : "/storage") ? "page" : undefined}
+            className="workspace-nav-link min-w-0 flex-1"
+            href={isDesktopRuntime ? "/settings" : "/storage"}
             onClick={onNavigate}
           >
-            <Settings aria-hidden="true" className="h-4 w-4 shrink-0" />
-            {t("nav.settings")}
+            {isDesktopRuntime ? <Settings aria-hidden="true" className="size-4 shrink-0" /> : <HardDrive aria-hidden="true" className="size-4 shrink-0" />}
+            {t(isDesktopRuntime ? "nav.settings" : "nav.storage")}
           </Link>
-        ) : null}
-        <div className="flex items-center justify-between px-2 pt-2">
-          <span className="text-xs text-muted-foreground">本地工作空间</span>
           <ThemeToggle />
         </div>
       </div>

@@ -1,5 +1,7 @@
 import { imagePrompts, quickPrompts, videoPrompts } from "@/features/chat/page-utils";
 import { MarkdownMessage } from "@/components/chat/markdown-message";
+import { DocumentAttachment } from "@/components/chat/document-attachment";
+import { isDocumentAttachment } from "@/lib/media/limits";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -435,6 +437,9 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
                 />
               ) : null}
               {fileParts.map((filePart, fileIndex) => {
+                if (isDocumentAttachment(filePart.mediaType)) {
+                  return <div className="mt-3 w-64 max-w-full" key={`${message.id}-document-${fileIndex}`}><DocumentAttachment {...filePart} /></div>;
+                }
                 if (filePart.mediaType.startsWith("image/")) {
                   return (
                     <div className="mt-3 space-y-2" key={`${message.id}-file-image-${fileIndex}`}>

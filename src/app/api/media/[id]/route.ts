@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 import { currentWorkspaceId, requireLocalWorkspace } from "@/lib/local/workspace";
 import { deleteMediaAsset, getMediaAsset, openMediaAsset } from "@/lib/media/storage";
 import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
+import { isDocumentAttachment } from "@/lib/media/limits";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -14,7 +15,7 @@ async function serve(req: NextRequest, context: Params, headOnly: boolean) {
     const headers = new Headers({
       "Content-Type": asset.mediaType, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
       "Content-Security-Policy": "default-src 'none'; sandbox", "Accept-Ranges": "bytes",
-      "Content-Disposition": `${req.nextUrl.searchParams.get("download") === "1" ? "attachment" : "inline"}; filename="${id}.${asset.relativePath.split(".").at(-1)}"`,
+      "Content-Disposition": `${req.nextUrl.searchParams.get("download") === "1" ? "attachment" : "inline"}; filename="${id}.${asset.relativePath.split(".").at(-1)}"${isDocumentAttachment(asset.mediaType) && asset.description ? `; filename*=UTF-8''${encodeURIComponent(asset.description)}` : ""}`,
     });
     let start = 0, end = asset.byteSize - 1, status = 200;
     const range = req.headers.get("range");

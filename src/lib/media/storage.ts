@@ -13,8 +13,9 @@ import { LOCAL_WORKSPACE_ID } from "@/lib/local/workspace";
 const extensions: Record<string, string> = {
   "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif",
   "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov",
+  "application/pdf": "pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
 };
-const managedFilePattern = /^(?:[0-9a-f-]{36}\.(?:png|jpg|webp|gif|mp4|webm|mov)|\.tmp-[0-9a-f-]{36})$/;
+const managedFilePattern = /^(?:[0-9a-f-]{36}\.(?:png|jpg|webp|gif|mp4|webm|mov|pdf|docx)|\.tmp-[0-9a-f-]{36})$/;
 
 export function getMediaDirectory(): string {
   const configured = process.env.MEDIA_DIRECTORY?.trim();
@@ -69,6 +70,8 @@ export function validateMediaBytes(bytes: Uint8Array, mediaType: string, maxByte
     : mediaType === "image/webp" ? head.toString("ascii", 0, 4) === "RIFF" && head.toString("ascii", 8, 12) === "WEBP"
     : mediaType === "video/webm" ? head.subarray(0, 4).equals(Buffer.from([26, 69, 223, 163]))
     : mediaType === "video/mp4" || mediaType === "video/quicktime" ? head.toString("ascii", 4, 8) === "ftyp"
+    : mediaType === "application/pdf" ? head.toString("ascii", 0, 5) === "%PDF-"
+    : mediaType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ? head.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))
     : false;
   if (!matches) throw new ApiError({ code: "VALIDATION_ERROR", message: "Unsupported media type or mismatched file signature" });
 }
@@ -112,6 +115,7 @@ export async function createMediaAsset(input: {
 export async function stageMediaFile(input: { bytes: Uint8Array; mediaType: string; kind: "attachment" | "generated-image" | "generated-video" }) {
   const maximum = input.kind === "attachment" ? MEDIA_LIMITS.attachmentBytes : input.kind === "generated-image" ? MEDIA_LIMITS.generatedImageBytes : MEDIA_LIMITS.generatedVideoBytes;
   if ((input.kind === "generated-video") !== input.mediaType.startsWith("video/")) throw new ApiError({ code: "VALIDATION_ERROR", message: "Unexpected media type" });
+  if (input.kind === "generated-image" && !input.mediaType.startsWith("image/")) throw new ApiError({ code: "VALIDATION_ERROR", message: "Unexpected media type" });
   validateMediaBytes(input.bytes, input.mediaType, maximum);
   const directory = await safeOwnerDirectory(LOCAL_WORKSPACE_ID, true);
   const id = randomUUID();

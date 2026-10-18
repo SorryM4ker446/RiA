@@ -41,7 +41,7 @@ async function POSTHandler(req: NextRequest) {
     setupServerProxy();
 
 
-    const { context, modelMessages } = await prepareModelContext(input);
+    const { context, modelMessages } = await prepareModelContext(input, req.signal);
     const conversation = await prepareChatPersistence(input);
     const mode = body.mode ?? "chat";
     const isChatMode = mode === "chat";

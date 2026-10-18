@@ -2,7 +2,7 @@ import { db } from "@/db";
 import { t } from "@/lib/locale";
 import { getLatestUserMessage } from "@/lib/ai/ui-message";
 import { isToolApprovalContinuation } from "@/lib/chat/context";
-import { resolveImageInputs } from "@/lib/media/messages";
+import { resolveChatAttachments } from "@/lib/media/messages";
 import { ApiError } from "@/lib/server/api-error";
 import { readJsonBody } from "@/lib/server/request-body";
 import { chatRequestSchema } from "@/lib/server/request-schemas";
@@ -54,10 +54,10 @@ export async function readChatRequest(req: Request) {
   }
   for (const message of messages) {
     const files = message.parts.filter((part) => part.type === "file");
-    if (files.length) await resolveImageInputs(files);
+    if (files.length) await resolveChatAttachments(files);
   }
 
-  if (latestUserMessage?.files.length && !model?.supportsImageInput) {
+  if (latestUserMessage?.files.some(file => file.mediaType.startsWith("image/")) && !model?.supportsImageInput) {
     throw new ApiError({
       code: "VALIDATION_ERROR",
       message: `${t("lib.models.chatPrefix")} ${modelRef.modelId} ${t("lib.models.chatNoImageSwitch")}`,

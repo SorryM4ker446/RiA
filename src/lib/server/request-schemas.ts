@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { IMAGE_MEDIA_TYPES, MEDIA_LIMITS } from "@/lib/media/limits";
+import { CHAT_ATTACHMENT_TYPES, IMAGE_MEDIA_TYPES, MEDIA_LIMITS } from "@/lib/media/limits";
 import { modelRefSchema } from "@/lib/models/preferences-schema";
 import { getToolDescriptor, listToolDescriptors } from "@/tools/builtins";
 import { externalToolIdPattern, externalInputSchema } from "@/lib/extensions/schema";
@@ -19,7 +19,7 @@ const textPart = z.strictObject({
   type: z.enum(["text", "reasoning"]), text: z.string().max(100_000),
   state: z.enum(["streaming", "done"]).optional(), providerMetadata,
 });
-const filePart = imageReference.extend({ type: z.literal("file"), mediaType: z.enum(IMAGE_MEDIA_TYPES), filename: z.string().max(255).optional(), providerMetadata });
+const filePart = imageReference.extend({ type: z.literal("file"), mediaType: z.enum(CHAT_ATTACHMENT_TYPES), filename: z.string().max(255).optional(), providerMetadata });
 /**
  * The tool parts a chat request may carry, derived from the catalog rather than
  * written out.
@@ -69,9 +69,9 @@ const messageSchema = z.strictObject({
     z.strictObject({ type: z.literal("source-document"), sourceId: identifierSchema, mediaType: z.string().max(100), title: z.string().max(1000), filename: z.string().max(255).optional(), providerMetadata }),
   ])).min(1).max(100),
 }).superRefine((message, ctx) => {
-  if (message.parts.filter((part) => part.type === "file").length > MEDIA_LIMITS.attachmentCount) ctx.addIssue({ code: "custom", message: "Too many image attachments" });
+  if (message.parts.filter((part) => part.type === "file").length > MEDIA_LIMITS.attachmentCount) ctx.addIssue({ code: "custom", message: "Too many attachments" });
   if (message.role !== "assistant" && message.parts.some((part) => part.type !== "text" && !(message.role === "user" && part.type === "file"))) ctx.addIssue({ code: "custom", message: "Parts are not allowed for this role" });
-  if (message.role === "user" && !message.parts.some((part) => part.type === "file" || (part.type === "text" && part.text.trim()))) ctx.addIssue({ code: "custom", message: "User message must contain text or an image" });
+  if (message.role === "user" && !message.parts.some((part) => part.type === "file" || (part.type === "text" && part.text.trim()))) ctx.addIssue({ code: "custom", message: "User message must contain text or an attachment" });
 });
 
 export const chatRequestSchema = z.strictObject({

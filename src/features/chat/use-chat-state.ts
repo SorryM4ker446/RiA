@@ -58,16 +58,24 @@ export function useChatState() {
     id: activeChatId ?? "draft",
     transport,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
+    onFinish: ({ messages: finishedMessages, isError }) => {
+      if (!isError) return;
+      const latestUser = [...finishedMessages].reverse().find(message => message.role === "user");
+      const pending = latestUser ? inFlightSendsRef.current.get(latestUser.id) : undefined;
+      if (pending) pending.failed = true;
+    },
   });
   type PendingSend = {
     chatId: string;
     message: Parameters<typeof sendMessage>[0];
     options: Parameters<typeof sendMessage>[1];
-    resolve: () => void;
+    failed?: boolean;
+    resolve: (failed: boolean) => void;
     reject: (error: Error) => void;
   };
   const [pendingSend, setPendingSend] = useState<PendingSend | null>(null);
   const claimedSendRef = useRef<PendingSend | null>(null);
+  const inFlightSendsRef = useRef(new Map<string, PendingSend>());
   const {
     taskStatusFilter, isLoadingTasks, taskPanelError, isTaskListExpanded, filteredTasks,
     visibleTasks, hasHiddenTasks, setTaskStatusFilter, setIsTaskListExpanded, loadTasks,
@@ -111,7 +119,7 @@ export function useChatState() {
   // A draft belongs to one conversation. Switching away parks it and switching
   // back brings it back, so a half-written question survives navigating around.
   const draftChatIdRef = useRef<string | null>(null);
-  const pendingSendDraftRef = useRef<{ chatId: string; text: string; pendingChat?: boolean; afterIndex: number } | null>(null);
+  const pendingSendDraftRef = useRef<{ chatId: string; messageId: string; text: string; pendingChat?: boolean; afterIndex: number } | null>(null);
   const draftAttachmentsRef = useRef<UploadableFilePart[]>(attachments);
   draftAttachmentsRef.current = attachments;
 
@@ -119,7 +127,8 @@ export function useChatState() {
     // Parking first: the current conversation keeps what was typed in it.
     const previousId = draftChatIdRef.current;
     if (previousId && previousId !== activeChatId) {
-      writeChatDraft(previousId, { text: inputRef.current, attachments: draftAttachmentsRef.current });
+      const pending = pendingSendDraftRef.current;
+      writeChatDraft(previousId, { text: inputRef.current || (pending?.chatId === previousId ? pending.text : ""), attachments: draftAttachmentsRef.current });
     }
     // Only on a conversation change: re-running this on every keystroke would
     // overwrite the draft that is about to be read back.
@@ -235,9 +244,9 @@ export function useChatState() {
     return pending !== null && (pending.pendingChat === true || pending.chatId === activeChatId);
   }
 
-  function restorePendingSendDraft() {
+  function restorePendingSendDraft(messageId: string) {
     const pending = pendingSendDraftRef.current;
-    if (!pending || !pendingCoversCurrentChat(pending)) return;
+    if (!pending || pending.messageId !== messageId || !pendingCoversCurrentChat(pending)) return;
     pendingSendDraftRef.current = null;
     setInput(pending.text);
   }
@@ -520,7 +529,11 @@ export function useChatState() {
 
     setPageError(null);
 
-    if (modelMode === "chat" && hasAttachments && !selectedModelInfo?.supportsImageInput) {
+    if (modelMode !== "chat" && attachments.some(part => !part.mediaType.startsWith("image/"))) {
+      setPageError("PDF 和 Word 附件仅支持聊天模式，请移除文档或切回聊天模式。");
+      return;
+    }
+    if (modelMode === "chat" && attachments.some(part => part.mediaType.startsWith("image/")) && !selectedModelInfo?.supportsImageInput) {
       setPageError(`${t("chatState.imageInputUnsupportedPrefix")} ${selectedChatModel?.modelId ?? ""} ${t("chatState.imageInputUnsupportedSuffix")}`);
       return;
     }
@@ -531,7 +544,8 @@ export function useChatState() {
     // filled in once the first message has created one: a send that creates the
     // conversation switches the active id mid-flight, and the draft has to
     // follow it rather than be read back as empty.
-    pendingSendDraftRef.current = { chatId: activeChatId ?? "", text: content, pendingChat: activeChatId === null, afterIndex: messages.length };
+    const userMessageId = crypto.randomUUID();
+    pendingSendDraftRef.current = { chatId: activeChatId ?? "", messageId: userMessageId, text: content, pendingChat: activeChatId === null, afterIndex: messages.length };
 
     // The attachments are already uploaded references, so a submission no
     // longer depends on reading a file that may no longer be in memory. This
@@ -562,17 +576,19 @@ export function useChatState() {
       }
       // Activating a new conversation replaces the SDK Chat instance. Send only
       // after that instance and its initial history are ready, not through draft's closure.
-      await new Promise<void>((resolve, reject) => setPendingSend({
+      const failed = await new Promise<boolean>((resolve, reject) => setPendingSend({
         chatId,
-        message: hasAttachments ? { ...(hasContent ? { text: content } : {}), files: uploadParts } : { text: content },
+        message: { id: userMessageId, role: "user", parts: [...uploadParts, ...(hasContent ? [{ type: "text" as const, text: content }] : [])] },
         options: { body: { chatId, ...(selectedChatModel ? { model: selectedChatModel } : {}), mode: "chat" } },
         resolve, reject,
       }));
 
-      clearAttachments();
+      if (failed) { restorePendingSendDraft(userMessageId); return; }
+      if (draftChatIdRef.current === chatId) clearAttachments();
       await loadChats();
     } catch (submitError) {
-      restorePendingSendDraft();
+      if (pendingSendDraftRef.current?.messageId !== userMessageId || !pendingCoversCurrentChat(pendingSendDraftRef.current)) return;
+      restorePendingSendDraft(userMessageId);
       setPageError(submitError instanceof Error ? submitError.message : t("chatState.sendFailed"));
     }
   }
@@ -599,7 +615,13 @@ export function useChatState() {
     if (historyState?.chatId !== pendingSend.chatId || historyState.status !== "ready" || isLoadingHistory) return;
     claimedSendRef.current = pendingSend;
     setPendingSend(null);
-    void sendMessage(pendingSend.message, pendingSend.options).then(pendingSend.resolve, pendingSend.reject);
+    // SDK request failures resolve sendMessage; onFinish reports the outcome.
+    // Associate it with this message so an older chat cannot settle a newer send.
+    const messageId = pendingSend.message && "id" in pendingSend.message ? pendingSend.message.id : undefined;
+    if (messageId) inFlightSendsRef.current.set(messageId, pendingSend);
+    void sendMessage(pendingSend.message, pendingSend.options)
+      .then(() => pendingSend.resolve(pendingSend.failed === true), pendingSend.reject)
+      .finally(() => { if (messageId) inFlightSendsRef.current.delete(messageId); });
   }, [activeChatId, historyState, isLoadingHistory, pendingSend, sendMessage]);
 
   function appendQuickPrompt(prompt: string) {

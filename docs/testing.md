@@ -98,6 +98,10 @@ retrieval. Its six answer pairs support manual/live judge calibration.
 against isolated SQLite and offline HTTP provider fixtures. It checks template
 creation/edit/copy/delete, explicit snapshot update, service restart, model picker
 binding, manual tool refusal and the evaluation UI/report. Desktop and 390px
+template detail drawers keep snapshot versions and tool counts out of the chat
+header while preserving the saved version after template edits, deletion and
+restart; keyboard focus, opening transitions and reduced motion are verified.
+Desktop and 390px
 screens also show semantic-review reasons and source quotes. UI checks verify
 review opt-in/reset, paid-call confirmation, refusal results and template-loading
 failure/retry using a deliberately invalid response. These fixtures simulate
@@ -277,6 +281,8 @@ are deterministic HTTP fixtures; these are not live-provider certification.
 - **Reasoning display** puts a collapsed block above the answer, keeps it out of the answer text, and leaves the answer intact when it is expanded.
 
 `tests/e2e/media-storage.spec.ts` covers image generation and attachment upload persistence and protected reads.
+
+`tests/e2e/chat-documents.spec.ts` exercises real PDF/Word parsing through the chat paperclip, mixed image/document provider payloads, draft reload and application restart, original-file downloads, failed-send retry, late failures after conversation switching, generation-mode restrictions, compact mobile layout and reduced motion. Failed SDK requests retain the text and attachments instead of treating a resolved send Promise as success; completion results are matched to their user-message IDs. It uses the repository Playwright harness because the Browser plugin is not available. Server media and backup regressions additionally verify text-only model support, table extraction, malformed files, MIME spoofing, aggregate text limits, cancellation, reference protection and PDF/Word portable restore. These fixtures confirm that attachment handling does not create knowledge documents or chunks; provider replies are deterministic and do not measure live model analysis quality.
 
 ## Interface walkthrough
 

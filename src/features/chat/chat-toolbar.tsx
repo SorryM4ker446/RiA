@@ -9,6 +9,7 @@ import type { ChatState } from "@/features/chat/use-chat-state";
 import { t } from "@/lib/locale";
 import { cn } from "@/lib/utils/cn";
 import { decodeDocumentScope } from "@/lib/documents/scope";
+import { TemplateDetails } from "@/features/assistants/template-details";
 
 type Props = Pick<
   ChatState,
@@ -47,6 +48,7 @@ export function ChatToolbar({
   useEffect(() => { const controller = new AbortController(); void loadAssistants(controller.signal); return () => controller.abort(); }, [loadAssistants]);
   const snapshot = activeChat?.assistantConfig;
   const currentTemplate = assistants.find(item => item.id === snapshot?.templateId);
+  const hasTemplateUpdate = snapshot && currentTemplate && currentTemplate.revision !== snapshot.templateRevision;
 
   return (
     <CardHeader className="chat-toolbar max-h-[30%] shrink-0 gap-3 overflow-y-auto border-b px-6 py-4">
@@ -77,16 +79,16 @@ export function ChatToolbar({
           <label className="sr-only" htmlFor="chat-assistant">助理模板</label>
           <SelectField id="chat-assistant" aria-label="助理模板" variant="ghost" size="sm" className="max-w-48" value={snapshot?.templateId ?? ""} disabled={!activeChat || isPending || isLoadingChats || isDocumentScopeSaving || isEphemeralSaving} onValueChange={value => void applyAssistant(value || null)}>
             <SelectOption value="">通用助理</SelectOption>
-            {snapshot && !currentTemplate ? <SelectOption value={snapshot.templateId}>{snapshot.name}（会话快照）</SelectOption> : null}
+            {snapshot && !currentTemplate ? <SelectOption value={snapshot.templateId}>{snapshot.name}</SelectOption> : null}
             {assistants.map(item => <SelectOption key={item.id} value={item.id}>{item.config.name}</SelectOption>)}
           </SelectField>
+          {snapshot ? <TemplateDetails key={activeChat?.id} snapshot={snapshot} /> : null}
           <Button asChild variant="ghost" size="sm"><Link href="/assistants">管理模板</Link></Button>
           {activeChat && <Button role="checkbox" aria-checked={activeChat.ephemeral === true} aria-label={t("chat.ephemeral.label")} title={t("chat.ephemeral.note")} className="chat-memory-toggle" variant="ghost" size="sm" disabled={isEphemeralSaving || isDocumentScopeSaving || isPending} onClick={() => void toggleEphemeral(!activeChat.ephemeral)}><ShieldOff data-icon="inline-start" aria-hidden="true" />{t("chat.ephemeral.label")}</Button>}
         </div>
       </div>
-      {snapshot || assistantsError ? <div className="flex flex-wrap items-center gap-2 text-xs">
-        {snapshot ? <span className="text-muted-foreground">快照 v{snapshot.templateRevision} · {snapshot.tools.length} 个工具{snapshot.model ? ` · ${snapshot.model.modelId}` : ""}</span> : null}
-        {snapshot && currentTemplate && currentTemplate.revision !== snapshot.templateRevision ? <Button variant="ghost" size="sm" disabled={isPending || isDocumentScopeSaving} onClick={() => void applyAssistant(snapshot.templateId)}>更新为最新模板</Button> : null}
+      {hasTemplateUpdate || assistantsError ? <div className="flex flex-wrap items-center gap-2 text-xs">
+        {hasTemplateUpdate ? <Button variant="ghost" size="sm" disabled={isPending || isDocumentScopeSaving} onClick={() => void applyAssistant(snapshot.templateId)}>更新为最新模板</Button> : null}
         {assistantsError ? <span role="alert">{assistantsError} <Button variant="ghost" size="sm" onClick={() => void loadAssistants()}>重试</Button></span> : null}
       </div> : null}
 

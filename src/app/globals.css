@@ -374,6 +374,9 @@ input:-webkit-autofill:focus {
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  .chat-document-attachment {
+    animation: dialog-panel-in var(--dur-fast) var(--ease-out) both;
+  }
   /* Every interactive surface transitions its paint, not its layout, so
      hovering a row never reflows the page. */
   a,
@@ -596,6 +599,7 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .chat-list-scroll::-webkit-scrollbar-thumb { border-width: 2px; }
 .run-records-sheet { width: min(30rem, 100vw); }
 .template-editor-sheet { width: min(34rem, 100vw); }
+.template-details-sheet { width: min(30rem, 100vw); }
 .registry-details-sheet { width: min(34rem, 100vw); }
 .plugin-package-sheet { width: min(36rem, 100vw); }
 .knowledge-entry-sheet { width: min(32rem, 100vw); }

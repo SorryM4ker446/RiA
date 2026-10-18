@@ -12,7 +12,7 @@ import type { ChatRequest } from "@/lib/chat/request";
 function stripFilePartsForTextOnlyModel(messages: UIMessage[]): UIMessage[] {
   return messages.map((message) => {
     const parts = Array.isArray(message.parts) ? message.parts : [];
-    const withoutFiles = parts.filter((part) => part.type !== "file");
+    const withoutFiles = parts.filter((part) => part.type !== "file" || !part.mediaType.startsWith("image/"));
     const hadFiles = withoutFiles.length !== parts.length;
 
     if (!hadFiles) return message;
@@ -29,13 +29,13 @@ function stripFilePartsForTextOnlyModel(messages: UIMessage[]): UIMessage[] {
     } satisfies UIMessage;
   });
 }
-export async function prepareModelContext(input: ChatRequest) {
+export async function prepareModelContext(input: ChatRequest, signal?: AbortSignal) {
   const { messages, model } = input;
   const effectiveMessages = model?.supportsImageInput
     ? messages
     : stripFilePartsForTextOnlyModel(messages);
   const context = buildChatContext(effectiveMessages);
-  const modelMessages = await convertToModelMessages(await materializeChatAttachments(context.messages));
+  const modelMessages = await convertToModelMessages(await materializeChatAttachments(context.messages, signal));
 
   return { context, modelMessages };
 }
