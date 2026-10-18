@@ -309,7 +309,7 @@ export function Composer({
               className={cn(
                 "inline-flex h-7 w-7 shrink-0 cursor-pointer select-none items-center justify-center rounded-md text-xs text-muted-foreground transition-colors focus-within:ring-1 focus-within:ring-ring",
                 "hover:bg-accent hover:text-foreground",
-                (isManualToolSelected || isUploadingAttachments) && "pointer-events-none opacity-50",
+                (!isConversationReady || isManualToolSelected || isUploadingAttachments) && "pointer-events-none opacity-50",
               )}
             >
               <Paperclip aria-hidden="true" className="h-3.5 w-3.5" />
@@ -318,7 +318,7 @@ export function Composer({
                 accept={modelMode === "chat" ? [...CHAT_ATTACHMENT_TYPES, ".pdf", ".docx"].join(",") : IMAGE_MEDIA_TYPES.join(",")}
                 aria-label={t("chat.composer.fileInputLabel")}
                 className="sr-only"
-                disabled={isManualToolSelected || isUploadingAttachments}
+                disabled={!isConversationReady || isManualToolSelected || isUploadingAttachments}
                 multiple
                 onChange={onAttachmentInputChange}
                 ref={fileInputRef}
