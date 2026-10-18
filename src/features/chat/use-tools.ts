@@ -17,6 +17,7 @@ export function useTools({ activeChatId, allowedToolIds, setMessages, ensureActi
   const manualRun = useRef(false);
   const currentChat = useRef(activeChatId); currentChat.current = activeChatId;
   const [availableTools, setAvailableTools] = useState<ToolCatalogItem[]>([]);
+  const catalogRequest = useRef(0);
   const [toolCatalogError, setToolCatalogError] = useState<string | null>(null);
   const [hasLoadedToolCatalog, setHasLoadedToolCatalog] = useState(false);
   const [manualToolFieldValues, setManualToolFieldValues] = useState<ManualToolFieldValues>({});
@@ -32,6 +33,8 @@ export function useTools({ activeChatId, allowedToolIds, setMessages, ensureActi
   // for it, rather than as a tool that silently is not there.
   const unavailableTools = availableTools.filter((tool) => !tool.available && tool.modeSupport.includes("chat"));
   const selectedManualToolConfig = getSelectedManualToolConfig();
+  const manualConfiguration = selectedManualToolConfig ? JSON.stringify({ id: selectedManualToolConfig.id, manual: selectedManualToolConfig.manual }) : null;
+  const previousManualConfiguration = useRef<string | null | undefined>(undefined);
   const manualToolSelectValue = selectedManualToolConfig ? selectedManualToolConfig.id : "none";
   const isManualToolSelected = modelMode === "chat" && selectedManualToolConfig !== null;
   function getManualToolsForChat(): ToolCatalogItem[] {
@@ -46,16 +49,19 @@ export function useTools({ activeChatId, allowedToolIds, setMessages, ensureActi
   }
 
   async function loadToolCatalog() {
+    const request = ++catalogRequest.current;
     try {
       const payload = await chatApi.listTools();
+      if (request !== catalogRequest.current) return;
       const tools = Array.isArray(payload.data) ? payload.data : [];
       setAvailableTools(tools);
       setToolCatalogError(null);
     } catch (error) {
+      if (request !== catalogRequest.current) return;
       setAvailableTools([]);
       setToolCatalogError(error instanceof Error ? error.message : t("chatApi.listToolsFailed"));
     } finally {
-      setHasLoadedToolCatalog(true);
+      if (request === catalogRequest.current) setHasLoadedToolCatalog(true);
     }
   }
 
@@ -224,6 +230,9 @@ export function useTools({ activeChatId, allowedToolIds, setMessages, ensureActi
     }
   }, [hasLoadedToolCatalog, manualTools, selectedManualTool, setSelectedManualTool]);
   useEffect(() => {
+    // Refreshing availability must not clear a selected document or tool draft.
+    if (previousManualConfiguration.current === manualConfiguration) return;
+    previousManualConfiguration.current = manualConfiguration;
     setSelectedToolDocument(null);
     if (selectedManualToolConfig) {
       setManualToolFieldValues((prev) => {
@@ -244,11 +253,11 @@ export function useTools({ activeChatId, allowedToolIds, setMessages, ensureActi
     }
     setManualToolFieldValues({});
     setManualToolFieldErrors({});
-  }, [selectedManualToolConfig]);
+  }, [selectedManualToolConfig, manualConfiguration]);
   return {
     selectedManualTool, setSelectedManualTool, selectedToolDocument, setSelectedToolDocument,
     toolCatalogError, unavailableTools, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors,
     setManualToolFieldErrors, isRunningManualTool, manualTools, selectedManualToolConfig,
-    manualToolSelectValue, isManualToolSelected, runManualTool,
+    manualToolSelectValue, isManualToolSelected, runManualTool, loadToolCatalog,
   };
 }

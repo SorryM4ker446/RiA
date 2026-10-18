@@ -91,7 +91,7 @@ export function useChatState() {
     toolCatalogError, unavailableTools, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors,
     setManualToolFieldErrors, isRunningManualTool, manualTools, selectedManualToolConfig,
     selectedManualTool, setSelectedManualTool, selectedToolDocument, setSelectedToolDocument,
-    manualToolSelectValue, isManualToolSelected, runManualTool,
+    manualToolSelectValue, isManualToolSelected, runManualTool, loadToolCatalog,
   } = useTools({ activeChatId, allowedToolIds: activeChat?.assistantConfig?.tools, setMessages, ensureActiveChatId, loadChats, selectedChatModel, modelMode, loadTasks, taskStatusFilter });
   const isPending =
     isLoadingPreferences ||
@@ -692,7 +692,7 @@ export function useChatState() {
     removeAttachmentAt, isUploadingAttachments, isDraggingFiles, onComposerDragOver, onComposerDragLeave, onComposerDrop,
     setSelectedManualTool, manualToolSelectValue, manualTools, selectedToolDocument, setSelectedToolDocument,
     selectedManualToolConfig, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors,
-    setManualToolFieldErrors, unavailableTools, toolCatalogError: withoutGlobalEcho(toolCatalogError),
+    setManualToolFieldErrors, unavailableTools, toolCatalogError: withoutGlobalEcho(toolCatalogError), loadToolCatalog,
     setInput, handleTextareaKeyDown, onTextareaPaste,
     textareaRef, input, isManualToolSelected, onAttachmentInputChange, fileInputRef, attachments,
     clearAttachments, attachmentNames, selectedImageModel, selectedVideoModel, selectedManualTool,

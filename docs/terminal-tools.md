@@ -6,7 +6,10 @@ and execution records as other chat tools. It is unavailable in the web runtime.
 
 ## Enable and use
 
-1. Open **Settings → File access**, choose a working folder and grant access.
+1. Open **文件权限** beside **执行记录** above the chat composer (or
+   **Settings → File access**), choose
+   a working folder and explicitly grant access. Choosing a folder alone does
+   not authorize it. These machine-local permissions apply across conversations.
 2. Choose **开启终端** for that folder and confirm the separate terminal permission.
 3. In a conversation with a model that supports tools, ask for a command, for
    example: “在已授权的项目目录运行 `Get-ChildItem`，列出文件并解释结果。”

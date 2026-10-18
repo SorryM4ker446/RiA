@@ -8,6 +8,7 @@ import { ConversationList } from "@/features/chat/conversation-list";
 import { DeleteDialog } from "@/features/chat/delete-dialog";
 import { MessageRenderer } from "@/features/chat/message-renderer";
 import { RunRecords } from "@/features/chat/run-records";
+import { DirectoryPermissions } from "@/features/chat/directory-permissions";
 import { useChatState } from "@/features/chat/use-chat-state";
 import { TriangleAlert } from "lucide-react";
 import { t } from "@/lib/locale";
@@ -33,10 +34,13 @@ export default function ChatPage() {
             {/* What the turn did, above the composer: the place someone looks
                 when an answer mentions a task or a search they did not see. */}
             <div className="chat-dock flex max-h-[50%] shrink-0 flex-col gap-3 overflow-y-auto px-4 pb-5 pt-2 sm:px-7">
-              <RunRecords
-                activeChatId={chat.activeChatId}
-                refreshKey={chat.messages.length}
-              />
+              <div className="mx-auto flex w-full max-w-[42rem] flex-wrap items-center gap-1">
+                <RunRecords
+                  activeChatId={chat.activeChatId}
+                  refreshKey={chat.messages.length}
+                />
+                {chat.modelMode === "chat" ? <DirectoryPermissions onChange={() => void chat.loadToolCatalog()} /> : null}
+              </div>
 
               {effectiveError ? (
                 <Alert variant="destructive">
