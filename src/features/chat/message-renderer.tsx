@@ -3,6 +3,7 @@ import { MarkdownMessage } from "@/components/chat/markdown-message";
 import { DocumentAttachment } from "@/components/chat/document-attachment";
 import { DocumentDownload } from "@/features/document-processor/document-download";
 import { EditedFiles } from "./edited-files";
+import { MessageNavigator } from "./message-navigator";
 import { collectEditedFiles } from "@/lib/terminal/file-change-summary";
 import { isDocumentAttachment } from "@/lib/media/limits";
 import { Button } from "@/components/ui/button";
@@ -198,7 +199,25 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
     setHasUnreadBelow(false);
   }
 
-  return (<div ref={scrollRef} className="chat-transcript relative min-h-0 flex-1 space-y-5 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-6 sm:px-7" data-testid="message-list">
+  function jumpToMessage(id: string) {
+    const panel = scrollRef.current;
+    const target = [...panel?.querySelectorAll<HTMLElement>("[data-message-id]") ?? []].find(element => element.dataset.messageId === id);
+    if (!panel || !target) return;
+    followingRef.current = false;
+    panel.scrollTo({ top: panel.scrollTop + target.getBoundingClientRect().top - panel.getBoundingClientRect().top - 20,
+      behavior: isPending || window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  }
+
+  function loadEarlier() {
+    const panel = scrollRef.current;
+    if (panel) olderAnchorRef.current = { height: panel.scrollHeight, top: panel.scrollTop };
+    void loadOlderMessages();
+  }
+
+  const showNavigation = !awaitingFirstHistoryLoad && messages.length > 1 && messages.some(message => message.role === "user");
+
+  return (<div className="chat-transcript-frame relative flex min-h-0 flex-1" data-navigation={showNavigation}>
+  <div ref={scrollRef} className="chat-transcript relative min-h-0 flex-1 space-y-5 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-6 sm:px-7" data-testid="message-list">
   {/* The control stays inside the transcript and never overlaps the composer. */}
   {hasUnreadBelow ? (
     <div className="pointer-events-none sticky top-0 z-20 flex h-0 justify-center">
@@ -212,7 +231,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
         messages load, so the button does not resize and the scroll position
         does not shift. */}
     {olderMessagesCursor && !isLoadingHistory ? (
-      <Button className="w-full" disabled={isPending || isLoadingOlderMessages} onClick={() => { const panel = scrollRef.current; if (panel) olderAnchorRef.current = { height: panel.scrollHeight, top: panel.scrollTop }; void loadOlderMessages(); }} type="button" variant="secondary">
+      <Button className="w-full" disabled={isPending || isLoadingOlderMessages} onClick={loadEarlier} type="button" variant="secondary">
         {t("chat.messages.loadOlder")}
       </Button>
     ) : null}
@@ -263,19 +282,19 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
         const isRegenerable = message.role === "assistant" && index === messages.length - 1;
 
         return (
-          <div className={cn("flex w-full", isUser ? "justify-end" : "justify-start")} key={message.id}>
+          <div className={cn("flex w-full", isUser ? "justify-end pb-4" : "justify-start")} key={message.id} data-message-id={message.id} data-message-role={message.role}>
             <article
               className={cn(
                 "group min-w-0 rounded-xl px-4 py-3 text-sm",
-                isUser ? "chat-user-bubble max-w-[92%] md:max-w-[80%]" : "w-full bg-transparent text-card-foreground",
+                isUser ? "chat-user-bubble relative max-w-[92%] md:max-w-[80%]" : "w-full bg-transparent text-card-foreground",
               )}
             >
-              <header className="mb-2 flex items-center justify-between gap-2">
-                <div className="flex min-w-0 items-center gap-2">
+              <header className={isUser ? "chat-user-actions absolute right-0 top-full pt-1" : "mb-2 flex items-center justify-between gap-2"}>
+                {!isUser && <div className="flex min-w-0 items-center gap-2">
                   <span className="label-mono">
                     {getMessageRoleLabel(message.role)}
                   </span>
-                </div>
+                </div>}
                 <div className="flex shrink-0 items-center gap-1">
                   {isLastAssistantStreaming ? (
                     <span className="label-mono inline-flex items-center">
@@ -465,5 +484,8 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
         );
       })
     )}
+  </div>
+  {showNavigation && <MessageNavigator key={activeChatId ?? "draft"} messages={messages} scrollRef={scrollRef} onNavigate={jumpToMessage}
+    hasOlder={!!olderMessagesCursor} loadingOlder={isLoadingOlderMessages} disabled={isPending} onLoadOlder={loadEarlier} />}
   </div>);
 }

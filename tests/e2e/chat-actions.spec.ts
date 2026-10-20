@@ -274,6 +274,35 @@ test("saving an edited user message regenerates from the edited text", async ({ 
   await expect(page.getByText("Original answer", { exact: true })).toHaveCount(0);
 });
 
+for (const width of [1440, 390]) {
+  test(`user messages omit the role row and reveal actions below the bottom right corner at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mockHistory(page, [userMessage, assistantMessage]);
+    await page.goto("/chat");
+    const bubble = page.locator('[data-message-id="user-1"] article');
+    const actions = bubble.locator(".message-actions");
+    await expect(bubble).toContainText("Original question");
+    await expect(bubble.locator(".label-mono")).toHaveCount(0);
+    await page.mouse.move(0, 0);
+    await expect(actions).toHaveCSS("opacity", "0");
+    const before = (await bubble.boundingBox())!;
+    await bubble.hover();
+    await expect(actions).toHaveCSS("opacity", "1");
+    const controls = (await actions.boundingBox())!;
+    expect(controls.y).toBeGreaterThanOrEqual(before.y + before.height);
+    expect(controls.x + controls.width).toBeCloseTo(before.x + before.width, 0);
+    expect(await bubble.boundingBox()).toEqual(before);
+    const edit = bubble.getByRole("button", { name: "编辑消息", exact: true });
+    await edit.focus(); await page.mouse.move(0, 0);
+    await expect(actions).toHaveCSS("opacity", "1");
+    await page.keyboard.press("Enter");
+    await expect(bubble.locator("textarea")).toHaveValue("Original question");
+    await bubble.getByRole("button", { name: "取消", exact: true }).click();
+    await expect(bubble.locator("textarea")).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+}
+
 
 type ControlledChatStream = { requests: unknown[]; emit: (request: number, chunks: object[], finish?: boolean) => void };
 type StreamWindow = Window & { approvalStream: ControlledChatStream };
