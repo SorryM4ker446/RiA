@@ -839,9 +839,9 @@ async function runSmokeAssertion() {
     `(() => {
       const controls = window.privateAiDesktop?.windowControls;
       const selectors = [
-        'button[aria-label="最小化"]',
-        'button[aria-label="最大化"], button[aria-label="向下还原"]',
-        'button[aria-label="关闭"]'
+        'button[aria-label="最小化"], button[aria-label="Minimize"]',
+        'button[aria-label="最大化"], button[aria-label="向下还原"], button[aria-label="Maximize"], button[aria-label="Restore"]',
+        'button[aria-label="关闭"], button[aria-label="Close"]'
       ];
       // The narrow and wide headers each render the controls and only one is
       // displayed at a time, so a hidden copy measures 0x0. Take the visible
@@ -1145,7 +1145,9 @@ async function bootstrap() {
     // Both providers are seeded so the smoke proves a second key is stored and
     // cleared on its own, not just that one key happens to work.
     const deepseekSecret = `desktop-smoke-deepseek-${process.pid}`;
-    await settingsStore.save({ openrouterApiKey: smokeSecret, deepseekApiKey: deepseekSecret });
+    // These UI fixtures assert Chinese copy. Make their preference explicit
+    // so the smoke checks do not depend on the host's system language.
+    await settingsStore.save({ locale: "zh-CN", openrouterApiKey: smokeSecret, deepseekApiKey: deepseekSecret });
     const storedSettings = readFileSync(desktopPaths.settingsFile, "utf8");
     if (storedSettings.includes(smokeSecret) || storedSettings.includes(deepseekSecret)) {
       throw new Error("Desktop settings stored an API key without encryption.");
