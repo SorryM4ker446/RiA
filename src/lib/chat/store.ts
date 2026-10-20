@@ -1,4 +1,5 @@
-import { MessageRole, MessageStatus, type Prisma } from "@prisma/client";
+import { MessageRole, MessageStatus, type Message, type Prisma } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 import type { UIMessage } from "ai";
 import { db } from "@/db";
 import { decodePersistedAssistantToolMessage, encodePersistedAssistantToolMessage, truncateTitle } from "@/lib/ai/ui-message";
@@ -102,10 +103,20 @@ export async function saveChatMessage(params: {
     const [, , saved] = await db.$transaction([
       db.mediaAsset.updateMany({ where: { references: { some: { message } } }, data: { lastUsedAt: new Date() } }),
       db.messageMedia.deleteMany({ where: { message } }),
-      writeMessage(db),
+      normalizedClientMessageId
+        // Bind a large body once. The ORM upsert serializes both create.content
+        // and update.content even though SQLite only uses one of them.
+        ? db.$queryRaw<Message[]>`
+            INSERT INTO "messages" ("id", "chatId", "clientMessageId", "role", "content", "status", "createdAt")
+            VALUES (${randomUUID()}, ${chatId}, ${normalizedClientMessageId}, ${role}, ${prepared.content}, ${status}, ${new Date()})
+            ON CONFLICT ("chatId", "clientMessageId") DO UPDATE SET
+              "content" = excluded."content", "status" = excluded."status"
+            RETURNING "id", "chatId", "clientMessageId", "role", "content", "status", "createdAt"
+          `
+        : db.message.create({ data }),
       db.chat.update({ where: { id: chatId }, data: { ...summaryInvalidation, lastMessageAt: new Date() } }),
     ]);
-    return saved;
+    return Array.isArray(saved) ? saved[0] : saved;
   }
 
   return db.$transaction(async (tx) => {

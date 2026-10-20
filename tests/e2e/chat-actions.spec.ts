@@ -469,11 +469,21 @@ for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await mockHistory(page, []);
     await controlledChatStream(page);
-    await page.goto('/chat');
+    let releaseHistory!: () => void;
+    const historyGate = new Promise<void>(resolve => { releaseHistory = resolve; });
+    await page.route('**/api/conversations/*/messages', async route => {
+      await historyGate;
+      await route.fulfill({ json: { data: [] } });
+    }, { times: 1 });
+    try {
+      await page.goto('/chat');
+      await expect(page.getByTestId('message-skeleton')).toBeVisible();
+    } finally { releaseHistory(); }
     await expect(page.locator('.chat-welcome')).toBeVisible();
-    const emptyLayout = await page.getByTestId('message-list').evaluate(panel => {
+    const emptyLayout = await page.getByTestId('message-list').locator('.chat-welcome').evaluate(welcome => {
+      const panel = welcome.closest('[data-testid="message-list"]')!;
       const style = getComputedStyle(panel);
-      return panel.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) - panel.querySelector('.chat-welcome')!.getBoundingClientRect().height;
+      return panel.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) - welcome.getBoundingClientRect().height;
     });
     expect(Math.abs(emptyLayout)).toBeLessThanOrEqual(2);
     await page.getByPlaceholder(/输入你的问题/).fill('Read the folder and summarize');
