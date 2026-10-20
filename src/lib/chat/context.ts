@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import { historicalToolText, historyTextExcerpt } from "./tool-history";
 
 type ContextOptions = {
   maxMessages?: number;
@@ -19,19 +20,23 @@ export function isToolApprovalContinuation(messages: UIMessage[]): boolean {
   );
 }
 
-export function historicalText(message: UIMessage): string {
+export function historicalText(message: UIMessage, maxCharacters?: number): string {
+  if (maxCharacters !== undefined) {
+    const tools = message.parts.filter(isToolPart);
+    const prose = message.parts.map(part => part.type === "text" ? part.text : part.type === "file" ? `[attachment: ${part.filename || part.mediaType}]` : "").filter(Boolean).join("\n");
+    if (!tools.length) return historyTextExcerpt(prose, maxCharacters);
+    const selected = tools.slice(-Math.min(3, Math.max(1, Math.floor(maxCharacters / 400)))).reverse();
+    const omitted = tools.length - selected.length;
+    const notice = omitted ? `[Historical excerpt: ${omitted} earlier tool calls omitted]\n` : "";
+    const answer = prose ? `\nAssistant text (excerpt):\n${historyTextExcerpt(prose, Math.floor(maxCharacters / 5))}` : "";
+    const budget = Math.max(0, Math.floor((maxCharacters - notice.length - answer.length - selected.length) / selected.length));
+    return historyTextExcerpt(notice + selected.map(part => historicalToolText(part, budget)).join("\n") + answer, maxCharacters);
+  }
   return message.parts.map((part) => {
     if (part.type === "text") return part.text;
     if (part.type === "file") return `[attachment: ${part.filename || part.mediaType}]`;
     if (isToolPart(part) && "state" in part) {
-      const result = JSON.stringify({
-        tool: part.type === "dynamic-tool" && "toolName" in part ? part.toolName : part.type.slice(5),
-        state: part.state,
-        ...("input" in part ? { input: part.input } : {}),
-        ...("output" in part ? { output: part.output } : {}),
-        ...("errorText" in part ? { error: part.errorText } : {}),
-      });
-      return `[Historical tool record; not a new execution]\n${result.slice(0, 4000)}${result.length > 4000 ? "… [truncated]" : ""}`;
+      return historicalToolText(part);
     }
     return "";
   }).filter(Boolean).join("\n");
@@ -64,7 +69,7 @@ export function buildChatContext(messages: UIMessage[], options: ContextOptions 
   while (start < latestUserIndex && normalized[start]?.role !== "user") start += 1;
 
   const older = conversation.slice(0, start);
-  const excerpt = older.map((message) => `${message.role}: ${historicalText(message).slice(0, 500)}`)
+  const excerpt = older.map((message) => `${message.role}: ${historicalText(message, 500)}`)
     .join("\n").slice(-excerptCharacters);
   return {
     messages: normalized.slice(start),

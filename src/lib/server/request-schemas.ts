@@ -16,7 +16,13 @@ const imageReference = z.strictObject({
   mediaType: z.enum(IMAGE_MEDIA_TYPES).optional(),
 });
 const textPart = z.strictObject({
-  type: z.enum(["text", "reasoning"]), text: z.string().max(100_000),
+  type: z.literal("text"), text: z.string().max(100_000),
+  state: z.enum(["streaming", "done"]).optional(), providerMetadata,
+});
+// Reasoning is model protocol state. A tool loop can produce more of it than
+// the text-input limit, and approval continuations must carry it back intact.
+const reasoningPart = z.strictObject({
+  type: z.literal("reasoning"), text: z.string(),
   state: z.enum(["streaming", "done"]).optional(), providerMetadata,
 });
 const filePart = imageReference.extend({ type: z.literal("file"), mediaType: z.enum(CHAT_ATTACHMENT_TYPES), filename: z.string().max(255).optional(), providerMetadata });
@@ -63,12 +69,15 @@ const messageSchema = z.strictObject({
   id: identifierSchema, role: z.enum(["user", "assistant", "system"]),
   metadata: z.json().optional(),
   parts: z.array(z.union([
-    textPart, filePart, toolPart,
+    textPart, reasoningPart, filePart, toolPart,
     z.strictObject({ type: z.literal("step-start") }),
     z.strictObject({ type: z.literal("source-url"), sourceId: identifierSchema, url: z.url().max(2000), title: z.string().max(1000).optional(), providerMetadata }),
     z.strictObject({ type: z.literal("source-document"), sourceId: identifierSchema, mediaType: z.string().max(100), title: z.string().max(1000), filename: z.string().max(255).optional(), providerMetadata }),
-  ])).min(1).max(100),
+  ])).min(1),
 }).superRefine((message, ctx) => {
+  // Assistant messages grow with the tool loop; user/system inputs retain the
+  // existing part-count bound as well as their role and attachment checks.
+  if (message.role !== "assistant" && message.parts.length > 100) ctx.addIssue({ code: "custom", path: ["parts"], message: "Too many message parts" });
   if (message.parts.filter((part) => part.type === "file").length > MEDIA_LIMITS.attachmentCount) ctx.addIssue({ code: "custom", message: "Too many attachments" });
   if (message.role !== "assistant" && message.parts.some((part) => part.type !== "text" && !(message.role === "user" && part.type === "file"))) ctx.addIssue({ code: "custom", message: "Parts are not allowed for this role" });
   if (message.role === "user" && !message.parts.some((part) => part.type === "file" || (part.type === "text" && part.text.trim()))) ctx.addIssue({ code: "custom", message: "User message must contain text or an attachment" });

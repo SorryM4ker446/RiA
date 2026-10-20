@@ -169,6 +169,37 @@ test("desktop folder permission, exact command approval and persisted output sur
   expect(errors).toEqual([]);
 });
 
+test("a long-reasoning terminal turn can be approved and followed up before and after reloading without re-execution", async ({ page, app }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  const grant = await setup(page, app);
+  const chat = (await browserApi(page, "/api/conversations", "POST", { title: "长终端调用后继续会话" })).body.data;
+  await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
+  const input = page.getByPlaceholder(/输入你的问题/);
+  await input.fill(`OFFLINE_TERMINAL_COMMAND TERMINAL_REASONING_LARGE GRANT_ID=${grant.id}`);
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  await page.getByRole("button", { name: "批准", exact: true }).click();
+  await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`))
+    .filter(message => message.role === "assistant")
+    .some(message => {
+      const payload = decodePersistedAssistantToolMessage(message.content);
+      return (payload?.reasoning?.length ?? 0) > 100_000 && payload?.tools.some(tool => tool.state === "output-available");
+    })).toBe(true);
+  for (const reload of [false, true]) {
+    if (reload) await page.reload();
+    const question = reload ? "重新加载后继续检查" : "终端完成后继续检查";
+    await input.fill(question);
+    const accepted = page.waitForResponse(response => response.url().endsWith("/api/chat") && response.request().method() === "POST");
+    await page.getByRole("button", { name: "发送", exact: true }).click();
+    expect((await accepted).status()).toBe(200);
+    await expect(page.locator("article").last()).toContainText(`离线回答：${question}`);
+    await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.role === "assistant" && message.content.includes(`离线回答：${question}`))).toBe(true);
+  }
+  expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
+  await expect(page.getByRole("alert").filter({ hasText: "请求失败" })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test("full access executes without approval, keeps live output and stop controls, persists and can switch back to approval", async ({ page, app }) => {
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
   const requestBytes = trackChatRequestBytes(page);
@@ -255,6 +286,19 @@ test("approval mode asks for every tool call and resumes a long script without t
   await expect(page.locator('[data-message-role="assistant"]')).toHaveCount(1);
   await openExecutionDetails(page);
   await expect(page.getByLabel("终端输出", { exact: true })).toHaveCount(2);
+  expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("onceonce");
+  await page.keyboard.press("Escape");
+  await page.getByPlaceholder(/输入你的问题/).fill("Explain the previous terminal results");
+  const accepted = page.waitForResponse(response => response.url().endsWith("/api/chat") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  expect((await accepted).status()).toBe(200);
+  await expect(page.locator("article").last()).toContainText("离线回答：Explain the previous terminal results");
+  const followUpPrompt = () => JSON.stringify(app.providerCalls.filter(call => call.stream && JSON.stringify(call.messages.at(-1)).includes("Explain the previous terminal results")).at(-1)?.messages ?? []);
+  await expect.poll(followUpPrompt).toContain("Explain the previous terminal results");
+  const prompt = followUpPrompt();
+  expect(prompt).toContain("terminal-ready-你好");
+  expect(prompt).toContain('\\"exitCode\\":0');
+  expect(prompt).toContain("terminal-proof.txt");
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("onceonce");
 });
 

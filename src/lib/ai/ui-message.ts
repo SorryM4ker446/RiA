@@ -39,7 +39,8 @@ export type PersistedAssistantToolMessagePayload = {
    * it again on demand. It is protocol state rather than content, so it is
    * kept with the message and not shown in the conversation, but it is stored
    * locally and included in workspace backups like everything else in a
-   * message. Bounded so a long thought cannot grow a row without limit.
+   * message. Its size follows the model's tool loop, independently of the
+   * user text-input limit.
    */
   reasoning?: string;
   /** Optional tools this turn could not use, recorded for the note below. */

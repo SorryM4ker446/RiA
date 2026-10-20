@@ -7,6 +7,49 @@ call controls still apply. Historical executions retain their original budgets
 and stop reasons. The execution details display unlimited counts and no total
 deadline explicitly.
 
+Long tool turns can produce reasoning longer than the user text-input limit
+and more than 100 assistant message parts. Follow-up requests and approval
+continuations accept that protocol state without truncating saved reasoning.
+User text, non-assistant part counts, attachment limits, tool input validation
+and approval binding checks still apply.
+
+Historical tool evidence uses at most 4,000 characters per call. Terminal
+outcomes and exit codes precede command excerpts; diagnostic lines, stderr,
+reported file changes and captured stdout have separate budgets. Long streams
+and inputs retain explicitly marked head/tail excerpts. The capture truncation
+flag remains separate from historical excerpting, and partial file observations
+retain their completeness and omitted-file counts. Excerpts cannot recover
+output that was already lost at the terminal capture limit.
+
+The smaller older-history excerpts and newly generated conversation summaries
+reuse this formatter, prioritizing recent calls over long command prefixes.
+Saved messages, existing summaries and active approval payloads are preserved;
+historical records never authorize another execution.
+
+## Chat tool details
+
+Chat execution records use one tool-call list for live messages, saved full
+details and step summaries, with the latest call first. Summaries are marked as
+waiting while the request is active, or unavailable after it ends. They do not
+pretend to contain a full command or terminal output.
+
+New steps retain the SDK tool call ID. Full details enrich the matching call
+without replacing its row, collapsing it or resetting the reader's position.
+The existing run refresh detects newly linked messages and completion; details
+are fetched at those transitions when missing or incomplete; complete live
+messages are reused. Requests are aborted when the panel closes or the
+conversation changes. Normal completion is recorded after response
+persistence so the last refresh can retrieve its saved details. A save failure
+ends the run as failed rather than leaving it running.
+
+Historical steps remain supported. Full messages are linked by explicit run
+identity, or by an unambiguous legacy request window. Call names and array
+positions are never used to guess a match. Missing full messages retain their
+saved summaries; an explicitly linked full historical message can be displayed
+without inventing individual step associations.
+
+## Scheduled executions
+
 **设置 → 自动化与通知 → 最近执行** displays the latest 50 executions separately from
 schedule configuration, factual reviews and notices. Retention and retry rules
 are available under **记录保留与重试规则**. Each execution records a stable identity,
