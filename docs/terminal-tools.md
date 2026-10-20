@@ -41,6 +41,11 @@ the next pending approval. Existing database acquisition and lock timeouts and
 approval claim checks remain in effect. Persistence failures log
 `chat.persist.failed` with a safe error code, without command or query contents.
 
+Text-only keyed replacements bind the message body once in a parameterized
+SQLite upsert, reusing the inserted value for an update. The message ID, role and
+creation time remain stable on replacement; media cleanup and summary changes
+remain in the same atomic transaction.
+
 Conversations created from templates retain their tool allowlist. Add
 **执行终端命令** to a custom template if needed. Legacy file-tool selections normalize to this tool, but no folder gains terminal permission automatically. Old approvals for retired file tools cannot execute; send a fresh request and review its terminal command.
 

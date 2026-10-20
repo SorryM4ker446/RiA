@@ -1,5 +1,18 @@
 # Test coverage and local validation
 
+Text-only answer replacements use a parameterized SQLite upsert that binds the
+complete body once and reuses `excluded.content` on conflict. Regression tests
+retain >32 MiB command hashes, concurrent identity and media/summary rollback,
+and cover unchanged role/creation time, quoted identifiers/content and rollback
+of a first insertion. No migration is required; existing rows retain their IDs.
+
+Browser layout measurements wait through a controlled history-loading phase and
+measure the welcome element within its own transcript. Skill chat acceptance
+waits for the completed reply before reading history or restarting its service;
+observing a provider's tool input is not a persistence completion signal. The
+long-command reload case waits for restored assistant history before opening
+execution details, avoiding a second full-message fetch during restoration.
+
 Terminal tool results omit the duplicate command while the input and live session
 retain its complete text. A >2 MiB real-shell regression compares every result
 field with the live session. The two-command browser continuation checks both

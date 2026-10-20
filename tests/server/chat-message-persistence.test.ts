@@ -84,3 +84,34 @@ test("replacement writes without a client identity create distinct messages", as
   assert.notEqual(first.id, second.id);
   assert.equal(await db.message.count({ where: { chatId: chat.id } }), 2);
 });
+
+test("replacement upserts preserve message identity and creation time while binding text as data", async () => {
+  const chat = await db.chat.create({ data: { id: "chat'; --", title: "Bound values" } });
+  const clientMessageId = "answer'); DELETE FROM chats; --";
+  const first = await saveChatMessage({ chatId: chat.id, clientMessageId, role: "assistant", content: "Initial", updateExisting: true });
+  assert.ok(first.createdAt instanceof Date);
+  const content = "Write-Output '你好🙂'; -- not database instructions\n' OR 1=1; DROP TABLE messages; --";
+  const replaced = await saveChatMessage({ chatId: chat.id, clientMessageId, role: "user", content, status: "error", updateExisting: true });
+  assert.equal(replaced.id, first.id);
+  assert.equal(replaced.createdAt.getTime(), first.createdAt.getTime());
+  assert.equal(replaced.role, "assistant");
+  assert.equal(replaced.chatId, chat.id);
+  assert.equal(replaced.clientMessageId, clientMessageId);
+  assert.equal(replaced.content, content);
+  assert.equal(replaced.status, "error");
+  assert.equal(await db.message.count(), 1);
+  assert.equal(await db.chat.count(), 1);
+});
+
+test("a failed initial replacement rolls back the inserted message and history revision", async () => {
+  const chat = await db.chat.create({ data: { title: "Initial rollback" } });
+  await db.$executeRawUnsafe("CREATE TRIGGER reject_first_answer BEFORE UPDATE ON chats BEGIN SELECT RAISE(ABORT, 'Synthetic commit refusal'); END");
+  try {
+    await assert.rejects(saveChatMessage({ chatId: chat.id, clientMessageId: "answer", role: "assistant", content: "Must roll back", updateExisting: true }));
+  } finally { await db.$executeRawUnsafe("DROP TRIGGER reject_first_answer"); }
+  assert.equal(await db.message.count({ where: { chatId: chat.id } }), 0);
+  assert.equal((await db.chat.findUniqueOrThrow({ where: { id: chat.id } })).historyRevision, 0);
+  const saved = await saveChatMessage({ chatId: chat.id, clientMessageId: "answer", role: "assistant", content: "Retry", updateExisting: true });
+  assert.equal(saved.content, "Retry");
+  assert.equal(await db.message.count({ where: { chatId: chat.id } }), 1);
+});

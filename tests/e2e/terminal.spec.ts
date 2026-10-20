@@ -252,6 +252,7 @@ test("approval mode asks for every tool call and resumes a long script without t
   expect(completed.map(tool => Object.hasOwn(tool.output as object, "command"))).toEqual([false, false]);
   expect(requestBytes.filter(bytes => bytes > 2 * 1024 * 1024)).toHaveLength(2);
   await page.reload();
+  await expect(page.locator('[data-message-role="assistant"]')).toHaveCount(1);
   await openExecutionDetails(page);
   await expect(page.getByLabel("终端输出", { exact: true })).toHaveCount(2);
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("onceonce");

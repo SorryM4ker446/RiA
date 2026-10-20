@@ -53,6 +53,7 @@ test("community Skill search, preview, installation and real chat resource reads
   await page.getByPlaceholder(/输入你的问题/).fill("OFFLINE_READ_PLUGIN_SKILL 请按写作技能润色。");
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect.poll(() => app.providerCalls.some(call => JSON.stringify(call.messages.filter(message => message.role === "tool")).includes("SKILL_MARKET_REFERENCE"))).toBe(true);
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
   const messages = await browserData(page, `/api/conversations/${chat.id}/messages`);
   expect(JSON.stringify(messages)).toContain("SKILL_MARKET_MAIN");
   expect(JSON.stringify(messages)).not.toContain("SKILL_SCRIPT_MUST_NOT_EXECUTE");
