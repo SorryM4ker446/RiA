@@ -56,6 +56,7 @@ export const modelLibraryItemSchema = z.strictObject({
    */
   providerSearch: z.boolean().optional(),
   contextLength: z.number().int().positive().nullable(),
+  maxOutputTokens: z.number().int().positive().nullable().optional(),
   pricing: z.record(z.string().max(40), z.string().max(80)).refine(value => Object.keys(value).length <= 12),
   addedAt: z.iso.datetime(),
   lastSeenAt: z.iso.datetime(),
@@ -64,6 +65,10 @@ export type ModelLibraryItem = z.infer<typeof modelLibraryItemSchema>;
 
 export const legacyModelCandidateSchema = z.strictObject({ mode: z.enum(libraryModes), ref: modelRefSchema });
 const preferencesShape = {
+  contextLimits: z.record(id, z.strictObject({
+    contextLength: z.number().int().min(1024).max(100_000_000).nullable(),
+    maxOutputTokens: z.number().int().min(1).max(1_000_000).nullable(),
+  })).refine(value => Object.keys(value).length <= 100).default({}),
   callLimits: z.strictObject({
     maxConcurrent: z.number().int().min(1).max(16).default(4),
     backgroundDailyCalls: z.number().int().min(0).max(1000).default(20),
@@ -166,6 +171,7 @@ export const legacyPreferencesSchema = z.strictObject({
 export function defaultModelPreferences(): ModelPreferences {
   return {
     version: 3,
+    contextLimits: {},
     callLimits: preferencesShape.callLimits.parse(undefined),
     defaultMode: "chat",
     chat: { model: null, fallback: null },

@@ -2,6 +2,17 @@ import type { MessageKey } from "./zh-CN";
 
 /** English interface copy. Keys and placeholders match the Chinese catalog. */
 export const enUS = {
+  "chat.context.outputLimit": "The model reached this call's output limit and the answer may be incomplete. Review saved execution results before continuing; operations are not automatically replayed.",
+  "chat.context.compacted": "Context compacted {count} times during this request. Original records are retained.",
+  "chat.context.degraded": "Some task summaries were unavailable; incomplete historical excerpts were used.",
+  "models.context.title": "Context capacity and compaction",
+  "models.context.description": "Reserve output and safety space using model capacity. Check each step and compact completed history. Leave blank for automatic values; configured limits cannot exceed catalog capacity.",
+  "models.context.catalog": "Catalog context: {context} tokens · Maximum output: {output} tokens",
+  "models.context.unknown": "The catalog does not report capacity. Planning temporarily uses 131,072 tokens; this is not a confirmed model limit. Configure it using the provider's documentation.",
+  "models.context.window": "Context window (tokens)",
+  "models.context.output": "Maximum output per call (tokens)",
+  "models.context.automatic": "Automatic",
+  "errors.contextLimit": "The required context exceeds this model's input budget. Use a larger-context model or reduce the current input or attachments. Saved execution records have been preserved.",
   "brand.name": "RiA",
   "nav.home": "Home",
   "nav.chat": "Chat",

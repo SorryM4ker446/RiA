@@ -81,7 +81,9 @@ export function historicalToolText(part: UIMessage["parts"][number], limit = TOO
   const terminal = tool === "runTerminalCommand";
   const metadata = {
     tool: historyTextExcerpt(tool, 160), state: "state" in part ? part.state : undefined,
+    toolCallId: "toolCallId" in part ? historyTextExcerpt(String(part.toolCallId), 128) : undefined,
     ...(terminal && result ? {
+      sessionId: typeof result.id === "string" ? historyTextExcerpt(result.id, 128) : undefined,
       status: typeof result.status === "string" ? historyTextExcerpt(result.status, 40) : undefined,
       exitCode: typeof result.exitCode === "number" || result.exitCode === null ? result.exitCode : undefined,
       capturedOutputTruncated: typeof result.truncated === "boolean" ? result.truncated : undefined,

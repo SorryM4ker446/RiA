@@ -147,15 +147,21 @@ test("ordinary chat receives task-oriented agent instructions without empty retr
   assert.doesNotMatch(prompt, /No supporting document excerpts|No relevant long-term memory|No earlier messages omitted|Prefer a direct answer for ordinary questions|Order: factual points/);
 });
 
-test("long persisted conversations pass bounded historical excerpts and the active turn through the chat route", async () => {
+test("model capacity bounds long persisted conversations while retaining the active turn", async () => {
+  const { contextBudget, estimateContextTokens } = await import("@/lib/models/context-budget");
+  const { getModelPreferences } = await import("@/lib/models/preferences");
+  const settings = await getModelPreferences();
+  settings.contextLimits = { [`openrouter:${settings.chat.model!.modelId}`]: { contextLength: 30_000, maxOutputTokens: 2048 } };
+  await db.workspacePreference.update({ where: { id: "local" }, data: { settings } });
   const owned = await db.chat.create({ data: { title: "Long conversation" } });
-  const history = Array.from({ length: 40 }, (_, index) => ui(`turn-${index}`, index % 2 ? "assistant" : "user", `Recorded turn ${index}`));
+  const history = Array.from({ length: 40 }, (_, index) => ui(`turn-${index}`, index % 2 ? "assistant" : "user", `Recorded turn ${index}${index < 38 ? " notes".repeat(80) : ""}`));
   await db.message.createMany({ data: history.map((item) => ({ chatId: owned.id, clientMessageId: item.id, role: item.role, content: item.parts[0].text })) });
   const response = await chat.POST(request({ chatId: owned.id, messages: [...history, ui("follow-up", "user", "Explain the previous answer")] }));
   assert.equal(response.status, 200);
   await response.text();
   const prompt = languageModel.doStreamCalls.at(-1).prompt;
-  assert.ok(prompt.length <= 25);
+  const capacity = contextBudget(null, Object.values(settings.contextLimits)[0]);
+  assert.ok(estimateContextTokens({ prompt, tools: languageModel.doStreamCalls.at(-1).tools }) <= capacity.inputTokens);
   assert.match(prompt.find((item) => item.role === "system").content, /Incomplete excerpts from .* earlier messages/);
   assert.equal(textPart(prompt.at(-1).content[0]).text, "Explain the previous answer");
   assert.ok(prompt.some((item) => item.role === "assistant" && textPart(item.content[0]).text === "Recorded turn 39"));

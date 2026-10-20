@@ -33,7 +33,8 @@ for (const width of [1440, 390]) test(`saved summaries acquire full details with
     const detail = new URL(route.request().url()).searchParams.has("runId");
     if (detail) detailRequests++; else listRequests++;
     const message = { id: "saved-answer", clientMessageId: "saved-answer", role: "assistant", createdAt: now,
-      content: "__ASSISTANT_TOOL_MESSAGE__:" + JSON.stringify({ type: "assistant-tool-message", text: "Done", runId: "details-run", tools: steps.map(step => ({
+      content: "__ASSISTANT_TOOL_MESSAGE__:" + JSON.stringify({ type: "assistant-tool-message", text: "Done", runId: "details-run",
+        contextBudget: { checks: 8, compactions: 2, degraded: true, estimatedInputTokens: 4000, budget: { contextWindow: 32000, capacitySource: "catalog", counting: "conservative-utf8-estimate" } }, tools: steps.map(step => ({
         toolName: step.toolName, toolCallId: step.toolCallId, state: "output-available", input: step.input, output: { content: `Full result for ${step.toolCallId}` },
       })) }),
     };
@@ -70,6 +71,8 @@ for (const width of [1440, 390]) test(`saved summaries acquire full details with
   await expect(calls).toHaveCount(25);
   await expect(request).toHaveAttribute("aria-expanded", "true");
   await expect(request).toContainText(english ? "Completed" : "已完成");
+  await expect(drawer).toContainText(english ? "Context compacted 2 times" : "本次调用压缩了 2 次上下文");
+  await expect(drawer).toContainText(english ? "incomplete historical excerpts were used" : "已使用不完整的历史摘录");
   await expect(selected).toHaveAttribute("open", "");
   await expect(calls.first()).not.toHaveAttribute("open");
   await expect(selected.getByRole("status")).toHaveCount(0);

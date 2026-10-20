@@ -50,7 +50,7 @@ export async function listScheduledRuns(): Promise<ScheduledRunView[]> {
 // messages and run goals can contain personal data or credentials.
 const token = (value: string | null) => value === null ? null : createHash("sha256").update(value).digest("hex").slice(0, 16);
 const safe = (value: string | null, allowed: readonly string[]) => value !== null && allowed.includes(value) ? value : value === null ? null : "other";
-const codes = ["TIMEOUT", "ABORTED", "UNAUTHORIZED", "FORBIDDEN", "CONFIGURATION_ERROR", "SERVICE_UNAVAILABLE", "UPSTREAM_FAILED", "INTERNAL_ERROR", "VALIDATION_ERROR", "NOT_FOUND", "CONFLICT", "RATE_LIMITED", "MODEL_UNAVAILABLE", "INTERRUPTED", "UNSUPPORTED_KIND"];
+const codes = ["TIMEOUT", "ABORTED", "UNAUTHORIZED", "FORBIDDEN", "CONFIGURATION_ERROR", "SERVICE_UNAVAILABLE", "UPSTREAM_FAILED", "INTERNAL_ERROR", "VALIDATION_ERROR", "CONTEXT_LIMIT", "NOT_FOUND", "CONFLICT", "RATE_LIMITED", "MODEL_UNAVAILABLE", "INTERRUPTED", "UNSUPPORTED_KIND"];
 export async function exportExecutionDiagnostics() {
   const [scheduled, agents] = await Promise.all([
     db.scheduledRun.findMany({ orderBy: [{ startedAt: "desc" }, { id: "desc" }], take: 100 }),

@@ -231,11 +231,12 @@ export function mapStoredMessagesToUI(messages: StoredMessage[]): {
       return {
         id: uiMessageId,
         role: message.role,
-        ...(parsedAssistantToolMessage.runId || parsedAssistantToolMessage.runIds?.length || parsedAssistantToolMessage.modelLabel || parsedAssistantToolMessage.documentSources?.length || parsedAssistantToolMessage.unavailableTools?.length || parsedAssistantToolMessage.documentDiagnostics
+          ...(parsedAssistantToolMessage.runId || parsedAssistantToolMessage.runIds?.length || parsedAssistantToolMessage.modelLabel || parsedAssistantToolMessage.contextBudget || parsedAssistantToolMessage.documentSources?.length || parsedAssistantToolMessage.unavailableTools?.length || parsedAssistantToolMessage.documentDiagnostics
           ? { metadata: {
               ...(parsedAssistantToolMessage.runId ? { runId: parsedAssistantToolMessage.runId } : {}),
               ...(parsedAssistantToolMessage.runIds?.length ? { runIds: parsedAssistantToolMessage.runIds } : {}),
               ...(parsedAssistantToolMessage.modelLabel ? { modelLabel: parsedAssistantToolMessage.modelLabel } : {}),
+                ...(parsedAssistantToolMessage.contextBudget ? { contextBudget: parsedAssistantToolMessage.contextBudget } : {}),
               ...(parsedAssistantToolMessage.documentDiagnostics ? { documentDiagnostics: parsedAssistantToolMessage.documentDiagnostics } : {}),
               ...(parsedAssistantToolMessage.documentSources?.length ? { documentSources: parsedAssistantToolMessage.documentSources } : {}),
               ...(parsedAssistantToolMessage.unavailableTools?.length ? { unavailableTools: parsedAssistantToolMessage.unavailableTools } : {}),

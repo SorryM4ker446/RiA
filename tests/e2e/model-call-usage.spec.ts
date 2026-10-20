@@ -68,3 +68,34 @@ test("offline local startup keeps tasks and stored conversations available", asy
   expect(JSON.stringify(retained)).toContain("Offline task");
   expect(app.providerCalls).toHaveLength(0);
 });
+
+test("model context limits persist, fit narrow layouts, and explain oversized requests before model submission", async ({ page, app }) => {
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  await openWorkspace(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  await page.goto(`${app.origin}/models`);
+  await page.getByText("上下文容量与压缩", { exact: true }).click();
+  const model = page.getByRole("group", { name: "Claude Opus Offline", exact: true });
+  await expect(model).toContainText("200,000");
+  await model.getByLabel("上下文窗口（tokens）", { exact: true }).fill("32768");
+  await model.getByLabel("每次最大输出（tokens）", { exact: true }).fill("2048");
+  const saving = page.waitForResponse(response => new URL(response.url()).pathname === "/api/models" && response.request().method() === "PUT");
+  await page.getByRole("button", { name: "保存模型偏好", exact: true }).click();
+  expect((await saving).status()).toBe(200);
+  await page.reload(); await page.getByText("上下文容量与压缩", { exact: true }).click();
+  await expect(model.getByLabel("上下文窗口（tokens）", { exact: true })).toHaveValue("32768");
+  await expect(model.getByLabel("每次最大输出（tokens）", { exact: true })).toHaveValue("2048");
+  const directory = join(tmpdir(), "ria-context-qa"); await mkdir(directory, { recursive: true });
+  await model.screenshot({ path: join(directory, "desktop.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await model.screenshot({ path: join(directory, "mobile.png") });
+  await page.goto(`${app.origin}/chat`);
+  await page.getByPlaceholder(/输入你的问题/).fill("large input ".repeat(3500));
+  const rejected = page.waitForResponse(response => new URL(response.url()).pathname === "/api/chat" && response.request().method() === "POST");
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  expect((await rejected).status()).toBe(413);
+  await expect(page.getByText("当前必要上下文超过模型的输入预算。请切换更大上下文的模型，或缩小当前输入和附件。已有执行记录已保留。", { exact: true })).toBeVisible();
+  expect(app.providerCalls).toHaveLength(0);
+  expect(errors).toEqual([]);
+});

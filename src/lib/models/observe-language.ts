@@ -7,6 +7,8 @@ import { canFallback, recordModelAttempt } from "@/lib/models/usage";
 import { modelCallSource } from "./call-context";
 import { beginModelAttempt } from "./call-controls";
 import { type ModelRef } from "@/lib/models/preferences-schema";
+import { modelRefKey } from "@/lib/models/preferences-schema";
+import { assertContextFits, contextBudget } from "./context-budget";
 
 type Model = Extract<LanguageModel, { specificationVersion: "v3" }>;
 type Embed = Extract<EmbeddingModel, { specificationVersion: "v3" }>;
@@ -20,6 +22,10 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
   return wrapLanguageModel({ model, middleware: {
     specificationVersion: "v3",
     async wrapGenerate({ doGenerate, params }) {
+      const settings = await getModelPreferences();
+      const capacity = contextBudget(await modelInLibrary("chat", modelRef), settings.contextLimits[modelRefKey(modelRef)]);
+      params.maxOutputTokens = Math.min(params.maxOutputTokens ?? capacity.outputTokens, capacity.outputTokens);
+      assertContextFits(capacity, { prompt: params.prompt, tools: params.tools });
       const context = dataRequestContext();
       const started = Date.now();
       let admission: Awaited<ReturnType<typeof beginModelAttempt>> | undefined;
@@ -65,8 +71,12 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
         try {
           const lease = await acquireModelLease("chat", selected);
           releaseLease = lease.release;
-          admission = await beginModelAttempt({ mode: "chat", ref: selected, source: callSource, prompt: params.prompt, maxOutputTokens: params.maxOutputTokens, fallback: attempt > 0, signal: params.abortSignal });
-          const result = await (attempt ? alternate(selected) : model).doStream(params);
+          const currentSettings = await getModelPreferences();
+          const capacity = contextBudget(await modelInLibrary("chat", selected), currentSettings.contextLimits[modelRefKey(selected)]);
+          const selectedParams = { ...params, maxOutputTokens: Math.min(params.maxOutputTokens ?? capacity.outputTokens, capacity.outputTokens) };
+          assertContextFits(capacity, { prompt: selectedParams.prompt, tools: selectedParams.tools });
+          admission = await beginModelAttempt({ mode: "chat", ref: selected, source: callSource, prompt: selectedParams.prompt, maxOutputTokens: selectedParams.maxOutputTokens, fallback: attempt > 0, signal: params.abortSignal });
+          const result = await (attempt ? alternate(selected) : model).doStream(selectedParams);
           reader = result.stream.getReader();
           const buffered: Part[] = [];
           for (;;) {

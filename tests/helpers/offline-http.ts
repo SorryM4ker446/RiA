@@ -57,7 +57,7 @@ if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
   }).persist();
   const provider = agent.get("https://openrouter.ai");
   const catalogRow = (id, name, input, output, extra = {}) => ({
-    id, name, description: `Offline fixture for ${id}`, context_length: 200000,
+    id, name, description: `Offline fixture for ${id}`, context_length: Number(process.env.PRIVATE_AI_FIXTURE_CONTEXT_LENGTH ?? 200000),
     architecture: { input_modalities: input, output_modalities: output },
     supported_parameters: ["tools", ...(input.includes("image") ? ["image"] : [])],
     pricing: { prompt: "0.000001", completion: "0.000002" }, ...extra,

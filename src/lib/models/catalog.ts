@@ -49,6 +49,7 @@ const storedCatalogModel = z.object({
   endpointImageInput: z.boolean().nullable().optional(),
   supportsTools: z.boolean(),
   contextLength: z.number().int().positive().nullable(),
+  maxOutputTokens: z.number().int().positive().nullable().optional(),
   pricing: z.record(z.string(), z.string()),
   priceInfo: catalogPriceInfoSchema.optional(),
 });

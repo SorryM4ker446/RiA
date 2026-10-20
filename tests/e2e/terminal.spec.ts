@@ -22,7 +22,8 @@ async function storedTerminalStates(page: Page, chatId: string) {
 
 type App = Awaited<ReturnType<typeof startStandaloneServer>> & { folder: string };
 const test = base.extend<{ app: App }>({ app: async ({}, provide) => {
-  const runtime = await startStandaloneServer({ modelFixture: true });
+  // Multi-megabyte approval transport is exercised with a synthetic model large enough to accept it.
+  const runtime = await startStandaloneServer({ modelFixture: true, modelContextLength: 16_000_000 });
   const folder = realpathSync.native(mkdtempSync(join(tmpdir(), "ria-terminal-browser-")));
   try { await provide({ ...runtime, folder }); } finally {
     await runtime.close();

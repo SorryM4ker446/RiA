@@ -28,6 +28,7 @@ const openRouterModelIdSchema = z.string().max(200).regex(/^[a-zA-Z0-9][\w.-]{0,
 const rawModel = z.object({
   id: z.string().min(1).max(200), name: z.string().max(240).nullable().optional(), description: z.string().max(2000).nullable().optional(),
   context_length: z.number().int().positive().nullable().optional(),
+  top_provider: z.object({ context_length: z.number().int().positive().nullish(), max_completion_tokens: z.number().int().positive().nullish() }).nullish(),
   architecture: z.object({ modality: z.string().optional(), input_modalities: z.array(z.string()).optional(), output_modalities: z.array(z.string()).optional() }).passthrough().nullable().optional(),
   supported_parameters: z.union([z.array(z.string()), z.record(z.string(), z.unknown())]).nullable().optional(),
   supported_frame_images: z.array(z.string()).nullable().optional(),
@@ -75,7 +76,8 @@ function normalizeOpenRouterRow(value: unknown, mode: (typeof libraryModes)[numb
     // provider and billed for it, which the user is told rather than left to
     // discover on an invoice.
     providerSearch: /:online$/.test(row.id) || Object.keys(row.pricing ?? row.pricing_skus ?? {}).some(key => key.includes("search")) || parameterNames.some(x => /web[_-]?search/i.test(x)),
-    contextLength: row.context_length ?? null,
+    contextLength: row.context_length && row.top_provider?.context_length ? Math.min(row.context_length, row.top_provider.context_length) : row.context_length ?? row.top_provider?.context_length ?? null,
+    maxOutputTokens: row.top_provider?.max_completion_tokens ?? null,
     pricing: Object.fromEntries(Object.entries({ ...row.pricing_skus, ...row.pricing }).filter(([k, v]) => k.length <= 40 && ["string", "number"].includes(typeof v) && String(v).length <= 80).slice(0, 12).map(([k, v]) => [k, String(v)])),
     ...(mode === "video" ? { priceInfo: { rates: openRouterVideoPrices(row.pricing_skus ?? row.pricing ?? {}), updatedAt: new Date().toISOString(), error: false } } : {}),
   };

@@ -14,6 +14,7 @@ import type { RunView } from "@/lib/agent/runs";
 import { executionCalls } from "./execution-calls";
 import { ExecutionToolCall } from "./execution-tool-call";
 import { getDocumentSources, getLocalFileUses, getWebSearchSources } from "./message-presentation";
+import { contextReportSchema } from "@/lib/chat/context-report";
 
 type Props = { message?: UIMessage; run?: RunView; isLatest: boolean; loading?: boolean; onReviewApproval: () => void };
 
@@ -26,7 +27,8 @@ export function ExecutionTurnDetails({ message, run, isLatest, loading = false, 
   const documentSources = message ? getDocumentSources(message) : [];
   const localFiles = message ? getLocalFileUses(message) : [];
   const sourceCount = webSources.length + documentSources.length + localFiles.length;
-  const metadata = message?.metadata as { documentDiagnostics?: unknown; modelLabel?: string } | undefined;
+  const metadata = message?.metadata as { documentDiagnostics?: unknown; modelLabel?: string; contextBudget?: unknown } | undefined;
+  const contextReport = contextReportSchema.safeParse(metadata?.contextBudget);
 
   return <section className="execution-turn-details flex min-w-0 flex-col gap-4" aria-label={t("ui.chat.execution-entries.toolAndSourceDetails")}>
     {calls.length > 0 ? <section className="flex min-w-0 flex-col gap-1" aria-label={t("models.catalog.toolCall")}>
@@ -52,5 +54,6 @@ export function ExecutionTurnDetails({ message, run, isLatest, loading = false, 
       </details> : null}
     </section> : null}
     <RetrievalDiagnostics value={metadata?.documentDiagnostics} compact />
+    {contextReport.success && contextReport.data.compactions > 0 ? <p className="text-xs text-muted-foreground">{tf("chat.context.compacted", { count: contextReport.data.compactions })}{contextReport.data.degraded ? ` ${t("chat.context.degraded")}` : ""}</p> : null}
   </section>;
 }

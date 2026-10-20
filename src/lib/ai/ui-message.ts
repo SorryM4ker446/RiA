@@ -1,6 +1,7 @@
 import { documentDiagnosticsSchema, type DocumentDiagnostics } from "@/lib/documents/diagnostics";
 import { UIMessage } from "ai";
 import { documentSourceSchema, type DocumentSource } from "@/lib/documents/types";
+import { contextReportSchema, type ContextReport } from "@/lib/chat/context-report";
 
 export type PersistedFilePart = {
   url: string;
@@ -50,6 +51,7 @@ export type PersistedAssistantToolMessagePayload = {
   runId?: string;
   runIds?: string[];
   modelLabel?: string;
+  contextBudget?: ContextReport;
 };
 
 export const USER_MESSAGE_PREFIX = "__USER_MESSAGE__:";
@@ -208,6 +210,7 @@ export function decodePersistedAssistantToolMessage(
       ...(typeof parsed.runId === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(parsed.runId) ? { runId: parsed.runId } : {}),
       ...(Array.isArray(parsed.runIds) ? { runIds: [...new Set(parsed.runIds.filter((id): id is string => typeof id === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(id)))].slice(-100) } : {}),
       ...(typeof parsed.modelLabel === "string" ? { modelLabel: parsed.modelLabel.slice(0, 240) } : {}),
+      ...(contextReportSchema.safeParse(parsed.contextBudget).success ? { contextBudget: contextReportSchema.parse(parsed.contextBudget) } : {}),
       ...(reasoning ? { reasoning } : {}),
       ...(unavailableTools?.length ? { unavailableTools } : {}),
       tools,
