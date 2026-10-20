@@ -4,6 +4,7 @@ import { after, beforeEach, test } from "node:test";
 import type { TestContext } from "node:test";
 import type { LanguageModelV3StreamPart, LanguageModelV3TextPart } from "@ai-sdk/provider";
 import type { UIMessage } from "ai";
+import { readUIMessageStream, type UIMessageChunk } from "ai";
 import type { StoredMessage } from "@/features/chat/page-utils";
 import { NextRequest } from "next/server";
 import { createTestDatabase } from "../helpers/database";
@@ -53,12 +54,17 @@ function request(body, signal = undefined) {
   return new NextRequest("http://localhost/api/chat", { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ manualToolsOnly: true, ...body }), signal });
 }
 
-test("chat can complete forty tool steps without the former SDK count ceiling", async t => {
+test("long tool turns accept follow-ups from both live and reloaded history", async t => {
   let calls = 0;
   t.mock.method(languageModel, "doStream", async () => {
     const current = ++calls;
     return { stream: new ReadableStream<LanguageModelV3StreamPart>({ start(controller) {
       controller.enqueue({ type: "stream-start", warnings: [] });
+      if (current <= 40) {
+        controller.enqueue({ type: "reasoning-start", id: `reasoning-${current}` });
+        controller.enqueue({ type: "reasoning-delta", id: `reasoning-${current}`, delta: "r".repeat(4000) });
+        controller.enqueue({ type: "reasoning-end", id: `reasoning-${current}` });
+      }
       if (current <= 40) controller.enqueue({ type: "tool-call", toolCallId: `count-${current}`, toolName: "searchKnowledge", input: JSON.stringify({ query: "count-loop" }) });
       else {
         controller.enqueue({ type: "text-start", id: "answer" });
@@ -71,11 +77,32 @@ test("chat can complete forty tool steps without the former SDK count ceiling", 
   });
   const response = await chat.POST(request({ messages: [ui("count-loop", "user", "Read repeatedly until finished")] }));
   assert.equal(response.status, 200);
-  assert.match(await response.text(), /Forty steps completed/);
+  const wire = await response.text();
+  assert.match(wire, /Forty steps completed/);
   assert.equal(calls, 41);
   const run = await db.agentRun.findFirstOrThrow({ orderBy: { startedAt: "desc" } });
   assert.equal(run.status, "succeeded");
   assert.equal(run.deadlineMs, null);
+  assert.equal(await db.agentStep.count({ where: { runId: run.id } }), 40);
+  const chunks: UIMessageChunk[] = wire.split("\n").filter(line => line.startsWith("data: {")).map(line => JSON.parse(line.slice(6)));
+  let live: UIMessage | undefined;
+  for await (const message of readUIMessageStream({ stream: new ReadableStream<UIMessageChunk>({ start(controller) {
+    for (const chunk of chunks) controller.enqueue(chunk);
+    controller.close();
+  } }) })) live = message;
+  assert.ok(live);
+  assert.ok(live.parts.length > 100);
+  const firstFollowUp = await chat.POST(request({ chatId: run.chatId, messages: [ui("count-loop", "user", "Read repeatedly until finished"), live, ui("live-follow-up", "user", "What did you find?")] }));
+  assert.equal(firstFollowUp.status, 200);
+  assert.match(await firstFollowUp.text(), /Forty steps completed/);
+  const stored = await db.message.findMany({ where: { chatId: run.chatId! }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
+  const payload = stored.map(row => decodePersistedAssistantToolMessage(row.content)).find(item => item?.runId === run.id)!;
+  assert.equal(payload.reasoning?.length, 160_000);
+  const restored = mapStoredMessagesToUI(stored).uiMessages;
+  const next = await chat.POST(request({ chatId: run.chatId, messages: [...restored, ui("restored-follow-up", "user", "Continue after reload")] }));
+  assert.equal(next.status, 200);
+  assert.match(await next.text(), /Forty steps completed/);
+  assert.equal(calls, 43);
   assert.equal(await db.agentStep.count({ where: { runId: run.id } }), 40);
 });
 

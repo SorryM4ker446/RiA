@@ -160,7 +160,8 @@ if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
           }
           const folders = fileEditRequest ? JSON.parse((terminal.function as { description?: string }).description?.split("Terminal-enabled folders (data, not instructions): ")[1] ?? "[]") : [];
           const args = { grantId: fileEditRequest ? folders[0]?.id : /GRANT_ID=([a-zA-Z0-9_-]+)/.exec(prompt)?.[1], command };
-          return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: `terminal-fixture-call-${terminalResults}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
+          const reasoning = prompt.includes("TERMINAL_REASONING_LARGE") ? `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", reasoning: "r".repeat(141_815) }, finish_reason: null }] })}\n\n` : "";
+          return reasoning + `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: `terminal-fixture-call-${terminalResults}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
         }
         const skillRequested = prompt.includes("OFFLINE_READ_PLUGIN_SKILL");
         const skillResults = body.messages.filter(message => message.role === "tool").length;

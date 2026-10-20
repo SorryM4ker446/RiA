@@ -183,6 +183,10 @@ test("execution details summarize the user request and disclose each tool indepe
   await expect(row).not.toContainText("A long synthesized answer");
   const calls = details.getByRole("region", { name: "工具调用", exact: true }).locator("details");
   await expect(calls).toHaveCount(2);
+  await expect(calls.locator("summary")).toHaveText([
+    "工具详情：searchKnowledge · 执行完成",
+    "工具详情：webSearch · 执行完成",
+  ]);
   await calls.first().locator("summary").click();
   await expect(calls.first().getByText("输入参数", { exact: true })).toBeVisible();
   await expect(calls.nth(1)).not.toHaveAttribute("open");
@@ -192,6 +196,46 @@ test("execution details summarize the user request and disclose each tool indepe
   await expect(calls.first()).toHaveAttribute("open", "");
   await details.getByText(/搜索来源（1）/).click();
   await expect(details.getByRole("link", { name: /Release source/ })).toHaveAttribute("href", "https://example.com/release");
+});
+
+test("running step summaries show the newest call first and preserve expanded details when another call arrives", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await mockHistory(page, [userMessage]);
+  const steps = [
+    { id: "step-one", position: 1, kind: "tool", toolName: "webSearch", state: "done", input: { query: "first search" }, output: { results: [] } },
+    { id: "step-two", position: 2, kind: "tool", toolName: "searchKnowledge", state: "done", input: { query: "second search" }, output: { results: [] } },
+  ];
+  await page.route("**/api/conversations/*/runs?*", route => route.fulfill({ json: {
+    data: new URL(route.request().url()).searchParams.has("runId") ? null : [{
+      id: "running-summary", goal: "Original question", status: "running", startedAt: now,
+      steps, budget: { maxSteps: null, maxFailures: null, deadlineMs: null },
+    }],
+  } }));
+  await page.goto("/chat");
+  const details = await openExecutionDetails(page);
+  const calls = details.getByRole("region", { name: "工具调用", exact: true }).locator("details");
+  await expect(calls).toHaveCount(2);
+  await expect(calls.nth(0)).toContainText("searchKnowledge");
+  await expect(calls.nth(1)).toContainText("webSearch");
+  await expect(calls.locator("summary")).toHaveText(["工具详情：searchKnowledge · 执行完成", "工具详情：webSearch · 执行完成"]);
+  const secondCall = calls.filter({ has: page.locator("summary").filter({ hasText: "searchKnowledge" }) });
+  await secondCall.locator("summary").click();
+  await expect(secondCall.locator("pre")).toContainText("second search");
+  await expect(secondCall.getByRole("status")).toHaveText("正在等待完整详情；当前显示已保存的步骤摘要。");
+
+  steps.push({ id: "step-three", position: 3, kind: "tool", toolName: "readLocalFile", state: "running", input: { query: "third call" }, output: { results: [] } });
+  await expect(calls).toHaveCount(3);
+  await expect(calls.nth(0)).toContainText("readLocalFile");
+  await expect(calls.nth(1)).toContainText("searchKnowledge");
+  await expect(calls.nth(2)).toContainText("webSearch");
+  await expect(secondCall.locator("pre")).toBeVisible();
+  await details.screenshot({ path: join(tmpdir(), "ria-execution-newest-first-desktop.png"), animations: "disabled" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(calls.nth(0)).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await details.screenshot({ path: join(tmpdir(), "ria-execution-newest-first-mobile.png"), animations: "disabled" });
+  expect(errors).toEqual([]);
 });
 
 for (const code of ["RATE_LIMITED", "CONFLICT"]) {

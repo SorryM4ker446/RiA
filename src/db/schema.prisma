@@ -191,6 +191,7 @@ model AgentStep {
   position  Int
   kind      String
   toolName  String?
+  toolCallId String?
   state     String   @default("running")
   // A short, already-redacted description: enough to recognise the step in a
   // list without copying a whole result into a second store.

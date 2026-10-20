@@ -6,58 +6,33 @@ import { t, tf } from "@/lib/locale";
 import type { UIMessage } from "ai";
 import { ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { DocumentSources } from "@/components/knowledge/document-sources";
 import { RetrievalDiagnostics } from "@/components/knowledge/retrieval-diagnostics";
 import { LocalFileUses } from "@/features/settings/local-file-uses";
-import { TerminalResult } from "./terminal-result";
-import { formatToolState, isToolPart, safeJson, type ToolPart } from "./page-utils";
+import { isToolPart } from "./page-utils";
+import type { RunView } from "@/lib/agent/runs";
+import { executionCalls } from "./execution-calls";
+import { ExecutionToolCall } from "./execution-tool-call";
 import { getDocumentSources, getLocalFileUses, getWebSearchSources } from "./message-presentation";
 
-type Props = { message: UIMessage; isLatest: boolean; onReviewApproval: () => void };
+type Props = { message?: UIMessage; run?: RunView; isLatest: boolean; loading?: boolean; onReviewApproval: () => void };
 
-function executionToolState(part: ToolPart) {
-  return part.state === "output-available" && part.output && typeof part.output === "object" && "skipped" in part.output && part.output.skipped
-    ? { label: t("runs.step.skipped"), variant: "secondary" as const }
-    : formatToolState(part.state);
-}
-
-export function ExecutionTurnDetails({ message, isLatest, onReviewApproval }: Props) {
+export function ExecutionTurnDetails({ message, run, isLatest, loading = false, onReviewApproval }: Props) {
   useLocale();
-  const toolParts = message.parts.filter(isToolPart);
+  const toolParts = message?.parts.filter(isToolPart) ?? [];
+  const calls = executionCalls(run, message);
+  const waiting = loading || run?.status === "running" || run?.status === "waiting_approval";
   const webSources = getWebSearchSources(toolParts);
-  const documentSources = getDocumentSources(message);
-  const localFiles = getLocalFileUses(message);
+  const documentSources = message ? getDocumentSources(message) : [];
+  const localFiles = message ? getLocalFileUses(message) : [];
   const sourceCount = webSources.length + documentSources.length + localFiles.length;
-  const metadata = message.metadata as { documentDiagnostics?: unknown; modelLabel?: string } | undefined;
+  const metadata = message?.metadata as { documentDiagnostics?: unknown; modelLabel?: string } | undefined;
 
   return <section className="execution-turn-details flex min-w-0 flex-col gap-4" aria-label={t("ui.chat.execution-entries.toolAndSourceDetails")}>
-    {toolParts.length > 0 ? <section className="flex min-w-0 flex-col gap-1" aria-label={t("models.catalog.toolCall")}>
-      <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">{t("models.catalog.toolCall")}<Badge variant="secondary">{toolParts.length}</Badge></div>
+    {calls.length > 0 ? <section className="flex min-w-0 flex-col gap-1" aria-label={t("models.catalog.toolCall")}>
+      <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">{t("models.catalog.toolCall")}<Badge variant="secondary">{calls.length}</Badge></div>
       {toolParts.some(part => part.state === "approval-requested") ? <p role="status" className="py-1 text-xs text-muted-foreground">{t("chat.messages.approvalPending")}</p> : null}
-      {toolParts.map((part, index) => {
-        const state = executionToolState(part);
-        const name = part.title ?? part.type.replace(/^tool-/, "");
-        const terminal = part.type === "tool-runTerminalCommand";
-        const pendingApproval = part.state === "approval-requested" && "approval" in part && part.approval;
-        const terminalActive = part.state === "input-available" || (part.state === "approval-responded" && "approval" in part && !!part.approval?.approved);
-        return <details key={`${part.toolCallId}-${index}`} className="execution-disclosure text-xs" open={!!pendingApproval || (terminal && isLatest && (terminalActive || part.state === "output-available")) || undefined}>
-          <summary><ChevronRight aria-hidden="true" /><span className="min-w-0 truncate">{tf("chat.messages.toolDetails", { name, state: state.label, extra: "" })}</span></summary>
-          <div className="flex min-w-0 flex-col gap-2 py-2">
-            {terminal ? <TerminalResult input={part.input} output={part.state === "output-available" ? part.output : undefined} active={terminalActive} /> : null}
-            {!terminal && part.input !== undefined ? <div className="flex min-w-0 flex-col gap-1">
-              <p className="text-[11px] text-muted-foreground">{t("ui.chat.execution-turn-details.inputParameters")}</p>
-              <pre className="execution-code chat-list-scroll">{safeJson(part.input && typeof part.input === "object" && "arguments" in part.input && "binding" in part.input ? part.input.arguments : part.input)}</pre>
-            </div> : null}
-            {pendingApproval ? <Button disabled={!isLatest} onClick={onReviewApproval} size="sm" type="button" variant="outline" className="w-fit">{t("ui.chat.execution-turn-details.returnToChatToApprove")}</Button> : null}
-            {!terminal && part.state === "output-available" && part.output !== undefined ? <div className="flex min-w-0 flex-col gap-1">
-              <p className="text-[11px] text-muted-foreground">{t("ui.chat.execution-turn-details.executionResult")}</p>
-              <pre className="execution-code chat-list-scroll">{safeJson(part.output)}</pre>
-            </div> : null}
-            {part.state === "output-error" && part.errorText ? <p className="break-words leading-5 text-destructive">{part.errorText}</p> : null}
-          </div>
-        </details>;
-      })}
+      {calls.map(call => <ExecutionToolCall key={call.key} call={call} isLatest={isLatest} waiting={waiting} onReviewApproval={onReviewApproval} />)}
     </section> : null}
     {sourceCount > 0 ? <section className="flex min-w-0 flex-col gap-1" aria-label={t("ui.chat.execution-turn-details.sourcesUsed")}>
       <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">{t("ui.chat.execution-turn-details.sourcesUsed")}<Badge variant="secondary">{sourceCount}</Badge></div>

@@ -25,7 +25,7 @@ test("unlimited run budgets preserve historical limits and steps and survive res
     const options = { databaseFile, migrationsDirectory, backupsDirectory: join(root, "backups"), logger: { info() {}, warn() {}, error() {} } };
     const result = runDesktopMigrations(options);
     assert.ok(result.backupFile);
-    assert.deepEqual(result.applied, [migration]);
+    assert.deepEqual(result.applied, readdirSync(migrationsDirectory, { withFileTypes: true }).filter(entry => entry.isDirectory() && entry.name >= migration).map(entry => entry.name).sort());
     assert.deepEqual(runDesktopMigrations(options).applied, []);
     const current = new DatabaseSync(databaseFile);
     try {

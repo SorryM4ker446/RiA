@@ -1,5 +1,11 @@
 # Database migrations
 
+`20261020200000_agent_step_tool_call_id` adds an optional tool call identity to
+execution steps, allowing saved summaries to be enriched with the matching full
+tool message. Existing steps remain valid with a null identity; no historical
+matches are guessed. Startup applies this additive migration with the normal
+backup. Older builds can ignore the additional nullable column.
+
 `20261020140000_unbounded_agent_runs` makes run step, failure and total-duration
 limits nullable. New records default to no aggregate limit; existing run budgets,
 steps, indexes and chat relationships are preserved. Individual terminal commands

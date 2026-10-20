@@ -22,22 +22,26 @@ export function executionEntries(runs: RunView[], messages: UIMessage[]) {
   const attached = new Set<string>();
   for (const run of [...runs].sort((a, b) => (b.startedAt ?? "").localeCompare(a.startedAt ?? ""))) {
     const message = byRun.get(run.id) ?? (run.messageId ? byMessage.get(run.messageId) : undefined);
+    const metadata = message?.metadata as { runIds?: string[] } | undefined;
+    const requestKey = metadata?.runIds?.[0] ?? run.id;
     const messageId = message?.id ?? run.messageId;
-    const key = messageId ? `message:${messageId}` : run.id;
+    const groupKey = messageId ? `message:${messageId}` : run.id;
     if (messageId) attached.add(messageId);
-    const entry = grouped.get(key);
+    const entry = grouped.get(groupKey);
     if (entry?.run) {
       entry.run = { ...entry.run, steps: [...run.steps, ...entry.run.steps] };
+      entry.key = requestKey;
       entry.stages++;
     } else {
-      const next = { key, run, message, messageId, goal: run.goal, stages: 1 };
-      grouped.set(key, next);
+      const next = { key: requestKey, run, message, messageId, goal: run.goal, stages: 1 };
+      grouped.set(groupKey, next);
       entries.push(next);
     }
   }
   for (const message of [...assistants].reverse()) {
     if (attached.has(message.id) || !(message.parts.some(isToolPart) || Boolean(message.metadata))) continue;
-    entries.push({ key: `message:${message.id}`, message, messageId: message.id, goal: goals.get(message.id)!, stages: 0 });
+    const metadata = message.metadata as { runId?: string; runIds?: string[] } | undefined;
+    entries.push({ key: metadata?.runIds?.[0] ?? metadata?.runId ?? `message:${message.id}`, message, messageId: message.id, goal: goals.get(message.id)!, stages: 0 });
   }
   return entries;
 }

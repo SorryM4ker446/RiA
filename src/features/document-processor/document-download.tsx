@@ -1,7 +1,7 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
 
-import { t, localizeMessage } from "@/lib/locale";
+import { t, tf, localizeMessage } from "@/lib/locale";
 
 import { useEffect, useRef, useState } from "react";
 import { Download, Loader2 } from "lucide-react";
@@ -27,5 +27,5 @@ export function DocumentDownload({ output }: { output: unknown }) {
     } catch (failure) { if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : t("ui.document-processor.document-download.documentDownloadFailed")); }
     finally { if (!controller.signal.aborted) setBusy(false); pending.current = null; }
   }
-  return <div className="mb-2 flex flex-col items-start gap-2"><Button size="sm" variant="outline" disabled={busy} onClick={() => void download()} className="max-w-full">{busy ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Download data-icon="inline-start" />}<span className="truncate">{t("ui.document-processor.document-download.download")}{formatLabels[file.format]} · {file.filename}</span></Button>{error && <p role="alert" className="text-xs text-destructive">{localizeMessage(error)}</p>}</div>;
+  return <div className="mb-2 flex flex-col items-start gap-2"><Button size="sm" variant="outline" disabled={busy} onClick={() => void download()} className="max-w-full">{busy ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Download data-icon="inline-start" />}<span className="truncate">{tf("ui.document-processor.document-download.download", { format: formatLabels[file.format], filename: file.filename })}</span></Button>{error && <p role="alert" className="text-xs text-destructive">{localizeMessage(error)}</p>}</div>;
 }

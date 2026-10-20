@@ -1,7 +1,7 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
 
-import { t, localizeMessage } from "@/lib/locale";
+import { t, tf, localizeMessage } from "@/lib/locale";
 
 import { SelectField, SelectOption } from "@/components/ui/select";
 import { useEffect, useRef, useState } from "react";
@@ -77,7 +77,7 @@ export function RetrievalEvaluation() {
     {error ? <p role="alert" className="text-sm text-destructive">{localizeMessage(error)}</p> : null}
     {report ? <div className="flex flex-col gap-4">
       <p role="status" className="text-sm">{t("ui.knowledge.retrieval-evaluation.evaluationComplete")}{report.cases.filter(item => item.status === "success").length}/{report.cases.length} {t("ui.knowledge.retrieval-evaluation.questionsSucceeded")}{Math.round(report.durationMs)} ms{report.model ? ` · ${report.model.modelId}` : t("ui.knowledge.retrieval-evaluation.noAnswerGenerated")}</p>
-      {report.judgedAnswers ? <p className="text-sm">{t("ui.knowledge.retrieval-evaluation.semanticReviewComplete")}{report.cases.filter(item => item.quality?.status === "complete").length}/{report.cases.length} {t("ui.knowledge.retrieval-evaluation.failed")}{report.cases.filter(item => item.quality?.status === "failed").length} {t("ui.knowledge.retrieval-evaluation.notRun")}{report.cases.filter(item => !item.quality).length}</p> : null}
+      {report.judgedAnswers ? <p className="text-sm">{tf("ui.knowledge.retrieval-evaluation.semanticReviewComplete", { completed: report.cases.filter(item => item.quality?.status === "complete").length, total: report.cases.length, failed: report.cases.filter(item => item.quality?.status === "failed").length, skipped: report.cases.filter(item => !item.quality).length })}</p> : null}
       {report.cases.map((item, index) => <article key={index} className="management-row flex min-w-0 flex-col gap-3 rounded-xl p-4">
         <h4 className="text-sm font-medium">{index + 1}. {item.question}</h4>
         <p className="text-xs">{t("ui.knowledge.retrieval-evaluation.documentRecall")}{metric(item.documentRecall)} {t("ui.knowledge.retrieval-evaluation.evidenceFactCoverageLiteral")}{metric(item.evidenceFactCoverage)} {t("ui.knowledge.retrieval-evaluation.answerFactCoverageLiteral")}{metric(item.answerFactCoverage)} {t("ui.knowledge.retrieval-evaluation.actualCitations")}{item.citedSources} {t("ui.knowledge.retrieval-evaluation.unknownCitations")}{item.unknownCitations.length}</p>

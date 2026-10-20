@@ -1,14 +1,15 @@
 import { expect, test, type Page } from "@playwright/test";
 
-async function desktop(page: Page, theme = "dark") {
+async function desktop(page: Page, theme = "dark", locale: "zh-CN" | "en-US" = "zh-CN") {
   await page.clock.install();
   await page.clock.pauseAt(Date.now() + 100);
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  await page.addInitScript(({ theme }) => {
+  await page.addInitScript(({ theme, locale }) => {
     localStorage.setItem("ui:theme", theme);
     let claim: Promise<string | null> | undefined;
     Object.assign(window, {
       privateAiDesktop: {
+        getSettings: async () => ({ locale, hasOpenrouterApiKey: false, hasDeepseekApiKey: false, hasTavilyApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "", windowBounds: null }),
         startup: {
           claim: () => claim ??= Promise.resolve(sessionStorage.getItem("startup-consumed") ? null : (sessionStorage.setItem("startup-consumed", "true"), "first-window")),
           present: () => new Promise<boolean>((resolve, reject) => Object.assign(window, { releaseStartup: resolve, rejectStartup: reject })),
@@ -19,7 +20,7 @@ async function desktop(page: Page, theme = "dark") {
         },
       },
     });
-  }, { theme });
+  }, { theme, locale });
 }
 
 async function seekStartup(page: Page, time: number) {
@@ -113,6 +114,23 @@ test("startup has no skip action and Escape leaves it playing until completion",
   await expect(startup).toHaveCount(0);
   await expect(page.locator(".desktop-startup-workspace")).not.toHaveAttribute("inert");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("desktop startup reads an English device preference without losing the startup handoff", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await desktop(page, "dark", "en-US");
+  await page.goto("/chat");
+  const startup = page.getByRole("region", { name: "RiA startup animation", exact: true });
+  await expect(startup).toBeVisible();
+  await expect(startup.getByRole("button", { name: "Close", exact: true })).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("lang", "en-US");
+  await page.evaluate("window.releaseStartup(true)");
+  await expect.poll(() => startup.evaluate(node => node.getAnimations().length)).toBe(1);
+  await completeStartup(page);
+  await expect(startup).toHaveCount(0);
+  await expect(page.locator(".desktop-startup-workspace")).not.toHaveAttribute("inert");
+  expect(errors).toEqual([]);
 });
 
 test("reduced motion bypasses startup and changing the preference dismisses it", async ({ page }) => {

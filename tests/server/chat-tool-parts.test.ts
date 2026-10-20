@@ -86,3 +86,34 @@ test("a known tool with an input its own schema rejects is still refused", () =>
   // per-tool input check that was already there.
   assert.equal(result.success, false);
 });
+
+test("long reasoning remains intact in completed history and active approval continuations", () => {
+  const reasoning = "r".repeat(141_815);
+  const parts = [
+    { type: "reasoning", text: reasoning, state: "done" },
+    { type: "tool-runTerminalCommand", toolCallId: "terminal-long-reasoning", state: "output-available", input: VALID_INPUTS.runTerminalCommand, output: { status: "completed", stdout: "done", exitCode: 0 } },
+  ];
+  const result = chatRequestSchema.parse(followUp(parts));
+  assert.deepEqual(result.messages[1].parts[0], parts[0]);
+  const continuation = followUp([
+    parts[0],
+    { ...parts[1], state: "approval-responded", output: undefined, approval: { id: "long-reasoning-approval", approved: true } },
+  ]);
+  continuation.messages.pop();
+  const resumed = chatRequestSchema.parse(continuation);
+  assert.deepEqual(resumed.messages.at(-1)!.parts[0], parts[0]);
+});
+
+test("long assistant histories do not relax user limits or tool-state validation", () => {
+  const history = Array.from({ length: 120 }, () => ({ type: "step-start" }));
+  assert.equal(chatRequestSchema.safeParse(followUp(history)).success, true);
+  for (const parts of [[{ type: "text", text: "u".repeat(100_001) }], Array.from({ length: 101 }, () => ({ type: "text", text: "input" })), [{ type: "reasoning", text: "not user input" }]]) {
+    const body = followUp([]);
+    body.messages[0].parts = parts;
+    body.messages[1].parts = [{ type: "text", text: "answer" }];
+    assert.equal(chatRequestSchema.safeParse(body).success, false);
+  }
+  assert.equal(chatRequestSchema.safeParse(followUp([...history, {
+    type: "tool-runTerminalCommand", toolCallId: "invalid-command", state: "output-available", input: { grantId: "grant-1", command: "" }, output: { stdout: "done" },
+  }])).success, false);
+});

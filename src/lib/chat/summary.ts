@@ -120,7 +120,7 @@ function summaryText(message: { id: string; role: string; content: string }) {
     ...assistant.tools.map(tool => ({ type: `tool-${tool.toolName}`, toolCallId: tool.toolCallId, state: tool.state,
       input: tool.input, output: tool.output, errorText: tool.errorText,
     })),
-  ] as UIMessage["parts"] });
+  ] as UIMessage["parts"] }, 1500);
   const media = decodeMediaMessage(message.content);
   return media ? media.text : message.content;
 }

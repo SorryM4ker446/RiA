@@ -17,8 +17,11 @@ const { saveAssistant } = await import("@/lib/assistants/store");
 const { assistantConfigSchema } = await import("@/lib/assistants/schema");
 const { encodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
 const { prepareChatPersistence, persistChatResponse } = await import("@/lib/chat/persistence");
-const { listRuns } = await import("@/lib/agent/runs");
+const { streamChatResponse } = await import("@/lib/chat/stream");
+const { readChatRequest } = await import("@/lib/chat/request");
+const { startRun, listRuns } = await import("@/lib/agent/runs");
 const { executionEntries } = await import("@/features/chat/execution-entries");
+const { executionCalls } = await import("@/features/chat/execution-calls");
 const request = (url: string, method = "GET", body?: unknown, auth = localAccessCookie()) => new NextRequest(`http://localhost${url}`, { method, headers: { cookie: auth, "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {}); t.mock.method(console, "info", () => {});
@@ -87,6 +90,7 @@ test("approval continuations retain every server run link and display one reques
   const entries = executionEntries(runs, mapStoredMessagesToUI([reply]).uiMessages);
   assert.equal(entries.length, 1);
   assert.equal(entries[0].stages, 2);
+  assert.equal(executionEntries(runs.slice(0, 1), mapStoredMessagesToUI([reply]).uiMessages)[0].key, entries[0].key);
   for (const run of [first, second]) {
     const response = await runRoute.GET(request(`/api/conversations/${chat.id}/runs?runId=${run.id}`), { params: Promise.resolve({ id: chat.id }) });
     assert.equal((await response.json()).data.id, reply.id);
@@ -128,4 +132,91 @@ test("missing full messages still expose saved redacted step summaries", async (
   assert.equal(run.messageId, undefined);
   assert.equal(run.steps[0].input, "notes.txt");
   assert.equal(run.steps[0].output, "Saved summary");
+});
+
+test("saved summaries acquire full details only by call identity and retain their list keys", async () => {
+  const { chat, run } = await legacyRequest();
+  await db.agentStep.updateMany({ where: { runId: run.id }, data: { toolCallId: "linked-read" } });
+  const [summary] = await listRuns(chat.id);
+  const before = executionCalls(summary);
+  assert.equal(before[0].part, undefined);
+  const message = mapStoredMessagesToUI([{ id: "full-message", clientMessageId: null, role: "assistant", content: encodePersistedAssistantToolMessage({
+    type: "assistant-tool-message", text: "", runId: run.id,
+    tools: [
+      { toolName: "readLocalFile", toolCallId: "linked-read", state: "output-available", output: { content: "Full file" } },
+      { toolName: "readLocalFile", toolCallId: "another-read", state: "input-available", input: { path: "another.txt" } },
+    ],
+  }) }]).uiMessages[0];
+  const after = executionCalls(summary, message);
+  assert.deepEqual(after.map(call => call.key), ["call:another-read", before[0].key]);
+  assert.equal(after[1].step?.id, before[0].step?.id);
+  assert.equal(after[1].part?.toolCallId, "linked-read");
+  assert.equal(after[0].step, undefined);
+  const beforeEntry = executionEntries([{ ...summary, messageId: undefined }], [])[0];
+  const afterEntry = executionEntries([{ ...summary, messageId: message.id }], [message])[0];
+  assert.equal(beforeEntry.key, afterEntry.key);
+});
+
+test("same tool names with different call identities never overwrite a saved summary", async () => {
+  const { chat, run } = await legacyRequest();
+  await db.agentStep.updateMany({ where: { runId: run.id }, data: { toolCallId: "original-call" } });
+  const [summary] = await listRuns(chat.id);
+  const message = mapStoredMessagesToUI([{ id: "unmatched-message", clientMessageId: null, role: "assistant", content: encodePersistedAssistantToolMessage({
+    type: "assistant-tool-message", text: "", runId: run.id,
+    tools: [{ toolName: "readLocalFile", toolCallId: "different-call", state: "output-available", output: "Different file" }],
+  }) }]).uiMessages[0];
+  const calls = executionCalls(summary, message);
+  assert.equal(calls.length, 2);
+  assert.equal(calls.find(call => call.step)?.part, undefined);
+  assert.equal(calls.find(call => call.part)?.step, undefined);
+});
+
+async function preparedStream() {
+  const input = await readChatRequest(request("/api/chat", "POST", { model: CHAT_MODEL_REF, messages: [{ id: "save-user", role: "user", parts: [{ type: "text", text: "Hello" }] }] }));
+  const conversation = await prepareChatPersistence(input);
+  const run = await startRun({ chatId: conversation.chat.id, goal: "Hello" });
+  return { chatId: conversation.chat.id, runId: run.id, start: () => streamChatResponse({
+    input, conversation, systemPrompt: "Answer briefly.", modelMessages: [{ role: "user", content: "Hello" }], toolsEnabled: false,
+    signal: new AbortController().signal, runId: run.id, usesMemory: false,
+  }) };
+}
+
+test("runs remain active while saving full details and close after those details are readable", async () => {
+  const fixture = await preparedStream();
+  let release!: () => void, entered!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const saving = new Promise<void>(resolve => { entered = resolve; });
+  const original = db.$transaction;
+  db.$transaction = (async (...args) => {
+    if (Array.isArray(args[0])) { entered(); await gate; }
+    return original.apply(db, args);
+  }) as typeof db.$transaction;
+  try {
+    const response = await fixture.start();
+    const consuming = response.text();
+    try {
+      await saving;
+      const run = await db.agentRun.findUniqueOrThrow({ where: { id: fixture.runId } });
+      assert.equal(run.status, "running");
+      assert.equal(await db.message.count({ where: { chatId: fixture.chatId, role: "assistant" } }), 0);
+    } finally { release(); }
+    await consuming;
+    const [run] = await listRuns(fixture.chatId);
+    assert.equal(run.status, "succeeded");
+    assert.ok(run.messageId);
+  } finally { release(); db.$transaction = original; }
+});
+
+test("failed message persistence closes the run instead of leaving it running", async () => {
+  const fixture = await preparedStream();
+  const original = db.$transaction;
+  db.$transaction = (async () => { throw new Error("synthetic-save-failure"); }) as typeof db.$transaction;
+  try {
+    const response = await fixture.start();
+    await response.text();
+    const run = await db.agentRun.findUniqueOrThrow({ where: { id: fixture.runId } });
+    assert.equal(run.status, "failed");
+    assert.equal(run.stopReason, "persistence-error");
+    assert.ok(run.finishedAt);
+  } finally { db.$transaction = original; }
 });

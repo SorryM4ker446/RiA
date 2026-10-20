@@ -10,7 +10,7 @@ import type { RetrievalPolicy } from "@/lib/assistants/schema";
 import type { AnyToolDescriptor, ToolSkipReason, ToolTriggerType } from "./types";
 import { listAvailableRegisteredTools, toolAvailability, unavailabilityError, skipReasonFor } from "./registry";
 
-type ExecutionOptions = { modelRef?: ModelRef; runId?: string | null; usesMemory?: boolean; documentCollections?: string[]; documentRetrievalPolicy?: RetrievalPolicy; signal?: AbortSignal; trigger: ToolTriggerType; resultBudgetUsed?: Map<string, number> };
+type ExecutionOptions = { modelRef?: ModelRef; runId?: string | null; toolCallId?: string; usesMemory?: boolean; documentCollections?: string[]; documentRetrievalPolicy?: RetrievalPolicy; signal?: AbortSignal; trigger: ToolTriggerType; resultBudgetUsed?: Map<string, number> };
 
 function skipReasonForRunRefusal(reason: string): ToolSkipReason {
   if (reason === "run-budget-unreadable") return "run-budget-unreadable";
@@ -79,7 +79,7 @@ export async function executeRegisteredTool(tool: AnyToolDescriptor, input: unkn
   // start another step. The refusal is returned as a result so the model
   // can finish with what it has instead of retrying into a wall.
   const reservation = runId
-    ? await reserveRunStep({ runId, toolName: tool.id, input: summarizeForRecord(input) })
+    ? await reserveRunStep({ runId, toolName: tool.id, toolCallId: options.toolCallId, input: summarizeForRecord(input) })
         .catch(() => ({ step: null, reason: "run-budget-unreadable" }))
     : null;
   if (reservation && !reservation.step) return { output: skippedResult(tool, input, reservation.reason ?? "run-stopped"), input };
@@ -339,6 +339,6 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; toolIds
       if (tool.bindForApproval) await tool.bindForApproval(input);
       return typeof tool.requiresApproval === "function" ? tool.requiresApproval(input) : true;
     } } : {}),
-    execute: async (input: unknown, callOptions?: { abortSignal?: AbortSignal }) => (await executeRegisteredTool(tool, input, { ...options, trigger: "auto", signal: callOptions?.abortSignal, resultBudgetUsed })).output,
+    execute: async (input: unknown, callOptions?: { abortSignal?: AbortSignal; toolCallId?: string }) => (await executeRegisteredTool(tool, input, { ...options, trigger: "auto", signal: callOptions?.abortSignal, toolCallId: callOptions?.toolCallId, resultBudgetUsed })).output,
   }]));
 }

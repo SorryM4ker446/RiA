@@ -18,7 +18,12 @@ test("model limits persist and source filters display real recorded chat calls w
   await page.goto(`${app.origin}/models`);
   await page.getByLabel("后台每日调用次数").fill("3");
   await page.getByLabel("预算时区").fill("America/New_York");
+  const saving = page.waitForResponse(response => new URL(response.url()).pathname === "/api/models" && response.request().method() === "PUT");
   await page.getByRole("button", { name: "保存模型偏好", exact: true }).click();
+  const saved = await saving;
+  expect(saved.status()).toBe(200);
+  expect((await saved.json()).data.callLimits.backgroundDailyCalls).toBe(3);
+  await expect(page.getByRole("button", { name: "保存模型偏好", exact: true })).toBeEnabled();
   await page.reload(); await expect(page.getByLabel("后台每日调用次数")).toHaveValue("3");
   await expect(page.getByLabel("预算时区")).toHaveValue("America/New_York");
   await page.getByLabel("后台每日调用次数").fill("2");
