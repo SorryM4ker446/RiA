@@ -75,3 +75,14 @@ test("chat instructions follow the latest user language independently of interfa
   assert.match(ASSISTANT_BASE_PROMPT, /unless they explicitly request another language/);
   assert.match(ASSISTANT_BASE_PROMPT, /interface language, tool labels and tool output language must not determine/);
 });
+
+test("translated labels preserve word boundaries and interpolate user content", () => {
+  for (const locale of ["zh-CN", "en-US"] as const) {
+    const english = locale === "en-US";
+    assert.equal(tf("ui.assistants.template-details.templateDetails2", { name: "User template" }, locale), english ? "Template details · User template" : "模板详情 · User template");
+    assert.equal(tf("ui.document-processor.document-download.download", { format: "Word", filename: "notes.docx" }, locale), english ? "Download Word · notes.docx" : "下载 Word · notes.docx");
+    assert.equal(tf("ui.chat.approval-dock.more", { count: 1 }, locale), english ? "1 more" : "还有 1 项");
+    assert.equal(tf("ui.knowledge.retrieval-evaluation.semanticReviewComplete", { completed: 0, total: 1, failed: 1, skipped: 0 }, locale), english ? "Semantic review complete 0/1 · Failed 1 · Not run 0" : "语义评审完成 0/1 · 失败 1 · 未运行 0");
+    assert.equal(tf("ui.topics.topic-workspace.semanticIndex", { indexed: 2, total: 2 }, locale), english ? "· Semantic index 2/2" : "· 语义索引 2/2");
+  }
+});

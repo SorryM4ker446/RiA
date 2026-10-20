@@ -1,7 +1,7 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
 
-import { t, localizeMessage } from "@/lib/locale";
+import { t, tf, localizeMessage } from "@/lib/locale";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ export function TemplateDetails({ snapshot }: { snapshot: AssistantSnapshot }) {
       <SheetTrigger asChild><Button size="sm" variant="ghost">{t("ui.assistants.template-details.templateDetails")}</Button></SheetTrigger>
       <SheetContent side="right" className="template-details-sheet flex flex-col gap-5 overflow-y-auto p-5 sm:p-6">
         <header className="flex flex-col gap-2 pr-8">
-          <SheetTitle className="break-words text-lg font-semibold">{t("ui.assistants.template-details.templateDetails2")}{snapshot.templateId.startsWith("builtin_") ? localizeMessage(snapshot.name) : snapshot.name}</SheetTitle>
+          <SheetTitle className="break-words text-lg font-semibold">{tf("ui.assistants.template-details.templateDetails2", { name: snapshot.templateId.startsWith("builtin_") ? localizeMessage(snapshot.name) : snapshot.name })}</SheetTitle>
           <SheetDescription>{t("ui.assistants.template-details.templateConfigurationUsedByThisConversation")}</SheetDescription>
         </header>
         {snapshot.description ? <p className="break-words text-sm leading-6 text-muted-foreground">{snapshot.templateId.startsWith("builtin_") ? localizeMessage(snapshot.description) : snapshot.description}</p> : null}

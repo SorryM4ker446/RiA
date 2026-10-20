@@ -1,7 +1,7 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
 
-import { t, localizeMessage } from "@/lib/locale";
+import { t, tf, localizeMessage } from "@/lib/locale";
 
 import { useId, useRef, useState } from "react";
 import { Check, ChevronDown, Loader2, X } from "lucide-react";
@@ -69,7 +69,7 @@ function ApprovalRequest({ part, count, disabled, respond, onDetails }: {
     {error ? <p role="alert" className="px-3 pb-1 text-xs text-destructive">{localizeMessage(error)}</p> : null}
     <CardFooter className="flex-wrap gap-1 px-2 pb-1 pt-0">
       <Button size="sm" variant="ghost" aria-controls={detailsId} aria-expanded={expanded} onClick={() => setDetailsState(value => value === "open" ? "closed" : "open")}><ChevronDown data-icon="inline-start" className={cn("transition-transform duration-[--dur-fast] motion-reduce:transition-none", expanded && "rotate-180")} />{expanded ? t("ui.chat.approval-dock.collapseDetails") : t("media.viewDetails")}</Button>
-      {count > 1 ? <span className="text-xs text-muted-foreground">{t("ui.chat.approval-dock.more")}{count - 1} {t("ui.chat.approval-dock.items")}</span> : null}
+      {count > 1 ? <span className="text-xs text-muted-foreground">{tf("ui.chat.approval-dock.more", { count: count - 1 })}</span> : null}
       <Button size="sm" variant="ghost" className="ml-auto" onClick={onDetails}>{t("ui.chat.approval-dock.executionDetails")}</Button>
     </CardFooter>
   </Card>;
