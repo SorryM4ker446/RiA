@@ -71,21 +71,17 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
    * Close the run, and account for what it spent. Both are best-effort: a
    * bookkeeping failure must not be the reason an answer fails.
    *
-   * Called from two places because a turn can end without ever reaching the
-   * generator's own `onFinish`. When the user stops a turn, the SDK rejects the
-   * flush before it reaches that callback, so a run closed only from there stayed
-   * `running` forever and its cost was never recorded — and the cancellation
-   * status the mapping below can express was unreachable. The message stream's
-   * finish does fire on a stop, so it closes what the generator never reached.
-   * The flag makes the second call a no-op, which matters because a turn that
-   * finishes normally reaches both.
+   * Closing follows message persistence, so a terminal run status never races
+   * ahead of its saved details. The UI stream finish also fires on cancellation
+   * when the generator's finish callback is skipped.
    */
   let runClosed = false;
-  const closeRun = async (outcome: TurnOutcome, costUsd: number | null) => {
+  let completedTurn: { outcome: TurnOutcome; cost: number | null } | undefined;
+  const closeRun = async (outcome: TurnOutcome, costUsd: number | null, reason?: string) => {
     if (!runId || runClosed) return;
     runClosed = true;
     await addRunCost(runId, costUsd).catch(() => null);
-    await finishRun(runId, runStatusFor(outcome), runStopReason(outcome)).catch(() => null);
+    await finishRun(runId, runStatusFor(outcome), reason ?? runStopReason(outcome)).catch(() => null);
   };
 
   // The provider decides how the workspace's reasoning preference is expressed
@@ -112,14 +108,14 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
     onError: () => { generationFailed = true; },
     onFinish: async ({ model, finishReason, totalUsage, response }) => {
       if (finishReason === "error") generationFailed = true;
-      await closeRun(
-        { finishReason, generationFailed, aborted: signal.aborted },
-        await costOfTurn({
+      completedTurn = {
+        outcome: { finishReason, generationFailed, aborted: signal.aborted },
+        cost: await costOfTurn({
           usage: totalUsage,
           providerMetadata: (response as { providerMetadata?: unknown } | undefined)?.providerMetadata,
           modelRef,
         }),
-      );
+      };
       console.info("chat.finish", {
         chatId: chat.id,
         modelId: modelRef.modelId,
@@ -138,19 +134,26 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
     messageMetadata: ({ part }) => part.type === "start" ? { documentSources: params.documentSources ?? [], documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}` }
       : part.type === "finish" ? { documentSources: markDocumentCitations(params.documentSources ?? [], answerText), documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}` } : undefined,
     onFinish: async ({ responseMessage, isAborted }) => {
-      // A stopped turn never reaches the generator's finish, so this is what
-      // closes it. The cost is unknown rather than zero: the provider never
-      // reported usage for a turn that was cut off, and recording a turn the
-      // user stopped as free would let the cost budget be spent by stopping.
-      await closeRun({ finishReason: null, generationFailed, aborted: isAborted }, null);
-      await persistChatResponse({
-        input, conversation, responseMessage, isAborted, generationFailed,
-        documentSources: params.documentSources,
-        documentDiagnostics: params.documentDiagnostics,
-        unavailableTools: params.unavailableTools,
-        runId: params.runId,
-        usesMemory: params.usesMemory !== false,
-      });
+      let persistenceFailed = false;
+      try {
+        await persistChatResponse({
+          input, conversation, responseMessage, isAborted, generationFailed,
+          documentSources: params.documentSources,
+          documentDiagnostics: params.documentDiagnostics,
+          unavailableTools: params.unavailableTools,
+          runId: params.runId,
+          usesMemory: params.usesMemory !== false,
+        });
+      } catch (error) {
+        persistenceFailed = true;
+        throw error;
+      } finally {
+        await closeRun({
+          finishReason: completedTurn?.outcome.finishReason ?? null,
+          generationFailed: generationFailed || persistenceFailed,
+          aborted: isAborted || signal.aborted,
+        }, completedTurn?.cost ?? null, persistenceFailed && !isAborted && !signal.aborted ? "persistence-error" : undefined);
+      }
     },
   });
   return createUIMessageStreamResponse({

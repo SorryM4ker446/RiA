@@ -221,7 +221,7 @@ for (const narrow of [false, true]) {
     await expect(firstRun).toHaveAttribute("aria-expanded", "true");
     await expect(drawer.getByTestId("run-full-goal").first()).toHaveText(runs[0].goal);
     await expect(drawer.getByTestId("run-full-goal").first()).toBeVisible();
-    await expect(drawer.getByText("searchKnowledge", { exact: true }).first()).toBeVisible();
+    await expect(drawer.getByText("工具详情：searchKnowledge · 执行完成", { exact: true }).first()).toBeVisible();
     await expect(drawer.getByText("上限: 步骤不限 / 无总时限 / 失败次数不限", { exact: true })).not.toBeVisible();
     await drawer.getByText("调试信息", { exact: true }).first().click();
     await expect(drawer.getByText("上限: 步骤不限 / 无总时限 / 失败次数不限", { exact: true })).toBeVisible();

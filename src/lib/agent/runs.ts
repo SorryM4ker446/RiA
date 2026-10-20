@@ -71,14 +71,14 @@ async function readRunAllowance(client: Prisma.TransactionClient, runId: string)
 }
 
 /** Reserve budget and a unique position before any tool side effect. */
-export async function reserveRunStep(params: { runId: string; toolName: string; input?: unknown }) {
+export async function reserveRunStep(params: { runId: string; toolName: string; toolCallId?: string; input?: unknown }) {
   return db.$transaction(async tx => {
     const allowance = await readRunAllowance(tx, params.runId);
     if (!allowance.allowed) return { step: null, reason: allowance.reason };
     const latest = await tx.agentStep.aggregate({ where: { runId: params.runId }, _max: { position: true } });
     const step = await tx.agentStep.create({ data: {
       runId: params.runId, position: (latest._max.position ?? 0) + 1,
-      kind: "tool", toolName: params.toolName, state: "running",
+      kind: "tool", toolName: params.toolName, toolCallId: params.toolCallId, state: "running",
       ...(params.input === undefined ? {} : { input: params.input as Prisma.InputJsonValue }),
     } });
     return { step, reason: null };
@@ -208,6 +208,7 @@ export type RunView = {
     position: number;
     kind: string;
     toolName: string | null;
+    toolCallId?: string | null;
     state: StepState;
     input?: unknown;
     output: unknown;
@@ -275,6 +276,7 @@ export async function listRuns(chatId: string, limit = 20): Promise<RunView[]> {
       position: step.position,
       kind: step.kind,
       toolName: step.toolName,
+      toolCallId: step.toolCallId,
       input: step.input,
       state: step.state as StepState,
       output: step.output,

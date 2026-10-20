@@ -23,7 +23,7 @@ import type { RunView } from "@/lib/agent/runs";
 import type { UIMessage } from "ai";
 import type { ChatState } from "./use-chat-state";
 import { ExecutionTurnDetails } from "./execution-turn-details";
-import { isToolPart, safeJson, mapStoredMessagesToUI } from "./page-utils";
+import { isToolPart, mapStoredMessagesToUI } from "./page-utils";
 import { executionEntries } from "./execution-entries";
 import { executionGuidance } from "@/lib/execution-messages";
 
@@ -32,7 +32,7 @@ type Props = Pick<ChatState, "messages"> & {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   focusedMessageId?: string;
-  /** Bumped by the caller when a turn finishes, so the list refreshes with it. */
+  /** Changes when the caller adds or removes messages from the history. */
   refreshKey?: number;
 };
 
@@ -157,11 +157,18 @@ export function RunRecords({ activeChatId, refreshKey, messages, open, onOpenCha
   const selected = entries.find(entry => entry.key === expanded);
   const liveDetail = selected?.message;
   const selectedRunId = selected?.run?.id;
+  const selectedRunStatus = selected?.run?.status;
+  const selectedMessageId = selected?.run?.messageId;
+  const focusedEntryKey = entries.find(entry => entry.messageId === focusedMessageId)?.key;
+  const liveTools = liveDetail?.parts.filter(isToolPart) ?? [];
+  const runFinished = selectedRunStatus !== "running" && selectedRunStatus !== "waiting_approval";
+  const needsSavedDetail = !liveDetail || (!!selected?.run?.steps.length && !liveTools.length)
+    || (runFinished && liveTools.some(part => !part.state.startsWith("output-")));
   useEffect(() => {
-    if (open && focusedMessageId) setExpanded(`message:${focusedMessageId}`);
-  }, [open, focusedMessageId]);
+    if (open && focusedMessageId && focusedEntryKey) setExpanded(focusedEntryKey);
+  }, [open, focusedMessageId, focusedEntryKey]);
   useEffect(() => {
-    if (!open || !expanded || !selectedRunId || liveDetail || !activeChatId) return;
+    if (!open || !expanded || !selectedRunId || !needsSavedDetail || !activeChatId) return;
     const controller = new AbortController();
     void (async () => {
       try {
@@ -174,8 +181,9 @@ export function RunRecords({ activeChatId, refreshKey, messages, open, onOpenCha
       }
     })();
     return () => controller.abort();
-  }, [activeChatId, expanded, selectedRunId, liveDetail, open, refreshKey]);
-  const detailMessage = liveDetail ?? (detail?.key === expanded ? detail.message : undefined);
+  }, [activeChatId, expanded, selectedRunId, selectedRunStatus, selectedMessageId, needsSavedDetail, open, refreshKey]);
+  const savedDetail = detail?.key === expanded ? detail.message : undefined;
+  const detailMessage = selectedRunStatus === "running" || selectedRunStatus === "waiting_approval" ? liveDetail ?? savedDetail : savedDetail ?? liveDetail;
 
   if (!activeChatId) return null;
 
@@ -219,7 +227,7 @@ export function RunRecords({ activeChatId, refreshKey, messages, open, onOpenCha
             {entries.map(entry => {
               const { run, goal } = entry;
               const isExpanded = expanded === entry.key;
-              const message = entry.message ?? (isExpanded ? detailMessage : undefined);
+              const message = isExpanded ? detailMessage : entry.message;
               const status = message?.parts.some(part => isToolPart(part) && part.state === "approval-requested") ? "waiting_approval" : run?.status;
               return (
               <li className="run-record-entry min-w-0 text-xs" key={entry.key}>
@@ -241,26 +249,9 @@ export function RunRecords({ activeChatId, refreshKey, messages, open, onOpenCha
                       {goal.length > 80 || goal.includes("\n") ? <p className="whitespace-pre-wrap break-words leading-5 text-muted-foreground" data-testid="run-full-goal">{goal}</p> : null}
                       {run?.stopReason ? <p className="text-warning">{`${t("chat.run.stopReason")}: ${run.stopReason}`}</p> : null}
                       {run?.status === "failed" || run?.status === "paused" ? <p className="text-muted-foreground">{executionGuidance(run.stopReason)}</p> : null}
-                      {run && run.steps.length > 0 && !message?.parts.some(isToolPart) ? (
-                        <ol className="flex flex-col gap-1.5">
-                          {run.steps.map(step => (
-                            <li className="flex min-w-0 flex-col gap-1" key={step.id}>
-                              <div className="flex min-w-0 items-center gap-2">
-                              <StepIcon state={step.state} />
-                              <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{String(step.position).padStart(2, "0")}</span>
-                              <span className="min-w-0 flex-1 truncate">{step.toolName ?? step.kind}</span>
-                              <span className="shrink-0 text-muted-foreground">{t(`runs.step.${step.state}`)}</span>
-                              {step.errorCode ? <span title={executionGuidance(step.errorCode)} className="break-all text-destructive">{step.errorCode}</span> : null}
-                              </div>
-                              {step.input != null || step.output != null ? <details className="execution-disclosure pl-5"><summary><ChevronRight aria-hidden="true" />{t("ui.chat.run-records.savedStepSummary")}</summary><pre className="execution-code chat-list-scroll">{safeJson({ input: step.input, output: step.output })}</pre></details> : null}
-                            </li>
-                          ))}
-                        </ol>
-                      ) : null}
-                      {isExpanded && message ? <ExecutionTurnDetails message={message} isLatest={messages.at(-1)?.id === message.id} onReviewApproval={() => setOpen(false)} /> : null}
-                      {isExpanded && run && !message && detail?.key === entry.key && !detail.error ? <p role="status" className="text-muted-foreground">{t("ui.chat.run-records.thisRecordHasNoLinkedFull")}</p> : null}
-                      {isExpanded && run && !message && detail?.key !== entry.key ? <p role="status" className="text-muted-foreground">{t("ui.chat.run-records.loadingDetails")}</p> : null}
-                      {isExpanded && !message && detail?.key === entry.key && detail.error ? <p role="alert" className="text-destructive">{detail.error}</p> : null}
+                      {isExpanded ? <ExecutionTurnDetails message={message} run={run} loading={!!run && !message && detail?.key !== entry.key} isLatest={messages.at(-1)?.id === message?.id} onReviewApproval={() => setOpen(false)} /> : null}
+                      {isExpanded && run && !message && !run.steps.length && detail?.key !== entry.key ? <p role="status" className="text-muted-foreground">{t("ui.chat.run-records.loadingDetails")}</p> : null}
+                      {isExpanded && detail?.key === entry.key && detail.error ? <p role="alert" className="text-destructive">{detail.error}</p> : null}
                       {run ? <details className="execution-disclosure text-muted-foreground">
                         <summary><ChevronRight aria-hidden="true" />{t("ui.chat.run-records.debugInformation")}</summary>
                         <div className="flex flex-col gap-2 pb-2 leading-5">
@@ -303,27 +294,6 @@ function StatusIcon({ status }: { status: RunView["status"] }) {
     <AlertCircle
       aria-hidden="true"
       className="size-3.5 shrink-0 text-warning"
-    />
-  );
-}
-
-function StepIcon({ state }: { state: string }) {
-  useLocale();
-  if (state === "done")
-    return (
-      <CheckCircle2
-        aria-hidden="true"
-        className="size-3 shrink-0 text-success"
-      />
-    );
-  if (state === "running" || state === "waiting_approval")
-    return (
-      <Loader2 aria-hidden="true" className="size-3 shrink-0 animate-spin" />
-    );
-  return (
-    <AlertCircle
-      aria-hidden="true"
-      className="size-3 shrink-0 text-muted-foreground"
     />
   );
 }

@@ -65,10 +65,11 @@ async function withLocalSearchServer(run) {
 test("a step whose tool ran is recorded as done and is not re-settled on the way out", async () => {
   const run = await startRun({ chatId: null, goal: "记录一次成功执行" });
   const tools = await createChatToolSet({ toolIds: ["createTask"], runId: run.id });
-  await tools.createTask.execute({ title: "买牛奶" }, toolOptions);
+  await tools.createTask.execute({ title: "买牛奶" }, { ...toolOptions, toolCallId: "recorded-task-call" });
 
   const steps = await stepsOf(run.id);
   assert.equal(steps.length, 1);
+  assert.equal(steps[0].toolCallId, "recorded-task-call");
   // Awaiting the call means the wrapper's `finally` has already run, so this
   // also proves the final settlement does not overwrite a state that was
   // already committed — the guard, not luck, is what keeps it "done".
