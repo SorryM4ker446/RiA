@@ -25,9 +25,9 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const electronExecutable = require("electron");
 const debugPort = 9400 + (process.pid % 400);
 const CONTROL_SELECTORS = [
-  'button[aria-label="最小化"]',
-  'button[aria-label="最大化"], button[aria-label="向下还原"]',
-  'button[aria-label="关闭"]',
+  'button[aria-label="最小化"], button[aria-label="Minimize"]',
+  'button[aria-label="最大化"], button[aria-label="向下还原"], button[aria-label="Maximize"], button[aria-label="Restore"]',
+  'button[aria-label="关闭"], button[aria-label="Close"]',
 ];
 const testParent = join(repositoryRoot, ".desktop-data", "test");
 mkdirSync(testParent, { recursive: true });
@@ -191,15 +191,15 @@ try {
       });
     }
     // Require both the native transition and its rendered label before the next click.
+    const expectedLabels = caption.maximized ? ["最大化", "Maximize"] : ["向下还原", "Restore"];
     let state;
     const deadline = Date.now() + 1500;
     do {
       state = await readCaption();
-      const expectedLabel = state.maximized ? "向下还原" : "最大化";
-      if (state.maximized !== caption.maximized && state.boxes[1].label === expectedLabel) break;
+      if (state.maximized !== caption.maximized && expectedLabels.includes(state.boxes[1].label)) break;
       await sleep(50);
     } while (Date.now() < deadline);
-    if (state.maximized === caption.maximized || state.boxes[1].label !== (state.maximized ? "向下还原" : "最大化")) {
+    if (state.maximized === caption.maximized || !expectedLabels.includes(state.boxes[1].label)) {
       throw new Error(`a real click did not update the native window and caption: ${JSON.stringify(state)}`);
     }
 
