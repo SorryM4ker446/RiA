@@ -1,5 +1,6 @@
 /** Public API errors localized only when displayed by the client. */
 export const errorMessages = {
+  "errors.contextLimit": "当前必要上下文超过模型的输入预算。请切换更大上下文的模型，或缩小当前输入和附件。已有执行记录已保留。",
   "errors.assistantTemplateDoesNotExistOrWasDeleted": "助理模板不存在或已删除。",
   "errors.theTemplateSAssignedModelWasRemovedUpdate": "模板绑定的模型已移除，请修改模板后使用。",
   "errors.theTemplateContainsUnsupportedTools": "模板包含不支持的工具。",

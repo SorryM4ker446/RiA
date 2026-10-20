@@ -167,7 +167,7 @@ export async function addModel(ref: ModelRef): Promise<{ data: ModelLibraryItem;
   // A catalog row is provider data and may carry fields this application does
   // not store. The library entry is built from an explicit list of them, so a
   // new provider field cannot make a model silently un-addable.
-  const libraryFields = { providerId: true, modelId: true, name: true, description: true, modes: true, supportsImageInput: true, endpointImageInput: true, supportsTools: true, providerSearch: true, contextLength: true, pricing: true, addedAt: true, lastSeenAt: true } as const;
+  const libraryFields = { providerId: true, modelId: true, name: true, description: true, modes: true, supportsImageInput: true, endpointImageInput: true, supportsTools: true, providerSearch: true, contextLength: true, maxOutputTokens: true, pricing: true, addedAt: true, lastSeenAt: true } as const;
   const matches = snapshots.flatMap(snapshot => {
     const rows = Array.isArray(snapshot.models) ? snapshot.models : [];
     return rows.flatMap(row => {

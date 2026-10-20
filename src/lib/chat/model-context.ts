@@ -9,6 +9,9 @@ import {
 } from "@/lib/prompts";
 import { convertToModelMessages, type UIMessage } from "ai";
 import type { ChatRequest } from "@/lib/chat/request";
+import { getModelPreferences } from "@/lib/models/preferences";
+import { modelRefKey } from "@/lib/models/preferences-schema";
+import { contextBudget } from "@/lib/models/context-budget";
 function stripFilePartsForTextOnlyModel(messages: UIMessage[]): UIMessage[] {
   return messages.map((message) => {
     const parts = Array.isArray(message.parts) ? message.parts : [];
@@ -34,7 +37,12 @@ export async function prepareModelContext(input: ChatRequest, signal?: AbortSign
   const effectiveMessages = model?.supportsImageInput
     ? messages
     : stripFilePartsForTextOnlyModel(messages);
-  const context = buildChatContext(effectiveMessages);
+  const preferences = await getModelPreferences();
+  const budget = contextBudget(model, preferences.contextLimits[modelRefKey(input.modelRef)]);
+  const context = buildChatContext(effectiveMessages, {
+    maxMessages: effectiveMessages.length,
+    maxCharacters: Math.floor(budget.inputTokens / 2),
+  });
   const modelMessages = await convertToModelMessages(await materializeChatAttachments(context.messages, signal));
 
   return { context, modelMessages };

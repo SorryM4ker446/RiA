@@ -1,5 +1,15 @@
 /** Interface copy shared by pages and feature controls. */
 export const interfaceMessages = {
+  "chat.context.outputLimit": "模型已达到本次输出上限，回答可能不完整。请核对已有执行结果，再继续请求；应用不会自动重放操作。",
+  "chat.context.compacted": "本次调用压缩了 {count} 次上下文，原始记录已保留。",
+  "chat.context.degraded": "部分任务摘要未能生成，已使用不完整的历史摘录。",
+  "models.context.title": "上下文容量与压缩",
+  "models.context.description": "根据模型容量预留输出和安全空间，每步调用前检查并压缩已完成的历史。留空使用自动值；手动设置不会超过目录公布的容量。",
+  "models.context.catalog": "目录容量：{context} tokens · 最大输出：{output} tokens",
+  "models.context.unknown": "目录未提供容量，暂按 131,072 tokens 规划；这不是模型的已确认上限，请按供应商说明配置。",
+  "models.context.window": "上下文窗口（tokens）",
+  "models.context.output": "每次最大输出（tokens）",
+  "models.context.automatic": "自动",
   "ui.activity.events.couldNotLoadSource": "无法读取来源。",
   "ui.activity.events.backToSettingsAndReviews": "返回设置与回顾",
   "ui.activity.events.reviewEventSource": "回顾事件来源",

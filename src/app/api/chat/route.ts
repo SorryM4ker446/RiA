@@ -43,7 +43,7 @@ async function POSTHandler(req: NextRequest) {
 
 
     const { context, modelMessages } = await prepareModelContext(input, req.signal);
-    const conversation = await prepareChatPersistence(input);
+    const conversation = await prepareChatPersistence(input, { deferApproval: true });
     const mode = body.mode ?? "chat";
     const isChatMode = mode === "chat";
     const canUseTools = isChatMode && input.model?.supportsTools === true;
@@ -79,7 +79,9 @@ async function POSTHandler(req: NextRequest) {
       ? await summarizeOlderTurns({
         chatId: conversation.chat.id,
         messages: context.allMessages.map((message) => ({ id: message.id ?? "", role: message.role, text: readText(message) })),
-        keepRecent: 24,
+        keepRecent: context.messages.length,
+        force: context.omittedMessages > 0,
+        modelRef,
         signal: req.signal,
       }).catch(() => null)
       : null;

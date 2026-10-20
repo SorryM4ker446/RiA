@@ -5,8 +5,8 @@ import { t } from "@/lib/locale";
 import { ApiError, apiErrorPayload, normalizeApiError } from "@/lib/server/api-error";
 import { createChatToolSet } from "@/tools/catalog";
 import type { ModelMessage } from "ai";
-import { createUIMessageStream, createUIMessageStreamResponse, generateId, stepCountIs, streamText } from "ai";
-import { persistChatResponse, type ChatPersistence } from "@/lib/chat/persistence";
+import { asSchema, createUIMessageStream, createUIMessageStreamResponse, generateId, stepCountIs, streamText } from "ai";
+import { claimChatApproval, persistChatResponse, type ChatPersistence } from "@/lib/chat/persistence";
 import type { ChatRequest } from "@/lib/chat/request";
 import type { DocumentDiagnostics } from "@/lib/documents/diagnostics";
 import type { DocumentSource } from "@/lib/documents/types";
@@ -16,6 +16,10 @@ import { addRunCost, finishRun, runStillAllowsStep, runStepCeiling } from "@/lib
 import { usageCost } from "@/lib/models/usage";
 import { getModelPreferences } from "@/lib/models/preferences";
 import { decodeDocumentScope } from "@/lib/documents/scope";
+import { contextBudget } from "@/lib/models/context-budget";
+import { modelRefKey } from "@/lib/models/preferences-schema";
+import { createStepContext } from "./step-context";
+import { summarizeTaskState } from "./task-summary";
 type TurnOutcome = { finishReason: unknown; generationFailed: boolean; aborted: boolean };
 
 /**
@@ -27,12 +31,13 @@ type TurnOutcome = { finishReason: unknown; generationFailed: boolean; aborted: 
  */
 function runStatusFor(outcome: TurnOutcome): "succeeded" | "failed" | "cancelled" {
   if (outcome.aborted) return "cancelled";
-  if (outcome.generationFailed || outcome.finishReason === "error") return "failed";
+  if (outcome.generationFailed || outcome.finishReason === "error" || outcome.finishReason === "length") return "failed";
   return "succeeded";
 }
 
 function runStopReason(outcome: TurnOutcome): string | undefined {
   if (outcome.aborted) return "stopped-by-user";
+  if (outcome.finishReason === "length") return "output-limit";
   if (outcome.generationFailed || outcome.finishReason === "error") return "provider-error";
   return undefined;
 }
@@ -63,8 +68,9 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
     throw new ApiError({ code: "VALIDATION_ERROR", message: `${t("lib.models.chatPrefix")} ${modelRef.modelId} ${t("lib.models.chatNoTools")}` });
   }
   let generationFailed = false;
+  let contextLimitFailed = false;
   const runId = params.runId ?? null;
-  const runIds = [...new Set([...(conversation.previousRunIds ?? []), ...(runId ? [runId] : [])])];
+  let runIds = [...new Set([...(conversation.previousRunIds ?? []), ...(runId ? [runId] : [])])];
   const stepCeiling = await runStepCeiling(runId);
 
   /**
@@ -89,12 +95,35 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
   // the call goes out exactly as before.
   const providerOptions = getModelProvider(modelRef.providerId).reasoningOptions?.(input.reasoning);
   const tools = toolsEnabled ? await createChatToolSet({ modelRef, runId, toolIds: input.assistant?.tools, usesMemory: params.usesMemory !== false, documentCollections: decodeDocumentScope(input.conversationPolicy?.documentScope ?? chat.documentScope), documentRetrievalPolicy: input.assistant?.retrieval }) : undefined;
+  const preferences = await getModelPreferences();
+  const budget = contextBudget(input.model, preferences.contextLimits[modelRefKey(modelRef)]);
+  const toolDefinitions = tools ? await Promise.all(Object.entries(tools).map(async ([name, tool]) => tool.type === "provider"
+    ? { type: "provider", name, id: tool.id, args: tool.args }
+    : { type: "function", name, description: tool.description, inputSchema: await asSchema(tool.inputSchema).jsonSchema })) : undefined;
+  const stepContext = createStepContext({ budget, system: systemPrompt, tools: toolDefinitions, signal,
+    summarize: (records, previous) => summarizeTaskState({ modelRef, records, previous, signal }),
+  });
+  try {
+    await stepContext.prepare(modelMessages);
+    signal.throwIfAborted();
+    if (input.isApprovalResume && conversation.approvalDeferred) {
+      const previous = await claimChatApproval(chat.id, messages.at(-1)!);
+      conversation.previousRunIds = previous;
+      runIds = [...new Set([...previous, ...(runId ? [runId] : [])])];
+    }
+  } catch (error) {
+    await closeRun({ finishReason: "error", generationFailed: true, aborted: signal.aborted }, null,
+      error instanceof ApiError && error.code === "CONTEXT_LIMIT" ? "context-limit" : "preflight-error");
+    throw error;
+  }
   const result = withModelCallSource("chat", () => streamText({
     model: getChatModel(modelRef),
     ...(providerOptions ? { providerOptions } : {}),
     maxRetries: 0,
     system: systemPrompt,
     messages: modelMessages,
+    maxOutputTokens: budget.outputTokens,
+    prepareStep: ({ messages: stepMessages }) => stepContext.prepare(stepMessages),
     abortSignal: signal,
     onChunk: ({ chunk }) => { if (chunk.type === "text-delta") answerText += chunk.text; },
     ...(toolsEnabled
@@ -105,9 +134,9 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
     // An explicit stop condition also replaces the SDK's default one-step cap.
     // Historical bounded runs keep their recorded ceiling; new runs have none.
     stopWhen: [...(stepCeiling !== null ? [stepCountIs(stepCeiling)] : []), async () => !(await runStillAllowsStep(runId))],
-    onError: () => { generationFailed = true; },
+    onError: ({ error }) => { generationFailed = true; contextLimitFailed = error instanceof ApiError && error.code === "CONTEXT_LIMIT"; },
     onFinish: async ({ model, finishReason, totalUsage, response }) => {
-      if (finishReason === "error") generationFailed = true;
+      if (finishReason === "error" || finishReason === "length") generationFailed = true;
       completedTurn = {
         outcome: { finishReason, generationFailed, aborted: signal.aborted },
         cost: await costOfTurn({
@@ -132,7 +161,7 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
     onError: (error) => streamError(error instanceof ApiError ? error : new ApiError({ code: "UPSTREAM_FAILED", message: t("lib.chat.providerUnavailable") })),
     originalMessages: messages,
     messageMetadata: ({ part }) => part.type === "start" ? { documentSources: params.documentSources ?? [], documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}` }
-      : part.type === "finish" ? { documentSources: markDocumentCitations(params.documentSources ?? [], answerText), documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}` } : undefined,
+      : part.type === "finish" ? { documentSources: markDocumentCitations(params.documentSources ?? [], answerText), documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}`, contextBudget: stepContext.report } : undefined,
     onFinish: async ({ responseMessage, isAborted }) => {
       let persistenceFailed = false;
       try {
@@ -152,7 +181,7 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
           finishReason: completedTurn?.outcome.finishReason ?? null,
           generationFailed: generationFailed || persistenceFailed,
           aborted: isAborted || signal.aborted,
-        }, completedTurn?.cost ?? null, persistenceFailed && !isAborted && !signal.aborted ? "persistence-error" : undefined);
+        }, completedTurn?.cost ?? null, persistenceFailed && !isAborted && !signal.aborted ? "persistence-error" : contextLimitFailed ? "context-limit" : undefined);
       }
     },
   });

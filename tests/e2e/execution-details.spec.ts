@@ -33,7 +33,8 @@ for (const width of [1440, 390]) test(`saved summaries acquire full details with
     const detail = new URL(route.request().url()).searchParams.has("runId");
     if (detail) detailRequests++; else listRequests++;
     const message = { id: "saved-answer", clientMessageId: "saved-answer", role: "assistant", createdAt: now,
-      content: "__ASSISTANT_TOOL_MESSAGE__:" + JSON.stringify({ type: "assistant-tool-message", text: "Done", runId: "details-run", tools: steps.map(step => ({
+      content: "__ASSISTANT_TOOL_MESSAGE__:" + JSON.stringify({ type: "assistant-tool-message", text: "Done", runId: "details-run",
+        contextBudget: { checks: 8, compactions: 2, degraded: true, estimatedInputTokens: 4000, budget: { contextWindow: 32000, capacitySource: "catalog", counting: "conservative-utf8-estimate" } }, tools: steps.map(step => ({
         toolName: step.toolName, toolCallId: step.toolCallId, state: "output-available", input: step.input, output: { content: `Full result for ${step.toolCallId}` },
       })) }),
     };
@@ -70,6 +71,8 @@ for (const width of [1440, 390]) test(`saved summaries acquire full details with
   await expect(calls).toHaveCount(25);
   await expect(request).toHaveAttribute("aria-expanded", "true");
   await expect(request).toContainText(english ? "Completed" : "已完成");
+  await expect(drawer).toContainText(english ? "Context compacted 2 times" : "本次调用压缩了 2 次上下文");
+  await expect(drawer).toContainText(english ? "incomplete historical excerpts were used" : "已使用不完整的历史摘录");
   await expect(selected).toHaveAttribute("open", "");
   await expect(calls.first()).not.toHaveAttribute("open");
   await expect(selected.getByRole("status")).toHaveCount(0);
@@ -83,6 +86,54 @@ for (const width of [1440, 390]) test(`saved summaries acquire full details with
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await drawer.screenshot({ path: join(tmpdir(), `ria-unified-execution-${width}.png`), animations: "disabled" });
   expect(errors).toEqual([]);
+});
+
+test("terminal details arriving after a saved summary open automatically and preserve an explicit collapse", async ({ page }) => {
+  await workspace(page);
+  let available = false, finished = false;
+  await page.route("**/api/conversations/*/runs?*", route => {
+    const detail = new URL(route.request().url()).searchParams.has("runId");
+    const message = { id: "terminal-answer", clientMessageId: "terminal-answer", role: "assistant", createdAt: now,
+      content: "__ASSISTANT_TOOL_MESSAGE__:" + JSON.stringify({ type: "assistant-tool-message", text: "", runId: "terminal-run",
+        tools: ["terminal-call", "manually-closed"].map(toolCallId => ({ toolName: "runTerminalCommand", toolCallId, state: "approval-requested",
+          input: { command: "echo terminal-ready" }, approval: { id: `approval-${toolCallId}` } })),
+      }),
+    };
+    return route.fulfill({ json: { data: detail ? available ? message : null : [{
+      id: "terminal-run", ...(available ? { messageId: "terminal-answer" } : {}), goal: "Inspect the files", startedAt: now,
+      status: finished ? "waiting_approval" : "running", budget,
+      steps: ["terminal-call", "manually-closed"].map((toolCallId, index) => ({ id: `step-${toolCallId}`, toolCallId, position: index + 1, kind: "tool", toolName: "runTerminalCommand", state: "running" })),
+    }] } });
+  });
+  await page.goto("/chat?conversationId=details-chat");
+  await page.getByRole("button", { name: "执行记录", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "执行记录", exact: true });
+  await drawer.locator(".run-record-trigger").click();
+  const call = drawer.locator('[data-call-id="terminal-call"]');
+  const manuallyClosed = drawer.locator('[data-call-id="manually-closed"]');
+  await expect(call).not.toHaveAttribute("open");
+  await manuallyClosed.locator("summary").click();
+  await expect(manuallyClosed).toHaveAttribute("open", "");
+  await manuallyClosed.locator("summary").click();
+  await expect(manuallyClosed).not.toHaveAttribute("open");
+  await call.evaluate(node => { (window as Window & { originalCallNode?: Element }).originalCallNode = node; });
+  available = true;
+  await expect(call.getByRole("button", { name: "返回聊天批准", exact: true })).toBeVisible();
+  await expect(call).toHaveAttribute("open", "");
+  await expect(manuallyClosed).not.toHaveAttribute("open");
+  await expect(manuallyClosed.getByRole("button", { name: "返回聊天批准", exact: true })).toBeHidden();
+  expect(await call.evaluate(node => node === (window as Window & { originalCallNode?: Element }).originalCallNode)).toBe(true);
+  await call.locator("summary").click();
+  await expect(call).not.toHaveAttribute("open");
+  const settled = page.waitForResponse(async response => response.url().includes("/runs?limit=") &&
+    (await response.json()).data[0]?.status === "waiting_approval");
+  finished = true;
+  await settled;
+  await expect(drawer.locator(".run-record-trigger")).toContainText("等待批准");
+  await expect(call).not.toHaveAttribute("open");
+  await call.locator("summary").focus();
+  await page.keyboard.press("Enter");
+  await expect(call).toHaveAttribute("open", "");
 });
 
 test("legacy summaries remain readable after a detail load failure and can recover on reopening", async ({ page }) => {

@@ -12,7 +12,7 @@ import { createDesktopLogger, createDesktopLogSink } from "../../electron/logger
 
 type ProviderCall = { stream: boolean; messages: Array<{ role: string; content: unknown }> };
 
-export async function startStandaloneServer(options: { modelFixture?: boolean; desktopScheduler?: boolean; serverEntry?: string; extensionFixtureOrigin?: string } = {}) {
+export async function startStandaloneServer(options: { modelFixture?: boolean; modelContextLength?: number; desktopScheduler?: boolean; serverEntry?: string; extensionFixtureOrigin?: string } = {}) {
   const parent = resolve(".desktop-data/test");
   mkdirSync(parent, { recursive: true });
   const root = mkdtempSync(join(parent, "http-"));
@@ -41,6 +41,7 @@ export async function startStandaloneServer(options: { modelFixture?: boolean; d
     OPENROUTER_API_KEY: options.modelFixture ? "offline-fixture-placeholder" : "", DEEPSEEK_API_KEY: "", TAVILY_API_KEY: "", TAVILY_SEARCH_URL: "",
     OUTBOUND_PROXY_URL: "", HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "", http_proxy: "", https_proxy: "", all_proxy: "",
     PRIVATE_AI_HTTP_FIXTURE: options.modelFixture ? "1" : "0",
+    PRIVATE_AI_FIXTURE_CONTEXT_LENGTH: String(options.modelContextLength ?? 200_000),
     PRIVATE_AI_EXTENSION_FIXTURE_ORIGIN: options.extensionFixtureOrigin ?? "",
     RIA_EXTENSION_KEY: randomBytes(32).toString("base64"),
   };

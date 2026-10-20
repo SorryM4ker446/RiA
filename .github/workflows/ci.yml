@@ -40,13 +40,17 @@ jobs:
           node-version: "24.9.0"
           cache: npm
 
+      - name: Pin npm version
+        run: npm install --global npm@11.19.1
+
       - name: Report toolchain versions
         run: |
           node --version
           npm --version
+          if ((npm --version) -ne "11.19.1") { throw "Expected npm 11.19.1" }
 
       - name: Install dependencies
-        run: npx --yes npm@11.19.1 ci
+        run: npm ci
 
       - name: Audit dependencies
         run: npm audit --audit-level=low
@@ -91,8 +95,16 @@ jobs:
         with:
           node-version: "24.9.0"
           cache: npm
+
+      - name: Pin npm version
+        run: npm install --global npm@11.19.1
+      - name: Report toolchain versions
+        run: |
+          node --version
+          npm --version
+          if ((npm --version) -ne "11.19.1") { throw "Expected npm 11.19.1" }
       - name: Install dependencies
-        run: npx --yes npm@11.19.1 ci
+        run: npm ci
       - name: Generate Prisma client
         run: npm run db:generate
       - name: Test server behavior with isolated SQLite
@@ -118,8 +130,16 @@ jobs:
         with:
           node-version: "24.9.0"
           cache: npm
+
+      - name: Pin npm version
+        run: npm install --global npm@11.19.1
+      - name: Report toolchain versions
+        run: |
+          node --version
+          npm --version
+          if ((npm --version) -ne "11.19.1") { throw "Expected npm 11.19.1" }
       - name: Install dependencies
-        run: npx --yes npm@11.19.1 ci
+        run: npm ci
       - name: Generate Prisma client
         run: npm run db:generate
 
@@ -180,13 +200,17 @@ jobs:
           node-version: "24.9.0"
           cache: npm
 
+      - name: Pin npm version
+        run: npm install --global npm@11.19.1
+
       - name: Report toolchain versions
         run: |
           node --version
           npm --version
+          if ((npm --version) -ne "11.19.1") { throw "Expected npm 11.19.1" }
 
       - name: Install dependencies
-        run: npx --yes npm@11.19.1 ci
+        run: npm ci
 
       - name: Generate Prisma client
         run: npm run db:generate

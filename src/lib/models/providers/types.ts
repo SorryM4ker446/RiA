@@ -35,6 +35,7 @@ export type CatalogModel = {
   /** The provider runs its own web search for this model, at extra cost. */
   providerSearch: boolean;
   contextLength: number | null;
+  maxOutputTokens?: number | null;
   pricing: Record<string, string>;
   priceInfo?: CatalogPriceInfo;
 };

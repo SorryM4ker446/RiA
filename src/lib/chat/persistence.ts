@@ -16,6 +16,7 @@ import type { ChatRequest } from "@/lib/chat/request";
 import type { DocumentDiagnostics } from "@/lib/documents/diagnostics";
 import type { DocumentSource } from "@/lib/documents/types";
 import { markDocumentCitations } from "@/lib/documents/references";
+import { contextReportSchema } from "./context-report";
 async function getOrCreateChat(params: {
   requestedChatId?: string;
   fallbackTitle: string;
@@ -73,7 +74,7 @@ function getToolItemsFromResponseMessage(message: UIMessage): PersistedAssistant
       ...("approval" in part && part.approval ? { approval: part.approval } : {}),
     }));
 }
-export async function prepareChatPersistence(input: ChatRequest) {
+export async function prepareChatPersistence(input: ChatRequest, options: { deferApproval?: boolean } = {}) {
   const { body, messages, latestUserMessage, isApprovalResume, requestedChatId } = input;
   const titleSeed = latestUserMessage?.text || "New Chat";
   const chat = await getOrCreateChat({
@@ -82,22 +83,7 @@ export async function prepareChatPersistence(input: ChatRequest) {
   });
 
   let previousRunIds: string[] = [];
-  if (isApprovalResume) {
-    const lastMessage = messages[messages.length - 1];
-    try {
-      previousRunIds = await claimToolApproval(chat.id, lastMessage);
-    } catch (claimError) {
-      // A validation refusal must not consume the pending approval. A claim
-      // that lost the race is the opposite case: the row already holds another
-      // request's decision, and releasing it would hand the same approval back
-      // as pending while that request is executing the tool, so the user could
-      // approve — and replay — the same side effect.
-      if (claimError instanceof ApiError && claimError.code === "VALIDATION_ERROR") {
-        await releaseUnclaimedToolApproval(chat.id, lastMessage).catch(() => {});
-      }
-      throw claimError;
-    }
-  }
+  if (isApprovalResume && !options.deferApproval) previousRunIds = await claimChatApproval(chat.id, messages.at(-1)!);
 
   if (latestUserMessage && !isApprovalResume) {
     const userContent =
@@ -124,9 +110,18 @@ export async function prepareChatPersistence(input: ChatRequest) {
     ? await getRegenerationSnapshot(chat.id, latestUserMessage.id)
     : null;
 
-  return { chat, regenerationSnapshot, previousRunIds };
+  return { chat, regenerationSnapshot, previousRunIds, ...(isApprovalResume && options.deferApproval ? { approvalDeferred: true } : {}) };
 }
 export type ChatPersistence = Omit<Awaited<ReturnType<typeof prepareChatPersistence>>, "previousRunIds"> & { previousRunIds?: string[] };
+export async function claimChatApproval(chatId: string, message: UIMessage) {
+  try { return await claimToolApproval(chatId, message); }
+  catch (error) {
+    // Only a validation refusal before claiming may release a pending decision.
+    // A concurrent winner's claim must never be handed back for replay.
+    if (error instanceof ApiError && error.code === "VALIDATION_ERROR") await releaseUnclaimedToolApproval(chatId, message).catch(() => {});
+    throw error;
+  }
+}
 export async function persistChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; documentSources?: DocumentSource[]; documentDiagnostics?: DocumentDiagnostics; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean }) {
   const { input, conversation, responseMessage, isAborted, generationFailed } = params;
   const { latestUserMessage, modelRef } = input;
@@ -148,12 +143,14 @@ export async function persistChatResponse(params: { input: ChatRequest; conversa
     // tool: the next turn's request may need it, and it cannot be recovered
     // after the fact.
     const reasoning = getReasoningFromUIMessage(responseMessage);
+    const contextReport = contextReportSchema.safeParse((responseMessage.metadata as { contextBudget?: unknown } | undefined)?.contextBudget);
     const content =
       params.runId || toolItems.length > 0 || reasoning || (params.documentSources?.length && assistantText) || (params.documentDiagnostics && assistantText)
         ? encodePersistedAssistantToolMessage({
           type: "assistant-tool-message",
           text: assistantText,
           ...(reasoning ? { reasoning } : {}),
+          ...(contextReport.success ? { contextBudget: contextReport.data } : {}),
           // Recorded so the note about a tool this turn could not use survives a
           // reload and is stated once, instead of only existing in the model's
           // prose or only in the live stream.

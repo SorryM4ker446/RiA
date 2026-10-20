@@ -1,5 +1,9 @@
 # Test coverage and local validation
 
+For CI investigations, follow [Validating changes against GitHub Actions](ci-validation.md).
+It records toolchain pinning, clean installation, environment and concurrency
+requirements, diagnostic handling and the boundary between local and hosted results.
+
 Text-only answer replacements use a parameterized SQLite upsert that binds the
 complete body once and reuses `excluded.content` on conflict. Regression tests
 retain >32 MiB command hashes, concurrent identity and media/summary rollback,

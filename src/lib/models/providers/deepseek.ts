@@ -101,6 +101,7 @@ function normalizeRow(value: unknown): CatalogModel | null {
     // use the independent Search API through the application tool.
     providerSearch: row.id === "deepseek-v4-pro",
     contextLength: row.context_window ?? null,
+    maxOutputTokens: row.max_output_tokens ?? null,
     // The endpoint carries no price. Cost stays unknown until the user enters
     // a rate; a price scraped from a web page would not be a bill.
     pricing: {},

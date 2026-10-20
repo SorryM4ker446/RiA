@@ -115,3 +115,22 @@ test("a fallback resolves the selected provider adapter and accounts for both at
   assert.equal(rows.length, 2); assert.equal(rows[0].status, "error"); assert.equal(rows[1].status, "success");
   assert.equal(rows[1].modelProvider, "deepseek"); assert.equal(rows[1].fallback, true);
 });
+
+test("a smaller fallback rejects oversized context before submission and releases its model lease", { timeout: 5000 }, async () => {
+  const settings = await getModelPreferences();
+  const fallback = { providerId: "deepseek" as const, modelId: "deepseek-small-context" };
+  settings.library.push({ ...settings.library[0], ...fallback, modes: ["chat"], contextLength: 4096 });
+  settings.chat.fallback = fallback;
+  // Library membership is authoritative and is not overwritten by preference updates.
+  await db.workspacePreference.update({ where: { id: "local" }, data: { settings } });
+  let primaryCalls = 0, fallbackCalls = 0;
+  const primary = new MockLanguageModelV3({ doStream: async () => { primaryCalls++; throw Object.assign(new Error("unavailable"), { statusCode: 503 }); } });
+  const backup = new MockLanguageModelV3({ doStream: async () => { fallbackCalls++; throw new Error("must not submit"); } });
+  const observed = observeLanguageModel(primary, CHAT_MODEL_REF, () => backup);
+  await assert.rejects(async () => observed.doStream({ prompt: [{ role: "user", content: [{ type: "text", text: "x".repeat(6000) }] }] }), { code: "CONTEXT_LIMIT" });
+  assert.equal(primaryCalls, 1); assert.equal(fallbackCalls, 0);
+  assert.equal(await db.modelRequest.count({ where: { status: "pending" } }), 0);
+  assert.equal(await db.modelRequest.count(), 1);
+  const { removeModel } = await import("@/lib/models/preferences");
+  await removeModel(fallback);
+});

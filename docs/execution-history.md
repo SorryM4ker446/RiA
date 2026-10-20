@@ -26,6 +26,10 @@ reuse this formatter, prioritizing recent calls over long command prefixes.
 Saved messages, existing summaries and active approval payloads are preserved;
 historical records never authorize another execution.
 
+Model-aware budgets and task handoffs now control long tool loops. See
+[context capacity and task compaction](context-management.md) for configuration,
+failure behavior, compatibility and remaining long-task limits.
+
 ## Chat tool details
 
 Chat execution records use one tool-call list for live messages, saved full

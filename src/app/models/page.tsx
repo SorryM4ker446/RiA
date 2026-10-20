@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { CatalogResults } from "@/features/models/catalog-results";
+import { ContextSettings } from "@/features/models/context-settings";
 import { UsageHistory, sourceNames, type UsageRow } from "@/features/models/usage-history";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -224,6 +225,7 @@ export default function ModelsPage() {
           <p className="text-muted-foreground">{embeddings.stale > 0 ? tf("models.embeddingStale", { count: embeddings.stale }) : t("models.embeddingStaleNone")}</p>
           <Button disabled={busy || embeddings.stale === 0 || !embeddings.embedding} onClick={() => void run(rebuildEmbeddings)} variant="outline">{t("models.embeddingReindex")}</Button>
         </div>}
+        <ContextSettings settings={settings} busy={busy} onChange={setSettings} />
         <fieldset className="space-y-3 rounded-lg bg-background p-3 shadow-hairline">
           <legend className="text-sm font-medium">{t("ui.models.modelCallLimits")}</legend>
           <p className="text-xs text-muted-foreground">{t("ui.models.backgroundCallsIncludeHistorySummariesAnd")}</p>

@@ -22,7 +22,8 @@ async function storedTerminalStates(page: Page, chatId: string) {
 
 type App = Awaited<ReturnType<typeof startStandaloneServer>> & { folder: string };
 const test = base.extend<{ app: App }>({ app: async ({}, provide) => {
-  const runtime = await startStandaloneServer({ modelFixture: true });
+  // Multi-megabyte approval transport is exercised with a synthetic model large enough to accept it.
+  const runtime = await startStandaloneServer({ modelFixture: true, modelContextLength: 16_000_000 });
   const folder = realpathSync.native(mkdtempSync(join(tmpdir(), "ria-terminal-browser-")));
   try { await provide({ ...runtime, folder }); } finally {
     await runtime.close();
@@ -213,6 +214,7 @@ test("full access executes without approval, keeps live output and stop controls
   await openExecutionDetails(page);
   await expect(page.getByLabel("终端输出", { exact: true })).toContainText("terminal-ready-你好");
   await expect(page.getByRole("region", { name: "操作审批", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "停止命令", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "停止命令", exact: true }).click();
   await expect(page.getByText("已停止", { exact: true })).toBeVisible();
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
