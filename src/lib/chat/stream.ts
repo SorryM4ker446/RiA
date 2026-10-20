@@ -65,8 +65,6 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
   let generationFailed = false;
   const runId = params.runId ?? null;
   const runIds = [...new Set([...(conversation.previousRunIds ?? []), ...(runId ? [runId] : [])])];
-  // Read once, before the first request: the ceiling is a property of the run,
-  // and asking the database between every step would put a query in the hot path.
   const stepCeiling = await runStepCeiling(runId);
 
   /**
@@ -108,17 +106,9 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
         tools,
       }
       : {}),
-    /*
-     * Two conditions, and the second is the one that was missing.
-     *
-     * The step ceiling is the run row's own budget, so the limit the user was
-     * shown is the limit that binds; the absolute ceiling is a backstop, not the
-     * rule. The second condition asks the run whether it still has room: without
-     * it a stopped or over-budget run stopped taking tool steps but kept issuing
-     * provider requests, because the refusal came back as an ordinary tool result
-     * the SDK counted as a completed step.
-     */
-    stopWhen: [stepCountIs(stepCeiling), async () => !(await runStillAllowsStep(runId))],
+    // An explicit stop condition also replaces the SDK's default one-step cap.
+    // Historical bounded runs keep their recorded ceiling; new runs have none.
+    stopWhen: [...(stepCeiling !== null ? [stepCountIs(stepCeiling)] : []), async () => !(await runStillAllowsStep(runId))],
     onError: () => { generationFailed = true; },
     onFinish: async ({ model, finishReason, totalUsage, response }) => {
       if (finishReason === "error") generationFailed = true;

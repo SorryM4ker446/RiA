@@ -11,7 +11,7 @@ import { encodedPowerShellCommand } from "./powershell";
 import { captureFileSnapshot, compareFileSnapshots } from "./file-changes";
 import { TERMINAL_LIMITS, terminalInputSchema, terminalRuntimeAllowed, type TerminalInput, type TerminalSessionView } from "./schema";
 
-type Session = { view: TerminalSessionView; runId?: string | null; stop: (reason?: "stopped" | "timed-out") => void };
+type Session = { view: TerminalSessionView; runId?: string | null; stop: () => void };
 const state = globalThis as typeof globalThis & { __riaTerminalSessions?: Map<string, Session> };
 const sessions = () => state.__riaTerminalSessions ??= new Map();
 const refuse = (message: string) => new ApiError({ code: "FORBIDDEN", message });
@@ -82,11 +82,11 @@ export async function runTerminalCommand(raw: TerminalInput, signal?: AbortSigna
   if (sessions().has(binding.sessionId)) throw new ApiError({ code: "CONFLICT", message: "此终端命令已经执行，请重新提出命令。" });
   if ([...sessions().values()].filter(session => session.view.status === "running").length >= TERMINAL_LIMITS.concurrent) throw new ApiError({ code: "RATE_LIMITED", message: "最多同时运行两个终端命令，请等待或停止现有命令。" });
   let child: ChildProcess | undefined;
-  let stopping: "stopped" | "timed-out" | null = null;
+  let stopping: "stopped" | null = null;
   const view: TerminalSessionView = { id: binding.sessionId, grantId: input.grantId, command: input.command, cwd: binding.cwd, shell: process.platform === "win32" ? "Windows PowerShell" : "sh (test)", status: "running", stdout: "", stderr: "", truncated: false, exitCode: null, startedAt: new Date().toISOString(), finishedAt: null };
-  const stop = (reason: "stopped" | "timed-out" = "stopped") => {
+  const stop = () => {
     if (view.status !== "running" || stopping) return;
-    stopping = reason;
+    stopping = "stopped";
     if (!child?.pid) return;
     if (process.platform === "win32") { if (child.exitCode === null && child.signalCode === null) child.kill(); }
     else { try { process.kill(-child.pid, "SIGKILL"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; } }
@@ -94,22 +94,17 @@ export async function runTerminalCommand(raw: TerminalInput, signal?: AbortSigna
   sessions().set(view.id, { view, stop, runId });
   const abort = () => stop();
   signal?.addEventListener("abort", abort, { once: true });
-  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const grant = await terminalGrant(input.grantId);
     if (grant.realPath !== binding.cwd || grant.updatedAt.toISOString() !== binding.revision) throw refuse("终端授权或工作目录已变化，请重新提出并确认命令。");
     const run = runId ? await db.agentRun.findUnique({ where: { id: runId } }) : null;
     if (runId && (!run || !["running", "waiting_approval"].includes(run.status))) stopping = "stopped";
-    const commandDeadline = Math.min(Date.now() + input.timeoutSeconds * 1000, run ? run.startedAt.getTime() + run.deadlineMs : Infinity);
-    const remainingMs = commandDeadline - Date.now();
-    if (remainingMs <= 0) stopping = "timed-out";
     if (signal?.aborted || stopping) {
       view.status = stopping ?? "stopped";
       view.finishedAt = new Date().toISOString();
       return { ...view };
     }
-    const beforeFiles = await captureFileSnapshot(grant.realPath, commandDeadline);
-    if (Date.now() >= commandDeadline) stopping = "timed-out";
+    const beforeFiles = await captureFileSnapshot(grant.realPath);
     if (signal?.aborted || stopping) {
       view.status = stopping ?? "stopped";
       return { ...view, finishedAt: new Date().toISOString() };
@@ -124,7 +119,6 @@ export async function runTerminalCommand(raw: TerminalInput, signal?: AbortSigna
       // The test shell must not leave background children holding output pipes.
       try { process.kill(-child!.pid!, "SIGKILL"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") console.error("terminal.cleanup.failed"); }
     });
-    timer = setTimeout(() => stop("timed-out"), Math.max(0, commandDeadline - Date.now()));
     let outputBytes = 0;
     const append = (field: "stdout" | "stderr", text: string) => {
       const clean = stripVTControlCharacters(text).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
@@ -151,7 +145,6 @@ export async function runTerminalCommand(raw: TerminalInput, signal?: AbortSigna
     append("stdout", stdout.end()); append("stderr", stderr.end());
     view.exitCode = exitCode;
     view.status = stopping ?? (exitCode === 0 ? "completed" : "failed");
-    if (timer) clearTimeout(timer);
     try {
       const currentGrant = await db.directoryGrant.findUnique({ where: { id: input.grantId } });
       view.fileChanges = currentGrant && !currentGrant.revokedAt && currentGrant.terminalEnabled && currentGrant.updatedAt.toISOString() === binding.revision
@@ -165,7 +158,6 @@ export async function runTerminalCommand(raw: TerminalInput, signal?: AbortSigna
     view.status = stopping ?? "failed";
     throw error;
   } finally {
-    if (timer) clearTimeout(timer);
     signal?.removeEventListener("abort", abort);
     if (view.status === "running") view.status = stopping ?? "failed";
     view.finishedAt = new Date().toISOString();

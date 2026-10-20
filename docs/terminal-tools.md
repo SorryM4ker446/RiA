@@ -18,7 +18,7 @@ and execution records as other chat tools. It is unavailable in the web runtime.
 3. In a conversation with a model that supports tools, ask for a command, for
    example: “在已授权的项目目录运行 `Get-ChildItem`，列出文件并解释结果。”
 4. In **审批** mode, review the compact approval card above the **文件权限 / 执行记录** toolbar. Its default view shows the operation, canonical working directory and approve/reject controls. Choose **查看详情** to expand the exact command in a bounded scroll area, then **收起详情** to collapse it. Expansion follows the shared motion tokens and respects reduced motion. **执行详情** opens the corresponding execution record; full commands, inputs, outputs, status, sources and diagnostics remain there. Execution records do not open automatically. Each call needs its own decision; queued approvals are presented one at a time and each new item starts collapsed. In **完全访问** mode execution starts automatically and the same execution records remain available.
-5. Open **执行详情** to see the timeout, live stdout, stderr and the exit code. Use
+5. Open **执行详情** to see live stdout, stderr and the exit code. Use
    **停止命令** to stop a long command. Stopping the chat request, cancelling its
    execution record, changing terminal mode, disabling permission or revoking the folder also
    stops the associated command.
@@ -72,9 +72,12 @@ avoiding Windows length limits. The chat endpoint has no request-body byte limit
 including approval continuations and later messages carrying terminal history.
 It bypasses Proxy's bounded body clone and authenticates in the route before
 reading the body. Other endpoints retain their existing request limits. Model
-context/output capacity and available machine memory still apply. The configured
-timeout is 1–600 seconds (default 120); the remaining
-execution-run deadline can shorten it. At most two commands run concurrently.
+context/output capacity and available machine memory still apply. The
+terminal command has no automatic time limit. New execution stages also have no
+step-count, failure-count or aggregate duration cap. A command ends when its
+process exits, the user stops it, the request is cancelled or permission is
+revoked. Old `timeoutSeconds` approval fields remain readable but are ignored.
+At most two commands run concurrently.
 Combined captured output is limited to 64 KiB and is explicitly marked when
 truncated. Output and command text are saved with the chat and sent to its model.
 Terminal results are not automatically saved as knowledge or memory.

@@ -167,11 +167,10 @@ model AgentRun {
   // What the turn was for, in the user's own words where possible.
   goal         String
   status       String   @default("running")
-  // Bounded by default. A run that could loop forever is a cost incident, not
-  // a feature; each of these is enforced rather than hoped for.
-  maxSteps     Int      @default(8)
-  maxFailures  Int      @default(2)
-  deadlineMs   Int      @default(120000)
+  // Null limits leave new runs unbounded; historical budgets stay recorded.
+  maxSteps     Int?
+  maxFailures  Int?
+  deadlineMs   Int?
   maxCostUsd   Float?
   spentCostUsd Float    @default(0)
   stopReason   String?

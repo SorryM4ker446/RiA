@@ -262,7 +262,7 @@ export function RunRecords({ activeChatId, refreshKey, messages, open, onOpenCha
                         <summary><ChevronRight aria-hidden="true" />调试信息</summary>
                         <div className="flex flex-col gap-2 pb-2 leading-5">
                           {entry.stages > 1 ? <p>当前列表合并了 {entry.stages} 个执行阶段，以下为最近阶段的限制。</p> : null}
-                          <p>{`${t("chat.run.budget")}: ${run.budget.maxSteps} ${t("chat.run.steps")} / ${Math.round(run.budget.deadlineMs / 1000)}s / ${run.budget.maxFailures} ${t("runs.failures")}`}</p>
+                          <p>{`${t("chat.run.budget")}: ${run.budget.maxSteps === null ? "步骤不限" : `${run.budget.maxSteps} ${t("chat.run.steps")}`} / ${run.budget.deadlineMs === null ? "无总时限" : `${Math.round(run.budget.deadlineMs / 1000)}s`} / ${run.budget.maxFailures === null ? "失败次数不限" : `${run.budget.maxFailures} ${t("runs.failures")}`}`}</p>
                           {run.status === "failed" || run.status === "paused" || run.status === "cancelled" ? <p>恢复前请核对已完成步骤。需要继续时，请重新发送请求；文件和工具写入仍需重新批准。</p> : null}
                           <a className="w-fit underline underline-offset-4" href="/api/diagnostics" download>导出脱敏诊断</a>
                         </div>

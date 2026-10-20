@@ -9,7 +9,8 @@ export const terminalBindingSchema = z.strictObject({
 export const terminalInputSchema = z.strictObject({
   grantId: z.string().min(1).max(200).describe("ID of a folder explicitly enabled for terminal commands."),
   command: z.string().trim().min(1).refine(value => !value.includes("\0"), "NUL is not allowed").describe("Complete Windows PowerShell command or script. Approval follows the folder's terminal approval mode. No interactive input is available."),
-  timeoutSeconds: z.number().int().min(1).max(600).default(120).describe("Execution deadline, including shell startup; at most 600 seconds."),
+  // Accepted only to restore old approval payloads; no longer enforced.
+  timeoutSeconds: z.number().int().min(1).optional(),
   binding: terminalBindingSchema.optional(),
 });
 export type TerminalInput = z.infer<typeof terminalInputSchema>;

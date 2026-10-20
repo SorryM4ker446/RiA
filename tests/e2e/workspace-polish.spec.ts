@@ -191,7 +191,7 @@ for (const narrow of [false, true]) {
     await page.route("**/api/models", route => route.fulfill({ json: modelsRouteFixture([fixtureLibraryItem("fixture/chat", ["chat"])], { chat: "fixture/chat" }) }));
     await page.route("**/api/conversations", route => route.fulfill({ json: { data: [{ id: "runs", title: "执行记录布局", messageCount: 2, lastMessageAt: new Date().toISOString() }] } }));
     await page.route("**/api/conversations/*/messages", route => route.fulfill({ json: { data: [{ id: "alignment", role: "assistant", content: "正文与输入框保持同一中线。".repeat(100) }] } }));
-    const runs = Array.from({ length: 10 }, (_, i) => ({ id: `run-${i}`, goal: `${i + 1}：检查一段很长的执行记录标题与详细步骤。`.repeat(4), status: "succeeded", budget: { maxSteps: 8, maxFailures: 2, deadlineMs: 120000, maxCostUsd: null }, stopReason: null, steps: [{ id: `step-${i}`, position: 1, kind: "tool", toolName: "searchKnowledge", state: "done", errorCode: null }] }));
+    const runs = Array.from({ length: 10 }, (_, i) => ({ id: `run-${i}`, goal: `${i + 1}：检查一段很长的执行记录标题与详细步骤。`.repeat(4), status: "succeeded", budget: { maxSteps: i === 0 ? null : 8, maxFailures: i === 0 ? null : 2, deadlineMs: i === 0 ? null : 120000, maxCostUsd: null }, stopReason: null, steps: [{ id: `step-${i}`, position: 1, kind: "tool", toolName: "searchKnowledge", state: "done", errorCode: null }] }));
     await page.route("**/api/conversations/*/runs?*", route => route.fulfill({ json: { data: new URL(route.request().url()).searchParams.has("runId") ? null : runs } }));
     await page.route("**/api/tasks**", route => route.fulfill({ json: { data: [] } }));
     await page.route("**/api/tools?*", route => route.fulfill({ json: { data: [] } }));
@@ -222,8 +222,9 @@ for (const narrow of [false, true]) {
     await expect(drawer.getByTestId("run-full-goal").first()).toHaveText(runs[0].goal);
     await expect(drawer.getByTestId("run-full-goal").first()).toBeVisible();
     await expect(drawer.getByText("searchKnowledge", { exact: true }).first()).toBeVisible();
-    await expect(drawer.getByText(/^预算:/)).not.toBeVisible();
+    await expect(drawer.getByText("上限: 步骤不限 / 无总时限 / 失败次数不限", { exact: true })).not.toBeVisible();
     await drawer.getByText("调试信息", { exact: true }).first().click();
+    await expect(drawer.getByText("上限: 步骤不限 / 无总时限 / 失败次数不限", { exact: true })).toBeVisible();
     await expect(drawer.getByRole("link", { name: "导出脱敏诊断" }).first()).toBeVisible();
     await page.screenshot({ path: join(tmpdir(), `ria-run-records-${narrow ? "mobile" : "desktop"}.png`), animations: "disabled" });
     await firstRun.click();

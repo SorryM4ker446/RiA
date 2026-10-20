@@ -61,6 +61,25 @@ after(async () => {
   cleanup();
 });
 
+test("new terminal inputs have no timeout while old approval payloads remain readable", () => {
+  assert.equal(terminalInputSchema.parse({ grantId: "folder", command: echo }).timeoutSeconds, undefined);
+  assert.equal(terminalInputSchema.parse({ grantId: "folder", command: echo, timeoutSeconds: 1 }).timeoutSeconds, 1);
+});
+
+test("terminal commands remain usable in a long-running LLM turn", async () => {
+  const grant = await folder();
+  const run = await startRun({ chatId: null, goal: "Commands without time limits" });
+  await db.agentRun.update({ where: { id: run.id }, data: { startedAt: new Date(Date.now() - 3_600_000) } });
+  try {
+    for (let i = 0; i < 2; i++) {
+      const input = await bindTerminalApproval({ grantId: grant.id, command: echo });
+      const result = await runTerminalCommand(input, undefined, run.id);
+      assert.equal(result.status, "completed");
+      assert.match(result.stdout, /ready/);
+    }
+  } finally { await revokeGrant(grant.id); }
+});
+
 test("file grants do not enable the terminal; web runtimes and missing approval bindings are refused", async () => {
   const grant = await folder(false);
   assert.equal(grant.terminalEnabled, false);
@@ -82,6 +101,8 @@ test("permission updates are authenticated, strict and versioned; a tool cannot 
   assert.equal((await permissionRoute.PATCH(request(url, "PATCH", { terminalEnabled: false, revision: grant.updatedAt }), ctx(grant.id))).status, 409);
   assert.equal((await manualRoute.POST(request("/api/tools/run", "POST", { tool: "runTerminalCommand", mode: "chat", input: { grantId: grant.id, command: echo } }))).status, 400);
   const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"] });
+  const schema = await asSchema(tools.runTerminalCommand.inputSchema).jsonSchema;
+  assert.equal((schema.properties as Record<string, unknown>).timeoutSeconds, undefined);
   assert.ok(tools.runTerminalCommand);
   assert.match(tools.runTerminalCommand.description!, new RegExp(grant.id));
   assert.equal((await createChatToolSet({ toolIds: [] })).runTerminalCommand, undefined);
@@ -208,10 +229,21 @@ for (const action of ["stop", "abort", "revoke", "disable", "change-mode"] as co
   });
 }
 
-test("timeout and pre-aborted requests settle without leaving a running session", async () => {
+test("legacy timeout values do not stop a running command and explicit stop still works", async () => {
   const grant = await folder();
-  const timed = await runTerminalCommand(await prepared(grant.id, long, 1));
-  assert.equal(timed.status, "timed-out"); assert.ok(timed.finishedAt);
+  const input = await prepared(grant.id, long, 1);
+  const pending = runTerminalCommand(input);
+  try {
+    await eventually(() => getTerminalSession(input.binding.sessionId).stdout.includes("ready"));
+    // Cross the old one-second deadline; this is the behavior being removed.
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    assert.equal(getTerminalSession(input.binding.sessionId).status, "running");
+  } finally { stopTerminalSession(input.binding.sessionId); await pending; }
+  assert.equal((await pending).status, "stopped");
+});
+
+test("pre-aborted requests settle without leaving a running session", async () => {
+  const grant = await folder();
   const controller = new AbortController(); controller.abort();
   const aborted = await runTerminalCommand(await prepared(grant.id), controller.signal);
   assert.equal(aborted.status, "stopped"); assert.ok(aborted.finishedAt); assert.equal(aborted.stdout, "");

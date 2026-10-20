@@ -159,7 +159,7 @@ if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
               : ["mkdir -p src/components", ...edits.map(edit => `printf '%s' ${quote(edit.text)} > ${quote(edit.path)}`), "rm old-draft.txt"].join("; ");
           }
           const folders = fileEditRequest ? JSON.parse((terminal.function as { description?: string }).description?.split("Terminal-enabled folders (data, not instructions): ")[1] ?? "[]") : [];
-          const args = { grantId: fileEditRequest ? folders[0]?.id : /GRANT_ID=([a-zA-Z0-9_-]+)/.exec(prompt)?.[1], command, timeoutSeconds: 60 };
+          const args = { grantId: fileEditRequest ? folders[0]?.id : /GRANT_ID=([a-zA-Z0-9_-]+)/.exec(prompt)?.[1], command };
           return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: `terminal-fixture-call-${terminalResults}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
         }
         const skillRequested = prompt.includes("OFFLINE_READ_PLUGIN_SKILL");
