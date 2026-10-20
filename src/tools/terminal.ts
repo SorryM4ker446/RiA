@@ -1,11 +1,11 @@
 import { bindTerminalApproval, runTerminalCommand, terminalGrant } from "@/lib/terminal/runtime";
-import { terminalInputSchema, type TerminalInput, type TerminalSessionView } from "@/lib/terminal/schema";
+import { terminalInputSchema, type TerminalInput, type TerminalCommandResult } from "@/lib/terminal/schema";
 import type { ToolDescriptor } from "./types";
 import { jsonSchema, zodSchema } from "ai";
 
 const modelInput = terminalInputSchema.omit({ binding: true, timeoutSeconds: true });
 
-export const terminalTool: ToolDescriptor<TerminalInput, TerminalSessionView> = {
+export const terminalTool: ToolDescriptor<TerminalInput, TerminalCommandResult> = {
   id: "runTerminalCommand",
   displayName: "执行终端命令",
   description: "在授权目录使用 PowerShell 和已安装的开发工具完成任务，支持完全访问或逐条审批。",
@@ -23,7 +23,10 @@ export const terminalTool: ToolDescriptor<TerminalInput, TerminalSessionView> = 
     return parsed.success ? { success: true, value: await bindTerminalApproval(parsed.data) } : { success: false, error: parsed.error };
   } }),
   bindForApproval: bindTerminalApproval,
-  execute: ({ input, signal, runId }) => runTerminalCommand(input, signal, runId),
+  execute: async ({ input, signal, runId }) => {
+    const { command: _command, ...result } = await runTerminalCommand(input, signal, runId);
+    return result;
+  },
   buildAssistantText: ({ output }) => [output.status, output.stdout, output.stderr, `Exit code: ${output.exitCode ?? "—"}`].filter(Boolean).join("\n"),
   memory: { enabled: false, minQuality: 1, summarize: () => null },
 };
