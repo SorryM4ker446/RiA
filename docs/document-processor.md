@@ -1,17 +1,24 @@
 # Document processing and export
 
-Open **资料 → 文档处理器** to process a local file, select a knowledge-library
-document or start a new draft. The workspace accepts PDF, Word `.docx`, UTF-8
-Markdown and TXT. It reuses the bounded local extraction worker: up to 8 MiB,
-200 PDF pages and 100,000 extracted characters, with a 30-second parse deadline.
+Open **知识库 → 文档详情** to read a document, choose **导出** for a format,
+or choose **编辑副本** to revise extracted content before downloading it.
+Knowledge import accepts PDF, Word `.docx`, UTF-8 Markdown and TXT. It uses
+the bounded local extraction worker: up to 8 MiB, 200 PDF pages and 100,000
+extracted characters, with a 30-second parse deadline.
 Corrupt, encrypted, scanned-only and oversized documents fail visibly. OCR and
 legacy `.doc` are not supported.
 
-Processing a local file does not import it into the knowledge library, call a
-model or retain its original bytes. The editable draft lives in the current
-page; download it before leaving. Replacing an edited draft requires confirmation.
-Failure and cancellation preserve the current draft; an obsolete parse cannot
-overwrite newer edits.
+The detail page defaults to original-text reading with two compact actions.
+Editing reveals content/preview tabs; filename and content-type settings remain
+collapsed under **导出选项**. The editable copy lives only in the current page;
+download it before leaving. It does not update the stored document, search index
+or citations, and requires no model call. Returning to the original retains the
+copy until navigation. Failure and cancellation preserve edits; an obsolete source
+read cannot overwrite a newer copy. Citation anchors return to original text.
+
+The independent document-processor navigation entry and workspace are removed.
+Existing `/document-processor` links redirect to the knowledge library; links
+with a `document` parameter redirect to that document's detail page.
 
 ## Conversion and preview
 
@@ -21,9 +28,11 @@ Word uploads escape literal symbols while retaining extracted heading/list/table
 structure; existing knowledge documents use their already extracted text.
 Review that representation and change the content type when needed.
 
-Exports are generated on demand as Markdown, TXT, HTML or Word `.docx` and
-download the current edited content. Markdown preserves Markdown source; plain
-text exported to Markdown escapes formatting punctuation. TXT renders Markdown
+Exports are generated on demand as Markdown, TXT, HTML or Word `.docx`.
+**导出** downloads the displayed source version, refusing changed/deleted sources.
+**导出副本** downloads current edits without changing the knowledge document.
+Markdown preserves Markdown source; plain text exported to Markdown escapes
+formatting punctuation. TXT renders Markdown
 structure as readable text and tab-separated table rows. Word includes A4 page
 settings, heading styles, emphasis, real numbered/bulleted lists, code paragraphs
 and table headers/cells. HTML includes standalone document styling and UTF-8.
@@ -62,13 +71,13 @@ returns to automatic tools on success, without changing which tools the model
 can use in subsequent chat. Failure retains the selected document and format.
 They do not read arbitrary filesystem paths, write files to granted folders or
 upload content. File saving happens when the user clicks download. Model-assisted
-chat remains subject to normal provider usage; standalone document processing
-requires no model key.
+chat remains subject to normal provider usage; editing and export in document
+details require no model key.
 
 Downloads in chat survive service restart while that source version exists. A
 changed source returns 409 and requires a fresh conversion; a deleted source
 returns 404. Download errors stay in chat instead of saving an error response as
-a Word file. Knowledge document detail pages link directly to the processor.
+a Word file. Document details provide the same formats directly.
 
 ## Local API
 
@@ -90,7 +99,8 @@ also uses the existing tool quota. There are no automatic conversion retries.
 Server regressions exercise real PDF/Word extraction and DOCX read-back, Unicode,
 literal markup, table cell relationships, invalid/oversized files, cancellation,
 authentication, quotas, scoped tools and version changes. Production-renderer
-tests cover all four downloads, the isolated preview, a narrow window, failure
+tests cover all four copy downloads, version-bound original downloads, the isolated
+preview, compact narrow layouts, legacy redirects, citation navigation, failure
 recovery, obsolete responses and chat downloads across restart.
 Electron smoke also downloads a Word file through the actual renderer's blob
 download, then submits those bytes to the parser to verify retained table values.

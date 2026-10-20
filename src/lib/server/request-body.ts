@@ -1,9 +1,9 @@
 import { ApiError } from "@/lib/server/api-error";
 import { MEDIA_LIMITS } from "@/lib/media/limits";
 
-export async function readLimitedBody(request: Request, limit: number): Promise<Uint8Array<ArrayBuffer>> {
+export async function readLimitedBody(request: Request, limit: number | null): Promise<Uint8Array<ArrayBuffer>> {
   const declared = request.headers.get("content-length");
-  if (declared && Number(declared) > limit) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: "Request body is too large" });
+  if (limit !== null && declared && Number(declared) > limit) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: "Request body is too large" });
   const reader = request.body?.getReader();
   if (!reader) return new Uint8Array();
   const chunks: Uint8Array[] = [];
@@ -13,7 +13,7 @@ export async function readLimitedBody(request: Request, limit: number): Promise<
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > limit) {
+      if (limit !== null && size > limit) {
         await reader.cancel();
         throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: "Request body is too large" });
       }
@@ -47,7 +47,8 @@ function parseJsonBytes(bytes: Uint8Array): unknown {
   return value;
 }
 
-export async function readJsonBody(request: Request, limit: number = MEDIA_LIMITS.jsonBodyBytes): Promise<unknown> {
+/** A null limit reads the complete body without imposing a byte limit. */
+export async function readJsonBody(request: Request, limit: number | null = MEDIA_LIMITS.jsonBodyBytes): Promise<unknown> {
   assertJsonContentType(request);
   return parseJsonBytes(await readLimitedBody(request, limit));
 }

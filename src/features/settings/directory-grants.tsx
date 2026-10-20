@@ -8,7 +8,9 @@ import { SettingsSection } from "@/features/settings/settings-section";
 import { Input } from "@/components/ui/input";
 import { t } from "@/lib/locale";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import { Field, FieldLabel } from "@/components/ui/field";
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { TerminalApprovalMode } from "@/lib/terminal/schema";
 import { cn } from "@/lib/utils/cn";
 
 type GrantRow = {
@@ -17,6 +19,7 @@ type GrantRow = {
   path: string;
   realPath: string;
   terminalEnabled: boolean;
+  terminalApprovalMode: TerminalApprovalMode;
   updatedAt: string;
   createdAt: string;
   lastUsedAt: string | null;
@@ -43,6 +46,7 @@ async function readError(response: Response): Promise<string> {
  */
 export function DirectoryGrantSettings({ embedded = false, onChange }: { embedded?: boolean; onChange?: () => void }) {
   const pathId = useId();
+  const modeId = useId();
   const loadRequest = useRef(0);
   const [grants, setGrants] = useState<GrantRow[]>([]);
   const [path, setPath] = useState("");
@@ -50,17 +54,18 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [terminalGrant, setTerminalGrant] = useState<GrantRow | null>(null);
+  const [terminalMode, setTerminalMode] = useState<TerminalApprovalMode>("approval");
   const [permissionSaving, setPermissionSaving] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const busy = saving || permissionSaving || choosing;
 
-  async function changeTerminal(grant: GrantRow, enabled: boolean) {
+  async function changeTerminal(grant: GrantRow, enabled: boolean, mode: TerminalApprovalMode = "approval") {
     setPermissionSaving(true);
     setError(null);
     try {
       const response = await fetch(`/api/directory-grants/${encodeURIComponent(grant.id)}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ terminalEnabled: enabled, revision: grant.updatedAt }),
+        body: JSON.stringify({ terminalEnabled: enabled, terminalApprovalMode: mode, revision: grant.updatedAt }),
       });
       if (!response.ok) throw new Error(await readError(response));
       setTerminalGrant(null);
@@ -188,10 +193,13 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
                 {/* A withdrawn folder is shown rather than offered: there is nothing left to withdraw. */}
                 {grant.revokedAt ? null : (
                   <div className="flex shrink-0 flex-wrap items-center gap-2">
-                  {typeof window !== "undefined" && window.privateAiDesktop ? <Button disabled={busy} onClick={() => grant.terminalEnabled ? void changeTerminal(grant, false) : setTerminalGrant(grant)} size="sm" type="button" variant="outline">
+                  {typeof window !== "undefined" && window.privateAiDesktop ? <>
+                  <Button disabled={busy} onClick={() => { setTerminalMode(grant.terminalApprovalMode); setTerminalGrant(grant); }} size="sm" type="button" variant="outline">
                     <Terminal aria-hidden="true" data-icon="inline-start" />
-                    {grant.terminalEnabled ? "关闭终端" : "开启终端"}
-                  </Button> : null}
+                    {grant.terminalEnabled ? `终端：${grant.terminalApprovalMode === "full-access" ? "完全访问" : "审批"}` : "开启终端"}
+                  </Button>
+                  {grant.terminalEnabled ? <Button disabled={busy} onClick={() => void changeTerminal(grant, false)} size="sm" type="button" variant="outline">关闭终端</Button> : null}
+                  </> : null}
                   <Button disabled={busy} onClick={() => void revoke(grant.id)} size="sm" type="button" variant="outline">
                     <ShieldOff aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
                     {t("settings.grants.revoke")}
@@ -230,25 +238,38 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
       </div>
   );
   return <>
-      {embedded ? content : <SettingsSection title={<><FolderOpen aria-hidden="true" className="size-4 text-muted-foreground" />{t("settings.grants.title")}</>} description="只授权你需要的目录。终端权限单独开启，每条命令仍需人工批准。">
+      {embedded ? content : <SettingsSection title={<><FolderOpen aria-hidden="true" className="size-4 text-muted-foreground" />{t("settings.grants.title")}</>} description="只授权你需要的目录。终端权限单独开启，可选择完全访问或逐条审批。">
         <div className="flex flex-col gap-4">{content}</div>
       </SettingsSection>}
       <Sheet open={!!terminalGrant} onOpenChange={open => { if (!open && !permissionSaving) setTerminalGrant(null); }}>
         <SheetContent side="right" className="directory-permissions-sheet flex flex-col gap-5 overflow-y-auto p-6">
-          <SheetTitle>开启终端权限</SheetTitle>
-          <SheetDescription>允许 RiA 在此目录读取、搜索、新建、编辑、复制、移动和删除文件，并执行开发命令。每条命令仍需你确认。</SheetDescription>
+          <SheetTitle>{terminalGrant?.terminalEnabled ? "终端权限" : "开启终端权限"}</SheetTitle>
+          <SheetDescription>允许 RiA 在此目录读取、搜索、新建、编辑、复制、移动和删除文件，并执行开发命令。选择命令的审批方式。</SheetDescription>
           <p className="break-all font-mono text-xs">{terminalGrant?.realPath}</p>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor={modeId}>终端模式</FieldLabel>
+              <Select value={terminalMode} disabled={permissionSaving} onValueChange={value => setTerminalMode(value as TerminalApprovalMode)}>
+                <SelectTrigger id={modeId} aria-describedby={`${modeId}-description`}><SelectValue /></SelectTrigger>
+                <SelectContent><SelectGroup>
+                  <SelectItem value="approval">审批</SelectItem>
+                  <SelectItem value="full-access">完全访问</SelectItem>
+                </SelectGroup></SelectContent>
+              </Select>
+              <FieldDescription id={`${modeId}-description`}>{terminalMode === "full-access" ? "LLM 的终端操作自动执行，无需逐条批准。" : "LLM 每次调用终端工具都需要你批准，拒绝则不执行。"}</FieldDescription>
+            </Field>
+          </FieldGroup>
           <Alert>
             <Terminal aria-hidden="true" />
             <AlertTitle>命令以当前 Windows 用户身份运行</AlertTitle>
-            <AlertDescription>工作目录不是文件访问沙箱。命令可能修改目录外的文件、访问网络或启动程序；原有文件工具的路径限制不适用于终端。关闭权限会停止此目录正在运行的命令。</AlertDescription>
+            <AlertDescription>工作目录不是文件访问沙箱。命令可能修改目录外的文件、访问网络或启动程序；原有文件工具的路径限制不适用于终端。切换模式或关闭权限会停止此目录正在运行的命令。</AlertDescription>
           </Alert>
           {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
           <div className="mt-auto flex justify-end gap-2">
             <Button disabled={permissionSaving} variant="outline" onClick={() => setTerminalGrant(null)}>取消</Button>
-            <Button disabled={permissionSaving || !terminalGrant} onClick={() => terminalGrant && void changeTerminal(terminalGrant, true)}>
+            <Button disabled={permissionSaving || !terminalGrant} onClick={() => terminalGrant && void changeTerminal(terminalGrant, true, terminalMode)}>
               {permissionSaving ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Terminal data-icon="inline-start" />}
-              确认开启终端权限
+              {terminalGrant?.terminalEnabled ? "保存终端权限" : "确认开启终端权限"}
             </Button>
           </div>
         </SheetContent>

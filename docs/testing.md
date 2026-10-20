@@ -56,15 +56,18 @@ The Browser plugin is unavailable; rendered checks use Playwright, with screensh
 outside the repository under temporary `ria-plugins-qa`. Existing CI globs include
 these tests. No dependency or workflow change is required.
 
-Document-processor tests cover PDF/Word/Markdown/TXT extraction without importing
-or calling a model, four download formats, DOCX read-back and literal symbols,
+Document-processing server tests cover PDF/Word/Markdown/TXT extraction without
+importing or calling a model, four download formats, DOCX read-back and literal symbols,
 scoped chat tools and obsolete source versions. Renderer cases check actual file
 downloads, isolated preview, narrow layouts, cancellation/stale responses, error
 recovery and tool-result downloads after restart. Screenshots and generated test
 files stay under the OS temporary directory (`ria-document-processor-qa`). The
-responsive regression checks that creating a draft is reachable in the first
-narrow viewport, editing precedes export settings, replacement can be declined,
-and dropdowns close on a second click without shifting their triggers. Light
+responsive regression checks that knowledge document details default to original
+reading with editing and export reachable in the first narrow viewport. Copy
+editing reveals tabs while export options stay collapsed. Legacy processor links
+redirect into knowledge; citation anchors return from editing to original text.
+Downloads distinguish the version-bound original from edited copies and leave
+stored text unchanged. Cancelled source reads cannot replace newer edits. Light
 themes, preview transitions and reduced-motion behavior are also exercised. The
 preview intentionally disallows scripts, including automation recorder injection;
 tests permit only that exact Chromium diagnostic and still require no script
@@ -567,3 +570,38 @@ plugin is unavailable; the repository Playwright harness provides verification.
 Test globs already include the new files; no additional CI secret, service,
 dependency or schema migration is required. Live search quality and account
 access require separate real-service validation.
+
+Terminal mode coverage in `tests/server/terminal.test.ts` verifies per-folder
+approval decisions, repeated approval, changes within an existing toolset,
+stale bindings, mode-change cancellation, invalid modes, resets on re-grant and
+complete Unicode scripts exceeding Windows environment limits. Backup tests
+verify full-access grants reset to approval on restore. Desktop migration tests
+verify existing grants keep approval and repeated startup preserves user choices.
+`tests/e2e/terminal.spec.ts` uses the offline model with real PowerShell to verify
+automatic execution, live output and stop controls, mode persistence across a
+service restart, mode changes through settings, approval of consecutive calls,
+long-script approval continuation and saved results without re-execution.
+Long-script fixtures exceed 2 MiB; browser tests measure the actual approval and
+follow-up request bodies and verify later history requests complete without
+re-executing commands. `tests/server/security.test.ts` verifies complete scripts
+in approved/rejected continuations and history, with and without Content-Length,
+and checks that only the chat route bypasses Proxy's body cloning. Other JSON
+limits, local credentials, origin checks and JSON shape validation remain covered.
+Desktop and narrow viewports use the repository Playwright harness because the
+Browser plugin is not available. Existing CI globs include these tests; the
+desktop migration chain carries the new default-approval column automatically.
+
+Edited-file coverage in `tests/server/terminal-file-changes.test.ts` executes
+real commands and checks created/modified/deleted files, same-size edits,
+read-only calls, failed and stopped writes, ignored dependencies/junctions,
+partial-observation semantics, multi-call merging and canonical file opening
+after permission and existence changes. `tests/desktop/open-local-file.test.ts`
+checks the native opener with an injected system-shell function, including
+missing files and default-application errors; it does not launch another app.
+The terminal browser suite verifies reply-end visibility, an approval pause,
+persisted rows after restart, click-through to a mocked desktop bridge, deleted
+files, lost permission and application-open failure/recovery. Its example images
+come from real fixture file edits in the built service, with desktop and narrow
+viewport captures outside the repository. Browser plugin not available; the
+repository Playwright harness is used. Existing test globs and desktop packaging
+include these files without a new dependency, service or schema migration.

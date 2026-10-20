@@ -47,7 +47,7 @@ Legacy `.doc`, encrypted documents and PDFs without searchable text are unsuppor
 
 - Chat attachments: PNG, JPEG, WebP, GIF, PDF and Word (`.docx`); no SVG or legacy `.doc`. Generation reference inputs remain image-only.
 - Up to 4 attachments, 8 MiB per file, 20 MiB combined. Video generation accepts one reference image.
-- Multipart requests: 21 MiB including framing; chat, generation, and message-write JSON: 2 MiB.
+- Multipart requests: 21 MiB including framing; generation and message-write JSON: 2 MiB. Chat JSON has no byte limit so terminal scripts, approvals and history can be sent in full; attachment count and file-size checks still apply.
 - Generated output: images up to 20 MiB, videos up to 100 MiB. Supported video containers are MP4/QuickTime with an `ftyp` header and WebM with an EBML header.
 - MIME types must match recognized file signatures. This is not a malware scan or complete media-decoder validation.
 - Document MIME types must agree with their filename extension and parse successfully. Missing/`application/octet-stream` document MIME hints are normalized by extension and then validated against the actual bytes. Documents also retain the parser's 200-page, 100,000-character, bounded-worker and timeout limits.

@@ -1,6 +1,6 @@
-import { DocumentWorkspace } from "@/features/document-processor/document-workspace";
+import { redirect } from "next/navigation";
 
 export default async function DocumentProcessorPage({ searchParams }: { searchParams: Promise<{ document?: string | string[] }> }) {
   const value = (await searchParams).document;
-  return <DocumentWorkspace initialDocumentId={typeof value === "string" ? value : undefined} />;
+  redirect(typeof value === "string" && value ? `/knowledge/documents/${encodeURIComponent(value)}` : "/knowledge");
 }

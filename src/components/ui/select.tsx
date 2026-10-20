@@ -168,6 +168,7 @@ const SelectItem = React.forwardRef<
 SelectItem.displayName = SelectPrimitive.Item.displayName;
 
 const EMPTY_OPTION = "__empty_option__";
+const SelectGroup = SelectPrimitive.Group;
 type SelectFieldProps = Omit<SelectTriggerProps, "value" | "onChange" | "children"> & {
   value?: string | number;
   defaultValue?: string;
@@ -187,4 +188,4 @@ export function SelectOption({ value, ...props }: Omit<React.ComponentPropsWitho
   return <SelectItem value={String(value) || EMPTY_OPTION} {...props} />;
 }
 
-export { Select, SelectContent, SelectItem, SelectTrigger, SelectValue };
+export { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue };

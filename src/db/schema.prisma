@@ -401,6 +401,7 @@ model DirectoryGrant {
   // catches such a swap.
   realPath  String @unique
   terminalEnabled Boolean @default(false)
+  terminalApprovalMode String @default("approval")
   createdAt DateTime  @default(now())
   lastUsedAt DateTime?
   revokedAt DateTime?

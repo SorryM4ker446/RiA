@@ -49,6 +49,7 @@ interface Window {
     ) => Promise<{ settings: DesktopSettingsView; restarting: boolean }>;
     chooseFolder: () => Promise<{ canceled: boolean; path: string }>;
     revealPath: (target: string) => Promise<{ revealed: boolean }>;
+    openFile: (target: string) => Promise<{ opened: boolean }>;
     quitToTray: () => Promise<{ quitting: boolean }>;
     showFromTray: () => Promise<{ shown: boolean }>;
     globalHotkey: string;

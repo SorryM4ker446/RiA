@@ -55,12 +55,13 @@ async function seed() {
 }
 
 test("portable restore revokes terminal permission without transporting directory grants", async () => {
-  const grant = await db.directoryGrant.create({ data: { label: "Synthetic", path: "fixture/terminal", realPath: "fixture/terminal", terminalEnabled: true } });
+  const grant = await db.directoryGrant.create({ data: { label: "Synthetic", path: "fixture/terminal", realPath: "fixture/terminal", terminalEnabled: true, terminalApprovalMode: "full-access" } });
   await seed();
   const backup = await exclusiveDataOperation(() => archive.createAccountBackup(false));
   await exclusiveDataOperation(() => restoreAccountBackup(backup.id));
   const restored = await db.directoryGrant.findUniqueOrThrow({ where: { id: grant.id } });
   assert.equal(restored.terminalEnabled, false);
+  assert.equal(restored.terminalApprovalMode, "approval");
   assert.ok(restored.revokedAt);
 });
 

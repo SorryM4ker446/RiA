@@ -56,11 +56,11 @@ export function encodedPowerShellCommand() {
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $OutputEncoding = [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+[Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
 try {
   Add-Type -TypeDefinition ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${source}')))
   [RiATerminalJob]::Attach(${process.pid})
-  $command = $env:RIA_TERMINAL_COMMAND
-  Remove-Item Env:RIA_TERMINAL_COMMAND
+  $command = [Console]::In.ReadToEnd()
   $global:LASTEXITCODE = 0
   & ([ScriptBlock]::Create($command))
   if (-not $?) { exit 1 }

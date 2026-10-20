@@ -9,6 +9,7 @@ import { t } from "@/lib/locale";
 import { z } from "zod";
 import { readJsonBody } from "@/lib/server/request-body";
 import { setTerminalPermission } from "@/lib/terminal/permissions";
+import { terminalApprovalModeSchema } from "@/lib/terminal/schema";
 
 type Params = {
   params: Promise<{ id: string }>;
@@ -46,9 +47,9 @@ async function PATCHHandler(req: NextRequest, context: Params) {
     if (!parsedId.success) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid id" });
     const id = parsedId.data;
     if (req.nextUrl.searchParams.size) throw new ApiError({ code: "VALIDATION_ERROR", message: "Unexpected query parameter" });
-    const parsed = z.strictObject({ terminalEnabled: z.boolean(), revision: z.iso.datetime() }).safeParse(await readJsonBody(req, 1024));
+    const parsed = z.strictObject({ terminalEnabled: z.boolean(), terminalApprovalMode: terminalApprovalModeSchema.default("approval"), revision: z.iso.datetime() }).safeParse(await readJsonBody(req, 1024));
     if (!parsed.success) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid terminal permission" });
-    await setTerminalPermission(id, parsed.data.terminalEnabled, parsed.data.revision);
+    await setTerminalPermission(id, parsed.data.terminalEnabled, parsed.data.revision, parsed.data.terminalApprovalMode);
     return Response.json({ data: { updated: true } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return createApiErrorResponse(error, "无法更新终端权限。"); }
 }

@@ -13,4 +13,6 @@ export function proxy(request: NextRequest) {
   } catch (error) { return createApiErrorResponse(error); }
 }
 
-export const config = { matcher: ["/api/:path*", "/generated-videos/:path*"] };
+// Chat reads terminal scripts without a size limit. Skip Proxy's bounded body
+// clone; protectDataOperation and requireLocalWorkspace authenticate the route.
+export const config = { matcher: ["/api/((?!chat/?$).*)", "/generated-videos/:path*"] };

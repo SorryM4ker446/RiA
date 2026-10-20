@@ -1,5 +1,11 @@
 # Database migrations
 
+`20261019180000_terminal_approval_mode` adds a per-folder terminal approval mode.
+Existing terminal grants retain per-command approval. Selecting full access is
+an explicit permission update; disabling, re-granting or restoring resets the mode
+to approval. Older builds must not be used to manage full-access grants, because
+they do not understand this mode.
+
 `20261018180000_terminal_permissions` adds a separate, default-off terminal
 permission to directory grants. Existing file permissions do not gain command
 execution. Terminal permissions are machine-local and revoked on portable restore.

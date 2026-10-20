@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld("privateAiDesktop", {
   // Point a file manager at something the service has already resolved inside a
   // granted folder. The path is never composed here; the shell only selects it.
   revealPath: (target: string) => ipcRenderer.invoke("desktop:folder:reveal", target) as Promise<{ revealed: boolean }>,
+  openFile: (target: string) => ipcRenderer.invoke("desktop:file:open", target) as Promise<{ opened: boolean }>,
   // Leaving the app or coming back to it, both from the settings screen.
   quitToTray: () => ipcRenderer.invoke("desktop:tray:quit") as Promise<{ quitting: boolean }>,
   showFromTray: () => ipcRenderer.invoke("desktop:tray:show") as Promise<{ shown: boolean }>,

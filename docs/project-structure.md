@@ -67,12 +67,12 @@ Electron renderer
     │
     ├─ Local access credential (HttpOnly cookie)
     ▼
-src/proxy.ts ── rejects the old public video path, checks Host / Origin / credential
+src/proxy.ts ── rejects the old public video path, checks Host / Origin / credential (chat goes directly to its authenticated handler)
     │
     ▼
 src/app/api/*/route.ts
     ├─ requireLocalWorkspace()  verifies the local credential and registers the data operation
-    ├─ Shared input validation (Zod) and a request body byte limit
+    ├─ Shared input validation (Zod); request body byte limits except on chat
     ├─ Instance-level quota
     └─ Business code (src/lib/**)
             │

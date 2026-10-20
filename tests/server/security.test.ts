@@ -6,6 +6,7 @@ import { createTestDatabase } from "../helpers/database";
 import { localAccessCookie } from "../helpers/local-access";
 import { seedTestModelPreferences } from "../helpers/model-library";
 import { languageModel, providerState } from "../helpers/model-provider";
+import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server.js";
 
 const cleanup = createTestDatabase();
 process.env.PRIVATE_AI_TEST_PROVIDER = "1";
@@ -16,7 +17,8 @@ const { createApiErrorResponse, ApiError } = await import("@/lib/server/api-erro
 const { getApiErrorMessage } = await import("@/lib/api-error-message");
 const { createChatToolSet, getToolDescriptor } = await import("@/tools/catalog");
 const { saveChatMessage } = await import("@/lib/chat/store");
-const { proxy } = await import("@/proxy");
+const { proxy, config: proxyConfig } = await import("@/proxy");
+const { readChatRequest } = await import("@/lib/chat/request");
 const routes: Record<string, any> = {};
 for (const name of ["backups", "backups/[id]", "backups/import", "backups/import/[id]", "models", "usage"]) routes[name] = await import(`@/app/api/${name}/route`);
 for (const name of ["chat", "image", "video", "tools/run", "tools", "memory", "retrieval", "knowledge", "knowledge/[id]", "tasks", "tasks/[id]", "tasks/reminders", "conversations", "conversations/bulk-delete", "conversations/[id]/export", "conversations/[id]", "conversations/[id]/messages", "conversations/[id]/messages/[messageId]", "media", "media/library", "media/[id]/details", "media/[id]/regenerate", "media/upload", "media/cleanup", "media/[id]", "local-access", "health"]) {
@@ -73,12 +75,12 @@ test("all protected handlers authenticate before parsing invalid bodies", async 
   }
 });
 
-test("JSON handlers reject malformed, oversized and unsupported bodies consistently", async () => {
+test("JSON handlers validate format and retain size limits outside chat", async () => {
   const names = ["media/[id]/regenerate", "chat", "image", "video", "tools/run", "memory", "retrieval", "knowledge", "conversations", "conversations/bulk-delete", "conversations/[id]/messages"];
   for (const name of names) {
     resetLimits();
     await expectError(await routes[name].POST(request(name, undefined, { raw: "{" }), ctx), 400, "VALIDATION_ERROR");
-    await expectError(await routes[name].POST(request(name, {}, { headers: { "content-length": String(3 * 1024 * 1024) } }), ctx), 413, "PAYLOAD_TOO_LARGE");
+    if (name !== "chat") await expectError(await routes[name].POST(request(name, {}, { headers: { "content-length": String(3 * 1024 * 1024) } }), ctx), 413, "PAYLOAD_TOO_LARGE");
     await expectError(await routes[name].POST(request(name, {}, { headers: { "content-type": "text/plain" } }), ctx), 415, "UNSUPPORTED_MEDIA_TYPE");
   }
   for (const name of ["tasks/[id]", "conversations/[id]", "conversations/[id]/messages/[messageId]"]) {
@@ -86,6 +88,41 @@ test("JSON handlers reject malformed, oversized and unsupported bodies consisten
   }
   const nested = '['.repeat(40) + '0' + ']'.repeat(40);
   await expectError(await routes.chat.POST(request("chat", undefined, { raw: nested })), 400, "VALIDATION_ERROR");
+});
+
+test("chat bypasses Proxy body cloning while other API and legacy video paths still match", () => {
+  for (const path of ["/api/chat", "/api/chat/", "/api/chat?conversationId=fixture"]) {
+    assert.equal(unstable_doesMiddlewareMatch({ config: proxyConfig, url: `http://localhost${path}` }), false, path);
+  }
+  for (const path of ["/api/tools/run", "/api/conversations", "/api/chat/other", "/api/chatting", "/generated-videos/fixture.mp4"]) {
+    assert.equal(unstable_doesMiddlewareMatch({ config: proxyConfig, url: `http://localhost${path}` }), true, path);
+  }
+});
+
+test("chat accepts complete terminal scripts beyond 2 MiB in approvals and later history with or without Content-Length", async () => {
+  await seedTestModelPreferences(db);
+  const chat = await db.chat.create({ data: { title: "Long terminal history" } });
+  const command = `# ${"长脚本🙂".repeat(300_000)}\nWrite-Output 'end'`;
+  assert.ok(Buffer.byteLength(command) > 2 * 1024 * 1024);
+  for (const approved of [true, false]) {
+    const part = {
+      type: "tool-runTerminalCommand", toolCallId: "terminal-large", state: "approval-responded",
+      input: { grantId: "fixture-folder", command, timeoutSeconds: 120 },
+      approval: { id: "large-approval", approved },
+    };
+    for (const resume of [true, false]) {
+      const body = { chatId: chat.id, messages: [textMessage(), { id: "a1", role: "assistant", parts: [resume ? part : {
+        ...part, state: approved ? "output-available" : "output-denied", ...(approved ? { output: { command, stdout: "end" } } : {}),
+      }] }, ...(resume ? [] : [textMessage("u2", "Continue")])] };
+      const raw = JSON.stringify(body);
+      for (const declared of [true, false]) {
+        const parsed = await readChatRequest(request("chat", undefined, { raw, headers: declared ? { "content-length": String(Buffer.byteLength(raw)) } : {} }));
+        const actual = parsed.body.messages[1].parts[0];
+        assert.equal("input" in actual && (actual.input as { command: string }).command, command);
+        assert.equal(parsed.isApprovalResume, resume);
+      }
+    }
+  }
 });
 
 test("empty-body operations reject unexpected content before changing data", async () => {
