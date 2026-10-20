@@ -15,72 +15,81 @@ const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>
 const screenshots = join(tmpdir(), "ria-document-processor-qa");
 const sample = "# 差旅标准\n\n**住宿**上限为 500 元。\n\n| 项目 | 金额 | 条件 |\n| --- | --- | --- |\n| 住宿 | 500 元 | 主管审批 |\n| 交通 | 200 元 | 保留票据 |\n\n- 第一项\n- 第二项\n\n```c\nif (a < b) return 1;\n```\n\n<script>window.__documentScriptRan = true</script>\n\n![外部图](https://foreign.invalid/private.png)";
 
-test("narrow document workspaces put editing before export settings and keep dropdown triggers stable", async ({ page, app }) => {
+
+async function importFile(page: Page, name: string, bytes: Buffer) {
+  return page.evaluate(async ({ name, bytes }) => {
+    const form = new FormData(); form.set("file", new File([new Uint8Array(bytes)], name));
+    const response = await fetch("/api/documents", { method: "POST", body: form });
+    if (!response.ok) throw new Error(`Import failed: ${response.status}`);
+    return (await response.json()).data.document;
+  }, { name, bytes: [...bytes] });
+}
+async function importKnowledge(page: Page, content: string) { return importFile(page, "差旅标准.md", Buffer.from(content)); }
+async function openCopy(page: Page, app: { origin: string }, id: string) {
+  await page.goto(`${app.origin}/knowledge/documents/${id}`);
+  await page.getByRole("button", { name: "编辑副本", exact: true }).click();
+  await expect(page.getByLabel("文档内容", { exact: true })).toBeVisible();
+}
+async function exportAs(page: Page, format: string, label: string, copy = true) {
+  await page.getByRole("button", { name: copy ? "导出副本" : "导出", exact: true }).click();
+  const waiting = page.waitForEvent("download");
+  await page.getByRole("menuitem", { name: `${label} · .${format}`, exact: true }).click();
+  return waiting;
+}
+
+test("document details integrate compact copy editing and export while legacy links redirect into knowledge", async ({ page, app }) => {
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto(`${app.origin}/document-processor`);
-  const create = page.getByRole("button", { name: "新建内容", exact: true });
-  await expect(create).toBeVisible();
-  const createBox = (await create.boundingBox())!;
-  expect(createBox.y + createBox.height).toBeLessThan(844);
-  await create.click();
+  await expect(page).toHaveURL(`${app.origin}/knowledge`);
+  await expect(page.getByRole("link", { name: "文档处理器", exact: true })).toHaveCount(0);
+  const document = await importKnowledge(page, "# 可编辑副本\n\n保留本次修改。");
+  await page.goto(`${app.origin}/document-processor?document=${document.id}`);
+  await expect(page).toHaveURL(`${app.origin}/knowledge/documents/${document.id}`);
+  await expect(page.getByRole("heading", { name: "差旅标准.md", exact: true })).toBeVisible();
+  await expect(page.getByLabel("文档内容", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("导出选项", { exact: true })).toHaveCount(0);
+  const edit = page.getByRole("button", { name: "编辑副本", exact: true });
+  const box = (await edit.boundingBox())!; expect(box.y + box.height).toBeLessThan(844);
+  await edit.click();
   const content = page.getByLabel("文档内容", { exact: true });
-  await content.fill("# 可编辑草稿\n\n保留本次修改。");
-  const editor = page.getByRole("heading", { name: "内容与预览", exact: true });
-  const settings = page.getByRole("heading", { name: "导出设置", exact: true });
-  expect((await editor.boundingBox())!.y).toBeLessThan((await settings.boundingBox())!.y);
-  expect((await content.boundingBox())!.height).toBe(320);
-  const select = page.getByLabel("导出格式", { exact: true });
-  await select.scrollIntoViewIfNeeded();
-  const before = (await select.boundingBox())!;
-  await select.click();
-  await expect(page.getByRole("listbox")).toBeVisible();
-  await expect(page.getByRole("listbox")).toHaveCSS("animation-name", "pop-in");
-  const opened = (await select.boundingBox())!;
-  expect(opened.x).toBeCloseTo(before.x, 1); expect(opened.y).toBeCloseTo(before.y, 1);
-  await select.click();
-  await expect(page.getByRole("listbox")).toBeHidden();
-  await expect(select).toBeFocused();
-  await create.scrollIntoViewIfNeeded();
-  page.once("dialog", dialog => dialog.dismiss()); await create.click();
-  await expect(content).toHaveValue("# 可编辑草稿\n\n保留本次修改。");
-  await content.scrollIntoViewIfNeeded();
+  await expect(content).toHaveValue("# 可编辑副本\n\n保留本次修改。");
+  await content.fill("# 整理后的副本\n\n保留这次编辑。");
+  await page.getByRole("button", { name: "返回原文", exact: true }).click();
+  await expect(page.getByText("保留本次修改。", { exact: false }).last()).toBeVisible();
+  await page.getByRole("button", { name: "继续编辑副本", exact: true }).click();
+  await expect(content).toHaveValue("# 整理后的副本\n\n保留这次编辑。");
+  const source = await browserData(page, `/api/documents/${document.id}`);
+  await page.evaluate(chunkId => { window.location.hash = chunkId; }, source.chunks[0].id);
+  await expect(page.locator(`[id="${source.chunks[0].id}"]`)).toBeVisible();
+  await page.getByRole("button", { name: "继续编辑副本", exact: true }).click();
+  await expect(content).toHaveValue("# 整理后的副本\n\n保留这次编辑。");
+  await expect(page.getByLabel("文件名称", { exact: true })).toBeHidden();
+  await page.getByText("导出选项", { exact: true }).click();
+  await expect(page.getByLabel("文件名称", { exact: true })).toHaveValue("差旅标准.md");
+  await page.getByLabel("内容类型", { exact: true }).click();
+  await page.getByRole("option", { name: "纯文本", exact: true }).click();
+  await page.getByLabel("内容类型", { exact: true }).click();
+  await page.getByRole("option", { name: "Markdown 结构", exact: true }).click();
+  await page.getByText("导出选项", { exact: true }).click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await mkdir(screenshots, { recursive: true });
   await page.screenshot({ path: join(screenshots, "mobile-layout.png"), animations: "disabled" });
   await page.setViewportSize({ width: 1440, height: 960 });
-  await page.locator(".workspace-content").evaluate(node => { node.scrollTop = 0; });
-  expect((await editor.boundingBox())!.x).toBeGreaterThan((await settings.boundingBox())!.x);
   await page.getByRole("button", { name: "切换主题", exact: true }).click();
-  await expect(page.locator("html")).not.toHaveClass(/dark/);
   await page.getByRole("tab", { name: "版式预览", exact: true }).click();
-  await expect(page.frameLocator('iframe[title="文档版式预览"]').getByRole("heading", { name: "可编辑草稿", exact: true })).toBeVisible();
+  await expect(page.frameLocator('iframe[title="文档版式预览"]').getByRole("heading", { name: "整理后的副本", exact: true })).toBeVisible();
   await page.screenshot({ path: join(screenshots, "desktop-light.png"), animations: "disabled" });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.getByRole("tab", { name: "编辑内容", exact: true }).click();
   await expect(page.getByRole("tabpanel").filter({ has: content })).toHaveCSS("animation-name", "none");
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(errors).toEqual([]);
 });
-
-async function upload(page: Page, name: string, buffer: Buffer) {
-  await page.getByLabel("选择待处理文档", { exact: true }).setInputFiles({ name, mimeType: "application/octet-stream", buffer });
-  await expect(page.getByLabel("文档内容", { exact: true })).toBeVisible();
-  await expect(page.getByRole("status").filter({ hasText: "解析完成" })).toBeVisible();
-}
-async function importKnowledge(page: Page, content: string) {
-  return page.evaluate(async content => {
-    const form = new FormData(); form.set("file", new File([content], "差旅标准.md"));
-    const response = await fetch("/api/documents", { method: "POST", body: form });
-    if (!response.ok) throw new Error(`Import failed: ${response.status}`);
-    return (await response.json()).data.document;
-  }, content);
-}
 
 test("document actions select files as parameters and return to automatic tools after one explicit execution", async ({ page, app }) => {
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
   await page.setViewportSize({ width: 1440, height: 960 });
-  await page.goto(`${app.origin}/document-processor`);
+  await page.goto(`${app.origin}/knowledge`);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   const document = await importKnowledge(page, "# 执行说明\n\n请保留这些文档内容。");
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "显式文档操作" })).body.data;
@@ -130,7 +139,7 @@ test("document actions select files as parameters and return to automatic tools 
 
 test("document action failures retain the chosen resource and scope changes discard obsolete choices", async ({ page, app }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`${app.origin}/document-processor`);
+  await page.goto(`${app.origin}/knowledge`);
   const docs = await page.evaluate(async () => {
     const docs = [];
     for (const collection of ["本次资料", "其他资料"]) {
@@ -177,94 +186,103 @@ test("document action failures retain the chosen resource and scope changes disc
   expect(app.providerCalls).toHaveLength(0);
 });
 
-test("local documents preview safely and download all four formats without saving originals or calling a model", async ({ page, app }) => {
+
+test("document details preview safely and export original or edited copies in all four formats without a model", async ({ page, app }) => {
   const errors: string[] = [], consoleErrors: string[] = [], remoteRequests: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   page.on("console", message => { if (message.type() === "error") consoleErrors.push(message.text()); });
   page.on("request", request => { if (request.url().includes("foreign.invalid")) remoteRequests.push(request.url()); });
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(`${app.origin}/document-processor`);
-  await expect(page.getByRole("heading", { name: "文档处理器", exact: true })).toBeVisible();
-  await upload(page, "差旅标准.md", Buffer.from(sample));
-  await expect(page.getByLabel("文档内容", { exact: true })).toHaveValue(sample);
+  await page.goto(`${app.origin}/knowledge`);
+  const document = await importKnowledge(page, sample);
+  await page.goto(`${app.origin}/knowledge/documents/${document.id}`);
+  const original = await exportAs(page, "txt", "纯文本", false);
+  expect((await readFile((await original.path())!)).toString()).toContain("500 元");
+  await page.getByRole("button", { name: "编辑副本", exact: true }).click();
+  const edited = sample.replaceAll("500 元", "550 元");
+  await page.getByLabel("文档内容", { exact: true }).fill(edited);
   await page.getByRole("tab", { name: "版式预览", exact: true }).click();
   const preview = page.frameLocator('iframe[title="文档版式预览"]');
   await expect(preview.getByRole("heading", { name: "差旅标准", exact: true })).toBeVisible();
-  await expect(preview.getByRole("cell", { name: "500 元", exact: true })).toBeVisible();
+  await expect(preview.getByRole("cell", { name: "550 元", exact: true })).toBeVisible();
   await expect(preview.locator("body")).toContainText("<script>");
   await expect(preview.locator("img, script")).toHaveCount(0);
   await mkdir(screenshots, { recursive: true });
-  await page.screenshot({ path: join(screenshots, "desktop.png"), fullPage: true, animations: "disabled" });
+  await page.screenshot({ path: join(screenshots, "desktop.png"), animations: "disabled" });
   for (const [format, label] of [["docx", "Word"], ["md", "Markdown"], ["txt", "纯文本"], ["html", "HTML"]]) {
-    await page.getByLabel("导出格式", { exact: true }).click();
-    await page.getByRole("option", { name: `${label} · .${format}`, exact: true }).click();
-    const waiting = page.waitForEvent("download"); await page.getByRole("button", { name: `下载 ${label}`, exact: true }).click();
-    const download = await waiting; expect(download.suggestedFilename()).toBe(`差旅标准.${format}`);
+    const download = await exportAs(page, format, label);
+    expect(download.suggestedFilename()).toBe(`差旅标准.${format}`);
     const bytes = await readFile((await download.path())!);
     if (format === "docx") {
       const zip = await JSZip.loadAsync(bytes), xml = await zip.file("word/document.xml")!.async("string");
-      expect(xml).toContain("<w:tbl>"); expect(xml).toContain("主管审批"); expect(xml).toContain("Heading1");
-      await download.saveAs(join(screenshots, "converted.docx"));
+      expect(xml).toContain("<w:tbl>"); expect(xml).toContain("主管审批"); expect(xml).toContain("Heading1"); expect(xml).toContain("550 元");
     } else {
-      expect(bytes.toString()).toContain("500 元");
-      if (format === "md") expect(bytes.toString()).toBe(sample);
+      expect(bytes.toString()).toContain("550 元");
+      if (format === "md") expect(bytes.toString()).toBe(edited);
       if (format === "html") expect(bytes.toString()).not.toContain("<script>");
     }
-    await expect(page.getByRole("button", { name: `下载 ${label}`, exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "导出副本", exact: true })).toBeEnabled();
   }
-  expect(await browserData(page, "/api/documents")).toEqual([]); expect(app.providerCalls).toEqual([]);
-  // Chromium refuses recorder/selector injection into a script-free srcdoc
-  // frame. Keep the sandbox and require all other console errors to be absent;
-  // the frame above must contain neither script elements nor remote images.
+  const unchanged = await browserData(page, `/api/documents/${document.id}`);
+  expect(unchanged.contentHash).toBe(document.contentHash);
+  expect(unchanged.chunks.map(chunk => chunk.text).join("\n")).toContain("500 元");
+  expect(app.providerCalls).toEqual([]);
   const sandboxDiagnostic = "Blocked script execution in 'about:srcdoc' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.";
   expect(errors).toEqual([]); expect(consoleErrors.filter(message => message !== sandboxDiagnostic)).toEqual([]); expect(remoteRequests).toEqual([]);
 });
 
-test("PDF and Word parsing keep readable content in narrow windows and failed replacements preserve the current draft", async ({ page, app }) => {
-  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
-  await page.setViewportSize({ width: 390, height: 844 }); await page.goto(`${app.origin}/document-processor`);
-  await upload(page, "standards.pdf", textPdf("Invoice amount is 500 USD."));
+test("PDF and Word knowledge documents support copy editing and version-bound original export", async ({ page, app }) => {
+  await page.setViewportSize({ width: 390, height: 844 }); await page.goto(`${app.origin}/knowledge`);
+  const pdf = await importFile(page, "standards.pdf", textPdf("Invoice amount is 500 USD."));
+  await openCopy(page, app, pdf.id);
   await expect(page.getByLabel("文档内容", { exact: true })).toHaveValue(/Invoice amount is 500 USD\./);
-  await expect(page.getByText(/1 页/, { exact: false })).toBeVisible();
-  await upload(page, "费用标准.docx", await wordTableDocument());
+  const word = await importFile(page, "费用标准.docx", await wordTableDocument());
+  await openCopy(page, app, word.id);
   await expect(page.getByLabel("文档内容", { exact: true })).toHaveValue(/主管审批/);
-  await page.getByLabel("文档内容", { exact: true }).fill("# 已编辑的内容\n\n请保留这份草稿。");
-  page.once("dialog", dialog => dialog.accept());
-  await page.getByLabel("选择待处理文档", { exact: true }).setInputFiles({ name: "bad.pdf", mimeType: "application/pdf", buffer: Buffer.from("not pdf") });
-  await expect(page.getByRole("alert").filter({ hasText: "操作未完成" })).toContainText("文件");
-  await expect(page.getByLabel("文档内容", { exact: true })).toHaveValue("# 已编辑的内容\n\n请保留这份草稿。");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await mkdir(screenshots, { recursive: true });
-  await page.screenshot({ path: join(screenshots, "mobile.png"), fullPage: true, animations: "disabled" });
-  expect(errors).toEqual([]);
+  await page.screenshot({ path: join(screenshots, "mobile.png"), animations: "disabled" });
+  await page.goto(`${app.origin}/knowledge/documents/${word.id}`);
+  await page.evaluate(async id => { await fetch(`/api/documents/${id}`, { method: "DELETE" }); }, word.id);
+  await page.getByRole("button", { name: "导出", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Word · .docx", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "不存在" })).toBeVisible();
 });
 
-test("cancelled parsing cannot overwrite a newer draft and failed exports remain recoverable", async ({ page, app }) => {
-  await page.goto(`${app.origin}/document-processor`);
-  await page.getByRole("button", { name: "新建内容", exact: true }).click();
-  await page.getByLabel("文档内容", { exact: true }).fill("需要保留的内容");
-  let release!: () => void, received!: () => void;
-  const gate = new Promise<void>(resolve => { release = resolve; }), entered = new Promise<void>(resolve => { received = resolve; });
-  await page.route("**/api/document-processor/parse", async route => {
+test("cancelled source reads cannot replace a newer copy and failed preview or export preserves edits", async ({ page, app }) => {
+  await page.goto(`${app.origin}/knowledge`);
+  const document = await importKnowledge(page, "# 原始内容\n\n需要保留。");
+  await page.goto(`${app.origin}/knowledge/documents/${document.id}`);
+  let release!: () => void, received!: () => void, delivered!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; }), entered = new Promise<void>(resolve => { received = resolve; }), ended = new Promise<void>(resolve => { delivered = resolve; });
+  await page.route(`**/api/document-processor/source/${document.id}`, async route => {
     const response = await route.fetch(); received(); await gate;
-    await route.fulfill({ response }).catch(() => {});
+    try { await route.fulfill({ response }); } catch {} finally { delivered(); }
   }, { times: 1 });
-  page.once("dialog", dialog => dialog.accept());
-  await page.getByLabel("选择待处理文档", { exact: true }).setInputFiles({ name: "obsolete.txt", mimeType: "text/plain", buffer: Buffer.from("过期解析结果") });
-  await entered; await page.getByRole("button", { name: "取消操作", exact: true }).click();
-  await expect(page.getByLabel("文档内容", { exact: true })).toHaveValue("需要保留的内容");
-  await page.getByLabel("文档内容", { exact: true }).fill("新的编辑内容"); release();
+  await page.getByRole("button", { name: "编辑副本", exact: true }).click(); await entered;
+  await page.getByRole("button", { name: "取消操作", exact: true }).click();
+  await expect(page.getByRole("button", { name: "编辑副本", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "编辑副本", exact: true }).click();
+  const content = page.getByLabel("文档内容", { exact: true });
+  await expect(content).toBeVisible(); await content.fill("新的编辑内容"); release(); await ended;
+  await expect(content).toHaveValue("新的编辑内容");
+  await page.route("**/api/document-processor/export", route => route.fulfill({ status: 503, json: { error: { code: "SERVICE_UNAVAILABLE", message: "测试预览暂不可用" } } }), { times: 1 });
+  await page.getByRole("tab", { name: "版式预览", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "测试预览暂不可用" })).toBeVisible();
+  await page.getByRole("button", { name: "重新生成预览", exact: true }).click();
+  await expect(page.frameLocator('iframe[title="文档版式预览"]').locator("body")).toContainText("新的编辑内容");
+  await page.getByRole("tab", { name: "编辑内容", exact: true }).click();
   await page.route("**/api/document-processor/export", route => route.fulfill({ status: 503, json: { error: { code: "SERVICE_UNAVAILABLE", message: "测试导出暂不可用" } } }), { times: 1 });
-  await page.getByRole("button", { name: "下载 Word", exact: true }).click();
-  await expect(page.getByRole("alert").filter({ hasText: "操作未完成" })).toContainText("测试导出暂不可用");
-  await expect(page.getByLabel("文档内容", { exact: true })).toHaveValue("新的编辑内容");
-  const waiting = page.waitForEvent("download"); await page.getByRole("button", { name: "下载 Word", exact: true }).click();
-  expect((await waiting).suggestedFilename()).toBe("未命名文档.docx");
-  await expect(page.getByLabel("文档内容", { exact: true })).toHaveValue("新的编辑内容");
+  await page.getByRole("button", { name: "导出副本", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Word · .docx", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "测试导出暂不可用" })).toBeVisible();
+  await expect(content).toHaveValue("新的编辑内容");
+  expect((await exportAs(page, "docx", "Word")).suggestedFilename()).toBe("差旅标准.docx");
+  await expect(content).toHaveValue("新的编辑内容");
 });
 
-test("chat conversion downloads survive restart, refuse stale versions and open the source in the processor", async ({ page, app }) => {
-  await page.goto(`${app.origin}/document-processor`);
+test("chat conversion downloads survive restart, refuse stale versions and use integrated document details", async ({ page, app }) => {
+  await page.goto(`${app.origin}/knowledge`);
   const document = await importKnowledge(page, sample);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "文档转换验证" })).body.data;
@@ -279,8 +297,8 @@ test("chat conversion downloads survive restart, refuse stale versions and open 
   const waiting = page.waitForEvent("download"); await button.click(); expect((await waiting).suggestedFilename()).toBe("差旅标准.docx");
   await importKnowledge(page, "# 更新后的差旅标准\n\n住宿上限为 600 元。");
   await button.click(); await expect(page.getByRole("alert").filter({ hasText: "文档已更新" })).toBeVisible();
-  await page.goto(`${app.origin}/knowledge/documents/${document.id}`);
-  await page.getByRole("link", { name: "转换与导出", exact: true }).click();
+  await openCopy(page, app, document.id);
   await expect(page.getByLabel("文档内容", { exact: true })).toHaveValue(/600 元/);
+  await page.getByText("导出选项", { exact: true }).click();
   await expect(page.getByLabel("文件名称", { exact: true })).toHaveValue("差旅标准.md");
 });

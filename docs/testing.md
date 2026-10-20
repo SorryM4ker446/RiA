@@ -56,15 +56,18 @@ The Browser plugin is unavailable; rendered checks use Playwright, with screensh
 outside the repository under temporary `ria-plugins-qa`. Existing CI globs include
 these tests. No dependency or workflow change is required.
 
-Document-processor tests cover PDF/Word/Markdown/TXT extraction without importing
-or calling a model, four download formats, DOCX read-back and literal symbols,
+Document-processing server tests cover PDF/Word/Markdown/TXT extraction without
+importing or calling a model, four download formats, DOCX read-back and literal symbols,
 scoped chat tools and obsolete source versions. Renderer cases check actual file
 downloads, isolated preview, narrow layouts, cancellation/stale responses, error
 recovery and tool-result downloads after restart. Screenshots and generated test
 files stay under the OS temporary directory (`ria-document-processor-qa`). The
-responsive regression checks that creating a draft is reachable in the first
-narrow viewport, editing precedes export settings, replacement can be declined,
-and dropdowns close on a second click without shifting their triggers. Light
+responsive regression checks that knowledge document details default to original
+reading with editing and export reachable in the first narrow viewport. Copy
+editing reveals tabs while export options stay collapsed. Legacy processor links
+redirect into knowledge; citation anchors return from editing to original text.
+Downloads distinguish the version-bound original from edited copies and leave
+stored text unchanged. Cancelled source reads cannot replace newer edits. Light
 themes, preview transitions and reduced-motion behavior are also exercised. The
 preview intentionally disallows scripts, including automation recorder injection;
 tests permit only that exact Chromium diagnostic and still require no script

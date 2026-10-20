@@ -7,7 +7,7 @@ export async function verifyDocumentProcessorSmoke(window: BrowserWindow, origin
   const folder = resolve(dataDirectory, "smoke-document-exports"), destination = resolve(folder, "release.docx");
   if (dirname(destination) !== folder) throw new Error("Invalid document smoke download path");
   mkdirSync(folder, { recursive: true });
-  await window.loadURL(`${origin}/document-processor?document=${encodeURIComponent(documentId)}`);
+  await window.loadURL(`${origin}/knowledge/documents/${encodeURIComponent(documentId)}`);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let listener: (event: Event, item: DownloadItem, webContents: WebContents) => void = () => {};
   const downloaded = new Promise<void>((resolveDownload, reject) => {
@@ -24,12 +24,15 @@ export async function verifyDocumentProcessorSmoke(window: BrowserWindow, origin
     await Promise.all([downloaded, window.webContents.executeJavaScript(`(async () => {
       const deadline = Date.now() + 10000;
       while (Date.now() < deadline) {
-        const editor = document.getElementById('processor-content');
-        const button = [...document.querySelectorAll('button')].find(item => item.textContent.trim() === '下载 Word' && !item.disabled);
-        if (button && editor && editor.value.includes('500')) { button.click(); return; }
+        const item = document.querySelector('[data-document-export="docx"]');
+        if (item) { item.click(); return; }
+        const button = document.querySelector('button[aria-label="导出"]');
+        if (button && !button.disabled && button.getAttribute('data-state') !== 'open') {
+          button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }));
+        }
         await new Promise(resolve => setTimeout(resolve, 100));
       }
-      throw new Error('Desktop document processor did not become ready');
+      throw new Error('Desktop document detail export did not become ready');
     })()`)]);
     const bytes = readFileSync(destination);
     if (bytes[0] !== 0x50 || bytes[1] !== 0x4b) throw new Error("Desktop export did not produce a Word document");
