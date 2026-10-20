@@ -199,6 +199,22 @@ The application ships as a Windows desktop program; there is no browser or web d
 
 All CI execution jobs pin Node.js to 24.9.0 and install with npm 11.19.1. When upgrading the runtime, update every `actions/setup-node` step in `.github/workflows/ci.yml` and revalidate with that version. A local pass still does not replace a GitHub Actions run.
 
+Use the same npm version when changing dependencies. The `packageManager` field
+records the expected version but does not switch an already installed global npm.
+
+```powershell
+npx --yes npm@11.19.1 install <package>
+npx --yes npm@11.19.1 ci
+```
+
+After dependency changes, validate a clean installation from the committed
+manifest, lockfile, `.npmrc` and local `vendor` packages before running the checks.
+Passing tests or making an installer with an existing `node_modules` directory
+does not establish that `npm ci` can install the lockfile. Keep optional dependency
+entries in the lockfile: `ci` still validates their dependency tree. A missing
+entry fails every execution job at installation, and the aggregate validation
+check then fails as well; it does not mean the tests themselves all failed.
+
 CI runs static/database checks, browser workflows and three server-test shards independently. Each server shard uses Node's `--test-shard=N/3` with `--test-concurrency=2`, retaining per-file process/SQLite isolation and all assertions. The matrix disables fail-fast so a failed shard does not cancel the others. Browser checks keep two workers on the hosted runner, zero retries and the existing timeouts. The existing **Validate application and local database** check aggregates all three groups and fails on a failed, cancelled or skipped dependency; branch protection can continue using that check name. Desktop packaging remains a separate required check where configured. Splitting reduces the sequential path; actual wall-clock improvement depends on runner availability and must be measured in Actions.
 
 For local reproduction of a CI server shard:
