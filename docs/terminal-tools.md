@@ -32,6 +32,15 @@ the migration. Disabling, re-granting or restoring resets the mode to **审批**
 
 Approval continuations retain their server-issued run identities in the saved assistant message and appear as one request in execution records. Existing messages with one `runId` remain supported. Legacy rows without a link are joined only when one user-message window contains exactly one run and one saved assistant reply; ambiguous histories are not matched by title. Missing full details are labeled explicitly and existing step summaries remain expandable. No database migration or replay of old commands is needed.
 
+Text/tool answer upserts in `saveChatMessage` save their complete command inputs, outputs
+and pending approvals in one database batch, together with media-reference
+cleanup and summary invalidation. The write does not keep an interactive
+transaction open while a large message crosses the Prisma boundary. This avoids
+its default five-second expiration rolling back a completed command's answer or
+the next pending approval. Existing database acquisition and lock timeouts and
+approval claim checks remain in effect. Persistence failures log
+`chat.persist.failed` with a safe error code, without command or query contents.
+
 Conversations created from templates retain their tool allowlist. Add
 **执行终端命令** to a custom template if needed. Legacy file-tool selections normalize to this tool, but no folder gains terminal permission automatically. Old approvals for retired file tools cannot execute; send a fresh request and review its terminal command.
 

@@ -14,6 +14,35 @@ The management page uses compact rows and an inline search/filter bar. Changing 
 
 The manager loads 30 conversations at a time. Pinning, archiving and new messages can move rows between requests, so refresh to see concurrent changes. A loaded page is not a frozen snapshot; changes from another browser window are not pushed live.
 
+## In-conversation navigation
+
+The transcript's left edge provides a compact question locator when two or more
+messages including a question are loaded. Each mark represents one user question.
+The current mark is longer and follows the reader's position. Hover or focus a mark to preview the question,
+then click or press Enter to scroll there without focusing or outlining the
+message. Arrow keys move between marks; Home/End select the first/last loaded mark.
+Transparent previews fade and slide on hover. Reduced-motion preferences disable
+these transitions and animated jumps.
+During a smooth jump, the target stays selected instead of highlighting each
+question passed along the way. Scrolling manually releases that selection and
+resumes tracking the reader's position. Hover previews include the associated
+answer excerpt; the directory lists only user questions.
+
+**对话目录** opens a transparent, compact scrollable list of user questions;
+narrow screens show only this button to preserve reading space. There are no
+position counters or separate entries for replies. Replies whose preceding
+question has not been loaded are omitted until that question is fetched.
+Use its earlier-history control or the
+existing **加载更早消息** button to load another page. Loading preserves the reading
+position and adds those questions to the locator; opening the locator does not
+fetch history automatically. Attachment-only questions use filenames as excerpts.
+
+Jumping into earlier content during a streamed reply pauses automatic following.
+**回到最新** resumes following the answer. Switching conversations hides the old
+locations while history loads, and editing/deleting messages updates the existing
+locator. Navigation does not change messages, the composer draft or model context,
+and makes no model calls. It adds no persistent state, API or database migration.
+
 ## Text exports
 
 Each conversation offers **导出 Markdown** and **导出 JSON**. Downloads include all messages in chronological order, status, organization fields, retained document citation excerpts, and private-media references. They do not include raw tool inputs/outputs, approval tokens, local media paths, provider settings or media bytes. Markdown renders message bodies as literal fenced text to keep untrusted message markup inactive. JSON uses `formatVersion: 1`.
@@ -64,6 +93,9 @@ While a turn is running, the send control is replaced by **stop**. Stopping aban
 
 ## Keyboard and copying
 
+- User bubbles omit the role header. Edit and delete controls appear just below
+  the bottom right corner on hover or keyboard focus, without changing bubble
+  size. Touch devices keep these controls visible.
 - **Enter** sends, **Shift+Enter** adds a line; an Enter that is part of an input-method composition does not send.
 - **Escape** closes a delete confirmation; with none open, it stops a running turn.
 - Every answer has a **copy** control, and a code block has its own **copy code** control that appears on hover or focus — selecting text across a scrollable code box is a poor substitute. When the clipboard is unavailable the answer is not interrupted and the text stays selectable.

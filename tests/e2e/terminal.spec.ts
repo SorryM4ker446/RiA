@@ -7,6 +7,14 @@ import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { browserApi, browserData } from "../helpers/browser-api";
+import { decodePersistedAssistantToolMessage } from "../../src/lib/ai/ui-message";
+
+async function storedTerminalStates(page: Page, chatId: string) {
+  const rows = await browserData(page, `/api/conversations/${chatId}/messages`);
+  return rows.filter(row => row.role === "assistant")
+    .flatMap(row => decodePersistedAssistantToolMessage(row.content)?.tools ?? [])
+    .filter(tool => tool.toolName === "runTerminalCommand").map(tool => tool.state);
+}
 
 type App = Awaited<ReturnType<typeof startStandaloneServer>> & { folder: string };
 const test = base.extend<{ app: App }>({ app: async ({}, provide) => {
@@ -130,6 +138,8 @@ test("full access executes without approval, keeps live output and stop controls
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
   await page.getByRole("dialog", { name: "执行记录", exact: true }).getByRole("button", { name: "关闭", exact: true }).click();
   await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "请求失败" })).toHaveCount(0);
+  expect(await storedTerminalStates(page, chat.id)).toEqual(["output-available"]);
   await page.reload();
   await page.getByPlaceholder(/输入你的问题/).fill("继续解释刚才的结果");
   const followup = page.waitForResponse(response => new URL(response.url()).pathname === "/api/chat" && response.request().method() === "POST");
@@ -170,14 +180,18 @@ test("approval mode asks for every tool call and resumes a long script without t
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
   expect(existsSync(join(app.folder, "terminal-proof.txt"))).toBe(false);
+  expect(await storedTerminalStates(page, chat.id)).toEqual(["approval-requested"]);
   await page.getByRole("button", { name: "批准", exact: true }).click();
   await expect.poll(() => existsSync(join(app.folder, "terminal-proof.txt")) ? readFileSync(join(app.folder, "terminal-proof.txt"), "utf8") : null).toBe("once");
   await expect(page.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
+  await expect(page.getByRole("alert").filter({ hasText: "请求失败" })).toHaveCount(0);
+  expect(await storedTerminalStates(page, chat.id)).toEqual(["output-available", "approval-requested"]);
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
   await expect(page.getByRole("region", { name: "最近编辑的文件", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "批准", exact: true }).click();
   await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("onceonce");
+  expect(await storedTerminalStates(page, chat.id)).toEqual(["output-available", "output-available"]);
   expect(requestBytes.filter(bytes => bytes > 2 * 1024 * 1024)).toHaveLength(2);
   await page.reload();
   await openExecutionDetails(page);

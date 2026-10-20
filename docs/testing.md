@@ -32,6 +32,16 @@ approvals remain individual decisions; no approval or command is replayed during
 history reconciliation. The message payload adds optional `runIds`; no schema
 migration, CI service or new dependency is required.
 
+`chat-message-persistence.test.ts` saves a terminal continuation larger than
+32 MiB, verifies complete command hashes after reconnecting, and claims each
+approval only once. It also verifies concurrent replacement identity and summary
+revisions, and uses a database trigger to refuse the final write: message content,
+media references, retention timestamps and summaries must all roll back before a
+successful retry. `terminal.spec.ts` checks durable tool states before reloading
+or approving the next command, retaining its >2 MiB request assertions and
+execution-once checks. These regressions are included by the existing CI globs;
+no timeout increase or test retry is needed.
+
 Search-count regressions cover model-selected counts above ten, sequential and
 parallel requests without a RiA result-count quota, provider API ceilings,
 structured count planning and its cancellation/failure paths, and synthesis using
@@ -80,6 +90,22 @@ They load obsolete manual-only preferences and verify that later model turns
 still offer other tools with their normal approvals. The composer retains its
 672px desktop width and uses an 80px scrolling text area. Persisted model choices
 and assistant restrictions remain covered by conversation-switching tests.
+
+`message-navigation.spec.ts` covers question/answer hover previews and a directory
+containing only user questions, without reply entries or position counters,
+scroll-only mouse and keyboard jumps without
+message focus or outlines, longer active marks, a transparent rail and directory,
+animated hover previews, stable target selection throughout a smooth jump and
+manual interruption, a compact narrow-screen outline, reduced motion,
+explicit history pagination with a preserved reading position,
+obsolete pages after conversation switching, and navigation during a streamed
+reply without automatic scrolling away from earlier content. Browser fixtures
+simulate stored history and the chat stream; these checks do not call a provider.
+Dark/light desktop and narrow-screen screenshots stay outside the repository in
+the OS temporary directory (`ria-message-navigation-qa`). Chat action regressions
+also verify user bubbles without a role row and bottom-right actions revealed by
+hover or keyboard focus without resizing the bubble at desktop and narrow widths.
+Existing pagination regressions verify shared transcript behavior alongside this UI.
 
 Extension regressions use real loopback HTTP and MCP JSON-RPC services, plus a
 local stdio process. They check discovery, mandatory approval, denial, stale

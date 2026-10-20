@@ -20,6 +20,8 @@ process.env.PRIVATE_AI_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 
 const { saveChatMessage } = await import("@/lib/chat/store");
+const { readChatRequest } = await import("@/lib/chat/request");
+const { prepareChatPersistence, persistChatResponse } = await import("@/lib/chat/persistence");
 const chat = await import("@/app/api/chat/route");
 const { indexDocument, deleteDocument } = await import("@/lib/documents/store");
 const { decodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
@@ -46,10 +48,29 @@ beforeEach(async (t: TestContext) => {
   await seedTestModelPreferences(db);
 });
 after(async () => { await db.$disconnect(); cleanup(); });
-const ui = (id, role, text) => ({ id, role, parts: [{ type: "text", text }] });
+const ui = (id: string, role: UIMessage["role"], text: string) => ({ id, role, parts: [{ type: "text", text }] } satisfies UIMessage);
 function request(body, signal = undefined) {
   return new NextRequest("http://localhost/api/chat", { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ manualToolsOnly: true, ...body }), signal });
 }
+
+test("answer persistence failures expose a safe database code without logging command or query contents", async (t) => {
+  const input = await readChatRequest(request({ messages: [ui("save-failure", "user", "Test persistence")] }));
+  const conversation = await prepareChatPersistence(input);
+  const diagnostic = t.mock.method(console, "error", () => {});
+  const transaction = db.$transaction;
+  db.$transaction = async () => {
+    throw Object.assign(new Error("synthetic-private-command-and-query"), { code: "P2028", name: "PrismaClientKnownRequestError" });
+  };
+  try {
+    await assert.rejects(persistChatResponse({ input, conversation,
+      responseMessage: ui("unsaved-answer", "assistant", "Visible answer"),
+      isAborted: false, generationFailed: false,
+    }), { code: "INTERNAL_ERROR", message: "回答保存失败，请重新加载会话后重试。" });
+  } finally { db.$transaction = transaction; }
+  assert.deepEqual(diagnostic.mock.calls.map(call => call.arguments), [["chat.persist.failed", { code: "P2028" }]]);
+  assert.equal(await db.message.count({ where: { chatId: conversation.chat.id, role: "user" } }), 1);
+  assert.equal(await db.message.count({ where: { chatId: conversation.chat.id, role: "assistant" } }), 0);
+});
 
 test("chat keeps automatic tools available when an older client sends the retired manual-only flag", async () => {
   const response = await chat.POST(request({ messages: [ui("auto-tools", "user", "Explain the available actions")] }));
