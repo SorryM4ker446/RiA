@@ -5,6 +5,7 @@ import { startStandaloneServer } from "../helpers/standalone-server";
 import { browserApi, browserData } from "../helpers/browser-api";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { chooseOption } from "../helpers/select";
+import { chooseTaskDateTime } from "../helpers/task-date-picker";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => {
@@ -42,11 +43,11 @@ test("task reminder settings validate local dates and persist recurrence across 
   await row.getByRole("button", { name: "保存提醒设置" }).click();
   await expect(row.getByRole("alert")).toContainText("有效的 IANA 时区");
   await row.getByLabel("任务时区").fill("America/New_York");
-  await row.getByLabel("截止时间", { exact: true }).fill("2026-03-08T02:30");
+  await chooseTaskDateTime(page, row, "截止时间", "2026-03-08T02:30");
   await row.getByRole("button", { name: "保存提醒设置" }).click();
   await expect(row.getByRole("alert")).toContainText("不存在这个本地时间");
   await row.getByLabel("任务时区").fill("Asia/Shanghai");
-  await row.getByLabel("截止时间", { exact: true }).fill("2026-01-31T09:00");
+  await chooseTaskDateTime(page, row, "截止时间", "2026-01-31T09:00");
   await row.getByRole("button", { name: "保存提醒设置" }).click();
   await expect(row.getByText("每月 · 完成后续建", { exact: true })).toBeVisible();
   await expect(row.getByRole("button", { name: "保存提醒设置" })).toHaveCount(0);
@@ -116,7 +117,8 @@ test("changing reminder options preserves the stored DST occurrence and sub-minu
   await page.getByRole("button", { name: "刷新任务" }).click();
   const row = page.getByTestId("task-item").filter({ hasText: "精确时刻保留验证" });
   await row.getByRole("button", { name: "设置时间与提醒" }).click();
-  await expect(row.getByLabel("截止时间", { exact: true })).toHaveValue("2026-11-01T01:30");
+  await expect(row.getByLabel("截止时间", { exact: true })).toContainText("2026年11月1日");
+  await expect(row.locator('input[type="time"]')).toHaveValue("01:30");
   await row.getByLabel("到期桌面通知").check();
   await row.getByRole("button", { name: "保存提醒设置" }).click();
   await expect(row.getByRole("button", { name: "保存提醒设置" })).toHaveCount(0);

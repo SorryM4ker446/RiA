@@ -5,8 +5,16 @@ export const DEFAULT_LOCALE = "zh-CN";
 export const LOCALE_STORAGE_KEY = "ui:locale";
 export type Locale = "zh-CN" | "en-US";
 
-export function normalizeLocale(value: unknown): Locale {
-  return value === "en-US" ? "en-US" : DEFAULT_LOCALE;
+export function normalizeLocale(value: unknown, fallback: Locale = DEFAULT_LOCALE): Locale {
+  return value === "en-US" || value === "zh-CN" ? value : fallback;
+}
+
+export function systemLocale(languages: readonly string[]): Locale {
+  for (const language of languages) {
+    if (/^zh(?:-|$)/i.test(language)) return "zh-CN";
+    if (/^en(?:-|$)/i.test(language)) return "en-US";
+  }
+  return "en-US";
 }
 
 // Server copy and model prompts never inherit a browser's preference.

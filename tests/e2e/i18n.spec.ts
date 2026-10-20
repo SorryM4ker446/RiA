@@ -18,7 +18,7 @@ async function chooseEnglish(page: Page) {
   await expect(page.locator("html")).toHaveAttribute("lang", "en-US");
 }
 
-test("language defaults to Chinese, switches without losing edits, persists, and updates other tabs", async ({ page, context, app }) => {
+test("a Chinese system defaults to Chinese, switches without losing edits, persists, and updates other tabs", async ({ page, context, app }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await openWorkspace(page, app.origin);
@@ -110,6 +110,10 @@ test("English is applied to primary pages and built-in metadata", async ({ page,
     await expect(page.locator("html")).toHaveAttribute("lang", "en-US");
     await expect(page.getByRole("main")).toBeVisible();
     if (route === "/assistants") await expect(page.getByRole("heading", { name: "Knowledge assistant", exact: true })).toBeVisible();
+    if (route === "/") {
+      await expect(page.getByText("Your local-first AI agent.", { exact: false })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Open knowledge", exact: true })).toHaveCount(0);
+    }
     if (route === "/extensions") await page.locator("summary").filter({ hasText: "Built-in tools" }).click();
     if (route === "/knowledge") await expect(page.locator("#knowledge-evaluation-cases")).toHaveValue(/How can I get reimbursed for work travel/);
     // Controlled textareas retain their initial text node after their displayed
@@ -133,6 +137,24 @@ test("English is applied to primary pages and built-in metadata", async ({ page,
     }
   }
   expect(errors).toEqual([]);
+});
+
+test("a fresh browser follows its language and a manual choice survives reload", async ({ browser, app }) => {
+  for (const locale of ["en-GB", "zh-TW", "fr-FR"]) {
+    const context = await browser.newContext({ locale });
+    try {
+      const page = await context.newPage();
+      await openWorkspace(page, app.origin);
+      await page.goto(`${app.origin}/settings`);
+      const expected = locale.startsWith("zh") ? "zh-CN" : "en-US";
+      await expect(page.locator("html")).toHaveAttribute("lang", expected);
+      expect(await page.evaluate(() => localStorage.getItem("ui:locale"))).toBeNull();
+      await page.getByRole("combobox", { name: expected === "en-US" ? "Interface language" : "界面语言", exact: true }).click();
+      await page.getByRole("option", { name: expected === "en-US" ? "简体中文" : "English", exact: true }).click();
+      await page.reload();
+      await expect(page.locator("html")).toHaveAttribute("lang", expected === "en-US" ? "zh-CN" : "en-US");
+    } finally { await context.close(); }
+  }
 });
 
 test("UI language never changes user messages or the model's language policy", async ({ page, app }) => {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { zhCN } from "@/lib/locale/zh-CN";
 import { enUS } from "@/lib/locale/en-US";
-import { applyLocale, formatDateTime, getLocale, localizeMessage, normalizeLocale, subscribeLocale, t, tf } from "@/lib/locale";
+import { applyLocale, formatDateTime, getLocale, localizeMessage, normalizeLocale, subscribeLocale, systemLocale, t, tf } from "@/lib/locale";
 import { ASSISTANT_BASE_PROMPT } from "@/lib/prompts";
 
 test("English covers the Chinese catalog and preserves all interpolation variables", () => {
@@ -56,6 +56,18 @@ test("renderer subscriptions update copy and dates without changing unknown or u
     if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow); else Reflect.deleteProperty(globalThis, "window");
     if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument); else Reflect.deleteProperty(globalThis, "document");
   }
+});
+
+test("system language negotiation honors preference order and manual choices", () => {
+  assert.equal(systemLocale(["zh-Hans-CN", "en-US"]), "zh-CN");
+  assert.equal(systemLocale(["zh-TW"]), "zh-CN");
+  assert.equal(systemLocale(["en-GB", "zh-CN"]), "en-US");
+  assert.equal(systemLocale(["fr-FR", "zh-CN"]), "zh-CN");
+  assert.equal(systemLocale(["fr-FR"]), "en-US");
+  assert.equal(systemLocale([]), "en-US");
+  assert.equal(normalizeLocale(null, "en-US"), "en-US");
+  assert.equal(normalizeLocale("invalid", "en-US"), "en-US");
+  assert.equal(normalizeLocale("zh-CN", "en-US"), "zh-CN");
 });
 
 test("chat instructions follow the latest user language independently of interface and tool text", () => {

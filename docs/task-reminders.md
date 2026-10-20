@@ -1,6 +1,8 @@
 # Task reminders and recurrence
 
-Create a task from the manual tool or an approved assistant action. In the task panel, open **设置时间与提醒** to set its deadline, IANA time zone, **到期桌面通知**, and **重复** rule. Past-due unfinished tasks show **已逾期**; completed tasks do not. The badge refreshes every 30 seconds and when the window regains focus.
+Create a task with **Scheduled tasks → New task**, the manual tool, or an approved assistant action. The task page uses a themed calendar with a separate time field for both creation and schedule editing. Choose a date, enter its time, and set the IANA time zone, priority, reminder, and repeat rule. Clearing the date also clears the time; turn reminders and repetition off to save without a deadline. The form retains its values if validation or saving fails.
+
+In a task card, open **Set time and reminders** to edit its schedule. Past-due unfinished tasks show **Overdue**; completed tasks do not. The badge refreshes every 30 seconds and when the window regains focus. Status filters keep the current list visible while the next result loads; only the initial load displays skeletons. Late responses from earlier filter selections cannot replace newer results.
 
 ## Dates and recurrence
 

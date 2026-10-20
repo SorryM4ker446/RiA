@@ -20,7 +20,6 @@ export default function HomePage() {
         <p className="max-w-xl text-base leading-8 text-muted-foreground">{t("home.description")}</p>
         <div className="flex flex-wrap gap-3">
           <Button asChild size="lg"><Link href="/chat">{t("home.primaryAction")}<ArrowRight data-icon="inline-end" aria-hidden="true" /></Link></Button>
-          <Button asChild variant="outline" size="lg"><Link href="/knowledge">{t("ui..openKnowledge")}</Link></Button>
         </div>
       </section>
       <section aria-label={t("ui..workspaceShortcuts")} className="grid gap-4 md:grid-cols-3">

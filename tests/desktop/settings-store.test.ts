@@ -26,6 +26,7 @@ const { app } = require("electron");
 const { join } = require("node:path");
 const { writeFileSync, readFileSync } = require("node:fs");
 const { DesktopSettingsStore } = require(${JSON.stringify(compiledStore)});
+const assert = require("node:assert/strict");
 
 const root = __dirname;
 const bounds = { x: 120, y: 80, width: 1180, height: 820 };
@@ -39,7 +40,21 @@ app.whenReady().then(async () => {
   const report = { encryptionAvailable: false, partialSave: null, concurrentWrites: null, extensionKeyStable: false, extensionKeyEncrypted: false, unreadableExtensionKeyIsolated: false, defaultLocale: null, savedLocale: null, invalidLocaleRejected: false, error: null };
   try {
     // Each case gets its own file: the first must not depend on what the second left.
-    const card = new DesktopSettingsStore(join(root, "card.json"));
+    const systemFile = join(root, "system.json");
+    for (const [languages, expected] of [[["zh-Hans-CN", "en-US"], "zh-CN"], [["zh-TW"], "zh-CN"], [["en-GB", "zh-CN"], "en-US"], [["fr-FR", "zh-CN"], "zh-CN"], [["fr-FR"], "en-US"], [[], "en-US"]]) {
+      const system = new DesktopSettingsStore(systemFile, languages);
+      assert.equal(system.getLocale(), expected);
+      assert.equal((await system.getView()).locale, expected);
+    }
+    const automatic = new DesktopSettingsStore(systemFile, ["en-GB"]);
+    await automatic.save({ closeBehaviour: "tray" });
+    assert.equal(JSON.parse(readFileSync(systemFile, "utf8")).locale, undefined);
+    assert.equal(new DesktopSettingsStore(systemFile, ["zh-CN"]).getLocale(), "zh-CN");
+    await automatic.save({ locale: "en-US" });
+    assert.equal(new DesktopSettingsStore(systemFile, ["zh-CN"]).getLocale(), "en-US");
+    const preferred = app.getPreferredSystemLanguages().find(language => /^(zh|en)(-|$)/i.test(language));
+    assert.equal(new DesktopSettingsStore(join(root, "native-system.json")).getLocale(), /^zh/i.test(preferred || "") ? "zh-CN" : "en-US");
+    const card = new DesktopSettingsStore(join(root, "card.json"), ["zh-CN"]);
     await card.save({
       outboundProxyUrl: "http://proxy.internal:8080",
       openrouterSiteName: "Example Corp",

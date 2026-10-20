@@ -49,7 +49,7 @@ const base = {
   // --- home --------------------------------------------------------------
   "home.title": "把想法，变成下一步。",
   "home.description":
-    "你的私人 AI 工作空间。在对话中梳理想法，让资料连接知识，让计划有序推进。",
+    "你的本地优先 AI 智能体。连接模型、知识、工具与插件，帮你查找信息、创作内容、完成工作。",
   "home.primaryAction": "开始对话",
   "home.secondaryAction": "AI SDK 文档",
   "home.feature.chat.title": "流式对话",

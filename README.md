@@ -24,7 +24,7 @@ Built with Electron, Next.js, Vercel AI SDK, Prisma, and SQLite.
 
 The interface supports light/dark themes, compact management views, keyboard navigation and reduced motion. Windows includes a translucent chat canvas, window transitions and a theme-aware startup animation.
 
-The interface defaults to Simplified Chinese. Use **Settings → Application → Interface language** to switch between English and Simplified Chinese. Changes apply immediately without restarting or clearing drafts. Desktop preferences persist in the device's settings file across launches; the browser version saves the preference locally and synchronizes it across tabs. This setting affects interface text and date/number formatting only. Model replies follow the language of the latest user message, or an explicit request for another language; existing messages and user content are preserved.
+On first launch, the interface follows your system's preferred languages: Chinese uses Simplified Chinese, and English uses English. If neither is supported, it falls back to English. Use **Settings → Application → Language** to choose either language manually. Changes apply immediately without restarting or clearing drafts. Desktop preferences persist in the device's settings file across launches; the browser version uses browser language preferences and saves manual choices locally, synchronizing them across tabs. Existing language preferences take priority over system defaults. This setting affects interface text and date/number formatting only. Model replies follow the language of the latest user message, or an explicit request for another language; existing messages and user content are preserved.
 
 ## Start using RiA
 

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { browserApi } from "../helpers/browser-api";
+import { chooseTaskDateTime } from "../helpers/task-date-picker";
 
 const test = base.extend<{
   app: Awaited<ReturnType<typeof startStandaloneServer>>;
@@ -222,7 +223,7 @@ test("workspace separates scheduled tasks and retains content during refresh", a
   await page.unroute("**/api/tasks/*", rejectRoute);
   await completion.check();
   await expect(newTask.getByRole("combobox")).toContainText("已完成");
-  await page.getByRole("button", { name: "已完成", exact: true }).click();
+  await page.getByRole("radio", { name: "已完成", exact: true }).click();
   await expect(newTask).toBeVisible();
   await page.reload();
   await expect(
@@ -345,12 +346,12 @@ test("scheduled task creation validates time and persists without a model", asyn
   await expect(form.getByRole("alert")).toContainText("需要设置时间");
   expect(app.readRows("SELECT id FROM tasks")).toHaveLength(0);
   await form.getByLabel("时区", { exact: true }).fill("America/New_York");
-  await form.getByLabel("到期时间", { exact: true }).fill("2026-03-08T02:30");
+  await chooseTaskDateTime(page, form, "到期时间", "2026-03-08T02:30");
   await form.getByRole("button", { name: "创建任务", exact: true }).click();
   await expect(form.getByRole("alert")).toContainText("不存在这个本地时间");
   expect(app.readRows("SELECT id FROM tasks")).toHaveLength(0);
   await form.getByLabel("时区", { exact: true }).fill("Asia/Shanghai");
-  await form.getByLabel("到期时间", { exact: true }).fill("2026-11-20T09:00");
+  await chooseTaskDateTime(page, form, "到期时间", "2026-11-20T09:00");
   await form.getByRole("combobox", { name: /^重复/ }).click(); await page.getByRole("option", { name: "每周", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 780 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

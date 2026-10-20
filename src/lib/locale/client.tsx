@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useSyncExternalStore, type ReactNode } from "react";
-import { applyLocale, DEFAULT_LOCALE, getLocale, LOCALE_STORAGE_KEY, normalizeLocale, subscribeLocale, type Locale } from "./index";
+import { applyLocale, DEFAULT_LOCALE, getLocale, LOCALE_STORAGE_KEY, normalizeLocale, subscribeLocale, systemLocale, type Locale } from "./index";
 
 /** Subscribe wherever interface copy is rendered; switching preserves component state. */
 export function useLocale() {
@@ -26,16 +26,19 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     let current = true;
     const initialLocale = getLocale();
     const bridge = window.privateAiDesktop;
+    const fallback = systemLocale(navigator.languages.length ? navigator.languages : [navigator.language]);
     if (bridge) {
       void bridge.getSettings().then(settings => {
-        if (current && getLocale() === initialLocale) applyLocale(normalizeLocale(settings.locale));
-      }).catch(() => { /* Settings reports read failures; Chinese remains usable. */ });
+        if (current && getLocale() === initialLocale) applyLocale(normalizeLocale(settings.locale, fallback));
+      }).catch(() => { if (current && getLocale() === initialLocale) applyLocale(fallback); });
     } else {
-      try { applyLocale(normalizeLocale(localStorage.getItem(LOCALE_STORAGE_KEY))); } catch { /* Storage may be unavailable. */ }
+      let preference: string | null = null;
+      try { preference = localStorage.getItem(LOCALE_STORAGE_KEY); } catch { /* Use the system language when storage is unavailable. */ }
+      applyLocale(normalizeLocale(preference, fallback));
     }
     const onStorage = (event: StorageEvent) => {
       if (!bridge && (event.key === LOCALE_STORAGE_KEY || event.key === null)) {
-        applyLocale(normalizeLocale(event.newValue));
+        applyLocale(normalizeLocale(event.newValue, fallback));
       }
     };
     window.addEventListener("storage", onStorage);

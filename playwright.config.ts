@@ -22,6 +22,7 @@ export default (async () => {
     // Installs the access cookie for the suite that shares one web server.
     globalSetup: "./tests/e2e/global.setup.ts",
     use: {
+      locale: "zh-CN",
       // The application resolves its own origin as `localhost`, so the suite uses
       // that name too; a cookie stored for `127.0.0.1` would never be sent.
       baseURL: run.origin,

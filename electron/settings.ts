@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { safeStorage } from "electron";
+import { app, safeStorage } from "electron";
 import { randomBytes } from "node:crypto";
 
 /**
@@ -95,7 +95,7 @@ function normalizeHttpUrl(value: string | undefined, label: string): string {
 }
 
 export class DesktopSettingsStore {
-  constructor(private readonly settingsFile: string) {}
+  constructor(private readonly settingsFile: string, private readonly systemLanguages = app.getPreferredSystemLanguages()) {}
 
   /*
    * Two writers, one file.
@@ -164,7 +164,16 @@ export class DesktopSettingsStore {
   }
 
   getLocale(): "zh-CN" | "en-US" {
-    return this.readStored().locale === "en-US" ? "en-US" : "zh-CN";
+    return this.resolveLocale(this.readStored().locale);
+  }
+
+  private resolveLocale(preference: unknown): "zh-CN" | "en-US" {
+    if (preference === "zh-CN" || preference === "en-US") return preference;
+    for (const language of this.systemLanguages) {
+      if (/^zh(?:-|$)/i.test(language)) return "zh-CN";
+      if (/^en(?:-|$)/i.test(language)) return "en-US";
+    }
+    return "en-US";
   }
 
   /**
@@ -192,7 +201,7 @@ export class DesktopSettingsStore {
   async getView(): Promise<DesktopSettingsView> {
     const stored = this.readStored();
     return {
-      locale: stored.locale === "en-US" ? "en-US" : "zh-CN",
+      locale: this.resolveLocale(stored.locale),
       hasOpenrouterApiKey: Boolean(stored.encryptedOpenrouterApiKey),
       hasTavilyApiKey: Boolean(stored.encryptedTavilyApiKey),
       hasDeepseekApiKey: Boolean(stored.encryptedDeepseekApiKey),
