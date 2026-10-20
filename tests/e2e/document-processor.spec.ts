@@ -159,7 +159,18 @@ test("document action failures retain the chosen resource and scope changes disc
   await expect(source).toBeEnabled(); await source.click();
   await expect(page.getByRole("option", { name: "其他资料.md · 其他资料", exact: true })).toHaveCount(0);
   await page.getByRole("option", { name: "本次资料.md · 本次资料", exact: true }).click();
-  await page.route("**/api/tools/run", route => route.fulfill({ status: 503, json: { error: { code: "SERVICE_UNAVAILABLE", message: "文档服务暂不可用" } } }), { times: 1 });
+  await page.evaluate(() => {
+    const original = window.fetch.bind(window);
+    let fail = true;
+    window.fetch = async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (fail && new URL(url, location.href).pathname === "/api/tools/run") {
+        fail = false;
+        return Response.json({ error: { code: "SERVICE_UNAVAILABLE", message: "文档服务暂不可用" } }, { status: 503 });
+      }
+      return original(input, init);
+    };
+  });
   await page.getByRole("button", { name: "转换并导出文档", exact: true }).click();
   await expect(page.getByRole("alert").filter({ hasText: "请求失败" })).toContainText("文档服务暂不可用");
   await expect(tools).toContainText("转换并导出文档"); await expect(source).toContainText("本次资料.md");
@@ -243,7 +254,8 @@ test("PDF and Word knowledge documents support copy editing and version-bound or
   await mkdir(screenshots, { recursive: true });
   await page.screenshot({ path: join(screenshots, "mobile.png"), animations: "disabled" });
   await page.goto(`${app.origin}/knowledge/documents/${word.id}`);
-  await page.evaluate(async id => { await fetch(`/api/documents/${id}`, { method: "DELETE" }); }, word.id);
+  await expect(page.getByRole("button", { name: "导出", exact: true })).toBeEnabled();
+  expect((await browserApi(page, `/api/documents/${word.id}`, "DELETE")).status).toBe(200);
   await page.getByRole("button", { name: "导出", exact: true }).click();
   await page.getByRole("menuitem", { name: "Word · .docx", exact: true }).click();
   await expect(page.getByRole("alert").filter({ hasText: "不存在" })).toBeVisible();
