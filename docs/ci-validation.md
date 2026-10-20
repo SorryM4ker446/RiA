@@ -76,6 +76,15 @@ tool details: delayed terminal details must gain their automatic expansion while
 preserving explicit mouse and keyboard choices. These transitions are covered
 without longer timeouts or retries.
 
+Animation checks synchronize with committed DOM state and sample the real CSS
+transition at a controlled point on its Web Animations timeline. A fixed number
+of animation frames does not guarantee positive elapsed animation time on a
+hosted runner. The approval disclosure regression still requires a real height
+transition, an intermediate height strictly between the collapsed and expanded
+states, reduced-motion behavior, keyboard toggling and narrow-screen controls.
+An additional Chromium case uses CPU throttling to exercise slower rendering;
+this simulation is separate from validation on the actual hosted runner.
+
 Report local commands, environment, scope and failures separately from hosted
 Actions results. Only a new successful hosted run establishes that GitHub
 Actions passed. Changes remain unpublished until the repository owner submits

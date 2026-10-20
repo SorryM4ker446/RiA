@@ -57,8 +57,12 @@ for (const width of [1440, 390]) {
   });
 }
 
-for (const theme of ["dark", "light"] as const) {
-test(`compact terminal approval expands above the permission toolbar in ${theme} theme`, async ({ page }, testInfo) => {
+for (const { theme, cpuRate } of [{ theme: "dark", cpuRate: 1 }, { theme: "light", cpuRate: 1 }, { theme: "dark", cpuRate: 6 }] as const) {
+test(`compact terminal approval expands above the permission toolbar in ${theme} theme${cpuRate > 1 ? " with CPU throttling" : ""}`, async ({ page }, testInfo) => {
+  if (cpuRate > 1) {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Emulation.setCPUThrottlingRate", { rate: cpuRate });
+  }
   await page.emulateMedia({ reducedMotion: theme === "dark" ? "no-preference" : "reduce" });
   await page.setViewportSize({ width: 1440, height: 960 });
   const command = "@'\n<!doctype html>\n<html lang=\"zh-CN\">\n  <title>RiA · 项目介绍</title>\n  <h1>你好，我是 RiA</h1>\n</html>\n'@ | Set-Content -LiteralPath .\\index.html -Encoding UTF8";
@@ -87,18 +91,42 @@ test(`compact terminal approval expands above the permission toolbar in ${theme}
   const toggle = card.getByRole("button", { name: "查看详情", exact: true });
   const opening = await toggle.evaluate(async button => {
     const panel = document.getElementById(button.getAttribute("aria-controls")!)!;
-    (button as HTMLButtonElement).click();
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    return { height: panel.getBoundingClientRect().height, duration: getComputedStyle(panel).transitionDuration, animations: panel.getAnimations().length };
+    // Capture transitions in the DOM commit's microtask, before a busy renderer
+    // can skip past them. Two animation frames can still have zero progress.
+    const collapsed = panel.getBoundingClientRect().height;
+    await new Promise<void>(resolve => {
+      const observer = new MutationObserver(() => {
+        if (panel.dataset.state !== "open") return;
+        observer.disconnect();
+        resolve();
+      });
+      observer.observe(panel, { attributes: true, attributeFilter: ["data-state"] });
+      (button as HTMLButtonElement).click();
+    });
+    const animations = panel.getAnimations();
+    const properties = animations.filter((animation): animation is CSSTransition => animation instanceof CSSTransition).map(animation => animation.transitionProperty);
+    try {
+      for (const animation of animations) {
+        animation.pause();
+        animation.currentTime = Number(animation.effect!.getTiming().duration) / 2;
+      }
+      const middle = panel.getBoundingClientRect().height;
+      for (const animation of animations) animation.finish();
+      return { collapsed, middle, expanded: panel.getBoundingClientRect().height, duration: getComputedStyle(panel).transitionDuration, properties };
+    } finally {
+      for (const animation of animations) animation.finish();
+    }
   });
   const details = card.locator(".approval-details");
   await expect(details).toHaveCSS("opacity", "1");
   await expect(code).toBeVisible();
   await expect(code).toHaveText(command);
   if (theme === "dark") {
-    expect(opening.animations).toBeGreaterThan(0);
-    expect(opening.height).toBeGreaterThan(0);
-    expect(opening.height).toBeLessThan((await details.boundingBox())!.height);
+    expect(opening.properties).toContain("grid-template-rows");
+    expect(opening.collapsed).toBe(0);
+    expect(opening.middle).toBeGreaterThan(opening.collapsed);
+    expect(opening.middle).toBeLessThan(opening.expanded);
+    expect(opening.expanded).toBeCloseTo((await details.boundingBox())!.height, 1);
   } else {
     expect(opening.duration).toBe("0s");
     await expect(card).toHaveCSS("animation-name", "none");
