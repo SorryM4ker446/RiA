@@ -1,4 +1,7 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
+
+import { t, tf } from "@/lib/locale";
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { ArrowUp, List, Loader2 } from "lucide-react";
@@ -9,11 +12,12 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { messageLocations, type MessageLocation } from "./message-locations";
 
 function MessageMark({ entry, index, current, onNavigate }: { entry: MessageLocation; index: number; current: boolean; onNavigate: (id: string) => void }) {
+  useLocale();
   return <Tooltip>
       <TooltipTrigger asChild><Button
         variant="ghost" size="icon-sm" className="message-nav-mark"
         data-message-mark={entry.id}
-        aria-label={`定位提问 ${index + 1}：${entry.title}`}
+        aria-label={tf("ui.chat.message-navigator.locateQuestion", { v0: index + 1, v1: entry.title })}
         aria-current={current ? "location" : undefined} tabIndex={current ? 0 : -1}
         onClick={() => onNavigate(entry.id)}
       ><span aria-hidden="true" /></Button></TooltipTrigger>
@@ -35,7 +39,8 @@ type Props = {
 };
 
 export function MessageNavigator({ messages, scrollRef, onNavigate, hasOlder, loadingOlder, disabled, onLoadOlder }: Props) {
-  const entries = useMemo(() => messageLocations(messages), [messages]);
+  const locale = useLocale();
+  const entries = useMemo(() => messageLocations(messages, locale), [messages, locale]);
   const identity = JSON.stringify(entries.map(entry => entry.id));
   const messageIdentity = JSON.stringify(messages.map(message => message.id));
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -105,14 +110,14 @@ export function MessageNavigator({ messages, scrollRef, onNavigate, hasOlder, lo
     onNavigate(id);
   }
 
-  const loadEarlier = <Button variant="ghost" size="icon-sm" className="message-nav-control" aria-label="加载更早的定位" title="加载更早的消息" disabled={disabled || loadingOlder} onClick={onLoadOlder}>
+  const loadEarlier = <Button variant="ghost" size="icon-sm" className="message-nav-control" aria-label={t("ui.chat.message-navigator.loadEarlierLocations")} title={t("ui.chat.message-navigator.loadEarlierMessages")} disabled={disabled || loadingOlder} onClick={onLoadOlder}>
     {loadingOlder ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <ArrowUp data-icon="inline-start" />}
   </Button>;
 
-  return <nav className="message-navigator" aria-label="当前对话定位">
+  return <nav className="message-navigator" aria-label={t("ui.chat.message-navigator.conversationLocations")}>
     <Popover open={outlineOpen} onOpenChange={setOutlineOpen}>
-      <PopoverTrigger asChild><Button variant="ghost" size="icon-sm" className="message-nav-control" aria-label="打开对话目录" title="对话目录"><List /></Button></PopoverTrigger>
-      <PopoverContent side="right" align="start" collisionPadding={12} className="message-nav-outline" aria-label="对话目录"
+      <PopoverTrigger asChild><Button variant="ghost" size="icon-sm" className="message-nav-control" aria-label={t("ui.chat.message-navigator.openConversationOutline")} title={t("ui.chat.message-navigator.conversationOutline")}><List /></Button></PopoverTrigger>
+      <PopoverContent side="right" align="start" collisionPadding={12} className="message-nav-outline" aria-label={t("ui.chat.message-navigator.conversationOutline")}
         onOpenAutoFocus={event => {
           const list = outlineRef.current;
           const current = list?.querySelector<HTMLButtonElement>('[aria-current="location"]');
@@ -123,15 +128,15 @@ export function MessageNavigator({ messages, scrollRef, onNavigate, hasOlder, lo
         }}
         >
         <div className="px-3 py-2">
-          <span className="text-sm font-medium">对话目录</span>
+          <span className="text-sm font-medium">{t("ui.chat.message-navigator.conversationOutline")}</span>
         </div>
         <div ref={outlineRef} className="chat-list-scroll flex min-h-0 flex-col overflow-y-auto px-1.5 pb-1.5">
-          {entries.map((entry, index) => <Button key={entry.id} variant="ghost" className="message-nav-entry" data-location-id={entry.id} aria-label={`定位提问 ${index + 1}：${entry.title}`} aria-current={index === activeIndex ? "location" : undefined}
+          {entries.map((entry, index) => <Button key={entry.id} variant="ghost" className="message-nav-entry" data-location-id={entry.id} aria-label={tf("ui.chat.message-navigator.locateQuestion", { v0: index + 1, v1: entry.title })} aria-current={index === activeIndex ? "location" : undefined}
             onClick={() => { setOutlineOpen(false); navigateTo(entry.id); }}>
             <span className="min-w-0 flex-1 truncate text-left">{entry.title}</span>
           </Button>)}
         </div>
-        {hasOlder && <div className="flex items-center gap-2 border-t px-3 py-2">{loadEarlier}<span className="text-xs text-muted-foreground">加载更早消息后可继续定位</span></div>}
+        {hasOlder && <div className="flex items-center gap-2 border-t px-3 py-2">{loadEarlier}<span className="text-xs text-muted-foreground">{t("ui.chat.message-navigator.loadEarlierMessagesToNavigateFurther")}</span></div>}
       </PopoverContent>
     </Popover>
     <div className="message-nav-track">

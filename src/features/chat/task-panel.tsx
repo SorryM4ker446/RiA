@@ -1,3 +1,6 @@
+"use client";
+import { useLocale } from "@/lib/locale/client";
+import { t, tf, formatDateTime } from "@/lib/locale";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,7 +20,6 @@ import {
 import { cn } from "@/lib/utils/cn";
 import { ListTodo, RefreshCw, Trash2, Plus, Bell } from "lucide-react";
 import { formatTaskPriority } from "@/features/chat/message-presentation";
-import { t, tf, formatDateTime } from "@/lib/locale";
 import type { TaskItem, TaskStatusFilter } from "@/features/chat/types";
 import { COLLAPSED_TASK_LIMIT } from "@/features/chat/types";
 import type { useTasks } from "@/features/chat/use-tasks";
@@ -40,6 +42,7 @@ export function TaskPanel({
   setIsTaskListExpanded,
   isTaskListExpanded,
 }: Props) {
+  useLocale();
   const [now, setNow] = useState(0);
   const awaitingFirstTaskLoad = useAwaitingFirstLoad(
     isLoadingTasks,
@@ -62,7 +65,7 @@ export function TaskPanel({
     { value: "done", label: t("chat.tasks.statusDone") },
   ];
   return (
-    <section aria-label="任务管理" className="space-y-5">
+    <section aria-label={t("ui.chat.task-panel.taskManagement")} className="space-y-5">
       <header className="flex flex-wrap items-center gap-4">
         <div className="flex items-center justify-between gap-2">
           <h2 className="flex items-center gap-2 text-sm font-medium">
@@ -129,7 +132,7 @@ export function TaskPanel({
           </p>
         )}
         {awaitingFirstTaskLoad ? (
-          <div role="status" aria-label="加载任务" className="space-y-2">
+          <div role="status" aria-label={t("ui.chat.task-panel.loadTasks")} className="space-y-2">
             <Skeleton className="h-28 rounded-xl" />
             <Skeleton className="h-28 rounded-xl" />
           </div>
@@ -211,7 +214,7 @@ export function TaskPanel({
                   )}
                   {task.repeatRule && task.repeatRule !== "none" && (
                     <span>
-                      {repeatLabels[task.repeatRule]} ·{" "}
+                      {repeatLabels()[task.repeatRule]} ·{" "}
                       {t("chat.tasks.repeatNext")}
                     </span>
                   )}
@@ -288,6 +291,7 @@ function TaskCompletionCheckbox({
   disabled: boolean;
   update: Props["updateTaskStatus"];
 }) {
+  useLocale();
   const [value, setValue] = useState({
     status: task.status,
     checked: task.status === "done",

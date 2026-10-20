@@ -1,4 +1,5 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
 
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
@@ -13,6 +14,7 @@ import { t } from "@/lib/locale";
  * pages that use it identical.
  */
 export function BackToChatLink({ className }: { className?: string }) {
+  useLocale();
   return (
     <Link
       className={

@@ -1,3 +1,6 @@
+"use client";
+import { useLocale } from "@/lib/locale/client";
+import { formatDateTime, t, tf } from "@/lib/locale";
 import Link from "next/link";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -12,8 +15,6 @@ import { ArrowUpRight, Bot, Check, ChevronDown, ChevronUp, History, Loader2, Mes
 import { COLLAPSED_CHAT_LIMIT } from "@/features/chat/types";
 import type { ChatSummary } from "@/features/chat/page-utils";
 import type { ChatState } from "@/features/chat/use-chat-state";
-import { formatDateTime, t, tf } from "@/lib/locale";
-
 type Props = Pick<ChatState,
   | "isLoadingChats" | "isCreatingChat" | "createNewChat" | "chats" | "visibleChats"
   | "activeChatId" | "editingChatId" | "setEditingTitle" | "editingTitle" | "saveEditedTitle"
@@ -56,6 +57,7 @@ export function ConversationList({
   setIsChatListExpanded, isChatListExpanded, nextChatsCursor, isLoadingMoreChats,
   loadMoreChats,
 }: Props) {
+  useLocale();
   const awaitingFirstLoad = useAwaitingFirstLoad(isLoadingChats, "conversations");
   const [open, setOpen] = useState(false);
   const now = new Date();
@@ -73,14 +75,14 @@ export function ConversationList({
               <h2 className="text-sm font-semibold tracking-label">{t("chat.conversations.recent")}</h2>
               <Badge variant="secondary" title={tf("chat.conversations.loaded", { count: chats.length })}>{chats.length}</Badge>
             </div>
-            <Button aria-label="关闭最近会话" onClick={() => setOpen(false)} variant="ghost" size="icon-sm">
+            <Button aria-label={t("ui.chat.conversation-list.closeRecentConversations")} onClick={() => setOpen(false)} variant="ghost" size="icon-sm">
               <X aria-hidden="true" />
             </Button>
           </div>
         </header>
         <div className="chat-list-scroll flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain px-3 pb-4">
           {awaitingFirstLoad ? (
-            <div role="status" aria-label="加载会话" className="flex flex-col gap-3 pt-2">
+            <div role="status" aria-label={t("ui.chat.conversation-list.loadConversation")} className="flex flex-col gap-3 pt-2">
               <Skeleton className="h-4 w-12" />
               <Skeleton className="h-[76px]" /><Skeleton className="h-[76px]" /><Skeleton className="h-[76px]" />
             </div>
@@ -133,7 +135,7 @@ export function ConversationList({
                         </button>
                         <DropdownMenu modal={false}>
                           <DropdownMenuTrigger asChild>
-                            <Button className="conversation-actions absolute right-1 top-2" size="icon-sm" variant="ghost" aria-label={tf("chat.conversations.actions", { title: chat.title })} title="会话操作">
+                            <Button className="conversation-actions absolute right-1 top-2" size="icon-sm" variant="ghost" aria-label={tf("chat.conversations.actions", { title: chat.title })} title={t("ui.chat.conversation-list.conversationActions")}>
                               <MoreHorizontal aria-hidden="true" />
                             </Button>
                           </DropdownMenuTrigger>

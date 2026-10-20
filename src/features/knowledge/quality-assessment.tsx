@@ -1,25 +1,29 @@
+"use client";
+import { useLocale } from "@/lib/locale/client";
+import { t } from "@/lib/locale";
 import type { EvaluationReport } from "@/lib/documents/evaluation";
 
-const verdicts = { pass: "通过", fail: "未通过", uncertain: "不确定", "not-applicable": "不适用" };
-const kinds: Record<string, string> = { grounding: "证据支持", citations: "引用支持", answerability: "回答与拒答", fact: "事实", condition: "前提条件", exception: "例外", quantity: "数值与单位", conflict: "冲突处理" };
+const verdicts = () => ({ pass: t("ui.knowledge.quality-assessment.pass"), fail: t("ui.knowledge.quality-assessment.fail"), uncertain: t("ui.knowledge.quality-assessment.uncertain"), "not-applicable": t("ui.knowledge.quality-assessment.notApplicable") });
+const kinds = (): Record<string, string> => ({ grounding: t("ui.knowledge.quality-assessment.evidenceSupport"), citations: t("ui.knowledge.quality-assessment.citationSupport"), answerability: t("ui.knowledge.quality-assessment.answersRefusals"), fact: t("ui.knowledge.quality-assessment.facts"), condition: t("ui.knowledge.quality-assessment.conditions"), exception: t("ui.knowledge.quality-assessment.exceptions"), quantity: t("ui.knowledge.quality-assessment.quantitiesUnits"), conflict: t("ui.knowledge.quality-assessment.conflictHandling") });
 
 export function QualityAssessment({ value }: { value: EvaluationReport["cases"][number]["quality"] }) {
+  useLocale();
   if (!value) return null;
   return <div className="space-y-2 rounded border p-3 text-xs" data-testid="quality-assessment">
-    <p className="font-medium">模型语义评审{value.responseModelId ? ` · ${value.responseModelId}` : ""}</p>
-    {value.status === "failed" ? <p role="alert" className="text-destructive">评审失败：{value.errorCode}。检索证据和已生成回答仍可检查；此题没有语义评审结论。</p> : <>
-      <p>通过 {value.checks.filter(check => check.verdict === "pass").length} · 未通过 {value.checks.filter(check => check.verdict === "fail").length} · 不确定 {value.checks.filter(check => check.verdict === "uncertain").length} · 不适用 {value.checks.filter(check => check.verdict === "not-applicable").length}</p>
+    <p className="font-medium">{t("ui.knowledge.quality-assessment.modelSemanticReview")}{value.responseModelId ? ` · ${value.responseModelId}` : ""}</p>
+    {value.status === "failed" ? <p role="alert" className="text-destructive">{t("ui.knowledge.quality-assessment.reviewFailed")}{value.errorCode}{t("ui.knowledge.quality-assessment.retrievedEvidenceAndGeneratedAnswersAre")}</p> : <>
+      <p>{t("ui.knowledge.quality-assessment.pass")}{value.checks.filter(check => check.verdict === "pass").length} {t("ui.knowledge.quality-assessment.failed")}{value.checks.filter(check => check.verdict === "fail").length} {t("ui.knowledge.quality-assessment.uncertain2")}{value.checks.filter(check => check.verdict === "uncertain").length} {t("ui.knowledge.quality-assessment.notApplicable2")}{value.checks.filter(check => check.verdict === "not-applicable").length}</p>
       <ul className="space-y-3">{value.checks.map(check => {
         const criterion = value.criteria.find(item => item.id === check.id);
         return <li key={check.id} className="space-y-1 break-words">
-          <p className={check.verdict === "fail" ? "font-medium text-destructive" : "font-medium"}>{kinds[criterion?.kind ?? ""] ?? check.id}：{verdicts[check.verdict]}</p>
-          {criterion && !["grounding", "citations", "answerability"].includes(check.id) ? <p>期望：{criterion.statement}</p> : null}
+          <p className={check.verdict === "fail" ? "font-medium text-destructive" : "font-medium"}>{kinds()[criterion?.kind ?? ""] ?? check.id}：{verdicts()[check.verdict]}</p>
+          {criterion && !["grounding", "citations", "answerability"].includes(check.id) ? <p>{t("ui.knowledge.quality-assessment.expected")}{criterion.statement}</p> : null}
           <p>{check.reason}</p>
-          {check.answerQuote ? <blockquote className="border-l-2 pl-2">回答摘录：{check.answerQuote}</blockquote> : null}
-          {check.evidence.map((item, index) => <blockquote key={index} className="border-l-2 pl-2">证据摘录：{item.quote}</blockquote>)}
+          {check.answerQuote ? <blockquote className="border-l-2 pl-2">{t("ui.knowledge.quality-assessment.answerExcerpt")}{check.answerQuote}</blockquote> : null}
+          {check.evidence.map((item, index) => <blockquote key={index} className="border-l-2 pl-2">{t("ui.knowledge.quality-assessment.evidenceExcerpt")}{item.quote}</blockquote>)}
         </li>;
       })}</ul>
     </>}
-    <p className="text-muted-foreground">摘录已核对实际回答和证据；语义判断由模型给出，可能误判，需要人工复核。</p>
+    <p className="text-muted-foreground">{t("ui.knowledge.quality-assessment.excerptsWereCheckedAgainstActualAnswers")}</p>
   </div>;
 }

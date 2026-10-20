@@ -1,4 +1,7 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
+
+import { t } from "@/lib/locale";
 
 import { useEffect, useState } from "react";
 import { Keyboard } from "lucide-react";
@@ -6,7 +9,6 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { SettingsSection } from "@/features/settings/settings-section";
 import { Input } from "@/components/ui/input";
-import { t } from "@/lib/locale";
 import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
 
 /**
@@ -18,6 +20,7 @@ import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
  * is told another program already owns.
  */
 export function HotkeySettings() {
+  useLocale();
   const isDesktopRuntime = useDesktopRuntime();
   const [hotkey, setHotkey] = useState("");
   const [saving, setSaving] = useState(false);
@@ -56,7 +59,7 @@ export function HotkeySettings() {
 
   return (
     <SettingsSection title={<><Keyboard aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
-          {t("settings.hotkey.title")}</>} description="在其他程序中快速唤起 RiA。">
+          {t("settings.hotkey.title")}</>} description={t("ui.settings.hotkey.bringRiAToTheFrontFrom")}>
         <div className="flex flex-col gap-4">
         {problem ? (
           <Alert variant="destructive">

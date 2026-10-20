@@ -1,53 +1,59 @@
 import { zhCN, type MessageKey } from "./zh-CN";
+import { enUS } from "./en-US";
 
-/**
- * Active locale.
- *
- * The interface is Chinese, so this resolves to `zh-CN` unconditionally. When
- * English lands, add `en-US.ts` with the same `MessageKey` set and switch the
- * selection here — every user-facing string already comes from this module, so
- * no component has to change.
- */
-const active = zhCN;
+export const DEFAULT_LOCALE = "zh-CN";
+export const LOCALE_STORAGE_KEY = "ui:locale";
+export type Locale = "zh-CN" | "en-US";
 
-/**
- * BCP 47 tag for the active locale.
- *
- * Date and number formatting has to follow the interface language too: a
- * Chinese interface showing `Jan 31, 2026` (or worse, an English interface
- * showing `01月31日`) reads as a bug. Components format through this instead of
- * hard-coding a tag, so switching `active` above switches dates with it.
- */
-const activeTag = "zh-CN";
-
-/** Format a timestamp the way the active interface language writes it. */
-export function formatDateTime(
-  value: string | number | Date,
-  options: Intl.DateTimeFormatOptions = {},
-): string {
-  return new Date(value).toLocaleString(activeTag, options);
+export function normalizeLocale(value: unknown): Locale {
+  return value === "en-US" ? "en-US" : DEFAULT_LOCALE;
 }
 
-/** Look up interface copy. Keys are type-checked, so a typo fails the build. */
-export function t(key: MessageKey): string {
-  return active[key];
+// Server copy and model prompts never inherit a browser's preference.
+let rendererLocale: Locale = DEFAULT_LOCALE;
+const listeners = new Set<() => void>();
+export function getLocale(): Locale {
+  return typeof window === "undefined" ? DEFAULT_LOCALE : rendererLocale;
+}
+export function subscribeLocale(listener: () => void) {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+export function applyLocale(locale: Locale) {
+  if (typeof window === "undefined") return;
+  document.documentElement.lang = locale;
+  if (rendererLocale === locale) return;
+  rendererLocale = locale;
+  listeners.forEach(listener => listener());
 }
 
-/**
- * Look up a message that embeds runtime values, e.g.
- * `tf("tools.createTask.created", { title, due, reminder, repeat, status })`.
- *
- * Placeholders stay inside the message so a translator can move a value
- * anywhere in the sentence. Concatenating fragments around the values instead
- * would freeze the word order of whichever language wrote the code.
- *
- * An unmatched placeholder is left in place rather than blanked, so a missing
- * variable shows up during review instead of silently producing a hole.
- */
-export function tf(key: MessageKey, vars: Record<string, string | number>): string {
-  return active[key].replace(/\{(\w+)\}/g, (match, name: string) =>
-    name in vars ? String(vars[name]) : match,
+export function t(key: MessageKey, locale: Locale = getLocale()): string {
+  return (locale === "en-US" ? enUS : zhCN)[key];
+}
+export function tf(key: MessageKey, vars: Record<string, string | number>, locale: Locale = getLocale()): string {
+  return t(key, locale).replace(/\{(\w+)\}/g, (match, name: string) =>
+    Object.hasOwn(vars, name) ? String(vars[name]) : match,
   );
+}
+export function formatDateTime(value: string | number | Date, options: Intl.DateTimeFormatOptions = {}, locale: Locale = getLocale()): string {
+  return new Date(value).toLocaleString(locale, options);
+}
+export function formatNumber(value: number, options: Intl.NumberFormatOptions = {}): string {
+  return value.toLocaleString(getLocale(), options);
+}
+
+const messageKeys = Object.keys(zhCN) as MessageKey[];
+const knownMessages = new Map<string, MessageKey>();
+for (const key of messageKeys) {
+  if (!knownMessages.has(zhCN[key])) knownMessages.set(zhCN[key], key);
+  if (!knownMessages.has(enUS[key])) knownMessages.set(enUS[key], key);
+}
+
+/** Localize known application metadata/errors at the display boundary only.
+ * Never apply this to user documents, conversation text, or model output. */
+export function localizeMessage(value: string): string {
+  const key = knownMessages.get(value);
+  return key ? t(key) : value;
 }
 
 export type { MessageKey };

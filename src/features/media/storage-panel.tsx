@@ -1,15 +1,18 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
+
 import { getApiErrorMessage } from "@/lib/api-error-message";
 
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { RefreshButton } from "@/components/ui/refresh-button";
-import { t } from "@/lib/locale";
+import { t, localizeMessage } from "@/lib/locale";
 
 type StorageStats = { assetCount: number; totalBytes: number; referencedCount: number; unreferencedCount: number; reclaimableCount: number; looseFileCount: number; graceHours: number };
 
 export function StoragePanel({ revision = 0, onChanged }: { revision?: number; onChanged?: () => void }) {
+  useLocale();
   const [stats, setStats] = useState<StorageStats | null>(null);
   /* A read is always in flight on mount, so `busy` starts true. Starting it
      false painted the "nothing here yet" line for one frame and then swapped it
@@ -48,7 +51,7 @@ export function StoragePanel({ revision = 0, onChanged }: { revision?: number; o
     <Card>
       <CardHeader><CardTitle>{t("mediaStorage.title")}</CardTitle><CardDescription>{t("mediaStorage.description")}</CardDescription></CardHeader>
       <CardContent className="space-y-4">
-        {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+        {error ? <p role="alert" className="text-sm text-destructive">{localizeMessage(error)}</p> : null}
         {message ? <p role="status" className="text-sm text-muted-foreground">{message}</p> : null}
         {stats ? <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
           <dt className="text-muted-foreground">{t("mediaStorage.diskUsage")}</dt><dd className="font-mono tabular-nums">{(stats.totalBytes / 1024 / 1024).toFixed(2)} MiB</dd>

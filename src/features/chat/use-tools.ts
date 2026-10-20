@@ -1,6 +1,6 @@
+import { t } from "@/lib/locale";
 import { ModelMode } from "@/features/chat/page-utils";
 import { encodePersistedAssistantToolMessage } from "@/lib/ai/ui-message";
-import { t } from "@/lib/locale";
 import { UIMessage } from "ai";
 import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useRef, useState } from "react";
@@ -70,7 +70,7 @@ export function useTools({ activeChatId, allowedToolIds, setMessages, ensureActi
     input: Record<string, unknown>;
     userVisibleText: string;
   }) {
-    if (manualRun.current) throw new Error("请等待当前工具执行完成。");
+    if (manualRun.current) throw new Error(t("ui.chat.use-tools.waitForTheCurrentToolTo"));
     manualRun.current = true; setIsRunningManualTool(true);
     try {
       const startingChat = currentChat.current;

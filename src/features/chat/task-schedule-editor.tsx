@@ -1,3 +1,5 @@
+"use client";
+import { useLocale } from "@/lib/locale/client";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { t } from "@/lib/locale";
+import { t, localizeMessage } from "@/lib/locale";
 import {
   isTaskTimeZone,
   parseTaskDueDate,
@@ -16,12 +18,12 @@ import {
 } from "@/lib/tasks/schedule";
 import type { TaskItem, TaskScheduleInput } from "./types";
 
-export const repeatLabels = {
+export const repeatLabels = () => ({
   none: t("chat.schedule.repeatNone"),
   daily: t("chat.schedule.repeatDaily"),
   weekly: t("chat.schedule.repeatWeekly"),
   monthly: t("chat.schedule.repeatMonthly"),
-};
+});
 
 export function TaskScheduleEditor({
   task,
@@ -32,6 +34,7 @@ export function TaskScheduleEditor({
   onSave: (id: string, input: TaskScheduleInput) => Promise<boolean>;
   disabled: boolean;
 }) {
+  useLocale();
   const [open, setOpen] = useState(false);
   return (
     <div className="contents">
@@ -70,6 +73,7 @@ function ScheduleForm({
   onSave: (input: TaskScheduleInput) => Promise<void>;
   onCancel: () => void;
 }) {
+  useLocale();
   const initialZone = task.dueDate
     ? (task.timeZone ?? "UTC")
     : Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -158,7 +162,7 @@ function ScheduleForm({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {Object.entries(repeatLabels).map(([value, label]) => (
+              {Object.entries(repeatLabels()).map(([value, label]) => (
                 <SelectItem key={value} value={value}>
                   {label}
                 </SelectItem>
@@ -174,7 +178,7 @@ function ScheduleForm({
         ) : null}
         {error ? (
           <p role="alert" className="text-destructive">
-            {error}
+            {localizeMessage(error)}
           </p>
         ) : null}
         <div className="flex gap-2">

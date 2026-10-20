@@ -1,4 +1,7 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
+
+import { t, formatDateTime } from "@/lib/locale";
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
@@ -6,8 +9,6 @@ import { Bell, CheckCheck, Loader2, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SettingsSection } from "@/features/settings/settings-section";
-import { t } from "@/lib/locale";
-
 type Notice = {
   id: string;
   kind: string;
@@ -27,6 +28,7 @@ type Notice = {
  * reminder stays one item until it is dealt with.
  */
 export function NoticeCenter({ onCountChange }: { onCountChange?: (unread: number) => void }) {
+  useLocale();
   const [notices, setNotices] = useState<Notice[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -59,8 +61,8 @@ export function NoticeCenter({ onCountChange }: { onCountChange?: (unread: numbe
     <SettingsSection title={<><Bell aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
           {t("notices.title")}
           {unread.length > 0 ? (
-            <Badge variant="secondary">{unread.length} 未读</Badge>
-          ) : null}</>} description="未处理的任务与备份提醒会保留在这里。">
+            <Badge variant="secondary">{unread.length} {t("ui.settings.notice-center.unread")}</Badge>
+          ) : null}</>} description={t("ui.settings.notice-center.unresolvedTaskAndBackupRemindersRemain")}>
         <div className="flex flex-col gap-4">
         {loading ? (
           <p className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -80,7 +82,7 @@ export function NoticeCenter({ onCountChange }: { onCountChange?: (unread: numbe
                   <div className="min-w-0">
                     <p className="text-sm font-medium">{t(`notices.title_${notice.title}` as never)}</p>
                     {notice.detail ? <p className="truncate text-xs text-muted-foreground">{notice.detail}</p> : null}
-                    <p className="text-[11px] text-muted-foreground">{new Date(notice.createdAt).toLocaleString()}</p>
+                    <p className="text-[11px] text-muted-foreground">{formatDateTime(new Date(notice.createdAt))}</p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
                     {notice.href ? (

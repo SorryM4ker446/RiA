@@ -1,6 +1,6 @@
+import { t } from "@/lib/locale";
 import { getApiErrorMessage } from "@/lib/api-error-message";
 import { attachmentValidationError } from "@/lib/media/limits";
-import { t } from "@/lib/locale";
 import type { MediaReference } from "@/lib/media/message-codec";
 import { DefaultChatTransport } from "ai";
 import type { ModelRef } from "@/lib/models/preferences-schema";
@@ -41,8 +41,8 @@ export const chatApi = {
     }
   },
   createConversation: (title: string, assistantTemplateId?: string) => requestJson<Data<ChatSummary>>("/api/conversations", t("chatApi.createConversationFailed"), jsonBody("POST", { title, assistantTemplateId })),
-  listAssistants: (signal?: AbortSignal) => requestJson<Data<AssistantTemplate[]>>("/api/assistants", "无法加载助理模板", { signal }),
-  setAssistant: (id: string, assistantTemplateId: string | null) => requestJson<Data<ChatSummary>>(conversationPath(id), "无法应用助理模板", jsonBody("PATCH", { assistantTemplateId })),
+  listAssistants: (signal?: AbortSignal) => requestJson<Data<AssistantTemplate[]>>("/api/assistants", t("ui.chat.api-client.couldNotLoadAssistantTemplates"), { signal }),
+  setAssistant: (id: string, assistantTemplateId: string | null) => requestJson<Data<ChatSummary>>(conversationPath(id), t("ui.chat.api-client.couldNotApplyAssistantTemplate"), jsonBody("PATCH", { assistantTemplateId })),
   renameConversation: (id: string, title: string) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatApi.renameConversationFailed"), jsonBody("PATCH", { title })),
   setDocumentScope: (id: string, documentScope: string[]) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatApi.setDocumentScopeFailed"), jsonBody("PATCH", { documentScope })),
   setEphemeral: (id: string, ephemeral: boolean) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatApi.setEphemeralFailed"), jsonBody("PATCH", { ephemeral })),
@@ -50,7 +50,7 @@ export const chatApi = {
   listMessages: (id: string, cursor?: string) => requestJson<Page<StoredMessage>>(withCursor(`${conversationPath(id)}/messages`, cursor), t("chatApi.listMessagesFailed")),
   editMessage: (chatId: string, messageId: string, content: string) => requestJson<unknown>(messagePath(chatId, messageId), t("chatApi.saveEditFailed"), jsonBody("PATCH", { content })),
   deleteMessage: (chatId: string, messageId: string) => requestJson<unknown>(messagePath(chatId, messageId), t("chatApi.deleteMessageFailed"), { method: "DELETE" }),
-  listDocuments: (signal: AbortSignal) => requestJson<Data<Array<{ id: string; filename: string; collection: string | null }>>>("/api/documents", "无法加载知识库文档。", { signal }),
+  listDocuments: (signal: AbortSignal) => requestJson<Data<Array<{ id: string; filename: string; collection: string | null }>>>("/api/documents", t("ui.chat.api-client.couldNotLoadKnowledgeDocuments"), { signal }),
   listTools: () => requestJson<Data<ToolCatalogItem[]>>("/api/tools?mode=chat", t("chatApi.listToolsFailed")),
   async runTool(tool: string, input: Record<string, unknown>, model: ModelRef | null, chatId?: string) {
     const failed = `${tool} ${t("chatApi.runToolFailed")}`;

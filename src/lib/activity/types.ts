@@ -1,3 +1,4 @@
+import { t } from "@/lib/locale";
 import { z } from "zod";
 export const EVENT_KINDS = ["task.completed", "task.reopened", "document.imported", "document.updated", "memory.confirmed"] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
@@ -12,4 +13,4 @@ export const factsSchema = z.strictObject({
   coverageFrom: z.iso.datetime(), complete: z.boolean(), sources: z.array(eventSchema).max(ACTIVITY_LIMITS.sources), omitted: z.number().int().nonnegative(),
 });
 export type ReviewFacts = z.infer<typeof factsSchema>;
-export const eventLabel = (kind: string) => ({ "task.completed": "任务完成", "task.reopened": "任务重新打开", "document.imported": "资料导入", "document.updated": "资料更新", "memory.confirmed": "记忆确认" })[kind] ?? "工作区变化";
+export const eventLabel = (kind: string) => ({ "task.completed": t("ui.activity.taskCompleted"), "task.reopened": t("ui.activity.taskReopened"), "document.imported": t("ui.activity.documentImported"), "document.updated": t("ui.activity.documentUpdated"), "memory.confirmed": t("ui.activity.memoryConfirmed") })[kind] ?? t("ui.activity.change");

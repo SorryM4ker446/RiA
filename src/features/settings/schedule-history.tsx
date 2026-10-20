@@ -1,4 +1,7 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
+
+import { t, formatDateTime, localizeMessage } from "@/lib/locale";
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -6,12 +9,12 @@ import { SettingsHelp, SettingsSection } from "@/features/settings/settings-sect
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { executionGuidance } from "@/lib/execution-messages";
-import { t } from "@/lib/locale";
 import type { ScheduledRunView } from "@/lib/scheduler/history";
 
-const statusLabel = (status: string) => ({ running: "执行中", succeeded: "已完成", failed: "失败", interrupted: "进程中断" })[status] ?? "未知状态";
+const statusLabel = (status: string) => ({ running: t("ui.chat.run-records.running"), succeeded: t("chat.tasks.statusDone"), failed: t("models.statusFailed"), interrupted: t("ui.models.usage-history.processInterrupted") })[status] ?? t("ui.settings.schedule-history.unknownStatus");
 
 export function ScheduleHistory({ refreshKey, onExecuted }: { refreshKey: number; onExecuted: () => Promise<void> }) {
+  useLocale();
   const [runs, setRuns] = useState<ScheduledRunView[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [retryError, setRetryError] = useState<string | null>(null);
@@ -23,14 +26,14 @@ export function ScheduleHistory({ refreshKey, onExecuted }: { refreshKey: number
     const request = ++latestRequest.current;
     try {
       const response = await fetch("/api/schedules/runs", { cache: "no-store", signal });
-      if (!response.ok) throw new Error(response.status === 503 ? "工作区暂不可用，恢复期间不会认领新的定时任务，请稍后刷新。" : "无法读取执行历史。");
+      if (!response.ok) throw new Error(response.status === 503 ? t("ui.settings.schedule-history.workspaceTemporarilyUnavailableNoNewScheduled") : t("ui.settings.schedule-history.couldNotLoadExecutionHistory"));
       const payload = await response.json();
       if (signal?.aborted || request !== latestRequest.current) return;
       setRuns(payload.data);
       setAutomatic(payload.automaticExecution);
       setError(null);
     } catch (failure) {
-      if (!signal?.aborted && request === latestRequest.current) setError(failure instanceof Error ? failure.message : "无法读取执行历史。");
+      if (!signal?.aborted && request === latestRequest.current) setError(failure instanceof Error ? failure.message : t("ui.settings.schedule-history.couldNotLoadExecutionHistory"));
     } finally { if (!signal?.aborted && request === latestRequest.current) setLoading(false); }
   }, []);
   const running = runs.some(run => run.status === "running");
@@ -50,8 +53,8 @@ export function ScheduleHistory({ refreshKey, onExecuted }: { refreshKey: number
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ runId: run.id }),
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error?.message ?? "无法发起新的执行。");
-    } catch (failure) { setRetryError(failure instanceof Error ? failure.message : "无法发起新的执行。"); }
+      if (!response.ok) throw new Error(payload.error?.message ?? t("ui.settings.schedule-history.couldNotStartANewExecution"));
+    } catch (failure) { setRetryError(failure instanceof Error ? failure.message : t("ui.settings.schedule-history.couldNotStartANewExecution")); }
     finally {
       await Promise.all([load(), onExecuted()]);
       setBusy(false);
@@ -59,36 +62,36 @@ export function ScheduleHistory({ refreshKey, onExecuted }: { refreshKey: number
   }
 
   return (
-    <SettingsSection role="region" aria-label="定时执行历史" title="最近执行" description="查看计划的运行结果，或重试可恢复的失败。" action={
+    <SettingsSection role="region" aria-label={t("ui.settings.schedule-history.scheduledExecutionHistory")} title={t("ui.settings.schedule-history.recentExecutions")} description={t("ui.settings.schedule-history.viewScheduledRunResultsOrRetry")} action={
         <div className="flex flex-wrap items-center gap-3">
-          <Button onClick={() => void load()} size="sm" type="button" variant="outline">刷新记录</Button>
-          <a className="text-xs underline underline-offset-4 self-center" href="/api/diagnostics" download>导出脱敏诊断</a>
+          <Button onClick={() => void load()} size="sm" type="button" variant="outline">{t("ui.settings.schedule-history.refreshRecords")}</Button>
+          <a className="text-xs underline underline-offset-4 self-center" href="/api/diagnostics" download>{t("ui.chat.run-records.exportRedactedDiagnostics")}</a>
         </div>
       }><div className="flex flex-col gap-3">
-      {!automatic ? <p className="text-xs text-warning">当前为浏览器开发服务，自动调度未启动。定时任务只在桌面应用运行时自动执行。</p> : null}
-      {error ? <p role="alert" className="text-xs text-destructive">{error}</p> : null}
+      {!automatic ? <p className="text-xs text-warning">{t("ui.settings.schedule-history.automaticSchedulingIsDisabledInThe")}</p> : null}
+      {error ? <p role="alert" className="text-xs text-destructive">{localizeMessage(error)}</p> : null}
       {retryError ? <p role="alert" className="text-xs text-destructive">{retryError}</p> : null}
-      {loading ? <p className="text-xs text-muted-foreground">正在读取执行历史…</p> : runs.length === 0 ? <p className="text-xs text-muted-foreground">暂无执行记录。</p> : (
+      {loading ? <p className="text-xs text-muted-foreground">{t("ui.settings.schedule-history.loadingExecutionHistory")}</p> : runs.length === 0 ? <p className="text-xs text-muted-foreground">{t("ui.settings.schedule-history.noExecutionRecordsYet")}</p> : (
         <ul className="settings-list">
           {runs.map(run => (
             <li key={run.id} className="settings-history-row text-xs">
-              <p className="flex flex-wrap justify-between gap-2"><span>{["backupReminder", "scheduledBackup", "dailyBrief", "weeklySummary"].includes(run.kind) ? t(`settings.schedules.kind.${run.kind}` as never) : "不支持的任务类型"}</span><span className="flex items-center gap-2"><Badge variant={run.status === "failed" || run.status === "interrupted" ? "outline" : "secondary"}>{statusLabel(run.status)}</Badge>{run.trigger === "manual" ? "手动重试" : "定时执行"}</span></p>
-              <p className="text-muted-foreground">开始：{new Date(run.startedAt).toLocaleString()} · 结束：{run.finishedAt ? new Date(run.finishedAt).toLocaleString() : "尚未结束"}</p>
-              {run.errorCode ? <p>{run.status === "succeeded" ? "本地结果已保存，模型整理未完成。" : ""}{run.errorCode} · {executionGuidance(run.errorCode)}</p> : null}
-              {!run.jobId ? <p className="text-muted-foreground">原计划已删除，执行证据仍保留。</p> : null}
+              <p className="flex flex-wrap justify-between gap-2"><span>{["backupReminder", "scheduledBackup", "dailyBrief", "weeklySummary"].includes(run.kind) ? t(`settings.schedules.kind.${run.kind}` as never) : t("ui.settings.schedule-history.unsupportedTaskType")}</span><span className="flex items-center gap-2"><Badge variant={run.status === "failed" || run.status === "interrupted" ? "outline" : "secondary"}>{statusLabel(run.status)}</Badge>{run.trigger === "manual" ? t("ui.settings.schedule-history.manualRetry") : t("ui.settings.schedule-history.scheduledRun")}</span></p>
+              <p className="text-muted-foreground">{t("ui.settings.schedule-history.started")}{formatDateTime(new Date(run.startedAt))} {t("ui.settings.schedule-history.finished")}{run.finishedAt ? formatDateTime(new Date(run.finishedAt)) : t("ui.settings.schedule-history.notFinished")}</p>
+              {run.errorCode ? <p>{run.status === "succeeded" ? t("ui.settings.schedule-history.localResultSavedModelCommentaryIncomplete") : ""}{run.errorCode} · {executionGuidance(run.errorCode)}</p> : null}
+              {!run.jobId ? <p className="text-muted-foreground">{t("ui.settings.schedule-history.originalScheduleDeletedExecutionEvidenceIs")}</p> : null}
               <div className="flex flex-wrap items-center gap-3">
-                {run.chatId ? <Link className="underline" href={`/chat?conversationId=${encodeURIComponent(run.chatId)}`}>打开生成的会话</Link> : null}
-                {run.backupId ? <Link className="underline" href="/backups">查看备份</Link> : null}
-                {run.canRetry ? <Button disabled={busy} onClick={() => void retry(run)} size="sm" type="button" variant="outline">{busy ? "正在执行…" : "重新执行一次"}</Button> : null}
+                {run.chatId ? <Link className="underline" href={`/chat?conversationId=${encodeURIComponent(run.chatId)}`}>{t("ui.settings.schedule-history.openGeneratedConversation")}</Link> : null}
+                {run.backupId ? <Link className="underline" href="/backups">{t("ui.settings.schedule-history.viewBackup")}</Link> : null}
+                {run.canRetry ? <Button disabled={busy} onClick={() => void retry(run)} size="sm" type="button" variant="outline">{busy ? t("ui.settings.schedule-history.running") : t("ui.settings.schedule-history.runOnceAgain")}</Button> : null}
               </div>
             </li>
           ))}
         </ul>
       )}
-      <SettingsHelp title="记录保留与重试规则">
-        <p>执行记录保留 90 天、最多 1,000 条，展示最近 50 条。提醒已读或删除计划不删除执行记录。旧版本的上次状态不会补造成历史。</p>
-        <p>诊断仅含时间、状态和错误类别，不含提示词、文件正文、路径或凭证。</p>
-        <p>重新执行会创建新记录，模型任务可能再次计费。仅当前已启用计划的最近失败可重试；中断或已有产物的执行需先人工核对，不自动重放工具写入。</p>
+      <SettingsHelp title={t("ui.settings.schedule-history.recordRetentionRetryRules")}>
+        <p>{t("ui.settings.schedule-history.executionRecordsAreRetainedFor90")}</p>
+        <p>{t("ui.settings.schedule-history.diagnosticsIncludeOnlyTimesStatusAnd")}</p>
+        <p>{t("ui.settings.schedule-history.rerunningCreatesANewRecordAnd")}</p>
       </SettingsHelp>
       </div></SettingsSection>
   );

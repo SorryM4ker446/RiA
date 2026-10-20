@@ -1,6 +1,8 @@
 import { test as base, expect, type Page } from "@playwright/test";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { startStandaloneServer } from "../helpers/standalone-server";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => {
@@ -94,3 +96,42 @@ test("the brand stays clickable inside the drag row", { tag: "@integration" }, a
   await brand.click();
   await expect(page).toHaveURL(`${app.origin}/chat`);
 });
+
+for (const locale of ["zh-CN", "en-US"] as const) {
+  test(`navigation labels remain fully visible on desktop and in the drawer in ${locale}`, async ({ page, app }) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
+    await page.addInitScript(value => localStorage.setItem("ui:locale", value), locale);
+    await openWorkspace(page, app.origin);
+    await page.goto(`${app.origin}/conversations`);
+    await expect(page).toHaveTitle("RiA");
+    await expect(page.getByRole("main")).toBeVisible();
+    await expect(page.locator("html")).toHaveAttribute("lang", locale);
+    const english = locale === "en-US";
+    for (const width of [1440, 1024, 390]) {
+      await page.setViewportSize({ width, height: 860 });
+      if (width < 1024) await page.getByRole("button", { name: english ? "Open navigation" : "打开导航", exact: true }).click();
+      const nav = page.getByRole("navigation", { name: english ? "Workspace navigation" : "工作区导航", exact: true });
+      await expect(nav).toBeVisible();
+      const conversations = nav.getByRole("link", { name: english ? "Manage conversations" : "管理会话", exact: true });
+      await expect(conversations).toHaveAttribute("aria-current", "page");
+      const labels = await nav.locator(".workspace-nav-link span").evaluateAll(nodes => nodes.map(node => {
+        const label = node as HTMLElement;
+        const box = label.getBoundingClientRect();
+        const link = label.closest("a")!.getBoundingClientRect();
+        return { text: label.textContent, clippedX: label.scrollWidth > label.clientWidth + 1, clippedY: label.scrollHeight > label.clientHeight + 1, outside: box.left < link.left - 1 || box.right > link.right + 1 || box.top < link.top - 1 || box.bottom > link.bottom + 1 };
+      }));
+      expect(labels.length).toBeGreaterThan(0);
+      expect(labels.filter(label => label.clippedX || label.clippedY || label.outside), `clipped navigation at ${width}px`).toEqual([]);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.locator(".workspace-rail:visible").screenshot({ path: join(tmpdir(), `ria-navigation-${locale}-${width}.png`) });
+      if (width < 1024) {
+        await nav.getByRole("link", { name: english ? "Knowledge" : "知识库", exact: true }).click();
+        await expect(page).toHaveURL(`${app.origin}/knowledge`);
+        await expect(nav).toBeHidden();
+      }
+    }
+    expect(errors).toEqual([]);
+  });
+}

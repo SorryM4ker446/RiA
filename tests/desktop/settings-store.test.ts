@@ -36,7 +36,7 @@ function finish(report, code) {
 }
 
 app.whenReady().then(async () => {
-  const report = { encryptionAvailable: false, partialSave: null, concurrentWrites: null, extensionKeyStable: false, extensionKeyEncrypted: false, unreadableExtensionKeyIsolated: false, error: null };
+  const report = { encryptionAvailable: false, partialSave: null, concurrentWrites: null, extensionKeyStable: false, extensionKeyEncrypted: false, unreadableExtensionKeyIsolated: false, defaultLocale: null, savedLocale: null, invalidLocaleRejected: false, error: null };
   try {
     // Each case gets its own file: the first must not depend on what the second left.
     const card = new DesktopSettingsStore(join(root, "card.json"));
@@ -45,10 +45,15 @@ app.whenReady().then(async () => {
       openrouterSiteName: "Example Corp",
       openrouterHttpReferer: "https://example.invalid/app",
     });
+    report.defaultLocale = (await card.getView()).locale;
+    await card.save({ locale: "en-US" });
     // What the close-behaviour card and the hotkey picker each send on their own.
     await card.save({ closeBehaviour: "tray" });
     await card.save({ globalHotkey: "Ctrl+Shift+R" });
     report.partialSave = await card.getView();
+    const reopenedCard = new DesktopSettingsStore(join(root, "card.json"));
+    report.savedLocale = (await reopenedCard.getView()).locale;
+    try { await card.save({ locale: "invalid" }); } catch { report.invalidLocaleRejected = (await card.getView()).locale === "en-US"; }
 
     const concurrent = new DesktopSettingsStore(join(root, "concurrent.json"));
     report.encryptionAvailable = (await concurrent.getView()).encryptionAvailable;
@@ -103,6 +108,10 @@ test("a settings card that sends one field does not wipe the fields beside it", 
     // And the fields the cards did send still took.
     assert.equal(report.partialSave.closeBehaviour, "tray");
     assert.equal(report.partialSave.globalHotkey, "Ctrl+Shift+R");
+    assert.equal(report.defaultLocale, "zh-CN");
+    assert.equal(report.savedLocale, "en-US");
+    assert.equal(report.partialSave.locale, "en-US");
+    assert.equal(report.invalidLocaleRejected, true);
   } finally {
     if (resolve(dirname(root)) !== resolve(tmpdir())) throw new Error("Unexpected test directory");
     rmSync(root, { recursive: true, force: true });
@@ -139,6 +148,9 @@ test("a key save and a window-geometry save in flight together both survive", {
 });
 
 type SettingsReport = {
+  defaultLocale: string | null;
+  savedLocale: string | null;
+  invalidLocaleRejected: boolean;
   error: string | null;
   encryptionAvailable: boolean;
   extensionKeyStable: boolean;

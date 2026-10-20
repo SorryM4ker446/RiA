@@ -1,4 +1,5 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
 
 import * as React from "react";
 import { Upload } from "lucide-react";
@@ -28,6 +29,7 @@ type FileInputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, "type" |
  */
 export const FileInput = React.forwardRef<HTMLInputElement, FileInputProps>(
   ({ className, triggerClassName, buttonLabel, placeholder, disabled, id, onChange, ...props }, ref) => {
+  useLocale();
     const generatedId = React.useId();
     const inputId = id ?? generatedId;
     const [names, setNames] = React.useState<string[]>([]);

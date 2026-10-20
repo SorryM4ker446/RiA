@@ -24,23 +24,25 @@ Built with Electron, Next.js, Vercel AI SDK, Prisma, and SQLite.
 
 The interface supports light/dark themes, compact management views, keyboard navigation and reduced motion. Windows includes a translucent chat canvas, window transitions and a theme-aware startup animation.
 
+The interface defaults to Simplified Chinese. Use **Settings → Application → Interface language** to switch between English and Simplified Chinese. Changes apply immediately without restarting or clearing drafts. Desktop preferences persist in the device's settings file across launches; the browser version saves the preference locally and synchronizes it across tabs. This setting affects interface text and date/number formatting only. Model replies follow the language of the latest user message, or an explicit request for another language; existing messages and user content are preserved.
+
 ## Start using RiA
 
 1. Install the Windows x64 `RiA-<version>-x64.msi` produced by the [build instructions](#build-an-installer). The installed application does not require a separate Node.js installation or database server.
-2. Open **设置** and configure OpenRouter or DeepSeek. OpenRouter is required for the supported image, video and embedding features. Provider search works without Tavily, which is an optional fallback.
-3. In **模型与用量**, add models to **我的模型** and select a default chat model. Agent tool use and on-demand community Skill reading require a tool-capable model.
+2. Open **Settings** and configure OpenRouter or DeepSeek. OpenRouter is required for the supported image, video and embedding features. Provider search works without Tavily, which is an optional fallback.
+3. In **Models & usage**, add models to **My models** and select a default chat model. Agent tool use and on-demand community Skill reading require a tool-capable model.
 4. Start a conversation or apply an assistant template. Image, PDF and Word (`.docx`) attachments are available in chat. Documents are parsed for the conversation without being added automatically to the knowledge library. [Chat attachments](docs/media-storage.md#pdf-and-word-in-chat)
-5. To build a reusable knowledge library, open **知识库**, preview an import and confirm saving. Keyword indexing is local; semantic indexing is optional and sends snippets to the selected embedding provider.
-6. Open **扩展管理** for Skills, plugin packages and tool connections. Grant local folders through **文件权限** to the left of **执行记录**, or through Settings, then explicitly enable terminal access. Approve or reject each operation in the compact card above this toolbar; expand **查看详情** to review its command or parameters. Approval cards disappear after a decision; reasoning stays expanded unless you collapse it, without reopening or collapsing on approval. **执行记录** retains the request's execution stages, full tool details, sources and diagnostics in one entry. Web Search result counts are chosen by the model; RiA has no per-turn result-count quota, while provider API limits still apply.
+5. To build a reusable knowledge library, open **Knowledge**, preview an import and confirm saving. Keyword indexing is local; semantic indexing is optional and sends snippets to the selected embedding provider.
+6. Open **Extensions** for Skills, plugin packages and tool connections. Grant local folders through **File permissions** to the left of **Execution records**, or through Settings, then explicitly enable terminal access. Approve or reject each operation in the compact card above this toolbar; expand **View details** to review its command or parameters. Approval cards disappear after a decision; reasoning stays expanded unless you collapse it, without reopening or collapsing on approval. **Execution records** retains the request's execution stages, full tool details, sources and diagnostics in one entry. Web Search result counts are chosen by the model; RiA has no per-turn result-count quota, while provider API limits still apply.
 
-Settings use four categories: **服务与模型**, **应用偏好**, **自动化与通知**, and **文件权限**. Under **自动化与通知**, choose **添加计划** to configure a schedule in a side panel. Execution history, local fact reviews and reminders have their own sections; detailed rules expand on demand. Switching categories preserves unsaved inputs.
+Settings use four categories: **Services & models**, **Application**, **Automation & notifications**, and **File permissions**. Under **Automation & notifications**, choose **Add schedule** to configure a schedule in a side panel. Execution history, local fact reviews and reminders have their own sections; detailed rules expand on demand. Switching categories preserves unsaved inputs.
 
 Stored history, local keyword retrieval and manual task management remain available without a model service. Generation, remote search and external connectors need their configured services. Desktop reminders and scheduled work require RiA to remain running.
 
 ## Extend RiA
 
-- **Community Skills:** open **扩展管理 → 插件市场 → 发现 Skill**, search, inspect the instructions and files, install, then enable the package under **我的扩展 → 我的插件**. Relevant text resources are loaded on demand during chat.
-- **MCP and HTTP tools:** discover a server through **发现扩展**, or configure a Streamable HTTP MCP, local stdio MCP or HTTP API connection manually. Supply required credentials, detect the connection, review its tools and explicitly enable them.
+- **Community Skills:** open **Extensions → Plugin marketplace → Discover skills**, search, inspect the instructions and files, install, then enable the package under **My extensions → My plugins**. Relevant text resources are loaded on demand during chat.
+- **MCP and HTTP tools:** discover a server through **Discover extensions**, or configure a Streamable HTTP MCP, local stdio MCP or HTTP API connection manually. Supply required credentials, detect the connection, review its tools and explicitly enable them.
 - **RiA plugin packages:** import a `.ria-plugin.json` file or paste its manifest, review the preview, install, configure its connections and enable it. Packages can combine Skills with MCP/HTTP connections; disabling or uninstalling preserves historical conversations and results.
 
 Installing a Skill adds instructions and reference files. It does not install required software, execute bundled scripts or grant file access. Local MCP processes require separate consent and an installed runtime. Tool allowlists, directory permissions and per-call approvals still apply. The terminal runs a fresh non-interactive process for each command.
@@ -116,9 +118,9 @@ Tests use isolated SQLite databases and deterministic external-service fixtures.
 
 ## Data and recovery
 
-**备份与恢复** exports workspace business data and media, and creates a safety backup before restoring. Portable archives are unencrypted and exclude provider keys and the local access credential. Plugin/connector declarations are machine-local and omitted from portable archives; restoring keeps existing local declarations but disables them and invalidates approvals. See [backup rules](docs/workspace-backups.md) and [plugin persistence](docs/plugin-packages.md#persistence-and-api).
+**Backup & restore** exports workspace business data and media, and creates a safety backup before restoring. Portable archives are unencrypted and exclude provider keys and the local access credential. Plugin/connector declarations are machine-local and omitted from portable archives; restoring keeps existing local declarations but disables them and invalidates approvals. See [backup rules](docs/workspace-backups.md) and [plugin persistence](docs/plugin-packages.md#persistence-and-api).
 
-Private media assets hold images, videos and document attachments. **存储管理** provides explicit cleanup with reference protection. See [media storage](docs/media-storage.md).
+Private media assets hold images, videos and document attachments. **Storage** provides explicit cleanup with reference protection. See [media storage](docs/media-storage.md).
 
 Older account-scoped databases are inventoried and snapshotted before adopting a local workspace. Data spread across several accounts requires an explicit ownership decision instead of a silent merge.
 

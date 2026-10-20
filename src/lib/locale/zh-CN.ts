@@ -14,6 +14,10 @@ import { pageMessages } from "./parts/pages";
 import { toolsMessages } from "./parts/tools";
 import { serverMessages } from "./parts/server";
 
+import { interfaceMessages } from "./parts/interface";
+
+import { errorMessages } from "./parts/errors";
+
 const base = {
   // --- shell -------------------------------------------------------------
   "brand.name": "RiA",
@@ -61,6 +65,6 @@ const base = {
  * one stays owned by a single area; spreading duplicates silently, so the parts
  * must keep disjoint key prefixes.
  */
-export const zhCN = { ...base, ...pageMessages, ...chatMessages, ...libraryMessages, ...serverMessages, ...apiMessages, ...clientMessages, ...toolsMessages };
+export const zhCN = { ...base, ...errorMessages, ...interfaceMessages, ...pageMessages, ...chatMessages, ...libraryMessages, ...serverMessages, ...apiMessages, ...clientMessages, ...toolsMessages };
 
 export type MessageKey = keyof typeof zhCN;

@@ -17,6 +17,7 @@ export type DesktopCloseBehaviour = "quit" | "tray";
 export type DesktopWindowBounds = { x: number; y: number; width: number; height: number };
 
 export type DesktopSettingsInput = {
+  locale?: "zh-CN" | "en-US";
   openrouterApiKey?: string;
   tavilyApiKey?: string;
   deepseekApiKey?: string;
@@ -32,6 +33,7 @@ export type DesktopSettingsInput = {
 };
 
 export type DesktopSettingsView = {
+  locale: "zh-CN" | "en-US";
   hasOpenrouterApiKey: boolean;
   hasTavilyApiKey: boolean;
   hasDeepseekApiKey: boolean;
@@ -45,6 +47,7 @@ export type DesktopSettingsView = {
 };
 
 type StoredDesktopSettings = {
+  locale?: "zh-CN" | "en-US";
   version: 1;
   encryptedOpenrouterApiKey?: string;
   encryptedTavilyApiKey?: string;
@@ -160,6 +163,10 @@ export class DesktopSettingsStore {
     return normalizeHotkey(this.readStored().globalHotkey);
   }
 
+  getLocale(): "zh-CN" | "en-US" {
+    return this.readStored().locale === "en-US" ? "en-US" : "zh-CN";
+  }
+
   /**
    * Remember where the window was.
    *
@@ -185,6 +192,7 @@ export class DesktopSettingsStore {
   async getView(): Promise<DesktopSettingsView> {
     const stored = this.readStored();
     return {
+      locale: stored.locale === "en-US" ? "en-US" : "zh-CN",
       hasOpenrouterApiKey: Boolean(stored.encryptedOpenrouterApiKey),
       hasTavilyApiKey: Boolean(stored.encryptedTavilyApiKey),
       hasDeepseekApiKey: Boolean(stored.encryptedDeepseekApiKey),
@@ -204,6 +212,9 @@ export class DesktopSettingsStore {
 
   private async applySave(input: DesktopSettingsInput): Promise<DesktopSettingsView> {
     const current = this.readStored();
+    if (input.locale !== undefined && input.locale !== "zh-CN" && input.locale !== "en-US") {
+      throw new Error("Unsupported interface language.");
+    }
     /*
      * Only what was supplied is written.
      *
@@ -216,6 +227,7 @@ export class DesktopSettingsStore {
     const next: StoredDesktopSettings = {
       ...current,
       version: 1,
+      ...(input.locale === undefined ? {} : { locale: input.locale }),
       ...(input.outboundProxyUrl === undefined ? {} : { outboundProxyUrl: normalizeHttpUrl(input.outboundProxyUrl, "Proxy URL") }),
       ...(input.openrouterSiteName === undefined ? {} : { openrouterSiteName: normalizeText(input.openrouterSiteName, 200) }),
       ...(input.openrouterHttpReferer === undefined ? {} : { openrouterHttpReferer: normalizeHttpUrl(input.openrouterHttpReferer, "HTTP referrer") }),

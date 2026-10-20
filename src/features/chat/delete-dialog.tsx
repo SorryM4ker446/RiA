@@ -1,3 +1,5 @@
+"use client";
+import { useLocale } from "@/lib/locale/client";
 import { Button } from "@/components/ui/button";
 import { readText } from "@/features/chat/page-utils";
 import { t, tf } from "@/lib/locale";
@@ -9,6 +11,7 @@ import type { ChatState } from "@/features/chat/use-chat-state";
 
 type Props = Pick<ChatState, "pendingDelete" | "isDeleting" | "closeDeleteDialog" | "confirmDelete">;
 export function DeleteDialog({ pendingDelete, isDeleting, closeDeleteDialog, confirmDelete }: Props) {
+  useLocale();
   return (pendingDelete ? (
     <div
       aria-hidden={isDeleting}

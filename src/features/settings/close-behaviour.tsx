@@ -1,11 +1,13 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
+
+import { t, localizeMessage } from "@/lib/locale";
 
 import { useEffect, useState } from "react";
 import { Power } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { SettingsSection } from "@/features/settings/settings-section";
-import { t } from "@/lib/locale";
 import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
 
 /**
@@ -18,6 +20,7 @@ import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
  * clicks the X.
  */
 export function CloseBehaviourSettings() {
+  useLocale();
   const isDesktopRuntime = useDesktopRuntime();
   const [behaviour, setBehaviour] = useState<"quit" | "tray" | null>(null);
   const [saving, setSaving] = useState(false);
@@ -60,12 +63,12 @@ export function CloseBehaviourSettings() {
 
   return (
     <SettingsSection title={<><Power aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
-          {t("settings.close.title")}</>} description="选择关闭窗口后退出应用，或继续在托盘运行。">
+          {t("settings.close.title")}</>} description={t("ui.settings.close-behaviour.chooseWhetherClosingTheWindowQuits")}>
         <div className="flex flex-col gap-4">
         {error ? (
           <Alert variant="destructive">
             <AlertTitle>{t("settings.close.failedTitle")}</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
+            <AlertDescription>{localizeMessage(error)}</AlertDescription>
           </Alert>
         ) : null}
         <div className="flex flex-wrap gap-2">

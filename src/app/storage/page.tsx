@@ -1,8 +1,11 @@
+"use client";
+import { useLocale } from "@/lib/locale/client";
 import Link from "next/link";
 import { StoragePanel } from "@/features/media/storage-panel";
 import { t } from "@/lib/locale";
 
 export default function StoragePage() {
+  useLocale();
   return (
     <main className="mx-auto flex w-full max-w-4xl flex-col gap-7">
       <header className="workspace-page-header flex-col !items-start">
