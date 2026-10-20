@@ -1,3 +1,6 @@
+"use client";
+import { useLocale } from "@/lib/locale/client";
+import { localizeMessage, t, tf } from "@/lib/locale";
 import { modelRefKey } from "@/lib/models/preferences-schema";
 import { attachmentLabel } from "@/features/chat/draft";
 import { DocumentAttachment } from "@/components/chat/document-attachment";
@@ -12,7 +15,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { t, tf } from "@/lib/locale";
 import { CHAT_ATTACHMENT_TYPES, IMAGE_MEDIA_TYPES, isDocumentAttachment } from "@/lib/media/limits";
 import { cn } from "@/lib/utils/cn";
 import { ArrowUp, Loader2, Paperclip, Square, X } from "lucide-react";
@@ -110,6 +112,7 @@ export function Composer({
   onModelSelect,
   modelLibrary,
 }: Props) {
+  useLocale();
   const isDocumentTool = modelMode === "chat" && ["readDocument", "convertDocument"].includes(selectedManualToolConfig?.id ?? "");
   return (
     <form
@@ -136,7 +139,7 @@ export function Composer({
             if (field.type === "select") {
               return (
                 <Field key={field.key}>
-                  <FieldLabel htmlFor={fieldId} className="sr-only">{field.label}</FieldLabel>
+                  <FieldLabel htmlFor={fieldId} className="sr-only">{localizeMessage(field.label)}</FieldLabel>
                   <Select
                     onValueChange={(nextValue) =>
                       setManualToolFieldValues((prev) => ({
@@ -147,7 +150,7 @@ export function Composer({
                     value={value || field.defaultValue || ""}
                   >
                     <SelectTrigger id={fieldId} className="h-8">
-                      <SelectValue placeholder={field.label} />
+                      <SelectValue placeholder={localizeMessage(field.label)} />
                     </SelectTrigger>
                     <SelectContent>
                       {(field.options ?? []).map((option) => (
@@ -155,7 +158,7 @@ export function Composer({
                           key={`${field.key}-${option.value}`}
                           value={option.value}
                         >
-                          {option.label}
+                          {localizeMessage(option.label)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -168,7 +171,7 @@ export function Composer({
             const fieldErrorId = `manual-tool-${field.key}-error`;
             return (
               <Field className="gap-1.5" key={field.key} data-invalid={!!error}>
-                <FieldLabel htmlFor={fieldId} className="sr-only">{field.label}</FieldLabel>
+                <FieldLabel htmlFor={fieldId} className="sr-only">{localizeMessage(field.label)}</FieldLabel>
                 <Input
                   id={fieldId}
                   aria-describedby={error ? fieldErrorId : undefined}
@@ -199,7 +202,7 @@ export function Composer({
                       return rest;
                     });
                   }}
-                  placeholder={field.placeholder ?? field.label}
+                  placeholder={localizeMessage(field.placeholder ?? field.label)}
                   type={field.type === "number" ? "text" : field.type}
                   value={value}
                 />
@@ -209,7 +212,7 @@ export function Composer({
                     id={fieldErrorId}
                     role="alert"
                   >
-                    <span>{error}</span>
+                    <span>{localizeMessage(error)}</span>
                   </p>
                 ) : null}
               </Field>
@@ -225,7 +228,7 @@ export function Composer({
           </p>
         ) : selectedManualToolConfig ? (
           <p className="text-[11px] text-muted-foreground">
-            {selectedManualToolConfig.description}
+            {localizeMessage(selectedManualToolConfig.description)}
           </p>
         ) : null
       ) : null}
@@ -245,7 +248,7 @@ export function Composer({
               : modelMode === "video"
                 ? t("chat.composer.placeholderVideo")
                 : selectedManualToolConfig
-                  ? selectedManualToolConfig.manual.placeholder
+                  ? localizeMessage(selectedManualToolConfig.manual.placeholder)
                   : t("chat.composer.placeholderChat")
           }
           ref={textareaRef}
@@ -421,12 +424,12 @@ export function Composer({
                         key={tool.id}
                         value={`unavailable-${tool.id}`}
                       >
-                        {`${tool.displayName}（${tool.extensionId ? tool.reason === "disabled" ? "已停用" : tool.reason === "notTested" ? "待检测" : tool.reason === "toolDisabled" ? "工具未启用" : "凭据不可用" : t("chat.composer.toolNotConfigured")}）`}
+                        {`${(tool.extensionId ? tool.displayName : localizeMessage(tool.displayName))}（${tool.extensionId ? tool.reason === "disabled" ? t("ui.chat.composer.disabled") : tool.reason === "notTested" ? t("ui.chat.composer.notTested") : tool.reason === "toolDisabled" ? t("ui.chat.composer.toolNotEnabled") : t("ui.chat.composer.credentialsUnavailable") : t("chat.composer.toolNotConfigured")}）`}
                       </SelectItem>
                     ))}
                     {manualTools.map((tool) => (
                       <SelectItem key={tool.id} value={tool.id}>
-                        {tool.displayName}
+                        {(tool.extensionId ? tool.displayName : localizeMessage(tool.displayName))}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -476,7 +479,7 @@ export function Composer({
           {/* Stopping replaces sending while a turn is running. The label says
             exactly that: the request to the provider is abandoned, not undone,
             and anything already produced stays on screen. */}
-          {isRunningManualTool ? <Button size="icon" className="rounded-full" disabled aria-label="正在执行工具"><Loader2 data-icon="inline-start" className="animate-spin" /></Button> : isPending ? (
+          {isRunningManualTool ? <Button size="icon" className="rounded-full" disabled aria-label={t("ui.chat.composer.runningTool")}><Loader2 data-icon="inline-start" className="animate-spin" /></Button> : isPending ? (
             <Button
               aria-label={t("chat.composer.stop")}
               className="rounded-full"
@@ -498,7 +501,7 @@ export function Composer({
               <ArrowUp aria-hidden="true" strokeWidth={2.25} />
               <span className="sr-only">
                 {isManualToolSelected
-                  ? (selectedManualToolConfig?.manual.submitLabel ??
+                  ? ((selectedManualToolConfig ? localizeMessage(selectedManualToolConfig.manual.submitLabel) : undefined) ??
                     t("chat.composer.runTool"))
                   : t("chat.composer.send")}
               </span>

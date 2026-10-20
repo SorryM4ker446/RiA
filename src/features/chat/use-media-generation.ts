@@ -1,6 +1,6 @@
+import { t } from "@/lib/locale";
 import { dedupeAttachmentNames, encodeImageMessage, encodeVideoMessage, type ModelMode, type UploadableFilePart } from "@/features/chat/page-utils";
 import { encodePersistedUserMessage } from "@/lib/ai/ui-message";
-import { t } from "@/lib/locale";
 import { attachmentValidationError, MEDIA_LIMITS } from "@/lib/media/limits";
 import type { UIMessage } from "ai";
 import type { ModelRef } from "@/lib/models/preferences-schema";
@@ -252,7 +252,7 @@ export function useMediaGeneration({ activeChatId, isConversationReady, isHistor
 
   async function appendAttachments(nextFiles: File[]) {
     if (!nextFiles.length) return;
-    if (uploadLockRef.current.busy) { setPageError("附件正在处理，请稍候再添加。"); return; }
+    if (uploadLockRef.current.busy) { setPageError(t("ui.chat.use-media-generation.attachmentsAreProcessingWaitBeforeAdding")); return; }
     await runAttachmentUpload({
       files: nextFiles,
       isReady: () => isConversationReady,

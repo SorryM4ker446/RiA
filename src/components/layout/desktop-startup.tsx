@@ -1,9 +1,13 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
+
+import { t } from "@/lib/locale";
 
 import { useEffect, useRef, useState } from "react";
 import { WindowControls } from "./window-controls";
 
 export function DesktopStartup({ children }: { children: React.ReactNode }) {
+  useLocale();
   const [ticket, setTicket] = useState<string | null>(null);
   const stage = useRef<HTMLDivElement>(null);
   const surface = useRef<HTMLElement>(null);
@@ -73,7 +77,7 @@ export function DesktopStartup({ children }: { children: React.ReactNode }) {
 
   return <div ref={stage} className="desktop-startup-stage" data-starting={ticket ? "true" : undefined}>
     <div ref={workspace} className="desktop-startup-workspace" data-starting={ticket ? "true" : undefined} inert={ticket ? true : undefined} aria-hidden={ticket ? true : undefined}>{children}</div>
-    {ticket ? <section ref={surface} className="desktop-startup" aria-label="RiA 启动动画">
+    {ticket ? <section ref={surface} className="desktop-startup" aria-label={t("ui.layout.desktop-startup.riAStartupAnimation")}>
       <div className="desktop-startup-caption desktop-titlebar-drag"><WindowControls /></div>
       <div className="desktop-startup-mark">
         <span className="desktop-startup-wordmark" aria-hidden="true">
@@ -83,9 +87,9 @@ export function DesktopStartup({ children }: { children: React.ReactNode }) {
             </span>
           ))}
         </span>
-        <p className="desktop-startup-note">准备好，一起开始。</p>
+        <p className="desktop-startup-note">{t("ui.layout.desktop-startup.readyToGetStarted")}</p>
       </div>
-      <p className="sr-only" role="status">正在打开 RiA</p>
+      <p className="sr-only" role="status">{t("ui.layout.desktop-startup.openingRiA")}</p>
     </section> : null}
   </div>;
 }

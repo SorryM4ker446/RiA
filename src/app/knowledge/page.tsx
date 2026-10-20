@@ -1,9 +1,11 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
+
+import { formatDateTime, t, localizeMessage } from "@/lib/locale";
+
 import { SelectField, SelectOption } from "@/components/ui/select";
 
 import { getApiErrorMessage as readApiErrorMessage } from "@/lib/api-error-message";
-import { formatDateTime } from "@/lib/locale";
-
 import { FormEvent, useEffect, useRef, useState } from "react";
 
 import { useAwaitingFirstLoad } from "@/lib/use-awaiting-first-load";
@@ -23,8 +25,6 @@ import { DocumentLibrary } from "@/features/knowledge/document-library";
 import { TopicEntry } from "@/features/topics/topic-entry";
 import { KnowledgeEntryContent } from "@/features/knowledge/entry-content";
 import { presentToolMemory } from "@/features/knowledge/entry-presentation";
-import { t } from "@/lib/locale";
-
 type KnowledgeEntry = {
   id: string;
   key: string;
@@ -53,6 +53,7 @@ function formatTime(value: string): string {
 }
 
 export default function KnowledgePage() {
+  useLocale();
   const [entries, setEntries] = useState<KnowledgeEntry[]>([]);
   const [entryPage, setEntryPage] = useState<EntryPage>(firstEntryPage);
   const [pageNeedsRefresh, setPageNeedsRefresh] = useState(false);
@@ -247,7 +248,7 @@ export default function KnowledgePage() {
       {error ? (
         <Alert variant="destructive">
           <AlertTitle>{t("knowledge.error.title")}</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>{localizeMessage(error)}</AlertDescription>
         </Alert>
       ) : null}
 
@@ -259,14 +260,14 @@ export default function KnowledgePage() {
             <RefreshButton disabled={isSaving || (isLoading && entries.length === 0)} onClick={() => void loadEntries()} refreshing={isLoading} variant="ghost" size="sm" label={t("knowledge.refresh")} />
             <Sheet open={createOpen} onOpenChange={open => { if (!isSaving) { setCreateOpen(open); if (open) setError(null); } }}>
               <SheetTrigger asChild><Button size="sm"><Plus data-icon="inline-start" />{t("knowledge.create")}</Button></SheetTrigger>
-              <SheetContent side="right" className="knowledge-entry-sheet flex flex-col gap-5 p-5 sm:p-6" closeLabel="关闭新增知识">
+              <SheetContent side="right" className="knowledge-entry-sheet flex flex-col gap-5 p-5 sm:p-6" closeLabel={t("ui.knowledge.closeNewKnowledgeEntry")}>
                 <header className="flex flex-col gap-2 pr-8"><SheetTitle>{t("knowledge.createTitle")}</SheetTitle><SheetDescription>{t("knowledge.createDescription")}</SheetDescription></header>
                 <form className="flex min-h-0 flex-1 flex-col gap-5" onSubmit={onSubmit}>
                   <div className="chat-list-scroll flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
-                    {error && <Alert variant="destructive"><AlertTitle>{t("knowledge.error.title")}</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
+                    {error && <Alert variant="destructive"><AlertTitle>{t("knowledge.error.title")}</AlertTitle><AlertDescription>{localizeMessage(error)}</AlertDescription></Alert>}
                     <FieldGroup><Field><FieldLabel htmlFor="knowledge-entry-key">{t("knowledge.keyPlaceholder")}</FieldLabel><Input id="knowledge-entry-key" disabled={isSaving} onChange={event => setKey(event.target.value)} placeholder={t("knowledge.keyPlaceholder")} value={key} /></Field><Field><FieldLabel htmlFor="knowledge-entry-value">{t("knowledge.valuePlaceholder")}</FieldLabel><Textarea id="knowledge-entry-value" disabled={isSaving} rows={8} onChange={event => setValue(event.target.value)} placeholder={t("knowledge.valuePlaceholder")} value={value} /></Field></FieldGroup>
                   </div>
-                  <footer className="flex shrink-0 justify-end gap-2"><Button type="button" variant="ghost" disabled={isSaving} onClick={() => setCreateOpen(false)}>取消</Button><Button disabled={isSaving || isLoading} type="submit">{isSaving ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Plus data-icon="inline-start" />}{t("knowledge.create")}</Button></footer>
+                  <footer className="flex shrink-0 justify-end gap-2"><Button type="button" variant="ghost" disabled={isSaving} onClick={() => setCreateOpen(false)}>{t("knowledge.cancelEdit")}</Button><Button disabled={isSaving || isLoading} type="submit">{isSaving ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Plus data-icon="inline-start" />}{t("knowledge.create")}</Button></footer>
                 </form>
               </SheetContent>
             </Sheet>
@@ -304,7 +305,7 @@ export default function KnowledgePage() {
                 <Skeleton className="h-24 w-full" />
               </div>
             ) : entries.length === 0 ? (
-              <Empty className="py-6"><EmptyHeader><EmptyMedia><BookOpen /></EmptyMedia><EmptyTitle>{entryPage.q || entryPage.view !== "all" || entryPage.cursors.length > 1 ? t("knowledge.noMatches") : t("knowledge.empty")}</EmptyTitle><EmptyDescription>添加常用信息，或确认助理整理的知识。</EmptyDescription></EmptyHeader></Empty>
+              <Empty className="py-6"><EmptyHeader><EmptyMedia><BookOpen /></EmptyMedia><EmptyTitle>{entryPage.q || entryPage.view !== "all" || entryPage.cursors.length > 1 ? t("knowledge.noMatches") : t("knowledge.empty")}</EmptyTitle><EmptyDescription>{t("ui.knowledge.addReusableInformationOrConfirmKnowledge")}</EmptyDescription></EmptyHeader></Empty>
             ) : (
               <div className="flex flex-col gap-2">
                 {entries.map((entry) => {

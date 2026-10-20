@@ -1,3 +1,4 @@
+import { t } from "@/lib/locale";
 export type ToolMemoryPresentation = {
   title: string;
   toolLabel: string;
@@ -5,11 +6,11 @@ export type ToolMemoryPresentation = {
   excerpt: string;
 };
 
-const toolLabels: Record<string, string> = {
-  webSearch: "联网搜索",
-  searchKnowledge: "知识检索",
-  createTask: "任务记录",
-};
+const toolLabels = (): Record<string, string> => ({
+  webSearch: t("ui.knowledge.entry-presentation.webSearch"),
+  searchKnowledge: t("tools.searchKnowledge.displayName"),
+  createTask: t("ui.knowledge.entry-presentation.taskRecord"),
+});
 const fieldNames = new Set(["version", "tool", "trigger", "time", "fingerprint", "quality", "summary", "tags", "assistant"]);
 
 /** Recognize the stored tool-memory envelope without rewriting its contents. */
@@ -37,7 +38,7 @@ export function presentToolMemory(key: string, value: string): ToolMemoryPresent
   const query = /「([^」\n]+)」/.exec(summary)?.[1];
   return {
     title: query || identity[2].replace(/-/g, " "),
-    toolLabel: toolLabels[identity[1]] ?? "工具记录",
+    toolLabel: toolLabels()[identity[1]] ?? t("ui.knowledge.entry-presentation.toolRecord"),
     summary,
     excerpt: fields.get("assistant")?.trim() ?? "",
   };

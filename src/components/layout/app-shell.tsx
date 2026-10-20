@@ -1,4 +1,7 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
+
+import { t } from "@/lib/locale";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -22,7 +25,6 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { WindowControls } from "@/components/layout/window-controls";
-import { t } from "@/lib/locale";
 import { cn } from "@/lib/utils/cn";
 import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
 
@@ -32,39 +34,39 @@ type NavItem = { href: string; label: string; icon: typeof BookOpen };
  * The workspace navigation is one list, rendered once, so every page reaches
  * the same destinations under the same names.
  */
-const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
-  { label: "日常", items: [
+const NAV_GROUPS = (): { label: string; items: NavItem[] }[] => ([
+  { label: t("ui.layout.app-shell.everyday"), items: [
   { href: "/", label: t("nav.home"), icon: House },
   { href: "/chat", label: t("nav.chat"), icon: MessagesSquare },
-  { href: "/assistants", label: "助理模板", icon: Boxes },
-  { href: "/tasks", label: "定时任务", icon: CalendarClock },
+  { href: "/assistants", label: t("ui.assistants.assistantTemplates"), icon: Boxes },
+  { href: "/tasks", label: t("settings.schedules.title"), icon: CalendarClock },
   ] },
-  { label: "资料", items: [
+  { label: t("ui.layout.app-shell.knowledge"), items: [
   { href: "/conversations", label: t("nav.conversations"), icon: MessagesSquare },
   { href: "/knowledge", label: t("nav.knowledge"), icon: BookOpen },
-  { href: "/topics", label: "知识专题", icon: Layers3 },
+  { href: "/topics", label: t("ui.backups.knowledgeTopics"), icon: Layers3 },
   { href: "/media", label: t("nav.media"), icon: Images },
   ] },
-  { label: "管理", items: [
+  { label: t("ui.layout.app-shell.manage"), items: [
   { href: "/models", label: t("nav.models"), icon: SlidersHorizontal },
-  { href: "/extensions", label: "扩展管理", icon: Puzzle },
+  { href: "/extensions", label: t("ui.layout.app-shell.extensions"), icon: Puzzle },
   { href: "/backups", label: t("nav.backups"), icon: DatabaseBackup },
   ] },
-];
+]);
 
 /**
  * Names the section for the top bar, so the row that holds the window controls
  * also says where you are instead of being an empty band. Matched longest-first
  * because the sections nest (`/knowledge/documents` under `/knowledge`).
  */
-const SECTION_LABELS: { prefix: string; label: string }[] = [
-  ...NAV_GROUPS.flatMap(group => group.items.map(item => ({ prefix: item.href, label: item.label }))),
+const SECTION_LABELS = (): { prefix: string; label: string }[] => ([
+  ...NAV_GROUPS().flatMap(group => group.items.map(item => ({ prefix: item.href, label: item.label }))),
   { prefix: "/storage", label: t("nav.storage") },
   { prefix: "/settings", label: t("nav.settings") },
-];
+]);
 
 function sectionLabel(pathname: string) {
-  return SECTION_LABELS.filter(item => isActive(pathname, item.prefix))
+  return SECTION_LABELS().filter(item => isActive(pathname, item.prefix))
     .sort((a, b) => b.prefix.length - a.prefix.length)[0]?.label ?? "";
 }
 
@@ -76,9 +78,10 @@ function isActive(pathname: string, href: string) {
 }
 
 function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+  useLocale();
   return (
     <nav aria-label={t("nav.label")} className="workspace-navigation flex flex-col gap-6">
-      {NAV_GROUPS.map(group => <div key={group.label} className="flex flex-col gap-1">
+      {NAV_GROUPS().map(group => <div key={group.label} className="flex flex-col gap-1">
         <p className="workspace-nav-label px-3 pb-1">{group.label}</p>
         {group.items.map((item) => {
         const active = isActive(pathname, item.href);
@@ -91,7 +94,7 @@ function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
             onClick={onNavigate}
           >
             <item.icon aria-hidden="true" className="size-4 shrink-0" />
-            <span className="truncate">{item.label}</span>
+            <span className="min-w-0 flex-1 whitespace-normal break-words leading-5">{item.label}</span>
           </Link>
         );
       })}</div>)}
@@ -108,6 +111,7 @@ function SidebarBody({
   isDesktopRuntime: boolean;
   onNavigate?: () => void;
 }) {
+  useLocale();
   return (
     <div className="flex h-full min-h-0 flex-col gap-7 overflow-y-auto px-3 pb-4">
       <div className="desktop-titlebar-drag flex h-16 shrink-0 items-center px-2">
@@ -133,13 +137,13 @@ function SidebarBody({
         </Link> : null}
         <div className="flex items-center gap-1 pr-2">
           <Link
-            aria-current={isActive(pathname, isDesktopRuntime ? "/settings" : "/storage") ? "page" : undefined}
+            aria-current={isActive(pathname, "/settings") ? "page" : undefined}
             className="workspace-nav-link min-w-0 flex-1"
-            href={isDesktopRuntime ? "/settings" : "/storage"}
+            href="/settings"
             onClick={onNavigate}
           >
-            {isDesktopRuntime ? <Settings aria-hidden="true" className="size-4 shrink-0" /> : <HardDrive aria-hidden="true" className="size-4 shrink-0" />}
-            {t(isDesktopRuntime ? "nav.settings" : "nav.storage")}
+            <Settings aria-hidden="true" className="size-4 shrink-0" />
+            {t("nav.settings")}
           </Link>
           <ThemeToggle />
         </div>
@@ -153,6 +157,7 @@ function SidebarBody({
  * as one application rather than a page with floating buttons on top of it.
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
+  useLocale();
   const pathname = usePathname();
   // The drawer is open only for the route it was opened on, so navigating by
   // any means (link, back button) closes it without a synchronizing effect.

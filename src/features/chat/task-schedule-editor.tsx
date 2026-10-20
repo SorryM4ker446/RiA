@@ -1,14 +1,20 @@
-import { useState } from "react";
+"use client";
+import { useLocale } from "@/lib/locale/client";
+import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SelectField, SelectOption } from "@/components/ui/select";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { t } from "@/lib/locale";
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldSet,
+} from "@/components/ui/field";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { TaskDateTimeField } from "@/features/tasks/task-date-time-field";
+import { t, localizeMessage } from "@/lib/locale";
 import {
   isTaskTimeZone,
   parseTaskDueDate,
@@ -16,12 +22,12 @@ import {
 } from "@/lib/tasks/schedule";
 import type { TaskItem, TaskScheduleInput } from "./types";
 
-export const repeatLabels = {
+export const repeatLabels = () => ({
   none: t("chat.schedule.repeatNone"),
   daily: t("chat.schedule.repeatDaily"),
   weekly: t("chat.schedule.repeatWeekly"),
   monthly: t("chat.schedule.repeatMonthly"),
-};
+});
 
 export function TaskScheduleEditor({
   task,
@@ -32,11 +38,13 @@ export function TaskScheduleEditor({
   onSave: (id: string, input: TaskScheduleInput) => Promise<boolean>;
   disabled: boolean;
 }) {
+  useLocale();
   const [open, setOpen] = useState(false);
   return (
     <div className="contents">
       <Button
-        className="h-7 justify-self-end px-1 text-[11px] font-normal text-muted-foreground"
+        size="sm"
+        className="h-auto min-h-8 justify-self-end whitespace-normal text-right"
         variant="ghost"
         disabled={disabled}
         aria-expanded={open}
@@ -70,6 +78,8 @@ function ScheduleForm({
   onSave: (input: TaskScheduleInput) => Promise<void>;
   onCancel: () => void;
 }) {
+  useLocale();
+  const id = useId();
   const initialZone = task.dueDate
     ? (task.timeZone ?? "UTC")
     : Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -86,7 +96,7 @@ function ScheduleForm({
   const [error, setError] = useState<string | null>(null);
   return (
     <form
-      className="col-span-2 mt-2 space-y-2 border-t pt-3 text-xs"
+      className="col-span-2 mt-2 min-w-0 border-t pt-4"
       onSubmit={async (event) => {
         event.preventDefault();
         setError(null);
@@ -118,74 +128,77 @@ function ScheduleForm({
         }
       }}
     >
-      <fieldset disabled={disabled} className="space-y-2">
-        <label className="block space-y-1">
-          <span>{t("chat.schedule.dueDateLabel")}</span>
-          <Input
-            type="datetime-local"
+      <FieldSet disabled={disabled}>
+        <FieldGroup className="gap-4">
+          <TaskDateTimeField
+            label={t("chat.schedule.dueDateLabel")}
             value={dueDate}
-            onChange={(event) => setDueDate(event.target.value)}
+            onChange={setDueDate}
+            disabled={disabled}
           />
-        </label>
-        <label className="block space-y-1">
-          <span>{t("chat.schedule.timeZoneLabel")}</span>
-          <Input
-            value={timeZone}
-            onChange={(event) => setTimeZone(event.target.value.trim())}
-            placeholder="Asia/Shanghai"
-          />
-        </label>
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={reminderEnabled}
-            onChange={(event) => setReminderEnabled(event.target.checked)}
-          />
-          {t("chat.schedule.desktopNotification")}
-        </label>
-        <label className="block space-y-1">
-          <span>{t("chat.schedule.repeatLabel")}</span>
-          <Select
-            onValueChange={(value) =>
-              setRepeatRule(value as TaskScheduleInput["repeatRule"])
-            }
-            value={repeatRule}
-          >
-            <SelectTrigger
-              aria-label={t("chat.schedule.repeatLabel")}
-              className="h-8 w-full text-xs"
+          <Field className="gap-2" data-disabled={disabled}>
+            <FieldLabel htmlFor={`${id}-zone`}>
+              {t("chat.schedule.timeZoneLabel")}
+            </FieldLabel>
+            <Input
+              id={`${id}-zone`}
+              value={timeZone}
+              onChange={(event) => setTimeZone(event.target.value.trim())}
+              placeholder="Asia/Shanghai"
+            />
+          </Field>
+          <Field orientation="horizontal" data-disabled={disabled}>
+            <Checkbox
+              id={`${id}-reminder`}
+              checked={reminderEnabled}
+              onCheckedChange={(value) => setReminderEnabled(value === true)}
+              disabled={disabled}
+            />
+            <FieldLabel htmlFor={`${id}-reminder`}>
+              {t("chat.schedule.desktopNotification")}
+            </FieldLabel>
+          </Field>
+          <Field className="gap-2" data-disabled={disabled}>
+            <FieldLabel htmlFor={`${id}-repeat`}>
+              {t("chat.schedule.repeatLabel")}
+            </FieldLabel>
+            <SelectField
+              id={`${id}-repeat`}
+              disabled={disabled}
+              className="w-full"
+              onValueChange={(value) =>
+                setRepeatRule(value as TaskScheduleInput["repeatRule"])
+              }
+              value={repeatRule}
             >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Object.entries(repeatLabels).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
+              {Object.entries(repeatLabels()).map(([value, label]) => (
+                <SelectOption key={value} value={value}>
                   {label}
-                </SelectItem>
+                </SelectOption>
               ))}
-            </SelectContent>
-          </Select>
-        </label>
-        <p className="text-muted-foreground">{t("chat.schedule.repeatHint")}</p>
-        {task.repeatGenerated ? (
-          <p className="text-muted-foreground">
-            {t("chat.schedule.repeatGeneratedNotice")}
-          </p>
-        ) : null}
-        {error ? (
-          <p role="alert" className="text-destructive">
-            {error}
-          </p>
-        ) : null}
-        <div className="flex gap-2">
-          <Button size="sm" type="submit">
-            {disabled ? t("chat.schedule.saving") : t("chat.schedule.save")}
-          </Button>
-          <Button size="sm" type="button" variant="ghost" onClick={onCancel}>
-            {t("chat.common.cancel")}
-          </Button>
-        </div>
-      </fieldset>
+            </SelectField>
+            <FieldDescription>{t("chat.schedule.repeatHint")}</FieldDescription>
+          </Field>
+          {task.repeatGenerated ? (
+            <FieldDescription>
+              {t("chat.schedule.repeatGeneratedNotice")}
+            </FieldDescription>
+          ) : null}
+          {error ? (
+            <Alert variant="destructive">
+              <AlertDescription>{localizeMessage(error)}</AlertDescription>
+            </Alert>
+          ) : null}
+          <div className="flex gap-2">
+            <Button size="sm" type="submit">
+              {disabled ? t("chat.schedule.saving") : t("chat.schedule.save")}
+            </Button>
+            <Button size="sm" type="button" variant="ghost" onClick={onCancel}>
+              {t("chat.common.cancel")}
+            </Button>
+          </div>
+        </FieldGroup>
+      </FieldSet>
     </form>
   );
 }

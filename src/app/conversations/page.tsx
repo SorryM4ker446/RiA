@@ -1,4 +1,7 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
+
+import { t, localizeMessage } from "@/lib/locale";
 
 import Link from "next/link";
 import { BackToChatLink } from "@/components/layout/back-to-chat-link";
@@ -14,11 +17,10 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { LAST_ACTIVE_CHAT_STORAGE_KEY } from "@/features/chat/types";
 import { ConversationRow } from "@/features/conversations/conversation-row";
 import { conversationsApi, type Conversation, type Filters } from "@/features/conversations/api-client";
-import { t } from "@/lib/locale";
-
 const initialFilters: Filters = { q: "", tag: "", state: "active" };
 const sameFilters = (a: Filters, b: Filters) => a.q === b.q && a.tag === b.tag && a.state === b.state;
 export default function ConversationsPage() {
+  useLocale();
   const router = useRouter();
   const [draft, setDraft] = useState(initialFilters);
   const [filters, setFilters] = useState(initialFilters);
@@ -107,8 +109,8 @@ export default function ConversationsPage() {
     <form onSubmit={event => { event.preventDefault(); setNotice(""); setFilters({ ...draft }); }}>
       <fieldset disabled={busy}>
         <FieldGroup className="conversation-filters grid grid-cols-2 items-end gap-2">
-        <Field className="col-span-2 gap-2 md:col-span-1"><FieldLabel htmlFor="conversation-search" className="sr-only">{t("conversations.filter.searchLabel")}</FieldLabel><Input id="conversation-search" value={draft.q} maxLength={200} placeholder="搜索标题或消息正文…" onChange={event => setDraft({ ...draft, q: event.target.value })} /></Field>
-        <Field className="gap-2"><FieldLabel htmlFor="conversation-tag" className="sr-only">{t("conversations.filter.tagLabel")}</FieldLabel><Input id="conversation-tag" value={draft.tag} maxLength={32} placeholder="筛选标签" onChange={event => setDraft({ ...draft, tag: event.target.value })} /></Field>
+        <Field className="col-span-2 gap-2 md:col-span-1"><FieldLabel htmlFor="conversation-search" className="sr-only">{t("conversations.filter.searchLabel")}</FieldLabel><Input id="conversation-search" value={draft.q} maxLength={200} placeholder={t("ui.conversations.searchTitlesOrMessageText")} onChange={event => setDraft({ ...draft, q: event.target.value })} /></Field>
+        <Field className="gap-2"><FieldLabel htmlFor="conversation-tag" className="sr-only">{t("conversations.filter.tagLabel")}</FieldLabel><Input id="conversation-tag" value={draft.tag} maxLength={32} placeholder={t("ui.conversations.filterTags")} onChange={event => setDraft({ ...draft, tag: event.target.value })} /></Field>
         <Field className="gap-2"><FieldLabel htmlFor="conversation-state" className="sr-only">{t("conversations.filter.stateLabel")}</FieldLabel>
           <Select onValueChange={value => { const next = { ...draft, state: value as Filters["state"] }; setDraft(next); setFilters(next); setNotice(""); }} value={draft.state}>
             <SelectTrigger id="conversation-state"><SelectValue /></SelectTrigger>
@@ -123,11 +125,11 @@ export default function ConversationsPage() {
         </FieldGroup>
       </fieldset>
     </form>
-    {error && <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-sm text-destructive shadow-hairline">{error}</p>}
-    {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
+    {error && <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-sm text-destructive shadow-hairline">{localizeMessage(error)}</p>}
+    {notice && <p role="status" className="text-sm text-muted-foreground">{localizeMessage(notice)}</p>}
     <div className="flex flex-wrap items-center gap-2">
       <span className="mr-auto text-xs text-muted-foreground" aria-live="polite">{`${t("conversations.counts.loaded")} ${chats.length} ${t("conversations.counts.loadedUnit")} ${t("conversations.counts.divider")} ${t("conversations.counts.selected")} ${selected.length} / 50`}</span>
-      <Button variant="ghost" size="sm" disabled={disabled || !chats.length} aria-label={t("conversations.selectFirst50")} onClick={() => setSelected(chats.slice(0, 50).map(chat => chat.id))}>选择前 50 个</Button>
+      <Button variant="ghost" size="sm" disabled={disabled || !chats.length} aria-label={t("conversations.selectFirst50")} onClick={() => setSelected(chats.slice(0, 50).map(chat => chat.id))}>{t("ui.conversations.selectFirst50")}</Button>
       <Button variant="ghost" size="sm" disabled={disabled || !selected.length} onClick={() => setSelected([])}>{t("conversations.clearSelection")}</Button>
       <Button variant="destructive" size="sm" disabled={disabled || !selected.length} onClick={() => dialog.current?.showModal()}>{t("conversations.deleteSelected")}</Button>
       <RefreshButton disabled={disabled} onClick={() => void load()} size="sm" label={t("conversations.refreshList")} variant="ghost" />

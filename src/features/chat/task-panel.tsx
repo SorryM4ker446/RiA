@@ -1,12 +1,26 @@
+"use client";
+import { useLocale } from "@/lib/locale/client";
+import { t, tf, formatDateTime } from "@/lib/locale";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { SelectField, SelectOption } from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Empty,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyDescription,
+} from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAwaitingFirstLoad } from "@/lib/use-awaiting-first-load";
 import { useEffect, useState } from "react";
@@ -17,7 +31,6 @@ import {
 import { cn } from "@/lib/utils/cn";
 import { ListTodo, RefreshCw, Trash2, Plus, Bell } from "lucide-react";
 import { formatTaskPriority } from "@/features/chat/message-presentation";
-import { t, tf, formatDateTime } from "@/lib/locale";
 import type { TaskItem, TaskStatusFilter } from "@/features/chat/types";
 import { COLLAPSED_TASK_LIMIT } from "@/features/chat/types";
 import type { useTasks } from "@/features/chat/use-tasks";
@@ -39,12 +52,11 @@ export function TaskPanel({
   hasHiddenTasks,
   setIsTaskListExpanded,
   isTaskListExpanded,
+  isTaskFilterPending,
 }: Props) {
+  useLocale();
   const [now, setNow] = useState(0);
-  const awaitingFirstTaskLoad = useAwaitingFirstLoad(
-    isLoadingTasks,
-    taskStatusFilter,
-  );
+  const awaitingFirstTaskLoad = useAwaitingFirstLoad(isLoadingTasks, "tasks");
   useEffect(() => {
     const refresh = () => setNow(Date.now());
     refresh();
@@ -62,8 +74,11 @@ export function TaskPanel({
     { value: "done", label: t("chat.tasks.statusDone") },
   ];
   return (
-    <section aria-label="任务管理" className="space-y-5">
-      <header className="flex flex-wrap items-center gap-4">
+    <section
+      aria-label={t("ui.chat.task-panel.taskManagement")}
+      className="flex flex-col gap-5"
+    >
+      <header className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <div className="flex items-center justify-between gap-2">
           <h2 className="flex items-center gap-2 text-sm font-medium">
             {t("chat.tasks.title")}
@@ -78,114 +93,116 @@ export function TaskPanel({
               onClick={() => void loadTasks()}
               size="icon"
               variant="ghost"
-              className="h-6 w-6 text-muted-foreground"
+              className="size-8"
             >
-              <RefreshCw
-                className={cn("h-3.5 w-3.5", isLoadingTasks && "animate-spin")}
-              />
+              <RefreshCw className={cn(isLoadingTasks && "animate-spin")} />
             </Button>
           </div>
         </div>
-        <div
+        <ToggleGroup
+          type="single"
+          value={taskStatusFilter}
+          size="sm"
+          variant="outline"
+          onValueChange={(value) => {
+            if (value) setTaskStatusFilter(value as TaskStatusFilter);
+          }}
           aria-label={t("chat.tasks.listTitle")}
-          className="flex gap-1 rounded-lg bg-muted/70 p-1"
+          className="order-last w-full flex-wrap justify-start gap-2 sm:order-none sm:w-auto"
         >
           {filters.map((filter) => (
-            <button
+            <ToggleGroupItem
               key={filter.value}
-              type="button"
-              aria-pressed={taskStatusFilter === filter.value}
-              className={cn(
-                "min-w-0 flex-1 whitespace-nowrap rounded-md px-1 py-1.5 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-                taskStatusFilter === filter.value
-                  ? "bg-card text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => setTaskStatusFilter(filter.value)}
+              value={filter.value}
+              className="shrink-0 whitespace-nowrap"
             >
               {filter.label}
-            </button>
+            </ToggleGroupItem>
           ))}
-        </div>
-        <Button
-          variant="outline"
-          className="ml-auto h-9 gap-2 text-xs"
-          onClick={onCreate}
-        >
-          <Plus className="h-3.5 w-3.5" />
+        </ToggleGroup>
+        <Button variant="outline" className="ml-auto" onClick={onCreate}>
+          <Plus data-icon="inline-start" aria-hidden="true" />
           {t("chat.tasks.create")}
         </Button>
       </header>
       <section
         data-testid="task-panel"
-        className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"
+        aria-busy={isLoadingTasks}
+        className="grid min-h-48 items-start gap-3 sm:grid-cols-2 xl:grid-cols-3"
       >
         {taskPanelError && (
-          <p
-            role="alert"
-            className="rounded-lg bg-destructive/10 p-3 text-xs text-destructive"
-          >
-            {taskPanelError}
-          </p>
+          <Alert variant="destructive" className="col-span-full">
+            <AlertDescription>{taskPanelError}</AlertDescription>
+          </Alert>
         )}
         {awaitingFirstTaskLoad ? (
-          <div role="status" aria-label="加载任务" className="space-y-2">
+          <div
+            role="status"
+            aria-label={t("ui.chat.task-panel.loadTasks")}
+            className="col-span-full grid gap-3 sm:grid-cols-2 xl:grid-cols-3"
+          >
             <Skeleton className="h-28 rounded-xl" />
             <Skeleton className="h-28 rounded-xl" />
           </div>
         ) : filteredTasks.length === 0 ? (
-          <div className="px-4 py-12 text-center">
-            <ListTodo className="mx-auto mb-3 h-7 w-7 text-muted-foreground/35" />
-            <p className="text-xs leading-6 text-muted-foreground">
-              {t("chat.tasks.emptyFiltered")}
-            </p>
-          </div>
+          <Empty className="col-span-full">
+            <EmptyHeader>
+              <EmptyMedia>
+                <ListTodo aria-hidden="true" />
+              </EmptyMedia>
+              <EmptyDescription>
+                {t("chat.tasks.emptyFiltered")}
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : (
           visibleTasks.map((task) => {
-            const busy = updatingTaskIds.includes(task.id);
+            const busy =
+              isTaskFilterPending || updatingTaskIds.includes(task.id);
             return (
-              <article
+              <Card
+                role="article"
                 key={task.id}
                 data-testid="task-item"
-                className="group rounded-xl border border-border/60 bg-card/40 p-3 transition-colors hover:border-foreground/20"
+                className="group flex min-w-0 flex-col"
               >
-                <div className="flex items-start gap-2.5">
+                <CardHeader className="flex-row items-start gap-3 p-4">
                   <TaskCompletionCheckbox
                     task={task}
                     disabled={busy}
                     update={updateTaskStatus}
                   />
                   <div className="min-w-0 flex-1">
-                    <p
+                    <CardTitle
                       className={cn(
-                        "break-words text-[13px] font-medium leading-5",
+                        "break-words",
                         task.status === "done" &&
                           "text-muted-foreground line-through",
                       )}
                     >
                       {task.title}
-                    </p>
+                    </CardTitle>
                     {task.details && (
-                      <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-muted-foreground">
+                      <CardDescription className="mt-1 line-clamp-2 break-words">
                         {task.details}
-                      </p>
+                      </CardDescription>
                     )}
                   </div>
                   <Button
                     aria-label={`${t("chat.tasks.deleteLabel")} ${task.title}`}
                     disabled={busy}
                     onClick={() => void deleteTask(task.id)}
-                    size="icon"
+                    size="icon-sm"
                     variant="ghost"
-                    className="task-delete -mr-1 h-6 w-6 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                    className="task-delete -mr-1 shrink-0"
                   >
-                    <Trash2 className="h-3 w-3" />
+                    <Trash2 aria-hidden="true" />
                   </Button>
-                </div>
-                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-                  <span className="rounded bg-muted/70 px-1.5 py-0.5">
+                </CardHeader>
+                <CardContent className="flex flex-wrap items-center gap-2 px-4 pb-4 text-xs text-muted-foreground">
+                  <Badge variant="secondary">
                     {formatTaskPriority(task.priority)}
-                  </span>
+                  </Badge>
                   {task.dueDate && (
                     <span className="break-words">
                       {tf("chat.tasks.dueLabel", {
@@ -211,13 +228,13 @@ export function TaskPanel({
                   )}
                   {task.repeatRule && task.repeatRule !== "none" && (
                     <span>
-                      {repeatLabels[task.repeatRule]} ·{" "}
+                      {repeatLabels()[task.repeatRule]} ·{" "}
                       {t("chat.tasks.repeatNext")}
                     </span>
                   )}
-                </div>
-                <div className="mt-2 grid grid-cols-[auto_1fr] items-center gap-x-2 border-t border-border/40 pt-2">
-                  <Select
+                </CardContent>
+                <CardFooter className="mt-auto grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 border-t px-3 py-2">
+                  <SelectField
                     disabled={busy}
                     value={task.status}
                     onValueChange={(value) =>
@@ -226,38 +243,35 @@ export function TaskPanel({
                         value as TaskItem["status"],
                       )
                     }
+                    aria-label={`${t("chat.tasks.statusLabel")} ${task.title}`}
+                    size="sm"
+                    variant="ghost"
+                    className="min-w-0"
                   >
-                    <SelectTrigger
-                      aria-label={`${t("chat.tasks.statusLabel")} ${task.title}`}
-                      className="h-7 w-auto gap-2 border-0 bg-transparent px-1 text-[11px] shadow-none"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="todo">
-                        {t("chat.tasks.statusTodo")}
-                      </SelectItem>
-                      <SelectItem value="in_progress">
-                        {t("chat.tasks.statusInProgress")}
-                      </SelectItem>
-                      <SelectItem value="done">
-                        {t("chat.tasks.statusDone")}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
+                    <SelectOption value="todo">
+                      {t("chat.tasks.statusTodo")}
+                    </SelectOption>
+                    <SelectOption value="in_progress">
+                      {t("chat.tasks.statusInProgress")}
+                    </SelectOption>
+                    <SelectOption value="done">
+                      {t("chat.tasks.statusDone")}
+                    </SelectOption>
+                  </SelectField>
                   <TaskScheduleEditor
                     task={task}
                     onSave={saveTaskSchedule}
                     disabled={busy}
                   />
-                </div>
-              </article>
+                </CardFooter>
+              </Card>
             );
           })
         )}
         {hasHiddenTasks && (
           <Button
-            className="h-8 w-full text-xs"
+            className="col-span-full w-full"
+            size="sm"
             variant="ghost"
             onClick={() => setIsTaskListExpanded((previous) => !previous)}
           >
@@ -288,6 +302,7 @@ function TaskCompletionCheckbox({
   disabled: boolean;
   update: Props["updateTaskStatus"];
 }) {
+  useLocale();
   const [value, setValue] = useState({
     status: task.status,
     checked: task.status === "done",
@@ -295,14 +310,13 @@ function TaskCompletionCheckbox({
   if (value.status !== task.status)
     setValue({ status: task.status, checked: task.status === "done" });
   return (
-    <input
+    <Checkbox
       aria-label={tf("chat.tasks.complete", { title: task.title })}
-      type="checkbox"
       checked={value.checked}
       disabled={disabled}
-      className="mt-1 h-3.5 w-3.5 shrink-0 accent-foreground"
-      onChange={async (event) => {
-        const checked = event.target.checked;
+      className="mt-1"
+      onCheckedChange={async (next) => {
+        const checked = next === true;
         setValue((current) => ({ ...current, checked }));
         if (!(await update(task.id, checked ? "done" : "todo")))
           setValue((current) => ({

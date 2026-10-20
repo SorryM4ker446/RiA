@@ -1,9 +1,10 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
 
 import { useState } from "react";
 import { FolderOpen, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { t, tf } from "@/lib/locale";
+import { t, tf, localizeMessage } from "@/lib/locale";
 import { cn } from "@/lib/utils/cn";
 
 export type LocalFileUse = {
@@ -26,6 +27,7 @@ export type LocalFileUse = {
  * discovered later.
  */
 export function LocalFileUses({ uses, modelLabel, compact = false }: { uses: LocalFileUse[]; modelLabel?: string; compact?: boolean }) {
+  useLocale();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   if (uses.length === 0) return null;
@@ -79,7 +81,7 @@ export function LocalFileUses({ uses, modelLabel, compact = false }: { uses: Loc
         ))}
       </ul>
       {modelLabel ? <p className="mt-1 text-muted-foreground">{tf("localFiles.sentTo", { model: modelLabel })}</p> : null}
-      {error ? <p className="mt-1 text-destructive">{error}</p> : null}
+      {error ? <p className="mt-1 text-destructive">{localizeMessage(error)}</p> : null}
     </div>
   );
 }

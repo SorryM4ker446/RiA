@@ -26,6 +26,7 @@ const { app } = require("electron");
 const { join } = require("node:path");
 const { writeFileSync, readFileSync } = require("node:fs");
 const { DesktopSettingsStore } = require(${JSON.stringify(compiledStore)});
+const assert = require("node:assert/strict");
 
 const root = __dirname;
 const bounds = { x: 120, y: 80, width: 1180, height: 820 };
@@ -36,19 +37,38 @@ function finish(report, code) {
 }
 
 app.whenReady().then(async () => {
-  const report = { encryptionAvailable: false, partialSave: null, concurrentWrites: null, extensionKeyStable: false, extensionKeyEncrypted: false, unreadableExtensionKeyIsolated: false, error: null };
+  const report = { encryptionAvailable: false, partialSave: null, concurrentWrites: null, extensionKeyStable: false, extensionKeyEncrypted: false, unreadableExtensionKeyIsolated: false, defaultLocale: null, savedLocale: null, invalidLocaleRejected: false, error: null };
   try {
     // Each case gets its own file: the first must not depend on what the second left.
-    const card = new DesktopSettingsStore(join(root, "card.json"));
+    const systemFile = join(root, "system.json");
+    for (const [languages, expected] of [[["zh-Hans-CN", "en-US"], "zh-CN"], [["zh-TW"], "zh-CN"], [["en-GB", "zh-CN"], "en-US"], [["fr-FR", "zh-CN"], "zh-CN"], [["fr-FR"], "en-US"], [[], "en-US"]]) {
+      const system = new DesktopSettingsStore(systemFile, languages);
+      assert.equal(system.getLocale(), expected);
+      assert.equal((await system.getView()).locale, expected);
+    }
+    const automatic = new DesktopSettingsStore(systemFile, ["en-GB"]);
+    await automatic.save({ closeBehaviour: "tray" });
+    assert.equal(JSON.parse(readFileSync(systemFile, "utf8")).locale, undefined);
+    assert.equal(new DesktopSettingsStore(systemFile, ["zh-CN"]).getLocale(), "zh-CN");
+    await automatic.save({ locale: "en-US" });
+    assert.equal(new DesktopSettingsStore(systemFile, ["zh-CN"]).getLocale(), "en-US");
+    const preferred = app.getPreferredSystemLanguages().find(language => /^(zh|en)(-|$)/i.test(language));
+    assert.equal(new DesktopSettingsStore(join(root, "native-system.json")).getLocale(), /^zh/i.test(preferred || "") ? "zh-CN" : "en-US");
+    const card = new DesktopSettingsStore(join(root, "card.json"), ["zh-CN"]);
     await card.save({
       outboundProxyUrl: "http://proxy.internal:8080",
       openrouterSiteName: "Example Corp",
       openrouterHttpReferer: "https://example.invalid/app",
     });
+    report.defaultLocale = (await card.getView()).locale;
+    await card.save({ locale: "en-US" });
     // What the close-behaviour card and the hotkey picker each send on their own.
     await card.save({ closeBehaviour: "tray" });
     await card.save({ globalHotkey: "Ctrl+Shift+R" });
     report.partialSave = await card.getView();
+    const reopenedCard = new DesktopSettingsStore(join(root, "card.json"));
+    report.savedLocale = (await reopenedCard.getView()).locale;
+    try { await card.save({ locale: "invalid" }); } catch { report.invalidLocaleRejected = (await card.getView()).locale === "en-US"; }
 
     const concurrent = new DesktopSettingsStore(join(root, "concurrent.json"));
     report.encryptionAvailable = (await concurrent.getView()).encryptionAvailable;
@@ -103,6 +123,10 @@ test("a settings card that sends one field does not wipe the fields beside it", 
     // And the fields the cards did send still took.
     assert.equal(report.partialSave.closeBehaviour, "tray");
     assert.equal(report.partialSave.globalHotkey, "Ctrl+Shift+R");
+    assert.equal(report.defaultLocale, "zh-CN");
+    assert.equal(report.savedLocale, "en-US");
+    assert.equal(report.partialSave.locale, "en-US");
+    assert.equal(report.invalidLocaleRejected, true);
   } finally {
     if (resolve(dirname(root)) !== resolve(tmpdir())) throw new Error("Unexpected test directory");
     rmSync(root, { recursive: true, force: true });
@@ -139,6 +163,9 @@ test("a key save and a window-geometry save in flight together both survive", {
 });
 
 type SettingsReport = {
+  defaultLocale: string | null;
+  savedLocale: string | null;
+  invalidLocaleRejected: boolean;
   error: string | null;
   encryptionAvailable: boolean;
   extensionKeyStable: boolean;

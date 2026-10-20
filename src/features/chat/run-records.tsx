@@ -1,4 +1,7 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
+
+import { t, localizeMessage } from "@/lib/locale";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -15,7 +18,6 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from "@/components/ui/empty";
 import { getApiErrorMessage } from "@/lib/api-error-message";
-import { t } from "@/lib/locale";
 import { cn } from "@/lib/utils/cn";
 import type { RunView } from "@/lib/agent/runs";
 import type { UIMessage } from "ai";
@@ -46,6 +48,7 @@ const ACTIVE_RUN_POLL_MS = 1500;
  * stopped on purpose.
  */
 export function RunRecords({ activeChatId, refreshKey, messages, open, onOpenChange: setOpen, focusedMessageId }: Props) {
+  useLocale();
   const [detail, setDetail] = useState<{ key: string; message?: UIMessage; error?: string } | null>(null);
   const [runs, setRuns] = useState<RunView[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -164,10 +167,10 @@ export function RunRecords({ activeChatId, refreshKey, messages, open, onOpenCha
       try {
         const response = await fetch(`/api/conversations/${activeChatId}/runs?runId=${encodeURIComponent(selectedRunId)}`, { cache: "no-store", signal: controller.signal });
         const payload = await response.json();
-        if (!response.ok) throw new Error(getApiErrorMessage(payload, "无法读取详情"));
+        if (!response.ok) throw new Error(getApiErrorMessage(payload, t("ui.chat.run-records.couldNotLoadDetails")));
         if (!controller.signal.aborted) setDetail({ key: expanded, message: payload.data ? mapStoredMessagesToUI([payload.data]).uiMessages[0] : undefined });
       } catch (error) {
-        if (!controller.signal.aborted) setDetail({ key: expanded, error: error instanceof Error ? error.message : "无法读取详情" });
+        if (!controller.signal.aborted) setDetail({ key: expanded, error: error instanceof Error ? error.message : t("ui.chat.run-records.couldNotLoadDetails") });
       }
     })();
     return () => controller.abort();
@@ -183,8 +186,8 @@ export function RunRecords({ activeChatId, refreshKey, messages, open, onOpenCha
           <Button variant="ghost" size="sm" aria-label={t("runs.title")}>
             <History data-icon="inline-start" aria-hidden="true" />
             {t("runs.title")}<Badge variant="secondary">{entries.length}</Badge>
-            {error && <span className="text-destructive">读取失败</span>}
-            {hasActiveRun && <span className="flex items-center gap-1 text-muted-foreground"><Loader2 className="animate-spin" aria-hidden="true" />执行中</span>}
+            {error && <span className="text-destructive">{t("backups.error.load")}</span>}
+            {hasActiveRun && <span className="flex items-center gap-1 text-muted-foreground"><Loader2 className="animate-spin" aria-hidden="true" />{t("ui.chat.run-records.running")}</span>}
           </Button>
         </SheetTrigger>
       </div>
@@ -194,7 +197,7 @@ export function RunRecords({ activeChatId, refreshKey, messages, open, onOpenCha
             <SheetTitle className="text-base font-semibold">{t("runs.title")}</SheetTitle>
             <Badge variant="secondary">{entries.length}</Badge>
           </div>
-          <SheetDescription className="text-xs text-muted-foreground">请求状态、工具调用与资料来源</SheetDescription>
+          <SheetDescription className="text-xs text-muted-foreground">{t("ui.chat.run-records.requestStatusToolCallsAndSources")}</SheetDescription>
         </header>
         <Separator />
         <div className="run-records-scroll chat-list-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-2">
@@ -206,7 +209,7 @@ export function RunRecords({ activeChatId, refreshKey, messages, open, onOpenCha
               </Button>
             </div>
           ) : null}
-          {error ? <p role="alert" className="px-2 py-2 text-xs text-destructive">{error}</p> : null}
+          {error ? <p role="alert" className="px-2 py-2 text-xs text-destructive">{localizeMessage(error)}</p> : null}
           {entries.length === 0 ? (
             <Empty>
               <EmptyHeader><EmptyMedia><History aria-hidden="true" /></EmptyMedia><EmptyDescription>{t("chat.run.empty")}</EmptyDescription></EmptyHeader>
@@ -230,7 +233,7 @@ export function RunRecords({ activeChatId, refreshKey, messages, open, onOpenCha
                   <ChevronRight aria-hidden="true" className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-[--dur-base]", isExpanded && "rotate-90")} />
                   {status ? <StatusIcon status={status} /> : <History aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />}
                   <span className="min-w-0 flex-1 truncate leading-5">{goal.replace(/\s+/g, " ")}</span>
-                  <span className="shrink-0 text-[11px] text-muted-foreground">{status ? t(`chat.run.status.${status}`) : "详情"}</span>
+                  <span className="shrink-0 text-[11px] text-muted-foreground">{status ? t(`chat.run.status.${status}`) : t("ui.chat.run-records.details")}</span>
                 </button>
                 <div className="run-detail" data-state={isExpanded ? "open" : "closed"} inert={!isExpanded} aria-hidden={!isExpanded}>
                   <div className="min-h-0 overflow-hidden">
@@ -249,22 +252,22 @@ export function RunRecords({ activeChatId, refreshKey, messages, open, onOpenCha
                               <span className="shrink-0 text-muted-foreground">{t(`runs.step.${step.state}`)}</span>
                               {step.errorCode ? <span title={executionGuidance(step.errorCode)} className="break-all text-destructive">{step.errorCode}</span> : null}
                               </div>
-                              {step.input != null || step.output != null ? <details className="execution-disclosure pl-5"><summary><ChevronRight aria-hidden="true" />已保存的步骤摘要</summary><pre className="execution-code chat-list-scroll">{safeJson({ input: step.input, output: step.output })}</pre></details> : null}
+                              {step.input != null || step.output != null ? <details className="execution-disclosure pl-5"><summary><ChevronRight aria-hidden="true" />{t("ui.chat.run-records.savedStepSummary")}</summary><pre className="execution-code chat-list-scroll">{safeJson({ input: step.input, output: step.output })}</pre></details> : null}
                             </li>
                           ))}
                         </ol>
                       ) : null}
                       {isExpanded && message ? <ExecutionTurnDetails message={message} isLatest={messages.at(-1)?.id === message.id} onReviewApproval={() => setOpen(false)} /> : null}
-                      {isExpanded && run && !message && detail?.key === entry.key && !detail.error ? <p role="status" className="text-muted-foreground">该记录未保存可关联的完整详情；上方仅展示已保存的步骤摘要。</p> : null}
-                      {isExpanded && run && !message && detail?.key !== entry.key ? <p role="status" className="text-muted-foreground">正在读取详情…</p> : null}
+                      {isExpanded && run && !message && detail?.key === entry.key && !detail.error ? <p role="status" className="text-muted-foreground">{t("ui.chat.run-records.thisRecordHasNoLinkedFull")}</p> : null}
+                      {isExpanded && run && !message && detail?.key !== entry.key ? <p role="status" className="text-muted-foreground">{t("ui.chat.run-records.loadingDetails")}</p> : null}
                       {isExpanded && !message && detail?.key === entry.key && detail.error ? <p role="alert" className="text-destructive">{detail.error}</p> : null}
                       {run ? <details className="execution-disclosure text-muted-foreground">
-                        <summary><ChevronRight aria-hidden="true" />调试信息</summary>
+                        <summary><ChevronRight aria-hidden="true" />{t("ui.chat.run-records.debugInformation")}</summary>
                         <div className="flex flex-col gap-2 pb-2 leading-5">
-                          {entry.stages > 1 ? <p>当前列表合并了 {entry.stages} 个执行阶段，以下为最近阶段的限制。</p> : null}
-                          <p>{`${t("chat.run.budget")}: ${run.budget.maxSteps === null ? "步骤不限" : `${run.budget.maxSteps} ${t("chat.run.steps")}`} / ${run.budget.deadlineMs === null ? "无总时限" : `${Math.round(run.budget.deadlineMs / 1000)}s`} / ${run.budget.maxFailures === null ? "失败次数不限" : `${run.budget.maxFailures} ${t("runs.failures")}`}`}</p>
-                          {run.status === "failed" || run.status === "paused" || run.status === "cancelled" ? <p>恢复前请核对已完成步骤。需要继续时，请重新发送请求；文件和工具写入仍需重新批准。</p> : null}
-                          <a className="w-fit underline underline-offset-4" href="/api/diagnostics" download>导出脱敏诊断</a>
+                          {entry.stages > 1 ? <p>{t("ui.chat.run-records.thisListCombines")}{entry.stages} {t("ui.chat.run-records.executionPhasesLimitsBelowApplyTo")}</p> : null}
+                          <p>{`${t("chat.run.budget")}: ${run.budget.maxSteps === null ? t("ui.chat.run-records.unlimitedSteps") : `${run.budget.maxSteps} ${t("chat.run.steps")}`} / ${run.budget.deadlineMs === null ? t("ui.chat.run-records.noTotalTimeLimit") : `${Math.round(run.budget.deadlineMs / 1000)}s`} / ${run.budget.maxFailures === null ? t("ui.chat.run-records.unlimitedFailures") : `${run.budget.maxFailures} ${t("runs.failures")}`}`}</p>
+                          {run.status === "failed" || run.status === "paused" || run.status === "cancelled" ? <p>{t("ui.chat.run-records.checkCompletedStepsBeforeContinuingResend")}</p> : null}
+                          <a className="w-fit underline underline-offset-4" href="/api/diagnostics" download>{t("ui.chat.run-records.exportRedactedDiagnostics")}</a>
                         </div>
                       </details> : null}
                     </div>
@@ -281,6 +284,7 @@ export function RunRecords({ activeChatId, refreshKey, messages, open, onOpenCha
 }
 
 function StatusIcon({ status }: { status: RunView["status"] }) {
+  useLocale();
   if (status === "running")
     return (
       <Loader2
@@ -304,6 +308,7 @@ function StatusIcon({ status }: { status: RunView["status"] }) {
 }
 
 function StepIcon({ state }: { state: string }) {
+  useLocale();
   if (state === "done")
     return (
       <CheckCircle2

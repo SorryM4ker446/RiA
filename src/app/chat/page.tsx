@@ -1,4 +1,6 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
+
 import { useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -16,6 +18,7 @@ import { TriangleAlert } from "lucide-react";
 import { t } from "@/lib/locale";
 
 export default function ChatPage() {
+  useLocale();
   const chat = useChatState();
   const [executionPanel, setExecutionPanel] = useState<{ chatId: string; messageId?: string } | null>(null);
   const showExecutionDetails = (messageId: string) => {

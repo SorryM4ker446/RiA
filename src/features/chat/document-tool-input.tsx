@@ -1,4 +1,7 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
+
+import { t, localizeMessage } from "@/lib/locale";
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -16,6 +19,7 @@ export function DocumentToolInput({ value, onChange, scope = "", disabled }: {
   scope?: string;
   disabled: boolean;
 }) {
+  useLocale();
   const [documents, setDocuments] = useState<Array<ToolDocumentSelection & { collection: string | null }>>([]);
   const [loadedScope, setLoadedScope] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -31,7 +35,7 @@ export function DocumentToolInput({ value, onChange, scope = "", disabled }: {
     }).catch(failure => {
       if (controller.signal.aborted) return;
       setDocuments([]); setLoadedScope(scope);
-      setError(failure instanceof Error ? failure.message : "无法加载知识库文档。");
+      setError(failure instanceof Error ? failure.message : t("ui.chat.api-client.couldNotLoadKnowledgeDocuments"));
     });
     return () => controller.abort();
   }, [scope, revision, onChange]);
@@ -39,12 +43,12 @@ export function DocumentToolInput({ value, onChange, scope = "", disabled }: {
   const available = !loading && documents.some(document => document.id === value?.id);
   return <FieldGroup className="px-4 pb-3 pt-4">
     <Field>
-      <FieldLabel htmlFor="tool-document">知识库文档</FieldLabel>
+      <FieldLabel htmlFor="tool-document">{t("ui.chat.document-tool-input.knowledgeDocuments")}</FieldLabel>
       <SelectField id="tool-document" value={available ? value!.id : ""} disabled={disabled || loading || !!error} onValueChange={id => onChange(documents.find(document => document.id === id) ?? null)}>
-        <SelectOption value="">{loading ? "正在加载文档…" : "选择要处理的文档"}</SelectOption>
+        <SelectOption value="">{loading ? t("ui.chat.document-tool-input.loadingDocuments") : t("ui.chat.document-tool-input.chooseADocumentToProcess")}</SelectOption>
         {documents.map(document => <SelectOption key={document.id} value={document.id}>{document.filename}{document.collection ? ` · ${document.collection}` : ""}</SelectOption>)}
       </SelectField>
-      {error ? <div className="flex flex-wrap items-center gap-2"><p role="alert" className="text-xs text-destructive">{error}</p><Button size="sm" variant="ghost" disabled={disabled} onClick={() => { setLoadedScope(null); onChange(null); setRevision(old => old + 1); }}><RefreshCw data-icon="inline-start" />重试</Button></div> : !loading && !documents.length ? <FieldDescription>当前知识范围内还没有文档。<Link href="/knowledge">去知识库导入</Link></FieldDescription> : <FieldDescription>按文件名选择，执行不会修改原文档。</FieldDescription>}
+      {error ? <div className="flex flex-wrap items-center gap-2"><p role="alert" className="text-xs text-destructive">{localizeMessage(error)}</p><Button size="sm" variant="ghost" disabled={disabled} onClick={() => { setLoadedScope(null); onChange(null); setRevision(old => old + 1); }}><RefreshCw data-icon="inline-start" />{t("ui.chat.chat-toolbar.retry")}</Button></div> : !loading && !documents.length ? <FieldDescription>{t("ui.chat.document-tool-input.noDocumentsInTheCurrentKnowledge")}<Link href="/knowledge">{t("ui.chat.document-tool-input.importInKnowledge")}</Link></FieldDescription> : <FieldDescription>{t("ui.chat.document-tool-input.selectByFilenameExecutionDoesNot")}</FieldDescription>}
     </Field>
   </FieldGroup>;
 }

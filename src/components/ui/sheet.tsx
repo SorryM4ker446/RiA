@@ -1,4 +1,7 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
+
+import { t } from "@/lib/locale";
 
 import * as React from "react";
 import * as SheetPrimitive from "@radix-ui/react-dialog";
@@ -16,12 +19,13 @@ export function SheetContent({
   className,
   children,
   side = "left",
-  closeLabel = "关闭",
+  closeLabel = t("window.close"),
   ...props
 }: React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content> & {
   side?: "left" | "right";
   closeLabel?: string;
 }) {
+  useLocale();
   return (
     <SheetPrimitive.Portal>
       <SheetPrimitive.Overlay className="sheet-overlay" />

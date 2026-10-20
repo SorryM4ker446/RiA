@@ -32,10 +32,9 @@ function SelectValue({
   ...props
 }: React.ComponentPropsWithoutRef<typeof SelectPrimitive.Value>) {
   return (
-    <SelectPrimitive.Value
-      className={cn("block min-w-0 truncate text-left leading-tight", className)}
-      {...props}
-    />
+    <span className={cn("block min-w-0 truncate text-left leading-tight", className)}>
+      <SelectPrimitive.Value {...props} />
+    </span>
   );
 }
 

@@ -1,4 +1,8 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
+
+import { t, tf, formatDateTime, localizeMessage } from "@/lib/locale";
+
 import { SelectField, SelectOption } from "@/components/ui/select";
 
 import { useCallback, useEffect, useState } from "react";
@@ -11,7 +15,6 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from 
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { SettingsHelp, SettingsSection } from "@/features/settings/settings-section";
 import { Input } from "@/components/ui/input";
-import { t, tf } from "@/lib/locale";
 import { ScheduleHistory } from "@/features/settings/schedule-history";
 import { executionGuidance } from "@/lib/execution-messages";
 import { WorkspaceReviewPreview } from "@/features/settings/workspace-review";
@@ -54,6 +57,7 @@ async function readError(response: Response): Promise<string> {
 /** Opening or closing the editor never creates a schedule. Creation submits
  * the user's enablement and model choices; saved jobs remain authoritative. */
 export function ScheduleSettings() {
+  useLocale();
   const [creating, setCreating] = useState(false);
   const [jobs, setJobs] = useState<JobRow[]>([]);
   const [kind, setKind] = useState<(typeof KINDS)[number]>("backupReminder");
@@ -119,22 +123,22 @@ export function ScheduleSettings() {
     if (created) setCreating(false);
   }
 
-  const failure = error ? <Alert variant="destructive"><AlertTitle>{t("settings.schedules.failedTitle")}</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : null;
+  const failure = error ? <Alert variant="destructive"><AlertTitle>{t("settings.schedules.failedTitle")}</AlertTitle><AlertDescription>{localizeMessage(error)}</AlertDescription></Alert> : null;
   const modelKind = kind === "dailyBrief" || kind === "weeklySummary";
   return <Sheet open={creating} onOpenChange={open => { if (!saving) setCreating(open); }}>
-    <SettingsSection title={t("settings.schedules.title")} description="按计划回顾工作区或管理备份。" action={
-      <SheetTrigger asChild><Button size="sm" disabled={loading || saving}><Plus data-icon="inline-start" />添加计划</Button></SheetTrigger>
+    <SettingsSection title={t("settings.schedules.title")} description={t("ui.settings.schedules.scheduleWorkspaceReviewsOrManageBackups")} action={
+      <SheetTrigger asChild><Button size="sm" disabled={loading || saving}><Plus data-icon="inline-start" />{t("ui.settings.schedules.addSchedule")}</Button></SheetTrigger>
     }>
       <div className="flex flex-col gap-3">
         {!creating ? failure : null}
         {loading ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" aria-hidden="true" />{t("settings.schedules.loading")}</p>
-          : jobs.length === 0 ? <Empty className="items-start px-0 py-3 text-left"><EmptyDescription>{t("settings.schedules.empty")} 点击“添加计划”开始设置。</EmptyDescription></Empty>
-          : <ul className="settings-list" aria-label="已添加的计划">{jobs.map(job => <li key={job.id}>
+          : jobs.length === 0 ? <Empty className="items-start px-0 py-3 text-left"><EmptyDescription>{t("settings.schedules.empty")} {t("ui.settings.schedules.selectAddScheduleToGetStarted")}</EmptyDescription></Empty>
+          : <ul className="settings-list" aria-label={t("ui.settings.schedules.addedSchedules")}>{jobs.map(job => <li key={job.id}>
             <div className="flex min-w-0 flex-1 flex-col gap-1.5">
               <p className="flex flex-wrap items-center gap-2 text-sm font-medium">{t(`settings.schedules.kind.${job.kind}` as never)}<Badge variant={job.enabled ? "secondary" : "outline"}>{job.enabled ? t("settings.schedules.on") : t("settings.schedules.off")}</Badge></p>
               <p className="text-xs text-muted-foreground">{job.interval === "weekly" ? t(`settings.schedules.weekday.${job.dayOfWeek ?? 1}` as never) : t("settings.schedules.daily")} · {job.localTime} · <span className="break-all">{job.timeZone}</span></p>
-              <p className="text-xs text-muted-foreground">{t("settings.schedules.next")} {new Date(job.nextRunAt).toLocaleString()}</p>
-              {job.kind === "dailyBrief" || job.kind === "weeklySummary" ? <label className="flex items-center gap-2 text-xs text-muted-foreground"><input type="checkbox" checked={job.useModel} onChange={() => void send("PATCH", `/api/schedules/${encodeURIComponent(job.id)}`, { useModel: !job.useModel })} />允许模型整理（每个期间最多一次请求）</label> : null}
+              <p className="text-xs text-muted-foreground">{t("settings.schedules.next")} {formatDateTime(new Date(job.nextRunAt))}</p>
+              {job.kind === "dailyBrief" || job.kind === "weeklySummary" ? <label className="flex items-center gap-2 text-xs text-muted-foreground"><input type="checkbox" checked={job.useModel} onChange={() => void send("PATCH", `/api/schedules/${encodeURIComponent(job.id)}`, { useModel: !job.useModel })} />{t("ui.settings.schedules.allowModelCommentaryAtMostOne")}</label> : null}
               {job.lastStatus ? <p className="text-xs text-muted-foreground">{tf("settings.schedules.lastRun", { status: job.lastStatus })}{job.lastError ? ` — ${executionGuidance(job.lastError)}` : ""}</p> : null}
             </div>
             <div className="flex shrink-0 items-center gap-1">
@@ -142,7 +146,7 @@ export function ScheduleSettings() {
               <Button aria-label={t("settings.schedules.delete")} size="icon-sm" variant="ghost" onClick={() => void send("DELETE", `/api/schedules/${encodeURIComponent(job.id)}`)}><Trash2 aria-hidden="true" /></Button>
             </div>
           </li>)}</ul>}
-        <SettingsHelp title="运行规则与模型用量">
+        <SettingsHelp title={t("ui.settings.schedules.executionRulesModelUsage")}>
           <p>{t("settings.schedules.note")}</p>
           <p>{t("settings.schedules.description")}</p><p>{t("settings.schedules.briefNote")}</p>
         </SettingsHelp>
@@ -151,19 +155,19 @@ export function ScheduleSettings() {
     <ScheduleHistory refreshKey={historyRefresh} onExecuted={load} />
     <WorkspaceReviewPreview />
       <SheetContent side="right" className="settings-create-sheet flex flex-col gap-5 overflow-y-auto p-6">
-        <header className="flex flex-col gap-2 pr-6"><SheetTitle>添加计划</SheetTitle><SheetDescription>选择时间与时区。模型整理需要单独开启，可能产生用量费用。</SheetDescription></header>
+        <header className="flex flex-col gap-2 pr-6"><SheetTitle>{t("ui.settings.schedules.addSchedule")}</SheetTitle><SheetDescription>{t("ui.settings.schedules.chooseATimeAndTimeZone")}</SheetDescription></header>
         {failure}
         <form className="flex flex-1 flex-col gap-6" onSubmit={create}>
           <FieldGroup className="gap-5">
-            <Field><FieldLabel htmlFor="schedule-kind">任务类型</FieldLabel><SelectField id="schedule-kind" aria-label={t("settings.schedules.kindLabel")} value={kind} onValueChange={value => setKind(value as (typeof KINDS)[number])}>{KINDS.map(option => <SelectOption key={option} value={option}>{t(`settings.schedules.kind.${option}` as never)}</SelectOption>)}</SelectField></Field>
-            <Field><FieldLabel htmlFor="schedule-time">时间</FieldLabel><Input id="schedule-time" aria-label={t("settings.schedules.timeLabel")} type="time" value={localTime} onChange={event => setLocalTime(event.target.value)} required /></Field>
-            <Field><FieldLabel htmlFor="schedule-interval">重复</FieldLabel><SelectField id="schedule-interval" aria-label={t("settings.schedules.intervalLabel")} value={interval} onValueChange={value => setInterval(value as "daily" | "weekly")}><SelectOption value="daily">{t("settings.schedules.daily")}</SelectOption><SelectOption value="weekly">{t("settings.schedules.weekly")}</SelectOption></SelectField></Field>
-            {interval === "weekly" ? <Field><FieldLabel htmlFor="schedule-day">星期几</FieldLabel><SelectField id="schedule-day" aria-label={t("settings.schedules.weekdayLabel")} value={dayOfWeek} onValueChange={value => setDayOfWeek(Number(value))}>{WEEKDAYS.map(day => <SelectOption key={day} value={day}>{t(`settings.schedules.weekday.${day}` as never)}</SelectOption>)}</SelectField></Field> : null}
-            <Field><FieldLabel htmlFor="schedule-zone">时区</FieldLabel><Input id="schedule-zone" aria-label={t("settings.schedules.zoneLabel")} value={timeZone} onChange={event => setTimeZone(event.target.value)} placeholder="Asia/Shanghai" required /></Field>
+            <Field><FieldLabel htmlFor="schedule-kind">{t("settings.schedules.kindLabel")}</FieldLabel><SelectField id="schedule-kind" aria-label={t("settings.schedules.kindLabel")} value={kind} onValueChange={value => setKind(value as (typeof KINDS)[number])}>{KINDS.map(option => <SelectOption key={option} value={option}>{t(`settings.schedules.kind.${option}` as never)}</SelectOption>)}</SelectField></Field>
+            <Field><FieldLabel htmlFor="schedule-time">{t("settings.schedules.timeLabel")}</FieldLabel><Input id="schedule-time" aria-label={t("settings.schedules.timeLabel")} type="time" value={localTime} onChange={event => setLocalTime(event.target.value)} required /></Field>
+            <Field><FieldLabel htmlFor="schedule-interval">{t("settings.schedules.intervalLabel")}</FieldLabel><SelectField id="schedule-interval" aria-label={t("settings.schedules.intervalLabel")} value={interval} onValueChange={value => setInterval(value as "daily" | "weekly")}><SelectOption value="daily">{t("settings.schedules.daily")}</SelectOption><SelectOption value="weekly">{t("settings.schedules.weekly")}</SelectOption></SelectField></Field>
+            {interval === "weekly" ? <Field><FieldLabel htmlFor="schedule-day">{t("settings.schedules.weekdayLabel")}</FieldLabel><SelectField id="schedule-day" aria-label={t("settings.schedules.weekdayLabel")} value={dayOfWeek} onValueChange={value => setDayOfWeek(Number(value))}>{WEEKDAYS.map(day => <SelectOption key={day} value={day}>{t(`settings.schedules.weekday.${day}` as never)}</SelectOption>)}</SelectField></Field> : null}
+            <Field><FieldLabel htmlFor="schedule-zone">{t("settings.schedules.zoneLabel")}</FieldLabel><Input id="schedule-zone" aria-label={t("settings.schedules.zoneLabel")} value={timeZone} onChange={event => setTimeZone(event.target.value)} placeholder="Asia/Shanghai" required /></Field>
             <Field orientation="horizontal"><input id="schedule-enabled" type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)} /><FieldLabel htmlFor="schedule-enabled">{t("settings.schedules.createEnabled")}</FieldLabel></Field>
-            {modelKind ? <Field orientation="horizontal"><input id="schedule-model" type="checkbox" checked={useModel} onChange={event => setUseModel(event.target.checked)} /><FieldLabel htmlFor="schedule-model">允许模型整理（可计费；本地事实回顾始终可用）</FieldLabel></Field> : null}
+            {modelKind ? <Field orientation="horizontal"><input id="schedule-model" type="checkbox" checked={useModel} onChange={event => setUseModel(event.target.checked)} /><FieldLabel htmlFor="schedule-model">{t("ui.settings.schedules.allowModelCommentaryMayIncurCharges")}</FieldLabel></Field> : null}
           </FieldGroup>
-          <div className="mt-auto flex justify-end gap-2"><Button variant="outline" type="button" disabled={saving} onClick={() => setCreating(false)}>取消</Button><Button type="submit" disabled={saving}>{saving ? <Loader2 data-icon="inline-start" className="animate-spin" /> : null}{t("settings.schedules.add")}</Button></div>
+          <div className="mt-auto flex justify-end gap-2"><Button variant="outline" type="button" disabled={saving} onClick={() => setCreating(false)}>{t("knowledge.cancelEdit")}</Button><Button type="submit" disabled={saving}>{saving ? <Loader2 data-icon="inline-start" className="animate-spin" /> : null}{t("settings.schedules.add")}</Button></div>
         </form>
       </SheetContent>
   </Sheet>;

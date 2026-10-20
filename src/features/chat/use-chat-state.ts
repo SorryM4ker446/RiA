@@ -1,3 +1,4 @@
+import { t } from "@/lib/locale";
 import {
   ChatSummary,
   isToolPart,
@@ -8,7 +9,6 @@ import {
 } from "@/features/chat/page-utils";
 import { encodePersistedAssistantToolMessage } from "@/lib/ai/ui-message";
 import { getApiErrorMessage as readApiErrorMessage } from "@/lib/api-error-message";
-import { t } from "@/lib/locale";
 import { usePanelVisibility } from "./use-panel-visibility";
 import { useChat } from "@ai-sdk/react";
 import { lastAssistantMessageIsCompleteWithApprovalResponses, UIMessage } from "ai";
@@ -511,7 +511,7 @@ export function useChatState() {
     if (modelMode === "chat" && selectedManualToolConfig) {
       const isDocumentTool = ["readDocument", "convertDocument"].includes(selectedManualToolConfig.id);
       const content = isDocumentTool ? selectedToolDocument?.id ?? "" : input.trim();
-      if (!content) { setPageError(isDocumentTool ? "请先选择知识库文档。" : t("chatState.toolParamsRequired")); return; }
+      if (!content) { setPageError(isDocumentTool ? t("ui.chat.use-chat-state.chooseAKnowledgeDocumentFirst") : t("chatState.toolParamsRequired")); return; }
       if (attachments.length) { setPageError(t("chatState.manualToolAttachmentBlocked")); return; }
       const nextFieldErrors = validateManualToolFields(selectedManualToolConfig, manualToolFieldValues);
       setManualToolFieldErrors(nextFieldErrors);
@@ -540,7 +540,7 @@ export function useChatState() {
     setPageError(null);
 
     if (modelMode !== "chat" && attachments.some(part => !part.mediaType.startsWith("image/"))) {
-      setPageError("PDF 和 Word 附件仅支持聊天模式，请移除文档或切回聊天模式。");
+      setPageError(t("ui.chat.use-chat-state.pDFAndWordAttachmentsAreSupported"));
       return;
     }
     if (modelMode === "chat" && attachments.some(part => part.mediaType.startsWith("image/")) && !selectedModelInfo?.supportsImageInput) {

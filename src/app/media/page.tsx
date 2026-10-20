@@ -1,4 +1,6 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
+
 import Link from "next/link";
 import { BackToChatLink } from "@/components/layout/back-to-chat-link";
 import { useRouter } from "next/navigation";
@@ -13,11 +15,12 @@ import { StoragePanel } from "@/features/media/storage-panel";
 import { mediaApi, assetKind, formatBytes, type Asset, type AssetDetail, type Filters, type SourceChat } from "@/features/media/api-client";
 import { LAST_ACTIVE_CHAT_STORAGE_KEY } from "@/features/chat/types";
 import { conversationsApi } from "@/features/conversations/api-client";
-import { t } from "@/lib/locale";
+import { t, localizeMessage } from "@/lib/locale";
 
 const defaults: Filters = { type: "all", kind: "all", usage: "all" };
 const sameFilters = (a: Filters, b: Filters) => a.type === b.type && a.kind === b.kind && a.usage === b.usage;
 export default function MediaPage() {
+  useLocale();
   const router = useRouter();
   const [filters, setFilters] = useState(defaults);
   // The filters the currently displayed rows were fetched with, so a refresh
@@ -115,8 +118,8 @@ export default function MediaPage() {
         label={t("media.refresh")}
       />
     </div>
-    {error && <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-sm text-destructive shadow-hairline">{error}</p>}
-    {notice && <p role="status" className="text-sm">{notice}</p>}
+    {error && <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-sm text-destructive shadow-hairline">{localizeMessage(error)}</p>}
+    {notice && <p role="status" className="text-sm">{localizeMessage(notice)}</p>}
     <div ref={detailPanel}>{selected && <AssetDetailPanel key={selected.id} asset={selected} busy={disabled} close={() => setSelected(null)} openChat={openChat} inspect={id => { void act(() => show(id)); }}
       download={() => { void act(async () => { await mediaApi.download(selected.id); setNotice(t("media.notice.downloaded")); }); }}
       remove={() => { setOperation("delete"); dialog.current?.showModal(); }} regenerate={() => { setOperation("regenerate"); dialog.current?.showModal(); }} />}</div>

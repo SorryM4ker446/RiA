@@ -1,4 +1,5 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
 
 import { AlertCircle, Check, Copy } from "lucide-react";
 import { useState } from "react";
@@ -47,6 +48,7 @@ function readCodeText(children: React.ReactNode): string {
 }
 
 function CodeBlock({ children }: { children: React.ReactNode }) {
+  useLocale();
   const [state, setState] = useState<"idle" | "copied" | "refused">("idle");
   const code = readCodeText(children);
   async function copy() {
@@ -87,6 +89,7 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
 }
 
 export function MarkdownMessage({ text, allowImages = true }: MarkdownMessageProps) {
+  useLocale();
   return (
     <div className="markdown-message">
       <ReactMarkdown components={markdownComponents} rehypePlugins={[rehypeSanitize]} remarkPlugins={[remarkGfm]} disallowedElements={allowImages ? undefined : ["img"]}>

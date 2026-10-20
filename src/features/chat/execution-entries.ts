@@ -1,3 +1,4 @@
+import { t } from "@/lib/locale";
 import type { UIMessage } from "ai";
 import type { RunView } from "@/lib/agent/runs";
 import { isToolPart, readText } from "./page-utils";
@@ -11,7 +12,7 @@ export function executionEntries(runs: RunView[], messages: UIMessage[]) {
   for (const message of messages) {
     if (message.role === "user") question = readText(message);
     if (message.role !== "assistant") continue;
-    goals.set(message.id, question || readText(message) || "工具与资料详情");
+    goals.set(message.id, question || readText(message) || t("ui.chat.execution-entries.toolAndSourceDetails"));
     const metadata = message.metadata as { runId?: string; runIds?: string[] } | undefined;
     for (const id of [...(metadata?.runIds ?? []), ...(metadata?.runId ? [metadata.runId] : [])]) byRun.set(id, message);
   }

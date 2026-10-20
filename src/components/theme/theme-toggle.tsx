@@ -1,4 +1,5 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
 
 import { useEffect } from "react";
 import { Moon, SunMedium } from "lucide-react";
@@ -16,6 +17,7 @@ function applyTheme(theme: ThemeMode) {
 
 /** Square icon button, sized to sit inline with the navigation footer. */
 export function ThemeToggle() {
+  useLocale();
   useEffect(() => {
     const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
     applyTheme(stored === "light" ? "light" : DEFAULT_THEME);

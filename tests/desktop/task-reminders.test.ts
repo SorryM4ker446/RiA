@@ -95,7 +95,8 @@ test("native notifications show zoned deadlines, focus on click and keep a bound
     show() { this.shown = true; }
     close() { this.closed = true; this.emit("close"); }
   }
-  const deliver = createTaskNotificationDelivery(FakeNotification, () => focused++, { warn: message => warnings.push(message) });
+  let locale = "zh-CN";
+  const deliver = createTaskNotificationDelivery(FakeNotification, () => focused++, { warn: message => warnings.push(message) }, () => locale);
   for (let i = 0; i < 31; i++) deliver(task);
   assert.equal(notifications[0].closed, true);
   assert.equal(notifications.at(-1).shown, true);
@@ -106,4 +107,8 @@ test("native notifications show zoned deadlines, focus on click and keep a bound
   notifications.at(-1).emit("failed", {}, "sensitive OS error");
   assert.equal(warnings.length, 1);
   assert.equal(warnings[0].includes("sensitive"), false);
+  locale = "en-US";
+  deliver(task);
+  assert.equal(notifications.at(-1).options.title, "Local task");
+  assert.match(notifications.at(-1).options.body, /^Task due:.*Asia\/Shanghai/);
 });

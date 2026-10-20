@@ -1,4 +1,6 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
+
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { assetKind, formatBytes, type AssetDetail, type SourceChat } from "@/features/media/api-client";
@@ -8,6 +10,7 @@ export function AssetDetailPanel({ asset, busy, close, download, remove, regener
   asset: AssetDetail; busy: boolean; close: () => void; download: () => void; remove: () => void; regenerate: () => void;
   openChat: (chat: SourceChat) => void; inspect: (id: string) => void;
 }) {
+  useLocale();
   const [failed, setFailed] = useState(false);
   const recipe = asset.generation;
   const chats = [...new Map([...(asset.sourceChat ? [asset.sourceChat] : []), ...asset.references.map(ref => ref.chat)].map(chat => [chat.id, chat])).values()];

@@ -1,4 +1,7 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
+
+import { t, tf } from "@/lib/locale";
 
 import { useState } from "react";
 import { Archive, ArchiveRestore, Download, MoreHorizontal, Pin, PinOff, Tags } from "lucide-react";
@@ -8,7 +11,6 @@ import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { formatTime } from "@/features/chat/page-utils";
-import { t } from "@/lib/locale";
 import type { Conversation } from "@/features/conversations/api-client";
 
 type Props = {
@@ -19,6 +21,7 @@ type Props = {
 };
 
 export function ConversationRow({ chat, selected, disabled, selectionFull, select, open, update, download }: Props) {
+  useLocale();
   const [editing, setEditing] = useState(false);
   const [tags, setTags] = useState("");
   return <article aria-label={chat.title} data-selected={selected} className="management-row rounded-xl px-3 py-3 sm:px-4">
@@ -35,7 +38,7 @@ export function ConversationRow({ chat, selected, disabled, selectionFull, selec
       <div className="flex shrink-0 items-center gap-1">
         <Button size="icon-sm" variant="ghost" aria-label={chat.pinned ? t("conversationRow.unpin") : t("conversationRow.pin")} title={chat.pinned ? t("conversationRow.unpin") : t("conversationRow.pin")} disabled={disabled} onClick={() => void update({ pinned: !chat.pinned })}>{chat.pinned ? <PinOff aria-hidden="true" /> : <Pin aria-hidden="true" />}</Button>
         <DropdownMenu modal={false}>
-          <DropdownMenuTrigger asChild><Button id={`chat-actions-${chat.id}`} size="icon-sm" variant="ghost" aria-label={`更多操作 ${chat.title}`} disabled={disabled}><MoreHorizontal aria-hidden="true" /></Button></DropdownMenuTrigger>
+          <DropdownMenuTrigger asChild><Button id={`chat-actions-${chat.id}`} size="icon-sm" variant="ghost" aria-label={tf("ui.assistants.moreActionsFor", { v0: chat.title })} disabled={disabled}><MoreHorizontal aria-hidden="true" /></Button></DropdownMenuTrigger>
           <DropdownMenuContent align="end" onCloseAutoFocus={event => { if (editing) event.preventDefault(); }}><DropdownMenuGroup>
             <DropdownMenuItem onSelect={() => void update({ archived: !chat.archived })}>{chat.archived ? <ArchiveRestore aria-hidden="true" /> : <Archive aria-hidden="true" />}{chat.archived ? t("conversationRow.restore") : t("conversationRow.archive")}</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => { setTags(chat.tags.join(", ")); setEditing(true); }}><Tags aria-hidden="true" />{t("conversationRow.editTags")}</DropdownMenuItem>

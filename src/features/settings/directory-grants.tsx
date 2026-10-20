@@ -1,4 +1,7 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
+
+import { t, tf, formatDateTime, localizeMessage } from "@/lib/locale";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { FolderOpen, Loader2, ShieldOff, Terminal } from "lucide-react";
@@ -6,7 +9,6 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { SettingsSection } from "@/features/settings/settings-section";
 import { Input } from "@/components/ui/input";
-import { t } from "@/lib/locale";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -45,6 +47,7 @@ async function readError(response: Response): Promise<string> {
  * on the next restart.
  */
 export function DirectoryGrantSettings({ embedded = false, onChange }: { embedded?: boolean; onChange?: () => void }) {
+  useLocale();
   const pathId = useId();
   const modeId = useId();
   const loadRequest = useRef(0);
@@ -164,7 +167,7 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
         {error ? (
           <Alert variant="destructive">
             <AlertTitle>{t("settings.grants.failedTitle")}</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
+            <AlertDescription>{localizeMessage(error)}</AlertDescription>
           </Alert>
         ) : null}
 
@@ -176,7 +179,7 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
         ) : grants.length === 0 ? (
           <p className="text-xs text-muted-foreground">{t("settings.grants.empty")}</p>
         ) : (
-          <ul className="settings-list" aria-label="目录授权">
+          <ul className="settings-list" aria-label={t("ui.settings.directory-grants.directoryAccess")}>
             {grants.map((grant) => (
               <li className="flex flex-col items-start justify-between gap-3 sm:flex-row" key={grant.id}>
                 <div className="w-full min-w-0 sm:w-auto">
@@ -184,9 +187,9 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
                   <p className="truncate text-xs text-muted-foreground" title={grant.realPath}>{grant.path}</p>
                   <p className="text-[11px] text-muted-foreground">
                     {grant.revokedAt
-                      ? `${t("settings.grants.revoked")}${new Date(grant.revokedAt).toLocaleString()}`
+                      ? `${t("settings.grants.revoked")}${formatDateTime(new Date(grant.revokedAt))}`
                       : grant.lastUsedAt
-                        ? `${t("settings.grants.lastUsed")}${new Date(grant.lastUsedAt).toLocaleString()}`
+                        ? `${t("settings.grants.lastUsed")}${formatDateTime(new Date(grant.lastUsedAt))}`
                         : t("settings.grants.neverUsed")}
                   </p>
                 </div>
@@ -196,9 +199,9 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
                   {typeof window !== "undefined" && window.privateAiDesktop ? <>
                   <Button disabled={busy} onClick={() => { setTerminalMode(grant.terminalApprovalMode); setTerminalGrant(grant); }} size="sm" type="button" variant="outline">
                     <Terminal aria-hidden="true" data-icon="inline-start" />
-                    {grant.terminalEnabled ? `终端：${grant.terminalApprovalMode === "full-access" ? "完全访问" : "审批"}` : "开启终端"}
+                    {grant.terminalEnabled ? tf("ui.settings.directory-grants.terminal", { v0: grant.terminalApprovalMode === "full-access" ? t("ui.settings.directory-grants.fullAccess") : t("ui.settings.directory-grants.approval") }) : t("ui.settings.directory-grants.enableTerminal")}
                   </Button>
-                  {grant.terminalEnabled ? <Button disabled={busy} onClick={() => void changeTerminal(grant, false)} size="sm" type="button" variant="outline">关闭终端</Button> : null}
+                  {grant.terminalEnabled ? <Button disabled={busy} onClick={() => void changeTerminal(grant, false)} size="sm" type="button" variant="outline">{t("ui.settings.directory-grants.disableTerminal")}</Button> : null}
                   </> : null}
                   <Button disabled={busy} onClick={() => void revoke(grant.id)} size="sm" type="button" variant="outline">
                     <ShieldOff aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
@@ -213,7 +216,7 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
 
         <form className={cn("flex gap-2", embedded ? "flex-col" : "flex-wrap items-end sm:flex-nowrap")} onSubmit={add}>
           <Field className="min-w-0 flex-1 gap-2">
-          <FieldLabel htmlFor={pathId} className={embedded ? undefined : "sr-only"}>目录路径</FieldLabel>
+          <FieldLabel htmlFor={pathId} className={embedded ? undefined : "sr-only"}>{t("ui.settings.directory-grants.directoryPath")}</FieldLabel>
           <Input
             id={pathId}
             className="min-w-0"
@@ -226,7 +229,7 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
           <div className="flex items-center justify-end gap-2">
           <Button disabled={busy || (typeof window !== "undefined" && !window.privateAiDesktop?.chooseFolder)} onClick={() => void choose()} type="button" variant="outline">
             <FolderOpen aria-hidden="true" className="mr-1.5 h-4 w-4" />
-            {embedded ? "选择目录" : t("settings.grants.browse")}
+            {embedded ? t("ui.settings.directory-grants.chooseDirectory") : t("settings.grants.browse")}
           </Button>
           <Button disabled={busy || !path.trim()} type="submit">
             {saving ? <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" /> : null}
@@ -238,38 +241,38 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
       </div>
   );
   return <>
-      {embedded ? content : <SettingsSection title={<><FolderOpen aria-hidden="true" className="size-4 text-muted-foreground" />{t("settings.grants.title")}</>} description="只授权你需要的目录。终端权限单独开启，可选择完全访问或逐条审批。">
+      {embedded ? content : <SettingsSection title={<><FolderOpen aria-hidden="true" className="size-4 text-muted-foreground" />{t("settings.grants.title")}</>} description={t("ui.settings.directory-grants.authorizeOnlyTheDirectoriesYouNeed")}>
         <div className="flex flex-col gap-4">{content}</div>
       </SettingsSection>}
       <Sheet open={!!terminalGrant} onOpenChange={open => { if (!open && !permissionSaving) setTerminalGrant(null); }}>
         <SheetContent side="right" className="directory-permissions-sheet flex flex-col gap-5 overflow-y-auto p-6">
-          <SheetTitle>{terminalGrant?.terminalEnabled ? "终端权限" : "开启终端权限"}</SheetTitle>
-          <SheetDescription>允许 RiA 在此目录读取、搜索、新建、编辑、复制、移动和删除文件，并执行开发命令。选择命令的审批方式。</SheetDescription>
+          <SheetTitle>{terminalGrant?.terminalEnabled ? t("ui.settings.directory-grants.terminalPermissions") : t("ui.settings.directory-grants.enableTerminalAccess")}</SheetTitle>
+          <SheetDescription>{t("ui.settings.directory-grants.allowRiAToReadSearchCreate")}</SheetDescription>
           <p className="break-all font-mono text-xs">{terminalGrant?.realPath}</p>
           <FieldGroup>
             <Field>
-              <FieldLabel htmlFor={modeId}>终端模式</FieldLabel>
+              <FieldLabel htmlFor={modeId}>{t("ui.settings.directory-grants.terminalMode")}</FieldLabel>
               <Select value={terminalMode} disabled={permissionSaving} onValueChange={value => setTerminalMode(value as TerminalApprovalMode)}>
                 <SelectTrigger id={modeId} aria-describedby={`${modeId}-description`}><SelectValue /></SelectTrigger>
                 <SelectContent><SelectGroup>
-                  <SelectItem value="approval">审批</SelectItem>
-                  <SelectItem value="full-access">完全访问</SelectItem>
+                  <SelectItem value="approval">{t("ui.settings.directory-grants.approval")}</SelectItem>
+                  <SelectItem value="full-access">{t("ui.settings.directory-grants.fullAccess")}</SelectItem>
                 </SelectGroup></SelectContent>
               </Select>
-              <FieldDescription id={`${modeId}-description`}>{terminalMode === "full-access" ? "LLM 的终端操作自动执行，无需逐条批准。" : "LLM 每次调用终端工具都需要你批准，拒绝则不执行。"}</FieldDescription>
+              <FieldDescription id={`${modeId}-description`}>{terminalMode === "full-access" ? t("ui.settings.directory-grants.lLMTerminalCommandsRunAutomaticallyWithout") : t("ui.settings.directory-grants.everyLLMTerminalCallRequiresYour")}</FieldDescription>
             </Field>
           </FieldGroup>
           <Alert>
             <Terminal aria-hidden="true" />
-            <AlertTitle>命令以当前 Windows 用户身份运行</AlertTitle>
-            <AlertDescription>工作目录不是文件访问沙箱。命令可能修改目录外的文件、访问网络或启动程序；原有文件工具的路径限制不适用于终端。切换模式或关闭权限会停止此目录正在运行的命令。</AlertDescription>
+            <AlertTitle>{t("ui.settings.directory-grants.commandsRunAsTheCurrentWindows")}</AlertTitle>
+            <AlertDescription>{t("ui.settings.directory-grants.theWorkingDirectoryIsNotA")}</AlertDescription>
           </Alert>
-          {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
+          {error ? <Alert variant="destructive"><AlertDescription>{localizeMessage(error)}</AlertDescription></Alert> : null}
           <div className="mt-auto flex justify-end gap-2">
-            <Button disabled={permissionSaving} variant="outline" onClick={() => setTerminalGrant(null)}>取消</Button>
+            <Button disabled={permissionSaving} variant="outline" onClick={() => setTerminalGrant(null)}>{t("knowledge.cancelEdit")}</Button>
             <Button disabled={permissionSaving || !terminalGrant} onClick={() => terminalGrant && void changeTerminal(terminalGrant, true, terminalMode)}>
               {permissionSaving ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Terminal data-icon="inline-start" />}
-              {terminalGrant?.terminalEnabled ? "保存终端权限" : "确认开启终端权限"}
+              {terminalGrant?.terminalEnabled ? t("ui.settings.directory-grants.saveTerminalPermissions") : t("ui.settings.directory-grants.confirmTerminalAccess")}
             </Button>
           </div>
         </SheetContent>

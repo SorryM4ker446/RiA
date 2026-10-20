@@ -1,4 +1,5 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { t } from "@/lib/locale";
@@ -35,6 +36,7 @@ function useControls(): Controls | null {
 }
 
 export function WindowControls() {
+  useLocale();
   const controls = useControls();
   const [maximized, setMaximized] = useState(false);
 
@@ -97,6 +99,7 @@ function CaptionButton({ action, label, close, children }: {
   close?: boolean;
   children: React.ReactNode;
 }) {
+  useLocale();
   return (
     <button
       aria-label={label}

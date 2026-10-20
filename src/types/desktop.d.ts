@@ -1,4 +1,5 @@
 type DesktopSettingsView = {
+  locale: "zh-CN" | "en-US";
   hasOpenrouterApiKey: boolean;
   hasTavilyApiKey: boolean;
   hasDeepseekApiKey: boolean;
@@ -22,6 +23,7 @@ type DesktopRuntimeInfo = {
 };
 
 type DesktopSettingsInput = {
+  locale?: "zh-CN" | "en-US";
   openrouterApiKey?: string;
   tavilyApiKey?: string;
   deepseekApiKey?: string;

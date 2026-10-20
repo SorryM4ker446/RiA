@@ -1,3 +1,6 @@
+"use client";
+import { useLocale } from "@/lib/locale/client";
+import { t, tf } from "@/lib/locale";
 import { imagePrompts, quickPrompts, videoPrompts } from "@/features/chat/page-utils";
 import { MarkdownMessage } from "@/components/chat/markdown-message";
 import { DocumentAttachment } from "@/components/chat/document-attachment";
@@ -33,7 +36,6 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { t, tf } from "@/lib/locale";
 import type { ChatState } from "@/features/chat/use-chat-state";
 import type { UIMessage } from "ai";
 
@@ -59,6 +61,7 @@ export function messageFollowSignature(messages: UIMessage[]): string {
 }
 
 function MessageReasoning({ text, active, thinking }: { text: string; active: boolean; thinking: boolean }) {
+  useLocale();
   const disclosureRef = useRef<HTMLDetailsElement>(null);
   // Native disclosure state preserves manual choices while a turn is active.
   // Only a turn starting or completing changes it automatically.
@@ -105,6 +108,7 @@ export function shouldOpenOnLayout({
 
 type Props = Pick<ChatState, "appendQuickPrompt" | "modelMode" | "activeChatId" | "isLoadingHistory" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId" | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText" | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel" | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages" | "selectedChatModel">;
 export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, isLoadingHistory, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages }: Props) {
+  useLocale();
   const awaitingFirstHistoryLoad = useAwaitingFirstLoad(isLoadingHistory, activeChatId ?? DRAFT_HISTORY_QUERY);
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -292,10 +296,10 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
       </div>
     ) : messages.length === 0 ? (
       <div className="chat-welcome flex min-h-40 flex-1 flex-col items-center justify-center gap-4 text-center">
-        <h1 className="chat-welcome-title">{modelMode === "image" ? "让想象，有图可见。" : modelMode === "video" ? "把灵感，变成动态画面。" : "今天，有什么想一起完成？"}</h1>
+        <h1 className="chat-welcome-title">{modelMode === "image" ? t("ui.chat.message-renderer.bringYourImaginationIntoView") : modelMode === "video" ? t("ui.chat.message-renderer.turnInspirationIntoMotion") : t("ui.chat.message-renderer.whatWouldYouLikeToWork")}</h1>
         <p className="chat-welcome-description">{t("chat.messages.empty")}</p>
         <div className="mt-4 flex max-w-2xl flex-wrap justify-center gap-3">
-          {(modelMode === "image" ? imagePrompts : modelMode === "video" ? videoPrompts : quickPrompts).map(prompt => <Button key={prompt} variant="outline" className="h-auto min-h-10 whitespace-normal py-2.5" onClick={() => appendQuickPrompt(prompt)}>{prompt.replace(/[:：]$/, "")}</Button>)}
+          {(modelMode === "image" ? imagePrompts() : modelMode === "video" ? videoPrompts() : quickPrompts()).map(prompt => <Button key={prompt} variant="outline" className="h-auto min-h-10 whitespace-normal py-2.5" onClick={() => appendQuickPrompt(prompt)}>{prompt.replace(/[:：]$/, "")}</Button>)}
         </div>
       </div>
     ) : (

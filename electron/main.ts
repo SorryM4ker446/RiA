@@ -421,6 +421,7 @@ function registerIpcHandlers() {
       throw new Error("Invalid desktop settings payload.");
     }
     const settings = await settingsStore.save(input);
+    if (input.locale !== undefined && tray) updateTrayMenu(tray);
     /*
      * The close behaviour and the tray follow the setting immediately, rather
      * than at some restart the user did not know they needed. The service restart
@@ -543,14 +544,19 @@ function createTray(): Tray {
   if (!iconPath) throw new Error(`The tray icon is missing: ${trayIconCandidates().join(", ")}`);
   const created = new Tray(iconPath);
   created.setToolTip(PRODUCT_NAME);
-  created.setContextMenu(Menu.buildFromTemplate([
-    { label: "Open RiA", click: () => showMainWindow() },
-    { type: "separator" },
-    { label: "Quit", click: () => quitFromTray() }
-  ]));
+  updateTrayMenu(created);
   // A left click on the icon is the ordinary way back to the window.
   created.on("click", () => showMainWindow());
   return created;
+}
+
+function updateTrayMenu(target: Tray) {
+  const english = settingsStore?.getLocale() === "en-US";
+  target.setContextMenu(Menu.buildFromTemplate([
+    { label: english ? "Open RiA" : "打开 RiA", click: () => showMainWindow() },
+    { type: "separator" },
+    { label: english ? "Quit" : "退出", click: () => quitFromTray() }
+  ]));
 }
 
 /**
@@ -1170,7 +1176,7 @@ async function bootstrap() {
   reminderPoller = new TaskReminderPoller({
     connection: () => nextServer ? { origin: nextServer.origin, cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}` } : null,
     supported: () => smokeTest || Notification.isSupported(),
-    deliver: smokeTest ? task => { smokeReminders.push(task); } : createTaskNotificationDelivery(Notification, focusMainWindow, logger),
+    deliver: smokeTest ? task => { smokeReminders.push(task); } : createTaskNotificationDelivery(Notification, focusMainWindow, logger, () => settingsStore?.getLocale() ?? "zh-CN"),
     logger,
   });
   reminderPoller.start();

@@ -1,3 +1,6 @@
+"use client";
+import { useLocale } from "@/lib/locale/client";
+import { t, localizeMessage } from "@/lib/locale";
 import { SelectField, SelectOption } from "@/components/ui/select";
 import { useEffect, type ReactNode } from "react";
 import Link from "next/link";
@@ -6,7 +9,6 @@ import { Badge } from "@/components/ui/badge";
 import { CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import type { ChatState } from "@/features/chat/use-chat-state";
-import { t } from "@/lib/locale";
 import { cn } from "@/lib/utils/cn";
 import { decodeDocumentScope } from "@/lib/documents/scope";
 import { TemplateDetails } from "@/features/assistants/template-details";
@@ -40,6 +42,7 @@ export function ChatToolbar({
   assistants, assistantsError, loadAssistants, applyAssistant,
   conversationControls,
 }: Props) {
+  useLocale();
   // Topics are fetched once for the header; a failure only removes the scope
   // control, it does not affect the conversation.
   useEffect(() => {
@@ -62,20 +65,20 @@ export function ChatToolbar({
           </> : null}
         </div>
         <div className="flex max-w-full flex-wrap items-center gap-2">
-          <label className="sr-only" htmlFor="chat-assistant">助理模板</label>
-          <SelectField id="chat-assistant" aria-label="助理模板" variant="ghost" size="sm" className="max-w-48" value={snapshot?.templateId ?? ""} disabled={!activeChat || isPending || isLoadingChats || isDocumentScopeSaving || isEphemeralSaving} onValueChange={value => void applyAssistant(value || null)}>
-            <SelectOption value="">通用助理</SelectOption>
+          <label className="sr-only" htmlFor="chat-assistant">{t("ui.assistants.assistantTemplates")}</label>
+          <SelectField id="chat-assistant" aria-label={t("ui.assistants.assistantTemplates")} variant="ghost" size="sm" className="max-w-48" value={snapshot?.templateId ?? ""} disabled={!activeChat || isPending || isLoadingChats || isDocumentScopeSaving || isEphemeralSaving} onValueChange={value => void applyAssistant(value || null)}>
+            <SelectOption value="">{t("ui.chat.chat-toolbar.generalAssistant")}</SelectOption>
             {snapshot && !currentTemplate ? <SelectOption value={snapshot.templateId}>{snapshot.name}</SelectOption> : null}
-            {assistants.map(item => <SelectOption key={item.id} value={item.id}>{item.config.name}</SelectOption>)}
+            {assistants.map(item => <SelectOption key={item.id} value={item.id}>{item.builtin ? localizeMessage(item.config.name) : item.config.name}</SelectOption>)}
           </SelectField>
           {snapshot ? <TemplateDetails key={activeChat?.id} snapshot={snapshot} /> : null}
-          <Button asChild variant="ghost" size="sm"><Link href="/assistants">管理模板</Link></Button>
+          <Button asChild variant="ghost" size="sm"><Link href="/assistants">{t("ui.chat.chat-toolbar.manageTemplates")}</Link></Button>
           {activeChat && <Button role="checkbox" aria-checked={activeChat.ephemeral === true} aria-label={t("chat.ephemeral.label")} title={t("chat.ephemeral.note")} className="chat-memory-toggle" variant="ghost" size="sm" disabled={isEphemeralSaving || isDocumentScopeSaving || isPending} onClick={() => void toggleEphemeral(!activeChat.ephemeral)}><ShieldOff data-icon="inline-start" aria-hidden="true" />{t("chat.ephemeral.label")}</Button>}
         </div>
       </div>
       {hasTemplateUpdate || assistantsError ? <div className="flex flex-wrap items-center gap-2 text-xs">
-        {hasTemplateUpdate ? <Button variant="ghost" size="sm" disabled={isPending || isDocumentScopeSaving} onClick={() => void applyAssistant(snapshot.templateId)}>更新为最新模板</Button> : null}
-        {assistantsError ? <span role="alert">{assistantsError} <Button variant="ghost" size="sm" onClick={() => void loadAssistants()}>重试</Button></span> : null}
+        {hasTemplateUpdate ? <Button variant="ghost" size="sm" disabled={isPending || isDocumentScopeSaving} onClick={() => void applyAssistant(snapshot.templateId)}>{t("ui.chat.chat-toolbar.updateToLatestTemplate")}</Button> : null}
+        {assistantsError ? <span role="alert">{localizeMessage(assistantsError)} <Button variant="ghost" size="sm" onClick={() => void loadAssistants()}>{t("ui.chat.chat-toolbar.retry")}</Button></span> : null}
       </div> : null}
 
       {/* What this conversation is allowed to draw on. Empty means every topic,

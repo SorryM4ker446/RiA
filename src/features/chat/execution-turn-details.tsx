@@ -1,4 +1,7 @@
 "use client";
+import { useLocale } from "@/lib/locale/client";
+
+import { t, tf } from "@/lib/locale";
 
 import type { UIMessage } from "ai";
 import { ChevronRight } from "lucide-react";
@@ -7,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { DocumentSources } from "@/components/knowledge/document-sources";
 import { RetrievalDiagnostics } from "@/components/knowledge/retrieval-diagnostics";
 import { LocalFileUses } from "@/features/settings/local-file-uses";
-import { t, tf } from "@/lib/locale";
 import { TerminalResult } from "./terminal-result";
 import { formatToolState, isToolPart, safeJson, type ToolPart } from "./page-utils";
 import { getDocumentSources, getLocalFileUses, getWebSearchSources } from "./message-presentation";
@@ -16,11 +18,12 @@ type Props = { message: UIMessage; isLatest: boolean; onReviewApproval: () => vo
 
 function executionToolState(part: ToolPart) {
   return part.state === "output-available" && part.output && typeof part.output === "object" && "skipped" in part.output && part.output.skipped
-    ? { label: "已跳过", variant: "secondary" as const }
+    ? { label: t("runs.step.skipped"), variant: "secondary" as const }
     : formatToolState(part.state);
 }
 
 export function ExecutionTurnDetails({ message, isLatest, onReviewApproval }: Props) {
+  useLocale();
   const toolParts = message.parts.filter(isToolPart);
   const webSources = getWebSearchSources(toolParts);
   const documentSources = getDocumentSources(message);
@@ -28,9 +31,9 @@ export function ExecutionTurnDetails({ message, isLatest, onReviewApproval }: Pr
   const sourceCount = webSources.length + documentSources.length + localFiles.length;
   const metadata = message.metadata as { documentDiagnostics?: unknown; modelLabel?: string } | undefined;
 
-  return <section className="execution-turn-details flex min-w-0 flex-col gap-4" aria-label="工具与资料详情">
-    {toolParts.length > 0 ? <section className="flex min-w-0 flex-col gap-1" aria-label="工具调用">
-      <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">工具调用<Badge variant="secondary">{toolParts.length}</Badge></div>
+  return <section className="execution-turn-details flex min-w-0 flex-col gap-4" aria-label={t("ui.chat.execution-entries.toolAndSourceDetails")}>
+    {toolParts.length > 0 ? <section className="flex min-w-0 flex-col gap-1" aria-label={t("models.catalog.toolCall")}>
+      <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">{t("models.catalog.toolCall")}<Badge variant="secondary">{toolParts.length}</Badge></div>
       {toolParts.some(part => part.state === "approval-requested") ? <p role="status" className="py-1 text-xs text-muted-foreground">{t("chat.messages.approvalPending")}</p> : null}
       {toolParts.map((part, index) => {
         const state = executionToolState(part);
@@ -43,12 +46,12 @@ export function ExecutionTurnDetails({ message, isLatest, onReviewApproval }: Pr
           <div className="flex min-w-0 flex-col gap-2 py-2">
             {terminal ? <TerminalResult input={part.input} output={part.state === "output-available" ? part.output : undefined} active={terminalActive} /> : null}
             {!terminal && part.input !== undefined ? <div className="flex min-w-0 flex-col gap-1">
-              <p className="text-[11px] text-muted-foreground">输入参数</p>
+              <p className="text-[11px] text-muted-foreground">{t("ui.chat.execution-turn-details.inputParameters")}</p>
               <pre className="execution-code chat-list-scroll">{safeJson(part.input && typeof part.input === "object" && "arguments" in part.input && "binding" in part.input ? part.input.arguments : part.input)}</pre>
             </div> : null}
-            {pendingApproval ? <Button disabled={!isLatest} onClick={onReviewApproval} size="sm" type="button" variant="outline" className="w-fit">返回聊天批准</Button> : null}
+            {pendingApproval ? <Button disabled={!isLatest} onClick={onReviewApproval} size="sm" type="button" variant="outline" className="w-fit">{t("ui.chat.execution-turn-details.returnToChatToApprove")}</Button> : null}
             {!terminal && part.state === "output-available" && part.output !== undefined ? <div className="flex min-w-0 flex-col gap-1">
-              <p className="text-[11px] text-muted-foreground">执行结果</p>
+              <p className="text-[11px] text-muted-foreground">{t("ui.chat.execution-turn-details.executionResult")}</p>
               <pre className="execution-code chat-list-scroll">{safeJson(part.output)}</pre>
             </div> : null}
             {part.state === "output-error" && part.errorText ? <p className="break-words leading-5 text-destructive">{part.errorText}</p> : null}
@@ -56,8 +59,8 @@ export function ExecutionTurnDetails({ message, isLatest, onReviewApproval }: Pr
         </details>;
       })}
     </section> : null}
-    {sourceCount > 0 ? <section className="flex min-w-0 flex-col gap-1" aria-label="使用资料">
-      <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">使用资料<Badge variant="secondary">{sourceCount}</Badge></div>
+    {sourceCount > 0 ? <section className="flex min-w-0 flex-col gap-1" aria-label={t("ui.chat.execution-turn-details.sourcesUsed")}>
+      <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">{t("ui.chat.execution-turn-details.sourcesUsed")}<Badge variant="secondary">{sourceCount}</Badge></div>
       {webSources.length > 0 ? <details className="execution-disclosure text-xs">
         <summary><ChevronRight aria-hidden="true" />{tf("chat.messages.searchSourcesPrefix", { count: webSources.length })}</summary>
         <ol className="flex min-w-0 flex-col gap-3 py-2 pl-5">
@@ -69,7 +72,7 @@ export function ExecutionTurnDetails({ message, isLatest, onReviewApproval }: Pr
       </details> : null}
       <DocumentSources sources={documentSources} compact />
       {localFiles.length > 0 ? <details className="execution-disclosure text-xs">
-        <summary><ChevronRight aria-hidden="true" />本地文件（{localFiles.length}）</summary>
+        <summary><ChevronRight aria-hidden="true" />{t("ui.chat.execution-turn-details.localFiles")}{localFiles.length}）</summary>
         <LocalFileUses uses={localFiles} modelLabel={metadata?.modelLabel} compact />
       </details> : null}
     </section> : null}
