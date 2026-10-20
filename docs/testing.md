@@ -1,5 +1,12 @@
 # Test coverage and local validation
 
+Terminal tool results omit the duplicate command while the input and live session
+retain its complete text. A >2 MiB real-shell regression compares every result
+field with the live session. The two-command browser continuation checks both
+persisted input hashes, result states, requests above 2 MiB and execution-once
+behavior; historical results with echoed scripts remain covered by the >32 MiB
+persistence regression. Existing timeout and retry settings are unchanged.
+
 Run-budget regressions complete forty actual SDK tool steps, reserve another
 step after forty failures and an hour of elapsed run time, and retain explicit
 cancellation and historical budget checks. Terminal regressions cross an old

@@ -30,4 +30,7 @@ export type TerminalSessionView = {
   startedAt: string; finishedAt: string | null;
   fileChanges?: TerminalFileChanges;
 };
+// The complete command belongs to the tool input and the live session view.
+// Echoing it in each result duplicates large scripts throughout chat history.
+export type TerminalCommandResult = Omit<TerminalSessionView, "command">;
 export const terminalRuntimeAllowed = () => ["desktop", "test"].includes(process.env.APP_RUNTIME ?? "") && (process.platform === "win32" || process.env.APP_RUNTIME === "test");

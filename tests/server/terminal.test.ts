@@ -163,6 +163,23 @@ test("scripts exceeding the former input and Windows environment limits execute 
   assert.equal(terminalInputSchema.safeParse({ grantId: grant.id, command: "a\0b" }).success, false);
 });
 
+test("tool results omit the script while the exact command remains in its input and session", async () => {
+  const grant = await folder();
+  const command = "# 长脚本🙂\n".repeat(180_000) + echo;
+  assert.ok(Buffer.byteLength(command) > 2 * 1024 * 1024);
+  const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"] });
+  const input = await prepared(grant.id, command);
+  const output = await tools.runTerminalCommand.execute!(input, { toolCallId: "result-without-script", messages: [] });
+  const session = await getTerminalSession(input.binding!.sessionId);
+  assert.equal(session.command, command);
+  assert.equal(input.command, command);
+  const { command: _command, ...expected } = session;
+  assert.deepEqual(output, expected);
+  assert.equal(Object.hasOwn(output as object, "command"), false);
+  assert.equal(session.status, "completed", session.stderr);
+  assert.match(session.stdout, /ready/);
+});
+
 test("approved commands preserve working directory, Unicode output, stderr and exit code without inheriting app credentials", async () => {
   const grant = await folder();
   process.env.RIA_SYNTHETIC_SECRET = "not-for-child";

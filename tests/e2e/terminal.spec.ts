@@ -3,17 +3,21 @@ import { expect, test as base, type Page } from "@playwright/test";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, mkdirSync, writeFileSync, unlinkSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { browserApi, browserData } from "../helpers/browser-api";
 import { decodePersistedAssistantToolMessage } from "../../src/lib/ai/ui-message";
 
-async function storedTerminalStates(page: Page, chatId: string) {
+async function storedTerminalTools(page: Page, chatId: string) {
   const rows = await browserData(page, `/api/conversations/${chatId}/messages`);
   return rows.filter(row => row.role === "assistant")
     .flatMap(row => decodePersistedAssistantToolMessage(row.content)?.tools ?? [])
-    .filter(tool => tool.toolName === "runTerminalCommand").map(tool => tool.state);
+    .filter(tool => tool.toolName === "runTerminalCommand");
+}
+async function storedTerminalStates(page: Page, chatId: string) {
+  return (await storedTerminalTools(page, chatId)).map(tool => tool.state);
 }
 
 type App = Awaited<ReturnType<typeof startStandaloneServer>> & { folder: string };
@@ -226,7 +230,12 @@ test("approval mode asks for every tool call and resumes a long script without t
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
   expect(existsSync(join(app.folder, "terminal-proof.txt"))).toBe(false);
-  expect(await storedTerminalStates(page, chat.id)).toEqual(["approval-requested"]);
+  const initial = await storedTerminalTools(page, chat.id);
+  expect(initial.map(tool => tool.state)).toEqual(["approval-requested"]);
+  const command = (initial[0].input as { command: string }).command;
+  expect(Buffer.byteLength(command)).toBeGreaterThan(2 * 1024 * 1024);
+  const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+  const commandHash = digest(command);
   await approveAndFinish(page);
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
   await expect(page.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
@@ -237,7 +246,10 @@ test("approval mode asks for every tool call and resumes a long script without t
   await approveAndFinish(page);
   await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("onceonce");
-  expect(await storedTerminalStates(page, chat.id)).toEqual(["output-available", "output-available"]);
+  const completed = await storedTerminalTools(page, chat.id);
+  expect(completed.map(tool => tool.state)).toEqual(["output-available", "output-available"]);
+  expect(completed.map(tool => digest((tool.input as { command: string }).command))).toEqual([commandHash, commandHash]);
+  expect(completed.map(tool => Object.hasOwn(tool.output as object, "command"))).toEqual([false, false]);
   expect(requestBytes.filter(bytes => bytes > 2 * 1024 * 1024)).toHaveLength(2);
   await page.reload();
   await openExecutionDetails(page);

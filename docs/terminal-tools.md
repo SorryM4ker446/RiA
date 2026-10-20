@@ -80,6 +80,10 @@ revoked. Old `timeoutSeconds` approval fields remain readable but are ignored.
 At most two commands run concurrently.
 Combined captured output is limited to 64 KiB and is explicitly marked when
 truncated. Output and command text are saved with the chat and sent to its model.
+The complete command is stored in the tool input; tool results contain status,
+output and file changes without echoing the script. This avoids duplicating large
+commands in every saved message and continuation request. Live session responses
+still include the command, and older chat results containing it remain readable.
 Terminal results are not automatically saved as knowledge or memory.
 
 A Windows Job Object stops ordinary child processes when the shell is stopped

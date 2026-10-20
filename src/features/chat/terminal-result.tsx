@@ -5,13 +5,13 @@ import { Loader2, Square, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import type { TerminalInput, TerminalSessionView } from "@/lib/terminal/schema";
+import type { TerminalCommandResult, TerminalInput, TerminalSessionView } from "@/lib/terminal/schema";
 
 const labels: Record<TerminalSessionView["status"], string> = { running: "正在执行", completed: "已完成", failed: "执行失败", stopped: "已停止", "timed-out": "已超时" };
 
 export function TerminalResult({ input, output, active }: { input: unknown; output?: unknown; active: boolean }) {
   const proposal = input as Partial<TerminalInput> | undefined;
-  const final = output && typeof output === "object" && "stdout" in output ? output as TerminalSessionView : undefined;
+  const final = output && typeof output === "object" && "stdout" in output ? output as TerminalCommandResult : undefined;
   const sessionId = proposal?.binding?.sessionId;
   const [live, setLive] = useState<TerminalSessionView>();
   const [error, setError] = useState<string>();
