@@ -18,7 +18,10 @@ export function ExecutionToolCall({ call, isLatest, waiting, onReviewApproval }:
   const terminal = part?.type === "tool-runTerminalCommand";
   const pendingApproval = part?.state === "approval-requested" && "approval" in part && part.approval;
   const terminalActive = part?.state === "input-available" || (part?.state === "approval-responded" && "approval" in part && !!part.approval?.approved);
-  const [expanded, setExpanded] = useState(!!pendingApproval || !!(terminal && isLatest && (terminalActive || part?.state === "output-available")));
+  const defaultExpanded = !!pendingApproval || !!(terminal && isLatest && (terminalActive || part?.state === "output-available"));
+  // Saved summaries can arrive before terminal details. Only an explicit user
+  // choice should override the default when those details become available.
+  const [expanded, setExpanded] = useState<boolean>();
   const stoppedStep = step && ["cancelled", "failed", "denied"].includes(step.state) && part?.state !== "output-available";
   const state = part && !stoppedStep
     ? (part.state === "output-available" && part.output && typeof part.output === "object" && "skipped" in part.output && part.output.skipped
@@ -28,8 +31,11 @@ export function ExecutionToolCall({ call, isLatest, waiting, onReviewApproval }:
   const name = localizeMessage(part?.title ?? (toolName === "runTerminalCommand" ? t("ui.chat.approval-dock.runTerminalCommand") : toolName));
 
   return <details className="execution-disclosure text-xs" data-call-id={part?.toolCallId ?? step?.toolCallId ?? step?.id}
-    open={expanded} onToggle={event => setExpanded(event.currentTarget.open)}>
-    <summary><ChevronRight aria-hidden="true" /><span className="min-w-0 truncate">{tf("chat.messages.toolDetails", { name, state, extra: "" })}</span></summary>
+    open={expanded ?? defaultExpanded}>
+    <summary onClick={event => {
+      event.preventDefault();
+      setExpanded(current => !(current ?? defaultExpanded));
+    }}><ChevronRight aria-hidden="true" /><span className="min-w-0 truncate">{tf("chat.messages.toolDetails", { name, state, extra: "" })}</span></summary>
     <div className="flex min-w-0 flex-col gap-2 py-2">
       {part ? <>
         {terminal ? <TerminalResult input={part.input} output={part.state === "output-available" ? part.output : undefined} active={!!terminalActive} /> : null}

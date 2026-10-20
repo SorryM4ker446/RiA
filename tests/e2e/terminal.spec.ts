@@ -214,6 +214,7 @@ test("full access executes without approval, keeps live output and stop controls
   await openExecutionDetails(page);
   await expect(page.getByLabel("终端输出", { exact: true })).toContainText("terminal-ready-你好");
   await expect(page.getByRole("region", { name: "操作审批", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "停止命令", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "停止命令", exact: true }).click();
   await expect(page.getByText("已停止", { exact: true })).toBeVisible();
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
