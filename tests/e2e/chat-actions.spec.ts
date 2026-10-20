@@ -1,4 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
 import { openExecutionDetails } from "../helpers/execution-records";
 
@@ -121,6 +123,35 @@ test(`compact terminal approval expands above the permission toolbar in ${theme}
   await expect(page.getByRole("dialog", { name: "执行记录", exact: true })).toBeHidden();
 });
 }
+
+for (const width of [1440, 390]) test(`long approval commands are mounted on review and remain complete after folding at ${width}px`, async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.setViewportSize({ width, height: 960 });
+  const command = "# 长脚本🙂\n".repeat(180_000) + "Write-Output 'complete-command-end'";
+  expect(Buffer.byteLength(command)).toBeGreaterThan(2 * 1024 * 1024);
+  await mockHistory(page, [userMessage, { ...pendingMessage, content: "__ASSISTANT_TOOL_MESSAGE__:" + JSON.stringify({
+    type: "assistant-tool-message", text: "Review the command",
+    tools: [{ toolName: "runTerminalCommand", toolCallId: "long-review", state: "approval-requested", input: { command, binding: { cwd: "D:\\Projects\\ria-demo" } }, approval: { id: "long-review-approval" } }],
+  }) }]);
+  await page.goto("/chat");
+  const card = page.getByRole("region", { name: "操作审批", exact: true });
+  await expect(card.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
+  const code = card.locator("pre");
+  await expect(code).toHaveCount(0);
+  await card.getByRole("button", { name: "查看详情", exact: true }).click();
+  await expect(code).toBeVisible();
+  expect(await code.evaluate((element, expected) => element.textContent === expected, command)).toBe(true);
+  await card.getByRole("button", { name: "收起详情", exact: true }).click();
+  await expect(card.locator(".approval-details")).toHaveCSS("visibility", "hidden");
+  await expect(code).toHaveCount(1);
+  await expect(code).toBeHidden();
+  await card.getByRole("button", { name: "查看详情", exact: true }).click();
+  await expect(code).toBeVisible();
+  expect(await code.evaluate((element, expected) => element.textContent === expected, command)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
+});
 
 test("an unavailable search is shown as skipped in execution details and leaves chat prose free of diagnostics", async ({ page }) => {
   await mockHistory(page, [userMessage, {
@@ -333,12 +364,118 @@ async function controlledChatStream(page: Page) {
   });
 }
 
+for (const { width, reducedMotion } of [
+  { width: 1440, reducedMotion: false },
+  { width: 390, reducedMotion: false },
+  { width: 390, reducedMotion: true },
+]) {
+  test(`streaming follows late layout changes and folds completed reasoning at ${width}px with reduced motion ${reducedMotion}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ reducedMotion: reducedMotion ? 'reduce' : 'no-preference' });
+    const errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await mockHistory(page, [userMessage, { ...assistantMessage, content: 'Previous answer.\n\n'.repeat(50) }]);
+    await controlledChatStream(page);
+    let releaseImage!: () => void;
+    const imageGate = new Promise<void>(resolve => { releaseImage = resolve; });
+    await page.route('**/stream-layout.svg', async route => {
+      await imageGate;
+      await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="1000"><rect width="300" height="1000" fill="#64748b"/></svg>' });
+    });
+    await page.goto('/chat');
+    await page.getByPlaceholder(/输入你的问题/).fill('Show your reasoning and explain the layout');
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as StreamWindow).approvalStream.requests.length)).toBe(1);
+    const panel = page.getByTestId('message-list');
+    const gap = () => panel.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight);
+    try {
+      await page.evaluate(() => (window as unknown as StreamWindow).approvalStream.emit(0, [
+        { type: 'start', messageId: 'layout-answer' },
+        { type: 'reasoning-start', id: 'thought' },
+        { type: 'reasoning-delta', id: 'thought', delta: 'Compare the options before answering.\n'.repeat(24) },
+      ]));
+      const reasoning = page.locator('.message-reasoning');
+      await expect(reasoning).toHaveAttribute('open', '');
+      await expect.poll(gap).toBeLessThanOrEqual(2);
+      await page.evaluate(() => (window as unknown as StreamWindow).approvalStream.emit(0, [
+        { type: 'reasoning-end', id: 'thought' },
+        { type: 'text-start', id: 'answer' },
+        { type: 'text-delta', id: 'answer', delta: '![Delayed layout](/stream-layout.svg)\n\n' + 'Answer paragraph.\n\n'.repeat(25) },
+      ]));
+      const image = page.getByAltText('Delayed layout');
+      await expect(image).toBeAttached();
+      await expect.poll(gap).toBeLessThanOrEqual(2);
+      await expect(reasoning).toHaveAttribute('open', '');
+      const beforeImage = await panel.evaluate(node => node.scrollTop);
+      releaseImage();
+      await expect.poll(() => image.evaluate(node => (node as HTMLImageElement).naturalHeight)).toBe(1000);
+      await expect.poll(gap).toBeLessThanOrEqual(2);
+      expect(await panel.evaluate(node => node.scrollTop)).toBeGreaterThan(beforeImage + 100);
+      await page.setViewportSize({ width, height: 720 });
+      await expect.poll(gap).toBeLessThanOrEqual(2);
+
+      // User scroll intent wins over incoming text and late layout changes.
+      await panel.hover();
+      const bottom = await panel.evaluate(node => node.scrollTop);
+      await page.mouse.wheel(0, -500);
+      await expect.poll(() => panel.evaluate(node => node.scrollTop)).toBeLessThan(bottom - 100);
+      const reading = await panel.evaluate(node => node.scrollTop);
+      await page.evaluate(() => (window as unknown as StreamWindow).approvalStream.emit(0, [
+        { type: 'text-delta', id: 'answer', delta: 'New streamed section.\n\n'.repeat(12) },
+      ]));
+      const latest = page.getByRole('button', { name: '回到最新', exact: true });
+      await expect(latest).toBeVisible();
+      expect(await panel.evaluate(node => node.scrollTop)).toBeCloseTo(reading, 0);
+      await latest.click();
+      await expect.poll(gap).toBeLessThanOrEqual(2);
+      await page.evaluate(() => (window as unknown as StreamWindow).approvalStream.emit(0, [
+        { type: 'text-delta', id: 'answer', delta: 'Following resumed.\n\n'.repeat(12) },
+      ]));
+      await expect(panel).toContainText('Following resumed.');
+      await expect.poll(gap).toBeLessThanOrEqual(2);
+
+      const folding = await reasoning.evaluate(async node => {
+        const initial = node.getBoundingClientRect().height;
+        (window as unknown as StreamWindow).approvalStream.emit(0, [
+          { type: 'text-end', id: 'answer' }, { type: 'finish', finishReason: 'stop' },
+        ], true);
+        const heights: number[] = [];
+        for (let i = 0; i < 90; i++) {
+          await new Promise(resolve => requestAnimationFrame(resolve));
+          heights.push(node.getBoundingClientRect().height);
+          if (!(node as HTMLDetailsElement).open && !node.getAnimations({ subtree: true }).length) break;
+        }
+        return { initial, heights, final: node.getBoundingClientRect().height, duration: getComputedStyle(node, '::details-content').transitionDuration };
+      });
+      await expect(reasoning).not.toHaveAttribute('open', '');
+      expect(folding.final).toBeLessThan(folding.initial - 100);
+      if (reducedMotion) expect(folding.duration).toBe('0s');
+      else expect(folding.heights.some(height => height > folding.final + 1 && height < folding.initial - 1)).toBe(true);
+      await expect.poll(gap).toBeLessThanOrEqual(2);
+      await expect(latest).toHaveCount(0);
+      await reasoning.locator('summary').click();
+      await expect(reasoning).toHaveAttribute('open', '');
+      await reasoning.locator('summary').press('Enter');
+      await expect(reasoning).not.toHaveAttribute('open', '');
+      await page.screenshot({ path: join(tmpdir(), `ria-reasoning-${width}-${reducedMotion ? 'reduced' : 'animated'}.png`), animations: 'disabled' });
+      expect(errors).toEqual([]);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    } finally { releaseImage(); }
+  });
+}
+
 for (const width of [1440, 390]) {
   test(`approval leaves reasoning and the reader's position intact at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     await mockHistory(page, []);
     await controlledChatStream(page);
     await page.goto('/chat');
+    await expect(page.locator('.chat-welcome')).toBeVisible();
+    const emptyLayout = await page.getByTestId('message-list').evaluate(panel => {
+      const style = getComputedStyle(panel);
+      return panel.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) - panel.querySelector('.chat-welcome')!.getBoundingClientRect().height;
+    });
+    expect(Math.abs(emptyLayout)).toBeLessThanOrEqual(2);
     await page.getByPlaceholder(/输入你的问题/).fill('Read the folder and summarize');
     await page.getByRole('button', { name: '发送', exact: true }).click();
     await expect.poll(() => page.evaluate(() => (window as unknown as StreamWindow).approvalStream.requests.length)).toBe(1);
@@ -376,7 +513,7 @@ for (const width of [1440, 390]) {
     await expect(page.locator('article').last()).not.toContainText('请在输入框上方的审批卡');
     await expect(page.getByRole('button', { name: '回到最新', exact: true })).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath(`approval-reading-${width}.png`) });
-    // A deliberate disclosure choice also survives approval and continuation.
+    // Manual choices survive approval pauses; completing the reply folds it.
     if (width === 390) {
       await reasoning.locator('summary').click();
       await expect(reasoning).not.toHaveAttribute('open', '');
@@ -394,8 +531,7 @@ for (const width of [1440, 390]) {
       { type: 'finish', finishReason: 'stop' },
     ], true));
     await expect(page.locator('article').last()).toContainText('The task was created.');
-    if (width === 390) await expect(reasoning).not.toHaveAttribute('open', '');
-    else await expect(reasoning).toHaveAttribute('open', '');
+    await expect(reasoning).not.toHaveAttribute('open', '');
     await expect(page.locator('.chat-dock')).not.toContainText('查看执行详情');
     const records = await openExecutionDetails(page);
     await expect(records.getByText('工具详情：createTask · 执行完成', { exact: true })).toBeVisible();

@@ -1,5 +1,12 @@
 # Execution history and recovery
 
+New chat executions have no aggregate time, tool-step count or failure-count
+ceiling. Individual terminal commands have no automatic time limit either.
+Manual cancellation, directory permissions, approval modes and configured model
+call controls still apply. Historical executions retain their original budgets
+and stop reasons. The execution details display unlimited counts and no total
+deadline explicitly.
+
 **设置 → 自动化与通知 → 最近执行** displays the latest 50 executions separately from
 schedule configuration, factual reviews and notices. Retention and retry rules
 are available under **记录保留与重试规则**. Each execution records a stable identity,

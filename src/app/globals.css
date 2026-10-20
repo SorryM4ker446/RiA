@@ -596,7 +596,22 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .chat-canvas { background: hsl(var(--background)); }
 .chat-toolbar { border-color: hsl(var(--border)); }
 .chat-transcript { scrollbar-gutter: stable both-edges; overflow-anchor: none; }
-.chat-transcript > :not(.chat-welcome) { width: 100%; max-width: 42rem; margin-inline: auto; }
+.chat-transcript-content > :not(.chat-welcome) { width: 100%; max-width: 42rem; margin-inline: auto; }
+.message-reasoning { interpolate-size: allow-keywords; }
+.message-reasoning > summary { list-style: none; }
+.message-reasoning > summary::-webkit-details-marker { display: none; }
+.message-reasoning::details-content {
+  block-size: 0;
+  opacity: 0;
+  overflow: clip;
+  transition: block-size var(--dur-base) var(--ease-out), opacity var(--dur-base) var(--ease-out), content-visibility var(--dur-base) allow-discrete;
+}
+.message-reasoning[open]::details-content { block-size: auto; opacity: 1; }
+.reasoning-chevron { transition: transform var(--dur-base) var(--ease-out); }
+.message-reasoning[open] .reasoning-chevron { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) {
+  .message-reasoning::details-content, .reasoning-chevron { transition: none; }
+}
 .chat-transcript-frame[data-navigation="true"] .chat-transcript { padding-inline: 3rem; }
 .chat-user-actions button { width: 28px; height: 28px; }
 .message-navigator { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); display: flex; width: 28px; max-height: min(14rem, calc(100% - 24px)); flex-direction: column; align-items: center; gap: 2px; }

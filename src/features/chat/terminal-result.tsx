@@ -57,7 +57,7 @@ export function TerminalResult({ input, output, active }: { input: unknown; outp
   return <section aria-label="终端命令" className="mt-2 flex min-w-0 flex-col gap-2">
     <div className="flex flex-wrap items-center gap-2">
       <Terminal aria-hidden="true" className="size-4 text-muted-foreground" />
-      <span className="text-muted-foreground">PowerShell · 最长 {proposal?.timeoutSeconds ?? 120} 秒</span>
+      <span className="text-muted-foreground">PowerShell</span>
       {result ? <Badge variant="outline">{labels[result.status]}</Badge> : null}
       {result?.status === "running" ? <Button size="sm" variant="outline" disabled={stopping} onClick={() => void stop()}>
         {stopping ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Square data-icon="inline-start" />}停止命令

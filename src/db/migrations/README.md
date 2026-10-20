@@ -1,5 +1,12 @@
 # Database migrations
 
+`20261020140000_unbounded_agent_runs` makes run step, failure and total-duration
+limits nullable. New records default to no aggregate limit; existing run budgets,
+steps, indexes and chat relationships are preserved. Individual terminal commands
+also have no automatic timeout. Desktop startup creates
+the normal safety backup and applies this migration once. Older builds cannot
+interpret null budgets; rollback requires the pre-upgrade database backup.
+
 `20261019180000_terminal_approval_mode` adds a per-folder terminal approval mode.
 Existing terminal grants retain per-command approval. Selecting full access is
 an explicit permission update; disabling, re-granting or restoring resets the mode

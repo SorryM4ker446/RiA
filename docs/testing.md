@@ -1,5 +1,25 @@
 # Test coverage and local validation
 
+Run-budget regressions complete forty actual SDK tool steps, reserve another
+step after forty failures and an hour of elapsed run time, and retain explicit
+cancellation and historical budget checks. Terminal regressions cross an old
+one-second timeout without stopping the command, then stop it explicitly.
+New model tool schemas omit the retired timeout field while old approval payloads
+remain readable. Desktop migration coverage verifies historical budgets, child
+steps, new unlimited defaults, foreign keys, the safety backup and repeated startup.
+
+Streaming layout regressions hold a Markdown image response, load it after text
+has stopped changing, and resize the viewport while the answer remains active.
+The transcript must stay within two pixels of the bottom, preserve a reader's
+upward scroll, and resume following after “回到最新”. The existing immediate
+history-scroll case also covers movement before its queued scroll event arrives.
+Reasoning opens for an active turn, stays open through an approval pause, and
+folds when the reply finishes. Desktop and narrow-screen tests sample real
+intermediate disclosure heights, verify manual mouse/keyboard toggles and reduced
+motion, and check that folding retains the bottom position. Screenshots live in
+the OS temporary directory as `ria-reasoning-*.png`. The existing CI browser glob
+includes these cases; no dependency or workflow change is required.
+
 CI regressions distinguish an unavailable executable from PowerShell module
 command discovery. The terminal fixture invokes a file-qualified missing binary
 under both restricted and permissive child-process policies, checks a nonzero
@@ -52,6 +72,14 @@ holds EOF after the next approval is saved, verifies both decision buttons remai
 disabled and only one command ran, then releases EOF and requires the second
 approval to become usable and execute exactly once. This uses no timing sleeps,
 extra retries or increased timeouts.
+
+Collapsed approval cards defer mounting and formatting command details until
+the first review. Folding retains the mounted content so the existing closing
+animation and a subsequent review preserve the complete command. Desktop and
+narrow browser regressions use an unchanged 180,000-line, >2 MiB command and
+verify initial deferral, full text after opening and reopening, and no horizontal
+overflow. Real terminal continuation tests retain the large request, durable
+approval state and execution-once assertions under the existing test timeout.
 
 Search-count regressions cover model-selected counts above ten, sequential and
 parallel requests without a RiA result-count quota, provider API ceilings,
@@ -539,7 +567,7 @@ Isolated HTTP fixtures capture stdout/stderr through the existing bounded deskto
 
 `npm run test:e2e:diagnostics` first compiles the desktop migration runtime required by its isolated HTTP fixture, so it also works before the application build on a clean checkout. It then deliberately fails one nested, isolated Chromium test and requires exactly one attempt, a readable trace ZIP, a PNG screenshot, JSON/HTML reports, and a redacted server-log attachment from failed fixture teardown. The outer test also verifies that the nested test reached its intentional page assertion; a fixture startup failure cannot masquerade as the expected failure. It uses the installed Playwright browser, temporary fixtures and local SQLite; it needs no live provider keys. CI runs it after installing Chromium, and `npm test` includes it. `tests/e2e/server-diagnostics.spec.ts` additionally verifies startup failure evidence and redaction through the real isolated-server helper.
 
-Installer diagnostic tests canonicalize temporary paths before comparison and cleanup, treating Windows 8.3 aliases and long names as the same directory. The missing-runtime terminal regression explicitly looks for an `Application` with `Get-Command`, requires a failed result, nonzero exit and the requested name in stderr, and uses a same-name PowerShell module fixture to verify that no module is imported instead. This isolates external executable discovery from machine-dependent module discovery without disabling application features, increasing timeouts or accepting a timeout as success. Existing terminal timeout, arbitrary-command, PATH discovery and approval tests remain enabled.
+Installer diagnostic tests canonicalize temporary paths before comparison and cleanup, treating Windows 8.3 aliases and long names as the same directory. The missing-runtime terminal regression explicitly looks for an `Application` with `Get-Command`, requires a failed result, nonzero exit and the requested name in stderr, and uses a same-name PowerShell module fixture to verify that no module is imported instead. This isolates external executable discovery from machine-dependent module discovery without disabling application features, increasing timeouts or accepting a timeout as success. Existing terminal stop/cancel, arbitrary-command, PATH discovery and approval tests remain enabled.
 
 Document citation browser workflows explicitly expand **文档参考** inside the execution record before checking links and excerpts. They continue verifying the same source content after reload, service restart and document deletion; collapsed reference groups do not change the persistence contract.
 

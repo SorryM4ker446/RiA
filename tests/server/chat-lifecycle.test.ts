@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, beforeEach, test } from "node:test";
 import type { TestContext } from "node:test";
-import type { LanguageModelV3TextPart } from "@ai-sdk/provider";
+import type { LanguageModelV3StreamPart, LanguageModelV3TextPart } from "@ai-sdk/provider";
 import type { UIMessage } from "ai";
 import type { StoredMessage } from "@/features/chat/page-utils";
 import { NextRequest } from "next/server";
@@ -52,6 +52,32 @@ const ui = (id: string, role: UIMessage["role"], text: string) => ({ id, role, p
 function request(body, signal = undefined) {
   return new NextRequest("http://localhost/api/chat", { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ manualToolsOnly: true, ...body }), signal });
 }
+
+test("chat can complete forty tool steps without the former SDK count ceiling", async t => {
+  let calls = 0;
+  t.mock.method(languageModel, "doStream", async () => {
+    const current = ++calls;
+    return { stream: new ReadableStream<LanguageModelV3StreamPart>({ start(controller) {
+      controller.enqueue({ type: "stream-start", warnings: [] });
+      if (current <= 40) controller.enqueue({ type: "tool-call", toolCallId: `count-${current}`, toolName: "searchKnowledge", input: JSON.stringify({ query: "count-loop" }) });
+      else {
+        controller.enqueue({ type: "text-start", id: "answer" });
+        controller.enqueue({ type: "text-delta", id: "answer", delta: "Forty steps completed" });
+        controller.enqueue({ type: "text-end", id: "answer" });
+      }
+      controller.enqueue({ type: "finish", finishReason: { unified: current <= 40 ? "tool-calls" : "stop", raw: undefined }, usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } } });
+      controller.close();
+    } }) };
+  });
+  const response = await chat.POST(request({ messages: [ui("count-loop", "user", "Read repeatedly until finished")] }));
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /Forty steps completed/);
+  assert.equal(calls, 41);
+  const run = await db.agentRun.findFirstOrThrow({ orderBy: { startedAt: "desc" } });
+  assert.equal(run.status, "succeeded");
+  assert.equal(run.deadlineMs, null);
+  assert.equal(await db.agentStep.count({ where: { runId: run.id } }), 40);
+});
 
 test("answer persistence failures expose a safe database code without logging command or query contents", async (t) => {
   const input = await readChatRequest(request({ messages: [ui("save-failure", "user", "Test persistence")] }));

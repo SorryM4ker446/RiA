@@ -9,7 +9,7 @@ import { ApiError } from "@/lib/server/api-error";
  *
  * A run is one assistant turn that used tools. It exists so three things can be
  * true at once: the reader can see what was done and what it produced, the work
- * is bounded by a budget that is enforced rather than assumed, and stopping the
+ * follows any recorded limits, and stopping the
  * remaining steps is a recorded fact rather than a disappearance.
  *
  * Starting a tool-enabled turn and reserving a step require database success.
@@ -20,16 +20,16 @@ import { ApiError } from "@/lib/server/api-error";
 export type RunStatus = "running" | "waiting_approval" | "paused" | "succeeded" | "failed" | "cancelled";
 export type StepState = "running" | "waiting_approval" | "done" | "failed" | "skipped" | "denied" | "cancelled";
 
-export const DEFAULT_BUDGET = { maxSteps: 8, maxFailures: 2, deadlineMs: 120_000 } as const;
+export const DEFAULT_BUDGET = { maxSteps: null, maxFailures: null, deadlineMs: null } as const;
 
 export type RunBudget = {
-  maxSteps: number;
-  maxFailures: number;
-  deadlineMs: number;
+  maxSteps: number | null;
+  maxFailures: number | null;
+  deadlineMs: number | null;
   maxCostUsd: number | null;
 };
 
-function budgetOf(run: { maxSteps: number; maxFailures: number; deadlineMs: number; maxCostUsd: number | null }): RunBudget {
+function budgetOf(run: RunBudget): RunBudget {
   return { maxSteps: run.maxSteps, maxFailures: run.maxFailures, deadlineMs: run.deadlineMs, maxCostUsd: run.maxCostUsd };
 }
 
@@ -60,14 +60,12 @@ async function readRunAllowance(client: Prisma.TransactionClient, runId: string)
   const run = await client.agentRun.findUnique({ where: { id: runId } });
   if (!run) return { allowed: false, reason: "run-missing" };
   if (run.status === "cancelled" || run.status === "paused") return { allowed: false, reason: `run-${run.status}` };
-  if (Date.now() - run.startedAt.getTime() > run.deadlineMs) {
+  if (run.deadlineMs !== null && Date.now() - run.startedAt.getTime() > run.deadlineMs) {
     await client.agentRun.updateMany({ where: { id: runId, finishedAt: null }, data: { status: "failed", stopReason: "deadline-exceeded", finishedAt: new Date() } });
     return { allowed: false, reason: "deadline-exceeded" };
   }
-  const steps = await client.agentStep.findMany({ where: { runId }, select: { state: true } });
-  if (steps.length >= run.maxSteps) return { allowed: false, reason: "step-budget" };
-  const failures = steps.filter((step) => step.state === "failed").length;
-  if (failures >= run.maxFailures) return { allowed: false, reason: "failure-budget" };
+  if (run.maxSteps !== null && await client.agentStep.count({ where: { runId } }) >= run.maxSteps) return { allowed: false, reason: "step-budget" };
+  if (run.maxFailures !== null && await client.agentStep.count({ where: { runId, state: "failed" } }) >= run.maxFailures) return { allowed: false, reason: "failure-budget" };
   if (run.maxCostUsd !== null && run.spentCostUsd >= run.maxCostUsd) return { allowed: false, reason: "cost-budget" };
   return { allowed: true, reason: null };
 }
@@ -155,23 +153,11 @@ export async function finishRun(runId: string, status: RunStatus, reason?: strin
   return db.agentRun.findUnique({ where: { id: runId } });
 }
 
-/**
- * The step ceiling the SDK should stop at for this run.
- *
- * Read from the row rather than hard-coded, so the budget the user was shown
- * is the one that binds. The absolute ceiling stays as a backstop: a run row
- * written by a future version with a larger budget must not be able to talk
- * this application into an unbounded loop.
- */
-export const ABSOLUTE_STEP_CEILING = 32;
-
-export async function runStepCeiling(runId: string | null): Promise<number> {
-  if (!runId) return DEFAULT_BUDGET.maxSteps;
-  const run = await db.agentRun
-    .findUnique({ where: { id: runId }, select: { maxSteps: true } })
-    .catch(() => null);
-  if (!run) return DEFAULT_BUDGET.maxSteps;
-  return Math.max(1, Math.min(run.maxSteps, ABSOLUTE_STEP_CEILING));
+/** Null means the run has no model-step ceiling. */
+export async function runStepCeiling(runId: string | null) {
+  if (!runId) return null;
+  const run = await db.agentRun.findUniqueOrThrow({ where: { id: runId }, select: { maxSteps: true } });
+  return run.maxSteps;
 }
 
 /**
