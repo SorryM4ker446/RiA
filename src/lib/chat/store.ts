@@ -9,6 +9,10 @@ import { deleteConversations, updateConversation } from "@/lib/conversations/mut
 import { resolveAssistant } from "@/lib/assistants/store";
 import { encodeDocumentScope } from "@/lib/documents/scope";
 
+const summaryInvalidation = {
+  historyRevision: { increment: 1 }, summary: null, summaryUpToMessageId: null, summaryModelId: null, summaryRevision: null,
+};
+
 export async function getChat(chatId: string) {
   return db.chat.findFirst({ where: { id: chatId } });
 }
@@ -76,23 +80,37 @@ export async function saveChatMessage(params: {
   const chat = await db.chat.findUnique({ where: { id: chatId }, select: { id: true } });
   if (!chat) throw new ApiError({ code: "NOT_FOUND", message: "Conversation was not found" });
   const prepared = await prepareMessageMedia(content);
+  const data = {
+    chatId, role, content: prepared.content, status,
+    ...(normalizedClientMessageId ? { clientMessageId: normalizedClientMessageId } : {}),
+  };
+  const writeMessage = (client: Prisma.TransactionClient) => normalizedClientMessageId
+    ? client.message.upsert({
+        where: { chatId_clientMessageId: { chatId, clientMessageId: normalizedClientMessageId } },
+        create: data,
+        update: updateExisting ? { content: prepared.content, status } : {},
+      })
+    : client.message.create({ data });
+
+  if (updateExisting && prepared.assetIds.length === 0) {
+    // Approval continuations carry complete scripts. These writes need no
+    // JavaScript read between queries, so keep them atomic in an engine-side
+    // batch instead of expiring an interactive transaction during serialization.
+    const message = normalizedClientMessageId
+      ? { chatId, clientMessageId: normalizedClientMessageId }
+      : { id: { in: [] as string[] } };
+    const [, , saved] = await db.$transaction([
+      db.mediaAsset.updateMany({ where: { references: { some: { message } } }, data: { lastUsedAt: new Date() } }),
+      db.messageMedia.deleteMany({ where: { message } }),
+      writeMessage(db),
+      db.chat.update({ where: { id: chatId }, data: { ...summaryInvalidation, lastMessageAt: new Date() } }),
+    ]);
+    return saved;
+  }
 
   return db.$transaction(async (tx) => {
-    const data = {
-      chatId,
-      role,
-      content: prepared.content,
-      status,
-      ...(normalizedClientMessageId ? { clientMessageId: normalizedClientMessageId } : {}),
-    };
     if (updateExisting) await invalidateChatSummary(tx, chatId);
-    const message = normalizedClientMessageId
-      ? await tx.message.upsert({
-          where: { chatId_clientMessageId: { chatId, clientMessageId: normalizedClientMessageId } },
-          create: data,
-          update: updateExisting ? { content: prepared.content, status } : {},
-        })
-      : await tx.message.create({ data });
+    const message = await writeMessage(tx);
     if (message.content === prepared.content) await replaceMessageMedia(tx, message.id, prepared.assetIds);
     await tx.chat.update({ where: { id: chatId }, data: { lastMessageAt: new Date() } });
     return message;
@@ -221,7 +239,5 @@ export async function saveRegeneratedResponse(params: {
 
 /** Rewrite evidence invalidates compression in the same transaction. */
 export async function invalidateChatSummary(tx: Prisma.TransactionClient, chatId: string) {
-  await tx.chat.update({ where: { id: chatId }, data: {
-    historyRevision: { increment: 1 }, summary: null, summaryUpToMessageId: null, summaryModelId: null, summaryRevision: null,
-  } });
+  await tx.chat.update({ where: { id: chatId }, data: summaryInvalidation });
 }

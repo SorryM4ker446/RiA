@@ -32,6 +32,16 @@ approvals remain individual decisions; no approval or command is replayed during
 history reconciliation. The message payload adds optional `runIds`; no schema
 migration, CI service or new dependency is required.
 
+`chat-message-persistence.test.ts` saves a terminal continuation larger than
+32 MiB, verifies complete command hashes after reconnecting, and claims each
+approval only once. It also verifies concurrent replacement identity and summary
+revisions, and uses a database trigger to refuse the final write: message content,
+media references, retention timestamps and summaries must all roll back before a
+successful retry. `terminal.spec.ts` checks durable tool states before reloading
+or approving the next command, retaining its >2 MiB request assertions and
+execution-once checks. These regressions are included by the existing CI globs;
+no timeout increase or test retry is needed.
+
 Search-count regressions cover model-selected counts above ten, sequential and
 parallel requests without a RiA result-count quota, provider API ceilings,
 structured count planning and its cancellation/failure paths, and synthesis using

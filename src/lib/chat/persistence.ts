@@ -207,6 +207,9 @@ export async function persistChatResponse(params: { input: ChatRequest; conversa
       await persistResponseToolMemories({ chatId: chat.id, toolItems, assistantText, modelRef });
     }
   } catch (persistError) {
+    const code = persistError instanceof Error && "code" in persistError && typeof persistError.code === "string" && /^P\d{4}$/.test(persistError.code)
+      ? persistError.code : normalizeApiError(persistError).code;
+    console.error("chat.persist.failed", { code });
     throw normalizeApiError(persistError, t("lib.chat.saveFailed"));
   }
 }
