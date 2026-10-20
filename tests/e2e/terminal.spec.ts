@@ -88,6 +88,51 @@ function trackChatRequestBytes(page: Page) {
   return sizes;
 }
 
+type TerminalStreamWindow = Window & { terminalStreamDone?: Promise<void>; continuationHeld?: boolean; releaseContinuation?: () => void };
+
+async function trackTerminalStreams(page: Page, holdContinuation = false) {
+  await page.evaluate(hold => {
+    const original = window.fetch.bind(window);
+    const state = window as TerminalStreamWindow;
+    let chatRequests = 0;
+    const gate = new Promise<void>(resolve => { state.releaseContinuation = resolve; });
+    window.fetch = async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      const chat = new URL(url, location.href).pathname === "/api/chat" && (init?.method ?? (input instanceof Request ? input.method : "GET")) === "POST";
+      if (!chat) return original(input, init);
+      const request = ++chatRequests;
+      let finish!: () => void;
+      state.terminalStreamDone = new Promise<void>(resolve => { finish = resolve; });
+      const response = await original(input, init);
+      if (!response.body) { finish(); return response; }
+      return new Response(response.body.pipeThrough(new TransformStream({
+        async flush() {
+          if (hold && request === 2) {
+            state.continuationHeld = true;
+            await gate;
+          }
+          finish();
+        },
+      })), { status: response.status, statusText: response.statusText, headers: response.headers });
+    };
+  }, holdContinuation);
+}
+
+async function approveAndFinish(page: Page) {
+  const continuation = page.waitForResponse(response => new URL(response.url()).pathname === "/api/chat" && response.request().method() === "POST");
+  await page.getByRole("button", { name: "批准", exact: true }).click();
+  const response = await continuation;
+  expect(response.status()).toBe(200);
+  // A command's file write precedes the next model step and message commit.
+  // Wait for this stream's completion before asserting the next ready state.
+  // Chromium does not reliably report loadingFinished for an SSE response.
+  await page.evaluate(() => {
+    const done = (window as TerminalStreamWindow).terminalStreamDone;
+    if (!done) throw new Error("Terminal continuation stream was not tracked");
+    return done;
+  });
+}
+
 test("desktop folder permission, exact command approval and persisted output survive reload without re-execution", async ({ page, app }) => {
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
   await page.setViewportSize({ width: 1440, height: 960 });
@@ -176,19 +221,20 @@ test("approval mode asks for every tool call and resumes a long script without t
   const grant = await setup(page, app);
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "逐次审批" })).body.data;
   await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
+  await trackTerminalStreams(page);
   await page.getByPlaceholder(/输入你的问题/).fill(`OFFLINE_TERMINAL_COMMAND GRANT_ID=${grant.id} TERMINAL_TWICE TERMINAL_LONG`);
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
   expect(existsSync(join(app.folder, "terminal-proof.txt"))).toBe(false);
   expect(await storedTerminalStates(page, chat.id)).toEqual(["approval-requested"]);
-  await page.getByRole("button", { name: "批准", exact: true }).click();
-  await expect.poll(() => existsSync(join(app.folder, "terminal-proof.txt")) ? readFileSync(join(app.folder, "terminal-proof.txt"), "utf8") : null).toBe("once");
+  await approveAndFinish(page);
+  expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
   await expect(page.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
   await expect(page.getByRole("alert").filter({ hasText: "请求失败" })).toHaveCount(0);
   expect(await storedTerminalStates(page, chat.id)).toEqual(["output-available", "approval-requested"]);
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
   await expect(page.getByRole("region", { name: "最近编辑的文件", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "批准", exact: true }).click();
+  await approveAndFinish(page);
   await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("onceonce");
   expect(await storedTerminalStates(page, chat.id)).toEqual(["output-available", "output-available"]);
@@ -196,6 +242,31 @@ test("approval mode asks for every tool call and resumes a long script without t
   await page.reload();
   await openExecutionDetails(page);
   await expect(page.getByLabel("终端输出", { exact: true })).toHaveCount(2);
+  expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("onceonce");
+});
+
+test("the next approval stays disabled until the preceding continuation stream is consumed", async ({ page, app }) => {
+  const grant = await setup(page, app);
+  const chat = (await browserApi(page, "/api/conversations", "POST", { title: "审批流边界" })).body.data;
+  await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
+  await trackTerminalStreams(page, true);
+  await page.getByPlaceholder(/输入你的问题/).fill(`OFFLINE_TERMINAL_COMMAND GRANT_ID=${grant.id} TERMINAL_TWICE`);
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  await expect(page.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
+  try {
+    await page.getByRole("button", { name: "批准", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => (window as TerminalStreamWindow).continuationHeld)).toBe(true);
+    expect(await storedTerminalStates(page, chat.id)).toEqual(["output-available", "approval-requested"]);
+    await expect(page.getByRole("button", { name: "批准", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "拒绝", exact: true })).toBeDisabled();
+    expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
+  } finally {
+    await page.evaluate(() => (window as TerminalStreamWindow).releaseContinuation?.());
+  }
+  await expect(page.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
+  await approveAndFinish(page);
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
+  expect(await storedTerminalStates(page, chat.id)).toEqual(["output-available", "output-available"]);
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("onceonce");
 });
 

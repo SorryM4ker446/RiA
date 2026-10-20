@@ -42,6 +42,17 @@ or approving the next command, retaining its >2 MiB request assertions and
 execution-once checks. These regressions are included by the existing CI globs;
 no timeout increase or test retry is needed.
 
+Sequential terminal approvals wait for the matching `/api/chat` continuation
+response to finish before checking readiness for the next decision. The test
+observes the renderer's stream flush, since Chromium's network completion event
+is unreliable for SSE responses. A command's
+file write happens before the next model step and end-of-stream persistence;
+it is not a completion signal for that turn. A controlled renderer stream gate
+holds EOF after the next approval is saved, verifies both decision buttons remain
+disabled and only one command ran, then releases EOF and requires the second
+approval to become usable and execute exactly once. This uses no timing sleeps,
+extra retries or increased timeouts.
+
 Search-count regressions cover model-selected counts above ten, sequential and
 parallel requests without a RiA result-count quota, provider API ceilings,
 structured count planning and its cancellation/failure paths, and synthesis using
