@@ -136,7 +136,7 @@ export async function restoreAccountBackup(id: string) {
        */
       const revokedAt = new Date();
       const pausedSchedules = await tx.scheduledJob.updateMany({ where: { enabled: true }, data: { enabled: false } });
-      const revokedGrants = await tx.directoryGrant.updateMany({ where: { revokedAt: null }, data: { revokedAt, terminalEnabled: false } });
+      const revokedGrants = await tx.directoryGrant.updateMany({ where: { revokedAt: null }, data: { revokedAt, terminalEnabled: false, terminalApprovalMode: "approval" } });
       // Machine-local extensions are not imported. Restoring a workspace must
       // not leave its previous external capabilities active for restored chats.
       await tx.extension.updateMany({ data: { enabled: false, revision: { increment: 1 }, testedRevision: null, testId: null } });

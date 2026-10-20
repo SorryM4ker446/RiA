@@ -107,10 +107,11 @@ export async function runTerminalCommand(raw: TerminalInput, signal?: AbortSigna
       return { ...view };
     }
     const command = process.platform === "win32" ? path.join(process.env.SystemRoot || "C:/Windows", "System32/WindowsPowerShell/v1.0/powershell.exe") : "/bin/sh";
-    const args = process.platform === "win32" ? ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedPowerShellCommand()] : ["-c", input.command];
+    const args = process.platform === "win32" ? ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedPowerShellCommand()] : ["-s"];
     const env = terminalEnvironment();
-    if (process.platform === "win32") env.RIA_TERMINAL_COMMAND = input.command;
-    child = spawn(command, args, { cwd: grant.realPath, env, windowsHide: true, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    // Send scripts through a pipe to avoid Windows environment and command-line
+    // length limits. EOF leaves no interactive input for the executed command.
+    child = spawn(command, args, { cwd: grant.realPath, env, windowsHide: true, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"] });
     if (process.platform !== "win32") child.once("exit", () => {
       // The test shell must not leave background children holding output pipes.
       try { process.kill(-child!.pid!, "SIGKILL"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") console.error("terminal.cleanup.failed"); }
@@ -133,6 +134,11 @@ export async function runTerminalCommand(raw: TerminalInput, signal?: AbortSigna
     const exitCode = await new Promise<number | null>((resolve, reject) => {
       child!.once("error", reject);
       child!.once("close", code => resolve(code));
+      child!.stdin!.on("error", error => {
+        // Stopping during transfer can close the pipe before all input is sent.
+        if (!stopping) { stop(); reject(error); }
+      });
+      child!.stdin!.end(input.command, "utf8");
     });
     append("stdout", stdout.end()); append("stderr", stderr.end());
     view.exitCode = exitCode;

@@ -18,7 +18,7 @@ const test = base.extend<{ app: App }>({ app: async ({}, provide) => {
     rmSync(folder, { recursive: true, force: true });
   }
 } });
-async function setup(page: Page, app: App, ui = false) {
+async function setup(page: Page, app: App, ui = false, mode: "approval" | "full-access" = "approval") {
   if (ui) await page.addInitScript(() => {
     Object.defineProperty(window, "privateAiDesktop", { value: {
       getSettings: async () => ({ hasOpenrouterApiKey: true, hasDeepseekApiKey: false, hasTavilyApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "Control+Shift+Space", windowBounds: null }),
@@ -39,11 +39,17 @@ async function setup(page: Page, app: App, ui = false) {
     await expect(sheet).toBeVisible();
     await expect(sheet).toHaveCSS("animation-name", "sheet-in");
     await expect(sheet.getByText(/工作目录不是文件访问沙箱/)).toBeVisible();
+    await expect(sheet.getByRole("combobox", { name: "终端模式" })).toHaveText("审批");
+    if (mode === "full-access") {
+      await sheet.getByRole("combobox", { name: "终端模式" }).click();
+      await page.getByRole("option", { name: "完全访问", exact: true }).click();
+      await expect(sheet.getByText("LLM 的终端操作自动执行，无需逐条批准。", { exact: true })).toBeVisible();
+    }
     await sheet.getByRole("button", { name: "确认开启终端权限", exact: true }).click();
     await expect(sheet).toBeHidden();
     await expect(page.getByRole("button", { name: "关闭终端", exact: true })).toBeVisible();
   } else {
-    expect((await browserApi(page, `/api/directory-grants/${grant.id}`, "PATCH", { terminalEnabled: true, revision: grant.updatedAt })).status).toBe(200);
+    expect((await browserApi(page, `/api/directory-grants/${grant.id}`, "PATCH", { terminalEnabled: true, terminalApprovalMode: mode, revision: grant.updatedAt })).status).toBe(200);
   }
   return grant;
 }
@@ -59,6 +65,14 @@ async function ask(page: Page, app: App, grantId: string, stop = false) {
   await expect(page.getByLabel("PowerShell 命令", { exact: true })).toContainText("terminal-proof.txt");
   await expect(page.getByText(`工作目录：${app.folder}`, { exact: true })).toBeVisible();
   return chat;
+}
+
+function trackChatRequestBytes(page: Page) {
+  const sizes: number[] = [];
+  page.on("request", request => {
+    if (new URL(request.url()).pathname === "/api/chat" && request.method() === "POST") sizes.push(request.postDataBuffer()?.byteLength ?? 0);
+  });
+  return sizes;
 }
 
 test("desktop folder permission, exact command approval and persisted output survive reload without re-execution", async ({ page, app }) => {
@@ -91,6 +105,78 @@ test("desktop folder permission, exact command approval and persisted output sur
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: join(tmpdir(), "ria-terminal-mobile.png"), animations: "disabled" });
   expect(errors).toEqual([]);
+});
+
+test("full access executes without approval, keeps live output and stop controls, persists and can switch back to approval", async ({ page, app }) => {
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  const requestBytes = trackChatRequestBytes(page);
+  await page.setViewportSize({ width: 1440, height: 960 });
+  const grant = await setup(page, app, true, "full-access");
+  await expect(page.getByRole("button", { name: "终端：完全访问", exact: true })).toBeVisible();
+  const chat = (await browserApi(page, "/api/conversations", "POST", { title: "自动终端" })).body.data;
+  await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
+  await page.getByPlaceholder(/输入你的问题/).fill(`OFFLINE_TERMINAL_COMMAND GRANT_ID=${grant.id} TERMINAL_STOP TERMINAL_LONG`);
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  await openExecutionDetails(page);
+  await expect(page.getByLabel("终端输出", { exact: true })).toContainText("terminal-ready-你好");
+  await expect(page.getByRole("region", { name: "操作审批", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "停止命令", exact: true }).click();
+  await expect(page.getByText("已停止", { exact: true })).toBeVisible();
+  expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
+  await page.getByRole("dialog", { name: "执行记录", exact: true }).getByRole("button", { name: "关闭", exact: true }).click();
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
+  await page.reload();
+  await page.getByPlaceholder(/输入你的问题/).fill("继续解释刚才的结果");
+  const followup = page.waitForResponse(response => new URL(response.url()).pathname === "/api/chat" && response.request().method() === "POST");
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  expect((await followup).status()).toBe(200);
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
+  expect(requestBytes.some(bytes => bytes > 2 * 1024 * 1024)).toBe(true);
+  expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
+  await app.restart();
+  await page.goto(`${app.origin}/settings`);
+  await page.getByRole("tab", { name: "文件权限", exact: true }).click();
+  await page.getByRole("button", { name: "终端：完全访问", exact: true }).click();
+  const sheet = page.getByRole("dialog", { name: "终端权限", exact: true });
+  await expect(sheet.getByRole("combobox", { name: "终端模式" })).toHaveText("完全访问");
+  await page.screenshot({ path: join(tmpdir(), "ria-terminal-mode-desktop.png"), animations: "disabled" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: join(tmpdir(), "ria-terminal-mode-mobile.png"), animations: "disabled" });
+  await sheet.getByRole("combobox", { name: "终端模式" }).click();
+  await page.getByRole("option", { name: "审批", exact: true }).click();
+  await sheet.getByRole("button", { name: "保存终端权限", exact: true }).click();
+  await expect(sheet).toBeHidden();
+  await expect(page.getByRole("button", { name: "终端：审批", exact: true })).toBeVisible();
+  await ask(page, app, grant.id);
+  expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
+  await page.getByRole("button", { name: "拒绝", exact: true }).click();
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
+  expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
+  expect(errors).toEqual([]);
+});
+
+test("approval mode asks for every tool call and resumes a long script without truncation", async ({ page, app }) => {
+  const requestBytes = trackChatRequestBytes(page);
+  const grant = await setup(page, app);
+  const chat = (await browserApi(page, "/api/conversations", "POST", { title: "逐次审批" })).body.data;
+  await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
+  await page.getByPlaceholder(/输入你的问题/).fill(`OFFLINE_TERMINAL_COMMAND GRANT_ID=${grant.id} TERMINAL_TWICE TERMINAL_LONG`);
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  await expect(page.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
+  expect(existsSync(join(app.folder, "terminal-proof.txt"))).toBe(false);
+  await page.getByRole("button", { name: "批准", exact: true }).click();
+  await expect.poll(() => existsSync(join(app.folder, "terminal-proof.txt")) ? readFileSync(join(app.folder, "terminal-proof.txt"), "utf8") : null).toBe("once");
+  await expect(page.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
+  expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
+  await page.getByRole("button", { name: "批准", exact: true }).click();
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
+  expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("onceonce");
+  expect(requestBytes.filter(bytes => bytes > 2 * 1024 * 1024)).toHaveLength(2);
+  await page.reload();
+  await openExecutionDetails(page);
+  await expect(page.getByLabel("终端输出", { exact: true })).toHaveCount(2);
+  expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("onceonce");
 });
 
 test("rejection executes nothing and a long command exposes live output and can be stopped", async ({ page, app }) => {

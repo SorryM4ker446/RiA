@@ -1,7 +1,7 @@
 # Desktop terminal tool
 
 RiA provides one general terminal tool, `runTerminalCommand`, for non-interactive Windows PowerShell commands. It replaces the separate directory-listing, file-reading and new-file tools. The model receives current authorized folder IDs and canonical paths and chooses commands for the user request. File creation, reading, editing, search, copying, moving, renaming, deletion and installed development tools are examples, not an operation allowlist.
-It uses the same tool registry, assistant tool restrictions, per-call approvals
+It uses the same tool registry, assistant tool restrictions, approval workflow
 and execution records as other chat tools. It is unavailable in the web runtime.
 
 ## Enable and use
@@ -10,14 +10,25 @@ and execution records as other chat tools. It is unavailable in the web runtime.
    **Settings → File access**), choose
    a working folder and explicitly grant access. Choosing a folder alone does
    not authorize it. These machine-local permissions apply across conversations.
-2. Choose **开启终端** for that folder and confirm the separate terminal permission.
+2. Choose **开启终端** for that folder, choose **审批** or **完全访问**, and
+   confirm the separate terminal permission. **审批** (the default) requires an
+   approve/reject decision for every terminal tool call. **完全访问** runs LLM
+   terminal commands without per-call approval. Each call may contain a complete
+   script; approval covers the whole call rather than individual script statements.
 3. In a conversation with a model that supports tools, ask for a command, for
    example: “在已授权的项目目录运行 `Get-ChildItem`，列出文件并解释结果。”
-4. Review the compact approval card above the **文件权限 / 执行记录** toolbar. Its default view shows the operation, canonical working directory and approve/reject controls. Choose **查看详情** to expand the exact command in a bounded scroll area, then **收起详情** to collapse it. Expansion follows the shared motion tokens and respects reduced motion. **执行详情** opens the corresponding execution record; full commands, inputs, outputs, status, sources and diagnostics remain there. Execution records do not open automatically. Each command still needs its own decision; queued approvals are presented one at a time and each new item starts collapsed.
+4. In **审批** mode, review the compact approval card above the **文件权限 / 执行记录** toolbar. Its default view shows the operation, canonical working directory and approve/reject controls. Choose **查看详情** to expand the exact command in a bounded scroll area, then **收起详情** to collapse it. Expansion follows the shared motion tokens and respects reduced motion. **执行详情** opens the corresponding execution record; full commands, inputs, outputs, status, sources and diagnostics remain there. Execution records do not open automatically. Each call needs its own decision; queued approvals are presented one at a time and each new item starts collapsed. In **完全访问** mode execution starts automatically and the same execution records remain available.
 5. Open **执行详情** to see the timeout, live stdout, stderr and the exit code. Use
    **停止命令** to stop a long command. Stopping the chat request, cancelling its
-   execution record, disabling terminal permission or revoking the folder also
+   execution record, changing terminal mode, disabling permission or revoking the folder also
    stops the associated command.
+
+Choose **终端：审批** or **终端：完全访问** beside a folder to change its mode.
+Mode changes invalidate pending commands as well as stopping running ones, so a
+command proposed under an older permission must be requested again. The mode is
+machine-local, applies across conversations, and survives app restart. Existing
+terminal grants retain **审批** after upgrading; full access is never enabled by
+the migration. Disabling, re-granting or restoring resets the mode to **审批**.
 
 Approval continuations retain their server-issued run identities in the saved assistant message and appear as one request in execution records. Existing messages with one `runId` remain supported. Legacy rows without a link are joined only when one user-message window contains exactly one run and one saved assistant reply; ambiguous histories are not matched by title. Missing full details are labeled explicitly and existing step summaries remain expandable. No database migration or replay of old commands is needed.
 
@@ -46,7 +57,14 @@ are not imposed on developer commands.
 Each command starts a fresh Windows PowerShell process without a profile or
 interactive input. Shell variables and current-directory changes do not persist
 between calls. Administrator prompts and interactive terminal programs are not
-supported. The configured timeout is 1–600 seconds (default 120); the remaining
+supported. There is no terminal-specific command character limit. Scripts travel
+over a UTF-8 pipe rather than command-line arguments or environment variables,
+avoiding Windows length limits. The chat endpoint has no request-body byte limit,
+including approval continuations and later messages carrying terminal history.
+It bypasses Proxy's bounded body clone and authenticates in the route before
+reading the body. Other endpoints retain their existing request limits. Model
+context/output capacity and available machine memory still apply. The configured
+timeout is 1–600 seconds (default 120); the remaining
 execution-run deadline can shorten it. At most two commands run concurrently.
 Combined captured output is limited to 64 KiB and is explicitly marked when
 truncated. Output and command text are saved with the chat and sent to its model.

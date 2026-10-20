@@ -121,7 +121,7 @@ export type ToolDescriptor<Input = unknown, Output = unknown> = {
   modelInputSchema?: FlexibleSchema<Input>;
   extensionId?: string;
   extensionRevision?: number;
-  requiresApproval?: boolean;
+  requiresApproval?: boolean | ((input: unknown) => Promise<boolean>);
   /**
    * Attaches whatever an approval is bound to, on the tool call itself.
    *

@@ -77,6 +77,7 @@ test("permission updates are authenticated, strict and versioned; a tool cannot 
   const url = `/api/directory-grants/${grant.id}`;
   assert.equal((await permissionRoute.PATCH(request(url, "PATCH", { terminalEnabled: true, revision: grant.updatedAt }, ""), ctx(grant.id))).status, 401);
   assert.equal((await permissionRoute.PATCH(request(url, "PATCH", { terminalEnabled: true, revision: grant.updatedAt, extra: true }), ctx(grant.id))).status, 400);
+  assert.equal((await permissionRoute.PATCH(request(url, "PATCH", { terminalEnabled: true, terminalApprovalMode: "sometimes", revision: grant.updatedAt }), ctx(grant.id))).status, 400);
   assert.equal((await permissionRoute.PATCH(request(url, "PATCH", { terminalEnabled: true, revision: grant.updatedAt }), ctx(grant.id))).status, 200);
   assert.equal((await permissionRoute.PATCH(request(url, "PATCH", { terminalEnabled: false, revision: grant.updatedAt }), ctx(grant.id))).status, 409);
   assert.equal((await manualRoute.POST(request("/api/tools/run", "POST", { tool: "runTerminalCommand", mode: "chat", input: { grantId: grant.id, command: echo } }))).status, 400);
@@ -85,6 +86,60 @@ test("permission updates are authenticated, strict and versioned; a tool cannot 
   assert.match(tools.runTerminalCommand.description!, new RegExp(grant.id));
   assert.equal((await createChatToolSet({ toolIds: [] })).runTerminalCommand, undefined);
   await revokeGrant(grant.id);
+});
+
+test("terminal approval follows each folder's current mode and changing modes invalidates bound commands", async () => {
+  const approval = await folder();
+  const full = await folder();
+  const old = await prepared(full.id);
+  const url = `/api/directory-grants/${full.id}`;
+  assert.equal((await permissionRoute.PATCH(request(url, "PATCH", { terminalEnabled: true, terminalApprovalMode: "full-access", revision: full.updatedAt }), ctx(full.id))).status, 200);
+  const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"] });
+  const needsApproval = tools.runTerminalCommand.needsApproval;
+  assert.equal(typeof needsApproval, "function");
+  if (typeof needsApproval !== "function") assert.fail("Missing approval decision");
+  const decision = async (input: unknown) => needsApproval(input, {} as never);
+  const first = { grantId: approval.id, command: echo };
+  assert.equal(await decision(first), true);
+  assert.equal(await decision({ grantId: approval.id, command: echo }), true);
+  const automatic = { grantId: full.id, command: echo };
+  assert.equal(await decision(automatic), false);
+  assert.ok("binding" in automatic);
+  assert.equal((await tools.runTerminalCommand.execute!(automatic, {} as never) as { status: string }).status, "completed");
+  await assert.rejects(runTerminalCommand(old), /已变化/);
+  const pending = await prepared(full.id);
+  const current = (await listGrants()).find(row => row.id === full.id)!;
+  assert.equal(current.terminalApprovalMode, "full-access");
+  await setTerminalPermission(full.id, true, current.updatedAt, "approval");
+  assert.equal(await decision({ grantId: full.id, command: echo }), true, "an existing toolset must read the new mode");
+  await assert.rejects(runTerminalCommand(pending), /已变化/);
+  await assert.rejects(decision(pending), /已变化/);
+  const latest = (await listGrants()).find(row => row.id === full.id)!;
+  await setTerminalPermission(full.id, true, latest.updatedAt, "full-access");
+  await createGrant({ path: full.path });
+  const reset = (await listGrants()).find(row => row.id === full.id)!;
+  assert.equal(reset.terminalEnabled, false);
+  assert.equal(reset.terminalApprovalMode, "approval");
+  await assert.rejects(decision({ grantId: full.id, command: echo }), /终端权限/);
+});
+
+test("scripts exceeding the former input and Windows environment limits execute intact with Unicode", async () => {
+  const grant = await folder();
+  const payload = "长脚本🙂".repeat(30_000);
+  const command = win
+    ? `[IO.File]::WriteAllText('long-input.txt', '${payload}', (New-Object System.Text.UTF8Encoding($false))); [Console]::WriteLine('tail-你好')`
+    : `printf '%s' '${payload}' > long-input.txt; printf 'tail-你好'`;
+  const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"] });
+  const validated = await asSchema(tools.runTerminalCommand.inputSchema).validate!({ grantId: grant.id, command });
+  assert.equal(validated.success, true);
+  if (!validated.success) assert.fail("Long input rejected");
+  const result = await runTerminalCommand(validated.value);
+  assert.equal(result.status, "completed", result.stderr);
+  assert.equal(result.command, command);
+  assert.match(result.stdout, /tail-你好/);
+  assert.equal(readFileSync(path.join(grant.path, "long-input.txt"), "utf8"), payload);
+  assert.equal(terminalInputSchema.safeParse({ grantId: grant.id, command: " " }).success, false);
+  assert.equal(terminalInputSchema.safeParse({ grantId: grant.id, command: "a\0b" }).success, false);
 });
 
 test("approved commands preserve working directory, Unicode output, stderr and exit code without inheriting app credentials", async () => {
@@ -130,7 +185,7 @@ test("permission changes and re-granting invalidate pending approvals", async ()
   assert.equal((await listGrants()).find(row => row.id === grant.id)!.terminalEnabled, false);
 });
 
-for (const action of ["stop", "abort", "revoke", "disable"] as const) {
+for (const action of ["stop", "abort", "revoke", "disable", "change-mode"] as const) {
   test(`${action} stops a running command and preserves partial output`, async () => {
     const grant = await folder();
     const input = await prepared(grant.id, long);
@@ -145,7 +200,7 @@ for (const action of ["stop", "abort", "revoke", "disable"] as const) {
         assert.equal((await sessionsRoute.POST(request(url, "POST"), ctx(input.binding.sessionId))).status, 200);
       } else if (action === "abort") controller.abort();
       else if (action === "revoke") await revokeGrant(grant.id);
-      else await setTerminalPermission(grant.id, false, grant.updatedAt);
+      else await setTerminalPermission(grant.id, action === "change-mode", grant.updatedAt, "full-access");
       const result = await pending;
       assert.equal(result.status, "stopped"); assert.match(result.stdout, /ready/); assert.ok(result.finishedAt);
       assert.equal(stopTerminalSession(result.id).status, "stopped");
@@ -219,8 +274,9 @@ test("Windows shells and ordinary children stop when the local service exits", {
     import {spawn} from 'node:child_process';
     import {encodedPowerShellCommand} from ${JSON.stringify(moduleUrl)};
     const child=spawn('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',encodedPowerShellCommand()],{
-      windowsHide:true,env:{...process.env,RIA_TERMINAL_COMMAND:"$child=Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @('-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 60') -PassThru; [Console]::WriteLine($child.Id); Start-Sleep -Seconds 60"},stdio:['ignore','pipe','pipe']
+      windowsHide:true,env:process.env,stdio:['pipe','pipe','pipe']
     });
+    child.stdin.end("$child=Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @('-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 60') -PassThru; [Console]::WriteLine($child.Id); Start-Sleep -Seconds 60", 'utf8');
     let output=''; child.stdout.on('data',data=>{output+=data; if (/^\\d+/.test(output)) process.send({shell:child.pid,child:Number(output.trim())});});
     child.stderr.on('data',data=>process.send({error:String(data)}));
   `;
@@ -246,7 +302,7 @@ test("the general terminal replaces separate file tools and advertises only curr
     assert.equal(getToolDescriptor(id), null);
   }
   const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"] });
-  assert.equal(getToolDescriptor("runTerminalCommand")?.requiresApproval, true);
+  assert.equal(typeof getToolDescriptor("runTerminalCommand")?.requiresApproval, "function");
   assert.equal(typeof tools.runTerminalCommand.needsApproval, "function");
   assert.match(tools.runTerminalCommand.description!, /edit or overwrite existing files/);
   assert.ok(tools.runTerminalCommand.description!.includes(JSON.stringify(grant.realPath)));

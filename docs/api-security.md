@@ -43,7 +43,7 @@ Raw ORM/provider diagnostics are not logged or returned because they can contain
 
 ## Byte and input limits
 
-The common reader counts actual bytes, including requests without Content-Length, and cancels oversized streams. JSON bodies are limited to 2 MiB and JSON nesting to 32 levels. Cleanup and DELETE accept no body or an empty JSON object (at most 16 KiB).
+The common reader counts actual bytes, including requests without Content-Length, and cancels oversized streams on endpoints with a byte limit. JSON bodies default to 2 MiB and JSON nesting to 32 levels. `POST /api/chat` reads the complete body without a byte limit so terminal scripts, approvals and history are not restricted by request size. It bypasses Next.js Proxy body cloning; the route authenticates through `protectDataOperation` and `requireLocalWorkspace` before reading the body. Content type, JSON shape, nesting, origin and local credential checks still apply. Cleanup and DELETE accept no body or an empty JSON object (at most 16 KiB).
 
 Existing media limits remain: four attachments per message, PNG/JPEG/WebP/GIF only, at most 8 MiB each and 20 MiB combined, with a 21 MiB multipart envelope. Signatures, ownership and stored sizes are checked before use. Next.js Proxy buffering is capped at 22 MiB so valid uploads over its default 10 MiB buffer are not truncated and handlers have room to detect overflow before truncation; the accepted multipart limit remains 21 MiB. Actual chunked HTTP overflow is covered by a browser-suite regression. Generated image/video storage limits remain 20/100 MiB. See [Media storage](media-storage.md).
 

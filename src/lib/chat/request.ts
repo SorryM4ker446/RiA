@@ -13,7 +13,9 @@ import { externalInputSchema, externalToolIdPattern } from "@/lib/extensions/sch
 import { resolveToolDescriptor, toolAvailability } from "@/tools/registry";
 
 export async function readChatRequest(req: Request) {
-  const body = chatRequestSchema.parse(await readJsonBody(req));
+  // Terminal scripts are echoed in approvals and later history. Read them in
+  // full rather than imposing a per-request limit on their input length.
+  const body = chatRequestSchema.parse(await readJsonBody(req, null));
   const messages = await validateUIMessages<UIMessage>({ messages: body.messages }).catch(() => {
     throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid message parts or tool state" });
   });

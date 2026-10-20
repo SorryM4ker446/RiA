@@ -37,10 +37,11 @@ export function ExecutionTurnDetails({ message, isLatest, onReviewApproval }: Pr
         const name = part.title ?? part.type.replace(/^tool-/, "");
         const terminal = part.type === "tool-runTerminalCommand";
         const pendingApproval = part.state === "approval-requested" && "approval" in part && part.approval;
-        return <details key={`${part.toolCallId}-${index}`} className="execution-disclosure text-xs" open={!!pendingApproval || (terminal && isLatest && (part.state === "approval-responded" || part.state === "output-available")) || undefined}>
+        const terminalActive = part.state === "input-available" || (part.state === "approval-responded" && "approval" in part && !!part.approval?.approved);
+        return <details key={`${part.toolCallId}-${index}`} className="execution-disclosure text-xs" open={!!pendingApproval || (terminal && isLatest && (terminalActive || part.state === "output-available")) || undefined}>
           <summary><ChevronRight aria-hidden="true" /><span className="min-w-0 truncate">{tf("chat.messages.toolDetails", { name, state: state.label, extra: "" })}</span></summary>
           <div className="flex min-w-0 flex-col gap-2 py-2">
-            {terminal ? <TerminalResult input={part.input} output={part.state === "output-available" ? part.output : undefined} active={part.state === "approval-responded" && "approval" in part && !!part.approval?.approved} /> : null}
+            {terminal ? <TerminalResult input={part.input} output={part.state === "output-available" ? part.output : undefined} active={terminalActive} /> : null}
             {!terminal && part.input !== undefined ? <div className="flex min-w-0 flex-col gap-1">
               <p className="text-[11px] text-muted-foreground">输入参数</p>
               <pre className="execution-code chat-list-scroll">{safeJson(part.input && typeof part.input === "object" && "arguments" in part.input && "binding" in part.input ? part.input.arguments : part.input)}</pre>

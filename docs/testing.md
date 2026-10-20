@@ -567,3 +567,23 @@ plugin is unavailable; the repository Playwright harness provides verification.
 Test globs already include the new files; no additional CI secret, service,
 dependency or schema migration is required. Live search quality and account
 access require separate real-service validation.
+
+Terminal mode coverage in `tests/server/terminal.test.ts` verifies per-folder
+approval decisions, repeated approval, changes within an existing toolset,
+stale bindings, mode-change cancellation, invalid modes, resets on re-grant and
+complete Unicode scripts exceeding Windows environment limits. Backup tests
+verify full-access grants reset to approval on restore. Desktop migration tests
+verify existing grants keep approval and repeated startup preserves user choices.
+`tests/e2e/terminal.spec.ts` uses the offline model with real PowerShell to verify
+automatic execution, live output and stop controls, mode persistence across a
+service restart, mode changes through settings, approval of consecutive calls,
+long-script approval continuation and saved results without re-execution.
+Long-script fixtures exceed 2 MiB; browser tests measure the actual approval and
+follow-up request bodies and verify later history requests complete without
+re-executing commands. `tests/server/security.test.ts` verifies complete scripts
+in approved/rejected continuations and history, with and without Content-Length,
+and checks that only the chat route bypasses Proxy's body cloning. Other JSON
+limits, local credentials, origin checks and JSON shape validation remain covered.
+Desktop and narrow viewports use the repository Playwright harness because the
+Browser plugin is not available. Existing CI globs include these tests; the
+desktop migration chain carries the new default-approval column automatically.
