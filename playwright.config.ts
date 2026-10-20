@@ -15,6 +15,7 @@ export default (async () => {
     ],
     metadata: { runId: run.id, origin: run.origin },
     retries: 0,
+    workers: process.env.CI ? 2 : undefined,
     timeout: 45_000,
     expect: {
       timeout: 10_000,

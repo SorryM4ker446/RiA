@@ -60,7 +60,9 @@ test("restoring a conversation blocks file selection, paste and drop until attac
     release();
     await expect(page.getByRole("heading", { name: chat.title, exact: true })).toBeVisible();
     await expect(input).toBeEnabled();
+    const uploaded = page.waitForResponse(response => response.url().endsWith("/api/media/upload") && response.request().method() === "POST");
     await input.setInputFiles(pdf);
+    expect((await uploaded).status()).toBe(201);
     const attachment = page.getByRole("list", { name: "已添加的附件", exact: true }).getByText(pdf.name, { exact: true });
     await expect(attachment).toBeVisible();
     expect(uploadCount).toBe(1);

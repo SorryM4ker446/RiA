@@ -9,6 +9,8 @@ These rules apply to all Codex work in this repository.
 - Keep internal planning labels private to local planning material. Do not include them in source code, test names, code comments, public documentation, commit messages, or pull request descriptions. Describe observable behavior and actual functionality instead.
 - Preserve unrelated user changes and never overwrite or discard them.
 - Do not record real passwords, database connection strings, signing secrets, or other credentials in repository files, logs, or handoff notes.
+- For CI-related validation, inspect the current GitHub Actions workflow and failed-run logs first. Match its Node/npm versions, environment variables, worker/shard settings and clean dependency installation; do not infer runner behavior from the local machine.
+- Report local checks and hosted Actions results separately. A local environment match does not establish that the hosted workflow passed. Fix lifecycle or synchronization defects instead of increasing timeouts or adding retries.
 
 
 <!-- BEGIN:nextjs-agent-rules -->
