@@ -1,6 +1,6 @@
 import { openExecutionDetails } from "../helpers/execution-records";
 import { expect, test as base, type Page } from "@playwright/test";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, mkdirSync, writeFileSync, unlinkSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { startStandaloneServer } from "../helpers/standalone-server";
@@ -23,6 +23,11 @@ async function setup(page: Page, app: App, ui = false, mode: "approval" | "full-
     Object.defineProperty(window, "privateAiDesktop", { value: {
       getSettings: async () => ({ hasOpenrouterApiKey: true, hasDeepseekApiKey: false, hasTavilyApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "Control+Shift+Space", windowBounds: null }),
       getRuntimeInfo: async () => ({ appVersion: "0.1.3", packaged: false, dataDirectory: "fixture/data", mediaDirectory: "fixture/media", logFile: "fixture/log" }),
+      openFile: async (target: string) => {
+        const state = window as Window & { openedFiles?: string[]; failFileOpen?: boolean };
+        (state.openedFiles ??= []).push(target);
+        return { opened: !state.failFileOpen };
+      },
     } });
   });
   await openWorkspace(page, app.origin);
@@ -169,6 +174,7 @@ test("approval mode asks for every tool call and resumes a long script without t
   await expect.poll(() => existsSync(join(app.folder, "terminal-proof.txt")) ? readFileSync(join(app.folder, "terminal-proof.txt"), "utf8") : null).toBe("once");
   await expect(page.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
+  await expect(page.getByRole("region", { name: "最近编辑的文件", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "批准", exact: true }).click();
   await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("onceonce");
@@ -177,6 +183,55 @@ test("approval mode asks for every tool call and resumes a long script without t
   await openExecutionDetails(page);
   await expect(page.getByLabel("终端输出", { exact: true })).toHaveCount(2);
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("onceonce");
+});
+
+test("completed replies show real file changes, persist them and open validated files through the desktop bridge", async ({ page, app }) => {
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const grant = await setup(page, app, true, "full-access");
+  mkdirSync(join(app.folder, "src"));
+  writeFileSync(join(app.folder, "src", "theme.ts"), "export const theme = { radius: 4 };\n");
+  writeFileSync(join(app.folder, "old-draft.txt"), "旧草稿\n");
+  const chat = (await browserApi(page, "/api/conversations", "POST", { title: "个人资料卡片" })).body.data;
+  await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
+  await page.getByPlaceholder(/输入你的问题/).fill("请整理个人资料卡片：统一配色，新增资料卡组件和使用说明，并移除旧草稿。");
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  const files = page.getByRole("region", { name: "最近编辑的文件", exact: true });
+  await expect(files).toBeVisible();
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
+  await expect(files.getByText("新增 2 个 · 修改 1 个 · 删除 1 个", { exact: true })).toHaveCount(1);
+  await expect(files.getByRole("button", { name: "打开文件 old-draft.txt", exact: true })).toHaveCount(0);
+  await files.getByRole("button", { name: "展开其余 1 个文件", exact: true }).click();
+  await expect(files.getByRole("button", { name: "打开文件 old-draft.txt", exact: true })).toBeDisabled();
+  await expect(files.getByText("src · 1 → 5 行", { exact: true })).toBeVisible();
+  await files.getByRole("button", { name: "收起", exact: true }).click();
+  const component = files.getByRole("button", { name: "打开文件 src/components/profile-card.tsx", exact: true });
+  await component.click();
+  await expect.poll(() => page.evaluate(() => (window as Window & { openedFiles?: string[] }).openedFiles)).toEqual([realpathSync.native(join(app.folder, "src", "components", "profile-card.tsx"))]);
+  await expect(component).toBeEnabled();
+  await page.getByTestId("message-list").evaluate(element => { element.scrollTop = element.scrollHeight; });
+  await page.screenshot({ path: join(tmpdir(), "ria-edited-files-desktop.png"), animations: "disabled" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await files.scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: join(tmpdir(), "ria-edited-files-mobile.png"), animations: "disabled" });
+  await app.restart(); await page.reload();
+  await expect(files).toBeVisible();
+  await expect(files.getByText("新增 2 个 · 修改 1 个 · 删除 1 个", { exact: true })).toHaveCount(1);
+  await page.evaluate(() => { (window as Window & { failFileOpen?: boolean }).failFileOpen = true; });
+  await component.click();
+  await expect(files.getByRole("alert")).toContainText("系统未能打开此文件");
+  await page.evaluate(() => { (window as Window & { failFileOpen?: boolean }).failFileOpen = false; });
+  await component.click();
+  await expect(files.getByRole("alert")).toHaveCount(0);
+  unlinkSync(join(app.folder, "src", "components", "profile-card.tsx"));
+  await component.click();
+  await expect(files.getByRole("alert")).toContainText("文件已移动或删除");
+  const current = (await browserData(page, "/api/directory-grants")).find(row => row.id === grant.id);
+  expect((await browserApi(page, `/api/directory-grants/${grant.id}`, "PATCH", { terminalEnabled: false, revision: current.updatedAt })).status).toBe(200);
+  await files.getByRole("button", { name: "打开文件 README.md", exact: true }).click();
+  await expect(files.getByRole("alert")).toContainText("终端权限");
+  expect(errors).toEqual([]);
 });
 
 test("rejection executes nothing and a long command exposes live output and can be stopped", async ({ page, app }) => {

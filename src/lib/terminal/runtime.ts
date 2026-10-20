@@ -8,6 +8,7 @@ import { db } from "@/db";
 import { resolveGrant } from "@/lib/local-files/safe-path";
 import { ApiError } from "@/lib/server/api-error";
 import { encodedPowerShellCommand } from "./powershell";
+import { captureFileSnapshot, compareFileSnapshots } from "./file-changes";
 import { TERMINAL_LIMITS, terminalInputSchema, terminalRuntimeAllowed, type TerminalInput, type TerminalSessionView } from "./schema";
 
 type Session = { view: TerminalSessionView; runId?: string | null; stop: (reason?: "stopped" | "timed-out") => void };
@@ -99,12 +100,19 @@ export async function runTerminalCommand(raw: TerminalInput, signal?: AbortSigna
     if (grant.realPath !== binding.cwd || grant.updatedAt.toISOString() !== binding.revision) throw refuse("终端授权或工作目录已变化，请重新提出并确认命令。");
     const run = runId ? await db.agentRun.findUnique({ where: { id: runId } }) : null;
     if (runId && (!run || !["running", "waiting_approval"].includes(run.status))) stopping = "stopped";
-    const remainingMs = run ? run.startedAt.getTime() + run.deadlineMs - Date.now() : input.timeoutSeconds * 1000;
+    const commandDeadline = Math.min(Date.now() + input.timeoutSeconds * 1000, run ? run.startedAt.getTime() + run.deadlineMs : Infinity);
+    const remainingMs = commandDeadline - Date.now();
     if (remainingMs <= 0) stopping = "timed-out";
     if (signal?.aborted || stopping) {
       view.status = stopping ?? "stopped";
       view.finishedAt = new Date().toISOString();
       return { ...view };
+    }
+    const beforeFiles = await captureFileSnapshot(grant.realPath, commandDeadline);
+    if (Date.now() >= commandDeadline) stopping = "timed-out";
+    if (signal?.aborted || stopping) {
+      view.status = stopping ?? "stopped";
+      return { ...view, finishedAt: new Date().toISOString() };
     }
     const command = process.platform === "win32" ? path.join(process.env.SystemRoot || "C:/Windows", "System32/WindowsPowerShell/v1.0/powershell.exe") : "/bin/sh";
     const args = process.platform === "win32" ? ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedPowerShellCommand()] : ["-s"];
@@ -116,7 +124,7 @@ export async function runTerminalCommand(raw: TerminalInput, signal?: AbortSigna
       // The test shell must not leave background children holding output pipes.
       try { process.kill(-child!.pid!, "SIGKILL"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") console.error("terminal.cleanup.failed"); }
     });
-    timer = setTimeout(() => stop("timed-out"), Math.min(input.timeoutSeconds * 1000, remainingMs));
+    timer = setTimeout(() => stop("timed-out"), Math.max(0, commandDeadline - Date.now()));
     let outputBytes = 0;
     const append = (field: "stdout" | "stderr", text: string) => {
       const clean = stripVTControlCharacters(text).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
@@ -143,6 +151,15 @@ export async function runTerminalCommand(raw: TerminalInput, signal?: AbortSigna
     append("stdout", stdout.end()); append("stderr", stderr.end());
     view.exitCode = exitCode;
     view.status = stopping ?? (exitCode === 0 ? "completed" : "failed");
+    if (timer) clearTimeout(timer);
+    try {
+      const currentGrant = await db.directoryGrant.findUnique({ where: { id: input.grantId } });
+      view.fileChanges = currentGrant && !currentGrant.revokedAt && currentGrant.terminalEnabled && currentGrant.updatedAt.toISOString() === binding.revision
+        ? compareFileSnapshots(beforeFiles, await captureFileSnapshot(grant.realPath)) : { files: [], complete: false };
+    } catch {
+      // Missing change observations must not overwrite the command's actual result.
+      view.fileChanges = { files: [], complete: false };
+    }
     return { ...view, finishedAt: new Date().toISOString() };
   } catch (error) {
     view.status = stopping ?? "failed";

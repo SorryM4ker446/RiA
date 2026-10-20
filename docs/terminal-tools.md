@@ -85,6 +85,44 @@ The isolated test runtime uses PowerShell on Windows and a non-interactive `sh`
 process group on other platforms to exercise CI contracts. This does not enable
 terminal execution in non-Windows production builds.
 
+## Files changed by a reply
+
+After the assistant finishes, **最近编辑的文件** appears below its reply when
+terminal results contain detected changes. Each row shows a relative path,
+created/modified/deleted status and a line-count or size summary. These are
+filesystem observations rather than a model-generated description of intent.
+Repeated edits in the reply are merged; creating then deleting a file leaves no
+net row. Three compact rows are shown initially, with an expand control for longer lists.
+Approval pauses and active generation do not display a completed change card.
+
+Each terminal command compares working-directory snapshots before and after
+execution, including failed commands and stopped commands that wrote files.
+Reads and unchanged small files are omitted. Small-file contents are hashed and
+UTF-8 line counts are retained, without retaining file text. Large files use
+size and modification metadata. A rename appears as deletion plus creation.
+Results are part of the existing tool output, so they survive chat reload,
+service restart and backup without a separate store or database migration.
+Older results without observations remain readable without inventing file lists.
+
+Observation is limited to the working directory and skips junctions/symlinks,
+`.git`, `node_modules`, `.next`, `.venv` and `__pycache__`. Each walk considers up
+to 10,000 entries for up to 1.5 seconds; small-file hashing reads up to 8 MiB in
+total and 256 KiB per file. At most 100 change rows are retained per command.
+These are observation budgets, not command input or execution restrictions.
+Interrupted, unreadable or truncated observations are explicitly labeled as
+partial. Partial walks do not treat an unobserved file as proof of absence.
+Concurrent external edits may be observed during the same window; the card is
+not a forensic audit of every file touched. Changes outside the working directory
+are not claimed. Revoking permission prevents a new post-command observation.
+
+In the desktop app, clicking an existing file opens its default system
+application. `POST /api/terminal/files/resolve` accepts the grant ID and relative
+path, authenticates the caller, rechecks current terminal permission and canonical
+containment, and returns an existing regular file's absolute path. The trusted
+Electron bridge invokes `shell.openPath` only after the click. Deleted files are
+disabled; moved files, revoked permissions and missing default applications show
+an error without discarding the change record. The web runtime displays the
+summary without offering native file opening.
+
 Execution details retain the reviewed command, directory, output and result.
-RiA does not infer a verified list of every file touched by an arbitrary shell
-command. Historical standalone file-tool references remain readable in these details.
+Historical standalone file-tool references remain readable in these details.

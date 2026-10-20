@@ -587,3 +587,18 @@ limits, local credentials, origin checks and JSON shape validation remain covere
 Desktop and narrow viewports use the repository Playwright harness because the
 Browser plugin is not available. Existing CI globs include these tests; the
 desktop migration chain carries the new default-approval column automatically.
+
+Edited-file coverage in `tests/server/terminal-file-changes.test.ts` executes
+real commands and checks created/modified/deleted files, same-size edits,
+read-only calls, failed and stopped writes, ignored dependencies/junctions,
+partial-observation semantics, multi-call merging and canonical file opening
+after permission and existence changes. `tests/desktop/open-local-file.test.ts`
+checks the native opener with an injected system-shell function, including
+missing files and default-application errors; it does not launch another app.
+The terminal browser suite verifies reply-end visibility, an approval pause,
+persisted rows after restart, click-through to a mocked desktop bridge, deleted
+files, lost permission and application-open failure/recovery. Its example images
+come from real fixture file edits in the built service, with desktop and narrow
+viewport captures outside the repository. Browser plugin not available; the
+repository Playwright harness is used. Existing test globs and desktop packaging
+include these files without a new dependency, service or schema migration.

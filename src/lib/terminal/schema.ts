@@ -13,10 +13,20 @@ export const terminalInputSchema = z.strictObject({
   binding: terminalBindingSchema.optional(),
 });
 export type TerminalInput = z.infer<typeof terminalInputSchema>;
+const fileVersionSchema = z.object({ bytes: z.number().nonnegative(), lines: z.number().int().nonnegative().optional() });
+export const terminalFileChangeSchema = z.object({
+  path: z.string().min(1).max(4000),
+  kind: z.enum(["created", "modified", "deleted"]),
+  before: fileVersionSchema.nullable(), after: fileVersionSchema.nullable(),
+});
+export type TerminalFileChange = z.infer<typeof terminalFileChangeSchema>;
+export const terminalFileChangesSchema = z.object({ files: z.array(terminalFileChangeSchema).max(100), complete: z.boolean() });
+export type TerminalFileChanges = z.infer<typeof terminalFileChangesSchema>;
 export type TerminalSessionView = {
   id: string; grantId: string; command: string; cwd: string; shell: string;
   status: "running" | "completed" | "failed" | "stopped" | "timed-out";
   stdout: string; stderr: string; exitCode: number | null; truncated: boolean;
   startedAt: string; finishedAt: string | null;
+  fileChanges?: TerminalFileChanges;
 };
 export const terminalRuntimeAllowed = () => ["desktop", "test"].includes(process.env.APP_RUNTIME ?? "") && (process.platform === "win32" || process.env.APP_RUNTIME === "test");

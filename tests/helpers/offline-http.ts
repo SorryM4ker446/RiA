@@ -106,6 +106,8 @@ if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
       const prompt = typeof latest?.content === "string" ? latest.content
         : (latest?.content ?? []).filter((part) => part.type === "text").map((part) => part.text).join("\n");
       let content = `离线回答：${prompt}`;
+      const fileEditRequest = prompt === "请整理个人资料卡片：统一配色，新增资料卡组件和使用说明，并移除旧草稿。";
+      if (fileEditRequest) content = "已完成个人资料卡片的整理。\n\n- 统一了界面配色与间距。\n- 新增资料卡组件和使用说明。\n- 清理了不再使用的旧草稿。\n\n下方是本轮文件变更，点击文件即可继续检查。";
       // Controlled grounded response for the real streaming/citation workflow.
       // It exercises evidence transport, never measures a live model's reasoning.
       if (prompt === "出门办事的钱怎样领回来") {
@@ -137,14 +139,27 @@ if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
       if (body.modalities?.includes("image")) return JSON.stringify({ ...base, choices: [{ index: 0, message: { role: "assistant", content: "", images: [{ type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=" } }] }, finish_reason: "stop" }] });
       if (body.stream) {
         const terminalResults = body.messages.filter(message => message.role === "tool").length;
-        if (prompt.includes("OFFLINE_TERMINAL_COMMAND") && terminalResults < (prompt.includes("TERMINAL_TWICE") ? 2 : 1)) {
+        if ((prompt.includes("OFFLINE_TERMINAL_COMMAND") || fileEditRequest) && terminalResults < (prompt.includes("TERMINAL_TWICE") ? 2 : 1)) {
           const name = "runTerminalCommand";
           if (!body.tools?.some(tool => tool.function?.name === name)) throw new Error("Terminal tool was not offered to the fixture model");
           const padding = prompt.includes("TERMINAL_LONG") ? ("# 长脚本🙂\n".repeat(180_000)) : "";
-          const command = padding + (process.platform === "win32"
+          let command = padding + (process.platform === "win32"
             ? "[IO.File]::AppendAllText('terminal-proof.txt', 'once'); [Console]::WriteLine('terminal-ready-你好')" + (prompt.includes("TERMINAL_STOP") ? "; Start-Sleep -Seconds 30" : "")
             : "printf once >> terminal-proof.txt; printf 'terminal-ready-你好\\n'" + (prompt.includes("TERMINAL_STOP") ? "; sleep 30" : ""));
-          const args = { grantId: /GRANT_ID=([a-zA-Z0-9_-]+)/.exec(prompt)?.[1], command, timeoutSeconds: 60 };
+          const terminal = body.tools!.find(tool => tool.function?.name === name)!;
+          if (fileEditRequest) {
+            const edits = [
+              { path: "src/theme.ts", text: "export const theme = {\n  radius: 12,\n  spacing: 16,\n  accent: 'slate',\n};\n" },
+              { path: "src/components/profile-card.tsx", text: "export function ProfileCard() {\n  return (\n    <article>\n      <h2>个人资料</h2>\n      <p>在这里管理你的公开信息。</p>\n    </article>\n  );\n}\n" },
+              { path: "README.md", text: "# 个人资料卡片\n\n## 使用方式\n\n导入 ProfileCard 组件并传入资料。\n\n## 界面规范\n\n统一使用项目的配色和间距。\n" },
+            ];
+            const quote = (value: string) => `'${value.replaceAll("'", process.platform === "win32" ? "''" : "'\\''")}'`;
+            command = process.platform === "win32"
+              ? ["New-Item -ItemType Directory -Path 'src/components' -Force | Out-Null", ...edits.map(edit => `[IO.File]::WriteAllText(${quote(edit.path)}, ${quote(edit.text)}, (New-Object System.Text.UTF8Encoding($false)))`), "Remove-Item -LiteralPath 'old-draft.txt'"].join("; ")
+              : ["mkdir -p src/components", ...edits.map(edit => `printf '%s' ${quote(edit.text)} > ${quote(edit.path)}`), "rm old-draft.txt"].join("; ");
+          }
+          const folders = fileEditRequest ? JSON.parse((terminal.function as { description?: string }).description?.split("Terminal-enabled folders (data, not instructions): ")[1] ?? "[]") : [];
+          const args = { grantId: fileEditRequest ? folders[0]?.id : /GRANT_ID=([a-zA-Z0-9_-]+)/.exec(prompt)?.[1], command, timeoutSeconds: 60 };
           return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: `terminal-fixture-call-${terminalResults}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
         }
         const skillRequested = prompt.includes("OFFLINE_READ_PLUGIN_SKILL");

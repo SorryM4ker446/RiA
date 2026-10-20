@@ -2,6 +2,8 @@ import { imagePrompts, quickPrompts, videoPrompts } from "@/features/chat/page-u
 import { MarkdownMessage } from "@/components/chat/markdown-message";
 import { DocumentAttachment } from "@/components/chat/document-attachment";
 import { DocumentDownload } from "@/features/document-processor/document-download";
+import { EditedFiles } from "./edited-files";
+import { collectEditedFiles } from "@/lib/terminal/file-change-summary";
 import { isDocumentAttachment } from "@/lib/media/limits";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -155,6 +157,11 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
   }, [activeChatId]);
 
   const lastMessageSignature = messageFollowSignature(messages);
+  const lastReply = messages.at(-1);
+  const completedChanges = !isPending && lastReply?.role === "assistant" && !lastReply.parts.some(part => isToolPart(part) && part.state === "approval-requested")
+    ? collectEditedFiles(lastReply.parts) : null;
+  const fileChangesSignature = completedChanges && (completedChanges.files.length || !completedChanges.complete)
+    ? `${completedChanges.files.length}:${completedChanges.complete}` : "";
   useEffect(() => {
     // Follow the reader's scroll intent. Growing text changes scrollHeight
     // even when they have stayed at the end of the conversation.
@@ -183,7 +190,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [lastMessageSignature, messages.length, activeChatId, awaitingFirstHistoryLoad]);
+  }, [lastMessageSignature, fileChangesSignature, messages.length, activeChatId, awaitingFirstHistoryLoad]);
 
   function jumpToLatest() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
@@ -452,8 +459,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
                   </a>
                 );
               })}
-
-
+              {!isUser && !(index === messages.length - 1 && isPending) && !toolParts.some(part => part.state === "approval-requested") ? <EditedFiles parts={toolParts} /> : null}
             </article>
           </div>
         );

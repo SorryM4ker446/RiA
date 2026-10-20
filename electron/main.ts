@@ -1,5 +1,6 @@
 import { createResumeRecovery } from "./resume-recovery";
 import { windowAppearance } from "./window-appearance";
+import { openLocalFile } from "./open-local-file";
 import { createStartupPresentation } from "./startup-presentation";
 import { createWindowTransitions, type WindowAction } from "./window-transitions";
 import { canvasSamplePoints, imageAlphaSampler, type CanvasGeometry } from "./workspace-transparency";
@@ -394,6 +395,11 @@ function registerIpcHandlers() {
     if (!isAbsolute(target)) return { revealed: false };
     shell.showItemInFolder(target);
     return { revealed: true };
+  });
+
+  ipcMain.handle("desktop:file:open", async (event, target: unknown) => {
+    assertTrustedIpcSender(event);
+    return openLocalFile(target, path => shell.openPath(path));
   });
 
   ipcMain.handle("desktop:folder:choose", async (event) => {

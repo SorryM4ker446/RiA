@@ -66,7 +66,8 @@ test("ordinary chat receives task-oriented agent instructions without empty retr
   const prompt = languageModel.doStreamCalls.at(-1).prompt.find(item => item.role === "system").content;
   assert.match(prompt, /RiA, a local-first desktop AI agent/);
   assert.match(prompt, /carry authorized work through/);
-  assert.match(prompt, /each exact command still requires human approval/);
+  assert.match(prompt, /approval requires human approval for every tool call/);
+  assert.match(prompt, /full-access executes without per-call approval/);
   assert.match(prompt, /If a requested workspace fact lacks evidence/);
   assert.doesNotMatch(prompt, /\[Knowledge evidence|\[Long-Term Memory|\[Earlier Conversation Excerpts|\[Tooling Policy/);
   assert.doesNotMatch(prompt, /No supporting document excerpts|No relevant long-term memory|No earlier messages omitted|Prefer a direct answer for ordinary questions|Order: factual points/);
