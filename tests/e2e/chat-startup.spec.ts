@@ -143,12 +143,12 @@ test("the model's reasoning is shown above the answer and stays out of it", asyn
   const summary = page.getByText("思考过程", { exact: true });
   await expect(summary).toBeVisible();
   await expect(answer.locator("xpath=ancestor::details[1]")).toHaveCount(0);
-  await expect(page.getByText("先比较两种做法", { exact: true })).toBeVisible();
-  await summary.click();
   await expect(page.getByText("先比较两种做法", { exact: true })).toBeHidden();
+  await summary.click();
+  await expect(page.getByText("先比较两种做法", { exact: true })).toBeVisible();
   await expect(answer).toBeVisible();
   await summary.click();
-  await expect(page.getByText("先比较两种做法", { exact: true })).toBeVisible();
+  await expect(page.getByText("先比较两种做法", { exact: true })).toBeHidden();
   await expect(answer).toBeVisible();
 });
 

@@ -1,5 +1,17 @@
 # Test coverage and local validation
 
+Streaming layout regressions hold a Markdown image response, load it after text
+has stopped changing, and resize the viewport while the answer remains active.
+The transcript must stay within two pixels of the bottom, preserve a reader's
+upward scroll, and resume following after “回到最新”. The existing immediate
+history-scroll case also covers movement before its queued scroll event arrives.
+Reasoning opens for an active turn, stays open through an approval pause, and
+folds when the reply finishes. Desktop and narrow-screen tests sample real
+intermediate disclosure heights, verify manual mouse/keyboard toggles and reduced
+motion, and check that folding retains the bottom position. Screenshots live in
+the OS temporary directory as `ria-reasoning-*.png`. The existing CI browser glob
+includes these cases; no dependency or workflow change is required.
+
 CI regressions distinguish an unavailable executable from PowerShell module
 command discovery. The terminal fixture invokes a file-qualified missing binary
 under both restricted and permissive child-process policies, checks a nonzero

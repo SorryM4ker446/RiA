@@ -23,6 +23,7 @@ import {
   AlertCircle,
   ArrowDown,
   Check,
+  ChevronRight,
   Copy,
   Loader2,
   PencilLine,
@@ -30,7 +31,7 @@ import {
   Trash2,
   X
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { t, tf } from "@/lib/locale";
 import type { ChatState } from "@/features/chat/use-chat-state";
@@ -57,11 +58,15 @@ export function messageFollowSignature(messages: UIMessage[]): string {
   return `${messages.length}:${last.id}:${readText(last).length}:${readReasoning(last).length}:${getFileParts(last).length}:${downloads}`;
 }
 
-function MessageReasoning({ text, streaming }: { text: string; streaming: boolean }) {
-  const [open, setOpen] = useState(true);
-  return <details className="message-reasoning mb-2 rounded-lg bg-muted text-xs" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
-    <summary className="cursor-pointer px-3 py-2 font-medium">
-      {streaming ? t("chat.messages.reasoningLive") : t("chat.messages.reasoningTitle")}
+function MessageReasoning({ text, active, thinking }: { text: string; active: boolean; thinking: boolean }) {
+  const disclosureRef = useRef<HTMLDetailsElement>(null);
+  // Native disclosure state preserves manual choices while a turn is active.
+  // Only a turn starting or completing changes it automatically.
+  useLayoutEffect(() => { if (disclosureRef.current) disclosureRef.current.open = active; }, [active]);
+  return <details ref={disclosureRef} className="message-reasoning mb-2 rounded-lg bg-muted text-xs">
+    <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 font-medium">
+      <ChevronRight aria-hidden="true" className="reasoning-chevron size-3.5 shrink-0" />
+      {thinking ? t("chat.messages.reasoningLive") : t("chat.messages.reasoningTitle")}
     </summary>
     <div className="whitespace-pre-wrap border-t px-3 py-2 leading-5 text-muted-foreground">{text}</div>
   </details>;
@@ -102,7 +107,9 @@ type Props = Pick<ChatState, "appendQuickPrompt" | "modelMode" | "activeChatId" 
 export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, isLoadingHistory, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages }: Props) {
   const awaitingFirstHistoryLoad = useAwaitingFirstLoad(isLoadingHistory, activeChatId ?? DRAFT_HISTORY_QUERY);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const followingRef = useRef(true);
+  const lastScrollTopRef = useRef(0);
   const olderAnchorRef = useRef<{ height: number; top: number } | null>(null);
   useLayoutEffect(() => {
     const anchor = olderAnchorRef.current;
@@ -111,11 +118,6 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
     panel.scrollTop = anchor.top + panel.scrollHeight - anchor.height;
     olderAnchorRef.current = null;
   }, [messages.length, isLoadingOlderMessages]);
-  const distanceFromBottom = () => {
-    const panel = scrollRef.current;
-    return panel ? panel.scrollHeight - panel.scrollTop - panel.clientHeight : 0;
-  };
-
   /*
    * Following the conversation is only right while the reader is already at the
    * bottom. Yanking the viewport down mid-scroll would throw away the place they
@@ -148,14 +150,46 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
     setTimeout(() => setCopiedMessageId((current) => (current === message.id ? null : current)), 2000);
   }
   useEffect(() => {
+    const panel = scrollRef.current;
+    if (!panel) return;
+    lastScrollTopRef.current = panel.scrollTop;
     const onScroll = () => {
-      followingRef.current = distanceFromBottom() <= 96;
+      const gap = panel.scrollHeight - panel.scrollTop - panel.clientHeight;
+      if (gap <= 2) followingRef.current = true;
+      else if (panel.scrollTop < lastScrollTopRef.current - 1) followingRef.current = false;
+      lastScrollTopRef.current = panel.scrollTop;
       if (followingRef.current) setHasUnreadBelow(false);
     };
-    const panel = scrollRef.current;
-    panel?.addEventListener("scroll", onScroll, { passive: true });
-    return () => panel?.removeEventListener("scroll", onScroll);
+    panel.addEventListener("scroll", onScroll, { passive: true });
+    return () => panel.removeEventListener("scroll", onScroll);
   }, [activeChatId]);
+
+  const followLayout = useCallback(() => {
+    const panel = scrollRef.current;
+    if (!panel || !followingRef.current || olderAnchorRef.current) return;
+    // A user scroll may already have moved the viewport before its queued
+    // scroll event runs. Content shrinkage only clamps it to the new bottom.
+    const gap = panel.scrollHeight - panel.scrollTop - panel.clientHeight;
+    if (panel.scrollTop < lastScrollTopRef.current - 1 && gap > 2) {
+      followingRef.current = false;
+      return;
+    }
+    panel.scrollTo({ top: panel.scrollHeight, behavior: "instant" });
+    lastScrollTopRef.current = panel.scrollTop;
+  }, []);
+
+  useLayoutEffect(() => {
+    const panel = scrollRef.current, content = contentRef.current;
+    if (!panel || !content) return;
+    // Images, wrapping, dock resizing and disclosure animations can change the
+    // layout without changing any message text. Keep the existing scroll intent.
+    const observer = new ResizeObserver(() => {
+      if (openedChatIdRef.current === activeChatId) followLayout();
+    });
+    observer.observe(panel);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [activeChatId, followLayout]);
 
   const lastMessageSignature = messageFollowSignature(messages);
   const lastReply = messages.at(-1);
@@ -163,39 +197,36 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
     ? collectEditedFiles(lastReply.parts) : null;
   const fileChangesSignature = completedChanges && (completedChanges.files.length || !completedChanges.complete)
     ? `${completedChanges.files.length}:${completedChanges.complete}` : "";
-  useEffect(() => {
+  useLayoutEffect(() => {
     // Follow the reader's scroll intent. Growing text changes scrollHeight
     // even when they have stayed at the end of the conversation.
+    if (shouldOpenOnLayout({
+      openedChatId: openedChatIdRef.current,
+      activeChatId,
+      awaitingFirstHistoryLoad,
+      messageCount: messages.length,
+    })) {
+      openedChatIdRef.current = activeChatId;
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "instant" });
+      lastScrollTopRef.current = scrollRef.current?.scrollTop ?? 0;
+      followingRef.current = true;
+      return;
+    }
+    if (openedChatIdRef.current !== activeChatId) return;
+    followLayout();
+  }, [lastMessageSignature, fileChangesSignature, messages.length, activeChatId, awaitingFirstHistoryLoad, followLayout]);
+
+  useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      if (shouldOpenOnLayout({
-        openedChatId: openedChatIdRef.current,
-        activeChatId,
-        awaitingFirstHistoryLoad,
-        messageCount: messages.length,
-      })) {
-        openedChatIdRef.current = activeChatId;
-        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-        followingRef.current = true;
-        setHasUnreadBelow(false);
-        return;
-      }
-      // Nothing has been opened and nothing to open yet, so the position is the
-      // one the page already has. The history that arrives next does the opening.
-      if (openedChatIdRef.current === undefined) return;
-      if (followingRef.current) {
-        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-        followingRef.current = true;
-        setHasUnreadBelow(false);
-      } else if (messages.length > 0) {
-        setHasUnreadBelow(true);
-      }
+      if (openedChatIdRef.current === activeChatId) setHasUnreadBelow(messages.length > 0 && !followingRef.current);
     });
     return () => cancelAnimationFrame(frame);
   }, [lastMessageSignature, fileChangesSignature, messages.length, activeChatId, awaitingFirstHistoryLoad]);
 
   function jumpToLatest() {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
     followingRef.current = true;
+    lastScrollTopRef.current = scrollRef.current?.scrollTop ?? 0;
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: isPending || window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
     setHasUnreadBelow(false);
   }
 
@@ -217,7 +248,8 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
   const showNavigation = !awaitingFirstHistoryLoad && messages.length > 1 && messages.some(message => message.role === "user");
 
   return (<div className="chat-transcript-frame relative flex min-h-0 flex-1" data-navigation={showNavigation}>
-  <div ref={scrollRef} className="chat-transcript relative min-h-0 flex-1 space-y-5 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-6 sm:px-7" data-testid="message-list">
+  <div ref={scrollRef} className="chat-transcript relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-6 sm:px-7" data-testid="message-list">
+  <div ref={contentRef} className="chat-transcript-content flex min-h-full flex-col gap-5">
   {/* The control stays inside the transcript and never overlaps the composer. */}
   {hasUnreadBelow ? (
     <div className="pointer-events-none sticky top-0 z-20 flex h-0 justify-center">
@@ -259,7 +291,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
         </div>
       </div>
     ) : messages.length === 0 ? (
-      <div className="chat-welcome flex h-full min-h-40 flex-col items-center justify-center gap-4 text-center">
+      <div className="chat-welcome flex min-h-40 flex-1 flex-col items-center justify-center gap-4 text-center">
         <h1 className="chat-welcome-title">{modelMode === "image" ? "让想象，有图可见。" : modelMode === "video" ? "把灵感，变成动态画面。" : "今天，有什么想一起完成？"}</h1>
         <p className="chat-welcome-description">{t("chat.messages.empty")}</p>
         <div className="mt-4 flex max-w-2xl flex-wrap justify-center gap-3">
@@ -376,9 +408,9 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
                   </div>
                 </div>
               ) : null}
-              {/* A stream pausing for approval must not collapse what the user
-                  is reading. Only the reader controls this disclosure. */}
-              {reasoning && !isUser ? <MessageReasoning text={reasoning} streaming={isLastAssistantStreaming} /> : null}
+              {reasoning && !isUser ? <MessageReasoning text={reasoning}
+                active={index === messages.length - 1 && (status === "streaming" || status === "submitted" || toolParts.some(part => part.state === "approval-requested"))}
+                thinking={isLastAssistantStreaming && message.parts.some(part => part.type === "reasoning" && part.state === "streaming")} /> : null}
               {!isEditing && text ? <MarkdownMessage text={text} /> : null}
               {toolParts.map(part => part.type === "tool-convertDocument" && part.state === "output-available" ? <DocumentDownload key={`download-${part.toolCallId}`} output={part.output} /> : null)}
               {imageUrl ? (
@@ -484,6 +516,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
         );
       })
     )}
+  </div>
   </div>
   {showNavigation && <MessageNavigator key={activeChatId ?? "draft"} messages={messages} scrollRef={scrollRef} onNavigate={jumpToMessage}
     hasOlder={!!olderMessagesCursor} loadingOlder={isLoadingOlderMessages} disabled={isPending} onLoadOlder={loadEarlier} />}
