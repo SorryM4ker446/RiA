@@ -24,7 +24,8 @@ function ApprovalRequest({ part, count, disabled, respond, onDetails }: {
   part: ToolPart; count: number; disabled: boolean;
   respond: ChatState["addToolApprovalResponse"]; onDetails: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [detailsState, setDetailsState] = useState<"unopened" | "open" | "closed">("unopened");
+  const expanded = detailsState === "open";
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const detailsId = useId();
@@ -32,7 +33,7 @@ function ApprovalRequest({ part, count, disabled, respond, onDetails }: {
   const approval = "approval" in part ? part.approval : undefined;
   const input = part.input as { command?: unknown; binding?: { cwd?: unknown }; arguments?: unknown } | undefined;
   const terminal = part.type === "tool-runTerminalCommand";
-  const command = terminal && typeof input?.command === "string" ? input.command : safeJson(input?.arguments ?? part.input);
+  const command = detailsState === "unopened" ? "" : terminal && typeof input?.command === "string" ? input.command : safeJson(input?.arguments ?? part.input);
   async function decide(approved: boolean) {
     if (!approval || disabled || busy.current) return;
     busy.current = true;
@@ -57,13 +58,13 @@ function ApprovalRequest({ part, count, disabled, respond, onDetails }: {
     <div id={detailsId} className="approval-details" data-state={expanded ? "open" : "closed"} aria-hidden={!expanded} inert={!expanded}>
       <div className="min-h-0 overflow-hidden">
         <CardContent className="px-3 pb-1 pt-0">
-          <pre aria-label={terminal ? "PowerShell 命令" : "待审批参数"} className="execution-code chat-list-scroll" tabIndex={expanded ? 0 : -1}>{command}</pre>
+          {detailsState !== "unopened" ? <pre aria-label={terminal ? "PowerShell 命令" : "待审批参数"} className="execution-code chat-list-scroll" tabIndex={expanded ? 0 : -1}>{command}</pre> : null}
         </CardContent>
       </div>
     </div>
     {error ? <p role="alert" className="px-3 pb-1 text-xs text-destructive">{error}</p> : null}
     <CardFooter className="flex-wrap gap-1 px-2 pb-1 pt-0">
-      <Button size="sm" variant="ghost" aria-controls={detailsId} aria-expanded={expanded} onClick={() => setExpanded(value => !value)}><ChevronDown data-icon="inline-start" className={cn("transition-transform duration-[--dur-fast] motion-reduce:transition-none", expanded && "rotate-180")} />{expanded ? "收起详情" : "查看详情"}</Button>
+      <Button size="sm" variant="ghost" aria-controls={detailsId} aria-expanded={expanded} onClick={() => setDetailsState(value => value === "open" ? "closed" : "open")}><ChevronDown data-icon="inline-start" className={cn("transition-transform duration-[--dur-fast] motion-reduce:transition-none", expanded && "rotate-180")} />{expanded ? "收起详情" : "查看详情"}</Button>
       {count > 1 ? <span className="text-xs text-muted-foreground">还有 {count - 1} 项</span> : null}
       <Button size="sm" variant="ghost" className="ml-auto" onClick={onDetails}>执行详情</Button>
     </CardFooter>

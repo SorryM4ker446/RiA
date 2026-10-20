@@ -73,6 +73,14 @@ disabled and only one command ran, then releases EOF and requires the second
 approval to become usable and execute exactly once. This uses no timing sleeps,
 extra retries or increased timeouts.
 
+Collapsed approval cards defer mounting and formatting command details until
+the first review. Folding retains the mounted content so the existing closing
+animation and a subsequent review preserve the complete command. Desktop and
+narrow browser regressions use an unchanged 180,000-line, >2 MiB command and
+verify initial deferral, full text after opening and reopening, and no horizontal
+overflow. Real terminal continuation tests retain the large request, durable
+approval state and execution-once assertions under the existing test timeout.
+
 Search-count regressions cover model-selected counts above ten, sequential and
 parallel requests without a RiA result-count quota, provider API ceilings,
 structured count planning and its cancellation/failure paths, and synthesis using

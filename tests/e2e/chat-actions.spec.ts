@@ -124,6 +124,35 @@ test(`compact terminal approval expands above the permission toolbar in ${theme}
 });
 }
 
+for (const width of [1440, 390]) test(`long approval commands are mounted on review and remain complete after folding at ${width}px`, async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.setViewportSize({ width, height: 960 });
+  const command = "# 长脚本🙂\n".repeat(180_000) + "Write-Output 'complete-command-end'";
+  expect(Buffer.byteLength(command)).toBeGreaterThan(2 * 1024 * 1024);
+  await mockHistory(page, [userMessage, { ...pendingMessage, content: "__ASSISTANT_TOOL_MESSAGE__:" + JSON.stringify({
+    type: "assistant-tool-message", text: "Review the command",
+    tools: [{ toolName: "runTerminalCommand", toolCallId: "long-review", state: "approval-requested", input: { command, binding: { cwd: "D:\\Projects\\ria-demo" } }, approval: { id: "long-review-approval" } }],
+  }) }]);
+  await page.goto("/chat");
+  const card = page.getByRole("region", { name: "操作审批", exact: true });
+  await expect(card.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
+  const code = card.locator("pre");
+  await expect(code).toHaveCount(0);
+  await card.getByRole("button", { name: "查看详情", exact: true }).click();
+  await expect(code).toBeVisible();
+  expect(await code.evaluate((element, expected) => element.textContent === expected, command)).toBe(true);
+  await card.getByRole("button", { name: "收起详情", exact: true }).click();
+  await expect(card.locator(".approval-details")).toHaveCSS("visibility", "hidden");
+  await expect(code).toHaveCount(1);
+  await expect(code).toBeHidden();
+  await card.getByRole("button", { name: "查看详情", exact: true }).click();
+  await expect(code).toBeVisible();
+  expect(await code.evaluate((element, expected) => element.textContent === expected, command)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
 test("an unavailable search is shown as skipped in execution details and leaves chat prose free of diagnostics", async ({ page }) => {
   await mockHistory(page, [userMessage, {
     ...assistantMessage,
