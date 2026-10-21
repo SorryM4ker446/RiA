@@ -5,7 +5,7 @@ import { decodeMediaMessage } from "@/lib/media/message-codec";
 import { db } from "@/db";
 import { preferredModel } from "@/lib/models/preferences";
 import type { ModelRef } from "@/lib/models/preferences-schema";
-import { summarizeTaskState, TASK_STATE_VERSION } from "./task-summary";
+import { summarizeTaskState, TASK_STATE_VERSION, type CompactionAllowance } from "./task-summary";
 import { t } from "@/lib/locale";
 
 /**
@@ -33,6 +33,7 @@ export async function summarizeOlderTurns(params: {
   signal?: AbortSignal;
   force?: boolean;
   modelRef?: ModelRef;
+  allowance?: CompactionAllowance;
 }): Promise<SummaryResult> {
   const older = params.messages.slice(0, Math.max(0, params.messages.length - params.keepRecent));
   const lastCovered = older.at(-1);
@@ -75,7 +76,7 @@ export async function summarizeOlderTurns(params: {
   const delta = snapshot.rows;
 
   try {
-    const summary = await summarizeTaskState({ modelRef: chosen, previous, records: delta.map(message => `${message.role}: ${summaryText(message)}`), signal: params.signal });
+    const summary = await summarizeTaskState({ modelRef: chosen, previous, records: delta.map(message => `${message.role}: ${summaryText(message)}`), signal: params.signal, allowance: params.allowance });
     if (!summary) return null;
     params.signal?.throwIfAborted();
     const saved = await db.chat.updateMany({
@@ -106,12 +107,14 @@ function summaryText(message: { id: string; role: string; content: string }) {
   const user = decodePersistedUserMessage(message.content);
   if (user) return [user.text, ...user.files.map(file => `[attachment: ${file.filename ?? file.mediaType}]`)].join("\n");
   const assistant = decodePersistedAssistantToolMessage(message.content);
+  // Every tool call is kept, each in the bounded result-first record form the
+  // in-stream compactor uses; the summarizer batches long records itself.
   if (assistant) return historicalText({ id: message.id, role: "assistant", parts: [
     { type: "text", text: assistant.text },
     ...assistant.tools.map(tool => ({ type: `tool-${tool.toolName}`, toolCallId: tool.toolCallId, state: tool.state,
       input: tool.input, output: tool.output, errorText: tool.errorText,
     })),
-  ] as UIMessage["parts"] }, 1500);
+  ] as UIMessage["parts"] });
   const media = decodeMediaMessage(message.content);
   return media ? media.text : message.content;
 }

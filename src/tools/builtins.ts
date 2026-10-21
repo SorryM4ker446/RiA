@@ -22,7 +22,9 @@ import { runWebSearch, webSearchInput } from "@/tools/definitions/web-search";
 import { documentProcessorTools } from "@/tools/definitions/document-processor";
 import { readPluginSkill } from "@/tools/definitions/plugin-skill";
 import { db } from "@/db";
-import { terminalTool } from "./terminal";
+import { readTerminalLogTool, terminalTool } from "./terminal";
+import { editProjectFileTool, readProjectFileTool } from "./project-files";
+import { TERMINAL_COMPANION_TOOLS } from "./terminal-companions";
 import { terminalRuntimeAllowed } from "@/lib/terminal/schema";
 
 import type { AnyToolDescriptor, ToolMode, ToolAvailability } from "./types";
@@ -212,6 +214,9 @@ const saveMemoryInputSchema = z.strictObject({
 
 const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
   runTerminalCommand: terminalTool,
+  readTerminalLog: readTerminalLogTool,
+  readProjectFile: readProjectFileTool,
+  editProjectFile: editProjectFileTool,
   readPluginSkill,
   ...documentProcessorTools,
   saveMemory: {
@@ -447,7 +452,7 @@ export function listToolDescriptors(mode?: ToolMode): AnyToolDescriptor[] {
 }
 
 export async function builtinToolAvailability(toolId: string, modelRef?: ModelRef): Promise<ToolAvailability> {
-  if (toolId === "runTerminalCommand") {
+  if (toolId === "runTerminalCommand" || TERMINAL_COMPANION_TOOLS.has(toolId)) {
     const enabled = terminalRuntimeAllowed() && await db.directoryGrant.count({ where: { revokedAt: null, terminalEnabled: true } });
     return enabled ? { available: true, reason: null, configEntry: null } : { available: false, reason: "notConfigured", configEntry: "/settings" };
   }

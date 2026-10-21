@@ -9,7 +9,8 @@ export function collectEditedFiles(parts: readonly unknown[]): { files: EditedFi
   for (const value of parts) {
     if (!value || typeof value !== "object") continue;
     const part = value as { type?: unknown; state?: unknown; output?: { grantId?: unknown; cwd?: unknown; fileChanges?: unknown } };
-    if (part.type !== "tool-runTerminalCommand" || part.state !== "output-available" || !part.output) continue;
+    // Exact edits report their changes in the same shape as terminal commands.
+    if ((part.type !== "tool-runTerminalCommand" && part.type !== "tool-editProjectFile") || part.state !== "output-available" || !part.output) continue;
     const { grantId, cwd } = part.output;
     if (typeof grantId !== "string" || typeof cwd !== "string" || !part.output.fileChanges) continue;
     const parsed = terminalFileChangesSchema.safeParse(part.output.fileChanges);

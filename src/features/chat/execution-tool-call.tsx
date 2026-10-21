@@ -6,6 +6,7 @@ import { t, tf, localizeMessage } from "@/lib/locale";
 import { useLocale } from "@/lib/locale/client";
 import { Button } from "@/components/ui/button";
 import { TerminalResult } from "./terminal-result";
+import { DiffText } from "./diff-text";
 import { formatToolState, safeJson } from "./page-utils";
 import { executionGuidance } from "@/lib/execution-messages";
 import type { ExecutionCall } from "./execution-calls";
@@ -16,6 +17,10 @@ export function ExecutionToolCall({ call, isLatest, waiting, onReviewApproval }:
   useLocale();
   const { part, step } = call;
   const terminal = part?.type === "tool-runTerminalCommand";
+  // Edits show the diff that was approved or written rather than their raw arguments.
+  const editSource = part?.type === "tool-editProjectFile"
+    ? (part.state === "output-available" ? part.output : (part.input as { binding?: unknown } | undefined)?.binding) as { path?: unknown; diff?: unknown } | undefined : undefined;
+  const edit = typeof editSource?.diff === "string" ? { path: String(editSource.path ?? ""), diff: editSource.diff } : null;
   const pendingApproval = part?.state === "approval-requested" && "approval" in part && part.approval;
   const terminalActive = part?.state === "input-available" || (part?.state === "approval-responded" && "approval" in part && !!part.approval?.approved);
   const defaultExpanded = !!pendingApproval || !!(terminal && isLatest && (terminalActive || part?.state === "output-available"));
@@ -39,12 +44,16 @@ export function ExecutionToolCall({ call, isLatest, waiting, onReviewApproval }:
     <div className="flex min-w-0 flex-col gap-2 py-2">
       {part ? <>
         {terminal ? <TerminalResult input={part.input} output={part.state === "output-available" ? part.output : undefined} active={!!terminalActive} /> : null}
-        {!terminal && part.input !== undefined ? <div className="flex min-w-0 flex-col gap-1">
+        {edit ? <div className="flex min-w-0 flex-col gap-1">
+          <p className="text-[11px] text-muted-foreground">{t("ui.chat.approval-dock.file")}{edit.path}</p>
+          <pre aria-label={t("ui.chat.approval-dock.changesAwaitingApproval")} className="execution-code chat-list-scroll"><DiffText diff={edit.diff} /></pre>
+        </div> : null}
+        {!terminal && !edit && part.input !== undefined ? <div className="flex min-w-0 flex-col gap-1">
           <p className="text-[11px] text-muted-foreground">{t("ui.chat.execution-turn-details.inputParameters")}</p>
           <pre className="execution-code chat-list-scroll">{safeJson(part.input && typeof part.input === "object" && "arguments" in part.input && "binding" in part.input ? part.input.arguments : part.input)}</pre>
         </div> : null}
         {pendingApproval ? <Button disabled={!isLatest || !!stoppedStep} onClick={onReviewApproval} size="sm" type="button" variant="outline" className="w-fit">{t("ui.chat.execution-turn-details.returnToChatToApprove")}</Button> : null}
-        {!terminal && part.state === "output-available" && part.output !== undefined ? <div className="flex min-w-0 flex-col gap-1">
+        {!terminal && !edit && part.state === "output-available" && part.output !== undefined ? <div className="flex min-w-0 flex-col gap-1">
           <p className="text-[11px] text-muted-foreground">{t("ui.chat.execution-turn-details.executionResult")}</p>
           <pre className="execution-code chat-list-scroll">{safeJson(part.output)}</pre>
         </div> : null}

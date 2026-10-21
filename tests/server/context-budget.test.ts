@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { ModelMessage } from "ai";
-import { assertContextFits, contextBudget, estimateContextTokens } from "@/lib/models/context-budget";
+import type { ModelMessage, UIMessage } from "ai";
+import { createHash } from "node:crypto";
+import { assertContextFits, contextBudget, estimateContextTokens, estimateTextTokens } from "@/lib/models/context-budget";
 import { createStepContext, modelHistoryRecords } from "@/lib/chat/step-context";
+import { buildChatContext } from "@/lib/chat/context";
+import { summaryCapacity } from "@/lib/chat/task-summary";
 import { preferencesSchema, defaultModelPreferences } from "@/lib/models/preferences-schema";
 
 const user: ModelMessage = { role: "user", content: "Fix the bug. Preserve the public API and verify the result." };
 function block(id: string, size = 3500): ModelMessage[] { return [
   { role: "assistant", content: [{ type: "tool-call", toolName: "runTerminalCommand", toolCallId: id, input: { command: `node test-${id}.cjs` } }] },
-  { role: "tool", content: [{ type: "tool-result", toolName: "runTerminalCommand", toolCallId: id, output: { type: "json", value: { status: "completed", exitCode: 2, stdout: "progress\n".repeat(Math.ceil(size / 9)) + `error TS2304 ${id}\nTests: 2 failed`, fileChanges: { complete: true, files: [{ kind: "modified", path: "src/math.ts" }] } } } }] },
+  { role: "tool", content: [{ type: "tool-result", toolName: "runTerminalCommand", toolCallId: id, output: { type: "json", value: { status: "completed", exitCode: 2, stdout: `progress ${"0".repeat(22)}\n`.repeat(Math.ceil(size / 32)) + `error TS2304 ${id}\nTests: 2 failed`, fileChanges: { complete: true, files: [{ kind: "modified", path: "src/math.ts" }] } } } }] },
 ]; }
 
 test("model capacity uses catalog limits, configurable reductions, and a labelled unknown planning ceiling", () => {
@@ -26,9 +29,69 @@ test("model capacity uses catalog limits, configurable reductions, and a labelle
 test("input accounting includes system prompts, tools, unicode, and attachments", () => {
   const budget = contextBudget({ contextLength: 4096 });
   assert.ok(estimateContextTokens("中文🙂") > estimateContextTokens("abc"));
-  assert.throws(() => assertContextFits(budget, { system: "x".repeat(4000), messages: [user] }), { code: "CONTEXT_LIMIT" });
-  assert.throws(() => assertContextFits(budget, { messages: [user], tools: [{ inputSchema: { description: "x".repeat(4000) } }] }), { code: "CONTEXT_LIMIT" });
+  assert.throws(() => assertContextFits(budget, { system: "0".repeat(4000), messages: [user] }), { code: "CONTEXT_LIMIT" });
+  assert.throws(() => assertContextFits(budget, { messages: [user], tools: [{ inputSchema: { description: "0".repeat(4000) } }] }), { code: "CONTEXT_LIMIT" });
   assert.throws(() => assertContextFits(budget, { attachment: new Uint8Array(16_000) }), { code: "CONTEXT_LIMIT" });
+});
+
+test("the character-class estimate stays below byte counting for text yet never undercounts dense or random input", () => {
+  const prose = "The build failed because the helper module was renamed during the refactor.";
+  const code = "export function add(a: number, b: number) { return a + b; }";
+  for (const text of [prose, code]) {
+    assert.ok(estimateTextTokens(text) < Buffer.byteLength(text, "utf8") / 2);
+    assert.ok(estimateTextTokens(text) >= text.split(/\s+/).length);
+  }
+  assert.equal(estimateTextTokens("0".repeat(1000)), 1000, "each digit and symbol is a token");
+  assert.equal(estimateTextTokens("{}".repeat(500)), 1000);
+  assert.equal(estimateTextTokens("中".repeat(100)), 150);
+  assert.equal(estimateTextTokens("🙂".repeat(100)), 400);
+  // Mixed-case random text tokenizes at roughly 0.7 tokens per character.
+  const random = Array.from({ length: 200 }, (_, index) => createHash("sha256").update(String(index)).digest("base64")).join("");
+  assert.ok(estimateTextTokens(random) >= random.length * 0.7);
+  assert.equal(estimateContextTokens("abc", 2), 2 * estimateContextTokens("abc"));
+  assert.equal(estimateContextTokens("abc", 0.5), estimateContextTokens("abc"), "calibration never scales below the estimate");
+  assert.equal(contextBudget().counting, "character-class-estimate");
+});
+
+test("summary capacity grows with the model window within fixed bounds", () => {
+  const small = summaryCapacity(contextBudget({ contextLength: 12_000 }));
+  assert.ok(small.outputTokens <= 2048); assert.ok(small.inputTokens <= contextBudget({ contextLength: 12_000 }).inputTokens);
+  const medium = summaryCapacity(contextBudget({ contextLength: 128_000, maxOutputTokens: 16_384 }));
+  assert.equal(medium.outputTokens, 4000); assert.ok(medium.inputTokens >= 24_000);
+  const large = summaryCapacity(contextBudget({ contextLength: 1_000_000, maxOutputTokens: 32_000 }));
+  assert.equal(large.outputTokens, 8192); assert.equal(large.inputTokens, 128_000);
+  assert.ok(large.stateTokens >= large.outputTokens * 4 && large.stateTokens <= large.inputTokens / 2);
+  assert.equal(summaryCapacity(contextBudget({ contextLength: 1_000_000, maxOutputTokens: 1024 })).outputTokens, 1024, "never above the model's output limit");
+});
+
+test("the history window is measured in estimated tokens when a token budget is given", () => {
+  const turn = (id: string, role: "user" | "assistant", text: string): UIMessage => ({ id, role, parts: [{ type: "text", text }] });
+  const messages = [...Array.from({ length: 10 }, (_, index) => turn(`m${index}`, index % 2 ? "assistant" : "user", "plain english prose ".repeat(50))), turn("latest", "user", "continue")];
+  const characters = buildChatContext(messages, { maxMessages: messages.length, maxCharacters: 3000 });
+  const tokens = buildChatContext(messages, { maxMessages: messages.length, maxTokens: 3000 });
+  assert.ok(tokens.messages.length > characters.messages.length, "the same number of tokens holds more prose than characters");
+  assert.equal(tokens.omittedMessages, 0);
+  const dense = buildChatContext(messages.map(message => message.id === "latest" ? message : turn(message.id, message.role as "user" | "assistant", "1234567890".repeat(100))), { maxMessages: messages.length, maxTokens: 3000 });
+  assert.ok(dense.omittedMessages > 0, "dense content is still bounded");
+  assert.equal(dense.messages.at(-1)!.id, "latest");
+});
+
+test("provider-reported input usage raises later step estimates for the stream and is never lowered", async () => {
+  const messages = [user, ...block("one"), ...block("two")];
+  const manager = createStepContext({ budget: contextBudget({ contextLength: 40_000 }), system: "system", summarize: async () => "state" });
+  await manager.prepare(messages);
+  assert.equal(manager.report.compactions, 0);
+  const first = manager.report.estimatedInputTokens;
+  manager.observeUsage(undefined);
+  manager.observeUsage(first / 2);
+  assert.equal(manager.report.usageCalibration, 1);
+  manager.observeUsage(first * 5);
+  assert.ok(manager.report.usageCalibration > 4.9);
+  await manager.prepare(messages);
+  assert.ok(manager.report.compactions >= 1, "the calibrated estimate reaches the compaction trigger");
+  assert.ok(manager.report.estimatedInputTokens <= manager.report.budget.inputTokens);
+  manager.observeUsage(1);
+  assert.ok(manager.report.usageCalibration > 4.9);
 });
 
 test("successive tool steps compact completed pairs while preserving the user and newest protocol verbatim", async () => {
@@ -63,13 +126,13 @@ test("compression failures retain labelled bounded evidence without replaying to
 
 test("pending approvals and their complete input are never shortened to force a request through", async () => {
   const pending: ModelMessage = { role: "assistant", content: [
-    { type: "tool-call", toolName: "runTerminalCommand", toolCallId: "pending", input: { command: "x".repeat(16_000) } },
+    { type: "tool-call", toolName: "runTerminalCommand", toolCallId: "pending", input: { command: "0".repeat(16_000) } },
     { type: "tool-approval-request", approvalId: "approve", toolCallId: "pending" },
   ] };
   const manager = createStepContext({ budget: contextBudget({ contextLength: 12_000 }), system: "system", summarize: async () => "summary" });
   const messages = [user, ...block("completed"), pending];
   await assert.rejects(manager.prepare(messages), { code: "CONTEXT_LIMIT" });
-  assert.equal(JSON.stringify(pending).includes("x".repeat(16_000)), true);
+  assert.equal(JSON.stringify(pending).includes("0".repeat(16_000)), true);
   assert.deepEqual(modelHistoryRecords(block("evidence")).some(record => record.includes('"exitCode":2')), true);
 });
 

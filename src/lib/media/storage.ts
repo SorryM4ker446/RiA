@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, open, readdir, realpath, rename, unlink, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import type { MediaAsset } from "@prisma/client";
 import { db } from "@/db";
 import { ApiError } from "@/lib/server/api-error";
@@ -9,6 +8,7 @@ import { MEDIA_LIMITS } from "@/lib/media/limits";
 import { ASSET_ID_PATTERN, mediaUrl, type MediaReference } from "@/lib/media/message-codec";
 import { generationRecipeSchema, type GenerationRecipe } from "@/lib/media/generation-recipe";
 import { LOCAL_WORKSPACE_ID } from "@/lib/local/workspace";
+import { localDataDirectory } from "@/lib/local/data-directory";
 
 const extensions: Record<string, string> = {
   "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif",
@@ -23,10 +23,7 @@ export function getMediaDirectory(): string {
     if (!isAbsolute(configured)) throw new ApiError({ code: "CONFIGURATION_ERROR", message: "MEDIA_DIRECTORY must be absolute" });
     return resolve(configured);
   }
-  const url = process.env.DATABASE_URL || "";
-  const databaseFile = url.startsWith("file://") ? fileURLToPath(url) : url.startsWith("file:") ? url.slice(5) : "";
-  if (!isAbsolute(databaseFile)) throw new ApiError({ code: "CONFIGURATION_ERROR", message: "Media storage requires an absolute local SQLite path" });
-  return join(dirname(databaseFile), "media");
+  return join(localDataDirectory("Media storage"), "media");
 }
 
 /**

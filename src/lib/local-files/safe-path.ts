@@ -164,7 +164,7 @@ function extensionOf(name: string): string {
  * of being reported as an escape, which would be misleading about what
  * happened.
  */
-function assertRelativeName(relative: string): string {
+function assertRelativeName(relative: string, options: { dotNames?: boolean } = {}): string {
   const trimmed = relative.trim().replace(/\\/g, "/");
   if (isNetworkLocation(trimmed)) {
     throw new LocalFileRefused("network-location", "Network locations are not available.");
@@ -192,7 +192,7 @@ function assertRelativeName(relative: string): string {
     if (segment.includes(":")) {
       throw new LocalFileRefused("traversal", "That name is not a plain file name.");
     }
-    if (segment.startsWith(".")) {
+    if (segment.startsWith(".") && !options.dotNames) {
       throw new LocalFileRefused("hidden", "Hidden files and folders are not available.");
     }
     if (segment.length > LOCAL_FILE_LIMITS.nameLength) {
@@ -327,4 +327,49 @@ export async function resolveWithinGrant(
     isFile: stats?.isFile() ?? true,
     isDirectory: stats?.isDirectory() ?? false
   };
+}
+
+// Repository internals and credential material stay out of project file tools.
+// The terminal can still reach them; this keeps secrets from being sent to the
+// model by an ordinary read, rather than acting as a permission boundary.
+const SENSITIVE_DIRECTORIES = new Set([".git", ".ssh", ".aws", ".azure", ".gnupg", ".kube", ".docker"]);
+const SENSITIVE_FILES = new Set([".npmrc", ".netrc", ".pypirc", ".git-credentials", ".pgpass", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"]);
+const SENSITIVE_EXTENSIONS = new Set([".pem", ".key", ".pfx", ".p12", ".keystore", ".jks", ".kdbx"]);
+
+export function isSensitiveProjectPath(relative: string): boolean {
+  const segments = relative.toLowerCase().split("/");
+  const name = segments.at(-1) ?? "";
+  if (segments.slice(0, -1).some(segment => SENSITIVE_DIRECTORIES.has(segment)) || SENSITIVE_DIRECTORIES.has(name)) return true;
+  if (SENSITIVE_FILES.has(name) || SENSITIVE_FILES.has(name.replace(/\.pub$/, ""))) return true;
+  if (/^\.env(\..+)?$/.test(name) && !/\.(example|sample|template|dist)$/.test(name)) return true;
+  return SENSITIVE_EXTENSIONS.has(extensionOf(name));
+}
+
+/**
+ * Resolve a project file for the text read/edit tools of a terminal-enabled
+ * folder: any extension and dot-named configuration is allowed, apart from
+ * repository internals and credentials. Containment, traversal, alternate
+ * data stream and link checks are the same as for every other grant path.
+ */
+export async function resolveProjectFile(grant: { realPath: string }, relative: string, mode: "read" | "write"): Promise<GrantedTarget> {
+  const root = grant.realPath;
+  if (isBlockedLocation(root)) throw new LocalFileRefused("blocked-location", "This location is not available.");
+  const name = assertRelativeName(relative, { dotNames: true });
+  if (isSensitiveProjectPath(name)) throw new LocalFileRefused("sensitive", "Repository internals and credential files are not available to file tools.");
+  const candidate = path.resolve(root, ...name.split("/"));
+  const realParent = await realPathOf(path.dirname(candidate)).catch(() => {
+    throw new LocalFileRefused("not-found", "The parent folder does not exist.");
+  });
+  if (!isSameOrInside(realParent, root)) throw new LocalFileRefused("symlink-escape", "That name does not resolve inside the granted directory.");
+  if (isBlockedLocation(realParent)) throw new LocalFileRefused("blocked-location", "This location is not available.");
+  const target = path.join(/*turbopackIgnore: true*/ realParent, path.basename(candidate));
+  const stats = await stat(target).catch(() => null);
+  const absolutePath = stats ? await realPathOf(target) : target;
+  if (!isSameOrInside(absolutePath, root)) throw new LocalFileRefused("symlink-escape", "That name does not resolve inside the granted directory.");
+  const relativePath = path.relative(root, absolutePath).split(path.sep).join("/") || path.basename(absolutePath);
+  if (isSensitiveProjectPath(relativePath)) throw new LocalFileRefused("sensitive", "Repository internals and credential files are not available to file tools.");
+  if (mode === "read" && !stats) throw new LocalFileRefused("not-found", "That file does not exist.");
+  if (stats && !stats.isFile()) throw new LocalFileRefused("not-a-file", "Only a file can be used here.");
+  if (stats && stats.size > LOCAL_FILE_LIMITS.fileBytes) throw new LocalFileRefused("too-large", "This file is larger than the limit for a single read.");
+  return { absolutePath, relativePath, byteSize: stats?.size ?? 0, isFile: true, isDirectory: false };
 }

@@ -138,6 +138,18 @@ if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
       const base = { id: "offline-completion", model: body.model, usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } };
       if (body.modalities?.includes("image")) return JSON.stringify({ ...base, choices: [{ index: 0, message: { role: "assistant", content: "", images: [{ type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=" } }] }, finish_reason: "stop" }] });
       if (body.stream) {
+        // Read README.md, then propose an exact edit bound to the hash that read returned.
+        const editResults = body.messages.filter(message => message.role === "tool");
+        if (prompt.includes("OFFLINE_PROJECT_EDIT") && editResults.length < 2) {
+          const grantId = /GRANT_ID=([a-zA-Z0-9_-]+)/.exec(prompt)?.[1];
+          const name = editResults.length ? "editProjectFile" : "readProjectFile";
+          if (!body.tools?.some(tool => tool.function?.name === name)) throw new Error(`${name} was not offered to the fixture model`);
+          const hash = /\\?"hash\\?":\\?"([0-9a-f]{16})/.exec(JSON.stringify(editResults.at(-1)?.content ?? ""))?.[1];
+          const args = editResults.length
+            ? { grantId, path: "README.md", expectedHash: hash, edits: [{ oldText: "# 旧标题", newText: "# 新标题" }] }
+            : { grantId, path: "README.md" };
+          return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: `project-edit-call-${editResults.length}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
+        }
         const terminalResults = body.messages.filter(message => message.role === "tool").length;
         if ((prompt.includes("OFFLINE_TERMINAL_COMMAND") || fileEditRequest) && terminalResults < (prompt.includes("TERMINAL_TWICE") ? 2 : 1)) {
           const name = "runTerminalCommand";

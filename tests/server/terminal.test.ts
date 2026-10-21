@@ -206,8 +206,11 @@ test("successful commands cap output and report truncation", async () => {
   const command = win ? "[Console]::Write(('x' * 100000))" : "head -c 100000 /dev/zero | tr '\\000' 'x'";
   const result = await runTerminalCommand(await prepared(grant.id, command));
   assert.equal(result.status, "completed"); assert.equal(result.exitCode, 0);
-  assert.equal(Buffer.byteLength(result.stdout), TERMINAL_LIMITS.outputBytes);
+  // The shared head plus this stream's tail is captured; the omitted middle is marked.
+  assert.equal(result.stdout.replace(/[^x]/g, "").length, TERMINAL_LIMITS.outputBytes - TERMINAL_LIMITS.tailBytes);
+  assert.match(result.stdout, new RegExp(`\\[${100_000 - TERMINAL_LIMITS.outputBytes + TERMINAL_LIMITS.tailBytes} bytes omitted from this capture\\]`));
   assert.equal(result.truncated, true);
+  assert.equal(result.log?.stdoutBytes, 100_000);
 });
 
 test("permission changes and re-granting invalidate pending approvals", async () => {

@@ -53,9 +53,10 @@ Chat submissions send at most the latest 100 loaded messages. The existing serve
 
 The memory and retrieval endpoints remain deliberate local integration contracts even though the UI uses the knowledge page and tools. Missing or foreign detail records return `404`; unauthenticated requests return `401`. Mutations use the same bounded JSON parsing and same-origin checks as UI requests. Embedding configuration is optional; keyword retrieval remains available without a provider key.
 
-File actions are offered through `runTerminalCommand` with separate folder terminal
-permission and the selected full-access or per-command approval mode. Completed
-replies can show observed file changes from terminal results.
+File actions are offered through `runTerminalCommand`, `readProjectFile` and
+`editProjectFile` with separate folder terminal permission and the selected
+full-access or per-command approval mode. Completed replies can show observed
+file changes from terminal results and exact edits.
 `POST /api/terminal/files/resolve` accepts `{ grantId, path }` and resolves an
 existing regular file inside a currently terminal-enabled grant; the desktop
 bridge opens the returned canonical path after a user click. See [Terminal

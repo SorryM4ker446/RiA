@@ -20,7 +20,9 @@ export function estimatedCallCost(prompt: unknown, maxOutputTokens: number | und
 export async function beginModelAttempt(input: { mode: LibraryMode; ref: ModelRef; prompt?: unknown; maxOutputTokens?: number; fallback?: boolean; source?: CallSource; signal?: AbortSignal }) {
   input.signal?.throwIfAborted();
   const source = input.source ?? modelCallSource();
-  const background = source === "summary" || source === "scheduled";
+  // Summaries only run inside a chat request the user started and can stop, so
+  // they are attributed separately but share that request's foreground controls.
+  const background = source === "scheduled";
   const now = new Date(), id = randomUUID();
   return db.$transaction(async tx => {
     // Acquire SQLite's writer before reading counters; concurrent admissions

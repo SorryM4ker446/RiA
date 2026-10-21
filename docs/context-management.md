@@ -23,12 +23,38 @@ The automatic output reservation is at most 8,192 tokens and at most a quarter
 of the context window. Explicit output settings still respect catalog output
 limits and leave input and safety space. The output cap is sent to the provider.
 
-Counting currently uses a conservative UTF-8 byte estimate with request framing,
-including system instructions, tool JSON schemas, messages, summaries, retrieval
-evidence and materialized attachments. Binary attachments are also counted.
-This is an estimate, not a provider tokenizer or billing count. Large images and
-scripts can therefore reach the local planning ceiling earlier than the actual
-provider limit. Provider-added hidden context cannot be counted locally.
+Counting uses a character-class estimate with request framing, covering system
+instructions, tool JSON schemas, messages, summaries, retrieval evidence and
+materialized attachments. Runs of lowercase letters and spaces count a token per
+four characters and runs of capitals one per two; digits, punctuation and
+control characters count one each. Non-ASCII characters count half a token per
+UTF-8 byte, and characters outside the Basic Multilingual Plane count four. Each
+run is rounded up, so mixed-case random text such as base64 is not undercounted.
+Measured against the cl100k and o200k encodings, this overestimates prose, code
+and JSON by roughly 1.7-2x and Chinese by roughly 1.6x; the earlier UTF-8 byte
+count overestimated them 3-5x and 3x. Binary attachments still count one token
+per byte, so large images can reach the planning ceiling earlier than the actual
+provider limit. This is a planning estimate, not a provider tokenizer or billing
+count, and provider-added hidden context cannot be counted locally.
+
+Within a tool loop, the input tokens the provider reports for each step calibrate
+the later steps of the same stream. When the provider counts more than the
+estimate, the estimate is scaled up to match and is not scaled back down within
+that stream, so a model with a less efficient tokenizer compacts or refuses a
+later step instead of overflowing. The scale is saved in the execution details,
+including for turns that end in an error.
+
+Each turn also records its largest provider-to-estimate ratio for the model. The
+largest of the model's last 20 recorded ratios, never below one, scales the
+first step of later requests, the history window and summary batching. Ratios
+below one are recorded too, so an outlier ages out. This per-model calibration is
+a planning cache in its own table: it is not backed up, and missing or unreadable
+data falls back to the uncalibrated estimate.
+
+Earlier turns of the conversation may use half the input budget, measured in the
+same estimated tokens. Turns beyond that window are covered by the conversation
+summary and labelled excerpts; the per-step check then compacts within the
+request as needed.
 
 Every chat model step checks its budget, including steps after terminal or other
 tool results. Before a pending approval is claimed or executed, the complete
@@ -62,9 +88,21 @@ Older summary formats remain readable; extending their coverage carries their
 valid state forward while rebuilding from stored evidence. Concurrent history
 edits or newer summary coverage prevent an obsolete write from winning.
 
-Summarizer requests are themselves batched and bounded. Their output is capped
-at 2,048 tokens and they use existing background call and cost controls. Failure,
-timeout, incomplete output or an exhausted background allowance can leave
+Older-turn summaries receive every stored tool call of each message, each in the
+same bounded record form the in-stream compactor uses, which keeps status, exit
+code, errors, diagnostics and file changes ahead of long output. Summarizer
+requests are themselves batched and bounded. Summary room follows the model's
+window: output is a thirty-second of the context window, between 2,048 and 8,192
+tokens and never above the model's output limit, and each batch may use a
+quarter of the input budget, between 24,000 and 128,000 tokens. The timeout is
+60 seconds per 2,048 output tokens. A request may make at most **每次请求压缩调用上限**
+summary calls (default 20, in model call limits), shared by older-turn summaries
+and in-stream compaction; once used up, compaction keeps labelled excerpts, the
+request continues and its execution details state that the limit was reached.
+They run only within a chat request, are attributed as `summary` in
+usage and stop with that request, and are subject to the concurrency limit; they
+do not consume the daily background allowance or background cost ceilings,
+which apply to scheduled work. Failure, timeout or incomplete output can leave
 explicitly incomplete excerpts in place. Original records remain intact. Tool
 execution details record compaction counts and indicate excerpt fallback after
 reload. Cancellation prevents the next model request and summary write; already
@@ -78,8 +116,11 @@ marks an execution failed with `output-limit` rather than declaring it complete.
 - This does not add repeat-action detection or a default aggregate time, cost,
   failure or step ceiling. New tool runs and terminal commands still rely on
   manual cancellation, permissions and configured controls for those limits.
-- Terminal capture is still bounded to 64 KiB. Compaction cannot recover lost
-  output. Durable full-log artifacts and paged log reading are separate work.
+- Terminal output beyond the capture is recoverable only while its log exists:
+  logs expire after seven days, are bounded in size and require the folder's
+  terminal access. See [terminal tools](terminal-tools.md).
+- Estimates are calibrated from provider-reported usage, which providers may omit;
+  without it the first step relies on the character-class estimate alone.
 - The latest mandatory input, active reasoning or approved command may exceed a
   small model's budget. Such requests are refused without shortening the command.
 - A process or service restart interrupts active work; it does not automatically

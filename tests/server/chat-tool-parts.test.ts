@@ -21,6 +21,10 @@ after(async () => { await db.$disconnect(); cleanup(); });
 /** One input each tool's own schema accepts, so the part is valid for its tool. */
 const VALID_INPUTS: Record<string, unknown> = {
   runTerminalCommand: { grantId: "grant-1", command: "Get-Date" },
+  readTerminalLog: { logId: "8d9c6f0e-4b7a-4c1d-9e2f-3a5b6c7d8e9f", stream: "stdout", startLine: 1, lineCount: 50 },
+  readProjectFile: { grantId: "grant-1", path: "src/app.ts", startLine: 1, lineCount: 400 },
+  editProjectFile: { grantId: "grant-1", path: "src/app.ts", expectedHash: "0123456789abcdef", edits: [{ oldText: "a - b", newText: "a + b" }],
+    binding: { grantId: "grant-1", revision: "2026-10-21T00:00:00.000Z", cwd: "C:/project", path: "src/app.ts", beforeHash: "0123456789abcdef", afterHash: "fedcba9876543210", diff: "-a - b\n+a + b", added: 1, removed: 1, created: false } },
   saveMemory: { key: "units", value: "metric" },
   searchKnowledge: { query: "notes" },
   createTask: { title: "buy milk" },

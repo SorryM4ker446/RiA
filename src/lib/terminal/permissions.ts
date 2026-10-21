@@ -2,7 +2,8 @@ import { db } from "@/db";
 import { ApiError } from "@/lib/server/api-error";
 import { resolveGrant } from "@/lib/local-files/safe-path";
 import { terminalApprovalModeSchema, terminalRuntimeAllowed, type TerminalApprovalMode } from "./schema";
-import { stopTerminalCommandsForGrant } from "./runtime";
+import { activeTerminalSessionIds, stopTerminalCommandsForGrant } from "./runtime";
+import { removeTerminalLogsForGrant } from "./logs";
 
 export async function setTerminalPermission(id: string, enabled: boolean, revision: string, mode: TerminalApprovalMode = "approval") {
   const terminalApprovalMode = enabled ? terminalApprovalModeSchema.parse(mode) : "approval";
@@ -20,4 +21,5 @@ export async function setTerminalPermission(id: string, enabled: boolean, revisi
   if (!result.count) throw new ApiError({ code: "CONFLICT", message: "目录权限已变化，请刷新后重试。" });
   // Every permission change invalidates pending approvals and active commands.
   stopTerminalCommandsForGrant(id);
+  if (!enabled) await removeTerminalLogsForGrant(id, activeTerminalSessionIds()).catch(() => console.error("terminal.log.remove.failed"));
 }

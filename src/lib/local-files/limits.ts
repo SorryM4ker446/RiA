@@ -66,7 +66,9 @@ export type LocalFileRefusal =
   | "not-a-file"
   | "unsupported-format"
   | "too-large"
-  | "name-too-long";
+  | "name-too-long"
+  | "sensitive"
+  | "not-text";
 
 /**
  * A refusal the caller must not retry around.

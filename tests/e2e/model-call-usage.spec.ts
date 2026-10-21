@@ -91,7 +91,7 @@ test("model context limits persist, fit narrow layouts, and explain oversized re
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await model.screenshot({ path: join(directory, "mobile.png") });
   await page.goto(`${app.origin}/chat`);
-  await page.getByPlaceholder(/输入你的问题/).fill("large input ".repeat(3500));
+  await page.getByPlaceholder(/输入你的问题/).fill("large input 0123456789 ".repeat(2500));
   const rejected = page.waitForResponse(response => new URL(response.url()).pathname === "/api/chat" && response.request().method() === "POST");
   await page.getByRole("button", { name: "发送", exact: true }).click();
   expect((await rejected).status()).toBe(413);

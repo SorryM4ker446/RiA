@@ -1,5 +1,11 @@
 # Database migrations
 
+`20261021120000_model_context_calibration` adds a per-model cache of recent
+ratios between provider-reported and locally estimated input tokens, used to
+scale context planning for later requests. It is derived data: it is not part of
+workspace backups, and a missing or unreadable row falls back to the uncalibrated
+estimate. Older builds ignore the additional table.
+
 `20261020200000_agent_step_tool_call_id` adds an optional tool call identity to
 execution steps, allowing saved summaries to be enriched with the matching full
 tool message. Existing steps remain valid with a null identity; no historical

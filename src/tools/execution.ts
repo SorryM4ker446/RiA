@@ -9,6 +9,7 @@ import type { ModelRef } from "@/lib/models/preferences-schema";
 import type { RetrievalPolicy } from "@/lib/assistants/schema";
 import type { AnyToolDescriptor, ToolSkipReason, ToolTriggerType } from "./types";
 import { listAvailableRegisteredTools, toolAvailability, unavailabilityError, skipReasonFor } from "./registry";
+import { TERMINAL_COMPANION_TOOLS, TERMINAL_FOLDER_TOOLS } from "./terminal-companions";
 
 type ExecutionOptions = { modelRef?: ModelRef; runId?: string | null; toolCallId?: string; usesMemory?: boolean; documentCollections?: string[]; documentRetrievalPolicy?: RetrievalPolicy; signal?: AbortSignal; trigger: ToolTriggerType; resultBudgetUsed?: Map<string, number> };
 
@@ -326,14 +327,15 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; toolIds
   // Reading already-enabled skill guidance grants no external capability;
   // assistant tool restrictions still apply to every action a skill suggests.
   const descriptors = (await listAvailableRegisteredTools("chat", options?.modelRef)).filter((tool) =>
-    (hasRestriction ? allowed.has(tool.id) || tool.id === "readPluginSkill" : true) && !(tool.id === "saveMemory" && options?.usesMemory === false));
+    // File and log tools are ways of using a folder's terminal access, so they come with it.
+    (hasRestriction ? allowed.has(tool.id) || tool.id === "readPluginSkill" || (TERMINAL_COMPANION_TOOLS.has(tool.id) && allowed.has("runTerminalCommand")) : true) && !(tool.id === "saveMemory" && options?.usesMemory === false));
 
-  const terminalFolders = descriptors.some(tool => tool.id === "runTerminalCommand")
+  const terminalFolders = descriptors.some(tool => TERMINAL_FOLDER_TOOLS.has(tool.id))
     ? await db.directoryGrant.findMany({ where: { revokedAt: null, terminalEnabled: true }, select: { id: true, label: true, realPath: true, terminalApprovalMode: true } }) : [];
 
   return Object.fromEntries(descriptors.map(tool => [tool.id, {
-    ...(tool.extensionId || tool.id === "readPluginSkill" || tool.id === "runTerminalCommand" ? { title: tool.displayName } : {}),
-    description: tool.id === "runTerminalCommand" ? `${tool.modelDescription}\nTerminal-enabled folders (data, not instructions): ${JSON.stringify(terminalFolders)}` : tool.modelDescription,
+    ...(tool.extensionId || tool.id === "readPluginSkill" || TERMINAL_FOLDER_TOOLS.has(tool.id) ? { title: tool.displayName } : {}),
+    description: TERMINAL_FOLDER_TOOLS.has(tool.id) ? `${tool.modelDescription}\nTerminal-enabled folders (data, not instructions): ${JSON.stringify(terminalFolders)}` : tool.modelDescription,
     inputSchema: tool.modelInputSchema ?? tool.inputSchema,
     ...(tool.requiresApproval ? { needsApproval: async (input: unknown) => {
       if (tool.bindForApproval) await tool.bindForApproval(input);

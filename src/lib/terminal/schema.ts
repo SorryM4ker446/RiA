@@ -1,6 +1,13 @@
 import { z } from "zod";
 
-export const TERMINAL_LIMITS = { outputBytes: 64 * 1024, concurrent: 2, retainedSessions: 24, retentionMs: 30 * 60_000 } as const;
+// outputBytes bounds the in-memory capture; tailBytes of it keep each stream's latest output.
+export const TERMINAL_LIMITS = { outputBytes: 64 * 1024, tailBytes: 8 * 1024, concurrent: 2, retainedSessions: 24, retentionMs: 30 * 60_000 } as const;
+/** Where the complete output of a command that exceeded the capture was saved. */
+export const terminalLogReferenceSchema = z.object({
+  id: z.uuid(), stdoutBytes: z.number().int().nonnegative(), stderrBytes: z.number().int().nonnegative(),
+  complete: z.boolean(), expiresAt: z.string(),
+});
+export type TerminalLogReference = z.infer<typeof terminalLogReferenceSchema>;
 export const terminalApprovalModeSchema = z.enum(["approval", "full-access"]);
 export type TerminalApprovalMode = z.infer<typeof terminalApprovalModeSchema>;
 export const terminalBindingSchema = z.strictObject({
@@ -29,6 +36,8 @@ export type TerminalSessionView = {
   stdout: string; stderr: string; exitCode: number | null; truncated: boolean;
   startedAt: string; finishedAt: string | null;
   fileChanges?: TerminalFileChanges;
+  /** Present when output exceeded the capture and a full log was kept. */
+  log?: TerminalLogReference;
 };
 // The complete command belongs to the tool input and the live session view.
 // Echoing it in each result duplicates large scripts throughout chat history.

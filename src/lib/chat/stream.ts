@@ -19,7 +19,8 @@ import { decodeDocumentScope } from "@/lib/documents/scope";
 import { contextBudget } from "@/lib/models/context-budget";
 import { modelRefKey } from "@/lib/models/preferences-schema";
 import { createStepContext } from "./step-context";
-import { summarizeTaskState } from "./task-summary";
+import { summarizeTaskState, type CompactionAllowance } from "./task-summary";
+import { contextCalibration, recordContextCalibration } from "@/lib/models/context-calibration";
 type TurnOutcome = { finishReason: unknown; generationFailed: boolean; aborted: boolean };
 
 /**
@@ -59,7 +60,7 @@ async function costOfTurn(params: { usage: unknown; providerMetadata: unknown; m
   }
 }
 
-export async function streamChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; documentSources?: DocumentSource[]; documentDiagnostics?: DocumentDiagnostics; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean }) {
+export async function streamChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; documentSources?: DocumentSource[]; documentDiagnostics?: DocumentDiagnostics; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean; compactionAllowance?: CompactionAllowance }) {
   const { input, conversation, systemPrompt, modelMessages, toolsEnabled, signal } = params;
   let answerText = "";
   const { modelRef, body, messages } = input;
@@ -100,8 +101,10 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
   const toolDefinitions = tools ? await Promise.all(Object.entries(tools).map(async ([name, tool]) => tool.type === "provider"
     ? { type: "provider", name, id: tool.id, args: tool.args }
     : { type: "function", name, description: tool.description, inputSchema: await asSchema(tool.inputSchema).jsonSchema })) : undefined;
-  const stepContext = createStepContext({ budget, system: systemPrompt, tools: toolDefinitions, signal,
-    summarize: (records, previous) => summarizeTaskState({ modelRef, records, previous, signal }),
+  const calibration = await contextCalibration(modelRef);
+  const contextReport = () => ({ ...stepContext.report, ...(params.compactionAllowance?.exhausted ? { compactionAllowanceExhausted: true } : {}) });
+  const stepContext = createStepContext({ budget, system: systemPrompt, tools: toolDefinitions, signal, calibration,
+    summarize: (records, previous) => summarizeTaskState({ modelRef, records, previous, signal, allowance: params.compactionAllowance }),
   });
   try {
     await stepContext.prepare(modelMessages);
@@ -124,6 +127,7 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
     messages: modelMessages,
     maxOutputTokens: budget.outputTokens,
     prepareStep: ({ messages: stepMessages }) => stepContext.prepare(stepMessages),
+    onStepFinish: ({ usage }) => stepContext.observeUsage(usage.inputTokens),
     abortSignal: signal,
     onChunk: ({ chunk }) => { if (chunk.type === "text-delta") answerText += chunk.text; },
     ...(toolsEnabled
@@ -161,7 +165,7 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
     onError: (error) => streamError(error instanceof ApiError ? error : new ApiError({ code: "UPSTREAM_FAILED", message: t("lib.chat.providerUnavailable") })),
     originalMessages: messages,
     messageMetadata: ({ part }) => part.type === "start" ? { documentSources: params.documentSources ?? [], documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}` }
-      : part.type === "finish" ? { documentSources: markDocumentCitations(params.documentSources ?? [], answerText), documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}`, contextBudget: stepContext.report } : undefined,
+      : part.type === "finish" ? { documentSources: markDocumentCitations(params.documentSources ?? [], answerText), documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}`, contextBudget: contextReport() } : undefined,
     onFinish: async ({ responseMessage, isAborted }) => {
       let persistenceFailed = false;
       try {
@@ -172,11 +176,14 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
           unavailableTools: params.unavailableTools,
           runId: params.runId,
           usesMemory: params.usesMemory !== false,
+          contextReport: contextReport(),
         });
       } catch (error) {
         persistenceFailed = true;
         throw error;
       } finally {
+        // A planning cache: failing to update it must not affect the turn.
+        await recordContextCalibration(modelRef, stepContext.observedRatio()).catch(() => console.error("chat.calibration.record.failed"));
         await closeRun({
           finishReason: completedTurn?.outcome.finishReason ?? null,
           generationFailed: generationFailed || persistenceFailed,
