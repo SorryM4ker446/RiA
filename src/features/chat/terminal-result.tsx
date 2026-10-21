@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import type { TerminalCommandResult, TerminalInput, TerminalSessionView } from "@/lib/terminal/schema";
+import { CommandText } from "./command-text";
 
 const labels = (): Record<TerminalSessionView["status"], string> => ({ running: t("tools.runningPrefix"), completed: t("chat.tasks.statusDone"), failed: t("chatApi.runToolFailed"), stopped: t("ui.chat.terminal-result.stopped"), "timed-out": t("ui.chat.terminal-result.timedOut") });
 
@@ -67,7 +68,7 @@ export function TerminalResult({ input, output, active }: { input: unknown; outp
         {stopping ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Square data-icon="inline-start" />}{t("ui.chat.terminal-result.stopCommand")}</Button> : null}
     </div>
     <p className="break-all text-muted-foreground">{t("ui.chat.approval-dock.workingDirectory")}{proposal?.binding?.cwd ?? t("ui.chat.approval-dock.waitingForDirectoryValidation")}</p>
-    <pre aria-label={t("ui.chat.approval-dock.powerShellCommand")} className="chat-list-scroll max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-background p-3 font-mono text-xs">{proposal?.command}</pre>
+    <pre aria-label={t("ui.chat.approval-dock.powerShellCommand")} className="chat-list-scroll max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-background p-3 font-mono text-xs"><CommandText command={proposal?.command} /></pre>
     {result ? <>
       <pre aria-label={t("ui.chat.terminal-result.terminalOutput")} aria-live="off" className="chat-list-scroll max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-background p-3 font-mono text-xs">{result.stdout || (result.status === "running" ? t("ui.chat.terminal-result.waitingForOutput") : t("ui.chat.terminal-result.noStandardOutput"))}</pre>
       {result.stderr ? <pre aria-label={t("ui.chat.terminal-result.terminalErrorOutput")} className="chat-list-scroll max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md border p-3 font-mono text-xs text-destructive">{result.stderr}</pre> : null}

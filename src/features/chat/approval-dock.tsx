@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
 import { isToolPart, safeJson, type ToolPart } from "./page-utils";
 import type { ChatState } from "./use-chat-state";
+import { CommandText } from "./command-text";
 
 type Props = Pick<ChatState, "messages" | "isPending" | "addToolApprovalResponse"> & { onDetails: (messageId: string) => void };
 
@@ -62,7 +63,7 @@ function ApprovalRequest({ part, count, disabled, respond, onDetails }: {
     <div id={detailsId} className="approval-details" data-state={expanded ? "open" : "closed"} aria-hidden={!expanded} inert={!expanded}>
       <div className="min-h-0 overflow-hidden">
         <CardContent className="px-3 pb-1 pt-0">
-          {detailsState !== "unopened" ? <pre aria-label={terminal ? t("ui.chat.approval-dock.powerShellCommand") : t("ui.chat.approval-dock.parametersAwaitingApproval")} className="execution-code chat-list-scroll" tabIndex={expanded ? 0 : -1}>{command}</pre> : null}
+          {detailsState !== "unopened" ? <pre aria-label={terminal ? t("ui.chat.approval-dock.powerShellCommand") : t("ui.chat.approval-dock.parametersAwaitingApproval")} className="execution-code chat-list-scroll" tabIndex={expanded ? 0 : -1}>{terminal ? <CommandText command={command} /> : command}</pre> : null}
         </CardContent>
       </div>
     </div>

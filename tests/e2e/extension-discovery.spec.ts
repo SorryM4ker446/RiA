@@ -6,6 +6,7 @@ import { startStandaloneServer } from "../helpers/standalone-server";
 import { startExtensionService } from "../helpers/extension-service";
 import { browserApi, browserData } from "../helpers/browser-api";
 import { configureOfflineModels } from "../helpers/model-fixture";
+import { trackChatStreams, waitForChatStream, isContinuationHeld, releaseContinuation } from "../helpers/chat-stream";
 
 type App = { runtime: Awaited<ReturnType<typeof startStandaloneServer>>; service: Awaited<ReturnType<typeof startExtensionService>> };
 const test = base.extend<{ app: App }>({ app: async ({}, provide) => {
@@ -83,12 +84,21 @@ test("official metadata discovery adds a disabled MCP connection and uses the ex
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "Registry 工具调用验证" })).body.data;
   await page.evaluate(id => localStorage.setItem("chat:last-active-id", id), chat.id);
   await page.goto(`${app.runtime.origin}/chat`);
+  await trackChatStreams(page, true);
   await page.getByPlaceholder(/输入你的问题/).fill("OFFLINE_EXTENSION_TOOL"); await page.getByRole("button", { name: "发送", exact: true }).click();
   const approve = page.getByRole("button", { name: "批准", exact: true }); await expect(approve).toBeEnabled();
   expect(app.service.state.calls).toHaveLength(0);
   await approve.click(); await expect.poll(() => app.service.state.calls.length).toBe(1);
   expect(app.service.state.calls[0].authorization).toBe("Bearer synthetic-registry-token");
   await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes('"state":"output-available"'))).toBe(true);
+  // Persistence precedes the end of the continuation. Restart only after the
+  // client has consumed it, otherwise the test itself resets an active request.
+  await expect.poll(() => isContinuationHeld(page)).toBe(true);
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toHaveCount(0);
+  await releaseContinuation(page);
+  await waitForChatStream(page);
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
+  await page.goto("about:blank");
   await app.runtime.restart(); await page.goto(`${app.runtime.origin}/extensions`);
   await expect(page.getByTestId(`extension-${row.id}`)).toContainText("已启用");
   expect(errors).toEqual([]); expect(consoles).toEqual([]);
