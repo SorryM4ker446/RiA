@@ -31,9 +31,13 @@ export async function parseDocument(bytes: Uint8Array, format: DocumentFormat, s
   if ((state.__documentParsers ?? 0) >= 2) throw new ApiError({ code: "SERVICE_UNAVAILABLE", message: t("lib.documents.parserBusy"), headers: { "Retry-After": "2" } });
   state.__documentParsers = (state.__documentParsers ?? 0) + 1;
   let worker: Worker | undefined;
+  let phase = "starting";
+  const phases = new Set(["ready", "pdf-import", "pdf-document", "pdf-text", "pdf-cleanup"]);
   try {
     worker = new Worker(DOCUMENT_PARSER_WORKER, {
-      eval: true, execArgv: [], env: {}, stdout: true, stderr: true,
+      // PDF.js imports canvas even for text extraction. Its native font scan
+      // runs at module load, before useSystemFonts: false can take effect.
+      eval: true, execArgv: [], env: { DISABLE_SYSTEM_FONTS_LOAD: "1" }, stdout: true, stderr: true,
       resourceLimits: { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 16 },
       workerData: { bytes, format, escapeMarkdown: options?.escapeMarkdown ?? false, limits: DOCUMENT_LIMITS, messages: documentParserMessages(),
         pdfPath: runtimeRequire.resolve("pdfjs-dist/legacy/build/pdf.mjs"),
@@ -45,7 +49,12 @@ export async function parseDocument(bytes: Uint8Array, format: DocumentFormat, s
     worker.stderr?.resume();
     const activeWorker = worker;
     return await new Promise<DocumentPage[]>((resolve, reject) => {
-      const timeout = setTimeout(() => finish(new ApiError({ code: "TIMEOUT", message: t("lib.documents.parseTimeout") })), DOCUMENT_LIMITS.parseTimeoutMs);
+      const timeout = setTimeout(() => {
+        // Fixed phase names locate a stalled worker without retaining document
+        // names, contents or dependency error strings in diagnostics.
+        console.warn("document.parser.timeout", { format, phase });
+        finish(new ApiError({ code: "TIMEOUT", message: t("lib.documents.parseTimeout") }));
+      }, DOCUMENT_LIMITS.parseTimeoutMs);
       const abort = () => finish(new ApiError({ code: "VALIDATION_ERROR", message: t("lib.documents.importCancelled") }));
       function finish(error?: Error, pages?: DocumentPage[]) {
         clearTimeout(timeout);
@@ -55,7 +64,8 @@ export async function parseDocument(bytes: Uint8Array, format: DocumentFormat, s
       signal?.addEventListener("abort", abort, { once: true });
       activeWorker.once("error", () => finish(new ApiError({ code: "VALIDATION_ERROR", message: t("lib.documents.parseFailed") })));
       activeWorker.once("exit", () => finish(new ApiError({ code: "VALIDATION_ERROR", message: t("lib.documents.workerEnded") })));
-      activeWorker.once("message", (result) => {
+      activeWorker.on("message", (result) => {
+        if (phases.has(result?.phase)) { phase = result.phase; return; }
         if (result.code) finish(new ApiError({ code: result.code, message: result.message }));
         else {
           const parsed = documentPagesSchema.safeParse(result.pages);

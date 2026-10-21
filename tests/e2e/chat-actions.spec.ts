@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
 import { openExecutionDetails } from "../helpers/execution-records";
+import { createHash } from "node:crypto";
 
 type HistoryMessage = { id: string; clientMessageId: string; role: "user" | "assistant"; content: string; createdAt: string };
 const now = "2026-08-30T00:00:00Z";
@@ -178,6 +179,50 @@ for (const width of [1440, 390]) test(`long approval commands are mounted on rev
   await expect(code).toBeVisible();
   expect(await code.evaluate((element, expected) => element.textContent === expected, command)).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+for (const width of [1440, 390]) test(`saved long terminal commands remain complete, selectable and scrollable at ${width}px`, async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
+  await page.setViewportSize({ width, height: 844 });
+  const command = "# 长脚本🙂\n".repeat(180_000) + "Write-Output 'complete-command-end'";
+  expect(Buffer.byteLength(command)).toBeGreaterThan(2 * 1024 * 1024);
+  const commandHash = createHash("sha256").update(command).digest("hex");
+  await mockHistory(page, [userMessage, { ...assistantMessage, content: "__ASSISTANT_TOOL_MESSAGE__:" + JSON.stringify({
+    type: "assistant-tool-message", text: "Completed commands",
+    tools: [0, 1].map(index => ({ toolName: "runTerminalCommand", toolCallId: `saved-long-${index}`, state: "output-available",
+      input: { command, binding: { cwd: "D:\\Projects\\ria-demo" } },
+      output: { status: "completed", stdout: "terminal-ready-你好", exitCode: 0 } })),
+  }) }]);
+  await page.goto("/chat");
+  await openExecutionDetails(page);
+  const scripts = page.getByLabel("PowerShell 命令", { exact: true });
+  await expect(scripts).toHaveCount(2);
+  await expect(page.getByLabel("终端输出", { exact: true })).toHaveCount(2);
+  const hashes = await scripts.evaluateAll(async nodes => {
+    const hash = async (text: string) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))))
+      .map(byte => byte.toString(16).padStart(2, "0")).join("");
+    return Promise.all(nodes.map(async node => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      const selected = selection.toString();
+      selection.removeAllRanges();
+      return [await hash(node.textContent ?? ""), await hash(selected)];
+    }));
+  });
+  expect(hashes).toEqual([[commandHash, commandHash], [commandHash, commandHash]]);
+  await scripts.last().scrollIntoViewIfNeeded();
+  await scripts.last().evaluate(node => { node.scrollTop = node.scrollHeight; });
+  await expect(scripts.last().locator("span").last()).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await expect(page).toHaveTitle(/RiA/);
+  await expect(page.locator("nextjs-portal")).toHaveCount(0);
+  await page.screenshot({ path: join(tmpdir(), `ria-saved-command-${width}.png`), animations: "disabled" });
   expect(errors).toEqual([]);
 });
 

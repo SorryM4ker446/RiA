@@ -226,13 +226,18 @@ test("approval mode asks for every tool call and resumes a long script without t
   const requestBytes = trackChatRequestBytes(page);
   const grant = await setup(page, app);
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "逐次审批" })).body.data;
+  // Intermediate persistence checks read the isolated authoritative database.
+  // Reload below still exercises the complete HTTP history and renderer path.
+  const storedTools = () => app.readRows('SELECT content FROM messages WHERE "chatId" = ? AND role = ? ORDER BY "createdAt", id', chat.id, "assistant")
+    .flatMap(row => decodePersistedAssistantToolMessage(String(row.content))?.tools ?? [])
+    .filter(tool => tool.toolName === "runTerminalCommand");
   await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
   await trackChatStreams(page);
   await page.getByPlaceholder(/输入你的问题/).fill(`OFFLINE_TERMINAL_COMMAND GRANT_ID=${grant.id} TERMINAL_TWICE TERMINAL_LONG`);
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
   expect(existsSync(join(app.folder, "terminal-proof.txt"))).toBe(false);
-  const initial = await storedTerminalTools(page, chat.id);
+  const initial = storedTools();
   expect(initial.map(tool => tool.state)).toEqual(["approval-requested"]);
   const command = (initial[0].input as { command: string }).command;
   expect(Buffer.byteLength(command)).toBeGreaterThan(2 * 1024 * 1024);
@@ -242,13 +247,13 @@ test("approval mode asks for every tool call and resumes a long script without t
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
   await expect(page.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
   await expect(page.getByRole("alert").filter({ hasText: "请求失败" })).toHaveCount(0);
-  expect(await storedTerminalStates(page, chat.id)).toEqual(["output-available", "approval-requested"]);
+  expect(storedTools().map(tool => tool.state)).toEqual(["output-available", "approval-requested"]);
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
   await expect(page.getByRole("region", { name: "最近编辑的文件", exact: true })).toHaveCount(0);
   await approveAndFinish(page);
   await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("onceonce");
-  const completed = await storedTerminalTools(page, chat.id);
+  const completed = storedTools();
   expect(completed.map(tool => tool.state)).toEqual(["output-available", "output-available"]);
   expect(completed.map(tool => digest((tool.input as { command: string }).command))).toEqual([commandHash, commandHash]);
   expect(completed.map(tool => Object.hasOwn(tool.output as object, "command"))).toEqual([false, false]);
@@ -258,35 +263,12 @@ test("approval mode asks for every tool call and resumes a long script without t
   await openExecutionDetails(page);
   await expect(page.getByLabel("终端输出", { exact: true })).toHaveCount(2);
   const scripts = page.getByLabel("PowerShell 命令", { exact: true });
-  // Both DOM text and native selection must retain every Unicode character,
-  // including blocks whose layout is deferred outside the scroll viewport.
-  const displayedHashes = await scripts.evaluateAll(async nodes => {
-    const hash = async (text: string) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))))
-      .map(byte => byte.toString(16).padStart(2, "0")).join("");
-    return Promise.all(nodes.map(async node => {
-      const range = document.createRange();
-      range.selectNodeContents(node);
-      const selection = window.getSelection()!;
-      selection.removeAllRanges();
-      selection.addRange(range);
-      const selected = selection.toString();
-      selection.removeAllRanges();
-      return [await hash(node.textContent ?? ""), await hash(selected)];
-    }));
-  });
-  expect(displayedHashes).toEqual([[commandHash, commandHash], [commandHash, commandHash]]);
-  await scripts.last().scrollIntoViewIfNeeded();
-  await scripts.last().evaluate(node => { node.scrollTop = node.scrollHeight; });
-  await expect(scripts.last().locator("span").last()).toBeInViewport();
-  await expect(page).toHaveTitle(/RiA/);
-  await expect(page.locator("nextjs-portal")).toHaveCount(0);
-  await page.screenshot({ path: join(tmpdir(), "ria-terminal-long-script.png"), animations: "disabled" });
-  await page.setViewportSize({ width: 390, height: 844 });
-  await scripts.last().scrollIntoViewIfNeeded();
-  await scripts.last().evaluate(node => { node.scrollTop = node.scrollHeight; });
-  await expect(scripts.last().locator("span").last()).toBeInViewport();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: join(tmpdir(), "ria-terminal-long-script-mobile.png"), animations: "disabled" });
+  // Keep transport and persisted-history integrity in the real execution flow.
+  // Native selection and responsive rendering have independent browser cases.
+  const displayedHashes = await scripts.evaluateAll(async nodes => Promise.all(nodes.map(async node =>
+    Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(node.textContent ?? ""))))
+      .map(byte => byte.toString(16).padStart(2, "0")).join(""))));
+  expect(displayedHashes).toEqual([commandHash, commandHash]);
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("onceonce");
   await page.keyboard.press("Escape");
   await page.getByPlaceholder(/输入你的问题/).fill("Explain the previous terminal results");

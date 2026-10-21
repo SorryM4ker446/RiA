@@ -4,7 +4,7 @@ import { serializeWordDocument } from "./word-structure";
 /**
  * User-facing copy for the parser worker.
  *
- * The worker runs as an `eval`'d string with an empty environment, so it cannot
+ * The worker runs as an `eval`'d string with an isolated environment, so it cannot
  * import this module. The parent resolves the strings and hands them over with
  * the job, which keeps the worker free of any locale lookup of its own.
  */
@@ -28,6 +28,8 @@ const { pathToFileURL } = require('node:url');
 const { dirname, join } = require('node:path');
 globalThis.fetch = async () => { throw new Error('Network access is disabled during document import'); };
 const { bytes, format, escapeMarkdown, limits, messages, pdfPath, pdfWorkerPath, mammothPath, zipPath } = workerData;
+const report = phase => parentPort.postMessage({ phase });
+report('ready');
 const fail = (message, code = 'VALIDATION_ERROR') => { throw Object.assign(new Error(message), { code }); };
 const tooLarge = () => fail(messages.expandedTooLarge, 'PAYLOAD_TOO_LARGE');
 const normalize = text => text.replace(/\r\n?/g, '\n').replace(/\u0000/g, '').trim();
@@ -35,6 +37,7 @@ const serializeWordDocument = ${serializeWordDocument.toString()};
 async function parse() {
   let pages;
   if (format === 'pdf') {
+    report('pdf-import');
     const pdf = await import(pathToFileURL(pdfPath).href);
     pdf.GlobalWorkerOptions.workerSrc = pathToFileURL(pdfWorkerPath).href;
     const root = join(dirname(pdfPath), '../..');
@@ -43,10 +46,12 @@ async function parse() {
       cMapUrl: join(root, 'cmaps') + '/', cMapPacked: true, standardFontDataUrl: join(root, 'standard_fonts') + '/',
       stopAtErrors: true, verbosity: 0 });
     try {
+      report('pdf-document');
       const document = await task.promise;
       if (document.numPages > limits.pages) tooLarge();
       pages = [];
       let characters = 0;
+      report('pdf-text');
       for (let number = 1; number <= document.numPages; number++) {
         const page = await document.getPage(number);
         const reader = page.streamTextContent().getReader();
@@ -65,7 +70,7 @@ async function parse() {
         pages.push({ pageNumber: number, text: normalize(text) });
         page.cleanup();
       }
-    } finally { await task.destroy(); }
+    } finally { report('pdf-cleanup'); await task.destroy(); }
   } else if (format === 'docx') {
     const zip = await require(zipPath).loadAsync(bytes);
     const entries = Object.values(zip.files).filter(file => !file.dir);
