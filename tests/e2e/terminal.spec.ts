@@ -219,13 +219,19 @@ test("full access executes without approval, keeps live output and stop controls
   expect(errors).toEqual([]);
 });
 
-test("approval mode asks for every tool call and resumes a long script without truncation", async ({ page, app }) => {
+// One approval of a multi-megabyte script carries every integrity check: exact
+// transport, persistence, reload, display and a follow-up that resends it as
+// history. Approving a second long script in the same turn only doubled the
+// continuation to 6 MB, which consumed most of the hosted runner's time budget
+// without exercising another contract. Per-call approval of successive tool
+// calls is covered by the continuation-boundary test below.
+test("approval mode resumes a long script without truncation through persistence, reload and follow-up", async ({ page, app }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
   const requestBytes = trackChatRequestBytes(page);
   const grant = await setup(page, app);
-  const chat = (await browserApi(page, "/api/conversations", "POST", { title: "逐次审批" })).body.data;
+  const chat = (await browserApi(page, "/api/conversations", "POST", { title: "长脚本审批" })).body.data;
   // Intermediate persistence checks read the isolated authoritative database.
   // Reload below still exercises the complete HTTP history and renderer path.
   const storedTools = () => app.readRows('SELECT content FROM messages WHERE "chatId" = ? AND role = ? ORDER BY "createdAt", id', chat.id, "assistant")
@@ -233,7 +239,7 @@ test("approval mode asks for every tool call and resumes a long script without t
     .filter(tool => tool.toolName === "runTerminalCommand");
   await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
   await trackChatStreams(page);
-  await page.getByPlaceholder(/输入你的问题/).fill(`OFFLINE_TERMINAL_COMMAND GRANT_ID=${grant.id} TERMINAL_TWICE TERMINAL_LONG`);
+  await page.getByPlaceholder(/输入你的问题/).fill(`OFFLINE_TERMINAL_COMMAND GRANT_ID=${grant.id} TERMINAL_LONG`);
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
   expect(existsSync(join(app.folder, "terminal-proof.txt"))).toBe(false);
@@ -244,45 +250,39 @@ test("approval mode asks for every tool call and resumes a long script without t
   const digest = (value: string) => createHash("sha256").update(value).digest("hex");
   const commandHash = digest(command);
   await approveAndFinish(page);
-  expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
-  await expect(page.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
-  await expect(page.getByRole("alert").filter({ hasText: "请求失败" })).toHaveCount(0);
-  expect(storedTools().map(tool => tool.state)).toEqual(["output-available", "approval-requested"]);
-  expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
-  await expect(page.getByRole("region", { name: "最近编辑的文件", exact: true })).toHaveCount(0);
-  await approveAndFinish(page);
   await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
-  expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("onceonce");
+  await expect(page.getByRole("alert").filter({ hasText: "请求失败" })).toHaveCount(0);
+  expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
   const completed = storedTools();
-  expect(completed.map(tool => tool.state)).toEqual(["output-available", "output-available"]);
-  expect(completed.map(tool => digest((tool.input as { command: string }).command))).toEqual([commandHash, commandHash]);
-  expect(completed.map(tool => Object.hasOwn(tool.output as object, "command"))).toEqual([false, false]);
-  expect(requestBytes.filter(bytes => bytes > 2 * 1024 * 1024)).toHaveLength(2);
+  expect(completed.map(tool => tool.state)).toEqual(["output-available"]);
+  expect(digest((completed[0].input as { command: string }).command)).toBe(commandHash);
+  expect(Object.hasOwn(completed[0].output as object, "command")).toBe(false);
   await page.reload();
   await expect(page.locator('[data-message-role="assistant"]')).toHaveCount(1);
   await openExecutionDetails(page);
-  await expect(page.getByLabel("终端输出", { exact: true })).toHaveCount(2);
+  await expect(page.getByLabel("终端输出", { exact: true })).toHaveCount(1);
   const scripts = page.getByLabel("PowerShell 命令", { exact: true });
   // Keep transport and persisted-history integrity in the real execution flow.
   // Native selection and responsive rendering have independent browser cases.
   const displayedHashes = await scripts.evaluateAll(async nodes => Promise.all(nodes.map(async node =>
     Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(node.textContent ?? ""))))
       .map(byte => byte.toString(16).padStart(2, "0")).join(""))));
-  expect(displayedHashes).toEqual([commandHash, commandHash]);
-  expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("onceonce");
+  expect(displayedHashes).toEqual([commandHash]);
   await page.keyboard.press("Escape");
   await page.getByPlaceholder(/输入你的问题/).fill("Explain the previous terminal results");
   const accepted = page.waitForResponse(response => response.url().endsWith("/api/chat") && response.request().method() === "POST");
   await page.getByRole("button", { name: "发送", exact: true }).click();
   expect((await accepted).status()).toBe(200);
   await expect(page.locator("article").last()).toContainText("离线回答：Explain the previous terminal results");
+  // The approval continuation and the reloaded follow-up both carry the complete script.
+  expect(requestBytes.filter(bytes => bytes > 2 * 1024 * 1024)).toHaveLength(2);
   const followUpPrompt = () => JSON.stringify(app.providerCalls.filter(call => call.stream && JSON.stringify(call.messages.at(-1)).includes("Explain the previous terminal results")).at(-1)?.messages ?? []);
   await expect.poll(followUpPrompt).toContain("Explain the previous terminal results");
   const prompt = followUpPrompt();
   expect(prompt).toContain("terminal-ready-你好");
   expect(prompt).toContain('\\"exitCode\\":0');
   expect(prompt).toContain("terminal-proof.txt");
-  expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("onceonce");
+  expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
   expect(errors).toEqual([]);
 });
 
