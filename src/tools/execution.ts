@@ -326,7 +326,8 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; toolIds
   // Reading already-enabled skill guidance grants no external capability;
   // assistant tool restrictions still apply to every action a skill suggests.
   const descriptors = (await listAvailableRegisteredTools("chat", options?.modelRef)).filter((tool) =>
-    (hasRestriction ? allowed.has(tool.id) || tool.id === "readPluginSkill" : true) && !(tool.id === "saveMemory" && options?.usesMemory === false));
+    // Reading back a terminal log only reads output of commands the folder already permitted.
+    (hasRestriction ? allowed.has(tool.id) || tool.id === "readPluginSkill" || (tool.id === "readTerminalLog" && allowed.has("runTerminalCommand")) : true) && !(tool.id === "saveMemory" && options?.usesMemory === false));
 
   const terminalFolders = descriptors.some(tool => tool.id === "runTerminalCommand")
     ? await db.directoryGrant.findMany({ where: { revokedAt: null, terminalEnabled: true }, select: { id: true, label: true, realPath: true, terminalApprovalMode: true } }) : [];

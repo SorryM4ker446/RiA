@@ -10,6 +10,7 @@ import type { ModelRef } from "@/lib/models/preferences-schema";
 import { getModelPreferences } from "@/lib/models/preferences";
 import { getModelProvider } from "@/lib/models/providers";
 import { summarizeOlderTurns } from "@/lib/chat/summary";
+import { createCompactionAllowance } from "@/lib/chat/task-summary";
 import { getTextFromUIMessage as readText } from "@/lib/ai/ui-message";
 import { t } from "@/lib/locale";
 import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
@@ -75,6 +76,8 @@ async function POSTHandler(req: NextRequest) {
     // the older turns and names the last message it includes. The bounded
     // excerpts stay in the prompt either way, and a summary never replaces the
     // messages themselves.
+    // One allowance per request covers older-turn summaries and in-stream compaction.
+    const compactionAllowance = createCompactionAllowance((await getModelPreferences()).callLimits.compactionCallsPerTurn);
     const summary = latestUserMessage?.text
       ? await summarizeOlderTurns({
         chatId: conversation.chat.id,
@@ -83,6 +86,7 @@ async function POSTHandler(req: NextRequest) {
         force: context.omittedMessages > 0,
         modelRef,
         signal: req.signal,
+        allowance: compactionAllowance,
       }).catch(() => null)
       : null;
 
@@ -117,6 +121,7 @@ async function POSTHandler(req: NextRequest) {
       // never rendered — including after a reload, which is the one thing the
       // stored metadata is for.
       unavailableTools,
+      compactionAllowance,
     });
   } catch (error) {
     console.error("/api/chat error", normalizeApiError(error).code);

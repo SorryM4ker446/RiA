@@ -1,9 +1,12 @@
 import type { UIMessage } from "ai";
 import { historicalToolText, historyTextExcerpt } from "./tool-history";
+import { estimateTextTokens } from "@/lib/models/context-budget";
 
 type ContextOptions = {
   maxMessages?: number;
   maxCharacters?: number;
+  /** Window size in estimated tokens; takes precedence over maxCharacters. */
+  maxTokens?: number;
   excerptCharacters?: number;
 };
 
@@ -45,7 +48,8 @@ export function historicalText(message: UIMessage, maxCharacters?: number): stri
 /** Keep recent turns verbatim; older data is explicitly labelled as incomplete excerpts. */
 export function buildChatContext(messages: UIMessage[], options: ContextOptions = {}) {
   const maxMessages = options.maxMessages ?? 24;
-  const maxCharacters = options.maxCharacters ?? 48_000;
+  const windowSize = options.maxTokens ?? options.maxCharacters ?? 48_000;
+  const measure = options.maxTokens !== undefined ? estimateTextTokens : (text: string) => text.length;
   const excerptCharacters = options.excerptCharacters ?? 4_000;
   const conversation = messages.filter((message) => message.role === "user" || message.role === "assistant");
   const approvalResume = isToolApprovalContinuation(conversation);
@@ -60,9 +64,9 @@ export function buildChatContext(messages: UIMessage[], options: ContextOptions 
 
   let start = Math.max(0, normalized.length - Math.max(2, maxMessages));
   if (latestUserIndex >= 0) start = Math.min(start, latestUserIndex);
-  let characters = normalized.slice(start).reduce((sum, message) => sum + historicalText(message).length, 0);
-  while (start < latestUserIndex && characters > maxCharacters) {
-    characters -= historicalText(normalized[start]).length;
+  let size = normalized.slice(start).reduce((sum, message) => sum + measure(historicalText(message)), 0);
+  while (start < latestUserIndex && size > windowSize) {
+    size -= measure(historicalText(normalized[start]));
     start += 1;
   }
   // Do not open the window in the middle of an older user/assistant turn.

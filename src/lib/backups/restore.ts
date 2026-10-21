@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { db } from "@/db";
+import { pruneTerminalLogs } from "@/lib/terminal/logs";
+import { activeTerminalSessionIds } from "@/lib/terminal/runtime";
 import { t } from "@/lib/locale";
 import { stageMediaFile } from "@/lib/media/storage";
 import { ASSISTANT_TOOL_MESSAGE_PREFIX } from "@/lib/ai/ui-message";
@@ -146,6 +148,8 @@ export async function restoreAccountBackup(id: string) {
       return { safety, paused };
     });
     const cleanup = await pruneAccountBackupsSafely(safety.id);
+    // Restored runs replace the previous ones; their terminal logs go with them.
+    await pruneTerminalLogs(activeTerminalSessionIds()).catch(() => console.error("terminal.log.prune.failed"));
     return {
       safetyBackupId: safety.id,
       restored: true,

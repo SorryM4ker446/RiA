@@ -2,7 +2,8 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/db";
 import { LocalFileRefused, localGrantLabelSchema } from "@/lib/local-files/limits";
 import { resolveGrant } from "@/lib/local-files/safe-path";
-import { stopTerminalCommandsForGrant } from "@/lib/terminal/runtime";
+import { activeTerminalSessionIds, stopTerminalCommandsForGrant } from "@/lib/terminal/runtime";
+import { removeTerminalLogsForGrant } from "@/lib/terminal/logs";
 import { terminalApprovalModeSchema, type TerminalApprovalMode } from "@/lib/terminal/schema";
 
 /**
@@ -133,6 +134,7 @@ async function reviveGrant(id: string, label: string, resolvedPath: string): Pro
     select: grantViewSelect
   });
   stopTerminalCommandsForGrant(id);
+  await removeTerminalLogsForGrant(id, activeTerminalSessionIds()).catch(() => console.error("terminal.log.remove.failed"));
   return toView(row);
 }
 
@@ -151,6 +153,7 @@ export async function revokeGrant(id: string): Promise<{ revoked: true }> {
     await db.directoryGrant.update({ where: { id }, data: { revokedAt: new Date(), terminalEnabled: false, terminalApprovalMode: "approval" } });
   }
   stopTerminalCommandsForGrant(id);
+  await removeTerminalLogsForGrant(id, activeTerminalSessionIds()).catch(() => console.error("terminal.log.remove.failed"));
   return { revoked: true };
 }
 

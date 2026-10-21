@@ -5,7 +5,7 @@ import { decodeMediaMessage } from "@/lib/media/message-codec";
 import { db } from "@/db";
 import { preferredModel } from "@/lib/models/preferences";
 import type { ModelRef } from "@/lib/models/preferences-schema";
-import { summarizeTaskState, TASK_STATE_VERSION } from "./task-summary";
+import { summarizeTaskState, TASK_STATE_VERSION, type CompactionAllowance } from "./task-summary";
 import { t } from "@/lib/locale";
 
 /**
@@ -33,6 +33,7 @@ export async function summarizeOlderTurns(params: {
   signal?: AbortSignal;
   force?: boolean;
   modelRef?: ModelRef;
+  allowance?: CompactionAllowance;
 }): Promise<SummaryResult> {
   const older = params.messages.slice(0, Math.max(0, params.messages.length - params.keepRecent));
   const lastCovered = older.at(-1);
@@ -75,7 +76,7 @@ export async function summarizeOlderTurns(params: {
   const delta = snapshot.rows;
 
   try {
-    const summary = await summarizeTaskState({ modelRef: chosen, previous, records: delta.map(message => `${message.role}: ${summaryText(message)}`), signal: params.signal });
+    const summary = await summarizeTaskState({ modelRef: chosen, previous, records: delta.map(message => `${message.role}: ${summaryText(message)}`), signal: params.signal, allowance: params.allowance });
     if (!summary) return null;
     params.signal?.throwIfAborted();
     const saved = await db.chat.updateMany({

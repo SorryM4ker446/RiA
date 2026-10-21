@@ -154,7 +154,7 @@ test("model capacity bounds long persisted conversations while retaining the act
   settings.contextLimits = { [`openrouter:${settings.chat.model!.modelId}`]: { contextLength: 30_000, maxOutputTokens: 2048 } };
   await db.workspacePreference.update({ where: { id: "local" }, data: { settings } });
   const owned = await db.chat.create({ data: { title: "Long conversation" } });
-  const history = Array.from({ length: 40 }, (_, index) => ui(`turn-${index}`, index % 2 ? "assistant" : "user", `Recorded turn ${index}${index < 38 ? " notes".repeat(80) : ""}`));
+  const history = Array.from({ length: 40 }, (_, index) => ui(`turn-${index}`, index % 2 ? "assistant" : "user", `Recorded turn ${index}${index < 38 ? " notes 1234".repeat(80) : ""}`));
   await db.message.createMany({ data: history.map((item) => ({ chatId: owned.id, clientMessageId: item.id, role: item.role, content: item.parts[0].text })) });
   const response = await chat.POST(request({ chatId: owned.id, messages: [...history, ui("follow-up", "user", "Explain the previous answer")] }));
   assert.equal(response.status, 200);

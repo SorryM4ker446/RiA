@@ -1,6 +1,7 @@
 import { bindTerminalApproval, runTerminalCommand, terminalGrant } from "@/lib/terminal/runtime";
 import { terminalInputSchema, type TerminalInput, type TerminalCommandResult } from "@/lib/terminal/schema";
 import type { ToolDescriptor } from "./types";
+import { readTerminalLog, readTerminalLogInputSchema, type ReadTerminalLogInput } from "@/lib/terminal/logs";
 import { jsonSchema, zodSchema } from "ai";
 
 const modelInput = terminalInputSchema.omit({ binding: true, timeoutSeconds: true });
@@ -28,5 +29,18 @@ export const terminalTool: ToolDescriptor<TerminalInput, TerminalCommandResult> 
     return result;
   },
   buildAssistantText: ({ output }) => [output.status, output.stdout, output.stderr, `Exit code: ${output.exitCode ?? "—"}`].filter(Boolean).join("\n"),
+  memory: { enabled: false, minQuality: 1, summarize: () => null },
+};
+
+export const readTerminalLogTool: ToolDescriptor<ReadTerminalLogInput, Awaited<ReturnType<typeof readTerminalLog>>> = {
+  id: "readTerminalLog",
+  displayName: "读取终端日志",
+  description: "按行范围或关键字读取超出捕获窗口的终端命令完整输出。",
+  modelDescription: "Read the complete saved output of an earlier runTerminalCommand call whose result includes a `log` reference, because its in-memory capture kept only the beginning and end. Give logId from that reference. Read a page of lines from startLine, or pass search to list matching line numbers first and then read around them; continue at nextLine until it is null. `complete: false` means some output was not saved or the command did not finish. This only reads saved output: it does not run commands, and it fails if the folder no longer has terminal access or the log expired.",
+  modeSupport: ["chat"],
+  manual: { enabled: false, label: "读取终端日志", placeholder: "", submitLabel: "", primaryFieldKey: "logId", primaryFieldLabel: "日志", fields: [] },
+  inputSchema: readTerminalLogInputSchema,
+  execute: async ({ input, signal }) => readTerminalLog(input, terminalGrant, signal),
+  buildAssistantText: ({ output }) => output.lines.map(line => `${line.line}: ${line.text}`).join("\n"),
   memory: { enabled: false, minQuality: 1, summarize: () => null },
 };

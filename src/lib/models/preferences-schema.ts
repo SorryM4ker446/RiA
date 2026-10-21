@@ -72,10 +72,12 @@ const preferencesShape = {
   callLimits: z.strictObject({
     maxConcurrent: z.number().int().min(1).max(16).default(4),
     backgroundDailyCalls: z.number().int().min(0).max(1000).default(20),
+    // Summary calls one chat request may make while compacting its context.
+    compactionCallsPerTurn: z.number().int().min(1).max(1000).default(20),
     backgroundMaxEstimatedUsd: price.default(null),
     backgroundDailyEstimatedUsd: price.default(null),
     timeZone: z.string().min(1).max(100).refine(value => { try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; } catch { return false; } }).default("Asia/Shanghai"),
-  }).default({ maxConcurrent: 4, backgroundDailyCalls: 20, backgroundMaxEstimatedUsd: null, backgroundDailyEstimatedUsd: null, timeZone: "Asia/Shanghai" }),
+  }).default({ maxConcurrent: 4, backgroundDailyCalls: 20, compactionCallsPerTurn: 20, backgroundMaxEstimatedUsd: null, backgroundDailyEstimatedUsd: null, timeZone: "Asia/Shanghai" }),
   version: z.literal(3),
   defaultMode: z.enum(modelModes),
   chat: modePreference,

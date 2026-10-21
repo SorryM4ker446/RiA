@@ -54,6 +54,6 @@ export function ExecutionTurnDetails({ message, run, isLatest, loading = false, 
       </details> : null}
     </section> : null}
     <RetrievalDiagnostics value={metadata?.documentDiagnostics} compact />
-    {contextReport.success && contextReport.data.compactions > 0 ? <p className="text-xs text-muted-foreground">{tf("chat.context.compacted", { count: contextReport.data.compactions })}{contextReport.data.degraded ? ` ${t("chat.context.degraded")}` : ""}</p> : null}
+    {contextReport.success && contextReport.data.compactions > 0 ? <p className="text-xs text-muted-foreground">{tf("chat.context.compacted", { count: contextReport.data.compactions })}{contextReport.data.degraded ? ` ${t("chat.context.degraded")}` : ""}{contextReport.data.compactionAllowanceExhausted ? ` ${t("chat.context.allowanceExhausted")}` : ""}</p> : null}
   </section>;
 }

@@ -21,6 +21,7 @@ after(async () => { await db.$disconnect(); cleanup(); });
 /** One input each tool's own schema accepts, so the part is valid for its tool. */
 const VALID_INPUTS: Record<string, unknown> = {
   runTerminalCommand: { grantId: "grant-1", command: "Get-Date" },
+  readTerminalLog: { logId: "8d9c6f0e-4b7a-4c1d-9e2f-3a5b6c7d8e9f", stream: "stdout", startLine: 1, lineCount: 50 },
   saveMemory: { key: "units", value: "metric" },
   searchKnowledge: { query: "notes" },
   createTask: { title: "buy milk" },

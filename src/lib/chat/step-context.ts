@@ -43,17 +43,19 @@ export type StepContextReport = { checks: number; compactions: number; degraded:
 /** Scoped to one SDK stream: source messages remain complete for persistence and rendering. */
 export function createStepContext(params: {
   budget: ContextBudget; system: string; tools?: unknown; signal?: AbortSignal;
+  /** Scale learned from earlier requests to this model; at least one. */
+  calibration?: number;
   summarize: (records: string[], previous: string) => Promise<string>;
 }) {
   let covered = new Set<number>(), state = "";
   const coveredCalls = new Set<string>(), coveredApprovals = new Set<string>();
-  const report: StepContextReport = { checks: 0, compactions: 0, degraded: false, estimatedInputTokens: 0, usageCalibration: 1, budget: params.budget };
+  const report: StepContextReport = { checks: 0, compactions: 0, degraded: false, estimatedInputTokens: 0, usageCalibration: Math.max(1, params.calibration ?? 1), budget: params.budget };
   const input = (messages: ModelMessage[]) => ({ system: params.system, messages, tools: params.tools });
   // The local estimate is only an upper bound for typical text. When a
   // provider reports more input than estimated, later steps of this stream
   // scale up to match; the scale never drops back, since one step's lighter
   // content says nothing about the next.
-  let unscaledEstimate = 0;
+  let unscaledEstimate = 0, observedRatio: number | null = null;
   const estimate = (messages: ModelMessage[]) => estimateContextTokens(input(messages), report.usageCalibration);
   function render(messages: ModelMessage[], summary = state, omitted = covered) {
     const retained = messages.flatMap((message, index): ModelMessage[] => {
@@ -142,7 +144,11 @@ export function createStepContext(params: {
     /** Provider-reported input tokens for the step most recently prepared. */
     observeUsage(inputTokens: number | undefined) {
       if (!unscaledEstimate || typeof inputTokens !== "number" || !Number.isFinite(inputTokens)) return;
-      report.usageCalibration = Math.max(report.usageCalibration, inputTokens / unscaledEstimate);
+      const ratio = inputTokens / unscaledEstimate;
+      observedRatio = Math.max(observedRatio ?? 0, ratio);
+      report.usageCalibration = Math.max(report.usageCalibration, ratio);
     },
+    /** Largest raw provider/estimate ratio seen this stream, or null without usage. */
+    observedRatio: () => observedRatio,
   };
 }

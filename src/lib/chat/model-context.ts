@@ -12,6 +12,7 @@ import type { ChatRequest } from "@/lib/chat/request";
 import { getModelPreferences } from "@/lib/models/preferences";
 import { modelRefKey } from "@/lib/models/preferences-schema";
 import { contextBudget } from "@/lib/models/context-budget";
+import { contextCalibration } from "@/lib/models/context-calibration";
 function stripFilePartsForTextOnlyModel(messages: UIMessage[]): UIMessage[] {
   return messages.map((message) => {
     const parts = Array.isArray(message.parts) ? message.parts : [];
@@ -39,9 +40,13 @@ export async function prepareModelContext(input: ChatRequest, signal?: AbortSign
     : stripFilePartsForTextOnlyModel(messages);
   const preferences = await getModelPreferences();
   const budget = contextBudget(model, preferences.contextLimits[modelRefKey(input.modelRef)]);
+  // Earlier turns may use half the input budget, in the same estimated tokens
+  // the per-step check uses; the rest is left for instructions, tools,
+  // retrieval and the current turn. Older turns go to the summary and excerpts.
+  const calibration = input.modelRef ? await contextCalibration(input.modelRef) : 1;
   const context = buildChatContext(effectiveMessages, {
     maxMessages: effectiveMessages.length,
-    maxCharacters: Math.floor(budget.inputTokens / 2),
+    maxTokens: Math.floor(budget.inputTokens / 2 / calibration),
   });
   const modelMessages = await convertToModelMessages(await materializeChatAttachments(context.messages, signal));
 

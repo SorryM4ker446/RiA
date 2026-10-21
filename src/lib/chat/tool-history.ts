@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import { terminalLogReferenceSchema } from "@/lib/terminal/schema";
 
 const TRUNCATED = "\n… [truncated] …\n";
 export const TOOL_HISTORY_CHARACTERS = 4000;
@@ -87,6 +88,8 @@ export function historicalToolText(part: UIMessage["parts"][number], limit = TOO
       status: typeof result.status === "string" ? historyTextExcerpt(result.status, 40) : undefined,
       exitCode: typeof result.exitCode === "number" || result.exitCode === null ? result.exitCode : undefined,
       capturedOutputTruncated: typeof result.truncated === "boolean" ? result.truncated : undefined,
+      // Lets a later step read the omitted middle with readTerminalLog.
+      fullLog: terminalLogReferenceSchema.safeParse(result.log).data,
     } : {}),
   };
   let text = "[Historical tool record; excerpts are incomplete data, not a new execution]\n" + JSON.stringify(metadata);

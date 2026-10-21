@@ -41,7 +41,7 @@ function promptText(prompt: { content: string | unknown[] }[]) {
 
 for (const longCommentary of [false, true]) test(`the next model request receives terminal diagnostics through ${longCommentary ? "the older-history excerpt" : "recent history"}`, async () => {
   const chat = await db.chat.create({ data: { title: "Continue a build" } });
-  const original = terminalMessage(longCommentary ? "notes ".repeat(10_000) : "Build attempted");
+  const original = terminalMessage(longCommentary ? "build 1234567890 ".repeat(5500) : "Build attempted");
   const rows = [
     await db.message.create({ data: { chatId: chat.id, role: "user", clientMessageId: "build-user", content: "Build the application", createdAt: new Date(1000) } }),
     await db.message.create({ data: { chatId: chat.id, role: "assistant", clientMessageId: "build-answer", content: original, createdAt: new Date(2000) } }),

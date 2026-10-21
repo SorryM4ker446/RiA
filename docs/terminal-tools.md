@@ -83,8 +83,26 @@ step-count, failure-count or aggregate duration cap. A command ends when its
 process exits, the user stops it, the request is cancelled or permission is
 revoked. Old `timeoutSeconds` approval fields remain readable but are ignored.
 At most two commands run concurrently.
-Combined captured output is limited to 64 KiB and is explicitly marked when
-truncated. Output and command text are saved with the chat and sent to its model.
+Captured output is limited to 64 KiB: the beginning of the command's output plus
+the latest 8 KiB of each of stdout and stderr, so a build or test summary at the
+end is kept. An explicit marker states how many bytes in between were omitted.
+Output and command text are saved with the chat and sent to its model.
+
+When output exceeds the capture, its complete stdout and stderr are also saved as
+a terminal log beside the local database (`terminal-logs/<command id>`), and the
+result carries a `log` reference with byte counts and `complete`. The
+`readTerminalLog` tool, available wherever `runTerminalCommand` is, reads a log
+by 1-based line range (up to 400 lines and 48 KiB per call, continuing at
+`nextLine`) or lists matching lines for a case-insensitive search. History
+records and summaries keep the reference, so later steps and requests can read
+the omitted middle. Logs are bounded to 64 MiB per command and 512 MiB in total;
+beyond either, or on a write failure such as a full disk, a log is marked
+incomplete and the command result is unaffected. Reading requires the folder to
+still have terminal access. A folder's logs are deleted when its access is
+revoked, re-granted or turned off; logs are also removed with their conversation,
+after a workspace restore, after seven days, and oldest first beyond the total
+size. Logs of commands still running are not removed for space. Logs are not part
+of workspace backups.
 The complete command is stored in the tool input; tool results contain status,
 output and file changes without echoing the script. This avoids duplicating large
 commands in every saved message and continuation request. Live session responses

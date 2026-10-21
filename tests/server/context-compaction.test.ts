@@ -22,12 +22,14 @@ const { TASK_STATE_VERSION } = await import("@/lib/chat/task-summary");
 const { encodePersistedAssistantToolMessage, decodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
 const { mapStoredMessagesToUI } = await import("@/features/chat/page-utils");
 const { contextBudget, estimateContextTokens } = await import("@/lib/models/context-budget");
+const { CALIBRATION_SAMPLES, contextCalibration, recordContextCalibration } = await import("@/lib/models/context-calibration");
+const { getModelPreferences, saveModelPreferences } = await import("@/lib/models/preferences");
 const roots: string[] = [];
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {}); t.mock.method(console, "info", () => {});
   resetProviderState(); globalThis.__privateAiRateLimitStore?.clear();
   process.env.APP_RUNTIME = "test"; process.env.OPENROUTER_API_KEY = "offline-fixture-placeholder";
-  await db.chat.deleteMany({}); await db.task.deleteMany({});
+  await db.chat.deleteMany({}); await db.task.deleteMany({}); await db.modelContextCalibration.deleteMany({});
   await seedTestModelPreferences(db);
 });
 after(async () => {
@@ -275,6 +277,9 @@ test("provider input usage above the local estimate makes the next step refuse i
   assert.match(result.wire, /CONTEXT_LIMIT/);
   assert.equal(result.calls, 1, "the step that would exceed the provider's real count was not submitted");
   assert.equal(result.run.stopReason, "context-limit");
+  // A turn ending in an error still records its context accounting.
+  assert.ok(result.saved.contextBudget!.usageCalibration! > 1);
+  assert.ok(result.saved.contextBudget!.checks >= 2);
 });
 
 test("provider usage calibration is applied to later steps and recorded with a completed turn", { timeout: 15_000 }, async t => {
@@ -284,6 +289,64 @@ test("provider usage calibration is applied to later steps and recorded with a c
   assert.ok(result.saved.contextBudget!.usageCalibration! > 1);
   assert.ok(result.saved.contextBudget!.estimatedInputTokens > 100_000, "the calibrated estimate covers the provider's count");
   assert.equal(result.saved.contextBudget!.budget.counting, "character-class-estimate");
+  // The next request to this model starts from the recorded scale, before any usage is seen.
+  const learned = await contextCalibration(CHAT_MODEL_REF);
+  assert.ok(learned > 1);
+  t.mock.method(languageModel, "doStream", async () => ({ stream: new ReadableStream<LanguageModelV3StreamPart>({ start(controller) {
+    controller.enqueue({ type: "stream-start", warnings: [] });
+    controller.enqueue({ type: "text-start", id: "b" }); controller.enqueue({ type: "text-delta", id: "b", delta: "ok" }); controller.enqueue({ type: "text-end", id: "b" });
+    controller.enqueue({ type: "finish", finishReason: { unified: "stop", raw: undefined }, usage: { inputTokens: { total: undefined, noCache: undefined, cacheRead: undefined, cacheWrite: undefined }, outputTokens: { total: 1, text: 1, reasoning: 0 } } });
+    controller.close();
+  } }) }));
+  const next = await route.POST(request({ chatId: result.run.chatId, messages: [ui("calibrated-next", "user", "Summarize the result.")] }));
+  assert.equal(next.status, 200); await next.text();
+  const rows = await db.message.findMany({ where: { chatId: result.run.chatId! }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
+  const latest = decodePersistedAssistantToolMessage(rows.filter(row => row.role === "assistant").at(-1)!.content)!;
+  assert.equal(latest.contextBudget!.usageCalibration, learned);
+});
+
+test("a request that uses up its compaction calls keeps labelled excerpts, completes and reports why", { timeout: 60_000 }, async t => {
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ria-context-project-"))); roots.push(root);
+  writeFileSync(join(root, "step.cjs"), "require('node:fs').appendFileSync('steps.txt','x'); console.log('0'.repeat(4000)); console.log('step done');\n");
+  const grant = await createGrant({ path: root });
+  await setTerminalPermission(grant.id, true, grant.updatedAt, "full-access");
+  await capacity(20_000);
+  await saveModelPreferences({ ...await getModelPreferences(), callLimits: { ...(await getModelPreferences()).callLimits, compactionCallsPerTurn: 1 } });
+  let summaries = 0, calls = 0;
+  t.mock.method(languageModel, "doGenerate", async () => { summaries++; return summaryAnswer("Steps ran; continue with the next step."); });
+  t.mock.method(languageModel, "doStream", async () => {
+    const step = calls++;
+    const node = process.execPath.replaceAll("'", process.platform === "win32" ? "''" : "'\\''");
+    return { stream: new ReadableStream<LanguageModelV3StreamPart>({ start(controller) {
+      controller.enqueue({ type: "stream-start", warnings: [] });
+      if (step < 6) controller.enqueue({ type: "tool-call", toolCallId: `step-${step}`, toolName: "runTerminalCommand", input: JSON.stringify({ grantId: grant.id, command: `${process.platform === "win32" ? "& " : ""}'${node}' ./step.cjs` }) });
+      else { controller.enqueue({ type: "text-start", id: "a" }); controller.enqueue({ type: "text-delta", id: "a", delta: "All steps done" }); controller.enqueue({ type: "text-end", id: "a" }); }
+      controller.enqueue({ type: "finish", finishReason: { unified: step < 6 ? "tool-calls" : "stop", raw: undefined }, usage: { inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 10, text: 10, reasoning: 0 } } });
+      controller.close();
+    } }) };
+  });
+  const response = await route.POST(request({ messages: [ui("allowance-user", "user", "Run the six steps.")] }));
+  assert.equal(response.status, 200); assert.match(await response.text(), /All steps done/);
+  assert.equal(summaries, 1, "no summary call beyond the allowance");
+  assert.equal(readFileSync(join(root, "steps.txt"), "utf8"), "xxxxxx");
+  const run = await db.agentRun.findFirstOrThrow({ orderBy: { startedAt: "desc" } });
+  assert.equal(run.status, "succeeded");
+  const rows = await db.message.findMany({ where: { chatId: run.chatId! }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
+  const saved = decodePersistedAssistantToolMessage(rows.find(row => row.role === "assistant")!.content)!;
+  assert.equal(saved.contextBudget!.compactionAllowanceExhausted, true);
+  assert.equal(saved.contextBudget!.degraded, true);
+  assert.ok(saved.contextBudget!.compactions >= 2);
+});
+
+test("stored calibration keeps recent samples only, ignores invalid ratios and never scales below one", async () => {
+  await recordContextCalibration(CHAT_MODEL_REF, 50);
+  assert.equal(await contextCalibration(CHAT_MODEL_REF), 50);
+  for (const invalid of [null, Number.NaN, -1, 0, Infinity]) await recordContextCalibration(CHAT_MODEL_REF, invalid);
+  assert.equal(await contextCalibration(CHAT_MODEL_REF), 50);
+  for (let i = 0; i < CALIBRATION_SAMPLES; i++) await recordContextCalibration(CHAT_MODEL_REF, 0.4);
+  assert.equal(await contextCalibration(CHAT_MODEL_REF), 1, "an old outlier ages out and ratios below one floor at the estimate");
+  await db.modelContextCalibration.update({ where: { modelKey: `openrouter:${CHAT_MODEL_REF.modelId}` }, data: { samples: "not json" } });
+  assert.equal(await contextCalibration(CHAT_MODEL_REF), 1);
 });
 
 test("output exhaustion marks partial answers and runs failed with explicit recovery guidance", async t => {

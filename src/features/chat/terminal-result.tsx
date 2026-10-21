@@ -72,7 +72,7 @@ export function TerminalResult({ input, output, active }: { input: unknown; outp
     {result ? <>
       <pre aria-label={t("ui.chat.terminal-result.terminalOutput")} aria-live="off" className="chat-list-scroll max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-background p-3 font-mono text-xs">{result.stdout || (result.status === "running" ? t("ui.chat.terminal-result.waitingForOutput") : t("ui.chat.terminal-result.noStandardOutput"))}</pre>
       {result.stderr ? <pre aria-label={t("ui.chat.terminal-result.terminalErrorOutput")} className="chat-list-scroll max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md border p-3 font-mono text-xs text-destructive">{result.stderr}</pre> : null}
-      <p className="text-muted-foreground">{t("ui.chat.terminal-result.exitCode")}{result.exitCode ?? "—"}{result.truncated ? t("ui.chat.terminal-result.outputTruncatedUpTo64KiB") : ""}</p>
+      <p className="text-muted-foreground">{t("ui.chat.terminal-result.exitCode")}{result.exitCode ?? "—"}{result.truncated ? t(result.log ? (result.log.complete ? "ui.chat.terminal-result.outputSavedToLog" : "ui.chat.terminal-result.outputPartlySavedToLog") : "ui.chat.terminal-result.outputTruncatedUpTo64KiB") : ""}</p>
     </> : null}
     {error && !final ? <Alert variant="destructive"><AlertDescription className="flex flex-wrap items-center gap-2">{localizeMessage(error)}<Button size="sm" variant="outline" onClick={() => setRetry(value => value + 1)}>{t("ui.chat.terminal-result.retryLoading")}</Button></AlertDescription></Alert> : null}
   </section>;

@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { db } from "@/db";
+import { pruneTerminalLogs } from "@/lib/terminal/logs";
+import { activeTerminalSessionIds } from "@/lib/terminal/runtime";
 import { ApiError } from "@/lib/server/api-error";
 import { truncateTitle } from "@/lib/ai/ui-message";
 import { chatTagSchema, conversationSummary } from "@/lib/conversations/query";
@@ -54,11 +56,14 @@ export async function updateConversation(id: string, input: z.infer<typeof updat
 }
 
 export async function deleteConversations(ids: string[]) {
-  return db.$transaction(async tx => {
+  const deleted = await db.$transaction(async tx => {
     const count = await tx.chat.count({ where: { id: { in: ids } } });
     if (count !== ids.length) throw new ApiError({ code: "NOT_FOUND", message: "One or more conversations are unavailable; no conversations were deleted" });
     // Preserve shared assets and give newly unreferenced files the normal cleanup grace period.
     await tx.mediaAsset.updateMany({ where: { references: { some: { message: { chatId: { in: ids } } } } }, data: { lastUsedAt: new Date() } });
     return (await tx.chat.deleteMany({ where: { id: { in: ids } } })).count;
   });
+  // Runs cascade with their conversations; remove the terminal logs they owned.
+  await pruneTerminalLogs(activeTerminalSessionIds()).catch(() => console.error("terminal.log.prune.failed"));
+  return deleted;
 }
