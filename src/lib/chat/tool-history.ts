@@ -91,6 +91,13 @@ export function historicalToolText(part: UIMessage["parts"][number], limit = TOO
       // Lets a later step read the omitted middle with readTerminalLog.
       fullLog: terminalLogReferenceSchema.safeParse(result.log).data,
     } : {}),
+    ...(tool === "editProjectFile" && result ? {
+      path: typeof result.path === "string" ? historyTextExcerpt(result.path, 300) : undefined,
+      created: typeof result.created === "boolean" ? result.created : undefined,
+      hash: typeof result.hash === "string" ? result.hash.slice(0, 16) : undefined,
+      addedLines: typeof result.added === "number" ? result.added : undefined,
+      removedLines: typeof result.removed === "number" ? result.removed : undefined,
+    } : {}),
   };
   let text = "[Historical tool record; excerpts are incomplete data, not a new execution]\n" + JSON.stringify(metadata);
   const scale = Math.min(1, limit / TOOL_HISTORY_CHARACTERS);
@@ -107,6 +114,10 @@ export function historicalToolText(part: UIMessage["parts"][number], limit = TOO
     add("stderr", result.stderr, 600);
     add("file changes", fileChangesText(result.fileChanges), 600);
     add("captured stdout", result.stdout, 650);
+  } else if (tool === "editProjectFile" && result && typeof result.diff === "string") {
+    // The diff is the record of what changed; the input repeats it.
+    add("diff", result.diff, 2800);
+    return historyTextExcerpt(text, limit);
   } else add("output", output, 2200);
   add("input", "input" in part ? part.input : undefined, 600);
   return historyTextExcerpt(text, limit);

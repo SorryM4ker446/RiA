@@ -124,6 +124,43 @@ The isolated test runtime uses PowerShell on Windows and a non-interactive `sh`
 process group on other platforms to exercise CI contracts. This does not enable
 terminal execution in non-Windows production builds.
 
+## Project file tools
+
+Wherever `runTerminalCommand` is offered, two file tools come with it, under the
+same folder terminal permission and approval mode; they add no permission of
+their own and appear in template tool lists through the terminal tool.
+
+- `readProjectFile` reads a UTF-8 text file by 1-based line range (default 400,
+  at most 2,000 lines and 64 KiB per call, continuing at `nextLine`). It returns
+  numbered lines, the line-ending style, BOM and a 16-hex-digit content hash.
+- `editProjectFile` replaces exact text or writes a whole file. The model passes
+  the hash from its read as `expectedHash` (omitted only to create a file whose
+  parent folder exists). Every `oldText` is located in the file as read and must
+  match exactly once unless `replaceAll` is set; edits must not overlap and are
+  applied together or not at all. A file keeps its line endings and BOM; a new
+  file is written exactly as supplied. Writing uses a temporary file in the same
+  folder and a rename, so a failure leaves the original intact.
+
+The diff is computed by the service from the file on disk when the model proposes
+the edit, and is what the approval card shows under **查看详情** with the path and
+added/removed line counts. The approval is bound to the folder permission
+revision and to the hashes of the content before and after the edit. If the file
+or permission changes after the proposal, the edit is refused, including after
+approval, and the model is told to read again. A missing, ambiguous or
+overlapping `oldText`, a stale hash or a change that makes no difference is
+reported to the model before any approval is requested, with the line numbers to
+look at. Edits within the service are serialized per file.
+
+Paths are relative to the folder. Dot-named configuration such as `.github` and
+`.gitignore` is available; `.git` internals, `.env` files other than
+example/sample/template/dist variants, SSH/cloud credential folders, `.npmrc`,
+`.netrc` and key or certificate files are refused, including through links.
+This keeps credentials out of ordinary reads; it is not a boundary, because the
+terminal itself can reach them. Binary, UTF-16, non-UTF-8 and files over 8 MiB
+are refused with a pointer to the terminal. Rename, move, delete and running
+programs stay with `runTerminalCommand`. Exact edits appear in the files-changed
+summary and execution records with their diff.
+
 ## Files changed by a reply
 
 After the assistant finishes, **最近编辑的文件** appears below its reply when
