@@ -1,4 +1,4 @@
-import { getMemorySearchCandidates, keywordScore, KNOWLEDGE_MEMORY_POLICY, rankByScore, tokenizeQuery } from "@/lib/memory/retrieval";
+import { getMemorySearchCandidates, KNOWLEDGE_MEMORY_POLICY, rankByScore } from "@/lib/memory/retrieval";
 import { z } from "zod";
 import type { RetrievalPolicy } from "@/lib/assistants/schema";
 import type { DocumentDiagnostics } from "@/lib/documents/diagnostics";
@@ -16,7 +16,7 @@ export type SearchKnowledgeItem = {
   id: string;
   title: string;
   snippet: string;
-  source: "memory" | "builtin" | "document";
+  source: "memory" | "document";
   reference?: DocumentSource;
   score: number;
 };
@@ -28,26 +28,6 @@ export type SearchKnowledgeOutput = {
   diagnostics: DocumentDiagnostics;
 };
 
-const builtinKnowledgeBase = [
-  {
-    id: "builtin-memory",
-    title: "Memory Module",
-    content:
-      "The system has short-term chat context and long-term memories stored in the memories table.",
-  },
-  {
-    id: "builtin-chat-persistence",
-    title: "Chat Persistence",
-    content:
-      "Chats are persisted in chats and messages tables. The frontend loads chat history from /api/conversations.",
-  },
-  {
-    id: "builtin-tools",
-    title: "Tool Calling",
-    content:
-      "Tools can be registered in route.ts and rendered on the frontend from message.parts with tool states.",
-  },
-];
 
 export async function searchKnowledge(
   input: SearchKnowledgeInput,
@@ -55,26 +35,19 @@ export async function searchKnowledge(
 ): Promise<SearchKnowledgeOutput> {
   const query = input.query.trim();
   const topK = input.topK ?? 4;
-  const { queryTokens, candidates } = options.usesMemory === false
-    ? { queryTokens: tokenizeQuery(query), candidates: [] }
+  const { candidates } = options.usesMemory === false
+    ? { candidates: [] as Awaited<ReturnType<typeof getMemorySearchCandidates>>["candidates"] }
     : await getMemorySearchCandidates(query, KNOWLEDGE_MEMORY_POLICY, options.signal);
   const memoryResults: SearchKnowledgeItem[] = candidates.map(({ memory: row, relevance }) => ({
     id: row.id, title: row.key, snippet: row.value, source: "memory", score: relevance,
   }));
 
-  const builtinResults: SearchKnowledgeItem[] = builtinKnowledgeBase.map((item) => ({
-    id: item.id,
-    title: item.title,
-    snippet: item.content,
-    source: "builtin",
-    score: keywordScore(queryTokens, `${item.title} ${item.content}`),
-  }));
 
   const retrieved = await retrieveDocuments(query, topK, options.collections, options.signal, options.policy);
   const documentResults: SearchKnowledgeItem[] = retrieved.sources.map(item => ({ id: item.chunkId, title: item.filename, snippet: item.snippet, source: "document", score: item.score, reference: documentSourceSchema.parse(item) }));
   // Imported evidence retains its fused order and adjacent context. Uncalibrated
-  // memory weights and built-in developer notes must not crowd it out.
-  const ranked = [...documentResults, ...rankByScore([...memoryResults, ...builtinResults], item => item.score, topK)].slice(0, topK)
+  // memory weights must not crowd it out.
+  const ranked = [...documentResults, ...rankByScore(memoryResults, item => item.score, topK)].slice(0, topK)
     .map((item) => ({
       ...item,
       score: Number(item.score.toFixed(3)),

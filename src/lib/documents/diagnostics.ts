@@ -14,11 +14,14 @@ export const documentDiagnosticsSchema = z.strictObject({
   selectedSources: z.number().int().nonnegative().max(8),
   contextChars: z.number().int().nonnegative().max(9600),
   durationMs: z.number().nonnegative(),
+  // Weak matches left for the model to search for instead of being added automatically.
+  withheldSources: z.number().int().nonnegative().max(8).optional(),
   policy: retrievalPolicySchema,
 });
 export type DocumentDiagnostics = z.infer<typeof documentDiagnosticsSchema>;
 export function describeDocumentDiagnostics(value: DocumentDiagnostics) {
   const outcome = { "empty-query": "查询为空", "empty-library": "所选范围没有资料", "no-hits": "未找到支持此问题的片段", hits: `已取得 ${value.selectedSources} 个证据片段` }[value.outcome];
   const semantic = { "not-run": "本次未执行语义检索", "not-configured": "未配置语义模型，使用关键词检索", unindexed: "当前模型尚无兼容向量，使用关键词检索", ready: "混合检索已运行", failed: "语义模型调用失败，已回退关键词检索" }[value.semantic];
-  return `${outcome}；${semantic}。证据 ${value.contextChars} 字符，耗时 ${Math.round(value.durationMs)} ms。`;
+  const withheld = value.withheldSources ? `另有 ${value.withheldSources} 个弱匹配片段未自动加入，助手可按需检索。` : "";
+  return `${outcome}；${semantic}。证据 ${value.contextChars} 字符，耗时 ${Math.round(value.durationMs)} ms。${withheld}`;
 }

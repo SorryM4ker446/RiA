@@ -22,7 +22,7 @@ use **重新索引** to repair their saved headings/table chunks; affected seman
 vectors are invalidated and need explicit rebuilding. Unchanged paragraphs retain
 their IDs, and a content-preserving reindex keeps document citation versions.
 
-The document panel supports keyword search without a model key, and hybrid search when compatible semantic vectors exist. Chat automatically supplies up to eight versioned snippets to the configured chat model. Retrieval expands adjacent paragraphs to retain conditions and exceptions. The knowledge-search tool prioritizes document evidence before filling remaining slots with confirmed memories and built-in notes. Filenames, excerpts and source links appear below the answer. PDF sources identify their page; other formats identify their chunk. The source page requires the same authentication as the knowledge library and renders extracted text rather than document HTML.
+The document panel supports keyword search without a model key, and hybrid search when compatible semantic vectors exist. Chat retrieves up to eight versioned snippets for each message. When the conversation or its template selects knowledge collections, or the chat model cannot call `searchKnowledge`, all of them are supplied. Otherwise only strong matches are added automatically — a semantic similarity of at least 0.5, or matched terms covering at least 60% of the query — and the model searches with `searchKnowledge` when it needs more; retrieval diagnostics count the weak matches that were withheld. Retrieval expands adjacent paragraphs, which follow their anchor, to retain conditions and exceptions. The knowledge-search tool prioritizes document evidence before filling remaining slots with confirmed memories. Filenames, excerpts and source links appear below the answer. PDF sources identify their page; other formats identify their chunk. The source page requires the same authentication as the knowledge library and renders extracted text rather than document HTML.
 
 ## Configure and build semantic retrieval
 
@@ -106,6 +106,8 @@ document is renamed or deleted. Backups containing the new representation
 require this version or a newer version to restore the scope correctly.
 
 Every memory records where it came from: added by hand, or inferred by the assistant. An inferred entry is stored as a **candidate**: visible, editable and deletable in the knowledge page, but it does not enter the context of any answer until you accept it. An inference therefore does not become a fact on the next turn, and it never takes effect where you cannot see it.
+
+Chat includes at most six confirmed memories, and only those that match the message itself — a keyword coverage or semantic similarity of at least 0.3 — before recency and manual weight order them. The memory and retrieval APIs keep their existing ranking.
 
 Editing a candidate is how it is accepted. A memory written by hand is stamped with the time it was last used, and the page shows **last used** so it is clear which memories are doing something and which have gone untouched.
 

@@ -13,6 +13,8 @@ type RankingPolicy = {
 export const CONTEXT_MEMORY_POLICY: RankingPolicy = {
   candidateLimit: 100, excludeToolMemories: false, manualWeight: 0.4, recencyWeight: 0.2,
 };
+/** Chat context only includes memories that match the request itself this well. */
+export const CONTEXT_MEMORY_MIN_MATCH = 0.3;
 export const KNOWLEDGE_MEMORY_POLICY: RankingPolicy = {
   candidateLimit: 50, excludeToolMemories: true, manualWeight: 0.2, recencyWeight: 0,
 };
@@ -31,6 +33,20 @@ export function keywordScore(queryTokens: string[], text: string): number {
   if (!queryTokens.length) return 0;
   const normalized = normalizeText(text);
   return queryTokens.filter((token) => normalized.includes(token)).length / queryTokens.length;
+}
+
+/** How well a memory matches the query itself, before recency and manual weight. */
+export function memoryMatch(
+  memory: { key: string; value: string; embedding: unknown; embeddingModelId?: string | null; embeddingModelProvider?: string | null },
+  queryTokens: string[],
+  queryEmbedding: number[] | null,
+  queryModelRef?: ModelRef | null,
+): number {
+  const lexical = keywordScore(queryTokens, `${memory.key} ${memory.value}`);
+  // A vector is only comparable with one written by the same provider and model.
+  const sameSpace = Boolean(queryModelRef && memory.embeddingModelId === queryModelRef.modelId && memory.embeddingModelProvider === queryModelRef.providerId);
+  const semantic = Math.max(0, sameSpace ? cosineSimilarity(queryEmbedding, toEmbeddingVector(memory.embedding)) : 0);
+  return Math.max(lexical, semantic * 0.85);
 }
 
 export function scoreMemory(
@@ -84,6 +100,6 @@ export async function getMemorySearchCandidates(query: string, policy: RankingPo
   const now = Date.now();
   return {
     queryTokens,
-    candidates: candidates.map((memory) => ({ memory, relevance: scoreMemory(memory, queryTokens, queryEmbedding, policy, now, queryModelRef) })),
+    candidates: candidates.map((memory) => ({ memory, match: memoryMatch(memory, queryTokens, queryEmbedding, queryModelRef), relevance: scoreMemory(memory, queryTokens, queryEmbedding, policy, now, queryModelRef) })),
   };
 }

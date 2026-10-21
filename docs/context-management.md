@@ -16,6 +16,18 @@ When capacity is unknown, the application uses a labelled 131,072-token planning
 ceiling; this does not establish the provider's actual capacity. Configure it
 from provider documentation before relying on large requests.
 
+## Prompt layout
+
+The system prompt holds only rules that stay the same across a conversation's
+turns: the base instructions, tool rules, capability status, user preferences,
+the assistant template and the skill index. Each rule is stated once. This turn's
+reference data — the summary of earlier turns (or, when no summary covers them,
+labelled excerpts), matching memories and automatically added knowledge evidence
+— is sent as one labelled context block at the start of the latest user message.
+The block is rebuilt for every request and never saved with the message. Earlier
+turns are sent unchanged, so providers with prefix caching can reuse everything
+up to the previous turn instead of missing the cache on every request.
+
 ## Request budgets
 
 Input budget is context capacity minus output reservation and a 5% safety margin.

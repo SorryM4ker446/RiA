@@ -80,9 +80,14 @@ test("updated built-in agent guidance preserves old snapshots until the user rea
   const templates = await listAssistants();
   const coding = templates.find(template => template.id === "builtin_coding")!;
   const research = templates.find(template => template.id === "builtin_research")!;
-  assert.equal(coding.revision, 2);
+  assert.equal(coding.revision, 3);
   assert.equal(research.revision, 2);
-  assert.match(coding.config.instructions, /make the smallest coherent change using available tools/);
+  assert.match(coding.config.instructions, /make the smallest coherent change/);
+  assert.match(coding.config.instructions, /following each folder's approval mode/);
+  assert.doesNotMatch(coding.config.instructions, /obtain approval for every terminal command/);
+  const knowledge = templates.find(template => template.id === "builtin_knowledge")!;
+  assert.equal(knowledge.revision, 2);
+  assert.match(knowledge.config.instructions, /search with searchKnowledge when it does not cover the question/);
   assert.match(research.config.instructions, /only when it prevents research the user requested/);
   assert.doesNotMatch(research.config.instructions, /Disclose missing or unavailable searches/);
   const oldSnapshot = { ...research.config, instructions: "Older research instructions", templateId: research.id, templateRevision: 1 };

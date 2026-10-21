@@ -52,7 +52,9 @@ test("marketplace installs a skill package, applies it to real chat context and 
   await card.getByRole("button", { name: "启用插件", exact: true }).click(); await expect(card.getByText("已启用", { exact: true })).toBeVisible();
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   const chat = await send(page, app, "请润色：我们明天见面。");
-  await expect.poll(() => systemText(app)).toContain("先识别文本用途");
+  // A tool-capable model gets the skill index; instructions load through readPluginSkill.
+  await expect.poll(() => systemText(app)).toContain("用户需要起草、改写、润色、缩写或校对文本时使用。");
+  expect(systemText(app)).not.toContain("先识别文本用途");
   await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.role === "assistant")).toBe(true);
   await app.runtime.restart(); await open(page, app);
   await expect(card.getByText("已启用", { exact: true })).toBeVisible();
@@ -60,7 +62,7 @@ test("marketplace installs a skill package, applies it to real chat context and 
   const before = app.runtime.providerCalls.length;
   await send(page, app, "请润色：今天开始工作。");
   await expect.poll(() => app.runtime.providerCalls.length).toBeGreaterThan(before);
-  expect(systemText(app)).not.toContain("先识别文本用途");
+  expect(systemText(app)).not.toContain("用户需要起草、改写、润色、缩写或校对文本时使用。");
   expect(app.service.state.calls).toHaveLength(0); expect(app.service.state.probes).toBe(0);
   expect(errors).toEqual([]); expect(logs).toEqual([]);
 });
@@ -105,7 +107,7 @@ for (const kind of ["http", "mcp-http"] as const) test(`${kind} combination pack
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   const chat = await send(page, app, "OFFLINE_EXTENSION_TOOL");
   const approval = page.getByRole("button", { name: "批准", exact: true }); await expect(approval).toBeEnabled();
-  await expect.poll(() => systemText(app)).toContain("PLUGIN_SKILL_EVIDENCE"); expect(app.service.state.calls).toHaveLength(0);
+  await expect.poll(() => systemText(app)).toContain("Use for package acceptance questions."); expect(app.service.state.calls).toHaveLength(0);
   await approval.click(); await expect.poll(() => app.service.state.calls.length).toBe(1);
   expect(app.service.state.calls[0].authorization).toBe("Bearer synthetic-plugin-secret");
   await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes('"state":"output-available"'))).toBe(true);

@@ -103,8 +103,11 @@ if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
         return JSON.stringify({ id: "offline-gateway-search", choices: [{ message: { role: "assistant", content: "官方发布说明中的更新。", annotations: [{ type: "url_citation", url_citation: { title: "Offline official release", url: "https://example.invalid/official-release", content: "Official search evidence from the gateway." } }] }, finish_reason: "stop" }], usage: { prompt_tokens: 12, completion_tokens: 8, cost: 0.002, server_tool_use: { web_search_requests: 1 } } });
       }
       const latest = body.messages.findLast((message) => message.role === "user");
-      const prompt = typeof latest?.content === "string" ? latest.content
-        : (latest?.content ?? []).filter((part) => part.type === "text").map((part) => part.text).join("\n");
+      const latestTexts = typeof latest?.content === "string" ? [latest.content]
+        : (latest?.content ?? []).filter((part) => part.type === "text").map((part) => part.text);
+      // The request's context block travels ahead of the user's own text.
+      const requestContext = latestTexts.filter(text => text.startsWith("[Context for this request")).join("\n");
+      const prompt = latestTexts.filter(text => !text.startsWith("[Context for this request")).join("\n");
       let content = `离线回答：${prompt}`;
       const fileEditRequest = prompt === "请整理个人资料卡片：统一配色，新增资料卡组件和使用说明，并移除旧草稿。";
       if (fileEditRequest) content = "已完成个人资料卡片的整理。\n\n- 统一了界面配色与间距。\n- 新增资料卡组件和使用说明。\n- 清理了不再使用的旧草稿。\n\n下方是本轮文件变更，点击文件即可继续检查。";
@@ -113,7 +116,7 @@ if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
       if (prompt === "出门办事的钱怎样领回来") {
         const system = body.messages.filter(message => message.role === "system").map(message => typeof message.content === "string"
           ? message.content : message.content.filter(part => part.type === "text").map(part => part.text).join("\n")).join("\n");
-        const line = system.split("\n").find(value => value.startsWith('[{"reference":'));
+        const line = `${system}\n${requestContext}`.split("\n").find(value => value.startsWith('[{"reference":'));
         const evidence = line ? JSON.parse(line) : [];
         const main = evidence.find(source => source.excerpt.includes("十个工作日"));
         const exception = evidence.find(source => source.excerpt.includes("书面说明"));
