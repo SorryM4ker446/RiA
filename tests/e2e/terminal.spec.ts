@@ -338,11 +338,17 @@ test("completed replies show real file changes, persist them and open validated 
   writeFileSync(join(app.folder, "old-draft.txt"), "旧草稿\n");
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "个人资料卡片" })).body.data;
   await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
+  await trackChatStreams(page);
   await page.getByPlaceholder(/输入你的问题/).fill("请整理个人资料卡片：统一配色，新增资料卡组件和使用说明，并移除旧草稿。");
+  const reply = page.waitForResponse(response => new URL(response.url()).pathname === "/api/chat" && response.request().method() === "POST");
   await page.getByRole("button", { name: "发送", exact: true }).click();
+  expect((await reply).status()).toBe(200);
+  // The summary is rendered only after the tool and the reply finish. Terminal
+  // work can outlast a UI assertion without the turn being stuck.
+  await waitForChatStream(page);
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
   const files = page.getByRole("region", { name: "最近编辑的文件", exact: true });
   await expect(files).toBeVisible();
-  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
   await expect(files.getByText("新增 2 个 · 修改 1 个 · 删除 1 个", { exact: true })).toHaveCount(1);
   await expect(files.getByRole("button", { name: "打开文件 old-draft.txt", exact: true })).toHaveCount(0);
   await files.getByRole("button", { name: "展开其余 1 个文件", exact: true }).click();

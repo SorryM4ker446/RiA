@@ -88,6 +88,13 @@ tool details: delayed terminal details must gain their automatic expansion while
 preserving explicit mouse and keyboard choices. These transitions are covered
 without longer timeouts or retries.
 
+The recently edited files summary appears only after the reply finishes. Its
+browser test consumes the submitted chat stream and waits for the composer to
+leave its busy state before checking the summary. Terminal work on the hosted
+runner can outlast the UI assertion budget while the tool is still running.
+Keep the turn's overall timeout and all file, persistence and desktop
+bridge assertions; do not start a finished-result assertion at submission time.
+
 Database persistence is not stream completion. Before restarting a fixture
 server, consume the chat continuation, wait for the composer to leave its busy
 state and unload the page. The extension discovery regression holds the final
