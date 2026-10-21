@@ -17,6 +17,8 @@ const { installPlugin, listPlugins, setPluginState, uninstallPlugin, formatPlugi
 const { saveExtension, requireExtension, testExtension, activateExtension, deleteExtension } = await import("@/lib/extensions/store");
 const { listPublicToolCatalog, resolveToolDescriptor, toolAvailability } = await import("@/tools/registry");
 const { createChatToolSet } = await import("@/tools/execution");
+const { readPluginSkill } = await import("@/tools/definitions/plugin-skill");
+const { builtinToolAvailability } = await import("@/tools/builtins");
 const routes = await import("@/app/api/plugins/route");
 const previewRoute = await import("@/app/api/plugins/preview/route");
 const itemRoute = await import("@/app/api/plugins/[id]/route");
@@ -62,7 +64,13 @@ test("skill-only plugins enter subsequent chat context only while enabled and re
   const plugin = await installPlugin(parsePlugin(pluginFixture()));
   assert.equal(await formatPluginSkills(), "");
   const enabled = await setPluginState(plugin.id, { revision: plugin.revision, enabled: true });
-  assert.match(await formatPluginSkills(), /PLUGIN_SKILL_EVIDENCE/); assert.match(await formatPluginSkills(), /not permission grants/);
+  assert.match(await formatPluginSkills(), /PLUGIN_SKILL_EVIDENCE/); assert.match(await formatPluginSkills(), /task guidance, not permissions/);
+  // With on-demand loading only the index is resident; readPluginSkill returns the instructions.
+  const index = await formatPluginSkills({ onDemand: true });
+  assert.match(index, /Research skill/); assert.match(index, /readPluginSkill/); assert.doesNotMatch(index, /PLUGIN_SKILL_EVIDENCE/);
+  const loaded = await readPluginSkill.execute({ workspaceId: "local", trigger: "auto", input: { packageId: "test.research-pack", offset: 0 } }) as { skills: { instructions: string }[] };
+  assert.match(loaded.skills[0].instructions, /PLUGIN_SKILL_EVIDENCE/);
+  assert.equal((await builtinToolAvailability("readPluginSkill")).available, true);
   assert.equal((await listPlugins()).items[0].enabled, true);
   await assert.rejects(() => setPluginState(plugin.id, { revision: plugin.revision, enabled: false }), /已变化/);
   const disabled = await setPluginState(plugin.id, { revision: enabled.revision, enabled: false });

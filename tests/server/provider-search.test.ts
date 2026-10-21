@@ -245,14 +245,16 @@ test("configured backups cannot bypass provider permission, balance, quota error
 });
 
 test("prompts only disclose requested capability failures and distinguish template restrictions from missing configuration", () => {
-  const configuredAway = buildSystemPrompt("", "", true, [{ id: "webSearch", reason: "notConfigured" }]);
-  const templateDisabled = buildSystemPrompt("", "", false, [{ id: "webSearch", reason: "templateDisabled" }]);
-  assert.match(configuredAway, /only if the user requested this capability/);
+  const configuredAway = buildSystemPrompt(true, [{ id: "webSearch", reason: "notConfigured" }]);
+  const templateDisabled = buildSystemPrompt(false, [{ id: "webSearch", reason: "templateDisabled" }]);
+  assert.match(configuredAway, /Mention an unavailable capability only when the user asked for something it prevents/);
   assert.match(configuredAway, /configure the tool's connection or provider/);
   assert.match(templateDisabled, /disabled by the current assistant template/);
   assert.doesNotMatch(templateDisabled, /webSearch is not configured/);
-  for (const prompt of [configuredAway, templateDisabled, buildSystemPrompt("", "", true)]) {
-    assert.match(prompt, /Do not volunteer statements about not searching the web, not reading local files/);
+  for (const prompt of [configuredAway, templateDisabled, buildSystemPrompt(true)]) {
+    // The rule is stated once and positively; naming specific unused tools would prime them.
+    assert.equal(prompt.split("Mention an unavailable capability only when").length, 2);
+    assert.doesNotMatch(prompt, /Do not volunteer|Do not announce unused capabilities/);
     assert.doesNotMatch(prompt, /say plainly that this turn did not search|No tools were run in this turn/);
   }
 });

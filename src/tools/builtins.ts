@@ -21,6 +21,7 @@ import { searchConfigured, resolveSearchRoute, searchResultLimit } from "./defin
 import { runWebSearch, webSearchInput } from "@/tools/definitions/web-search";
 import { documentProcessorTools } from "@/tools/definitions/document-processor";
 import { readPluginSkill } from "@/tools/definitions/plugin-skill";
+import { activeSkillPackages } from "@/lib/plugins/store";
 import { db } from "@/db";
 import { readTerminalLogTool, terminalTool } from "./terminal";
 import { editProjectFileTool, readProjectFileTool } from "./project-files";
@@ -457,8 +458,8 @@ export async function builtinToolAvailability(toolId: string, modelRef?: ModelRe
     return enabled ? { available: true, reason: null, configEntry: null } : { available: false, reason: "notConfigured", configEntry: "/settings" };
   }
   if (toolId === "readPluginSkill") {
-    const packages = await db.pluginPackage.findMany({ where: { enabled: true }, select: { manifest: true } });
-    return packages.some(row => !!(row.manifest as Record<string, unknown>).marketplace) ? { available: true, reason: null, configEntry: null } : { available: false, reason: "disabled", configEntry: "/extensions" };
+    // Any active skill can be loaded on demand, so the prompt only needs its index.
+    return (await activeSkillPackages()).length ? { available: true, reason: null, configEntry: null } : { available: false, reason: "disabled", configEntry: "/extensions" };
   }
   if (toolId === "webSearch" && !searchConfigured(modelRef)) {
     // The reason a tool is missing comes with where to fix it, so the interface

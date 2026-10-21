@@ -140,10 +140,12 @@ test("ordinary chat receives task-oriented agent instructions without empty retr
   const prompt = languageModel.doStreamCalls.at(-1).prompt.find(item => item.role === "system").content;
   assert.match(prompt, /RiA, a local-first desktop AI agent/);
   assert.match(prompt, /carry authorized work through/);
-  assert.match(prompt, /approval requires human approval for every tool call/);
-  assert.match(prompt, /full-access executes without per-call approval/);
-  assert.match(prompt, /If a requested workspace fact lacks evidence/);
-  assert.doesNotMatch(prompt, /\[Knowledge evidence|\[Long-Term Memory|\[Earlier Conversation Excerpts|\[Tooling Policy/);
+  assert.match(prompt, /terminalApprovalMode decides whether calls wait for approval/);
+  assert.match(prompt, /say when evidence for a requested workspace fact is missing/);
+  assert.doesNotMatch(prompt, /Knowledge evidence|Long-term memories|Summary of earlier turns|Incomplete excerpts|\[Tooling Policy/);
+  // Nothing was retrieved or remembered, so the user's message carries no context block.
+  const latest = languageModel.doStreamCalls.at(-1).prompt.at(-1);
+  assert.equal(JSON.stringify(latest.content).includes("[Context for this request"), false);
   assert.doesNotMatch(prompt, /No supporting document excerpts|No relevant long-term memory|No earlier messages omitted|Prefer a direct answer for ordinary questions|Order: factual points/);
 });
 
@@ -162,8 +164,11 @@ test("model capacity bounds long persisted conversations while retaining the act
   const prompt = languageModel.doStreamCalls.at(-1).prompt;
   const capacity = contextBudget(null, Object.values(settings.contextLimits)[0]);
   assert.ok(estimateContextTokens({ prompt, tools: languageModel.doStreamCalls.at(-1).tools }) <= capacity.inputTokens);
-  assert.match(prompt.find((item) => item.role === "system").content, /Incomplete excerpts from .* earlier messages/);
-  assert.equal(textPart(prompt.at(-1).content[0]).text, "Explain the previous answer");
+  // Older turns reach the model through the request's context block, not the system prompt.
+  assert.doesNotMatch(prompt.find((item) => item.role === "system").content, /Recorded turn 0|Summary of earlier turns|Incomplete excerpts/);
+  const latestParts = prompt.at(-1).content;
+  assert.match(textPart(latestParts[0]).text, /^\[Context for this request[\s\S]*(Summary of earlier turns|Incomplete excerpts from .* earlier messages)/);
+  assert.equal(textPart(latestParts.at(-1)).text, "Explain the previous answer");
   assert.ok(prompt.some((item) => item.role === "assistant" && textPart(item.content[0]).text === "Recorded turn 39"));
   assert.equal(await db.message.count({ where: { chatId: owned.id } }), 42);
   assert.equal(await db.message.count({ where: { chatId: owned.id, content: { startsWith: "Recorded turn" } } }), 40);
@@ -178,7 +183,10 @@ test("chat streams owned document sources and preserves citation snapshots throu
   const wire = await response.text();
   assert.match(wire, /documentSources/);
   assert.match(wire, /supply.pdf/);
-  const prompt = languageModel.doStreamCalls.at(-1).prompt.find(item => item.role === "system").content;
+  const sent = languageModel.doStreamCalls.at(-1).prompt;
+  assert.doesNotMatch(sent.find(item => item.role === "system").content, /每周三/, "evidence is not placed among the system rules");
+  const prompt = textPart(sent.at(-1).content[0]).text;
+  assert.match(prompt, /^\[Context for this request/);
   assert.match(prompt, /untrusted reference data/);
   assert.match(prompt, /每周三/);
   // Untrusted document text stays inside the reference block, never as instruction.

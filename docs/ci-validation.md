@@ -106,13 +106,18 @@ last block; rendering optimization must never truncate approval or saved input.
 
 Native selection forces Chromium to lay out the complete script. Its checks for
 two saved multi-megabyte commands run independently at desktop and narrow widths,
-using saved-history fixtures. The real terminal integration still verifies two
-approvals, complete transport and persisted/DOM hashes, reload and follow-up
-context. Keep these contracts covered without accumulating all layout work in
-the real execution case's timeout budget. Intermediate persistence checks read
-the isolated database directly, avoiding repeated multi-megabyte transfers
-through `page.evaluate` and the trace recorder. Reload still reads the complete
-HTTP history and verifies both rendered command hashes.
+using saved-history fixtures. The real terminal integration approves one
+multi-megabyte script and verifies complete transport, persisted and DOM hashes,
+reload, and a follow-up request that resends the script as history. Approving a
+second long script in that case doubled its continuation to about 6 MB; a hosted
+trace showed that request alone taking about 20 s of the 45 s budget, against
+about 4 s locally, without exercising another contract. Per-call approval of
+successive tool calls is verified separately with short commands. Keep these
+contracts covered without accumulating all layout work in the real execution
+case's timeout budget. Intermediate persistence checks read the isolated
+database directly, avoiding repeated multi-megabyte transfers through
+`page.evaluate` and the trace recorder. Reload still reads the complete HTTP
+history and verifies the rendered command hash.
 
 PDF extraction disables canvas's automatic system/user font discovery inside
 the parser worker. PDF.js's `useSystemFonts: false` applies after canvas module

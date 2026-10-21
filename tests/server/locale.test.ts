@@ -72,8 +72,9 @@ test("system language negotiation honors preference order and manual choices", (
 
 test("chat instructions follow the latest user language independently of interface and tool text", () => {
   assert.match(ASSISTANT_BASE_PROMPT, /language of the user's latest message/);
-  assert.match(ASSISTANT_BASE_PROMPT, /unless they explicitly request another language/);
-  assert.match(ASSISTANT_BASE_PROMPT, /interface language, tool labels and tool output language must not determine/);
+  assert.match(ASSISTANT_BASE_PROMPT, /unless they ask for another/);
+  assert.match(ASSISTANT_BASE_PROMPT, /Interface, tool and document languages do not decide the reply language/);
+  assert.match(ASSISTANT_BASE_PROMPT, /language set in the user.s preferences when one is given/);
 });
 
 test("translated labels preserve word boundaries and interpolate user content", () => {

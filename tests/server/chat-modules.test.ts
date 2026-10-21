@@ -74,8 +74,9 @@ test("shared retrieval keeps tool records out of context while knowledge candida
   const result = await searchKnowledge( { query: " sqlite ", topK: 8 });
   assert.equal(result.query, "sqlite");
   assert.deepEqual(result.results.map((row) => row.title).sort(), ["sqlite-note", "sqlite-other"]);
-  const builtin = await searchKnowledge( { query: "short-term", topK: 8 });
-  assert.ok(builtin.results.some((row) => row.id === "builtin-memory"));
+  // Developer notes about this codebase are never mixed into the user's knowledge.
+  const notes = await searchKnowledge( { query: "short-term chat context memories table", topK: 8 });
+  assert.equal(notes.results.some((row) => row.id.startsWith("builtin-")), false);
   assert.deepEqual(await getRelevantMemories({ query: " " }), []);
 });
 

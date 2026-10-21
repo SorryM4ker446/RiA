@@ -182,11 +182,11 @@ test("an unconfigured optional tool is not handed to the model at all", async()=
 
 test("capability context explains a failed requested action without volunteering unused-tool disclaimers", async()=>{
   const {buildSystemPrompt}=await import("@/lib/chat/model-context");
-  const available=buildSystemPrompt("none","none",true,[]);
-  const missing=buildSystemPrompt("none","none",true,[{id:"webSearch",reason:"notConfigured"}]);
+  const available=buildSystemPrompt(true,[]);
+  const missing=buildSystemPrompt(true,[{id:"webSearch",reason:"notConfigured"}]);
   assert.doesNotMatch(available,/webSearch is not configured/);
   assert.match(missing,/webSearch is not configured/);
-  assert.match(missing,/only if the user requested this capability/);
+  assert.match(missing,/Mention an unavailable capability only when the user asked for something it prevents/);
   assert.doesNotMatch(missing,/say plainly that this turn did not search the web/);
 });
 

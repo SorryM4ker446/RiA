@@ -153,13 +153,15 @@ test("the stated preferences reach the prompt, and an empty preference section d
   assert.match(rendered, /Address the user as: 老王\./);
   assert.match(rendered, /Reply in: 中文\./);
   assert.match(rendered, /Answer style: 先给结论\./);
-  const prompt = buildSystemPrompt("none", "none", true, [], persona);
+  const prompt = buildSystemPrompt(true, [], persona);
   assert.match(prompt, /\[User Preferences\]/);
+  // A preferred language set by the user takes precedence over the message language.
+  assert.match(prompt, /Reply in the language set in the user's preferences when one is given/);
   // Nothing stated means nothing rendered: an empty section would invite the
   // model to invent a preference the user never expressed.
   assert.equal(formatPersona({ name: "", language: "", answerStyle: "", notes: "" }), "");
   assert.equal(formatPersona(null), "");
-  assert.equal(buildSystemPrompt("none", "none", true, []).includes("[User Preferences]"), false);
+  assert.equal(buildSystemPrompt(true, []).includes("[User Preferences]"), false);
 });
 
 test("a conversation scoped to a topic does not retrieve documents outside it", async () => {

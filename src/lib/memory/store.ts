@@ -19,6 +19,8 @@ export type SaveMemoryInput = {
 export type GetRelevantMemoriesInput = {
   query: string;
   limit?: number;
+  /** Minimum keyword or semantic match before recency and manual weight count. */
+  minMatch?: number;
   signal?: AbortSignal;
 };
 
@@ -81,7 +83,8 @@ export async function getRelevantMemories(input: GetRelevantMemoriesInput) {
 
   const limit = input.limit ?? 5;
   const { candidates } = await getMemorySearchCandidates(query, CONTEXT_MEMORY_POLICY, input.signal);
-  const used = rankByScore(candidates, (item) => item.relevance, limit).map(({ memory }) => ({
+  const relevant = input.minMatch ? candidates.filter((item) => item.match >= input.minMatch!) : candidates;
+  const used = rankByScore(relevant, (item) => item.relevance, limit).map(({ memory }) => ({
     id: memory.id, key: memory.key, value: memory.value, score: memory.score, updatedAt: memory.updatedAt,
   }));
   // Recorded so the interface can say which memories actually did something,
