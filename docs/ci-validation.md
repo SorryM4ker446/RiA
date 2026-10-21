@@ -104,6 +104,26 @@ whose offscreen layout is deferred. Browser checks retain the multi-megabyte
 transport and command hashes, verify native selection hashes and scroll to the
 last block; rendering optimization must never truncate approval or saved input.
 
+Native selection forces Chromium to lay out the complete script. Its checks for
+two saved multi-megabyte commands run independently at desktop and narrow widths,
+using saved-history fixtures. The real terminal integration still verifies two
+approvals, complete transport and persisted/DOM hashes, reload and follow-up
+context. Keep these contracts covered without accumulating all layout work in
+the real execution case's timeout budget. Intermediate persistence checks read
+the isolated database directly, avoiding repeated multi-megabyte transfers
+through `page.evaluate` and the trace recorder. Reload still reads the complete
+HTTP history and verifies both rendered command hashes.
+
+PDF extraction disables canvas's automatic system/user font discovery inside
+the parser worker. PDF.js's `useSystemFonts: false` applies after canvas module
+initialization and does not prevent that scan. The worker continues to use
+bundled PDF fonts and the existing parse/cleanup limits. A regression rejects
+any host font enumeration while extracting real PDF text. Parser timeout logs
+include only the format and a fixed phase (startup, PDF module import, document,
+text or cleanup); inspect those alongside the desktop smoke failure before
+attributing another 504 to runner speed. A local pass does not establish the
+cause of an intermittent hosted timeout.
+
 Animation checks synchronize with committed DOM state and sample the real CSS
 transition at a controlled point on its Web Animations timeline. A fixed number
 of animation frames does not guarantee positive elapsed animation time on a
