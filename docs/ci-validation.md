@@ -51,8 +51,13 @@ foreach ($shard in 1..3) {
 ```
 
 For browser validation, restore the fixture search configuration and use the
-production-build harness, two workers and zero retries. Do not reuse a local
-development server or run another build/desktop smoke concurrently:
+production-build harness, two workers per shard and zero retries. CI runs three
+independent browser shards with `fail-fast: false`; the validation gate requires
+every shard to pass. Each shard builds its own runtime and uploads a uniquely
+named diagnostic artifact on failure. This reduces the longest job without
+sharing mutable databases, build directories or browser state between runners.
+Do not reuse a local development server or run another build/desktop smoke
+concurrently in the same checkout:
 
 ```powershell
 $env:TAVILY_API_KEY = 'test-tavily-key'
@@ -60,6 +65,13 @@ npx --yes npm@11.19.1 exec -- playwright install chromium
 npx --yes npm@11.19.1 run test:e2e:diagnostics
 npx --yes npm@11.19.1 run test:e2e
 ```
+
+The full local command covers the same cases without sharding. To match a CI
+shard, append `-- --shard=1/3` (or `2/3`, `3/3`). To check shard coverage without
+building, use `npm run test:e2e -- --list --shard=1/3` for each shard and compare
+their union with the unsharded list. The shards must have no missing or duplicate
+test cases. Hosted wall-clock improvements still require a new Actions run;
+parallel shards use additional runners and repeat installation/build overhead.
 
 The browser harness creates a separate database/media directory for each run.
 It explicitly sets its runtime environment; the server tests use isolated
@@ -75,6 +87,15 @@ output inside a collapsed disclosure. Saved summaries can arrive before full
 tool details: delayed terminal details must gain their automatic expansion while
 preserving explicit mouse and keyboard choices. These transitions are covered
 without longer timeouts or retries.
+
+Database persistence is not stream completion. Before restarting a fixture
+server, consume the chat continuation, wait for the composer to leave its busy
+state and unload the page. The extension discovery regression holds the final
+stream flush after persistence to exercise this boundary deterministically.
+Long terminal commands keep their complete text in the DOM, grouped into blocks
+whose offscreen layout is deferred. Browser checks retain the multi-megabyte
+transport and command hashes, verify native selection hashes and scroll to the
+last block; rendering optimization must never truncate approval or saved input.
 
 Animation checks synchronize with committed DOM state and sample the real CSS
 transition at a controlled point on its Web Animations timeline. A fixed number

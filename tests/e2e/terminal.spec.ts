@@ -1,4 +1,5 @@
 import { openExecutionDetails } from "../helpers/execution-records";
+import { trackChatStreams, waitForChatStream, isContinuationHeld, releaseContinuation } from "../helpers/chat-stream";
 import { expect, test as base, type Page } from "@playwright/test";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, mkdirSync, writeFileSync, unlinkSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -93,36 +94,6 @@ function trackChatRequestBytes(page: Page) {
   return sizes;
 }
 
-type TerminalStreamWindow = Window & { terminalStreamDone?: Promise<void>; continuationHeld?: boolean; releaseContinuation?: () => void };
-
-async function trackTerminalStreams(page: Page, holdContinuation = false) {
-  await page.evaluate(hold => {
-    const original = window.fetch.bind(window);
-    const state = window as TerminalStreamWindow;
-    let chatRequests = 0;
-    const gate = new Promise<void>(resolve => { state.releaseContinuation = resolve; });
-    window.fetch = async (input, init) => {
-      const url = input instanceof Request ? input.url : String(input);
-      const chat = new URL(url, location.href).pathname === "/api/chat" && (init?.method ?? (input instanceof Request ? input.method : "GET")) === "POST";
-      if (!chat) return original(input, init);
-      const request = ++chatRequests;
-      let finish!: () => void;
-      state.terminalStreamDone = new Promise<void>(resolve => { finish = resolve; });
-      const response = await original(input, init);
-      if (!response.body) { finish(); return response; }
-      return new Response(response.body.pipeThrough(new TransformStream({
-        async flush() {
-          if (hold && request === 2) {
-            state.continuationHeld = true;
-            await gate;
-          }
-          finish();
-        },
-      })), { status: response.status, statusText: response.statusText, headers: response.headers });
-    };
-  }, holdContinuation);
-}
-
 async function approveAndFinish(page: Page) {
   const continuation = page.waitForResponse(response => new URL(response.url()).pathname === "/api/chat" && response.request().method() === "POST");
   await page.getByRole("button", { name: "批准", exact: true }).click();
@@ -130,12 +101,7 @@ async function approveAndFinish(page: Page) {
   expect(response.status()).toBe(200);
   // A command's file write precedes the next model step and message commit.
   // Wait for this stream's completion before asserting the next ready state.
-  // Chromium does not reliably report loadingFinished for an SSE response.
-  await page.evaluate(() => {
-    const done = (window as TerminalStreamWindow).terminalStreamDone;
-    if (!done) throw new Error("Terminal continuation stream was not tracked");
-    return done;
-  });
+  await waitForChatStream(page);
 }
 
 test("desktop folder permission, exact command approval and persisted output survive reload without re-execution", async ({ page, app }) => {
@@ -254,11 +220,14 @@ test("full access executes without approval, keeps live output and stop controls
 });
 
 test("approval mode asks for every tool call and resumes a long script without truncation", async ({ page, app }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
   const requestBytes = trackChatRequestBytes(page);
   const grant = await setup(page, app);
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "逐次审批" })).body.data;
   await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
-  await trackTerminalStreams(page);
+  await trackChatStreams(page);
   await page.getByPlaceholder(/输入你的问题/).fill(`OFFLINE_TERMINAL_COMMAND GRANT_ID=${grant.id} TERMINAL_TWICE TERMINAL_LONG`);
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
@@ -288,6 +257,36 @@ test("approval mode asks for every tool call and resumes a long script without t
   await expect(page.locator('[data-message-role="assistant"]')).toHaveCount(1);
   await openExecutionDetails(page);
   await expect(page.getByLabel("终端输出", { exact: true })).toHaveCount(2);
+  const scripts = page.getByLabel("PowerShell 命令", { exact: true });
+  // Both DOM text and native selection must retain every Unicode character,
+  // including blocks whose layout is deferred outside the scroll viewport.
+  const displayedHashes = await scripts.evaluateAll(async nodes => {
+    const hash = async (text: string) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))))
+      .map(byte => byte.toString(16).padStart(2, "0")).join("");
+    return Promise.all(nodes.map(async node => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      const selected = selection.toString();
+      selection.removeAllRanges();
+      return [await hash(node.textContent ?? ""), await hash(selected)];
+    }));
+  });
+  expect(displayedHashes).toEqual([[commandHash, commandHash], [commandHash, commandHash]]);
+  await scripts.last().scrollIntoViewIfNeeded();
+  await scripts.last().evaluate(node => { node.scrollTop = node.scrollHeight; });
+  await expect(scripts.last().locator("span").last()).toBeInViewport();
+  await expect(page).toHaveTitle(/RiA/);
+  await expect(page.locator("nextjs-portal")).toHaveCount(0);
+  await page.screenshot({ path: join(tmpdir(), "ria-terminal-long-script.png"), animations: "disabled" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await scripts.last().scrollIntoViewIfNeeded();
+  await scripts.last().evaluate(node => { node.scrollTop = node.scrollHeight; });
+  await expect(scripts.last().locator("span").last()).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: join(tmpdir(), "ria-terminal-long-script-mobile.png"), animations: "disabled" });
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("onceonce");
   await page.keyboard.press("Escape");
   await page.getByPlaceholder(/输入你的问题/).fill("Explain the previous terminal results");
@@ -302,25 +301,26 @@ test("approval mode asks for every tool call and resumes a long script without t
   expect(prompt).toContain('\\"exitCode\\":0');
   expect(prompt).toContain("terminal-proof.txt");
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("onceonce");
+  expect(errors).toEqual([]);
 });
 
 test("the next approval stays disabled until the preceding continuation stream is consumed", async ({ page, app }) => {
   const grant = await setup(page, app);
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "审批流边界" })).body.data;
   await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
-  await trackTerminalStreams(page, true);
+  await trackChatStreams(page, true);
   await page.getByPlaceholder(/输入你的问题/).fill(`OFFLINE_TERMINAL_COMMAND GRANT_ID=${grant.id} TERMINAL_TWICE`);
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
   try {
     await page.getByRole("button", { name: "批准", exact: true }).click();
-    await expect.poll(() => page.evaluate(() => (window as TerminalStreamWindow).continuationHeld)).toBe(true);
+    await expect.poll(() => isContinuationHeld(page)).toBe(true);
     expect(await storedTerminalStates(page, chat.id)).toEqual(["output-available", "approval-requested"]);
     await expect(page.getByRole("button", { name: "批准", exact: true })).toBeDisabled();
     await expect(page.getByRole("button", { name: "拒绝", exact: true })).toBeDisabled();
     expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
   } finally {
-    await page.evaluate(() => (window as TerminalStreamWindow).releaseContinuation?.());
+    await releaseContinuation(page);
   }
   await expect(page.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
   await approveAndFinish(page);

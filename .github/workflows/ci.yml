@@ -111,13 +111,17 @@ jobs:
         run: node --import ./tests/helpers/register-typescript.ts --test --test-concurrency=2 --test-shard=${{ matrix.shard }}/3 tests/server/*.test.ts
 
   browser:
-    name: Build and test browser workflows
+    name: Build and test browser workflows (${{ matrix.shard }}/3)
     runs-on: windows-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     env:
       CI: "true"
       APP_RUNTIME: test
-      LOCAL_DATABASE_FILE: .desktop-data/ci-browser/${{ github.run_id }}-${{ github.run_attempt }}/app.db
+      LOCAL_DATABASE_FILE: .desktop-data/ci-browser/${{ github.run_id }}-${{ github.run_attempt }}/${{ matrix.shard }}/app.db
       OPENROUTER_API_KEY: ""
       DEEPSEEK_API_KEY: ""
       TAVILY_API_KEY: test-tavily-key
@@ -150,13 +154,13 @@ jobs:
         run: npm run test:e2e:diagnostics
 
       - name: Build application and run browser tests
-        run: npm run test:e2e
+        run: npm run test:e2e -- --shard=${{ matrix.shard }}/3
 
       - name: Upload browser test diagnostics
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: playwright-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          name: playwright-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           path: |
             playwright-report/
             test-results/
