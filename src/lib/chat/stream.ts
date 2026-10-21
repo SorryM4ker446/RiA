@@ -124,6 +124,7 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
     messages: modelMessages,
     maxOutputTokens: budget.outputTokens,
     prepareStep: ({ messages: stepMessages }) => stepContext.prepare(stepMessages),
+    onStepFinish: ({ usage }) => stepContext.observeUsage(usage.inputTokens),
     abortSignal: signal,
     onChunk: ({ chunk }) => { if (chunk.type === "text-delta") answerText += chunk.text; },
     ...(toolsEnabled

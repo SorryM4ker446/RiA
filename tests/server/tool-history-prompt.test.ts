@@ -62,7 +62,15 @@ for (const longCommentary of [false, true]) test(`the next model request receive
   assert.equal(await db.agentStep.count({ where: { run: { chatId: chat.id } } }), 0);
 });
 
-test("long-term summary input retains the latest tool failure after long assistant commentary", async () => {
+test("long-term summary input retains the latest tool failure after long assistant commentary", async t => {
+  // The shared fixture echoes its prompt; a real summary is capped at 2,048
+  // output tokens, so answer briefly and inspect what the summarizer received.
+  const prompts: string[] = [];
+  t.mock.method(languageModel, "doGenerate", async (options: Parameters<typeof languageModel.doGenerate>[0]) => {
+    prompts.push(promptText(options.prompt));
+    return { content: [{ type: "text" as const, text: "Build failed with TS2304; 2 tests failed." }], finishReason: { unified: "stop" as const, raw: "stop" },
+      usage: { inputTokens: { total: 5, noCache: 5, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 3, text: 3, reasoning: 0 } }, warnings: [] };
+  });
   const chat = await db.chat.create({ data: { title: "Summarize a long build task" } });
   const rows = [];
   for (let i = 0; i < 44; i++) rows.push(await db.message.create({ data: {
@@ -71,6 +79,6 @@ test("long-term summary input retains the latest tool failure after long assista
   } }));
   const summary = await summarizeOlderTurns({ chatId: chat.id, messages: rows.map(row => ({ id: row.id, role: row.role, text: "" })), keepRecent: 24 });
   assert.ok(summary);
-  const prompt = promptText(languageModel.doGenerateCalls.at(-1)!.prompt);
+  const prompt = prompts.join("\n");
   for (const fact of ['"exitCode":2', "Cannot find name widget", "Tests: 34 passed, 2 failed", "modified: src/main.ts"]) assert.ok(prompt.includes(fact), fact);
 });

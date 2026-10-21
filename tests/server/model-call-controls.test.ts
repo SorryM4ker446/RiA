@@ -21,16 +21,29 @@ async function settle(id: string, error?: Error) { await recordModelAttempt({ at
 
 test("concurrent admission reserves one durable slot and cancellation frees only concurrency", async () => {
   await limits({ maxConcurrent: 1, backgroundDailyCalls: 1 });
-  const results = await Promise.allSettled([beginModelAttempt({ ...request, source: "summary" }), beginModelAttempt({ ...request, source: "summary" })]);
+  const results = await Promise.allSettled([beginModelAttempt({ ...request, source: "scheduled" }), beginModelAttempt({ ...request, source: "scheduled" })]);
   assert.equal(results.filter(row => row.status === "fulfilled").length, 1);
   assert.equal(await db.modelRequest.count({ where: { status: "pending" } }), 1);
   const row = (await db.modelRequest.findMany())[0];
   await settle(row.id, new DOMException("cancelled", "AbortError"));
   assert.equal((await db.modelRequest.findUniqueOrThrow({ where: { id: row.id } })).status, "aborted");
-  await assert.rejects(beginModelAttempt({ ...request, source: "summary" }), /当日|本地日期/);
+  await assert.rejects(beginModelAttempt({ ...request, source: "scheduled" }), /当日|本地日期/);
   const foreground = await beginModelAttempt({ ...request, source: "chat" });
   await settle(foreground.id);
+  assert.equal((await usageSummary("scheduled")).totals.requests, 1);
+});
+
+test("chat-driven summaries are attributed but never consume or wait on the background allowance", async () => {
+  await limits({ backgroundDailyCalls: 0, backgroundMaxEstimatedUsd: 0.000001, backgroundDailyEstimatedUsd: 0 });
+  await assert.rejects(beginModelAttempt({ ...request, source: "scheduled" }), /配置模型|本地日期/);
+  const summary = await beginModelAttempt({ ...request, source: "summary" });
+  await settle(summary.id);
   assert.equal((await usageSummary("summary")).totals.requests, 1);
+  assert.equal(await db.modelCallDay.count({ where: { day: { not: "lock" } } }), 0);
+  await limits({ maxConcurrent: 1 });
+  const held = await beginModelAttempt({ ...request, source: "chat" });
+  await assert.rejects(beginModelAttempt({ ...request, source: "summary" }), /并发/);
+  await settle(held.id);
 });
 
 test("unknown pricing and per-call or daily estimates reject before admission; failures cannot reset budgets", async () => {
@@ -49,7 +62,7 @@ test("unknown pricing and per-call or daily estimates reject before admission; f
 });
 
 test("restart interrupts pending records without replay or a late settlement overwriting them", async () => {
-  const first = await beginModelAttempt({ ...request, source: "summary" });
+  const first = await beginModelAttempt({ ...request, source: "scheduled" });
   await db.$disconnect();
   assert.equal((await recoverModelAttempts()).count, 1);
   await settle(first.id);
@@ -60,7 +73,7 @@ test("restart interrupts pending records without replay or a late settlement ove
 });
 
 test("pre-cancelled calls consume no allowance and dates use the configured zone across DST", async () => {
-  await assert.rejects(beginModelAttempt({ ...request, source: "summary", signal: AbortSignal.abort() }), { name: "AbortError" });
+  await assert.rejects(beginModelAttempt({ ...request, source: "scheduled", signal: AbortSignal.abort() }), { name: "AbortError" });
   assert.equal(await db.modelRequest.count(), 0);
   assert.equal(await db.modelCallDay.count(), 0);
   assert.equal(budgetDay(new Date("2026-10-04T16:01:00Z"), "Asia/Shanghai"), "2026-10-05:Asia/Shanghai");
@@ -127,7 +140,7 @@ test("a smaller fallback rejects oversized context before submission and release
   const primary = new MockLanguageModelV3({ doStream: async () => { primaryCalls++; throw Object.assign(new Error("unavailable"), { statusCode: 503 }); } });
   const backup = new MockLanguageModelV3({ doStream: async () => { fallbackCalls++; throw new Error("must not submit"); } });
   const observed = observeLanguageModel(primary, CHAT_MODEL_REF, () => backup);
-  await assert.rejects(async () => observed.doStream({ prompt: [{ role: "user", content: [{ type: "text", text: "x".repeat(6000) }] }] }), { code: "CONTEXT_LIMIT" });
+  await assert.rejects(async () => observed.doStream({ prompt: [{ role: "user", content: [{ type: "text", text: "0".repeat(6000) }] }] }), { code: "CONTEXT_LIMIT" });
   assert.equal(primaryCalls, 1); assert.equal(fallbackCalls, 0);
   assert.equal(await db.modelRequest.count({ where: { status: "pending" } }), 0);
   assert.equal(await db.modelRequest.count(), 1);

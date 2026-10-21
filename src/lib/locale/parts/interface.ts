@@ -72,7 +72,7 @@ export const interfaceMessages = {
   "ui.models.modelServices": "模型服务",
   "ui.models.chooseDefaultAndFallbackModelsFor": "选择各模式的默认模型，管理备用模型与调用限额。",
   "ui.models.modelCallLimits": "模型调用限制",
-  "ui.models.backgroundCallsIncludeHistorySummariesAnd": "后台包括历史摘要和定时回顾。次数按所选时区的本地日期计算；失败、取消和中断仍占当日额度。费用是应用预估，不是供应商账单硬上限；设置费用上限后，缺少价格的后台调用会被拒绝。空费用上限表示不限制。",
+  "ui.models.backgroundCallsAreScheduledReviews": "后台指定时回顾；对话中的历史摘要和任务压缩随当前对话执行，可手动停止，计入用量但不占后台额度。次数按所选时区的本地日期计算；失败、取消和中断仍占当日额度。费用是应用预估，不是供应商账单硬上限；设置费用上限后，缺少价格的后台调用会被拒绝。空费用上限表示不限制。",
   "ui.models.maximumConcurrentCalls": "最大并发调用数",
   "ui.models.dailyBackgroundCalls": "后台每日调用次数",
   "ui.models.estimatedLimitPerBackgroundCallUSD": "后台单次预估上限 USD",

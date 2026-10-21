@@ -23,12 +23,27 @@ The automatic output reservation is at most 8,192 tokens and at most a quarter
 of the context window. Explicit output settings still respect catalog output
 limits and leave input and safety space. The output cap is sent to the provider.
 
-Counting currently uses a conservative UTF-8 byte estimate with request framing,
-including system instructions, tool JSON schemas, messages, summaries, retrieval
-evidence and materialized attachments. Binary attachments are also counted.
-This is an estimate, not a provider tokenizer or billing count. Large images and
-scripts can therefore reach the local planning ceiling earlier than the actual
-provider limit. Provider-added hidden context cannot be counted locally.
+Counting uses a character-class estimate with request framing, covering system
+instructions, tool JSON schemas, messages, summaries, retrieval evidence and
+materialized attachments. Runs of lowercase letters and spaces count a token per
+four characters and runs of capitals one per two; digits, punctuation and
+control characters count one each. Non-ASCII characters count half a token per
+UTF-8 byte, and characters outside the Basic Multilingual Plane count four. Each
+run is rounded up, so mixed-case random text such as base64 is not undercounted.
+Measured against the cl100k and o200k encodings, this overestimates prose, code
+and JSON by roughly 1.7-2x and Chinese by roughly 1.6x; the earlier UTF-8 byte
+count overestimated them 3-5x and 3x. Binary attachments still count one token
+per byte, so large images can reach the planning ceiling earlier than the actual
+provider limit. This is a planning estimate, not a provider tokenizer or billing
+count, and provider-added hidden context cannot be counted locally.
+
+Within a tool loop, the input tokens the provider reports for each step calibrate
+the later steps of the same stream. When the provider counts more than the
+estimate, the estimate is scaled up to match and is not scaled back down within
+that stream, so a model with a less efficient tokenizer compacts or refuses a
+later step instead of overflowing. The scale is saved in the execution details
+of a completed turn and does not carry over to later requests. The first step of
+each request still relies on the estimate alone.
 
 Every chat model step checks its budget, including steps after terminal or other
 tool results. Before a pending approval is claimed or executed, the complete
@@ -62,9 +77,14 @@ Older summary formats remain readable; extending their coverage carries their
 valid state forward while rebuilding from stored evidence. Concurrent history
 edits or newer summary coverage prevent an obsolete write from winning.
 
-Summarizer requests are themselves batched and bounded. Their output is capped
-at 2,048 tokens and they use existing background call and cost controls. Failure,
-timeout, incomplete output or an exhausted background allowance can leave
+Older-turn summaries receive every stored tool call of each message, each in the
+same bounded record form the in-stream compactor uses, which keeps status, exit
+code, errors, diagnostics and file changes ahead of long output. Summarizer
+requests are themselves batched and bounded. Their output is capped at 2,048
+tokens. They run only within a chat request, are attributed as `summary` in
+usage and stop with that request, and are subject to the concurrency limit; they
+do not consume the daily background allowance or background cost ceilings,
+which apply to scheduled work. Failure, timeout or incomplete output can leave
 explicitly incomplete excerpts in place. Original records remain intact. Tool
 execution details record compaction counts and indicate excerpt fallback after
 reload. Cancellation prevents the next model request and summary write; already

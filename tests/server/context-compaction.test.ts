@@ -56,7 +56,7 @@ test("a multi-file code task compacts real terminal failures and passes tests be
   writeFileSync(join(root, "test.cjs"), "const assert = require('node:assert/strict'); const {add}=require('./math.cjs'); assert.equal(add(2,3),5); assert.equal(add(-1,1),0); console.log('Tests: 2 passed');\n");
   writeFileSync(join(root, "driver.cjs"), [
     "const fs=require('node:fs'); const action=process.argv[2];",
-    "fs.appendFileSync('executions.txt',action+'\\n'); console.log('progress\\n'.repeat(2500));",
+    "fs.appendFileSync('executions.txt',action+'\\n'); console.log(('progress '+'0'.repeat(22)+'\\n').repeat(1200));",
     "if(action==='inspect') console.log('API: add(a,b); source: '+fs.readFileSync('math.cjs','utf8'));",
     "if(action==='check'||action==='verify') require('./test.cjs');",
     "if(action==='fix') { fs.writeFileSync('math.cjs','exports.add = (a, b) => a + b;\\n'); console.log('Modified math.cjs; public API unchanged'); }",
@@ -128,10 +128,10 @@ test("over-budget approval preflight leaves the stored decision pending and exec
   const chat = await db.chat.create({ data: { title: "Budget refusal" } });
   const tool = { toolName: "createTask", toolCallId: "approval-tool", state: "approval-requested", input: { title: "Do not duplicate" }, approval: { id: "budget-approval" } };
   await db.message.create({ data: { chatId: chat.id, role: "user", clientMessageId: "approval-user", content: "Create one task" } });
-  const original = encodePersistedAssistantToolMessage({ type: "assistant-tool-message", text: "", reasoning: "r".repeat(60_000), tools: [tool] });
+  const original = encodePersistedAssistantToolMessage({ type: "assistant-tool-message", text: "", reasoning: "0".repeat(60_000), tools: [tool] });
   await db.message.create({ data: { chatId: chat.id, role: "assistant", clientMessageId: "approval-answer", content: original } });
   const messages: UIMessage[] = [ui("approval-user", "user", "Create one task"), { id: "approval-answer", role: "assistant", parts: [
-    { type: "reasoning", text: "r".repeat(60_000) }, { type: "tool-createTask", toolCallId: tool.toolCallId, input: tool.input, state: "approval-responded", approval: { ...tool.approval, approved: true } },
+    { type: "reasoning", text: "0".repeat(60_000) }, { type: "tool-createTask", toolCallId: tool.toolCallId, input: tool.input, state: "approval-responded", approval: { ...tool.approval, approved: true } },
   ] }];
   const rejected = await route.POST(request({ chatId: chat.id, messages }));
   assert.equal(rejected.status, 413); assert.equal((await rejected.json()).error.code, "CONTEXT_LIMIT");
@@ -165,6 +165,26 @@ test("persisted task state folds only new evidence and an obsolete summarizer ca
   assert.equal(await db.message.count({ where: { chatId: chat.id } }), 8);
 });
 
+test("older-turn summaries receive every tool result of a long assistant message, not only the last three", async t => {
+  const chat = await db.chat.create({ data: { title: "Long tool turn" } });
+  const tools = Array.from({ length: 6 }, (_, index) => ({ toolName: "runTerminalCommand", toolCallId: `step-${index}`, state: "output-available",
+    input: { command: `node build-${index}.cjs` },
+    output: { status: "completed", exitCode: index === 0 ? 2 : 0, stdout: `step ${index} log\n`.repeat(40), stderr: index === 0 ? "error TS2304: early-failure-marker" : "" } }));
+  const rows = [];
+  rows.push(await db.message.create({ data: { chatId: chat.id, role: "user", content: "Build and fix the project", createdAt: new Date(0) } }));
+  rows.push(await db.message.create({ data: { chatId: chat.id, role: "assistant", createdAt: new Date(1000),
+    content: encodePersistedAssistantToolMessage({ type: "assistant-tool-message", text: "Investigated the build. ".repeat(100) + "final-answer-marker", tools }) } }));
+  for (let i = 2; i < 6; i++) rows.push(await db.message.create({ data: { chatId: chat.id, role: i % 2 ? "assistant" : "user", content: `later-${i}`, createdAt: new Date(i * 1000) } }));
+  const inputs: string[] = [];
+  t.mock.method(languageModel, "doGenerate", async options => { inputs.push(JSON.stringify(options.prompt)); return summaryAnswer("Build failed early with TS2304; later steps passed."); });
+  assert.ok(await summarizeOlderTurns({ chatId: chat.id, messages: rows.map(row => ({ id: row.id, role: row.role, text: row.content })), keepRecent: 2, force: true }));
+  const folded = inputs.join("\n");
+  assert.match(folded, /early-failure-marker/);
+  assert.match(folded, /final-answer-marker/);
+  for (let index = 0; index < 6; index++) assert.match(folded, new RegExp(`step-${index}`));
+  assert.doesNotMatch(folded, /earlier tool calls omitted/);
+});
+
 test("pagination gaps are folded from stored evidence and an older request cannot replace newer summary coverage", async t => {
   const chat = await db.chat.create({ data: { title: "Paged history" } });
   const rows = [];
@@ -183,7 +203,7 @@ test("pagination gaps are folded from stored evidence and an older request canno
 
 test("context exhaustion after a real command closes the run and preserves its completed result for a later request", { timeout: 15_000 }, async t => {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ria-context-project-"))); roots.push(root);
-  writeFileSync(join(root, "large.cjs"), "require('node:fs').appendFileSync('once.txt','once'); console.log('x'.repeat(45000)); console.log('Tests: 1 passed');\n");
+  writeFileSync(join(root, "large.cjs"), "require('node:fs').appendFileSync('once.txt','once'); console.log('0'.repeat(45000)); console.log('Tests: 1 passed');\n");
   const grant = await createGrant({ path: root });
   await setTerminalPermission(grant.id, true, grant.updatedAt, "full-access");
   await capacity(40_000);
@@ -217,6 +237,53 @@ test("context exhaustion after a real command closes the run and preserves its c
   const recovered = await route.POST(request({ chatId: run.chatId, messages: [...mapStoredMessagesToUI(rows).uiMessages, ui("recovery", "user", "Explain the saved result; do not execute again.")] }));
   assert.equal(recovered.status, 200); assert.match(await recovered.text(), /exit code 0/);
   assert.equal(readFileSync(join(root, "once.txt"), "utf8"), "once");
+});
+
+async function calibrationRun(t: TestContext, contextLength: number, reportedFirstInput: (budget: ReturnType<typeof contextBudget>) => number) {
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ria-context-project-"))); roots.push(root);
+  writeFileSync(join(root, "small.cjs"), "require('node:fs').appendFileSync('once.txt','once'); console.log('0'.repeat(4000)); console.log('Tests: 1 passed');\n");
+  const grant = await createGrant({ path: root });
+  await setTerminalPermission(grant.id, true, grant.updatedAt, "full-access");
+  const budget = await capacity(contextLength);
+  let calls = 0;
+  t.mock.method(languageModel, "doStream", async () => {
+    const first = calls++ === 0;
+    const node = process.execPath.replaceAll("'", process.platform === "win32" ? "''" : "'\\''");
+    // The provider counts more input than estimated, as a less efficient tokenizer would.
+    const reported = first ? reportedFirstInput(budget) : 10;
+    return { stream: new ReadableStream<LanguageModelV3StreamPart>({ start(controller) {
+      controller.enqueue({ type: "stream-start", warnings: [] });
+      if (first) controller.enqueue({ type: "tool-call", toolCallId: "small-output", toolName: "runTerminalCommand", input: JSON.stringify({ grantId: grant.id, command: `${process.platform === "win32" ? "& " : ""}'${node}' ./small.cjs` }) });
+      else { controller.enqueue({ type: "text-start", id: "a" }); controller.enqueue({ type: "text-delta", id: "a", delta: "Tests: 1 passed" }); controller.enqueue({ type: "text-end", id: "a" }); }
+      controller.enqueue({ type: "finish", finishReason: { unified: first ? "tool-calls" : "stop", raw: undefined }, usage: { inputTokens: { total: reported, noCache: reported, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 10, text: 10, reasoning: 0 } } });
+      controller.close();
+    } }) };
+  });
+  const response = await route.POST(request({ messages: [ui("calibration-user", "user", "Run the command once and report the tests.")] }));
+  assert.equal(response.status, 200);
+  const wire = await response.text();
+  const run = await db.agentRun.findFirstOrThrow({ orderBy: { startedAt: "desc" } });
+  const rows = await db.message.findMany({ where: { chatId: run.chatId! }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
+  const saved = decodePersistedAssistantToolMessage(rows.find(row => row.role === "assistant")!.content)!;
+  assert.equal((saved.tools[0].output as { exitCode: number }).exitCode, 0);
+  assert.equal(readFileSync(join(root, "once.txt"), "utf8"), "once");
+  return { wire, calls, run, saved };
+}
+
+test("provider input usage above the local estimate makes the next step refuse instead of overflowing", { timeout: 15_000 }, async t => {
+  const result = await calibrationRun(t, 40_000, budget => budget.inputTokens);
+  assert.match(result.wire, /CONTEXT_LIMIT/);
+  assert.equal(result.calls, 1, "the step that would exceed the provider's real count was not submitted");
+  assert.equal(result.run.stopReason, "context-limit");
+});
+
+test("provider usage calibration is applied to later steps and recorded with a completed turn", { timeout: 15_000 }, async t => {
+  const result = await calibrationRun(t, 1_000_000, () => 100_000);
+  assert.equal(result.calls, 2);
+  assert.equal(result.run.status, "succeeded");
+  assert.ok(result.saved.contextBudget!.usageCalibration! > 1);
+  assert.ok(result.saved.contextBudget!.estimatedInputTokens > 100_000, "the calibrated estimate covers the provider's count");
+  assert.equal(result.saved.contextBudget!.budget.counting, "character-class-estimate");
 });
 
 test("output exhaustion marks partial answers and runs failed with explicit recovery guidance", async t => {

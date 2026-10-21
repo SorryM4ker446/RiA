@@ -38,7 +38,7 @@ function completedBlock(block: ModelMessage[]) {
   return calls.every(id => results.has(id)) && [...approvals.values()].every(id => results.has(id)) && decisions.every(id => approvals.has(id) && results.has(approvals.get(id)!));
 }
 
-export type StepContextReport = { checks: number; compactions: number; degraded: boolean; estimatedInputTokens: number; budget: ContextBudget };
+export type StepContextReport = { checks: number; compactions: number; degraded: boolean; estimatedInputTokens: number; usageCalibration: number; budget: ContextBudget };
 
 /** Scoped to one SDK stream: source messages remain complete for persistence and rendering. */
 export function createStepContext(params: {
@@ -47,8 +47,14 @@ export function createStepContext(params: {
 }) {
   let covered = new Set<number>(), state = "";
   const coveredCalls = new Set<string>(), coveredApprovals = new Set<string>();
-  const report: StepContextReport = { checks: 0, compactions: 0, degraded: false, estimatedInputTokens: 0, budget: params.budget };
+  const report: StepContextReport = { checks: 0, compactions: 0, degraded: false, estimatedInputTokens: 0, usageCalibration: 1, budget: params.budget };
   const input = (messages: ModelMessage[]) => ({ system: params.system, messages, tools: params.tools });
+  // The local estimate is only an upper bound for typical text. When a
+  // provider reports more input than estimated, later steps of this stream
+  // scale up to match; the scale never drops back, since one step's lighter
+  // content says nothing about the next.
+  let unscaledEstimate = 0;
+  const estimate = (messages: ModelMessage[]) => estimateContextTokens(input(messages), report.usageCalibration);
   function render(messages: ModelMessage[], summary = state, omitted = covered) {
     const retained = messages.flatMap((message, index): ModelMessage[] => {
       if (omitted.has(index)) return [];
@@ -68,7 +74,7 @@ export function createStepContext(params: {
       params.signal?.throwIfAborted();
       report.checks++;
       let prepared = render(messages);
-      if (estimateContextTokens(input(prepared)) >= params.budget.triggerTokens) {
+      if (estimate(prepared) >= params.budget.triggerTokens) {
         let latestUser = -1;
         messages.forEach((message, index) => { if (message.role === "user") latestUser = index; });
         const candidates: number[][] = [];
@@ -91,7 +97,7 @@ export function createStepContext(params: {
         const delta: ModelMessage[] = [];
         for (const block of candidates) {
           for (const index of block) if (!nextCovered.has(index)) { nextCovered.add(index); delta.push(messages[index]); }
-          if (estimateContextTokens(input(render(messages, state, nextCovered))) <= params.budget.targetTokens) break;
+          if (estimate(render(messages, state, nextCovered)) <= params.budget.targetTokens) break;
         }
         // Reloaded messages can pack completed calls and a pending approval
         // into the same assistant part array. Fold exact completed identities
@@ -108,7 +114,7 @@ export function createStepContext(params: {
         }
         const newestCall = [...calls.keys()].at(-1);
         const foldedCalls = [...calls.keys()].filter(id => id !== newestCall && results.has(id));
-        if (estimateContextTokens(input(render(messages, state, nextCovered))) > params.budget.targetTokens) {
+        if (estimate(render(messages, state, nextCovered)) > params.budget.targetTokens) {
           for (const id of foldedCalls) delta.push(calls.get(id)!, results.get(id)!);
         } else foldedCalls.length = 0;
         if (delta.length) {
@@ -129,8 +135,14 @@ export function createStepContext(params: {
           prepared = render(messages);
         }
       }
-      report.estimatedInputTokens = assertContextFits(params.budget, input(prepared));
+      report.estimatedInputTokens = assertContextFits(params.budget, input(prepared), report.usageCalibration);
+      unscaledEstimate = estimateContextTokens(input(prepared));
       return { messages: prepared };
+    },
+    /** Provider-reported input tokens for the step most recently prepared. */
+    observeUsage(inputTokens: number | undefined) {
+      if (!unscaledEstimate || typeof inputTokens !== "number" || !Number.isFinite(inputTokens)) return;
+      report.usageCalibration = Math.max(report.usageCalibration, inputTokens / unscaledEstimate);
     },
   };
 }

@@ -1174,7 +1174,7 @@ export const enUS = {
   "ui.models.modelServices": "Model services",
   "ui.models.chooseDefaultAndFallbackModelsFor": "Choose default and fallback models for each mode and manage call limits.",
   "ui.models.modelCallLimits": "Model call limits",
-  "ui.models.backgroundCallsIncludeHistorySummariesAnd": "Background calls include history summaries and scheduled reviews. Daily counts use the selected time zone. Failed, cancelled, and interrupted calls still count. Costs are app estimates, not provider billing caps. With cost limits enabled, background calls without pricing are rejected. Blank cost limits mean unlimited.",
+  "ui.models.backgroundCallsAreScheduledReviews": "Background calls are scheduled reviews. History summaries and task compaction run within the current chat, can be stopped with it, and appear in usage without consuming the background allowance. Daily counts use the selected time zone. Failed, cancelled, and interrupted calls still count. Costs are app estimates, not provider billing caps. With cost limits enabled, background calls without pricing are rejected. Blank cost limits mean unlimited.",
   "ui.models.maximumConcurrentCalls": "Maximum concurrent calls",
   "ui.models.dailyBackgroundCalls": "Daily background calls",
   "ui.models.estimatedLimitPerBackgroundCallUSD": "Estimated limit per background call, USD",

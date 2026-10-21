@@ -106,12 +106,14 @@ function summaryText(message: { id: string; role: string; content: string }) {
   const user = decodePersistedUserMessage(message.content);
   if (user) return [user.text, ...user.files.map(file => `[attachment: ${file.filename ?? file.mediaType}]`)].join("\n");
   const assistant = decodePersistedAssistantToolMessage(message.content);
+  // Every tool call is kept, each in the bounded result-first record form the
+  // in-stream compactor uses; the summarizer batches long records itself.
   if (assistant) return historicalText({ id: message.id, role: "assistant", parts: [
     { type: "text", text: assistant.text },
     ...assistant.tools.map(tool => ({ type: `tool-${tool.toolName}`, toolCallId: tool.toolCallId, state: tool.state,
       input: tool.input, output: tool.output, errorText: tool.errorText,
     })),
-  ] as UIMessage["parts"] }, 1500);
+  ] as UIMessage["parts"] });
   const media = decodeMediaMessage(message.content);
   return media ? media.text : message.content;
 }

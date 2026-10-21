@@ -228,7 +228,7 @@ export default function ModelsPage() {
         <ContextSettings settings={settings} busy={busy} onChange={setSettings} />
         <fieldset className="space-y-3 rounded-lg bg-background p-3 shadow-hairline">
           <legend className="text-sm font-medium">{t("ui.models.modelCallLimits")}</legend>
-          <p className="text-xs text-muted-foreground">{t("ui.models.backgroundCallsIncludeHistorySummariesAnd")}</p>
+          <p className="text-xs text-muted-foreground">{t("ui.models.backgroundCallsAreScheduledReviews")}</p>
           <div className="grid gap-3 sm:grid-cols-2">
             {([ ["maxConcurrent", t("ui.models.maximumConcurrentCalls"), 1, 16], ["backgroundDailyCalls", t("ui.models.dailyBackgroundCalls"), 0, 1000], ["backgroundMaxEstimatedUsd", t("ui.models.estimatedLimitPerBackgroundCallUSD"), 0, 1000000], ["backgroundDailyEstimatedUsd", t("ui.models.estimatedDailyBackgroundLimitUSD"), 0, 1000000] ] as const).map(([key, label, min, max]) => <label key={key} className="text-xs">{label}<Input aria-label={label} type="number" min={min} max={max} step={key.includes("Usd") ? "any" : 1} value={settings.callLimits[key] ?? ""} disabled={busy} onChange={event => setSettings({ ...settings, callLimits: { ...settings.callLimits, [key]: event.target.value === "" && key.includes("Usd") ? null : Number(event.target.value) } })} /></label>)}
             <label className="text-xs">{t("ui.models.budgetTimeZone")}<Input aria-label={t("ui.models.budgetTimeZone")} value={settings.callLimits.timeZone} disabled={busy} onChange={event => setSettings({ ...settings, callLimits: { ...settings.callLimits, timeZone: event.target.value } })} /></label>
