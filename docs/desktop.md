@@ -186,6 +186,8 @@ If startup fails, inspect:
 
 Migration failures keep the previous database and create a timestamped backup before applying migrations to an existing application database. Do not delete the data directory while diagnosing a failure.
 
+The same log helps when the window freezes while the process keeps running. Startup records the Windows version and GPU feature status, and the log notes when the window stops and resumes responding (with the stall length) and when the renderer or another child process such as the GPU process exits unexpectedly.
+
 
 ## Offline use, proxies and resume
 
