@@ -12,6 +12,7 @@ import { getModelProvider } from "@/lib/models/providers";
 import { summarizeOlderTurns } from "@/lib/chat/summary";
 import { createCompactionAllowance } from "@/lib/chat/task-summary";
 import { getTextFromUIMessage as readText } from "@/lib/ai/ui-message";
+import type { UIMessage } from "ai";
 import { t } from "@/lib/locale";
 import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { setupServerProxy } from "@/lib/server/proxy";
@@ -66,6 +67,7 @@ async function POSTHandler(req: NextRequest) {
     const relevantMemories = usesMemory && latestUserMessage?.text
       ? await getRelevantMemories({
         query: latestUserMessage.text,
+        followUp: previousUserText(input.messages),
         limit: 6,
         minMatch: CONTEXT_MEMORY_MIN_MATCH,
         signal: req.signal,
@@ -136,6 +138,13 @@ async function POSTHandler(req: NextRequest) {
     console.error("/api/chat error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to generate chat response");
   }
+}
+
+/** The user message before the latest one, as plain text. */
+function previousUserText(messages: UIMessage[]): string | undefined {
+  const users = messages.filter(message => message.role === "user");
+  const previous = users.at(-2);
+  return previous ? readText(previous) || undefined : undefined;
 }
 
 /**

@@ -11,6 +11,21 @@ import type { ModelRef } from "@/lib/models/preferences-schema";
 
 const TOOL_MEMORY_VERSION = "tool-memory-v1";
 const MEMORY_DEDUPE_WINDOW_MS = 15 * 60 * 1000;
+/**
+ * Candidates written from tool results are suggestions the user may never
+ * look at. Ones left unaccepted this long, or beyond this many, are removed so
+ * the memory page does not fill with them. Accepted entries are never touched.
+ */
+export const TOOL_CANDIDATE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+export const TOOL_CANDIDATE_LIMIT = 200;
+
+const staleCandidate = { source: "assistant", confirmed: false, key: { startsWith: "tool:" } };
+
+export async function pruneToolMemoryCandidates(now = Date.now()) {
+  await db.memory.deleteMany({ where: { ...staleCandidate, updatedAt: { lt: new Date(now - TOOL_CANDIDATE_MAX_AGE_MS) } } });
+  const overflow = await db.memory.findMany({ where: staleCandidate, orderBy: [{ updatedAt: "desc" }, { id: "desc" }], skip: TOOL_CANDIDATE_LIMIT, select: { id: true } });
+  if (overflow.length) await db.memory.deleteMany({ where: { id: { in: overflow.map(entry => entry.id) } } });
+}
 const TOOL_DEBUG = process.env.TOOL_DEBUG === "1";
 
 type PersistToolMemoryParams = {
@@ -197,6 +212,8 @@ export async function persistToolMemory(params: PersistToolMemoryParams): Promis
     // can see and accept, rather than as a fact the next turn already relies on.
     source: "assistant",
   });
+  // Housekeeping must never be the reason a tool's result is lost.
+  await pruneToolMemoryCandidates().catch(() => {});
 
   logMemoryDecision({
     toolId: params.toolId,
