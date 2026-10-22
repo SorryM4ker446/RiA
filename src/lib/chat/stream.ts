@@ -5,7 +5,9 @@ import { t } from "@/lib/locale";
 import { ApiError, apiErrorPayload, normalizeApiError } from "@/lib/server/api-error";
 import { createChatToolSet } from "@/tools/catalog";
 import type { ModelMessage } from "ai";
-import { asSchema, createUIMessageStream, createUIMessageStreamResponse, generateId, stepCountIs, streamText } from "ai";
+import { asSchema, createUIMessageStream, createUIMessageStreamResponse, generateId, stepCountIs, streamText, wrapLanguageModel } from "ai";
+import { convertToLanguageModelPrompt, standardizePrompt } from "ai/internal";
+import { isContextOverflow } from "@/lib/models/context-overflow";
 import { claimChatApproval, persistChatResponse, type ChatPersistence } from "@/lib/chat/persistence";
 import type { ChatRequest } from "@/lib/chat/request";
 import type { DocumentDiagnostics } from "@/lib/documents/diagnostics";
@@ -104,8 +106,23 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
   const calibration = await contextCalibration(modelRef);
   const contextReport = () => ({ ...stepContext.report, ...(params.compactionAllowance?.exhausted ? { compactionAllowanceExhausted: true } : {}) });
   const stepContext = createStepContext({ budget, system: systemPrompt, tools: toolDefinitions, signal, calibration,
-    summarize: (records, previous) => summarizeTaskState({ modelRef, records, previous, signal, allowance: params.compactionAllowance }),
+    summarize: (records, previous, focus) => summarizeTaskState({ modelRef, records, previous, signal, allowance: params.compactionAllowance, focus }),
   });
+  // A provider that refuses a step's input as over its window means the local
+  // count was low. The step is compacted and sent again once; the SDK's own
+  // messages stay whole, and later steps keep the folded state.
+  const observed = withModelCallSource("chat", () => getChatModel(modelRef));
+  const model = wrapLanguageModel({ model: observed, middleware: { specificationVersion: "v3",
+    async wrapStream({ doStream, params: call }) {
+      try { return await doStream(); }
+      catch (error) {
+        if (!isContextOverflow(error) || signal.aborted) throw error;
+        const messages = await stepContext.recoverFromOverflow();
+        const prompt = await convertToLanguageModelPrompt({ prompt: await standardizePrompt({ system: systemPrompt, messages }), supportedUrls: await observed.supportedUrls, download: undefined });
+        return observed.doStream({ ...call, prompt });
+      }
+    },
+  } });
   try {
     await stepContext.prepare(modelMessages);
     signal.throwIfAborted();
@@ -120,12 +137,13 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
     throw error;
   }
   const result = withModelCallSource("chat", () => streamText({
-    model: getChatModel(modelRef),
+    model,
     ...(providerOptions ? { providerOptions } : {}),
     maxRetries: 0,
     system: systemPrompt,
     messages: modelMessages,
-    maxOutputTokens: budget.outputTokens,
+    // Each step's output cap is set where every call is admitted, from that
+    // step's own input; see requestOutputCap.
     prepareStep: ({ messages: stepMessages }) => stepContext.prepare(stepMessages),
     onStepFinish: ({ usage }) => stepContext.observeUsage(usage.inputTokens),
     abortSignal: signal,

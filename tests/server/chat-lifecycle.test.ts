@@ -153,6 +153,8 @@ test("model capacity bounds long persisted conversations while retaining the act
   const { contextBudget, estimateContextTokens } = await import("@/lib/models/context-budget");
   const { getModelPreferences } = await import("@/lib/models/preferences");
   const settings = await getModelPreferences();
+  // Earlier mock turns report token counts no real provider would; plan from the uncalibrated estimate.
+  await db.modelContextCalibration.deleteMany({});
   settings.contextLimits = { [`openrouter:${settings.chat.model!.modelId}`]: { contextLength: 30_000, maxOutputTokens: 2048 } };
   await db.workspacePreference.update({ where: { id: "local" }, data: { settings } });
   const owned = await db.chat.create({ data: { title: "Long conversation" } });
