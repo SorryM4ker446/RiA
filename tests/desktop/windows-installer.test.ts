@@ -4,9 +4,9 @@ import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { MSICreator } from "electron-wix-msi";
 import { tmpdir } from "node:os";
-import { windowsInstallerConfig } from "../../scripts/windows-installer-config.mjs";
+import { perUserInstallationMessage, windowsInstallerConfig } from "../../scripts/windows-installer-config.mjs";
 
-test("Windows installer exposes directory selection and preserves files outside its manifest", { skip: process.platform !== "win32" }, async () => {
+test("Windows installer installs per machine, refuses to install beside a per-user copy, exposes directory selection and preserves files outside its manifest", { skip: process.platform !== "win32" }, async () => {
   const parent = resolve(".desktop-data/test");
   mkdirSync(parent, { recursive: true });
   const root = mkdtempSync(join(parent, "installer-"));
@@ -31,7 +31,12 @@ test("Windows installer exposes directory selection and preserves files outside 
     const xml = readFileSync(wxsFile, "utf8");
     assert.match(xml, /ConfigurableDirectory="APPLICATIONROOTDIRECTORY"/);
     assert.match(xml, /UpgradeCode="918C97A2-902B-42D0-9B52-F979309DAC68"/);
-    assert.match(xml, /InstallScope="perUser"/);
+    assert.match(xml, /InstallScope="perMachine"/);
+    assert.match(xml, /<Property Id="MSIINSTALLPERUSER" Secure="yes" Value="0" \/>/);
+    // The shortcut marker without a per-machine product to upgrade identifies an earlier per-user copy.
+    assert.equal(xml.match(/<RegistryValue Root="HKCU"\s+Key="Software\\Microsoft\\RiA"\s+Name="installed"/g)?.length, 2);
+    assert.match(xml, /<RegistrySearch Id="PerUserRiaMarker" Root="HKCU" Key="Software\\Microsoft\\RiA" Name="installed" Type="raw" \/>/);
+    assert.ok(xml.includes(`<Condition Message="${perUserInstallationMessage}"><![CDATA[Installed OR WIX_UPGRADE_DETECTED OR NOT PERUSERRIA]]></Condition>`));
     assert.match(xml, /<Property Id="MsiLogging" Value="voicewarmup" \/>/);
     assert.doesNotMatch(xml, /DISABLEROLLBACK|AlwaysInstallElevated/);
     assert.match(xml, /com\.squirrel\.RiA\.RiA/);

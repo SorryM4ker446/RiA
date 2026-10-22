@@ -79,7 +79,13 @@ const nextConfig: NextConfig = {
     ],
   },
   // Leave room for handlers to detect overflow before Proxy truncates a network chunk.
-  experimental: { proxyClientMaxBodySize: MEDIA_LIMITS.uploadBodyBytes + 1024 * 1024 },
+  experimental: {
+    proxyClientMaxBodySize: MEDIA_LIMITS.uploadBodyBytes + 1024 * 1024,
+    // The desktop service runs from a per-machine installation directory that
+    // standard users cannot write and that uninstall must leave empty. Keep the
+    // response cache in memory; prerendered pages are still read from the build.
+    isrFlushToDisk: false,
+  },
 };
 
 export default nextConfig;
