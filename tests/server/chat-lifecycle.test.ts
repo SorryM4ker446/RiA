@@ -17,7 +17,7 @@ import { seedTestModelPreferences } from "../helpers/model-library";
 const textPart = (part: unknown) => part as LanguageModelV3TextPart;
 
 const cleanup = createTestDatabase();
-process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 
 const { saveChatMessage } = await import("@/lib/chat/store");

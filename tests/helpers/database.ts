@@ -13,7 +13,7 @@ import { migrationNames } from "./legacy-workspace";
  * so the schema under test is exactly what a converted installation has.
  */
 export function createTestDatabase() {
-  const root = mkdtempSync(join(tmpdir(), "private-ai-server-"));
+  const root = mkdtempSync(join(tmpdir(), "ria-server-"));
   const databaseFile = join(root, "app.db");
   const migrations = resolve(dirname(fileURLToPath(import.meta.url)), "../../src/db/migrations");
   const sqlite = new DatabaseSync(databaseFile);
@@ -33,7 +33,7 @@ export function createTestDatabase() {
   process.env.TAVILY_API_KEY = "";
   process.env.OUTBOUND_PROXY_URL = "";
   return () => {
-    if (dirname(root) !== resolve(tmpdir()) || !basename(root).startsWith("private-ai-server-")) {
+    if (dirname(root) !== resolve(tmpdir()) || !basename(root).startsWith("ria-server-")) {
       throw new Error("Refusing to remove an unexpected test database directory");
     }
     rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });

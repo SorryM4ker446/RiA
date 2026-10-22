@@ -34,7 +34,7 @@ const req = (path: string, method = "GET", body?: unknown) =>
   });
 
 beforeEach(() => {
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   cookie = localAccessCookie();
 });
 
@@ -45,7 +45,7 @@ after(async () => {
 });
 
 function upgradeFixture(options = {}) {
-  const temporary = createTempDirectory("private-ai-upgrade-fixes-");
+  const temporary = createTempDirectory("ria-upgrade-fixes-");
   temporaryDirectories.push(temporary);
   const workspace = createLegacyWorkspace(temporary.root, options);
   const backupsDirectory = join(temporary.root, "backups");

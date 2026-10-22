@@ -10,8 +10,8 @@ const agent = new MockAgent();
 agent.disableNetConnect();
 // A test may opt into exactly one isolated loopback extension fixture. All
 // other external and loopback destinations remain blocked by the default guard.
-if (process.env.PRIVATE_AI_EXTENSION_FIXTURE_ORIGIN) {
-  const allowed = new URL(process.env.PRIVATE_AI_EXTENSION_FIXTURE_ORIGIN);
+if (process.env.RIA_EXTENSION_FIXTURE_ORIGIN) {
+  const allowed = new URL(process.env.RIA_EXTENSION_FIXTURE_ORIGIN);
   if (allowed.protocol !== "http:" || allowed.hostname !== "127.0.0.1" || allowed.pathname !== "/" || !allowed.port) throw new Error("Invalid extension fixture origin");
   agent.enableNetConnect(host => host === allowed.host);
 }
@@ -30,7 +30,7 @@ globalThis.fetch = async (input, options) => {
   return new Response(response.body as unknown as BodyInit, { status: response.status, headers: Object.fromEntries(response.headers) });
 };
 
-if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
+if (process.env.RIA_HTTP_FIXTURE === "1") {
   const skills = agent.get("https://skills.sh");
   skills.intercept({ path: /^\/api\/(?:search|download)/, method: "GET" }).reply(options => {
     const url = new URL(options.path, "https://skills.sh");
@@ -41,7 +41,7 @@ if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
     return { statusCode: 200, data: JSON.stringify(marketSnapshot()) };
   }).persist();
   const registry = agent.get("https://registry.modelcontextprotocol.io");
-  const entries = registryFixtureEntries(process.env.PRIVATE_AI_EXTENSION_FIXTURE_ORIGIN || "https://service.example.invalid");
+  const entries = registryFixtureEntries(process.env.RIA_EXTENSION_FIXTURE_ORIGIN || "https://service.example.invalid");
   registry.intercept({ path: /^\/v0\.1\/servers(?:\?|\/)/, method: "GET" }).reply(options => {
     const url = new URL(options.path, "https://registry.modelcontextprotocol.io");
     if (url.pathname === "/v0.1/servers") {
@@ -57,7 +57,7 @@ if (process.env.PRIVATE_AI_HTTP_FIXTURE === "1") {
   }).persist();
   const provider = agent.get("https://openrouter.ai");
   const catalogRow = (id, name, input, output, extra = {}) => ({
-    id, name, description: `Offline fixture for ${id}`, context_length: Number(process.env.PRIVATE_AI_FIXTURE_CONTEXT_LENGTH ?? 200000),
+    id, name, description: `Offline fixture for ${id}`, context_length: Number(process.env.RIA_FIXTURE_CONTEXT_LENGTH ?? 200000),
     architecture: { input_modalities: input, output_modalities: output },
     supported_parameters: ["tools", ...(input.includes("image") ? ["image"] : [])],
     pricing: { prompt: "0.000001", completion: "0.000002" }, ...extra,

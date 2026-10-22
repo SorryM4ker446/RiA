@@ -8,7 +8,7 @@ import { seedTestModelPreferences } from "../helpers/model-library";
 import { fixtureLibraryItem } from "../helpers/model-fixture";
 import { providerState, resetProviderState } from "../helpers/model-provider";
 
-const cleanup = createTestDatabase(); process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+const cleanup = createTestDatabase(); process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 const { parseDocument } = await import("@/lib/documents/parser");
 const { buildDocumentChunks } = await import("@/lib/documents/chunks");
@@ -22,7 +22,7 @@ const { serializeWordDocument } = await import("@/lib/documents/word-structure")
 const preview = await import("@/app/api/documents/preview/route"); const routes = await import("@/app/api/documents/route");
 let cookie: string; const modelRef = { providerId: "openrouter", modelId: "openai/text-embedding-3-small" } as const;
 beforeEach(async () => {
-  cookie = localAccessCookie(); resetProviderState(); globalThis.__privateAiRateLimitStore?.clear();
+  cookie = localAccessCookie(); resetProviderState(); globalThis.__riaRateLimitStore?.clear();
   await db.knowledgeDocument.deleteMany({}); await db.workspacePreference.deleteMany({});
   const prefs = await seedTestModelPreferences(db); prefs.embedding = modelRef;
   prefs.library = [...prefs.library, { ...fixtureLibraryItem(modelRef.modelId, ["embedding"]), providerId: "openrouter" }];

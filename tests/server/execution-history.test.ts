@@ -20,7 +20,7 @@ const { restoreAccountBackup } = await import("@/lib/backups/restore");
 let cookie: string;
 beforeEach(async () => {
   cookie = localAccessCookie();
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   await db.workspaceReview.deleteMany({});
   await db.workspaceEvent.deleteMany({});
   await db.$executeRawUnsafe("DROP TRIGGER IF EXISTS reject_period_review");

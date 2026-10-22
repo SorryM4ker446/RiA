@@ -43,7 +43,7 @@ beforeEach(async (t: TestContext) => {
   t.mock.method(console, "info", () => {});
   t.mock.method(console, "error", () => {});
   t.mock.method(console, "warn", () => {});
-  globalThis.__privateAiRateLimitStore.clear();
+  globalThis.__riaRateLimitStore.clear();
   await db.agentStep.deleteMany({});
   await db.agentRun.deleteMany({});
   await db.memory.deleteMany({});

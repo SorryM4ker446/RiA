@@ -11,7 +11,7 @@ import { createTestDatabase } from "../helpers/database";
 import { localAccessCookie } from "../helpers/local-access";
 
 const cleanup = createTestDatabase();
-delete process.env.PRIVATE_AI_TEST_PROVIDER;
+delete process.env.RIA_TEST_PROVIDER;
 const { db } = await import("@/db");
 const chatRoute = await import("@/app/api/chat/route");
 const manualRoute = await import("@/app/api/tools/run/route");
@@ -55,7 +55,7 @@ beforeEach(async (t: TestContext) => {
   t.mock.method(console, "info", () => {});
   t.mock.method(console, "error", () => {});
   t.mock.method(console, "warn", () => {});
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   await db.chat.deleteMany({});
   await db.task.deleteMany({});
   await db.memory.deleteMany({});

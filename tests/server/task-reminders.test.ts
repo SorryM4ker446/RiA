@@ -35,7 +35,7 @@ beforeEach(async (t: TestContext) => {
   process.env.APP_RUNTIME = "test";
   process.env.DESKTOP_SERVER_HOST = "localhost";
   process.env.DESKTOP_SESSION_TOKEN = randomUUID();
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   await db.task.deleteMany({});
   cookie = `local_access=${localAccessToken()}; desktop_session=${process.env.DESKTOP_SESSION_TOKEN}`;
 });

@@ -9,7 +9,7 @@ import { languageModel, providerState } from "../helpers/model-provider";
 import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server.js";
 
 const cleanup = createTestDatabase();
-process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 const { localAccessToken, issueHandshakeCode, consumeHandshakeCode, hasValidLocalAccess } = await import("@/lib/server/local-access");
 const { checkRateLimit, enforceRateLimit, RATE_LIMIT_POLICIES } = await import("@/lib/server/rate-limit");
@@ -33,7 +33,7 @@ function request(name, body, { method = "POST", headers = {}, session = cookie, 
     ...(raw !== undefined ? { body: raw } : body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
 }
-function resetLimits() { globalThis.__privateAiRateLimitStore.clear(); }
+function resetLimits() { globalThis.__riaRateLimitStore.clear(); }
 async function expectError(response, status, code) {
   assert.equal(response.status, status, await response.clone().text());
   const body = await response.json();
@@ -216,7 +216,7 @@ test("rate storage stays bounded without evicting active quotas", (t) => {
   let now = Date.now();
   t.mock.method(Date, "now", () => now);
   for (let index = 0; index < 2100; index++) checkRateLimit({ key: `key:${index}`, limit: 1, windowMs: 1000 });
-  assert.equal(globalThis.__privateAiRateLimitStore.size, 2000);
+  assert.equal(globalThis.__riaRateLimitStore.size, 2000);
   assert.equal(checkRateLimit({ key: "key:0", limit: 1, windowMs: 1000 }).allowed, false);
   now += 1000;
   assert.equal(checkRateLimit({ key: "new", limit: 1, windowMs: 1000 }).allowed, true);

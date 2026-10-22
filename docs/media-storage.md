@@ -5,7 +5,7 @@
 New generated images, videos, and uploaded attachments are written to private file storage. SQLite holds asset metadata, generation recipes, source conversations, message references and generation-input references, not embedded image/video bytes. Generation recipes contain prompts and input identifiers, so database backups also contain that private content.
 
 - Local browser development: `.desktop-data/dev/media/` next to `app.db`.
-- Installed desktop: `%APPDATA%/Private AI Assistant/data/media/`.
+- Installed desktop: `%APPDATA%/RiA/data/media/`.
 - Isolated tests: their own temporary database and media directories.
 - Local Web overrides: set `MEDIA_DIRECTORY` to an absolute private directory. Without it, an absolute `file:` SQLite database URL is required. There is no working-directory fallback for new media.
 

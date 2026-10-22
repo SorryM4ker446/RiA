@@ -19,7 +19,7 @@ function accountScopedMigrations(migrationsDirectory) {
 }
 
 test("workspace upgrade keeps content, drops the account schema and leaves the old schema in the snapshot", () => {
-  const root = mkdtempSync(join(tmpdir(), "private-ai-account-upgrade-"));
+  const root = mkdtempSync(join(tmpdir(), "ria-account-upgrade-"));
   const databaseFile = join(root, "app.db");
   const migrationsDirectory = resolve("src/db/migrations");
   const backupDirectory = join(root, "backups");
@@ -135,7 +135,7 @@ test("workspace upgrade keeps content, drops the account schema and leaves the o
 
     assert.deepEqual(runDesktopMigrations(options).applied, []);
   } finally {
-    if (resolve(dirname(root)) !== resolve(tmpdir()) || !basename(root).startsWith("private-ai-account-upgrade-")) {
+    if (resolve(dirname(root)) !== resolve(tmpdir()) || !basename(root).startsWith("ria-account-upgrade-")) {
       throw new Error("Unexpected test directory");
     }
     rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });

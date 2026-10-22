@@ -1,7 +1,7 @@
 import { EnvHttpProxyAgent, setGlobalDispatcher } from "undici";
 
 const globalProxyState = globalThis as typeof globalThis & {
-  __privateAiProxyConfigured?: boolean;
+  __riaProxyConfigured?: boolean;
 };
 
 function resolveProxyUrl(): string | null {
@@ -19,11 +19,11 @@ function resolveProxyUrl(): string | null {
 }
 
 export function setupServerProxy() {
-  if (globalProxyState.__privateAiProxyConfigured) return;
+  if (globalProxyState.__riaProxyConfigured) return;
 
   const proxyUrl = resolveProxyUrl();
   if (!proxyUrl) {
-    globalProxyState.__privateAiProxyConfigured = true;
+    globalProxyState.__riaProxyConfigured = true;
     return;
   }
 
@@ -32,7 +32,7 @@ export function setupServerProxy() {
     ...(explicit ? { httpProxy: explicit, httpsProxy: explicit } : { httpProxy: process.env.http_proxy || process.env.HTTP_PROXY || proxyUrl, httpsProxy: process.env.https_proxy || process.env.HTTPS_PROXY || proxyUrl }),
     noProxy: [process.env.no_proxy ?? process.env.NO_PROXY ?? "", "localhost", "127.0.0.1", "[::1]"].filter(Boolean).join(","),
   }));
-  globalProxyState.__privateAiProxyConfigured = true;
+  globalProxyState.__riaProxyConfigured = true;
 
   console.info("[proxy] outbound proxy enabled");
 }

@@ -31,8 +31,8 @@ const now = new Date("2026-10-05T12:00:00Z");
 let cookie: string;
 beforeEach(async () => {
   await db.modelCallDay.deleteMany({});
-  cookie = localAccessCookie(); globalThis.__privateAiRateLimitStore?.clear();
-  delete process.env.PRIVATE_AI_TEST_PROVIDER;
+  cookie = localAccessCookie(); globalThis.__riaRateLimitStore?.clear();
+  delete process.env.RIA_TEST_PROVIDER;
   await db.workspaceReview.deleteMany({}); await db.workspaceEvent.deleteMany({});
   await db.scheduledRun.deleteMany({}); await db.scheduledJob.deleteMany({});
   await db.chat.deleteMany({}); await db.task.deleteMany({}); await db.memory.deleteMany({});
@@ -213,6 +213,8 @@ test("an old archive without activity restores empty coverage from restoration t
   const backup = await createAccountBackup(); const file = await openBackup(backup.id);
   const manifest = (await readBackupManifest(file)).manifest as unknown as Record<string, unknown>; await file.close();
   delete manifest.events; delete manifest.activityCoverage; delete manifest.reviews;
+  // Archives from before the activity feature also predate the RiA rename.
+  manifest.format = "private-ai-account-backup";
   const json = Buffer.from(JSON.stringify(manifest)); const header = Buffer.alloc(44);
   header.write("PAIB0001"); header.writeUInt32BE(json.length, 8); createHash("sha256").update(json).digest().copy(header, 12);
   const oldId = randomUUID(); await writeFile(await backupFile(oldId), Buffer.concat([header, json]));

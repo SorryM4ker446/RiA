@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { resolveInstalledElectron } from "../../scripts/resolve-installed-electron.mjs";
 
 test("desktop runtime resolution never installs missing binaries", () => {
-  const root = mkdtempSync(join(tmpdir(), "private-ai-electron-resolution-"));
+  const root = mkdtempSync(join(tmpdir(), "ria-electron-resolution-"));
   try {
     const options = { packageDirectory: root, overrideDirectory: "" };
     assert.throws(() => resolveInstalledElectron(options), /never download/);

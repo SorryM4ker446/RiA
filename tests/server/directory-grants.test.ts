@@ -47,7 +47,7 @@ function temporaryDirectory(prefix: string): string {
 }
 
 beforeEach(async () => {
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   cookie = localAccessCookie();
   await db.directoryGrant.deleteMany({});
 });

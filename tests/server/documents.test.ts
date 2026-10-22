@@ -30,7 +30,7 @@ async function data(response, status = 200) { assert.equal(response.status, stat
 beforeEach(async () => {
   cookie = localAccessCookie();
   // Quotas belong to this instance, so a previous test must not consume them.
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   await db.message.deleteMany({});
   await db.chat.deleteMany({});
   await db.memory.deleteMany({});
@@ -107,7 +107,7 @@ test("invalid content, size, compressed expansion and unexpected requests cannot
   assert.match((await data(await detail.GET(request(), context(document.id)))).chunks[0].text, /Preserve/);
   const freshCookie = cookie;
   // Document uploads are quota-limited per instance, so this test clears the bucket.
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   assert.equal((await collection.POST(request("POST", freshCookie, { file: "x" }))).status, 415);
   assert.equal((await search.POST(request("POST", freshCookie, { query: "x", extra: true }))).status, 400);
   assert.equal((await detail.POST(request("POST", freshCookie, { unexpected: true }), context(document.id))).status, 400);

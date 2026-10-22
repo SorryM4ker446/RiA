@@ -208,7 +208,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       */}
       <header
         className={cn("workspace-topbar desktop-titlebar-drag absolute inset-x-0 top-0 z-30 flex h-11 items-center gap-2 border-b pl-3 lg:hidden", !isDesktopRuntime && "desktop-titlebar-plain")}
-        onDoubleClick={() => window.privateAiDesktop?.windowControls?.toggleMaximize()}
+        onDoubleClick={() => window.riaDesktop?.windowControls?.toggleMaximize()}
       >
         <SheetTrigger asChild><Button
           aria-expanded={open}
@@ -242,7 +242,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="workspace-main flex min-h-0 min-w-0 flex-1 flex-col pt-11 lg:pt-0">
         <div
           className={cn("workspace-topbar desktop-titlebar-drag z-30 hidden h-11 shrink-0 items-center gap-2 border-b pl-5 lg:flex", !isDesktopRuntime && "desktop-titlebar-plain")}
-          onDoubleClick={() => window.privateAiDesktop?.windowControls?.toggleMaximize()}
+          onDoubleClick={() => window.riaDesktop?.windowControls?.toggleMaximize()}
         >
           {/* A span, not a heading: every page owns its own <h1>, and two
               headings per page would break the document outline. */}

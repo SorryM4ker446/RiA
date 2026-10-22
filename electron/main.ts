@@ -801,8 +801,8 @@ async function runSmokeAssertion() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: 'Desktop restart smoke test' })
       }).then(async (response) => ({ status: response.status, body: await response.json() })),
-      window.privateAiDesktop.getRuntimeInfo(),
-      window.privateAiDesktop.getSettings()
+      window.riaDesktop.getRuntimeInfo(),
+      window.riaDesktop.getSettings()
     ]).then(([health, conversation, runtime, settings]) => ({ health, conversation, runtime, settings }))`,
     true,
   )) as {
@@ -837,7 +837,7 @@ async function runSmokeAssertion() {
   // the window.
   const caption = (await mainWindow.webContents.executeJavaScript(
     `(() => {
-      const controls = window.privateAiDesktop?.windowControls;
+      const controls = window.riaDesktop?.windowControls;
       const selectors = [
         'button[aria-label="最小化"], button[aria-label="Minimize"]',
         'button[aria-label="最大化"], button[aria-label="向下还原"], button[aria-label="Maximize"], button[aria-label="Restore"]',
@@ -963,7 +963,7 @@ async function runSmokeAssertion() {
       captionWindow.once("maximize", () => { clearTimeout(timer); resolve(true); });
     });
     await captionWindow.webContents.executeJavaScript(
-      "window.privateAiDesktop.windowControls.toggleMaximize()",
+      "window.riaDesktop.windowControls.toggleMaximize()",
       true,
     );
     if (!(await maximized)) {

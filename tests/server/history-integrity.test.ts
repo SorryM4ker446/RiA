@@ -6,7 +6,7 @@ import { localAccessCookie } from "../helpers/local-access";
 import { seedTestModelPreferences } from "../helpers/model-library";
 import { languageModel } from "../helpers/model-provider";
 const cleanup = createTestDatabase();
-process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 const route = await import("@/app/api/conversations/[id]/messages/[messageId]/route");
 const { summarizeOlderTurns } = await import("@/lib/chat/summary");

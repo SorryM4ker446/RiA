@@ -27,13 +27,13 @@ test("a real desktop window presents its first frame once and preload reloads ca
         await window.loadURL('data:text/html,<meta charset=utf-8><title>RiA startup check</title><body style="background:%231a1b1e;color:white">RiA</body>');
         const hiddenBefore= !window.isVisible();
         const shown=once(window,'show');
-        const tokens=await window.webContents.executeJavaScript('Promise.all([window.privateAiDesktop.startup.claim(),window.privateAiDesktop.startup.claim()])');
+        const tokens=await window.webContents.executeJavaScript('Promise.all([window.riaDesktop.startup.claim(),window.riaDesktop.startup.claim()])');
         if(!tokens[0]||tokens[0]!==tokens[1]) throw Error('Preload did not share one document claim');
-        const presented=await window.webContents.executeJavaScript('window.privateAiDesktop.startup.present('+JSON.stringify(tokens[0])+')');
+        const presented=await window.webContents.executeJavaScript('window.riaDesktop.startup.present('+JSON.stringify(tokens[0])+')');
         await shown;
         const visible=window.isVisible();
         const loaded=once(window.webContents,'did-finish-load');window.reload();await loaded;
-        const replay=await window.webContents.executeJavaScript('window.privateAiDesktop.startup.claim()');
+        const replay=await window.webContents.executeJavaScript('window.riaDesktop.startup.claim()');
         if(!hiddenBefore||!presented||!visible||replay!==null) throw Error('Startup visibility or replay contract failed: '+JSON.stringify({hiddenBefore,presented,visible,replay}));
         window.destroy();finish({ok:true,hiddenBefore,presented,visible,replay});
       }).catch(error=>finish({ok:false,error:error.message}));

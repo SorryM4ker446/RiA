@@ -14,7 +14,7 @@ export function DesktopStartup({ children }: { children: React.ReactNode }) {
   const workspace = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const startup = window.privateAiDesktop?.startup;
+    const startup = window.riaDesktop?.startup;
     if (!startup) return;
     let current = true;
     void startup.claim().then(token => {
@@ -27,7 +27,7 @@ export function DesktopStartup({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const startup = window.privateAiDesktop?.startup;
+    const startup = window.riaDesktop?.startup;
     const element = surface.current;
     if (!ticket || !startup || !element) return;
     let current = true;

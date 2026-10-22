@@ -9,7 +9,7 @@ import { test } from "node:test";
 const { runDesktopMigrations } = createRequire(import.meta.url)("../../electron-dist/migrations.js");
 const migrationsDirectory = resolve("src/db/migrations");
 test("media library migration preserves old assets and references, backs up metadata and cascades generation links", () => {
-  const root = mkdtempSync(join(tmpdir(), "private-ai-media-upgrade-"));
+  const root = mkdtempSync(join(tmpdir(), "ria-media-upgrade-"));
   const databaseFile = join(root, "app.db");
   const migration = "20260831120000_media_library";
   const options = { databaseFile, migrationsDirectory, backupsDirectory: join(root, "backups"), logger: { info() {}, warn() {}, error() {} } };
@@ -55,7 +55,7 @@ test("media library migration preserves old assets and references, backs up meta
       assert.equal(reopened.prepare("SELECT count(*) AS count FROM media_assets").get().count, 0);
     } finally { reopened.close(); }
   } finally {
-    if (resolve(dirname(root)) !== resolve(tmpdir()) || !root.startsWith(join(tmpdir(), "private-ai-media-upgrade-"))) throw new Error("Unexpected test directory");
+    if (resolve(dirname(root)) !== resolve(tmpdir()) || !root.startsWith(join(tmpdir(), "ria-media-upgrade-"))) throw new Error("Unexpected test directory");
     rmSync(root, { recursive: true, force: true });
   }
 });

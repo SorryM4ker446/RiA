@@ -28,7 +28,7 @@ export function HotkeySettings() {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    void window.privateAiDesktop
+    void window.riaDesktop
       ?.getSettings()
       .then((view) => setHotkey(view.globalHotkey ?? ""))
       .catch(() => setProblem("invalid"));
@@ -43,7 +43,7 @@ export function HotkeySettings() {
     setProblem(null);
     setSaved(false);
     try {
-      const outcome = await window.privateAiDesktop!.setGlobalHotkey(hotkey.trim());
+      const outcome = await window.riaDesktop!.setGlobalHotkey(hotkey.trim());
       // A refusal reports the combination still in force, so the field shows
       // that rather than one the shell never took.
       if (!outcome.ok) {

@@ -34,7 +34,7 @@ beforeEach(async (t: TestContext) => {
   // refusals below are answered before any request is made.
   process.env.TAVILY_API_KEY = "offline-fixture-placeholder";
   // The wrapper checks the tool quota before anything else.
-  globalThis.__privateAiRateLimitStore.clear();
+  globalThis.__riaRateLimitStore.clear();
   await db.directoryGrant.deleteMany({});
   await db.agentStep.deleteMany({});
   await db.agentRun.deleteMany({});

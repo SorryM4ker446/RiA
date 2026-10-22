@@ -8,7 +8,7 @@ import { fixtureLibraryItem } from "../helpers/model-fixture";
 import { languageModel, providerState, resetProviderState } from "../helpers/model-provider";
 import qualityCorpus from "../fixtures/document-quality-evaluation.json" with { type: "json" };
 
-const cleanup = createTestDatabase(); process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+const cleanup = createTestDatabase(); process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 const { indexDocument } = await import("@/lib/documents/store");
 const { indexDocumentEmbeddings } = await import("@/lib/documents/semantic");
@@ -23,7 +23,7 @@ const route = await import("@/app/api/documents/evaluate/route");
 const modelRef = { providerId: "openrouter", modelId: "openai/text-embedding-3-small" } as const;
 let cookie: string;
 beforeEach(async (t: TestContext) => {
-  t.mock.method(console, "error", () => {}); t.mock.method(console, "warn", () => {}); resetProviderState(); globalThis.__privateAiRateLimitStore?.clear(); cookie = localAccessCookie();
+  t.mock.method(console, "error", () => {}); t.mock.method(console, "warn", () => {}); resetProviderState(); globalThis.__riaRateLimitStore?.clear(); cookie = localAccessCookie();
   await db.chat.deleteMany({}); await db.knowledgeDocument.deleteMany({}); await db.workspacePreference.deleteMany({});
   const prefs = await seedTestModelPreferences(db); prefs.embedding = modelRef; prefs.library = [...prefs.library, { ...fixtureLibraryItem(modelRef.modelId, ["embedding"]), providerId: "openrouter" }];
   await db.workspacePreference.update({ where: { id: "local" }, data: { settings: prefs } }); process.env.OPENROUTER_API_KEY = "offline-fixture-placeholder";
@@ -111,7 +111,7 @@ test("evaluation requires explicit confirmation, authentication and bounded case
   assert.equal((await route.POST(request({ ...body, confirm: false }))).status, 400);
   assert.equal((await route.POST(request({ ...body, cases: Array.from({ length: 13 }, () => ({ question: "问题" })) }))).status, 400);
   assert.equal(providerState.embeddingCalls.length, 0);
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   assert.equal((await route.POST(request(body))).status, 200);
   assert.equal((await route.POST(request(body))).status, 200);
   assert.equal((await route.POST(request(body))).status, 429);
@@ -218,10 +218,10 @@ test("review input validates opt-in, model allowlisting and expectation bounds b
     { ...base, cases: [{ question: "问题", expectations: Array.from({ length: 13 }, () => ({ kind: "fact", statement: "规则" })) }] },
     { ...base, cases: [{ question: "问题", answerable: false, expectations: [{ kind: "fact", statement: "规则" }] }] },
   ]) {
-    globalThis.__privateAiRateLimitStore?.clear();
+    globalThis.__riaRateLimitStore?.clear();
     assert.equal((await route.POST(request(input))).status, 400);
   }
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   await assert.rejects(evaluateDocuments(evaluationRequestSchema.parse({ ...base, generateAnswers: true, judgeAnswers: true, judgeModel: { providerId: "openrouter", modelId: "unknown/model" } }), new AbortController().signal));
   assert.equal(calls, 0); assert.equal(providerState.embeddingCalls.length, 0);
 });

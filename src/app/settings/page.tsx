@@ -52,7 +52,7 @@ export default function DesktopSettingsPage() {
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    const bridge = window.privateAiDesktop;
+    const bridge = window.riaDesktop;
     if (!bridge) {
       queueMicrotask(() => {
         setActiveTab("application");
@@ -120,7 +120,7 @@ export default function DesktopSettingsPage() {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const bridge = window.privateAiDesktop;
+    const bridge = window.riaDesktop;
     if (!bridge) return;
 
     setIsSaving(true);

@@ -49,7 +49,7 @@ async function eventually(check: () => boolean, timeout = 10_000) {
 }
 beforeEach(async () => {
   process.env.APP_RUNTIME = "test";
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
 });
 after(async () => {
   for (const grant of await listGrants()) await revokeGrant(grant.id);

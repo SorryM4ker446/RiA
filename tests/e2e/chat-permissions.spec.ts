@@ -19,7 +19,7 @@ const test = base.extend<{ app: App }>({ app: async ({}, provide) => {
 
 async function desktop(page: Page, app: App) {
   await page.addInitScript(folder => {
-    Object.defineProperty(window, "privateAiDesktop", { value: {
+    Object.defineProperty(window, "riaDesktop", { value: {
       chooseFolder: async () => {
         const calls = Number(sessionStorage.getItem("folder-dialog-calls") ?? 0);
         sessionStorage.setItem("folder-dialog-calls", String(calls + 1));

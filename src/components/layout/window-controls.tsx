@@ -23,14 +23,14 @@ const noopSubscribe = () => () => {};
  * and the OS-drawn tooltip.
  */
 
-type Controls = NonNullable<Window["privateAiDesktop"]>["windowControls"];
+type Controls = NonNullable<Window["riaDesktop"]>["windowControls"];
 
 function useControls(): Controls | null {
   return useSyncExternalStore(
     noopSubscribe,
     // The bridge is injected by the preload script, and the preload only
     // exposes these verbs on win32, where the native caption is hidden.
-    () => window.privateAiDesktop?.windowControls ?? null,
+    () => window.riaDesktop?.windowControls ?? null,
     () => null,
   );
 }

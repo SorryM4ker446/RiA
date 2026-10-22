@@ -14,7 +14,7 @@ beforeEach(async (t: TestContext) => {
   const previousKey = process.env.OPENROUTER_API_KEY;
   process.env.OPENROUTER_API_KEY = "";
   t.after(() => { if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = previousKey; });
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   await db.modelCatalogSnapshot.deleteMany({});
 });
 after(async () => { await db.$disconnect(); cleanup(); });

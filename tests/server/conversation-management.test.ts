@@ -36,7 +36,7 @@ async function search(q, auth = cookie, extra = {}) {
 async function update(id, body, auth = cookie) { return routes.detail.PATCH(request(`/${id}`, "PATCH", body, auth), context(id)); }
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {});
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   cookie = localAccessCookie();
   await db.message.deleteMany({});
   await db.chat.deleteMany({});

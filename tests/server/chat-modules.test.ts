@@ -7,7 +7,7 @@ import { createTestDatabase } from "../helpers/database";
 import { languageModel } from "../helpers/model-provider";
 
 const cleanup = createTestDatabase();
-process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 const { getRelevantMemories } = await import("@/lib/memory/store");
 const { searchKnowledge } = await import("@/tools/definitions/search-knowledge");

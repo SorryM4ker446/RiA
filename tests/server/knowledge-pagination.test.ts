@@ -18,7 +18,7 @@ async function list(query = "") {
 }
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {});
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   cookie = localAccessCookie();
   await db.memory.deleteMany({});
 });

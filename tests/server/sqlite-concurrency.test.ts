@@ -5,7 +5,7 @@ import { after, test } from "node:test";
 import { createTestDatabase } from "../helpers/database";
 
 const cleanup = createTestDatabase();
-process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+process.env.RIA_TEST_PROVIDER = "1";
 // The repository lib target predates Promise.withResolvers, but the Node
 // runtime that executes these tests provides it.
 const withResolvers = <T>() => (Promise as unknown as {

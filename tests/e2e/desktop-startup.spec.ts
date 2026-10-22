@@ -8,7 +8,7 @@ async function desktop(page: Page, theme = "dark", locale: "zh-CN" | "en-US" = "
     localStorage.setItem("ui:theme", theme);
     let claim: Promise<string | null> | undefined;
     Object.assign(window, {
-      privateAiDesktop: {
+      riaDesktop: {
         getSettings: async () => ({ locale, hasOpenrouterApiKey: false, hasDeepseekApiKey: false, hasTavilyApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "", windowBounds: null }),
         startup: {
           claim: () => claim ??= Promise.resolve(sessionStorage.getItem("startup-consumed") ? null : (sessionStorage.setItem("startup-consumed", "true"), "first-window")),

@@ -6,7 +6,7 @@ import { localAccessCookie } from "../helpers/local-access";
 import { seedTestModelPreferences, CHAT_MODEL_REF } from "../helpers/model-library";
 import { languageModel, resetProviderState } from "../helpers/model-provider";
 const cleanup = createTestDatabase();
-process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 const chatRoute = await import("@/app/api/chat/route");
 const runRoute = await import("@/app/api/conversations/[id]/runs/route");
@@ -25,7 +25,7 @@ const { executionCalls } = await import("@/features/chat/execution-calls");
 const request = (url: string, method = "GET", body?: unknown, auth = localAccessCookie()) => new NextRequest(`http://localhost${url}`, { method, headers: { cookie: auth, "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {}); t.mock.method(console, "info", () => {});
-  globalThis.__privateAiRateLimitStore?.clear(); resetProviderState();
+  globalThis.__riaRateLimitStore?.clear(); resetProviderState();
   process.env.OPENROUTER_API_KEY = "offline-key"; process.env.DEEPSEEK_API_KEY = ""; process.env.TAVILY_API_KEY = "";
   await db.chat.deleteMany({}); await db.agentRun.deleteMany({}); await seedTestModelPreferences(db);
 });

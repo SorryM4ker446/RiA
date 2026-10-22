@@ -151,7 +151,7 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
    * — choosing one is not granting it.
    */
   async function choose() {
-    const bridge = window.privateAiDesktop;
+    const bridge = window.riaDesktop;
     if (!bridge?.chooseFolder || busy) return;
     setChoosing(true);
     try {
@@ -196,7 +196,7 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
                 {/* A withdrawn folder is shown rather than offered: there is nothing left to withdraw. */}
                 {grant.revokedAt ? null : (
                   <div className="flex shrink-0 flex-wrap items-center gap-2">
-                  {typeof window !== "undefined" && window.privateAiDesktop ? <>
+                  {typeof window !== "undefined" && window.riaDesktop ? <>
                   <Button disabled={busy} onClick={() => { setTerminalMode(grant.terminalApprovalMode); setTerminalGrant(grant); }} size="sm" type="button" variant="outline">
                     <Terminal aria-hidden="true" data-icon="inline-start" />
                     {grant.terminalEnabled ? tf("ui.settings.directory-grants.terminal", { v0: grant.terminalApprovalMode === "full-access" ? t("ui.settings.directory-grants.fullAccess") : t("ui.settings.directory-grants.approval") }) : t("ui.settings.directory-grants.enableTerminal")}
@@ -227,7 +227,7 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
           />
           </Field>
           <div className="flex items-center justify-end gap-2">
-          <Button disabled={busy || (typeof window !== "undefined" && !window.privateAiDesktop?.chooseFolder)} onClick={() => void choose()} type="button" variant="outline">
+          <Button disabled={busy || (typeof window !== "undefined" && !window.riaDesktop?.chooseFolder)} onClick={() => void choose()} type="button" variant="outline">
             <FolderOpen aria-hidden="true" className="mr-1.5 h-4 w-4" />
             {embedded ? t("ui.settings.directory-grants.chooseDirectory") : t("settings.grants.browse")}
           </Button>

@@ -241,7 +241,7 @@ test("desktop chat stays translucent and execution history opens without moving 
 }) => {
   await page.addInitScript(() => {
     // Simulate the preload presence for renderer styles; this does not emulate native Acrylic.
-    Object.defineProperty(window, "privateAiDesktop", { value: {
+    Object.defineProperty(window, "riaDesktop", { value: {
       getSettings: async () => { throw new Error("Renderer style fixture"); },
       getRuntimeInfo: async () => { throw new Error("Renderer style fixture"); },
     } });

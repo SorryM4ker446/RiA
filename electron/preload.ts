@@ -9,7 +9,7 @@ const drawsOwnCaption = process.platform === "win32";
 // gets a new preload, while the main process keeps the window's consumed claim.
 let startupClaim: Promise<string | null> | undefined;
 
-contextBridge.exposeInMainWorld("privateAiDesktop", {
+contextBridge.exposeInMainWorld("riaDesktop", {
   startup: {
     claim: () => startupClaim ??= ipcRenderer.invoke("desktop:startup:claim"),
     present: (token: string) => ipcRenderer.invoke("desktop:startup:present", token) as Promise<boolean>,

@@ -16,7 +16,7 @@ import { seedTestModelPreferences } from "../helpers/model-library";
 import { textPdf, wordDocument, wordTableDocument } from "../helpers/document-fixtures";
 
 const cleanup = createTestDatabase();
-process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 
 const storage = await import("@/lib/media/storage");
@@ -158,12 +158,12 @@ test("generation rejects remote, data and traversal image references", async () 
   const count = providerState.imageCalls.length;
   // Each attempt consumes the per-instance image quota, so clear it per case.
   for (const url of ["https://example.invalid/image.png", "http://127.0.0.1/private", "file:///secret", "data:image/png;base64,AAAA", "/api/media/../secret"]) {
-    globalThis.__privateAiRateLimitStore?.clear();
+    globalThis.__riaRateLimitStore?.clear();
     const response = await imageRoute.POST(request("/api/image", "POST", { prompt: "test", inputImages: [{ url }] }));
     assert.ok([400, 404].includes(response.status), `${url} -> ${response.status}`);
   }
   // A workspace asset is accepted, even though generation itself is not configured here.
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   const accepted = await imageRoute.POST(request("/api/image", "POST", { prompt: "test", inputImages: [{ url: `/api/media/${asset.id}` }] }));
   assert.notEqual(accepted.status, 400);
   assert.notEqual(accepted.status, 404);
@@ -236,7 +236,7 @@ test("document upload validates every file before storing any attachment", async
     new File([new Uint8Array(await wordDocument(""))], "empty.docx", { type: "" }),
     new File([new Uint8Array(await wordDocument("x".repeat(100_001)))], "too-long.docx", { type: "" }),
   ]) {
-    globalThis.__privateAiRateLimitStore?.clear();
+    globalThis.__riaRateLimitStore?.clear();
     const result = await upload.POST(await multipart([new File([testPng], "valid.png", { type: "image/png" }), file]));
     assert.ok([400, 413, 415].includes(result.status), await result.text());
     assert.equal(await db.mediaAsset.count(), 0);

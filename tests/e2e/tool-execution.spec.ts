@@ -22,7 +22,7 @@ test("a task-only response exposes approval, creates the task after approval and
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "工具执行验证" })).body.data;
   await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
-  await expect(page).toHaveTitle(/RiA|Private AI Assistant/);
+  await expect(page).toHaveTitle(/RiA/);
   await page.getByPlaceholder(/输入你的问题/).fill("OFFLINE_CREATE_TASK 帮我创建任务");
   await page.getByRole("button", { name: "发送", exact: true }).click();
   const approve = page.getByRole("button", { name: "批准", exact: true });

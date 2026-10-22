@@ -121,7 +121,7 @@ function serverOptions(
 }
 
 test("a service that dies after becoming ready is reported and logged", { timeout: 90_000 }, async () => {
-  const root = mkdtempSync(join(tmpdir(), "private-ai-service-supervision-"));
+  const root = mkdtempSync(join(tmpdir(), "ria-service-supervision-"));
   try {
     const worker = writeWorker(root, "dying", dyingWorker);
     const port = await findAvailablePort();
@@ -143,7 +143,7 @@ test("a service that dies after becoming ready is reported and logged", { timeou
 });
 
 test("a service stopped on request is not reported as an unexpected exit", { timeout: 90_000 }, async () => {
-  const root = mkdtempSync(join(tmpdir(), "private-ai-service-supervision-stop-"));
+  const root = mkdtempSync(join(tmpdir(), "ria-service-supervision-stop-"));
   try {
     const worker = writeWorker(root, "stopped", listeningWorker);
     const port = await findAvailablePort();
@@ -165,7 +165,7 @@ test("a service stopped on request is not reported as an unexpected exit", { tim
 });
 
 test("a service that stops before it is ready is a failed launch, not a death", { timeout: 90_000 }, async () => {
-  const root = mkdtempSync(join(tmpdir(), "private-ai-service-supervision-early-"));
+  const root = mkdtempSync(join(tmpdir(), "ria-service-supervision-early-"));
   try {
     const worker = writeWorker(root, "short-lived", shortLivedWorker);
     const port = await findAvailablePort();

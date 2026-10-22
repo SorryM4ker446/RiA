@@ -9,7 +9,7 @@ import { localAccessCookie } from "../helpers/local-access";
 import { languageModel } from "../helpers/model-provider";
 
 const cleanup = createTestDatabase();
-process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 const { createChatToolSet } = await import("@/tools/catalog");
 const { startRun } = await import("@/lib/agent/runs");
@@ -26,7 +26,7 @@ beforeEach(async (t: TestContext) => {
   t.mock.method(console, "info", () => {});
   t.mock.method(console, "error", () => {});
   t.mock.method(console, "warn", () => {});
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   await db.chat.deleteMany({});
   await db.agentRun.deleteMany({});
   await db.task.deleteMany({});

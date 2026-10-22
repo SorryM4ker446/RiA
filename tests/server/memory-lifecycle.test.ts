@@ -5,7 +5,7 @@ import { createTestDatabase } from "../helpers/database";
 import { localAccessCookie } from "../helpers/local-access";
 
 const cleanup = createTestDatabase();
-process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 const { saveMemory, getRelevantMemories } = await import("@/lib/memory/store");
 const { persistToolMemory } = await import("@/tools/memory-policy");
@@ -26,7 +26,7 @@ const payload = async (response: Response, status = 200) => {
 const keysOf = (entries: { key: string }[]) => entries.map((entry) => entry.key);
 
 beforeEach(async () => {
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   cookie = localAccessCookie();
   await db.memory.deleteMany({});
 });

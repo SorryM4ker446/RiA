@@ -20,7 +20,7 @@ import type { DesktopPaths } from "../../electron/paths.ts";
 const temporaryDirectories = [];
 
 function fixture(options = {}) {
-  const temporary = createTempDirectory("private-ai-workspace-upgrade-");
+  const temporary = createTempDirectory("ria-workspace-upgrade-");
   temporaryDirectories.push(temporary);
   const workspace = createLegacyWorkspace(temporary.root, options);
   const backupsDirectory = join(temporary.root, "backups");
