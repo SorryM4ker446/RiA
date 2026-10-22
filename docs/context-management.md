@@ -78,10 +78,19 @@ unscaled. The heaviest recent content sets the scale, and an outlier ages out.
 This per-model calibration is a planning cache in its own table: it is not backed
 up, and missing or unreadable data falls back to the uncalibrated estimate.
 
-Earlier turns of the conversation may use half the input budget, measured in the
-same estimated tokens. Turns beyond that window are covered by the conversation
+The history is the stored conversation, not only what the browser has loaded:
+turns before the browser's first message are read from storage, starting at the
+last message the current summary covers. Earlier turns of the conversation may
+use half the input budget, measured in the same estimated tokens. Turns beyond that window are covered by the conversation
 summary and labelled excerpts; the per-step check then compacts within the
-request as needed.
+request as needed. The window starts right after the last message the current
+summary covers for as long as the turns after it fit. Only when they no longer
+fit are older turns dropped, down to 60% of the window, and the summary extended
+to the new start. The start therefore holds for many turns: the summary is
+reused instead of being regenerated before every answer, and the prompt prefix
+stays the same, so provider prompt caches keep matching it. When no summary
+covers the older turns, their excerpts grow with the window: at least 4,000
+characters, otherwise an eighth of the window's estimated tokens.
 
 Every chat model step checks its budget, including steps after terminal or other
 tool results. Before a pending approval is claimed or executed, the complete

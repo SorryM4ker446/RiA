@@ -8,6 +8,20 @@ type ContextOptions = {
   /** Window size in estimated tokens; takes precedence over maxCharacters. */
   maxTokens?: number;
   excerptCharacters?: number;
+  /** Per-message share of the excerpts for turns outside the window. */
+  excerptMessageCharacters?: number;
+  /**
+   * Ids of the last message an existing summary covers. While the turns after
+   * it still fit, the window starts right after it, so the summary is reused
+   * and the prompt prefix stays the same from one request to the next.
+   */
+  anchorMessageIds?: string[];
+  /**
+   * When the window overflows, older turns are dropped until it uses this share
+   * of its size, so the new start then holds for many turns instead of moving
+   * on every request. Without it, only as much as needed is dropped.
+   */
+  refillRatio?: number;
 };
 
 function isToolPart(part: UIMessage["parts"][number]) {
@@ -64,16 +78,26 @@ export function buildChatContext(messages: UIMessage[], options: ContextOptions 
 
   let start = Math.max(0, normalized.length - Math.max(2, maxMessages));
   if (latestUserIndex >= 0) start = Math.min(start, latestUserIndex);
-  let size = normalized.slice(start).reduce((sum, message) => sum + measure(historicalText(message)), 0);
-  while (start < latestUserIndex && size > windowSize) {
-    size -= measure(historicalText(normalized[start]));
-    start += 1;
+  const sizes = normalized.map(message => measure(historicalText(message)));
+  const sizeFrom = (from: number) => sizes.slice(from).reduce((sum, value) => sum + value, 0);
+  const anchors = new Set(options.anchorMessageIds ?? []);
+  const anchorIndex = anchors.size ? normalized.findIndex(message => anchors.has(message.id)) : -1;
+  const anchored = anchorIndex >= 0 && anchorIndex < latestUserIndex ? anchorIndex + 1 : -1;
+  if (anchored >= start && sizeFrom(anchored) <= windowSize) {
+    start = anchored;
+  } else {
+    let size = sizeFrom(start);
+    const limit = size > windowSize && options.refillRatio ? windowSize * options.refillRatio : windowSize;
+    while (start < latestUserIndex && size > limit) {
+      size -= sizes[start];
+      start += 1;
+    }
   }
   // Do not open the window in the middle of an older user/assistant turn.
   while (start < latestUserIndex && normalized[start]?.role !== "user") start += 1;
 
   const older = conversation.slice(0, start);
-  const excerpt = older.map((message) => `${message.role}: ${historicalText(message, 500)}`)
+  const excerpt = older.map((message) => `${message.role}: ${historicalText(message, options.excerptMessageCharacters ?? 500)}`)
     .join("\n").slice(-excerptCharacters);
   return {
     messages: normalized.slice(start),

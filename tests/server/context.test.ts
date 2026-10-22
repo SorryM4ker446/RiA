@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { convertToModelMessages, type TextPart, type ToolApprovalResponse, type UIMessage } from "ai";
 import { buildChatContext, isToolApprovalContinuation } from "@/lib/chat/context";
+import { estimateTextTokens } from "@/lib/models/context-budget";
 import { encodePersistedAssistantToolMessage } from "@/lib/ai/ui-message";
 import { mapStoredMessagesToUI, type ToolPart } from "@/features/chat/page-utils";
 
@@ -57,4 +58,42 @@ test("approval metadata survives storage and reloading", () => {
   const stored = { id: "row", clientMessageId: "a1", role: "assistant" as const, content, status: "success" as const };
   const result = mapStoredMessagesToUI([stored]);
   assert.deepEqual((result.uiMessages[0].parts[0] as ToolPart).approval, { id: "approval-1" });
+});
+
+test("a window anchored to the summary keeps its start across turns and refills to a target when it overflows", () => {
+  const options = { maxTokens: 2_000, refillRatio: 0.6 };
+  const conversation: UIMessage[] = [];
+  const starts: number[] = [];
+  let anchor: string | undefined;
+  for (let turn = 0; turn < 40; turn++) {
+    conversation.push(message(`u${turn}`, "user", `question ${turn} `.repeat(20)), message(`a${turn}`, "assistant", `answer ${turn} `.repeat(30)));
+    const next = [...conversation, message(`u${turn + 1}-latest`, "user", "latest question")];
+    const context = buildChatContext(next, { ...options, maxMessages: next.length, anchorMessageIds: anchor ? [anchor] : [] });
+    starts.push(context.omittedMessages);
+    // The summary written for this request covers everything before the window.
+    if (context.omittedMessages > 0) anchor = next[context.omittedMessages - 1].id;
+    const used = context.messages.reduce((sum, item) => sum + estimateTextTokens(item.parts.map(part => part.type === "text" ? part.text : "").join("\n")), 0);
+    assert.ok(used <= options.maxTokens, `turn ${turn} uses ${used}`);
+  }
+  const cuts = starts.filter((start, index) => index > 0 && start !== starts[index - 1]).length;
+  const firstCut = starts.findIndex(start => start > 0);
+  assert.ok(firstCut > 0 && cuts <= 10, `the start moved ${cuts} times: ${starts.join(",")}`);
+
+  // Without an anchor or a refill target the start follows every new turn.
+  const unanchored = conversation.map((_, index) => index).filter(index => index % 2 === 1).map(index => {
+    const next = [...conversation.slice(0, index + 1), message("latest", "user", "latest question")];
+    return buildChatContext(next, { maxTokens: options.maxTokens, maxMessages: next.length }).omittedMessages;
+  });
+  const unanchoredCuts = unanchored.filter((start, index) => index > 0 && start !== unanchored[index - 1]).length;
+  assert.ok(unanchoredCuts > cuts * 2, `unanchored ${unanchoredCuts} vs anchored ${cuts}`);
+});
+
+test("an anchor that no longer fits, or that is not in the conversation, is ignored", () => {
+  const messages = Array.from({ length: 10 }, (_, index) => message(`m${index}`, index % 2 ? "assistant" : "user", `turn ${index} `.repeat(40)));
+  messages.push(message("latest", "user", "latest"));
+  const unknown = buildChatContext(messages, { maxMessages: messages.length, maxTokens: 100_000, anchorMessageIds: ["missing"] });
+  assert.equal(unknown.omittedMessages, 0);
+  const tooOld = buildChatContext(messages, { maxMessages: messages.length, maxTokens: 300, refillRatio: 0.6, anchorMessageIds: ["m1"] });
+  assert.ok(tooOld.omittedMessages > 2);
+  assert.equal(tooOld.messages[0].role, "user");
 });
