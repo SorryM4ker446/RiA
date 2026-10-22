@@ -7,7 +7,7 @@ import { readJsonBody } from "@/lib/server/request-body";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { exclusiveDataOperation, protectDataOperation } from "@/lib/server/data-operations";
 import { inspectAccountBackup } from "@/lib/backups/archive";
-import { openBackup, removeBackupFile } from "@/lib/backups/files";
+import { archiveExtension, openBackup, removeBackupFile } from "@/lib/backups/files";
 import { restoreAccountBackup } from "@/lib/backups/restore";
 import { t } from "@/lib/locale";
 type Context = { params: Promise<{ id: string }> };
@@ -18,8 +18,11 @@ export const GET = protectDataOperation(async (req: NextRequest, context: Contex
     if (req.nextUrl.searchParams.getAll("download").length > 1) throw new ApiError({ code: "VALIDATION_ERROR", message: "Duplicate query parameter" });
     z.strictObject({ download: z.literal("1").optional() }).parse(Object.fromEntries(req.nextUrl.searchParams));
     if (!req.nextUrl.searchParams.has("download")) return Response.json({ data: await inspectAccountBackup(id) }, { headers: { "Cache-Control": "private, no-store" } });
-    const file = await openBackup(id);
-    return new Response(Readable.toWeb(file.createReadStream()) as ReadableStream<Uint8Array>, { headers: { "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename="${id}.paib"`, "Content-Length": String((await file.stat()).size), "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
+    // A download keeps the archive's own extension, so a pre-rename archive
+    // is still named for what it contains.
+    const extension = await archiveExtension(id);
+    const file = await openBackup(id, extension);
+    return new Response(Readable.toWeb(file.createReadStream()) as ReadableStream<Uint8Array>, { headers: { "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename="${id}.${extension}"`, "Content-Length": String((await file.stat()).size), "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
   } catch (error) { return createApiErrorResponse(error, t("api.backups.readFailed")); }
 });
 export async function POST(req: NextRequest, context: Context) {
