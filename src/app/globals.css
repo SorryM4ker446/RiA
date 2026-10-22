@@ -625,9 +625,10 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .message-nav-mark > span { display: block; width: 14px; height: 2px; border-radius: 999px; background: hsl(var(--muted-foreground) / .4); transition: width var(--dur-fast), background-color var(--dur-fast); }
 .message-nav-mark:hover > span, .message-nav-mark:focus-visible > span { width: 18px; background: hsl(var(--foreground)); }
 .message-nav-mark[aria-current="location"] > span { width: 24px; background: hsl(var(--foreground)); }
-.message-nav-preview { width: min(19rem, calc(100vw - 72px)); padding: 12px; background: transparent; border: 0; box-shadow: none; backdrop-filter: blur(16px); transform-origin: var(--radix-tooltip-content-transform-origin); animation: message-preview-in var(--dur-base) var(--ease-out); }
+/* Readable on its own surface: the blur behind it is not always applied, as in the desktop window. */
+.message-nav-preview { width: min(19rem, calc(100vw - 72px)); padding: 12px; background: hsl(var(--popover) / .94); border: 0; box-shadow: 0 0 0 1px hsl(var(--border)), 0 8px 28px -8px hsl(var(--shadow) / .28); backdrop-filter: blur(16px); transform-origin: var(--radix-tooltip-content-transform-origin); animation: message-preview-in var(--dur-base) var(--ease-out); }
 .message-nav-preview[data-state="closed"] { animation: none; }
-.message-nav-outline { display: flex; width: min(19rem, calc(100vw - 64px)); max-height: min(30rem, var(--radix-popover-content-available-height)); flex-direction: column; padding: 0; overflow: hidden; background: transparent; border: 0; box-shadow: none; backdrop-filter: blur(16px); }
+.message-nav-outline { display: flex; width: min(19rem, calc(100vw - 64px)); max-height: min(30rem, var(--radix-popover-content-available-height)); flex-direction: column; padding: 0; overflow: hidden; background: hsl(var(--popover) / .94); border: 0; box-shadow: 0 0 0 1px hsl(var(--border)), 0 8px 28px -8px hsl(var(--shadow) / .28); backdrop-filter: blur(16px); }
 .message-nav-entry { height: auto; min-height: 30px; justify-content: flex-start; padding: 6px 8px; font-size: 12px; line-height: 18px; color: hsl(var(--muted-foreground)); }
 .message-nav-entry[aria-current="location"] { color: hsl(var(--foreground)); }
 @keyframes message-preview-in { from { opacity: 0; transform: translateX(-5px); } to { opacity: 1; transform: translateX(0); } }
