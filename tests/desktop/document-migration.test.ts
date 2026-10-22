@@ -10,7 +10,7 @@ const require = createRequire(import.meta.url);
 const { runDesktopMigrations } = require("../../electron-dist/migrations.js");
 const migrationsDirectory = resolve("src/db/migrations");
 test("desktop document migration backs up existing data and retains document indexes on restart", () => {
-  const root = mkdtempSync(join(tmpdir(), "private-ai-document-upgrade-"));
+  const root = mkdtempSync(join(tmpdir(), "ria-document-upgrade-"));
   const databaseFile = join(root, "app.db");
   const migration = "20260830200000_document_knowledge";
   try {
@@ -51,7 +51,7 @@ test("desktop document migration backs up existing data and retains document ind
       for (const table of ["knowledge_documents", "document_chunks", "document_terms"]) assert.equal(reopened.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count, 0);
     } finally { reopened.close(); }
   } finally {
-    if (resolve(dirname(root)) !== resolve(tmpdir()) || !root.startsWith(join(tmpdir(), "private-ai-document-upgrade-"))) throw new Error("Unexpected test directory");
+    if (resolve(dirname(root)) !== resolve(tmpdir()) || !root.startsWith(join(tmpdir(), "ria-document-upgrade-"))) throw new Error("Unexpected test directory");
     rmSync(root, { recursive: true, force: true });
   }
 });

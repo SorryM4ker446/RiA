@@ -12,7 +12,7 @@ import { seedTestModelPreferences, CHAT_MODEL_REF } from "../helpers/model-libra
 import { languageModel, resetProviderState } from "../helpers/model-provider";
 
 const cleanup = createTestDatabase();
-process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 const route = await import("@/app/api/chat/route");
 const { createGrant, revokeGrant } = await import("@/lib/local-files/grants");
@@ -27,7 +27,7 @@ const { getModelPreferences, saveModelPreferences } = await import("@/lib/models
 const roots: string[] = [];
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {}); t.mock.method(console, "info", () => {});
-  resetProviderState(); globalThis.__privateAiRateLimitStore?.clear();
+  resetProviderState(); globalThis.__riaRateLimitStore?.clear();
   process.env.APP_RUNTIME = "test"; process.env.OPENROUTER_API_KEY = "offline-fixture-placeholder";
   await db.chat.deleteMany({}); await db.task.deleteMany({}); await db.modelContextCalibration.deleteMany({});
   await seedTestModelPreferences(db);

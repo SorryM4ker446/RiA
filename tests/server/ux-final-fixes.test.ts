@@ -211,7 +211,7 @@ beforeEach(async (t: TestContext) => {
   t.mock.method(console, "info", () => {});
   t.mock.method(console, "error", () => {});
   t.mock.method(console, "warn", () => {});
-  globalThis.__privateAiRateLimitStore.clear();
+  globalThis.__riaRateLimitStore.clear();
   cookie = localAccessCookie();
   await db.memory.deleteMany({});
 });

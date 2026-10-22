@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { createAccountBackup } from "@/lib/backups/archive";
-import { listBackupFiles } from "@/lib/backups/files";
+import { isArchiveExtension, listBackupFiles } from "@/lib/backups/files";
 import {
   claimDueJobs,
   claimScheduledRetry,
@@ -27,7 +27,7 @@ async function runBackupReminder(now: Date): Promise<JobOutcome> {
   // The reminder is about backups this workspace created, which are files on
   // disk. A backup the user downloaded and keeps elsewhere does not age here,
   // and counting it would silence a reminder the workspace still needs.
-  const backups = (await listBackupFiles()).filter((file) => file.extension === "paib");
+  const backups = (await listBackupFiles()).filter((file) => isArchiveExtension(file.extension));
   const newest = backups[0];
   const ageDays = newest ? (now.getTime() - Date.parse(newest.createdAt)) / (24 * 60 * 60 * 1000) : Infinity;
   const overdue = !Number.isFinite(ageDays) || ageDays > BACKUP_REMINDER_AFTER_DAYS;

@@ -8,7 +8,7 @@ import { test } from "node:test";
 const require = createRequire(import.meta.url);
 const { runDesktopMigrations } = require("../../electron-dist/migrations.js");
 test("topic migration preserves old conversation settings and enforces cascade and unlink ownership after restart", () => {
-  const root = mkdtempSync(join(tmpdir(), "private-ai-topic-upgrade-"));
+  const root = mkdtempSync(join(tmpdir(), "ria-topic-upgrade-"));
   try {
     const databaseFile = join(root, "app.db"), migrationsDirectory = resolve("src/db/migrations"), migration = "20261009090000_knowledge_topics";
     const before = new DatabaseSync(databaseFile);
@@ -31,7 +31,7 @@ test("topic migration preserves old conversation settings and enforces cascade a
       assert.deepEqual(reopened.prepare("PRAGMA foreign_key_check").all(), []);
     } finally { reopened.close(); }
   } finally {
-    if (resolve(dirname(root)) !== resolve(tmpdir()) || !root.startsWith(join(tmpdir(), "private-ai-topic-upgrade-"))) throw new Error("Unexpected test directory");
+    if (resolve(dirname(root)) !== resolve(tmpdir()) || !root.startsWith(join(tmpdir(), "ria-topic-upgrade-"))) throw new Error("Unexpected test directory");
     rmSync(root, { recursive: true, force: true });
   }
 });

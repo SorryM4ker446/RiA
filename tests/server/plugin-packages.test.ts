@@ -25,7 +25,7 @@ const itemRoute = await import("@/app/api/plugins/[id]/route");
 let cookie: string;
 beforeEach(async (t: TestContext) => {
   process.env.APP_RUNTIME = "test"; process.env.RIA_EXTENSION_KEY = randomBytes(32).toString("base64");
-  globalThis.__privateAiRateLimitStore?.clear(); cookie = localAccessCookie();
+  globalThis.__riaRateLimitStore?.clear(); cookie = localAccessCookie();
   t.mock.method(console, "error", () => {});
   await db.pluginPackage.deleteMany({}); await db.extension.deleteMany({});
 });

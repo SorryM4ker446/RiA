@@ -6,7 +6,7 @@ import { createTestDatabase } from "../helpers/database";
 import { localAccessCookie } from "../helpers/local-access";
 import { seedTestModelPreferences } from "../helpers/model-library";
 import { languageModel, resetProviderState } from "../helpers/model-provider";
-const cleanup = createTestDatabase(); process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+const cleanup = createTestDatabase(); process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 const { saveTopic, getTopic, createTopicChat } = await import("@/lib/topics/store");
 const { generateArtifact, getArtifact, listArtifacts, deleteArtifact, deleteTopic, exportArtifact } = await import("@/lib/topics/artifacts");
@@ -29,7 +29,7 @@ const input = (revision = 1) => ({ confirm: true as const, requestId: randomUUID
 const signal = () => new AbortController().signal;
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {}); t.mock.method(console, "warn", () => {}); t.mock.method(console, "info", () => {});
-  globalThis.__privateAiRateLimitStore?.clear(); cookie = localAccessCookie(); resetProviderState();
+  globalThis.__riaRateLimitStore?.clear(); cookie = localAccessCookie(); resetProviderState();
   await db.chat.deleteMany(); await db.knowledgeTopic.deleteMany(); await db.assistantTemplate.deleteMany(); await db.knowledgeDocument.deleteMany(); await db.memory.deleteMany(); await db.workspacePreference.deleteMany();
   await seedTestModelPreferences(db); process.env.OPENROUTER_API_KEY = "offline-fixture-placeholder";
 });

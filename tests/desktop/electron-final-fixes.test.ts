@@ -149,7 +149,7 @@ const waitingWorker = `setInterval(() => {}, 1 << 30);`;
 test("an abandoned launch is stopped instead of finishing into an unsupervised service", {
   timeout: 90_000,
 }, async () => {
-  const root = mkdtempSync(join(tmpdir(), "private-ai-service-abandoned-"));
+  const root = mkdtempSync(join(tmpdir(), "ria-service-abandoned-"));
   const abort = new AbortController();
   let launch: ReturnType<typeof startNextServer> | undefined;
   try {
@@ -195,7 +195,7 @@ test("an abandoned launch is stopped instead of finishing into an unsupervised s
 });
 
 test("an already-abandoned launch starts no process at all", { timeout: 60_000 }, async () => {
-  const root = mkdtempSync(join(tmpdir(), "private-ai-service-preabort-"));
+  const root = mkdtempSync(join(tmpdir(), "ria-service-preabort-"));
   try {
     const launcher = writeLauncher(root, writeWorker(root, listeningWorker));
     const port = await findAvailablePort();
@@ -215,7 +215,7 @@ test("an already-abandoned launch starts no process at all", { timeout: 60_000 }
 });
 
 test("a port a running service already holds is never offered as available", { timeout: 90_000 }, async () => {
-  const root = mkdtempSync(join(tmpdir(), "private-ai-service-port-"));
+  const root = mkdtempSync(join(tmpdir(), "ria-service-port-"));
   try {
     const launcher = writeLauncher(root, writeWorker(root, listeningWorker));
     const port = await findAvailablePort();

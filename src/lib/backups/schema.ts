@@ -28,8 +28,15 @@ const chunk = z.strictObject({ id, documentId: id, chunkKey: z.string().max(200)
 const document = z.strictObject({ id, filename: z.string().min(1).max(180), collection: z.string().max(40).nullable().optional(), format: z.enum(["pdf", "docx", "md", "txt"]), byteSize: count.max(8 * 1024 * 1024), contentHash: z.string().max(128), pages: documentPagesSchema, characterCount: count.max(100_000), indexVersion: count, indexedAt: date, ...timestamps, chunks: z.array(chunk).max(256) });
 const asset = z.strictObject({ id: backupId, mediaType: z.enum([...CHAT_ATTACHMENT_TYPES, "video/mp4", "video/webm", "video/quicktime"]), byteSize: count.positive().max(100 * 1024 * 1024), kind: z.enum(["attachment", "generated-image", "generated-video"]), modelId: z.string().max(200).nullable(), modelProvider: providerIdSchema.nullable().optional(), description: z.string().max(4000).nullable(), generation: generationRecipeSchema.nullable(), sourceChatId: id.nullable(), createdAt: date, lastUsedAt: date, sha256: z.string().regex(/^[a-f0-9]{64}$/), references: z.array(z.strictObject({ messageId: id, assetId: backupId })).max(BACKUP_LIMITS.rows), inputs: z.array(z.strictObject({ assetId: backupId, inputAssetId: backupId })).max(4) });
 const usage = z.strictObject({ id, requestId: id, mode: z.enum(["chat", "image", "video", "embedding"]), modelId: z.string().max(200), modelProvider: providerIdSchema.optional(), source: z.enum(["chat", "summary", "scheduled", "tool", "embedding", "media", "unattributed"]).optional(), estimatedUsd: z.number().nonnegative().nullable().optional(), status: z.enum(["success", "error", "aborted", "pending", "interrupted"]), durationMs: count, inputTokens: count.nullable(), outputTokens: count.nullable(), costUsd: z.number().nonnegative().nullable(), costSource: z.enum(["provider", "configured", "unknown"]), errorCode: z.string().max(60).nullable(), fallback: z.boolean(), createdAt: date });
+/** Identifier written into new archives. */
+export const BACKUP_FORMAT = "ria-account-backup";
+/**
+ * Identifier of archives written before the RiA rename. They keep importing;
+ * builds older than the rename do not import archives with the new identifier.
+ */
+export const LEGACY_BACKUP_FORMAT = "private-ai-account-backup";
 export const backupManifestSchema = z.strictObject({
-  format: z.literal("private-ai-account-backup"), version: z.literal(1), createdAt: date,
+  format: z.enum([BACKUP_FORMAT, LEGACY_BACKUP_FORMAT]), version: z.literal(1), createdAt: date,
   assistantTemplates: z.array(z.strictObject({ id, config: assistantConfigSchema, revision: count.positive(), ...timestamps })).max(50).default([]),
   topics: z.array(z.strictObject({ id, config: topicConfigSchema, revision: count.positive(), ...timestamps })).max(50).default([]),
   artifacts: z.array(z.strictObject({ id, topicId: id, requestHash: z.string().regex(/^[a-f0-9]{64}$/), title: z.string().min(1).max(120), kind: z.enum(["report", "plan", "summary"]), topicRevision: count.positive(), status: artifactStatusSchema,

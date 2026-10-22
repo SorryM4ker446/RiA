@@ -40,9 +40,9 @@ export async function startStandaloneServer(options: { modelFixture?: boolean; m
     DATABASE_URL: `file:${database.replaceAll("\\", "/")}`, MEDIA_DIRECTORY: join(root, "media"), LEGACY_VIDEO_DIRECTORY: join(root, "legacy-videos"),
     OPENROUTER_API_KEY: options.modelFixture ? "offline-fixture-placeholder" : "", DEEPSEEK_API_KEY: "", TAVILY_API_KEY: "", TAVILY_SEARCH_URL: "",
     OUTBOUND_PROXY_URL: "", HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "", http_proxy: "", https_proxy: "", all_proxy: "",
-    PRIVATE_AI_HTTP_FIXTURE: options.modelFixture ? "1" : "0",
-    PRIVATE_AI_FIXTURE_CONTEXT_LENGTH: String(options.modelContextLength ?? 200_000),
-    PRIVATE_AI_EXTENSION_FIXTURE_ORIGIN: options.extensionFixtureOrigin ?? "",
+    RIA_HTTP_FIXTURE: options.modelFixture ? "1" : "0",
+    RIA_FIXTURE_CONTEXT_LENGTH: String(options.modelContextLength ?? 200_000),
+    RIA_EXTENSION_FIXTURE_ORIGIN: options.extensionFixtureOrigin ?? "",
     RIA_EXTENSION_KEY: randomBytes(32).toString("base64"),
   };
   let server: ChildProcess | undefined;

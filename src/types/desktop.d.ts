@@ -39,7 +39,7 @@ type DesktopSettingsInput = {
 };
 
 interface Window {
-  privateAiDesktop?: {
+  riaDesktop?: {
     startup?: {
       claim: () => Promise<string | null>;
       present: (token: string) => Promise<boolean>;

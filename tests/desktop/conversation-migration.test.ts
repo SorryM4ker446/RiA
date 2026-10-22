@@ -11,7 +11,7 @@ import { accountScopedMigrationsFrom } from "../helpers/legacy-workspace";
 const { runDesktopMigrations } = createRequire(import.meta.url)("../../electron-dist/migrations.js");
 const migrationsDirectory = resolve("src/db/migrations");
 test("conversation migration backfills safe text, survives vacuum and restart, and cascades indexes", () => {
-  const root = mkdtempSync(join(tmpdir(), "private-ai-conversation-upgrade-"));
+  const root = mkdtempSync(join(tmpdir(), "ria-conversation-upgrade-"));
   const databaseFile = join(root, "app.db");
   const migration = "20260831100000_conversation_management";
   // The account-to-workspace conversion is exercised separately; this test stays
@@ -61,7 +61,7 @@ test("conversation migration backfills safe text, survives vacuum and restart, a
       for (const table of ["chat_tags", "chat_title_search", "message_text_search"]) assert.equal(reopened.prepare(`SELECT count(*) AS count FROM ${table}`).get().count, 0);
     } finally { reopened.close(); }
   } finally {
-    if (resolve(dirname(root)) !== resolve(tmpdir()) || !root.startsWith(join(tmpdir(), "private-ai-conversation-upgrade-"))) throw new Error("Unexpected test directory");
+    if (resolve(dirname(root)) !== resolve(tmpdir()) || !root.startsWith(join(tmpdir(), "ria-conversation-upgrade-"))) throw new Error("Unexpected test directory");
     rmSync(root, { recursive: true, force: true });
   }
 });

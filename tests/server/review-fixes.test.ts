@@ -6,7 +6,7 @@ import { createTestDatabase } from "../helpers/database";
 import { localAccessCookie } from "../helpers/local-access";
 
 const cleanup = createTestDatabase();
-process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 const { indexDocument } = await import("@/lib/documents/store");
 const { startRun } = await import("@/lib/agent/runs");
@@ -24,7 +24,7 @@ beforeEach(async (t: TestContext) => {
   t.mock.method(console, "info", () => {});
   t.mock.method(console, "error", () => {});
   t.mock.method(console, "warn", () => {});
-  globalThis.__privateAiRateLimitStore.clear();
+  globalThis.__riaRateLimitStore.clear();
   cookie = localAccessCookie();
   await db.knowledgeDocument.deleteMany({});
   await db.documentChunk.deleteMany({});

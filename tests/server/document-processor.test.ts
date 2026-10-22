@@ -21,7 +21,7 @@ const downloadRoute = await import("@/app/api/documents/[id]/export/route");
 let cookie: string;
 beforeEach(async (t: TestContext) => {
   for (const method of ["info", "warn", "error"] as const) t.mock.method(console, method, () => {});
-  globalThis.__privateAiRateLimitStore?.clear(); cookie = localAccessCookie();
+  globalThis.__riaRateLimitStore?.clear(); cookie = localAccessCookie();
   await db.knowledgeDocument.deleteMany({}); await db.agentRun.deleteMany({});
 });
 after(async () => { await db.$disconnect(); cleanup(); });

@@ -9,7 +9,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 // Test-only loader: use the already-installed TypeScript compiler, without another runner.
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (specifier === "@/lib/ai/client" && process.env.PRIVATE_AI_TEST_PROVIDER === "1") {
+    if (specifier === "@/lib/ai/client" && process.env.RIA_TEST_PROVIDER === "1") {
       return nextResolve(pathToFileURL(join(root, "tests/helpers/model-provider.ts")).href, context);
     }
     if (specifier.startsWith("@/")) {
@@ -17,7 +17,7 @@ registerHooks({
       const file = [base, `${base}.ts`, `${base}.tsx`, join(base, "index.ts")]
         .find((candidate) => extname(candidate) && existsSync(candidate));
       if (file) return nextResolve(pathToFileURL(file).href, context);
-      if (process.env.PRIVATE_AI_TEST_RESOLVE_DEBUG === "1") {
+      if (process.env.RIA_TEST_RESOLVE_DEBUG === "1") {
         process.stderr.write(`unresolved alias ${specifier} from ${context.parentURL ?? "unknown"}\n`);
       }
     }

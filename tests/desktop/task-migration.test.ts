@@ -11,7 +11,7 @@ const { runDesktopMigrations } = require("../../electron-dist/migrations.js");
 const migrationsDirectory = resolve("src/db/migrations");
 
 test("task reminder migration retains legacy dates and defaults to no notifications or recurrence", () => {
-  const root = mkdtempSync(join(tmpdir(), "private-ai-task-upgrade-"));
+  const root = mkdtempSync(join(tmpdir(), "ria-task-upgrade-"));
   const databaseFile = join(root, "app.db");
   const migration = "20260831090000_task_reminders";
   const options = { databaseFile, migrationsDirectory, backupsDirectory: join(root, "backups"), logger: { info() {}, warn() {}, error() {} } };
@@ -47,7 +47,7 @@ test("task reminder migration retains legacy dates and defaults to no notificati
       assert.deepEqual({ ...reopened.prepare("SELECT reminderEnabled,remindedAt,repeatGenerated FROM tasks").get() }, { reminderEnabled: 1, remindedAt: 1788134400000, repeatGenerated: 1 });
     } finally { reopened.close(); }
   } finally {
-    if (resolve(dirname(root)) !== resolve(tmpdir()) || !root.startsWith(join(tmpdir(), "private-ai-task-upgrade-"))) throw new Error("Unexpected test directory");
+    if (resolve(dirname(root)) !== resolve(tmpdir()) || !root.startsWith(join(tmpdir(), "ria-task-upgrade-"))) throw new Error("Unexpected test directory");
     rmSync(root, { recursive: true, force: true });
   }
 });

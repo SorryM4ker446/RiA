@@ -26,8 +26,8 @@ type ModelSettingsLock = {
   leaseWaiters: Map<string, Set<() => void>>;
   removingModels: Set<string>;
 };
-const globalState = globalThis as typeof globalThis & { __privateAiModelSettingsLock?: Partial<ModelSettingsLock> };
-const settingsLock = (globalState.__privateAiModelSettingsLock ??= { tail: Promise.resolve() }) as ModelSettingsLock;
+const globalState = globalThis as typeof globalThis & { __riaModelSettingsLock?: Partial<ModelSettingsLock> };
+const settingsLock = (globalState.__riaModelSettingsLock ??= { tail: Promise.resolve() }) as ModelSettingsLock;
 settingsLock.activeLeases ??= new Map();
 settingsLock.leaseWaiters ??= new Map();
 settingsLock.removingModels ??= new Set();

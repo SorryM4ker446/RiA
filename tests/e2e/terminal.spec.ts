@@ -34,7 +34,7 @@ const test = base.extend<{ app: App }>({ app: async ({}, provide) => {
 } });
 async function setup(page: Page, app: App, ui = false, mode: "approval" | "full-access" = "approval") {
   if (ui) await page.addInitScript(() => {
-    Object.defineProperty(window, "privateAiDesktop", { value: {
+    Object.defineProperty(window, "riaDesktop", { value: {
       getSettings: async () => ({ hasOpenrouterApiKey: true, hasDeepseekApiKey: false, hasTavilyApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "Control+Shift+Space", windowBounds: null }),
       getRuntimeInfo: async () => ({ appVersion: "0.1.3", packaged: false, dataDirectory: "fixture/data", mediaDirectory: "fixture/media", logFile: "fixture/log" }),
       openFile: async (target: string) => {

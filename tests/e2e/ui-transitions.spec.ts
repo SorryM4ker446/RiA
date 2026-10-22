@@ -21,7 +21,7 @@ test("desktop settings hydrate before exposing controls supplied by preload", as
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.addInitScript(() => {
-    Object.defineProperty(window, "privateAiDesktop", { value: {
+    Object.defineProperty(window, "riaDesktop", { value: {
       getSettings: async () => { throw new Error("Settings bridge unavailable in renderer fixture"); },
       getRuntimeInfo: async () => { throw new Error("Runtime bridge unavailable in renderer fixture"); },
     } });

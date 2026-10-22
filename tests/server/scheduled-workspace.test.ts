@@ -4,7 +4,7 @@ import { MockLanguageModelV3 } from "ai/test";
 import { createTestDatabase } from "../helpers/database";
 
 const cleanup = createTestDatabase();
-delete process.env.PRIVATE_AI_TEST_PROVIDER;
+delete process.env.RIA_TEST_PROVIDER;
 const { db } = await import("@/db");
 const { createScheduledJob, updateScheduledJob } = await import("@/lib/scheduler/jobs");
 const { runDueScheduledJob } = await import("@/lib/scheduler/runner");

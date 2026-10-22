@@ -14,7 +14,7 @@ const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>
 async function desktopBridge(page: Page) {
   await page.addInitScript(() => {
     const settings = { hasOpenrouterApiKey: true, hasDeepseekApiKey: false, hasTavilyApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "Control+Shift+Space", windowBounds: null };
-    Object.defineProperty(window, "privateAiDesktop", { value: {
+    Object.defineProperty(window, "riaDesktop", { value: {
       getSettings: async () => settings,
       getRuntimeInfo: async () => ({ appVersion: "0.1.2", packaged: false, dataDirectory: "fixture/data", mediaDirectory: "fixture/media", logFile: "fixture/log" }),
       saveSettings: async (input: unknown) => {

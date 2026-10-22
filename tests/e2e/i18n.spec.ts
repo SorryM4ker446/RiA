@@ -77,7 +77,7 @@ test("desktop language uses device settings instead of origin storage and saves 
   await page.addInitScript(() => {
     const locale = sessionStorage.getItem("desktop-locale") === "en-US" ? "en-US" : "zh-CN";
     const settings = { locale, hasOpenrouterApiKey: false, hasDeepseekApiKey: false, hasTavilyApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "", windowBounds: null };
-    Object.defineProperty(window, "privateAiDesktop", { value: {
+    Object.defineProperty(window, "riaDesktop", { value: {
       getSettings: async () => settings,
       getRuntimeInfo: async () => ({ appVersion: "fixture", packaged: true, dataDirectory: "fixture", mediaDirectory: "fixture", logFile: "fixture" }),
       saveSettings: async (input: { locale: string }) => {

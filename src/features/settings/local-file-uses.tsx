@@ -48,7 +48,7 @@ export function LocalFileUses({ uses, modelLabel, compact = false }: { uses: Loc
       });
       if (!response.ok) throw new Error(t("localFiles.revealFailed"));
       const payload = await response.json();
-      const bridge = window.privateAiDesktop;
+      const bridge = window.riaDesktop;
       // Outside the desktop shell there is no file manager to point at, so the
       // button is not offered rather than quietly doing nothing.
       if (!bridge?.revealPath) return;
@@ -69,7 +69,7 @@ export function LocalFileUses({ uses, modelLabel, compact = false }: { uses: Loc
             <span className="min-w-0 truncate" title={`${use.grantLabel}/${use.path}`}>
               {use.grantLabel}/{use.path}
             </span>
-            {typeof window !== "undefined" && window.privateAiDesktop?.revealPath ? (
+            {typeof window !== "undefined" && window.riaDesktop?.revealPath ? (
               <Button disabled={busy === use.path} onClick={() => void reveal(use)} size="sm" type="button" variant="ghost">
                 {busy === use.path
                   ? <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />

@@ -6,7 +6,7 @@ import { localAccessCookie } from "../helpers/local-access";
 import { seedTestModelPreferences, CHAT_MODEL_REF } from "../helpers/model-library";
 import { languageModel, resetProviderState } from "../helpers/model-provider";
 const cleanup = createTestDatabase();
-process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 const chatRoute = await import("@/app/api/chat/route");
 const { encodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
@@ -15,7 +15,7 @@ const { summarizeOlderTurns } = await import("@/lib/chat/summary");
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {}); t.mock.method(console, "info", () => {});
   resetProviderState();
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   await db.chat.deleteMany({});
   // Mock turns report token counts no provider would; plan from the uncalibrated estimate.
   await db.modelContextCalibration.deleteMany({});

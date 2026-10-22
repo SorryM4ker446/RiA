@@ -11,7 +11,7 @@ import { testPng, testVideo, providerState, getImageModel, getVideoModel } from 
 import { seedTestModelPreferences } from "../helpers/model-library";
 
 const cleanup = createTestDatabase();
-process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 
 const { DEFAULT_IMAGE_MODEL, DEFAULT_VIDEO_MODEL } = await import("@/config/model");
@@ -35,7 +35,7 @@ async function regenerate(id, body: Record<string, unknown> = { confirm: true },
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {});
   process.env.OPENROUTER_API_KEY = "offline-fixture-placeholder";
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   providerState.imageCalls.length = 0; providerState.videoCalls.length = 0;
   cookie = localAccessCookie();
   await db.message.deleteMany({});

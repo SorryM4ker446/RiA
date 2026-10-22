@@ -40,7 +40,7 @@ async function waitForCompletedJob(id: string) {
 }
 
 beforeEach(async () => {
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   cookie = localAccessCookie();
   await db.workspaceReview.deleteMany({});
   await db.workspaceEvent.deleteMany({});
@@ -246,7 +246,7 @@ test("a backup reminder raises a notice when a backup is actually due", async ()
   const { createScheduledJob } = await import("@/lib/scheduler/jobs");
   // An earlier test really did take a backup, which is the point: start from a
   // workspace that genuinely owes one, rather than from whatever was left over.
-  for (const file of (await listBackupFiles()).filter((entry) => entry.extension === "paib")) await removeBackupFile(file.id);
+  for (const file of (await listBackupFiles()).filter((entry) => entry.extension === "riab")) await removeBackupFile(file.id);
 
   const reminder = await createScheduledJob({ kind: "backupReminder", enabled: true, localTime: "09:00", timeZone: "UTC", interval: "daily" });
   await db.scheduledJob.updateMany({ where: { id: reminder.id }, data: { nextRunAt: new Date(Date.now() - HOUR) } });
@@ -268,7 +268,7 @@ test("a backup taken today owes no reminder", async () => {
   const backup = await createScheduledJob({ kind: "scheduledBackup", enabled: true, localTime: "09:00", timeZone: "UTC", interval: "daily" });
   await db.scheduledJob.updateMany({ where: { id: backup.id }, data: { nextRunAt: new Date(Date.now() - HOUR) } });
   await runDueScheduledJob(new Date());
-  assert.ok((await listBackupFiles()).some((file) => file.extension === "paib"), "a backup was really taken");
+  assert.ok((await listBackupFiles()).some((file) => file.extension === "riab"), "a backup was really taken");
 
   const reminder = await createScheduledJob({ kind: "backupReminder", enabled: true, localTime: "09:00", timeZone: "UTC", interval: "daily" });
   await db.scheduledJob.updateMany({ where: { id: reminder.id }, data: { nextRunAt: new Date(Date.now() - HOUR) } });

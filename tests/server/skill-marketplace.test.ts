@@ -17,7 +17,7 @@ const route = await import("@/app/api/plugins/skills/route");
 const identity = { repository: "ria-tests/skills", skill: "community-writing" };
 let cookie: string;
 beforeEach(async (t: TestContext) => {
-  process.env.APP_RUNTIME = "test"; cookie = localAccessCookie(); globalThis.__privateAiRateLimitStore?.clear();
+  process.env.APP_RUNTIME = "test"; cookie = localAccessCookie(); globalThis.__riaRateLimitStore?.clear();
   await db.pluginPackage.deleteMany({});
   t.mock.method(console, "error", () => {});
 });

@@ -15,7 +15,7 @@ test("desktop development launcher allows the application window to become visib
   timeout: 30_000,
 }, () => {
   const electronExecutable = resolveInstalledElectron();
-  const root = mkdtempSync(join(tmpdir(), "private-ai-dev-window-"));
+  const root = mkdtempSync(join(tmpdir(), "ria-dev-window-"));
   try {
     for (const directory of ["scripts", "electron-dist", "node_modules/electron", "user-data"]) {
       mkdirSync(join(root, directory), { recursive: true });

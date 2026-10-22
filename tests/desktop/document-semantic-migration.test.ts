@@ -10,7 +10,7 @@ const require = createRequire(import.meta.url);
 const { runDesktopMigrations } = require("../../electron-dist/migrations.js");
 const migrationsDirectory = resolve("src/db/migrations");
 test("semantic document migration preserves old evidence and terms with a pre-upgrade backup and idempotent restart", () => {
-  const root = mkdtempSync(join(tmpdir(), "private-ai-semantic-upgrade-"));
+  const root = mkdtempSync(join(tmpdir(), "ria-semantic-upgrade-"));
   const databaseFile = join(root, "app.db");
   const migration = "20261007120000_document_semantic_retrieval";
   try {
@@ -44,7 +44,7 @@ test("semantic document migration preserves old evidence and terms with a pre-up
       for (const table of ["document_chunks", "document_terms"]) assert.equal(reopened.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count, 0);
     } finally { reopened.close(); }
   } finally {
-    if (resolve(dirname(root)) !== resolve(tmpdir()) || !root.startsWith(join(tmpdir(), "private-ai-semantic-upgrade-"))) throw new Error("Unexpected test directory");
+    if (resolve(dirname(root)) !== resolve(tmpdir()) || !root.startsWith(join(tmpdir(), "ria-semantic-upgrade-"))) throw new Error("Unexpected test directory");
     rmSync(root, { recursive: true, force: true });
   }
 });

@@ -6,12 +6,12 @@ import type { ToolExecutionOptions } from "ai";
 import { createTestDatabase } from "../helpers/database";
 
 const cleanup = createTestDatabase();
-process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 const { startRun } = await import("@/lib/agent/runs");
 const { createChatToolSet, getToolDescriptor } = await import("@/tools/catalog");
 
-function resetLimits() { globalThis.__privateAiRateLimitStore.clear(); }
+function resetLimits() { globalThis.__riaRateLimitStore.clear(); }
 
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "info", () => {});

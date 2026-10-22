@@ -10,7 +10,7 @@ import type { ModelRef } from "@/lib/models/preferences-schema";
 import { createTestDatabase } from "../helpers/database";
 import { localAccessCookie } from "../helpers/local-access";
 import { CHAT_MODEL_REF, IMAGE_MODEL_REF, VIDEO_MODEL_REF, seedTestModelPreferences } from "../helpers/model-library";
-const cleanup=createTestDatabase(); process.env.PRIVATE_AI_TEST_PROVIDER="1";
+const cleanup=createTestDatabase(); process.env.RIA_TEST_PROVIDER="1";
 const {db}=await import("@/db");
 const {getModelPreferences,saveModelPreferences,removeModel,withModelLease}=await import("@/lib/models/preferences");
 const {preferredModel}=await import("@/lib/models/preferences");
@@ -40,7 +40,7 @@ const addCatalogModel=async(modelId,modes)=>{await storeSnapshot(modes[0],[catal
 let user,cookie;
 const req=(path,method="GET",body?,session=cookie,headers={})=>new NextRequest(`http://localhost${path}`,{method,headers:{cookie:session,"content-type":"application/json",...headers},...(body===undefined?{}:{body:JSON.stringify(body)})});
 const payload=async(response,status=200)=>{assert.equal(response.status,status,await response.clone().text());return response.json();};
-beforeEach(async (t: TestContext) => {t.mock.method(console,"error",()=>{});globalThis.__privateAiRateLimitStore?.clear();cookie = localAccessCookie();
+beforeEach(async (t: TestContext) => {t.mock.method(console,"error",()=>{});globalThis.__riaRateLimitStore?.clear();cookie = localAccessCookie();
 await db.message.deleteMany({});
 await db.chat.deleteMany({});
 await db.memory.deleteMany({});

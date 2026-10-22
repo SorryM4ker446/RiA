@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { copyFile, rename, rm, stat } from "node:fs/promises";
 import { db } from "@/db";
 import { BACKUP_LIMITS } from "@/lib/backups/schema";
-import { backupFile } from "@/lib/backups/files";
+import { archiveExtension, backupFile } from "@/lib/backups/files";
 import { backupId as backupIdSchema } from "@/lib/backups/schema";
 
 /*
@@ -57,7 +57,8 @@ export async function exportBackupCopy(id: string, destination: string): Promise
   // and the application does not compose it from anything but that choice.
   if (target.length > 4096) throw new Error("The destination path is too long.");
 
-  const source = await backupFile(parsed.data);
+  // An archive saved before the rename keeps its legacy extension on disk.
+  const source = await backupFile(parsed.data, await archiveExtension(parsed.data));
   const sourceStats = await stat(source);
   if (!sourceStats.isFile()) throw new Error("The backup file is not there.");
   if (sourceStats.size > BACKUP_LIMITS.bytes) throw new Error("The backup is too large to export.");

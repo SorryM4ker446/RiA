@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { after, beforeEach, test } from "node:test";
 import type { TestContext } from "node:test";
 import { randomUUID, createHash } from "node:crypto";
-import { readFile, writeFile, utimes, symlink, mkdir } from "node:fs/promises";
+import { readFile, writeFile, utimes, symlink, mkdir, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { NextRequest } from "next/server";
 import { createTestDatabase } from "../helpers/database";
@@ -30,7 +31,7 @@ const context = id => ({ params: Promise.resolve({ id }) });
 // The manifest is stored as UTF-8 JSON between a 44-byte header and its checksum.
 const readManifest = (raw, length) => JSON.parse(raw.subarray(44, 44 + length).toString("utf8"));
 const payload = async (response, code=200) => { assert.equal(response.status,code,await response.clone().text()); return response.json(); };
-beforeEach(async (t: TestContext) => { t.mock.method(console,"error",()=>{}); globalThis.__privateAiRateLimitStore?.clear(); cookie = localAccessCookie();
+beforeEach(async (t: TestContext) => { t.mock.method(console,"error",()=>{}); globalThis.__riaRateLimitStore?.clear(); cookie = localAccessCookie();
  for (const file of await files.listBackupFiles()) await files.removeBackupFile(file.id, file.extension);
  await db.message.deleteMany({});
  await db.chat.deleteMany({});
@@ -231,7 +232,7 @@ test("account backups restore business rows, media dependencies and search witho
   const original=await seed();
   const backup=await exclusiveDataOperation(()=>archive.createAccountBackup());
   const raw=await readFile(await files.backupFile(backup.id));
-  assert.equal(raw.subarray(0,8).toString(),"PAIB0001");
+  assert.equal(raw.subarray(0,8).toString(),"RIAB0001");
   for(const secret of ["passwordHash","tokenHash","relativePath","local_access"]) assert.equal(raw.includes(Buffer.from(secret)),false);
   await db.chat.update({where:{id:original.chat.id},data:{title:"Changed"}});
   const result=await exclusiveDataOperation(()=>restoreAccountBackup(backup.id));
@@ -247,27 +248,74 @@ test("account backups restore business rows, media dependencies and search witho
   await db.$disconnect(); assert.equal((await archive.inspectAccountBackup(backup.id)).counts.assets,2);
 });
 
-test("archives exported by the account-scoped build keep importing and restoring",async()=>{
+test("new archives carry the RiA identifiers and archives exported before the rename keep importing and restoring",async()=>{
   await seed();
   const backup=await exclusiveDataOperation(()=>archive.createAccountBackup());
-  // The manifest header is a frozen wire contract. Archives exported before the
-  // workspace became single-user carry exactly these identifiers and these row
-  // shapes, so changing either one silently strands the user's old exports.
   const handle=await files.openBackup(backup.id);
   let manifest;
   try { ({ manifest } = await archive.readBackupManifest(handle)); } finally { await handle.close(); }
-  assert.equal(manifest.format,"private-ai-account-backup");
+  assert.equal(manifest.format,"ria-account-backup");
   assert.equal(manifest.version,1);
   const raw=await readFile(await files.backupFile(backup.id));
   // The old per-account columns were never part of the archive, which is what
   // lets the same file be read back into the workspace schema unchanged.
   assert.equal(raw.includes(Buffer.from("userId")),false);
 
-  const result=await exclusiveDataOperation(()=>restoreAccountBackup(backup.id));
+  // Archives exported before the rename carry the legacy magic and format with
+  // the same row shapes. Rewriting only those two identifiers reproduces one,
+  // and it must still inspect, import and restore.
+  const length=raw.readUInt32BE(8), assets=raw.subarray(44+length);
+  const legacyJson=Buffer.from(JSON.stringify({ ...JSON.parse(raw.subarray(44,44+length).toString("utf8")), format:"private-ai-account-backup" }));
+  const header=Buffer.alloc(44); header.write("PAIB0001"); header.writeUInt32BE(legacyJson.length,8); createHash("sha256").update(legacyJson).digest().copy(header,12);
+  const legacyId=randomUUID(); await writeFile(await files.backupFile(legacyId,"paib"),Buffer.concat([header,legacyJson,assets]));
+  assert.equal((await archive.inspectAccountBackup(legacyId)).counts.chats,1);
+
+  const result=await exclusiveDataOperation(()=>restoreAccountBackup(legacyId));
   assert.equal(result.restored,true);
   assert.equal(await db.chat.count(),1);
   assert.equal((await db.task.findFirst({where:{}})).title,"Reminder");
   assert.equal(await db.knowledgeDocument.count(),1);
+  assert.equal(await db.mediaAsset.count({where:{}}),2,"media after the legacy manifest is read at its original offsets");
+});
+
+test("backups are written as .riab while archives saved as .paib are still listed, downloaded, exported, pruned and deleted",async()=>{
+  await seed();
+  const current=await exclusiveDataOperation(()=>archive.createAccountBackup(false));
+  assert.equal(existsSync(await files.backupFile(current.id,"riab")),true);
+  assert.equal(existsSync(await files.backupFile(current.id,"paib")),false);
+  // A backup saved before the rename: the same archive bytes under the legacy extension.
+  const legacyId=randomUUID(); await writeFile(await files.backupFile(legacyId,"paib"),await readFile(await files.backupFile(current.id)));
+  const listed=(await payload(await routes.root.GET(req("/api/backups")))).data;
+  assert.deepEqual(listed.filter(file=>[current.id,legacyId].includes(file.id)).map(file=>file.extension).sort(),["paib","riab"]);
+  assert.equal((await payload(await routes.item.GET(req(`/api/backups/${legacyId}`),context(legacyId)))).data.counts.chats,1);
+  const download=await routes.item.GET(req(`/api/backups/${legacyId}?download=1`),context(legacyId));
+  assert.equal(download.status,200); assert.equal(download.headers.get("content-disposition"),`attachment; filename="${legacyId}.paib"`);
+  assert.equal(Buffer.from(await download.arrayBuffer()).subarray(0,8).toString(),"RIAB0001");
+  const fresh=await routes.item.GET(req(`/api/backups/${current.id}?download=1`),context(current.id));
+  assert.equal(fresh.headers.get("content-disposition"),`attachment; filename="${current.id}.riab"`); await fresh.arrayBuffer();
+  const { exportBackupCopy }=await import("@/lib/backups/exports");
+  const destination=join(dirname(await files.backupDirectory()),`${randomUUID()}-export.paib`);
+  assert.equal((await exportBackupCopy(legacyId,destination)).byteSize,(await readFile(await files.backupFile(legacyId,"paib"))).length);
+  // Later tests count export records from an empty table.
+  await db.backupExport.deleteMany({}); await rm(destination,{force:true});
+  // Retention counts both kinds as complete archives: the older legacy one expires.
+  await utimes(await files.backupFile(legacyId,"paib"),new Date(0),new Date(0));
+  assert.equal((await archive.pruneAccountBackups()).removed,1);
+  assert.equal(existsSync(await files.backupFile(legacyId,"paib")),false);
+  assert.equal(existsSync(await files.backupFile(current.id)),true,"the newest complete archive is kept");
+  const another=randomUUID(); await writeFile(await files.backupFile(another,"paib"),await readFile(await files.backupFile(current.id)));
+  assert.equal((await routes.item.DELETE(req(`/api/backups/${another}`,"DELETE"),context(another))).status,200);
+  assert.equal(existsSync(await files.backupFile(another,"paib")),false);
+});
+
+test("an archive with an unknown magic or format is refused",async()=>{
+  await seed();
+  const backup=await exclusiveDataOperation(()=>archive.createAccountBackup());
+  const raw=await readFile(await files.backupFile(backup.id));
+  const length=raw.readUInt32BE(8), json=raw.subarray(44,44+length), assets=raw.subarray(44+length);
+  const write=async(magic,manifestJson)=>{ const header=Buffer.alloc(44); header.write(magic); header.writeUInt32BE(manifestJson.length,8); createHash("sha256").update(manifestJson).digest().copy(header,12); const id=randomUUID(); await writeFile(await files.backupFile(id),Buffer.concat([header,manifestJson,assets])); return id; };
+  await assert.rejects(archive.inspectAccountBackup(await write("XXXX0001",json)),{code:"VALIDATION_ERROR"});
+  await assert.rejects(archive.inspectAccountBackup(await write("RIAB0001",Buffer.from(JSON.stringify({ ...JSON.parse(json.toString("utf8")), format:"other-backup" })))),{code:"VALIDATION_ERROR"});
 });
 
 test("restore remaps structured references without rewriting user-authored text that resembles IDs or media URLs",async()=>{
@@ -325,8 +373,8 @@ test("backup maintenance retains the newest complete backup and ignores unrecogn
   assert.equal((await archive.pruneAccountBackups()).removed,1);
   assert.equal((await files.listBackupFiles()).some(file=>file.id===newest.id),true);
   assert.equal(await readFile(join(directory,"keep.txt"),"utf8"),"untouched");
-  const victim=join(dirname(directory),"outside"); await mkdir(victim); const link=join(directory,`${randomUUID()}.paib`);
-  await symlink(victim,link,"junction"); assert.equal((await files.listBackupFiles()).some(file=>link.endsWith(`${file.id}.paib`)),false);
+  const victim=join(dirname(directory),"outside"); await mkdir(victim); const link=join(directory,`${randomUUID()}.riab`);
+  await symlink(victim,link,"junction"); assert.equal((await files.listBackupFiles()).some(file=>link.endsWith(`${file.id}.riab`)),false);
 });
 
 test("a database failure rolls back restored rows and keeps original files plus a safety backup",async()=>{
@@ -337,7 +385,7 @@ test("a database failure rolls back restored rows and keeps original files plus 
     await assert.rejects(exclusiveDataOperation(()=>restoreAccountBackup(backup.id)));
     assert.equal((await db.chat.findUnique({where:{id:original.chat.id}})).title,"Live changes");
     assert.deepEqual(await storage.readMediaAsset(await db.mediaAsset.findUnique({where:{id:original.output.id}})),testPng);
-    assert.equal((await files.listBackupFiles()).filter(file=>file.extension==="paib").length,2);
+    assert.equal((await files.listBackupFiles()).filter(file=>file.extension === "riab").length,2);
     assert.equal(await db.memory.count({where:{}}),1);
   } finally { await db.$executeRawUnsafe("DROP TRIGGER reject_restore_memory"); }
 });
@@ -356,7 +404,7 @@ test("checksummed but inconsistent backup relationships and media bytes are reje
   await change(next=>{const input=next.assets.find(asset=>asset.id===original.input.id);input.inputs=[{assetId:input.id,inputAssetId:original.output.id}];input.generation={version:1,type:"image",modelId:"google/gemini-2.5-flash-image",prompt:"Cycle",inputImages:[{assetId:original.output.id,mediaType:"image/png"}]};});
   raw[raw.length-1]^=1;await writeFile(path,raw);
   assert.equal((await routes.item.POST(req(`/api/backups/${backup.id}`,"POST",{confirm:true}),context(backup.id))).status,400);
-  assert.equal((await files.listBackupFiles()).filter(file=>file.extension==="paib").length,1);
+  assert.equal((await files.listBackupFiles()).filter(file=>file.extension === "riab").length,1);
 });
 
 test("restored pending messages cannot replay approvals and cleanup cannot undo a completed backup",async()=>{
@@ -386,7 +434,7 @@ test("an export is written where the user said and recorded as a copy they own",
   const destination = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ria-export-")));
   try {
     const backup = await createAccountBackup(false);
-    const target = path.join(destination, `${backup.id}.paib`);
+    const target = path.join(destination, `${backup.id}.riab`);
     const exported = await exportBackupCopy(backup.id, target);
 
     assert.equal(exported.backupId, backup.id);

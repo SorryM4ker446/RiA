@@ -16,7 +16,7 @@ const { runDesktopMigrations } = require("../../electron-dist/migrations.js");
 const logger = { info() {}, warn() {}, error() {} };
 
 test("desktop paths keep packaged data under Electron userData", () => {
-  const root = join(tmpdir(), `private-ai-paths-${process.pid}-${Date.now()}`);
+  const root = join(tmpdir(), `ria-paths-${process.pid}-${Date.now()}`);
   try {
     const paths = resolveDesktopPaths({
       isPackaged: true,
@@ -34,7 +34,7 @@ test("desktop paths keep packaged data under Electron userData", () => {
 });
 
 test("desktop migrations initialize SQLite once and preserve data", () => {
-  const root = join(tmpdir(), `private-ai-migrations-${process.pid}-${Date.now()}`);
+  const root = join(tmpdir(), `ria-migrations-${process.pid}-${Date.now()}`);
   const databaseFile = join(root, "data", "app.db");
   const backupsDirectory = join(root, "backups");
   try {
@@ -81,7 +81,7 @@ test("desktop migrations initialize SQLite once and preserve data", () => {
 });
 
 test("changing the installation path retains media and database paths in existing userData", () => {
-  const root = mkdtempSync(join(tmpdir(), "private-ai-media-upgrade-"));
+  const root = mkdtempSync(join(tmpdir(), "ria-media-upgrade-"));
   try {
     const input = { isPackaged: true, userDataPath: join(root, "user-data") };
     const oldPaths = resolveDesktopPaths({ ...input, resourcesPath: join(root, "old-install", "resources"), compiledDirectory: join(root, "old-install", "electron-dist") });
@@ -102,7 +102,7 @@ test("changing the installation path retains media and database paths in existin
 });
 
 test("memory uniqueness migration preserves duplicates, resolves key collisions and creates a backup", () => {
-  const root = mkdtempSync(join(tmpdir(), "private-ai-upgrade-"));
+  const root = mkdtempSync(join(tmpdir(), "ria-upgrade-"));
   const databaseFile = join(root, "app.db");
   const migrationsDirectory = join(repositoryRoot, "src", "db", "migrations");
   const initialMigration = "20260822113000_init_local_database";

@@ -18,7 +18,7 @@ import {
 const temporaryDirectories = [];
 
 function workspaceFixture(options = {}) {
-  const temporary = createTempDirectory("private-ai-local-workspace-");
+  const temporary = createTempDirectory("ria-local-workspace-");
   temporaryDirectories.push(temporary);
   const workspace = createLegacyWorkspace(temporary.root, options);
   return { ...temporary, ...workspace, backupsDirectory: join(temporary.root, "backups") };
@@ -30,7 +30,7 @@ after(() => {
 
 describe("legacy workspace inventory", () => {
   it("reports an absent database without creating it", () => {
-    const temporary = createTempDirectory("private-ai-local-workspace-");
+    const temporary = createTempDirectory("ria-local-workspace-");
     temporaryDirectories.push(temporary);
     const databaseFile = join(temporary.root, "app.db");
 
@@ -41,7 +41,7 @@ describe("legacy workspace inventory", () => {
   });
 
   it("treats a database without account tables as already workspace-scoped", () => {
-    const temporary = createTempDirectory("private-ai-local-workspace-");
+    const temporary = createTempDirectory("ria-local-workspace-");
     temporaryDirectories.push(temporary);
     const workspace = createLegacyWorkspace(temporary.root, { owners: [] });
     const database = new DatabaseSync(workspace.databaseFile);
@@ -56,7 +56,7 @@ describe("legacy workspace inventory", () => {
   });
 
   it("distinguishes a placeholder account from an account with content", () => {
-    const placeholder = workspaceFixture({ owners: [{ email: "demo@private-ai.local", name: "Demo User" }] });
+    const placeholder = workspaceFixture({ owners: [{ email: "demo@ria.local", name: "Demo User" }] });
     const withContent = workspaceFixture({
       owners: [{ email: "owner@example.invalid", name: "Owner", chats: 1, messagesPerChat: 2, memories: 3 }],
     });
@@ -100,7 +100,7 @@ describe("legacy workspace inventory", () => {
   });
 
   it("reports unreadable data instead of guessing", () => {
-    const temporary = createTempDirectory("private-ai-local-workspace-");
+    const temporary = createTempDirectory("ria-local-workspace-");
     temporaryDirectories.push(temporary);
     const databaseFile = join(temporary.root, "app.db");
     writeFileSync(databaseFile, "this is not a sqlite database");
@@ -113,7 +113,7 @@ describe("legacy workspace inventory", () => {
   });
 
   it("initializes without asking when no dataset exists", () => {
-    const temporary = createTempDirectory("private-ai-local-workspace-");
+    const temporary = createTempDirectory("ria-local-workspace-");
     temporaryDirectories.push(temporary);
     const decision = buildWorkspaceInventory({
       datasets: [{ databaseFile: join(temporary.root, "missing", "app.db") }],
@@ -141,8 +141,8 @@ describe("legacy workspace inventory", () => {
   it("migrates an installed-application workspace that only holds placeholder accounts", () => {
     // Mirrors the real upgrade path: both the development and installed
     // databases contain a demo account and no user content.
-    const development = workspaceFixture({ owners: [{ id: "demo-dev", email: "demo@private-ai.local" }] });
-    const installed = workspaceFixture({ owners: [{ id: "demo-installed", email: "demo@private-ai.local" }] });
+    const development = workspaceFixture({ owners: [{ id: "demo-dev", email: "demo@ria.local" }] });
+    const installed = workspaceFixture({ owners: [{ id: "demo-installed", email: "demo@ria.local" }] });
 
     const report = buildWorkspaceInventory({
       datasets: [{ databaseFile: development.databaseFile }, { databaseFile: installed.databaseFile }],
@@ -183,7 +183,7 @@ describe("legacy workspace inventory", () => {
   });
 
   it("ignores a placeholder account when another account holds content", () => {
-    const placeholder = workspaceFixture({ owners: [{ id: "demo", email: "demo@private-ai.local" }] });
+    const placeholder = workspaceFixture({ owners: [{ id: "demo", email: "demo@ria.local" }] });
     const real = workspaceFixture({ owners: [{ id: "real-owner", email: "real@example.invalid", chats: 1 }] });
 
     const report = buildWorkspaceInventory({
@@ -196,7 +196,7 @@ describe("legacy workspace inventory", () => {
   });
 
   it("counts media files but never follows links", (context) => {
-    const outside = createTempDirectory("private-ai-outside-media-");
+    const outside = createTempDirectory("ria-outside-media-");
     temporaryDirectories.push(outside);
     writeFileSync(join(outside.root, "outside.bin"), "x".repeat(1024));
 

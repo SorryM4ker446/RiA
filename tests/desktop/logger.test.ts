@@ -9,7 +9,7 @@ import { test } from "node:test";
 const require = createRequire(import.meta.url);
 const { createDesktopLogger, createDesktopLogSink } = require("../../electron-dist/logger.js");
 function temporaryLog(t) {
-  const root = mkdtempSync(join(tmpdir(), "private-ai-log-"));
+  const root = mkdtempSync(join(tmpdir(), "ria-log-"));
   t.after(() => {
     if (resolve(dirname(root)) !== resolve(tmpdir())) throw new Error("Unexpected test directory");
     rmSync(root, { recursive: true, force: true });

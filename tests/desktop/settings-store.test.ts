@@ -102,7 +102,7 @@ test("a settings card that sends one field does not wipe the fields beside it", 
   timeout: 60_000,
 }, () => {
   assert.ok(existsSync(compiledStore), "electron-dist must be compiled before this test runs");
-  const root = mkdtempSync(join(tmpdir(), "private-ai-settings-card-"));
+  const root = mkdtempSync(join(tmpdir(), "ria-settings-card-"));
   try {
     const runnerFile = join(root, "runner.js");
     writeRunner(runnerFile);
@@ -137,7 +137,7 @@ test("a key save and a window-geometry save in flight together both survive", {
   timeout: 60_000,
 }, () => {
   assert.ok(existsSync(compiledStore), "electron-dist must be compiled before this test runs");
-  const root = mkdtempSync(join(tmpdir(), "private-ai-settings-race-"));
+  const root = mkdtempSync(join(tmpdir(), "ria-settings-race-"));
   try {
     const runnerFile = join(root, "runner.js");
     writeRunner(runnerFile);

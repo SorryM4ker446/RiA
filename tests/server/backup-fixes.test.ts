@@ -35,7 +35,7 @@ const chunk = (id: string, offset: number, body: Buffer) =>
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "info", () => {});
   t.mock.method(console, "error", () => {});
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   cookie = localAccessCookie();
   for (const file of await files.listBackupFiles()) await files.removeBackupFile(file.id, file.extension);
   await db.message.deleteMany({});
@@ -144,7 +144,7 @@ test("a restore that cannot pause its schedules leaves the live workspace alone"
   assert.equal((await db.message.count({ where: { chatId: original.chat.id } })), 1);
   assert.equal((await db.scheduledJob.findFirstOrThrow({ where: { kind: "scheduledBackup" } })).enabled, true, "a restore that did not happen pauses nothing");
   // The safety backup taken before the attempt is still there to restore from.
-  assert.ok((await files.listBackupFiles()).filter((file) => file.extension === "paib").length >= 1);
+  assert.ok((await files.listBackupFiles()).filter((file) => file.extension === "riab").length >= 1);
 });
 
 test("a completed restore pauses schedules and grants in the same commit and reports the counts", async () => {
@@ -193,7 +193,7 @@ test("a conversation in progress no longer costs the user the scheduled backup",
   await response.text();
 
   assert.equal(run?.outcome.ok, true, `the backup ran: ${JSON.stringify(run?.outcome)}`);
-  assert.equal((await files.listBackupFiles()).filter((file) => file.extension === "paib").length, 1);
+  assert.equal((await files.listBackupFiles()).filter((file) => file.extension === "riab").length, 1);
   assert.equal(await db.appNotice.count({ where: { title: "backup-failed" } }), 0);
   assert.equal((await db.scheduledJob.findFirstOrThrow({ where: { kind: "scheduledBackup" } })).lastStatus, "done");
 });
@@ -232,7 +232,7 @@ test("an import that fails after claiming exclusivity releases the gate and stay
     context(started.id)
   );
   assert.equal(finished.status, 409, "a half-written upload is not a restorable backup");
-  assert.equal((await files.listBackupFiles()).some((file) => file.extension === "paib"), false);
+  assert.equal((await files.listBackupFiles()).some((file) => file.extension === "riab"), false);
 
   await uploadRoute.DELETE(new NextRequest(`http://localhost/api/backups/import/${started.id}`, { method: "DELETE", headers: { cookie } }), context(started.id));
   await exclusiveDataOperation(async () => {});
@@ -247,7 +247,7 @@ test("an export that cannot be written leaves no file and no record at the desti
     // A destination whose directory does not exist is the ordinary Windows
     // failure: a removable drive that is gone, a folder the user deleted while
     // the dialog was open.
-    const target = join(root, "missing-folder", `${backup.id}.paib`);
+    const target = join(root, "missing-folder", `${backup.id}.riab`);
     await assert.rejects(() => exportBackupCopy(backup.id, target));
 
     assert.equal(existsSync(join(root, "missing-folder")), false, "nothing was created on the way to the destination");
@@ -255,7 +255,7 @@ test("an export that cannot be written leaves no file and no record at the desti
     assert.deepEqual(await listBackupExports(), [], "a copy that was never written is not recorded as one");
 
     // A destination that does work produces a complete file and a record.
-    const good = join(root, `${backup.id}.paib`);
+    const good = join(root, `${backup.id}.riab`);
     const exported = await exportBackupCopy(backup.id, good);
     assert.equal(existsSync(good), true);
     assert.equal(exported.byteSize, (await files.listBackupFiles()).find((file) => file.id === backup.id)!.bytes);

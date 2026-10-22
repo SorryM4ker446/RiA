@@ -132,7 +132,7 @@ try {
           if (nodes.some(node => !node)) return null;
           if (document.documentElement.getAnimations().some(animation => animation.playState === "running" || animation.pending)) return null;
           return {
-            maximized: (await window.privateAiDesktop.windowControls.state()).maximized,
+            maximized: (await window.riaDesktop.windowControls.state()).maximized,
             windowWidth: window.innerWidth,
             screenWidth: window.screen.availWidth,
             contentRight: document.documentElement.clientWidth,

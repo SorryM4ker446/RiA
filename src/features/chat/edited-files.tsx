@@ -29,10 +29,10 @@ export function EditedFiles({ parts }: { parts: readonly unknown[] }) {
   const [error, setError] = useState<string | null>(null);
   if (!files.length && complete) return null;
   const visible = expanded ? files : files.slice(0, 3);
-  const canOpen = typeof window !== "undefined" && !!window.privateAiDesktop?.openFile;
+  const canOpen = typeof window !== "undefined" && !!window.riaDesktop?.openFile;
 
   async function open(file: EditedFile) {
-    const bridge = window.privateAiDesktop;
+    const bridge = window.riaDesktop;
     if (!bridge?.openFile || opening.current) return;
     opening.current = true;
     setBusy(`${file.grantId}:${file.path}`);

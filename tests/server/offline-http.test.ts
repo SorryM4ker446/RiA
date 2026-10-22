@@ -14,7 +14,7 @@ for (const enabled of [false, true]) {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ model: 'offline', stream: true, messages: [{ role: 'user', content }] })
       });
-      if (process.env.PRIVATE_AI_HTTP_FIXTURE === '1') {
+      if (process.env.RIA_HTTP_FIXTURE === '1') {
         const response = await call();
         assert.equal(response.headers.get('content-type'), 'text/event-stream');
         assert.match(await response.text(), /Synthetic prompt/);
@@ -24,7 +24,7 @@ for (const enabled of [false, true]) {
       }
     `;
     const child = spawn(process.execPath, ["--import", fixture, "--input-type=module", "--eval", source], {
-      env: { ...process.env, NODE_OPTIONS: "", APP_RUNTIME: "test", PRIVATE_AI_HTTP_FIXTURE: enabled ? "1" : "0" },
+      env: { ...process.env, NODE_OPTIONS: "", APP_RUNTIME: "test", RIA_HTTP_FIXTURE: enabled ? "1" : "0" },
       windowsHide: true, stdio: ["ignore", "ignore", "pipe", "ipc"],
     });
     t.after(async () => {

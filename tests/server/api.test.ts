@@ -10,7 +10,7 @@ import { languageModel, providerState } from "../helpers/model-provider";
 import { seedTestModelPreferences } from "../helpers/model-library";
 
 const cleanup = createTestDatabase();
-process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+process.env.RIA_TEST_PROVIDER = "1";
 
 const { db } = await import("@/db");
 

@@ -34,7 +34,7 @@ Development data is stored in:
 Installed application data is stored in:
 
 ```text
-%APPDATA%/Private AI Assistant/data/app.db
+%APPDATA%/RiA/data/app.db
 ```
 
 The same data directory contains file-backed `media/`, encrypted settings, migration backups, and `logs/desktop.log`. Reinstalling or uninstalling the application does not intentionally delete this user-data directory. Backups must include both SQLite and media; automatic database migration backups cover SQLite only. See [Media storage and migration](media-storage.md).

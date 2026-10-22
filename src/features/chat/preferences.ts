@@ -1,6 +1,6 @@
 import { ModelMode } from "@/features/chat/page-utils";
 import { t } from "@/lib/locale";
-import { PANEL_VISIBILITY_STORAGE_KEY } from "@/lib/ui-preferences";
+import { LEGACY_PANEL_VISIBILITY_STORAGE_KEY, PANEL_VISIBILITY_STORAGE_KEY, readRenamedStorageItem } from "@/lib/ui-preferences";
 import type { ChatScopedPreferences } from "@/features/chat/types";
 import { CHAT_PREFS_STORAGE_PREFIX } from "@/features/chat/types";
 import { settingsRequest } from "@/features/settings/api-client";
@@ -76,7 +76,7 @@ export type PanelVisibility = { conversations: boolean; tasks: boolean };
 export function readPanelVisibility(): PanelVisibility {
   if (typeof window === "undefined") return { conversations: true, tasks: true };
   try {
-    const raw = JSON.parse(window.localStorage.getItem(PANEL_VISIBILITY_STORAGE_KEY) || "null");
+    const raw = JSON.parse(readRenamedStorageItem(window.localStorage, PANEL_VISIBILITY_STORAGE_KEY, LEGACY_PANEL_VISIBILITY_STORAGE_KEY) || "null");
     if (raw && typeof raw === "object") {
       return {
         conversations: raw.conversations !== false,

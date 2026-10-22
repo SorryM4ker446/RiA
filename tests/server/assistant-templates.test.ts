@@ -7,7 +7,7 @@ import { seedTestModelPreferences } from "../helpers/model-library";
 import { languageModel, resetProviderState } from "../helpers/model-provider";
 
 const cleanup = createTestDatabase();
-process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 const { saveAssistant, listAssistants } = await import("@/lib/assistants/store");
 const { assistantConfigSchema, readAssistantSnapshot } = await import("@/lib/assistants/schema");
@@ -28,7 +28,7 @@ const request = (path: string, method = "GET", body?: unknown, auth = cookie, he
 const config = (extra = {}) => assistantConfigSchema.parse({ name: "财务助理", instructions: "Only apply documented financial rules. Preserve exceptions.", tools: [], collections: ["财务"], usesMemory: false, ...extra });
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {}); t.mock.method(console, "info", () => {}); t.mock.method(console, "warn", () => {});
-  globalThis.__privateAiRateLimitStore?.clear(); cookie = localAccessCookie(); resetProviderState();
+  globalThis.__riaRateLimitStore?.clear(); cookie = localAccessCookie(); resetProviderState();
   await db.chat.deleteMany({}); await db.assistantTemplate.deleteMany({}); await db.memory.deleteMany({}); await db.knowledgeDocument.deleteMany({}); await db.workspacePreference.deleteMany({});
   await seedTestModelPreferences(db); process.env.OPENROUTER_API_KEY = "offline-fixture-placeholder";
 });

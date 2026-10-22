@@ -27,7 +27,7 @@ test("workspace backup downloads and confirmed restore preserve media and busine
   await page.getByRole("button", { name: "创建备份", exact: true }).click(); await expect(page.getByRole("article")).toHaveCount(1);
   const backup = (await browserData(page, "/api/backups"))[0];
   const download = page.waitForEvent("download"); await page.getByRole("button", { name: "下载备份" }).click(); const saved = await download; const file = info.outputPath(saved.suggestedFilename()); await saved.saveAs(file);
-  const bytes = await readFile(file); expect(bytes.subarray(0, 8).toString()).toBe("PAIB0001"); expect(bytes.includes(Buffer.from("tokenHash"))).toBe(false); expect(bytes.includes(Buffer.from("sessionToken"))).toBe(false);
+  const bytes = await readFile(file); expect(bytes.subarray(0, 8).toString()).toBe("RIAB0001"); expect(bytes.includes(Buffer.from("tokenHash"))).toBe(false); expect(bytes.includes(Buffer.from("sessionToken"))).toBe(false);
   await browserApi(page, `/api/conversations/${chat.id}`, "DELETE");
   await page.getByRole("button", { name: "恢复", exact: true }).click(); const dialog = page.getByRole("dialog"); await expect(dialog.getByRole("button", { name: "确认恢复" })).toBeDisabled(); await dialog.getByRole("button", { name: "取消操作" }).click(); expect(await browserData(page, "/api/conversations")).toHaveLength(0);
   await page.getByRole("button", { name: "恢复", exact: true }).click(); await dialog.getByLabel("恢复确认文字").fill("恢复"); await dialog.getByRole("button", { name: "确认恢复" }).click(); await expect(page.getByRole("status").filter({ hasText: "恢复完成" })).toBeVisible();
@@ -66,7 +66,7 @@ test("portable backup import uploads bounded chunks and restores the workspace",
 
 test("backup validation and a missing credential surface errors without changing business data", { tag: "@integration" }, async ({ page, app }) => {
   await register(page, app.origin); await openBackups(page, app.origin);
-  await page.getByLabel("导入备份文件", { exact: true }).setInputFiles({ name: "corrupt.paib", mimeType: "application/octet-stream", buffer: Buffer.alloc(100, 7) });
+  await page.getByLabel("导入备份文件", { exact: true }).setInputFiles({ name: "corrupt.riab", mimeType: "application/octet-stream", buffer: Buffer.alloc(100, 7) });
   await expect(page.locator("main").getByRole("alert")).toContainText("备份格式"); expect(await browserData(page, "/api/backups")).toHaveLength(0);
   expect((await browserApi(page, "/api/backups", "POST", { unexpected: true })).status).toBe(400);
   // Dropping the credential stops the operation, and there is no login page to

@@ -8,7 +8,7 @@ import { localAccessCookie } from "../helpers/local-access";
 import { fixtureLibraryItem } from "../helpers/model-fixture";
 
 const cleanup = createTestDatabase();
-process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 const { providerState, resetProviderState } = await import("../helpers/model-provider");
 const { defaultModelPreferences } = await import("@/lib/models/preferences-schema");
@@ -39,7 +39,7 @@ beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {});
   process.env.OPENROUTER_API_KEY = "offline-fixture-placeholder";
   resetProviderState();
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   cookie = localAccessCookie();
   await db.knowledgeDocument.deleteMany({});
   await db.workspacePreference.deleteMany({});

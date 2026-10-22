@@ -14,7 +14,7 @@ import { localAccessCookie } from "../helpers/local-access";
 // modes DeepSeek does not serve stay visibly empty instead of failing later.
 
 const cleanup = createTestDatabase();
-process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 const { addModel, getModelPreferences, preferredModel, saveModelPreferences, withModelLease } = await import("@/lib/models/preferences");
 const { defaultModelPreferences } = await import("@/lib/models/preferences-schema");
@@ -40,7 +40,7 @@ const payload = async (response, status = 200) => {
 
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {});
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   cookie = localAccessCookie();
   await db.message.deleteMany({});
   await db.chat.deleteMany({});

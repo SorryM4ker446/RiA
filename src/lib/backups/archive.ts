@@ -9,10 +9,13 @@ import { getModelPreferences } from "@/lib/models/preferences";
 import { upgradeModelPreferences } from "@/lib/models/preferences-schema";
 import { openMediaAsset } from "@/lib/media/storage";
 import { decodeMediaMessage } from "@/lib/media/message-codec";
-import { BACKUP_LIMITS, backupManifestSchema, type BackupManifest } from "@/lib/backups/schema";
-import { backupFile, listBackupFiles, openBackup, removeBackupFile } from "@/lib/backups/files";
+import { BACKUP_FORMAT, BACKUP_LIMITS, backupManifestSchema, type BackupManifest } from "@/lib/backups/schema";
+import { backupFile, isArchiveExtension, listBackupFiles, openBackup, removeBackupFile } from "@/lib/backups/files";
 
-const MAGIC = Buffer.from("PAIB0001");
+// New archives start with the RiA magic; archives written before the rename
+// start with the legacy one and are read the same way.
+const MAGIC = Buffer.from("RIAB0001");
+const LEGACY_MAGIC = Buffer.from("PAIB0001");
 const invalid = () => new ApiError({ code: "VALIDATION_ERROR", message: t("lib.backups.invalidArchive") });
 async function readExact(handle: FileHandle, length: number, position: number) {
   const buffer = Buffer.alloc(length);
@@ -22,7 +25,8 @@ async function readExact(handle: FileHandle, length: number, position: number) {
 }
 export async function readBackupManifest(handle: FileHandle) {
   const header = await readExact(handle, 44, 0);
-  if (!header.subarray(0, 8).equals(MAGIC)) throw invalid();
+  const magic = header.subarray(0, 8);
+  if (!magic.equals(MAGIC) && !magic.equals(LEGACY_MAGIC)) throw invalid();
   const length = header.readUInt32BE(8);
   if (length < 2 || length > BACKUP_LIMITS.manifest) throw invalid();
   let manifest: BackupManifest;
@@ -98,7 +102,7 @@ export async function createAccountBackup(prune = true) {
   const activityCoverage = activityState ? { recordingStartedAt: activityState.recordingStartedAt, completeSince: activityState.completeSince } : null;
   // Semantic vectors are regenerable and can dwarf the portable text archive.
   // Restore retains lexical retrieval and asks for explicit semantic rebuilding.
-  const manifest = backupManifestSchema.parse(JSON.parse(JSON.stringify({ format: "private-ai-account-backup", version: 1, createdAt: new Date().toISOString(), chats: chats.map(chat => ({ ...chat, messages: chat.messages.map(message => ({ ...message, content: portableContent(message.content) })) })), memories, tasks, documents, assets: media, preferences, usage, events, activityCoverage, reviews, assistantTemplates, topics, artifacts })));
+  const manifest = backupManifestSchema.parse(JSON.parse(JSON.stringify({ format: BACKUP_FORMAT, version: 1, createdAt: new Date().toISOString(), chats: chats.map(chat => ({ ...chat, messages: chat.messages.map(message => ({ ...message, content: portableContent(message.content) })) })), memories, tasks, documents, assets: media, preferences, usage, events, activityCoverage, reviews, assistantTemplates, topics, artifacts })));
   const json = Buffer.from(JSON.stringify(manifest));
   if (json.length > BACKUP_LIMITS.manifest || 44 + json.length + assets.reduce((sum, asset) => sum + asset.byteSize, 0) > BACKUP_LIMITS.bytes) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.backups.contentTooLarge") });
   const id = randomUUID(), temporary = await backupFile(id, "partial");
@@ -125,11 +129,11 @@ export async function pruneAccountBackupsSafely(preserveId?: string) {
 export async function pruneAccountBackups(preserveId?: string) {
   const preferences = await getModelPreferences();
   const files = await listBackupFiles();
-  const complete = files.filter(file => file.extension === "paib");
+  const complete = files.filter(file => isArchiveExtension(file.extension));
   let removed = 0, failed = 0;
   for (const file of files) {
     const age = Date.now() - Date.parse(file.createdAt);
-    const expired = file.extension !== "paib" ? age > BACKUP_LIMITS.stagingAgeMs : file.id !== complete[0]?.id && (age > preferences.backupRetentionDays * 86_400_000 || complete.indexOf(file) >= preferences.backupMaxCount);
+    const expired = !isArchiveExtension(file.extension) ? age > BACKUP_LIMITS.stagingAgeMs : file.id !== complete[0]?.id && (age > preferences.backupRetentionDays * 86_400_000 || complete.indexOf(file) >= preferences.backupMaxCount);
     if (!expired || file.id === preserveId) continue;
     try { await removeBackupFile(file.id, file.extension); removed++; } catch { failed++; }
   }

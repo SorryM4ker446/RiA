@@ -16,7 +16,7 @@ const signal = () => new AbortController().signal;
 const query = () => ({ search: randomUUID() });
 const json = (value: unknown, status = 200) => Response.json(value, { status });
 const req = (params = "", auth = cookie, headers = {}) => new NextRequest(`http://localhost/api/extensions/registry${params}`, { headers: { cookie: auth, ...headers } });
-beforeEach(() => { cookie = localAccessCookie(); globalThis.__privateAiRateLimitStore?.clear(); });
+beforeEach(() => { cookie = localAccessCookie(); globalThis.__riaRateLimitStore?.clear(); });
 after(async () => { await db.$disconnect(); cleanup(); });
 
 test("official registry search forwards bounded search/cursor parameters without workspace credentials or endpoint probes", async t => {
@@ -142,7 +142,7 @@ test("discovery routes enforce local access, query bounds, host checks and a sha
   assert.equal((await detail.GET(req("?name=io.github.ria-fixture/echo&version=latest"))).status, 400);
   assert.equal((await detail.GET(req("?name=io.github.ria-fixture/echo&version=.."))).status, 400);
   assert.equal(calls, 0);
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   const path = `?search=${randomUUID()}`;
   for (let i = 0; i < 30; i++) assert.equal((await root.GET(req(path))).status, 200);
   const limited = await root.GET(req(path)); assert.equal(limited.status, 429); assert.ok(limited.headers.get("retry-after")); assert.equal(calls, 1);

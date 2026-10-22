@@ -11,7 +11,7 @@ import { dropRuntimeCaches } from "../../scripts/desktop-package-hooks.mjs";
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 function fixture(script, check) {
-  const root = mkdtempSync(join(tmpdir(), "private-ai-bundle-"));
+  const root = mkdtempSync(join(tmpdir(), "ria-bundle-"));
   try {
     mkdirSync(join(root, "scripts"));
     copyFileSync(join(repositoryRoot, "scripts", script), join(root, "scripts", script));
@@ -189,7 +189,7 @@ test("packaging drops runtime caches and preserves immutable prerender seeds and
   // Reproduce what the packager does: copy the extra resource into the staging
   // resources directory, then run the afterCopyExtraResources hook the way
   // promisifyHooks does, with the completion callback appended last.
-  const staging = mkdtempSync(join(tmpdir(), "private-ai-staging-"));
+  const staging = mkdtempSync(join(tmpdir(), "ria-staging-"));
   try {
     const runtime = seedValidRuntime(staging, join(staging, "source"));
     const cacheDirectory = join(runtime, ".next", "cache");

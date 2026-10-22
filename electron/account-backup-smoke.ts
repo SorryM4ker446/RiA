@@ -42,7 +42,7 @@ export async function verifyAccountBackupSmoke(window: BrowserWindow, origin: st
     throw new Error('Desktop backup was not created');
   })()`) as string;
   if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error("Invalid backup smoke ID");
-  const folder = resolve(dataDirectory, "smoke-backup-downloads"), destination = resolve(folder, `${id}.paib`);
+  const folder = resolve(dataDirectory, "smoke-backup-downloads"), destination = resolve(folder, `${id}.riab`);
   if (dirname(destination) !== folder) throw new Error("Unexpected backup download path");
   mkdirSync(folder, { recursive: true });
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -51,7 +51,7 @@ export async function verifyAccountBackupSmoke(window: BrowserWindow, origin: st
     timer = setTimeout(() => reject(new Error("Desktop backup download timed out")), 15000);
     listener = (_event, item, contents) => {
       if (contents !== window.webContents) return;
-      if (item.getFilename() !== `${id}.paib` || item.getURL() !== `${origin}/api/backups/${id}?download=1`) { item.cancel(); reject(new Error("Unexpected backup download")); return; }
+      if (item.getFilename() !== `${id}.riab` || item.getURL() !== `${origin}/api/backups/${id}?download=1`) { item.cancel(); reject(new Error("Unexpected backup download")); return; }
       item.setSavePath(destination); item.once("done", (_event, state) => state === "completed" ? resolveDownload() : reject(new Error(`Backup download ${state}`)));
     };
     window.webContents.session.on("will-download", listener);
@@ -61,7 +61,7 @@ export async function verifyAccountBackupSmoke(window: BrowserWindow, origin: st
       const button = [...document.querySelectorAll('button')].find(button => button.textContent === '下载备份' && !button.disabled);
       if (!button) throw new Error('Desktop backup download unavailable'); button.click();
     })()`)]);
-    if (readFileSync(destination).subarray(0, 8).toString() !== "PAIB0001") throw new Error("Desktop backup download is invalid");
+    if (readFileSync(destination).subarray(0, 8).toString() !== "RIAB0001") throw new Error("Desktop backup download is invalid");
   } finally { clearTimeout(timer); window.webContents.session.removeListener("will-download", listener); }
   const original = await data(`/api/backups/${id}`);
   const unconfirmed = await fetch(`${origin}/api/backups/${id}`, { method: "POST", headers, body: JSON.stringify({ confirm: false }) });

@@ -60,12 +60,12 @@ type CheckRateLimitResult = {
 };
 
 const globalStore = globalThis as typeof globalThis & {
-  __privateAiRateLimitStore?: Map<string, RateLimitRecord>;
+  __riaRateLimitStore?: Map<string, RateLimitRecord>;
 };
 
-const rateLimitStore = globalStore.__privateAiRateLimitStore ?? new Map<string, RateLimitRecord>();
-if (!globalStore.__privateAiRateLimitStore) {
-  globalStore.__privateAiRateLimitStore = rateLimitStore;
+const rateLimitStore = globalStore.__riaRateLimitStore ?? new Map<string, RateLimitRecord>();
+if (!globalStore.__riaRateLimitStore) {
+  globalStore.__riaRateLimitStore = rateLimitStore;
 }
 
 function now() {

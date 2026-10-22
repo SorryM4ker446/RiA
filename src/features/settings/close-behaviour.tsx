@@ -28,7 +28,7 @@ export function CloseBehaviourSettings() {
 
   useEffect(() => {
     let cancelled = false;
-    void window.privateAiDesktop
+    void window.riaDesktop
       ?.getSettings()
       .then((view) => { if (!cancelled) setBehaviour(view.closeBehaviour); })
       .catch((loadError) => { if (!cancelled) setError(loadError instanceof Error ? loadError.message : t("settings.close.failed")); });
@@ -47,13 +47,13 @@ export function CloseBehaviourSettings() {
     setSaving(true);
     setError(null);
     try {
-      const result = await window.privateAiDesktop!.saveSettings({ closeBehaviour: next });
+      const result = await window.riaDesktop!.saveSettings({ closeBehaviour: next });
       setBehaviour(result.settings.closeBehaviour);
       // This save touches nothing the local service reads at start-up, so it
       // neither restarts the service nor blanks the window. The tray is built
       // before this returns, and a tray that could not be built rejects here
       // rather than leaving the card claiming a setting that never took.
-      if (next === "tray") await window.privateAiDesktop!.showFromTray();
+      if (next === "tray") await window.riaDesktop!.showFromTray();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : t("settings.close.failed"));
     } finally {
@@ -92,7 +92,7 @@ export function CloseBehaviourSettings() {
         {behaviour === "tray" ? (
           <div className="flex flex-col gap-2 rounded-md border border-border px-3 py-2 text-xs text-muted-foreground">
             <p>{t("settings.close.trayNote")}</p>
-            <Button disabled={saving} onClick={() => void window.privateAiDesktop?.quitToTray()} size="sm" type="button" variant="outline">
+            <Button disabled={saving} onClick={() => void window.riaDesktop?.quitToTray()} size="sm" type="button" variant="outline">
               {t("settings.close.quitNow")}
             </Button>
           </div>

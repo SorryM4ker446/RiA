@@ -9,7 +9,7 @@ import { languageModel, resetProviderState } from "../helpers/model-provider";
 import { seedTestModelPreferences } from "../helpers/model-library";
 
 const cleanup = createTestDatabase();
-process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 const chat = await import("@/app/api/chat/route");
 const { indexDocument } = await import("@/lib/documents/store");
@@ -23,7 +23,7 @@ const { pluginFixture } = await import("../helpers/plugin-fixture");
 
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {}); t.mock.method(console, "info", () => {});
-  resetProviderState(); globalThis.__privateAiRateLimitStore?.clear();
+  resetProviderState(); globalThis.__riaRateLimitStore?.clear();
   process.env.OPENROUTER_API_KEY = "offline-fixture-placeholder";
   await db.chat.deleteMany({}); await db.memory.deleteMany({}); await db.knowledgeDocument.deleteMany({});
   await db.pluginPackage.deleteMany({});

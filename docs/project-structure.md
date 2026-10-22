@@ -15,7 +15,7 @@ One body of business code, three ways to start it:
 | Runtime | `APP_RUNTIME` | Started by | Data location |
 | --- | --- | --- | --- |
 | Local development server | `web` (default) | `npm run dev` | `.desktop-data/dev/` |
-| Desktop application | `desktop` | `npm run desktop:dev` / installed build | development: `.desktop-data/dev/`; installed: `%APPDATA%\Private AI Assistant\data\` |
+| Desktop application | `desktop` | `npm run desktop:dev` / installed build | development: `.desktop-data/dev/`; installed: `%APPDATA%\RiA\data\` |
 | Automated tests | `test` | Playwright / Node Test | `.desktop-data/test/<run>/` or a system temporary directory |
 
 All three run migrations through the **same migrator**, so a schema change cannot be applied on one side and missed on another.

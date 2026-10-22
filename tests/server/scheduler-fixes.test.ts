@@ -29,7 +29,7 @@ const req = (path: string, method = "GET", body?: unknown) =>
 const context = (id: string) => ({ params: Promise.resolve({ id }) });
 
 beforeEach(async () => {
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   cookie = localAccessCookie();
   await db.workspaceReview.deleteMany({});
   await db.workspaceEvent.deleteMany({});
@@ -125,13 +125,13 @@ test("a half-written backup is never something a restore accepts", async () => {
   const { inspectAccountBackup } = await import("@/lib/backups/archive");
   const id = randomUUID();
   const partial = await backupFile(id, "partial");
-  await writeFile(partial, Buffer.from("PAIB0001 truncated"));
+  await writeFile(partial, Buffer.from("RIAB0001 truncated"));
   try {
     assert.ok((await listBackupFiles()).some((file) => file.id === id && file.extension === "partial"), "the half-written file is on disk");
     await assert.rejects(
       () => inspectAccountBackup(id),
       (error: unknown) => error instanceof Error && (error as { code?: string }).code === "NOT_FOUND",
-      "the restore path opens `.paib`, so a `.partial` file is not an archive it will accept"
+      "the restore path opens `.riab`, so a `.partial` file is not an archive it will accept"
     );
   } finally {
     await removeBackupFile(id, "partial");
@@ -140,11 +140,11 @@ test("a half-written backup is never something a restore accepts", async () => {
 
 test("a scheduled backup that succeeded leaves a real archive and a recorded run", async () => {
   const { listBackupFiles } = await import("@/lib/backups/files");
-  const before = new Set((await listBackupFiles()).filter((file) => file.extension === "paib").map((file) => file.id));
+  const before = new Set((await listBackupFiles()).filter((file) => file.extension === "riab").map((file) => file.id));
   await dueNow({ kind: "scheduledBackup" });
 
   const result = await runDueScheduledJob(new Date());
-  const after_ = (await listBackupFiles()).filter((file) => file.extension === "paib");
+  const after_ = (await listBackupFiles()).filter((file) => file.extension === "riab");
   assert.equal(after_.some((file) => !before.has(file.id)), true, "a real archive exists for the run that reported success");
   assert.equal(result?.outcome.ok, true, `a successful run reports success: ${JSON.stringify(result?.outcome)}`);
   const [job] = await listScheduledJobs();
@@ -171,7 +171,7 @@ test("every schedule and notice mutation is rate limited", async () => {
   for (const { call, policy } of calls) {
     // Each route is exercised on its own quota, so the answer below is about
     // that route and not about what the route before it spent.
-    globalThis.__privateAiRateLimitStore?.clear();
+    globalThis.__riaRateLimitStore?.clear();
     const budget = RATE_LIMIT_POLICIES[policy].limit;
     const responses = [];
     for (let attempt = 0; attempt <= budget; attempt += 1) responses.push(await call());

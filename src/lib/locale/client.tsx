@@ -9,7 +9,7 @@ export function useLocale() {
 }
 
 export async function saveLocale(locale: Locale): Promise<void> {
-  const bridge = window.privateAiDesktop;
+  const bridge = window.riaDesktop;
   if (bridge) {
     // Desktop origins use a new port on each launch. Its settings file owns
     // persistence; origin-scoped browser storage cannot survive that lifecycle.
@@ -25,7 +25,7 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let current = true;
     const initialLocale = getLocale();
-    const bridge = window.privateAiDesktop;
+    const bridge = window.riaDesktop;
     const fallback = systemLocale(navigator.languages.length ? navigator.languages : [navigator.language]);
     if (bridge) {
       void bridge.getSettings().then(settings => {

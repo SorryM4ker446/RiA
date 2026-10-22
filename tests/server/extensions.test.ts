@@ -34,7 +34,7 @@ let cookie: string;
 beforeEach(async (t: TestContext) => {
   process.env.RIA_EXTENSION_KEY = key;
   process.env.APP_RUNTIME = "test";
-  globalThis.__privateAiRateLimitStore?.clear();
+  globalThis.__riaRateLimitStore?.clear();
   cookie = localAccessCookie();
   for (const method of ["info", "error", "warn"] as const) t.mock.method(console, method, () => {});
   await db.extension.deleteMany({});

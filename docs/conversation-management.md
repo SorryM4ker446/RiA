@@ -87,6 +87,8 @@ Attachments are uploaded when they are chosen, and the draft keeps the reference
 
 A draft is cleared only once the turn actually produced an answer. A send that fails puts the text back so it can be retried. Stopping does not: the question was delivered and is in the conversation, and putting it back would invite sending it twice.
 
+Drafts and the conversation/task panel layout are kept in the browser's local storage under `ria.chat.*` keys. Values saved by builds from before the RiA rename, under `private-ai.chat.*`, are read the first time they are needed and moved to the current keys; the panel layout is applied from either key before the first paint. A value already saved under the current key wins over the old one.
+
 ## Stopping a turn
 
 While a turn is running, the send control is replaced by **stop**. Stopping abandons the request, not the question: whatever the model produced stays on screen and is stored as an interrupted answer. It does not mean the provider stopped billing.

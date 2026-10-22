@@ -10,7 +10,7 @@ import { seedTestModelPreferences } from "../helpers/model-library";
 import { languageModel } from "../helpers/model-provider";
 
 const cleanup = createTestDatabase();
-process.env.PRIVATE_AI_TEST_PROVIDER = "1";
+process.env.RIA_TEST_PROVIDER = "1";
 for (const key of ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]) process.env[key] = "";
 const { db } = await import("@/db");
 

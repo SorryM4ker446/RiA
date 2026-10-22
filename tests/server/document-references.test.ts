@@ -14,7 +14,7 @@ const { createAccountBackup } = await import("@/lib/backups/archive");
 const { restoreAccountBackup } = await import("@/lib/backups/restore");
 const route = await import("@/app/api/documents/references/route");
 const searchRoute = await import("@/app/api/documents/search/route");
-beforeEach(async () => { await db.chat.deleteMany({}); await db.workspaceReview.deleteMany({}); await db.workspaceEvent.deleteMany({}); await db.knowledgeDocument.deleteMany({}); globalThis.__privateAiRateLimitStore?.clear(); });
+beforeEach(async () => { await db.chat.deleteMany({}); await db.workspaceReview.deleteMany({}); await db.workspaceEvent.deleteMany({}); await db.knowledgeDocument.deleteMany({}); globalThis.__riaRateLimitStore?.clear(); });
 after(async () => { await db.$disconnect(); cleanup(); });
 const upload = (text: string, collection = "Manual|操作") => indexDocument({ filename: "Operations.txt", format: "txt", byteSize: Buffer.byteLength(text), collection, pages: [{ pageNumber: null, text }] });
 const request = (path: string, body: unknown, auth = true) => new NextRequest(`http://localhost${path}`, { method: "POST", headers: { ...(auth ? { cookie: localAccessCookie() } : {}), "Content-Type": "application/json" }, body: JSON.stringify(body) });
