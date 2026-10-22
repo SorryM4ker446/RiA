@@ -113,8 +113,8 @@ function SidebarBody({
 }) {
   useLocale();
   return (
-    <div className="flex h-full min-h-0 flex-col gap-7 overflow-y-auto px-3 pb-4">
-      <div className="desktop-titlebar-drag flex h-16 shrink-0 items-center px-2">
+    <div className="workspace-sidebar-body flex h-full min-h-0 flex-col gap-7 overflow-y-auto px-3 pb-4">
+      <div className="workspace-sidebar-header desktop-titlebar-drag flex h-16 shrink-0 items-center px-2">
         <Link
           className="desktop-titlebar-interactive workspace-brand flex items-center gap-2.5 rounded-lg px-1 py-2 text-xl font-semibold tracking-title"
           href="/chat"
