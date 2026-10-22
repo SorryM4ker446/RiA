@@ -1,15 +1,16 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import JSZip from "jszip";
 
-test("WiX provisioning verifies and extracts archives without Get-FileHash, and refuses corrupt bytes", { skip: process.platform !== "win32" }, async () => {
+test("WiX provisioning verifies and extracts archives without Get-FileHash, and refuses corrupt bytes", { skip: process.platform !== "win32" }, async (t) => {
   const parent = resolve(".desktop-data/test");
   mkdirSync(parent, { recursive: true });
   const root = mkdtempSync(join(parent, "wix-provision-"));
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
   const zip = new JSZip();
   zip.file("candle.exe", "fixture candle");
   zip.file("light.exe", "fixture light");

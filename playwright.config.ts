@@ -1,18 +1,21 @@
 import { defineConfig, devices } from "@playwright/test";
 import { resolve } from "node:path";
-import { getE2ERun } from "./tests/helpers/e2e-run";
+import { getE2ERun, removeE2EWorkspace } from "./tests/helpers/e2e-run";
 import { TEST_ACCESS_TOKEN } from "./tests/helpers/workspace-entry";
 
 export default (async () => {
+  // Workers inherit the run; only the runner process that created it owns its workspace.
+  const ownsRun = process.env.RIA_E2E_RUN_ID === undefined;
   const run = await getE2ERun();
+  // The runner exits after the web server has stopped, so the database is closed by then.
+  if (ownsRun) process.once("exit", () => removeE2EWorkspace(run.directory));
   return defineConfig({
     testDir: "./tests/e2e",
     outputDir: resolve(run.resultsDirectory, "artifacts"),
     reporter: [
       ["list"],
       ["html", { outputFolder: run.reportDirectory, open: "never" }],
-      ["json", { outputFile: resolve(run.resultsDirectory, "results.json") }],
-    ],
+      ["json", { outputFile: resolve(run.resultsDirectory, "results.json") }],    ],
     metadata: { runId: run.id, origin: run.origin },
     retries: 0,
     workers: process.env.CI ? 2 : undefined,
