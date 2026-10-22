@@ -1,3 +1,4 @@
+import { COMPACT_CONTEXT_TOOL } from "@/lib/chat/compact-context";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { db } from "@/db";
 import { ApiError } from "@/lib/server/api-error";
@@ -324,11 +325,15 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; toolIds
   // An unconfigured optional tool is filtered out here rather than mounted and
   // failed later. The model never sees it, so it cannot call it, retry it, or
   // report a search that never happened.
-  // Reading already-enabled skill guidance grants no external capability;
+  // Reading already-enabled skill guidance, like compacting this conversation's
+  // own context, grants no external capability;
   // assistant tool restrictions still apply to every action a skill suggests.
-  const descriptors = (await listAvailableRegisteredTools("chat", options?.modelRef)).filter((tool) =>
+  const offered = (await listAvailableRegisteredTools("chat", options?.modelRef)).filter((tool) =>
     // File and log tools are ways of using a folder's terminal access, so they come with it.
-    (hasRestriction ? allowed.has(tool.id) || tool.id === "readPluginSkill" || (TERMINAL_COMPANION_TOOLS.has(tool.id) && allowed.has("runTerminalCommand")) : true) && !(tool.id === "saveMemory" && options?.usesMemory === false));
+    (hasRestriction ? allowed.has(tool.id) || tool.id === "readPluginSkill" || tool.id === COMPACT_CONTEXT_TOOL || (TERMINAL_COMPANION_TOOLS.has(tool.id) && allowed.has("runTerminalCommand")) : true) && !(tool.id === "saveMemory" && options?.usesMemory === false));
+  // Compaction accompanies tool use; on its own it would turn tools on for a
+  // chat whose assistant allows none, or none of whose tools are available.
+  const descriptors = offered.some(tool => tool.id !== COMPACT_CONTEXT_TOOL) ? offered : offered.filter(tool => tool.id !== COMPACT_CONTEXT_TOOL);
 
   const terminalFolders = descriptors.some(tool => TERMINAL_FOLDER_TOOLS.has(tool.id))
     ? await db.directoryGrant.findMany({ where: { revokedAt: null, terminalEnabled: true }, select: { id: true, label: true, realPath: true, terminalApprovalMode: true } }) : [];

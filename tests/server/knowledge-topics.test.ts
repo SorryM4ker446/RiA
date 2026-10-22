@@ -42,10 +42,20 @@ async function seed() {
 }
 function model(t: TestContext, output?: string, gate?: () => Promise<void>) {
   let calls = 0; const prompts: string[] = [];
-  t.mock.method(languageModel, "doGenerate", async options => {
+  // Generation is streamed so a stalled provider is detected by inactivity.
+  t.mock.method(languageModel, "doStream", async options => {
     calls++; prompts.push(JSON.stringify(options.prompt)); await gate?.();
     const chunk = await db.documentChunk.findFirstOrThrow({ where: { document: { collection: "财务" } }, include: { document: true } });
-    return { content: [{ type: "text", text: output ?? `十个工作日内核销，逾期需书面说明。[差旅规则](${documentSourceUrl({ documentId: chunk.documentId, chunkId: chunk.id, contentHash: chunk.document.contentHash })})` }], finishReason: { unified: "stop", raw: "stop" }, usage: { inputTokens: { total: 5 }, outputTokens: { total: 10 } }, warnings: [], response: { modelId: "offline-grounded-model", timestamp: new Date(), id: "fixture" } };
+    const text = output ?? `十个工作日内核销，逾期需书面说明。[差旅规则](${documentSourceUrl({ documentId: chunk.documentId, chunkId: chunk.id, contentHash: chunk.document.contentHash })})`;
+    return { stream: new ReadableStream({ start(controller) {
+      controller.enqueue({ type: "stream-start", warnings: [] });
+      controller.enqueue({ type: "response-metadata", modelId: "offline-grounded-model", timestamp: new Date(), id: "fixture" });
+      controller.enqueue({ type: "text-start", id: "t" });
+      controller.enqueue({ type: "text-delta", id: "t", delta: text });
+      controller.enqueue({ type: "text-end", id: "t" });
+      controller.enqueue({ type: "finish", finishReason: { unified: "stop", raw: "stop" }, usage: { inputTokens: { total: 5, noCache: 5, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 10, text: 10, reasoning: 0 } } });
+      controller.close();
+    } }) };
   });
   return { calls: () => calls, prompts };
 }
@@ -127,7 +137,7 @@ test("missing or invented citations retain a draft marked for review", async t =
 });
 
 test("provider failures remain recoverable and the same request never triggers an automatic retry", async t => {
-  const topic = await seed(); let calls = 0; t.mock.method(languageModel, "doGenerate", async () => { calls++; throw new Error("Synthetic provider unavailable"); });
+  const topic = await seed(); let calls = 0; t.mock.method(languageModel, "doStream", async () => { calls++; throw new Error("Synthetic provider unavailable"); });
   const payload = input(), result = await generateArtifact(topic.id, payload, signal()); assert.equal(result.status, "failed"); assert.equal(result.content, null);
   assert.equal((await generateArtifact(topic.id, payload, signal())).status, "failed"); assert.equal(calls, 1);
 });

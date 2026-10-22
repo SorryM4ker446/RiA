@@ -76,7 +76,11 @@ test("manual search asks the selected model for a count and uses all selected ev
     }
     syntheses++;
     assert.match(JSON.stringify(body.messages), /source-14/);
-    return Response.json({ choices: [{ index: 0, message: { role: "assistant", content: "Answer with all the evidence." }, finish_reason: "stop" }], usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 } });
+    // Synthesis streams, so it ends on inactivity rather than a fixed total.
+    assert.equal(body.stream, true);
+    const events = [{ id: "s", choices: [{ index: 0, delta: { role: "assistant", content: "Answer with all the evidence." } }] },
+      { id: "s", choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 } }];
+    return new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join("") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
   });
   const descriptor = getToolDescriptor("webSearch")!;
   const result = await executeRegisteredTool(descriptor, { query: "Compare the current release options" }, { trigger: "manual", modelRef: CHAT_MODEL_REF });

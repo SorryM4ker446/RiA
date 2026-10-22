@@ -7,6 +7,7 @@ import { NextRequest } from "next/server";
 import { createTestDatabase } from "../helpers/database";
 import { localAccessCookie } from "../helpers/local-access";
 import { seedTestModelPreferences } from "../helpers/model-library";
+import { languageModel } from "../helpers/model-provider";
 
 const cleanup = createTestDatabase();
 process.env.PRIVATE_AI_TEST_PROVIDER = "1";
@@ -85,6 +86,14 @@ test("web search sends real HTTP requests, normalizes sources and records one su
       { title: "Extra source", url: "https://example.invalid/extra", content: "Outside limit" },
     ] }));
   });
+  // Synthesis streams; echo its prompt to show which sources it was given.
+  t.mock.method(languageModel, "doStream", async options => ({ stream: new ReadableStream({ start(controller) {
+    controller.enqueue({ type: "text-start", id: "echo" });
+    controller.enqueue({ type: "text-delta", id: "echo", delta: JSON.stringify(options.prompt) });
+    controller.enqueue({ type: "text-end", id: "echo" });
+    controller.enqueue({ type: "finish", finishReason: { unified: "stop", raw: "stop" }, usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } } });
+    controller.close();
+  } }) }));
   const response = await run();
   assert.equal(response.status, 200);
   const payload = await response.json();
