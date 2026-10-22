@@ -2,13 +2,14 @@
 import { useLocale } from "@/lib/locale/client";
 
 import { AlertCircle, Check, Copy } from "lucide-react";
-import { useState } from "react";
+import { memo, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils/cn";
 import { t } from "@/lib/locale";
 import { writeToClipboard } from "@/lib/clipboard";
+import { splitMarkdownBlocks } from "./markdown-blocks";
 
 type MarkdownMessageProps = {
   text: string;
@@ -88,13 +89,29 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function MarkdownMessage({ text, allowImages = true }: MarkdownMessageProps) {
+const rehypePlugins = [rehypeSanitize];
+const remarkPlugins = [remarkGfm];
+const imageElements = ["img"];
+
+const MarkdownBlock = memo(function MarkdownBlock({ text, allowImages }: Required<MarkdownMessageProps>) {
+  return (
+    <ReactMarkdown components={markdownComponents} rehypePlugins={rehypePlugins} remarkPlugins={remarkPlugins} disallowedElements={allowImages ? undefined : imageElements}>
+      {text}
+    </ReactMarkdown>
+  );
+});
+
+/*
+ * Parsing is the expensive part of a message, and a streamed reply re-renders
+ * the whole transcript on every update. Unchanged text keeps its parsed tree:
+ * other messages are skipped entirely, and within the growing reply only the
+ * block still being written is parsed again.
+ */
+export const MarkdownMessage = memo(function MarkdownMessage({ text, allowImages = true }: MarkdownMessageProps) {
   useLocale();
   return (
     <div className="markdown-message">
-      <ReactMarkdown components={markdownComponents} rehypePlugins={[rehypeSanitize]} remarkPlugins={[remarkGfm]} disallowedElements={allowImages ? undefined : ["img"]}>
-        {text}
-      </ReactMarkdown>
+      {splitMarkdownBlocks(text).map((block, index) => <MarkdownBlock key={index} text={block} allowImages={allowImages} />)}
     </div>
   );
-}
+});

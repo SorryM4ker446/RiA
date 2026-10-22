@@ -60,6 +60,10 @@ export function useChatState() {
   const { messages, setMessages, sendMessage, regenerate, addToolApprovalResponse, status, error, clearError, stop } = useChat({
     id: activeChatId ?? "draft",
     transport,
+    // A fast model sends far more deltas than a screen can show. Rendering at
+    // most every 50ms keeps a long transcript from falling behind the stream;
+    // the trailing update still delivers the final text.
+    experimental_throttle: 50,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
     onFinish: ({ messages: finishedMessages, isError }) => {
       if (!isError) return;

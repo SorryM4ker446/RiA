@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveInstalledElectron } from "./resolve-installed-electron.mjs";
@@ -32,6 +32,24 @@ if (!existsSync(join(repositoryRoot, ".desktop-runtime", "server.js"))) {
 }
 if (!existsSync(electronExecutable)) {
   throw new Error(`Desktop executable is missing: ${electronExecutable}`);
+}
+
+// The installed runtime directory is read-only for standard users and must be
+// left empty by uninstall, so the service may not write caches beside its code.
+const runtimeDirectory = packaged ? join(dirname(electronExecutable), "resources", ".desktop-runtime") : join(repositoryRoot, ".desktop-runtime");
+const startedAt = Date.now();
+function runtimeCacheWrites() {
+  const written = [];
+  const visit = (directory) => {
+    if (!existsSync(directory)) return;
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) visit(path);
+      else if (statSync(path).mtimeMs >= startedAt) written.push(path);
+    }
+  };
+  if (!development) for (const cache of [join(".next", "server", "route-cache"), join(".next", "cache")]) visit(join(runtimeDirectory, cache));
+  return written;
 }
 
 const child = spawn(
@@ -72,7 +90,11 @@ child.on("error", (error) => {
 });
 child.on("exit", (code, signal) => {
   clearTimeout(timeout);
-  if (code === 0 && !timedOut) {
+  const cacheWrites = code === 0 && !timedOut ? runtimeCacheWrites() : [];
+  if (cacheWrites.length) {
+    console.error(`The service wrote ${cacheWrites.length} cache file(s) into its runtime directory, e.g. ${cacheWrites[0]}`);
+    process.exitCode = 1;
+  } else if (code === 0 && !timedOut) {
     if (resolve(dirname(testRoot)) !== expectedParent) {
       throw new Error(`Refusing to clean unexpected smoke-test directory: ${testRoot}`);
     }

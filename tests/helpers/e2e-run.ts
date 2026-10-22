@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { rmSync, writeSync } from "node:fs";
 import { createServer } from "node:net";
-import { resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 
 /** Inherited by workers so reloading the config cannot create another workspace. */
 export async function getE2ERun(environment: Partial<NodeJS.ProcessEnv> = process.env) {
@@ -32,4 +33,20 @@ export async function getE2ERun(environment: Partial<NodeJS.ProcessEnv> = proces
     resultsDirectory: resolve("test-results", id),
     reportDirectory: resolve("playwright-report", id),
   };
+}
+
+/**
+ * Removes a run's workspace (database, media, storage state). Failure evidence
+ * lives in `test-results/` and `playwright-report/`, so nothing is kept here.
+ * Runs inside a process `exit` handler, so it must stay synchronous.
+ */
+export function removeE2EWorkspace(directory: string) {
+  if (dirname(directory) !== resolve(".desktop-data/test") || !/^e2e-[a-f0-9-]{36}$/.test(basename(directory))) {
+    throw new Error(`Refusing to remove an unexpected E2E workspace: ${directory}`);
+  }
+  try {
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch (error) {
+    writeSync(2, `Could not remove E2E workspace ${directory}: ${(error as Error).message}\n`);
+  }
 }

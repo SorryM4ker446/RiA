@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
+import { openExecutionDetails } from "../helpers/execution-records";
 
 const now = "2026-10-20T00:00:00Z";
 const budget = { maxSteps: null, maxFailures: null, deadlineMs: null };
@@ -134,6 +135,46 @@ test("terminal details arriving after a saved summary open automatically and pre
   await call.locator("summary").focus();
   await page.keyboard.press("Enter");
   await expect(call).toHaveAttribute("open", "");
+});
+
+test("a running call opens automatically and closes once it completes, while a finished call stays closed until opened", async ({ page }) => {
+  await workspace(page);
+  let finished = false;
+  const answer = () => ({ id: "live-answer", clientMessageId: "live-answer", role: "assistant", createdAt: now,
+    content: "__ASSISTANT_TOOL_MESSAGE__:" + JSON.stringify({ type: "assistant-tool-message", text: "", runId: "live-run",
+      tools: [
+        { toolName: "searchKnowledge", toolCallId: "earlier-call", state: "output-available", input: { query: "earlier" }, output: { content: "Earlier result" } },
+        finished
+          ? { toolName: "searchKnowledge", toolCallId: "live-call", state: "output-available", input: { query: "live" }, output: { content: "Live result" } }
+          : { toolName: "searchKnowledge", toolCallId: "live-call", state: "input-available", input: { query: "live" } },
+      ],
+    }),
+  });
+  await page.route("**/api/conversations/*/messages", route => route.fulfill({ json: { data: [user, answer()] } }));
+  await page.route("**/api/conversations/*/runs?*", route => {
+    const detail = new URL(route.request().url()).searchParams.has("runId");
+    return route.fulfill({ json: { data: detail ? answer() : [{
+      id: "live-run", messageId: "live-answer", goal: "Inspect the files", startedAt: now, status: finished ? "succeeded" : "running", budget,
+      steps: [
+        { id: "step-earlier", toolCallId: "earlier-call", position: 1, kind: "tool", toolName: "searchKnowledge", state: "done" },
+        { id: "step-live", toolCallId: "live-call", position: 2, kind: "tool", toolName: "searchKnowledge", state: finished ? "done" : "running" },
+      ],
+    }] } });
+  });
+  await page.goto("/chat?conversationId=details-chat");
+  const drawer = await openExecutionDetails(page);
+  const live = drawer.locator('[data-call-id="live-call"]');
+  const earlier = drawer.locator('[data-call-id="earlier-call"]');
+  await expect(live.getByText("输入参数", { exact: true })).toBeVisible();
+  await expect(live).toHaveAttribute("open", "");
+  await expect(earlier).not.toHaveAttribute("open");
+  finished = true;
+  await expect(drawer.locator(".run-record-trigger")).toContainText("已完成");
+  await expect(live.locator("summary")).toHaveText("工具详情：searchKnowledge · 执行完成");
+  await expect(live).not.toHaveAttribute("open");
+  await expect(earlier).not.toHaveAttribute("open");
+  await live.locator("summary").click();
+  await expect(live.getByText("执行结果", { exact: true })).toBeVisible();
 });
 
 test("legacy summaries remain readable after a detail load failure and can recover on reopening", async ({ page }) => {

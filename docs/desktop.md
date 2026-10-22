@@ -122,7 +122,7 @@ This command checks the project-local WiX compiler, prepares missing tools with 
 npm run desktop:make
 ```
 
-The WiX maker produces a Chinese MSI installation wizard with a **Browse** button on the feature/destination page. Choose an application folder such as `D:\Apps\RiA`. Installation is per user; choose a writable directory. The final versioned installer is `out/make/wix/x64/RiA-<version>-x64.msi`. WiX 3.14.1 is a build dependency, downloaded from its official release with a pinned SHA-256 by `provision-wix.ps1`, into the ignored project tooling directory. Users installing the MSI do not need WiX or Node.js.
+The WiX maker produces a Chinese MSI installation wizard with a **Browse** button on the feature/destination page. Installation is per machine (for all users) and requires administrator approval; the default destination is `C:\Program Files\RiA`, and another local folder such as `D:\Apps\RiA` can be chosen. The application does not write to its installation directory at run time: the local service keeps its response cache in memory (`experimental.isrFlushToDisk: false`), and the desktop smoke test fails if it writes cache files beside its code. The final versioned installer is `out/make/wix/x64/RiA-<version>-x64.msi`. WiX 3.14.1 is a build dependency, downloaded from its official release with a pinned SHA-256 by `provision-wix.ps1`, into the ignored project tooling directory. Users installing the MSI do not need WiX or Node.js.
 
 New MSI builds enable [default verbose Windows Installer logging](https://learn.microsoft.com/en-us/windows/win32/msi/msilogging) (`MsiLogging=voicewarmup`), including double-click launches. Windows creates an `MSI*.LOG` file, normally in the installing account's temporary directory; the log's `MsiLogFileLocation` identifies its location. Policies or explicit logging options can override this. Existing installers must be rebuilt to gain this property. Logs may contain local paths and must be reviewed/redacted before sharing.
 
@@ -135,11 +135,24 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\diagnose-windo
 
 The first command starts the installer; the second is read-only and can also run without `-LogPath`. It reports elevation, selected-volume/rollback-directory security readability and bounded relevant log lines, without launching an installer, changing ACLs or modifying registry settings. An unreadable protected rollback folder alone does not prove corruption.
 
-An error setting security for `<volume>:\Config.Msi\*.rbf` with system error 5 means the installer was denied access while securing a rollback file. Correlate error 1926, the failing action, installation context and actual volume permissions in that machine's log. A package build or smoke-test does not verify this upgrade operation. Preserve the existing per-user scope, upgrade identity and rollback; do not disable rollback, grant Everyone full control, recursively reset a drive's permissions or switch installation scope as a generic workaround. If elevation is needed, use the same Windows account and an authorized administrator, then record whether it changes the outcome.
+An error setting security for `<volume>:\Config.Msi\*.rbf` with system error 5 (error 1926) comes from the earlier per-user packages. Reproduced cause: an unelevated per-user installation on a drive other than the system drive backs every removed file up to that drive's `Config.Msi`, which Windows Installer creates with system-only access, and then fails to secure each backup as the user. It happens after the files are already removed, once per file, so an interactive uninstall or upgrade shows thousands of dialogs that cannot be dismissed. It does not depend on a pre-existing or damaged `Config.Msi`, and disabling rollback does not avoid it. The installer is therefore per machine. Do not grant Everyone full control or recursively reset a drive's permissions as a workaround.
+
+### Moving from a per-user installation
+
+Per-user MSI releases (up to 0.1.9) cannot be upgraded in place: Windows Installer does not upgrade across installation contexts. The per-machine installer refuses to install while a per-user copy exists for the current account, with a message to uninstall it first. Uninstalling keeps `%APPDATA%\RiA`.
+
+If that copy is on another drive, its interactive uninstall shows the error above for every file. Close RiA and uninstall it quietly instead, as the same Windows account and without elevation:
+
+```powershell
+$installer = New-Object -ComObject WindowsInstaller.Installer
+$installer.RelatedProducts('{918C97A2-902B-42D0-9B52-F979309DAC68}') | ForEach-Object { Start-Process msiexec.exe -ArgumentList "/x $_ /qn" -Wait }
+```
+
+The quiet uninstall removes the files and the registration and leaves an empty, protected `<volume>:\Config.Msi`; an administrator may delete it while no installation is running.
 
 First-time WiX preparation computes SHA-256 through .NET without requiring the `Get-FileHash` cmdlet. Windows PowerShell downloads use basic parsing to avoid an Internet Explorer dependency on unattended runners. The checksum must match before extraction; an invalid cached ZIP stops the build. Cached and first-time preparation both require validation when this flow changes.
 
-The installation directory contains application files, including the `app-<version>` subdirectory. Data, credentials and Electron browser caches still use `%APPDATA%\RiA`; selecting D: for installation does not move these. Uninstall removes MSI-owned files and shortcuts, retains user data and does not recursively erase unrelated files in the selected folder. Close RiA before upgrading; keep the chosen directory consistent between releases. To relocate an existing MSI installation, back up and uninstall first, then reinstall in the new directory under the same Windows account.
+The installation directory contains application files, including the `app-<version>` subdirectory. Data, credentials and Electron browser caches still use `%APPDATA%\RiA`; selecting D: for installation does not move these. Uninstall removes MSI-owned files and shortcuts, retains user data and does not recursively erase unrelated files in the selected folder. Close RiA before upgrading; keep the chosen directory consistent between releases. To relocate an existing MSI installation, back up and uninstall first, then reinstall in the new directory.
 
 Previous Squirrel installers are a different installation system: back up, close and uninstall the old RiA installation before installing the MSI. Keep `%APPDATA%\RiA` intact to retain the workspace and encrypted settings. Do not leave both installations active. The stable MSI upgrade code must not change between releases.
 
@@ -185,6 +198,8 @@ If startup fails, inspect:
 ```
 
 Migration failures keep the previous database and create a timestamped backup before applying migrations to an existing application database. Do not delete the data directory while diagnosing a failure.
+
+The same log helps when the window freezes while the process keeps running. Startup records the Windows version and GPU feature status, and the log notes when the window stops and resumes responding (with the stall length) and when the renderer or another child process such as the GPU process exits unexpectedly.
 
 
 ## Offline use, proxies and resume

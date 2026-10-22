@@ -784,6 +784,18 @@ async function createMainWindow(initialPath: string, animateStartup = false): Pr
   window.on("closed", () => {
     if (mainWindow === window) mainWindow = null;
   });
+  // A stalled or lost renderer freezes the page while the process itself stays
+  // healthy, so this log is the only evidence such a report leaves behind.
+  let unresponsiveSince = 0;
+  window.on("unresponsive", () => {
+    unresponsiveSince = Date.now();
+    logger?.warn("Window stopped responding");
+  });
+  window.on("responsive", () => {
+    if (unresponsiveSince) logger?.info("Window responding again", { stalledMs: Date.now() - unresponsiveSince });
+    unresponsiveSince = 0;
+  });
+  window.webContents.on("render-process-gone", (_event, details) => logger?.error("Renderer process gone", details));
   if (smokeTest && process.env.DESKTOP_SMOKE_START_MAXIMIZED === "1") {
     window.maximize();
   }
@@ -1129,6 +1141,8 @@ async function bootstrap() {
     version: applicationVersion,
     packagedRuntime,
     platform: process.platform,
+    osVersion: process.getSystemVersion(),
+    gpu: app.getGPUFeatureStatus(),
   });
 
   runWorkspaceUpgrade({ desktopPaths, logger });
@@ -1231,6 +1245,9 @@ async function bootstrap() {
 app.on("second-instance", () => {
   focusMainWindow();
 });
+
+// A crashed GPU process can leave the window unpainted without any error in the page.
+app.on("child-process-gone", (_event, details) => logger?.error("Child process gone", details));
 
 app.on("activate", () => {
   if (mainWindow) {

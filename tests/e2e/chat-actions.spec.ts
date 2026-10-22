@@ -79,11 +79,17 @@ test(`compact terminal approval expands above the permission toolbar in ${theme}
   const card = page.getByRole("region", { name: "操作审批", exact: true });
   await expect(card).toBeVisible();
   await expect(card).toContainText("D:\\Projects\\ria-demo");
+  // The command under review is shown without an extra click.
   const code = card.locator("pre");
-  await expect(code).toBeHidden();
+  await expect(code).toBeVisible();
+  await expect(code).toHaveText(command);
+  const permissions = (await page.getByRole("button", { name: "文件权限", exact: true }).boundingBox())!;
+  const initial = (await card.boundingBox())!;
+  expect(initial.y + initial.height).toBeLessThanOrEqual(permissions.y);
+  await card.getByRole("button", { name: "收起详情", exact: true }).click();
+  await expect(card.locator(".approval-details")).toHaveCSS("visibility", "hidden");
   const collapsed = (await card.boundingBox())!;
   expect(collapsed.height).toBeLessThanOrEqual(100);
-  const permissions = (await page.getByRole("button", { name: "文件权限", exact: true }).boundingBox())!;
   expect(collapsed.y + collapsed.height).toBeLessThanOrEqual(permissions.y);
   await expect(card.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
   await expect(page.getByRole("dialog", { name: "执行记录", exact: true })).toBeHidden();
@@ -153,7 +159,7 @@ test(`compact terminal approval expands above the permission toolbar in ${theme}
 });
 }
 
-for (const width of [1440, 390]) test(`long approval commands are mounted on review and remain complete after folding at ${width}px`, async ({ page }) => {
+for (const width of [1440, 390]) test(`long approval commands are shown on arrival and remain complete after folding at ${width}px`, async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.setViewportSize({ width, height: 960 });
@@ -167,10 +173,9 @@ for (const width of [1440, 390]) test(`long approval commands are mounted on rev
   const card = page.getByRole("region", { name: "操作审批", exact: true });
   await expect(card.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
   const code = card.locator("pre");
-  await expect(code).toHaveCount(0);
-  await card.getByRole("button", { name: "查看详情", exact: true }).click();
   await expect(code).toBeVisible();
   expect(await code.evaluate((element, expected) => element.textContent === expected, command)).toBe(true);
+  await expect(card.getByRole("button", { name: "批准", exact: true })).toBeInViewport();
   await card.getByRole("button", { name: "收起详情", exact: true }).click();
   await expect(card.locator(".approval-details")).toHaveCSS("visibility", "hidden");
   await expect(code).toHaveCount(1);
@@ -197,7 +202,13 @@ for (const width of [1440, 390]) test(`saved long terminal commands remain compl
       output: { status: "completed", stdout: "terminal-ready-你好", exitCode: 0 } })),
   }) }]);
   await page.goto("/chat");
-  await openExecutionDetails(page);
+  const records = await openExecutionDetails(page);
+  // Finished calls start collapsed; open both to read their saved commands.
+  for (const call of await records.locator("details[data-call-id]").all()) {
+    await expect(call).not.toHaveAttribute("open");
+    await call.locator("summary").click();
+    await expect(call).toHaveAttribute("open", "");
+  }
   const scripts = page.getByLabel("PowerShell 命令", { exact: true });
   await expect(scripts).toHaveCount(2);
   await expect(page.getByLabel("终端输出", { exact: true })).toHaveCount(2);

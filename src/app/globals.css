@@ -518,7 +518,7 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .workspace-shell[data-chat-page="true"] .workspace-main { background: hsl(var(--background)); }
 .workspace-shell[data-desktop="true"][data-chat-page="true"] { background: transparent; }
 .workspace-shell[data-desktop="true"][data-chat-page="true"] .workspace-content { background: transparent; }
-.workspace-shell[data-desktop="true"][data-chat-page="true"] .workspace-main { background: hsl(var(--background) / .88); backdrop-filter: blur(24px) saturate(1.15); }
+.workspace-shell[data-desktop="true"][data-chat-page="true"] .workspace-main { background: hsl(var(--background) / .88); }
 .workspace-shell[data-desktop="true"] .chat-canvas { background: transparent; }
 .workspace-topbar { border-color: hsl(var(--border)); }
 .workspace-shell .workspace-topbar, .workspace-shell .workspace-rail, .workspace-shell .chat-rail, .workspace-shell .chat-toolbar { border-color: transparent; }

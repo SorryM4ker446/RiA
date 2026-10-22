@@ -80,7 +80,7 @@ async function ask(page: Page, app: App, grantId: string, stop = false) {
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
   await expect(page.getByRole("dialog", { name: "执行记录", exact: true })).toBeHidden();
-  await page.getByRole("region", { name: "操作审批", exact: true }).getByRole("button", { name: "查看详情", exact: true }).click();
+  await expect(page.getByLabel("PowerShell 命令", { exact: true })).toBeVisible();
   await expect(page.getByLabel("PowerShell 命令", { exact: true })).toContainText("terminal-proof.txt");
   await expect(page.getByText(`工作目录：${app.folder}`, { exact: true })).toBeVisible();
   return chat;
@@ -123,6 +123,10 @@ test("desktop folder permission, exact command approval and persisted output sur
   await openExecutionDetails(page);
   await expect(page.locator(".run-record-trigger")).toHaveCount(1);
   await expect(page.getByLabel("终端输出", { exact: true })).toContainText("terminal-ready-你好");
+  // A finished call folds whether or not it was opened while running; reading it is an explicit choice.
+  const call = page.locator("details.execution-disclosure").filter({ has: page.getByLabel("终端输出", { exact: true }) });
+  await expect(call).not.toHaveAttribute("open");
+  await call.locator("summary").click();
   await expect(page.getByText("退出码：0", { exact: true })).toBeVisible();
   await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes('"state":"output-available"'))).toBe(true);
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");

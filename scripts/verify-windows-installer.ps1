@@ -32,9 +32,17 @@ $properties = @{}
 Read-MsiTable 'Property' | ForEach-Object { $properties[$_[0]] = $_[1] }
 if ($properties.ProductVersion -ne "$($package.version).0" -or
     $properties.UpgradeCode -ne "{$($config.upgradeCode)}" -or
-    $properties.ProductLanguage -ne '2052' -or $properties.MSIINSTALLPERUSER -ne '1' -or
+    $properties.ProductLanguage -ne '2052' -or $properties.ALLUSERS -ne '1' -or $properties.MSIINSTALLPERUSER -ne '0' -or
     $properties.MsiLogging -ne 'voicewarmup') {
     throw 'MSI version, upgrade identity, language, installation scope or default logging is incorrect'
+}
+# Registry roots: 1 = HKEY_CURRENT_USER, 2 = HKEY_LOCAL_MACHINE.
+$perUserSearch = @(Read-MsiTable 'RegLocator' | Where-Object { $_[0] -eq 'PerUserRiaMarker' -and $_[1] -eq '1' -and $_[2] -eq 'Software\Microsoft\RiA' -and $_[3] -eq 'installed' })
+$refusal = @(Read-MsiTable 'LaunchCondition' | Where-Object { $_[0] -eq 'Installed OR WIX_UPGRADE_DETECTED OR NOT PERUSERRIA' })
+# Upgrade columns: UpgradeCode, VersionMin, VersionMax, Language, Attributes, Remove, ActionProperty.
+$upgradeSearch = @(Read-MsiTable 'Upgrade' | Where-Object { $_[0] -eq "{$($config.upgradeCode)}" -and $_[6] -eq 'WIX_UPGRADE_DETECTED' })
+if ($perUserSearch.Count -ne 1 -or $refusal.Count -ne 1 -or $upgradeSearch.Count -ne 1) {
+    throw 'Compiled MSI per-user installation refusal is incorrect'
 }
 $selectable = @(Read-MsiTable 'Feature' | Where-Object { $_[6] -eq 'APPLICATIONROOTDIRECTORY' })
 $browse = @(Read-MsiTable 'ControlEvent' | Where-Object { $_[0] -eq 'CustomizeDlg' -and $_[1] -eq 'Browse' -and $_[2] -eq 'SelectionBrowse' -and $_[3] -eq 'BrowseDlg' })
@@ -46,4 +54,4 @@ $responseCache = @(Read-MsiTable 'Directory' | Where-Object { $_[2] -match '(^|\
 if ($responseCache.Count -ne 0) {
     throw 'Compiled MSI contains regenerable Next.js response caches'
 }
-Write-Output "Verified compiled MSI version, Chinese directory selection, per-user scope, default logging and uninstall actions: $artifact"
+Write-Output "Verified compiled MSI version, Chinese directory selection, per-machine scope, per-user installation refusal, default logging and uninstall actions: $artifact"

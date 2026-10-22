@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { printDesktopSmokeDiagnostics } from "./smoke-desktop-diagnostics.mjs";
@@ -29,10 +29,6 @@ const CONTROL_SELECTORS = [
   'button[aria-label="最大化"], button[aria-label="向下还原"], button[aria-label="Maximize"], button[aria-label="Restore"]',
   'button[aria-label="关闭"], button[aria-label="Close"]',
 ];
-const testParent = join(repositoryRoot, ".desktop-data", "test");
-mkdirSync(testParent, { recursive: true });
-const testRoot = mkdtempSync(join(testParent, "caption-click-"));
-
 // The app is single-instance, so a window that is already open makes this one
 // exit immediately and the debugging port never appears. Say so plainly rather
 // than letting it look like a rendering timeout.
@@ -50,6 +46,10 @@ if (process.platform === "win32") {
     process.exit(1);
   }
 }
+
+const testParent = join(repositoryRoot, ".desktop-data", "test");
+mkdirSync(testParent, { recursive: true });
+const testRoot = mkdtempSync(join(testParent, "caption-click-"));
 
 const child = spawn(
   electronExecutable,
@@ -212,11 +212,21 @@ try {
   console.error("  window control check failed:", error instanceof Error ? error.message : String(error));
 } finally {
   cdp?.close();
+  const exited = child.exitCode !== null || child.signalCode !== null
+    ? Promise.resolve()
+    : new Promise((r) => child.once("exit", r));
   child.kill();
-  await sleep(500);
+  await Promise.race([exited, sleep(5000)]);
   if (failed) {
     console.error(`Caption-click diagnostics: ${testRoot}`);
     printDesktopSmokeDiagnostics(testRoot);
+  } else {
+    // A passing run leaves nothing behind; a failing one keeps its profile and logs.
+    try {
+      rmSync(testRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    } catch (error) {
+      console.warn(`  could not remove ${testRoot}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 }
 
