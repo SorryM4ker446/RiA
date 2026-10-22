@@ -27,6 +27,7 @@ import { DOCUMENT_LIMITS, type DocumentSource } from "@/lib/documents/types";
 import { documentRequest, type DocumentSummary, type DocumentPreview } from "./document-client";
 import { maintainDocumentIndexes, type IndexProgress } from "./index-maintenance";
 import { IndexStatus } from "./index-status";
+import { animateRemoval, removalKey } from "@/lib/ui/removal";
 export { documentRequest } from "./document-client";
 
 export function DocumentLibrary() {
@@ -156,7 +157,7 @@ export function DocumentLibrary() {
     <DocumentSources sources={results ?? []} />
     {results !== null ? <RetrievalDiagnostics value={diagnostics} /> : null}
     {awaitingFirstDocumentLoad ? <div className="flex flex-col gap-2" aria-label={t("documents.loading")}><Skeleton className="h-16 rounded-xl" /><Skeleton className="h-16 rounded-xl" /></div> : !documents.length ? <Empty className="py-6"><EmptyHeader><EmptyMedia><FileText /></EmptyMedia><EmptyTitle>{t("documents.empty")}</EmptyTitle><EmptyDescription>{t("ui.knowledge.document-library.importKnowledgeToSearchItHere")}</EmptyDescription></EmptyHeader></Empty> : <ul aria-label={t("documents.importedTitle")} className="chat-list-scroll flex max-h-80 flex-col gap-1 overflow-y-auto">
-      {documents.map(document => <li className="management-row knowledge-document-row flex min-w-0 items-center gap-3 rounded-xl px-3 py-3" key={document.id}>
+      {documents.map(document => <li className="management-row knowledge-document-row flex min-w-0 items-center gap-3 rounded-xl px-3 py-3" key={document.id} {...removalKey(document.id)}>
         <FileText className="hidden size-4 shrink-0 text-muted-foreground sm:block" aria-hidden="true" />
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
           <div className="flex min-w-0 flex-wrap items-center gap-2"><Link className="min-w-0 break-words text-sm font-medium hover:underline underline-offset-4 [overflow-wrap:anywhere]" href={`/knowledge/documents/${document.id}`}>{document.filename}</Link>{document.collection && <Badge variant="outline" className="min-w-0"><span className="truncate">{document.collection}</span></Badge>}{document.semantic?.lexicalCurrent === false && <Badge variant="warning">{t("ui.knowledge.document-library.localIndexNeedsUpdating")}</Badge>}</div>
@@ -165,7 +166,7 @@ export function DocumentLibrary() {
         <div className="flex shrink-0 items-center gap-0.5">
           <Button title={t("ui.knowledge.document-library.buildSemanticIndex")} aria-label={tf("ui.knowledge.document-library.buildSemanticIndexFor", { v0: document.filename })} disabled={busy || !document.semantic?.modelRef} size="icon-sm" variant="ghost" onClick={() => void buildSemanticIndexes([document])}><Sparkles /></Button>
           <Button title={t("documents.reindex")} aria-label={`${t("documents.reindex")} ${document.filename}`} disabled={busy} size="icon-sm" variant="ghost" onClick={() => void run(async () => { await documentRequest(`/api/documents/${document.id}`, { method: "POST" }); await refresh(); setResults(null); setNotice(t("documents.reindexed")); })}><RotateCw /></Button>
-          <Button title={t("documents.delete")} aria-label={`${t("documents.deleteLabel")} ${document.filename}`} disabled={busy} size="icon-sm" variant="ghost" onClick={() => { if (window.confirm(`${t("documents.deleteConfirmPrefix")}${document.filename}${t("documents.deleteConfirmSuffix")}`)) void run(async () => { await documentRequest(`/api/documents/${document.id}`, { method: "DELETE" }); await refresh(); setResults(null); setNotice(t("documents.deleted")); }); }}><Trash2 /></Button>
+          <Button title={t("documents.delete")} aria-label={`${t("documents.deleteLabel")} ${document.filename}`} disabled={busy} size="icon-sm" variant="ghost" onClick={() => { if (window.confirm(`${t("documents.deleteConfirmPrefix")}${document.filename}${t("documents.deleteConfirmSuffix")}`)) void run(async () => { await documentRequest(`/api/documents/${document.id}`, { method: "DELETE" }); await animateRemoval(document.id, refresh); setResults(null); setNotice(t("documents.deleted")); }); }}><Trash2 /></Button>
         </div>
       </li>)}
     </ul>}

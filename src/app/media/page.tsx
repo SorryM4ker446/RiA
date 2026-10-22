@@ -16,6 +16,7 @@ import { mediaApi, assetKind, formatBytes, type Asset, type AssetDetail, type Fi
 import { LAST_ACTIVE_CHAT_STORAGE_KEY } from "@/features/chat/types";
 import { conversationsApi } from "@/features/conversations/api-client";
 import { t, localizeMessage } from "@/lib/locale";
+import { animateRemoval, removalKey } from "@/lib/ui/removal";
 
 const defaults: Filters = { type: "all", kind: "all", usage: "all" };
 const sameFilters = (a: Filters, b: Filters) => a.type === b.type && a.kind === b.kind && a.usage === b.usage;
@@ -81,8 +82,13 @@ export default function MediaPage() {
     const id = selected.id;
     dialog.current?.close();
     void act(async () => {
-      if (operation === "delete") { await mediaApi.delete(id); setSelected(null); setNotice(t("media.notice.deleted")); }
-      else { const result = await mediaApi.regenerate(id); await show(result.asset.assetId); setNotice(t("media.notice.regenerated")); }
+      if (operation === "delete") {
+        await mediaApi.delete(id); setSelected(null);
+        await animateRemoval(id, async () => { setRevision(value => value + 1); await load(); });
+        setNotice(t("media.notice.deleted"));
+        return;
+      }
+      const result = await mediaApi.regenerate(id); await show(result.asset.assetId); setNotice(t("media.notice.regenerated"));
       setRevision(value => value + 1); await load();
     });
   }
@@ -124,7 +130,7 @@ export default function MediaPage() {
       download={() => { void act(async () => { await mediaApi.download(selected.id); setNotice(t("media.notice.downloaded")); }); }}
       remove={() => { setOperation("delete"); dialog.current?.showModal(); }} regenerate={() => { setOperation("regenerate"); dialog.current?.showModal(); }} />}</div>
     <p className="text-sm text-muted-foreground" aria-live="polite">{`${t("media.loaded")} ${assets.length} ${t("media.loadedUnit")}`}</p>
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-busy={disabled}>{assets.map(asset => <article key={asset.id} aria-label={`${t("media.cardLabel")} ${asset.id}`} className="overflow-hidden rounded-lg bg-card shadow-card transition-shadow duration-200 hover:shadow-raised">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-busy={disabled}>{assets.map(asset => <article key={asset.id} {...removalKey(asset.id)} aria-label={`${t("media.cardLabel")} ${asset.id}`} className="overflow-hidden rounded-lg bg-card shadow-card transition-shadow duration-200 hover:shadow-raised">
       <button className="flex h-44 w-full items-center justify-center bg-muted" aria-label={`${t("media.viewLabel")} ${asset.id}`} disabled={disabled} onClick={() => void act(() => show(asset.id))}>
         {asset.mediaType.startsWith("image/")
           // eslint-disable-next-line @next/next/no-img-element

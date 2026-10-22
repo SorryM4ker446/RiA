@@ -686,6 +686,8 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .run-record-trigger[aria-expanded="true"] { background: hsl(var(--muted) / .5); }
 .run-record-trigger:hover { background: hsl(var(--accent)); }
 .run-record-trigger:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: -2px; }
+.reveal { display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden; transition: grid-template-rows var(--dur-base) var(--ease-out), opacity var(--dur-fast), visibility var(--dur-base); }
+.reveal[data-state="open"] { grid-template-rows: 1fr; opacity: 1; visibility: visible; }
 .run-detail, .approval-details { display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden; transition: grid-template-rows var(--dur-base) var(--ease-out), opacity var(--dur-fast), visibility var(--dur-base); }
 .run-detail[data-state="open"], .approval-details[data-state="open"] { grid-template-rows: 1fr; opacity: 1; visibility: visible; }
 .approval-details .execution-code { max-height: 12rem; }

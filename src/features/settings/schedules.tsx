@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { ScheduleHistory } from "@/features/settings/schedule-history";
 import { executionGuidance } from "@/lib/execution-messages";
 import { WorkspaceReviewPreview } from "@/features/settings/workspace-review";
+import { animateRemoval, removalKey } from "@/lib/ui/removal";
 
 type JobRow = {
   id: string;
@@ -89,7 +90,7 @@ export function ScheduleSettings() {
 
   useEffect(() => { void load(); }, [load]);
 
-  async function send(method: "POST" | "PATCH" | "DELETE", path: string, body?: unknown) {
+  async function send(method: "POST" | "PATCH" | "DELETE", path: string, body?: unknown, removing?: string) {
     setError(null);
     try {
       const response = await fetch(path, {
@@ -98,7 +99,8 @@ export function ScheduleSettings() {
         ...(body === undefined ? {} : { body: JSON.stringify(body) })
       });
       if (!response.ok) throw new Error(await readError(response));
-      await load();
+      if (removing) await animateRemoval(removing, load);
+      else await load();
       return true;
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : t("settings.schedules.failed"));
@@ -133,7 +135,7 @@ export function ScheduleSettings() {
         {!creating ? failure : null}
         {loading ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" aria-hidden="true" />{t("settings.schedules.loading")}</p>
           : jobs.length === 0 ? <Empty className="items-start px-0 py-3 text-left"><EmptyDescription>{t("settings.schedules.empty")} {t("ui.settings.schedules.selectAddScheduleToGetStarted")}</EmptyDescription></Empty>
-          : <ul className="settings-list" aria-label={t("ui.settings.schedules.addedSchedules")}>{jobs.map(job => <li key={job.id}>
+          : <ul className="settings-list" aria-label={t("ui.settings.schedules.addedSchedules")}>{jobs.map(job => <li key={job.id} {...removalKey(job.id)}>
             <div className="flex min-w-0 flex-1 flex-col gap-1.5">
               <p className="flex flex-wrap items-center gap-2 text-sm font-medium">{t(`settings.schedules.kind.${job.kind}` as never)}<Badge variant={job.enabled ? "secondary" : "outline"}>{job.enabled ? t("settings.schedules.on") : t("settings.schedules.off")}</Badge></p>
               <p className="text-xs text-muted-foreground">{job.interval === "weekly" ? t(`settings.schedules.weekday.${job.dayOfWeek ?? 1}` as never) : t("settings.schedules.daily")} · {job.localTime} · <span className="break-all">{job.timeZone}</span></p>
@@ -143,7 +145,7 @@ export function ScheduleSettings() {
             </div>
             <div className="flex shrink-0 items-center gap-1">
               <Button size="sm" variant="outline" onClick={() => void send("PATCH", `/api/schedules/${encodeURIComponent(job.id)}`, { enabled: !job.enabled })}>{job.enabled ? t("settings.schedules.pause") : t("settings.schedules.resume")}</Button>
-              <Button aria-label={t("settings.schedules.delete")} size="icon-sm" variant="ghost" onClick={() => void send("DELETE", `/api/schedules/${encodeURIComponent(job.id)}`)}><Trash2 aria-hidden="true" /></Button>
+              <Button aria-label={t("settings.schedules.delete")} size="icon-sm" variant="ghost" onClick={() => void send("DELETE", `/api/schedules/${encodeURIComponent(job.id)}`, undefined, job.id)}><Trash2 aria-hidden="true" /></Button>
             </div>
           </li>)}</ul>}
         <SettingsHelp title={t("ui.settings.schedules.executionRulesModelUsage")}>

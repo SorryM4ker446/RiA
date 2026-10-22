@@ -34,6 +34,7 @@ import { formatTaskPriority } from "@/features/chat/message-presentation";
 import type { TaskItem, TaskStatusFilter } from "@/features/chat/types";
 import { COLLAPSED_TASK_LIMIT } from "@/features/chat/types";
 import type { useTasks } from "@/features/chat/use-tasks";
+import { removalKey } from "@/lib/ui/removal";
 
 type Props = ReturnType<typeof useTasks> & { onCreate: () => void };
 export function TaskPanel({
@@ -163,6 +164,7 @@ export function TaskPanel({
               <Card
                 role="article"
                 key={task.id}
+                {...removalKey(task.id)}
                 data-testid="task-item"
                 className="group flex min-w-0 flex-col"
               >

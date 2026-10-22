@@ -7,6 +7,7 @@ import { getChatPrefsStorageKey, loadAccountChatDefaults } from "@/features/chat
 import type { ChatScopedPreferences } from "@/features/chat/types";
 import { COLLAPSED_CHAT_LIMIT, LAST_ACTIVE_CHAT_STORAGE_KEY } from "@/features/chat/types";
 import type { AssistantTemplate } from "@/lib/assistants/schema";
+import { animateRemoval } from "@/lib/ui/removal";
 
 type Options = {
   activeChatId: string | null;
@@ -157,7 +158,7 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     loadingMoreRef.current = false;
     setIsLoadingMoreChats(false);
     const nextChats = chats.filter((chat) => chat.id !== chatId);
-    setChats(nextChats);
+    await animateRemoval(chatId, () => setChats(nextChats));
 
     if (activeChatId === chatId) {
       const nextActiveId = nextChats[0]?.id ?? null;

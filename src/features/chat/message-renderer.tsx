@@ -38,6 +38,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import Image from "next/image";
 import type { ChatState } from "@/features/chat/use-chat-state";
 import type { UIMessage } from "ai";
+import { removalKey } from "@/lib/ui/removal";
 
 // The query identity is the open conversation, not a constant. `switchActiveChat`
 // only sets the id; it does not clear `messages`, so the previous transcript
@@ -318,7 +319,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
         const isRegenerable = message.role === "assistant" && index === messages.length - 1;
 
         return (
-          <div className={cn("flex w-full", isUser ? "justify-end pb-4" : "justify-start")} key={message.id} data-message-id={message.id} data-message-role={message.role}>
+          <div className={cn("flex w-full", isUser ? "justify-end pb-4" : "justify-start")} key={message.id} {...removalKey(message.id)} data-message-id={message.id} data-message-role={message.role}>
             <article
               className={cn(
                 "group min-w-0 rounded-xl px-4 py-3 text-sm",
