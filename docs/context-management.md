@@ -28,6 +28,17 @@ The block is rebuilt for every request and never saved with the message. Earlier
 turns are sent unchanged, so providers with prefix caching can reuse everything
 up to the previous turn instead of missing the cache on every request.
 
+### Prompt caching
+
+OpenAI, DeepSeek and Gemini models cache a repeated prompt prefix on their own.
+Anthropic models only reuse a prefix up to an explicit breakpoint, so chat
+requests to an `anthropic/` model through OpenRouter mark three: the end of the
+system prompt, the end of the previous turn and the end of the request, which
+the next step of a tool loop extends. Generated one-off calls such as summaries
+are not marked, since a cache write costs more than ordinary input and they
+would not read it back. Usage records do not store cache read or write counts;
+the cost a provider reports already reflects its cache discount.
+
 ## Request budgets
 
 Input budget is context capacity minus output reservation and a safety margin of
