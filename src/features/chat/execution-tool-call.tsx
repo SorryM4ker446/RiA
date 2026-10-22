@@ -22,12 +22,13 @@ export function ExecutionToolCall({ call, isLatest, waiting, onReviewApproval }:
     ? (part.state === "output-available" ? part.output : (part.input as { binding?: unknown } | undefined)?.binding) as { path?: unknown; diff?: unknown } | undefined : undefined;
   const edit = typeof editSource?.diff === "string" ? { path: String(editSource.path ?? ""), diff: editSource.diff } : null;
   const pendingApproval = part?.state === "approval-requested" && "approval" in part && part.approval;
-  const terminalActive = part?.state === "input-available" || (part?.state === "approval-responded" && "approval" in part && !!part.approval?.approved);
-  const defaultExpanded = !!pendingApproval || !!(terminal && isLatest && (terminalActive || part?.state === "output-available"));
-  // Saved summaries can arrive before terminal details. Only an explicit user
+  const executing = part?.state === "input-available" || (part?.state === "approval-responded" && "approval" in part && !!part.approval?.approved);
+  const stoppedStep = step && ["cancelled", "failed", "denied"].includes(step.state) && part?.state !== "output-available";
+  // A call opens while it awaits approval or runs, and closes again once it settles.
+  const defaultExpanded = !!pendingApproval || !!(isLatest && executing && !stoppedStep);
+  // Saved summaries can arrive before full details. Only an explicit user
   // choice should override the default when those details become available.
   const [expanded, setExpanded] = useState<boolean>();
-  const stoppedStep = step && ["cancelled", "failed", "denied"].includes(step.state) && part?.state !== "output-available";
   const state = part && !stoppedStep
     ? (part.state === "output-available" && part.output && typeof part.output === "object" && "skipped" in part.output && part.output.skipped
       ? t("runs.step.skipped") : formatToolState(part.state).label)
@@ -43,7 +44,7 @@ export function ExecutionToolCall({ call, isLatest, waiting, onReviewApproval }:
     }}><ChevronRight aria-hidden="true" /><span className="min-w-0 truncate">{tf("chat.messages.toolDetails", { name, state, extra: "" })}</span></summary>
     <div className="flex min-w-0 flex-col gap-2 py-2">
       {part ? <>
-        {terminal ? <TerminalResult input={part.input} output={part.state === "output-available" ? part.output : undefined} active={!!terminalActive} /> : null}
+        {terminal ? <TerminalResult input={part.input} output={part.state === "output-available" ? part.output : undefined} active={!!executing} /> : null}
         {edit ? <div className="flex min-w-0 flex-col gap-1">
           <p className="text-[11px] text-muted-foreground">{t("ui.chat.approval-dock.file")}{edit.path}</p>
           <pre aria-label={t("ui.chat.approval-dock.changesAwaitingApproval")} className="execution-code chat-list-scroll"><DiffText diff={edit.diff} /></pre>

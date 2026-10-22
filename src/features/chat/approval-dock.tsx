@@ -30,7 +30,9 @@ function ApprovalRequest({ part, count, disabled, respond, onDetails }: {
   respond: ChatState["addToolApprovalResponse"]; onDetails: () => void;
 }) {
   useLocale();
-  const [detailsState, setDetailsState] = useState<"unopened" | "open" | "closed">("unopened");
+  const terminal = part.type === "tool-runTerminalCommand";
+  // A terminal command is what is being approved, so it is shown from the start.
+  const [detailsState, setDetailsState] = useState<"unopened" | "open" | "closed">(terminal ? "open" : "unopened");
   const expanded = detailsState === "open";
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +40,6 @@ function ApprovalRequest({ part, count, disabled, respond, onDetails }: {
   const busy = useRef(false);
   const approval = "approval" in part ? part.approval : undefined;
   const input = part.input as { command?: unknown; binding?: { cwd?: unknown; path?: unknown; diff?: unknown; added?: unknown; removed?: unknown; stale?: unknown }; arguments?: unknown } | undefined;
-  const terminal = part.type === "tool-runTerminalCommand";
   // An edit is approved by the diff the server computed from the file, never by its raw arguments.
   const edit = part.type === "tool-editProjectFile" && typeof input?.binding?.diff === "string" ? input.binding as { path?: unknown; diff: string; added?: unknown; removed?: unknown; stale?: unknown } : null;
   const command = detailsState === "unopened" ? "" : terminal && typeof input?.command === "string" ? input.command : edit ? edit.diff : safeJson(input?.arguments ?? part.input);
