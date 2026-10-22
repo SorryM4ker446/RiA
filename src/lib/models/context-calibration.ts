@@ -1,5 +1,6 @@
 import { db } from "@/db";
 import { modelRefKey, type ModelRef } from "@/lib/models/preferences-schema";
+import { MIN_CALIBRATION } from "./context-budget";
 
 /** Recent turns per model; old samples age out so one outlier cannot shrink capacity forever. */
 export const CALIBRATION_SAMPLES = 20;
@@ -13,13 +14,16 @@ function parseSamples(value: string): number[] {
 
 /**
  * Scale applied to the local estimate before any provider usage is seen in a
- * request: the largest recent ratio, never below one. Unreadable or missing
- * data yields the uncalibrated estimate rather than failing the request.
+ * request: the largest recent provider/estimate ratio, so the heaviest recent
+ * content sets it, and never below MIN_CALIBRATION. It falls below one once
+ * providers report less input than the deliberately high local estimate.
+ * Without samples, or with unreadable data, the uncalibrated estimate is used.
  */
 export async function contextCalibration(ref: ModelRef): Promise<number> {
   try {
     const row = await db.modelContextCalibration.findUnique({ where: { modelKey: modelRefKey(ref) } });
-    return Math.max(1, ...(row ? parseSamples(row.samples) : []));
+    const samples = row ? parseSamples(row.samples) : [];
+    return samples.length ? Math.max(MIN_CALIBRATION, ...samples) : 1;
   } catch { return 1; }
 }
 

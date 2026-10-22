@@ -429,3 +429,24 @@ test("an image outside a user message is dropped instead of failing the request"
   assert.equal(assistant.content, "这是一张图");
   assert.equal(JSON.stringify(assistant).includes("image_url"), false);
 });
+
+test("a context-window refusal is classified for recovery without keeping the provider's text", async () => {
+  const { isContextOverflow } = await import("@/lib/models/context-overflow");
+  handler = () => ({ status: 400, json: { error: { message: "This model's maximum context length is 131072 tokens. However, you requested 140000 tokens. Please reduce the length of the messages.", type: "invalid_request_error" } } });
+  const model = createDeepSeekChatModel({ modelId: "deepseek-v4-pro", getApiKey: () => "test-key", baseURL: deepSeekBaseURL() });
+  await assert.rejects(
+    async () => model.doStream({ prompt: [{ role: "user", content: [{ type: "text", text: "问题" }] }] }),
+    (error: { statusCode: number; message: string; responseBody: unknown; data: unknown }) => {
+      assert.equal(error.statusCode, 400);
+      assert.equal(isContextOverflow(error), true);
+      assert.doesNotMatch(error.message, /maximum context length/);
+      assert.equal(error.responseBody, undefined);
+      return true;
+    },
+  );
+  handler = () => ({ status: 400, json: { error: { message: "Invalid tool schema", type: "invalid_request_error" } } });
+  await assert.rejects(
+    async () => model.doStream({ prompt: [{ role: "user", content: [{ type: "text", text: "问题" }] }] }),
+    (error: unknown) => isContextOverflow(error) === false,
+  );
+});

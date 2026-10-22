@@ -125,8 +125,9 @@ test("a fallback resolves the selected provider adapter and accounts for both at
   for await (const _part of response.stream) { /* Consume the real observer lifecycle. */ }
   assert.deepEqual(adapters, [`openrouter:${CHAT_MODEL_REF.modelId}`, `deepseek:${fallback.modelId}`]);
   const rows = await db.modelRequest.findMany({ orderBy: { createdAt: "asc" } });
-  assert.equal(rows.length, 2); assert.equal(rows[0].status, "error"); assert.equal(rows[1].status, "success");
-  assert.equal(rows[1].modelProvider, "deepseek"); assert.equal(rows[1].fallback, true);
+  // The transient failure is retried on the primary before the fallback is tried.
+  assert.equal(rows.length, 4); assert.deepEqual(rows.slice(0, 3).map(row => [row.status, row.fallback]), [["error", false], ["error", false], ["error", false]]);
+  assert.equal(rows[3].status, "success"); assert.equal(rows[3].modelProvider, "deepseek"); assert.equal(rows[3].fallback, true);
 });
 
 test("a smaller fallback rejects oversized context before submission and releases its model lease", { timeout: 5000 }, async () => {
@@ -141,9 +142,152 @@ test("a smaller fallback rejects oversized context before submission and release
   const backup = new MockLanguageModelV3({ doStream: async () => { fallbackCalls++; throw new Error("must not submit"); } });
   const observed = observeLanguageModel(primary, CHAT_MODEL_REF, () => backup);
   await assert.rejects(async () => observed.doStream({ prompt: [{ role: "user", content: [{ type: "text", text: "0".repeat(6000) }] }] }), { code: "CONTEXT_LIMIT" });
-  assert.equal(primaryCalls, 1); assert.equal(fallbackCalls, 0);
+  assert.equal(primaryCalls, 3, "two retries of the transient failure"); assert.equal(fallbackCalls, 0);
   assert.equal(await db.modelRequest.count({ where: { status: "pending" } }), 0);
-  assert.equal(await db.modelRequest.count(), 1);
+  assert.equal(await db.modelRequest.count(), 3);
   const { removeModel } = await import("@/lib/models/preferences");
   await removeModel(fallback);
+});
+
+test("every chat call is capped by the known output limit, else the 128K default, that its input leaves room for", async () => {
+  const sent: Array<number | undefined> = [];
+  const finish = { type: "finish" as const, finishReason: { unified: "stop" as const, raw: "stop" }, usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } } };
+  const provider = new MockLanguageModelV3({
+    doStream: async options => { sent.push(options.maxOutputTokens); return { stream: new ReadableStream({ start(controller) { controller.enqueue(finish); controller.close(); } }) }; },
+    doGenerate: async options => { sent.push(options.maxOutputTokens); return { content: [{ type: "text", text: "ok" }], finishReason: finish.finishReason, usage: finish.usage, warnings: [] }; },
+  });
+  const model = withModelCallSource("chat", () => observeLanguageModel(provider, CHAT_MODEL_REF, () => provider));
+  const prompt = [{ role: "user" as const, content: [{ type: "text" as const, text: "Write the full solution" }] }];
+  const drain = async () => { for await (const _part of (await model.doStream({ prompt })).stream) { /* consume */ } };
+
+  // A large window, so the cap reflects the output limit rather than the room left.
+  const seeded = await getModelPreferences();
+  await db.workspacePreference.update({ where: { id: "local" }, data: { settings: { ...seeded, library: seeded.library.map(row => row.modelId === CHAT_MODEL_REF.modelId ? { ...row, contextLength: 1_000_000 } : row) } } });
+  await drain(); await model.doGenerate({ prompt });
+  assert.deepEqual(sent.splice(0), [131_072, 131_072], "an unknown limit uses the 128K default");
+  await model.doGenerate({ prompt, maxOutputTokens: 512 });
+  assert.deepEqual(sent.splice(0), [512], "an explicit smaller cap is kept");
+
+  const preferences = await getModelPreferences();
+  // The library is catalog-owned, so the catalog values are seeded directly.
+  await db.workspacePreference.update({ where: { id: "local" }, data: { settings: { ...preferences, library: preferences.library.map(row => row.modelId === CHAT_MODEL_REF.modelId ? { ...row, contextLength: 1_000_000, maxOutputTokens: 100_000 } : row) } } });
+  await drain();
+  assert.deepEqual(sent.splice(0), [100_000], "the catalog limit is used in full, above the 8,192-token planning reservation");
+
+  const catalog = await getModelPreferences();
+  await saveModelPreferences({ ...catalog, contextLimits: { [`${CHAT_MODEL_REF.providerId}:${CHAT_MODEL_REF.modelId}`]: { contextLength: null, maxOutputTokens: 2048 } } });
+  await drain();
+  assert.deepEqual(sent.splice(0), [2048], "a configured limit lowers the cap");
+});
+
+test("a background call with no known limit is bounded by the planning reservation only when a monetary ceiling must price it", async () => {
+  const sent: Array<number | undefined> = [];
+  const provider = new MockLanguageModelV3({ doGenerate: async options => { sent.push(options.maxOutputTokens); return { content: [{ type: "text", text: "ok" }], finishReason: { unified: "stop", raw: "stop" }, usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } }, warnings: [] }; } });
+  const prompt = [{ role: "user" as const, content: [{ type: "text" as const, text: "Summarize the counts" }] }];
+  const scheduled = withModelCallSource("scheduled", () => observeLanguageModel(provider, CHAT_MODEL_REF, () => provider));
+  const seeded = await getModelPreferences();
+  await db.workspacePreference.update({ where: { id: "local" }, data: { settings: { ...seeded, library: seeded.library.map(row => row.modelId === CHAT_MODEL_REF.modelId ? { ...row, contextLength: 1_000_000 } : row) } } });
+  await scheduled.doGenerate({ prompt });
+  assert.deepEqual(sent.splice(0), [131_072]);
+  const preferences = await getModelPreferences();
+  await saveModelPreferences({ ...preferences, rates: { ...preferences.rates, [`${CHAT_MODEL_REF.providerId}:${CHAT_MODEL_REF.modelId}`]: { inputPerMillion: 1, outputPerMillion: 1, perRequest: null } }, callLimits: { ...preferences.callLimits, backgroundMaxEstimatedUsd: 10 } });
+  await scheduled.doGenerate({ prompt });
+  assert.deepEqual(sent.splice(0), [8192]);
+  const row = await db.modelRequest.findFirstOrThrow({ where: { source: "scheduled", estimatedUsd: { not: null } } });
+  assert.ok(row.estimatedUsd! > 0, "the bounded call is priced rather than refused as unknown");
+  const chat = withModelCallSource("chat", () => observeLanguageModel(provider, CHAT_MODEL_REF, () => provider));
+  await chat.doGenerate({ prompt });
+  assert.deepEqual(sent.splice(0), [131_072], "foreground calls keep the default");
+});
+
+const usage = (input: number, output: number) => ({ inputTokens: { total: input, noCache: input, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: output, text: output, reasoning: 0 } });
+function streamOf(parts: unknown[]) { return { stream: new ReadableStream({ start(controller) { for (const part of parts) controller.enqueue(part); controller.close(); } }) }; }
+const userPrompt = [{ role: "user" as const, content: [{ type: "text" as const, text: "Write the whole solution" }] }];
+type SeenPart = { type: string; id?: string; delta?: string; finishReason?: { unified: string }; usage?: ReturnType<typeof usage> };
+
+test("a text answer cut off by the output limit is continued into the same text part", async () => {
+  const { CONTINUE_INSTRUCTION } = await import("@/lib/models/continuation");
+  const prompts: unknown[] = [];
+  const provider = new MockLanguageModelV3({ doStream: async options => {
+    prompts.push(options.prompt);
+    return (prompts.length === 1
+      ? streamOf([{ type: "stream-start", warnings: [] }, { type: "text-start", id: "t" }, { type: "text-delta", id: "t", delta: "int main() {" }, { type: "text-end", id: "t" }, { type: "finish", finishReason: { unified: "length", raw: "length" }, usage: usage(100, 50) }])
+      : streamOf([{ type: "stream-start", warnings: [] }, { type: "reasoning-start", id: "r" }, { type: "reasoning-delta", id: "r", delta: "resume" }, { type: "reasoning-end", id: "r" },
+        { type: "text-start", id: "t" }, { type: "text-delta", id: "t", delta: " return 0; }" }, { type: "text-end", id: "t" }, { type: "finish", finishReason: { unified: "stop", raw: "stop" }, usage: usage(160, 20) }])) as never;
+  } });
+  const model = withModelCallSource("chat", () => observeLanguageModel(provider, CHAT_MODEL_REF, () => provider));
+  const parts: SeenPart[] = [];
+  for await (const part of (await model.doStream({ prompt: userPrompt })).stream) parts.push(part as never);
+  assert.equal(prompts.length, 2);
+  const second = JSON.stringify(prompts[1]);
+  assert.ok(second.includes("int main() {") && second.includes(CONTINUE_INSTRUCTION), "the continuation sees what was written");
+  assert.deepEqual(parts.filter(part => part.type === "text-delta").map(part => [part.id, part.delta]), [["t", "int main() {"], ["t", " return 0; }"]], "one text part carries the whole answer");
+  assert.equal(parts.filter(part => part.type === "text-start").length, 1);
+  assert.deepEqual(parts.filter(part => part.type === "text-end").map(part => part.id), ["t"]);
+  assert.ok(parts.findIndex(part => part.type === "reasoning-start") < parts.findIndex(part => part.type === "text-end"), "the text part stays open across the continuation's reasoning");
+  const finish = parts.filter(part => part.type === "finish");
+  assert.equal(finish.length, 1); assert.equal(finish[0].finishReason!.unified, "stop");
+  assert.equal(finish[0].usage!.inputTokens.total, 100, "input stays the step's own prompt");
+  assert.equal(finish[0].usage!.outputTokens.total, 70);
+  assert.equal(await db.modelRequest.count(), 2, "each request is admitted and recorded");
+});
+
+test("a cut-off tool call is never continued and continuations are bounded", async () => {
+  const { MAX_CONTINUATIONS } = await import("@/lib/models/continuation");
+  let calls = 0;
+  const truncatedTool = new MockLanguageModelV3({ doStream: async () => { calls++; return streamOf([{ type: "stream-start", warnings: [] }, { type: "text-start", id: "t" }, { type: "text-delta", id: "t", delta: "Editing" }, { type: "text-end", id: "t" },
+    { type: "tool-input-start", id: "c", toolName: "editFile" }, { type: "tool-input-delta", id: "c", delta: "{\"path\":" }, { type: "finish", finishReason: { unified: "length", raw: "length" }, usage: usage(10, 10) }]) as never; } });
+  const tool = withModelCallSource("chat", () => observeLanguageModel(truncatedTool, CHAT_MODEL_REF, () => truncatedTool));
+  const toolParts: SeenPart[] = [];
+  for await (const part of (await tool.doStream({ prompt: userPrompt })).stream) toolParts.push(part as never);
+  assert.equal(calls, 1); assert.equal(toolParts.at(-1)!.finishReason!.unified, "length");
+
+  calls = 0;
+  const endless = new MockLanguageModelV3({ doStream: async () => { calls++; return streamOf([{ type: "stream-start", warnings: [] }, { type: "text-start", id: "t" }, { type: "text-delta", id: "t", delta: "more " }, { type: "text-end", id: "t" }, { type: "finish", finishReason: { unified: "length", raw: "length" }, usage: usage(10, 10) }]) as never; } });
+  const model = withModelCallSource("chat", () => observeLanguageModel(endless, CHAT_MODEL_REF, () => endless));
+  const parts: SeenPart[] = [];
+  for await (const part of (await model.doStream({ prompt: userPrompt })).stream) parts.push(part as never);
+  assert.equal(calls, 1 + MAX_CONTINUATIONS);
+  assert.equal(parts.at(-1)!.finishReason!.unified, "length", "a still-incomplete answer keeps its length finish");
+});
+
+test("transient failures are retried after Retry-After, other failures and unattended calls are not", async () => {
+  let calls = 0;
+  const rateLimited = new MockLanguageModelV3({ doGenerate: async () => {
+    if (calls++ < 2) throw Object.assign(new Error("rate limited"), { statusCode: 429, responseHeaders: { "Retry-After": "0" } });
+    return { content: [{ type: "text", text: "ok" }], finishReason: { unified: "stop", raw: "stop" }, usage: usage(1, 1), warnings: [] };
+  } });
+  const chat = withModelCallSource("chat", () => observeLanguageModel(rateLimited, CHAT_MODEL_REF, () => rateLimited));
+  const started = Date.now();
+  await chat.doGenerate({ prompt: userPrompt });
+  assert.equal(calls, 3); assert.ok(Date.now() - started < 1000, "Retry-After: 0 is honoured instead of the backoff");
+  assert.deepEqual((await db.modelRequest.findMany({ orderBy: { createdAt: "asc" } })).map(row => row.status), ["error", "error", "success"]);
+
+  calls = 0;
+  const invalid = new MockLanguageModelV3({ doGenerate: async () => { calls++; throw Object.assign(new Error("bad request"), { statusCode: 400 }); } });
+  await assert.rejects(async () => withModelCallSource("chat", () => observeLanguageModel(invalid, CHAT_MODEL_REF, () => invalid)).doGenerate({ prompt: userPrompt }));
+  assert.equal(calls, 1);
+
+  calls = 0;
+  const unavailable = new MockLanguageModelV3({ doGenerate: async () => { calls++; throw Object.assign(new Error("unavailable"), { statusCode: 503 }); } });
+  await assert.rejects(async () => withModelCallSource("scheduled", () => observeLanguageModel(unavailable, CHAT_MODEL_REF, () => unavailable)).doGenerate({ prompt: userPrompt }));
+  assert.equal(calls, 1, "background attempts each spend the daily allowance");
+
+  const { retryDelay, MAX_RETRY_DELAY_MS } = await import("@/lib/models/model-retry");
+  assert.equal(retryDelay(Object.assign(new Error("slow down"), { statusCode: 429, responseHeaders: { "retry-after": String(MAX_RETRY_DELAY_MS / 1000 + 1) } }), 0), null, "a longer requested wait is not held");
+  assert.equal(retryDelay(Object.assign(new Error("missing"), { statusCode: 404 }), 0), null);
+  assert.equal(retryDelay(Object.assign(new Error("down"), { statusCode: 503 }), 2), null, "retries are bounded");
+});
+
+test("a streamed call ends when the provider goes quiet, not after a fixed total", async () => {
+  const { streamDeadline } = await import("@/lib/models/call-deadlines");
+  const deadline = streamDeadline(undefined, 50, 10_000);
+  for (let i = 0; i < 4; i++) { await new Promise(resolve => setTimeout(resolve, 30)); deadline.touch(); }
+  assert.equal(deadline.signal.aborted, false, "steady chunks keep a call alive past the idle window");
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.equal(deadline.signal.aborted, true);
+  assert.equal((deadline.signal.reason as DOMException).name, "TimeoutError");
+  deadline.dispose();
+  const cancelled = new AbortController(), linked = streamDeadline(cancelled.signal, 1000, 10_000);
+  cancelled.abort(); assert.equal(linked.signal.aborted, true); linked.dispose();
 });

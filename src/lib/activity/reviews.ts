@@ -78,7 +78,7 @@ export async function generateWorkspaceReview(period: "daily" | "weekly", timeZo
       const ref = await preferredModel("chat");
       const model = withModelCallSource("scheduled", () => getChatModel(ref));
       const facts = factsSchema.parse(review.facts);
-      const result = await callUpstream(() => withModelCallSource("scheduled", () => generateText({ model, maxRetries: 0, maxOutputTokens: 512, abortSignal: AbortSignal.timeout(60_000),
+      const result = await callUpstream(() => withModelCallSource("scheduled", () => generateText({ model, maxRetries: 0, abortSignal: AbortSignal.timeout(60_000),
         system: "Write two short Simplified Chinese sentences interpreting only the supplied recorded event counts. Do not invent activity, task completion dates, causes, source links or unrecorded facts. Partial coverage must be stated. This text is commentary; the deterministic report remains authoritative.",
         prompt: JSON.stringify({ timeZone: window.timeZone, startAt: window.startAt, endAt: window.endAt, counts: facts.counts, complete: facts.complete, coverageFrom: facts.coverageFrom }),
       })));

@@ -164,7 +164,9 @@ test("configured chat fallback runs through the real provider adapter and persis
   await expect(page.getByText("离线回答：OFFLINE_PRIMARY_FAILURE 测试备用模型", { exact: true })).toBeVisible();
   await expect.poll(async () => (await browserData(page, "/api/usage")).recent.filter((row: { fallback: boolean }) => row.fallback).length).toBe(1);
   const usage = await browserData(page, "/api/usage"); const backup = usage.recent.find((row: { fallback: boolean }) => row.fallback); expect(backup).toMatchObject({ modelId: "google/gemini-3-flash-preview", inputTokens: 10, outputTokens: 10, costSource: "configured", costUsd: 0.00006 });
-  expect(app.providerCalls.filter(call => call.stream)).toHaveLength(2);
+  // The primary's 503 is retried twice before the fallback answers; each attempt is recorded.
+  expect(app.providerCalls.filter(call => call.stream)).toHaveLength(4);
+  expect(usage.recent.filter((row: { fallback: boolean; status: string }) => !row.fallback && row.status === "error")).toHaveLength(3);
   await app.restart(); await page.goto(`${app.origin}/models`);
   await page.getByRole("button", { name: "查看调用明细", exact: true }).click();
   const usageDrawer = page.getByRole("dialog", { name: "模型调用明细", exact: true });
