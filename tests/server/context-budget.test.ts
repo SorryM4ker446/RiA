@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ModelMessage, UIMessage } from "ai";
 import { createHash } from "node:crypto";
-import { assertContextFits, contextBudget, estimateContextTokens, estimateTextTokens, requestOutputCap, DEFAULT_OUTPUT_LIMIT, MIN_CALIBRATION } from "@/lib/models/context-budget";
+import { assertContextFits, contextBudget, estimateContextTokens, estimateImageTokens, imageDimensions, estimateTextTokens, requestOutputCap, DEFAULT_OUTPUT_LIMIT, MIN_CALIBRATION } from "@/lib/models/context-budget";
 import { createStepContext, modelHistoryRecords } from "@/lib/chat/step-context";
 import { buildChatContext } from "@/lib/chat/context";
 import { summaryCapacity } from "@/lib/chat/task-summary";
@@ -259,4 +259,29 @@ test("the composer reads the latest valid context report, including scales below
   assert.equal(latest?.estimatedInputTokens, 50_000);
   assert.equal(latest?.budget.triggerTokens, budget.triggerTokens);
   assert.equal(latestContextReport([{ id: "x", role: "assistant", parts: [], metadata: { contextBudget: { checks: -1 } } }] as unknown as UIMessage[]), null);
+});
+
+test("images are estimated from their dimensions, other binary data per byte", () => {
+  const png = (width: number, height: number, bytes = 2_000_000) => {
+    const data = new Uint8Array(bytes);
+    data.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+    new DataView(data.buffer).setUint32(16, width); new DataView(data.buffer).setUint32(20, height);
+    return data;
+  };
+  const gif = new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x40, 0x01, 0xf0, 0x00, ...new Array(200).fill(0)]);
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0, 0, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x02, 0xd0, 0x05, 0x00, ...new Array(50_000).fill(0)]);
+  const webp = new Uint8Array(40); webp.set([...Buffer.from("RIFF"), 0, 0, 0, 0, ...Buffer.from("WEBPVP8X")]); webp.set([0x7f, 0x07, 0x00, 0x37, 0x04, 0x00], 24);
+  assert.deepEqual(imageDimensions(png(4000, 3000)), { width: 4000, height: 3000 });
+  assert.deepEqual(imageDimensions(gif), { width: 320, height: 240 });
+  assert.deepEqual(imageDimensions(jpeg), { width: 1280, height: 720 });
+  assert.deepEqual(imageDimensions(webp), { width: 1920, height: 1080 });
+  // A 4000x3000 photo is resized to 2048x1536 before encoding: thousands of tokens, not millions.
+  assert.equal(estimateImageTokens(png(4000, 3000)), Math.ceil(2048 * 1536 / 750));
+  assert.equal(estimateImageTokens(jpeg), Math.ceil(1280 * 720 / 750));
+  // A tiny file never costs more than its bytes; unknown data still counts per byte.
+  assert.equal(estimateImageTokens(gif), Math.ceil(320 * 240 / 750));
+  assert.equal(estimateImageTokens(png(4000, 3000, 1000)), 1000);
+  assert.equal(estimateImageTokens(new Uint8Array(5000)), 5000);
+  const photo = estimateContextTokens({ content: [{ type: "file", mediaType: "image/png", data: png(4000, 3000) }] });
+  assert.ok(photo < 5000, `photo estimated at ${photo}`);
 });

@@ -103,19 +103,58 @@ export function estimateTextTokens(text: string): number {
   return Math.ceil(tokens);
 }
 
+/** Width and height from a PNG, GIF, WebP or JPEG header; null for anything else. */
+export function imageDimensions(bytes: Uint8Array): { width: number; height: number } | null {
+  const u16 = (offset: number, little = false) => little ? bytes[offset] | bytes[offset + 1] << 8 : bytes[offset] << 8 | bytes[offset + 1];
+  const u24 = (offset: number) => bytes[offset] | bytes[offset + 1] << 8 | bytes[offset + 2] << 16;
+  const ascii = (offset: number, length: number) => String.fromCharCode(...bytes.subarray(offset, offset + length));
+  const result = (width: number, height: number) => width > 0 && height > 0 ? { width, height } : null;
+  if (bytes.length >= 24 && bytes[0] === 0x89 && ascii(1, 3) === "PNG") return result(u16(16) * 65536 + u16(18), u16(20) * 65536 + u16(22));
+  if (bytes.length >= 10 && ascii(0, 4) === "GIF8") return result(u16(6, true), u16(8, true));
+  if (bytes.length >= 30 && ascii(0, 4) === "RIFF" && ascii(8, 4) === "WEBP") {
+    const chunk = ascii(12, 4);
+    if (chunk === "VP8 ") return result(u16(26, true) & 0x3fff, u16(28, true) & 0x3fff);
+    if (chunk === "VP8L") return result(1 + ((bytes[22] & 0x3f) << 8 | bytes[21]), 1 + ((bytes[24] & 0x0f) << 10 | bytes[23] << 2 | (bytes[22] & 0xc0) >> 6));
+    if (chunk === "VP8X") return result(1 + u24(24), 1 + u24(27));
+    return null;
+  }
+  if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
+    for (let offset = 2; offset + 9 < bytes.length;) {
+      if (bytes[offset] !== 0xff) return null;
+      const marker = bytes[offset + 1];
+      // Start-of-frame markers carry the size; C4, C8 and CC are other tables.
+      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) return result(u16(offset + 7), u16(offset + 5));
+      offset += 2 + u16(offset + 2);
+    }
+  }
+  return null;
+}
+
+/**
+ * Upper-bound planning estimate for one image. Providers resize before
+ * encoding — the long edge is at most 2048 pixels for the common ones — and
+ * the largest per-pixel rate among them is about one token per 750 pixels.
+ */
+export function estimateImageTokens(bytes: Uint8Array): number {
+  const size = imageDimensions(bytes);
+  if (!size) return bytes.byteLength;
+  const shrink = Math.min(1, 2048 / Math.max(size.width, size.height));
+  return Math.min(bytes.byteLength, Math.ceil(size.width * shrink * size.height * shrink / 750));
+}
+
 /**
  * Serialized request text plus framing, times a calibration scale learned from
- * provider usage and bounded below by MIN_CALIBRATION. Binary attachments count
- * one token per byte: no local tokenizer can price provider-specific image or
- * document encoding.
+ * provider usage and bounded below by MIN_CALIBRATION. Images are priced from
+ * their dimensions; other binary attachments count one token per byte, since
+ * no local tokenizer can price provider-specific document encoding.
  */
 export function estimateContextTokens(value: unknown, scale = 1): number {
-  let binaryBytes = 0;
+  let binaryTokens = 0;
   const encoded = JSON.stringify(value, (_key, item) => {
-    if (item instanceof Uint8Array) { binaryBytes += item.byteLength; return `[binary attachment: ${item.byteLength} bytes]`; }
+    if (item instanceof Uint8Array) { binaryTokens += estimateImageTokens(item); return `[binary attachment: ${item.byteLength} bytes]`; }
     return item;
   });
-  return Math.ceil((estimateTextTokens(encoded ?? "") + binaryBytes + 256) * Math.max(MIN_CALIBRATION, scale));
+  return Math.ceil((estimateTextTokens(encoded ?? "") + binaryTokens + 256) * Math.max(MIN_CALIBRATION, scale));
 }
 
 export function assertContextFits(budget: ContextBudget, input: unknown, scale = 1) {

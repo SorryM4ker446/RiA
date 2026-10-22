@@ -66,9 +66,12 @@ UTF-8 byte, and characters outside the Basic Multilingual Plane count four. Each
 run is rounded up, so mixed-case random text such as base64 is not undercounted.
 Measured against the cl100k and o200k encodings, this overestimates prose, code
 and JSON by roughly 1.7-2x and Chinese by roughly 1.6x; the earlier UTF-8 byte
-count overestimated them 3-5x and 3x. Binary attachments still count one token
-per byte, so large images can reach the planning ceiling earlier than the actual
-provider limit. This is a planning estimate, not a provider tokenizer or billing
+count overestimated them 3-5x and 3x. Images (PNG, JPEG, GIF, WebP) are counted
+from their dimensions: scaled to a long edge of at most 2048 pixels, as common
+providers resize them, at one token per 750 pixels and never more than their
+byte size. A 4000x3000 photo therefore counts about 4,200 tokens instead of its
+millions of bytes. Other binary attachments still count one token per byte.
+This is a planning estimate, not a provider tokenizer or billing
 count, and provider-added hidden context cannot be counted locally.
 
 Within a tool loop, a step is measured from provider usage when it can be: while
