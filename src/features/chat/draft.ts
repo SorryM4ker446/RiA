@@ -1,3 +1,4 @@
+import { readRenamedStorageItem } from "@/lib/ui-preferences";
 import { t } from "@/lib/locale";
 import type { UploadableFilePart } from "@/features/chat/page-utils";
 
@@ -22,7 +23,9 @@ export type ChatDraft = {
   updatedAt: number;
 };
 
-const DRAFT_KEY_PREFIX = "private-ai.chat.draft.";
+const DRAFT_KEY_PREFIX = "ria.chat.draft.";
+/** The draft key prefix before the product was renamed RiA. */
+const LEGACY_DRAFT_KEY_PREFIX = "private-ai.chat.draft.";
 const MAX_TEXT = 40_000;
 const MAX_ATTACHMENTS = 4;
 // A draft older than this is treated as abandoned: re-opening a week-old
@@ -33,10 +36,14 @@ function getChatDraftKey(chatId: string) {
   return `${DRAFT_KEY_PREFIX}${chatId}`;
 }
 
+function getLegacyChatDraftKey(chatId: string) {
+  return `${LEGACY_DRAFT_KEY_PREFIX}${chatId}`;
+}
+
 export function readChatDraft(chatId: string | null): ChatDraft | null {
   if (!chatId || typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(getChatDraftKey(chatId));
+    const raw = readRenamedStorageItem(window.localStorage, getChatDraftKey(chatId), getLegacyChatDraftKey(chatId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<ChatDraft>;
     const text = typeof parsed.text === "string" ? parsed.text.slice(0, MAX_TEXT) : "";
@@ -59,6 +66,7 @@ export function readChatDraft(chatId: string | null): ChatDraft | null {
 export function writeChatDraft(chatId: string | null, draft: Omit<ChatDraft, "updatedAt">) {
   if (!chatId || typeof window === "undefined") return;
   try {
+    window.localStorage.removeItem(getLegacyChatDraftKey(chatId));
     if (!draft.text && draft.attachments.length === 0) {
       window.localStorage.removeItem(getChatDraftKey(chatId));
       return;
@@ -78,6 +86,7 @@ export function clearChatDraft(chatId: string | null) {
   if (!chatId || typeof window === "undefined") return;
   try {
     window.localStorage.removeItem(getChatDraftKey(chatId));
+    window.localStorage.removeItem(getLegacyChatDraftKey(chatId));
   } catch {
     // Nothing to do: a draft that cannot be cleared is overwritten on the next write.
   }
