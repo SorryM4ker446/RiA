@@ -24,6 +24,7 @@ import type { ManualToolSelection } from "@/features/chat/types";
 import type { ChatState } from "@/features/chat/use-chat-state";
 import { ModelMode } from "@/features/chat/page-utils";
 import type { ModelLibraryItem } from "@/lib/models/preferences-schema";
+import { ContextUsage } from "@/features/chat/context-usage";
 
 type Props = Pick<
   ChatState,
@@ -68,6 +69,7 @@ type Props = Pick<
   | "onModeSelect"
   | "onModelSelect"
   | "modelLibrary"
+  | "messages"
 >;
 export function Composer({
   onStop,
@@ -111,6 +113,7 @@ export function Composer({
   onModeSelect,
   onModelSelect,
   modelLibrary,
+  messages,
 }: Props) {
   useLocale();
   const isDocumentTool = modelMode === "chat" && ["readDocument", "convertDocument"].includes(selectedManualToolConfig?.id ?? "");
@@ -434,7 +437,7 @@ export function Composer({
                     ))}
                   </SelectContent>
                 </Select>
-
+                <ContextUsage messages={messages} />
               </>
             ) : null}
 

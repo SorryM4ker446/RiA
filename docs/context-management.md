@@ -30,10 +30,21 @@ up to the previous turn instead of missing the cache on every request.
 
 ## Request budgets
 
-Input budget is context capacity minus output reservation and a 5% safety margin.
+Input budget is context capacity minus output reservation and a safety margin of
+5% of the window, at most 32,768 tokens.
 The automatic output reservation is at most 8,192 tokens and at most a quarter
-of the context window. Explicit output settings still respect catalog output
-limits and leave input and safety space. The output cap is sent to the provider.
+of the context window. The reservation only sizes the input budget; it is not
+the cap sent to the provider. Each call is capped by the known output limit — the
+configured value, else the catalog value, never above the catalog — reduced only
+as far as that call's estimated input requires to stay within the window, and
+never below the reservation. When neither a configured nor a catalog output
+limit is known, a default of 131,072 tokens (128K, the per-call maximum of
+current frontier models) is used the same way, for any provider and model. A
+model whose real output limit is lower must have it configured, or the provider
+rejects the call. An internal call that asks for a smaller cap keeps it. The one
+exception is a scheduled background call while a background monetary ceiling is
+enabled: with no known limit, it is bounded by the reservation so it is not
+priced as a 128K-token answer.
 
 Counting uses a character-class estimate with request framing, covering system
 instructions, tool JSON schemas, messages, summaries, retrieval evidence and
@@ -49,19 +60,23 @@ per byte, so large images can reach the planning ceiling earlier than the actual
 provider limit. This is a planning estimate, not a provider tokenizer or billing
 count, and provider-added hidden context cannot be counted locally.
 
-Within a tool loop, the input tokens the provider reports for each step calibrate
-the later steps of the same stream. When the provider counts more than the
-estimate, the estimate is scaled up to match and is not scaled back down within
-that stream, so a model with a less efficient tokenizer compacts or refuses a
-later step instead of overflowing. The scale is saved in the execution details,
-including for turns that end in an error.
+Within a tool loop, a step is measured from provider usage when it can be: while
+nothing has been folded since the previous step, its size is the input tokens the
+provider reported for that step plus the calibrated estimate of the messages
+appended after it. The ratio the provider reports also calibrates the remaining
+estimates of the stream; it is raised to match a provider that counts more and
+is not lowered again within that stream, so a model with a less efficient
+tokenizer compacts or refuses a later step instead of overflowing. The scale is
+saved in the execution details, including for turns that end in an error.
 
 Each turn also records its largest provider-to-estimate ratio for the model. The
-largest of the model's last 20 recorded ratios, never below one, scales the
-first step of later requests, the history window and summary batching. Ratios
-below one are recorded too, so an outlier ages out. This per-model calibration is
-a planning cache in its own table: it is not backed up, and missing or unreadable
-data falls back to the uncalibrated estimate.
+largest of the model's last 20 recorded ratios scales the first step of later
+requests, the history window and summary batching. It can fall below one, since
+the local count deliberately overestimates, but never below 0.5, the documented
+bound of that overestimate; without recorded ratios the estimate is used
+unscaled. The heaviest recent content sets the scale, and an outlier ages out.
+This per-model calibration is a planning cache in its own table: it is not backed
+up, and missing or unreadable data falls back to the uncalibrated estimate.
 
 Earlier turns of the conversation may use half the input budget, measured in the
 same estimated tokens. Turns beyond that window are covered by the conversation
@@ -71,17 +86,49 @@ request as needed.
 Every chat model step checks its budget, including steps after terminal or other
 tool results. Before a pending approval is claimed or executed, the complete
 initial context is checked. The provider middleware checks every actual request
-again, including summaries and attempts to use a smaller fallback model.
+again, including summaries and attempts to use a smaller fallback model; as the
+callers measure more precisely, it refuses only input that cannot fit even at the
+lowest calibration, and sizes the output cap from the learned one.
 Capacity refusals do not automatically retry or replay tool calls.
 
-At roughly 75% of the input budget, completed older interactions are folded into
-a task handoff, targeting approximately 50% usage when the retained input allows
+At 90% of the input budget, completed older interactions are folded into
+a task handoff, targeting approximately 60% usage when the retained input allows
 it. The latest user request, the preceding user/assistant interaction, newest
 tool interaction, and pending protocol parts are retained. Packed tool histories
 can fold completed calls by exact identity while preserving a pending approval.
 An input that still cannot fit produces `CONTEXT_LIMIT`, not a generic invalid
 request-body error. Initial refusals return HTTP 413; refusals during a stream
 appear as a stream error and end the run with its saved partial evidence.
+
+When the provider itself refuses a chat step because its input exceeds the
+model's window, the local count was too low. The step's calibration is raised
+(by at least 1.25x and at most 2x), the usage anchor is dropped, every completed
+interaction is folded as above, and the step is sent once more. A second refusal
+of the same step, or an input that still cannot fit, ends the run as before.
+Recognised refusals are a 400 or 413 whose wording names the context length or
+window, or an OpenAI-style `context_length_exceeded` code; the DeepSeek adapter
+classifies its own refusal body and keeps only that flag, never the text. The
+execution details count these recoveries.
+
+### Compaction tool
+
+Chats also offer the built-in `compactContext` tool, including assistants with a
+restricted tool list: it grants no external capability. The model may call it
+when a phase of work is finished and its tool output is no longer needed
+verbatim, optionally naming a `focus` the handoff must keep. The fold itself runs
+in the per-step planner before the next step, through the same summarizer,
+compaction-call allowance and retention rules, but folds every completed
+interaction instead of stopping at the target. Each call is acted on once. It is
+not a manual tool, since it acts on a running chat.
+
+### Usage indicator
+
+Beside **自动工具** in the composer, a small ring and percentage show how much of
+the model's window the conversation's latest request used, from its saved
+execution details. It stays muted until usage nears the compaction trigger;
+hovering shows the token counts, the trigger and how often that request was
+compacted. Conversations without saved details, and image or video modes, show
+nothing.
 
 ## Task state and recovery
 
@@ -104,8 +151,11 @@ Older-turn summaries receive every stored tool call of each message, each in the
 same bounded record form the in-stream compactor uses, which keeps status, exit
 code, errors, diagnostics and file changes ahead of long output. Summarizer
 requests are themselves batched and bounded. Summary room follows the model's
-window: output is a thirty-second of the context window, between 2,048 and 8,192
-tokens and never above the model's output limit, and each batch may use a
+window: the requested handoff length is a thirty-second of the context window,
+between 2,048 and 8,192 tokens and never above the model's output limit. It is
+enforced by the stored state budget rather than by an output cap, so reasoning
+does not cut a handoff short; summary calls follow the chat output rule above.
+Each batch may use a
 quarter of the input budget, between 24,000 and 128,000 tokens. The timeout is
 60 seconds per 2,048 output tokens. A request may make at most **每次请求压缩调用上限**
 summary calls (default 20, in model call limits), shared by older-turn summaries
@@ -133,6 +183,9 @@ marks an execution failed with `output-limit` rather than declaring it complete.
   terminal access. See [terminal tools](terminal-tools.md).
 - Estimates are calibrated from provider-reported usage, which providers may omit;
   without it the first step relies on the character-class estimate alone.
+- Recovery from a provider's window refusal covers chat steps. Summary, tool
+  synthesis and continuation requests report such a refusal as a failure, and a
+  provider whose refusal wording is not recognised is treated as any other 400.
 - The latest mandatory input, active reasoning or approved command may exceed a
   small model's budget. Such requests are refused without shortening the command.
 - A process or service restart interrupts active work; it does not automatically

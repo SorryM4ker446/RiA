@@ -22,7 +22,7 @@ Each generation has a client UUID and a hash of the request. Repeating the same 
 
 Cancel stops the owned request and marks an unfinished record cancelled. A call already sent to a provider may still be charged; cancelling cannot undo a committed artifact. Navigating away aborts in-flight page work. On service restart, previously generating records become interrupted when read, without replaying the call. Model errors preserve failed records; active work prevents deleting its topic or artifact.
 
-Generation has a 60-second deadline, at most two simultaneous jobs in the single local service and one per topic, four generation requests per minute, 3,000 output tokens and 30,000 saved characters. History is bounded to 50 artifacts per topic and 200 overall; delete unneeded records before generating more. Conversation history displays the latest 50 topic conversations; older conversations remain accessible from the general history. No background queue or periodic polling is introduced.
+Generation ends when the model sends nothing for 60 seconds (reasoning counts as progress) or after ten minutes in total, at most two simultaneous jobs in the single local service and one per topic, four generation requests per minute and 30,000 saved characters; output is capped by the model's known output limit, or by the 128K default when none is known. History is bounded to 50 artifacts per topic and 200 overall; delete unneeded records before generating more. Conversation history displays the latest 50 topic conversations; older conversations remain accessible from the general history. No background queue or periodic polling is introduced.
 
 ## Upgrade and backup
 

@@ -6,9 +6,12 @@ import { acquireModelLease, getModelPreferences, modelInLibrary, withModelLease 
 import { canFallback, recordModelAttempt } from "@/lib/models/usage";
 import { modelCallSource } from "./call-context";
 import { beginModelAttempt } from "./call-controls";
-import { type ModelRef } from "@/lib/models/preferences-schema";
+import { type ModelPreferences, type ModelRef } from "@/lib/models/preferences-schema";
 import { modelRefKey } from "@/lib/models/preferences-schema";
-import { assertContextFits, contextBudget } from "./context-budget";
+import { assertContextFits, contextBudget, estimateContextTokens, MIN_CALIBRATION, requestOutputCap, type ContextBudget } from "./context-budget";
+import { contextCalibration } from "./context-calibration";
+import { retryDelay, waitForRetry } from "./model-retry";
+import { continueTruncated } from "./continuation";
 
 type Model = Extract<LanguageModel, { specificationVersion: "v3" }>;
 type Embed = Extract<EmbeddingModel, { specificationVersion: "v3" }>;
@@ -19,26 +22,50 @@ type Part = StreamResult["stream"] extends ReadableStream<infer T> ? T : never;
 export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (ref: ModelRef) => Model) {
   const modelRef = ref;
   const callSource = modelCallSource();
-  return wrapLanguageModel({ model, middleware: {
+  // Unattended calls spend a daily allowance per submitted attempt and are not retried.
+  const retriable = callSource !== "scheduled";
+  // A background call under a monetary ceiling is priced from its output cap. An
+  // assumed default limit would price every unattended call as its maximum, so
+  // with no known limit such a call is bounded by the planning reservation.
+  const pricedCap = (cap: number, capacity: ContextBudget, limits: ModelPreferences["callLimits"]) =>
+    capacity.outputLimit === null && callSource === "scheduled" && (limits.backgroundMaxEstimatedUsd !== null || limits.backgroundDailyEstimatedUsd !== null) ? Math.min(cap, capacity.outputTokens) : cap;
+  /**
+   * The output cap for one attempt on `target`. Callers that plan context (the
+   * chat step manager, summaries) measure input more precisely, so this gate
+   * refuses only input that cannot fit even at the lowest calibration. The cap
+   * is sized from the learned calibration, which never understates the input.
+   */
+  const plannedCap = async (target: ModelRef, params: { prompt: unknown; tools?: unknown; maxOutputTokens?: number }) => {
+    const settings = await getModelPreferences();
+    const capacity = contextBudget(await modelInLibrary("chat", target), settings.contextLimits[modelRefKey(target)]);
+    const input = { prompt: params.prompt, tools: params.tools };
+    assertContextFits(capacity, input, MIN_CALIBRATION);
+    const estimated = estimateContextTokens(input, await contextCalibration(target));
+    return pricedCap(requestOutputCap(capacity, params.maxOutputTokens, estimated), capacity, settings.callLimits);
+  };
+  const wrapped: Model = wrapLanguageModel({ model, middleware: {
     specificationVersion: "v3",
     async wrapGenerate({ doGenerate, params }) {
-      const settings = await getModelPreferences();
-      const capacity = contextBudget(await modelInLibrary("chat", modelRef), settings.contextLimits[modelRefKey(modelRef)]);
-      params.maxOutputTokens = Math.min(params.maxOutputTokens ?? capacity.outputTokens, capacity.outputTokens);
-      assertContextFits(capacity, { prompt: params.prompt, tools: params.tools });
+      params.maxOutputTokens = await plannedCap(modelRef, params);
       const context = dataRequestContext();
-      const started = Date.now();
-      let admission: Awaited<ReturnType<typeof beginModelAttempt>> | undefined;
-      try {
-        const result = await withModelLease("chat", modelRef, async () => {
-          admission = await beginModelAttempt({ mode: "chat", ref: modelRef, source: callSource, prompt: params.prompt, maxOutputTokens: params.maxOutputTokens, signal: params.abortSignal });
-          return doGenerate();
-        });
-        if (admission) await recordModelAttempt({ attemptId: admission.id, requestId: context?.requestId, mode: "chat", modelId: modelRef.modelId, modelProvider: modelRef.providerId, started, usage: result.usage, metadata: result.providerMetadata, rate: admission.rate });
-        return result;
-      } catch (error) {
-        if (admission) await recordModelAttempt({ attemptId: admission.id, requestId: context?.requestId, mode: "chat", modelId: modelRef.modelId, modelProvider: modelRef.providerId, started, error });
-        throw error;
+      // A generated result is delivered whole, so any failure precedes output
+      // and a transient one is retried as its own admitted, recorded attempt.
+      for (let retries = 0; ; retries++) {
+        const started = Date.now();
+        let admission: Awaited<ReturnType<typeof beginModelAttempt>> | undefined;
+        try {
+          const result = await withModelLease("chat", modelRef, async () => {
+            admission = await beginModelAttempt({ mode: "chat", ref: modelRef, source: callSource, prompt: params.prompt, maxOutputTokens: params.maxOutputTokens, signal: params.abortSignal });
+            return doGenerate();
+          });
+          if (admission) await recordModelAttempt({ attemptId: admission.id, requestId: context?.requestId, mode: "chat", modelId: modelRef.modelId, modelProvider: modelRef.providerId, started, usage: result.usage, metadata: result.providerMetadata, rate: admission.rate });
+          return result;
+        } catch (error) {
+          if (admission) await recordModelAttempt({ attemptId: admission.id, requestId: context?.requestId, mode: "chat", modelId: modelRef.modelId, modelProvider: modelRef.providerId, started, error });
+          const delay = admission && retriable ? retryDelay(error, retries, params.abortSignal) : null;
+          if (delay === null) throw error;
+          await waitForRetry(delay, params.abortSignal);
+        }
       }
     },
     async wrapStream({ params }) {
@@ -52,7 +79,9 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
       const fallbackModel = fallback ? await modelInLibrary("chat", fallback) : null;
       if (params.tools?.length || !fallback || !fallbackModel || (fallback.providerId === modelRef.providerId && fallback.modelId === modelRef.modelId) || (hasImages && !fallbackModel.supportsImageInput)) fallback = null;
       const candidates = [modelRef, ...(fallback ? [fallback] : [])];
-      for (let attempt = 0; attempt < candidates.length; attempt++) {
+      // Each candidate is retried after a transient failure before the next is
+      // tried. Only failures before any part reaches the caller get here.
+      for (let attempt = 0, retries = 0; ;) {
         const selected = candidates[attempt], started = Date.now();
         let reader: ReadableStreamDefaultReader<Part> | undefined;
         let finished: Extract<Part, { type: "finish" }> | undefined;
@@ -71,10 +100,7 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
         try {
           const lease = await acquireModelLease("chat", selected);
           releaseLease = lease.release;
-          const currentSettings = await getModelPreferences();
-          const capacity = contextBudget(await modelInLibrary("chat", selected), currentSettings.contextLimits[modelRefKey(selected)]);
-          const selectedParams = { ...params, maxOutputTokens: Math.min(params.maxOutputTokens ?? capacity.outputTokens, capacity.outputTokens) };
-          assertContextFits(capacity, { prompt: selectedParams.prompt, tools: selectedParams.tools });
+          const selectedParams = { ...params, maxOutputTokens: await plannedCap(selected, params) };
           admission = await beginModelAttempt({ mode: "chat", ref: selected, source: callSource, prompt: selectedParams.prompt, maxOutputTokens: selectedParams.maxOutputTokens, fallback: attempt > 0, signal: params.abortSignal });
           const result = await (attempt ? alternate(selected) : model).doStream(selectedParams);
           reader = result.stream.getReader();
@@ -92,7 +118,7 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
           }
           const source = reader;
           let cancelled = false;
-          return { ...result, stream: new ReadableStream<Part>({
+          const observed = new ReadableStream<Part>({
             start(controller) { for (const part of buffered) controller.enqueue(part); },
             async pull(controller) {
               try {
@@ -110,17 +136,23 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
               }
             },
             async cancel(reason) { cancelled = true; try { await source.cancel(reason); } finally { source.releaseLock(); await record(new DOMException("Cancelled", "AbortError")); } },
-          }) };
+          });
+          // A continuation is a call of its own through this same wrapper:
+          // admitted, recorded, retried and context-checked like any other.
+          return { ...result, stream: continueTruncated(observed, params, next => wrapped.doStream(next)) };
         } catch (error) {
           try { await reader?.cancel(); } catch { /* Preserve the original provider failure. */ }
           reader?.releaseLock();
           await record(error);
+          const delay = admission && retriable ? retryDelay(error, retries, params.abortSignal) : null;
+          if (delay !== null) { retries++; await waitForRetry(delay, params.abortSignal); continue; }
           if (attempt + 1 >= candidates.length || !canFallback(error, params.abortSignal)) throw error;
+          attempt++; retries = 0;
         }
       }
-      throw new Error("No model candidate");
     },
   } });
+  return wrapped;
 }
 
 export function observeEmbeddingModel(model: Embed, ref: ModelRef) {

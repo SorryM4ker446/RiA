@@ -685,7 +685,7 @@ export const interfaceMessages = {
   "ui.knowledge.retrieval-evaluation.runEvaluation": "运行评测",
   "ui.knowledge.retrieval-evaluation.cancelEvaluation": "取消评测",
   "ui.knowledge.retrieval-evaluation.downloadEvaluationReport": "下载评测报告",
-  "ui.knowledge.retrieval-evaluation.evaluatingQuestionsUpToTwoMinutes": "正在逐题评测，最多运行两分钟…",
+  "ui.knowledge.retrieval-evaluation.evaluatingQuestionsUpToThirtyMinutes": "正在逐题评测，最多运行三十分钟…",
   "ui.knowledge.retrieval-evaluation.evaluationComplete": "评测完成：",
   "ui.knowledge.retrieval-evaluation.questionsSucceeded": "题成功 ·",
   "ui.knowledge.retrieval-evaluation.noAnswerGenerated": " · 未生成回答",

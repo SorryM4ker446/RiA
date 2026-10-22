@@ -163,16 +163,17 @@ expectations produce null metrics. Expected facts, filenames and typed expectati
 never reach the answer-generation prompt. Facts and expectations are supplied only
 to the separate judge. Per-case failures retain retrieved
 evidence and report a failure instead of fabricating an answer. Calls are sequential,
-have no SDK retries, and obey existing model admission, fallback and usage recording.
+use the foreground retry rule for transient provider failures, and obey existing model admission, fallback and usage recording.
 Attempts appear under embedding and tool usage; costs are unknown unless the provider
 or configured rates report them, not assumed free. The report's model names the
 requested model; `responseModelId` and usage records identify actual responses.
 
-The endpoint allows two runs/minute, caps the request at two minutes and each
-answer/judge call at thirty seconds, and propagates cancellation. Judge output is
-bounded to 6,000 tokens and answer output to 1,500. Twelve questions can exceed the
-overall deadline, especially with review enabled; use smaller batches rather than
-expecting every maximum-sized run to finish. Already-sent calls may
+The endpoint allows two runs/minute, caps the request at thirty minutes and each
+answer/judge call at five minutes, and propagates cancellation. Answer and judge
+output follow the general model output rule: the known output limit, or the
+128K default when none is known, so reasoning models are not cut short.
+Long batches with reasoning models can still exceed the overall deadline; use
+smaller batches rather than expecting every maximum-sized run to finish. Already-sent calls may
 still be charged. A cancelled run yields no completed report. Reports are kept in
 page state and may be explicitly downloaded as JSON; exports contain questions,
 source excerpts and answers. They are not automatically written to the workspace.

@@ -62,7 +62,7 @@ test("a running snapshot blocks restore, records one billed attempt and persists
   let requestId: string | undefined;
   let prompt = "";
   const model = new MockLanguageModelV3({ doGenerate: async options => {
-    assert.equal(options.maxOutputTokens, 512);
+    assert.ok(options.maxOutputTokens! > 8192 && options.maxOutputTokens! <= 131_072, "the default limit, within the window, applies without a monetary ceiling");
     assert.ok(options.abortSignal);
     requestId = dataRequestContext()?.requestId;
     prompt = JSON.stringify(options.prompt);

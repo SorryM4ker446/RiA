@@ -1,3 +1,4 @@
+import { isContextOverflow } from "@/lib/models/context-overflow";
 import { z } from "zod";
 import { APICallError, InvalidResponseDataError, type LanguageModelV3, type LanguageModelV3CallOptions, type LanguageModelV3Content, type LanguageModelV3FinishReason, type LanguageModelV3GenerateResult, type LanguageModelV3Prompt, type LanguageModelV3StreamPart, type LanguageModelV3ToolResultOutput, type LanguageModelV3Usage, type SharedV3Warning } from "@ai-sdk/provider";
 import { createEventSourceResponseHandler, postJsonToApi } from "@ai-sdk/provider-utils";
@@ -322,16 +323,25 @@ function createDeepSeekChatModel(options: { modelId: string; getApiKey: () => st
       // the request, and this application records no prompt text anywhere. The
       // status code is kept, because that is what the retry and fallback rules
       // are written against.
-      failedResponseHandler: async ({ response, url, requestBodyValues }) => ({
-        value: new APICallError({
-          message: `DeepSeek request failed with status ${response.status}`,
-          url,
-          requestBodyValues,
-          statusCode: response.status,
-          isRetryable: response.status === 429 || response.status >= 500,
-        }),
-        responseHeaders: Object.fromEntries(response.headers.entries()),
-      }),
+      failedResponseHandler: async ({ response, url, requestBodyValues }) => {
+        // The body is read only to classify a context-window refusal, which
+        // the application recovers from by compacting; its text is not kept.
+        const body = response.status === 400 || response.status === 413 ? await response.text().catch(() => "") : "";
+        const contextOverflow = isContextOverflow({ statusCode: response.status, message: body });
+        return {
+          value: new APICallError({
+            message: `DeepSeek request failed with status ${response.status}`,
+            url,
+            requestBodyValues,
+            statusCode: response.status,
+            // Headers carry Retry-After for the retry delay; no body text is kept.
+            responseHeaders: Object.fromEntries(response.headers.entries()),
+            isRetryable: response.status === 429 || response.status >= 500,
+            ...(contextOverflow ? { data: { contextOverflow: true } } : {}),
+          }),
+          responseHeaders: Object.fromEntries(response.headers.entries()),
+        };
+      },
       successfulResponseHandler: stream
         ? createEventSourceResponseHandler(completionChunk)
         : createJsonResponseHandler(),

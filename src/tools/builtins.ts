@@ -1,5 +1,7 @@
+import { COMPACT_CONTEXT_TOOL } from "@/lib/chat/compact-context";
 import { withModelCallSource } from "@/lib/models/call-context";
-import { generateText, Output } from "ai";
+import { generateText, Output, streamText } from "ai";
+import { MODEL_CALL_DEADLINE_MS, streamDeadline } from "@/lib/models/call-deadlines";
 import { z } from "zod";
 import { ApiError, normalizeApiError } from "@/lib/server/api-error";
 import { getChatModel } from "@/lib/ai/client";
@@ -67,11 +69,12 @@ async function buildSearchAssistantText(params: {
   try {
     const selectedModel = await preferredModel("chat", modelRef);
     const providerOptions = await reasoningOptionsFor(selectedModel);
-    const answer = await withModelCallSource("tool", () => generateText({
+    const deadline = streamDeadline(params.signal);
+    const answer = withModelCallSource("tool", () => streamText({
       model: getChatModel(selectedModel),
       ...(providerOptions ? { providerOptions } : {}),
       system: SEARCH_ANSWER_SYSTEM,
-      maxRetries: 0, maxOutputTokens: 1024, abortSignal: params.signal ? AbortSignal.any([params.signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000),
+      maxRetries: 0, abortSignal: deadline.signal, onChunk: deadline.touch, onError: () => undefined,
       prompt: [
         `User question: ${result.query}`,
         "",
@@ -82,7 +85,7 @@ async function buildSearchAssistantText(params: {
       ].join("\n"),
     }));
 
-    const text = answer.text.trim();
+    const text = (await Promise.resolve(answer.text).finally(deadline.dispose)).trim();
     if (text) return text;
   } catch {
     // Fallback to deterministic summary when synthesis fails.
@@ -145,8 +148,7 @@ async function resolveWebSearchInput(params: {
     prompt: JSON.stringify({ query: params.input.query, ...(limit ? { providerResultLimit: limit } : {}) }),
     output: Output.object({ schema: z.object({ maxResults: limit ? count.max(limit) : count }) }),
     maxRetries: 0,
-    maxOutputTokens: 1024,
-    abortSignal: params.signal ? AbortSignal.any([params.signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000),
+    abortSignal: params.signal ? AbortSignal.any([params.signal, AbortSignal.timeout(MODEL_CALL_DEADLINE_MS)]) : AbortSignal.timeout(MODEL_CALL_DEADLINE_MS),
   }));
   return { ...params.input, maxResults: plan.output.maxResults };
 }
@@ -174,11 +176,12 @@ async function buildWebSearchAssistantText(params: {
   try {
     const selectedModel = await preferredModel("chat", modelRef);
     const providerOptions = await reasoningOptionsFor(selectedModel);
-    const answer = await withModelCallSource("tool", () => generateText({
+    const deadline = streamDeadline(params.signal);
+    const answer = withModelCallSource("tool", () => streamText({
       model: getChatModel(selectedModel),
       ...(providerOptions ? { providerOptions } : {}),
       system: WEB_ANSWER_SYSTEM,
-      maxRetries: 0, maxOutputTokens: 1024, abortSignal: params.signal ? AbortSignal.any([params.signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000),
+      maxRetries: 0, abortSignal: deadline.signal, onChunk: deadline.touch, onError: () => undefined,
       prompt: [
         `User question: ${result.query}`,
         "",
@@ -189,7 +192,7 @@ async function buildWebSearchAssistantText(params: {
       ].join("\n"),
     }));
 
-    const text = answer.text.trim();
+    const text = (await Promise.resolve(answer.text).finally(deadline.dispose)).trim();
     if (text) return text;
   } catch (error) {
     console.warn("webSearch synthesis failed", normalizeApiError(error).code);
@@ -384,6 +387,21 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
         };
       },
     },
+  },
+  [COMPACT_CONTEXT_TOOL]: {
+    id: COMPACT_CONTEXT_TOOL,
+    displayName: t("tools.compactContext.displayName"),
+    description: t("tools.compactContext.description"),
+    modelDescription:
+      "Fold the completed earlier work of this conversation into a concise task handoff before your next step, freeing context. The application already does this automatically near the context limit; call it yourself when a phase of work is finished and its tool output (logs, file contents, search results) is no longer needed verbatim, or before starting a large new phase. Pass focus to name what the handoff must keep, such as decisions, file paths or failing tests. The latest user request, your most recent interaction and pending approvals are always kept. Do not call it repeatedly, in a short conversation, or while you still need exact earlier output.",
+    modeSupport: ["chat"],
+    manual: { enabled: false, label: "", placeholder: "", submitLabel: "", primaryFieldKey: "focus", primaryFieldLabel: "", fields: [] },
+    inputSchema: z.strictObject({ focus: z.string().trim().max(2000).optional().describe("What the handoff must keep, in a sentence or two.") }),
+    // The fold itself happens where context is planned, before the next step;
+    // this result only acknowledges the request in the transcript.
+    execute: async () => ({ status: "scheduled" as const }),
+    buildAssistantText: () => t("tools.compactContext.scheduled"),
+    memory: { enabled: false, minQuality: 1, summarize: () => null },
   },
   webSearch: {
     id: "webSearch",

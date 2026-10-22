@@ -244,7 +244,8 @@ test("chat fallback is opt-in, records both attempts and only happens before out
   assert.equal((await languageCall()).backupCalls,0);
   const settings=await getModelPreferences();settings.chat.fallback=ref("google/gemini-3-flash-preview");await saveModelPreferences(settings);
   const result=await languageCall();assert.equal(result.backupCalls,1);await payload(result.response);
-  const summary=await usageSummary();assert.equal(summary.totals.requests,3);assert.equal(summary.recent.filter(row=>row.fallback).length,1);
+  // Each primary failure is retried twice before the fallback: 3 attempts, then 3 more and the backup.
+  const summary=await usageSummary();assert.equal(summary.totals.requests,7);assert.equal(summary.recent.filter(row=>row.fallback).length,1);
   const backupRow=summary.recent.find(row=>row.fallback);
   assert.equal(backupRow.inputTokens,10);
   // Usage is recorded against the provider-qualified pair, so the log says

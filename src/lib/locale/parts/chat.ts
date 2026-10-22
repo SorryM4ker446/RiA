@@ -47,6 +47,10 @@ export const chatMessages = {
   // --- composer ----------------------------------------------------------
   "chat.composer.toolSelectLabel": "选择工具",
   "chat.composer.toolAutoOption": "自动工具",
+  "chat.composer.contextUsageLabel": "上下文已用约 {percent}%",
+  "chat.composer.contextUsageDetail": "上次请求约 {used} / {window} tokens",
+  "chat.composer.contextUsageTrigger": "达到约 {percent}% 时自动压缩较早的已完成工作",
+  "chat.composer.contextUsageCompacted": "上次请求已压缩 {count} 次",
   "chat.composer.manualOnly": "仅手动",
   "chat.composer.toolCatalogError": "工具目录加载失败：{detail}",
   "chat.composer.noManualTools": "模型会按需要自动调用已启用的工具。",

@@ -28,6 +28,7 @@ const VALID_INPUTS: Record<string, unknown> = {
   saveMemory: { key: "units", value: "metric" },
   searchKnowledge: { query: "notes" },
   createTask: { title: "buy milk" },
+  compactContext: { focus: "keep the failing test name" },
   webSearch: { query: "weather" },
   listLocalFiles: { grantId: "grant-1", path: "" },
   readLocalFile: { grantId: "grant-1", path: "notes.md" },

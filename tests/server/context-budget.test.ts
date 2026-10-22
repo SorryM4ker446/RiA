@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ModelMessage, UIMessage } from "ai";
 import { createHash } from "node:crypto";
-import { assertContextFits, contextBudget, estimateContextTokens, estimateTextTokens } from "@/lib/models/context-budget";
+import { assertContextFits, contextBudget, estimateContextTokens, estimateTextTokens, requestOutputCap, DEFAULT_OUTPUT_LIMIT, MIN_CALIBRATION } from "@/lib/models/context-budget";
 import { createStepContext, modelHistoryRecords } from "@/lib/chat/step-context";
 import { buildChatContext } from "@/lib/chat/context";
 import { summaryCapacity } from "@/lib/chat/task-summary";
@@ -24,6 +24,28 @@ test("model capacity uses catalog limits, configurable reductions, and a labelle
   const legacy = defaultModelPreferences(); delete (legacy as Partial<typeof legacy>).contextLimits;
   assert.deepEqual(preferencesSchema.parse(legacy).contextLimits, {});
   assert.equal(preferencesSchema.safeParse({ ...legacy, contextLimits: { "openrouter:test/model": { contextLength: 0, maxOutputTokens: 1 } } }).success, false);
+});
+
+test("the sent output cap uses the known limit, else the default, that the input leaves room for", () => {
+  const unknown = contextBudget({ contextLength: 1_000_000 });
+  assert.equal(unknown.outputLimit, null);
+  assert.equal(unknown.outputTokens, 8192, "the planning reservation is unchanged");
+  assert.equal(requestOutputCap(unknown, undefined, 10_000), DEFAULT_OUTPUT_LIMIT);
+  assert.equal(DEFAULT_OUTPUT_LIMIT, 131_072);
+  assert.equal(requestOutputCap(unknown, undefined, 900_000), 1_000_000 - unknown.safetyTokens - 900_000, "the default also stays within the window");
+  assert.equal(requestOutputCap(unknown, 512, 10_000), 512, "an explicit caller cap is kept");
+
+  const catalog = contextBudget({ contextLength: 200_000, maxOutputTokens: 128_000 });
+  assert.equal(catalog.outputTokens, 8192); assert.equal(catalog.outputLimit, 128_000);
+  assert.equal(requestOutputCap(catalog, undefined, 10_000), 128_000);
+  const crowded = requestOutputCap(catalog, undefined, 150_000)!;
+  assert.equal(crowded, 200_000 - catalog.safetyTokens - 150_000, "input and output stay within the window");
+  assert.equal(requestOutputCap(catalog, undefined, catalog.inputTokens), catalog.outputTokens, "never below the reservation");
+  assert.equal(requestOutputCap(catalog, 1024, 10_000), 1024);
+
+  const configured = contextBudget({ contextLength: 200_000, maxOutputTokens: 128_000 }, { maxOutputTokens: 300_000 });
+  assert.equal(configured.outputLimit, 128_000, "configuration cannot exceed the catalog limit");
+  assert.equal(contextBudget({ contextLength: 200_000 }, { maxOutputTokens: 64_000 }).outputLimit, 64_000);
 });
 
 test("input accounting includes system prompts, tools, unicode, and attachments", () => {
@@ -49,7 +71,8 @@ test("the character-class estimate stays below byte counting for text yet never 
   const random = Array.from({ length: 200 }, (_, index) => createHash("sha256").update(String(index)).digest("base64")).join("");
   assert.ok(estimateTextTokens(random) >= random.length * 0.7);
   assert.equal(estimateContextTokens("abc", 2), 2 * estimateContextTokens("abc"));
-  assert.equal(estimateContextTokens("abc", 0.5), estimateContextTokens("abc"), "calibration never scales below the estimate");
+  assert.equal(estimateContextTokens("abc", 0.5), Math.ceil(estimateContextTokens("abc") * 0.5), "provider usage can lower the estimate");
+  assert.equal(estimateContextTokens("abc", 0.1), estimateContextTokens("abc", MIN_CALIBRATION), "but never below the documented overestimate");
   assert.equal(contextBudget().counting, "character-class-estimate");
 });
 
@@ -94,10 +117,21 @@ test("provider-reported input usage raises later step estimates for the stream a
   assert.ok(manager.report.usageCalibration > 4.9);
 });
 
+test("later steps of a stream are measured from the provider's reported input plus the appended messages", async () => {
+  const messages = [user, ...block("one")];
+  const manager = createStepContext({ budget: contextBudget({ contextLength: 200_000 }), system: "system", calibration: 0.5, summarize: async () => "state" });
+  await manager.prepare(messages);
+  assert.equal(manager.report.usageCalibration, 0.5, "a learned scale below one applies from the first step");
+  manager.observeUsage(1234);
+  const appended = block("two");
+  await manager.prepare([...messages, ...appended]);
+  assert.equal(manager.report.estimatedInputTokens, 1234 + estimateContextTokens(appended, manager.report.usageCalibration));
+});
+
 test("successive tool steps compact completed pairs while preserving the user and newest protocol verbatim", async () => {
   const messages = [user, ...block("one"), ...block("two")];
   const original = structuredClone(messages), folded: string[][] = [];
-  const manager = createStepContext({ budget: contextBudget({ contextLength: 12_000 }), system: "Follow user constraints.",
+  const manager = createStepContext({ budget: contextBudget({ contextLength: 10_000 }), system: "Follow user constraints.",
     summarize: async (records, previous) => { folded.push(records); return previous + "\nAPI unchanged. src/math.ts has TS2304; tests failed; next fix and verify."; } });
   const first = await manager.prepare(messages);
   assert.equal(first.messages.at(-3), user);
@@ -114,7 +148,7 @@ test("successive tool steps compact completed pairs while preserving the user an
 });
 
 test("compression failures retain labelled bounded evidence without replaying tool calls", async () => {
-  const manager = createStepContext({ budget: contextBudget({ contextLength: 12_000 }), system: "system", summarize: async () => { throw new Error("summary unavailable"); } });
+  const manager = createStepContext({ budget: contextBudget({ contextLength: 10_000 }), system: "system", summarize: async () => { throw new Error("summary unavailable"); } });
   const messages = [user, ...block("failed"), ...block("current")];
   const result = await manager.prepare(messages);
   assert.equal(manager.report.degraded, true);
@@ -129,7 +163,7 @@ test("pending approvals and their complete input are never shortened to force a 
     { type: "tool-call", toolName: "runTerminalCommand", toolCallId: "pending", input: { command: "0".repeat(16_000) } },
     { type: "tool-approval-request", approvalId: "approve", toolCallId: "pending" },
   ] };
-  const manager = createStepContext({ budget: contextBudget({ contextLength: 12_000 }), system: "system", summarize: async () => "summary" });
+  const manager = createStepContext({ budget: contextBudget({ contextLength: 10_000 }), system: "system", summarize: async () => "summary" });
   const messages = [user, ...block("completed"), pending];
   await assert.rejects(manager.prepare(messages), { code: "CONTEXT_LIMIT" });
   assert.equal(JSON.stringify(pending).includes("0".repeat(16_000)), true);
@@ -139,7 +173,7 @@ test("pending approvals and their complete input are never shortened to force a 
 test("cancellation during compaction leaves source messages intact and prevents the next request", async () => {
   const controller = new AbortController();
   const messages = [user, ...block("one"), ...block("two")], original = structuredClone(messages);
-  const manager = createStepContext({ budget: contextBudget({ contextLength: 12_000 }), system: "system", signal: controller.signal,
+  const manager = createStepContext({ budget: contextBudget({ contextLength: 10_000 }), system: "system", signal: controller.signal,
     summarize: async () => { controller.abort(); return "obsolete summary"; } });
   await assert.rejects(manager.prepare(messages), { name: "AbortError" });
   assert.equal(manager.report.compactions, 0);
@@ -157,7 +191,7 @@ test("completed calls packed beside a pending approval can be folded by identity
     { type: "tool-approval-response", approvalId: "approval", approved: true },
   ] as Extract<ModelMessage, { role: "tool" }>["content"] }];
   const source = structuredClone(messages);
-  const manager = createStepContext({ budget: contextBudget({ contextLength: 12_000 }), system: "system", summarize: async records => {
+  const manager = createStepContext({ budget: contextBudget({ contextLength: 10_000 }), system: "system", summarize: async records => {
     assert.match(records.join("\n"), /TS2304 old/); return "Task state: previous build failed. Next: execute the approved exact command.";
   } });
   const prepared = await manager.prepare(messages);
@@ -165,4 +199,64 @@ test("completed calls packed beside a pending approval can be folded by identity
   assert.match(JSON.stringify(prepared.messages), /tool-approval-response/);
   assert.doesNotMatch(JSON.stringify(prepared.messages), /progress/);
   assert.deepEqual(messages, source);
+});
+
+test("a compactContext request folds completed work below the trigger, once, keeping its focus", async () => {
+  const { COMPACT_CONTEXT_TOOL } = await import("@/lib/chat/compact-context");
+  const folded: { records: string[]; focus?: string }[] = [];
+  const manager = createStepContext({ budget: contextBudget({ contextLength: 1_000_000 }), system: "system",
+    summarize: async (records, _previous, focus) => { folded.push({ records, focus }); return "Phase one done: TS2304 fixed in src/math.ts."; } });
+  const request: ModelMessage[] = [
+    { role: "assistant", content: [{ type: "tool-call", toolName: COMPACT_CONTEXT_TOOL, toolCallId: "compact", input: { focus: "keep the failing test name" } }] },
+    { role: "tool", content: [{ type: "tool-result", toolName: COMPACT_CONTEXT_TOOL, toolCallId: "compact", output: { type: "json", value: { status: "scheduled" } } }] },
+  ];
+  const messages = [user, ...block("one"), ...block("two"), ...request];
+  const first = await manager.prepare(messages);
+  assert.equal(manager.report.compactions, 1, "folded although far below the trigger");
+  assert.equal(folded[0].focus, "keep the failing test name");
+  assert.ok(folded[0].records.join("\n").includes("TS2304 one") && folded[0].records.join("\n").includes("TS2304 two"), "every completed interaction is folded");
+  assert.match(first.messages[0].content as string, /Phase one done/);
+  assert.deepEqual(first.messages.slice(-2), request, "the request itself stays as the newest interaction");
+  await manager.prepare([...messages, ...block("three")]);
+  assert.equal(manager.report.compactions, 1, "a request is acted on once");
+});
+
+test("an overflow recovery raises the scale and folds completed work before the step is resent", async () => {
+  const manager = createStepContext({ budget: contextBudget({ contextLength: 1_000_000 }), system: "system", calibration: 0.5, summarize: async () => "state" });
+  const messages = [user, ...block("one"), ...block("two")];
+  await manager.prepare(messages);
+  assert.equal(manager.report.compactions, 0);
+  const before = manager.report.usageCalibration;
+  const resent = await manager.recoverFromOverflow();
+  assert.equal(manager.report.overflowRecoveries, 1);
+  assert.equal(manager.report.usageCalibration, before * 2, "at most the 2x the estimate can have been lowered by");
+  assert.equal(manager.report.compactions, 1);
+  assert.ok(resent.length < messages.length);
+  assert.deepEqual(resent.slice(-2), messages.slice(-2));
+});
+
+test("only a provider's own window refusal counts as a context overflow", async () => {
+  const { isContextOverflow } = await import("@/lib/models/context-overflow");
+  const { ApiError } = await import("@/lib/server/api-error");
+  assert.equal(isContextOverflow(Object.assign(new Error("This endpoint's maximum context length is 8192 tokens"), { statusCode: 400 })), true);
+  assert.equal(isContextOverflow(Object.assign(new Error("prompt is too long: 210000 tokens > 200000 maximum"), { statusCode: 400 })), true);
+  assert.equal(isContextOverflow(Object.assign(new Error("Bad request"), { statusCode: 400, data: { error: { code: "context_length_exceeded" } } })), true);
+  assert.equal(isContextOverflow(Object.assign(new Error("maximum context length"), { statusCode: 503 })), false);
+  assert.equal(isContextOverflow(Object.assign(new Error("Invalid tool schema"), { statusCode: 400 })), false);
+  assert.equal(isContextOverflow(new ApiError({ code: "CONTEXT_LIMIT", message: "maximum context length" })), false, "a planned refusal is not recovered from");
+});
+
+test("the composer reads the latest valid context report, including scales below one", async () => {
+  const { latestContextReport } = await import("@/lib/chat/context-report");
+  const budget = contextBudget({ contextLength: 200_000 });
+  const report = { checks: 2, compactions: 1, degraded: false, estimatedInputTokens: 50_000, usageCalibration: 0.6, budget };
+  const messages = [
+    { id: "a", role: "assistant", parts: [], metadata: { contextBudget: { ...report, estimatedInputTokens: 10 } } },
+    { id: "b", role: "assistant", parts: [], metadata: { contextBudget: report } },
+    { id: "c", role: "user", parts: [] },
+  ] as unknown as UIMessage[];
+  const latest = latestContextReport(messages);
+  assert.equal(latest?.estimatedInputTokens, 50_000);
+  assert.equal(latest?.budget.triggerTokens, budget.triggerTokens);
+  assert.equal(latestContextReport([{ id: "x", role: "assistant", parts: [], metadata: { contextBudget: { checks: -1 } } }] as unknown as UIMessage[]), null);
 });

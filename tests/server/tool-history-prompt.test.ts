@@ -17,6 +17,8 @@ beforeEach(async (t: TestContext) => {
   resetProviderState();
   globalThis.__privateAiRateLimitStore?.clear();
   await db.chat.deleteMany({});
+  // Mock turns report token counts no provider would; plan from the uncalibrated estimate.
+  await db.modelContextCalibration.deleteMany({});
   process.env.OPENROUTER_API_KEY = "offline-fixture-placeholder";
   await seedTestModelPreferences(db);
 });

@@ -31,6 +31,9 @@ export const toolsMessages = {
   "tools.searchKnowledge.hitMany": "查询「{query}」命中 {total} 条，首条为 {title}（{source}）",
 
   // --- createTask --------------------------------------------------------
+  "tools.compactContext.displayName": "压缩上下文",
+  "tools.compactContext.description": "把本次对话中已完成的工作整理为任务交接摘要，为后续步骤腾出上下文空间。",
+  "tools.compactContext.scheduled": "已在下一步之前整理较早的已完成工作。",
   "tools.createTask.displayName": "创建任务",
   "tools.createTask.primaryFieldLabel": "任务标题",
   "tools.createTask.detailLabel": "任务详情",

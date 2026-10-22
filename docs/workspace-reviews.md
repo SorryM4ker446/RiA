@@ -44,8 +44,10 @@ failure retain the local report and show a warning in execution history.
 
 Commentary is separately labelled as interpretation. It receives only period,
 coverage and event counts, without source names or bodies, and does not replace
-those counts. Each call has no retries, a 60-second deadline and a 512-token output
-limit. Actual calls use the existing model usage tracking. Provider charges may
+those counts. Each call has no retries and a 60-second deadline. Its output follows the
+general model output rule; when a background monetary ceiling is enabled and the
+model's output limit is unknown, the planning reservation bounds it so the call
+is not priced as a 128K-token answer. Actual calls use the existing model usage tracking. Provider charges may
 still apply to a failed or interrupted attempt.
 
 Period, canonical time zone and start boundary identify a saved review. Two

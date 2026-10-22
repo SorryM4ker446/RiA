@@ -211,3 +211,35 @@ test("late details from a closed conversation cannot replace another conversatio
     await expect(drawer).not.toContainText("Old result");
   } finally { release(); }
 });
+
+for (const width of [1440, 390]) test(`the composer shows the latest request's context usage quietly and explains it on hover at ${width}px`, async ({ page }, testInfo) => {
+  await page.setViewportSize({ width, height: 700 });
+  await workspace(page);
+  const report = (estimatedInputTokens: number) => ({ checks: 3, compactions: 1, degraded: false, estimatedInputTokens, usageCalibration: 0.6,
+    budget: { contextWindow: 32000, capacitySource: "catalog", counting: "character-class-estimate", inputTokens: 28000, triggerTokens: 20000 } });
+  const answer = (estimatedInputTokens: number) => ({ id: "usage-answer", clientMessageId: "usage-answer", role: "assistant", createdAt: now,
+    content: "__ASSISTANT_TOOL_MESSAGE__:" + JSON.stringify({ type: "assistant-tool-message", text: "Done", tools: [], contextBudget: report(estimatedInputTokens) }) });
+  let used = 4000;
+  await page.unroute("**/api/conversations/*/messages");
+  await page.route("**/api/conversations/*/messages", route => route.fulfill({ json: { data: [user, answer(used)] } }));
+  await page.route("**/api/conversations/*/runs?*", route => route.fulfill({ json: { data: [] } }));
+  await page.goto("/chat?conversationId=details-chat");
+  const indicator = page.getByLabel("上下文已用约 13%", { exact: true });
+  await expect(indicator).toHaveText("13%");
+  await expect(indicator).toHaveAttribute("data-state", "normal");
+  const tools = page.getByRole("combobox", { name: "选择工具", exact: false });
+  const toolBox = await tools.boundingBox(), box = (await indicator.boundingBox())!;
+  if (toolBox && width >= 768) expect(box.x).toBeGreaterThan(toolBox.x + toolBox.width - 1);
+  expect(box.height).toBeLessThanOrEqual(28);
+  await indicator.hover();
+  const tooltip = page.getByRole("tooltip");
+  await expect(tooltip).toContainText("上次请求约 4,000 / 32,000 tokens");
+  await expect(tooltip).toContainText("达到约 63% 时自动压缩");
+  await expect(tooltip).toContainText("已压缩 1 次");
+  await page.locator("form").first().screenshot({ path: testInfo.outputPath(`composer-${width}.png`) });
+
+  used = 19000;
+  await page.reload();
+  const near = page.getByLabel("上下文已用约 59%", { exact: true });
+  await expect(near).toHaveAttribute("data-state", "near");
+});

@@ -52,6 +52,13 @@ export type EvaluationReport = z.infer<typeof evaluationReportSchema>;
 const coverage = (expected: string[], text: string) => expected.length ? expected.filter(fact => text.includes(fact)).length / expected.length : null;
 
 /** Expectations are scoring data and never reach the answer-generation prompt. */
+/**
+ * Answer and judge calls carry no output cap of their own, so a reasoning model
+ * has room to think; the deadline only stops a stalled provider, and the
+ * caller's cancellation still ends a run at any time.
+ */
+const EVALUATION_CALL_DEADLINE_MS = 300_000;
+
 export async function evaluateDocuments(input: z.infer<typeof evaluationRequestSchema>, signal: AbortSignal): Promise<EvaluationReport> {
   signal.throwIfAborted();
   const started = performance.now();
@@ -74,9 +81,9 @@ export async function evaluateDocuments(input: z.infer<typeof evaluationRequestS
       row.unexpectedEvidence = !item.answerable && row.sources.length > 0;
       if (model) {
         const answer = await withModelCallSource("tool", () => generateText({
-          model: getChatModel(model), maxRetries: 0, maxOutputTokens: 1500,
+          model: getChatModel(model), maxRetries: 0,
           system: "Answer using the provided knowledge evidence. Explicitly disclose insufficient or conflicting evidence. Do not invent sources. This evaluation has no tools or long-term memory." + formatAssistantInstructions(assistant) + formatDocumentContext(row.sources),
-          prompt: item.question, abortSignal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
+          prompt: item.question, abortSignal: AbortSignal.any([signal, AbortSignal.timeout(EVALUATION_CALL_DEADLINE_MS)]),
         }));
         signal.throwIfAborted(); row.answer = answer.text; row.responseModelId = answer.response.modelId;
         row.sources = markDocumentCitations(row.sources, answer.text);
@@ -91,11 +98,11 @@ export async function evaluateDocuments(input: z.infer<typeof evaluationRequestS
           row.quality = { status: "failed", responseModelId: null, errorCode: null, checks: [], criteria, durationMs: 0 };
           try {
             const judged = await withModelCallSource("tool", () => generateText({
-              model: getChatModel(judgeModel), maxRetries: 0, maxOutputTokens: 6000,
+              model: getChatModel(judgeModel), maxRetries: 0,
               system: qualityJudgeSystem,
               prompt: JSON.stringify({ question: item.question, answerable: item.answerable, answer: answer.text, criteria,
                 sources: row.sources.map(source => ({ chunkId: source.chunkId, filename: source.filename, excerpt: source.snippet, url: documentSourceUrl(source) })) }),
-              abortSignal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
+              abortSignal: AbortSignal.any([signal, AbortSignal.timeout(EVALUATION_CALL_DEADLINE_MS)]),
             }));
             signal.throwIfAborted();
             row.quality.responseModelId = judged.response.modelId;

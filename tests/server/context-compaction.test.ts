@@ -21,7 +21,7 @@ const { summarizeOlderTurns } = await import("@/lib/chat/summary");
 const { TASK_STATE_VERSION } = await import("@/lib/chat/task-summary");
 const { encodePersistedAssistantToolMessage, decodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
 const { mapStoredMessagesToUI } = await import("@/features/chat/page-utils");
-const { contextBudget, estimateContextTokens } = await import("@/lib/models/context-budget");
+const { contextBudget, estimateContextTokens, MIN_CALIBRATION } = await import("@/lib/models/context-budget");
 const { CALIBRATION_SAMPLES, contextCalibration, recordContextCalibration } = await import("@/lib/models/context-calibration");
 const { getModelPreferences, saveModelPreferences } = await import("@/lib/models/preferences");
 const roots: string[] = [];
@@ -79,6 +79,8 @@ test("a multi-file code task compacts real terminal failures and passes tests be
   t.mock.method(languageModel, "doStream", async options => {
     assert.ok(estimateContextTokens({ prompt: options.prompt, tools: options.tools }) <= budget.inputTokens, "every actual model step fits");
     prompts.push(JSON.stringify(options.prompt));
+    // Usage matches the uncalibrated estimate, so counting anchors on a realistic size.
+    const reported = estimateContextTokens({ prompt: options.prompt, tools: options.tools });
     const action = actions[call++];
     return { stream: new ReadableStream<LanguageModelV3StreamPart>({ start(controller) {
       controller.enqueue({ type: "stream-start", warnings: [] });
@@ -91,7 +93,7 @@ test("a multi-file code task compacts real terminal failures and passes tests be
         controller.enqueue({ type: "text-delta", id: "answer", delta: "Verified: Tests: 2 passed. Public API unchanged." });
         controller.enqueue({ type: "text-end", id: "answer" });
       }
-      controller.enqueue({ type: "finish", finishReason: { unified: action ? "tool-calls" : "stop", raw: undefined }, usage: { inputTokens: { total: 100, noCache: 100, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 100, text: 100, reasoning: 0 } } });
+      controller.enqueue({ type: "finish", finishReason: { unified: action ? "tool-calls" : "stop", raw: undefined }, usage: { inputTokens: { total: reported, noCache: reported, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 100, text: 100, reasoning: 0 } } });
       controller.close();
     } }) };
   });
@@ -314,14 +316,15 @@ test("a request that uses up its compaction calls keeps labelled excerpts, compl
   await saveModelPreferences({ ...await getModelPreferences(), callLimits: { ...(await getModelPreferences()).callLimits, compactionCallsPerTurn: 1 } });
   let summaries = 0, calls = 0;
   t.mock.method(languageModel, "doGenerate", async () => { summaries++; return summaryAnswer("Steps ran; continue with the next step."); });
-  t.mock.method(languageModel, "doStream", async () => {
+  t.mock.method(languageModel, "doStream", async options => {
     const step = calls++;
+    const reported = estimateContextTokens({ prompt: options.prompt, tools: options.tools });
     const node = process.execPath.replaceAll("'", process.platform === "win32" ? "''" : "'\\''");
     return { stream: new ReadableStream<LanguageModelV3StreamPart>({ start(controller) {
       controller.enqueue({ type: "stream-start", warnings: [] });
       if (step < 6) controller.enqueue({ type: "tool-call", toolCallId: `step-${step}`, toolName: "runTerminalCommand", input: JSON.stringify({ grantId: grant.id, command: `${process.platform === "win32" ? "& " : ""}'${node}' ./step.cjs` }) });
       else { controller.enqueue({ type: "text-start", id: "a" }); controller.enqueue({ type: "text-delta", id: "a", delta: "All steps done" }); controller.enqueue({ type: "text-end", id: "a" }); }
-      controller.enqueue({ type: "finish", finishReason: { unified: step < 6 ? "tool-calls" : "stop", raw: undefined }, usage: { inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 10, text: 10, reasoning: 0 } } });
+      controller.enqueue({ type: "finish", finishReason: { unified: step < 6 ? "tool-calls" : "stop", raw: undefined }, usage: { inputTokens: { total: reported, noCache: reported, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 10, text: 10, reasoning: 0 } } });
       controller.close();
     } }) };
   });
@@ -338,13 +341,15 @@ test("a request that uses up its compaction calls keeps labelled excerpts, compl
   assert.ok(saved.contextBudget!.compactions >= 2);
 });
 
-test("stored calibration keeps recent samples only, ignores invalid ratios and never scales below one", async () => {
+test("stored calibration keeps recent samples only, ignores invalid ratios and lowers the estimate no further than its floor", async () => {
   await recordContextCalibration(CHAT_MODEL_REF, 50);
   assert.equal(await contextCalibration(CHAT_MODEL_REF), 50);
   for (const invalid of [null, Number.NaN, -1, 0, Infinity]) await recordContextCalibration(CHAT_MODEL_REF, invalid);
   assert.equal(await contextCalibration(CHAT_MODEL_REF), 50);
-  for (let i = 0; i < CALIBRATION_SAMPLES; i++) await recordContextCalibration(CHAT_MODEL_REF, 0.4);
-  assert.equal(await contextCalibration(CHAT_MODEL_REF), 1, "an old outlier ages out and ratios below one floor at the estimate");
+  for (let i = 0; i < CALIBRATION_SAMPLES; i++) await recordContextCalibration(CHAT_MODEL_REF, 0.7);
+  assert.equal(await contextCalibration(CHAT_MODEL_REF), 0.7, "an old outlier ages out and lower provider counts lower the scale");
+  for (let i = 0; i < CALIBRATION_SAMPLES; i++) await recordContextCalibration(CHAT_MODEL_REF, 0.1);
+  assert.equal(await contextCalibration(CHAT_MODEL_REF), MIN_CALIBRATION, "never below the documented overestimate");
   await db.modelContextCalibration.update({ where: { modelKey: `openrouter:${CHAT_MODEL_REF.modelId}` }, data: { samples: "not json" } });
   assert.equal(await contextCalibration(CHAT_MODEL_REF), 1);
 });
@@ -366,4 +371,54 @@ test("output exhaustion marks partial answers and runs failed with explicit reco
   const { executionGuidance } = await import("@/lib/execution-messages");
   assert.match(executionGuidance("output-limit"), /输出上限/);
   assert.match(executionGuidance("context-limit"), /输入预算/);
+});
+
+test("a step the provider refuses as over its window is compacted and sent again once", async t => {
+  let calls = 0; const prompts: string[] = [];
+  t.mock.method(languageModel, "doGenerate", async () => summaryAnswer("Earlier: the user asked about the release plan."));
+  t.mock.method(languageModel, "doStream", async options => {
+    calls++; prompts.push(JSON.stringify(options.prompt));
+    if (calls === 1) throw Object.assign(new Error("This model's maximum context length is 8192 tokens. Please reduce the length of the messages."), { statusCode: 400 });
+    return { stream: new ReadableStream<LanguageModelV3StreamPart>({ start(controller) {
+      controller.enqueue({ type: "stream-start", warnings: [] });
+      controller.enqueue({ type: "text-start", id: "a" }); controller.enqueue({ type: "text-delta", id: "a", delta: "Recovered answer" }); controller.enqueue({ type: "text-end", id: "a" });
+      controller.enqueue({ type: "finish", finishReason: { unified: "stop", raw: "stop" }, usage: { inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 2, text: 2, reasoning: 0 } } });
+      controller.close();
+    } }) };
+  });
+  const response = await route.POST(request({ messages: [
+    ui("o-1", "user", "What is in the release plan?"), ui("o-2", "assistant", "OLDEST-ANSWER-MARKER"),
+    ui("o-3", "user", "And the schedule?"), ui("o-4", "assistant", "Schedule answer"),
+    ui("o-5", "user", "Summarize both"),
+  ] }));
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /Recovered answer/);
+  assert.equal(calls, 2, "resent exactly once");
+  assert.match(prompts[0], /OLDEST-ANSWER-MARKER/);
+  assert.doesNotMatch(prompts[1], /OLDEST-ANSWER-MARKER/, "the resent step no longer carries the folded turn");
+  assert.match(prompts[1], /Earlier task state/);
+  assert.match(prompts[1], /Summarize both/);
+  const run = await db.agentRun.findFirstOrThrow({ orderBy: { startedAt: "desc" } });
+  assert.equal(run.status, "succeeded");
+  const saved = decodePersistedAssistantToolMessage((await db.message.findFirstOrThrow({ where: { chatId: run.chatId!, role: "assistant" } })).content);
+  assert.equal(saved?.contextBudget?.overflowRecoveries, 1);
+});
+
+test("a second refusal after recovery is reported instead of retried again", async t => {
+  let calls = 0;
+  t.mock.method(languageModel, "doGenerate", async () => summaryAnswer("Earlier work."));
+  t.mock.method(languageModel, "doStream", async () => { calls++; throw Object.assign(new Error("maximum context length exceeded"), { statusCode: 400 }); });
+  const response = await route.POST(request({ messages: [ui("r-1", "user", "First"), ui("r-2", "assistant", "One"), ui("r-3", "user", "Second"), ui("r-4", "assistant", "Two"), ui("r-5", "user", "Third")] }));
+  await response.text();
+  assert.equal(calls, 2);
+  assert.equal((await db.agentRun.findFirstOrThrow({ orderBy: { startedAt: "desc" } })).status, "failed");
+});
+
+test("the compaction tool is offered to every chat, including assistants with a restricted tool list", async () => {
+  const { createChatToolSet } = await import("@/tools/catalog");
+  const { getToolDescriptor } = await import("@/tools/builtins");
+  const restricted = await createChatToolSet({ modelRef: CHAT_MODEL_REF, toolIds: ["createTask"] });
+  assert.ok("compactContext" in restricted);
+  assert.ok(!("webSearch" in restricted));
+  assert.equal(getToolDescriptor("compactContext")?.manual.enabled, false, "it acts on a running chat, so it is not a manual tool");
 });
