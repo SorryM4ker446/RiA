@@ -1,7 +1,7 @@
 {
   "name": "ria",
   "productName": "RiA",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "packageManager": "npm@11.19.1",
   "description": "A private desktop AI assistant built with Next.js and Electron",
   "author": "RiA",
@@ -98,7 +98,7 @@
     "@types/react-dom": "19.2.3",
     "autoprefixer": "10.5.0",
     "braces": "file:vendor/braces",
-    "electron": "44.0.0",
+    "electron": "44.7.2",
     "eslint": "9.39.4",
     "eslint-config-next": "16.3.8",
     "postcss": "8.5.26",
