@@ -735,6 +735,13 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .settings-list > li:first-child { padding-top: 0; }
 .settings-list > li + li { border-top: 1px solid hsl(var(--border) / .65); }
 .settings-list > .settings-history-row { flex-direction: column; align-items: stretch; gap: 8px; }
+/*
+ * The grant list scrolls inside the permissions panel. The first row keeps a
+ * little room above it so its buttons' borders and focus rings are not cut by
+ * the scroll edge, and the buttons sit level with the folder they act on.
+ */
+.settings-list > li.directory-grant-row:first-child { padding-top: 4px; }
+@media (min-width: 640px) { .settings-list > li.directory-grant-row { align-items: center; } }
 .settings-help { border-top: 1px solid hsl(var(--border) / .65); padding-top: 4px; }
 .settings-create-sheet { width: min(100vw, 440px); }
 .settings-review-form { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }

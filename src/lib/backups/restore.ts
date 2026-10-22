@@ -136,9 +136,10 @@ export async function restoreAccountBackup(id: string) {
        * the interface had never reported pausing, and reported the whole
        * restore as a failure.
        */
-      const revokedAt = new Date();
       const pausedSchedules = await tx.scheduledJob.updateMany({ where: { enabled: true }, data: { enabled: false } });
-      const revokedGrants = await tx.directoryGrant.updateMany({ where: { revokedAt: null }, data: { revokedAt, terminalEnabled: false, terminalApprovalMode: "approval" } });
+      // Withdrawn grants are not kept as history; records an earlier version kept go too.
+      const revokedGrants = await tx.directoryGrant.deleteMany({ where: { revokedAt: null } });
+      await tx.directoryGrant.deleteMany({});
       // Machine-local extensions are not imported. Restoring a workspace must
       // not leave its previous external capabilities active for restored chats.
       await tx.extension.updateMany({ data: { enabled: false, revision: { increment: 1 }, testedRevision: null, testId: null } });

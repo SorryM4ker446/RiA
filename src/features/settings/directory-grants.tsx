@@ -7,6 +7,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { FolderOpen, Loader2, ShieldOff, Terminal } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { animateRemoval, removalKey } from "@/lib/ui/removal";
 import { SettingsSection } from "@/features/settings/settings-section";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
@@ -84,7 +85,7 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
       // Withdrawing a grant keeps the record, so it is asked for explicitly:
       // without this the user sees a folder disappear and no way to find out
       // what was taken away or when.
-      const response = await fetch("/api/directory-grants?includeRevoked=true", { cache: "no-store" });
+      const response = await fetch("/api/directory-grants", { cache: "no-store" });
       if (!response.ok) throw new Error(await readError(response));
       const payload = await response.json();
       if (request !== loadRequest.current) return;
@@ -137,7 +138,8 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
       const response = await fetch(`/api/directory-grants/${encodeURIComponent(id)}`, { method: "DELETE" });
       if (!response.ok) throw new Error(await readError(response));
       onChange?.();
-      await load();
+      // The withdrawn folder folds away before the list reloads without it.
+      await animateRemoval(id, load);
     } catch (revokeError) {
       setError(revokeError instanceof Error ? revokeError.message : t("settings.grants.failed"));
     } finally { setSaving(false); }
@@ -181,21 +183,17 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
         ) : (
           <ul className="settings-list" aria-label={t("ui.settings.directory-grants.directoryAccess")}>
             {grants.map((grant) => (
-              <li className="flex flex-col items-start justify-between gap-3 sm:flex-row" key={grant.id}>
+              <li className="directory-grant-row flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center" key={grant.id} {...removalKey(grant.id)}>
                 <div className="w-full min-w-0 sm:w-auto">
                   <p className="truncate text-sm font-medium">{grant.label}</p>
                   <p className="truncate text-xs text-muted-foreground" title={grant.realPath}>{grant.path}</p>
                   <p className="text-[11px] text-muted-foreground">
-                    {grant.revokedAt
-                      ? `${t("settings.grants.revoked")}${formatDateTime(new Date(grant.revokedAt))}`
-                      : grant.lastUsedAt
-                        ? `${t("settings.grants.lastUsed")}${formatDateTime(new Date(grant.lastUsedAt))}`
-                        : t("settings.grants.neverUsed")}
+                    {grant.lastUsedAt
+                      ? `${t("settings.grants.lastUsed")}${formatDateTime(new Date(grant.lastUsedAt))}`
+                      : t("settings.grants.neverUsed")}
                   </p>
                 </div>
-                {/* A withdrawn folder is shown rather than offered: there is nothing left to withdraw. */}
-                {grant.revokedAt ? null : (
-                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
                   {typeof window !== "undefined" && window.riaDesktop ? <>
                   <Button disabled={busy} onClick={() => { setTerminalMode(grant.terminalApprovalMode); setTerminalGrant(grant); }} size="sm" type="button" variant="outline">
                     <Terminal aria-hidden="true" data-icon="inline-start" />
@@ -207,8 +205,7 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
                     <ShieldOff aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
                     {t("settings.grants.revoke")}
                   </Button>
-                  </div>
-                )}
+                </div>
               </li>
             ))}
           </ul>

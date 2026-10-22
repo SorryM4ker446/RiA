@@ -160,7 +160,7 @@ test("a completed restore pauses schedules and grants in the same commit and rep
   assert.equal(result.revokedDirectoryGrants, 1);
   assert.equal((await db.scheduledJob.findFirstOrThrow({ where: { kind: "scheduledBackup" } })).enabled, false);
   assert.equal((await db.scheduledJob.findFirstOrThrow({ where: { kind: "dailyBrief" } })).enabled, false, "an already-off schedule stays off");
-  assert.ok((await db.directoryGrant.findUniqueOrThrow({ where: { id: grant.id } })).revokedAt);
+  assert.equal(await db.directoryGrant.count({ where: { id: grant.id } }), 0, "a withdrawn grant is removed, not kept");
 });
 
 // --- a scheduled backup is a reader, not an exclusive operation ---------------
