@@ -9,6 +9,7 @@ import { Bell, CheckCheck, Loader2, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SettingsSection } from "@/features/settings/settings-section";
+import { animateRemoval, removalKey } from "@/lib/ui/removal";
 type Notice = {
   id: string;
   kind: string;
@@ -50,9 +51,10 @@ export function NoticeCenter({ onCountChange }: { onCountChange?: (unread: numbe
 
   useEffect(() => { void load(); }, [load]);
 
-  async function send(method: "PATCH" | "DELETE" | "POST", path: string) {
+  async function send(method: "PATCH" | "DELETE" | "POST", path: string, removing?: string) {
     await fetch(path, { method, headers: { "Content-Type": "application/json" } }).catch(() => 0);
-    await load();
+    if (removing) await animateRemoval(removing, load);
+    else await load();
   }
 
   const unread = notices.filter((notice) => !notice.readAt);
@@ -78,6 +80,7 @@ export function NoticeCenter({ onCountChange }: { onCountChange?: (unread: numbe
                 <li
                   className="flex items-start justify-between gap-3"
                   key={notice.id}
+                  {...removalKey(notice.id)}
                 >
                   <div className="min-w-0">
                     <p className="text-sm font-medium">{t(`notices.title_${notice.title}` as never)}</p>
@@ -96,7 +99,7 @@ export function NoticeCenter({ onCountChange }: { onCountChange?: (unread: numbe
                     ) : null}
                     <Button
                       aria-label={t("notices.dismiss")}
-                      onClick={() => void send("DELETE", `/api/notices/${encodeURIComponent(notice.id)}`)}
+                      onClick={() => void send("DELETE", `/api/notices/${encodeURIComponent(notice.id)}`, notice.id)}
                       size="icon"
                       type="button"
                       variant="ghost"

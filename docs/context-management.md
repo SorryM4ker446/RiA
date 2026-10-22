@@ -28,6 +28,17 @@ The block is rebuilt for every request and never saved with the message. Earlier
 turns are sent unchanged, so providers with prefix caching can reuse everything
 up to the previous turn instead of missing the cache on every request.
 
+### Prompt caching
+
+OpenAI, DeepSeek and Gemini models cache a repeated prompt prefix on their own.
+Anthropic models only reuse a prefix up to an explicit breakpoint, so chat
+requests to an `anthropic/` model through OpenRouter mark three: the end of the
+system prompt, the end of the previous turn and the end of the request, which
+the next step of a tool loop extends. Generated one-off calls such as summaries
+are not marked, since a cache write costs more than ordinary input and they
+would not read it back. Usage records do not store cache read or write counts;
+the cost a provider reports already reflects its cache discount.
+
 ## Request budgets
 
 Input budget is context capacity minus output reservation and a safety margin of
@@ -55,9 +66,12 @@ UTF-8 byte, and characters outside the Basic Multilingual Plane count four. Each
 run is rounded up, so mixed-case random text such as base64 is not undercounted.
 Measured against the cl100k and o200k encodings, this overestimates prose, code
 and JSON by roughly 1.7-2x and Chinese by roughly 1.6x; the earlier UTF-8 byte
-count overestimated them 3-5x and 3x. Binary attachments still count one token
-per byte, so large images can reach the planning ceiling earlier than the actual
-provider limit. This is a planning estimate, not a provider tokenizer or billing
+count overestimated them 3-5x and 3x. Images (PNG, JPEG, GIF, WebP) are counted
+from their dimensions: scaled to a long edge of at most 2048 pixels, as common
+providers resize them, at one token per 750 pixels and never more than their
+byte size. A 4000x3000 photo therefore counts about 4,200 tokens instead of its
+millions of bytes. Other binary attachments still count one token per byte.
+This is a planning estimate, not a provider tokenizer or billing
 count, and provider-added hidden context cannot be counted locally.
 
 Within a tool loop, a step is measured from provider usage when it can be: while
@@ -78,10 +92,19 @@ unscaled. The heaviest recent content sets the scale, and an outlier ages out.
 This per-model calibration is a planning cache in its own table: it is not backed
 up, and missing or unreadable data falls back to the uncalibrated estimate.
 
-Earlier turns of the conversation may use half the input budget, measured in the
-same estimated tokens. Turns beyond that window are covered by the conversation
+The history is the stored conversation, not only what the browser has loaded:
+turns before the browser's first message are read from storage, starting at the
+last message the current summary covers. Earlier turns of the conversation may
+use half the input budget, measured in the same estimated tokens. Turns beyond that window are covered by the conversation
 summary and labelled excerpts; the per-step check then compacts within the
-request as needed.
+request as needed. The window starts right after the last message the current
+summary covers for as long as the turns after it fit. Only when they no longer
+fit are older turns dropped, down to 60% of the window, and the summary extended
+to the new start. The start therefore holds for many turns: the summary is
+reused instead of being regenerated before every answer, and the prompt prefix
+stays the same, so provider prompt caches keep matching it. When no summary
+covers the older turns, their excerpts grow with the window: at least 4,000
+characters, otherwise an eighth of the window's estimated tokens.
 
 Every chat model step checks its budget, including steps after terminal or other
 tool results. Before a pending approval is claimed or executed, the complete

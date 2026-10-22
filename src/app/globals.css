@@ -532,7 +532,7 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .workspace-page-header h1 { font-size: 1.75rem; line-height: 1.3; font-weight: 600; }
 .workspace-page-header p { max-width: 42rem; line-height: 1.7; }
 .workspace-nav-label { color: hsl(var(--muted-foreground)); font-size: 11px; font-weight: 500; letter-spacing: .04em; }
-.workspace-nav-link { position: relative; display: flex; min-height: 36px; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 9px; font-size: 13px; color: hsl(var(--muted-foreground)); transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.workspace-nav-link { position: relative; display: flex; min-height: 36px; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 9px; font-size: 13px; color: hsl(var(--muted-foreground)); transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), min-height var(--dur-slow) var(--ease-out), padding var(--dur-slow) var(--ease-out); }
 .workspace-nav-link:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
 .workspace-nav-link[aria-current="page"] { background: hsl(var(--card)); color: hsl(var(--foreground)); font-weight: 600; }
 .workspace-nav-link:active { transform: scale(.98); }
@@ -625,9 +625,10 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .message-nav-mark > span { display: block; width: 14px; height: 2px; border-radius: 999px; background: hsl(var(--muted-foreground) / .4); transition: width var(--dur-fast), background-color var(--dur-fast); }
 .message-nav-mark:hover > span, .message-nav-mark:focus-visible > span { width: 18px; background: hsl(var(--foreground)); }
 .message-nav-mark[aria-current="location"] > span { width: 24px; background: hsl(var(--foreground)); }
-.message-nav-preview { width: min(19rem, calc(100vw - 72px)); padding: 12px; background: transparent; border: 0; box-shadow: none; backdrop-filter: blur(16px); transform-origin: var(--radix-tooltip-content-transform-origin); animation: message-preview-in var(--dur-base) var(--ease-out); }
+/* Readable on its own surface: the blur behind it is not always applied, as in the desktop window. */
+.message-nav-preview { width: min(19rem, calc(100vw - 72px)); padding: 12px; background: hsl(var(--popover) / .94); border: 0; box-shadow: 0 0 0 1px hsl(var(--border)), 0 8px 28px -8px hsl(var(--shadow) / .28); backdrop-filter: blur(16px); transform-origin: var(--radix-tooltip-content-transform-origin); animation: message-preview-in var(--dur-base) var(--ease-out); }
 .message-nav-preview[data-state="closed"] { animation: none; }
-.message-nav-outline { display: flex; width: min(19rem, calc(100vw - 64px)); max-height: min(30rem, var(--radix-popover-content-available-height)); flex-direction: column; padding: 0; overflow: hidden; background: transparent; border: 0; box-shadow: none; backdrop-filter: blur(16px); }
+.message-nav-outline { display: flex; width: min(19rem, calc(100vw - 64px)); max-height: min(30rem, var(--radix-popover-content-available-height)); flex-direction: column; padding: 0; overflow: hidden; background: hsl(var(--popover) / .94); border: 0; box-shadow: 0 0 0 1px hsl(var(--border)), 0 8px 28px -8px hsl(var(--shadow) / .28); backdrop-filter: blur(16px); }
 .message-nav-entry { height: auto; min-height: 30px; justify-content: flex-start; padding: 6px 8px; font-size: 12px; line-height: 18px; color: hsl(var(--muted-foreground)); }
 .message-nav-entry[aria-current="location"] { color: hsl(var(--foreground)); }
 @keyframes message-preview-in { from { opacity: 0; transform: translateX(-5px); } to { opacity: 1; transform: translateX(0); } }
@@ -685,6 +686,8 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .run-record-trigger[aria-expanded="true"] { background: hsl(var(--muted) / .5); }
 .run-record-trigger:hover { background: hsl(var(--accent)); }
 .run-record-trigger:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: -2px; }
+.reveal { display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden; transition: grid-template-rows var(--dur-base) var(--ease-out), opacity var(--dur-fast), visibility var(--dur-base); }
+.reveal[data-state="open"] { grid-template-rows: 1fr; opacity: 1; visibility: visible; }
 .run-detail, .approval-details { display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden; transition: grid-template-rows var(--dur-base) var(--ease-out), opacity var(--dur-fast), visibility var(--dur-base); }
 .run-detail[data-state="open"], .approval-details[data-state="open"] { grid-template-rows: 1fr; opacity: 1; visibility: visible; }
 .approval-details .execution-code { max-height: 12rem; }
@@ -732,6 +735,13 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .settings-list > li:first-child { padding-top: 0; }
 .settings-list > li + li { border-top: 1px solid hsl(var(--border) / .65); }
 .settings-list > .settings-history-row { flex-direction: column; align-items: stretch; gap: 8px; }
+/*
+ * The grant list scrolls inside the permissions panel. The first row keeps a
+ * little room above it so its buttons' borders and focus rings are not cut by
+ * the scroll edge, and the buttons sit level with the folder they act on.
+ */
+.settings-list > li.directory-grant-row:first-child { padding-top: 4px; }
+@media (min-width: 640px) { .settings-list > li.directory-grant-row { align-items: center; } }
 .settings-help { border-top: 1px solid hsl(var(--border) / .65); padding-top: 4px; }
 .settings-create-sheet { width: min(100vw, 440px); }
 .settings-review-form { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
@@ -781,10 +791,27 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
   .chat-welcome-description { font-size: 13px; }
   .chat-welcome [data-slot="empty-content"] { margin-top: .5rem; }
 }
-@media (max-height: 700px) { .workspace-navigation { gap: 1rem; } .chat-welcome { gap: .5rem; padding: .5rem 0; } }
+@media (max-height: 700px) { .chat-welcome { gap: .5rem; padding: .5rem 0; } }
+/*
+ * The rail tightens on short windows instead of scrolling: at the desktop
+ * window's 640px minimum every entry still fits. It can still scroll if a
+ * larger system text scale needs it, but never shows a scrollbar.
+ */
+.workspace-sidebar-body { scrollbar-width: none; transition: gap var(--dur-slow) var(--ease-out); }
+.workspace-sidebar-body::-webkit-scrollbar { display: none; }
+/* Resizing the window across the threshold eases between the two densities. */
+.workspace-sidebar-header { transition: height var(--dur-slow) var(--ease-out); }
+.workspace-navigation { transition: gap var(--dur-slow) var(--ease-out); }
+@media (max-height: 800px) {
+  .workspace-sidebar-body { gap: .75rem; }
+  .workspace-sidebar-header { height: 3rem; }
+  .workspace-navigation { gap: .75rem; }
+  .workspace-nav-link { min-height: 30px; padding-block: 5px; }
+}
 @media (hover: none) { .conversation-actions, .task-delete { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
-  .approval-details { transition: none; }
+  .approval-details, .reveal { transition: none; }
+  .workspace-sidebar-body, .workspace-sidebar-header, .workspace-navigation, .workspace-nav-link { transition: none; }
   .workspace-content { scroll-behavior: auto; }
   .sheet-overlay, .sheet-content, .ui-select-content, .ui-tabs-content, .run-records > :not(summary) { animation: none; }
   .home-shortcut:hover, .home-shortcut:hover .shortcut-arrow, .workspace-nav-link:active { transform: none; }

@@ -854,7 +854,6 @@ export const enUS = {
   "settings.grants.browse": "Browse…",
   "settings.grants.add": "Grant access",
   "settings.grants.revoke": "Revoke",
-  "settings.grants.revoked": "Revoked: ",
   "settings.grants.empty": "No directories are authorized. The assistant cannot read local files yet.",
   "settings.grants.loading": "Loading permissions…",
   "settings.grants.neverUsed": "Not used yet",

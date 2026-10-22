@@ -141,19 +141,17 @@ async function reviveGrant(id: string, label: string, resolvedPath: string): Pro
 /**
  * Withdraw a grant.
  *
- * Revoking keeps the row rather than deleting it, so the settings page can show
- * what was removed and when. It is reported as absent once revoked whether or
- * not the row still exists, because the caller's question is whether the
- * permission is gone, not whether a record of it is.
+ * The record is deleted: a withdrawn folder is not kept as history. Every
+ * check treats a missing grant exactly like a withdrawn one, so a run that
+ * started before still fails at its next step. Running commands are stopped
+ * and their logs removed first. Records an earlier version kept as withdrawn
+ * are removed at the same time. Revoking twice, or revoking a grant that is
+ * not there, leaves the same state: the permission is gone.
  */
 export async function revokeGrant(id: string): Promise<{ revoked: true }> {
-  const existing = await db.directoryGrant.findUnique({ where: { id }, select: { id: true, revokedAt: true } });
-  if (!existing) return { revoked: true };
-  if (!existing.revokedAt) {
-    await db.directoryGrant.update({ where: { id }, data: { revokedAt: new Date(), terminalEnabled: false, terminalApprovalMode: "approval" } });
-  }
   stopTerminalCommandsForGrant(id);
   await removeTerminalLogsForGrant(id, activeTerminalSessionIds()).catch(() => console.error("terminal.log.remove.failed"));
+  await db.directoryGrant.deleteMany({ where: { OR: [{ id }, { revokedAt: { not: null } }] } });
   return { revoked: true };
 }
 

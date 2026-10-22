@@ -18,6 +18,7 @@ import { assistantConfigSchema, type AssistantConfig, type AssistantTemplate } f
 import type { ModelLibraryItem } from "@/lib/models/preferences-schema";
 import { chatApi } from "@/features/chat/api-client";
 import { LAST_ACTIVE_CHAT_STORAGE_KEY } from "@/features/chat/types";
+import { animateRemoval, removalKey } from "@/lib/ui/removal";
 
 type ToolOption = { id: string; displayName: string };
 const initialConfig: AssistantConfig = { name: "", description: "", instructions: "", model: null, tools: [], collections: [], usesMemory: true, retrieval: { semanticThreshold: 0.35, maxSources: 8, contextChars: 8000 } };
@@ -102,7 +103,7 @@ export default function AssistantsPage() {
       if (!group.length) return null;
       return <section key={String(builtin)} aria-label={builtin ? t("ui.assistants.builtInTemplate") : t("ui.assistants.myTemplate")} className="flex flex-col gap-2">
         <h2 className="flex items-center gap-2 px-3 text-xs text-muted-foreground">{builtin ? t("ui.assistants.builtInTemplate") : t("ui.assistants.myTemplate")}<Badge variant="secondary">{group.length}</Badge></h2>
-        {group.map(template => <article key={template.id} data-testid={`assistant-template-${template.id}`} className="management-row flex flex-wrap items-center gap-x-5 gap-y-3 rounded-xl p-3 sm:p-4">
+        {group.map(template => <article key={template.id} {...removalKey(template.id)} data-testid={`assistant-template-${template.id}`} className="management-row flex flex-wrap items-center gap-x-5 gap-y-3 rounded-xl p-3 sm:p-4">
           <div className="min-w-0 flex-1 basis-56">
             <h3 className="truncate text-sm font-semibold" title={template.builtin ? localizeMessage(template.config.name) : template.config.name}>{template.builtin ? localizeMessage(template.config.name) : template.config.name}</h3>
             <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">{(template.builtin ? localizeMessage(template.config.description) : template.config.description) || t("ui.assistants.customWorkflow")}</p>
@@ -122,7 +123,7 @@ export default function AssistantsPage() {
                   <DropdownMenuItem onSelect={() => select(template, true)}><CopyPlus aria-hidden="true" />{t("ui.assistants.createCopy")}</DropdownMenuItem>
                   {!template.builtin ? <>
                     <DropdownMenuItem onSelect={() => select(template)}><Pencil aria-hidden="true" />{t("knowledge.edit")}</DropdownMenuItem>
-                    <DropdownMenuItem variant="destructive" onSelect={() => { if (window.confirm(tf("ui.assistants.deleteExistingConversationsWillRetainTheir", { v0: template.config.name }))) void run(async () => { await request(`/api/assistants/${encodeURIComponent(template.id)}?confirm=true&revision=${template.revision}`, { method: "DELETE" }); await load(); setNotice(t("ui.assistants.templateDeletedExistingConversationSnapshotsWere")); }); }}><Trash2 aria-hidden="true" />{t("documents.delete")}</DropdownMenuItem>
+                    <DropdownMenuItem variant="destructive" onSelect={() => { if (window.confirm(tf("ui.assistants.deleteExistingConversationsWillRetainTheir", { v0: template.config.name }))) void run(async () => { await request(`/api/assistants/${encodeURIComponent(template.id)}?confirm=true&revision=${template.revision}`, { method: "DELETE" }); await animateRemoval(template.id, load); setNotice(t("ui.assistants.templateDeletedExistingConversationSnapshotsWere")); }); }}><Trash2 aria-hidden="true" />{t("documents.delete")}</DropdownMenuItem>
                   </> : null}
                 </DropdownMenuGroup>
               </DropdownMenuContent>

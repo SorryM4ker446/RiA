@@ -15,6 +15,7 @@ import { ArrowUpRight, Bot, Check, ChevronDown, ChevronUp, History, Loader2, Mes
 import { COLLAPSED_CHAT_LIMIT } from "@/features/chat/types";
 import type { ChatSummary } from "@/features/chat/page-utils";
 import type { ChatState } from "@/features/chat/use-chat-state";
+import { removalKey } from "@/lib/ui/removal";
 type Props = Pick<ChatState,
   | "isLoadingChats" | "isCreatingChat" | "createNewChat" | "chats" | "visibleChats"
   | "activeChatId" | "editingChatId" | "setEditingTitle" | "editingTitle" | "saveEditedTitle"
@@ -104,7 +105,7 @@ export function ConversationList({
                 const active = activeChatId === chat.id;
                 const Icon = chat.assistantConfig ? Bot : MessageSquareText;
                 return (
-                  <div key={chat.id} data-active={active} className="conversation-row group relative">
+                  <div key={chat.id} {...removalKey(chat.id)} data-active={active} className="conversation-row group relative">
                     {editingChatId === chat.id ? (
                       <div className="conversation-editor flex flex-col gap-3 p-3">
                         <Input autoFocus aria-label={t("chat.conversations.rename")} value={editingTitle}

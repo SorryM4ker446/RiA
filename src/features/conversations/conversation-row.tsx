@@ -12,6 +12,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem,
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { formatTime } from "@/features/chat/page-utils";
 import type { Conversation } from "@/features/conversations/api-client";
+import { removalKey } from "@/lib/ui/removal";
 
 type Props = {
   chat: Conversation; selected: boolean; disabled: boolean; selectionFull: boolean;
@@ -24,7 +25,7 @@ export function ConversationRow({ chat, selected, disabled, selectionFull, selec
   useLocale();
   const [editing, setEditing] = useState(false);
   const [tags, setTags] = useState("");
-  return <article aria-label={chat.title} data-selected={selected} className="management-row rounded-xl px-3 py-3 sm:px-4">
+  return <article aria-label={chat.title} {...removalKey(chat.id)} data-selected={selected} className="management-row rounded-xl px-3 py-3 sm:px-4">
     <div className="flex items-center gap-3">
       <input type="checkbox" className="size-3.5 shrink-0 accent-foreground" aria-label={`${t("conversationRow.select")} ${chat.title}`} checked={selected} disabled={disabled || (!selected && selectionFull)} onChange={select} />
       <div className="min-w-0 flex-1">

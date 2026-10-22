@@ -58,7 +58,8 @@ test("desktop markers preview and locate messages with mouse and keyboard while 
   const preview = page.locator(".message-nav-preview");
   await expect(preview).toContainText("帮我整理一下首页的布局方向");
   await expect(preview).toContainText("第 2 段建议");
-  await expect(preview).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  // The preview has its own surface: readability must not depend on blurring what is behind it.
+  await expect(preview).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await expect(preview).toHaveCSS("animation-name", "message-preview-in");
   await preview.hover(); await expect(preview).toBeVisible();
   await page.evaluate(() => {
@@ -93,7 +94,7 @@ test("desktop markers preview and locate messages with mouse and keyboard while 
   const outline = page.getByRole("dialog", { name: "对话目录", exact: true });
   await expect(outline.locator("[data-location-id]")).toHaveCount(12);
   await expect(outline).not.toContainText("按提问定位");
-  await expect(outline).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(outline).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await expect(outline).not.toContainText("第 2 段建议");
   expect((await outline.locator('[data-location-id="a-0"]').boundingBox())!.height).toBeLessThanOrEqual(32);
   await outline.getByRole("button", { name: "定位提问 2：导航和内容区域应该怎么划分？ · 3", exact: true }).click();

@@ -133,3 +133,37 @@ test("the request context is one labelled block ahead of the latest user message
   assert.deepEqual((result[2].content as { text: string }[]).map(part => part.text), [block, "second"]);
   assert.equal(withRequestContext(messages, ""), messages);
 });
+
+async function storedConversation(turns: number) {
+  const created = await db.chat.create({ data: { title: "Reloaded" } });
+  const start = Date.now() - turns * 60_000;
+  for (let turn = 0; turn < turns; turn++) {
+    const user = turn === 1 ? "The vault passphrase is BLUE-WHALE-42. Keep it in mind." : `Routine question number ${turn}`;
+    await db.message.create({ data: { chatId: created.id, clientMessageId: `u${turn}`, role: "user", content: user, createdAt: new Date(start + turn * 60_000) } });
+    await db.message.create({ data: { chatId: created.id, clientMessageId: `a${turn}`, role: "assistant", content: `Routine answer number ${turn}`, createdAt: new Date(start + turn * 60_000 + 1) } });
+  }
+  return created;
+}
+
+test("turns the browser has not loaded are read from storage instead of silently dropped", async () => {
+  const created = await storedConversation(30);
+  // After a reload the browser holds only the latest page of messages.
+  const loaded = Array.from({ length: 5 }, (_, index) => 25 + index).flatMap(turn => [ui(`u${turn}`, "user", `Routine question number ${turn}`), ui(`a${turn}`, "assistant", `Routine answer number ${turn}`)]);
+  await send({ chatId: created.id, messages: [...loaded, ui("latest", "user", "What is the vault passphrase?")] });
+  const prompt = JSON.stringify(lastPrompt());
+  assert.match(prompt, /BLUE-WHALE-42/, "an early stored turn reaches the model");
+  assert.equal(prompt.match(/Routine answer number 26\b/g)?.length, 1, "a loaded message is not sent twice");
+});
+
+test("with a current summary only the turns after it are read from storage", async () => {
+  const created = await storedConversation(30);
+  const covered = await db.message.findFirstOrThrow({ where: { chatId: created.id, clientMessageId: "a9" } });
+  const { historyRevision } = await db.chat.findUniqueOrThrow({ where: { id: created.id } });
+  await db.chat.update({ where: { id: created.id }, data: { summary: "SUMMARY-MARKER: the vault passphrase was shared earlier.", summaryUpToMessageId: covered.id, summaryRevision: historyRevision } });
+  const loaded = [ui("u29", "user", "Routine question number 29"), ui("a29", "assistant", "Routine answer number 29")];
+  await send({ chatId: created.id, messages: [...loaded, ui("latest", "user", "What did we discuss?")] });
+  const prompt = JSON.stringify(lastPrompt());
+  assert.match(prompt, /SUMMARY-MARKER/, "the summary stands for the turns before its boundary");
+  assert.match(prompt, /Routine question number 10\b/, "turns after the boundary are read from storage");
+  assert.doesNotMatch(prompt, /BLUE-WHALE-42|Routine question number 5\b/, "turns inside the summary are not resent");
+});

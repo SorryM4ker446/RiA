@@ -17,6 +17,7 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { LAST_ACTIVE_CHAT_STORAGE_KEY } from "@/features/chat/types";
 import { ConversationRow } from "@/features/conversations/conversation-row";
 import { conversationsApi, type Conversation, type Filters } from "@/features/conversations/api-client";
+import { animateRemoval } from "@/lib/ui/removal";
 const initialFilters: Filters = { q: "", tag: "", state: "active" };
 const sameFilters = (a: Filters, b: Filters) => a.q === b.q && a.tag === b.tag && a.state === b.state;
 export default function ConversationsPage() {
@@ -94,7 +95,9 @@ export default function ConversationsPage() {
     dialog.current?.close();
     void act(async () => {
       const result = await conversationsApi.delete(ids);
-      forgetActive(ids); setNotice(`${t("conversations.notice.deletedBefore")} ${result.data.deletedCount} ${t("conversations.notice.deletedAfter")}`); await load();
+      forgetActive(ids);
+      await animateRemoval(ids, load);
+      setNotice(`${t("conversations.notice.deletedBefore")} ${result.data.deletedCount} ${t("conversations.notice.deletedAfter")}`);
     });
   }
   const disabled = loading || busy;

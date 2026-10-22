@@ -60,10 +60,7 @@ test("portable restore revokes terminal permission without transporting director
   await seed();
   const backup = await exclusiveDataOperation(() => archive.createAccountBackup(false));
   await exclusiveDataOperation(() => restoreAccountBackup(backup.id));
-  const restored = await db.directoryGrant.findUniqueOrThrow({ where: { id: grant.id } });
-  assert.equal(restored.terminalEnabled, false);
-  assert.equal(restored.terminalApprovalMode, "approval");
-  assert.ok(restored.revokedAt);
+  assert.equal(await db.directoryGrant.count({ where: { id: grant.id } }), 0, "no grant, and so no terminal permission, survives a restore");
 });
 
 test("portable backup restores PDF and Word chat attachment bytes and message references without knowledge documents", async () => {

@@ -25,6 +25,7 @@ import { useConversations } from "@/features/chat/use-conversations";
 import { useMediaGeneration } from "@/features/chat/use-media-generation";
 import { useTasks } from "@/features/chat/use-tasks";
 import { useTools } from "@/features/chat/use-tools";
+import { animateRemoval } from "@/lib/ui/removal";
 export function useChatState() {
   const [input, setInput] = useState("");
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
@@ -380,7 +381,7 @@ export function useChatState() {
     if (!activeChatId) return;
 
     const previous = messages;
-    setMessages((current) => current.filter((message) => message.id !== messageId));
+    await animateRemoval(messageId, () => setMessages((current) => current.filter((message) => message.id !== messageId)));
 
     try {
       await chatApi.deleteMessage(activeChatId, messageId);

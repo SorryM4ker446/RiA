@@ -224,3 +224,75 @@ test("a long conversation is summarized without losing the original messages", a
   const short = await summarizeOlderTurns({ chatId: chat.id, messages: messages.slice(0, 4), keepRecent: 10 });
   assert.equal(short, null);
 });
+
+test("a fact saved from a conversation never overwrites a different memory under the same key", async () => {
+  await saveMemory({ key: "preference", value: "Answer in Chinese" });
+  const second = await saveMemory({ key: "preference", value: "Use metric units", onConflict: "keep-both" });
+  const third = await saveMemory({ key: "preference", value: "Prefer short answers", onConflict: "keep-both" });
+  const repeated = await saveMemory({ key: "preference", value: "Use metric units", onConflict: "keep-both" });
+  assert.equal(second.key, "preference (2)");
+  assert.equal(third.key, "preference (3)");
+  assert.equal(repeated.id, second.id, "the same fact is not stored twice");
+  const stored = await db.memory.findMany({ orderBy: { key: "asc" } });
+  assert.deepEqual(stored.map(entry => [entry.key, entry.value]), [
+    ["preference", "Answer in Chinese"], ["preference (2)", "Use metric units"], ["preference (3)", "Prefer short answers"],
+  ]);
+  // Editing a memory explicitly still replaces it.
+  await saveMemory({ key: "preference", value: "Answer in English" });
+  assert.equal((await db.memory.findUnique({ where: { key: "preference" } }))?.value, "Answer in English");
+});
+
+test("the model's request to save a memory waits for approval, while saving by hand does not", async () => {
+  const { createChatToolSet, executeRegisteredTool } = await import("@/tools/execution");
+  const { getToolDescriptor } = await import("@/tools/builtins");
+  const tools = await createChatToolSet({ toolIds: ["saveMemory"] });
+  const saveTool = tools.saveMemory as unknown as { needsApproval?: (input: unknown) => Promise<boolean> };
+  assert.equal(await saveTool.needsApproval?.({ key: "name", value: "Ada" }), true);
+  const descriptor = getToolDescriptor("saveMemory");
+  assert.ok(descriptor);
+  await executeRegisteredTool(descriptor, { key: "name", value: "Ada" }, { trigger: "manual" });
+  const saved = await db.memory.findUnique({ where: { key: "name" } });
+  assert.equal(saved?.confirmed, true);
+});
+
+test("memory recall survives long messages and short follow-ups, and compares every confirmed memory", async () => {
+  const { getMemorySearchCandidates, CONTEXT_MEMORY_POLICY } = await import("@/lib/memory/retrieval");
+  const { CONTEXT_MEMORY_MIN_MATCH } = await import("@/lib/memory/retrieval");
+  await saveMemory({ key: "数据库选择", value: "项目使用 SQLite 本地数据库，不使用 PostgreSQL" });
+  const long = "我在想下周的发布计划里，数据库迁移这一步要不要提前做，另外 SQLite 的备份脚本、日志清理和监控告警是不是也得一起检查，顺便看看文档有没有过时的地方";
+  assert.deepEqual(keysOf(await getRelevantMemories({ query: long, minMatch: CONTEXT_MEMORY_MIN_MATCH })), ["数据库选择"],
+    "two shared words in a long message are a match");
+  const oneWord = "下周的发布计划里日志清理和监控告警要一起检查，文档也要更新，顺便整理 SQLite 之外的其他事项和周会安排";
+  assert.deepEqual(await getRelevantMemories({ query: oneWord, minMatch: CONTEXT_MEMORY_MIN_MATCH }), [],
+    "one shared word in a long message is not");
+  assert.deepEqual(await getRelevantMemories({ query: "那它呢？", minMatch: CONTEXT_MEMORY_MIN_MATCH }), []);
+  assert.deepEqual(keysOf(await getRelevantMemories({ query: "那它呢？", followUp: "SQLite 数据库怎么备份", minMatch: CONTEXT_MEMORY_MIN_MATCH })), ["数据库选择"],
+    "a follow-up finds what the previous message asked about");
+  assert.deepEqual(await getRelevantMemories({ query: "Write a haiku about autumn", followUp: "SQLite 数据库怎么备份", minMatch: CONTEXT_MEMORY_MIN_MATCH }), [],
+    "a message on a new subject does not carry the previous subject's memories");
+
+  await db.memory.createMany({ data: Array.from({ length: 150 }, (_, index) => ({ key: `note-${index}`, value: `unrelated note ${index}`, confirmed: true })) });
+  const { candidates } = await getMemorySearchCandidates("anything", CONTEXT_MEMORY_POLICY);
+  assert.equal(candidates.length, 151, "every confirmed memory is a candidate, not only the newest");
+});
+
+test("unaccepted tool candidates expire and are capped, accepted memories are kept", async () => {
+  const { pruneToolMemoryCandidates, TOOL_CANDIDATE_LIMIT, TOOL_CANDIDATE_MAX_AGE_MS } = await import("@/tools/memory-policy");
+  const now = Date.now();
+  const old = new Date(now - TOOL_CANDIDATE_MAX_AGE_MS - 60_000);
+  await db.memory.createMany({ data: [
+    { key: "tool:webSearch:old", value: "old candidate", source: "assistant", confirmed: false, updatedAt: old },
+    { key: "tool:webSearch:accepted", value: "accepted long ago", source: "assistant", confirmed: true, updatedAt: old },
+    { key: "manual old", value: "written by hand", source: "manual", confirmed: true, updatedAt: old },
+    ...Array.from({ length: TOOL_CANDIDATE_LIMIT + 5 }, (_, index) => ({
+      key: `tool:createTask:${index}`, value: `candidate ${index}`, source: "assistant", confirmed: false, updatedAt: new Date(now - index * 1000),
+    })),
+  ] });
+  await pruneToolMemoryCandidates(now);
+  const remaining = await db.memory.findMany({ select: { key: true } });
+  const keys = new Set(remaining.map(entry => entry.key));
+  assert.equal(keys.has("tool:webSearch:old"), false);
+  assert.ok(keys.has("tool:webSearch:accepted") && keys.has("manual old"));
+  assert.equal(remaining.filter(entry => entry.key.startsWith("tool:createTask:")).length, TOOL_CANDIDATE_LIMIT);
+  assert.ok(keys.has("tool:createTask:0") && !keys.has(`tool:createTask:${TOOL_CANDIDATE_LIMIT + 4}`), "the newest candidates are kept");
+});

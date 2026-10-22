@@ -14,6 +14,12 @@ export type SaveMemoryInput = {
    * enter the model's context until the user accepts them.
    */
   source?: "manual" | "assistant";
+  /**
+   * What happens when the key already holds different text. Editing a memory
+   * replaces it; a new fact saved from a conversation keeps both, under a
+   * numbered key, so it cannot silently overwrite an unrelated memory.
+   */
+  onConflict?: "replace" | "keep-both";
 };
 
 export type GetRelevantMemoriesInput = {
@@ -21,6 +27,8 @@ export type GetRelevantMemoriesInput = {
   limit?: number;
   /** Minimum keyword or semantic match before recency and manual weight count. */
   minMatch?: number;
+  /** The previous user message, so a short follow-up still finds what it refers to. */
+  followUp?: string;
   signal?: AbortSignal;
 };
 
@@ -44,10 +52,17 @@ export async function saveMemory(input: SaveMemoryInput) {
   // rejected candidate would keep entering the model's context in place of the
   // memory the user agreed to.
   return db.$transaction(async tx => {
-  const existing = await tx.memory.findUnique({ where: { key: normalizedKey } });
+  let key = normalizedKey;
+  let existing = await tx.memory.findUnique({ where: { key } });
+  if (input.onConflict === "keep-both" && existing && existing.value !== normalizedValue) {
+    for (let suffix = 2; existing && existing.value !== normalizedValue; suffix++) {
+      key = `${normalizedKey} (${suffix})`;
+      existing = await tx.memory.findUnique({ where: { key } });
+    }
+  }
   if (!confirmed && existing?.confirmed) return existing;
   const saved = await tx.memory.upsert({
-    where: { key: normalizedKey },
+    where: { key },
     update: {
       value: normalizedValue,
       source,
@@ -61,7 +76,7 @@ export async function saveMemory(input: SaveMemoryInput) {
       embeddingModelProvider: embedding ? modelRef?.providerId : null,
     },
     create: {
-      key: normalizedKey,
+      key,
       value: normalizedValue,
       score: input.score ?? 0.5,
       source,
@@ -82,7 +97,7 @@ export async function getRelevantMemories(input: GetRelevantMemoriesInput) {
   if (input.signal?.aborted) return [];
 
   const limit = input.limit ?? 5;
-  const { candidates } = await getMemorySearchCandidates(query, CONTEXT_MEMORY_POLICY, input.signal);
+  const { candidates } = await getMemorySearchCandidates(query, CONTEXT_MEMORY_POLICY, input.signal, input.followUp);
   const relevant = input.minMatch ? candidates.filter((item) => item.match >= input.minMatch!) : candidates;
   const used = rankByScore(relevant, (item) => item.relevance, limit).map(({ memory }) => ({
     id: memory.id, key: memory.key, value: memory.value, score: memory.score, updatedAt: memory.updatedAt,

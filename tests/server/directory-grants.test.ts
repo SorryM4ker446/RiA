@@ -168,10 +168,9 @@ test("revoking a grant takes effect on the very next operation", async () => {
 
   await revokeGrant(grant.id);
   await assert.rejects(() => requireActiveGrant(grant.id), (error: unknown) => error instanceof LocalFileRefused && error.reason === "outside-grant");
-  // The row is kept so the settings page can show what was withdrawn, but it is
-  // no longer listed as available.
-  assert.equal(await listGrants().then((rows) => rows.length), 0);
-  assert.equal(await listGrants({ includeRevoked: true }).then((rows) => rows.length), 1);
+  // A withdrawn folder is removed, not kept as history.
+  assert.equal(await listGrants({ includeRevoked: true }).then((rows) => rows.length), 0);
+  assert.equal(await db.directoryGrant.count({ where: { id: grant.id } }), 0);
 
   // Revoking twice, and revoking something that is not there, both leave the
   // same state: the permission is gone.
@@ -179,17 +178,25 @@ test("revoking a grant takes effect on the very next operation", async () => {
   assert.deepEqual(await revokeGrant("missing"), { revoked: true });
 });
 
-test("granting the same folder again revives it rather than stacking a second permission", async () => {
+test("granting the same folder again does not stack a second permission, and a withdrawn one can be granted anew", async () => {
   const root = temporaryDirectory("ria-grant-");
   const first = await createGrant({ path: root });
   const again = await createGrant({ path: root });
   assert.equal(again.id, first.id);
 
   await revokeGrant(first.id);
-  const revived = await createGrant({ path: root });
-  assert.equal(revived.id, first.id);
-  assert.equal(revived.revokedAt, null);
-  assert.equal(await listGrants().then((rows) => rows.length), 1);
+  const granted = await createGrant({ path: root });
+  assert.equal(granted.revokedAt, null);
+  assert.equal(await listGrants({ includeRevoked: true }).then((rows) => rows.length), 1);
+});
+
+test("revoking also removes withdrawn records an earlier version kept", async () => {
+  const kept = await db.directoryGrant.create({ data: { label: "old", path: "fixture/old", realPath: "fixture/old", revokedAt: new Date() } });
+  const active = await createGrant({ path: temporaryDirectory("ria-grant-") });
+  const other = await createGrant({ path: temporaryDirectory("ria-grant-") });
+  await revokeGrant(active.id);
+  assert.equal(await db.directoryGrant.count({ where: { id: kept.id } }), 0);
+  assert.deepEqual((await listGrants({ includeRevoked: true })).map(row => row.id), [other.id]);
 });
 
 test("two grant requests for one folder arriving together leave one permission, not two", async () => {
@@ -243,15 +250,13 @@ test("the grants endpoints grant and withdraw, and never without the local crede
   assert.equal((await refused.json()).error.details.reason, "network-location");
 });
 
-test("the withdrawn folders the plain listing hides are still there to be asked for", async () => {
+test("a withdrawn folder is removed from every listing", async () => {
   const root = temporaryDirectory("ria-grant-");
   const created = await payload(await grantsRoute.POST(req("/api/directory-grants", "POST", { path: root })), 201);
   await payload(await grantIdRoute.DELETE(req(`/api/directory-grants/${created.data.id}`, "DELETE"), context(created.data.id)));
 
   assert.equal((await payload(await grantsRoute.GET(req("/api/directory-grants")))).data.length, 0);
-  const kept = await payload(await grantsRoute.GET(req("/api/directory-grants?includeRevoked=true")));
-  assert.equal(kept.data.length, 1);
-  assert.ok(kept.data[0].revokedAt, "a withdrawn folder keeps its record and the date it was withdrawn");
+  assert.equal((await payload(await grantsRoute.GET(req("/api/directory-grants?includeRevoked=true")))).data.length, 0);
 
   // One query means something here, and it is the only one accepted.
   assert.equal((await grantsRoute.GET(req("/api/directory-grants?includeRevoked=false"))).status, 200);
@@ -488,18 +493,16 @@ test("a withdrawn or replaced folder invalidates a pending approval", async () =
   await revokeGrant(grant.id);
   assert.equal(await refusedBy(() => verifyWriteApproval(binding)), "outside-grant");
 
-  // Re-granting puts the permission back on the same row, and it is the row that
-  // moved: withdrawing it and granting it again both change its version, so an
-  // approval raised against the withdrawn state does not carry over to the
-  // permission that replaced it. The refusal comes from the real binding, not a
-  // forged one, so the test covers the property the comment names.
-  const revived = await createGrant({ path: root });
-  assert.equal(revived.id, grant.id);
+  // Granting the folder again creates a new permission, so an approval raised
+  // against the withdrawn one does not carry over to the permission that
+  // replaced it. The refusal comes from the real binding, not a forged one.
+  const regranted = await createGrant({ path: root });
+  assert.notEqual(regranted.id, grant.id);
   assert.equal(await refusedBy(() => verifyWriteApproval(binding)), "outside-grant");
   // The permission is genuinely back: an approval taken now describes the same act
-  // and passes, which is what makes the refusal above about the move rather than
-  // about the folder having stopped existing.
-  await verifyWriteApproval(await bindWriteApproval({ grantId: grant.id, path: "summary.md" }));
+  // and passes, which is what makes the refusal above about the withdrawal rather
+  // than about the folder having stopped existing.
+  await verifyWriteApproval(await bindWriteApproval({ grantId: regranted.id, path: "summary.md" }));
 });
 
 test("revealing a file re-checks the grant instead of trusting the caller", async () => {

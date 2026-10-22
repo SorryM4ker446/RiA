@@ -401,7 +401,6 @@ export const pageMessages = {
   "settings.grants.browse": "浏览…",
   "settings.grants.add": "授权",
   "settings.grants.revoke": "撤销",
-  "settings.grants.revoked": "已撤销：",
   "settings.grants.empty": "还没有授权任何目录，助手目前读不到本机文件。",
   "settings.grants.loading": "正在读取授权…",
   "settings.grants.neverUsed": "尚未使用",

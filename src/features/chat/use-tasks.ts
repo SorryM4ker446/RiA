@@ -7,6 +7,7 @@ import type {
   TaskStatusFilter,
 } from "@/features/chat/types";
 import { COLLAPSED_TASK_LIMIT } from "@/features/chat/types";
+import { animateRemoval } from "@/lib/ui/removal";
 
 export function useTasks() {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
@@ -69,7 +70,7 @@ export function useTasks() {
     try {
       if (input === null) {
         await chatApi.deleteTask(taskId);
-        setTasks((current) => current.filter((task) => task.id !== taskId));
+        await animateRemoval(taskId, () => setTasks((current) => current.filter((task) => task.id !== taskId)));
       } else {
         const payload = await chatApi.updateTask(taskId, input);
         setTasks((current) => {

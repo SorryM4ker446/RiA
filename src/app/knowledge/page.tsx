@@ -25,6 +25,7 @@ import { DocumentLibrary } from "@/features/knowledge/document-library";
 import { TopicEntry } from "@/features/topics/topic-entry";
 import { KnowledgeEntryContent } from "@/features/knowledge/entry-content";
 import { presentToolMemory } from "@/features/knowledge/entry-presentation";
+import { animateRemoval, removalKey } from "@/lib/ui/removal";
 type KnowledgeEntry = {
   id: string;
   key: string;
@@ -214,7 +215,7 @@ export default function KnowledgePage() {
       if (!response.ok) {
         throw new Error(readApiErrorMessage(payload, t("knowledge.error.delete")));
       }
-      setEntries((current) => current.filter((entry) => entry.id !== entryId));
+      await animateRemoval(entryId, () => setEntries((current) => current.filter((entry) => entry.id !== entryId)));
       if (editingId === entryId) setEditingId(null);
       setPageNeedsRefresh(true);
       await loadEntries({ ...entryPage, cursors: [null], nextCursor: null });
@@ -316,6 +317,7 @@ export default function KnowledgePage() {
                   <article
                     className="management-row knowledge-entry-row flex min-w-0 flex-col gap-3 rounded-xl p-4"
                     key={entry.id}
+                    {...removalKey(entry.id)}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">

@@ -102,7 +102,9 @@ test("chat permissions choose and grant a directory without sending the draft, a
   await sheet.getByRole("button", { name: "关闭终端", exact: true }).click();
   await expect(sheet.getByRole("button", { name: "开启终端", exact: true })).toBeVisible();
   await sheet.getByRole("button", { name: "撤销", exact: true }).click();
-  await expect(sheet.getByText(/已撤销：/)).toBeVisible();
+  // A withdrawn folder is removed from the list rather than kept as history.
+  await expect(sheet.getByRole("list", { name: "目录授权", exact: true })).toHaveCount(0);
+  await expect(sheet.getByText(/已撤销/)).toHaveCount(0);
   expect(await browserData(page, "/api/directory-grants")).toHaveLength(0);
   await page.keyboard.press("Escape");
   await page.getByRole("combobox", { name: "选择工具", exact: true }).click();

@@ -12,6 +12,7 @@ import { assertContextFits, contextBudget, estimateContextTokens, MIN_CALIBRATIO
 import { contextCalibration } from "./context-calibration";
 import { retryDelay, waitForRetry } from "./model-retry";
 import { continueTruncated } from "./continuation";
+import { needsCacheBreakpoints, withCacheBreakpoints } from "./prompt-cache";
 
 type Model = Extract<LanguageModel, { specificationVersion: "v3" }>;
 type Embed = Extract<EmbeddingModel, { specificationVersion: "v3" }>;
@@ -100,7 +101,10 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
         try {
           const lease = await acquireModelLease("chat", selected);
           releaseLease = lease.release;
-          const selectedParams = { ...params, maxOutputTokens: await plannedCap(selected, params) };
+          const selectedParams = { ...params, maxOutputTokens: await plannedCap(selected, params),
+            // Chat steps repeat their prefix across turns and tool steps, so a
+            // cache write is read back; one-off generated calls are not marked.
+            ...(needsCacheBreakpoints(selected) ? { prompt: withCacheBreakpoints(params.prompt) } : {}) };
           admission = await beginModelAttempt({ mode: "chat", ref: selected, source: callSource, prompt: selectedParams.prompt, maxOutputTokens: selectedParams.maxOutputTokens, fallback: attempt > 0, signal: params.abortSignal });
           const result = await (attempt ? alternate(selected) : model).doStream(selectedParams);
           reader = result.stream.getReader();

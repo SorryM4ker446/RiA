@@ -248,9 +248,14 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       ],
     },
     inputSchema: saveMemoryInputSchema,
+    // A memory enters every later conversation it matches. The model may be
+    // acting on text it read in a page, document or command output, so its
+    // request to keep something is shown to the user first. Saving by hand
+    // through the tool form is not a model call and needs no approval.
+    requiresApproval: true,
     execute: async ({ input, usesMemory }) => {
       if (usesMemory === false) throw new ApiError({ code: "VALIDATION_ERROR", message: t("tools.saveMemory.disabled") });
-      return saveMemory({ key: input.key, value: input.value, score: 0.9 });
+      return saveMemory({ key: input.key, value: input.value, score: 0.9, onConflict: "keep-both" });
     },
     buildAssistantText: ({ output, input }) => {
       const result = output as { key: string };
