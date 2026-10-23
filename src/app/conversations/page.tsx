@@ -58,6 +58,9 @@ export default function ConversationsPage() {
       if (version !== sequence.current.version) return;
       loadedFilters.current = filters;
       setChats(previous => nextCursor ? [...previous, ...result.data.filter(chat => !previous.some(item => item.id === chat.id))] : result.data);
+      // A reload replaces the rows, so the selection keeps only what is still listed: a deleted or
+      // newly hidden conversation would otherwise stay selected and fail the next bulk delete.
+      if (!nextCursor) setSelected(previous => previous.filter(id => result.data.some(chat => chat.id === id)));
       setCursor(result.pageInfo.nextCursor);
     } catch (cause) {
       if (version === sequence.current.version) setError(cause instanceof Error ? cause.message : t("conversations.error.load"));
