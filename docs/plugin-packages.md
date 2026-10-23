@@ -5,7 +5,7 @@ Existing standalone connections, MCP discovery, tool allowlists and approvals re
 
 ## Use and lifecycle
 
-**扩展管理 → 插件市场 → 发现 Skill** searches the public skills.sh directory.
+**设置 → 扩展 → 插件市场 → 发现 Skill** searches the public skills.sh directory.
 Enter at least two characters (for example `writing` or `react`), press **搜索**,
 then **查看详情** to read `SKILL.md`, inspect bundled files and check compatibility.
 Press **安装技能** and enable the installed package in **我的扩展 → 我的插件**.

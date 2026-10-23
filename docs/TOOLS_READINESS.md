@@ -38,9 +38,9 @@ Normal chat uses automatic tool selection. An explicit tool choice requests a on
 
 ## Discovery and installation
 
-**扩展管理 → 发现扩展** searches the official MCP Registry and opens connection drafts. Results scroll in a bounded panel with cursor loading. Users still configure credentials, detect tools, select and enable them.
+**设置 → 扩展 → 发现扩展** searches the official MCP Registry and opens connection drafts. Results scroll in a bounded panel with cursor loading. Users still configure credentials, detect tools, select and enable them.
 
-**扩展管理 → 插件市场 → 发现 Skill** searches skills.sh, previews supported snapshots and installs disabled packages. RiA packages can also combine Skill instructions with MCP/HTTP configuration through validated `.ria-plugin.json` imports. Browsing and installation do not execute business tools.
+**设置 → 扩展 → 插件市场 → 发现 Skill** searches skills.sh, previews supported snapshots and installs disabled packages. RiA packages can also combine Skill instructions with MCP/HTTP configuration through validated `.ria-plugin.json` imports. Browsing and installation do not execute business tools.
 
 Arbitrary Claude/DSH plugin runtimes, executable Skill scripts, automatic plugin updates/rollback and generalized external-runtime installation remain unsupported. Market discovery is not compatibility certification.
 
