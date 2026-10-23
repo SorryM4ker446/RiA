@@ -63,7 +63,6 @@ export const toolsMessages = {
   "tools.webSearch.noResults": "已执行 Web Search，但暂未返回可用结果：{query}",
   "tools.webSearch.completed": "已完成 Web Search，返回 {count} 条结果。",
   "tools.webSearch.expandHint": "可在下方展开查看搜索来源。",
-  "tools.webSearch.memorySummary": "Web 搜索「{query}」返回 {count} 条结果。",
   // --- saveMemory ---------------------------------------------------------
   "tools.saveMemory.displayName": "记住信息",
   "tools.saveMemory.description": "保存一条关于用户的长期信息，供后续对话使用。",

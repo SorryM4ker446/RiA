@@ -1077,7 +1077,6 @@ export const enUS = {
   "tools.webSearch.noResults": "Web search completed but returned no usable results: {query}",
   "tools.webSearch.completed": "Web search completed with {count} results.",
   "tools.webSearch.expandHint": "Expand below to view search sources.",
-  "tools.webSearch.memorySummary": "Web search for “{query}” returned {count} results.",
   "tools.saveMemory.displayName": "Remember information",
   "tools.saveMemory.description": "Save durable information about the user for future conversations.",
   "tools.saveMemory.manualLabel": "Manual: remember information",
