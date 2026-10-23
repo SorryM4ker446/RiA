@@ -518,3 +518,15 @@ test("a cached read is priced as a cached read, not as a fresh input token",()=>
   // No split reported: charged as ordinary input, never as zero.
   assert.equal(usageCost("chat",{inputTokens:{total:1000},outputTokens:{total:100}},{},rate).costUsd,0.012);
 });
+
+test("model warnings name each library model a provider reported as not found, once, with its latest date",async()=>{
+  const failure=(ref:{providerId:string;modelId:string},createdAt:Date)=>db.modelRequest.create({data:{requestId:randomUUID(),mode:"chat",modelId:ref.modelId,modelProvider:ref.providerId,status:"error",errorCode:"MODEL_UNAVAILABLE",durationMs:1,costSource:"unknown",createdAt}});
+  const day=86_400_000,now=Date.now();
+  await failure(CHAT_MODEL_REF,new Date(now-3*day));
+  await failure(CHAT_MODEL_REF,new Date(now-day));
+  // Removed from the library since, and older than the 30-day window: neither is reported.
+  await failure({providerId:"openrouter",modelId:"removed/model"},new Date(now-day));
+  await failure(IMAGE_MODEL_REF,new Date(now-40*day));
+  const {recentFailures}=await payload(await models.GET(req("/api/models")));
+  assert.deepEqual(recentFailures,[{providerId:CHAT_MODEL_REF.providerId,modelId:CHAT_MODEL_REF.modelId,failedAt:new Date(now-day).toISOString()}]);
+});

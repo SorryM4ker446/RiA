@@ -51,6 +51,26 @@ function readFailure(catalogs: Record<string, Record<string, CatalogState>>, ite
  * model. Only a catalog that was read successfully and no longer lists the
  * model reports it as gone.
  */
+/** A model in the library that a provider reported as not found, and when it last did. */
+export type LibraryModelFailure = { providerId: string; modelId: string; failedAt: string };
+
+/**
+ * The models in the library that a provider reported as not found on a recent
+ * call: one entry per model with its latest failure, newest first. A model
+ * since removed from the library is left out; its failure no longer asks
+ * anything of the user.
+ */
+export function libraryModelFailures(
+  failures: { modelProvider: string; modelId: string; failedAt: Date | null }[],
+  library: ModelLibraryItem[],
+): LibraryModelFailure[] {
+  const members = new Set(library.map(item => modelRefKey(item)));
+  return failures
+    .filter((failure): failure is typeof failure & { failedAt: Date } => failure.failedAt !== null && members.has(`${failure.modelProvider}:${failure.modelId}`))
+    .sort((a, b) => b.failedAt.getTime() - a.failedAt.getTime())
+    .map(failure => ({ providerId: failure.modelProvider, modelId: failure.modelId, failedAt: failure.failedAt.toISOString() }));
+}
+
 export function resolveLibraryAvailability(
   preferences: ModelPreferences,
   catalogs: Record<string, Record<string, CatalogState>>,

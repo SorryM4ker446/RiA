@@ -20,7 +20,7 @@ import { RefreshButton } from "@/components/ui/refresh-button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { settingsRequest, jsonRequest } from "@/features/settings/api-client";
 import { callLimitRanges, libraryModes, modelModes, modelRefKey, type ModelLibraryItem, type ModelPreferences, type ModelRef, type GenerationMode, type LibraryMode } from "@/lib/models/preferences-schema";
-import type { LibraryAvailability, ModelAvailability } from "@/lib/models/availability";
+import type { LibraryAvailability, LibraryModelFailure, ModelAvailability } from "@/lib/models/availability";
 import type { CatalogModel } from "@/lib/models/providers/types";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useSettingsDirty } from "@/features/settings/settings-context";
@@ -103,12 +103,12 @@ export function ModelSettings() {
   const [embeddings, setEmbeddings] = useState<EmbeddingSummary | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const load = useCallback(async () => {
-    const preferences = await settingsRequest<{ data: ModelPreferences; availability: LibraryAvailability; providers: ProviderSummary[]; recentFailures: { modelId: string }[] }>("/api/models");
+    const preferences = await settingsRequest<{ data: ModelPreferences; availability: LibraryAvailability; providers: ProviderSummary[]; recentFailures: LibraryModelFailure[] }>("/api/models");
     setSettings(current => current ? { ...current, ...preferences.data } : preferences.data);
     setSavedPreferences(preferences.data);
     setAvailability(preferences.availability ?? {});
     setProviders(preferences.providers ?? []);
-    setWarnings([...new Set(preferences.recentFailures.map(item => tf("models.warningForModel", { modelId: item.modelId, reason: t("models.missingModelWarning") })))]);
+    setWarnings(preferences.recentFailures.map(item => tf("models.notFoundOn", { modelId: item.modelId, date: formatDateTime(item.failedAt, { month: "short", day: "numeric" }) })));
     // The embedding summary is an aside on this page. A failure reading it must
     // not take the library, the catalog and the preferences down with it, so it
     // settles on its own and only reports itself.
