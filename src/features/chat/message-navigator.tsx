@@ -141,7 +141,8 @@ export function MessageNavigator({ messages, scrollRef, onNavigate, hasOlder, lo
     </Popover>
     <div className="message-nav-track">
       {hasOlder && loadEarlier}
-      <TooltipProvider delayDuration={150}><div ref={marksRef} className="message-nav-marks chat-list-scroll" onKeyDown={event => {
+      {/* Previews are not hoverable: otherwise Radix ignores the next mark while the pointer could still be heading for the open preview. */}
+      <TooltipProvider delayDuration={150} disableHoverableContent><div ref={marksRef} className="message-nav-marks chat-list-scroll" onKeyDown={event => {
         if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
         const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("[data-message-mark]")];
         const index = buttons.indexOf(event.target as HTMLButtonElement);

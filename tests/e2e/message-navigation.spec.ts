@@ -58,10 +58,13 @@ test("desktop markers preview and locate messages with mouse and keyboard while 
   const preview = page.locator(".message-nav-preview");
   await expect(preview).toContainText("帮我整理一下首页的布局方向");
   await expect(preview).toContainText("第 2 段建议");
-  // The preview has its own surface: readability must not depend on blurring what is behind it.
-  await expect(preview).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await expect(preview).toHaveCSS("animation-name", "message-preview-in");
-  await preview.hover(); await expect(preview).toBeVisible();
+  // Moving down the rail onto another mark, the current one included, previews that mark.
+  for (const [id, text] of [["a-16", "· 17"], ["a-22", "· 23"], ["a-18", "· 19"]]) {
+    const box = (await mark(page, id).boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 6 });
+    await expect(preview).toContainText(text);
+  }
   await page.evaluate(() => {
     const nav = document.querySelector('.message-navigator')!;
     const locations: string[] = [];
@@ -147,6 +150,32 @@ test("narrow screens use a compact outline that preserves the composer and can l
   await page.screenshot({ path: join(screenshots, "mobile-outline.png"), animations: "disabled" });
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "打开对话目录", exact: true })).toBeFocused();
+});
+
+test("in the desktop window the preview is frosted glass that blurs the transcript behind it", async ({ page }) => {
+  await panels(page);
+  await page.setViewportSize({ width: 1280, height: 760 });
+  await page.route("**/api/conversations", route => route.fulfill({ json: { data: [summary("a")] } }));
+  await page.route("**/api/conversations/a/messages", route => route.fulfill({ json: { data: history() } }));
+  await page.goto("/chat");
+  await page.evaluate(() => { document.documentElement.dataset.desktopRuntime = "true"; });
+  await mark(page, "a-16").hover();
+  const preview = page.locator(".message-nav-preview");
+  await expect(preview).toContainText("· 17");
+  const surface = await preview.evaluate(element => {
+    const style = getComputedStyle(element);
+    // Any of these on an ancestor makes it the backdrop root, and the blur no longer reaches the transcript.
+    const roots: string[] = [];
+    for (let node = element.parentElement; node; node = node.parentElement) {
+      const own = getComputedStyle(node);
+      if (own.clipPath !== "none" || own.filter !== "none" || own.backdropFilter !== "none" || own.maskImage !== "none" || Number(own.opacity) < 1) roots.push(node.tagName);
+    }
+    return { alpha: Number(style.backgroundColor.match(/[\d.]+(?=\)$)/)?.[0] ?? 1), blur: style.backdropFilter.includes("blur("), roots };
+  });
+  expect(surface.alpha).toBeLessThan(1);
+  expect(surface).toMatchObject({ blur: true, roots: [] });
+  // The window keeps its rounded corners without clipping the page.
+  await expect(page.locator(".workspace-shell")).toHaveCSS("border-radius", "14px");
 });
 
 test("switching conversations removes old locations during loading and ignores an obsolete older page", async ({ page }) => {
