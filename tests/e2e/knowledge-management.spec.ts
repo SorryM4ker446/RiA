@@ -1,4 +1,5 @@
 import { test as base, expect } from "@playwright/test";
+import { chooseMenuAction } from "../helpers/row-menu";
 import { DatabaseSync } from "node:sqlite";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -82,7 +83,7 @@ test("a saved write with a failed list refresh disables obsolete pagination and 
   const pagination = page.getByRole("navigation", { name: "知识条目分页" });
   await pagination.getByRole("button", { name: "下一页" }).click();
   await expect(pagination.getByText("第 2 页", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "编辑 记忆 101", exact: true }).click();
+  await chooseMenuAction(page, "记忆 101", "编辑 记忆 101");
   await page.getByRole("textbox", { name: "修改这条记忆的内容" }).fill("已保存的编辑");
   await page.route("**/api/knowledge?**", route => route.fulfill({ status: 500, json: { error: { code: "INTERNAL_ERROR", message: "模拟刷新失败" } } }));
   await page.getByRole("button", { name: "保存", exact: true }).click();
@@ -101,7 +102,7 @@ test("a saved write with a failed list refresh disables obsolete pagination and 
 test("failed knowledge writes preserve drafts and rows, then successful writes refill the filtered page", { tag: "@integration" }, async ({ page, app }) => {
   await page.getByRole("combobox", { name: "知识确认状态" }).click(); await page.getByRole("option", { name: "待确认", exact: true }).click();
   await expect(page.locator("article")).toHaveCount(2);
-  await page.getByRole("button", { name: "编辑 记忆 001", exact: true }).click();
+  await chooseMenuAction(page, "记忆 001", "编辑 记忆 001");
   await page.getByRole("textbox", { name: "修改这条记忆的内容" }).fill("修正后的内容");
   await page.route("**/api/knowledge/fixture-001", route => route.fulfill({ status: 500, json: { error: { code: "INTERNAL_ERROR", message: "模拟保存失败" } } }));
   await page.getByRole("button", { name: "保存", exact: true }).click();
@@ -112,11 +113,11 @@ test("failed knowledge writes preserve drafts and rows, then successful writes r
   await expect(page.locator("article")).toHaveCount(1);
   expect(app.readRows("SELECT value,confirmed FROM memories WHERE id='fixture-001'")[0]).toEqual({ value: "修正后的内容", confirmed: 1 });
   await page.route("**/api/knowledge/fixture-000", route => route.fulfill({ status: 500, json: { error: { code: "INTERNAL_ERROR", message: "模拟删除失败" } } }));
-  await page.getByRole("button", { name: "删除知识 记忆 000", exact: true }).click();
+  await chooseMenuAction(page, "记忆 000", "删除知识 记忆 000");
   await expect(page.getByText("模拟删除失败", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "记忆 000", exact: true })).toBeVisible();
   await page.unroute("**/api/knowledge/fixture-000");
-  await page.getByRole("button", { name: "删除知识 记忆 000", exact: true }).click();
+  await chooseMenuAction(page, "记忆 000", "删除知识 记忆 000");
   await expect(page.locator("article")).toHaveCount(0);
   await expect(page.getByText("当前页没有符合条件的知识条目。可调整搜索或返回上一页。", { exact: true })).toBeVisible();
   expect(app.readRows("SELECT id FROM memories WHERE id='fixture-000'")).toEqual([]);

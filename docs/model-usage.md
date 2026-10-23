@@ -10,7 +10,7 @@ run budget and reserves a unique step position before executing. Concurrent
 tool calls share that budget, and a failed reservation executes no side effect.
 Completed-step reporting remains best-effort after the operation has happened.
 
-Open **模型与用量** from the chat sidebar or Settings. Browser and Electron share the same local SQLite preferences. Browse the official OpenRouter chat, image, video and embedding catalogs, then add models to **我的模型**. Only library members appear in chat selectors or pass server-side call validation.
+Open **设置 → 模型** from the sidebar; recent calls and cost are under **设置 → 用量**. Browser and Electron share the same local SQLite preferences. Browse the official OpenRouter chat, image, video and embedding catalogs, then add models to **我的模型**. Only library members appear in chat selectors or pass server-side call validation.
 
 OpenRouter catalog browsing requires a configured API key in this application.
 Without a key, all four catalog categories return no rows and make no upstream

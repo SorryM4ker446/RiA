@@ -189,6 +189,16 @@ test("conversation pagination and bulk deletion require visible selection and ex
   await expect(page.getByText("已删除 30 个会话。")).toBeVisible();
   await expect(page.getByRole("article")).toHaveCount(3);
   expect(app.readRows("SELECT id FROM chats")).toHaveLength(3);
+  // Deleted conversations leave the selection, so another delete right after only sends what is listed.
+  await expect(page.getByText(/已选 0 \/ 50/)).toBeVisible();
+  await page.getByRole("article").first().getByRole("checkbox").check();
+  await page.getByRole("article").nth(1).getByRole("checkbox").check();
+  await expect(page.getByText(/已选 2 \/ 50/)).toBeVisible();
+  await page.getByRole("button", { name: "删除所选" }).click();
+  await confirm.getByRole("button", { name: "确认永久删除" }).click();
+  await expect(page.getByText("已删除 2 个会话。")).toBeVisible();
+  await expect(page.getByRole("article")).toHaveCount(1);
+  expect(app.readRows("SELECT id FROM chats")).toHaveLength(1);
   expect(app.providerCalls).toHaveLength(0);
 });
 

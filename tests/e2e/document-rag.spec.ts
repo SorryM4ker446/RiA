@@ -7,6 +7,7 @@ import { openWorkspace } from "../helpers/workspace-entry";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { browserApi, browserData } from "../helpers/browser-api";
 import { openExecutionDetails } from "../helpers/execution-records";
+import { acceptConfirm } from "../helpers/confirm";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => {
@@ -25,11 +26,8 @@ async function upload(page: Page, filename: string, text: string, collection: st
   return (await result.json()).data.document;
 }
 async function build(page: Page, filename: string) {
-  page.once("dialog", async dialog => {
-    expect(dialog.message()).toContain("可能产生费用"); await dialog.accept();
-  });
   const response = page.waitForResponse(response => response.url().endsWith("/embeddings"));
-  await page.getByLabel(`构建语义索引 ${filename}`).click();
+  await page.getByLabel(`构建语义索引 ${filename}`).click(); await acceptConfirm(page, "可能产生费用");
   const result = await response; expect(result.ok(), await result.text()).toBe(true);
   const progress = (await result.json()).data;
   expect(progress.remaining).toBe(0);
@@ -53,8 +51,7 @@ test("semantic indexing delivers evidence to chat, marks actual citations and su
   expect(app.readRows("SELECT embeddingModelId,embeddingContextHash FROM document_chunks WHERE documentId=? AND embedding IS NOT NULL", finance.id)).toHaveLength(progress.total);
   const charged = app.readRows("SELECT id FROM model_requests WHERE mode='embedding'").length;
   // Complete indices now skip the HTTP batch as well as the provider call.
-  page.once("dialog", dialog => dialog.accept());
-  await page.getByLabel("构建语义索引 差旅规程.md").click();
+  await page.getByLabel("构建语义索引 差旅规程.md").click(); await acceptConfirm(page);
   await expect(page.getByLabel("构建语义索引 差旅规程.md")).toBeEnabled();
   await expect(page.getByTestId("index-maintenance")).toContainText("差旅规程.md：已完成");
   expect(app.readRows("SELECT id FROM model_requests WHERE mode='embedding'")).toHaveLength(charged);
@@ -108,8 +105,7 @@ test("a failed later indexing batch exposes saved progress and resumes without c
     if (++batches === 2) await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { code: "UPSTREAM_FAILED", message: "模拟服务中断" } }) });
     else await route.continue();
   });
-  page.once("dialog", dialog => dialog.accept());
-  await page.getByLabel("构建语义索引 费用规程.md").click();
+  await page.getByLabel("构建语义索引 费用规程.md").click(); await acceptConfirm(page);
   await expect(page.locator("main").getByRole("alert")).toContainText("模拟服务中断");
   await expect(page.getByText(/语义索引 32\/40/)).toBeVisible();
   expect(app.readRows("SELECT id FROM document_chunks WHERE documentId=? AND embedding IS NOT NULL", doc.id)).toHaveLength(32);

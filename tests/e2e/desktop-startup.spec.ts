@@ -55,7 +55,7 @@ for (const theme of ["dark", "light"]) {
     await expect(page.locator(".desktop-startup-wordmark")).toHaveText("RiA");
     await expect(page.locator(".desktop-startup-workspace")).toHaveAttribute("inert", "");
     await expect(startup.getByRole("button", { name: "关闭", exact: true })).toBeVisible();
-    expect(await startup.evaluate(node => getComputedStyle(node).backgroundColor)).toBe(theme === "light" ? "rgb(255, 255, 255)" : "rgb(26, 27, 30)");
+    expect(await startup.evaluate(node => getComputedStyle(node).backgroundColor)).toBe(theme === "light" ? "rgb(255, 255, 255)" : "rgb(21, 22, 25)");
     await page.evaluate("window.releaseStartup(true)");
     await expect.poll(() => startup.evaluate(node => node.getAnimations().length)).toBe(1);
     await seekStartup(page, 600);
@@ -66,7 +66,7 @@ for (const theme of ["dark", "light"]) {
     expect(Number(await page.locator(".desktop-startup-mark").evaluate(node => getComputedStyle(node).opacity))).toBeLessThan(.15);
     await expect(startup).toHaveCSS("opacity", "1");
     await expect(page.locator(".desktop-startup-workspace")).toHaveCSS("opacity", "0");
-    await expect(page.locator(".desktop-startup-stage")).toHaveCSS("background-color", theme === "light" ? "rgb(255, 255, 255)" : "rgb(26, 27, 30)");
+    await expect(page.locator(".desktop-startup-stage")).toHaveCSS("background-color", theme === "light" ? "rgb(255, 255, 255)" : "rgb(21, 22, 25)");
     await seekStartup(page, 1000);
     await expect(page.locator(".desktop-startup-mark")).toHaveCSS("opacity", "0");
     const backdropAlpha = () => page.locator(".desktop-startup-stage").evaluate(node => {

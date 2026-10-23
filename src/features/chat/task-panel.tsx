@@ -1,19 +1,11 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
 import { t, tf, formatDateTime } from "@/lib/locale";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SelectField, SelectOption } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card";
+import { Reveal } from "@/components/ui/reveal";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Empty,
@@ -29,16 +21,17 @@ import {
   repeatLabels,
 } from "@/features/chat/task-schedule-editor";
 import { cn } from "@/lib/utils/cn";
-import { ListTodo, RefreshCw, Trash2, Plus, Bell } from "lucide-react";
+import { ListTodo, RefreshCw, Trash2, Bell } from "lucide-react";
+import { Status } from "@/components/ui/status";
+import { ListHead } from "@/components/layout/page-toolbar";
 import { formatTaskPriority } from "@/features/chat/message-presentation";
 import type { TaskItem, TaskStatusFilter } from "@/features/chat/types";
 import { COLLAPSED_TASK_LIMIT } from "@/features/chat/types";
 import type { useTasks } from "@/features/chat/use-tasks";
 import { removalKey } from "@/lib/ui/removal";
 
-type Props = ReturnType<typeof useTasks> & { onCreate: () => void };
+type Props = ReturnType<typeof useTasks>;
 export function TaskPanel({
-  onCreate,
   filteredTasks,
   isLoadingTasks,
   loadTasks,
@@ -77,10 +70,10 @@ export function TaskPanel({
   return (
     <section
       aria-label={t("ui.chat.task-panel.taskManagement")}
-      className="flex flex-col gap-5"
+      className="flex flex-col gap-3"
     >
       <header className="flex flex-wrap items-center gap-x-4 gap-y-3">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
           <h2 className="flex items-center gap-2 text-sm font-medium">
             {t("chat.tasks.title")}
             <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
@@ -92,9 +85,8 @@ export function TaskPanel({
               aria-label={t("chat.tasks.refresh")}
               disabled={isLoadingTasks}
               onClick={() => void loadTasks()}
-              size="icon"
+              size="icon-sm"
               variant="ghost"
-              className="size-8"
             >
               <RefreshCw className={cn(isLoadingTasks && "animate-spin")} />
             </Button>
@@ -104,7 +96,6 @@ export function TaskPanel({
           type="single"
           value={taskStatusFilter}
           size="sm"
-          variant="outline"
           onValueChange={(value) => {
             if (value) setTaskStatusFilter(value as TaskStatusFilter);
           }}
@@ -121,32 +112,30 @@ export function TaskPanel({
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
-        <Button variant="outline" className="ml-auto" onClick={onCreate}>
-          <Plus data-icon="inline-start" aria-hidden="true" />
-          {t("chat.tasks.create")}
-        </Button>
       </header>
       <section
         data-testid="task-panel"
         aria-busy={isLoadingTasks}
-        className="grid min-h-48 items-start gap-3 sm:grid-cols-2 xl:grid-cols-3"
+        className="flex flex-col gap-3"
       >
-        {taskPanelError && (
-          <Alert variant="destructive" className="col-span-full">
-            <AlertDescription>{taskPanelError}</AlertDescription>
-          </Alert>
-        )}
+        <Reveal>
+          {taskPanelError ? (
+            <Alert variant="destructive">
+              <AlertDescription>{taskPanelError}</AlertDescription>
+            </Alert>
+          ) : null}
+        </Reveal>
         {awaitingFirstTaskLoad ? (
           <div
             role="status"
             aria-label={t("ui.chat.task-panel.loadTasks")}
-            className="col-span-full grid gap-3 sm:grid-cols-2 xl:grid-cols-3"
+            className="flex flex-col gap-2"
           >
-            <Skeleton className="h-28 rounded-xl" />
-            <Skeleton className="h-28 rounded-xl" />
+            <Skeleton className="h-14 rounded-lg" />
+            <Skeleton className="h-14 rounded-lg" />
           </div>
         ) : filteredTasks.length === 0 ? (
-          <Empty className="col-span-full">
+          <Empty>
             <EmptyHeader>
               <EmptyMedia>
                 <ListTodo aria-hidden="true" />
@@ -157,85 +146,65 @@ export function TaskPanel({
             </EmptyHeader>
           </Empty>
         ) : (
-          visibleTasks.map((task) => {
+          <div className="item-list" style={{ "--cols": "16px minmax(0, 1fr) 3rem 6.5rem 5.5rem 2rem 2rem", "--cols-narrow": "16px minmax(0, 1fr) 5.5rem 2rem 2rem" } as React.CSSProperties}>
+            <ListHead><span /><span>{t("ui.columns.title")}</span><span className="col-optional">{t("ui.columns.priority")}</span><span className="col-optional">{t("ui.columns.due")}</span><span className="pl-2">{t("ui.columns.status")}</span><span /><span /></ListHead>
+            {visibleTasks.map((task) => {
             const busy =
               isTaskFilterPending || updatingTaskIds.includes(task.id);
+            const overdue = Boolean(task.dueDate && task.status !== "done" && Date.parse(task.dueDate) <= now);
             return (
-              <Card
-                role="article"
+              <article
                 key={task.id}
                 {...removalKey(task.id)}
                 data-testid="task-item"
-                className="group flex min-w-0 flex-col"
+                aria-label={task.title}
+                className="item-row item-row-stack task-row"
               >
-                <CardHeader className="flex-row items-start gap-3 p-4">
+                {/* One line per task: done, what, when, state. The schedule form opens on its own line beneath. */}
+                <div className="data-row">
                   <TaskCompletionCheckbox
                     task={task}
                     disabled={busy}
                     update={updateTaskStatus}
                   />
-                  <div className="min-w-0 flex-1">
-                    <CardTitle
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <h3
                       className={cn(
-                        "break-words",
+                        "break-words text-sm font-medium transition-colors duration-[--dur-base]",
                         task.status === "done" &&
                           "text-muted-foreground line-through",
                       )}
                     >
                       {task.title}
-                    </CardTitle>
-                    {task.details && (
-                      <CardDescription className="mt-1 line-clamp-2 break-words">
-                        {task.details}
-                      </CardDescription>
-                    )}
+                    </h3>
+                    <p className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                      {overdue && <Status tone="danger">{t("chat.tasks.overdue")}</Status>}
+                      {task.reminderEnabled && (
+                        <Bell
+                          role="img"
+                          aria-hidden={false}
+                          aria-label={t("chat.tasks.dueReminder")}
+                          className="h-3 w-3"
+                        />
+                      )}
+                      {task.repeatRule && task.repeatRule !== "none" && (
+                        <span>
+                          {repeatLabels()[task.repeatRule]} ·{" "}
+                          {t("chat.tasks.repeatNext")}
+                        </span>
+                      )}
+                      {task.details && <span className="min-w-0 truncate">{task.details}</span>}
+                    </p>
                   </div>
-                  <Button
-                    aria-label={`${t("chat.tasks.deleteLabel")} ${task.title}`}
-                    disabled={busy}
-                    onClick={() => void deleteTask(task.id)}
-                    size="icon-sm"
-                    variant="ghost"
-                    className="task-delete -mr-1 shrink-0"
-                  >
-                    <Trash2 aria-hidden="true" />
-                  </Button>
-                </CardHeader>
-                <CardContent className="flex flex-wrap items-center gap-2 px-4 pb-4 text-xs text-muted-foreground">
-                  <Badge variant="secondary">
+                  <span className={cn("col-meta col-optional", task.priority === "high" && "text-foreground")}>
                     {formatTaskPriority(task.priority)}
-                  </Badge>
-                  {task.dueDate && (
-                    <span className="break-words">
-                      {tf("chat.tasks.dueLabel", {
-                        value: formatDateTime(task.dueDate, {
-                          timeZone: task.timeZone ?? "UTC",
-                        }),
-                        timeZone: task.timeZone ?? "UTC",
-                      })}
-                    </span>
-                  )}
-                  {task.dueDate &&
-                    task.status !== "done" &&
-                    Date.parse(task.dueDate) <= now && (
-                      <Badge variant="danger">{t("chat.tasks.overdue")}</Badge>
-                    )}
-                  {task.reminderEnabled && (
-                    <Bell
-                      role="img"
-                      aria-hidden={false}
-                      aria-label={t("chat.tasks.dueReminder")}
-                      className="h-3 w-3"
-                    />
-                  )}
-                  {task.repeatRule && task.repeatRule !== "none" && (
-                    <span>
-                      {repeatLabels()[task.repeatRule]} ·{" "}
-                      {t("chat.tasks.repeatNext")}
-                    </span>
-                  )}
-                </CardContent>
-                <CardFooter className="mt-auto grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 border-t px-3 py-2">
+                  </span>
+                  <span
+                    className={cn("col-meta col-optional", overdue && "text-destructive")}
+                    title={task.dueDate ? tf("chat.tasks.dueLabel", { value: formatDateTime(task.dueDate, { timeZone: task.timeZone ?? "UTC" }), timeZone: task.timeZone ?? "UTC" }) : undefined}
+                  >
+                    {task.dueDate ? formatDateTime(task.dueDate, { timeZone: task.timeZone ?? "UTC", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
+                  </span>
                   <SelectField
                     disabled={busy}
                     value={task.status}
@@ -248,7 +217,7 @@ export function TaskPanel({
                     aria-label={`${t("chat.tasks.statusLabel")} ${task.title}`}
                     size="sm"
                     variant="ghost"
-                    className="min-w-0"
+                    className="w-auto min-w-0"
                   >
                     <SelectOption value="todo">
                       {t("chat.tasks.statusTodo")}
@@ -260,19 +229,29 @@ export function TaskPanel({
                       {t("chat.tasks.statusDone")}
                     </SelectOption>
                   </SelectField>
+                  <Button
+                    aria-label={`${t("chat.tasks.deleteLabel")} ${task.title}`}
+                    disabled={busy}
+                    onClick={() => void deleteTask(task.id)}
+                    size="icon-sm"
+                    variant="ghost"
+                    className="task-delete shrink-0"
+                  >
+                    <Trash2 aria-hidden="true" />
+                  </Button>
                   <TaskScheduleEditor
                     task={task}
                     onSave={saveTaskSchedule}
                     disabled={busy}
                   />
-                </CardFooter>
-              </Card>
+                </div>
+              </article>
             );
-          })
+          })}</div>
         )}
         {hasHiddenTasks && (
           <Button
-            className="col-span-full w-full"
+            className="self-start"
             size="sm"
             variant="ghost"
             onClick={() => setIsTaskListExpanded((previous) => !previous)}
@@ -285,7 +264,7 @@ export function TaskPanel({
           </Button>
         )}
       </section>
-      <details className="shrink-0 border-t border-border/50 px-4 py-3 text-[10px] leading-5 text-muted-foreground">
+      <details className="shrink-0 px-1 text-[11px] leading-5 text-muted-foreground">
         <summary className="cursor-pointer">
           {t("chat.tasks.reminderInfo")}
         </summary>

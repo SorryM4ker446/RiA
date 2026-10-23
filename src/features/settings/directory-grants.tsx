@@ -7,6 +7,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { FolderOpen, Loader2, ShieldOff, Terminal } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Reveal } from "@/components/ui/reveal";
 import { animateRemoval, removalKey } from "@/lib/ui/removal";
 import { SettingsSection } from "@/features/settings/settings-section";
 import { Input } from "@/components/ui/input";
@@ -82,9 +83,6 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
   const load = useCallback(async () => {
     const request = ++loadRequest.current;
     try {
-      // Withdrawing a grant keeps the record, so it is asked for explicitly:
-      // without this the user sees a folder disappear and no way to find out
-      // what was taken away or when.
       const response = await fetch("/api/directory-grants", { cache: "no-store" });
       if (!response.ok) throw new Error(await readError(response));
       const payload = await response.json();
@@ -178,10 +176,9 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
             <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />
             {t("settings.grants.loading")}
           </p>
-        ) : grants.length === 0 ? (
-          <p className="text-xs text-muted-foreground">{t("settings.grants.empty")}</p>
         ) : (
-          <ul className="settings-list" aria-label={t("ui.settings.directory-grants.directoryAccess")}>
+          <div>
+          {grants.length ? <ul className="settings-list" aria-label={t("ui.settings.directory-grants.directoryAccess")}>
             {grants.map((grant) => (
               <li className="directory-grant-row flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center" key={grant.id} {...removalKey(grant.id)}>
                 <div className="w-full min-w-0 sm:w-auto">
@@ -195,20 +192,23 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-2">
                   {typeof window !== "undefined" && window.riaDesktop ? <>
-                  <Button disabled={busy} onClick={() => { setTerminalMode(grant.terminalApprovalMode); setTerminalGrant(grant); }} size="sm" type="button" variant="outline">
+                  <Button disabled={busy} onClick={() => { setTerminalMode(grant.terminalApprovalMode); setTerminalGrant(grant); }} size="sm" type="button" variant="ghost">
                     <Terminal aria-hidden="true" data-icon="inline-start" />
                     {grant.terminalEnabled ? tf("ui.settings.directory-grants.terminal", { v0: grant.terminalApprovalMode === "full-access" ? t("ui.settings.directory-grants.fullAccess") : t("ui.settings.directory-grants.approval") }) : t("ui.settings.directory-grants.enableTerminal")}
                   </Button>
-                  {grant.terminalEnabled ? <Button disabled={busy} onClick={() => void changeTerminal(grant, false)} size="sm" type="button" variant="outline">{t("ui.settings.directory-grants.disableTerminal")}</Button> : null}
+                  {grant.terminalEnabled ? <Button disabled={busy} onClick={() => void changeTerminal(grant, false)} size="sm" type="button" variant="ghost">{t("ui.settings.directory-grants.disableTerminal")}</Button> : null}
                   </> : null}
-                  <Button disabled={busy} onClick={() => void revoke(grant.id)} size="sm" type="button" variant="outline">
+                  <Button disabled={busy} onClick={() => void revoke(grant.id)} size="sm" type="button" variant="ghost">
                     <ShieldOff aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
                     {t("settings.grants.revoke")}
                   </Button>
                 </div>
               </li>
             ))}
-          </ul>
+          </ul> : null}
+          {/* After the last folder folds away the note eases in, rather than appearing at full height. */}
+          <Reveal>{grants.length ? null : <p className="text-xs text-muted-foreground">{t("settings.grants.empty")}</p>}</Reveal>
+          </div>
         )}
 
         <form className={cn("flex gap-2", embedded ? "flex-col" : "flex-wrap items-end sm:flex-nowrap")} onSubmit={add}>
@@ -224,7 +224,7 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
           />
           </Field>
           <div className="flex items-center justify-end gap-2">
-          <Button disabled={busy || (typeof window !== "undefined" && !window.riaDesktop?.chooseFolder)} onClick={() => void choose()} type="button" variant="outline">
+          <Button disabled={busy || (typeof window !== "undefined" && !window.riaDesktop?.chooseFolder)} onClick={() => void choose()} type="button" variant="ghost">
             <FolderOpen aria-hidden="true" className="mr-1.5 h-4 w-4" />
             {embedded ? t("ui.settings.directory-grants.chooseDirectory") : t("settings.grants.browse")}
           </Button>
@@ -266,7 +266,7 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
           </Alert>
           {error ? <Alert variant="destructive"><AlertDescription>{localizeMessage(error)}</AlertDescription></Alert> : null}
           <div className="mt-auto flex justify-end gap-2">
-            <Button disabled={permissionSaving} variant="outline" onClick={() => setTerminalGrant(null)}>{t("knowledge.cancelEdit")}</Button>
+            <Button disabled={permissionSaving} variant="ghost" onClick={() => setTerminalGrant(null)}>{t("knowledge.cancelEdit")}</Button>
             <Button disabled={permissionSaving || !terminalGrant} onClick={() => terminalGrant && void changeTerminal(terminalGrant, true, terminalMode)}>
               {permissionSaving ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Terminal data-icon="inline-start" />}
               {terminalGrant?.terminalEnabled ? t("ui.settings.directory-grants.saveTerminalPermissions") : t("ui.settings.directory-grants.confirmTerminalAccess")}

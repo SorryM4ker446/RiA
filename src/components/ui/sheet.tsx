@@ -20,10 +20,13 @@ export function SheetContent({
   children,
   side = "left",
   closeLabel = t("window.close"),
+  showClose = true,
   ...props
 }: React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content> & {
   side?: "left" | "right";
   closeLabel?: string;
+  /** Off when the content brings its own close control in its header. */
+  showClose?: boolean;
 }) {
   useLocale();
   return (
@@ -35,11 +38,11 @@ export function SheetContent({
         {...props}
       >
         {children}
-        <SheetClose asChild>
+        {showClose ? <SheetClose asChild>
           <Button className="absolute right-3 top-3" variant="ghost" size="icon-sm" aria-label={closeLabel}>
             <X aria-hidden="true" />
           </Button>
-        </SheetClose>
+        </SheetClose> : null}
       </SheetPrimitive.Content>
     </SheetPrimitive.Portal>
   );

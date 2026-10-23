@@ -1,6 +1,6 @@
 # Media library
 
-Open **媒体资源库** in the conversation sidebar, or follow its link from **存储管理**. The browser and Electron use the same `/media` page and private media APIs. The library shows stored uploaded images and generated images/videos.
+Open **媒体资源库** in the conversation sidebar, or follow its link from **设置 → 存储**. The browser and Electron use the same `/media` page and private media APIs. The library shows stored uploaded images and generated images/videos.
 
 ## Browse and inspect
 

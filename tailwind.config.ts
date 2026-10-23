@@ -56,14 +56,15 @@ const config: Config = {
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
       },
-      // Geist carries its identity in tracking: display sizes compress hard,
-      // body sizes relax back to normal. These are the steps the type scale
-      // actually uses.
+      // Geist carries its identity in tracking, but the interface is mostly
+      // Chinese, and CJK glyphs crowd under the tight tracking Latin display
+      // type wants. These steps keep a little of Geist's compression without
+      // pulling Chinese characters into each other.
       letterSpacing: {
-        display: "-0.05em",
-        headline: "-0.032em",
-        title: "-0.02em",
-        label: "-0.012em",
+        display: "-0.035em",
+        headline: "-0.02em",
+        title: "-0.012em",
+        label: "-0.006em",
       },
       boxShadow: {
         hairline: "0 0 0 1px hsl(var(--border))",

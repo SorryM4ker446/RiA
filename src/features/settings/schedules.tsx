@@ -8,7 +8,7 @@ import { SelectField, SelectOption } from "@/components/ui/select";
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
+import { Status } from "@/components/ui/status";
 import { Button } from "@/components/ui/button";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -137,14 +137,14 @@ export function ScheduleSettings() {
           : jobs.length === 0 ? <Empty className="items-start px-0 py-3 text-left"><EmptyDescription>{t("settings.schedules.empty")} {t("ui.settings.schedules.selectAddScheduleToGetStarted")}</EmptyDescription></Empty>
           : <ul className="settings-list" aria-label={t("ui.settings.schedules.addedSchedules")}>{jobs.map(job => <li key={job.id} {...removalKey(job.id)}>
             <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-              <p className="flex flex-wrap items-center gap-2 text-sm font-medium">{t(`settings.schedules.kind.${job.kind}` as never)}<Badge variant={job.enabled ? "secondary" : "outline"}>{job.enabled ? t("settings.schedules.on") : t("settings.schedules.off")}</Badge></p>
+              <p className="flex flex-wrap items-center gap-2 text-sm font-medium">{t(`settings.schedules.kind.${job.kind}` as never)}<Status tone={job.enabled ? "success" : "neutral"} className="font-normal">{job.enabled ? t("settings.schedules.on") : t("settings.schedules.off")}</Status></p>
               <p className="text-xs text-muted-foreground">{job.interval === "weekly" ? t(`settings.schedules.weekday.${job.dayOfWeek ?? 1}` as never) : t("settings.schedules.daily")} · {job.localTime} · <span className="break-all">{job.timeZone}</span></p>
               <p className="text-xs text-muted-foreground">{t("settings.schedules.next")} {formatDateTime(new Date(job.nextRunAt))}</p>
               {job.kind === "dailyBrief" || job.kind === "weeklySummary" ? <label className="flex items-center gap-2 text-xs text-muted-foreground"><input type="checkbox" checked={job.useModel} onChange={() => void send("PATCH", `/api/schedules/${encodeURIComponent(job.id)}`, { useModel: !job.useModel })} />{t("ui.settings.schedules.allowModelCommentaryAtMostOne")}</label> : null}
               {job.lastStatus ? <p className="text-xs text-muted-foreground">{tf("settings.schedules.lastRun", { status: job.lastStatus })}{job.lastError ? ` — ${executionGuidance(job.lastError)}` : ""}</p> : null}
             </div>
             <div className="flex shrink-0 items-center gap-1">
-              <Button size="sm" variant="outline" onClick={() => void send("PATCH", `/api/schedules/${encodeURIComponent(job.id)}`, { enabled: !job.enabled })}>{job.enabled ? t("settings.schedules.pause") : t("settings.schedules.resume")}</Button>
+              <Button size="sm" variant="ghost" onClick={() => void send("PATCH", `/api/schedules/${encodeURIComponent(job.id)}`, { enabled: !job.enabled })}>{job.enabled ? t("settings.schedules.pause") : t("settings.schedules.resume")}</Button>
               <Button aria-label={t("settings.schedules.delete")} size="icon-sm" variant="ghost" onClick={() => void send("DELETE", `/api/schedules/${encodeURIComponent(job.id)}`, undefined, job.id)}><Trash2 aria-hidden="true" /></Button>
             </div>
           </li>)}</ul>}
@@ -169,7 +169,7 @@ export function ScheduleSettings() {
             <Field orientation="horizontal"><input id="schedule-enabled" type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)} /><FieldLabel htmlFor="schedule-enabled">{t("settings.schedules.createEnabled")}</FieldLabel></Field>
             {modelKind ? <Field orientation="horizontal"><input id="schedule-model" type="checkbox" checked={useModel} onChange={event => setUseModel(event.target.checked)} /><FieldLabel htmlFor="schedule-model">{t("ui.settings.schedules.allowModelCommentaryMayIncurCharges")}</FieldLabel></Field> : null}
           </FieldGroup>
-          <div className="mt-auto flex justify-end gap-2"><Button variant="outline" type="button" disabled={saving} onClick={() => setCreating(false)}>{t("knowledge.cancelEdit")}</Button><Button type="submit" disabled={saving}>{saving ? <Loader2 data-icon="inline-start" className="animate-spin" /> : null}{t("settings.schedules.add")}</Button></div>
+          <div className="mt-auto flex justify-end gap-2"><Button variant="ghost" type="button" disabled={saving} onClick={() => setCreating(false)}>{t("knowledge.cancelEdit")}</Button><Button type="submit" disabled={saving}>{saving ? <Loader2 data-icon="inline-start" className="animate-spin" /> : null}{t("settings.schedules.add")}</Button></div>
         </form>
       </SheetContent>
   </Sheet>;

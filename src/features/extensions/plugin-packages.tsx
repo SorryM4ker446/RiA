@@ -4,14 +4,17 @@ import { useLocale } from "@/lib/locale/client";
 import { localizeMessage, t, tf } from "@/lib/locale";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, Check, Download, Loader2, Package, Power, Search, Sparkles, Trash2, Upload } from "lucide-react";
+import { ArrowRight, Check, Download, Loader2, MoreHorizontal, Package, Power, Search, Sparkles, Trash2, Upload } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Status } from "@/components/ui/status";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { FileInput } from "@/components/ui/file-input";
 import { Input } from "@/components/ui/input";
+import { ToolbarSearch } from "@/components/layout/page-toolbar";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
@@ -87,16 +90,15 @@ export function PluginPackages({ mode, plugins, catalog, connections, busy, load
   }
   const shown = catalog.filter(item => [item.manifest.name, item.manifest.description, item.manifest.id, localizeMessage(item.manifest.name), localizeMessage(item.manifest.description)].join(" ").toLowerCase().includes(search.trim().toLowerCase()));
   return <section aria-label={mode === "market" ? t("ui.extensions.plugin-packages.riAPluginMarketplace") : t("ui.extensions.plugin-packages.installedPlugins")} className="flex min-w-0 flex-col gap-4">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-col gap-1"><h2 className="text-sm font-medium">{mode === "market" ? t("ui.extensions.extension-manager.pluginMarketplace") : tf("ui.extensions.plugin-packages.myPlugins", { v0: plugins.length })}</h2><p className="text-xs text-muted-foreground">{mode === "market" ? t("ui.extensions.plugin-packages.discoverCommunitySkillsAndRiABundles") : t("ui.extensions.plugin-packages.manageSkillsAndConnectionsTogetherEnable")}</p></div><Button id="plugin-import" size="sm" variant="outline" disabled={busy || loading} onClick={event => show(event.currentTarget)}><Upload data-icon="inline-start" />{t("ui.extensions.plugin-packages.importPlugin")}</Button></div>
-    {mode === "market" && <><SkillMarketplace plugins={plugins} busy={busy} actionError={actionError} onInstall={onInstall} /><div className="flex flex-col gap-1 pt-3"><h3 className="text-sm font-medium">{t("ui.extensions.plugin-packages.riAFeaturedPlugins")}</h3><p className="text-xs text-muted-foreground">{t("ui.extensions.plugin-packages.builtInBundlesOrImportAn")}</p></div><Field><FieldLabel className="sr-only" htmlFor="plugin-search">{t("ui.extensions.plugin-packages.searchPlugins")}</FieldLabel><Input id="plugin-search" placeholder={t("ui.extensions.plugin-packages.filterFeaturedPlugins")} value={search} onChange={event => setSearch(event.target.value)} /></Field></>}
+    <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-col gap-1"><h2 className="text-sm font-medium">{mode === "market" ? t("ui.extensions.extension-manager.pluginMarketplace") : tf("ui.extensions.plugin-packages.myPlugins", { v0: plugins.length })}</h2><p className="text-xs text-muted-foreground">{mode === "market" ? t("ui.extensions.plugin-packages.discoverCommunitySkillsAndRiABundles") : t("ui.extensions.plugin-packages.manageSkillsAndConnectionsTogetherEnable")}</p></div><Button id="plugin-import" size="sm" variant="ghost" disabled={busy || loading} onClick={event => show(event.currentTarget)}><Upload data-icon="inline-start" />{t("ui.extensions.plugin-packages.importPlugin")}</Button></div>
+    {mode === "market" && <><SkillMarketplace plugins={plugins} busy={busy} actionError={actionError} onInstall={onInstall} /><div className="flex flex-col gap-1 pt-3"><h3 className="text-sm font-medium">{t("ui.extensions.plugin-packages.riAFeaturedPlugins")}</h3><p className="text-xs text-muted-foreground">{t("ui.extensions.plugin-packages.builtInBundlesOrImportAn")}</p></div><Field><FieldLabel className="sr-only" htmlFor="plugin-search">{t("ui.extensions.plugin-packages.searchPlugins")}</FieldLabel><ToolbarSearch id="plugin-search" placeholder={t("ui.extensions.plugin-packages.filterFeaturedPlugins")} value={search} onChange={event => setSearch(event.target.value)} /></Field></>}
     {loading ? <Skeleton className="h-28 rounded-xl" /> : mode === "market" ? <div className="flex flex-col gap-2">{shown.map(item => {
       const exists = plugins.some(plugin => plugin.packageId === item.manifest.id);
       return <article key={item.manifest.id} className="registry-result-row management-row flex items-start gap-3 rounded-xl p-4"><div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-secondary text-muted-foreground"><Package className="size-4" aria-hidden="true" /></div><div className="flex min-w-0 flex-1 flex-col gap-2"><h3 className="break-words text-sm font-medium">{localizeMessage(item.manifest.name)}</h3><p className="text-sm leading-6 text-muted-foreground">{localizeMessage(item.manifest.description)}</p><PluginContents manifest={item.manifest} /><Button size="sm" variant="ghost" className="self-start" disabled={busy || exists} onClick={event => show(event.currentTarget, item)}>{exists ? <><Check data-icon="inline-start" />{t("ui.extensions.plugin-packages.installed")}</> : <>{t("ui.extensions.plugin-packages.viewPlugin")}<ArrowRight data-icon="inline-end" /></>}</Button></div></article>;
-    })}{!shown.length && <Empty><EmptyHeader><EmptyMedia><Search /></EmptyMedia><EmptyTitle>{t("ui.extensions.plugin-packages.noMatchingPlugins")}</EmptyTitle><EmptyDescription>{t("ui.extensions.plugin-packages.tryAnotherKeywordOrImportYour")}</EmptyDescription></EmptyHeader></Empty>}</div> : plugins.length ? <div className="flex flex-col gap-2">{plugins.map(plugin => {
+    })}{!shown.length && <Empty><EmptyHeader><EmptyMedia><Search /></EmptyMedia><EmptyTitle>{t("ui.extensions.plugin-packages.noMatchingPlugins")}</EmptyTitle><EmptyDescription>{t("ui.extensions.plugin-packages.tryAnotherKeywordOrImportYour")}</EmptyDescription></EmptyHeader></Empty>}</div> : plugins.length ? <ul className="item-list" style={{ "--cols": "20px minmax(0, 1fr) 6rem 5.5rem 2rem", "--cols-narrow": "minmax(0, 1fr) 5.5rem 5.5rem 2rem" } as React.CSSProperties}>{plugins.map(plugin => {
       const rows = connections.filter(row => row.pluginId === plugin.id);
-      const incomplete = rows.length !== plugin.connections.length || rows.some(row => !ready(row));
-      return <article key={plugin.id} {...removalKey(plugin.id)} data-testid={`plugin-${plugin.id}`} className="registry-result-row management-row flex flex-wrap items-center gap-3 rounded-xl p-4"><Sparkles className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /><div className="flex min-w-0 flex-1 flex-col gap-1"><Button variant="ghost" size="sm" className="self-start" onClick={event => show(event.currentTarget, undefined, plugin)}>{catalog.some(item => item.digest === plugin.digest) ? localizeMessage(plugin.manifest.name) : plugin.manifest.name}</Button><p className="break-words text-xs text-muted-foreground">{plugin.manifest.marketplace ? "skills.sh" : `v${plugin.manifest.version}`} · {plugin.manifest.skills.length} {t("ui.extensions.plugin-packages.skills")}{plugin.connections.length} {t("ui.extensions.plugin-packages.connections")}</p></div><Badge variant={plugin.enabled && !incomplete ? "success" : "secondary"}>{incomplete ? t("ui.extensions.extension-manager.configurationRequired") : plugin.enabled ? t("settings.schedules.on") : t("ui.chat.composer.disabled")}</Badge><Button size="sm" variant="ghost" disabled={busy || (!plugin.enabled && incomplete)} onClick={() => onToggle(plugin)}><Power data-icon="inline-start" />{plugin.enabled ? t("ui.extensions.plugin-packages.disablePlugin") : t("ui.extensions.plugin-packages.enablePlugin")}</Button><Button size="icon-sm" variant="ghost" aria-label={tf("ui.extensions.plugin-packages.uninstallPlugin", { v0: plugin.manifest.name })} disabled={busy} onClick={() => onUninstall(plugin)}><Trash2 /></Button></article>;
-    })}</div> : <Empty><EmptyHeader><EmptyMedia><Package /></EmptyMedia><EmptyTitle>{t("ui.extensions.plugin-packages.noPluginsInstalled")}</EmptyTitle><EmptyDescription>{t("ui.extensions.plugin-packages.chooseSkillsInPluginMarketplaceOr")}</EmptyDescription></EmptyHeader></Empty>}
+      return <PluginRow key={plugin.id} plugin={plugin} name={catalog.some(item => item.digest === plugin.digest) ? localizeMessage(plugin.manifest.name) : plugin.manifest.name} incomplete={rows.length !== plugin.connections.length || rows.some(row => !ready(row))} busy={busy} onOpen={trigger => show(trigger, undefined, plugin)} onToggle={() => onToggle(plugin)} onUninstall={() => onUninstall(plugin)} />;
+    })}</ul> : <Empty><EmptyHeader><EmptyMedia><Package /></EmptyMedia><EmptyTitle>{t("ui.extensions.plugin-packages.noPluginsInstalled")}</EmptyTitle><EmptyDescription>{t("ui.extensions.plugin-packages.chooseSkillsInPluginMarketplaceOr")}</EmptyDescription></EmptyHeader></Empty>}
     <Sheet open={open} onOpenChange={value => { if (!busy && !value) { pending.current?.abort(); draftVersion.current++; setOpen(false); } }}><SheetContent side="right" className="plugin-package-sheet flex flex-col gap-5 p-5 sm:p-6" closeLabel={t("ui.extensions.plugin-packages.closePluginDetails")} onCloseAutoFocus={event => { event.preventDefault(); if (!handoff.current) (opener.current?.isConnected ? opener.current : document.getElementById("plugin-import"))?.focus(); }}>
       <header className="flex shrink-0 flex-col gap-2 pr-8"><SheetTitle className="break-words text-lg font-semibold [overflow-wrap:anywhere]">{(manifest ? previewText(manifest.name) : undefined) ?? t("ui.extensions.plugin-packages.importPlugin")}</SheetTitle><SheetDescription className="break-words text-xs [overflow-wrap:anywhere]">{manifest ? manifest.marketplace ? tf("ui.extensions.plugin-packages.skillsShSnapshot", { v0: manifest.marketplace.repository }) : `${manifest.author} · v${manifest.version} · ${manifest.id}` : t("ui.extensions.plugin-packages.chooseARiaPluginJsonFile")}</SheetDescription></header>
       <div className="chat-list-scroll flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain pr-1">
@@ -116,6 +118,31 @@ export function PluginPackages({ mode, plugins, catalog, connections, busy, load
       <footer className="flex shrink-0 items-center justify-end gap-2"><Button variant="ghost" disabled={busy} onClick={() => { pending.current?.abort(); draftVersion.current++; setOpen(false); }}>{t("window.close")}</Button>{current ? <Button disabled={busy || (!current.enabled && needsSetup)} onClick={() => onToggle(current)}><Power data-icon="inline-start" />{current.enabled ? t("ui.extensions.plugin-packages.disablePlugin") : t("ui.extensions.plugin-packages.enablePlugin")}</Button> : preview && <Button disabled={busy || previewing || (needsLocal && !allowLocal) || plugins.some(plugin => plugin.packageId === preview.manifest.id)} onClick={() => onInstall(preview, allowLocal, () => setOpen(false))}>{busy ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Download data-icon="inline-start" />}{t("ui.extensions.plugin-packages.installPlugin")}</Button>}</footer>
     </SheetContent></Sheet>
   </section>;
+}
+
+type RowProps = { plugin: PluginView; name: string; incomplete: boolean; busy: boolean; onOpen: (trigger: HTMLElement) => void; onToggle: () => void; onUninstall: () => void };
+function PluginRow({ plugin, name, incomplete, busy, onOpen, onToggle, onUninstall }: RowProps) {
+  useLocale();
+  const actions = useRef<HTMLButtonElement>(null);
+  const enabling = useRef(false);
+  // The enable button leaves the row once the plugin is on; keep keyboard focus on the row's menu instead of dropping it.
+  useEffect(() => { if (plugin.enabled && enabling.current) { enabling.current = false; actions.current?.focus(); } }, [plugin.enabled]);
+  return <li {...removalKey(plugin.id)} data-testid={`plugin-${plugin.id}`} className="item-row data-row">
+    <span className="item-row-icon"><Sparkles aria-hidden="true" /></span>
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <h3 className="text-sm font-medium"><button type="button" className="item-row-open" onClick={event => onOpen(event.currentTarget)}>{name}</button></h3>
+      <p className="truncate text-xs text-muted-foreground">{plugin.manifest.marketplace ? "skills.sh" : `v${plugin.manifest.version}`} · {plugin.manifest.skills.length} {t("ui.extensions.plugin-packages.skills")}{plugin.connections.length} {t("ui.extensions.plugin-packages.connections")}</p>
+    </div>
+    <Status tone={incomplete ? "warning" : plugin.enabled ? "success" : "neutral"}>{incomplete ? t("ui.extensions.extension-manager.configurationRequired") : plugin.enabled ? t("settings.schedules.on") : t("ui.chat.composer.disabled")}</Status>
+    {plugin.enabled || incomplete ? <span /> : <Button size="sm" variant="ghost" className="item-row-action col-end" disabled={busy} onClick={() => { enabling.current = true; onToggle(); }}>{t("ui.extensions.plugin-packages.enablePlugin")}</Button>}
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger ref={actions} asChild><Button size="icon-sm" variant="ghost" className="item-row-action" aria-label={tf("ui.assistants.moreActionsFor", { v0: name })} disabled={busy}><MoreHorizontal aria-hidden="true" /></Button></DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem disabled={!plugin.enabled && incomplete} onSelect={onToggle}><Power aria-hidden="true" />{plugin.enabled ? t("ui.extensions.plugin-packages.disablePlugin") : t("ui.extensions.plugin-packages.enablePlugin")}</DropdownMenuItem>
+        <DropdownMenuSeparator /><DropdownMenuItem variant="destructive" onSelect={onUninstall}><Trash2 aria-hidden="true" />{t("ui.confirm.uninstall")}</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  </li>;
 }
 
 function PluginContents({ manifest }: { manifest: PluginManifest }) {

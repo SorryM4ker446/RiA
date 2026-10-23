@@ -1,6 +1,7 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
 import { useId, useState } from "react";
+import { CalendarClock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SelectField, SelectOption } from "@/components/ui/select";
@@ -43,14 +44,16 @@ export function TaskScheduleEditor({
   return (
     <div className="contents">
       <Button
-        size="sm"
-        className="h-auto min-h-8 justify-self-end whitespace-normal text-right"
+        size="icon-sm"
+        className="justify-self-end text-muted-foreground"
         variant="ghost"
         disabled={disabled}
         aria-expanded={open}
+        aria-label={t("chat.schedule.openEditor")}
+        title={t("chat.schedule.openEditor")}
         onClick={() => setOpen((value) => !value)}
       >
-        {t("chat.schedule.openEditor")}
+        <CalendarClock aria-hidden="true" />
       </Button>
       {open ? (
         <ScheduleForm
@@ -96,7 +99,7 @@ function ScheduleForm({
   const [error, setError] = useState<string | null>(null);
   return (
     <form
-      className="col-span-2 mt-2 min-w-0 border-t pt-4"
+      className="surface-enter col-span-full mt-1 min-w-0 basis-full border-t border-border/55 pt-4"
       onSubmit={async (event) => {
         event.preventDefault();
         setError(null);

@@ -11,6 +11,8 @@ type RefreshButtonProps = {
   refreshing?: boolean;
   disabled?: boolean;
   size?: "default" | "sm";
+  /** Just the glyph, named by `label` for assistive technology and the tooltip. */
+  iconOnly?: boolean;
   variant?: "default" | "outline" | "secondary" | "ghost";
   className?: string;
 };
@@ -32,17 +34,20 @@ export function RefreshButton({
   disabled,
   size = "default",
   variant = "outline",
+  iconOnly = false,
   className,
 }: RefreshButtonProps) {
   return (
     <Button
       aria-busy={refreshing || undefined}
+      aria-label={iconOnly ? label : undefined}
+      title={iconOnly ? label : undefined}
       className={cn("gap-1.5", className)}
       disabled={disabled || refreshing}
       onClick={onClick}
-      size={size}
+      size={iconOnly ? "icon-sm" : size}
       type="button"
-      variant={variant}
+      variant={iconOnly ? "ghost" : variant}
     >
       <RefreshCw
         aria-hidden="true"
@@ -51,7 +56,7 @@ export function RefreshButton({
           refreshing && "animate-spin",
         )}
       />
-      {label}
+      {iconOnly ? null : label}
     </Button>
   );
 }

@@ -163,10 +163,13 @@ test("a backup refresh never inserts a busy line that shoves the page down", { t
   await register(page, app.origin);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   await page.goto(`${app.origin}/backups`);
-  await expect(page.locator("main")).toContainText("备份与恢复");
+  await expect(page.getByRole("dialog", { name: "设置", exact: true })).toContainText("备份与恢复");
+  // Measure once the overlay has finished opening: its entrance scales the whole window.
+  await page.locator(".settings-window").evaluate(node => Promise.all(node.getAnimations({ subtree: true }).map(animation => animation.finished)));
 
   const measured = await page.evaluate(async () => {
-    const main = document.querySelector("main")!;
+    // The backups section is the open page of the settings overlay.
+    const main = document.querySelector(".settings-window-panel[data-state='active'] .settings-window-page")!;
     const height = main.getBoundingClientRect().height;
     const refresh = [...document.querySelectorAll("button")].find(node =>
       node.getAttribute("aria-label") === "刷新备份" || node.textContent?.trim() === "刷新备份");

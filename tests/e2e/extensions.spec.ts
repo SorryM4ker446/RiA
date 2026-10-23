@@ -1,4 +1,5 @@
 import { openExecutionDetails } from "../helpers/execution-records";
+import { settingsDialog } from "../helpers/settings";
 import { expect, test as base, type Page } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -7,6 +8,9 @@ import { startStandaloneServer } from "../helpers/standalone-server";
 import { startExtensionService, echoSchema } from "../helpers/extension-service";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { browserApi, browserData } from "../helpers/browser-api";
+import { acceptConfirm } from "../helpers/confirm";
+import { chooseRowAction } from "../helpers/row-menu";
+import { trackChatStreams, waitForChatStream } from "../helpers/chat-stream";
 
 type App = { runtime: Awaited<ReturnType<typeof startStandaloneServer>>; service: Awaited<ReturnType<typeof startExtensionService>> };
 const test = base.extend<{ app: App }>({ app: async ({}, provide) => {
@@ -16,7 +20,7 @@ const test = base.extend<{ app: App }>({ app: async ({}, provide) => {
 } });
 async function create(page: Page, app: App, name: string, kind: "http" | "mcp-http", credentials = false) {
   await page.goto(`${app.runtime.origin}/extensions`);
-  await expect(page.getByRole("heading", { name: "扩展管理", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "扩展", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "添加扩展", exact: true }).first().click();
   await page.getByLabel("扩展名称", { exact: true }).fill(name);
   if (kind === "http") {
@@ -74,8 +78,8 @@ test("long extension names stay inside narrow cards and tool sheets without cove
   expect(textRight).toBeLessThanOrEqual(status.x - 8);
   await mkdir(shots, { recursive: true });
   await page.screenshot({ path: join(shots, "mobile-long-name.png"), animations: "disabled" });
-  const trigger = card.getByRole("button", { name: "检测连接", exact: true });
-  await trigger.click();
+  const detect = card.getByRole("button", { name: "检测连接", exact: true });
+  await detect.click();
   const sheet = page.getByRole("dialog", { name: `${name} · 工具`, exact: true });
   await expect(sheet).toBeVisible();
   await expect(sheet).toHaveCSS("animation-name", "sheet-in");
@@ -84,7 +88,8 @@ test("long extension names stay inside narrow cards and tool sheets without cove
   const right = await heading.evaluate(node => { const range = document.createRange(); range.selectNodeContents(node); return Math.max(...Array.from(range.getClientRects(), rect => rect.right)); });
   expect(right).toBeLessThan(390 - 24);
   await page.screenshot({ path: join(shots, "mobile-long-name-tools.png"), animations: "disabled" });
-  await page.keyboard.press("Escape"); await expect(sheet).toBeHidden(); await expect(trigger).toBeFocused();
+  // Once tested, the same button moves the row on to choosing its tools, and focus comes back to it.
+  await page.keyboard.press("Escape"); await expect(sheet).toBeHidden(); await expect(card.getByRole("button", { name: "管理工具", exact: true })).toBeFocused();
   await page.emulateMedia({ reducedMotion: "reduce" });
   await card.getByRole("button", { name: "管理工具", exact: true }).click();
   await expect(sheet).toHaveCSS("animation-name", "none");
@@ -113,22 +118,26 @@ test("HTTP extension management, approved calls and encrypted credentials surviv
   await expect(page.getByRole("button", { name: "批准", exact: true })).toBeVisible();
   expect(app.service.state.calls).toHaveLength(0);
   await page.screenshot({ path: join(shots, "approval.png"), fullPage: false, animations: "disabled" });
+  await trackChatStreams(page);
   await page.getByRole("button", { name: "批准", exact: true }).click();
   await expect.poll(() => app.service.state.calls.length).toBe(1);
   expect(app.service.state.calls[0].authorization).toBe("Bearer synthetic-browser-token");
   await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes('"state":"output-available"'))).toBe(true);
+  // The answer is saved before its stream closes; restarting in between would cut the open response.
+  await waitForChatStream(page);
   await app.runtime.restart(); await page.reload();
   await openExecutionDetails(page);
   await expect(page.getByText("工具详情：HTTP echo · request · 执行完成", { exact: true })).toBeVisible();
   const config = await browserData(page, "/api/extensions");
   expect(config.items[0].enabled).toBe(true); expect(JSON.stringify(config)).not.toContain("synthetic-browser-token");
   await page.goto(`${app.runtime.origin}/extensions`);
-  await page.getByTestId(`extension-${row.id}`).getByRole("button", { name: "配置", exact: true }).click();
+  await page.getByTestId(`extension-${row.id}`).getByRole("button", { name: "HTTP echo", exact: true }).click();
   await expect(page.getByLabel("凭据值 1", { exact: true })).toHaveValue("");
   await page.getByRole("button", { name: "取消", exact: true }).click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-  page.once("dialog", dialog => dialog.accept());
-  await page.getByRole("button", { name: "删除扩展 HTTP echo", exact: true }).click();
+  // The editor closes and only the settings it was opened from remain.
+  await expect(page.getByRole("dialog")).toHaveCount(1);
+  await expect(settingsDialog(page)).toBeVisible();
+  await chooseRowAction(page, page.getByTestId(`extension-${row.id}`), "删除"); await acceptConfirm(page);
   await expect(page.getByTestId(`extension-${row.id}`)).toHaveCount(0);
   await page.goto(`${app.runtime.origin}/chat?conversationId=${chat.id}`);
   await page.getByPlaceholder(/输入你的问题/).fill("继续说明");
@@ -189,7 +198,7 @@ test("extension sheets remain usable in a narrow window, restore focus, validate
   app.service.state.fail = false; await enable(page, row, "request");
   await page.screenshot({ path: join(shots, "mobile.png"), fullPage: false, animations: "disabled" });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.getByTestId(`extension-${row.id}`).getByRole("button", { name: "停用", exact: true }).click();
+  await chooseRowAction(page, page.getByTestId(`extension-${row.id}`), "停用");
   await expect(page.getByTestId(`extension-${row.id}`).getByText("已停用", { exact: true })).toBeVisible();
   expect(app.service.state.calls).toHaveLength(0); expect(errors).toEqual([]);
 });

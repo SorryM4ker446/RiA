@@ -7,6 +7,7 @@ import { openWorkspace } from "../helpers/workspace-entry";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { browserApi, browserData } from "../helpers/browser-api";
 import { wordTableDocument } from "../helpers/document-fixtures";
+import { acceptConfirm } from "../helpers/confirm";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => {
@@ -124,8 +125,7 @@ test("bulk indexing cancels at a controlled request boundary and resumes persist
     else await route.continue();
   });
   await page.getByTestId("index-maintenance").locator("summary").click();
-  page.once("dialog", dialog => { expect(dialog.message()).toContain("可能产生费用"); return dialog.accept(); });
-  await page.getByRole("button", { name: "批量构建或继续", exact: true }).click();
+  await page.getByRole("button", { name: "批量构建或继续", exact: true }).click(); await acceptConfirm(page, "可能产生费用");
   await secondRequest;
   const maintenance = page.getByTestId("index-maintenance");
   await expect(maintenance).toContainText("长规程.md：构建中 · 32/40");
@@ -140,7 +140,7 @@ test("bulk indexing cancels at a controlled request boundary and resumes persist
   await app.restart(); await page.reload();
   await expect(page.getByText(/语义索引 32\/40/)).toBeVisible();
   await page.getByTestId("index-maintenance").locator("summary").click();
-  page.once("dialog", dialog => dialog.accept()); await page.getByRole("button", { name: "批量构建或继续", exact: true }).click();
+  await page.getByRole("button", { name: "批量构建或继续", exact: true }).click(); await acceptConfirm(page);
   await expect(maintenance).toContainText("长规程.md：已完成 · 40/40");
   await expect(maintenance).toContainText("短规程.md：已完成 · 1/1");
   await expect(page.getByRole("button", { name: "批量构建或继续", exact: true })).toBeDisabled();
@@ -151,8 +151,7 @@ test("bulk indexing cancels at a controlled request boundary and resumes persist
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await maintenance.screenshot({ path: join(directory, "mobile-index.png"), animations: "disabled" });
   // An already complete document is skipped locally without another provider request.
-  page.once("dialog", dialog => dialog.accept());
-  await page.getByLabel("构建语义索引 长规程.md").click();
+  await page.getByLabel("构建语义索引 长规程.md").click(); await acceptConfirm(page);
   await expect(page.getByRole("button", { name: "批量构建或继续", exact: true })).toBeDisabled();
   expect(app.readRows("SELECT id FROM model_requests WHERE mode='embedding'")).toHaveLength(3);
   expect(errors).toEqual([]);

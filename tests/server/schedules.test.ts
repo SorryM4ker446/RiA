@@ -258,7 +258,8 @@ test("a backup reminder raises a notice when a backup is actually due", async ()
   const notices = await listNotices();
   assert.equal(notices.length, 1);
   assert.equal(notices[0].kind, "backupReminder");
-  assert.equal(notices[0].href, "/backups");
+  // It opens the backups section of the settings rather than an old page address.
+  assert.equal(notices[0].href, "/chat?settings=backups");
 });
 
 test("a backup taken today owes no reminder", async () => {

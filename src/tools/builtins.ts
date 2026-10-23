@@ -1,4 +1,5 @@
 import { COMPACT_CONTEXT_TOOL } from "@/lib/chat/compact-context";
+import { settingsHref } from "@/lib/settings/sections";
 import { withModelCallSource } from "@/lib/models/call-context";
 import { generateText, Output, streamText } from "ai";
 import { MODEL_CALL_DEADLINE_MS, streamDeadline } from "@/lib/models/call-deadlines";
@@ -478,16 +479,18 @@ export function listToolDescriptors(mode?: ToolMode): AnyToolDescriptor[] {
 export async function builtinToolAvailability(toolId: string, modelRef?: ModelRef): Promise<ToolAvailability> {
   if (toolId === "runTerminalCommand" || TERMINAL_COMPANION_TOOLS.has(toolId)) {
     const enabled = terminalRuntimeAllowed() && await db.directoryGrant.count({ where: { revokedAt: null, terminalEnabled: true } });
-    return enabled ? { available: true, reason: null, configEntry: null } : { available: false, reason: "notConfigured", configEntry: "/settings" };
+    // The terminal is switched on per granted folder.
+    return enabled ? { available: true, reason: null, configEntry: null } : { available: false, reason: "notConfigured", configEntry: settingsHref("files") };
   }
   if (toolId === "readPluginSkill") {
     // Any active skill can be loaded on demand, so the prompt only needs its index.
-    return (await activeSkillPackages()).length ? { available: true, reason: null, configEntry: null } : { available: false, reason: "disabled", configEntry: "/extensions" };
+    return (await activeSkillPackages()).length ? { available: true, reason: null, configEntry: null } : { available: false, reason: "disabled", configEntry: settingsHref("extensions") };
   }
   if (toolId === "webSearch" && !searchConfigured(modelRef)) {
     // The reason a tool is missing comes with where to fix it, so the interface
     // can offer the way out instead of only reporting the absence.
-    return { available: false, reason: "notConfigured", configEntry: "/settings" };
+    // The search key is entered with the provider keys.
+    return { available: false, reason: "notConfigured", configEntry: settingsHref("services") };
   }
   return { available: true, reason: null, configEntry: null };
 }

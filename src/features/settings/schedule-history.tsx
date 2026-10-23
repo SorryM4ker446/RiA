@@ -4,9 +4,10 @@ import { useLocale } from "@/lib/locale/client";
 import { t, formatDateTime, localizeMessage } from "@/lib/locale";
 
 import Link from "next/link";
+import { SettingsLink } from "@/features/settings/settings-context";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SettingsHelp, SettingsSection } from "@/features/settings/settings-section";
-import { Badge } from "@/components/ui/badge";
+import { Status } from "@/components/ui/status";
 import { Button } from "@/components/ui/button";
 import { executionGuidance } from "@/lib/execution-messages";
 import type { ScheduledRunView } from "@/lib/scheduler/history";
@@ -64,7 +65,7 @@ export function ScheduleHistory({ refreshKey, onExecuted }: { refreshKey: number
   return (
     <SettingsSection role="region" aria-label={t("ui.settings.schedule-history.scheduledExecutionHistory")} title={t("ui.settings.schedule-history.recentExecutions")} description={t("ui.settings.schedule-history.viewScheduledRunResultsOrRetry")} action={
         <div className="flex flex-wrap items-center gap-3">
-          <Button onClick={() => void load()} size="sm" type="button" variant="outline">{t("ui.settings.schedule-history.refreshRecords")}</Button>
+          <Button onClick={() => void load()} size="sm" type="button" variant="ghost">{t("ui.settings.schedule-history.refreshRecords")}</Button>
           <a className="text-xs underline underline-offset-4 self-center" href="/api/diagnostics" download>{t("ui.chat.run-records.exportRedactedDiagnostics")}</a>
         </div>
       }><div className="flex flex-col gap-3">
@@ -75,14 +76,14 @@ export function ScheduleHistory({ refreshKey, onExecuted }: { refreshKey: number
         <ul className="settings-list">
           {runs.map(run => (
             <li key={run.id} className="settings-history-row text-xs">
-              <p className="flex flex-wrap justify-between gap-2"><span>{["backupReminder", "scheduledBackup", "dailyBrief", "weeklySummary"].includes(run.kind) ? t(`settings.schedules.kind.${run.kind}` as never) : t("ui.settings.schedule-history.unsupportedTaskType")}</span><span className="flex items-center gap-2"><Badge variant={run.status === "failed" || run.status === "interrupted" ? "outline" : "secondary"}>{statusLabel(run.status)}</Badge>{run.trigger === "manual" ? t("ui.settings.schedule-history.manualRetry") : t("ui.settings.schedule-history.scheduledRun")}</span></p>
+              <p className="flex flex-wrap justify-between gap-2"><span>{["backupReminder", "scheduledBackup", "dailyBrief", "weeklySummary"].includes(run.kind) ? t(`settings.schedules.kind.${run.kind}` as never) : t("ui.settings.schedule-history.unsupportedTaskType")}</span><span className="flex items-center gap-2"><Status tone={run.status === "failed" || run.status === "interrupted" ? "danger" : run.status === "succeeded" ? "success" : "neutral"}>{statusLabel(run.status)}</Status>{run.trigger === "manual" ? t("ui.settings.schedule-history.manualRetry") : t("ui.settings.schedule-history.scheduledRun")}</span></p>
               <p className="text-muted-foreground">{t("ui.settings.schedule-history.started")}{formatDateTime(new Date(run.startedAt))} {t("ui.settings.schedule-history.finished")}{run.finishedAt ? formatDateTime(new Date(run.finishedAt)) : t("ui.settings.schedule-history.notFinished")}</p>
               {run.errorCode ? <p>{run.status === "succeeded" ? t("ui.settings.schedule-history.localResultSavedModelCommentaryIncomplete") : ""}{run.errorCode} · {executionGuidance(run.errorCode)}</p> : null}
               {!run.jobId ? <p className="text-muted-foreground">{t("ui.settings.schedule-history.originalScheduleDeletedExecutionEvidenceIs")}</p> : null}
               <div className="flex flex-wrap items-center gap-3">
                 {run.chatId ? <Link className="underline" href={`/chat?conversationId=${encodeURIComponent(run.chatId)}`}>{t("ui.settings.schedule-history.openGeneratedConversation")}</Link> : null}
-                {run.backupId ? <Link className="underline" href="/backups">{t("ui.settings.schedule-history.viewBackup")}</Link> : null}
-                {run.canRetry ? <Button disabled={busy} onClick={() => void retry(run)} size="sm" type="button" variant="outline">{busy ? t("ui.settings.schedule-history.running") : t("ui.settings.schedule-history.runOnceAgain")}</Button> : null}
+                {run.backupId ? <SettingsLink className="underline" section="backups">{t("ui.settings.schedule-history.viewBackup")}</SettingsLink> : null}
+                {run.canRetry ? <Button disabled={busy} onClick={() => void retry(run)} size="sm" type="button" variant="ghost">{busy ? t("ui.settings.schedule-history.running") : t("ui.settings.schedule-history.runOnceAgain")}</Button> : null}
               </div>
             </li>
           ))}

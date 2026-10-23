@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
+import { settingsDialog } from "../helpers/settings";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -180,7 +181,7 @@ test("model browsing reveals batches only when scrolled and searches the entire 
   await page.getByRole("tab", { name: "图片生成", exact: true }).click();
   await expect(results.getByRole("listitem")).toHaveCount(8);
   expect(catalogReads).toBe(2);
-  await expect(page.locator("select:visible")).toHaveCount(0);
+  await expect(settingsDialog(page).locator("select:visible")).toHaveCount(0);
 });
 
 for (const narrow of [false, true]) {

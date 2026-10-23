@@ -1,6 +1,6 @@
 # External tools and extension management
 
-RiA's **扩展管理** page connects external tools without rebuilding the application.
+RiA's **设置 → 扩展** section connects external tools without rebuilding the application.
 Built-in tool IDs, assistant snapshots and the existing approval flow remain valid.
 The **我的扩展** tab manages connections. **发现扩展** browses the official MCP
 Registry and prepares connection drafts; it does not install packages or load
@@ -14,7 +14,7 @@ and official MCP discovery remain available.
 
 ## Discover extensions
 
-Open **扩展管理 → 发现扩展**. The first page loads only when this tab opens.
+Open **设置 → 扩展 → 发现扩展**. The first page loads only when this tab opens.
 Search matches server names (use a service name or English keyword). The bounded,
 keyboard-focusable result panel scrolls independently of the page. Scrolling down
 near its bottom reads one more page without replacing loaded entries or moving
@@ -124,7 +124,7 @@ servers, arbitrary UI plugins and DSH/Cordis plugins are not implemented here.
 
 ## Add and use a connection
 
-1. Open 扩展管理 → 添加扩展, choose the connection type and save its configuration.
+1. Open 设置 → 扩展 → 添加扩展, choose the connection type and save its configuration.
 2. Run 检测连接. Inspect the descriptions and parameter schemas returned by the server.
 3. Select the tools you need and choose 启用所选工具. New connections and newly discovered tools start disabled.
 4. Use normal chat with a tool-capable model; automatic tool selection is the

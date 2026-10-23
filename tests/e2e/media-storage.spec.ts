@@ -1,4 +1,5 @@
 import { openRecentConversations } from "../helpers/conversations";
+import { toasts } from "../helpers/toast";
 import { expect, test, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { request as httpRequest } from "node:http";
@@ -168,6 +169,6 @@ test("storage cleanup requires confirmation and displays its result", async ({ p
   await page.getByRole("button", { name: "清理未使用媒体" }).click();
   expect(cleanups).toBe(0);
   await page.getByRole("button", { name: "确认清理过期文件" }).click();
-  await expect(page.getByRole("status")).toContainText("已清理 2 个文件");
+  await expect(toasts(page)).toContainText("已清理 2 个文件");
   expect(cleanups).toBe(1);
 });

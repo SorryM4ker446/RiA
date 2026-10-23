@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import { MEDIA_LIMITS } from "./src/lib/media/limits-constants";
+import { LEGACY_SETTINGS_PATHS, settingsHref } from "./src/lib/settings/sections";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { dirname, relative } from "node:path";
@@ -30,6 +31,14 @@ function documentRuntimeFiles() {
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  // These pages are now sections of the settings overlay, which opens over a
+  // page as `?settings=<section>`. A direct visit to an old address (a
+  // bookmark, a notice stored before the change) lands on chat with that
+  // section open; its own query is carried along. Links followed inside the app
+  // open the section in place and never reach this.
+  async redirects() {
+    return Object.entries(LEGACY_SETTINGS_PATHS).map(([source, section]) => ({ source, destination: settingsHref(section), permanent: false }));
+  },
   reactStrictMode: true,
   // The printed development entry accepts every loopback spelling, and the dev
   // asset fence otherwise blocks resources for any host it did not initialize.

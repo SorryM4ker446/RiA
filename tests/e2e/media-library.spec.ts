@@ -55,7 +55,7 @@ test("media library shows real generation provenance, confirms regeneration and 
   await page.screenshot({ path: info.outputPath("media-library-narrow.png"), fullPage: true });
   await page.setViewportSize(viewport);
   await detail.getByRole("button", { name: "重新生成", exact: true }).click();
-  const dialog = page.getByRole("dialog");
+  const dialog = page.getByRole("dialog", { name: "按原参数重新生成？" });
   await expect(dialog).toContainText("可能产生费用");
   await expect(dialog.getByRole("button", { name: "取消操作" })).toBeFocused();
   await page.keyboard.press("Escape"); expect(app.providerCalls).toHaveLength(1);
@@ -124,10 +124,10 @@ test("media pagination and confirmed deletion preserve referenced inputs and upd
   await detail.getByRole("button", { name: "关闭详情" }).click();
   detail = await inspect(page, generated.assetId);
   await detail.getByRole("button", { name: "删除资源", exact: true }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "取消操作" }).click();
+  await page.getByRole("dialog", { name: "永久删除这个资源？" }).getByRole("button", { name: "取消操作" }).click();
   expect(app.readRows("SELECT id FROM media_assets")).toHaveLength(29);
   await detail.getByRole("button", { name: "删除资源", exact: true }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "确认永久删除" }).click();
+  await page.getByRole("dialog", { name: "永久删除这个资源？" }).getByRole("button", { name: "确认永久删除" }).click();
   await expect(page.getByText("资源已删除，文件无法恢复。")).toBeVisible();
   expect((await browserData(page, `/api/media/${inputs[0].assetId}/details`)).generationReferenceCount).toBe(0);
   await page.getByText("磁盘占用与清理", { exact: true }).click();

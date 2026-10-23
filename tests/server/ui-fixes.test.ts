@@ -100,17 +100,19 @@ test("a conversation opens at its newest message, and only once", async () => {
 });
 
 test("the settings screen renders every control it imports", async () => {
-  const page = await readFile("src/app/settings/page.tsx", "utf8");
-  const imported = [...page.matchAll(/^import \{ (\w+) \} from "@\/features\/settings\/[\w-]+";$/gm)]
+  // The settings overlay composes every section, from the settings features and
+  // from the models, extensions and media features it gathers in one place.
+  const page = await readFile("src/features/settings/settings-overlay.tsx", "utf8");
+  const imported = [...page.matchAll(/^import \{ (\w+) \} from "@\/features\/[\w-]+\/[\w-]+";$/gm)]
     .map((match) => match[1]);
 
-  assert.ok(imported.length > 0, "the settings page is expected to compose the settings features");
+  assert.ok(imported.length > 0, "the settings overlay is expected to compose the settings features");
   for (const name of imported) {
     // Each of these is the only way into its feature: the close behaviour and
     // the global shortcut are stored in the desktop shell and read from nowhere
     // else, so an imported card that is never rendered is a feature no user can
     // reach.
-    assert.match(page, new RegExp(`<${name}[\\s/>]`), `${name} is imported but never rendered on the settings page`);
+    assert.match(page, new RegExp(`<${name}[\\s/>]`), `${name} is imported but never rendered in the settings`);
   }
 });
 

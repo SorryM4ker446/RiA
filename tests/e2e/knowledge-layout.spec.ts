@@ -1,4 +1,5 @@
 import { expect, test as base } from "@playwright/test";
+import { chooseMenuAction } from "../helpers/row-menu";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -98,7 +99,7 @@ test("tool knowledge entries show readable summaries, preserve raw editing and k
   await expect(excerpt.locator("strong")).toHaveText("探索体验");
   await expect(excerpt.locator("img")).toHaveCount(0); expect(trackedImages).toEqual([]);
   await row.getByText("原始记录", { exact: true }).click(); await expect(row.locator("pre")).toHaveText(original);
-  await row.getByRole("button", { name: "编辑 联网搜索 · 原神 Genshin Impact 游戏评价 2025", exact: true }).click();
+  await chooseMenuAction(page, "联网搜索 · 原神 Genshin Impact 游戏评价 2025", "编辑 联网搜索 · 原神 Genshin Impact 游戏评价 2025");
   const editor = row.getByRole("textbox", { name: "修改这条记忆的内容", exact: true });
   await expect(editor).toHaveValue(original);
   const updated = original.replace("返回 4 条结果", "返回 5 条结果");

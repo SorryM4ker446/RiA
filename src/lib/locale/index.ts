@@ -46,6 +46,26 @@ export function tf(key: MessageKey, vars: Record<string, string | number>, local
 export function formatDateTime(value: string | number | Date, options: Intl.DateTimeFormatOptions = {}, locale: Locale = getLocale()): string {
   return new Date(value).toLocaleString(locale, options);
 }
+/**
+ * Recent moments read relative ("刚刚", "5 分钟前", "昨天"); anything older than a week reads as a
+ * date, with the year only when it differs from now's. Under an hour counts minutes; past that, days
+ * are calendar days, so earlier today counts hours and last night reads "昨天".
+ */
+export function formatRelativeTime(value: string | number | Date, now: number = Date.now(), locale: Locale = getLocale()): string {
+  const date = new Date(value);
+  const time = date.getTime();
+  if (Number.isNaN(time)) return String(value);
+  const seconds = Math.round((time - now) / 1000);
+  const relative = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  if (Math.abs(seconds) < 45) return relative.format(0, "second");
+  if (Math.abs(seconds) < 3600) return relative.format(Math.round(seconds / 60), "minute");
+  const startOfDay = (moment: number) => { const day = new Date(moment); day.setHours(0, 0, 0, 0); return day.getTime(); };
+  const days = Math.round((startOfDay(time) - startOfDay(now)) / 86_400_000);
+  if (days === 0) return relative.format(Math.round(seconds / 3600), "hour");
+  if (Math.abs(days) < 7) return relative.format(days, "day");
+  const sameYear = date.getFullYear() === new Date(now).getFullYear();
+  return date.toLocaleDateString(locale, sameYear ? { month: "short", day: "numeric" } : { year: "numeric", month: "short", day: "numeric" });
+}
 export function formatNumber(value: number, options: Intl.NumberFormatOptions = {}): string {
   return value.toLocaleString(getLocale(), options);
 }

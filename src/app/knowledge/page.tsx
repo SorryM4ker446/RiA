@@ -1,7 +1,8 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
 
-import { formatDateTime, t, localizeMessage } from "@/lib/locale";
+import { formatDateTime, t, tf, localizeMessage } from "@/lib/locale";
+import { Status } from "@/components/ui/status";
 
 import { SelectField, SelectOption } from "@/components/ui/select";
 
@@ -9,10 +10,12 @@ import { getApiErrorMessage as readApiErrorMessage } from "@/lib/api-error-messa
 import { FormEvent, useEffect, useRef, useState } from "react";
 
 import { useAwaitingFirstLoad } from "@/lib/use-awaiting-first-load";
-import Link from "next/link";
-import { ArrowLeft, BookOpen, Loader2, PencilLine, Plus, Search, Trash2 } from "lucide-react";
+import { BookOpen, Check, Loader2, MoreHorizontal, PencilLine, Plus, Search, Trash2 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/layout/page-header";
+import { ToolbarSearch } from "@/components/layout/page-toolbar";
+import { Reveal } from "@/components/ui/reveal";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -235,37 +238,28 @@ export default function KnowledgePage() {
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 md:px-6">
-      <header className="workspace-page-header">
-        <div className="min-w-0">
-          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-headline">
-            <BookOpen aria-hidden="true" className="h-5 w-5 text-muted-foreground" />
-            {t("knowledge.title")}
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground">{t("knowledge.description")}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2"><TopicEntry /><Button variant="ghost" size="sm" asChild><Link href="/chat"><ArrowLeft data-icon="inline-start" />{t("knowledge.backToChat")}</Link></Button></div>
-      </header>
+      <PageHeader back title={t("knowledge.title")} description={t("knowledge.description")} actions={<TopicEntry />} />
 
-      {error ? (
-        <Alert variant="destructive">
+      <Reveal className="-mt-6">{error && !createOpen ? (
+        <Alert variant="destructive" className="mt-6">
           <AlertTitle>{t("knowledge.error.title")}</AlertTitle>
           <AlertDescription>{localizeMessage(error)}</AlertDescription>
         </Alert>
-      ) : null}
+      ) : null}</Reveal>
 
       <DocumentLibrary />
       <section aria-label={t("knowledge.entriesTitle")} aria-busy={isLoading} className="flex min-w-0 flex-col gap-4 pt-3">
         <header className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2"><h2 className="text-base font-semibold">{t("knowledge.entriesTitle")}</h2><Badge variant="secondary">{`${t("knowledge.currentPage")} ${entries.length} ${t("knowledge.entryCountUnit")}`}</Badge></div>
+          <div className="flex flex-wrap items-baseline gap-2"><h2 className="text-base font-semibold tracking-title">{t("knowledge.entriesTitle")}</h2><span className="text-xs text-muted-foreground">{`${t("knowledge.currentPage")} ${entries.length} ${t("knowledge.entryCountUnit")}`}</span></div>
           <div className="flex items-center gap-1">
-            <RefreshButton disabled={isSaving || (isLoading && entries.length === 0)} onClick={() => void loadEntries()} refreshing={isLoading} variant="ghost" size="sm" label={t("knowledge.refresh")} />
+            <RefreshButton iconOnly disabled={isSaving || (isLoading && entries.length === 0)} onClick={() => void loadEntries()} refreshing={isLoading} label={t("knowledge.refresh")} />
             <Sheet open={createOpen} onOpenChange={open => { if (!isSaving) { setCreateOpen(open); if (open) setError(null); } }}>
-              <SheetTrigger asChild><Button size="sm"><Plus data-icon="inline-start" />{t("knowledge.create")}</Button></SheetTrigger>
+              <SheetTrigger asChild><Button size="sm" variant="ghost"><Plus data-icon="inline-start" />{t("knowledge.create")}</Button></SheetTrigger>
               <SheetContent side="right" className="knowledge-entry-sheet flex flex-col gap-5 p-5 sm:p-6" closeLabel={t("ui.knowledge.closeNewKnowledgeEntry")}>
                 <header className="flex flex-col gap-2 pr-8"><SheetTitle>{t("knowledge.createTitle")}</SheetTitle><SheetDescription>{t("knowledge.createDescription")}</SheetDescription></header>
                 <form className="flex min-h-0 flex-1 flex-col gap-5" onSubmit={onSubmit}>
                   <div className="chat-list-scroll flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
-                    {error && <Alert variant="destructive"><AlertTitle>{t("knowledge.error.title")}</AlertTitle><AlertDescription>{localizeMessage(error)}</AlertDescription></Alert>}
+                    <Reveal>{error ? <Alert variant="destructive"><AlertTitle>{t("knowledge.error.title")}</AlertTitle><AlertDescription>{localizeMessage(error)}</AlertDescription></Alert> : null}</Reveal>
                     <FieldGroup><Field><FieldLabel htmlFor="knowledge-entry-key">{t("knowledge.keyPlaceholder")}</FieldLabel><Input id="knowledge-entry-key" disabled={isSaving} onChange={event => setKey(event.target.value)} placeholder={t("knowledge.keyPlaceholder")} value={key} /></Field><Field><FieldLabel htmlFor="knowledge-entry-value">{t("knowledge.valuePlaceholder")}</FieldLabel><Textarea id="knowledge-entry-value" disabled={isSaving} rows={8} onChange={event => setValue(event.target.value)} placeholder={t("knowledge.valuePlaceholder")} value={value} /></Field></FieldGroup>
                   </div>
                   <footer className="flex shrink-0 justify-end gap-2"><Button type="button" variant="ghost" disabled={isSaving} onClick={() => setCreateOpen(false)}>{t("knowledge.cancelEdit")}</Button><Button disabled={isSaving || isLoading} type="submit">{isSaving ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Plus data-icon="inline-start" />}{t("knowledge.create")}</Button></footer>
@@ -279,7 +273,7 @@ export default function KnowledgePage() {
               if (!isSaving) void loadEntries({ ...entryPage, q: search.trim(), cursors: [null], nextCursor: null });
             }}>
               <FieldGroup className="flex flex-row flex-wrap items-center gap-2">
-              <Field className="min-w-0 flex-1 basis-40"><FieldLabel className="sr-only" htmlFor="knowledge-entry-search">{t("knowledge.searchLabel")}</FieldLabel><Input id="knowledge-entry-search" aria-label={t("knowledge.searchLabel")} maxLength={120}
+              <Field className="min-w-0 flex-1 basis-40"><FieldLabel className="sr-only" htmlFor="knowledge-entry-search">{t("knowledge.searchLabel")}</FieldLabel><ToolbarSearch id="knowledge-entry-search" aria-label={t("knowledge.searchLabel")} maxLength={120}
                 placeholder={t("knowledge.searchPlaceholder")} value={search} onChange={(event) => setSearch(event.target.value)} /></Field>
               <Field className="w-auto"><FieldLabel className="sr-only" htmlFor="knowledge-entry-status">{t("knowledge.viewLabel")}</FieldLabel><SelectField id="knowledge-entry-status" aria-label={t("knowledge.viewLabel")}
                 disabled={isLoading || isSaving} value={entryPage.view} onValueChange={(value) => {
@@ -289,7 +283,7 @@ export default function KnowledgePage() {
                 <SelectOption value="confirmed">{t("knowledge.view.confirmed")}</SelectOption>
                 <SelectOption value="candidates">{t("knowledge.view.candidates")}</SelectOption>
               </SelectField></Field>
-              <Button disabled={isSaving} type="submit" variant="secondary"><Search data-icon="inline-start" />{t("knowledge.search")}</Button>
+              <Button disabled={isSaving} type="submit" variant="ghost"><Search data-icon="inline-start" />{t("knowledge.search")}</Button>
               </FieldGroup>
             </form>
             {entryPage.q ? <p className="mt-2 text-xs text-muted-foreground">{t("knowledge.searchApplied")} {entryPage.q}</p> : null}
@@ -308,57 +302,40 @@ export default function KnowledgePage() {
             ) : entries.length === 0 ? (
               <Empty className="py-6"><EmptyHeader><EmptyMedia><BookOpen /></EmptyMedia><EmptyTitle>{entryPage.q || entryPage.view !== "all" || entryPage.cursors.length > 1 ? t("knowledge.noMatches") : t("knowledge.empty")}</EmptyTitle><EmptyDescription>{t("ui.knowledge.addReusableInformationOrConfirmKnowledge")}</EmptyDescription></EmptyHeader></Empty>
             ) : (
-              <div className="flex flex-col gap-2">
+              <div className="item-list">
                 {entries.map((entry) => {
                   const toolMemory = presentToolMemory(entry.key, entry.value);
                   const title = toolMemory?.title ?? entry.key;
                   const actionLabel = toolMemory ? `${toolMemory.toolLabel} · ${title}` : title;
                   return (
                   <article
-                    className="management-row knowledge-entry-row flex min-w-0 flex-col gap-3 rounded-xl p-4"
+                    className="item-row item-row-stack knowledge-entry-row min-w-0"
                     key={entry.id}
                     {...removalKey(entry.id)}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="break-words text-sm font-medium [overflow-wrap:anywhere]">{title}</h3>
-                          <Badge variant="outline">{toolMemory?.toolLabel ?? t(`knowledge.source.${entry.source}`)}</Badge>
-                          {!entry.confirmed ? <Badge variant="warning">{t("knowledge.candidateBadge")}</Badge> : null}
-                        </div>
+                      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <h3 className="break-words text-sm font-medium [overflow-wrap:anywhere]">{title}</h3>
+                        <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground"><span>{toolMemory?.toolLabel ?? t(`knowledge.source.${entry.source}`)}</span>{!entry.confirmed ? <Status tone="warning">{t("knowledge.candidateBadge")}</Status> : null}</p>
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
                         {!entry.confirmed ? (
-                          <Button disabled={isSaving || isLoading} onClick={() => void updateEntry(entry.id, { confirmed: true })} size="sm" type="button" variant="secondary">
-                            {t("knowledge.accept")}
+                          <Button disabled={isSaving || isLoading} onClick={() => void updateEntry(entry.id, { confirmed: true })} size="sm" type="button" variant="ghost">
+                            <Check data-icon="inline-start" />{t("knowledge.accept")}
                           </Button>
                         ) : null}
-                        {editingId !== entry.id ? (
-                          <Button
-                            aria-label={`${t("knowledge.edit")} ${actionLabel}`} title={t("knowledge.edit")}
-                            disabled={isSaving || isLoading}
-                            onClick={() => { setEditingId(entry.id); setEditingValue(entry.value); }}
-                            size="icon-sm"
-                            type="button"
-                            variant="ghost"
-                          >
-                            <PencilLine aria-hidden="true" className="h-4 w-4" />
-                          </Button>
-                        ) : null}
-                        <Button
-                          aria-label={`${t("knowledge.deleteLabel")} ${actionLabel}`} title={t("documents.delete")}
-                          disabled={isSaving || isLoading}
-                          onClick={() => void deleteEntry(entry.id)}
-                          size="icon-sm"
-                          type="button"
-                          variant="ghost"
-                        >
-                          <Trash2 aria-hidden="true" className="h-4 w-4" />
-                        </Button>
+                        <DropdownMenu modal={false}>
+                          <DropdownMenuTrigger asChild><Button size="icon-sm" variant="ghost" aria-label={tf("ui.assistants.moreActionsFor", { v0: actionLabel })} disabled={isSaving || isLoading}><MoreHorizontal aria-hidden="true" /></Button></DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {editingId !== entry.id ? <DropdownMenuItem aria-label={`${t("knowledge.edit")} ${actionLabel}`} onSelect={() => { setEditingId(entry.id); setEditingValue(entry.value); }}><PencilLine aria-hidden="true" />{t("knowledge.edit")}</DropdownMenuItem> : null}
+                            {editingId !== entry.id ? <DropdownMenuSeparator /> : null}
+                            <DropdownMenuItem variant="destructive" aria-label={`${t("knowledge.deleteLabel")} ${actionLabel}`} onSelect={() => void deleteEntry(entry.id)}><Trash2 aria-hidden="true" />{t("documents.delete")}</DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </div>
                         {editingId === entry.id ? (
-                          <div className="mt-2 flex flex-col gap-2">
+                          <div className="surface-enter flex flex-col gap-2">
                             <Textarea
                               aria-label={t("knowledge.editValueLabel")}
                               onChange={(event) => setEditingValue(event.target.value)}
@@ -381,7 +358,7 @@ export default function KnowledgePage() {
                           </div>
                         ) : <KnowledgeEntryContent entryKey={entry.key} value={entry.value} toolMemory={toolMemory} />}
                         {!entry.confirmed ? (
-                          <p className="mt-2 text-xs text-warning">{t("knowledge.candidateNote")}</p>
+                          <p className="text-xs text-muted-foreground">{t("knowledge.candidateNote")}</p>
                         ) : null}
                     <p className="break-words text-xs leading-5 text-muted-foreground">
                       {`${t("knowledge.updatedAt")} ${formatTime(entry.updatedAt)} ${t("knowledge.divider")} ${entry.lastUsedAt ? `${t("knowledge.lastUsed")} ${formatTime(entry.lastUsedAt)}` : t("knowledge.neverUsed")}`}
@@ -392,11 +369,11 @@ export default function KnowledgePage() {
             )}
           </div>
           <nav aria-label={t("knowledge.paginationLabel")} className="flex flex-wrap items-center justify-between gap-2 py-2">
-            <Button disabled={isLoading || isSaving || pageNeedsRefresh || entryPage.cursors.length === 1} variant="outline" onClick={() => {
+            <Button size="sm" disabled={isLoading || isSaving || pageNeedsRefresh || entryPage.cursors.length === 1} variant="ghost" onClick={() => {
               void loadEntries({ ...entryPage, cursors: entryPage.cursors.slice(0, -1), nextCursor: null });
             }}>{t("knowledge.previousPage")}</Button>
             <span className="text-sm text-muted-foreground" aria-live="polite">{t("knowledge.pagePrefix")} {entryPage.cursors.length} {t("knowledge.pageSuffix")}</span>
-            <Button disabled={isLoading || isSaving || pageNeedsRefresh || !entryPage.nextCursor} variant="outline" onClick={() => {
+            <Button size="sm" disabled={isLoading || isSaving || pageNeedsRefresh || !entryPage.nextCursor} variant="ghost" onClick={() => {
               void loadEntries({ ...entryPage, cursors: [...entryPage.cursors, entryPage.nextCursor], nextCursor: null });
             }}>{t("knowledge.nextPage")}</Button>
           </nav>

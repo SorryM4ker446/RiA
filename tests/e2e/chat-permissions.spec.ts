@@ -101,9 +101,28 @@ test("chat permissions choose and grant a directory without sending the draft, a
   await trigger.click();
   await sheet.getByRole("button", { name: "关闭终端", exact: true }).click();
   await expect(sheet.getByRole("button", { name: "开启终端", exact: true })).toBeVisible();
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  // Follow the form below the list frame by frame while the last folder is withdrawn.
+  await sheet.locator("form").last().evaluate(form => {
+    const tops: number[] = [];
+    const sample = () => { tops.push(form.getBoundingClientRect().top); if (tops.length < 90) requestAnimationFrame(sample); };
+    requestAnimationFrame(sample);
+    (window as Window & { formTops?: number[] }).formTops = tops;
+  });
   await sheet.getByRole("button", { name: "撤销", exact: true }).click();
   // A withdrawn folder is removed from the list rather than kept as history.
   await expect(sheet.getByRole("list", { name: "目录授权", exact: true })).toHaveCount(0);
+  await expect(sheet.getByText("还没有授权任何目录，助手目前读不到本机文件。")).toBeVisible();
+  const tops = await page.waitForFunction(() => {
+    const tops = (window as Window & { formTops?: number[] }).formTops!;
+    return tops.length >= 90 && tops;
+  }).then(handle => handle.jsonValue() as Promise<number[]>);
+  // The row folds away and the empty note eases in; nothing below snaps into place.
+  const steps = tops.slice(1).map((top, index) => Math.abs(top - tops[index]));
+  expect(Math.max(...steps), tops.join(",")).toBeLessThan(40);
+  // Once the row has gone, the empty note opens over several frames instead of landing at full height.
+  const folded = tops.indexOf(Math.min(...tops));
+  expect(Math.max(...steps.slice(folded)), tops.join(",")).toBeLessThan(10);
   await expect(sheet.getByText(/已撤销/)).toHaveCount(0);
   expect(await browserData(page, "/api/directory-grants")).toHaveLength(0);
   await page.keyboard.press("Escape");

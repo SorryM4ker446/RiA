@@ -6,6 +6,8 @@ import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { browserApi, browserData } from "../helpers/browser-api";
+import { acceptConfirm } from "../helpers/confirm";
+import { chooseMenuAction } from "../helpers/row-menu";
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => { const app = await startStandaloneServer({ modelFixture: true }); try { await runTest(app); } finally { await app.close(); } },
 });
@@ -46,14 +48,14 @@ test("topic workspace scopes conversations and artifacts, exports snapshots and 
   const calls = app.providerCalls.length; expect(JSON.stringify(app.providerCalls.at(-1)?.messages)).not.toContain("医疗费用核销机密");
   const download = page.waitForEvent("download"); await page.getByRole("link", { name: "导出 JSON 与引用快照", exact: true }).click(); const file = await download;
   const exported = JSON.parse(await readFile((await file.path())!, "utf8")); expect(exported.metadata.sources[0].contentHash).toMatch(/^[a-f0-9]{64}$/);
-  await page.getByRole("button", { name: "修改专题设置", exact: true }).click(); await page.getByLabel("专题说明", { exact: true }).fill("专题更新后的说明");
+  await chooseMenuAction(page, "差旅研究", "修改专题设置"); await page.getByLabel("专题说明", { exact: true }).fill("专题更新后的说明");
   await page.getByRole("button", { name: "保存专题", exact: true }).click(); await expect(page.getByRole("status").filter({ hasText: "专题已保存" })).toBeVisible();
   expect((await browserData(page, `/api/topics/${topic.id}/artifacts/${artifact.id}`)).topicRevision).toBe(1);
   await expect(page.locator("article")).toContainText("使用旧专题设置");
   await app.restart(); await page.reload(); await page.getByRole("button", { name: "差旅核销总结 · 已生成", exact: true }).click(); await expect(page.locator("article")).toContainText("十个工作日"); expect(app.providerCalls.length).toBe(calls);
   const dir = join(tmpdir(), "ria-knowledge-topics-qa"); await mkdir(dir, { recursive: true }); await page.screenshot({ path: join(dir, "desktop.png"), fullPage: true, animations: "disabled" });
   await page.setViewportSize({ width: 390, height: 844 }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true); await page.screenshot({ path: join(dir, "mobile.png"), fullPage: true, animations: "disabled" });
-  page.once("dialog", dialog => dialog.accept()); await page.getByRole("button", { name: "删除专题", exact: true }).click(); await expect(page).toHaveURL(`${app.origin}/topics`);
+  await chooseMenuAction(page, "差旅研究", "删除专题"); await acceptConfirm(page); await expect(page).toHaveURL(`${app.origin}/topics`);
   expect(await browserData(page, "/api/topics")).toEqual([]); expect((await browserData(page, "/api/documents")).length).toBe(2); expect((await browserData(page, "/api/conversations")).some(item => item.id === chat.id)).toBe(true);
   expect(errors).toEqual([]); expect(consoleErrors).toEqual([]);
 });

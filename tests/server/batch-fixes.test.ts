@@ -160,7 +160,7 @@ test("an unconfigured optional tool is not handed to the model at all", async()=
     // The model never sees it, so it cannot call it, retry it, or spend a step
     // discovering that it is missing. No search request is ever attempted.
     assert.equal("webSearch" in (await createChatToolSet({})), false);
-    assert.deepEqual(await toolAvailability("webSearch"),{available:false,reason:"notConfigured",configEntry:"/settings"});
+    assert.deepEqual(await toolAvailability("webSearch"),{available:false,reason:"notConfigured",configEntry:"/chat?settings=services"});
     assert.equal((await toolAvailability("searchKnowledge")).available,true);
     // The manual entry point still refuses it explicitly, because there the
     // user asked for that tool by name.
@@ -172,7 +172,7 @@ test("an unconfigured optional tool is not handed to the model at all", async()=
     assert.equal(catalog.find(tool=>tool.id==="webSearch").available,false);
     assert.equal(catalog.find(tool=>tool.id==="webSearch").reason,"notConfigured");
     // The way out comes with the reason, so the interface can offer it.
-    assert.equal(catalog.find(tool=>tool.id==="webSearch").configEntry,"/settings");
+    assert.equal(catalog.find(tool=>tool.id==="webSearch").configEntry,"/chat?settings=services");
     assert.equal(catalog.find(tool=>tool.id==="createTask").configEntry,null);
     assert.equal(catalog.find(tool=>tool.id==="createTask").available,true);
   }finally{

@@ -57,8 +57,6 @@ export const pageMessages = {
   "conversations.deleteDialog.confirm": "确认永久删除",
 
   // --- models -------------------------------------------------------------
-  "models.title": "模型与用量",
-  "models.description": "配置默认模型、浏览官方目录，并查看最近的调用开销。",
   "models.sourceNote":
     "模型来源为 OpenRouter 官方动态目录。只有加入“我的模型”的条目会出现在调用选择器中；上游目录不保证模型当前可用。",
   "models.divider": "·",
@@ -198,7 +196,6 @@ export const pageMessages = {
   "media.loaded": "已加载",
   "media.loadedUnit": "个资源，按创建时间倒序。",
   "media.cardLabel": "媒体",
-  "media.viewLabel": "查看媒体",
   "media.imageAlt": "图片资源",
   "media.videoHint": "▶ 视频 · 打开详情播放",
   "media.noDescription": "未记录描述",
@@ -222,7 +219,6 @@ export const pageMessages = {
   // --- knowledge ----------------------------------------------------------
   "knowledge.title": "知识库管理",
   "knowledge.description": "整理文档与常用知识，供助理检索和引用。",
-  "knowledge.backToChat": "返回聊天",
   "knowledge.refresh": "刷新",
   "knowledge.error.title": "知识库操作失败",
   "knowledge.error.load": "读取知识条目失败",
@@ -281,7 +277,6 @@ export const pageMessages = {
   "backups.error.act": "备份操作失败。",
   "backups.error.fileSize": "备份必须非空且不超过 512 MiB。",
   "backups.error.importCancelled": "导入已取消，当前业务数据未改变。",
-  "backups.notice.creating": "正在创建完整备份…",
   "backups.notice.created": "备份创建完成，可下载到其他位置保存。",
   "backups.importNoticeBefore": "正在导入",
   "backups.importNoticeAfter": "…",
@@ -293,7 +288,7 @@ export const pageMessages = {
   "backups.create": "创建备份",
   "backups.refresh": "刷新备份",
   "backups.importLabel": "导入备份文件",
-  "backups.importButton": "选择备份",
+  "backups.importButton": "导入备份",
   "backups.cancelImport": "取消导入",
   "backups.retentionLabel": "备份保留策略",
   "backups.retentionTitle": "自动清理过期备份",
@@ -332,13 +327,9 @@ export const pageMessages = {
   "backups.confirmDeleteBackup": "确认删除备份",
 
   // --- storage ------------------------------------------------------------
-  "storage.title": "存储管理",
-  "storage.backToChat": "返回聊天",
 
   // --- settings (desktop) -------------------------------------------------
-  "settings.title": "桌面设置",
   "settings.description": "管理模型服务密钥、代理和本地运行信息。",
-  "settings.backToChat": "返回聊天",
   "settings.navModels": "模型与用量",
   "settings.navBackups": "备份与恢复",
   // The browser build hides this page's navigation link, so this is the only

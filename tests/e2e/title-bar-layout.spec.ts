@@ -20,7 +20,7 @@ async function open(page: Page, origin: string, path: string) {
 }
 
 test("the top row starts at the window edge and owns its content row", { tag: "@integration" }, async ({ page, app }) => {
-  await open(page, app.origin, "/storage");
+  await open(page, app.origin, "/tasks");
   const geometry = await page.evaluate(() => {
     const root = document.querySelector<HTMLElement>(".workspace-shell")!;
     const rail = document.querySelector<HTMLElement>(".workspace-rail")!;

@@ -7,6 +7,10 @@ import { startExtensionService } from "../helpers/extension-service";
 import { pluginFixture } from "../helpers/plugin-fixture";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { browserApi, browserData } from "../helpers/browser-api";
+import { acceptConfirm } from "../helpers/confirm";
+import { chooseRowAction, openRowMenu } from "../helpers/row-menu";
+import { toasts } from "../helpers/toast";
+import { trackChatStreams, waitForChatStream } from "../helpers/chat-stream";
 
 type App = { runtime: Awaited<ReturnType<typeof startStandaloneServer>>; service: Awaited<ReturnType<typeof startExtensionService>> };
 const test = base.extend<{ app: App }>({ app: async ({}, provide) => {
@@ -17,7 +21,7 @@ const test = base.extend<{ app: App }>({ app: async ({}, provide) => {
 const shots = join(tmpdir(), "ria-plugins-qa");
 async function open(page: Page, app: App) {
   await page.goto(`${app.runtime.origin}/extensions`);
-  await expect(page.getByRole("heading", { name: "扩展管理", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "扩展", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "导入插件", exact: true })).toBeEnabled();
 }
 async function send(page: Page, app: App, text: string) {
@@ -25,6 +29,7 @@ async function send(page: Page, app: App, text: string) {
   await page.evaluate(id => localStorage.setItem("chat:last-active-id", id), chat.id);
   await page.goto(`${app.runtime.origin}/chat`);
   await expect(page.getByRole("heading", { name: "Plugin skill acceptance", exact: true })).toBeVisible();
+  await trackChatStreams(page);
   await page.getByPlaceholder(/输入你的问题/).fill(text);
   await page.getByRole("button", { name: "发送", exact: true }).click();
   return chat;
@@ -56,9 +61,11 @@ test("marketplace installs a skill package, applies it to real chat context and 
   await expect.poll(() => systemText(app)).toContain("用户需要起草、改写、润色、缩写或校对文本时使用。");
   expect(systemText(app)).not.toContain("先识别文本用途");
   await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.role === "assistant")).toBe(true);
+  // The answer is saved before its stream closes; restarting in between would cut the open response.
+  await waitForChatStream(page);
   await app.runtime.restart(); await open(page, app);
   await expect(card.getByText("已启用", { exact: true })).toBeVisible();
-  await card.getByRole("button", { name: "停用插件", exact: true }).click(); await expect(card.getByText("已停用", { exact: true })).toBeVisible();
+  await chooseRowAction(page, card, "停用插件"); await expect(card.getByText("已停用", { exact: true })).toBeVisible();
   const before = app.runtime.providerCalls.length;
   await send(page, app, "请润色：今天开始工作。");
   await expect.poll(() => app.runtime.providerCalls.length).toBeGreaterThan(before);
@@ -81,7 +88,8 @@ for (const kind of ["http", "mcp-http"] as const) test(`${kind} combination pack
   await drawer.getByRole("button", { name: "安装插件", exact: true }).click(); await expect(drawer).toBeHidden();
   const plugin = (await browserData(page, "/api/plugins")).items[0], card = page.getByTestId(`plugin-${plugin.id}`);
   await expect(page.getByTestId(`extension-${plugin.connections[0].id}`)).toHaveCount(0);
-  await expect(card.getByRole("button", { name: "启用插件", exact: true })).toBeDisabled();
+  await expect(card.getByText("待配置", { exact: true })).toBeVisible(); await expect(card.getByRole("button", { name: "启用插件", exact: true })).toHaveCount(0);
+  const menu = await openRowMenu(page, card); await expect(menu.getByRole("menuitem", { name: "启用插件", exact: true })).toBeDisabled(); await page.keyboard.press("Escape"); await expect(menu).toBeHidden();
   await card.getByRole("button", { name: "Research bundle", exact: true }).click();
   drawer = page.getByRole("dialog", { name: "Research bundle", exact: true });
   await drawer.getByRole("button", { name: "配置连接", exact: true }).click();
@@ -101,7 +109,7 @@ for (const kind of ["http", "mcp-http"] as const) test(`${kind} combination pack
     await card.getByRole("button", { name: "Research bundle", exact: true }).click();
     await drawer.getByRole("button", { name: "检测连接", exact: true }).click();
     await page.getByRole("button", { name: "取消检测", exact: true }).click();
-    await expect(page.getByRole("status").filter({ hasText: "检测已取消" })).toBeVisible();
+    await expect(toasts(page).getByText("检测已取消")).toBeVisible();
     app.service.state.hold = false;
   }
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
@@ -112,7 +120,7 @@ for (const kind of ["http", "mcp-http"] as const) test(`${kind} combination pack
   expect(app.service.state.calls[0].authorization).toBe("Bearer synthetic-plugin-secret");
   await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes('"state":"output-available"'))).toBe(true);
   await open(page, app);
-  page.once("dialog", dialog => dialog.accept()); await card.getByRole("button", { name: "卸载插件 Research bundle", exact: true }).click();
+  await chooseRowAction(page, card, "卸载"); await acceptConfirm(page);
   await expect(card).toHaveCount(0);
   expect((await browserData(page, "/api/extensions")).items.map(item => item.id)).toEqual([unrelated.id]);
   expect((await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes('"state":"output-available"'))).toBe(true);
