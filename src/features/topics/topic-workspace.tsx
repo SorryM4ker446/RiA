@@ -21,11 +21,13 @@ import type { AssistantTemplate } from "@/lib/assistants/schema";
 import type { TopicConfig, TopicSummary, ArtifactSummary, ArtifactDetail, ArtifactInput } from "@/lib/topics/schema";
 import type { DocumentSource } from "@/lib/documents/types";
 import { animateRemoval, removalKey } from "@/lib/ui/removal";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 type Conversation = { id: string; title: string; archived: boolean };
 const statuses = (): Record<ArtifactSummary["status"], string> => ({ generating: t("chat.toolbar.statusGenerating"), ready: t("ui.topics.topic-workspace.generated"), needs_review: t("ui.topics.topic-workspace.citationsNeedReview"), failed: t("mediaGen.failedShortSuffix"), cancelled: t("models.statusAborted"), interrupted: t("ui.topics.topic-workspace.interrupted") });
 export function TopicWorkspace({ topicId }: { topicId: string }) {
   useLocale();
+  const confirm = useConfirm();
   const router = useRouter(), base = `/api/topics/${topicId}`;
   const [topic, setTopic] = useState<TopicSummary | null>(null), [docs, setDocs] = useState<DocumentSummary[]>([]), [assistants, setAssistants] = useState<AssistantTemplate[]>([]);
   const [chats, setChats] = useState<Conversation[]>([]), [artifacts, setArtifacts] = useState<ArtifactSummary[]>([]), [selected, setSelected] = useState<ArtifactDetail | null>(null);
@@ -122,10 +124,10 @@ export function TopicWorkspace({ topicId }: { topicId: string }) {
           {selected.status === "needs_review" ? <p role="alert" className="text-sm text-warning">{t("ui.topics.topic-workspace.theTextDidNotCiteSupplied")}</p> : null}
           {selected.content ? <><MarkdownMessage text={selected.content} /><p className="text-xs text-muted-foreground">{t("ui.topics.topic-workspace.aLinkDoesNotEstablishFactual")}</p><div className="flex flex-wrap gap-3 text-sm"><a className="underline" href={`${base}/artifacts/${selected.id}/export?format=markdown`}>{t("ui.topics.topic-workspace.exportMarkdown")}</a><a className="underline" href={`${base}/artifacts/${selected.id}/export?format=json`}>{t("ui.topics.topic-workspace.exportJSONWithCitationSnapshots")}</a></div></> : null}
           <DocumentSources sources={selected.metadata.sources} /><RetrievalDiagnostics value={selected.metadata.diagnostics} />
-          <Button disabled={busy || selected.status === "generating"} variant="outline" onClick={() => { if (window.confirm(t("ui.topics.topic-workspace.deleteThisArtifactAndItsCitation"))) void run(async signal => { await documentRequest(`${base}/artifacts/${selected.id}?confirm=true`, { method: "DELETE", signal }); if (!signal.aborted) { const removed = selected.id; setSelected(null); pending.current = null; await animateRemoval(removed, () => load(signal)); } }); }}>{t("ui.topics.topic-workspace.deleteArtifact")}</Button>
+          <Button disabled={busy || selected.status === "generating"} variant="outline" onClick={async () => { if (await confirm({ title: t("ui.confirm.deleteArtifact"), description: t("ui.topics.topic-workspace.deleteThisArtifactAndItsCitation"), action: t("ui.confirm.delete"), destructive: true })) void run(async signal => { await documentRequest(`${base}/artifacts/${selected.id}?confirm=true`, { method: "DELETE", signal }); if (!signal.aborted) { const removed = selected.id; setSelected(null); pending.current = null; await animateRemoval(removed, () => load(signal)); } }); }}>{t("ui.topics.topic-workspace.deleteArtifact")}</Button>
         </article> : null}
       </CardContent></Card>
-      <Button variant="outline" disabled={busy} onClick={() => { if (window.confirm(t("ui.topics.topic-workspace.deleteThisTopicAndAllArtifacts"))) void run(async signal => { await documentRequest(`${base}?confirm=true&revision=${topic.revision}`, { method: "DELETE", signal }); if (!signal.aborted) router.push("/topics"); }); }}>{t("ui.topics.topic-workspace.deleteTopic")}</Button>
+      <Button variant="outline" disabled={busy} onClick={async () => { if (await confirm({ title: t("ui.confirm.deleteTopic"), description: t("ui.topics.topic-workspace.deleteThisTopicAndAllArtifacts"), action: t("ui.confirm.delete"), destructive: true })) void run(async signal => { await documentRequest(`${base}?confirm=true&revision=${topic.revision}`, { method: "DELETE", signal }); if (!signal.aborted) router.push("/topics"); }); }}>{t("ui.topics.topic-workspace.deleteTopic")}</Button>
     </> : null}
   </main>;
 }

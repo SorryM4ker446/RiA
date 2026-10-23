@@ -6,6 +6,7 @@ import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { openDocumentReferences } from "../helpers/execution-records";
+import { acceptConfirm } from "../helpers/confirm";
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => { const app = await startStandaloneServer({ modelFixture: true }); try { await runTest(app); } finally { await app.close(); } },
 });
@@ -64,8 +65,7 @@ test("local search explains scope and old chat citations distinguish changed and
   await expect(page.getByText("备用线路每天巡检。", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "返回知识库", exact: true }).click();
   await page.getByLabel("检索资料集合").click(); await page.getByRole("option", { name: "Manual|操作", exact: true }).click();
-  page.once("dialog", dialog => dialog.accept());
-  await page.getByLabel("删除文档 星河手册.txt").click();
+  await page.getByLabel("删除文档 星河手册.txt").click(); await acceptConfirm(page);
   await expect(page.getByText("文档及索引已删除。", { exact: true })).toBeVisible();
   await expect(page.getByLabel("检索资料集合")).toContainText("Manual|操作（暂无资料）");
   await page.getByLabel("检索资料集合").click();

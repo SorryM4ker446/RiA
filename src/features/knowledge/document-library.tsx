@@ -28,10 +28,12 @@ import { documentRequest, type DocumentSummary, type DocumentPreview } from "./d
 import { maintainDocumentIndexes, type IndexProgress } from "./index-maintenance";
 import { IndexStatus } from "./index-status";
 import { animateRemoval, removalKey } from "@/lib/ui/removal";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 export { documentRequest } from "./document-client";
 
 export function DocumentLibrary() {
   useLocale();
+  const confirm = useConfirm();
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const awaitingFirstDocumentLoad = useAwaitingFirstLoad(loading, "documents");
@@ -111,7 +113,7 @@ export function DocumentLibrary() {
   async function buildSemanticIndexes(targets: DocumentSummary[]) {
     if (operation.current || !targets.length) return;
     const models = [...new Set(targets.flatMap(document => document.semantic?.modelRef ? [document.semantic.modelRef.modelId] : []))];
-    if (!models.length || !window.confirm(tf("ui.knowledge.document-library.sendPendingChunksFromDocumentsTo", { v0: targets.length, v1: models.join("、") }))) return;
+    if (!models.length || !(await confirm({ title: t("ui.confirm.buildIndex"), description: tf("ui.knowledge.document-library.sendPendingChunksFromDocumentsTo", { v0: targets.length, v1: models.join("、") }) })) || operation.current) return;
     await run(async signal => {
       const items = await maintainDocumentIndexes(targets, signal, items => { if (!signal.aborted || operation.current?.signal === signal) setProgress(items); });
       if (!signal.aborted) {
@@ -166,7 +168,7 @@ export function DocumentLibrary() {
         <div className="flex shrink-0 items-center gap-0.5">
           <Button title={t("ui.knowledge.document-library.buildSemanticIndex")} aria-label={tf("ui.knowledge.document-library.buildSemanticIndexFor", { v0: document.filename })} disabled={busy || !document.semantic?.modelRef} size="icon-sm" variant="ghost" onClick={() => void buildSemanticIndexes([document])}><Sparkles /></Button>
           <Button title={t("documents.reindex")} aria-label={`${t("documents.reindex")} ${document.filename}`} disabled={busy} size="icon-sm" variant="ghost" onClick={() => void run(async () => { await documentRequest(`/api/documents/${document.id}`, { method: "POST" }); await refresh(); setResults(null); setNotice(t("documents.reindexed")); })}><RotateCw /></Button>
-          <Button title={t("documents.delete")} aria-label={`${t("documents.deleteLabel")} ${document.filename}`} disabled={busy} size="icon-sm" variant="ghost" onClick={() => { if (window.confirm(`${t("documents.deleteConfirmPrefix")}${document.filename}${t("documents.deleteConfirmSuffix")}`)) void run(async () => { await documentRequest(`/api/documents/${document.id}`, { method: "DELETE" }); await animateRemoval(document.id, refresh); setResults(null); setNotice(t("documents.deleted")); }); }}><Trash2 /></Button>
+          <Button title={t("documents.delete")} aria-label={`${t("documents.deleteLabel")} ${document.filename}`} disabled={busy} size="icon-sm" variant="ghost" onClick={async () => { if (await confirm({ title: t("ui.confirm.deleteDocument"), description: `${t("documents.deleteConfirmPrefix")}${document.filename}${t("documents.deleteConfirmSuffix")}`, action: t("ui.confirm.delete"), destructive: true })) void run(async () => { await documentRequest(`/api/documents/${document.id}`, { method: "DELETE" }); await animateRemoval(document.id, refresh); setResults(null); setNotice(t("documents.deleted")); }); }}><Trash2 /></Button>
         </div>
       </li>)}
     </ul>}

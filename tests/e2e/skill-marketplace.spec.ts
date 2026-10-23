@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { browserApi, browserData } from "../helpers/browser-api";
+import { acceptConfirm } from "../helpers/confirm";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({ app: async ({}, provide) => {
   const app = await startStandaloneServer({ modelFixture: true });
@@ -63,8 +64,7 @@ test("community Skill search, preview, installation and real chat resource reads
   await expect(drawer).toContainText("SKILL_MARKET_MAIN"); await page.keyboard.press("Escape");
   await card.getByRole("button", { name: "停用插件", exact: true }).click();
   await expect(card.getByText("已停用", { exact: true })).toBeVisible();
-  page.once("dialog", dialog => dialog.accept());
-  await card.getByRole("button", { name: "卸载插件 community-writing", exact: true }).click();
+  await card.getByRole("button", { name: "卸载插件 community-writing", exact: true }).click(); await acceptConfirm(page);
   await expect(card).toBeHidden(); expect((await browserData(page, "/api/plugins")).items).toHaveLength(0);
   expect((await browserData(page, `/api/conversations/${chat.id}/messages`)).length).toBeGreaterThan(0);
   expect(errors).toEqual([]);

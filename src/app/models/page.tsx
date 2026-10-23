@@ -19,6 +19,7 @@ import { settingsRequest, jsonRequest } from "@/features/settings/api-client";
 import { libraryModes, modelModes, modelRefKey, type ModelLibraryItem, type ModelPreferences, type ModelRef, type GenerationMode, type LibraryMode } from "@/lib/models/preferences-schema";
 import type { LibraryAvailability, ModelAvailability } from "@/lib/models/availability";
 import type { CatalogModel } from "@/lib/models/providers/types";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 type Usage = { controls?: ModelPreferences["callLimits"] & { day: string; calls: number; estimatedUsd: number; active: number }; recent: UsageRow[]; totals: { requests: number; inputTokens: number | null; outputTokens: number | null; costUsd: number | null; unknownCostRequests: number } };
 type CatalogState = { models: CatalogModel[]; fetchedAt: string | null; stale: boolean; source: "live" | "cache" | "empty"; error: string | null; failure: string | null; skipped: number };
 type ProviderSummary = { providerId: string; displayName: string; configured: boolean };
@@ -39,6 +40,7 @@ const fromSelectValue = (value: string): ModelRef | null => {
 
 export default function ModelsPage() {
   useLocale();
+  const confirm = useConfirm();
   const [settings, setSettings] = useState<ModelPreferences | null>(null), [usage, setUsage] = useState<Usage | null>(null);
   const [usageSource, setUsageSource] = useState("all");
   const [usageError, setUsageError] = useState("");
@@ -123,12 +125,10 @@ export default function ModelsPage() {
     ? "rounded-full bg-warning/15 px-2 py-0.5 text-warning"
     : "rounded-full bg-muted px-2 py-0.5";
   /**
-   * Rebuilding is paid work, so it asks first. The dialog is the browser's
-   * because the page has no form to submit and the answer is a yes/no, not
-   * something to type.
+   * Rebuilding is paid work, so it asks first.
    */
   async function rebuildEmbeddings() {
-    if (!window.confirm(t("models.embeddingReindexConfirm"))) return;
+    if (!(await confirm({ title: t("ui.confirm.rebuildEmbeddings"), description: t("models.embeddingReindexConfirm") }))) return;
     const response = await settingsRequest<{ data: { reindexed: number; remaining: number } }>("/api/memory/reindex", jsonRequest("POST", { confirm: true }));
     setNotice(tf("models.notice.embeddingReindexed", { reindexed: response.data.reindexed, remaining: response.data.remaining }));
     setEmbeddings(current => current ? { ...current, stale: response.data.remaining } : current);

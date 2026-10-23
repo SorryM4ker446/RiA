@@ -2206,5 +2206,18 @@ export const enUS = {
   "plugins.docs.description": "Combines documentation skills with a Context7 connection to look up versioned library documentation and code examples.",
   "plugins.docs.skillName": "Developer documentation lookup",
   "plugins.docs.skillDescription": "Use for software libraries, framework APIs, version migrations, and code implementation.",
-  "plugins.docs.credentials": "Optional: enter Bearer followed by your Context7 API key for higher limits."
+  "plugins.docs.credentials": "Optional: enter Bearer followed by your Context7 API key for higher limits.",
+  "ui.confirm.cancel": "Cancel",
+  "ui.confirm.continue": "Continue",
+  "ui.confirm.delete": "Delete",
+  "ui.confirm.uninstall": "Uninstall",
+  "ui.confirm.deleteDocument": "Delete document?",
+  "ui.confirm.deleteAssistant": "Delete assistant?",
+  "ui.confirm.uninstallPlugin": "Uninstall plugin?",
+  "ui.confirm.deleteExtension": "Delete extension?",
+  "ui.confirm.deleteArtifact": "Delete artifact?",
+  "ui.confirm.deleteTopic": "Delete topic?",
+  "ui.confirm.rebuildEmbeddings": "Rebuild memory embeddings?",
+  "ui.confirm.buildIndex": "Build semantic index?",
+  "ui.confirm.runEvaluation": "Run evaluation?"
 } satisfies Record<MessageKey, string>;

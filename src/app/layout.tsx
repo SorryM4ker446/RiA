@@ -4,6 +4,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { DesktopStartup } from "@/components/layout/desktop-startup";
 import "./globals.css";
 import { LocaleProvider } from "@/lib/locale/client";
+import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { DEFAULT_THEME, LEGACY_PANEL_VISIBILITY_STORAGE_KEY, PANEL_VISIBILITY_STORAGE_KEY, THEME_STORAGE_KEY } from "@/lib/ui-preferences";
 
 const sans = Geist({
@@ -39,7 +40,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: `document.documentElement.dataset.desktopRuntime=String(Boolean(window.riaDesktop));try{var theme=localStorage.getItem(${JSON.stringify(THEME_STORAGE_KEY)})||${JSON.stringify(DEFAULT_THEME)};var dark=theme!=='light';document.documentElement.classList.toggle('dark',dark);document.documentElement.style.colorScheme=dark?'dark':'light'}catch{};try{var panels=JSON.parse(localStorage.getItem(${JSON.stringify(PANEL_VISIBILITY_STORAGE_KEY)})||localStorage.getItem(${JSON.stringify(LEGACY_PANEL_VISIBILITY_STORAGE_KEY)})||'null')||{};document.documentElement.dataset.conversationsOpen=String(panels.conversations!==false);document.documentElement.dataset.tasksOpen=String(panels.tasks!==false)}catch{}` }} />
       </head>
       <body className={`${sans.variable} ${mono.variable} font-sans antialiased`}>
-        <LocaleProvider><DesktopStartup><AppShell>{children}</AppShell></DesktopStartup></LocaleProvider>
+        <LocaleProvider><ConfirmProvider><DesktopStartup><AppShell>{children}</AppShell></DesktopStartup></ConfirmProvider></LocaleProvider>
       </body>
     </html>
   );

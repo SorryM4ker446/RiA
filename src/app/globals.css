@@ -499,7 +499,7 @@ html[data-desktop-runtime="true"], html[data-desktop-runtime="true"] body { back
  */
 html[data-desktop-runtime="true"] .workspace-shell { border-radius: 14px; overflow: clip; }
 html[data-window-maximized="true"] .workspace-shell { border-radius: 0; }
-html[data-desktop-runtime="true"]:not([data-window-maximized="true"]) :is(.sheet-overlay, .dialog-overlay-enter, .desktop-startup),
+html[data-desktop-runtime="true"]:not([data-window-maximized="true"]) :is(.sheet-overlay, .alert-dialog-overlay, .dialog-overlay-enter, .desktop-startup),
 html[data-desktop-runtime="true"]:not([data-window-maximized="true"]) dialog::backdrop { border-radius: 14px; }
 html[data-desktop-runtime="true"]:not([data-window-maximized="true"]) .sheet-content[data-side="right"] { border-radius: 0 14px 14px 0; }
 html[data-desktop-runtime="true"]:not([data-window-maximized="true"]) .sheet-content[data-side="left"] { border-radius: 14px 0 0 14px; }
@@ -556,6 +556,13 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .sheet-content[data-side="right"] { right: 0; border-left: 1px solid hsl(var(--border)); --sheet-offset: 100%; }
 .sheet-content.extension-editor { width: min(36rem, 100vw); }
 .sheet-content.directory-permissions-sheet { width: min(32rem, 100vw); }
+/* Confirmation dialogs sit above sheets and menus, and are centred without a transform so their own animation can use one. */
+.alert-dialog-overlay { position: fixed; inset: 0; z-index: 80; background: hsl(var(--scrim) / .5); backdrop-filter: blur(4px); }
+.alert-dialog-content { position: fixed; inset: 0; z-index: 80; display: flex; flex-direction: column; gap: 16px; width: min(28rem, calc(100vw - 32px)); height: fit-content; max-height: calc(100vh - 32px); margin: auto; overflow-y: auto; border-radius: 12px; padding: 20px; background: hsl(var(--card)); color: hsl(var(--card-foreground)); box-shadow: 0 0 0 1px hsl(var(--border)), 0 16px 48px -12px hsl(var(--shadow) / .35); outline: none; }
+.alert-dialog-overlay[data-state="open"] { animation: overlay-in var(--dur-base) var(--ease-out); }
+.alert-dialog-overlay[data-state="closed"] { animation: overlay-out var(--dur-fast) var(--ease-in-out); }
+.alert-dialog-content[data-state="open"] { animation: dialog-panel-in var(--dur-base) var(--ease-out); }
+.alert-dialog-content[data-state="closed"] { animation: pop-out var(--dur-fast) var(--ease-in-out); }
 .sheet-overlay[data-state="open"] { animation: overlay-in var(--dur-base) var(--ease-out); }
 .sheet-overlay[data-state="closed"] { animation: overlay-out var(--dur-fast) var(--ease-in-out); }
 .sheet-content[data-state="open"] { animation: sheet-in var(--dur-slow) var(--ease-out); }

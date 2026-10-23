@@ -6,6 +6,7 @@ import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { browserApi, browserData } from "../helpers/browser-api";
+import { acceptConfirm } from "../helpers/confirm";
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => { const app = await startStandaloneServer({ modelFixture: true }); try { await runTest(app); } finally { await app.close(); } },
 });
@@ -53,7 +54,7 @@ test("topic workspace scopes conversations and artifacts, exports snapshots and 
   await app.restart(); await page.reload(); await page.getByRole("button", { name: "差旅核销总结 · 已生成", exact: true }).click(); await expect(page.locator("article")).toContainText("十个工作日"); expect(app.providerCalls.length).toBe(calls);
   const dir = join(tmpdir(), "ria-knowledge-topics-qa"); await mkdir(dir, { recursive: true }); await page.screenshot({ path: join(dir, "desktop.png"), fullPage: true, animations: "disabled" });
   await page.setViewportSize({ width: 390, height: 844 }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true); await page.screenshot({ path: join(dir, "mobile.png"), fullPage: true, animations: "disabled" });
-  page.once("dialog", dialog => dialog.accept()); await page.getByRole("button", { name: "删除专题", exact: true }).click(); await expect(page).toHaveURL(`${app.origin}/topics`);
+  await page.getByRole("button", { name: "删除专题", exact: true }).click(); await acceptConfirm(page); await expect(page).toHaveURL(`${app.origin}/topics`);
   expect(await browserData(page, "/api/topics")).toEqual([]); expect((await browserData(page, "/api/documents")).length).toBe(2); expect((await browserData(page, "/api/conversations")).some(item => item.id === chat.id)).toBe(true);
   expect(errors).toEqual([]); expect(consoleErrors).toEqual([]);
 });

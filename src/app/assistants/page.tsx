@@ -19,6 +19,7 @@ import type { ModelLibraryItem } from "@/lib/models/preferences-schema";
 import { chatApi } from "@/features/chat/api-client";
 import { LAST_ACTIVE_CHAT_STORAGE_KEY } from "@/features/chat/types";
 import { animateRemoval, removalKey } from "@/lib/ui/removal";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 type ToolOption = { id: string; displayName: string };
 const initialConfig: AssistantConfig = { name: "", description: "", instructions: "", model: null, tools: [], collections: [], usesMemory: true, retrieval: { semanticThreshold: 0.35, maxSources: 8, contextChars: 8000 } };
@@ -32,6 +33,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export default function AssistantsPage() {
   useLocale();
+  const confirm = useConfirm();
   const router = useRouter();
   const [templates, setTemplates] = useState<AssistantTemplate[]>([]);
   const [models, setModels] = useState<ModelLibraryItem[]>([]);
@@ -123,7 +125,7 @@ export default function AssistantsPage() {
                   <DropdownMenuItem onSelect={() => select(template, true)}><CopyPlus aria-hidden="true" />{t("ui.assistants.createCopy")}</DropdownMenuItem>
                   {!template.builtin ? <>
                     <DropdownMenuItem onSelect={() => select(template)}><Pencil aria-hidden="true" />{t("knowledge.edit")}</DropdownMenuItem>
-                    <DropdownMenuItem variant="destructive" onSelect={() => { if (window.confirm(tf("ui.assistants.deleteExistingConversationsWillRetainTheir", { v0: template.config.name }))) void run(async () => { await request(`/api/assistants/${encodeURIComponent(template.id)}?confirm=true&revision=${template.revision}`, { method: "DELETE" }); await animateRemoval(template.id, load); setNotice(t("ui.assistants.templateDeletedExistingConversationSnapshotsWere")); }); }}><Trash2 aria-hidden="true" />{t("documents.delete")}</DropdownMenuItem>
+                    <DropdownMenuItem variant="destructive" onSelect={async () => { if (await confirm({ title: t("ui.confirm.deleteAssistant"), description: tf("ui.assistants.deleteExistingConversationsWillRetainTheir", { v0: template.config.name }), action: t("ui.confirm.delete"), destructive: true })) void run(async () => { await request(`/api/assistants/${encodeURIComponent(template.id)}?confirm=true&revision=${template.revision}`, { method: "DELETE" }); await animateRemoval(template.id, load); setNotice(t("ui.assistants.templateDeletedExistingConversationSnapshotsWere")); }); }}><Trash2 aria-hidden="true" />{t("documents.delete")}</DropdownMenuItem>
                   </> : null}
                 </DropdownMenuGroup>
               </DropdownMenuContent>

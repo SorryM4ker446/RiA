@@ -7,6 +7,7 @@ import { startExtensionService } from "../helpers/extension-service";
 import { pluginFixture } from "../helpers/plugin-fixture";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { browserApi, browserData } from "../helpers/browser-api";
+import { acceptConfirm } from "../helpers/confirm";
 import { trackChatStreams, waitForChatStream } from "../helpers/chat-stream";
 
 type App = { runtime: Awaited<ReturnType<typeof startStandaloneServer>>; service: Awaited<ReturnType<typeof startExtensionService>> };
@@ -116,7 +117,7 @@ for (const kind of ["http", "mcp-http"] as const) test(`${kind} combination pack
   expect(app.service.state.calls[0].authorization).toBe("Bearer synthetic-plugin-secret");
   await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes('"state":"output-available"'))).toBe(true);
   await open(page, app);
-  page.once("dialog", dialog => dialog.accept()); await card.getByRole("button", { name: "卸载插件 Research bundle", exact: true }).click();
+  await card.getByRole("button", { name: "卸载插件 Research bundle", exact: true }).click(); await acceptConfirm(page);
   await expect(card).toHaveCount(0);
   expect((await browserData(page, "/api/extensions")).items.map(item => item.id)).toEqual([unrelated.id]);
   expect((await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes('"state":"output-available"'))).toBe(true);

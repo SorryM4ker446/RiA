@@ -6,6 +6,7 @@ import { browserApi, browserData } from "../helpers/browser-api";
 import { textPdf, wordDocument } from "../helpers/document-fixtures";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { openDocumentReferences } from "../helpers/execution-records";
+import { acceptConfirm } from "../helpers/confirm";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => {
@@ -84,8 +85,14 @@ test("document imports, local retrieval and chat citations persist across reload
   } finally { await stranger.close(); }
 
   await page.getByRole("link", { name: "返回知识库", exact: true }).click();
-  page.once("dialog", dialog => dialog.accept());
+  // Deleting asks in the app's own dialog; dismissing it keeps the document.
   await page.getByLabel("删除文档 星河运行手册.md").click();
+  const confirm = page.getByRole("alertdialog", { name: "删除文档？" });
+  await expect(confirm).toContainText("删除文档「星河运行手册.md」及其索引？");
+  await expect(confirm.getByRole("button", { name: "取消", exact: true })).toBeFocused();
+  await page.keyboard.press("Escape"); await expect(confirm).toBeHidden();
+  await expect(page.getByLabel("删除文档 星河运行手册.md")).toBeVisible();
+  await page.getByLabel("删除文档 星河运行手册.md").click(); await acceptConfirm(page);
   await expect(page.getByText("文档及索引已删除。")).toBeVisible();
   expect(app.readRows("SELECT id FROM document_chunks WHERE documentId = ?", documentId)).toEqual([]);
   expect((await browserApi(page, `${localHostOrigin(app.origin)}/api/documents/${documentId}`)).status).toBe(404);

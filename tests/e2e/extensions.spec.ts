@@ -7,6 +7,7 @@ import { startStandaloneServer } from "../helpers/standalone-server";
 import { startExtensionService, echoSchema } from "../helpers/extension-service";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { browserApi, browserData } from "../helpers/browser-api";
+import { acceptConfirm } from "../helpers/confirm";
 import { trackChatStreams, waitForChatStream } from "../helpers/chat-stream";
 
 type App = { runtime: Awaited<ReturnType<typeof startStandaloneServer>>; service: Awaited<ReturnType<typeof startExtensionService>> };
@@ -131,8 +132,7 @@ test("HTTP extension management, approved calls and encrypted credentials surviv
   await expect(page.getByLabel("凭据值 1", { exact: true })).toHaveValue("");
   await page.getByRole("button", { name: "取消", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  page.once("dialog", dialog => dialog.accept());
-  await page.getByRole("button", { name: "删除扩展 HTTP echo", exact: true }).click();
+  await page.getByRole("button", { name: "删除扩展 HTTP echo", exact: true }).click(); await acceptConfirm(page);
   await expect(page.getByTestId(`extension-${row.id}`)).toHaveCount(0);
   await page.goto(`${app.runtime.origin}/chat?conversationId=${chat.id}`);
   await page.getByPlaceholder(/输入你的问题/).fill("继续说明");

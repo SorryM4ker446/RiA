@@ -975,5 +975,18 @@ export const interfaceMessages = {
   "plugins.docs.description": "组合文档查询技能与 Context7 连接，查询库的版本文档和代码示例。",
   "plugins.docs.skillName": "开发文档查询",
   "plugins.docs.skillDescription": "用户询问软件库、框架 API、版本迁移或代码实现时使用。",
-  "plugins.docs.credentials": "可选：填写 Bearer 加你的 Context7 API Key，以使用更高额度。"
+  "plugins.docs.credentials": "可选：填写 Bearer 加你的 Context7 API Key，以使用更高额度。",
+  "ui.confirm.cancel": "取消",
+  "ui.confirm.continue": "继续",
+  "ui.confirm.delete": "删除",
+  "ui.confirm.uninstall": "卸载",
+  "ui.confirm.deleteDocument": "删除文档？",
+  "ui.confirm.deleteAssistant": "删除助理？",
+  "ui.confirm.uninstallPlugin": "卸载插件？",
+  "ui.confirm.deleteExtension": "删除扩展？",
+  "ui.confirm.deleteArtifact": "删除成果？",
+  "ui.confirm.deleteTopic": "删除专题？",
+  "ui.confirm.rebuildEmbeddings": "重建记忆向量？",
+  "ui.confirm.buildIndex": "构建语义索引？",
+  "ui.confirm.runEvaluation": "运行评测？"
 } as const;

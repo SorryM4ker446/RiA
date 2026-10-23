@@ -16,12 +16,14 @@ import type { EvaluationReport } from "@/lib/documents/evaluation";
 import { chatApi } from "@/features/chat/api-client";
 import type { AssistantTemplate } from "@/lib/assistants/schema";
 import { QualityAssessment } from "./quality-assessment";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 const example = () => (JSON.stringify([{ question: t("ui.knowledge.retrieval-evaluation.howCanIGetReimbursedFor"), expectedFilenames: [t("ui.knowledge.retrieval-evaluation.travelPolicyMd")], requiredFacts: [t("ui.knowledge.retrieval-evaluation.tenBusinessDays"), t("ui.knowledge.retrieval-evaluation.writtenExplanation")], expectations: [{ kind: "condition", statement: t("ui.knowledge.retrieval-evaluation.taxReceiptsMustBeRetainedWhen") }, { kind: "quantity", statement: t("ui.knowledge.retrieval-evaluation.theDeadlineIsTenBusinessDays") }, { kind: "exception", statement: t("ui.knowledge.retrieval-evaluation.lateSubmissionsRequireAWrittenExplanation") }], answerable: true }, { question: t("ui.knowledge.retrieval-evaluation.doesTheKnowledgeBaseDescribeThe"), answerable: false }], null, 2));
 const metric = (value: number | null) => value == null ? t("ui.knowledge.retrieval-evaluation.notConfiguredNotRun") : `${Math.round(value * 100)}%`;
 
 export function RetrievalEvaluation() {
   useLocale();
+  const confirm = useConfirm();
   const [editedCases, setCases] = useState<string | null>(null);
   const cases = editedCases ?? example();
   const [generate, setGenerate] = useState(false);
@@ -54,7 +56,7 @@ export function RetrievalEvaluation() {
     let parsed: unknown;
     try { parsed = JSON.parse(cases); if (!Array.isArray(parsed) || parsed.length < 1 || parsed.length > 12) throw new Error(t("ui.knowledge.retrieval-evaluation.enter112EvaluationQuestions")); }
     catch (error) { setError(error instanceof Error ? error.message : t("ui.knowledge.retrieval-evaluation.invalidEvaluationQuestionFormat")); return; }
-    if (!window.confirm(judge ? t("ui.knowledge.retrieval-evaluation.evaluationSendsQueriesDocumentExcerptsAnd") : generate ? t("ui.knowledge.retrieval-evaluation.evaluationSendsQueriesDocumentExcerptsAnd2") : t("ui.knowledge.retrieval-evaluation.retrievalEvaluationMaySendQueriesTo"))) return;
+    if (!(await confirm({ title: t("ui.confirm.runEvaluation"), description: judge ? t("ui.knowledge.retrieval-evaluation.evaluationSendsQueriesDocumentExcerptsAnd") : generate ? t("ui.knowledge.retrieval-evaluation.evaluationSendsQueriesDocumentExcerptsAnd2") : t("ui.knowledge.retrieval-evaluation.retrievalEvaluationMaySendQueriesTo") })) || request.current) return;
     const controller = new AbortController(); request.current = controller; setBusy(true); setError(""); setReport(null);
     try {
       const response = await fetch("/api/documents/evaluate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirm: true, generateAnswers: generate, judgeAnswers: judge, ...(templateId ? { assistantTemplateId: templateId } : {}), cases: parsed }), signal: controller.signal });
