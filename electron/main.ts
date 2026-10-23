@@ -26,7 +26,7 @@ import {
 import { createDesktopLogger, DESKTOP_LOG_LIMITS, type DesktopLogger } from "./logger";
 import { runDesktopMigrations } from "./migrations";
 import { runWorkspaceUpgrade } from "./desktop-workspace-upgrade";
-import { findAvailablePort, startNextServer, type NextServerExit, type RunningNextServer } from "./next-server";
+import { desktopServiceEnvironment, findAvailablePort, startNextServer, type NextServerExit, type RunningNextServer } from "./next-server";
 import { resolveDesktopPaths, toSqliteUrl, type DesktopPaths } from "./paths";
 import { configureDesktopSession, secureBrowserWindow } from "./security";
 import { DesktopSettingsStore, type DesktopSettingsInput } from "./settings";
@@ -123,13 +123,7 @@ function assertTrustedIpcSender(event: IpcMainInvokeEvent | Electron.IpcMainEven
 
 async function resolveServerEnvironment(): Promise<Record<string, string>> {
   if (!settingsStore) throw new Error("Desktop settings store is not ready.");
-  const settingsEnvironment = await settingsStore.getServerEnvironment();
-  if (!packagedRuntime) {
-    for (const key of ["OPENROUTER_API_KEY", "DEEPSEEK_API_KEY", "TAVILY_API_KEY", "OUTBOUND_PROXY_URL"] as const) {
-      if (!settingsEnvironment[key]) delete settingsEnvironment[key];
-    }
-  }
-  return settingsEnvironment;
+  return desktopServiceEnvironment(await settingsStore.getServerEnvironment());
 }
 
 async function launchNextServer(signal?: AbortSignal): Promise<RunningNextServer> {
@@ -234,7 +228,9 @@ function serviceStoppedPage(): string {
   return `data:text/html;charset=utf-8,${encodeURIComponent(document)}`;
 }
 
-async function restartLocalService(destination = "/settings?saved=1") {
+// Saving provider keys restarts the service; the window comes back to chat with
+// the settings still open on those keys and a note that they were saved.
+async function restartLocalService(destination = "/chat?settings=services&saved=1") {
   if (restartInProgress) return restartInProgress;
   const abort = new AbortController();
   restartAbort = abort;
@@ -1187,7 +1183,7 @@ async function bootstrap() {
   // Keying it on one provider sent a workspace configured only for DeepSeek to
   // the settings screen on every launch, asking for a key it does not need.
   const hasAnyProviderKey = settings.hasOpenrouterApiKey || settings.hasDeepseekApiKey;
-  const initialPath = packagedRuntime && !hasAnyProviderKey ? "/settings?welcome=1" : "/chat";
+  const initialPath = packagedRuntime && !hasAnyProviderKey ? "/chat?settings=services&welcome=1" : "/chat";
   mainWindow = await createMainWindow(initialPath, true);
   reminderPoller = new TaskReminderPoller({
     connection: () => nextServer ? { origin: nextServer.origin, cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}` } : null,

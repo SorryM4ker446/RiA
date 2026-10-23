@@ -3,6 +3,17 @@ import { createServer } from "node:net";
 import { join } from "node:path";
 import { createDesktopLogSink, type DesktopLogger } from "./logger";
 
+/**
+ * The desktop settings as the local service receives them. Provider keys and
+ * the outbound proxy come from the settings and nowhere else: a value left
+ * empty there is passed as empty, which also keeps the project's `.env` from
+ * filling it in while developing, so what Settings shows is what the service
+ * uses. Development and the installed app behave the same.
+ */
+export function desktopServiceEnvironment(settings: Record<string, string>): Record<string, string> {
+  return { ...settings };
+}
+
 export type NextServerOptions = {
   packagedRuntime: boolean;
   projectRoot: string;
