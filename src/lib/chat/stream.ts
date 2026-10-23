@@ -5,6 +5,7 @@ import { t } from "@/lib/locale";
 import { ApiError, apiErrorPayload, normalizeApiError } from "@/lib/server/api-error";
 import { createChatToolSet } from "@/tools/catalog";
 import type { ModelMessage } from "ai";
+import type { LanguageModelV3Prompt } from "@ai-sdk/provider";
 import { asSchema, createUIMessageStream, createUIMessageStreamResponse, generateId, stepCountIs, streamText, wrapLanguageModel } from "ai";
 import { convertToLanguageModelPrompt, standardizePrompt } from "ai/internal";
 import { isContextOverflow } from "@/lib/models/context-overflow";
@@ -16,7 +17,7 @@ import { markDocumentCitations } from "@/lib/documents/references";
 import { retainDataOperation } from "@/lib/server/data-operations";
 import { addRunCost, finishRun, runStillAllowsStep, runStepCeiling } from "@/lib/agent/runs";
 import { usageCost } from "@/lib/models/usage";
-import { getModelPreferences } from "@/lib/models/preferences";
+import { getModelPreferences, modelInLibrary } from "@/lib/models/preferences";
 import { decodeDocumentScope } from "@/lib/documents/scope";
 import { contextBudget } from "@/lib/models/context-budget";
 import { modelRefKey } from "@/lib/models/preferences-schema";
@@ -96,9 +97,15 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
   // The provider decides how the workspace's reasoning preference is expressed
   // in its own request; a provider with no such notion contributes nothing and
   // the call goes out exactly as before.
-  const providerOptions = getModelProvider(modelRef.providerId).reasoningOptions?.(input.reasoning);
-  const tools = toolsEnabled ? await createChatToolSet({ modelRef, runId, toolIds: input.assistant?.tools, usesMemory: params.usesMemory !== false, documentCollections: decodeDocumentScope(input.conversationPolicy?.documentScope ?? chat.documentScope), documentRetrievalPolicy: input.assistant?.retrieval }) : undefined;
   const preferences = await getModelPreferences();
+  // The fallback model answers with the same reasoning preference. Provider
+  // options are keyed by provider, so each model reads only its own.
+  const fallbackRef = preferences.chat.fallback;
+  const reasoningFor = (ref: { providerId: string }) => getModelProvider(ref.providerId as typeof modelRef.providerId).reasoningOptions?.(input.reasoning);
+  const providerOptions = fallbackRef && fallbackRef.providerId !== modelRef.providerId
+    ? (() => { const merged = { ...(reasoningFor(fallbackRef) ?? {}), ...(reasoningFor(modelRef) ?? {}) }; return Object.keys(merged).length ? merged : undefined; })()
+    : reasoningFor(modelRef);
+  const tools = toolsEnabled ? await createChatToolSet({ modelRef, runId, toolIds: input.assistant?.tools, usesMemory: params.usesMemory !== false, documentCollections: decodeDocumentScope(input.conversationPolicy?.documentScope ?? chat.documentScope), documentRetrievalPolicy: input.assistant?.retrieval }) : undefined;
   const budget = contextBudget(input.model, preferences.contextLimits[modelRefKey(modelRef)]);
   const toolDefinitions = tools ? await Promise.all(Object.entries(tools).map(async ([name, tool]) => tool.type === "provider"
     ? { type: "provider", name, id: tool.id, args: tool.args }
@@ -106,20 +113,31 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
   const calibration = await contextCalibration(modelRef);
   const contextReport = () => ({ ...stepContext.report, ...(params.compactionAllowance?.exhausted ? { compactionAllowanceExhausted: true } : {}) });
   const stepContext = createStepContext({ budget, system: systemPrompt, tools: toolDefinitions, signal, calibration,
-    summarize: (records, previous, focus) => summarizeTaskState({ modelRef, records, previous, signal, allowance: params.compactionAllowance, focus }),
+    summarize: (records, previous, focus) => summarizeTaskState({ modelRef: activeRef, records, previous, signal, allowance: params.compactionAllowance, focus }),
   });
   // A provider that refuses a step's input as over its window means the local
   // count was low. The step is compacted and sent again once; the SDK's own
   // messages stay whole, and later steps keep the folded state.
-  const observed = withModelCallSource("chat", () => getChatModel(modelRef));
+  // The model answering this request: the selected one, or the fallback once
+  // it has taken over. Cost and calibration are recorded for it.
+  let activeRef = modelRef;
+  const toPrompt = async (stepMessages: ModelMessage[]): Promise<LanguageModelV3Prompt> => convertToLanguageModelPrompt({ prompt: await standardizePrompt({ system: systemPrompt, messages: stepMessages }), supportedUrls: await observed.supportedUrls, download: undefined });
+  const observed: ReturnType<typeof getChatModel> = withModelCallSource("chat", () => getChatModel(modelRef, {
+    // Whichever model answers takes the request as it stands — same tools, same
+    // messages — and the rest of it is planned for that model's own window: the
+    // step it takes over is fitted again, and later steps compact against it.
+    onSwitch: async ref => {
+      activeRef = ref;
+      stepContext.retarget(contextBudget(await modelInLibrary("chat", ref), preferences.contextLimits[modelRefKey(ref)]), await contextCalibration(ref));
+      return toPrompt(await stepContext.refit());
+    },
+  }));
   const model = wrapLanguageModel({ model: observed, middleware: { specificationVersion: "v3",
     async wrapStream({ doStream, params: call }) {
       try { return await doStream(); }
       catch (error) {
         if (!isContextOverflow(error) || signal.aborted) throw error;
-        const messages = await stepContext.recoverFromOverflow();
-        const prompt = await convertToLanguageModelPrompt({ prompt: await standardizePrompt({ system: systemPrompt, messages }), supportedUrls: await observed.supportedUrls, download: undefined });
-        return observed.doStream({ ...call, prompt });
+        return observed.doStream({ ...call, prompt: await toPrompt(await stepContext.recoverFromOverflow()) });
       }
     },
   } });
@@ -164,13 +182,14 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
         cost: await costOfTurn({
           usage: totalUsage,
           providerMetadata: (response as { providerMetadata?: unknown } | undefined)?.providerMetadata,
-          modelRef,
+          modelRef: activeRef,
         }),
       };
       console.info("chat.finish", {
         chatId: chat.id,
-        modelId: modelRef.modelId,
-        modelProvider: modelRef.providerId,
+        modelId: activeRef.modelId,
+        modelProvider: activeRef.providerId,
+        fallback: activeRef !== modelRef,
         model: model.modelId,
         trigger: body.trigger ?? "submit-message",
       });
@@ -201,7 +220,7 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
         throw error;
       } finally {
         // A planning cache: failing to update it must not affect the turn.
-        await recordContextCalibration(modelRef, stepContext.observedRatio()).catch(() => console.error("chat.calibration.record.failed"));
+        await recordContextCalibration(activeRef, stepContext.observedRatio()).catch(() => console.error("chat.calibration.record.failed"));
         await closeRun({
           finishReason: completedTurn?.outcome.finishReason ?? null,
           generationFailed: generationFailed || persistenceFailed,
