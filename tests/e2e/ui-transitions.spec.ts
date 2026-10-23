@@ -78,3 +78,31 @@ test("reduced motion keeps navigation and model tabs usable without animations",
   await expect(page.getByRole("tabpanel", { name: "视频生成", exact: true })).toHaveCSS("animation-name", "none");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
+
+test("moving between a page and chat in the desktop app does not fade the see-through window", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  // The desktop bridge is what makes the chat window see-through.
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "riaDesktop", { value: { getSettings: async () => { throw new Error("not needed"); }, getRuntimeInfo: async () => { throw new Error("not needed"); } } });
+  });
+  await page.goto("/tasks");
+  await expect(page.locator(".workspace-shell")).toHaveAttribute("data-desktop", "true");
+  await page.evaluate(() => {
+    const seen: string[] = [];
+    (window as unknown as { motion: string[] }).motion = seen;
+    const record = (event: TransitionEvent | AnimationEvent) => {
+      const target = event.target as Element;
+      if (event instanceof TransitionEvent && event.propertyName === "background-color" && target.matches(".workspace-shell, .workspace-content")) seen.push(`${target.className.split(" ")[0]} background`);
+      if (event instanceof AnimationEvent && target.matches(".chat-workspace")) seen.push("chat fade");
+    };
+    document.addEventListener("transitionrun", record, true);
+    document.addEventListener("animationstart", record, true);
+  });
+  const navigation = page.getByRole("navigation", { name: "工作区导航" });
+  for (const [link, path] of [["聊天", /\/chat$/], ["定时任务", /\/tasks$/], ["聊天", /\/chat$/]] as const) {
+    await navigation.getByRole("link", { name: link, exact: true }).click();
+    await expect(page).toHaveURL(path);
+  }
+  await expect(page.locator(".chat-workspace")).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { motion: string[] }).motion)).toEqual([]);
+});

@@ -786,8 +786,6 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .surface-enter { animation: panel-in-up var(--dur-base) var(--ease-out); }
 .workspace-section-title { transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out); }
 .workspace-section-title[data-concealed] { opacity: 0; transform: translateY(4px); }
-/* Each workspace page fades in when you arrive on it; opacity only, so nothing shifts under the pointer. */
-.workspace-content > main { animation: content-in var(--dur-base) var(--ease-out); }
 /* Disclosures unfold their content instead of snapping it in. */
 :is(.settings-disclosure, .media-storage)[open] > :not(summary) { animation: panel-in-up var(--dur-base) var(--ease-out); }
 /* A tick lands with a small spring. */
@@ -986,8 +984,15 @@ body:has(.sheet-content[data-side="right"][data-state="open"]) .toast-stack { bo
   details { interpolate-size: allow-keywords; }
   details::details-content { height: 0; opacity: 0; overflow: clip; transition: height var(--dur-base) var(--ease-out), opacity var(--dur-fast), content-visibility var(--dur-base) allow-discrete; }
   details[open]::details-content { height: auto; opacity: 1; }
-  .workspace-content > main { animation: content-in var(--dur-base) var(--ease-out); }
-  .workspace-shell, .workspace-rail, .workspace-topbar, .workspace-content, .chat-canvas, .chat-rail { transition: background-color var(--dur-base) var(--ease-out), color var(--dur-fast), border-color var(--dur-fast); }
+  /* Each workspace page fades in when you arrive on it; opacity only, so nothing shifts under the
+     pointer. Chat is left out: in the desktop app its window is see-through, and fading it in shows
+     the bare window for a moment, which reads as the startup animation playing again. */
+  .workspace-content > main:not(.chat-workspace) { animation: content-in var(--dur-base) var(--ease-out); }
+  /* Surfaces ease between themes. The shell and the content area are not among them: their
+     background also changes between chat (see-through in the desktop app) and every other page,
+     and easing that change uncovers the window behind on each move to or from chat. */
+  .workspace-rail, .workspace-topbar, .chat-canvas, .chat-rail { transition: background-color var(--dur-base) var(--ease-out), color var(--dur-fast), border-color var(--dur-fast); }
+  .workspace-shell, .workspace-content { transition: color var(--dur-fast), border-color var(--dur-fast); }
   .chat-welcome > * { animation: panel-in-up var(--dur-slow) var(--ease-out) both; }
   .chat-welcome > :nth-child(2) { animation-delay: 45ms; }
   .chat-welcome > :nth-child(3) { animation-delay: 90ms; }
