@@ -10,11 +10,12 @@ import { extensionConfigSchema, extensionToolsSchema, externalInputSchema, exter
 import { callConnection, localProcessConnectionsAllowed, publicExtensionError } from "@/lib/extensions/transport";
 import { requireExtension } from "@/lib/extensions/store";
 import { builtinToolAvailability, getToolDescriptor, listToolDescriptors } from "./builtins";
+import { settingsHref } from "@/lib/settings/sections";
 import type { AnyToolDescriptor, PublicToolCatalogItem, ToolAvailability, ToolAvailabilityReason, ToolMode } from "./types";
 import type { Extension } from "@prisma/client";
 
 const available: ToolAvailability = { available: true, reason: null, configEntry: null };
-const unavailable = (reason: ToolAvailabilityReason): ToolAvailability => ({ available: false, reason, configEntry: "/extensions" });
+const unavailable = (reason: ToolAvailabilityReason): ToolAvailability => ({ available: false, reason, configEntry: settingsHref("extensions") });
 type OwnedExtension = Extension & { plugin?: { enabled: boolean } | null };
 function extensionAvailability(row: OwnedExtension | null, name: string, definitions?: ExtensionTool[]): ToolAvailability {
   if (!row || !row.enabled) return unavailable("disabled");

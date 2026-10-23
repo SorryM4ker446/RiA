@@ -1,4 +1,5 @@
 import { db } from "@/db";
+import { settingsHref } from "@/lib/settings/sections";
 import { createAccountBackup } from "@/lib/backups/archive";
 import { isArchiveExtension, listBackupFiles } from "@/lib/backups/files";
 import {
@@ -42,7 +43,7 @@ async function runBackupReminder(now: Date): Promise<JobOutcome> {
   if (!overdue) return { ok: true, detail };
   // Raised into the app rather than only onto the screen, so a notification the
   // system refuses still leaves the message somewhere the user can find it.
-  await raiseNotice({ kind: "backupReminder", title: "backup-due", detail, href: "/backups", fingerprint: "backup-reminder" });
+  await raiseNotice({ kind: "backupReminder", title: "backup-due", detail, href: settingsHref("backups"), fingerprint: "backup-reminder" });
   return { ok: true, detail };
 }
 
@@ -68,7 +69,7 @@ async function runScheduledBackup(): Promise<JobOutcome> {
       kind: "backupReminder",
       title: "backup-failed",
       detail: scheduledErrorCode(error),
-      href: "/backups",
+      href: settingsHref("backups"),
       fingerprint: "backup-reminder"
     }).catch(() => { console.error("scheduler.notice.write_failed"); });
     return { ok: false, error: scheduledErrorCode(error) };
