@@ -12,7 +12,7 @@ Built with Electron, Next.js, Vercel AI SDK, Prisma, and SQLite.
 
 | Area | What you can do |
 | --- | --- |
-| Chat and assistants | Stream multi-turn conversations, use built-in or custom assistant templates, attach images/PDF/Word documents, and search, tag, archive or export history. [Templates](docs/assistant-templates.md) · [Conversations](docs/conversation-management.md) |
+| Chat and assistants | Stream multi-turn conversations, use default or custom assistant templates (all editable), attach images/PDF/Word documents, and search, tag, archive or export history. [Templates](docs/assistant-templates.md) · [Conversations](docs/conversation-management.md) |
 | Knowledge | Import PDF, DOCX, Markdown and TXT with preview and confirmation; use local keyword or optional semantic + BM25 hybrid retrieval, versioned citations, index maintenance and retrieval evaluations. [Knowledge library](docs/document-knowledge.md) |
 | Documents | Preview and edit extracted text; export Markdown, TXT, HTML or DOCX; read and convert documents through chat tools. [Document processor](docs/document-processor.md) |
 | Agent tools | Let the model select tools automatically or request a one-shot explicit action; inspect tool inputs, outputs, steps, failures and execution limits. [Execution records](docs/execution-history.md) |

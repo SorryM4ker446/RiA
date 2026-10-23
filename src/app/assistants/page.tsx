@@ -5,7 +5,7 @@ import { t, tf, localizeMessage } from "@/lib/locale";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, CopyPlus, MessageSquarePlus, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import { Copy, CopyPlus, MessageSquarePlus, MoreHorizontal, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/layout/page-header";
 import { Reveal } from "@/components/ui/reveal";
@@ -17,6 +17,7 @@ import { TemplateEditor } from "@/features/assistants/template-editor";
 import { getApiErrorMessage } from "@/lib/api-error-message";
 import { writeToClipboard } from "@/lib/clipboard";
 import { assistantConfigSchema, type AssistantConfig, type AssistantTemplate } from "@/lib/assistants/schema";
+import { DEFAULT_ASSISTANTS } from "@/lib/assistants/defaults";
 import type { ModelLibraryItem } from "@/lib/models/preferences-schema";
 import { chatApi } from "@/features/chat/api-client";
 import { LAST_ACTIVE_CHAT_STORAGE_KEY } from "@/features/chat/types";
@@ -94,15 +95,26 @@ export default function AssistantsPage() {
     });
   }
 
+  // Deleted defaults can be put back; the ones still present keep their edits.
+  const missingDefaults = DEFAULT_ASSISTANTS.filter(preset => !templates.some(template => template.id === preset.id)).length;
+  const restoreDefaults = () => void run(async () => {
+    const result = await request<{ data: AssistantTemplate[]; restored: string[] }>("/api/assistants/defaults", { method: "POST" });
+    setTemplates(result.data);
+    toast(tf("ui.assistants.defaultsRestored", { count: result.restored.length }));
+  });
+
   return <main className="page-container mx-auto flex w-full max-w-5xl flex-col gap-5">
     <PageHeader title={t("ui.assistants.assistantTemplates")} description={t("ui.assistants.saveInstructionsToolsAndKnowledgeScopes")} actions={<Button id="new-template" size="sm" disabled={busy || loading} onClick={event => { editorTrigger.current = event.currentTarget; select(null); }}><Plus data-icon="inline-start" />{t("ui.assistants.newTemplate")}</Button>} />
     <Reveal className="-mt-5">{error && !editorOpen ? <p role="alert" className="mt-5 flex flex-wrap items-center gap-2 rounded-lg bg-destructive/5 p-3 text-sm text-destructive shadow-hairline">{localizeMessage(error)} <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => load())}>{t("conversations.refreshList")}</Button></p> : null}</Reveal>
     {loading ? <div role="status" aria-label={t("ui.assistants.loadingTemplates")} className="flex flex-col gap-2">{[0, 1, 2].map(key => <Skeleton key={key} className="h-20 rounded-xl" />)}</div> : null}
     {[true, false].map(builtin => {
       const group = templates.filter(template => template.builtin === builtin);
-      if (!group.length) return null;
+      const restorable = builtin && !loading && missingDefaults > 0;
+      if (!group.length && !restorable) return null;
       return <section key={String(builtin)} aria-label={builtin ? t("ui.assistants.builtInTemplate") : t("ui.assistants.myTemplate")} className="flex flex-col gap-3">
-        <h2 className="text-sm font-medium">{builtin ? t("ui.assistants.builtInTemplate") : t("ui.assistants.myTemplate")}<span className="ml-2 text-muted-foreground">{group.length}</span></h2>
+        <div className="flex items-center justify-between gap-3"><h2 className="text-sm font-medium">{builtin ? t("ui.assistants.builtInTemplate") : t("ui.assistants.myTemplate")}<span className="ml-2 text-muted-foreground">{group.length}</span></h2>
+          {restorable ? <Button size="sm" variant="ghost" disabled={busy} onClick={restoreDefaults}><RotateCcw data-icon="inline-start" />{t("ui.assistants.restoreDefaults")}</Button> : null}</div>
+        {!group.length ? <p className="text-sm text-muted-foreground">{t("ui.assistants.allDefaultsDeleted")}</p> : null}
         <div className="item-list" style={{ "--cols": "minmax(0, 1fr) auto 2rem", "--cols-narrow": "minmax(0, 1fr) auto 2rem" } as React.CSSProperties}>{group.map(template => { const name = template.builtin ? localizeMessage(template.config.name) : template.config.name; return <article key={template.id} {...removalKey(template.id)} data-testid={`assistant-template-${template.id}`} className="item-row data-row">
           <div className="flex min-w-0 flex-col gap-0.5">
             <h3 className="truncate text-sm font-medium" title={name}>{name}</h3>
@@ -114,7 +126,7 @@ export default function AssistantsPage() {
             <DropdownMenuTrigger asChild><Button size="icon-sm" variant="ghost" aria-label={tf("ui.assistants.moreActionsFor", { v0: template.config.name })} disabled={busy} onPointerDown={event => { editorTrigger.current = event.currentTarget; }} onKeyDown={event => { editorTrigger.current = event.currentTarget; }}><MoreHorizontal aria-hidden="true" /></Button></DropdownMenuTrigger>
             <DropdownMenuContent align="end" onCloseAutoFocus={event => { if (editorOpen) event.preventDefault(); }}>
               <DropdownMenuGroup>
-                {!template.builtin ? <DropdownMenuItem onSelect={() => select(template)}><Pencil aria-hidden="true" />{t("knowledge.edit")}</DropdownMenuItem> : null}
+                <DropdownMenuItem onSelect={() => select(template)}><Pencil aria-hidden="true" />{t("knowledge.edit")}</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => select(template, true)}><CopyPlus aria-hidden="true" />{t("ui.assistants.createCopy")}</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => void run(async () => {
                   const outcome = await writeToClipboard(template.config.instructions);
@@ -122,7 +134,7 @@ export default function AssistantsPage() {
                   toast(tf("ui.assistants.copiedInstructionsFor", { v0: template.config.name }));
                 })}><Copy aria-hidden="true" />{t("ui.assistants.copyAssistantInstructions")}</DropdownMenuItem>
               </DropdownMenuGroup>
-              {!template.builtin ? <><DropdownMenuSeparator /><DropdownMenuItem variant="destructive" onSelect={async () => { if (await confirm({ title: t("ui.confirm.deleteAssistant"), description: tf("ui.assistants.deleteExistingConversationsWillRetainTheir", { v0: template.config.name }), action: t("ui.confirm.delete"), destructive: true })) void run(async () => { await request(`/api/assistants/${encodeURIComponent(template.id)}?confirm=true&revision=${template.revision}`, { method: "DELETE" }); await animateRemoval(template.id, load); toast(t("ui.assistants.templateDeletedExistingConversationSnapshotsWere")); }); }}><Trash2 aria-hidden="true" />{t("documents.delete")}</DropdownMenuItem></> : null}
+              <DropdownMenuSeparator /><DropdownMenuItem variant="destructive" onSelect={async () => { if (await confirm({ title: t("ui.confirm.deleteAssistant"), description: tf("ui.assistants.deleteExistingConversationsWillRetainTheir", { v0: template.config.name }), action: t("ui.confirm.delete"), destructive: true })) void run(async () => { await request(`/api/assistants/${encodeURIComponent(template.id)}?confirm=true&revision=${template.revision}`, { method: "DELETE" }); await animateRemoval(template.id, load); toast(t("ui.assistants.templateDeletedExistingConversationSnapshotsWere")); }); }}><Trash2 aria-hidden="true" />{t("documents.delete")}</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </article>; })}</div>

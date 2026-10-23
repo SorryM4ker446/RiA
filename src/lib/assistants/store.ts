@@ -2,26 +2,22 @@ import { db } from "@/db";
 import { ApiError } from "@/lib/server/api-error";
 import { modelInLibrary } from "@/lib/models/preferences";
 import { resolveToolDescriptor } from "@/tools/catalog";
-import { assistantConfigSchema, type AssistantConfig, type AssistantTemplate, type AssistantSnapshot } from "./schema";
+import { assistantConfigSchema, isDefaultAssistantId, type AssistantConfig, type AssistantTemplate, type AssistantSnapshot } from "./schema";
+import { DEFAULT_ASSISTANTS } from "./defaults";
 import type { Prisma } from "@prisma/client";
 
-const builtin = (id: string, name: string, description: string, instructions: string, tools: string[], revision = 1): AssistantTemplate => ({
-  id, revision, builtin: true, config: assistantConfigSchema.parse({ name, description, instructions, tools }),
-});
-export const builtinAssistants = [
-  builtin("builtin_knowledge", "知识问答助理", "结合资料回答，保留条件、例外和引用。", "Answer from the workspace knowledge. Use the evidence provided with the request, and search with searchKnowledge when it does not cover the question. Combine passages where needed. Preserve conditions, exceptions, numbers and units. Cite each supported claim. Explain conflicting documents and explicitly state missing evidence. Do not replace missing workspace facts with general knowledge.", ["searchKnowledge"], 2),
-  builtin("builtin_writing", "写作助理", "润色和组织文字，保留原意与事实。", "Help draft, revise and organize writing. Preserve the user's intended meaning and documented facts. Mark assumptions and ask for missing audience or purpose when necessary. Do not invent quotations or sources.", []),
-  builtin("builtin_coding", "代码助理", "理解代码、排查问题，在授权范围内修改并验证。", "Help understand and improve software. For implementation requests, inspect the relevant project, make the smallest coherent change: read and edit files with readProjectFile and editProjectFile, and run builds and tests with runTerminalCommand, following each folder's approval mode. Preserve unrelated work and validate the affected behavior. Distinguish observed results from hypotheses; report what changed, what was verified and any remaining blocker without claiming unperformed work.", ["searchKnowledge", "runTerminalCommand"], 3),
-  builtin("builtin_research", "资料研究助理", "比较资料与观点，区分事实和推断。", "Research the user's question using relevant documents and available web search. Compare sources, dates and differing claims; cite evidence actually obtained and distinguish facts from inference when material. Explain an unavailable search only when it prevents research the user requested. Fit the answer to the question rather than imposing a fixed report format.", ["searchKnowledge", "webSearch"], 2),
-];
+const CUSTOM_TEMPLATE_LIMIT = 50;
+const defaultOrder = DEFAULT_ASSISTANTS.map(template => template.id);
 
+/** The defaults first, in their usual order, then the user's own templates, newest first. */
 export async function listAssistants(): Promise<AssistantTemplate[]> {
-  const custom = await db.assistantTemplate.findMany({ orderBy: [{ createdAt: "desc" }, { id: "asc" }], take: 50 });
-  return [...builtinAssistants, ...custom.map(row => ({ id: row.id, revision: row.revision, builtin: false, config: assistantConfigSchema.parse(row.config) }))];
+  const rows = await db.assistantTemplate.findMany({ orderBy: [{ createdAt: "desc" }, { id: "asc" }], take: CUSTOM_TEMPLATE_LIMIT + defaultOrder.length });
+  const templates = rows.map(row => ({ id: row.id, revision: row.revision, builtin: isDefaultAssistantId(row.id), config: assistantConfigSchema.parse(row.config) }));
+  const rank = (template: AssistantTemplate) => template.builtin ? defaultOrder.indexOf(template.id) : defaultOrder.length;
+  return templates.map((template, index) => ({ template, index })).sort((a, b) => rank(a.template) - rank(b.template) || a.index - b.index).map(entry => entry.template);
 }
 export async function resolveAssistant(id: string, tx: Prisma.TransactionClient = db): Promise<AssistantSnapshot> {
-  const built = builtinAssistants.find(item => item.id === id);
-  const row = built ?? await tx.assistantTemplate.findUnique({ where: { id } });
+  const row = await tx.assistantTemplate.findUnique({ where: { id } });
   if (!row) throw new ApiError({ code: "NOT_FOUND", message: "助理模板不存在或已删除。" });
   const config = assistantConfigSchema.parse(row.config);
   if (tx === db && config.model && !await modelInLibrary("chat", config.model)) throw new ApiError({ code: "CONFIGURATION_ERROR", message: "模板绑定的模型已移除，请修改模板后使用。" });
@@ -31,7 +27,6 @@ export async function saveAssistant(input: AssistantConfig, id?: string, revisio
   const config = assistantConfigSchema.parse(input);
   if ((await Promise.all(config.tools.map(resolveToolDescriptor))).some(tool => !tool)) throw new ApiError({ code: "VALIDATION_ERROR", message: "模板包含不支持的工具。" });
   if (config.model && !await modelInLibrary("chat", config.model)) throw new ApiError({ code: "VALIDATION_ERROR", message: "只能绑定已添加的聊天模型。" });
-  if (id?.startsWith("builtin_")) throw new ApiError({ code: "VALIDATION_ERROR", message: "内置模板只读，请先复制为自定义模板。" });
   return db.$transaction(async tx => {
     if (id) {
       const row = await tx.assistantTemplate.findUnique({ where: { id } });
@@ -40,7 +35,20 @@ export async function saveAssistant(input: AssistantConfig, id?: string, revisio
       if (!changed.count) throw new ApiError({ code: "CONFLICT", message: "模板已被其他操作修改，请刷新后重试。" });
       return tx.assistantTemplate.findUniqueOrThrow({ where: { id } });
     }
-    if (await tx.assistantTemplate.count() >= 50) throw new ApiError({ code: "CONFLICT", message: "最多保存 50 个自定义助理模板。" });
+    // The defaults do not use up room for the user's own templates.
+    if (await tx.assistantTemplate.count({ where: { NOT: { id: { startsWith: "builtin_" } } } }) >= CUSTOM_TEMPLATE_LIMIT) throw new ApiError({ code: "CONFLICT", message: "最多保存 50 个自定义助理模板。" });
     return tx.assistantTemplate.create({ data: { config } });
+  });
+}
+/**
+ * Puts back the defaults that are missing, as they were first shipped. A
+ * default that is still there keeps the user's edits; only deleted ones return.
+ */
+export async function restoreDefaultAssistants() {
+  return db.$transaction(async tx => {
+    const present = new Set((await tx.assistantTemplate.findMany({ where: { id: { in: defaultOrder } }, select: { id: true } })).map(row => row.id));
+    const missing = DEFAULT_ASSISTANTS.filter(template => !present.has(template.id));
+    for (const template of missing) await tx.assistantTemplate.create({ data: { id: template.id, config: template.config, revision: template.revision } });
+    return missing.map(template => template.id);
   });
 }

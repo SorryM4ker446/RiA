@@ -326,8 +326,10 @@ test("restore remaps structured references without rewriting user-authored text 
 test("backup import uses bounded ordered chunks and can restore into a different account",async()=>{
   await seed(); const backup=await exclusiveDataOperation(()=>archive.createAccountBackup()); const bytes=await readFile(await files.backupFile(backup.id)); cookie=localAccessCookie();
   const {data}=await payload(await routes.begin.POST(req("/api/backups/import","POST",{bytes:bytes.length})),201);
-  for(let offset=0;offset<bytes.length;offset+=73) {
-    const body=bytes.subarray(offset,offset+73);
+  // Many small ordered chunks, however large the seeded archive is, within the chunk rate limit.
+  const chunk=Math.ceil(bytes.length/60);
+  for(let offset=0;offset<bytes.length;offset+=chunk) {
+    const body=bytes.subarray(offset,offset+chunk);
     const response=await routes.upload.PUT(new NextRequest(`http://localhost/api/backups/import/${data.id}?offset=${offset}`,{method:"PUT",headers:{cookie,"content-type":"application/octet-stream"},body}),context(data.id));
     await payload(response);
   }

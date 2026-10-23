@@ -33,7 +33,6 @@ test("template editing, copying and deletion preserve conversation snapshots acr
   await openWorkspace(page, app.origin); await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   await page.goto(`${app.origin}/assistants`);
   await expect(page.getByTestId("assistant-template-builtin_writing")).toBeVisible();
-  await expect(page.getByTestId("assistant-template-builtin_writing").getByRole("button", { name: "编辑", exact: true })).toHaveCount(0);
   await expect(page.getByLabel("模板名称", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "新建模板", exact: true }).click();
   await page.getByLabel("模板名称", { exact: true }).fill("财务测试助理");
@@ -97,7 +96,7 @@ test("template details keep snapshot metadata out of the chat header and use acc
   await trigger.click();
   const details = page.getByRole("dialog", { name: "模板详情 · 资料研究助理", exact: true });
   await expect(details).toBeVisible();
-  await expect(details.getByText("2 个工具", { exact: true })).toBeVisible();
+  await expect(details.getByText("6 个工具", { exact: true })).toBeVisible();
   await expect(details).toHaveCSS("animation-name", "sheet-in");
   await expect(details.getByRole("textbox")).toHaveCount(0);
   const dir = join(tmpdir(), "ria-template-details-qa"); await mkdir(dir, { recursive: true });
@@ -239,4 +238,25 @@ test("evaluation template loading failures are visible and recover through expli
   await expect(page.getByRole("option")).toHaveCount(5);
   await page.keyboard.press("Escape");
   expect(errors).toEqual([]); expect(consoleErrors).toEqual([]);
+});
+
+test("default templates can be edited and deleted like any other, and deleted ones restored", async ({ page, app }) => {
+  await openWorkspace(page, app.origin);
+  await page.goto(`${app.origin}/assistants`);
+  const writing = page.getByTestId("assistant-template-builtin_writing");
+  await chooseRowAction(page, writing, "编辑");
+  await page.getByLabel("模板名称", { exact: true }).fill("我的写作助理");
+  await page.getByRole("button", { name: "保存模板", exact: true }).click();
+  await expect(writing).toContainText("我的写作助理");
+
+  const coding = page.getByTestId("assistant-template-builtin_coding");
+  await expect(page.getByRole("button", { name: "恢复默认模板", exact: true })).toHaveCount(0);
+  await chooseRowAction(page, coding, "删除"); await acceptConfirm(page);
+  await expect(coding).toHaveCount(0);
+  await page.getByRole("button", { name: "恢复默认模板", exact: true }).click();
+  await expect(toasts(page)).toContainText("已恢复 1 个默认模板");
+  await expect(coding).toContainText("代码助理");
+  // The edited default stays as it was edited, and nothing is left to restore.
+  await expect(writing).toContainText("我的写作助理");
+  await expect(page.getByRole("button", { name: "恢复默认模板", exact: true })).toHaveCount(0);
 });

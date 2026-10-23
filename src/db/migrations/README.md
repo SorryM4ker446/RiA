@@ -1,5 +1,13 @@
 # Database migrations
 
+`20261023120000_default_assistant_templates` writes the four default assistant
+templates into `assistant_templates` under their existing `builtin_*` ids, so
+they can be edited and deleted like the user's own; until now they lived only in
+code. Each row is inserted once and never overwritten. Conversations keep the
+template copy they already hold, and the new revisions offer an update to it.
+Older builds still list their own copies from code and would show each default
+twice; deleting one there does not remove its row.
+
 `20261021120000_model_context_calibration` adds a per-model cache of recent
 ratios between provider-reported and locally estimated input tokens, used to
 scale context planning for later requests. It is derived data: it is not part of
