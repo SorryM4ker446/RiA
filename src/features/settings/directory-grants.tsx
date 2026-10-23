@@ -7,6 +7,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { FolderOpen, Loader2, ShieldOff, Terminal } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Reveal } from "@/components/ui/reveal";
 import { animateRemoval, removalKey } from "@/lib/ui/removal";
 import { SettingsSection } from "@/features/settings/settings-section";
 import { Input } from "@/components/ui/input";
@@ -82,9 +83,6 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
   const load = useCallback(async () => {
     const request = ++loadRequest.current;
     try {
-      // Withdrawing a grant keeps the record, so it is asked for explicitly:
-      // without this the user sees a folder disappear and no way to find out
-      // what was taken away or when.
       const response = await fetch("/api/directory-grants", { cache: "no-store" });
       if (!response.ok) throw new Error(await readError(response));
       const payload = await response.json();
@@ -178,10 +176,9 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
             <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />
             {t("settings.grants.loading")}
           </p>
-        ) : grants.length === 0 ? (
-          <p className="text-xs text-muted-foreground">{t("settings.grants.empty")}</p>
         ) : (
-          <ul className="settings-list" aria-label={t("ui.settings.directory-grants.directoryAccess")}>
+          <div>
+          {grants.length ? <ul className="settings-list" aria-label={t("ui.settings.directory-grants.directoryAccess")}>
             {grants.map((grant) => (
               <li className="directory-grant-row flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center" key={grant.id} {...removalKey(grant.id)}>
                 <div className="w-full min-w-0 sm:w-auto">
@@ -208,7 +205,10 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
                 </div>
               </li>
             ))}
-          </ul>
+          </ul> : null}
+          {/* After the last folder folds away the note eases in, rather than appearing at full height. */}
+          <Reveal>{grants.length ? null : <p className="text-xs text-muted-foreground">{t("settings.grants.empty")}</p>}</Reveal>
+          </div>
         )}
 
         <form className={cn("flex gap-2", embedded ? "flex-col" : "flex-wrap items-end sm:flex-nowrap")} onSubmit={add}>
