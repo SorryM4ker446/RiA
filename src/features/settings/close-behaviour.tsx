@@ -92,7 +92,7 @@ export function CloseBehaviourSettings() {
         {behaviour === "tray" ? (
           <div className="flex flex-col gap-2 rounded-md border border-border px-3 py-2 text-xs text-muted-foreground">
             <p>{t("settings.close.trayNote")}</p>
-            <Button disabled={saving} onClick={() => void window.riaDesktop?.quitToTray()} size="sm" type="button" variant="outline">
+            <Button disabled={saving} onClick={() => void window.riaDesktop?.quitToTray()} size="sm" type="button" variant="ghost">
               {t("settings.close.quitNow")}
             </Button>
           </div>

@@ -6,8 +6,8 @@ import { formatNumber, t, tf } from "@/lib/locale";
 import { modelRefKey, type ModelPreferences } from "@/lib/models/preferences-schema";
 
 export function ContextSettings({ settings, busy, onChange }: { settings: ModelPreferences; busy: boolean; onChange: (settings: ModelPreferences) => void }) {
-  return <details className="rounded-lg bg-background p-3 shadow-hairline">
-    <summary className="cursor-pointer text-sm font-medium">{t("models.context.title")}</summary>
+  return <details className="settings-disclosure">
+    <summary className="settings-disclosure-trigger cursor-pointer text-foreground">{t("models.context.title")}</summary>
     <p className="my-3 text-sm text-muted-foreground">{t("models.context.description")}</p>
     <FieldGroup>
       {settings.library.filter(model => model.modes.includes("chat")).map(model => {

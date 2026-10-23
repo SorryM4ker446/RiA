@@ -6,11 +6,13 @@ import { t, localizeMessage } from "@/lib/locale";
 import { SelectField, SelectOption } from "@/components/ui/select";
 
 import { useRef, useState } from "react";
-import { X } from "lucide-react";
+import { Plus, X } from "lucide-react";
+import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Reveal } from "@/components/ui/reveal";
 import {
   Card,
   CardContent,
@@ -39,12 +41,16 @@ export default function TasksPage() {
   const [creating, setCreating] = useState(false);
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-7">
-      <header className="workspace-page-header flex-col !items-start">
-        <h1>{t("settings.schedules.title")}</h1>
-        <p className="text-sm text-muted-foreground">
-          {t("ui.tasks.keepTasksAndRemindersHereAnd")}
-        </p>
-      </header>
+      <PageHeader
+        title={t("settings.schedules.title")}
+        description={t("ui.tasks.keepTasksAndRemindersHereAnd")}
+        actions={
+          <Button size="sm" disabled={creating} onClick={() => setCreating(true)}>
+            <Plus data-icon="inline-start" aria-hidden="true" />
+            {t("chat.tasks.create")}
+          </Button>
+        }
+      />
       {creating && (
         <CreateTaskForm
           onCancel={() => setCreating(false)}
@@ -55,7 +61,7 @@ export default function TasksPage() {
           }}
         />
       )}
-      <TaskPanel {...tasks} onCreate={() => setCreating(true)} />
+      <TaskPanel {...tasks} />
     </main>
   );
 }
@@ -79,7 +85,7 @@ function CreateTaskForm({
     () => Intl.DateTimeFormat().resolvedOptions().timeZone,
   );
   return (
-    <Card>
+    <Card className="surface-enter">
       <form
         aria-label={t("ui.tasks.newScheduledTask")}
         className="flex flex-col"
@@ -242,22 +248,25 @@ function CreateTaskForm({
               </Field>
             </FieldGroup>
           </FieldSet>
-          {error && (
-            <Alert variant="destructive" className="mt-4">
-              <AlertDescription>{localizeMessage(error)}</AlertDescription>
-            </Alert>
-          )}
+          <Reveal>
+            {error ? (
+              <Alert variant="destructive" className="mt-4">
+                <AlertDescription>{localizeMessage(error)}</AlertDescription>
+              </Alert>
+            ) : null}
+          </Reveal>
         </CardContent>
         <CardFooter className="justify-end gap-2 border-t pt-4">
           <Button
             type="button"
             variant="ghost"
+            size="sm"
             onClick={onCancel}
             disabled={busy}
           >
             {t("knowledge.cancelEdit")}
           </Button>
-          <Button type="submit" disabled={busy}>
+          <Button type="submit" size="sm" disabled={busy}>
             {busy ? t("ui.tasks.creating") : t("tools.createTask.displayName")}
           </Button>
         </CardFooter>

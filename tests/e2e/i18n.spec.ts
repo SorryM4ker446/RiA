@@ -31,7 +31,7 @@ test("a Chinese system defaults to Chinese, switches without losing edits, persi
   await page.getByRole("tab", { name: "应用偏好", exact: true }).click();
   await chooseEnglish(page);
   await expect(page.getByRole("tab", { name: "Application", exact: true })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("link", { name: "Models & usage", exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Models", exact: true })).toBeVisible();
   await page.getByRole("tab", { name: "Services & models", exact: true }).click();
   await expect(page.getByLabel("OpenRouter site name", { exact: true })).toHaveValue("未保存的站点名称");
   await page.getByRole("tab", { name: "Application", exact: true }).click();
@@ -94,7 +94,7 @@ test("desktop language uses device settings instead of origin storage and saves 
   await chooseEnglish(page);
   expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("desktop-language-input")!))).toEqual({ locale: "en-US" });
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Desktop settings", exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Settings", exact: true })).toBeVisible();
   await page.getByRole("tab", { name: "Application", exact: true }).click();
   await expect(page.getByRole("combobox", { name: "Interface language", exact: true })).toContainText("English");
 });
@@ -108,7 +108,10 @@ test("English is applied to primary pages and built-in metadata", async ({ page,
   for (const route of ["/", "/assistants", "/topics", "/tasks", "/conversations", "/knowledge", "/models", "/media", "/backups", "/storage", "/extensions"]) {
     await page.goto(`${app.origin}${route}`);
     await expect(page.locator("html")).toHaveAttribute("lang", "en-US");
-    await expect(page.getByRole("main")).toBeVisible();
+    // Settings open as an overlay over the home page; their copy is checked there instead of the page's.
+    const settings = ["/models", "/backups", "/storage", "/extensions"].includes(route);
+    const scope = settings ? page.getByRole("dialog", { name: "Settings", exact: true }) : page.getByRole("main");
+    await expect(scope).toBeVisible();
     if (route === "/assistants") await expect(page.getByRole("heading", { name: "Knowledge assistant", exact: true })).toBeVisible();
     if (route === "/") {
       await expect(page.getByText("Your local-first AI agent.", { exact: false })).toBeVisible();
@@ -118,7 +121,7 @@ test("English is applied to primary pages and built-in metadata", async ({ page,
     if (route === "/knowledge") await expect(page.locator("#knowledge-evaluation-cases")).toHaveValue(/How can I get reimbursed for work travel/);
     // Controlled textareas retain their initial text node after their displayed
     // value changes. Check editable values separately from interface copy.
-    const copy = await page.getByRole("main").evaluate(element => {
+    const copy = await scope.evaluate(element => {
       const clone = element.cloneNode(true) as HTMLElement;
       clone.querySelectorAll("textarea, input").forEach(node => node.remove());
       return clone.textContent;
@@ -167,9 +170,10 @@ test("UI language never changes user messages or the model's language policy", a
   await expect.poll(() => app.providerCalls.filter(call => call.stream).length).toBe(1);
   await expect(page.getByRole("button", { name: "发送", exact: true })).toBeEnabled();
   await page.getByPlaceholder(/输入你的问题/).fill("保留这个草稿 Keep this draft");
-  await page.goto(`${app.origin}/settings`);
+  // Settings open over the chat, so closing them returns to the same draft.
+  await page.getByRole("button", { name: "设置", exact: true }).click();
   await chooseEnglish(page);
-  await page.getByRole("link", { name: "Back to chat", exact: true }).click();
+  await page.getByRole("button", { name: "Close settings", exact: true }).click();
   await expect(page.getByPlaceholder(/Ask a question/)).toHaveValue("保留这个草稿 Keep this draft");
   await expect(page.getByText(`离线回答：${englishInput}`, { exact: true })).toBeVisible();
   const chineseInput = "请解释云是怎样形成的。";

@@ -5,70 +5,73 @@
 /* Shared semantic tokens keep light surfaces and layered graphite surfaces consistent. */
 :root {
   --background: 0 0% 100%;
-  --foreground: 0 0% 9%;
+  --foreground: 240 6% 10%;
   --card: 0 0% 100%;
-  --card-foreground: 0 0% 9%;
+  --card-foreground: 240 6% 10%;
   --popover: 0 0% 100%;
-  --popover-foreground: 0 0% 9%;
-  --primary: 0 0% 9%;
+  --popover-foreground: 240 6% 10%;
+  --primary: 240 6% 10%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 0 0% 96%;
-  --secondary-foreground: 0 0% 9%;
-  --muted: 0 0% 97%;
-  --muted-foreground: 0 0% 40%;
-  --accent: 0 0% 96%;
-  --accent-foreground: 0 0% 9%;
+  --secondary: 240 5% 95.5%;
+  --secondary-foreground: 240 6% 10%;
+  --muted: 240 5% 96.5%;
+  --muted-foreground: 240 4% 42%;
+  --accent: 240 5% 94.5%;
+  --accent-foreground: 240 6% 10%;
   --destructive: 0 72% 40%;
   --destructive-foreground: 0 0% 100%;
   --success: 152 62% 26%;
   --success-foreground: 0 0% 100%;
   --warning: 32 84% 32%;
   --warning-foreground: 0 0% 100%;
-  --border: 0 0% 92%;
-  --input: 0 0% 88%;
-  --ring: 0 0% 50%;
+  --border: 240 6% 91%;
+  --input: 240 5% 86%;
+  --ring: 240 4% 52%;
   --radius: 0.75rem;
-  --shadow: 0 0% 9%;
-  --selection: 0 0% 92%;
-  --surface: 0 0% 98%;
+  --shadow: 240 10% 8%;
+  --selection: 240 6% 90%;
+  --surface: 240 6% 98.4%;
+  /* A filled control or quiet panel on the workspace surface: one step darker than --surface, so it reads without an outline. */
+  --field: 240 5% 94.8%;
   --elevated: 0 0% 100%;
-  --chat-user-bg: 0 0% 96%;
-  --chat-user-fg: 0 0% 9%;
-  --chat-user-border: 0 0% 88%;
-  --scrim: 220 12% 3%;
+  --chat-user-bg: 240 5% 95.5%;
+  --chat-user-fg: 240 6% 10%;
+  --chat-user-border: 240 5% 87%;
+  --scrim: 225 12% 3%;
 }
 
 .dark {
-  --background: 220 7% 11%;
-  --foreground: 210 10% 89%;
-  --card: 220 6% 15%;
-  --card-foreground: 210 10% 89%;
-  --popover: 220 6% 17%;
-  --popover-foreground: 210 10% 89%;
-  --primary: 210 9% 88%;
-  --primary-foreground: 220 8% 10%;
-  --secondary: 220 6% 19%;
-  --secondary-foreground: 210 10% 89%;
-  --muted: 220 6% 14%;
-  --muted-foreground: 215 5% 65%;
-  --accent: 220 6% 21%;
-  --accent-foreground: 210 10% 92%;
+  --background: 225 8% 9%;
+  --foreground: 220 14% 92%;
+  --card: 225 6% 13%;
+  --card-foreground: 220 14% 92%;
+  --popover: 225 7% 14.5%;
+  --popover-foreground: 220 14% 92%;
+  --primary: 220 12% 90%;
+  --primary-foreground: 225 8% 9%;
+  --secondary: 225 6% 15.5%;
+  --secondary-foreground: 220 14% 92%;
+  --muted: 225 6% 12.5%;
+  --muted-foreground: 222 7% 61%;
+  --accent: 225 6% 17%;
+  --accent-foreground: 220 14% 94%;
   --destructive: 0 66% 67%;
-  --destructive-foreground: 220 8% 10%;
+  --destructive-foreground: 225 8% 9%;
   --success: 152 45% 63%;
-  --success-foreground: 220 8% 10%;
+  --success-foreground: 225 8% 9%;
   --warning: 38 72% 66%;
-  --warning-foreground: 220 8% 10%;
-  --border: 220 6% 24%;
-  --input: 220 6% 29%;
-  --ring: 215 8% 62%;
-  --shadow: 220 12% 2%;
-  --selection: 220 8% 28%;
-  --surface: 220 6% 13%;
-  --elevated: 220 6% 18%;
-  --chat-user-bg: 220 6% 20%;
-  --chat-user-fg: 210 10% 89%;
-  --chat-user-border: 220 6% 29%;
+  --warning-foreground: 225 8% 9%;
+  --border: 225 6% 19%;
+  --input: 225 6% 25%;
+  --ring: 222 10% 60%;
+  --shadow: 225 14% 2%;
+  --selection: 225 10% 26%;
+  --surface: 225 7% 10.5%;
+  --field: 225 6% 14%;
+  --elevated: 225 6% 15%;
+  --chat-user-bg: 225 6% 17%;
+  --chat-user-fg: 220 14% 92%;
+  --chat-user-border: 225 6% 24%;
 }
 
 * {
@@ -83,7 +86,28 @@ body {
   @apply bg-background text-foreground;
   font-feature-settings: "liga";
   font-variation-settings: "ss01";
+  /* A hair of space where Chinese meets Latin letters or digits ("共 12 条", "MCP 服务"),
+     added by the browser so the copy never has to carry manual spaces. */
+  text-autospace: normal;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+
+/* One checkbox everywhere, native or not: a rounded square that fills and ticks with a small spring.
+   The input stays a real checkbox, so labels, keyboard and form state keep working. */
+input[type="checkbox"] { appearance: none; display: inline-grid; place-content: center; width: 16px; height: 16px; flex-shrink: 0; margin: 0; border: 1px solid hsl(var(--input)); border-radius: 5px; background: transparent; cursor: pointer; transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out); }
+input[type="checkbox"]::before { content: ""; width: 10px; height: 10px; background: hsl(var(--primary-foreground)); clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%); transform: scale(0); transition: transform var(--dur-fast) var(--ease-spring); }
+input[type="checkbox"]:checked { border-color: hsl(var(--primary)); background: hsl(var(--primary)); }
+input[type="checkbox"]:checked::before { transform: scale(1); }
+input[type="checkbox"]:hover:not(:disabled):not(:checked) { border-color: hsl(var(--muted-foreground)); }
+input[type="checkbox"]:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+input[type="checkbox"]:disabled { cursor: default; opacity: .5; }
+/* Number fields drop the spinner arrows; arrow keys still step the value. */
+input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
+input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* Counts, sizes, dates and limits line up from row to row. */
+.item-row, .stat-grid, .selection-bar, .setting-row, time { font-variant-numeric: tabular-nums; }
 
 ::selection {
   background-color: hsl(var(--selection));
@@ -107,10 +131,9 @@ input:-webkit-autofill:focus {
     box-shadow: 0 0 0 1px hsl(var(--border));
   }
 
-  /* A dashed border reads as "drop something here" or "still loading". An empty
-     result is neither, so empties get a quiet filled surface instead. */
+  /* An empty result is one quiet line where the rows would be, not a block. */
   .empty-state {
-    @apply rounded-lg bg-surface p-6 text-center text-sm text-muted-foreground;
+    @apply py-4 text-left text-[13px] leading-6 text-muted-foreground;
   }
 
   /* Rows that open something lift on hover; the tint is a paint-only change, so
@@ -499,7 +522,7 @@ html[data-desktop-runtime="true"], html[data-desktop-runtime="true"] body { back
  */
 html[data-desktop-runtime="true"] .workspace-shell { border-radius: 14px; overflow: clip; }
 html[data-window-maximized="true"] .workspace-shell { border-radius: 0; }
-html[data-desktop-runtime="true"]:not([data-window-maximized="true"]) :is(.sheet-overlay, .alert-dialog-overlay, .dialog-overlay-enter, .desktop-startup),
+html[data-desktop-runtime="true"]:not([data-window-maximized="true"]) :is(.sheet-overlay, .alert-dialog-overlay, .dialog-overlay-enter, .desktop-startup, .settings-scrim),
 html[data-desktop-runtime="true"]:not([data-window-maximized="true"]) dialog::backdrop { border-radius: 14px; }
 html[data-desktop-runtime="true"]:not([data-window-maximized="true"]) .sheet-content[data-side="right"] { border-radius: 0 14px 14px 0; }
 html[data-desktop-runtime="true"]:not([data-window-maximized="true"]) .sheet-content[data-side="left"] { border-radius: 14px 0 0 14px; }
@@ -534,11 +557,17 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .workspace-rail { background: hsl(var(--surface)); border-color: hsl(var(--border)); }
 .workspace-content { background: hsl(var(--surface)); scrollbar-gutter: stable; scroll-behavior: smooth; }
 .workspace-content > main:not(.chat-workspace) { width: 100%; padding: clamp(1.5rem, 3vw, 3rem); }
+/* Workspace pages share one measure: wide enough for a list with a few columns, narrow enough that
+   a row reads as one line and its actions stay near its name. The media grid takes more room. */
+.workspace-content > main:has(> .workspace-page-header) { max-width: 58rem; margin-inline: auto; }
+.workspace-content > main.wide-page { max-width: 72rem; }
 .workspace-content h1 { letter-spacing: -.035em; text-wrap: balance; }
 .workspace-content > main:not(.chat-workspace) > :is(header, div:first-child):has(h1) { padding-bottom: 1rem; }
 .workspace-page-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; }
-.workspace-page-header h1 { font-size: 1.75rem; line-height: 1.3; font-weight: 600; }
-.workspace-page-header p { max-width: 42rem; line-height: 1.7; }
+.workspace-page-header :is(h1, h2) { font-size: 1.375rem; line-height: 1.35; font-weight: 600; letter-spacing: -0.015em; }
+.workspace-page-header p { max-width: 42rem; font-size: 13px; line-height: 1.7; }
+/* A bar that only exists while something is selected; it slides in above the list it acts on. */
+.selection-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 36px; }
 .workspace-nav-label { color: hsl(var(--muted-foreground)); font-size: 11px; font-weight: 500; letter-spacing: .04em; }
 .workspace-nav-link { position: relative; display: flex; min-height: 36px; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 9px; font-size: 13px; color: hsl(var(--muted-foreground)); transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), min-height var(--dur-slow) var(--ease-out), padding var(--dur-slow) var(--ease-out); }
 .workspace-nav-link:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
@@ -555,6 +584,8 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .sheet-content[data-side="left"] { left: 0; border-right: 1px solid hsl(var(--border)); --sheet-offset: -100%; }
 .sheet-content[data-side="right"] { right: 0; border-left: 1px solid hsl(var(--border)); --sheet-offset: 100%; }
 .sheet-content.extension-editor { width: min(36rem, 100vw); }
+/* The room for a scrollbar is kept whether or not one is showing, so a sheet's content does not shift sideways when something in it expands. */
+.sheet-content .overflow-y-auto { scrollbar-gutter: stable; }
 .sheet-content.directory-permissions-sheet { width: min(32rem, 100vw); }
 /* Confirmation dialogs sit above sheets and menus, and are centred without a transform so their own animation can use one. */
 .alert-dialog-overlay { position: fixed; inset: 0; z-index: 80; background: hsl(var(--scrim) / .5); backdrop-filter: blur(4px); }
@@ -568,10 +599,12 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .sheet-content[data-state="open"] { animation: sheet-in var(--dur-slow) var(--ease-out); }
 .sheet-content[data-state="closed"] { animation: sheet-out var(--dur-base) var(--ease-in-out); }
 
-.ui-tabs-list { display: inline-flex; width: fit-content; max-width: 100%; flex-wrap: wrap; align-items: center; gap: 4px; border-radius: 10px; padding: 4px; background: hsl(var(--secondary)); color: hsl(var(--muted-foreground)); }
-.ui-tabs-trigger { display: inline-flex; min-height: 32px; align-items: center; justify-content: center; gap: 8px; border-radius: 7px; padding: 6px 14px; font-size: 13px; font-weight: 500; transition: color var(--dur-fast), background-color var(--dur-fast), box-shadow var(--dur-fast); }
+.ui-tabs-list { display: inline-flex; width: fit-content; max-width: 100%; flex-wrap: wrap; align-items: center; gap: 4px 20px; border-bottom: 1px solid hsl(var(--border) / .6); color: hsl(var(--muted-foreground)); }
+.ui-tabs-trigger { position: relative; display: inline-flex; min-height: 36px; align-items: center; justify-content: center; gap: 8px; padding: 6px 0; font-size: 13px; font-weight: 500; transition: color var(--dur-fast); }
+.ui-tabs-trigger::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; border-radius: 2px; background: hsl(var(--foreground)); transform: scaleX(0); transition: transform var(--dur-base) var(--ease-out); }
+.ui-tabs-trigger[data-state="active"]::after { transform: scaleX(1); }
 .ui-tabs-trigger:hover { color: hsl(var(--foreground)); }
-.ui-tabs-trigger[data-state="active"] { background: hsl(var(--card)); color: hsl(var(--foreground)); box-shadow: 0 1px 4px hsl(var(--shadow) / .08); }
+.ui-tabs-trigger[data-state="active"] { color: hsl(var(--foreground)); }
 .ui-tabs-trigger:focus-visible, .ui-tabs-content:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
 .ui-tabs-trigger:disabled { pointer-events: none; opacity: .5; }
 .ui-tabs-content { min-width: 0; outline: none; }
@@ -691,6 +724,98 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .management-row { background: hsl(var(--card) / .22); transition: background-color var(--dur-fast), box-shadow var(--dur-fast); }
 .management-row:hover, .management-row:focus-within { background: hsl(var(--accent) / .4); }
 .management-row[data-selected="true"] { background: hsl(var(--accent) / .65); }
+/* Things you manage, listed inside one hairline frame. The whole row opens the
+   item; its secondary actions wait in a menu at the end. */
+.item-list { display: flex; flex-direction: column; margin-inline: -12px; }
+.item-row { position: relative; display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 10px; animation: row-in var(--dur-base) var(--ease-out) both; transition: background-color var(--dur-fast) var(--ease-out); }
+.item-list > :nth-child(2), .media-grid > :nth-child(2) { animation-delay: 30ms; }
+.item-list > :nth-child(3), .media-grid > :nth-child(3) { animation-delay: 60ms; }
+.item-list > :nth-child(4), .media-grid > :nth-child(4) { animation-delay: 90ms; }
+.item-list > :nth-child(5), .media-grid > :nth-child(5) { animation-delay: 120ms; }
+.item-list > :nth-child(6), .media-grid > :nth-child(6) { animation-delay: 150ms; }
+.item-list > :nth-child(n+7), .media-grid > :nth-child(n+7) { animation-delay: 180ms; }
+/* A row's menu button stays quiet until the row is in use, so a list reads as content first. */
+.item-row [aria-haspopup="menu"] { opacity: .5; transition: opacity var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
+.item-row:hover [aria-haspopup="menu"], .item-row:focus-within [aria-haspopup="menu"], .item-row [aria-haspopup="menu"][data-state="open"] { opacity: 1; }
+@media (hover: none) { .item-row [aria-haspopup="menu"] { opacity: 1; } }
+.item-row + .item-row::before { content: ""; position: absolute; top: 0; left: 12px; right: 12px; height: 1px; background: hsl(var(--border) / .55); transition: opacity var(--dur-fast); }
+.item-row:hover::before, .item-row:hover + .item-row::before, .item-row[data-selected="true"]::before, .item-row[data-selected="true"] + .item-row::before { opacity: 0; }
+/* A row whose content stacks: its body, then anything it opens in place, such as an editor. */
+.item-row-stack { flex-direction: column; align-items: stretch; gap: 8px; }
+.item-row:has(.item-row-open):hover { background: hsl(var(--accent) / .5); }
+.item-row[data-selected="true"] { background: hsl(var(--accent) / .55); }
+.item-row:has(.item-row-open:focus-visible) { box-shadow: inset 0 0 0 2px hsl(var(--ring)); }
+.item-row-icon { display: none; width: 20px; flex-shrink: 0; align-items: center; justify-content: center; color: hsl(var(--muted-foreground)); }
+.item-row-icon svg { width: 16px; height: 16px; }
+@media (min-width: 640px) { .item-row-icon { display: flex; } }
+.item-row-open { max-width: 100%; text-align: left; overflow-wrap: anywhere; outline: none; }
+.item-row-open:disabled { cursor: default; }
+/* The name's hit area stretches over the row; the row's own controls sit above it. */
+.item-row-open::after { content: ""; position: absolute; inset: 0; cursor: pointer; }
+.item-row-open:disabled::after { cursor: default; }
+.item-row-action { position: relative; z-index: 1; }
+/* A quiet button at the right end of a line lines up by its label or glyph, not by its padding box,
+   so trailing text and icons share one right edge with the dividers and headings around them. */
+[data-slot="button"][data-size="default"] { --button-inset: 16px; }
+[data-slot="button"][data-size="sm"] { --button-inset: 12px; }
+[data-slot="button"][data-size="icon"] { --button-inset: 10px; }
+[data-slot="button"][data-size="icon-sm"] { --button-inset: 8px; }
+:is(.justify-between, .item-row, .workspace-page-header, .selection-bar, .setting-row) > [data-slot="button"][data-variant="ghost"]:last-child,
+:is(.justify-between, .item-row, .workspace-page-header, .setting-row) > :last-child > [data-slot="button"][data-variant="ghost"]:last-child,
+.item-row > div > :last-child > [data-slot="button"][data-variant="ghost"]:last-child { margin-right: calc(var(--button-inset, 0px) * -1); }
+/* Media cards open their details from anywhere on the card, like a row does. */
+.media-card { position: relative; animation: row-in var(--dur-base) var(--ease-out) both; }
+.media-card > .media-card-image { overflow: hidden; border-radius: 12px; background: hsl(var(--muted)); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-base) var(--ease-out); }
+.media-card:hover > .media-card-image { opacity: .92; }
+/* Thumbnails, many to a row; the grid picks the column count from the width. */
+.media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: 10px; }
+.media-card-caption { position: absolute; left: 6px; right: 6px; bottom: 6px; z-index: 0; border-radius: 8px; padding: 6px 8px; background: hsl(var(--popover) / .92); color: hsl(var(--popover-foreground)); opacity: 0; transform: translateY(4px); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); pointer-events: none; }
+.media-card:hover > .media-card-caption, .media-card:focus-within > .media-card-caption { opacity: 1; transform: none; }
+@media (hover: none) { .media-card-caption { opacity: 1; transform: none; } }
+.media-detail-sheet { width: min(36rem, 100vw); }
+.media-card-open { position: absolute; inset: 0; z-index: 1; border-radius: 12px; cursor: pointer; }
+.media-card-open:disabled { cursor: default; }
+.media-card-open:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 4px; }
+/* Topic workspace groups: headed sections divided by a hairline, not stacked cards. */
+.topic-section { border: 0; border-radius: 0; background: transparent; }
+.topic-section > [data-slot="card-header"] { padding: 0 0 12px; }
+.topic-section > :not([data-slot="card-header"]) { padding: 0; }
+.topic-section + .topic-section { border-top: 1px solid hsl(var(--border) / .55); padding-top: 24px; }
+.media-detail { animation: content-in var(--dur-base) var(--ease-out); }
+/* A form or panel that opens in place rises into view instead of popping in. */
+.surface-enter { animation: panel-in-up var(--dur-base) var(--ease-out); }
+.workspace-section-title { transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out); }
+.workspace-section-title[data-concealed] { opacity: 0; transform: translateY(4px); }
+/* Each workspace page fades in when you arrive on it; opacity only, so nothing shifts under the pointer. */
+.workspace-content > main { animation: content-in var(--dur-base) var(--ease-out); }
+/* Disclosures unfold their content instead of snapping it in. */
+:is(.settings-disclosure, .media-storage)[open] > :not(summary) { animation: panel-in-up var(--dur-base) var(--ease-out); }
+/* A tick lands with a small spring. */
+.ui-checkbox-indicator[data-state="checked"] { animation: pop-in var(--dur-fast) var(--ease-spring); }
+/* Task cards keep their delete control out of the way until the card is in use. */
+.task-card { background: transparent; border-color: hsl(var(--border) / .6); animation: row-in var(--dur-base) var(--ease-out); transition: border-color var(--dur-base) var(--ease-out); }
+.task-card:hover { border-color: hsl(var(--border)); }
+.task-card [data-slot="card-footer"] { border-color: hsl(var(--border) / .5); }
+.task-card .task-delete, .task-row .task-delete { opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.task-card:hover .task-delete, .task-card:focus-within .task-delete, .task-row:hover .task-delete, .task-row:focus-within .task-delete { opacity: 1; }
+.task-row:hover { background: hsl(var(--accent) / .35); }
+.media-storage { border-block: 1px solid hsl(var(--border) / .55); }
+.media-storage > summary { min-height: 44px; }
+.media-storage > summary::-webkit-details-marker { display: none; }
+.media-storage > summary > svg:last-child { transition: transform var(--dur-base) var(--ease-out); }
+.media-storage[open] > summary > svg:last-child { transform: rotate(90deg); }
+/* A row of figures read at a glance; each figure sits over its label. */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); gap: 16px 24px; }
+.stat-grid > div { display: flex; flex-direction: column-reverse; gap: 2px; }
+.stat-grid dt { font-size: 12px; color: hsl(var(--muted-foreground)); }
+.stat-grid dd { font-size: 20px; font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.toast-stack { position: fixed; right: 20px; bottom: 20px; z-index: 60; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; pointer-events: none; transition: bottom var(--dur-base) var(--ease-out); }
+/* Side sheets keep their actions in a footer at the bottom right; stay clear of it. */
+body:has(.sheet-content[data-side="right"][data-state="open"]) .toast-stack { bottom: 88px; }
+.toast { pointer-events: auto; width: max-content; max-width: min(22rem, calc(100vw - 40px)); border-radius: 10px; padding: 10px 14px; background: hsl(var(--popover)); color: hsl(var(--popover-foreground)); font-size: 13px; line-height: 1.5; box-shadow: 0 0 0 1px hsl(var(--border)), 0 8px 28px -8px hsl(var(--shadow) / .28); animation: toast-in var(--dur-base) var(--ease-out); }
+.toast[data-leaving] { animation: toast-out var(--dur-fast) var(--ease-in-out) forwards; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes toast-out { to { opacity: 0; transform: translateY(4px) scale(.98); } }
 @media (min-width: 768px) { .conversation-filters { grid-template-columns: minmax(12rem, 1fr) minmax(7rem, 10rem) 8rem auto; } }
 @media (hover: none) { .message-actions { opacity: 1; } }
 .usage-history-sheet { width: min(38rem, 100vw); }
@@ -725,6 +850,88 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .home-shortcut:hover .shortcut-arrow { transform: translateX(3px); }
 .shortcut-arrow { transition: transform var(--dur-fast) var(--ease-out); }
 .models-section { scroll-margin-top: 1.5rem; }
+/* Page sections sit apart by space and one hairline, not inside boxes. */
+.page-section + .page-section { border-top: 1px solid hsl(var(--border) / .55); padding-top: 28px; }
+/* Lists with columns: the list sets --cols, its header row and every data row lay out on that grid.
+   On a narrow window the optional columns step aside and --cols-narrow takes over. */
+.data-row, .data-list-head { display: grid; grid-template-columns: var(--cols); align-items: center; column-gap: 16px; }
+.data-list-head { margin: 0 12px; padding: 0 0 8px; font-size: 11.5px; letter-spacing: .02em; color: hsl(var(--muted-foreground) / .85); border-bottom: 1px solid hsl(var(--border) / .7); }
+.data-list-head + .item-row { margin-top: 2px; }
+.col-end { justify-self: end; text-align: right; }
+.data-row > [data-slot="button"]:last-child, .data-row > :last-child:has(> [data-slot="button"]) { justify-self: end; }
+.col-meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: hsl(var(--muted-foreground)); }
+@media (max-width: 640px) {
+  .data-row, .data-list-head { grid-template-columns: var(--cols-narrow, var(--cols)); }
+  .col-optional { display: none !important; }
+}
+/* The line above a list: search takes the free width, chips and actions follow. */
+.page-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.toolbar-search { display: flex; min-width: 12rem; width: 16rem; flex: 1 1 auto; align-items: center; gap: 8px; height: 34px; padding: 0 10px; border-radius: 9px; background: hsl(var(--field)); color: hsl(var(--muted-foreground)); transition: background-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.toolbar-search:hover { background: hsl(var(--field) / .7); box-shadow: inset 0 0 0 1px hsl(var(--border)); }
+.toolbar-search:focus-within { background: transparent; box-shadow: inset 0 0 0 1px hsl(var(--ring)); }
+.toolbar-search svg { width: 15px; height: 15px; flex-shrink: 0; }
+.toolbar-search input { min-width: 0; flex: 1; height: 100%; border: 0; background: transparent; font-size: 13px; color: hsl(var(--foreground)); outline: none; }
+.toolbar-search input::placeholder { color: hsl(var(--muted-foreground)); }
+.toolbar-search input::-webkit-search-cancel-button { display: none; }
+.ui-filter-chip { height: 32px; gap: 6px; }
+.toolbar-chip-input { height: 32px; width: 7.5rem; border: 1px dashed hsl(var(--input)); border-radius: 8px; background: transparent; padding: 0 10px; font-size: 13px; color: hsl(var(--foreground)); outline: none; transition: border-color var(--dur-fast) var(--ease-out), width var(--dur-base) var(--ease-out); }
+.toolbar-chip-input:focus, .toolbar-chip-input:not(:placeholder-shown) { width: 10rem; border-style: solid; border-color: hsl(var(--ring)); }
+.toolbar-chip-input::placeholder { color: hsl(var(--muted-foreground)); }
+/* An entry in a side index: the settings overlay lists its sections with these. */
+.side-nav-item { display: flex; min-height: 34px; align-items: center; justify-content: flex-start; gap: 10px; border-radius: 8px; padding: 6px 10px; font-size: 13px; font-weight: 400; color: hsl(var(--muted-foreground)); text-align: left; transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.side-nav-item svg { width: 16px; height: 16px; flex-shrink: 0; }
+.side-nav-item::after { display: none; }
+.side-nav-item:hover { background: hsl(var(--accent) / .55); color: hsl(var(--foreground)); }
+.side-nav-item[data-state="active"] { background: hsl(var(--accent) / .8); color: hsl(var(--foreground)); font-weight: 500; }
+.side-nav-item:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 1px; }
+/*
+ * Settings open as a window over the page in use. It sits below the window's title row, which the
+ * scrim carries along (caption buttons and drag handle), and above the page, under any sheet, menu
+ * or confirmation a section opens from inside it.
+ */
+.settings-scrim { position: fixed; inset: 0; z-index: 40; background: hsl(var(--scrim) / .45); backdrop-filter: blur(6px); }
+.settings-scrim-bar { position: absolute; inset: 0 0 auto; display: flex; height: 44px; justify-content: flex-end; }
+.settings-scrim[data-state="open"] { animation: overlay-in var(--dur-base) var(--ease-out); }
+.settings-scrim[data-state="closed"] { animation: overlay-out var(--dur-fast) var(--ease-in-out); }
+.settings-window { position: fixed; inset: 0; z-index: 40; display: flex; width: min(66rem, calc(100vw - 48px)); height: min(46rem, calc(100dvh - 104px)); margin: auto; overflow: hidden; border-radius: 14px; background: hsl(var(--background)); color: hsl(var(--foreground)); box-shadow: 0 0 0 1px hsl(var(--border)), 0 24px 64px -20px hsl(var(--shadow) / .45); outline: none; }
+.settings-window[data-state="open"] { animation: dialog-panel-in var(--dur-base) var(--ease-out); }
+.settings-window[data-state="closed"] { animation: pop-out var(--dur-fast) var(--ease-in-out); }
+.settings-window-body { display: grid; flex: 1; min-width: 0; grid-template-columns: 13rem minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.settings-window-nav { display: flex; min-height: 0; flex-direction: column; gap: 10px; overflow-y: auto; padding: 18px 12px; background: hsl(var(--surface)); border-right: 1px solid hsl(var(--border) / .7); }
+.settings-window-title { padding: 2px 10px 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+/* A side list, not a strip of tabs: full-width entries, no underline beneath. */
+.settings-window-tabs { display: flex; width: auto; flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 2px; border: 0; }
+.settings-window-group { padding: 14px 10px 6px; font-size: 11.5px; letter-spacing: .02em; color: hsl(var(--muted-foreground) / .85); }
+.settings-window-group:first-child { padding-top: 6px; }
+.settings-window-nav-footer { margin-top: auto; padding: 8px 4px 0; }
+.settings-window-close { position: absolute; top: 12px; right: 12px; z-index: 1; }
+.settings-window-panel { grid-column: 2; grid-row: 1; min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; scroll-behavior: smooth; }
+/* Each section opens with a short fade; the room on the right keeps the header clear of the close button. */
+.settings-window-page { display: flex; flex-direction: column; gap: 28px; max-width: 54rem; margin-inline: auto; padding: 44px 56px 48px 48px; animation: content-in var(--dur-base) var(--ease-out); }
+@media (max-width: 720px) {
+  .settings-window { width: 100vw; height: 100dvh; border-radius: 0; }
+  .settings-window-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  /* Entries and title start on the same line as the section content below (16px). */
+  .settings-window-nav { overflow: visible; padding: 14px 6px 8px; border-right: 0; border-bottom: 1px solid hsl(var(--border) / .7); }
+  .settings-window-tabs { flex-direction: row; overflow-x: auto; scrollbar-width: none; }
+  .settings-window-tabs .side-nav-item { flex-shrink: 0; white-space: nowrap; }
+  .settings-window-group { display: none; }
+  /* The list runs across the top here, so the theme switch moves up beside the close button. */
+  .settings-window-nav-footer { position: absolute; top: 14px; right: 48px; margin: 0; padding: 0; }
+  .settings-window-panel { grid-column: 1; grid-row: 2; }
+  .settings-window-page { padding: 24px 16px 40px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-scrim, .settings-window, .settings-window-page { animation: none !important; }
+}
+/* Settings read as rows: the name and a short hint on the left, the control on the right, a hairline between. */
+.setting-rows { display: flex; flex-direction: column; }
+.setting-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 12px 0; font-size: 14px; }
+.setting-row + .setting-row { border-top: 1px solid hsl(var(--border) / .55); }
+.setting-row-label { display: flex; min-width: 0; flex: 1 1 12rem; flex-direction: column; gap: 2px; }
+.setting-row-hint { font-size: 12px; line-height: 1.5; color: hsl(var(--muted-foreground)); }
+/* The one place a group needs a ground of its own (an inline form, a settings block): a quiet fill, no outline. */
+.surface { border-radius: 12px; background: hsl(var(--field)); }
 .settings-readiness { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .settings-readiness-link { display: flex; align-items: center; gap: 10px; min-width: 0; border-radius: 10px; padding: 10px 6px; transition: background-color var(--dur-fast); }
 .settings-readiness-link:hover { background: hsl(var(--accent) / .5); }
@@ -737,10 +944,9 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .settings-disclosure-trigger > svg:last-child { transition: transform var(--dur-base) var(--ease-out); }
 .settings-disclosure[open] > summary > svg:last-child { transform: rotate(180deg); }
 .settings-disclosure.knowledge-disclosure[open] > summary > svg:last-child { transform: rotate(90deg); }
-.settings-page :is(#service-keys, #default-chat-model) { scroll-margin-top: 1rem; }
-.settings-tabs > [role="tablist"] { align-self: flex-start; max-width: 100%; }
+:is(#service-keys, #default-chat-model) { scroll-margin-top: 1rem; }
 .settings-section { min-width: 0; border: 0; border-radius: 0; background: transparent; padding: 24px 0; }
-.settings-section + .settings-section { border-top: 1px solid hsl(var(--border)); }
+.settings-section + .settings-section { border-top: 1px solid hsl(var(--border) / .55); }
 .settings-section [data-slot="card-description"] { max-width: 44rem; font-size: 13px; line-height: 1.7; }
 .settings-panel > .settings-section:first-child { padding-top: 0; }
 .settings-fields > .settings-field { padding: 16px 0; }
@@ -765,9 +971,9 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .settings-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; font-size: 13px; }
 .settings-facts > li { padding: 10px 0; border-bottom: 1px solid hsl(var(--border) / .65); }
 .settings-disclosure-trigger:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
-.models-section-nav { display: flex; flex-wrap: wrap; gap: 6px; }
-.models-section-nav a { border: 1px solid hsl(var(--border)); border-radius: 8px; padding: 8px 14px; background: hsl(var(--card)); font-size: 13px; color: hsl(var(--muted-foreground)); }
-.models-section-nav a:hover, .models-section-nav a:focus-visible { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+.models-section-nav { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.models-section-nav a { padding: 2px 0; font-size: 13px; color: hsl(var(--muted-foreground)); transition: color var(--dur-fast); }
+.models-section-nav a:hover, .models-section-nav a:focus-visible { color: hsl(var(--foreground)); }
 
 @keyframes content-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes overlay-out { from { opacity: 1; } to { opacity: 0; } }
@@ -793,7 +999,6 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 }
 
 @media (max-width: 639px) {
-  .settings-tabs > [role="tablist"] { display: grid; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); height: auto; }
   .settings-section { padding: 20px 0; }
   .settings-review-fields { flex-basis: 100%; }
   .settings-facts { gap: 0 12px; }
@@ -801,7 +1006,7 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
   .settings-field { flex-direction: column; align-items: stretch; }
   .settings-field > [data-slot="field-content"], .settings-field > [data-slot="field-label"] { flex-basis: auto; }
   .workspace-content > main:not(.chat-workspace) { padding: 1.5rem 1rem; }
-  .workspace-page-header h1 { font-size: 1.5rem; }
+  .workspace-page-header h1 { font-size: 1.3rem; }
   .chat-toolbar { padding: .75rem 1rem; }
   .chat-dock { max-height: 55%; padding: .5rem .75rem .75rem; }
   .chat-welcome-description { font-size: 13px; }

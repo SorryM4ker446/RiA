@@ -5,8 +5,11 @@ import { t, localizeMessage } from "@/lib/locale";
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Layers, Plus } from "lucide-react";
+import { PageHeader } from "@/components/layout/page-header";
+import { ListHead } from "@/components/layout/page-toolbar";
 import { Button } from "@/components/ui/button";
+import { Reveal } from "@/components/ui/reveal";
 import { documentRequest } from "@/features/knowledge/document-client";
 import { TopicEditor } from "@/features/topics/topic-editor";
 import type { TopicConfig, TopicSummary } from "@/lib/topics/schema";
@@ -28,10 +31,17 @@ export default function TopicsPage() {
     } catch (error) { if (!controller.signal.aborted) setError(error instanceof Error ? error.message : t("ui.topics.saveFailed")); }
     finally { if (operation.current === controller) { operation.current = null; setBusy(false); } }
   }
-  return <main className="mx-auto flex max-w-6xl flex-col gap-6"><header className="workspace-page-header"><h1>{t("ui.topics.knowledgeTopicWorkspace")}</h1><Button disabled={loading || busy} onClick={() => setCreating(value => !value)}>{t("ui.topics.newTopic")}</Button></header>
-    <p className="text-sm text-muted-foreground">{t("ui.topics.organizeCollectionsADefaultAssistantConversations")}</p>
-    {error ? <p role="alert" className="text-sm text-destructive">{localizeMessage(error)}</p> : null}
-    {creating ? <Card><CardHeader><CardTitle>{t("ui.topics.newTopic")}</CardTitle></CardHeader><CardContent><TopicEditor initial={blank} assistants={assistants} collections={collections} busy={busy} save={save} cancel={() => setCreating(false)} /></CardContent></Card> : null}
-    {loading ? <p>{t("ui.topics.loadingTopics")}</p> : !topics.length ? <p className="text-sm">{t("ui.topics.noTopicsYetCreateOneTo")}</p> : <ul className="grid gap-3 sm:grid-cols-2">{topics.map(topic => <li key={topic.id}><Card><CardHeader><CardTitle><Link className="break-words underline underline-offset-4" href={`/topics/${topic.id}`}>{topic.config.name}</Link></CardTitle></CardHeader><CardContent className="space-y-2 text-sm"><p className="break-words">{topic.config.description}</p><p className="break-words">{t("ui.topics.knowledge")}{topic.config.collections.join("、")}</p><p>{topic._count.chats} {t("ui.topics.conversations")}{topic._count.artifacts} {t("ui.topics.artifacts")}</p></CardContent></Card></li>)}</ul>}
+  return <main className="mx-auto flex max-w-5xl flex-col gap-6">
+    <PageHeader title={t("ui.topics.knowledgeTopicWorkspace")} description={t("ui.topics.organizeCollectionsADefaultAssistantConversations")} actions={<Button size="sm" disabled={loading || busy || creating} onClick={() => setCreating(true)}><Plus data-icon="inline-start" />{t("ui.topics.newTopic")}</Button>} />
+    <Reveal className="-mt-6">{error ? <p role="alert" className="mt-6 rounded-lg bg-destructive/5 p-3 text-sm text-destructive shadow-hairline">{localizeMessage(error)}</p> : null}</Reveal>
+    {creating ? <section aria-label={t("ui.topics.newTopic")} className="surface surface-enter"><div className="flex flex-col gap-4 p-5"><h2 className="text-base font-semibold tracking-title">{t("ui.topics.newTopic")}</h2><TopicEditor initial={blank} assistants={assistants} collections={collections} busy={busy} save={save} cancel={() => setCreating(false)} /></div></section> : null}
+    {loading ? <p className="text-sm text-muted-foreground">{t("ui.topics.loadingTopics")}</p> : !topics.length ? <p className="empty-state">{t("ui.topics.noTopicsYetCreateOneTo")}</p> : <ul className="item-list" style={{ "--cols": "20px minmax(0, 1fr) minmax(0, 8rem) 3.5rem 3.5rem", "--cols-narrow": "minmax(0, 1fr) 3rem 3rem" } as React.CSSProperties}><ListHead><span className="col-optional" /><span>{t("ui.columns.name")}</span><span className="col-optional">{t("ui.columns.collections")}</span><span className="col-end">{t("ui.columns.conversations")}</span><span className="col-end">{t("ui.columns.artifacts")}</span></ListHead>{topics.map(topic => <li key={topic.id} className="item-row data-row">
+      <span className="item-row-icon"><Layers aria-hidden="true" /></span>
+      <div className="flex min-w-0 flex-col gap-0.5"><h3 className="text-sm font-medium"><Link className="item-row-open break-words" href={`/topics/${topic.id}`}>{topic.config.name}</Link></h3>
+        {topic.config.description ? <p className="line-clamp-1 break-words text-xs text-muted-foreground">{topic.config.description}</p> : null}</div>
+      <span className="col-meta col-optional">{topic.config.collections.join("、")}</span>
+      <span className="col-meta col-end">{topic._count.chats}</span>
+      <span className="col-meta col-end">{topic._count.artifacts}</span>
+    </li>)}</ul>}
   </main>;
 }

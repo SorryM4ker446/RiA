@@ -50,6 +50,8 @@ test("model limits persist and source filters display real recorded chat calls w
   await page.reload(); await expect(page.getByLabel("后台每日调用次数")).toHaveValue("3");
   await expect(page.getByLabel("预算时区")).toHaveValue("America/New_York");
   await page.getByLabel("后台每日调用次数").fill("2");
+  // Usage is its own section; the unsaved limit waits in the models section meanwhile.
+  await page.getByRole("tab", { name: "用量", exact: true }).click();
   await page.getByLabel("调用来源", { exact: true }).click(); await page.getByRole("option", { name: "历史摘要", exact: true }).click();
   await expect(page.getByRole("listbox")).toHaveCount(0);
   await page.getByRole("button", { name: "查看调用明细", exact: true }).click();
@@ -58,7 +60,9 @@ test("model limits persist and source filters display real recorded chat calls w
   await expect(drawer).toContainText("暂无模型调用记录。");
   await page.keyboard.press("Escape");
   await expect(drawer).toHaveCount(0);
+  await page.getByRole("tab", { name: "模型", exact: true }).click();
   await expect(page.getByLabel("后台每日调用次数")).toHaveValue("2");
+  await page.getByRole("tab", { name: "用量", exact: true }).click();
   await page.getByLabel("调用来源", { exact: true }).click(); await page.getByRole("option", { name: "聊天", exact: true }).click();
   await expect(page.getByRole("listbox")).toHaveCount(0);
   await page.getByRole("button", { name: "查看调用明细", exact: true }).click();
@@ -67,6 +71,8 @@ test("model limits persist and source filters display real recorded chat calls w
   await expect(drawer).toContainText("未知");
   await page.keyboard.press("Escape");
   await expect(drawer).toHaveCount(0);
+  await page.getByRole("tab", { name: "模型", exact: true }).click();
+  await expect(page.getByLabel("后台每日调用次数")).toHaveValue("2");
   const directory = join(tmpdir(), "ria-model-call-qa"); await mkdir(directory, { recursive: true });
   await page.getByRole("group", { name: "模型调用限制" }).screenshot({ path: join(directory, "desktop.png") });
   await page.setViewportSize({ width: 390, height: 844 });

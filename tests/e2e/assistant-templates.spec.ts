@@ -8,6 +8,8 @@ import { openWorkspace } from "../helpers/workspace-entry";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { browserApi, browserData } from "../helpers/browser-api";
 import { acceptConfirm } from "../helpers/confirm";
+import { chooseRowAction } from "../helpers/row-menu";
+import { toasts } from "../helpers/toast";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => { const app = await startStandaloneServer({ modelFixture: true }); try { await runTest(app); } finally { await app.close(); } },
@@ -40,7 +42,7 @@ test("template editing, copying and deletion preserve conversation snapshots acr
   await page.getByLabel("使用长期记忆").uncheck();
   await page.getByLabel("绑定聊天模型").click(); await page.getByRole("option", { name: "Claude Opus Offline · openrouter", exact: true }).click();
   await page.getByRole("button", { name: "保存模板", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("模板已保存");
+  await expect(toasts(page)).toContainText("模板已保存");
   const saved = (await browserData(page, "/api/assistants")).find(item => item.config.name === "财务测试助理");
   const card = page.getByTestId(`assistant-template-${saved.id}`);
   await card.getByRole("button", { name: "使用模板新建会话" }).click();
@@ -56,14 +58,14 @@ test("template editing, copying and deletion preserve conversation snapshots acr
   await expect.poll(() => JSON.stringify(app.providerCalls.filter(call => call.stream).at(-1)?.messages) ?? "").toContain("ASSISTANT_SNAPSHOT_V1");
   await page.goto(`${app.origin}/assistants`); await card.getByRole("button", { name: /更多操作/ }).click(); await page.getByRole("menuitem", { name: "编辑", exact: true }).click();
   await page.getByLabel("助理指令", { exact: true }).fill("ASSISTANT_SNAPSHOT_V2");
-  await page.getByRole("button", { name: "保存模板", exact: true }).click(); await expect(page.getByRole("status")).toContainText("模板已保存");
+  await page.getByRole("button", { name: "保存模板", exact: true }).click(); await expect(toasts(page)).toContainText("模板已保存");
   await page.goto(`${app.origin}/chat`); await expectSnapshotDetails(page, 1, 0);
   await expect(page.getByRole("button", { name: "更新为最新模板", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "更新为最新模板" }).click(); await expectSnapshotDetails(page, 2, 0);
   await app.restart(); await page.reload(); await expectSnapshotDetails(page, 2, 0);
   await page.goto(`${app.origin}/assistants`); await card.getByRole("button", { name: /更多操作/ }).click(); await page.getByRole("menuitem", { name: "创建副本", exact: true }).click();
   await expect(page.getByLabel("模板名称", { exact: true })).toHaveValue("财务测试助理 副本");
-  await page.getByRole("button", { name: "保存模板", exact: true }).click(); await expect(page.getByRole("status")).toContainText("模板已保存");
+  await page.getByRole("button", { name: "保存模板", exact: true }).click(); await expect(toasts(page)).toContainText("模板已保存");
   const dir = join(tmpdir(), "ria-assistant-qa"); await mkdir(dir, { recursive: true });
   await page.locator(".workspace-content").evaluate(node => node.scrollTo(0, 0));
   await page.screenshot({ path: join(dir, "desktop.png"), fullPage: true, animations: "disabled" });
@@ -71,7 +73,7 @@ test("template editing, copying and deletion preserve conversation snapshots acr
   await page.screenshot({ path: join(dir, "mobile.png"), fullPage: true, animations: "disabled" }); await page.setViewportSize({ width: 1280, height: 900 });
   await card.getByRole("button", { name: /更多操作/ }).click();
   await page.getByRole("menuitem", { name: "删除", exact: true }).click(); await acceptConfirm(page);
-  await expect(page.getByRole("status")).toContainText("模板已删除"); await page.goto(`${app.origin}/chat`);
+  await expect(toasts(page)).toContainText("模板已删除"); await page.goto(`${app.origin}/chat`);
   await expect(page.getByLabel("助理模板", { exact: true })).toContainText("财务测试助理"); await expectSnapshotDetails(page, 2, 0);
   const restored = (await browserApi(page, `/api/conversations/${chat.id}`)).body.data; expect(restored.assistantConfig.instructions).toBe("ASSISTANT_SNAPSHOT_V2");
   expect(consoleErrors).toEqual([]);
@@ -120,13 +122,13 @@ test("template instructions copy to the clipboard while creating a copy opens an
   const card = page.getByTestId("assistant-template-builtin_coding");
   const templates = await browserData(page, "/api/assistants");
   const original = templates.find(item => item.id === "builtin_coding");
-  await card.getByRole("button", { name: "复制", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("已复制");
+  await chooseRowAction(page, card, "复制助理指令");
+  await expect(toasts(page)).toContainText("已复制");
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(original.config.instructions);
   await expect(page.getByRole("dialog", { name: "新建自定义模板" })).toHaveCount(0);
   expect((await browserData(page, "/api/assistants")).length).toBe(templates.length);
   await page.evaluate(() => { navigator.clipboard.writeText = async () => { throw new DOMException("Denied", "NotAllowedError"); }; });
-  await card.getByRole("button", { name: "复制", exact: true }).click();
+  await chooseRowAction(page, card, "复制助理指令");
   await expect(page.locator("main").getByRole("alert")).toContainText("无法写入剪贴板");
   const more = card.getByRole("button", { name: /更多操作/ });
   await more.click(); await page.getByRole("menuitem", { name: "创建副本" }).click();

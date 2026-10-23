@@ -1,4 +1,5 @@
 import { test as base, expect, type Page } from "@playwright/test";
+import { chooseMenuAction } from "../helpers/row-menu";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -65,7 +66,7 @@ test("local search explains scope and old chat citations distinguish changed and
   await expect(page.getByText("备用线路每天巡检。", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "返回知识库", exact: true }).click();
   await page.getByLabel("检索资料集合").click(); await page.getByRole("option", { name: "Manual|操作", exact: true }).click();
-  await page.getByLabel("删除文档 星河手册.txt").click(); await acceptConfirm(page);
+  await chooseMenuAction(page, "星河手册.txt", "删除文档 星河手册.txt"); await acceptConfirm(page);
   await expect(page.getByText("文档及索引已删除。", { exact: true })).toBeVisible();
   await expect(page.getByLabel("检索资料集合")).toContainText("Manual|操作（暂无资料）");
   await page.getByLabel("检索资料集合").click();

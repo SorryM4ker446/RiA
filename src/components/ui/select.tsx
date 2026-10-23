@@ -39,7 +39,7 @@ function SelectValue({
 }
 
 type SelectTriggerProps = React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger> & {
-  variant?: "default" | "ghost";
+  variant?: "default" | "ghost" | "chip";
   size?: "default" | "sm";
 };
 
@@ -60,9 +60,9 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     className={cn(
       "group flex w-full items-center justify-between gap-2 rounded-lg text-sm text-foreground [&_svg]:size-4 [&_svg]:shrink-0",
-      variant === "default" ? "border border-input bg-card px-3 hover:bg-muted" : "border border-transparent bg-transparent px-2 hover:bg-accent",
+      variant === "default" ? "border border-border bg-transparent px-3 hover:border-input hover:bg-muted/40" : variant === "chip" ? "ui-filter-chip w-auto border border-dashed border-input bg-transparent px-2.5 text-[13px] hover:bg-accent/60" : "border border-transparent bg-transparent px-2 hover:bg-accent",
       size === "sm" ? "h-8 text-xs" : "min-h-9 py-1.5",
-      "transition-[box-shadow,background-color,opacity] duration-[--dur-fast] ease-[--ease-out]",
+      "transition-[box-shadow,background-color,border-color,opacity] duration-[--dur-fast] ease-[--ease-out]",
       "focus:outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20",
       "disabled:cursor-not-allowed disabled:opacity-50",
       "data-[placeholder]:text-muted-foreground",

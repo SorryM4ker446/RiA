@@ -17,7 +17,7 @@ const test = base.extend<{ app: App }>({ app: async ({}, provide) => {
 const shots = join(tmpdir(), "ria-registry-qa");
 async function discover(page: Page, app: App) {
   await page.goto(`${app.runtime.origin}/extensions`);
-  await expect(page.getByRole("heading", { name: "扩展管理", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "扩展", exact: true })).toBeVisible();
   await page.getByRole("tab", { name: "发现扩展", exact: true }).click();
   await expect(page.getByRole("region", { name: "发现扩展", exact: true }).getByRole("article").first()).toBeVisible();
 }

@@ -42,6 +42,8 @@ export function Button({
   return (
     <Component
       data-slot="button"
+      data-variant={variant}
+      data-size={size}
       className={cn(
         "inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium tracking-label [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
         "transition-[color,background-color,box-shadow,opacity,transform] duration-[--dur-fast] ease-[--ease-out]",

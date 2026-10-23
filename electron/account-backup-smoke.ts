@@ -22,7 +22,7 @@ export async function verifyAccountBackupSmoke(window: BrowserWindow, origin: st
   if ((await data("/api/models")).defaultMode !== "image") throw new Error("Desktop model preferences did not survive restart");
   if ((await fetch(`${origin}/api/backups`)).status !== 403 || (await fetch(`${origin}/api/usage`)).status !== 403) throw new Error("Desktop account data allowed anonymous access");
   if ((await fetch(`${origin}/api/backups`, { method: "POST", headers: { ...headers, Origin: "https://outside.invalid" } })).status !== 403) throw new Error("Desktop backup allowed foreign Origin");
-  await window.loadURL(`${origin}/backups`);
+  await window.loadURL(`${origin}/?settings=backups`);
   await window.webContents.executeJavaScript(`(async () => {
     const deadline = Date.now() + 10000;
     while (Date.now() < deadline) {
@@ -77,7 +77,7 @@ export async function verifyAccountBackupSmoke(window: BrowserWindow, origin: st
     const response = await fetch(`${origin}${asset.url}`, { headers });
     if (!response.ok || (await response.arrayBuffer()).byteLength !== asset.byteSize) throw new Error("Desktop restored media is unavailable");
   }
-  await window.loadURL(`${origin}/models`);
+  await window.loadURL(`${origin}/?settings=models`);
   await window.webContents.executeJavaScript(`(async () => {
     const deadline = Date.now() + 10000;
     while (Date.now() < deadline) {

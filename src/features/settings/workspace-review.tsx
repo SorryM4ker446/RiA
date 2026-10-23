@@ -34,7 +34,7 @@ export function WorkspaceReviewPreview() {
     <form className="settings-review-form" onSubmit={event => { event.preventDefault(); setLoading(true); setError(null); setResult(null); setQuery({ period, timeZone }); }}>
       <FieldGroup className="settings-review-fields"><Field><FieldLabel htmlFor="review-period" className="sr-only">{t("ui.settings.workspace-review.reviewPeriod")}</FieldLabel><SelectField id="review-period" aria-label={t("ui.settings.workspace-review.reviewPeriod")} value={period} onValueChange={value => setPeriod(value as "daily" | "weekly")}><SelectOption value="daily">{t("ui.settings.workspace-review.previousFullDay")}</SelectOption><SelectOption value="weekly">{t("ui.settings.workspace-review.previousFullWeek")}</SelectOption></SelectField></Field>
       <Field><FieldLabel htmlFor="review-zone" className="sr-only">{t("ui.settings.workspace-review.reviewTimeZone")}</FieldLabel><Input id="review-zone" aria-label={t("ui.settings.workspace-review.reviewTimeZone")} value={timeZone} onChange={event => setTimeZone(event.target.value)} /></Field></FieldGroup>
-      <Button disabled={loading} type="submit" variant="outline">{t("ui.settings.workspace-review.viewFactualReview")}</Button>
+      <Button disabled={loading} type="submit" variant="ghost">{t("ui.settings.workspace-review.viewFactualReview")}</Button>
     </form>
     {error ? <p role="alert" className="text-sm text-destructive">{localizeMessage(error)}</p> : loading ? <p className="text-sm">{t("ui.settings.workspace-review.loadingEvents")}</p> : result ? <>
       <p className="text-sm">{result.startDate} {t("ui.settings.workspace-review.to")}{result.endDate}{t("ui.settings.workspace-review.endDateExcluded")}{result.timeZone}</p>

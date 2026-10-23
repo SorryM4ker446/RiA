@@ -3,6 +3,7 @@ import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { browserApi, browserData } from "../helpers/browser-api";
 import { configureOfflineModels } from "../helpers/model-fixture";
+import { toasts } from "../helpers/toast";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => {
@@ -43,7 +44,7 @@ test("default model readiness follows saved workspace preferences and survives r
   await expect(steps.nth(2)).toHaveAttribute("data-complete", "false");
   await page.getByRole("button", { name: "保存默认模型", exact: true }).click();
   await expect(steps.nth(2)).toHaveAttribute("data-complete", "true");
-  await expect(page.getByRole("status")).toContainText("默认聊天模型已保存");
+  await expect(toasts(page)).toContainText("默认聊天模型已保存");
   const saved = await browserData(page, "/api/models");
   expect(saved.chat.model).toEqual({ providerId: "openrouter", modelId: "anthropic/claude-opus-4.6" });
   expect(saved.image).toEqual(configured.image);
@@ -112,8 +113,9 @@ for (const theme of ["dark", "light"] as const) {
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
     await openWorkspace(page, app.origin);
-    await page.goto(`${app.origin}/settings`);
+    // The theme switch is in the sidebar, which sits behind the settings once they are open.
     if (theme === "light") await page.getByRole("button", { name: "切换主题", exact: true }).click();
+    await page.goto(`${app.origin}/settings`);
     await page.getByRole("tab", { name: "自动化与通知", exact: true }).click();
     await expect(page.getByRole("heading", { name: "定时任务", exact: true })).toBeVisible();
     await expect(page.getByRole("combobox", { name: "任务类型", exact: true })).toHaveCount(0);

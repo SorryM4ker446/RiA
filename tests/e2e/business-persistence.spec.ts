@@ -1,5 +1,6 @@
 import { openExecutionDetails } from "../helpers/execution-records";
 import { openRecentConversations } from "../helpers/conversations";
+import { chooseMenuAction } from "../helpers/row-menu";
 import { test as base, expect, type Page } from "@playwright/test";
 import { NO_CREDENTIAL_STATE, openWorkspace } from "../helpers/workspace-entry";
 import { randomUUID } from "node:crypto";
@@ -151,7 +152,7 @@ test("manual tasks and knowledge use real APIs, persist across restart and remai
   await expect.poll(() => app.readRows("SELECT id FROM tasks WHERE id = ?", task.id).length).toBe(0);
   await page.getByRole("link", { name: /知识库/ }).click();
   await expect(page.getByText("月光档案更新后仍然只有一份。", { exact: true })).toBeVisible();
-  await page.getByLabel("删除知识 月光档案").click();
+  await chooseMenuAction(page, "月光档案", "删除知识 月光档案");
   await expect.poll(() => app.readRows("SELECT id FROM memories WHERE id = ?", entry.id).length).toBe(0);
   await page.getByRole("link", { name: /返回聊天/ }).click();
   await openRecentConversations(page);

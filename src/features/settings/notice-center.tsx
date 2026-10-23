@@ -10,6 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SettingsSection } from "@/features/settings/settings-section";
 import { animateRemoval, removalKey } from "@/lib/ui/removal";
+import { SettingsLink } from "@/features/settings/settings-context";
+import { settingsSectionForHref } from "@/lib/settings/sections";
 type Notice = {
   id: string;
   kind: string;
@@ -88,7 +90,16 @@ export function NoticeCenter({ onCountChange }: { onCountChange?: (unread: numbe
                     <p className="text-[11px] text-muted-foreground">{formatDateTime(new Date(notice.createdAt))}</p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
-                    {notice.href ? (
+                    {/* A notice about a part of the settings opens that part here; any other page is navigated to. */}
+                    {notice.href ? settingsSectionForHref(notice.href) ? (
+                      <SettingsLink
+                        className="text-xs underline underline-offset-2"
+                        section={settingsSectionForHref(notice.href)!.section ?? undefined}
+                        onClick={() => void send("PATCH", `/api/notices/${encodeURIComponent(notice.id)}`)}
+                      >
+                        {t("notices.open")}
+                      </SettingsLink>
+                    ) : (
                       <Link
                         className="text-xs underline underline-offset-2"
                         href={notice.href}
@@ -111,7 +122,7 @@ export function NoticeCenter({ onCountChange }: { onCountChange?: (unread: numbe
               ))}
             </ul>
             {unread.length > 0 ? (
-              <Button onClick={() => void send("POST", "/api/notices")} size="sm" type="button" variant="outline">
+              <Button onClick={() => void send("POST", "/api/notices")} size="sm" type="button" variant="ghost">
                 <CheckCheck aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
                 {t("notices.markAllRead")}
               </Button>

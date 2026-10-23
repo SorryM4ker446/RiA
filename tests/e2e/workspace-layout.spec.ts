@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
+import { settingsDialog } from "../helpers/settings";
 import { browserApi } from "../helpers/browser-api";
 import { chooseTaskDateTime } from "../helpers/task-date-picker";
 
@@ -156,9 +157,6 @@ test("workspace separates scheduled tasks and retains content during refresh", a
     "/knowledge",
     "/conversations",
     "/media",
-    "/models",
-    "/backups",
-    "/storage",
   ]) {
     await page.goto(`${app.origin}${route}`);
     await expect(page.locator("main")).toBeVisible();
@@ -172,6 +170,15 @@ test("workspace separates scheduled tasks and retains content during refresh", a
       ),
     ).toBe(false);
   }
+  // Models, backups and storage are sections of the settings overlay, opened over a page.
+  for (const section of ["models", "backups", "storage"]) {
+    await page.goto(`${app.origin}/?settings=${section}`);
+    await expect(settingsDialog(page)).toBeVisible();
+    await page.screenshot({ path: join(screenshots, `settings-${section}.png`), animations: "disabled" });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  }
+  await page.keyboard.press("Escape");
+  await expect(settingsDialog(page)).toBeHidden();
   await page.getByRole("button", { name: /主题/ }).click();
   await expect(page.locator("html")).not.toHaveClass(/dark/);
   await page.reload();
@@ -309,7 +316,7 @@ test("desktop chat stays translucent and execution history opens without moving 
   expect(await page.locator(".composer-surface").boundingBox()).toEqual(composerBounds);
   await page.keyboard.press("Escape");
   await expect(drawer).toBeHidden();
-  for (const route of ["/", "/tasks", "/knowledge", "/settings", "/models"]) {
+  for (const route of ["/", "/tasks", "/knowledge"]) {
     await page.goto(`${app.origin}${route}`);
     await expect(page.locator(".workspace-shell")).toHaveAttribute(
       "data-chat-page",

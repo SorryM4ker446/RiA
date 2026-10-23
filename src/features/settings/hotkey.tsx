@@ -9,7 +9,9 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { SettingsSection } from "@/features/settings/settings-section";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/components/ui/toast";
 import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
+import { useSettingsDirty } from "@/features/settings/settings-context";
 
 /**
  * One global shortcut, and it only brings this window forward.
@@ -21,19 +23,22 @@ import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
  */
 export function HotkeySettings() {
   useLocale();
+  const toast = useToast();
   const isDesktopRuntime = useDesktopRuntime();
   const [hotkey, setHotkey] = useState("");
+  // The combination the shell holds, so a typed one that was not applied yet counts as unsaved.
+  const [stored, setStored] = useState("");
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<"conflict" | "invalid" | "not-stored" | null>(null);
-  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     void window.riaDesktop
       ?.getSettings()
-      .then((view) => setHotkey(view.globalHotkey ?? ""))
+      .then((view) => { setHotkey(view.globalHotkey ?? ""); setStored(view.globalHotkey ?? ""); })
       .catch(() => setProblem("invalid"));
   }, []);
 
+  useSettingsDirty(isDesktopRuntime && !saving && hotkey.trim() !== stored);
   if (!isDesktopRuntime) return null;
 
   async function apply(event: { preventDefault: () => void }) {
@@ -41,7 +46,6 @@ export function HotkeySettings() {
     if (saving) return;
     setSaving(true);
     setProblem(null);
-    setSaved(false);
     try {
       const outcome = await window.riaDesktop!.setGlobalHotkey(hotkey.trim());
       // A refusal reports the combination still in force, so the field shows
@@ -49,7 +53,11 @@ export function HotkeySettings() {
       if (!outcome.ok) {
         setProblem(outcome.reason ?? "conflict");
         setHotkey(outcome.hotkey);
-      } else setSaved(true);
+        setStored(outcome.hotkey);
+      } else {
+        setStored(hotkey.trim());
+        toast(t("settings.hotkey.saved"));
+      }
     } catch {
       setProblem("invalid");
     } finally {
@@ -79,18 +87,17 @@ export function HotkeySettings() {
             </AlertDescription>
           </Alert>
         ) : null}
-        {saved ? <p className="text-xs text-success">{t("settings.hotkey.saved")}</p> : null}
         <form className="flex flex-wrap items-center gap-2" onSubmit={apply}>
           <Input
             className="min-w-0 flex-1 sm:max-w-sm"
             aria-label={t("settings.hotkey.label")}
-            onChange={(event) => { setHotkey(event.target.value); setSaved(false); }}
+            onChange={(event) => setHotkey(event.target.value)}
             placeholder="Ctrl+Shift+R"
             value={hotkey}
           />
-          <Button disabled={saving} type="submit">{t("settings.hotkey.apply")}</Button>
+          <Button disabled={saving} type="submit" size="sm">{t("settings.hotkey.apply")}</Button>
           {hotkey ? (
-            <Button disabled={saving} onClick={() => { setHotkey(""); setSaved(false); }} type="button" variant="outline">
+            <Button disabled={saving} onClick={() => setHotkey("")} type="button" variant="ghost" size="sm">
               {t("settings.hotkey.clear")}
             </Button>
           ) : null}

@@ -6,6 +6,7 @@ import { t, formatDateTime, localizeMessage } from "@/lib/locale";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { SettingsLink } from "@/features/settings/settings-context";
 import { eventLabel } from "@/lib/activity/types";
 type Source = { event: { label: string; kind: string; occurredAt: string }; entity: Record<string, unknown> | null; documentHref: string | null };
 export default function EventSourcePage() {
@@ -27,7 +28,7 @@ function EventSourceContent({ id }: { id: string }) {
     return () => controller.abort();
   }, [id]);
   return <main className="mx-auto max-w-3xl space-y-4 p-6">
-    <Link className="underline" href="/settings">{t("ui.activity.events.backToSettingsAndReviews")}</Link>
+    <SettingsLink className="underline" section="automation">{t("ui.activity.events.backToSettingsAndReviews")}</SettingsLink>
     <h1 className="text-xl font-semibold">{t("ui.activity.events.reviewEventSource")}</h1>
     {error ? <p role="alert">{localizeMessage(error)}</p> : source ? <>
       <p>{eventLabel(source.event.kind)} · {formatDateTime(new Date(source.event.occurredAt))}</p>

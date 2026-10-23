@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { ToolbarSearch } from "@/components/layout/page-toolbar";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getApiErrorMessage } from "@/lib/api-error-message";
@@ -75,7 +76,7 @@ export function ExtensionDiscovery({ canAdd, connectedUrls, onAdd }: Props) {
   return <section aria-label={t("ui.extensions.extension-discovery.discoverExtensions")} className="flex flex-col gap-4">
     <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm text-muted-foreground">{t("ui.extensions.extension-discovery.findServicesInTheOfficialMCP")}</p><a href="https://registry.modelcontextprotocol.io" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-4 hover:underline">{t("ui.models.officialCatalog")}<ExternalLink className="size-3" aria-hidden="true" /></a></div>
     <form onSubmit={event => { event.preventDefault(); void load(draftSearch.trim()); }}>
-      <FieldGroup className="flex-row items-end gap-2"><Field className="min-w-0 flex-1 gap-2"><FieldLabel htmlFor="registry-search" className="sr-only">{t("ui.extensions.extension-discovery.searchMCPExtensions")}</FieldLabel><Input id="registry-search" maxLength={100} placeholder={t("ui.extensions.extension-discovery.searchByExtensionName")} value={draftSearch} onChange={event => setDraftSearch(event.target.value)} /></Field><Button type="submit" variant="secondary"><Search data-icon="inline-start" />{t("knowledge.search")}</Button></FieldGroup>
+      <FieldGroup className="flex-row items-end gap-2"><Field className="min-w-0 flex-1 gap-2"><FieldLabel htmlFor="registry-search" className="sr-only">{t("ui.extensions.extension-discovery.searchMCPExtensions")}</FieldLabel><ToolbarSearch id="registry-search" maxLength={100} placeholder={t("ui.extensions.extension-discovery.searchByExtensionName")} value={draftSearch} onChange={event => setDraftSearch(event.target.value)} /></Field><Button type="submit" variant="secondary"><Search data-icon="inline-start" />{t("knowledge.search")}</Button></FieldGroup>
     </form>
     {error && <Alert variant="destructive"><AlertTitle>{t("ui.extensions.extension-discovery.catalogNotUpdated")}</AlertTitle><AlertDescription>{localizeMessage(error)}<Button size="sm" variant="ghost" onClick={() => void load(query, failedCursor)}>{t("ui.chat.chat-toolbar.retry")}</Button></AlertDescription></Alert>}
     <div ref={resultsViewport} role="region" aria-label={t("ui.extensions.extension-discovery.extensionCatalogResults")} tabIndex={0} aria-busy={loading} className="registry-results-scroll chat-list-scroll flex flex-col gap-2 overflow-y-auto overscroll-contain p-1" onScroll={event => {
