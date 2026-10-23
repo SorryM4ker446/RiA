@@ -19,6 +19,10 @@ test("deleting a backup folds its card away without the page jumping", async ({ 
   await page.goto("/backups");
   const second = page.getByRole("article", { name: /backup-second/ });
   await expect(second).toBeVisible();
+  // The import area keeps its distance from the backup actions above it.
+  const actions = (await page.getByRole("button", { name: "创建备份", exact: true }).boundingBox())!;
+  const importArea = (await page.getByText("导入备份文件", { exact: true }).locator("..").boundingBox())!;
+  expect(importArea.y - (actions.y + actions.height)).toBeGreaterThanOrEqual(12);
   await page.getByRole("article", { name: /backup-first/ }).getByRole("button", { name: "删除备份", exact: true }).click();
   // Record where the following card is on every frame from the confirmation on.
   await page.evaluate(() => {
