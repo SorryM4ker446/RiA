@@ -140,7 +140,9 @@ test("ordinary chat receives task-oriented agent instructions without empty retr
   const prompt = languageModel.doStreamCalls.at(-1).prompt.find(item => item.role === "system").content;
   assert.match(prompt, /RiA, a local-first desktop AI agent/);
   assert.match(prompt, /carry authorized work through/);
-  assert.match(prompt, /terminalApprovalMode decides whether calls wait for approval/);
+  // No folder is terminal-enabled here, so the terminal is named once as unavailable and its instructions stay out.
+  assert.doesNotMatch(prompt, /terminalApprovalMode decides whether calls wait for approval/);
+  assert.equal(prompt.split("runTerminalCommand").length - 1, 1);
   assert.match(prompt, /say when evidence for a requested workspace fact is missing/);
   assert.doesNotMatch(prompt, /Knowledge evidence|Long-term memories|Summary of earlier turns|Incomplete excerpts|\[Tooling Policy/);
   // Nothing was retrieved or remembered, so the user's message carries no context block.

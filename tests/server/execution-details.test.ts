@@ -61,7 +61,7 @@ test("a template with no tools is described as template-disabled, while configur
     assert.equal(response.status, 200); await response.text();
     const prompt = JSON.stringify(languageModel.doStreamCalls.at(-1)?.prompt);
     assert.doesNotMatch(prompt, /webSearch is not configured/);
-    if (restricted) assert.match(prompt, /webSearch is disabled by the current assistant template/);
+    if (restricted) assert.match(prompt, /[w, ]*webSearch[w, ]* are disabled by the current assistant template/);
     else assert.doesNotMatch(prompt, /Capability status \(internal context\): webSearch/);
   }
 });

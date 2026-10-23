@@ -263,6 +263,22 @@ test("prompts only disclose requested capability failures and distinguish templa
   }
 });
 
+test("the general assistant prompt carries only the rules for the tools it has, one status line per reason", () => {
+  const withTerminal = buildSystemPrompt(true);
+  assert.match(withTerminal, /terminalApprovalMode decides whether calls wait for approval/);
+  // Nothing about templates when none is applied.
+  assert.doesNotMatch(withTerminal, /template/i);
+  const terminalAway = ["runTerminalCommand", "readProjectFile", "editProjectFile", "readTerminalLog"].map(id => ({ id, reason: "notConfigured" }));
+  const withoutTerminal = buildSystemPrompt(true, [...terminalAway, { id: "webSearch", reason: "notConfigured" }]);
+  // No instructions for a terminal it was not given, and its companions are not named again.
+  assert.doesNotMatch(withoutTerminal, /terminalApprovalMode|readProjectFile|editProjectFile|readTerminalLog/);
+  assert.match(withoutTerminal, /runTerminalCommand is unavailable without a terminal-enabled folder/);
+  assert.equal(withoutTerminal.split("Capability status").length - 1, 2);
+  const restricted = buildSystemPrompt(false, [{ id: "webSearch", reason: "templateDisabled" }, { id: "createTask", reason: "templateDisabled" }]);
+  assert.match(restricted, /webSearch, createTask are disabled by the current assistant template/);
+  assert.equal(restricted.split("Capability status").length - 1, 1);
+});
+
 test("legacy template file capabilities map to the approved terminal without granting folder access", () => {
   const config = assistantConfigSchema.parse({ name: "Existing", instructions: "Do work", tools: ["listLocalFiles", "readLocalFile", "writeLocalFile", "searchKnowledge"] });
   assert.deepEqual(config.tools, ["runTerminalCommand", "searchKnowledge"]);

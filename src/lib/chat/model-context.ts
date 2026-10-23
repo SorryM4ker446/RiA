@@ -4,7 +4,8 @@ import {
   ASSISTANT_BASE_PROMPT,
   TOOL_DISABLED_INSTRUCTIONS,
   TOOL_ENABLED_INSTRUCTIONS,
-  unavailableToolInstruction,
+  unavailableToolLines,
+  TERMINAL_INSTRUCTIONS,
   type UnavailableTool,
 } from "@/lib/prompts";
 import { convertToModelMessages, type ModelMessage, type UIMessage } from "ai";
@@ -138,7 +139,9 @@ export function buildSystemPrompt(
   unavailableTools: (string | UnavailableTool)[] = [],
   persona?: { name?: string; language?: string; answerStyle?: string; notes?: string } | null,
 ): string {
-  const toolInstruction = toolsEnabled ? TOOL_ENABLED_INSTRUCTIONS : TOOL_DISABLED_INSTRUCTIONS;
+  // The terminal paragraph only when the terminal is actually offered this turn.
+  const terminalOffered = toolsEnabled && !unavailableTools.some(tool => (typeof tool === "string" ? tool : tool.id) === "runTerminalCommand");
+  const toolInstruction = toolsEnabled ? [...TOOL_ENABLED_INSTRUCTIONS, ...(terminalOffered ? TERMINAL_INSTRUCTIONS : [])] : TOOL_DISABLED_INSTRUCTIONS;
   const personaText = formatPersona(persona);
 
   return [
@@ -147,7 +150,7 @@ export function buildSystemPrompt(
     // One line per optional tool that is configured away this turn. Without it
     // the model has no way to tell that a lookup it would normally make is not
     // available, and would answer from memory as if it had checked.
-    ...unavailableTools.flatMap(toolId => ["", ...unavailableToolInstruction(toolId)]),
+    ...unavailableToolLines(unavailableTools).flatMap(line => ["", line]),
     ...(personaText ? ["", "[User Preferences]", personaText] : []),
   ].join("\n");
 }
