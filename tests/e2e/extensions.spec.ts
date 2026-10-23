@@ -7,6 +7,7 @@ import { startStandaloneServer } from "../helpers/standalone-server";
 import { startExtensionService, echoSchema } from "../helpers/extension-service";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { browserApi, browserData } from "../helpers/browser-api";
+import { trackChatStreams, waitForChatStream } from "../helpers/chat-stream";
 
 type App = { runtime: Awaited<ReturnType<typeof startStandaloneServer>>; service: Awaited<ReturnType<typeof startExtensionService>> };
 const test = base.extend<{ app: App }>({ app: async ({}, provide) => {
@@ -113,10 +114,13 @@ test("HTTP extension management, approved calls and encrypted credentials surviv
   await expect(page.getByRole("button", { name: "批准", exact: true })).toBeVisible();
   expect(app.service.state.calls).toHaveLength(0);
   await page.screenshot({ path: join(shots, "approval.png"), fullPage: false, animations: "disabled" });
+  await trackChatStreams(page);
   await page.getByRole("button", { name: "批准", exact: true }).click();
   await expect.poll(() => app.service.state.calls.length).toBe(1);
   expect(app.service.state.calls[0].authorization).toBe("Bearer synthetic-browser-token");
   await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes('"state":"output-available"'))).toBe(true);
+  // The answer is saved before its stream closes; restarting in between would cut the open response.
+  await waitForChatStream(page);
   await app.runtime.restart(); await page.reload();
   await openExecutionDetails(page);
   await expect(page.getByText("工具详情：HTTP echo · request · 执行完成", { exact: true })).toBeVisible();

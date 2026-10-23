@@ -7,6 +7,7 @@ import { startExtensionService } from "../helpers/extension-service";
 import { pluginFixture } from "../helpers/plugin-fixture";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { browserApi, browserData } from "../helpers/browser-api";
+import { trackChatStreams, waitForChatStream } from "../helpers/chat-stream";
 
 type App = { runtime: Awaited<ReturnType<typeof startStandaloneServer>>; service: Awaited<ReturnType<typeof startExtensionService>> };
 const test = base.extend<{ app: App }>({ app: async ({}, provide) => {
@@ -25,6 +26,7 @@ async function send(page: Page, app: App, text: string) {
   await page.evaluate(id => localStorage.setItem("chat:last-active-id", id), chat.id);
   await page.goto(`${app.runtime.origin}/chat`);
   await expect(page.getByRole("heading", { name: "Plugin skill acceptance", exact: true })).toBeVisible();
+  await trackChatStreams(page);
   await page.getByPlaceholder(/输入你的问题/).fill(text);
   await page.getByRole("button", { name: "发送", exact: true }).click();
   return chat;
@@ -56,6 +58,8 @@ test("marketplace installs a skill package, applies it to real chat context and 
   await expect.poll(() => systemText(app)).toContain("用户需要起草、改写、润色、缩写或校对文本时使用。");
   expect(systemText(app)).not.toContain("先识别文本用途");
   await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.role === "assistant")).toBe(true);
+  // The answer is saved before its stream closes; restarting in between would cut the open response.
+  await waitForChatStream(page);
   await app.runtime.restart(); await open(page, app);
   await expect(card.getByText("已启用", { exact: true })).toBeVisible();
   await card.getByRole("button", { name: "停用插件", exact: true }).click(); await expect(card.getByText("已停用", { exact: true })).toBeVisible();
