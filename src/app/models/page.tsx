@@ -9,6 +9,7 @@ import { BackToChatLink } from "@/components/layout/back-to-chat-link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { CatalogResults } from "@/features/models/catalog-results";
 import { ContextSettings } from "@/features/models/context-settings";
@@ -16,7 +17,7 @@ import { UsageHistory, sourceNames, type UsageRow } from "@/features/models/usag
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { settingsRequest, jsonRequest } from "@/features/settings/api-client";
-import { libraryModes, modelModes, modelRefKey, type ModelLibraryItem, type ModelPreferences, type ModelRef, type GenerationMode, type LibraryMode } from "@/lib/models/preferences-schema";
+import { callLimitRanges, libraryModes, modelModes, modelRefKey, type ModelLibraryItem, type ModelPreferences, type ModelRef, type GenerationMode, type LibraryMode } from "@/lib/models/preferences-schema";
 import type { LibraryAvailability, ModelAvailability } from "@/lib/models/availability";
 import type { CatalogModel } from "@/lib/models/providers/types";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -32,6 +33,28 @@ const cost = (value: number | null) => value === null ? t("models.unknown") : `$
 // with one either.
 const UNSET = "__unset__";
 const toSelectValue = (ref: ModelRef | null) => (ref ? modelRefKey(ref) : UNSET);
+type CallLimitKey = keyof typeof callLimitRanges;
+const callLimitFields = (): [CallLimitKey, string][] => [
+  ["maxConcurrent", t("ui.models.maximumConcurrentCalls")],
+  ["compactionCallsPerTurn", t("ui.models.compactionCallsPerTurn")],
+  ["backgroundDailyCalls", t("ui.models.dailyBackgroundCalls")],
+  ["backgroundMaxEstimatedUsd", t("ui.models.estimatedLimitPerBackgroundCallUSD")],
+  ["backgroundDailyEstimatedUsd", t("ui.models.estimatedDailyBackgroundLimitUSD")],
+];
+/** The call limits the server would refuse, found before saving so each can be pointed out where it is typed. */
+function callLimitProblems(limits: ModelPreferences["callLimits"]) {
+  const problems = new Set<CallLimitKey | "timeZone">();
+  for (const key of Object.keys(callLimitRanges) as CallLimitKey[]) {
+    const range = callLimitRanges[key], value = limits[key];
+    if (value === null && !range.integer) continue;
+    if (value === null || !Number.isFinite(value) || value < range.min || value > range.max || (range.integer && !Number.isInteger(value))) problems.add(key);
+  }
+  try {
+    if (!limits.timeZone || limits.timeZone.length > 100) throw new RangeError(limits.timeZone);
+    new Intl.DateTimeFormat("en", { timeZone: limits.timeZone });
+  } catch { problems.add("timeZone"); }
+  return problems;
+}
 const fromSelectValue = (value: string): ModelRef | null => {
   if (value === UNSET) return null;
   const [providerId, ...rest] = value.split(":");
@@ -133,6 +156,7 @@ export default function ModelsPage() {
     setNotice(tf("models.notice.embeddingReindexed", { reindexed: response.data.reindexed, remaining: response.data.remaining }));
     setEmbeddings(current => current ? { ...current, stale: response.data.remaining } : current);
   }
+  const limitProblems = settings ? callLimitProblems(settings.callLimits) : new Set<CallLimitKey | "timeZone">();
   return <main className="mx-auto flex max-w-6xl flex-col gap-7">
     <header className="workspace-page-header"><div><h1>{t("models.title")}</h1><p className="mt-2 text-sm text-muted-foreground">{t("models.description")}</p></div><BackToChatLink /></header>
     <nav className="models-section-nav" aria-label={t("ui.models.modelPageSections")}>
@@ -229,13 +253,31 @@ export default function ModelsPage() {
         <fieldset className="space-y-3 rounded-lg bg-background p-3 shadow-hairline">
           <legend className="text-sm font-medium">{t("ui.models.modelCallLimits")}</legend>
           <p className="text-xs text-muted-foreground">{t("ui.models.backgroundCallsAreScheduledReviews")}</p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {([ ["maxConcurrent", t("ui.models.maximumConcurrentCalls"), 1, 16], ["compactionCallsPerTurn", t("ui.models.compactionCallsPerTurn"), 1, 1000], ["backgroundDailyCalls", t("ui.models.dailyBackgroundCalls"), 0, 1000], ["backgroundMaxEstimatedUsd", t("ui.models.estimatedLimitPerBackgroundCallUSD"), 0, 1000000], ["backgroundDailyEstimatedUsd", t("ui.models.estimatedDailyBackgroundLimitUSD"), 0, 1000000] ] as const).map(([key, label, min, max]) => <label key={key} className="text-xs">{label}<Input aria-label={label} type="number" min={min} max={max} step={key.includes("Usd") ? "any" : 1} value={settings.callLimits[key] ?? ""} disabled={busy} onChange={event => setSettings({ ...settings, callLimits: { ...settings.callLimits, [key]: event.target.value === "" && key.includes("Usd") ? null : Number(event.target.value) } })} /></label>)}
-            <label className="text-xs">{t("ui.models.budgetTimeZone")}<Input aria-label={t("ui.models.budgetTimeZone")} value={settings.callLimits.timeZone} disabled={busy} onChange={event => setSettings({ ...settings, callLimits: { ...settings.callLimits, timeZone: event.target.value } })} /></label>
-          </div>
+          <FieldGroup className="grid gap-3 sm:grid-cols-2">
+            {callLimitFields().map(([key, label]) => {
+              const range = callLimitRanges[key], value = settings.callLimits[key], invalid = limitProblems.has(key);
+              const bounds = { min: range.min.toLocaleString("en-US"), max: range.max.toLocaleString("en-US") };
+              return <Field key={key} className="gap-1.5" data-invalid={invalid || undefined}>
+                <FieldLabel htmlFor={`call-limit-${key}`} className="text-xs">{label}</FieldLabel>
+                <Input id={`call-limit-${key}`} aria-describedby={`call-limit-${key}-hint`} aria-invalid={invalid || undefined} type="number" inputMode={range.integer ? "numeric" : "decimal"} min={range.min} max={range.max} step={range.integer ? 1 : "any"} value={value === null || Number.isNaN(value) ? "" : value} disabled={busy}
+                  onChange={event => setSettings({ ...settings, callLimits: { ...settings.callLimits, [key]: event.target.value === "" ? (range.integer ? Number.NaN : null) : Number(event.target.value) } })} />
+                {invalid
+                  ? <FieldError id={`call-limit-${key}-hint`} className="text-xs">{tf(range.integer ? "ui.models.limitInvalidInteger" : "ui.models.limitInvalidUsd", bounds)}</FieldError>
+                  : <FieldDescription id={`call-limit-${key}-hint`} className="text-xs">{tf(range.integer ? "ui.models.limitRangeInteger" : "ui.models.limitRangeUsd", bounds)}</FieldDescription>}
+              </Field>;
+            })}
+            <Field className="gap-1.5" data-invalid={limitProblems.has("timeZone") || undefined}>
+              <FieldLabel htmlFor="call-limit-timeZone" className="text-xs">{t("ui.models.budgetTimeZone")}</FieldLabel>
+              <Input id="call-limit-timeZone" aria-describedby="call-limit-timeZone-hint" aria-invalid={limitProblems.has("timeZone") || undefined} value={settings.callLimits.timeZone} disabled={busy} onChange={event => setSettings({ ...settings, callLimits: { ...settings.callLimits, timeZone: event.target.value } })} />
+              {limitProblems.has("timeZone")
+                ? <FieldError id="call-limit-timeZone-hint" className="text-xs">{t("ui.models.timeZoneInvalid")}</FieldError>
+                : <FieldDescription id="call-limit-timeZone-hint" className="text-xs">{t("ui.models.timeZoneHint")}</FieldDescription>}
+            </Field>
+          </FieldGroup>
         </fieldset>
         <details className="rounded-lg bg-background p-3 shadow-hairline"><summary className="cursor-pointer text-sm font-medium tracking-label">{t("models.ratesTitle")}</summary><p className="my-3 text-sm text-muted-foreground">{t("models.ratesDescription")}</p>{rateModels.map(id => <fieldset key={id} className="mb-3 grid gap-2 sm:grid-cols-3"><legend className="break-all font-mono text-xs text-muted-foreground">{id}</legend>{([ ["inputPerMillion", t("models.rateInputLabel")], ["cacheReadPerMillion", t("models.rateCacheReadLabel")], ["cacheWritePerMillion", t("models.rateCacheWriteLabel")], ["outputPerMillion", t("models.rateOutputLabel")], ["perRequest", t("models.rateRequestLabel")] ] as const).map(([key, label]) => <label key={key} className="text-xs">{label}<Input aria-label={`${id} ${label}`} type="number" step="any" min={0} value={settings.rates[id]?.[key] ?? ""} disabled={busy} onChange={event => changeRate(id, key, event.target.value)} /></label>)}</fieldset>)}</details>
-        <div className="flex gap-3"><Button disabled={busy} onClick={() => void run(async () => { await settingsRequest("/api/models", jsonRequest("PUT", settings)); setNotice(t("models.notice.preferencesSaved")); })}>{t("models.savePreferences")}</Button><RefreshButton disabled={busy} onClick={() => void run(async () => { await load(); const history = await settingsRequest<{ data: Usage }>(usageSource === "all" ? "/api/usage" : `/api/usage?source=${usageSource}`); setUsage(history.data); setUsageError(""); })} label={t("models.reloadUsage")} /></div>
+        {limitProblems.size ? <p role="status" className="text-xs text-destructive">{t("ui.models.fixLimitsBeforeSaving")}</p> : null}
+        <div className="flex gap-3"><Button disabled={busy || limitProblems.size > 0} onClick={() => void run(async () => { await settingsRequest("/api/models", jsonRequest("PUT", settings)); setNotice(t("models.notice.preferencesSaved")); })}>{t("models.savePreferences")}</Button><RefreshButton disabled={busy} onClick={() => void run(async () => { await load(); const history = await settingsRequest<{ data: Usage }>(usageSource === "all" ? "/api/usage" : `/api/usage?source=${usageSource}`); setUsage(history.data); setUsageError(""); })} label={t("models.reloadUsage")} /></div>
       </section>
     </>}
     <section id="model-usage" className="models-section flex flex-col gap-5 rounded-xl bg-card p-6 shadow-card" aria-label={t("models.usageLabel")}><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold tracking-title">{t("models.usageTitle")}</h2><UsageHistory rows={usage?.recent} source={usageSource} onSourceChange={changeUsageSource} error={localizeMessage(usageError)} /></div><label className="flex items-center gap-3 text-sm">{t("ui.models.callSource")}<SelectField aria-label={t("ui.models.callSource")} value={usageSource} onValueChange={changeUsageSource}><SelectOption value="all">{t("ui.models.allSources")}</SelectOption>{Object.entries(sourceNames()).map(([value, label]) => <SelectOption key={value} value={value}>{label}</SelectOption>)}</SelectField></label>{usageError && <p role="alert" className="text-sm text-destructive">{localizeMessage(usageError)}</p>}<dl className="flex flex-wrap gap-2">

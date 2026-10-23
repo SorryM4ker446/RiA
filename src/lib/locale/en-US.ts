@@ -2219,5 +2219,12 @@ export const enUS = {
   "ui.confirm.deleteTopic": "Delete topic?",
   "ui.confirm.rebuildEmbeddings": "Rebuild memory embeddings?",
   "ui.confirm.buildIndex": "Build semantic index?",
-  "ui.confirm.runEvaluation": "Run evaluation?"
+  "ui.confirm.runEvaluation": "Run evaluation?",
+  "ui.models.limitRangeInteger": "Whole number from {min} to {max}",
+  "ui.models.limitRangeUsd": "{min} to {max}; leave empty for no limit",
+  "ui.models.limitInvalidInteger": "Enter a whole number from {min} to {max}",
+  "ui.models.limitInvalidUsd": "Enter an amount from {min} to {max}, or leave empty for no limit",
+  "ui.models.timeZoneHint": "IANA time zone name, such as Asia/Shanghai",
+  "ui.models.timeZoneInvalid": "Unrecognized time zone. Enter an IANA name such as Asia/Shanghai",
+  "ui.models.fixLimitsBeforeSaving": "Some model call limits are out of range. Fix them to save."
 } satisfies Record<MessageKey, string>;

@@ -18,7 +18,22 @@ export const providerIdSchema = z.enum(providerIds);
 
 const id = z.string().min(1).max(200);
 export const modelIdSchema = z.string().min(1).max(200);
-const price = z.number().min(0).max(1_000_000).nullable();
+const PRICE_MAX = 1_000_000;
+const price = z.number().min(0).max(PRICE_MAX).nullable();
+
+/**
+ * What each call limit accepts. The settings page shows and checks these same
+ * ranges before saving, so a value it lets through is one the server takes.
+ * The estimated USD limits may also be empty, meaning no limit.
+ */
+export const callLimitRanges = {
+  maxConcurrent: { min: 1, max: 16, integer: true },
+  compactionCallsPerTurn: { min: 1, max: 1000, integer: true },
+  backgroundDailyCalls: { min: 0, max: 1000, integer: true },
+  backgroundMaxEstimatedUsd: { min: 0, max: PRICE_MAX, integer: false },
+  backgroundDailyEstimatedUsd: { min: 0, max: PRICE_MAX, integer: false },
+} as const;
+const callCount = (range: { min: number; max: number }) => z.number().int().min(range.min).max(range.max);
 
 /**
  * A model is identified by the provider it is called through plus that
@@ -70,10 +85,10 @@ const preferencesShape = {
     maxOutputTokens: z.number().int().min(1).max(1_000_000).nullable(),
   })).refine(value => Object.keys(value).length <= 100).default({}),
   callLimits: z.strictObject({
-    maxConcurrent: z.number().int().min(1).max(16).default(4),
-    backgroundDailyCalls: z.number().int().min(0).max(1000).default(20),
+    maxConcurrent: callCount(callLimitRanges.maxConcurrent).default(4),
+    backgroundDailyCalls: callCount(callLimitRanges.backgroundDailyCalls).default(20),
     // Summary calls one chat request may make while compacting its context.
-    compactionCallsPerTurn: z.number().int().min(1).max(1000).default(20),
+    compactionCallsPerTurn: callCount(callLimitRanges.compactionCallsPerTurn).default(20),
     backgroundMaxEstimatedUsd: price.default(null),
     backgroundDailyEstimatedUsd: price.default(null),
     timeZone: z.string().min(1).max(100).refine(value => { try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; } catch { return false; } }).default("Asia/Shanghai"),

@@ -16,6 +16,29 @@ test("model limits persist and source filters display real recorded chat calls w
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect.poll(() => app.readRows("SELECT status FROM model_requests WHERE source = 'chat'").map(row => row.status)).toEqual(["success"]);
   await page.goto(`${app.origin}/models`);
+  // Each limit states its range, and a value outside it is pointed out where it is typed and cannot be saved.
+  const save = page.getByRole("button", { name: "保存模型偏好", exact: true });
+  const compaction = page.getByLabel("每次请求压缩调用上限", { exact: true });
+  await expect(page.getByText("1–16 的整数", { exact: true })).toBeVisible();
+  await expect(page.getByText("0–1,000,000，留空表示不限制", { exact: true })).toHaveCount(2);
+  const puts: string[] = []; page.on("request", request => { if (new URL(request.url()).pathname === "/api/models" && request.method() === "PUT") puts.push(request.url()); });
+  for (const [label, value, message] of [
+    ["每次请求压缩调用上限", "1001", "请输入 1–1,000 之间的整数"],
+    ["最大并发调用数", "", "请输入 1–16 之间的整数"],
+    ["后台每日调用次数", "1.5", "请输入 0–1,000 之间的整数"],
+    ["后台单次预估上限 USD", "-1", "请输入 0–1,000,000 之间的金额，或留空表示不限制"],
+    ["预算时区", "Mars/Base", "无法识别的时区，请输入 IANA 时区名称，例如 Asia/Shanghai"],
+  ]) {
+    const input = page.getByLabel(label, { exact: true }); const before = await input.inputValue();
+    await input.fill(value);
+    await expect(input).toHaveAttribute("aria-invalid", "true");
+    await expect(page.getByRole("alert").filter({ hasText: message })).toBeVisible();
+    await expect(page.getByText("模型调用限制中有超出范围的值，修正后才能保存。")).toBeVisible();
+    await expect(save).toBeDisabled();
+    await input.fill(before); await expect(input).not.toHaveAttribute("aria-invalid", "true");
+  }
+  await expect(save).toBeEnabled(); expect(puts).toEqual([]);
+  await compaction.fill("1000"); await expect(compaction).not.toHaveAttribute("aria-invalid", "true");
   await page.getByLabel("后台每日调用次数").fill("3");
   await page.getByLabel("预算时区").fill("America/New_York");
   const saving = page.waitForResponse(response => new URL(response.url()).pathname === "/api/models" && response.request().method() === "PUT");

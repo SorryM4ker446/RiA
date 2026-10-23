@@ -988,5 +988,12 @@ export const interfaceMessages = {
   "ui.confirm.deleteTopic": "删除专题？",
   "ui.confirm.rebuildEmbeddings": "重建记忆向量？",
   "ui.confirm.buildIndex": "构建语义索引？",
-  "ui.confirm.runEvaluation": "运行评测？"
+  "ui.confirm.runEvaluation": "运行评测？",
+  "ui.models.limitRangeInteger": "{min}–{max} 的整数",
+  "ui.models.limitRangeUsd": "{min}–{max}，留空表示不限制",
+  "ui.models.limitInvalidInteger": "请输入 {min}–{max} 之间的整数",
+  "ui.models.limitInvalidUsd": "请输入 {min}–{max} 之间的金额，或留空表示不限制",
+  "ui.models.timeZoneHint": "IANA 时区名称，例如 Asia/Shanghai",
+  "ui.models.timeZoneInvalid": "无法识别的时区，请输入 IANA 时区名称，例如 Asia/Shanghai",
+  "ui.models.fixLimitsBeforeSaving": "模型调用限制中有超出范围的值，修正后才能保存。"
 } as const;
