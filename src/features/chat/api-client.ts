@@ -42,7 +42,7 @@ export const chatApi = {
       throw error;
     }
   },
-  createConversation: (title: string, assistantTemplateId?: string) => requestJson<Data<ChatSummary>>("/api/conversations", t("chatApi.createConversationFailed"), jsonBody("POST", { title, assistantTemplateId })),
+  createConversation: (title?: string, assistantTemplateId?: string) => requestJson<Data<ChatSummary>>("/api/conversations", t("chatApi.createConversationFailed"), jsonBody("POST", { title, assistantTemplateId })),
   listAssistants: (signal?: AbortSignal) => requestJson<Data<AssistantTemplate[]>>("/api/assistants", t("ui.chat.api-client.couldNotLoadAssistantTemplates"), { signal }),
   setAssistant: (id: string, assistantTemplateId: string | null) => requestJson<Data<ChatSummary>>(conversationPath(id), t("ui.chat.api-client.couldNotApplyAssistantTemplate"), jsonBody("PATCH", { assistantTemplateId })),
   renameConversation: (id: string, title: string) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatApi.renameConversationFailed"), jsonBody("PATCH", { title })),

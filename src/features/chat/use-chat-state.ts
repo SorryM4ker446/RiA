@@ -160,8 +160,11 @@ export function useChatState() {
     // own text.
     const pending = pendingSendDraftRef.current;
     // A send that is still waiting for its conversation to be created must not
-    // have its input replaced by the (empty) draft of the new id.
-    if (pending?.pendingChat) return;
+    // have its input replaced by the (empty) draft of the new id. Nor may the
+    // conversation that send just created: the send already took it over and
+    // saved its text as that conversation's draft so a failure can restore it,
+    // and reading that draft back here put the sent message in the box again.
+    if (pending?.pendingChat || (pending?.chatId === activeChatId && previousId === activeChatId)) return;
     // Only the initial activation is protected. A deliberate switch must always
     // park one conversation's draft and show the other's, even if the user is
     // mid-sentence in the first one.

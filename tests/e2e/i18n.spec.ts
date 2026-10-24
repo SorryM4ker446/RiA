@@ -168,7 +168,9 @@ test("UI language never changes user messages or the model's language policy", a
   await page.getByPlaceholder(/输入你的问题/).fill(englishInput);
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect.poll(() => app.providerCalls.filter(call => call.stream).length).toBe(1);
-  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeEnabled();
+  // The turn has finished once sending replaces stopping; the sent text does not come back.
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
+  await expect(page.getByPlaceholder(/输入你的问题/)).toHaveValue("");
   await page.getByPlaceholder(/输入你的问题/).fill("保留这个草稿 Keep this draft");
   // Settings open over the chat, so closing them returns to the same draft.
   await page.getByRole("button", { name: "设置", exact: true }).click();

@@ -338,11 +338,21 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   }, []);
   async function applyAssistant(templateId: string | null) {
     const chat = chats.find(item => item.id === activeChatId);
-    if (!chat || isLoadingChats || scopeSavingRef.current) return;
+    // Before the first conversation there is nothing to apply a template to, so
+    // choosing one starts that conversation with it, named after the template.
+    const starting = !chat && !activeChatId && templateId !== null;
+    if ((!chat && !starting) || isLoadingChats || scopeSavingRef.current) return;
     scopeSavingRef.current = true; setIsDocumentScopeSaving(true); setPageError(null);
     try {
-      const payload = await chatApi.setAssistant(chat.id, templateId);
-      setChats(previous => previous.map(item => item.id === chat.id ? payload.data : item));
+      if (chat) {
+        const payload = await chatApi.setAssistant(chat.id, templateId);
+        setChats(previous => previous.map(item => item.id === chat.id ? payload.data : item));
+      } else {
+        const created = (await chatApi.createConversation(undefined, templateId!)).data;
+        window.localStorage.setItem(getChatPrefsStorageKey(created.id), JSON.stringify({ modelMode, selectedChatModel, selectedImageModel, selectedVideoModel }));
+        setChats(previous => [created, ...previous]);
+        setActiveChatId(created.id);
+      }
     } catch (error) { setPageError(error instanceof Error ? error.message : t("ui.chat.api-client.couldNotApplyAssistantTemplate")); }
     finally { scopeSavingRef.current = false; setIsDocumentScopeSaving(false); }
   }
