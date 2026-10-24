@@ -83,9 +83,17 @@ test("chat permissions choose and grant a directory without sending the draft, a
   const pickerBox = (await picker.boundingBox())!;
   expect(pickerBox.x + pickerBox.width).toBeLessThanOrEqual((await trigger.boundingBox())!.x);
   expect((await browserData(page, `/api/conversations/${chat.id}`)).workspaceGrantId).toBeNull();
+  // Until the switch has settled a send is refused, so the button says so rather than swallowing the click.
+  let releaseList!: () => void;
+  const listHeld = new Promise<void>(resolve => { releaseList = resolve; });
+  await page.route("**/api/conversations", async route => { if (route.request().method() === "GET") await listHeld; await route.continue(); });
   await picker.click();
   await page.getByRole("menuitemradio").filter({ hasText: app.folder }).click();
   await expect(page.getByRole("button", { name: `工作区：${basename(app.folder)}`, exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeDisabled();
+  // Released, the route passes every later request straight through.
+  releaseList();
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeEnabled();
   expect((await browserData(page, `/api/conversations/${chat.id}`)).workspaceGrantId).toBe(grant.id);
   await expect(draft).toHaveValue("保留这段尚未发送的草稿");
   await page.getByRole("combobox", { name: "选择工具", exact: true }).click();
