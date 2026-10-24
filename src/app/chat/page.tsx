@@ -53,13 +53,14 @@ export default function ChatPage() {
                   // Withdrawing a folder clears it as a workspace on the server; reload so the picker says so.
                   onChange={() => { void chat.loadToolCatalog(); void chat.loadChats({ silent: true }); }}
                 /> : null}
+                {/* Records belong to a conversation known to exist, not one still being restored. */}
                 <RunRecords
-                  key={chat.activeChatId ?? "draft"}
+                  key={chat.confirmedChatId ?? "draft"}
                   messages={chat.isHistoryReady ? chat.messages : []}
                   open={!!chat.activeChatId && executionPanel?.chatId === chat.activeChatId}
                   focusedMessageId={executionPanel?.chatId === chat.activeChatId ? executionPanel.messageId : undefined}
                   onOpenChange={open => setExecutionPanel(previous => open && chat.activeChatId ? { chatId: chat.activeChatId, ...(previous?.chatId === chat.activeChatId ? { messageId: previous.messageId } : {}) } : null)}
-                  activeChatId={chat.activeChatId}
+                  activeChatId={chat.confirmedChatId}
                   refreshKey={chat.messages.length}
                 />
               </div>

@@ -13,7 +13,7 @@ import { usePanelVisibility } from "./use-panel-visibility";
 import { useChat } from "@ai-sdk/react";
 import { lastAssistantMessageIsCompleteWithApprovalResponses, UIMessage } from "ai";
 import { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { chatApi, createChatTransport } from "@/features/chat/api-client";
+import { chatApi, createChatTransport, isNotFoundError } from "@/features/chat/api-client";
 import { clearChatDraft, readChatDraft, writeChatDraft } from "@/features/chat/draft";
 import { normalizeManualToolInput, validateManualToolFields } from "@/features/chat/tool-input";
 import type { DeleteTarget } from "@/features/chat/types";
@@ -54,9 +54,12 @@ export function useChatState() {
     cancelEditingChat, saveEditedTitle, performDeleteChat, ensureActiveChatId,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, toggleEphemeral, isEphemeralSaving,
     documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
-    setWorkspace, isWorkspaceSaving,
+    setWorkspace, isWorkspaceSaving, restoringChatId, isRestoringChat,
   } = useConversations({ activeChatId, setActiveChatId, preferences: { modelMode, selectedChatModel: preferredChatModel, selectedImageModel, selectedVideoModel }, applyChatPreferences, resetConversation, persistCurrentStreamingAssistantIfNeeded, setPageError });
-  const isConversationReady = !isLoadingPreferences && (activeChatId !== null || !isLoadingChats);
+  // A remembered conversation the list has not confirmed yet is not one to send to.
+  const isConversationReady = !isLoadingPreferences && restoringChatId === null && (activeChatId !== null || !isLoadingChats);
+  // The open conversation once it is known to exist: what history-bound panels may show.
+  const confirmedChatId = restoringChatId === null ? activeChatId : null;
   const selectedChatModel = activeChat?.assistantConfig?.model ?? preferredChatModel;
   const transport = useMemo(() => createChatTransport(activeChatId, { selectedChatModel, modelMode }), [activeChatId, selectedChatModel, modelMode]);
   const { messages, setMessages, sendMessage, regenerate, addToolApprovalResponse, status, error, clearError, stop } = useChat({
@@ -102,8 +105,10 @@ export function useChatState() {
     selectedManualTool, setSelectedManualTool, selectedToolDocument, setSelectedToolDocument,
     manualToolSelectValue, isManualToolSelected, runManualTool, loadToolCatalog,
   } = useTools({ activeChatId, allowedToolIds: activeChat?.assistantConfig?.tools, setMessages, ensureActiveChatId, loadChats, selectedChatModel, modelMode, loadTasks, taskStatusFilter });
-  const isPending =
-    isLoadingPreferences ||
+  // Work in flight that the "generating" status and the stop control stand for.
+  // Reading the saved preferences is not part of it: it blocks sending like the
+  // rest, but showing it as a running turn flashed both every time chat opened.
+  const isWorking =
     pendingSend !== null ||
     status === "submitted" ||
     status === "streaming" ||
@@ -112,6 +117,12 @@ export function useChatState() {
     isUploadingAttachments ||
     isLoadingOlderMessages ||
     isRunningManualTool;
+  const isPending = isLoadingPreferences || isWorking;
+  // Until the list says which conversation to restore, and that conversation's
+  // history has been asked for, the transcript has nothing true to show. Showing
+  // the empty-conversation welcome then is what made chat open on the welcome,
+  // swap to the placeholder and then to the messages each time it was returned to.
+  const isOpeningConversation = restoringChatId !== null || (activeChatId ? historyState?.chatId !== activeChatId : isLoadingChats);
   const selectedModel =
     modelMode === "chat"
       ? selectedChatModel
@@ -313,6 +324,9 @@ export function useChatState() {
     } catch (loadError) {
       if (latestHistoryRequestRef.current === requestId) {
         setHistoryState({ chatId, status: "error" });
+        // A remembered conversation deleted since the last visit is not an error
+        // to report: the list is about to replace it with another one.
+        if (isNotFoundError(loadError) && isRestoringChat(chatId)) return;
         const reason = loadError instanceof Error ? loadError.message : t("chatApi.listMessagesFailed");
         setPageError(`${reason} ${t("chatState.historyRecovery")}`);
       }
@@ -702,8 +716,8 @@ export function useChatState() {
     isLoadingTasks, loadTasks, setTaskStatusFilter, taskStatusFilter,
     taskPanelError: withoutGlobalEcho(taskPanelError),
     visibleTasks, updateTaskStatus, deleteTask, saveTaskSchedule, updatingTaskIds, hasHiddenTasks, setIsTaskListExpanded,
-    isTaskListExpanded, activeChat, isPending, isConversationReady, isRunningManualTool, modelMode, selectedModel, selectedModelInfo, onModeSelect,
-    onModelSelect, appendQuickPrompt, isHistoryReady: historyState?.chatId === activeChatId && historyState.status === "ready", isLoadingHistory, messages, imageByMessageId, videoByMessageId,
+    isTaskListExpanded, activeChat, isPending, isWorking, isLoadingPreferences, isOpeningConversation, isConversationReady, isRunningManualTool, modelMode, selectedModel, selectedModelInfo, onModeSelect,
+    onModelSelect, appendQuickPrompt, isHistoryReady: confirmedChatId !== null && historyState?.chatId === confirmedChatId && historyState.status === "ready", isLoadingHistory, confirmedChatId, messages, imageByMessageId, videoByMessageId,
     status, editingMessageId, startEditingMessage, regenerateMessage, requestDeleteMessage,
     setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage,
     attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, addToolApprovalResponse, onStop, onSubmit,

@@ -16,6 +16,8 @@ class ApiClientError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
 
+export const isNotFoundError = (error: unknown) => error instanceof ApiClientError && error.status === 404;
+
 async function requestJson<T>(url: string, fallback: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, { cache: "no-store", ...options });
   const payload: unknown = await response.json().catch(() => null);

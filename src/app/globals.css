@@ -643,6 +643,8 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .conversation-editor { animation: content-in var(--dur-fast) var(--ease-out); }
 .chat-canvas { background: hsl(var(--background)); }
 .chat-toolbar { border-color: hsl(var(--border)); }
+/* Held back, not removed: hidden controls cannot be reached, and nothing moves when they appear. */
+.chat-toolbar-actions[data-waiting] { visibility: hidden; opacity: 0; }
 .chat-transcript { scrollbar-gutter: stable both-edges; overflow-anchor: none; }
 .chat-transcript-content > :not(.chat-welcome) { width: 100%; max-width: 42rem; margin-inline: auto; }
 .message-reasoning { interpolate-size: allow-keywords; }
@@ -990,6 +992,11 @@ body:has(.sheet-content[data-side="right"][data-state="open"]) .toast-stack { bo
      and easing that change uncovers the window behind on each move to or from chat. */
   .workspace-rail, .workspace-topbar, .chat-canvas, .chat-rail { transition: background-color var(--dur-base) var(--ease-out), color var(--dur-fast), border-color var(--dur-fast); }
   .workspace-shell, .workspace-content { transition: color var(--dur-fast), border-color var(--dur-fast); }
+  /* The transcript placeholder only shows once a load is slow enough to notice. Returning to chat
+     usually has the history within a few frames, and a placeholder painted for those frames and
+     then replaced reads as a flicker. It keeps its space throughout, so nothing moves either way. */
+  .chat-transcript-skeleton { animation: content-in var(--dur-base) var(--ease-out) 200ms both; }
+  .chat-toolbar-actions { transition: opacity var(--dur-base) var(--ease-out); }
   .chat-welcome > * { animation: panel-in-up var(--dur-slow) var(--ease-out) both; }
   .chat-welcome > :nth-child(2) { animation-delay: 45ms; }
   .chat-welcome > :nth-child(3) { animation-delay: 90ms; }
@@ -1037,6 +1044,8 @@ body:has(.sheet-content[data-side="right"][data-state="open"]) .toast-stack { bo
   .workspace-sidebar-body, .workspace-sidebar-header, .workspace-navigation, .workspace-nav-link { transition: none; }
   .workspace-content { scroll-behavior: auto; }
   .sheet-overlay, .sheet-content, .ui-select-content, .ui-tabs-content, .run-records > :not(summary) { animation: none; }
+  /* Without its delayed fade, the transcript placeholder still waits out a quick load, then appears at once. */
+  .chat-transcript-skeleton:not([data-late]) { visibility: hidden; }
   .home-shortcut:hover, .home-shortcut:hover .shortcut-arrow, .workspace-nav-link:active { transform: none; }
 }
 

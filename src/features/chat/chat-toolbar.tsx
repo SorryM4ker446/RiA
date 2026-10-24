@@ -12,11 +12,13 @@ import type { ChatState } from "@/features/chat/use-chat-state";
 import { cn } from "@/lib/utils/cn";
 import { decodeDocumentScope } from "@/lib/documents/scope";
 import { TemplateDetails } from "@/features/assistants/template-details";
+import { useAwaitingFirstLoad } from "@/lib/use-awaiting-first-load";
 
 type Props = Pick<
   ChatState,
   | "activeChat"
   | "isPending"
+  | "isWorking"
   | "isLoadingChats"
   | "isDocumentScopeSaving"
   | "modelMode"
@@ -31,6 +33,7 @@ type Props = Pick<
 export function ChatToolbar({
   activeChat,
   isPending,
+  isWorking,
   isLoadingChats,
   isDocumentScopeSaving,
   modelMode,
@@ -49,6 +52,9 @@ export function ChatToolbar({
     void loadDocumentTopics();
   }, [loadDocumentTopics]);
   useEffect(() => { const controller = new AbortController(); void loadAssistants(controller.signal); return () => controller.abort(); }, [loadAssistants]);
+  // Until the list first answers, no title is known: naming it a new conversation
+  // then is a claim the restored conversation's title replaces a moment later.
+  const awaitingConversation = useAwaitingFirstLoad(isLoadingChats, "conversations");
   const snapshot = activeChat?.assistantConfig;
   const currentTemplate = assistants.find(item => item.id === snapshot?.templateId);
   const hasTemplateUpdate = snapshot && currentTemplate && currentTemplate.revision !== snapshot.templateRevision;
@@ -58,13 +64,16 @@ export function ChatToolbar({
       <div className="flex flex-wrap items-center justify-between gap-3">
         {conversationControls}
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <CardTitle className="min-w-0 truncate">{activeChat?.title ?? t("chat.toolbar.newChat")}</CardTitle>
-          {isPending ? <>
+          <CardTitle className="min-w-0 truncate">{activeChat?.title ?? (awaitingConversation ? null : t("chat.toolbar.newChat"))}</CardTitle>
+          {isWorking ? <>
             <Badge className="shrink-0" variant="outline">{t("chat.toolbar.statusGenerating")}</Badge>
             <CardDescription role="status" className="sr-only">{modelMode === "image" ? t("chat.toolbar.pendingImage") : modelMode === "video" ? t("chat.toolbar.pendingVideo") : t("chat.toolbar.pendingChat")}</CardDescription>
           </> : null}
         </div>
-        <div className="flex max-w-full flex-wrap items-center gap-2">
+        {/* These controls depend on the conversation: its template, its details and
+          its memory switch. Until the list says which conversation is open they
+          hold back, then appear once in place instead of sliding aside as each arrives. */}
+        <div className="chat-toolbar-actions flex max-w-full flex-wrap items-center gap-2" data-waiting={awaitingConversation || undefined}>
           <label className="sr-only" htmlFor="chat-assistant">{t("ui.assistants.assistantTemplates")}</label>
           <SelectField id="chat-assistant" aria-label={t("ui.assistants.assistantTemplates")} variant="ghost" size="sm" className="max-w-48" value={snapshot?.templateId ?? ""} disabled={!activeChat || isPending || isLoadingChats || isDocumentScopeSaving || isEphemeralSaving} onValueChange={value => void applyAssistant(value || null)}>
             <SelectOption value="">{t("ui.chat.chat-toolbar.generalAssistant")}</SelectOption>

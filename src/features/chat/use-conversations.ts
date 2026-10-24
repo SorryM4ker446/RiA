@@ -44,6 +44,11 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   const [nextChatsCursor, setNextChatsCursor] = useState<string | null>(null);
   const [isLoadingMoreChats, setIsLoadingMoreChats] = useState(false);
   const chatsRequestRef = useRef(0);
+  // The conversation reopened from the last visit before the list has answered.
+  // It is active so its history loads alongside the list, but it is not shown or
+  // sent to until the list confirms it still exists and is not archived.
+  const [restoringChatId, setRestoringChatId] = useState<string | null>(null);
+  const restoringRef = useRef<string | null>(null);
   const loadingMoreRef = useRef(false);
   const activeIdRef = useRef(activeChatId);
   useEffect(() => { activeIdRef.current = activeChatId; }, [activeChatId]);
@@ -66,6 +71,13 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
       if (requestId !== chatsRequestRef.current) return;
       setChats(list);
       setNextChatsCursor(payload.pageInfo?.nextCursor ?? null);
+      const restored = restoringRef.current;
+      if (restored && activeIdRef.current === restored && !list.some((chat) => chat.id === restored)) {
+        // Deleted or archived since the last visit: choose below exactly as a
+        // visit without a remembered conversation would.
+        activeIdRef.current = null;
+        setActiveChatId(null);
+      }
 
       if (!activeIdRef.current) {
         const lastActiveId = window.localStorage.getItem(LAST_ACTIVE_CHAT_STORAGE_KEY);
@@ -79,7 +91,13 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     } catch (loadError) {
       if (!silent && requestId === chatsRequestRef.current) setPageError(loadError instanceof Error ? loadError.message : t("chatApi.listConversationsFailed"));
     } finally {
-      if (requestId === chatsRequestRef.current) setIsLoadingChats(false);
+      if (requestId === chatsRequestRef.current) {
+        setIsLoadingChats(false);
+        // Settled either way: a list that could not be read cannot disprove the
+        // remembered conversation, and holding it back would leave chat unusable.
+        restoringRef.current = null;
+        setRestoringChatId(null);
+      }
     }
   }
 
@@ -215,6 +233,15 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     return chatId;
   }
   useEffect(() => {
+    const remembered = window.localStorage.getItem(LAST_ACTIVE_CHAT_STORAGE_KEY);
+    if (remembered && !activeIdRef.current) {
+      restoringRef.current = remembered;
+      activeIdRef.current = remembered;
+      // Read once from storage on mount; reopening it now rather than after the
+      // list answers is what lets the two requests run at the same time.
+      setRestoringChatId(remembered);
+      setActiveChatId((current) => current ?? remembered);
+    }
     void loadChats();
     return () => { chatsRequestRef.current += 1; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -323,7 +350,7 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   return {
     assistants, assistantsError, loadAssistants, applyAssistant,
     toggleEphemeral, isEphemeralSaving, documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving,
-    setWorkspace, isWorkspaceSaving,
+    setWorkspace, isWorkspaceSaving, restoringChatId, isRestoringChat: (chatId: string) => restoringRef.current === chatId,
     chats, activeChat, isLoadingChats, isCreatingChat, editingChatId, editingTitle, setEditingTitle, isChatListExpanded,
     setIsChatListExpanded, visibleChats, hasHiddenChats, loadChats, createNewChat, startEditingChat,
     cancelEditingChat, saveEditedTitle, performDeleteChat, ensureActiveChatId,
