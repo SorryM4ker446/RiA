@@ -75,7 +75,7 @@ export function ChatToolbar({
           hold back, then appear once in place instead of sliding aside as each arrives. */}
         <div className="chat-toolbar-actions flex max-w-full flex-wrap items-center gap-2" data-waiting={awaitingConversation || undefined}>
           <label className="sr-only" htmlFor="chat-assistant">{t("ui.assistants.assistantTemplates")}</label>
-          <SelectField id="chat-assistant" aria-label={t("ui.assistants.assistantTemplates")} variant="ghost" size="sm" className="max-w-48" value={snapshot?.templateId ?? ""} disabled={!activeChat || isPending || isLoadingChats || isDocumentScopeSaving || isEphemeralSaving} onValueChange={value => void applyAssistant(value || null)}>
+          <SelectField id="chat-assistant" aria-label={t("ui.assistants.assistantTemplates")} variant="ghost" size="sm" fluid className="min-w-0 max-w-48" value={snapshot?.templateId ?? ""} disabled={isPending || isLoadingChats || isDocumentScopeSaving || isEphemeralSaving} onValueChange={value => void applyAssistant(value || null)}>
             <SelectOption value="">{t("ui.chat.chat-toolbar.generalAssistant")}</SelectOption>
             {snapshot && !currentTemplate ? <SelectOption value={snapshot.templateId}>{snapshot.name}</SelectOption> : null}
             {assistants.map(item => <SelectOption key={item.id} value={item.id}>{item.builtin ? localizeMessage(item.config.name) : item.config.name}</SelectOption>)}

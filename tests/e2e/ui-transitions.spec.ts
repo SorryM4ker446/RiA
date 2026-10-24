@@ -277,3 +277,43 @@ for (const stale of ["deleted", "archived"] as const) {
     expect(await page.evaluate(() => localStorage.getItem("chat:last-active-id"))).toBe(kept.id);
   });
 }
+
+for (const reducedMotion of [false, true]) {
+  test(`choosing a model with a longer name eases the tool picker aside${reducedMotion ? " at once with reduced motion" : ""}`, async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: reducedMotion ? "reduce" : "no-preference" });
+    const chat = { id: "fluid-conversation", title: "Fluid conversation", lastMessageAt: "2026-10-24T00:00:00Z", messageCount: 0 };
+    const library = [fixtureLibraryItem("short/model", ["chat"], { name: "Short" }), fixtureLibraryItem("long/model", ["chat"], { name: "A considerably longer model name" })];
+    await page.route("**/api/models", route => route.fulfill({ json: modelsRouteFixture(library, { chat: "short/model" }) }));
+    await page.route("**/api/conversations", route => route.fulfill({ json: { data: [chat] } }));
+    await page.route("**/api/conversations/*/messages", route => route.fulfill({ json: { data: [] } }));
+    await page.route("**/api/conversations/*/runs**", route => route.fulfill({ json: { data: [] } }));
+    await page.route("**/api/tasks**", route => route.fulfill({ json: { data: [] } }));
+    await page.route("**/api/tools?*", route => route.fulfill({ json: { data: [] } }));
+    await page.goto("/chat");
+    const picker = page.getByRole("combobox", { name: "选择模型", exact: true });
+    await expect(picker).toContainText("Short");
+    await picker.click();
+    await page.evaluate(() => {
+      const lefts: number[] = [];
+      (window as unknown as { toolLefts: number[] }).toolLefts = lefts;
+      // Read just after each frame is painted: inside requestAnimationFrame the layout
+      // is read before ResizeObserver has held the picker at its old width for that frame.
+      const sample = () => setTimeout(() => {
+        const tools = document.querySelector('.chat-workspace [aria-label="选择工具"]');
+        if (tools) lefts.push(Math.round(tools.getBoundingClientRect().left));
+        if (lefts.length < 40) requestAnimationFrame(sample);
+      }, 0);
+      requestAnimationFrame(sample);
+    });
+    await page.getByRole("option", { name: "A considerably longer model name", exact: true }).click();
+    await expect(picker).toContainText("A considerably longer model name");
+    const lefts = await page.waitForFunction(() => { const lefts = (window as unknown as { toolLefts: number[] }).toolLefts; return lefts.length >= 40 && lefts; }).then(handle => handle.jsonValue() as Promise<number[]>);
+    const steps = lefts.slice(1).map((left, index) => Math.abs(left - lefts[index])).filter(step => step > 0);
+    const total = lefts.at(-1)! - lefts[0];
+    expect(total, lefts.join(",")).toBeGreaterThan(40);
+    // With motion the move is spread over several frames (eased, so the first is the largest);
+    // with reduced motion it happens in one.
+    if (reducedMotion) expect(steps, lefts.join(",")).toHaveLength(1);
+    else { expect(steps.length, lefts.join(",")).toBeGreaterThan(3); expect(Math.max(...steps), lefts.join(",")).toBeLessThan(total * 0.6); }
+  });
+}

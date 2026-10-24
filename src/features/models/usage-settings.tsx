@@ -56,7 +56,6 @@ export function UsageSettings() {
         ))}
       </dl>
       <p className="text-xs text-muted-foreground">{t("models.usageNote")}</p>
-      {usage?.controls && <p className="text-xs text-muted-foreground">{t("ui.models.budgetDate")}{usage.controls.day} {t("ui.models.inProgress")}{usage.controls.active}/{usage.controls.maxConcurrent} {t("ui.models.backgroundReserved")}{usage.controls.calls}/{usage.controls.backgroundDailyCalls} {t("ui.models.callsEstimatedBackgroundReservation")}{cost(usage.controls.estimatedUsd)}{t("ui.models.callsWithoutConfiguredPricesMayStill")}</p>}
     </section>
   </>;
 }

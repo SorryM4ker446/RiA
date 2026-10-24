@@ -25,6 +25,18 @@ import type { ChatState } from "@/features/chat/use-chat-state";
 import { ModelMode } from "@/features/chat/page-utils";
 import type { ModelLibraryItem } from "@/lib/models/preferences-schema";
 import { ContextUsage } from "@/features/chat/context-usage";
+import { useEffect, useSyncExternalStore } from "react";
+
+/**
+ * The model name last shown for a mode. Until the saved choice is read it
+ * stands in for the model, so returning to chat starts with the name and the
+ * width it ends with rather than growing into them.
+ */
+const modelLabelKey = (mode: ModelMode) => `chat:model-label:${mode}`;
+const noSubscription = () => () => {};
+function useRememberedModelLabel(mode: ModelMode) {
+  return useSyncExternalStore(noSubscription, () => { try { return window.localStorage.getItem(modelLabelKey(mode)) ?? ""; } catch { return ""; } }, () => "");
+}
 
 type Props = Pick<
   ChatState,
@@ -121,6 +133,13 @@ export function Composer({
 }: Props) {
   useLocale();
   const isDocumentTool = modelMode === "chat" && ["readDocument", "convertDocument"].includes(selectedManualToolConfig?.id ?? "");
+  const rememberedModelLabel = useRememberedModelLabel(modelMode);
+  const modelLabel = !selectedModel ? t("chat.toolbar.modelNone")
+    : modelLibrary.find(model => modelRefKey(model) === modelRefKey(selectedModel) && model.modes.includes(modelMode))?.name ?? tf("chat.toolbar.modelUnavailable", { modelId: selectedModel.modelId });
+  useEffect(() => {
+    if (isLoadingPreferences) return;
+    try { window.localStorage.setItem(modelLabelKey(modelMode), modelLabel); } catch { /* Only a starting label; nothing depends on it being kept. */ }
+  }, [isLoadingPreferences, modelMode, modelLabel]);
   return (
     <form
       className={cn(
@@ -363,18 +382,19 @@ export function Composer({
             <Select
               disabled={isPending || isDocumentScopeSaving || (modelMode === "chat" && !!activeChat?.assistantConfig?.model)}
               onValueChange={onModelSelect}
-              // Until the saved choice is read nothing is shown, rather than "选择模型"
-              // standing in for a model that is already chosen.
+              // Until the saved choice is read, the last model shown stands in for
+              // it, rather than "选择模型" claiming no model is chosen.
               value={isLoadingPreferences ? "" : selectedModel ? modelRefKey(selectedModel) : "none"}
             >
-              {/* A fixed width, so the controls beside it stay put when the name arrives or changes. */}
+              {/* Sized to the name; a different name eases to its width instead of pushing the tools aside. */}
               <SelectTrigger
                 aria-label={t("chat.toolbar.modelSelectLabel")}
                 variant="ghost"
                 size="sm"
-                className="w-[180px]"
+                fluid
+                className="w-auto max-w-[200px] data-[placeholder]:text-foreground"
               >
-                <SelectValue className="truncate" />
+                <SelectValue className="truncate" placeholder={rememberedModelLabel} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">

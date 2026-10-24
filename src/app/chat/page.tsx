@@ -1,7 +1,8 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useToastAnchor } from "@/components/ui/toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,6 +21,9 @@ import { t } from "@/lib/locale";
 export default function ChatPage() {
   useLocale();
   const chat = useChatState();
+  // Confirmations appear just above the composer's controls, centred on them.
+  const dock = useRef<HTMLDivElement>(null);
+  useToastAnchor(dock);
   const [executionPanel, setExecutionPanel] = useState<{ chatId: string; messageId?: string } | null>(null);
   const showExecutionDetails = (messageId: string) => {
     if (chat.activeChatId) setExecutionPanel({ chatId: chat.activeChatId, messageId });
@@ -42,7 +46,7 @@ export default function ChatPage() {
 
             {/* What the turn did, above the composer: the place someone looks
                 when an answer mentions a task or a search they did not see. */}
-            <div className="chat-dock flex max-h-[50%] shrink-0 flex-col gap-3 overflow-y-auto px-4 pb-5 pt-2 sm:px-7">
+            <div ref={dock} className="chat-dock flex max-h-[50%] shrink-0 flex-col gap-3 overflow-y-auto px-4 pb-5 pt-2 sm:px-7">
               {chat.isHistoryReady ? <ApprovalDock key={chat.activeChatId} {...chat} onDetails={showExecutionDetails} /> : null}
               <div className="mx-auto flex w-full max-w-[42rem] flex-wrap items-center gap-1">
                 {chat.modelMode === "chat" ? <DirectoryPermissions
