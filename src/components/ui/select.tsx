@@ -4,6 +4,7 @@ import * as React from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
+import { useFluidWidth } from "@/lib/use-fluid-width";
 
 const SelectInteractionContext = React.createContext<{
   open: boolean;
@@ -41,16 +42,21 @@ function SelectValue({
 type SelectTriggerProps = React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger> & {
   variant?: "default" | "ghost" | "chip";
   size?: "default" | "sm";
+  /** Sized to its value, easing to a new width rather than pushing its neighbours aside at once. */
+  fluid?: boolean;
 };
 
 const SelectTrigger = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Trigger>,
   SelectTriggerProps
->(({ className, children, variant = "default", size = "default", style, onPointerDown, onPointerCancel, onClick, ...props }, ref) => {
+>(({ className, children, variant = "default", size = "default", fluid = false, style, onPointerDown, onPointerCancel, onClick, ...props }, ref) => {
   const interaction = React.useContext(SelectInteractionContext);
   const closeOnClick = React.useRef(false);
   const onTriggerChange = interaction?.onTriggerChange;
+  const own = React.useRef<HTMLButtonElement | null>(null);
+  useFluidWidth(own, fluid);
   const composedRef = React.useCallback((node: HTMLButtonElement | null) => {
+    own.current = node;
     onTriggerChange?.(node);
     if (typeof ref === "function") return ref(node);
     if (ref) ref.current = node;
