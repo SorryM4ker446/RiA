@@ -12,7 +12,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { PageHeader } from "@/components/layout/page-header";
 import { WindowControls } from "@/components/layout/window-controls";
-import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
 import { defaultSettingsSection, resolveSettingsSection, SETTINGS_PARAM, settingsUrl, type SettingsSectionId } from "@/lib/settings/sections";
 import { SettingsContext, SettingsSectionContext, useSettingsContext } from "@/features/settings/settings-context";
@@ -242,8 +241,6 @@ function SettingsWindow({ section, kept, desktop, anchor, onAnchorShown, onSelec
           {group.items.map(item => <TabsTrigger key={item.id} value={item.id} className="side-nav-item"><item.icon aria-hidden="true" />{item.label}</TabsTrigger>)}
         </Fragment>)}
       </TabsList>
-      {/* The sidebar's theme switch is behind the overlay, so the same switch sits at the foot of this list. */}
-      <div className="settings-window-nav-footer"><ThemeToggle /></div>
     </aside>
     <Dialog.Close asChild>
       <Button className="settings-window-close" variant="ghost" size="icon-sm" aria-label={t("ui.settingsOverlay.close")}><X aria-hidden="true" /></Button>

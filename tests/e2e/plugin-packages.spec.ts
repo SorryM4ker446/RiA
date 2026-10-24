@@ -1,3 +1,4 @@
+import { useLightTheme } from "../helpers/theme";
 import { expect, test as base, type Page } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -148,7 +149,7 @@ test("plugin preview handles malformed input, narrow layouts, focus and reduced 
   await market.getByRole("button", { name: "查看插件", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "写作与润色", exact: true })).toHaveCSS("animation-name", "none");
   await page.keyboard.press("Escape"); await page.setViewportSize({ width: 1440, height: 960 });
-  await page.getByRole("button", { name: "切换主题", exact: true }).click();
+  await useLightTheme(page);
   await page.screenshot({ path: join(shots, "market-light.png"), animations: "disabled" });
   await expect(page).toHaveTitle(/RiA/); await expect(page.locator("nextjs-portal")).toHaveCount(0); expect(errors).toEqual([]);
 });

@@ -1,3 +1,4 @@
+import { useLightTheme } from "../helpers/theme";
 import { openExecutionDetails } from "../helpers/execution-records";
 import { settingsDialog } from "../helpers/settings";
 import { expect, test as base, type Page } from "@playwright/test";
@@ -95,7 +96,7 @@ test("long extension names stay inside narrow cards and tool sheets without cove
   await expect(sheet).toHaveCSS("animation-name", "none");
   await page.keyboard.press("Escape");
   await page.setViewportSize({ width: 1440, height: 960 });
-  await page.getByRole("button", { name: "切换主题", exact: true }).click();
+  await useLightTheme(page);
   await expect(page.locator("html")).not.toHaveClass(/dark/);
   await expect(title).toBeVisible();
   await page.screenshot({ path: join(shots, "desktop-light.png"), animations: "disabled" });

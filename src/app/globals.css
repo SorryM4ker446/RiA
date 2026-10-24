@@ -901,7 +901,6 @@ body:has(.sheet-content[data-side="right"][data-state="open"]) .toast-stack { bo
 .settings-window-tabs { display: flex; width: auto; flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 2px; border: 0; }
 .settings-window-group { padding: 14px 10px 6px; font-size: 11.5px; letter-spacing: .02em; color: hsl(var(--muted-foreground) / .85); }
 .settings-window-group:first-child { padding-top: 6px; }
-.settings-window-nav-footer { margin-top: auto; padding: 8px 4px 0; }
 .settings-window-close { position: absolute; top: 12px; right: 12px; z-index: 1; }
 .settings-window-panel { grid-column: 2; grid-row: 1; min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; scroll-behavior: smooth; }
 /* Each section opens with a short fade; the room on the right keeps the header clear of the close button. */
@@ -914,8 +913,6 @@ body:has(.sheet-content[data-side="right"][data-state="open"]) .toast-stack { bo
   .settings-window-tabs { flex-direction: row; overflow-x: auto; scrollbar-width: none; }
   .settings-window-tabs .side-nav-item { flex-shrink: 0; white-space: nowrap; }
   .settings-window-group { display: none; }
-  /* The list runs across the top here, so the theme switch moves up beside the close button. */
-  .settings-window-nav-footer { position: absolute; top: 14px; right: 48px; margin: 0; padding: 0; }
   .settings-window-panel { grid-column: 1; grid-row: 2; }
   .settings-window-page { padding: 24px 16px 40px; }
 }
