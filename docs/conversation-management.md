@@ -59,7 +59,7 @@ All operations require normal ownership/session and desktop Host/Cookie checks. 
 | --- | --- |
 | `GET /api/conversations` | Optional `q`, `tag`, `state=active\|archived\|all`, `limit=1..100` and opaque `cursor`; defaults to active, 30 rows; returns `data` and `pageInfo` |
 | `GET /api/conversations/:id` | Summary with `pinned`, `archived`, `tags`, timestamps and `messageCount` |
-| `PATCH /api/conversations/:id` | At least one of `title`, boolean `pinned`, boolean `archived`, or string-array `tags`; returns updated `data`; title keeps the existing 60-character display truncation |
+| `PATCH /api/conversations/:id` | At least one of `title`, boolean `pinned`, boolean `archived`, string-array `tags`, or `workspaceGrantId` (an active directory grant ID, or `null` to clear; an unknown or withdrawn grant returns `409 CONFLICT`); returns updated `data`, including `workspaceGrantId`; title keeps the existing 60-character display truncation |
 | `POST /api/conversations/bulk-delete` | `{ "ids": ["chat-id"], "confirm": true }`; 1–50 unique IDs, 16 KiB body; returns `data.deletedCount` |
 | `GET /api/conversations/:id/export?format=markdown` | `markdown` (default) or `json`; attachment response with safe filename, `Cache-Control: no-store` and `X-Content-Type-Options: nosniff` |
 

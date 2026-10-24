@@ -105,7 +105,7 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
   const providerOptions = fallbackRef && fallbackRef.providerId !== modelRef.providerId
     ? (() => { const merged = { ...(reasoningFor(fallbackRef) ?? {}), ...(reasoningFor(modelRef) ?? {}) }; return Object.keys(merged).length ? merged : undefined; })()
     : reasoningFor(modelRef);
-  const tools = toolsEnabled ? await createChatToolSet({ modelRef, runId, toolIds: input.assistant?.tools, usesMemory: params.usesMemory !== false, documentCollections: decodeDocumentScope(input.conversationPolicy?.documentScope ?? chat.documentScope), documentRetrievalPolicy: input.assistant?.retrieval }) : undefined;
+  const tools = toolsEnabled ? await createChatToolSet({ modelRef, chatId: chat.id, runId, toolIds: input.assistant?.tools, usesMemory: params.usesMemory !== false, documentCollections: decodeDocumentScope(input.conversationPolicy?.documentScope ?? chat.documentScope), documentRetrievalPolicy: input.assistant?.retrieval }) : undefined;
   const budget = contextBudget(input.model, preferences.contextLimits[modelRefKey(modelRef)]);
   const toolDefinitions = tools ? await Promise.all(Object.entries(tools).map(async ([name, tool]) => tool.type === "provider"
     ? { type: "provider", name, id: tool.id, args: tool.args }

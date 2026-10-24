@@ -85,6 +85,12 @@ model Chat {
   // every topic, which is the default; naming topics narrows the retrieval to
   // what the user put in scope for this conversation.
   documentScope   String       @default("")
+  // The one granted folder this conversation works in. Choosing is not
+  // granting: only an active grant can be chosen, and withdrawing the grant
+  // clears the choice. Like the grant itself it is machine-local and stays
+  // out of workspace backups.
+  workspaceGrantId String?
+  workspaceGrant  DirectoryGrant? @relation(fields: [workspaceGrantId], references: [id], onDelete: SetNull)
   assistantConfig Json?
   topicId         String?
   topic           KnowledgeTopic? @relation(fields: [topicId], references: [id], onDelete: SetNull)
@@ -415,6 +421,7 @@ model DirectoryGrant {
   lastUsedAt DateTime?
   revokedAt DateTime?
   updatedAt DateTime  @updatedAt
+  chats     Chat[]
 
   @@index([revokedAt])
   @@map("directory_grants")

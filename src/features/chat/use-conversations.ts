@@ -36,6 +36,8 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   const [isEphemeralSaving, setIsEphemeralSaving] = useState(false);
   const [documentTopics, setDocumentTopics] = useState<string[]>([]);
   const [isDocumentScopeSaving, setIsDocumentScopeSaving] = useState(false);
+  const [isWorkspaceSaving, setIsWorkspaceSaving] = useState(false);
+  const workspaceSavingRef = useRef(false);
   const scopeSavingRef = useRef(false);
   const [assistants, setAssistants] = useState<AssistantTemplate[]>([]);
   const [assistantsError, setAssistantsError] = useState("");
@@ -278,6 +280,31 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     }
   }
 
+  /**
+   * The one granted folder this conversation works in, from the next message on.
+   * Choosing one before the first message creates the conversation to hold it.
+   * The list is reloaded either way, so the picker shows what the server stored.
+   */
+  async function setWorkspace(grantId: string | null): Promise<boolean> {
+    if (isLoadingChats || workspaceSavingRef.current) return false;
+    workspaceSavingRef.current = true;
+    setIsWorkspaceSaving(true);
+    setPageError(null);
+    try {
+      const chatId = activeChatId ?? await ensureActiveChatId(t("chatState.defaultChatTitle"));
+      const payload = await chatApi.setWorkspace(chatId, grantId);
+      setChats(previous => previous.map(item => item.id === chatId ? payload.data : item));
+      return true;
+    } catch (workspaceError) {
+      setPageError(workspaceError instanceof Error ? workspaceError.message : t("ui.chat.workspace.failed"));
+      return false;
+    } finally {
+      await loadChats({ silent: true });
+      workspaceSavingRef.current = false;
+      setIsWorkspaceSaving(false);
+    }
+  }
+
   const loadAssistants = useCallback(async (signal?: AbortSignal) => {
     try { const payload = await chatApi.listAssistants(signal); if (!signal?.aborted) { setAssistants(payload.data); setAssistantsError(""); } }
     catch (error) { if (!signal?.aborted) setAssistantsError(error instanceof Error ? error.message : t("ui.chat.api-client.couldNotLoadAssistantTemplates")); }
@@ -296,6 +323,7 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   return {
     assistants, assistantsError, loadAssistants, applyAssistant,
     toggleEphemeral, isEphemeralSaving, documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving,
+    setWorkspace, isWorkspaceSaving,
     chats, activeChat, isLoadingChats, isCreatingChat, editingChatId, editingTitle, setEditingTitle, isChatListExpanded,
     setIsChatListExpanded, visibleChats, hasHiddenChats, loadChats, createNewChat, startEditingChat,
     cancelEditingChat, saveEditedTitle, performDeleteChat, ensureActiveChatId,

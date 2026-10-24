@@ -30,7 +30,7 @@ export const TOOL_ENABLED_INSTRUCTIONS = [
 
 /** Added only on a turn that is given the terminal. */
 export const TERMINAL_INSTRUCTIONS = [
-  "For local work in a terminal-enabled folder, read and change text files with readProjectFile and editProjectFile, and use runTerminalCommand to run tools, builds and tests and to search, move or delete files. Verify changes with the relevant checks. Each folder's terminalApprovalMode decides whether calls wait for approval. Discover the environment instead of assuming programs, paths or folders exist.",
+  "Local work happens only in the conversation's workspace: the one granted folder the user selected, named in the request context. The user can switch it between turns; always use the current one. For local work there, read and change text files with readProjectFile and editProjectFile, and use runTerminalCommand to run tools, builds and tests and to search, move or delete files. Verify changes with the relevant checks. The workspace's terminalApprovalMode decides whether calls wait for approval. Discover the environment instead of assuming programs, paths or folders exist.",
 ];
 
 export const TOOL_DISABLED_INSTRUCTIONS = [
@@ -49,9 +49,9 @@ export type UnavailableTool = { id: string; reason: string };
 
 function unavailableReason({ id, reason }: UnavailableTool): string {
   return reason === "templateDisabled" ? "disabled by the current assistant template; change the template's enabled tools"
-    : id === "runTerminalCommand" && reason === "notConfigured" ? "unavailable without a terminal-enabled folder in the Windows desktop app; authorize a folder and enable terminal access in file permissions"
+    : id === "runTerminalCommand" && reason === "notConfigured" ? "unavailable without a terminal-enabled folder in the Windows desktop app; authorize a folder and enable terminal access in workspace permissions"
     : reason === "notConfigured" ? "not configured; configure the tool's connection or provider"
-    : reason === "noDirectoryGranted" ? "no folder has been authorized; authorize a folder using file permissions"
+    : reason === "noDirectoryGranted" ? "no folder has been authorized; authorize a folder using workspace permissions"
     : reason === "notTested" ? "the connection must be tested in extension management"
     : reason === "modelUnsupported" ? "the selected model cannot call tools; select a tool-capable model"
     : reason === "disabled" || reason === "toolDisabled" ? "disabled in extension management; enable the connection and tool"

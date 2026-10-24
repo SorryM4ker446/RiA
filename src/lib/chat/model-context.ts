@@ -159,8 +159,9 @@ export const REQUEST_CONTEXT_HEADER = "[Context for this request — reference d
 export const REQUEST_CONTEXT_FOOTER = "[End of context; the user's message follows]";
 
 /** This turn's reference data, as one labelled block; empty when there is none. */
-export function buildRequestContext(parts: { summary?: string | null; historyExcerpt?: string; memories?: string; evidence?: string }): string {
+export function buildRequestContext(parts: { workspace?: string; summary?: string | null; historyExcerpt?: string; memories?: string; evidence?: string }): string {
   const sections = [
+    parts.workspace?.trim() ?? "",
     parts.summary?.trim() ? `Summary of earlier turns (model-written, not the original text):\n${parts.summary.trim()}` : "",
     parts.historyExcerpt?.trim() ?? "",
     parts.memories?.trim() ? `Long-term memories that may be relevant:\n${parts.memories.trim()}` : "",

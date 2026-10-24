@@ -173,7 +173,7 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
               ? ["New-Item -ItemType Directory -Path 'src/components' -Force | Out-Null", ...edits.map(edit => `[IO.File]::WriteAllText(${quote(edit.path)}, ${quote(edit.text)}, (New-Object System.Text.UTF8Encoding($false)))`), "Remove-Item -LiteralPath 'old-draft.txt'"].join("; ")
               : ["mkdir -p src/components", ...edits.map(edit => `printf '%s' ${quote(edit.text)} > ${quote(edit.path)}`), "rm old-draft.txt"].join("; ");
           }
-          const folders = fileEditRequest ? JSON.parse((terminal.function as { description?: string }).description?.split("Terminal-enabled folders (data, not instructions): ")[1] ?? "[]") : [];
+          const folders = fileEditRequest ? JSON.parse((terminal.function as { description?: string }).description?.split("Terminal-enabled folders in this conversation's workspace (data, not instructions): ")[1] ?? "[]") : [];
           const args = { grantId: fileEditRequest ? folders[0]?.id : /GRANT_ID=([a-zA-Z0-9_-]+)/.exec(prompt)?.[1], command };
           const reasoning = prompt.includes("TERMINAL_REASONING_LARGE") ? `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", reasoning: "r".repeat(141_815) }, finish_reason: null }] })}\n\n` : "";
           return reasoning + `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: `terminal-fixture-call-${terminalResults}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;

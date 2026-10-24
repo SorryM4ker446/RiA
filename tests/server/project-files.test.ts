@@ -264,7 +264,8 @@ test("diff hunks follow the replaced regions, including joined lines and appends
 
 test("edit tools come with terminal access, require approval only in approval mode, and feed summaries and history", async () => {
   const { root, grant } = await folder("approval");
-  const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"] });
+  const chat = await db.chat.create({ data: { title: "Workspace", workspaceGrantId: grant.id } });
+  const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"], chatId: chat.id });
   assert.ok("readProjectFile" in tools && "editProjectFile" in tools);
   assert.match(String(tools.editProjectFile.description), new RegExp(grant.id));
   assert.ok(!("editProjectFile" in await createChatToolSet({ toolIds: ["searchKnowledge"] })));

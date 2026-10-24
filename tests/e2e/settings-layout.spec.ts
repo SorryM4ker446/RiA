@@ -159,7 +159,7 @@ for (const theme of ["dark", "light"] as const) {
     expect((await browserData(page, "/api/schedules"))[0]).toMatchObject({ enabled: true, useModel: false, interval: "weekly", dayOfWeek: 1, timeZone: "UTC", nextRunAt: jobs[0].nextRunAt });
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 });
-      for (const tab of ["服务与模型", "应用偏好", "自动化与通知", "文件权限"]) {
+      for (const tab of ["服务与模型", "应用偏好", "自动化与通知", "工作区权限"]) {
         await page.getByRole("tab", { name: tab, exact: true }).click();
         await expect(page.getByRole("tab", { name: tab, exact: true })).toHaveAttribute("aria-selected", "true");
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

@@ -25,6 +25,8 @@ const { contextBudget, estimateContextTokens, MIN_CALIBRATION } = await import("
 const { CALIBRATION_SAMPLES, contextCalibration, recordContextCalibration } = await import("@/lib/models/context-calibration");
 const { getModelPreferences, saveModelPreferences } = await import("@/lib/models/preferences");
 const roots: string[] = [];
+// Folder tools act only in the conversation's chosen workspace.
+const workspaceChat = async (grantId: string) => (await db.chat.create({ data: { title: "Workspace", workspaceGrantId: grantId } })).id;
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {}); t.mock.method(console, "info", () => {});
   resetProviderState(); globalThis.__riaRateLimitStore?.clear();
@@ -98,7 +100,7 @@ test("a multi-file code task compacts real terminal failures and passes tests be
     } }) };
   });
   const goal = ui("project-goal", "user", "Fix add(a,b) in this project. Preserve the public API and run the real tests.");
-  const response = await route.POST(request({ messages: [goal] }));
+  const response = await route.POST(request({ chatId: await workspaceChat(grant.id), messages: [goal] }));
   assert.equal(response.status, 200);
   const wire = await response.text();
   assert.match(wire, /Tests: 2 passed/);
@@ -227,7 +229,7 @@ test("context exhaustion after a real command closes the run and preserves its c
       controller.close();
     } }) };
   });
-  const response = await route.POST(request({ messages: [ui("large-output-user", "user", "Run the command once and report the tests.")] }));
+  const response = await route.POST(request({ chatId: await workspaceChat(grant.id), messages: [ui("large-output-user", "user", "Run the command once and report the tests.")] }));
   assert.equal(response.status, 200);
   const wire = await response.text(); assert.match(wire, /CONTEXT_LIMIT/); assert.doesNotMatch(wire, /Invalid request body/);
   assert.equal(calls, 1, "no over-budget model step was submitted");
@@ -263,7 +265,7 @@ async function calibrationRun(t: TestContext, contextLength: number, reportedFir
       controller.close();
     } }) };
   });
-  const response = await route.POST(request({ messages: [ui("calibration-user", "user", "Run the command once and report the tests.")] }));
+  const response = await route.POST(request({ chatId: await workspaceChat(grant.id), messages: [ui("calibration-user", "user", "Run the command once and report the tests.")] }));
   assert.equal(response.status, 200);
   const wire = await response.text();
   const run = await db.agentRun.findFirstOrThrow({ orderBy: { startedAt: "desc" } });
@@ -328,7 +330,7 @@ test("a request that uses up its compaction calls keeps labelled excerpts, compl
       controller.close();
     } }) };
   });
-  const response = await route.POST(request({ messages: [ui("allowance-user", "user", "Run the six steps.")] }));
+  const response = await route.POST(request({ chatId: await workspaceChat(grant.id), messages: [ui("allowance-user", "user", "Run the six steps.")] }));
   assert.equal(response.status, 200); assert.match(await response.text(), /All steps done/);
   assert.equal(summaries, 1, "no summary call beyond the allowance");
   assert.equal(readFileSync(join(root, "steps.txt"), "utf8"), "xxxxxx");

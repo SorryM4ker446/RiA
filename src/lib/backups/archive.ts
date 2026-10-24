@@ -102,7 +102,7 @@ export async function createAccountBackup(prune = true) {
   const activityCoverage = activityState ? { recordingStartedAt: activityState.recordingStartedAt, completeSince: activityState.completeSince } : null;
   // Semantic vectors are regenerable and can dwarf the portable text archive.
   // Restore retains lexical retrieval and asks for explicit semantic rebuilding.
-  const manifest = backupManifestSchema.parse(JSON.parse(JSON.stringify({ format: BACKUP_FORMAT, version: 1, createdAt: new Date().toISOString(), chats: chats.map(chat => ({ ...chat, messages: chat.messages.map(message => ({ ...message, content: portableContent(message.content) })) })), memories, tasks, documents, assets: media, preferences, usage, events, activityCoverage, reviews, assistantTemplates, topics, artifacts })));
+  const manifest = backupManifestSchema.parse(JSON.parse(JSON.stringify({ format: BACKUP_FORMAT, version: 1, createdAt: new Date().toISOString(), chats: chats.map(({ workspaceGrantId: _workspace, ...chat }) => ({ ...chat, messages: chat.messages.map(message => ({ ...message, content: portableContent(message.content) })) })), memories, tasks, documents, assets: media, preferences, usage, events, activityCoverage, reviews, assistantTemplates, topics, artifacts })));
   const json = Buffer.from(JSON.stringify(manifest));
   if (json.length > BACKUP_LIMITS.manifest || 44 + json.length + assets.reduce((sum, asset) => sum + asset.byteSize, 0) > BACKUP_LIMITS.bytes) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.backups.contentTooLarge") });
   const id = randomUUID(), temporary = await backupFile(id, "partial");

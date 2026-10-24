@@ -35,6 +35,8 @@ async function folder(enabled = true) {
   if (enabled) await setTerminalPermission(grant.id, true, grant.updatedAt);
   return (await listGrants()).find(row => row.id === grant.id)!;
 }
+// Folder tools act only in the conversation's chosen workspace.
+const workspaceChat = async (grantId: string) => (await db.chat.create({ data: { title: "Workspace", workspaceGrantId: grantId } })).id;
 const echo = win ? "[Console]::WriteLine('ready')" : "printf 'ready\\n'";
 const long = win ? `${echo}; Start-Sleep -Seconds 30` : `${echo}; sleep 30`;
 async function prepared(grantId: string, command = echo, timeoutSeconds = 20) {
@@ -100,7 +102,7 @@ test("permission updates are authenticated, strict and versioned; a tool cannot 
   assert.equal((await permissionRoute.PATCH(request(url, "PATCH", { terminalEnabled: true, revision: grant.updatedAt }), ctx(grant.id))).status, 200);
   assert.equal((await permissionRoute.PATCH(request(url, "PATCH", { terminalEnabled: false, revision: grant.updatedAt }), ctx(grant.id))).status, 409);
   assert.equal((await manualRoute.POST(request("/api/tools/run", "POST", { tool: "runTerminalCommand", mode: "chat", input: { grantId: grant.id, command: echo } }))).status, 400);
-  const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"] });
+  const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"], chatId: await workspaceChat(grant.id) });
   const schema = await asSchema(tools.runTerminalCommand.inputSchema).jsonSchema;
   assert.equal((schema.properties as Record<string, unknown>).timeoutSeconds, undefined);
   assert.ok(tools.runTerminalCommand);
@@ -115,7 +117,8 @@ test("terminal approval follows each folder's current mode and changing modes in
   const old = await prepared(full.id);
   const url = `/api/directory-grants/${full.id}`;
   assert.equal((await permissionRoute.PATCH(request(url, "PATCH", { terminalEnabled: true, terminalApprovalMode: "full-access", revision: full.updatedAt }), ctx(full.id))).status, 200);
-  const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"] });
+  const chatId = await workspaceChat(approval.id);
+  const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"], chatId });
   const needsApproval = tools.runTerminalCommand.needsApproval;
   assert.equal(typeof needsApproval, "function");
   if (typeof needsApproval !== "function") assert.fail("Missing approval decision");
@@ -123,6 +126,8 @@ test("terminal approval follows each folder's current mode and changing modes in
   const first = { grantId: approval.id, command: echo };
   assert.equal(await decision(first), true);
   assert.equal(await decision({ grantId: approval.id, command: echo }), true);
+  // Switching the workspace between turns applies to a tool set built before it.
+  await db.chat.update({ where: { id: chatId }, data: { workspaceGrantId: full.id } });
   const automatic = { grantId: full.id, command: echo };
   assert.equal(await decision(automatic), false);
   assert.ok("binding" in automatic);
@@ -150,7 +155,7 @@ test("scripts exceeding the former input and Windows environment limits execute 
   const command = win
     ? `[IO.File]::WriteAllText('long-input.txt', '${payload}', (New-Object System.Text.UTF8Encoding($false))); [Console]::WriteLine('tail-你好')`
     : `printf '%s' '${payload}' > long-input.txt; printf 'tail-你好'`;
-  const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"] });
+  const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"], chatId: await workspaceChat(grant.id) });
   const validated = await asSchema(tools.runTerminalCommand.inputSchema).validate!({ grantId: grant.id, command });
   assert.equal(validated.success, true);
   if (!validated.success) assert.fail("Long input rejected");
@@ -167,7 +172,7 @@ test("tool results omit the script while the exact command remains in its input 
   const grant = await folder();
   const command = "# 长脚本🙂\n".repeat(180_000) + echo;
   assert.ok(Buffer.byteLength(command) > 2 * 1024 * 1024);
-  const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"] });
+  const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"], chatId: await workspaceChat(grant.id) });
   const input = await prepared(grant.id, command);
   const output = await tools.runTerminalCommand.execute!(input, { toolCallId: "result-without-script", messages: [] });
   const session = await getTerminalSession(input.binding!.sessionId);
@@ -291,7 +296,7 @@ test("terminal approval inputs are immutable and cannot be claimed twice", async
   const grant = await folder();
   const input = await prepared(grant.id);
   assert.deepEqual(await bindTerminalApproval(input), input);
-  const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"] });
+  const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"], chatId: await workspaceChat(grant.id) });
   const schema = asSchema(tools.runTerminalCommand.inputSchema);
   const revalidated = await schema.validate!(input);
   assert.equal(revalidated.success, true);
@@ -309,7 +314,7 @@ test("cancelling an execution record stops its terminal command and keeps the st
   const grant = await folder();
   const input = await prepared(grant.id, long);
   const run = await startRun({ chatId: null, goal: "Terminal cancellation" });
-  const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"], runId: run.id });
+  const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"], chatId: await workspaceChat(grant.id), runId: run.id });
   const pending = tools.runTerminalCommand.execute!(input, {} as never);
   try {
     await eventually(() => { try { return getTerminalSession(input.binding.sessionId).stdout.includes("ready"); } catch { return false; } });
@@ -353,13 +358,14 @@ test("the general terminal replaces separate file tools and advertises only curr
     assert.equal(catalog.some(tool => tool.id === id), false);
     assert.equal(getToolDescriptor(id), null);
   }
-  const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"] });
+  const chatId = await workspaceChat(grant.id);
+  const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"], chatId });
   assert.equal(typeof getToolDescriptor("runTerminalCommand")?.requiresApproval, "function");
   assert.equal(typeof tools.runTerminalCommand.needsApproval, "function");
   assert.match(tools.runTerminalCommand.description!, /edit or overwrite existing files/);
   assert.ok(tools.runTerminalCommand.description!.includes(JSON.stringify(grant.realPath)));
   await revokeGrant(grant.id);
-  assert.ok(!(await createChatToolSet({ toolIds: ["runTerminalCommand"] })).runTerminalCommand?.description?.includes(grant.id));
+  assert.ok(!(await createChatToolSet({ toolIds: ["runTerminalCommand"], chatId })).runTerminalCommand?.description?.includes(grant.id));
 });
 
 test("approved PowerShell can create, read, edit, search, copy, move, rename and delete source files", { skip: !win }, async () => {

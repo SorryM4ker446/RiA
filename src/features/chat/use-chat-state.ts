@@ -54,6 +54,7 @@ export function useChatState() {
     cancelEditingChat, saveEditedTitle, performDeleteChat, ensureActiveChatId,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, toggleEphemeral, isEphemeralSaving,
     documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
+    setWorkspace, isWorkspaceSaving,
   } = useConversations({ activeChatId, setActiveChatId, preferences: { modelMode, selectedChatModel: preferredChatModel, selectedImageModel, selectedVideoModel }, applyChatPreferences, resetConversation, persistCurrentStreamingAssistantIfNeeded, setPageError });
   const isConversationReady = !isLoadingPreferences && (activeChatId !== null || !isLoadingChats);
   const selectedChatModel = activeChat?.assistantConfig?.model ?? preferredChatModel;
@@ -512,7 +513,8 @@ export function useChatState() {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isPending || isDocumentScopeSaving || !isConversationReady) return;
+    // A send waits for a workspace switch, so the turn uses the folder the picker shows.
+    if (isPending || isDocumentScopeSaving || isWorkspaceSaving || !isConversationReady) return;
     if (modelMode === "chat" && selectedManualToolConfig) {
       const isDocumentTool = ["readDocument", "convertDocument"].includes(selectedManualToolConfig.id);
       const content = isDocumentTool ? selectedToolDocument?.id ?? "" : input.trim();
@@ -692,6 +694,7 @@ export function useChatState() {
   }, [pendingDelete, isDeleting, isPending, onStop]);
   return {
     toggleEphemeral, isEphemeralSaving, documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
+    setWorkspace, isWorkspaceSaving, loadChats,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages,
     isLoadingChats, isCreatingChat, createNewChat, chats, visibleChats, activeChatId, editingChatId, setEditingTitle,
     editingTitle, saveEditedTitle, cancelEditingChat, switchActiveChat, startEditingChat,
