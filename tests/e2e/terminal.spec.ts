@@ -90,6 +90,15 @@ async function ask(page: Page, app: App, grantId: string, stop = false) {
   return chat;
 }
 
+// A stopped call folds once it settles; its summary says it was stopped, and expanding it shows the badge.
+async function expectStopped(page: Page) {
+  const call = page.locator("details.execution-disclosure").filter({ has: page.getByLabel("终端输出", { exact: true }) });
+  await expect(call.locator("summary")).toContainText("已停止");
+  await expect(call).not.toHaveAttribute("open");
+  await call.locator("summary").click();
+  await expect(call.getByText("已停止", { exact: true })).toBeVisible();
+}
+
 function trackChatRequestBytes(page: Page) {
   const sizes: number[] = [];
   page.on("request", request => {
@@ -192,7 +201,7 @@ test("full access executes without approval, keeps live output and stop controls
   await expect(page.getByRole("region", { name: "操作审批", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "停止命令", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "停止命令", exact: true }).click();
-  await expect(page.getByText("已停止", { exact: true })).toBeVisible();
+  await expectStopped(page);
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
   await page.getByRole("dialog", { name: "执行记录", exact: true }).getByRole("button", { name: "关闭", exact: true }).click();
   await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
@@ -394,12 +403,7 @@ test("rejection executes nothing and a long command exposes live output and can 
   await expect(page.getByRole("button", { name: "停止命令", exact: true })).toBeVisible();
   await page.screenshot({ path: join(tmpdir(), "ria-terminal-running.png"), animations: "disabled" });
   await page.getByRole("button", { name: "停止命令", exact: true }).click();
-  // The settled call folds, and its summary says it was stopped rather than finished.
-  const call = page.locator("details.execution-disclosure").filter({ has: page.getByLabel("终端输出", { exact: true }) });
-  await expect(call.locator("summary")).toContainText("已停止");
-  await expect(call).not.toHaveAttribute("open");
-  await call.locator("summary").click();
-  await expect(call.getByText("已停止", { exact: true })).toBeVisible();
+  await expectStopped(page);
   await expect(page.getByRole("button", { name: "停止命令", exact: true })).toHaveCount(0);
   await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes('"status":"stopped"'))).toBe(true);
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");

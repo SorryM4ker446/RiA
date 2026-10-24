@@ -56,8 +56,9 @@ export function useChatState() {
     documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
     setWorkspace, isWorkspaceSaving, restoringChatId, isRestoringChat,
   } = useConversations({ activeChatId, setActiveChatId, preferences: { modelMode, selectedChatModel: preferredChatModel, selectedImageModel, selectedVideoModel }, applyChatPreferences, resetConversation, persistCurrentStreamingAssistantIfNeeded, setPageError });
-  // A remembered conversation the list has not confirmed yet is not one to send to.
-  const isConversationReady = !isLoadingPreferences && restoringChatId === null && (activeChatId !== null || !isLoadingChats);
+  // A remembered conversation the list has not confirmed yet is not one to send to,
+  // and a send waits for a workspace switch so the turn uses the folder the picker shows.
+  const isConversationReady = !isLoadingPreferences && restoringChatId === null && !isWorkspaceSaving && (activeChatId !== null || !isLoadingChats);
   // The open conversation once it is known to exist: what history-bound panels may show.
   const confirmedChatId = restoringChatId === null ? activeChatId : null;
   const selectedChatModel = activeChat?.assistantConfig?.model ?? preferredChatModel;
@@ -527,8 +528,7 @@ export function useChatState() {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    // A send waits for a workspace switch, so the turn uses the folder the picker shows.
-    if (isPending || isDocumentScopeSaving || isWorkspaceSaving || !isConversationReady) return;
+    if (isPending || isDocumentScopeSaving || !isConversationReady) return;
     if (modelMode === "chat" && selectedManualToolConfig) {
       const isDocumentTool = ["readDocument", "convertDocument"].includes(selectedManualToolConfig.id);
       const content = isDocumentTool ? selectedToolDocument?.id ?? "" : input.trim();
