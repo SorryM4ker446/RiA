@@ -251,16 +251,24 @@ test("a cut-off tool call is never continued and continuations are bounded", asy
   assert.equal(parts.at(-1)!.finishReason!.unified, "length", "a still-incomplete answer keeps its length finish");
 });
 
-test("transient failures are retried after Retry-After, other failures and unattended calls are not", async () => {
+test("transient failures are retried after Retry-After, other failures and unattended calls are not", async t => {
+  // The waits between attempts are what Retry-After decides, so those are what is
+  // checked: the call's total time also covers recording each attempt, which a
+  // busy machine can stretch past any fixed budget.
+  const waits: number[] = [];
+  const schedule = globalThis.setTimeout;
+  t.mock.method(globalThis, "setTimeout", ((handler: () => void, ms?: number, ...args: unknown[]) => {
+    if (new Error().stack?.includes("waitForRetry")) waits.push(ms ?? 0);
+    return schedule(handler, ms, ...args);
+  }) as typeof setTimeout);
   let calls = 0;
   const rateLimited = new MockLanguageModelV3({ doGenerate: async () => {
     if (calls++ < 2) throw Object.assign(new Error("rate limited"), { statusCode: 429, responseHeaders: { "Retry-After": "0" } });
     return { content: [{ type: "text", text: "ok" }], finishReason: { unified: "stop", raw: "stop" }, usage: usage(1, 1), warnings: [] };
   } });
   const chat = withModelCallSource("chat", () => observeLanguageModel(rateLimited, CHAT_MODEL_REF, () => rateLimited));
-  const started = Date.now();
   await chat.doGenerate({ prompt: userPrompt });
-  assert.equal(calls, 3); assert.ok(Date.now() - started < 1000, "Retry-After: 0 is honoured instead of the backoff");
+  assert.equal(calls, 3); assert.deepEqual(waits, [0, 0], "Retry-After: 0 is honoured instead of the backoff");
   assert.deepEqual((await db.modelRequest.findMany({ orderBy: { createdAt: "asc" } })).map(row => row.status), ["error", "error", "success"]);
 
   calls = 0;
@@ -274,6 +282,7 @@ test("transient failures are retried after Retry-After, other failures and unatt
   assert.equal(calls, 1, "background attempts each spend the daily allowance");
 
   const { retryDelay, MAX_RETRY_DELAY_MS } = await import("@/lib/models/model-retry");
+  assert.deepEqual([0, 1].map(retries => retryDelay(Object.assign(new Error("slow down"), { statusCode: 429 }), retries)), [500, 1000], "without Retry-After the backoff grows");
   assert.equal(retryDelay(Object.assign(new Error("slow down"), { statusCode: 429, responseHeaders: { "retry-after": String(MAX_RETRY_DELAY_MS / 1000 + 1) } }), 0), null, "a longer requested wait is not held");
   assert.equal(retryDelay(Object.assign(new Error("missing"), { statusCode: 404 }), 0), null);
   assert.equal(retryDelay(Object.assign(new Error("down"), { statusCode: 503 }), 2), null, "retries are bounded");
