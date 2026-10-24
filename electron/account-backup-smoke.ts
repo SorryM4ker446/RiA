@@ -57,9 +57,21 @@ export async function verifyAccountBackupSmoke(window: BrowserWindow, origin: st
     window.webContents.session.on("will-download", listener);
   });
   try {
-    await Promise.all([download, window.webContents.executeJavaScript(`(() => {
-      const button = [...document.querySelectorAll('button')].find(button => button.textContent === '下载备份' && !button.disabled);
-      if (!button) throw new Error('Desktop backup download unavailable'); button.click();
+    // Downloading is in the backup row's actions menu, opened the way a keyboard user would.
+    await Promise.all([download, window.webContents.executeJavaScript(`(async () => {
+      const deadline = Date.now() + 10000;
+      let opened = false;
+      while (Date.now() < deadline) {
+        const item = [...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent.trim() === '下载备份' && item.getAttribute('aria-disabled') !== 'true');
+        if (item) { item.click(); return; }
+        const trigger = document.querySelector(${JSON.stringify(`article[aria-label="备份 ${id}"] .item-row-action`)});
+        if (!opened && trigger && !trigger.disabled) {
+          trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+          opened = true;
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      throw new Error('Desktop backup download unavailable');
     })()`)]);
     if (readFileSync(destination).subarray(0, 8).toString() !== "RIAB0001") throw new Error("Desktop backup download is invalid");
   } finally { clearTimeout(timer); window.webContents.session.removeListener("will-download", listener); }

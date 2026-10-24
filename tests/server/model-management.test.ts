@@ -224,7 +224,7 @@ test("usage cost distinguishes provider values, configured estimates and unknown
 // contract also asks for a per-token usage breakdown that no assertion here
 // inspects, so the fixture parts are asserted to it at the stream boundary.
 type StreamPartFixture = Record<string, any>;
-const finish={type:"finish",finishReason:{unified:"stop",raw:undefined},usage:{inputTokens:{total:10},outputTokens:{total:3}}};
+const finish={type:"finish",finishReason:{unified:"stop" as const,raw:undefined},usage:{inputTokens:{total:10,noCache:undefined,cacheRead:undefined,cacheWrite:undefined},outputTokens:{total:3,text:undefined,reasoning:undefined}}};
 async function languageCall(chunks?:StreamPartFixture[],{tools,abort,status=503}:{tools?:boolean;abort?:boolean;status?:number}={}) {
   let backupCalls=0;
   const backup=new MockLanguageModelV3({doStream:async()=>{backupCalls++;return {stream:new ReadableStream({start(controller){for(const part of [{type:"stream-start",warnings:[]},{type:"text-start",id:"b"},{type:"text-delta",id:"b",delta:"Backup answer"},{type:"text-end",id:"b"},finish]) controller.enqueue(part as LanguageModelV3StreamPart);controller.close();}})};}});
@@ -290,7 +290,7 @@ const streamOnce=async(model:ReturnType<typeof observeLanguageModel>)=>{const re
 test("one-shot calls such as summaries and reviews fall back like streamed chat",async()=>{
   const settings=await getModelPreferences();settings.chat.fallback=ref("google/gemini-3-flash-preview");await saveModelPreferences(settings);
   const primary={calls:0},backup={calls:0};
-  const result=await inRequest(()=>observeLanguageModel(failing(primary),chatModelRef,()=>answering(backup)).doGenerate({prompt:[{role:"user",content:[{type:"text",text:"Summarize"}]}]}));
+  const result=await inRequest(async()=>observeLanguageModel(failing(primary),chatModelRef,()=>answering(backup)).doGenerate({prompt:[{role:"user",content:[{type:"text",text:"Summarize"}]}]}));
   assert.deepEqual(result.content,[{type:"text",text:"Answer"}]);
   assert.equal(primary.calls,3);assert.equal(backup.calls,1);
   const recorded=await usageSummary();assert.equal(recorded.recent.filter(row=>row.fallback).length,1);
