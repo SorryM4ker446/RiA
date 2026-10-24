@@ -28,6 +28,8 @@ async function propose(page: Page, app: App) {
   const grant = (await browserApi(page, "/api/directory-grants", "POST", { path: app.folder })).body.data;
   expect((await browserApi(page, `/api/directory-grants/${grant.id}`, "PATCH", { terminalEnabled: true, terminalApprovalMode: "approval", revision: grant.updatedAt })).status).toBe(200);
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "文件编辑" })).body.data;
+  // File edits act only in the folder chosen as this conversation's workspace.
+  expect((await browserApi(page, `/api/conversations/${chat.id}`, "PATCH", { workspaceGrantId: grant.id })).status).toBe(200);
   await page.evaluate(id => localStorage.setItem("chat:last-active-id", id), chat.id);
   await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
   await page.getByPlaceholder(/输入你的问题/).fill(`OFFLINE_PROJECT_EDIT GRANT_ID=${grant.id}`);

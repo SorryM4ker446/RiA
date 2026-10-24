@@ -17,6 +17,7 @@ export type ChatSummary = {
   archived?: boolean;
   ephemeral?: boolean;
   documentScope?: string;
+  workspaceGrantId?: string | null;
   assistantConfig?: AssistantSnapshot | null;
   tags?: string[];
 };

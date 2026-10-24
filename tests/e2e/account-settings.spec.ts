@@ -156,13 +156,11 @@ test("configured chat fallback runs through the real provider adapter and persis
   for (const modelId of ["anthropic/claude-opus-4.6", "google/gemini-3-flash-preview"]) {
     await expect(library.locator("li").filter({ hasText: modelId })).toContainText("可用");
   }
+  // The fallback takes over a conversation with every tool attached: the general assistant.
   await page.goto(`${app.origin}/chat`);
   await expect(page.getByRole("checkbox", { name: "仅手动", exact: true })).toHaveCount(0);
-  // Fallback is limited to tool-free chat. The writing assistant supplies that
-  // policy without relying on the retired manual-only switch.
   await page.getByRole("button", { name: "创建会话", exact: true }).click();
-  await chooseOption(page.getByRole("combobox", { name: "助理模板", exact: true }), "写作助理");
-  await expect(page.getByRole("combobox", { name: "助理模板", exact: true })).toContainText("写作助理");
+  await expect(page.getByRole("combobox", { name: "助理模板", exact: true })).toContainText("通用助理");
   await page.getByPlaceholder(/输入你的问题/).fill("OFFLINE_PRIMARY_FAILURE 测试备用模型"); await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByText("离线回答：OFFLINE_PRIMARY_FAILURE 测试备用模型", { exact: true })).toBeVisible();
   await expect.poll(async () => (await browserData(page, "/api/usage")).recent.filter((row: { fallback: boolean }) => row.fallback).length).toBe(1);

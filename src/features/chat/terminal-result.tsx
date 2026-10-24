@@ -11,7 +11,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import type { TerminalCommandResult, TerminalInput, TerminalSessionView } from "@/lib/terminal/schema";
 import { CommandText } from "./command-text";
 
-const labels = (): Record<TerminalSessionView["status"], string> => ({ running: t("tools.runningPrefix"), completed: t("chat.tasks.statusDone"), failed: t("chatApi.runToolFailed"), stopped: t("ui.chat.terminal-result.stopped"), "timed-out": t("ui.chat.terminal-result.timedOut") });
+export const terminalStatusLabels = (): Record<TerminalSessionView["status"], string> => ({ running: t("tools.runningPrefix"), completed: t("chat.tasks.statusDone"), failed: t("chatApi.runToolFailed"), stopped: t("ui.chat.terminal-result.stopped"), "timed-out": t("ui.chat.terminal-result.timedOut") });
 
 export function TerminalResult({ input, output, active }: { input: unknown; output?: unknown; active: boolean }) {
   useLocale();
@@ -63,7 +63,7 @@ export function TerminalResult({ input, output, active }: { input: unknown; outp
     <div className="flex flex-wrap items-center gap-2">
       <Terminal aria-hidden="true" className="size-4 text-muted-foreground" />
       <span className="text-muted-foreground">PowerShell</span>
-      {result ? <Badge variant="outline">{labels()[result.status]}</Badge> : null}
+      {result ? <Badge variant="outline">{terminalStatusLabels()[result.status]}</Badge> : null}
       {result?.status === "running" ? <Button size="sm" variant="outline" disabled={stopping} onClick={() => void stop()}>
         {stopping ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Square data-icon="inline-start" />}{t("ui.chat.terminal-result.stopCommand")}</Button> : null}
     </div>

@@ -1,13 +1,13 @@
 # Desktop terminal tool
 
-RiA provides one general terminal tool, `runTerminalCommand`, for non-interactive Windows PowerShell commands. It replaces the separate directory-listing, file-reading and new-file tools. The model receives current authorized folder IDs and canonical paths and chooses commands for the user request. File creation, reading, editing, search, copying, moving, renaming, deletion and installed development tools are examples, not an operation allowlist.
+RiA provides one general terminal tool, `runTerminalCommand`, for non-interactive Windows PowerShell commands. It replaces the separate directory-listing, file-reading and new-file tools. The model receives the ID and canonical path of the conversation's selected workspace and chooses commands for the user request. File creation, reading, editing, search, copying, moving, renaming, deletion and installed development tools are examples, not an operation allowlist.
 It uses the same tool registry, assistant tool restrictions, approval workflow
 and execution records as other chat tools. It is unavailable in the web runtime.
 
 ## Enable and use
 
-1. Open **文件权限** to the left of **执行记录** above the chat composer (or
-   **Settings → File access**), choose
+1. Open **工作区权限** to the left of **执行记录** above the chat composer (or
+   **Settings → 工作区权限**), choose
    a working folder and explicitly grant access. Choosing a folder alone does
    not authorize it. These machine-local permissions apply across conversations.
 2. Choose **开启终端** for that folder, choose **审批** or **完全访问**, and
@@ -15,10 +15,12 @@ and execution records as other chat tools. It is unavailable in the web runtime.
    approve/reject decision for every terminal tool call. **完全访问** runs LLM
    terminal commands without per-call approval. Each call may contain a complete
    script; approval covers the whole call rather than individual script statements.
-3. In a conversation with a model that supports tools, ask for a command, for
-   example: “在已授权的项目目录运行 `Get-ChildItem`，列出文件并解释结果。”
-4. In **审批** mode, review the compact approval card above the **文件权限 / 执行记录** toolbar. Its default view shows the operation, canonical working directory and approve/reject controls. Choose **查看详情** to expand the exact command in a bounded scroll area, then **收起详情** to collapse it. Expansion follows the shared motion tokens and respects reduced motion. **执行详情** opens the corresponding execution record; full commands, inputs, outputs, status, sources and diagnostics remain there. Execution records do not open automatically. Each call needs its own decision; queued approvals are presented one at a time and each new item starts collapsed. In **完全访问** mode execution starts automatically and the same execution records remain available.
-5. Open **执行详情** to see live stdout, stderr and the exit code. Use
+3. Select the conversation's workspace with the folder picker to the left of
+   **工作区权限**. See [Conversation workspace](#conversation-workspace).
+4. In a conversation with a model that supports tools, ask for a command, for
+   example: “在工作区运行 `Get-ChildItem`，列出文件并解释结果。”
+5. In **审批** mode, review the compact approval card above the **工作区 / 工作区权限 / 执行记录** toolbar. Its default view shows the operation, canonical working directory and approve/reject controls. Choose **查看详情** to expand the exact command in a bounded scroll area, then **收起详情** to collapse it. Expansion follows the shared motion tokens and respects reduced motion. **执行详情** opens the corresponding execution record; full commands, inputs, outputs, status, sources and diagnostics remain there. Execution records do not open automatically. Each call needs its own decision; queued approvals are presented one at a time and each new item starts collapsed. In **完全访问** mode execution starts automatically and the same execution records remain available.
+6. Open **执行详情** to see live stdout, stderr and the exit code. Use
    **停止命令** to stop a long command. Stopping the chat request, cancelling its
    execution record, changing terminal mode, disabling permission or revoking the folder also
    stops the associated command.
@@ -48,6 +50,33 @@ remain in the same atomic transaction.
 
 Conversations created from templates retain their tool allowlist. Add
 **执行终端命令** to a custom template if needed. Legacy file-tool selections normalize to this tool, but no folder gains terminal permission automatically. Old approvals for retired file tools cannot execute; send a fresh request and review its terminal command.
+
+## Conversation workspace
+
+Authorizing a folder and selecting it are separate. Authorization (**工作区权限**)
+is a machine-wide standing permission; each conversation then selects at most
+one authorized folder as its workspace in the picker above the composer. The
+picker lists only active grants, marks those without terminal access and offers
+**不使用工作区**. Choosing before the first message creates the conversation that
+holds the choice. The choice is stored with the conversation
+(`PATCH /api/conversations/:id` with `workspaceGrantId`) and applies from the
+next message. It cannot change while a reply is generating, and sending waits
+for a switch in progress.
+
+The terminal and project-file tools are told only the selected workspace, never
+other granted folders. Every request also restates the current workspace to the
+model with the latest user message, noting that earlier tool calls in other
+folders are history after a switch. Without a selection the model is told no
+workspace is selected and that the user must choose one.
+
+Execution reads the conversation's workspace when each folder tool call runs. A
+call for any other folder is refused without asking for approval, and an
+approval given before a switch is refused rather than running in the previous
+folder; the model is told to retry in the current workspace. Withdrawing a grant
+clears it as the workspace of every conversation that selected it. Like grants,
+the selection is machine-local: workspace backups omit it and conversations
+restored from a backup have none. Conversations from before this change start
+without a workspace until one is selected.
 
 ## Authority and limits
 

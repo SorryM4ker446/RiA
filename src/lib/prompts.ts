@@ -9,8 +9,11 @@
  * Conversation summaries, memories and retrieved evidence travel in a labelled
  * context block with the user's message: they are data rather than rules, and
  * keeping them out of the system prompt lets providers reuse its cached prefix.
- * Each rule is stated once, positively, rather than as repeated prohibitions.
+ * Each rule is stated once, positively, rather than as repeated prohibitions,
+ * and only rules that apply to this turn are included: instructions for a tool
+ * the model was not given describe something it cannot do.
  */
+import { TERMINAL_COMPANION_TOOLS } from "@/tools/terminal-companions";
 
 export const ASSISTANT_BASE_PROMPT = [
   "You are RiA, a local-first desktop AI agent for conversation, research, writing and practical work with knowledge, tools and user-enabled plugin skills. Available capabilities depend on this request's tools and permissions.",
@@ -22,9 +25,12 @@ export const ASSISTANT_BASE_PROMPT = [
 
 export const TOOL_ENABLED_INSTRUCTIONS = [
   "Use the available tools when they help the current task: carry requested actions through, inspect results and continue dependent steps; a plan alone does not complete an action. Answer directly when no tool is needed.",
-  "Work within template tool lists, folder grants and approvals. Approval is requested by the tool call itself; adapt when an operation is rejected or fails.",
-  "For local work in a terminal-enabled folder, read and change text files with readProjectFile and editProjectFile, and use runTerminalCommand to run tools, builds and tests and to search, move or delete files. Verify changes with the relevant checks. Each folder's terminalApprovalMode decides whether calls wait for approval. Discover the environment instead of assuming programs, paths or folders exist.",
-  "Base completion claims on tool results and distinguish inference where it matters.",
+  "A tool that needs approval asks for it when called; when an operation is rejected or fails, adapt rather than repeating it unchanged.",
+];
+
+/** Added only on a turn that is given the terminal. */
+export const TERMINAL_INSTRUCTIONS = [
+  "Local work happens only in the conversation's workspace: the one granted folder the user selected, named in the request context. The user can switch it between turns; always use the current one. For local work there, read and change text files with readProjectFile and editProjectFile, and use runTerminalCommand to run tools, builds and tests and to search, move or delete files. Verify changes with the relevant checks. The workspace's terminalApprovalMode decides whether calls wait for approval. Discover the environment instead of assuming programs, paths or folders exist.",
 ];
 
 export const TOOL_DISABLED_INSTRUCTIONS = [
@@ -41,17 +47,32 @@ export const TOOL_DISABLED_INSTRUCTIONS = [
  */
 export type UnavailableTool = { id: string; reason: string };
 
-export function unavailableToolInstruction(tool: string | UnavailableTool): string[] {
-  const { id, reason } = typeof tool === "string" ? { id: tool, reason: "unavailable" } : tool;
-  const explanation = reason === "templateDisabled" ? "disabled by the current assistant template; change the template's enabled tools"
-    : id === "runTerminalCommand" && reason === "notConfigured" ? "unavailable without a terminal-enabled folder in the Windows desktop app; authorize a folder and enable terminal access in file permissions"
+function unavailableReason({ id, reason }: UnavailableTool): string {
+  return reason === "templateDisabled" ? "disabled by the current assistant template; change the template's enabled tools"
+    : id === "runTerminalCommand" && reason === "notConfigured" ? "unavailable without a terminal-enabled folder in the Windows desktop app; authorize a folder and enable terminal access in workspace permissions"
     : reason === "notConfigured" ? "not configured; configure the tool's connection or provider"
-    : reason === "noDirectoryGranted" ? "no folder has been authorized; authorize a folder using file permissions"
+    : reason === "noDirectoryGranted" ? "no folder has been authorized; authorize a folder using workspace permissions"
     : reason === "notTested" ? "the connection must be tested in extension management"
     : reason === "modelUnsupported" ? "the selected model cannot call tools; select a tool-capable model"
     : reason === "disabled" || reason === "toolDisabled" ? "disabled in extension management; enable the connection and tool"
     : "unavailable for this request";
-  return [`Capability status (internal context): ${id} is ${explanation}.`];
+}
+
+/**
+ * One line per reason, naming the tools it covers, rather than one line per
+ * tool. The terminal's companion tools share its reason, so when the terminal
+ * itself is listed they are not named again.
+ */
+export function unavailableToolLines(tools: (string | UnavailableTool)[]): string[] {
+  const statuses = tools.map(tool => typeof tool === "string" ? { id: tool, reason: "unavailable" } : tool);
+  const terminalListed = statuses.some(tool => tool.id === "runTerminalCommand");
+  const groups = new Map<string, string[]>();
+  for (const tool of statuses) {
+    if (terminalListed && TERMINAL_COMPANION_TOOLS.has(tool.id)) continue;
+    const reason = unavailableReason(tool);
+    groups.set(reason, [...(groups.get(reason) ?? []), tool.id]);
+  }
+  return [...groups].map(([reason, ids]) => `Capability status (internal context): ${ids.join(", ")} ${ids.length > 1 ? "are" : "is"} ${reason}.`);
 }
 
 export const SEARCH_ANSWER_SYSTEM =

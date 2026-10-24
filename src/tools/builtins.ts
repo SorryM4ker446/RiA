@@ -445,23 +445,10 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
         result: output,
         modelRef, signal,
       }),
-    memory: {
-      enabled: true,
-      minQuality: 0.4,
-      summarize: ({ input, output }) => {
-        const result = output as Awaited<ReturnType<typeof runWebSearch>>;
-        const count = Array.isArray(result.results) ? result.results.length : 0;
-        if (count <= 0) return null;
-
-        return {
-          seed: input.query,
-          summary: tf("tools.webSearch.memorySummary", { query: input.query, count }),
-          quality: Math.min(0.9, 0.45 + count * 0.05),
-          score: 0.6,
-          tags: ["web-search"],
-        };
-      },
-    },
+    // A search leaves nothing in the knowledge base. All a candidate could say
+    // is what was searched and how many pages came back, which would not help a
+    // later answer once accepted and only crowded the list waiting for review.
+    memory: { enabled: false, minQuality: 1, summarize: () => null },
   },
 
 };

@@ -643,6 +643,8 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .conversation-editor { animation: content-in var(--dur-fast) var(--ease-out); }
 .chat-canvas { background: hsl(var(--background)); }
 .chat-toolbar { border-color: hsl(var(--border)); }
+/* Held back, not removed: hidden controls cannot be reached, and nothing moves when they appear. */
+.chat-toolbar-actions[data-waiting] { visibility: hidden; opacity: 0; }
 .chat-transcript { scrollbar-gutter: stable both-edges; overflow-anchor: none; }
 .chat-transcript-content > :not(.chat-welcome) { width: 100%; max-width: 42rem; margin-inline: auto; }
 .message-reasoning { interpolate-size: allow-keywords; }
@@ -786,8 +788,6 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .surface-enter { animation: panel-in-up var(--dur-base) var(--ease-out); }
 .workspace-section-title { transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out); }
 .workspace-section-title[data-concealed] { opacity: 0; transform: translateY(4px); }
-/* Each workspace page fades in when you arrive on it; opacity only, so nothing shifts under the pointer. */
-.workspace-content > main { animation: content-in var(--dur-base) var(--ease-out); }
 /* Disclosures unfold their content instead of snapping it in. */
 :is(.settings-disclosure, .media-storage)[open] > :not(summary) { animation: panel-in-up var(--dur-base) var(--ease-out); }
 /* A tick lands with a small spring. */
@@ -903,7 +903,6 @@ body:has(.sheet-content[data-side="right"][data-state="open"]) .toast-stack { bo
 .settings-window-tabs { display: flex; width: auto; flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 2px; border: 0; }
 .settings-window-group { padding: 14px 10px 6px; font-size: 11.5px; letter-spacing: .02em; color: hsl(var(--muted-foreground) / .85); }
 .settings-window-group:first-child { padding-top: 6px; }
-.settings-window-nav-footer { margin-top: auto; padding: 8px 4px 0; }
 .settings-window-close { position: absolute; top: 12px; right: 12px; z-index: 1; }
 .settings-window-panel { grid-column: 2; grid-row: 1; min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; scroll-behavior: smooth; }
 /* Each section opens with a short fade; the room on the right keeps the header clear of the close button. */
@@ -916,8 +915,6 @@ body:has(.sheet-content[data-side="right"][data-state="open"]) .toast-stack { bo
   .settings-window-tabs { flex-direction: row; overflow-x: auto; scrollbar-width: none; }
   .settings-window-tabs .side-nav-item { flex-shrink: 0; white-space: nowrap; }
   .settings-window-group { display: none; }
-  /* The list runs across the top here, so the theme switch moves up beside the close button. */
-  .settings-window-nav-footer { position: absolute; top: 14px; right: 48px; margin: 0; padding: 0; }
   .settings-window-panel { grid-column: 1; grid-row: 2; }
   .settings-window-page { padding: 24px 16px 40px; }
 }
@@ -986,8 +983,20 @@ body:has(.sheet-content[data-side="right"][data-state="open"]) .toast-stack { bo
   details { interpolate-size: allow-keywords; }
   details::details-content { height: 0; opacity: 0; overflow: clip; transition: height var(--dur-base) var(--ease-out), opacity var(--dur-fast), content-visibility var(--dur-base) allow-discrete; }
   details[open]::details-content { height: auto; opacity: 1; }
-  .workspace-content > main { animation: content-in var(--dur-base) var(--ease-out); }
-  .workspace-shell, .workspace-rail, .workspace-topbar, .workspace-content, .chat-canvas, .chat-rail { transition: background-color var(--dur-base) var(--ease-out), color var(--dur-fast), border-color var(--dur-fast); }
+  /* Each workspace page fades in when you arrive on it; opacity only, so nothing shifts under the
+     pointer. Chat is left out: in the desktop app its window is see-through, and fading it in shows
+     the bare window for a moment, which reads as the startup animation playing again. */
+  .workspace-content > main:not(.chat-workspace) { animation: content-in var(--dur-base) var(--ease-out); }
+  /* Surfaces ease between themes. The shell and the content area are not among them: their
+     background also changes between chat (see-through in the desktop app) and every other page,
+     and easing that change uncovers the window behind on each move to or from chat. */
+  .workspace-rail, .workspace-topbar, .chat-canvas, .chat-rail { transition: background-color var(--dur-base) var(--ease-out), color var(--dur-fast), border-color var(--dur-fast); }
+  .workspace-shell, .workspace-content { transition: color var(--dur-fast), border-color var(--dur-fast); }
+  /* The transcript placeholder only shows once a load is slow enough to notice. Returning to chat
+     usually has the history within a few frames, and a placeholder painted for those frames and
+     then replaced reads as a flicker. It keeps its space throughout, so nothing moves either way. */
+  .chat-transcript-skeleton { animation: content-in var(--dur-base) var(--ease-out) 200ms both; }
+  .chat-toolbar-actions { transition: opacity var(--dur-base) var(--ease-out); }
   .chat-welcome > * { animation: panel-in-up var(--dur-slow) var(--ease-out) both; }
   .chat-welcome > :nth-child(2) { animation-delay: 45ms; }
   .chat-welcome > :nth-child(3) { animation-delay: 90ms; }
@@ -1035,6 +1044,8 @@ body:has(.sheet-content[data-side="right"][data-state="open"]) .toast-stack { bo
   .workspace-sidebar-body, .workspace-sidebar-header, .workspace-navigation, .workspace-nav-link { transition: none; }
   .workspace-content { scroll-behavior: auto; }
   .sheet-overlay, .sheet-content, .ui-select-content, .ui-tabs-content, .run-records > :not(summary) { animation: none; }
+  /* Without its delayed fade, the transcript placeholder still waits out a quick load, then appears at once. */
+  .chat-transcript-skeleton:not([data-late]) { visibility: hidden; }
   .home-shortcut:hover, .home-shortcut:hover .shortcut-arrow, .workspace-nav-link:active { transform: none; }
 }
 

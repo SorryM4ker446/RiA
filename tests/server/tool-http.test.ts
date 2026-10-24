@@ -107,7 +107,8 @@ test("web search sends real HTTP requests, normalizes sources and records one su
   assert.equal(payload.data.results[1].snippet.length, 500);
   assert.match(payload.assistantText, /https:\/\/example.invalid\/source/);
   assert.deepEqual(logs().map((entry) => entry.state), ["output-available"]);
-  assert.equal(await db.memory.count({ where: { key: { startsWith: "tool:webSearch:" } } }), 1);
+  // A search does not leave a knowledge candidate behind.
+  assert.equal(await db.memory.count({ where: { key: { startsWith: "tool:webSearch:" } } }), 0);
 });
 
 for (const [status, expected, code] of [[403, 503, "CONFIGURATION_ERROR"], [500, 502, "UPSTREAM_FAILED"]]) {

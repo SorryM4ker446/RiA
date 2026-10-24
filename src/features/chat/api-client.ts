@@ -16,6 +16,8 @@ class ApiClientError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
 
+export const isNotFoundError = (error: unknown) => error instanceof ApiClientError && error.status === 404;
+
 async function requestJson<T>(url: string, fallback: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, { cache: "no-store", ...options });
   const payload: unknown = await response.json().catch(() => null);
@@ -45,6 +47,7 @@ export const chatApi = {
   setAssistant: (id: string, assistantTemplateId: string | null) => requestJson<Data<ChatSummary>>(conversationPath(id), t("ui.chat.api-client.couldNotApplyAssistantTemplate"), jsonBody("PATCH", { assistantTemplateId })),
   renameConversation: (id: string, title: string) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatApi.renameConversationFailed"), jsonBody("PATCH", { title })),
   setDocumentScope: (id: string, documentScope: string[]) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatApi.setDocumentScopeFailed"), jsonBody("PATCH", { documentScope })),
+  setWorkspace: (id: string, workspaceGrantId: string | null) => requestJson<Data<ChatSummary>>(conversationPath(id), t("ui.chat.workspace.failed"), jsonBody("PATCH", { workspaceGrantId })),
   setEphemeral: (id: string, ephemeral: boolean) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatApi.setEphemeralFailed"), jsonBody("PATCH", { ephemeral })),
   deleteConversation: (id: string) => requestJson<unknown>(conversationPath(id), t("chatApi.deleteConversationFailed"), { method: "DELETE" }),
   listMessages: (id: string, cursor?: string) => requestJson<Page<StoredMessage>>(withCursor(`${conversationPath(id)}/messages`, cursor), t("chatApi.listMessagesFailed")),

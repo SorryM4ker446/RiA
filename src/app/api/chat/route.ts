@@ -26,6 +26,8 @@ import { formatAssistantInstructions } from "@/lib/assistants/schema";
 import { formatPluginSkills } from "@/lib/plugins/store";
 import { selectAutomaticEvidence } from "@/lib/documents/auto-context";
 import { CONTEXT_MEMORY_MIN_MATCH } from "@/lib/memory/retrieval";
+import { conversationWorkspace, formatWorkspaceContext } from "@/lib/local-files/workspace";
+import { db } from "@/db";
 
 async function POSTHandler(req: NextRequest) {
   try {
@@ -110,7 +112,13 @@ async function POSTHandler(req: NextRequest) {
       + formatAssistantInstructions(input.assistant) + await formatPluginSkills({ onDemand: toolsEnabled });
     // This turn's reference data travels with the user's message. Excerpts of
     // older turns are a fallback for when no summary covers them.
+    // Which folder this conversation works in is restated on every request, so
+    // a switch made between turns is what the model acts on next.
+    const workspace = toolsEnabled && (!input.assistant || input.assistant.tools.includes("runTerminalCommand"))
+      ? formatWorkspaceContext(await conversationWorkspace(conversation.chat.id), await db.directoryGrant.count({ where: { revokedAt: null } }) > 0)
+      : "";
     const requestContext = buildRequestContext({
+      workspace,
       summary: summary?.summary,
       historyExcerpt: summary ? "" : context.historyExcerpt,
       memories: formatLongTermContext(relevantMemories),

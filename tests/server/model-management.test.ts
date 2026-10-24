@@ -18,7 +18,7 @@ const {defaultModelPreferences,providerIds,upgradeModelPreferences}=await import
 const {listModelProviders,getModelProvider}=await import("@/lib/models/providers");
 const usageCostModule=await import("@/lib/models/usage");
 const {usageCost,recordModelAttempt,usageSummary}=usageCostModule;
-const {observeLanguageModel}=await import("@/lib/models/observe-language");
+const {observeLanguageModel,clearChatDegradations,DEGRADED_FOR_MS}=await import("@/lib/models/observe-language");
 const {getChatModel:resolveChatModel}=await import("@/lib/ai/client");
 // The test loader resolves `@/lib/ai/client` to the mock provider, which hands
 // back the already-seeded test model and takes no reference to look up.
@@ -40,7 +40,7 @@ const addCatalogModel=async(modelId,modes)=>{await storeSnapshot(modes[0],[catal
 let user,cookie;
 const req=(path,method="GET",body?,session=cookie,headers={})=>new NextRequest(`http://localhost${path}`,{method,headers:{cookie:session,"content-type":"application/json",...headers},...(body===undefined?{}:{body:JSON.stringify(body)})});
 const payload=async(response,status=200)=>{assert.equal(response.status,status,await response.clone().text());return response.json();};
-beforeEach(async (t: TestContext) => {t.mock.method(console,"error",()=>{});globalThis.__riaRateLimitStore?.clear();cookie = localAccessCookie();
+beforeEach(async (t: TestContext) => {t.mock.method(console,"error",()=>{});globalThis.__riaRateLimitStore?.clear();clearChatDegradations();cookie = localAccessCookie();
 await db.message.deleteMany({});
 await db.chat.deleteMany({});
 await db.memory.deleteMany({});
@@ -224,7 +224,7 @@ test("usage cost distinguishes provider values, configured estimates and unknown
 // contract also asks for a per-token usage breakdown that no assertion here
 // inspects, so the fixture parts are asserted to it at the stream boundary.
 type StreamPartFixture = Record<string, any>;
-const finish={type:"finish",finishReason:{unified:"stop",raw:undefined},usage:{inputTokens:{total:10},outputTokens:{total:3}}};
+const finish={type:"finish",finishReason:{unified:"stop" as const,raw:undefined},usage:{inputTokens:{total:10,noCache:undefined,cacheRead:undefined,cacheWrite:undefined},outputTokens:{total:3,text:undefined,reasoning:undefined}}};
 async function languageCall(chunks?:StreamPartFixture[],{tools,abort,status=503}:{tools?:boolean;abort?:boolean;status?:number}={}) {
   let backupCalls=0;
   const backup=new MockLanguageModelV3({doStream:async()=>{backupCalls++;return {stream:new ReadableStream({start(controller){for(const part of [{type:"stream-start",warnings:[]},{type:"text-start",id:"b"},{type:"text-delta",id:"b",delta:"Backup answer"},{type:"text-end",id:"b"},finish]) controller.enqueue(part as LanguageModelV3StreamPart);controller.close();}})};}});
@@ -251,12 +251,101 @@ test("chat fallback is opt-in, records both attempts and only happens before out
   // Usage is recorded against the provider-qualified pair, so the log says
   // which endpoint was actually billed rather than only what it was called.
   assert.deepEqual({modelId:backupRow.modelId,modelProvider:backupRow.modelProvider},{modelId:"google/gemini-3-flash-preview",modelProvider:"openrouter"});
+  // Outside a degradation: once output has started, a failure is reported rather than switched.
+  clearChatDegradations();
   const partial=await languageCall([{type:"text-start",id:"p"},{type:"text-delta",id:"p",delta:"Already shown"},{type:"error",error:new Error("Failure after text")}]);
   assert.equal(partial.backupCalls,0);
 });
-test("chat fallback refuses tool calls, cancellation and provider credential failures",async()=>{
+test("chat fallback refuses cancellation and provider credential failures",async()=>{
   const settings=await getModelPreferences();settings.chat.fallback=ref("google/gemini-3-flash-preview");await saveModelPreferences(settings);
-  for(const options of [{tools:true},{abort:true},{status:401},{status:403},{status:400}]) assert.equal((await languageCall(undefined,options)).backupCalls,0);
+  for(const options of [{abort:true},{status:401},{status:403},{status:400}]) assert.equal((await languageCall(undefined,options)).backupCalls,0);
+});
+
+test("chat fallback takes over a call with tools when it can call them, and not when it cannot",async()=>{
+  const settings=await getModelPreferences();settings.chat.fallback=ref("google/gemini-3-flash-preview");await saveModelPreferences(settings);
+  assert.equal((await languageCall(undefined,{tools:true})).backupCalls,1);
+  // The library is not written through preference saves, so the stored entry is changed directly.
+  const row=await db.workspacePreference.findUniqueOrThrow({where:{id:"local"}});const stored=row.settings as {library:{modelId:string;supportsTools:boolean}[]};
+  await db.workspacePreference.update({where:{id:"local"},data:{settings:{...stored,library:stored.library.map(item=>item.modelId==="google/gemini-3-flash-preview"?{...item,supportsTools:false}:item)}}});
+  assert.equal((await getModelPreferences()).library.find(item=>item.modelId==="google/gemini-3-flash-preview")?.supportsTools,false);
+  assert.equal((await languageCall(undefined,{tools:true})).backupCalls,0);
+});
+
+const failing=(counter:{calls:number})=>new MockLanguageModelV3({
+  doStream:async()=>{counter.calls++;return {stream:new ReadableStream({start(controller){controller.enqueue({type:"stream-start",warnings:[]} as LanguageModelV3StreamPart);controller.enqueue({type:"error",error:Object.assign(new Error("synthetic outage"),{statusCode:503})} as LanguageModelV3StreamPart);controller.close();}})};},
+  doGenerate:async()=>{counter.calls++;throw Object.assign(new Error("synthetic outage"),{statusCode:503});},
+});
+const answering=(counter:{calls:number})=>new MockLanguageModelV3({
+  doStream:async()=>{counter.calls++;return {stream:new ReadableStream({start(controller){for(const part of [{type:"stream-start",warnings:[]},{type:"text-start",id:"b"},{type:"text-delta",id:"b",delta:"Answer"},{type:"text-end",id:"b"},finish]) controller.enqueue(part as LanguageModelV3StreamPart);controller.close();}})};},
+  doGenerate:async()=>{counter.calls++;return {content:[{type:"text",text:"Answer"}],finishReason:finish.finishReason,usage:finish.usage,warnings:[]};},
+});
+async function inRequest<T>(work:()=>Promise<T>){
+  let value!:T;
+  const endpoint=protectDataOperation(async request=>{await requireLocalWorkspace(request);value=await work();return Response.json({ok:true});});
+  assert.equal((await endpoint(req("/api/chat","POST",{}))).status,200);
+  return value;
+}
+const streamOnce=async(model:ReturnType<typeof observeLanguageModel>)=>{const result=await model.doStream({prompt:[{role:"user",content:[{type:"text",text:"Hello"}]}]});for await(const _part of result.stream);};
+
+test("one-shot calls such as summaries and reviews fall back like streamed chat",async()=>{
+  const settings=await getModelPreferences();settings.chat.fallback=ref("google/gemini-3-flash-preview");await saveModelPreferences(settings);
+  const primary={calls:0},backup={calls:0};
+  const result=await inRequest(async()=>observeLanguageModel(failing(primary),chatModelRef,()=>answering(backup)).doGenerate({prompt:[{role:"user",content:[{type:"text",text:"Summarize"}]}]}));
+  assert.deepEqual(result.content,[{type:"text",text:"Answer"}]);
+  assert.equal(primary.calls,3);assert.equal(backup.calls,1);
+  const recorded=await usageSummary();assert.equal(recorded.recent.filter(row=>row.fallback).length,1);
+});
+
+test("a failed model stays degraded across requests until its window ends or it answers again",async t=>{
+  const settings=await getModelPreferences();settings.chat.fallback=ref("google/gemini-3-flash-preview");await saveModelPreferences(settings);
+  const primary={calls:0},backup={calls:0};
+  await inRequest(()=>streamOnce(observeLanguageModel(failing(primary),chatModelRef,()=>answering(backup))));
+  assert.deepEqual([primary.calls,backup.calls],[3,1]);
+  // The next request goes to the fallback first and does not wait on the failed model.
+  const switched:unknown[]=[];
+  await inRequest(()=>streamOnce(observeLanguageModel(failing(primary),chatModelRef,()=>answering(backup),{onSwitch:async to=>{switched.push(to);return undefined;}})));
+  assert.deepEqual([primary.calls,backup.calls],[3,2]);
+  assert.deepEqual(switched,[ref("google/gemini-3-flash-preview")]);
+  // If the fallback fails during the window, the selected model is still tried, and the caller re-plans back to it.
+  const healthy={calls:0},broken={calls:0};const back:unknown[]=[];
+  await inRequest(()=>streamOnce(observeLanguageModel(answering(healthy),chatModelRef,()=>failing(broken),{onSwitch:async to=>{back.push(to);return undefined;}})));
+  assert.equal(broken.calls,3);assert.equal(healthy.calls,1);
+  assert.deepEqual(back,[ref("google/gemini-3-flash-preview"),chatModelRef]);
+  // It answered, so the degradation is over: the next request tries it first.
+  await inRequest(()=>streamOnce(observeLanguageModel(answering(healthy),chatModelRef,()=>answering(backup))));
+  assert.equal(healthy.calls,2);assert.equal(backup.calls,2);
+  // A degradation that is never cleared by a success ends with its window.
+  await inRequest(()=>streamOnce(observeLanguageModel(failing(primary),chatModelRef,()=>answering(backup))));
+  assert.equal(backup.calls,3);
+  const now=Date.now();t.mock.method(Date,"now",()=>now+DEGRADED_FOR_MS+1);
+  await inRequest(()=>streamOnce(observeLanguageModel(answering(healthy),chatModelRef,()=>answering(backup))));
+  assert.equal(healthy.calls,3);assert.equal(backup.calls,3);
+});
+
+test("once the fallback takes over, the rest of the request stays on it and the step is re-planned for it",async()=>{
+  const settings=await getModelPreferences();settings.chat.fallback=ref("google/gemini-3-flash-preview");await saveModelPreferences(settings);
+  let primaryCalls=0;const backupPrompts:unknown[]=[];const switched:unknown[]=[];
+  const answer=()=>({stream:new ReadableStream({start(controller){for(const part of [{type:"stream-start",warnings:[]},{type:"text-start",id:"b"},{type:"text-delta",id:"b",delta:"Backup"},{type:"text-end",id:"b"},finish]) controller.enqueue(part as LanguageModelV3StreamPart);controller.close();}})});
+  const backup=new MockLanguageModelV3({doStream:async options=>{backupPrompts.push(options.prompt);return answer();}});
+  const primary=new MockLanguageModelV3({doStream:async()=>{primaryCalls++;return {stream:new ReadableStream({start(controller){controller.enqueue({type:"stream-start",warnings:[]} as LanguageModelV3StreamPart);controller.enqueue({type:"error",error:Object.assign(new Error("synthetic outage"),{statusCode:503})} as LanguageModelV3StreamPart);controller.close();}})};}});
+  const refitted=[{role:"user" as const,content:[{type:"text" as const,text:"Re-planned for the fallback"}]}];
+  const endpoint=protectDataOperation(async request=>{
+    await requireLocalWorkspace(request);
+    const model=observeLanguageModel(primary,chatModelRef,()=>backup,{onSwitch:async ref=>{switched.push(ref);return refitted;}});
+    const tools=[{type:"function" as const,name:"task",inputSchema:{}}];
+    for(const text of ["First step","Second step"]){
+      const result=await model.doStream({prompt:[{role:"user",content:[{type:"text",text}]}],tools});
+      for await(const _part of result.stream);
+    }
+    return Response.json({ok:true});
+  });
+  assert.equal((await endpoint(req("/api/chat","POST",{}))).status,200);
+  // The primary was tried, with its retries, for the first step only.
+  assert.equal(primaryCalls,3);
+  assert.deepEqual(switched,[ref("google/gemini-3-flash-preview")]);
+  // The step it took over was sent as re-planned; the next went to it directly as prepared.
+  assert.deepEqual(backupPrompts[0],refitted);
+  assert.equal(JSON.stringify(backupPrompts[1]).includes("Second step"),true);
 });
 
 test("failed streams retain late provider usage and usage retention stays bounded in the workspace",async()=>{
@@ -517,4 +606,16 @@ test("a cached read is priced as a cached read, not as a fresh input token",()=>
   assert.equal(usageCost("chat",{inputTokens:{total:1000,noCache:100,cacheRead:900,cacheWrite:0},outputTokens:{total:100,text:100}},{},{inputPerMillion:10,outputPerMillion:20,perRequest:null,cacheReadPerMillion:0,cacheWritePerMillion:0}).costUsd,0.003);
   // No split reported: charged as ordinary input, never as zero.
   assert.equal(usageCost("chat",{inputTokens:{total:1000},outputTokens:{total:100}},{},rate).costUsd,0.012);
+});
+
+test("model warnings name each library model a provider reported as not found, once, with its latest date",async()=>{
+  const failure=(ref:{providerId:string;modelId:string},createdAt:Date)=>db.modelRequest.create({data:{requestId:randomUUID(),mode:"chat",modelId:ref.modelId,modelProvider:ref.providerId,status:"error",errorCode:"MODEL_UNAVAILABLE",durationMs:1,costSource:"unknown",createdAt}});
+  const day=86_400_000,now=Date.now();
+  await failure(CHAT_MODEL_REF,new Date(now-3*day));
+  await failure(CHAT_MODEL_REF,new Date(now-day));
+  // Removed from the library since, and older than the 30-day window: neither is reported.
+  await failure({providerId:"openrouter",modelId:"removed/model"},new Date(now-day));
+  await failure(IMAGE_MODEL_REF,new Date(now-40*day));
+  const {recentFailures}=await payload(await models.GET(req("/api/models")));
+  assert.deepEqual(recentFailures,[{providerId:CHAT_MODEL_REF.providerId,modelId:CHAT_MODEL_REF.modelId,failedAt:new Date(now-day).toISOString()}]);
 });

@@ -52,7 +52,7 @@ async function setup(page: Page, app: App, ui = false, mode: "approval" | "full-
   expect(grant.terminalEnabled).toBe(false);
   if (ui) {
     await page.goto(`${app.origin}/settings`);
-    await page.getByRole("tab", { name: "文件权限", exact: true }).click();
+    await page.getByRole("tab", { name: "工作区权限", exact: true }).click();
     await page.getByRole("button", { name: "开启终端", exact: true }).click();
     const sheet = page.getByRole("dialog", { name: "开启终端权限", exact: true });
     await expect(sheet).toBeVisible();
@@ -76,6 +76,10 @@ async function ask(page: Page, app: App, grantId: string, stop = false) {
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "终端验证" })).body.data;
   await page.evaluate(id => localStorage.setItem("chat:last-active-id", id), chat.id);
   await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
+  // The conversation works only in the folder chosen for it.
+  await page.getByRole("button", { name: "工作区：选择工作区", exact: true }).click();
+  await page.getByRole("menuitemradio").filter({ hasText: app.folder }).click();
+  await expect(page.getByRole("button", { name: `工作区：${basename(app.folder)}`, exact: true })).toBeVisible();
   await page.getByPlaceholder(/输入你的问题/).fill(`OFFLINE_TERMINAL_COMMAND GRANT_ID=${grantId}${stop ? " TERMINAL_STOP" : ""}`);
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
@@ -145,6 +149,7 @@ test("a long-reasoning terminal turn can be approved and followed up before and 
   page.on("pageerror", error => errors.push(error.message));
   const grant = await setup(page, app);
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "长终端调用后继续会话" })).body.data;
+  await browserApi(page, `/api/conversations/${chat.id}`, "PATCH", { workspaceGrantId: grant.id });
   await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
   const input = page.getByPlaceholder(/输入你的问题/);
   await input.fill(`OFFLINE_TERMINAL_COMMAND TERMINAL_REASONING_LARGE GRANT_ID=${grant.id}`);
@@ -178,6 +183,7 @@ test("full access executes without approval, keeps live output and stop controls
   const grant = await setup(page, app, true, "full-access");
   await expect(page.getByRole("button", { name: "终端：完全访问", exact: true })).toBeVisible();
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "自动终端" })).body.data;
+  await browserApi(page, `/api/conversations/${chat.id}`, "PATCH", { workspaceGrantId: grant.id });
   await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
   await page.getByPlaceholder(/输入你的问题/).fill(`OFFLINE_TERMINAL_COMMAND GRANT_ID=${grant.id} TERMINAL_STOP TERMINAL_LONG`);
   await page.getByRole("button", { name: "发送", exact: true }).click();
@@ -202,7 +208,7 @@ test("full access executes without approval, keeps live output and stop controls
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
   await app.restart();
   await page.goto(`${app.origin}/settings`);
-  await page.getByRole("tab", { name: "文件权限", exact: true }).click();
+  await page.getByRole("tab", { name: "工作区权限", exact: true }).click();
   await page.getByRole("button", { name: "终端：完全访问", exact: true }).click();
   const sheet = page.getByRole("dialog", { name: "终端权限", exact: true });
   await expect(sheet.getByRole("combobox", { name: "终端模式" })).toHaveText("完全访问");
@@ -236,6 +242,7 @@ test("approval mode resumes a long script without truncation through persistence
   const requestBytes = trackChatRequestBytes(page);
   const grant = await setup(page, app);
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "长脚本审批" })).body.data;
+  await browserApi(page, `/api/conversations/${chat.id}`, "PATCH", { workspaceGrantId: grant.id });
   // Intermediate persistence checks read the isolated authoritative database.
   // Reload below still exercises the complete HTTP history and renderer path.
   const storedTools = () => app.readRows('SELECT content FROM messages WHERE "chatId" = ? AND role = ? ORDER BY "createdAt", id', chat.id, "assistant")
@@ -293,6 +300,7 @@ test("approval mode resumes a long script without truncation through persistence
 test("the next approval stays disabled until the preceding continuation stream is consumed", async ({ page, app }) => {
   const grant = await setup(page, app);
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "审批流边界" })).body.data;
+  await browserApi(page, `/api/conversations/${chat.id}`, "PATCH", { workspaceGrantId: grant.id });
   await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
   await trackChatStreams(page, true);
   await page.getByPlaceholder(/输入你的问题/).fill(`OFFLINE_TERMINAL_COMMAND GRANT_ID=${grant.id} TERMINAL_TWICE`);
@@ -323,6 +331,7 @@ test("completed replies show real file changes, persist them and open validated 
   writeFileSync(join(app.folder, "src", "theme.ts"), "export const theme = { radius: 4 };\n");
   writeFileSync(join(app.folder, "old-draft.txt"), "旧草稿\n");
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "个人资料卡片" })).body.data;
+  await browserApi(page, `/api/conversations/${chat.id}`, "PATCH", { workspaceGrantId: grant.id });
   await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
   await trackChatStreams(page);
   await page.getByPlaceholder(/输入你的问题/).fill("请整理个人资料卡片：统一配色，新增资料卡组件和使用说明，并移除旧草稿。");
@@ -385,7 +394,12 @@ test("rejection executes nothing and a long command exposes live output and can 
   await expect(page.getByRole("button", { name: "停止命令", exact: true })).toBeVisible();
   await page.screenshot({ path: join(tmpdir(), "ria-terminal-running.png"), animations: "disabled" });
   await page.getByRole("button", { name: "停止命令", exact: true }).click();
-  await expect(page.getByText("已停止", { exact: true })).toBeVisible();
+  // The settled call folds, and its summary says it was stopped rather than finished.
+  const call = page.locator("details.execution-disclosure").filter({ has: page.getByLabel("终端输出", { exact: true }) });
+  await expect(call.locator("summary")).toContainText("已停止");
+  await expect(call).not.toHaveAttribute("open");
+  await call.locator("summary").click();
+  await expect(call.getByText("已停止", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "停止命令", exact: true })).toHaveCount(0);
   await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes('"status":"stopped"'))).toBe(true);
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");

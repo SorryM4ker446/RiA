@@ -1,6 +1,6 @@
 import { wrapImageModel } from "ai";
 import type { Experimental_VideoModelV3 } from "@ai-sdk/provider";
-import { observeLanguageModel, observeEmbeddingModel } from "@/lib/models/observe-language";
+import { observeLanguageModel, observeEmbeddingModel, type ObserveOptions } from "@/lib/models/observe-language";
 import { withModelLease } from "@/lib/models/preferences";
 import { getModelProvider } from "@/lib/models/providers";
 import { ApiError } from "@/lib/server/api-error";
@@ -27,12 +27,13 @@ function requireResult<T>(value: T | undefined, mode: string): T {
   throw new ApiError({ code: "VALIDATION_ERROR", message: `${t("lib.models.providerNoModePrefix")} ${mode} ${t("lib.models.providerNoModeSuffix")}` });
 }
 
-export function getChatModel(ref: ModelRef) {
+export function getChatModel(ref: ModelRef, options?: ObserveOptions) {
   const provider = getModelProvider(ref.providerId);
   return observeLanguageModel(
     provider.createChatModel(ref.modelId),
     ref,
     alternate => getModelProvider(alternate.providerId).createChatModel(alternate.modelId),
+    options,
   );
 }
 

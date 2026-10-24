@@ -10,6 +10,7 @@ import { openBackup } from "@/lib/backups/files";
 import { createAccountBackup, pruneAccountBackupsSafely, readBackupAsset, readBackupManifest } from "@/lib/backups/archive";
 import { PREFERENCE_ROW_ID, withModelSettingsLock } from "@/lib/models/preferences";
 import { upgradeModelPreferences } from "@/lib/models/preferences-schema";
+import { isDefaultAssistantId } from "@/lib/assistants/schema";
 
 export async function restoreAccountBackup(id: string) {
   const archive = await openBackup(id);
@@ -18,6 +19,9 @@ export async function restoreAccountBackup(id: string) {
     const ids = new Map<string, string>();
     const rows = [...manifest.topics, ...manifest.artifacts, ...manifest.assistantTemplates, ...manifest.chats, ...manifest.chats.flatMap(chat => chat.messages), ...manifest.memories, ...manifest.tasks, ...manifest.documents, ...manifest.documents.flatMap(document => document.chunks), ...manifest.usage];
     for (const row of rows) ids.set(row.id, randomUUID());
+    // The default templates keep their ids: the templates are replaced as a
+    // whole, so they cannot collide, and the id is what marks them as defaults.
+    for (const template of manifest.assistantTemplates) if (isDefaultAssistantId(template.id)) ids.set(template.id, template.id);
     const templateIds = new Map(manifest.assistantTemplates.map(template => [template.id, ids.get(template.id)!]));
     const staged: Awaited<ReturnType<typeof stageMediaFile>>[] = [];
     let offset = start;

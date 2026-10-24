@@ -32,6 +32,8 @@ type Props = Pick<
   | "onSubmit"
   | "modelMode"
   | "isPending"
+  | "isWorking"
+  | "isLoadingPreferences"
   | "isConversationReady"
   | "isRunningManualTool"
   | "selectedToolDocument"
@@ -76,6 +78,8 @@ export function Composer({
   onSubmit,
   modelMode,
   isPending,
+  isWorking,
+  isLoadingPreferences,
   isConversationReady,
   isRunningManualTool,
   selectedToolDocument,
@@ -359,13 +363,16 @@ export function Composer({
             <Select
               disabled={isPending || isDocumentScopeSaving || (modelMode === "chat" && !!activeChat?.assistantConfig?.model)}
               onValueChange={onModelSelect}
-              value={selectedModel ? modelRefKey(selectedModel) : "none"}
+              // Until the saved choice is read nothing is shown, rather than "选择模型"
+              // standing in for a model that is already chosen.
+              value={isLoadingPreferences ? "" : selectedModel ? modelRefKey(selectedModel) : "none"}
             >
+              {/* A fixed width, so the controls beside it stay put when the name arrives or changes. */}
               <SelectTrigger
                 aria-label={t("chat.toolbar.modelSelectLabel")}
                 variant="ghost"
                 size="sm"
-                className="w-auto max-w-[180px]"
+                className="w-[180px]"
               >
                 <SelectValue className="truncate" />
               </SelectTrigger>
@@ -482,7 +489,7 @@ export function Composer({
           {/* Stopping replaces sending while a turn is running. The label says
             exactly that: the request to the provider is abandoned, not undone,
             and anything already produced stays on screen. */}
-          {isRunningManualTool ? <Button size="icon" className="rounded-full" disabled aria-label={t("ui.chat.composer.runningTool")}><Loader2 data-icon="inline-start" className="animate-spin" /></Button> : isPending ? (
+          {isRunningManualTool ? <Button size="icon" className="rounded-full" disabled aria-label={t("ui.chat.composer.runningTool")}><Loader2 data-icon="inline-start" className="animate-spin" /></Button> : isWorking ? (
             <Button
               aria-label={t("chat.composer.stop")}
               className="rounded-full"

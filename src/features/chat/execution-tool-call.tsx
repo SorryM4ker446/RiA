@@ -5,7 +5,7 @@ import { ChevronRight } from "lucide-react";
 import { t, tf, localizeMessage } from "@/lib/locale";
 import { useLocale } from "@/lib/locale/client";
 import { Button } from "@/components/ui/button";
-import { TerminalResult } from "./terminal-result";
+import { TerminalResult, terminalStatusLabels } from "./terminal-result";
 import { DiffText } from "./diff-text";
 import { formatToolState, safeJson } from "./page-utils";
 import { executionGuidance } from "@/lib/execution-messages";
@@ -29,7 +29,11 @@ export function ExecutionToolCall({ call, isLatest, waiting, onReviewApproval }:
   // Saved summaries can arrive before full details. Only an explicit user
   // choice should override the default when those details become available.
   const [expanded, setExpanded] = useState<boolean>();
-  const state = part && !stoppedStep
+  // A command that ran but did not succeed says how it ended, so a folded call
+  // reads "stopped" rather than "finished" (the call itself did return).
+  const terminalStatus = terminal && part?.state === "output-available" && part.output && typeof part.output === "object" && "status" in part.output ? String(part.output.status) : "";
+  const state = ["stopped", "failed", "timed-out"].includes(terminalStatus) ? terminalStatusLabels()[terminalStatus as "stopped" | "failed" | "timed-out"]
+    : part && !stoppedStep
     ? (part.state === "output-available" && part.output && typeof part.output === "object" && "skipped" in part.output && part.output.skipped
       ? t("runs.step.skipped") : formatToolState(part.state).label)
     : step?.state === "done" ? formatToolState("output-available").label : step ? t(`runs.step.${step.state}`) : "";

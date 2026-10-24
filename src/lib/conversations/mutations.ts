@@ -9,6 +9,7 @@ import { encodeDocumentScope } from "@/lib/documents/scope";
 import { Prisma } from "@prisma/client";
 import { assistantIdSchema, readAssistantSnapshot } from "@/lib/assistants/schema";
 import { resolveAssistant } from "@/lib/assistants/store";
+import { assertSelectableWorkspace } from "@/lib/local-files/workspace";
 
 export const updateConversationSchema = z.strictObject({
   title: z.string().trim().min(1).max(200).optional(),
@@ -16,6 +17,8 @@ export const updateConversationSchema = z.strictObject({
   archived: z.boolean().optional(),
   ephemeral: z.boolean().optional(),
   documentScope: z.array(z.string().trim().min(1).max(40)).max(12).optional(),
+  // One granted folder, or null to work without one.
+  workspaceGrantId: z.string().trim().min(1).max(200).nullable().optional(),
   assistantTemplateId: assistantIdSchema.nullable().optional(),
   tags: z.array(chatTagSchema).max(8).transform(tags => [...new Set(tags)].sort()).optional(),
 }).refine(value => Object.keys(value).length > 0, "At least one field is required")
@@ -28,6 +31,7 @@ export const bulkDeleteSchema = z.strictObject({
 
 export async function updateConversation(id: string, input: z.infer<typeof updateConversationSchema>) {
   const selectedAssistant = input.assistantTemplateId ? await resolveAssistant(input.assistantTemplateId) : null;
+  if (input.workspaceGrantId !== undefined) await assertSelectableWorkspace(input.workspaceGrantId);
   return db.$transaction(async tx => {
     const current = await tx.chat.findFirst({ where: { id }, select: { title: true, assistantConfig: true } });
     if (!current) throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
@@ -49,6 +53,7 @@ export async function updateConversation(id: string, input: z.infer<typeof updat
       ...(input.archived !== undefined ? { archived: input.archived } : {}),
       ...(input.ephemeral !== undefined ? { ephemeral: input.ephemeral } : {}),
       ...(input.documentScope !== undefined ? { documentScope: encodeDocumentScope(input.documentScope) } : {}),
+      ...(input.workspaceGrantId !== undefined ? { workspaceGrantId: input.workspaceGrantId } : {}),
       ...(input.tags !== undefined ? { tags: { deleteMany: {}, create: input.tags.map(label => ({ label })) } } : {}),
     }, include: { tags: { orderBy: { label: "asc" } }, _count: { select: { messages: true } } } });
     return conversationSummary(chat);

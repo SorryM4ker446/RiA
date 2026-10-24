@@ -65,7 +65,7 @@ test("a model reads, fails an inexact edit, sees why, corrects it and the file c
       controller.close();
     } }) };
   });
-  const response = await route.POST(request({ messages: [ui("edit-user", "Fix add() in math.ts")] }));
+  const response = await route.POST(request({ chatId: (await db.chat.create({ data: { title: "Workspace", workspaceGrantId: grant.id } })).id, messages: [ui("edit-user", "Fix add() in math.ts")] }));
   assert.equal(response.status, 200);
   assert.match(await response.text(), /Fixed add\(\)/);
   assert.equal(readFileSync(join(root, "math.ts"), "utf8"), "export function add(a: number, b: number) {\n  return a + b;\n}\n");
@@ -92,7 +92,7 @@ test("in approval mode the edit waits with its diff and nothing is written until
     controller.enqueue({ type: "finish", finishReason: { unified: "tool-calls", raw: undefined }, usage });
     controller.close();
   } }) }));
-  const response = await route.POST(request({ messages: [ui("approval-user", "Rename the title")] }));
+  const response = await route.POST(request({ chatId: (await db.chat.create({ data: { title: "Workspace", workspaceGrantId: grant.id } })).id, messages: [ui("approval-user", "Rename the title")] }));
   assert.equal(response.status, 200);
   const wire = await response.text();
   assert.match(wire, /approval-requested|tool-approval-request/);

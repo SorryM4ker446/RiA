@@ -107,10 +107,44 @@ export function shouldOpenOnLayout({
   return messageCount > 0;
 }
 
-type Props = Pick<ChatState, "appendQuickPrompt" | "modelMode" | "activeChatId" | "isLoadingHistory" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId" | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText" | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel" | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages" | "selectedChatModel">;
-export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, isLoadingHistory, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages }: Props) {
+/** How long a history load may take before its placeholder is shown at all. */
+const SKELETON_DELAY_MS = 200;
+
+/**
+ * The transcript's placeholder. It holds its space from the first frame but is
+ * only painted once a load has been slow enough to notice: one painted for a
+ * few frames and then replaced reads as a flicker. With motion it fades in after
+ * the delay (CSS); with reduced motion, which turns animations off, `data-late`
+ * marks the moment it may appear.
+ */
+function TranscriptSkeleton() {
+  const [late, setLate] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setLate(true), SKELETON_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, []);
+  return <div className="chat-transcript-skeleton space-y-4" data-testid="message-skeleton" data-late={late || undefined}>
+    <div className="flex w-full justify-end">
+      <Skeleton className="h-14 w-2/5 rounded-lg" />
+    </div>
+    <div className="flex w-full justify-start">
+      <Skeleton className="h-24 w-4/5 rounded-lg" />
+    </div>
+    <div className="flex w-full justify-end">
+      <Skeleton className="h-14 w-1/3 rounded-lg" />
+    </div>
+    <div className="flex w-full justify-start">
+      <Skeleton className="h-32 w-3/4 rounded-lg" />
+    </div>
+  </div>;
+}
+
+type Props = Pick<ChatState, "appendQuickPrompt" | "modelMode" | "activeChatId" | "isLoadingHistory" | "isOpeningConversation" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId" | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText" | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel" | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages" | "selectedChatModel">;
+export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, isLoadingHistory, isOpeningConversation, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages }: Props) {
   useLocale();
-  const awaitingFirstHistoryLoad = useAwaitingFirstLoad(isLoadingHistory, activeChatId ?? DRAFT_HISTORY_QUERY);
+  // Opening counts as loading: before it is known which conversation is open, or
+  // in the render where one has just been chosen, the transcript is not empty yet.
+  const awaitingFirstHistoryLoad = useAwaitingFirstLoad(isLoadingHistory || isOpeningConversation, activeChatId ?? DRAFT_HISTORY_QUERY);
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const followingRef = useRef(true);
@@ -280,22 +314,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
       a flicker even though nothing moved on its own. The bars below use the
       bubble's own metrics, so the swap changes content and not geometry.
     */}
-    {awaitingFirstHistoryLoad ? (
-      <div className="space-y-4" data-testid="message-skeleton">
-        <div className="flex w-full justify-end">
-          <Skeleton className="h-14 w-2/5 rounded-lg" />
-        </div>
-        <div className="flex w-full justify-start">
-          <Skeleton className="h-24 w-4/5 rounded-lg" />
-        </div>
-        <div className="flex w-full justify-end">
-          <Skeleton className="h-14 w-1/3 rounded-lg" />
-        </div>
-        <div className="flex w-full justify-start">
-          <Skeleton className="h-32 w-3/4 rounded-lg" />
-        </div>
-      </div>
-    ) : messages.length === 0 ? (
+    {awaitingFirstHistoryLoad ? <TranscriptSkeleton /> : messages.length === 0 ? (
       <div className="chat-welcome flex min-h-40 flex-1 flex-col items-center justify-center gap-4 text-center">
         <h1 className="chat-welcome-title">{modelMode === "image" ? t("ui.chat.message-renderer.bringYourImaginationIntoView") : modelMode === "video" ? t("ui.chat.message-renderer.turnInspirationIntoMotion") : t("ui.chat.message-renderer.whatWouldYouLikeToWork")}</h1>
         <p className="chat-welcome-description">{t("chat.messages.empty")}</p>

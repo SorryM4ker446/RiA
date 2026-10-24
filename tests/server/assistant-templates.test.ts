@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { after, beforeEach, test, type TestContext } from "node:test";
+import { readFileSync } from "node:fs";
+import { after, before, beforeEach, test, type TestContext } from "node:test";
 import { NextRequest } from "next/server";
 import { createTestDatabase } from "../helpers/database";
 import { localAccessCookie } from "../helpers/local-access";
@@ -9,7 +10,8 @@ import { languageModel, resetProviderState } from "../helpers/model-provider";
 const cleanup = createTestDatabase();
 process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
-const { saveAssistant, listAssistants } = await import("@/lib/assistants/store");
+const { saveAssistant, listAssistants, restoreDefaultAssistants } = await import("@/lib/assistants/store");
+const { DEFAULT_ASSISTANTS } = await import("@/lib/assistants/defaults");
 const { assistantConfigSchema, readAssistantSnapshot } = await import("@/lib/assistants/schema");
 const { createChat } = await import("@/lib/chat/store");
 const { updateConversation } = await import("@/lib/conversations/mutations");
@@ -21,22 +23,45 @@ const { createAccountBackup, readBackupManifest } = await import("@/lib/backups/
 const { openBackup } = await import("@/lib/backups/files");
 const { restoreAccountBackup } = await import("@/lib/backups/restore");
 const { exclusiveDataOperation } = await import("@/lib/server/data-operations");
-const routes = { root: await import("@/app/api/assistants/route"), item: await import("@/app/api/assistants/[id]/route"), chat: await import("@/app/api/chat/route"), tool: await import("@/app/api/tools/run/route") };
+const routes = { root: await import("@/app/api/assistants/route"), item: await import("@/app/api/assistants/[id]/route"), defaults: await import("@/app/api/assistants/defaults/route"), chat: await import("@/app/api/chat/route"), tool: await import("@/app/api/tools/run/route") };
 let cookie: string;
 const context = (id: string) => ({ params: Promise.resolve({ id }) });
 const request = (path: string, method = "GET", body?: unknown, auth = cookie, headers = {}) => new NextRequest(`http://localhost${path}`, { method, headers: { cookie: auth, "content-type": "application/json", ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 const config = (extra = {}) => assistantConfigSchema.parse({ name: "财务助理", instructions: "Only apply documented financial rules. Preserve exceptions.", tools: [], collections: ["财务"], usesMemory: false, ...extra });
+let migrated: { id: string; config: unknown; revision: number }[] = [];
+before(async () => { migrated = await db.assistantTemplate.findMany({ select: { id: true, config: true, revision: true } }); });
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {}); t.mock.method(console, "info", () => {}); t.mock.method(console, "warn", () => {});
   globalThis.__riaRateLimitStore?.clear(); cookie = localAccessCookie(); resetProviderState();
   await db.chat.deleteMany({}); await db.assistantTemplate.deleteMany({}); await db.memory.deleteMany({}); await db.knowledgeDocument.deleteMany({}); await db.workspacePreference.deleteMany({});
   await seedTestModelPreferences(db); process.env.OPENROUTER_API_KEY = "offline-fixture-placeholder";
+  // Every test starts from the defaults as first shipped.
+  await restoreDefaultAssistants();
 });
 after(async () => { await db.$disconnect(); cleanup(); });
 
-test("built-ins are read-only and custom template updates reject stale revisions", async () => {
-  const all = await listAssistants(); assert.equal(all.length, 4); assert.ok(all.every(item => item.builtin));
-  assert.equal((await routes.item.PATCH(request("/api/assistants/builtin_writing", "PATCH", { revision: 1, config: config() }), context("builtin_writing"))).status, 400);
+test("the migration writes the defaults exactly as they are defined", () => {
+  const expected = DEFAULT_ASSISTANTS.map(template => ({ id: template.id, config: template.config, revision: template.revision }));
+  assert.deepEqual([...migrated].sort((a, b) => a.id.localeCompare(b.id)), [...expected].sort((a, b) => a.id.localeCompare(b.id)));
+  // The migration is generated from the definitions; this keeps the two from drifting apart.
+  const sql = readFileSync("src/db/migrations/20261023120000_default_assistant_templates/migration.sql", "utf8");
+  for (const template of DEFAULT_ASSISTANTS) assert.ok(sql.includes(`'${JSON.stringify(template.config).replaceAll("'", "''")}', ${template.revision}`), template.id);
+});
+
+test("default templates can be edited, deleted and restored, and custom updates reject stale revisions", async () => {
+  const all = await listAssistants(); assert.deepEqual(all.map(item => item.id), DEFAULT_ASSISTANTS.map(item => item.id)); assert.ok(all.every(item => item.builtin));
+  const writing = all.find(item => item.id === "builtin_writing")!;
+  const edited = await routes.item.PATCH(request("/api/assistants/builtin_writing", "PATCH", { revision: writing.revision, config: config({ name: "我的写作助理" }) }), context("builtin_writing"));
+  assert.equal(edited.status, 200);
+  const coding = all.find(item => item.id === "builtin_coding")!;
+  assert.equal((await routes.item.DELETE(request(`/api/assistants/builtin_coding?confirm=true&revision=${coding.revision}`, "DELETE"), context("builtin_coding"))).status, 200);
+  assert.deepEqual((await listAssistants()).map(item => item.id), ["builtin_knowledge", "builtin_writing", "builtin_research"]);
+  // Restoring puts back what was deleted and leaves the edited default as it is.
+  const restored = await (await routes.defaults.POST(request("/api/assistants/defaults", "POST"))).json();
+  assert.deepEqual(restored.restored, ["builtin_coding"]);
+  assert.equal(restored.data.find((item: { id: string }) => item.id === "builtin_writing").config.name, "我的写作助理");
+  assert.equal(restored.data.find((item: { id: string }) => item.id === "builtin_coding").config.instructions, coding.config.instructions);
+  await db.assistantTemplate.deleteMany({ where: { id: { startsWith: "builtin_" } } });
   const saved = await saveAssistant(config());
   const updated = await saveAssistant(config({ name: "新版财务助理" }), saved.id, 1);
   assert.equal(updated.revision, 2);
@@ -53,7 +78,7 @@ test("template APIs enforce local access, input bounds, supported tools and conf
   }
   const saved = await saveAssistant(config());
   assert.equal((await routes.item.DELETE(request(`/api/assistants/${saved.id}`, "DELETE", { revision: 1 }), context(saved.id))).status, 400);
-  assert.equal(await db.assistantTemplate.count(), 1);
+  assert.equal(await db.assistantTemplate.count({ where: { id: saved.id } }), 1);
 });
 
 test("applying a template stores an immutable snapshot and atomically applies scope and memory policy", async () => {
@@ -80,21 +105,24 @@ test("updated built-in agent guidance preserves old snapshots until the user rea
   const templates = await listAssistants();
   const coding = templates.find(template => template.id === "builtin_coding")!;
   const research = templates.find(template => template.id === "builtin_research")!;
-  assert.equal(coding.revision, 3);
-  assert.equal(research.revision, 2);
+  assert.equal(coding.revision, 4);
+  assert.equal(research.revision, 3);
   assert.match(coding.config.instructions, /make the smallest coherent change/);
-  assert.match(coding.config.instructions, /following each folder's approval mode/);
+  // How the terminal is used, approval modes included, is in the system prompt whenever the terminal is offered.
+  assert.doesNotMatch(coding.config.instructions, /terminalApprovalMode|runTerminalCommand/);
   assert.doesNotMatch(coding.config.instructions, /obtain approval for every terminal command/);
   const knowledge = templates.find(template => template.id === "builtin_knowledge")!;
-  assert.equal(knowledge.revision, 2);
-  assert.match(knowledge.config.instructions, /search with searchKnowledge when it does not cover the question/);
+  assert.equal(knowledge.revision, 3);
+  assert.match(knowledge.config.instructions, /Call searchKnowledge when the evidence sent with the request does not cover the question/);
+  // Citing and preserving evidence is a system rule; the template does not repeat it.
+  assert.doesNotMatch(knowledge.config.instructions, /conditions, exceptions/);
   assert.match(research.config.instructions, /only when it prevents research the user requested/);
   assert.doesNotMatch(research.config.instructions, /Disclose missing or unavailable searches/);
   const oldSnapshot = { ...research.config, instructions: "Older research instructions", templateId: research.id, templateRevision: 1 };
   const chat = await db.chat.create({ data: { title: research.config.name, assistantConfig: oldSnapshot } });
   assert.equal(readAssistantSnapshot((await db.chat.findUniqueOrThrow({ where: { id: chat.id } })).assistantConfig)?.instructions, oldSnapshot.instructions);
   const reapplied = await updateConversation(chat.id, { assistantTemplateId: research.id });
-  assert.equal(reapplied.assistantConfig?.templateRevision, 2);
+  assert.equal(reapplied.assistantConfig?.templateRevision, research.revision);
   assert.equal(reapplied.assistantConfig?.instructions, research.config.instructions);
   assert.deepEqual(reapplied.assistantConfig?.tools, oldSnapshot.tools);
 });
@@ -167,16 +195,17 @@ test("permitted manual knowledge calls use the conversation's collections and te
   assert.equal(await db.memory.count(), 0);
 });
 
-test("backup restore preserves templates and deleted-template snapshots and remaps custom template identities", async () => {
+test("backup restore preserves templates and deleted-template snapshots, remaps custom identities and keeps the defaults'", async () => {
   const saved = await saveAssistant(config());
   const chat = await createChat({ title: "备份快照", assistantTemplateId: saved.id });
   const deleted = await saveAssistant(config({ name: "已删除模板" }));
   await createChat({ title: "独立快照", assistantTemplateId: deleted.id }); await db.assistantTemplate.delete({ where: { id: deleted.id } });
-  await createChat({ chatId: "builtin_writing", title: "内置快照", assistantTemplateId: "builtin_writing" });
+  await createChat({ chatId: "default-template-snapshot", title: "内置快照", assistantTemplateId: "builtin_writing" });
   const backup = await createAccountBackup(); const archive = await openBackup(backup.id);
-  try { const { manifest } = await readBackupManifest(archive); assert.equal(manifest.assistantTemplates.length, 1); assert.equal(manifest.chats.length, 3); } finally { await archive.close(); }
+  try { const { manifest } = await readBackupManifest(archive); assert.equal(manifest.assistantTemplates.length, 1 + DEFAULT_ASSISTANTS.length); assert.equal(manifest.chats.length, 3); } finally { await archive.close(); }
   await exclusiveDataOperation(() => restoreAccountBackup(backup.id));
-  const template = await db.assistantTemplate.findFirstOrThrow(); assert.notEqual(template.id, saved.id);
+  const template = await db.assistantTemplate.findFirstOrThrow({ where: { NOT: { id: { startsWith: "builtin_" } } } }); assert.notEqual(template.id, saved.id);
+  assert.deepEqual((await listAssistants()).filter(item => item.builtin).map(item => item.id), DEFAULT_ASSISTANTS.map(item => item.id));
   const restored = await db.chat.findFirstOrThrow({ where: { title: chat.title } });
   assert.equal(readAssistantSnapshot(restored.assistantConfig)?.templateId, template.id);
   assert.equal(readAssistantSnapshot((await db.chat.findFirstOrThrow({ where: { title: "独立快照" } })).assistantConfig)?.name, "已删除模板");

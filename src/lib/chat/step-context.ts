@@ -50,6 +50,9 @@ export function createStepContext(params: {
   calibration?: number;
   summarize: (records: string[], previous: string, focus?: string) => Promise<string>;
 }) {
+  // The window being planned for. It changes once if the fallback model takes
+  // over this request, and every later step is planned for the fallback.
+  let budget = params.budget;
   let covered = new Set<number>(), state = "";
   const coveredCalls = new Set<string>(), coveredApprovals = new Set<string>();
   const report: StepContextReport = { checks: 0, compactions: 0, degraded: false, estimatedInputTokens: 0, usageCalibration: params.calibration ?? 1, budget: params.budget };
@@ -112,7 +115,7 @@ export function createStepContext(params: {
     const requests = compactionRequests(messages);
     const force = options.force === true || requests.ids.length > 0;
     let prepared = render(messages);
-    if (force || measure(prepared) >= params.budget.triggerTokens) {
+    if (force || measure(prepared) >= budget.triggerTokens) {
       let latestUser = -1;
       messages.forEach((message, index) => { if (message.role === "user") latestUser = index; });
       const candidates: number[][] = [];
@@ -135,7 +138,7 @@ export function createStepContext(params: {
       const delta: ModelMessage[] = [];
       for (const block of candidates) {
         for (const index of block) if (!nextCovered.has(index)) { nextCovered.add(index); delta.push(messages[index]); }
-        if (!force && estimate(render(messages, state, nextCovered)) <= params.budget.targetTokens) break;
+        if (!force && estimate(render(messages, state, nextCovered)) <= budget.targetTokens) break;
       }
       // Reloaded messages can pack completed calls and a pending approval
       // into the same assistant part array. Fold exact completed identities
@@ -152,7 +155,7 @@ export function createStepContext(params: {
       }
       const newestCall = [...calls.keys()].at(-1);
       const foldedCalls = [...calls.keys()].filter(id => id !== newestCall && results.has(id));
-      if (force || estimate(render(messages, state, nextCovered)) > params.budget.targetTokens) {
+      if (force || estimate(render(messages, state, nextCovered)) > budget.targetTokens) {
         for (const id of foldedCalls) delta.push(calls.get(id)!, results.get(id)!);
       } else foldedCalls.length = 0;
       if (delta.length) {
@@ -175,7 +178,7 @@ export function createStepContext(params: {
     }
     // A request is answered once, whether or not there was anything to fold.
     for (const id of requests.ids) honoured.add(id);
-    report.estimatedInputTokens = assertInputFits(params.budget, measure(prepared));
+    report.estimatedInputTokens = assertInputFits(budget, measure(prepared));
     unscaledEstimate = estimateContextTokens(input(prepared));
     lastPrepared = { messages: prepared.length, version };
     return { messages: prepared };
@@ -194,9 +197,23 @@ export function createStepContext(params: {
       report.overflowRecoveries = (report.overflowRecoveries ?? 0) + 1;
       // Enough to put the refused step over the window, and at most the 2x the
       // local count can have been lowered by: anything larger is not a miscount.
-      report.usageCalibration *= Math.min(2, Math.max(1.25, params.budget.contextWindow / Math.max(1, report.estimatedInputTokens)));
+      report.usageCalibration *= Math.min(2, Math.max(1.25, budget.contextWindow / Math.max(1, report.estimatedInputTokens)));
       anchor = null;
       return (await prepare(lastMessages, { force: true })).messages;
+    },
+    /**
+     * Plan the rest of this stream for another model, with its window and its
+     * learned calibration. What the previous model reported says nothing about
+     * how the new one counts, so its usage anchor and ratio are dropped.
+     */
+    retarget(next: ContextBudget, calibration = 1) {
+      budget = next; report.budget = next; report.usageCalibration = calibration;
+      anchor = null; observedRatio = null;
+    },
+    /** Prepare the step last prepared again, for the current budget; folds only if it no longer fits. */
+    async refit() {
+      if (!lastMessages) throw new Error("No prepared step to refit");
+      return (await prepare(lastMessages)).messages;
     },
     /** Provider-reported input tokens for the step most recently prepared. */
     observeUsage(inputTokens: number | undefined) {

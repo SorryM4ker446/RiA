@@ -1,3 +1,4 @@
+import { useLightTheme } from "../helpers/theme";
 import { expect, test as base, type Page } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -186,7 +187,7 @@ test("local, legacy and variable-address entries explain compatibility without i
   await page.getByRole("button", { name: "查看详情 Echo MCP", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Echo MCP", exact: true })).toHaveCSS("animation-name", "none");
   await page.keyboard.press("Escape"); await page.setViewportSize({ width: 1440, height: 960 });
-  await page.getByRole("button", { name: "切换主题", exact: true }).click(); await expect(page.locator("html")).not.toHaveClass(/dark/);
+  await useLightTheme(page); await expect(page.locator("html")).not.toHaveClass(/dark/);
   await page.locator(".workspace-content").evaluate(node => node.scrollTo({ top: 0, behavior: "instant" }));
   await page.screenshot({ path: join(shots, "discover-light.png"), animations: "disabled" });
   await expect(page).toHaveTitle(/RiA/); await expect(page.locator("nextjs-portal")).toHaveCount(0);

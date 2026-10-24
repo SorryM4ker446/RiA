@@ -22,7 +22,10 @@ export type AssistantConfig = z.infer<typeof assistantConfigSchema>;
 export const assistantIdSchema = z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/);
 export const assistantSnapshotSchema = assistantConfigSchema.extend({ templateId: assistantIdSchema, templateRevision: z.number().int().positive() });
 export type AssistantSnapshot = z.infer<typeof assistantSnapshotSchema>;
+/** `builtin` marks one of the default templates the workspace started with; it can be edited and deleted like any other. */
 export type AssistantTemplate = { id: string; revision: number; builtin: boolean; config: AssistantConfig };
+/** The default templates keep these ids for their lifetime, through edits and backup restores. */
+export const isDefaultAssistantId = (id: string) => id.startsWith("builtin_");
 
 export function readAssistantSnapshot(value: unknown): AssistantSnapshot | null {
   if (value == null) return null;

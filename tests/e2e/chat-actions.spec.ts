@@ -39,7 +39,7 @@ for (const width of [1440, 390]) {
       await route.fulfill({ json: { data: [{ id: "running-layout", goal: "Original question", status: "running", startedAt: now, steps: [], budget: { maxSteps: 8, maxFailures: 2, deadlineMs: 120000 } }] } });
     });
     await page.goto("/chat");
-    const permissions = page.getByRole("button", { name: "文件权限", exact: true });
+    const permissions = page.getByRole("button", { name: "工作区权限", exact: true });
     const records = page.getByRole("button", { name: "执行记录", exact: true });
     await expect(permissions).toBeVisible();
     await expect(records).not.toContainText("执行中");
@@ -83,7 +83,7 @@ test(`compact terminal approval expands above the permission toolbar in ${theme}
   const code = card.locator("pre");
   await expect(code).toBeVisible();
   await expect(code).toHaveText(command);
-  const permissions = (await page.getByRole("button", { name: "文件权限", exact: true }).boundingBox())!;
+  const permissions = (await page.getByRole("button", { name: "工作区权限", exact: true }).boundingBox())!;
   const initial = (await card.boundingBox())!;
   expect(initial.y + initial.height).toBeLessThanOrEqual(permissions.y);
   await card.getByRole("button", { name: "收起详情", exact: true }).click();
