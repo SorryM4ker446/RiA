@@ -676,7 +676,7 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .message-nav-mark:hover > span, .message-nav-mark:focus-visible > span { width: 18px; background: hsl(var(--foreground)); }
 .message-nav-mark[aria-current="location"] > span { width: 24px; background: hsl(var(--foreground)); }
 /* Frosted glass: the transcript shows through as colour, blurred enough that its text cannot compete with the preview. */
-.message-nav-preview, .message-nav-outline { background: hsl(var(--popover) / .55); border: 0; box-shadow: 0 0 0 1px hsl(var(--border) / .7), 0 8px 28px -8px hsl(var(--shadow) / .28); backdrop-filter: blur(20px) saturate(1.4); }
+.message-nav-preview, .message-nav-outline, .toast { background: hsl(var(--popover) / .55); border: 0; box-shadow: 0 0 0 1px hsl(var(--border) / .7), 0 8px 28px -8px hsl(var(--shadow) / .28); backdrop-filter: blur(20px) saturate(1.4); }
 .message-nav-preview { width: min(19rem, calc(100vw - 72px)); padding: 12px; transform-origin: var(--radix-tooltip-content-transform-origin); animation: message-preview-in var(--dur-base) var(--ease-out); }
 .message-nav-preview[data-state="closed"] { animation: none; }
 .message-nav-outline { display: flex; width: min(19rem, calc(100vw - 64px)); max-height: min(30rem, var(--radix-popover-content-available-height)); flex-direction: column; padding: 0; overflow: hidden; }
@@ -809,13 +809,17 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .stat-grid > div { display: flex; flex-direction: column-reverse; gap: 2px; }
 .stat-grid dt { font-size: 12px; color: hsl(var(--muted-foreground)); }
 .stat-grid dd { font-size: 20px; font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-.toast-stack { position: fixed; right: 20px; bottom: 20px; z-index: 60; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; pointer-events: none; transition: bottom var(--dur-base) var(--ease-out); }
-/* Side sheets keep their actions in a footer at the bottom right; stay clear of it. */
-body:has(.sheet-content[data-side="right"][data-state="open"]) .toast-stack { bottom: 88px; }
-.toast { pointer-events: auto; width: max-content; max-width: min(22rem, calc(100vw - 40px)); border-radius: 10px; padding: 10px 14px; background: hsl(var(--popover)); color: hsl(var(--popover-foreground)); font-size: 13px; line-height: 1.5; box-shadow: 0 0 0 1px hsl(var(--border)), 0 8px 28px -8px hsl(var(--shadow) / .28); animation: toast-in var(--dur-base) var(--ease-out); }
-.toast[data-leaving] { animation: toast-out var(--dur-fast) var(--ease-in-out) forwards; }
-@keyframes toast-in { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
-@keyframes toast-out { to { opacity: 0; transform: translateY(4px) scale(.98); } }
+/* Short confirmations in one slot: centred over the chat composer just above its controls (the
+   chat page sets the anchor), elsewhere at the bottom centre. A new one fades in over the last as it
+   fades out, so nothing shifts; they take no clicks, so they never block what is underneath. The
+   surface is the message navigator's frosted preview. */
+.toast-stack { position: fixed; left: var(--toast-center, 50%); bottom: var(--toast-bottom, 24px); z-index: 60; display: grid; justify-items: center; align-items: end; width: max-content; max-width: calc(100vw - 32px); transform: translateX(-50%); pointer-events: none; }
+body:has(.settings-window) .toast-stack { left: 50%; bottom: 24px; }
+.toast { grid-area: 1 / 1; display: flex; align-items: flex-start; gap: 8px; width: max-content; max-width: min(36rem, calc(100vw - 32px)); border-radius: 12px; padding: 8px 12px; color: hsl(var(--popover-foreground)); font-size: 13px; line-height: 20px; animation: toast-in var(--dur-base) var(--ease-out); }
+.toast-icon { width: 16px; height: 16px; flex-shrink: 0; margin-top: 2px; color: hsl(var(--success)); }
+.toast[data-leaving] { animation: toast-out var(--dur-base) var(--ease-in-out) forwards; }
+@keyframes toast-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes toast-out { to { opacity: 0; } }
 @media (min-width: 768px) { .conversation-filters { grid-template-columns: minmax(12rem, 1fr) minmax(7rem, 10rem) 8rem auto; } }
 @media (hover: none) { .message-actions { opacity: 1; } }
 .usage-history-sheet { width: min(38rem, 100vw); }
