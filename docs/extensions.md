@@ -1,12 +1,12 @@
 # External tools and extension management
 
-RiA's **设置 → 扩展** section connects external tools without rebuilding the application.
+RiA's **Settings → Extensions** section connects external tools without rebuilding the application.
 Built-in tool IDs, assistant snapshots and the existing approval flow remain valid.
-The **我的扩展** tab manages connections. **发现扩展** browses the official MCP
+The **My extensions** tab manages connections. **Discover extensions** browses the official MCP
 Registry and prepares connection drafts; it does not install packages or load
 DSH/Cordis plugins.
 
-**插件市场** searches skills.sh for community Skills with preview and direct
+**Plugin marketplace** searches skills.sh for community Skills with preview and direct
 installation, alongside bundled RiA packages combining instructions and optional
 connections. Import, install, enable/disable and uninstall them from the same
 manager; see [RiA plugin packages](plugin-packages.md). Standalone connections
@@ -14,21 +14,21 @@ and official MCP discovery remain available.
 
 ## Discover extensions
 
-Open **设置 → 扩展 → 发现扩展**. The first page loads only when this tab opens.
+Open **Settings → Extensions → Discover extensions**. The first page loads only when this tab opens.
 Search matches server names (use a service name or English keyword). The bounded,
 keyboard-focusable result panel scrolls independently of the page. Scrolling down
 near its bottom reads one more page without replacing loaded entries or moving
 the search controls. Opening the tab reads only the first page; staying still or
-scrolling up does not fetch more. The small **下滚加载更多** footer also supports
+scrolling up does not fetch more. The small **Scroll to load more** footer also supports
 explicit activation when using a keyboard or when a page has too few entries to
-overflow. Only one page request runs at a time, failures wait for **重试**, and a
+overflow. Only one page request runs at a time, failures wait for **Retry**, and a
 new search returns the panel to the top. New rows use the existing transition
 tokens and respect reduced-motion preferences. Search
 submission, paging and detail reads can be cancelled by a newer search, closing
 the detail sheet or leaving the tab. A failed request provides an explicit retry;
 existing configured connections remain usable.
 
-**查看详情** opens an animated sheet with the publisher's description, exact
+**View details** opens an animated sheet with the publisher's description, exact
 version, update date, repository/website, remote transports and local package
 information. Registry inclusion is not a promise that the server implements a
 compatible schema, supplies credentials or supports RiA's tool constraints.
@@ -36,7 +36,7 @@ Deleted/malformed entries are skipped; deprecated versions cannot be added from
 discovery. Descriptions render as plain text and external links are restricted to
 HTTP(S) URLs without embedded credentials. Browsing never probes a listed endpoint.
 
-For a supported static Streamable HTTP address, **添加连接** opens the existing
+For a supported static Streamable HTTP address, **Add connection** opens the existing
 configuration sheet with its name, endpoint and supported request-header fields
 prefilled. Secret values and unresolved header placeholders are left empty; fill
 the complete required header value (including an authentication prefix if needed).
@@ -87,7 +87,7 @@ mode is not a clean compatibility pass. Stdio completed discovery, status calls
 and child cleanup. The package's npm endpoint returned 404 during this check;
 do not assume its README's `npx` installation command is currently available.
 
-For an independently built bridge on Windows, use **添加扩展 → MCP · 本地程序**:
+For an independently built bridge on Windows, use **Add extension → MCP · Local program**:
 select the installed `node.exe` by absolute path, put the absolute `dist/cli.js`
 path in the JSON argument array, choose the bridge's absolute working directory,
 and explicitly grant process permission. Detect, select only the needed tools
@@ -124,9 +124,9 @@ servers, arbitrary UI plugins and DSH/Cordis plugins are not implemented here.
 
 ## Add and use a connection
 
-1. Open 设置 → 扩展 → 添加扩展, choose the connection type and save its configuration.
-2. Run 检测连接. Inspect the descriptions and parameter schemas returned by the server.
-3. Select the tools you need and choose 启用所选工具. New connections and newly discovered tools start disabled.
+1. Open Settings → Extensions → Add extension, choose the connection type and save its configuration.
+2. Run Test connection. Inspect the descriptions and parameter schemas returned by the server.
+3. Select the tools you need and choose Enable selected tools. New connections and newly discovered tools start disabled.
 4. Use normal chat with a tool-capable model; automatic tool selection is the
    default. You can also select
    the external tools in a custom assistant template. A template grants no additional

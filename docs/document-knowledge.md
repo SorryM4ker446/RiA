@@ -7,18 +7,18 @@ write long-term memories; imported documents remain available. Manual tool API
 requests may include `chatId` so the server can derive these settings from the
 stored conversation. A missing supplied conversation returns 404.
 
-Open **知识库管理 → 文档知识库** to select a PDF, UTF-8 Markdown (`.md`), UTF-8 text (`.txt`) or Word `.docx` file. **导入文档** first shows a local, read-only extraction preview: inspect headings, rows, amounts, conditions and missing content, then click **确认保存文档**. **放弃预览** writes nothing. The original file is not retained: SQLite stores the extracted text, filename, PDF page numbers and a local search index. Keep the original separately if you need its formatting or binary contents.
+Open **Knowledge management → Document library** to select a PDF, UTF-8 Markdown (`.md`), UTF-8 text (`.txt`) or Word `.docx` file. **Import document** first shows a local, read-only extraction preview: inspect headings, rows, amounts, conditions and missing content, then click **Confirm document save**. **Discard preview** writes nothing. The original file is not retained: SQLite stores the extracted text, filename, PDF page numbers and a local search index. Keep the original separately if you need its formatting or binary contents.
 
 Confirmation extracts the file again and verifies that the preview text and same-filename document identity, content hash and collection still match. A concurrent import, deletion/recreation or collection move returns conflict instead of overwriting newer data; preview again before saving. Preview data lives only on the open page. There is no server preview cache, durable upload or model call. If a first-save response is lost, refresh and preview again to see the saved document before repeating confirmation.
 
-Importing a file with the same exact filename updates the document. Identical extracted text and collection leave the index unchanged; changed paragraphs add/remove chunks while unaffected chunks keep their IDs. **重新索引** rebuilds local terms, frequencies, section paths and table chunks from saved text. It does not call an embedding model or rerun file extraction. Index version 3 retains table headers with each complete group of rows. Old local indices are marked **本地索引待更新**; reindex them explicitly before building semantic vectors. There is no automatic paid upgrade. Index replacement is transactional, so validation failures and failed writes preserve the working version.
+Importing a file with the same exact filename updates the document. Identical extracted text and collection leave the index unchanged; changed paragraphs add/remove chunks while unaffected chunks keep their IDs. **Reindex** rebuilds local terms, frequencies, section paths and table chunks from saved text. It does not call an embedding model or rerun file extraction. Index version 3 retains table headers with each complete group of rows. Old local indices are marked **Local index needs updating**; reindex them explicitly before building semantic vectors. There is no automatic paid upgrade. Index replacement is transactional, so validation failures and failed writes preserve the working version.
 
-Word extraction preserves standard Heading 1–6 styles, list membership and table rows/columns as plain Markdown. Ordered list items use neutral `1.` markers rather than reproducing the original numbering. An explicitly marked Word header row becomes the table header; otherwise generated labels such as `列 1` keep the first row as data. Merged cells repeat their value at each occupied coordinate with a merge marker; this representation needs human review. Markdown pipe tables keep complete rows and repeat their original header and divider in every table chunk. Escaped pipes and inline code delimiters do not split cells. Ordinary long paragraphs retain the existing overlap. Saved text from older Word imports cannot recover previously flattened rows, headings or merged cells: **reimport the original Word file** to obtain the new structure. Reindex alone cannot restore missing source information.
+Word extraction preserves standard Heading 1–6 styles, list membership and table rows/columns as plain Markdown. Ordered list items use neutral `1.` markers rather than reproducing the original numbering. An explicitly marked Word header row becomes the table header; otherwise generated labels such as `列 1` (“Column 1”) keep the first row as data. Merged cells repeat their value at each occupied coordinate with a merge marker; this representation needs human review. Markdown pipe tables keep complete rows and repeat their original header and divider in every table chunk. Escaped pipes and inline code delimiters do not split cells. Ordinary long paragraphs retain the existing overlap. Saved text from older Word imports cannot recover previously flattened rows, headings or merged cells: **reimport the original Word file** to obtain the new structure. Reindex alone cannot restore missing source information.
 
 Headings inside fenced code examples remain literal reference text and do not
 change the section path of later evidence. Escaped trailing backslashes do not
 hide a table's closing delimiter. If documents were indexed before these fixes,
-use **重新索引** to repair their saved headings/table chunks; affected semantic
+use **Reindex** to repair their saved headings/table chunks; affected semantic
 vectors are invalidated and need explicit rebuilding. Unchanged paragraphs retain
 their IDs, and a content-preserving reindex keeps document citation versions.
 
@@ -27,13 +27,13 @@ The document panel supports keyword search without a model key, and hybrid searc
 ## Configure and build semantic retrieval
 
 1. Select an embedding model from the existing model settings and configure its provider.
-2. Import documents and inspect their extracted text. For older documents, use **重新索引** first.
-3. Click **语义索引** for one document or **批量构建或继续** for pending documents in the current library, and confirm sending their filenames, collections, section paths and text snippets to that model. The panel shows indexed/total chunks for the selected model.
+2. Import documents and inspect their extracted text. For older documents, use **Reindex** first.
+3. Click **Build semantic index** for one document or **Build or resume in bulk** for pending documents in the current library, and confirm sending their filenames, collections, section paths and text snippets to that model. The panel shows indexed/total chunks for the selected model.
 4. Ask a paraphrased question in the library or chat. Select the appropriate collections to narrow evidence. A short follow-up can reuse the preceding user question; assistant speculation is excluded from this query context.
 
-Import never starts billable indexing automatically. Each explicit indexing request processes at most 32 pending chunks, with a 30-second provider deadline. One page operation makes at most 12 sequential requests in total and at most eight for a document. Completed batches persist if a later batch fails, hits quota or is cancelled; refresh and click the button again to continue, including after a service restart. An unchanged completed index makes no new provider call. Quota and conflict stop the operation; other document failures are reported while remaining documents can proceed. Embedding calls have no automatic retries. Duplicate requests for one document return conflict; document/model changes or cancellation prevent an obsolete batch from committing. **取消索引构建** and leaving the library cancel its in-flight request. Cancellation cannot undo an already committed batch or guarantee a provider has not charged for submitted work.
+Import never starts billable indexing automatically. Each explicit indexing request processes at most 32 pending chunks, with a 30-second provider deadline. One page operation makes at most 12 sequential requests in total and at most eight for a document. Completed batches persist if a later batch fails, hits quota or is cancelled; refresh and click the button again to continue, including after a service restart. An unchanged completed index makes no new provider call. Quota and conflict stop the operation; other document failures are reported while remaining documents can proceed. Embedding calls have no automatic retries. Duplicate requests for one document return conflict; document/model changes or cancellation prevent an obsolete batch from committing. **Cancel indexing** and leaving the library cancel its in-flight request. Cancellation cannot undo an already committed batch or guarantee a provider has not charged for submitted work.
 
-**索引维护** derives completed, stale, malformed and different-model vector counts from stored data, checking the actual vector and contextual hash rather than counting non-null fields. It also identifies old local indices. The per-document progress list describes this page's latest operation; it is not a persistent background queue. Saved vectors are the source for continuation. There are no timers, automatic retries or background paid calls. These status checks do not prove semantic quality or compatibility with a provider whose output dimensions change without a model-ID change; retrieval diagnoses incompatible dimensions separately.
+**Index maintenance** derives completed, stale, malformed and different-model vector counts from stored data, checking the actual vector and contextual hash rather than counting non-null fields. It also identifies old local indices. The per-document progress list describes this page's latest operation; it is not a persistent background queue. Saved vectors are the source for continuation. There are no timers, automatic retries or background paid calls. These status checks do not prove semantic quality or compatibility with a provider whose output dimensions change without a model-ID change; retrieval diagnoses incompatible dimensions separately.
 
 Vectors are stored in local SQLite, qualified by provider, model and the hash of the contextual text used for embedding. A changed paragraph, section, filename or collection invalidates affected vectors. A model change excludes vectors from the old model; explicitly build the new index. Missing credentials or a query embedding failure leave keyword retrieval available. Query cancellation still cancels the operation. Vectors must contain finite numeric values, have a nonzero norm and at most 4,096 dimensions; different dimensions are never compared.
 
@@ -136,10 +136,10 @@ is correct and do not contain query or document text.
 
 ### Explicit quality evaluation
 
-Open **检索质量评测** in the document library, replace the example questions with
+Open **Retrieval quality evaluation** in the document library, replace the example questions with
 representative cases from your own documents, and optionally choose an assistant
-template. Run retrieval alone, enable **同时生成回答**, or additionally enable
-**模型语义评审**. The latter sends the generated answer, retrieved excerpts and
+template. Run retrieval alone, enable **Also generate answers**, or additionally enable
+**Model semantic review**. The latter sends the generated answer, retrieved excerpts and
 scoring criteria to a chat model for another potentially billed call per question.
 The UI confirms the data flow and fees. It defaults to reviewing with the answer
 model, so this is not an independent reviewer. The API can explicitly select a
@@ -227,8 +227,8 @@ adds no knowledge-answer block; the shared agent instructions still prohibit inv
 workspace facts or citations. Retrieved excerpts apply only to relevant tasks, so
 unrelated conversation does not require a retrieval disclaimer. This directs the model; it does
 not guarantee compliance. Answer sources show whether the generated Markdown actually
-links to each versioned snippet. **回答已引用此片段** means a link was present, not
-that its associated claim was verified. **回答未引用此片段** identifies retrieved
+links to each versioned snippet. **This excerpt was cited in the answer** means a link was present, not
+that its associated claim was verified. **Retrieved reference: not cited in the answer** identifies retrieved
 references that the answer did not cite. Both states persist across restart.
 
 New persisted citation snapshots include `contentHash` and collection alongside
@@ -277,9 +277,9 @@ latency and costs. These calls are explicit and can incur charges.
 
 ## Library layout
 
-The knowledge page keeps document import and retrieval above a compact document list. **导入说明与隐私**, **索引维护** and **检索质量评测** expand on demand. Document rows show filename, collection, chunk/character counts, index time and keyword/semantic status; the three labelled icon actions retain semantic indexing, local reindexing and deletion. Open **索引维护** to run or continue a batch, inspect diagnostics or cancel an active build. These layout changes do not start indexing or change confirmation and billing behavior.
+The knowledge page keeps document import and retrieval above a compact document list. **Import & privacy information**, **Index maintenance** and **Retrieval quality evaluation** expand on demand. Document rows show filename, collection, chunk/character counts, index time and keyword/semantic status; the three labelled icon actions retain semantic indexing, local reindexing and deletion. Open **Index maintenance** to run or continue a batch, inspect diagnostics or cancel an active build. These layout changes do not start indexing or change confirmation and billing behavior.
 
-Memories use a full-width searchable list with existing confirmation filters and pagination. **新增记忆** opens a keyboard-accessible sheet; failed saves retain the draft, and long entries support an abbreviated preview with **展开全文**. Existing entry edits, confirmation and deletion remain available inline.
+Memories use a full-width searchable list with existing confirmation filters and pagination. **Add memory** opens a keyboard-accessible sheet; failed saves retain the draft, and long entries support an abbreviated preview with **Expand full text**. Existing entry edits, confirmation and deletion remain available inline.
 
 
-Recognized `tool-memory-v1` records display a readable subject, tool label and summary instead of their storage envelope. **查看内容** expands a sanitized Markdown answer excerpt; **原始记录** exposes the complete stored key/value. Previewing these excerpts does not load embedded images. This is presentation only: editing still uses the original value, and search, confirmation, IDs and persisted keys remain unchanged. Manual notes and unsupported or malformed envelopes retain their plain text; long or multiline notes use a two-line preview with full expansion.
+Recognized `tool-memory-v1` records display a readable subject, tool label and summary instead of their storage envelope. **View content** expands a sanitized Markdown answer excerpt; **Original record** exposes the complete stored key/value. Previewing these excerpts does not load embedded images. This is presentation only: editing still uses the original value, and search, confirmation, IDs and persisted keys remain unchanged. Manual notes and unsupported or malformed envelopes retain their plain text; long or multiline notes use a two-line preview with full expansion.

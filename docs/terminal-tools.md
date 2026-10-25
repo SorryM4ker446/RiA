@@ -6,31 +6,31 @@ and execution records as other chat tools. It is unavailable in the web runtime.
 
 ## Enable and use
 
-1. Open **工作区权限** to the left of **执行记录** above the chat composer (or
-   **Settings → 工作区权限**), choose
+1. Open **Workspace permissions** to the left of **Execution records** above the chat composer (or
+   **Settings → Workspace permissions**), choose
    a working folder and explicitly grant access. Choosing a folder alone does
    not authorize it. These machine-local permissions apply across conversations.
-2. Choose **开启终端** for that folder, choose **审批** or **完全访问**, and
-   confirm the separate terminal permission. **审批** (the default) requires an
-   approve/reject decision for every terminal tool call. **完全访问** runs LLM
+2. Choose **Enable terminal** for that folder, choose **Approval** or **Full access**, and
+   confirm the separate terminal permission. **Approval** (the default) requires an
+   approve/reject decision for every terminal tool call. **Full access** runs LLM
    terminal commands without per-call approval. Each call may contain a complete
    script; approval covers the whole call rather than individual script statements.
 3. Select the conversation's workspace with the folder picker to the left of
-   **工作区权限**. See [Conversation workspace](#conversation-workspace).
+   **Workspace permissions**. See [Conversation workspace](#conversation-workspace).
 4. In a conversation with a model that supports tools, ask for a command, for
-   example: “在工作区运行 `Get-ChildItem`，列出文件并解释结果。”
-5. In **审批** mode, review the compact approval card above the **工作区 / 工作区权限 / 执行记录** toolbar. Its default view shows the operation, canonical working directory and approve/reject controls. Choose **查看详情** to expand the exact command in a bounded scroll area, then **收起详情** to collapse it. Expansion follows the shared motion tokens and respects reduced motion. **执行详情** opens the corresponding execution record; full commands, inputs, outputs, status, sources and diagnostics remain there. Execution records do not open automatically. Each call needs its own decision; queued approvals are presented one at a time and each new item starts collapsed. In **完全访问** mode execution starts automatically and the same execution records remain available.
-6. Open **执行详情** to see live stdout, stderr and the exit code. Use
-   **停止命令** to stop a long command. Stopping the chat request, cancelling its
+   example: “Run `Get-ChildItem` in the workspace, list the files and explain the result.”
+5. In **Approval** mode, review the compact approval card above the **Workspace / Workspace permissions / Execution records** toolbar. Its default view shows the operation, canonical working directory and approve/reject controls. Choose **View details** to expand the exact command in a bounded scroll area, then **Collapse details** to collapse it. Expansion follows the shared motion tokens and respects reduced motion. **Execution details** opens the corresponding execution record; full commands, inputs, outputs, status, sources and diagnostics remain there. Execution records do not open automatically. Each call needs its own decision; queued approvals are presented one at a time and each new item starts collapsed. In **Full access** mode execution starts automatically and the same execution records remain available.
+6. Open **Execution details** to see live stdout, stderr and the exit code. Use
+   **Stop command** to stop a long command. Stopping the chat request, cancelling its
    execution record, changing terminal mode, disabling permission or revoking the folder also
    stops the associated command.
 
-Choose **终端：审批** or **终端：完全访问** beside a folder to change its mode.
+Choose **Terminal: Approval** or **Terminal: Full access** beside a folder to change its mode.
 Mode changes invalidate pending commands as well as stopping running ones, so a
 command proposed under an older permission must be requested again. The mode is
 machine-local, applies across conversations, and survives app restart. Existing
-terminal grants retain **审批** after upgrading; full access is never enabled by
-the migration. Disabling, re-granting or restoring resets the mode to **审批**.
+terminal grants retain **Approval** after upgrading; full access is never enabled by
+the migration. Disabling, re-granting or restoring resets the mode to **Approval**.
 
 Approval continuations retain their server-issued run identities in the saved assistant message and appear as one request in execution records. Existing messages with one `runId` remain supported. Legacy rows without a link are joined only when one user-message window contains exactly one run and one saved assistant reply; ambiguous histories are not matched by title. Missing full details are labeled explicitly and existing step summaries remain expandable. No database migration or replay of old commands is needed.
 
@@ -49,15 +49,15 @@ creation time remain stable on replacement; media cleanup and summary changes
 remain in the same atomic transaction.
 
 Conversations created from templates retain their tool allowlist. Add
-**执行终端命令** to a custom template if needed. Legacy file-tool selections normalize to this tool, but no folder gains terminal permission automatically. Old approvals for retired file tools cannot execute; send a fresh request and review its terminal command.
+**Run terminal command** to a custom template if needed. Legacy file-tool selections normalize to this tool, but no folder gains terminal permission automatically. Old approvals for retired file tools cannot execute; send a fresh request and review its terminal command.
 
 ## Conversation workspace
 
-Authorizing a folder and selecting it are separate. Authorization (**工作区权限**)
+Authorizing a folder and selecting it are separate. Authorization (**Workspace permissions**)
 is a machine-wide standing permission; each conversation then selects at most
 one authorized folder as its workspace in the picker above the composer. The
 picker lists only active grants, marks those without terminal access and offers
-**不使用工作区**. Choosing before the first message creates the conversation that
+**No workspace**. Choosing before the first message creates the conversation that
 holds the choice. The choice is stored with the conversation
 (`PATCH /api/conversations/:id` with `workspaceGrantId`) and applies from the
 next message. It cannot change while a reply is generating, and sending waits
@@ -171,7 +171,7 @@ their own and appear in template tool lists through the terminal tool.
   folder and a rename, so a failure leaves the original intact.
 
 The diff is computed by the service from the file on disk when the model proposes
-the edit, and is what the approval card shows under **查看详情** with the path and
+the edit, and is what the approval card shows under **View details** with the path and
 added/removed line counts. The approval is bound to the folder permission
 revision and to the hashes of the content before and after the edit. If the file
 or permission changes after the proposal, the edit is refused, including after
@@ -192,7 +192,7 @@ summary and execution records with their diff.
 
 ## Files changed by a reply
 
-After the assistant finishes, **最近编辑的文件** appears below its reply when
+After the assistant finishes, **Recently edited files** appears below its reply when
 terminal results contain detected changes. Each row shows a relative path,
 created/modified/deleted status and a line-count or size summary. These are
 filesystem observations rather than a model-generated description of intent.

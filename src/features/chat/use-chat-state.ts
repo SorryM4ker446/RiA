@@ -24,7 +24,7 @@ import { persistConversationMessage } from "@/features/chat/api-client";
 import { useChatPreferences } from "@/features/chat/use-chat-preferences";
 import { useConversations } from "@/features/chat/use-conversations";
 import { useMediaGeneration } from "@/features/chat/use-media-generation";
-import { useTasks } from "@/features/chat/use-tasks";
+import { useTasks } from "@/features/tasks/use-tasks";
 import { useTools } from "@/features/chat/use-tools";
 import { animateRemoval } from "@/lib/ui/removal";
 export function useChatState() {

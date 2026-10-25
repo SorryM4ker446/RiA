@@ -1,7 +1,7 @@
 # Factual workspace reviews
 
-**设置 → 自动化与通知** has a separate **本地事实回顾** section and optional daily
-and weekly schedules. Use **添加计划** to configure a schedule in the side panel;
+**Settings → Automation & notifications** has a separate **Local fact review** section and optional daily
+and weekly schedules. Use **Add schedule** to configure a schedule in the side panel;
 opening or cancelling the panel does not save or run a job. The review section
 provides its own period and time-zone controls, with statistics and source links. Counts come from persisted events, not current totals,
 `updatedAt`, or a model's reconstruction. A daily review covers the previous

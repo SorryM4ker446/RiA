@@ -30,10 +30,10 @@ import {
   FieldSet,
 } from "@/components/ui/field";
 import { TaskDateTimeField } from "@/features/tasks/task-date-time-field";
-import { TaskPanel } from "@/features/chat/task-panel";
-import { useTasks } from "@/features/chat/use-tasks";
+import { TaskPanel } from "@/features/tasks/task-panel";
+import { useTasks } from "@/features/tasks/use-tasks";
 import { chatApi } from "@/features/chat/api-client";
-import { repeatLabels } from "@/features/chat/task-schedule-editor";
+import { repeatLabels } from "@/features/tasks/task-schedule-editor";
 import { isTaskTimeZone, parseTaskDueDate } from "@/lib/tasks/schedule";
 
 export default function TasksPage() {

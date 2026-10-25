@@ -21,7 +21,7 @@ import {
   parseTaskDueDate,
   taskLocalInput,
 } from "@/lib/tasks/schedule";
-import type { TaskItem, TaskScheduleInput } from "./types";
+import type { TaskItem, TaskScheduleInput } from "@/features/chat/types";
 
 export const repeatLabels = () => ({
   none: t("chat.schedule.repeatNone"),

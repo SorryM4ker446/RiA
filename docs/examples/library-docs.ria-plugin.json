@@ -2,20 +2,20 @@
   "format": "ria-plugin",
   "schemaVersion": 1,
   "id": "example.library-docs",
-  "name": "库文档查询助手",
+  "name": "Library docs assistant",
   "version": "1.0.0",
   "author": "Example publisher",
-  "description": "组合技能与 Context7 连接，查询版本文档。服务额度与凭据由服务商管理。",
+  "description": "Combines a skill with a Context7 connection to look up versioned documentation. Service quota and credentials are managed by the provider.",
   "skills": [{
     "id": "library-docs",
-    "name": "库文档查询",
-    "description": "用户询问库或框架的 API、用法、版本变化时使用。",
-    "instructions": "先确认库和版本，再通过已确认的 Context7 工具匹配库标识、查询相关文档。外部调用等待授权。依据实际返回材料回答并说明版本；连接不可用时说明情况，不能编造查询结果。"
+    "name": "Library docs lookup",
+    "description": "Use when the user asks about a library's or framework's API, usage or version changes.",
+    "instructions": "First confirm the library and version, then use the confirmed Context7 tools to resolve the library identifier and query the relevant documentation. External calls wait for authorization. Answer from the material actually returned and state the version; if the connection is unavailable, say so and never invent lookup results."
   }],
   "connections": [{
     "id": "context7",
     "name": "Context7 docs",
     "config": { "type": "mcp-http", "url": "https://mcp.context7.com/mcp" },
-    "credentials": [{ "key": "Authorization", "required": false, "description": "可选：Bearer 加你的 Context7 API Key。" }]
+    "credentials": [{ "key": "Authorization", "required": false, "description": "Optional: Bearer followed by your Context7 API key." }]
   }]
 }

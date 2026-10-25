@@ -4,8 +4,8 @@ Model names are no longer compiled into the application. `src/config/model.ts` i
 
 What a user sees comes from two places, and they are deliberately separate:
 
-- **官方目录** — rows discovered from the provider's own endpoints, cached locally and refreshable. Discovering a model grants no right to call it.
-- **我的模型** — the entries the user explicitly added. Only these can be selected, and only these pass the server-side check before any provider call.
+- **Official catalog** — rows discovered from the provider's own endpoints, cached locally and refreshable. Discovering a model grants no right to call it.
+- **My models** — the entries the user explicitly added. Only these can be selected, and only these pass the server-side check before any provider call.
 
 Each provider has one adapter under `src/lib/models/providers/`; `index.ts` is the registry and `types.ts` the contract they all satisfy. An adapter owns that provider's conventions and nothing else: how to read its catalog, what shape a model id has there, how to build a chat/image/video/embedding model, and whether this instance holds its credentials. Everything above that file — the library, the defaults, the fallbacks, the leases, the usage log — identifies a model by `{ providerId, modelId }` and never reads a provider's protocol. To add a provider: write the adapter, register it in `src/lib/models/providers/index.ts`, add its id to `providerIds` in `src/lib/models/preferences-schema.ts`, and add the credential to the desktop settings store. A test fails the build if a registered adapter's id is not in that list, because otherwise a library row could name a provider the application cannot call.
 

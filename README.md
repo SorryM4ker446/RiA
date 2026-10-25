@@ -67,7 +67,7 @@ For a browser-based development/test loop, run `npm run dev`. This prints a one-
 
 Keep `.npmrc` and `vendor/` when installing dependencies. Reviewed local dependency backports and their maintenance requirements are documented in [vendor/README.md](vendor/README.md). After dependency changes, run `npx --yes npm@11.19.1 audit --audit-level=low` and the relevant regression checks.
 
-Local API requests enforce access credentials, Host/Origin checks, input limits and quotas. See [API security](docs/api-security.md), [local API contracts](docs/local-api.md) and [model catalog maintenance](docs/model-catalog.md).
+Local API requests enforce access credentials, Host/Origin checks, input limits and quotas. See [API security](docs/api-security.md), [local API contracts](docs/local-api.md) and [model catalog maintenance](docs/model-catalog.md). The source layout and runtime model are described in [project structure](docs/project-structure.md).
 
 ## Build an installer
 
