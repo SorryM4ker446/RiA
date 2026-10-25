@@ -79,6 +79,10 @@ fixtures too. Targeted browser cases are useful during repair, but do not replac
 the full browser gate. Retain traces and screenshots from the first failure.
 The desktop job has its own runtime provisioning, smoke, installer and manual
 acceptance gates; application/browser checks do not certify those results.
+The release workflow runs only when started by hand on `main`. It repeats the desktop tests,
+installer build and packaged smoke test, then signs the update manifest and
+creates a draft release. A green release run shows that a draft exists. It
+does not show that the release was accepted or published.
 
 Tests should synchronize on the contract being exercised. Attachment checks
 wait for the upload response before checking the rendered attachment. Terminal

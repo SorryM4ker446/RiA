@@ -92,7 +92,7 @@ For a new version, run `npm run desktop:version` once before building. It synchr
 | `npm run desktop:package` | Unpacked Windows application in `out/RiA-win32-x64/` |
 | `npm run desktop:make` | MSI and verification metadata in `out/make/wix/x64/` |
 
-CI builds and validates the Windows package but uploads failure diagnostics only, rather than installers. Windows code signing and automatic application updates are not configured. Building or smoke-testing an MSI does not establish that clean installation and upgrades have passed. See [desktop development and release](docs/desktop.md) and [Windows release acceptance](docs/windows-release-acceptance.md).
+CI builds and validates the Windows package but uploads failure diagnostics only, rather than installers. A manually started release workflow builds a draft GitHub release with a signed update manifest; installed copies offer a published release in Settings and install it on request. Windows code signing is not configured. Building or smoke-testing an MSI does not establish that clean installation and upgrades have passed. See [desktop development and release](docs/desktop.md) and [Windows release acceptance](docs/windows-release-acceptance.md).
 
 ## Validation
 
