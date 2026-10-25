@@ -5,10 +5,10 @@ Existing standalone connections, MCP discovery, tool allowlists and approvals re
 
 ## Use and lifecycle
 
-**设置 → 扩展 → 插件市场 → 发现 Skill** searches the public skills.sh directory.
-Enter at least two characters (for example `writing` or `react`), press **搜索**,
-then **查看详情** to read `SKILL.md`, inspect bundled files and check compatibility.
-Press **安装技能** and enable the installed package in **我的扩展 → 我的插件**.
+**Settings → Extensions → Plugin marketplace → Discover skills** searches the public skills.sh directory.
+Enter at least two characters (for example `writing` or `react`), press **Search**,
+then **View details** to read `SKILL.md`, inspect bundled files and check compatibility.
+Press **Install skill** and enable the installed package in **My extensions → My plugins**.
 For example, search `vercel-react-best-practices`, select the entry from
 `vercel-labs/agent-skills`, install and enable it, then ask the assistant to review
 a pasted React component for performance issues. A tool-capable chat model can
@@ -23,10 +23,10 @@ The API is the same search/download surface used by the official
 [skills CLI](https://github.com/vercel-labs/skills/blob/main/src/blob.ts), rather
 than a mirrored marketplace or a bundled copy of its catalog.
 
-The **RiA 精选插件** section retains the bundled catalog. Search by name/purpose,
-inspect skills and connections, then **安装插件**. Browsing
+The **RiA featured plugins** section retains the bundled catalog. Search by name/purpose,
+inspect skills and connections, then **Install plugin**. Browsing
 and installation never detect services or execute business calls. New packages
-start disabled in **我的扩展 → 我的插件**. Skill-only packages can be enabled
+start disabled in **My extensions → My plugins**. Skill-only packages can be enabled
 immediately. Combined packages require configuration, successful connection
 detection and explicit tool selection before package activation. Credentials
 remain in the existing encrypted connection store, outside the package manifest.
@@ -56,17 +56,17 @@ Tool allowlists, directory grants, schema checks, budgets and per-call external
 approval remain enforced. Image/video modes do not load these chat skills.
 This adds guidance, not a guarantee of model instruction-following quality.
 
-**停用插件** blocks its tools, cancels active operations, invalidates approvals and
+**Disable plugin** blocks its tools, cancels active operations, invalidates approvals and
 removes skills from subsequent chat context. Reviewed tool selections remain for
 reactivation. Text already sent upstream cannot be retracted. An unavailable or
 reconfigured connection suppresses the combined package's guidance until all its
-connections are ready again. **卸载插件** atomically removes the package, its owned
+connections are ready again. **Uninstall plugin** atomically removes the package, its owned
 connections and encrypted credentials; unrelated connections, chats and historical
 results remain. Owned connections must be removed through package uninstall.
 
 ## Import format
 
-**导入插件** accepts `.ria-plugin.json` files or pasted JSON. **预览插件** validates
+**Import plugin** accepts `.ria-plugin.json` files or pasted JSON. **Preview plugin** validates
 without writes/execution. Installation revalidates the normalized content and
 SHA-256 digest; draft edits invalidate previews. A digest identifies content, not
 publisher trust. Author fields are self-declared. Ready-to-import examples:

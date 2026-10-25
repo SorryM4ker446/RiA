@@ -2,9 +2,11 @@ import { expect, type Locator, type Page } from "@playwright/test";
 
 /** A painted box, rounded to whole pixels. */
 export type Box = { top: number; left: number; width: number; height: number };
+/** A box and when it was read (`performance.now()`, in milliseconds). */
+export type Frame = Box & { at: number };
 export type LayoutRecord = {
   /** The box of each watched element in every painted frame it was visible in. */
-  frames: Record<string, Box[]>;
+  frames: Record<string, Frame[]>;
   /** Layout shifts the browser reported, including ones right after input. */
   shifts: { value: number; nodes: string[]; allowed: boolean }[];
 };
@@ -61,7 +63,7 @@ export async function watchLayout(page: Page, targets: Record<string, string | L
         const element = document.querySelector(selector);
         if (!element || getComputedStyle(element).visibility !== "visible") continue;
         const box = element.getBoundingClientRect();
-        state.frames[name].push({ top: Math.round(box.top), left: Math.round(box.left), width: Math.round(box.width), height: Math.round(box.height) });
+        state.frames[name].push({ top: Math.round(box.top), left: Math.round(box.left), width: Math.round(box.width), height: Math.round(box.height), at: performance.now() });
       }
       requestAnimationFrame(sample);
     }, 0);
@@ -97,17 +99,28 @@ export function expectNoUnexpectedShift(record: LayoutRecord) {
 
 /**
  * The element moved by at least `atLeast` pixels along the edge, and did so
- * smoothly: over several frames with no single step above `maxStep` of the
- * whole move, or in a single frame when motion is reduced.
+ * smoothly: through painted in-between positions over at least `overMs`, or in
+ * a single frame when motion is reduced.
+ *
+ * The check is made in time rather than per frame. How far an eased move gets
+ * in one frame, and how many frames it is painted in, depend on how long each
+ * frame took: a front-loaded curve covers a third of the way in a 16ms frame
+ * and over half in a 33ms one, and a busy machine may paint only three frames
+ * of it. A per-frame limit fails there though the motion is the same.
  */
-export function expectEased(record: LayoutRecord, name: string, edge: keyof Box, { atLeast, reducedMotion = false, maxStep = 0.6 }: { atLeast: number; reducedMotion?: boolean; maxStep?: number }) {
-  const values = edges(record.frames[name], edge) as number[];
+export function expectEased(record: LayoutRecord, name: string, edge: keyof Box, { atLeast, reducedMotion = false, overMs = 100 }: { atLeast: number; reducedMotion?: boolean; overMs?: number }) {
+  const frames = record.frames[name];
+  const values = edges(frames, edge) as number[];
+  const detail = `${name} ${edge}: ${frames.map(frame => `${frame[edge]}@${Math.round(frame.at)}`).join(",")}`;
   const steps = values.slice(1).map((value, index) => Math.abs(value - values[index])).filter(step => step > 0);
   const total = Math.abs(values.at(-1)! - values[0]);
-  expect(total, `${name} ${edge}: ${values.join(",")}`).toBeGreaterThanOrEqual(atLeast);
-  if (reducedMotion) expect(steps, `${name} ${edge}: ${values.join(",")}`).toHaveLength(1);
+  expect(total, detail).toBeGreaterThanOrEqual(atLeast);
+  if (reducedMotion) expect(steps, detail).toHaveLength(1);
   else {
-    expect(steps.length, `${name} ${edge}: ${values.join(",")}`).toBeGreaterThan(3);
-    expect(Math.max(...steps), `${name} ${edge}: ${values.join(",")}`).toBeLessThan(total * maxStep);
+    expect(steps.length, detail).toBeGreaterThan(1);
+    // From the last frame at the start to the first at the end: a jump has no time between them.
+    const left = frames[values.findIndex(value => value !== values[0]) - 1].at;
+    const arrived = frames[values.findIndex(value => value === values.at(-1))].at;
+    expect(arrived - left, detail).toBeGreaterThanOrEqual(overMs);
   }
 }

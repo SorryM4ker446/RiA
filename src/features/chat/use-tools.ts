@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { chatApi, persistConversationMessage } from "@/features/chat/api-client";
 import { buildDefaultManualFieldValues } from "@/features/chat/tool-input";
 import type { ManualToolFieldValues, ManualToolSelection, TaskStatusFilter, ToolCatalogItem, ToolDocumentSelection } from "@/features/chat/types";
-import type { useTasks } from "@/features/chat/use-tasks";
+import type { useTasks } from "@/features/tasks/use-tasks";
 import type { ModelRef } from "@/lib/models/preferences-schema";
 type Options = { activeChatId: string | null; allowedToolIds?: string[]; setMessages: Dispatch<SetStateAction<UIMessage[]>>; ensureActiveChatId: (title: string) => Promise<string>; loadChats: () => Promise<void>; selectedChatModel: ModelRef | null; modelMode: ModelMode; loadTasks: ReturnType<typeof useTasks>["loadTasks"]; taskStatusFilter: TaskStatusFilter; };
 export function useTools({ activeChatId, allowedToolIds, setMessages, ensureActiveChatId, loadChats, selectedChatModel, modelMode, loadTasks, taskStatusFilter }: Options) {

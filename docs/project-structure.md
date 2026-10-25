@@ -1,6 +1,6 @@
 # Project structure and runtime model
 
-> Reflects the current implementation (a single-user local workspace, no accounts). Dated 2026-09-15.
+> Reflects the current implementation (a single-user local workspace, no accounts). Dated 2026-10-25.
 
 ## 1. What this is
 
@@ -25,28 +25,47 @@ All three run migrations through the **same migrator**, so a schema change canno
 ```
 src/app/            App Router pages and API routes
 src/app/api/        Business endpoints (all need the local credential except /health and the entry that issues it)
-src/components/ui/  Reusable UI primitives
-src/config/         Baseline for the legacy curated model list, used only by scripts
+src/components/     Shared interface pieces
+  ui/               Reusable UI primitives
+  layout/           Application shell, title bar, page header and toolbar
+  chat/, knowledge/ Markdown rendering, attachments and citation views shared by several features
+src/config/         Baseline for the legacy curated model list, used by scripts and tests
 src/db/             Prisma schema and SQLite migrations
-src/features/       Client modules grouped by feature
+src/features/       Client modules grouped by feature: assistants, chat, commands, conversations,
+                    document-processor, extensions, knowledge, media, models, settings, tasks, topics
 src/lib/            Shared infrastructure
+  activity/         Workspace events and local fact reviews
+  agent/            Execution records: tool runs, their steps and stop state
   ai/               AI SDK client and message encoding
+  assistants/       Default and custom assistant templates
   backups/          Archive, import, restore and retention
   chat/             Request validation, context, streaming and persistence
   conversations/    Conversation queries, changes and export
   documents/        Extraction, index and retrieval
   document-processor/ Editable extraction snapshots and on-demand Markdown/TXT/HTML/DOCX exports
+  extensions/       Machine-local MCP/HTTP connections, encrypted credentials and lifecycle
+  locale/           Interface copy (Chinese and English catalogs) and lookup helpers
+  local/            Local workspace identity
+  local-files/      User-granted directories: path safety, grants and their limits
   media/            Private media storage, generation and migration
   memory/           Memory storage, retrieval scoring and vector rebuild
   models/           Provider adapters, dynamic catalogs, my models, availability, preferences and usage
-  local/            Local workspace identity
-  local-files/      User-granted directories: path safety, grants and their limits
-  extensions/       Machine-local MCP/HTTP connections, encrypted credentials and lifecycle
+  plugins/          Plugin packages, the bundled catalog and the skills.sh marketplace
+  project-files/    Reading and editing files inside an authorized workspace
+  scheduler/        Scheduled jobs, their runner and run history
   server/           Request boundary: security, quotas, body size, errors
+  settings/         Settings overlay sections and their addresses
+  tasks/            Task storage and recurrence schedules
+  terminal/         PowerShell runtime, permissions, logs and file-change tracking
+  topics/           Knowledge topics and their generated artifacts
+  ui/, utils/       Small client helpers (list removal without layout jumps, class-name merging)
+  *.ts              Client hooks and helpers used across features (use-*.ts, clipboard, downloads)
 src/tools/          Built-in definitions, unified registry and shared execution pipeline
+src/types/          Ambient type declarations (the desktop bridge)
 electron/           Desktop main process: window, service lifecycle, encrypted settings, migrations
 scripts/            Local database, build, packaging and verification scripts
-tests/              Browser, server and desktop regression tests
+tests/              Browser (e2e), server, desktop and harness regression tests, with shared helpers and fixtures
+docs/               Feature, operations and testing documentation; docs/examples holds importable plugin examples
 ```
 
 ## 4. Data ownership
@@ -103,7 +122,8 @@ Tests always use an isolated database and media directory and never read or writ
 
 ## 8. File conventions
 
-- Feature-related code goes in `src/features/<feature>/`.
+- Feature-related code goes in `src/features/<feature>/`; a module used by a feature's own page lives with that feature, even when another page reuses it.
+- Interface copy goes in the locale catalogs under `src/lib/locale/`, with the same key in both languages.
 - Route handlers stay in `src/app/api/*`; heavier logic moves down into `src/lib`.
 - Model ids live in `src/config/model.ts` for the legacy list; the runtime catalog is discovered from providers.
 - Shared infrastructure used only by the server goes in `src/lib/server/*`.

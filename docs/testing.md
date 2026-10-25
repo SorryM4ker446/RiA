@@ -35,7 +35,7 @@ steps, new unlimited defaults, foreign keys, the safety backup and repeated star
 Streaming layout regressions hold a Markdown image response, load it after text
 has stopped changing, and resize the viewport while the answer remains active.
 The transcript must stay within two pixels of the bottom, preserve a reader's
-upward scroll, and resume following after “回到最新”. The existing immediate
+upward scroll, and resume following after “Jump to latest”. The existing immediate
 history-scroll case also covers movement before its queued scroll event arrives.
 Reasoning opens for an active turn, stays open through an approval pause, and
 folds when the reply finishes. Desktop and narrow-screen tests sample real
@@ -593,7 +593,7 @@ another. Separate history-failure checks retain the question, provide reload
 guidance, refuse sending incomplete context, and verify recovery after reload.
 Plugin package tests verify the intended conversation is active before exercising
 approval, persisted tool results and uninstall. Knowledge retrieval tests create
-their entry through the current **新增记忆** drawer.
+their entry through the current **Add memory** drawer.
 
 Browser tests use zero retries. The first failing attempt retains its Playwright trace and screenshot, rather than waiting for a retry to collect evidence. Each run writes `test-results/e2e-<UUID>/results.json`, attachments under that run's `artifacts/` directory, and an HTML report under `playwright-report/e2e-<UUID>/`. Reports do not open automatically. The run ID and origin are recorded in report metadata. The serialized web-server configuration contains only explicit test overrides, never a copy of the inherited process environment; Playwright performs normal environment inheritance when launching the server. A synthetic-secret regression protects that boundary. Open a trace with `npx playwright show-trace <trace.zip>` or a report with `npx playwright show-report playwright-report/e2e-<UUID>`. CI uploads these report trees after failure with seven-day retention; it does not upload the isolated workspace database, encrypted settings or browser profile.
 
@@ -603,7 +603,7 @@ Isolated HTTP fixtures capture stdout/stderr through the existing bounded deskto
 
 Installer diagnostic tests canonicalize temporary paths before comparison and cleanup, treating Windows 8.3 aliases and long names as the same directory. The missing-runtime terminal regression explicitly looks for an `Application` with `Get-Command`, requires a failed result, nonzero exit and the requested name in stderr, and uses a same-name PowerShell module fixture to verify that no module is imported instead. This isolates external executable discovery from machine-dependent module discovery without disabling application features, increasing timeouts or accepting a timeout as success. Existing terminal stop/cancel, arbitrary-command, PATH discovery and approval tests remain enabled.
 
-Document citation browser workflows explicitly expand **文档参考** inside the execution record before checking links and excerpts. They continue verifying the same source content after reload, service restart and document deletion; collapsed reference groups do not change the persistence contract.
+Document citation browser workflows explicitly expand **Document references** inside the execution record before checking links and excerpts. They continue verifying the same source content after reload, service restart and document deletion; collapsed reference groups do not change the persistence contract.
 
 The desktop cancellation regression waits for an actual live fixture worker while health is still unavailable, then cancels startup and requires both launcher and worker to exit. It no longer assumes the worker starts within 400 ms. Scheduler registration/restart tests likewise wait for persisted completion, require one execution record and await subsequent explicit polls instead of assuming work finishes within 150 ms; timer ownership is checked on repeated registration. Schema checks each own a `ria-schema-check-*` directory in the system temporary directory, close SQLite even after migration failure and remove only their directory. Real subprocess regressions cover simultaneous checks and failure cleanup. This allows lint and schema validation to run together without deleting a directory ESLint is traversing.
 
@@ -623,7 +623,7 @@ Media price regressions in `media-catalog-pricing.test.ts` cover image units/pro
 
 `window-transitions.test.ts` checks deferred native actions, maximize coalescing, queued close priority, tray-compatible close guards, renderer failure/timeout and teardown cleanup. The caption-click acceptance check still exercises trusted native mouse input rather than synthetic DOM clicks. Native transition QA must also check minimize/restore, maximize/unmaximize, close-to-tray/reopen, quit and reduced motion in the real Electron window.
 
-Browser acceptance follows the current disclosure controls: open recent conversations before paging/selecting them, select “自动化与通知” before checking scheduled history/reviews (including after reload), and open the model usage drawer before asserting recorded fallback charges. Conversation selectors distinguish the primary conversation button from its action menu; all persistence, ownership and billing assertions remain in place.
+Browser acceptance follows the current disclosure controls: open recent conversations before paging/selecting them, select “Automation & notifications” before checking scheduled history/reviews (including after reload), and open the model usage drawer before asserting recorded fallback charges. Conversation selectors distinguish the primary conversation button from its action menu; all persistence, ownership and billing assertions remain in place.
 
 Template regressions verify default-title changes after template switching, persistence after reload/restart and preservation of independently named titles. Clipboard tests read the actual copied instructions, simulate a refused write and distinguish copying instructions from creating an editable template copy. Template editing opens in a keyboard-accessible sheet with collapsed retrieval settings and reduced-motion support. Compact conversation tests exercise row menus, tag-input focus, pin/archive/export actions, dark/light themes and 390px layouts. Execution-record tests check two-line previews, the complete stored goal on expansion and unchanged composer bounds. Screenshots stay in the system temporary directory. Browser plugin unavailable; these checks use the repository's Playwright harness.
 
@@ -677,7 +677,7 @@ cases do not require Python, Go or Node to be preinstalled or use a fixed tool
 version. Optional installed runtimes are probed separately. These are isolated
 local scenarios, not proof of deployment on every Windows machine.
 
-Browser regressions open **执行记录 → 详情** to check tool inputs/results, web and
+Browser regressions open **Execution records → Details** to check tool inputs/results, web and
 document evidence, citation versions, deleted-source snapshots and diagnostics.
 They retain inline-answer and downloadable-artifact checks and verify approval,
 live terminal output, stop, restart recovery and narrow layouts. The Browser

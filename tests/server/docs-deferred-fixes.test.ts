@@ -95,7 +95,7 @@ test("the step record carries no artifact column, in code or in the schema", asy
 });
 
 test("the tools readiness document no longer promises a step artifact", async () => {
-  const document = await readFile(join(repositoryRoot, "docs", "TOOLS_READINESS.md"), "utf8");
+  const document = await readFile(join(repositoryRoot, "docs", "tool-readiness.md"), "utf8");
   const contract = document.match(/## Shared execution contract([\s\S]*?)(?=\n## |$)/)?.[1];
   assert.ok(contract, "the shared execution contract is documented");
   // It has to describe the fields a step really holds, and it must not claim

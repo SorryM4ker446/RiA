@@ -146,7 +146,7 @@ not a manual tool, since it acts on a running chat.
 
 ### Usage indicator
 
-Beside **自动工具** in the composer, a small ring and percentage show how much of
+Beside **Automatic tools** in the composer, a small ring and percentage show how much of
 the model's window the conversation's latest request used, from its saved
 execution details. It stays muted until usage nears the compaction trigger;
 hovering shows the token counts, the trigger and how often that request was
@@ -180,7 +180,7 @@ enforced by the stored state budget rather than by an output cap, so reasoning
 does not cut a handoff short; summary calls follow the chat output rule above.
 Each batch may use a
 quarter of the input budget, between 24,000 and 128,000 tokens. The timeout is
-60 seconds per 2,048 output tokens. A request may make at most **每次请求压缩调用上限**
+60 seconds per 2,048 output tokens. A request may make at most **Compaction calls per request**
 summary calls (default 20, in model call limits), shared by older-turn summaries
 and in-stream compaction; once used up, compaction keeps labelled excerpts, the
 request continues and its execution details state that the limit was reached.

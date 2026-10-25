@@ -19,7 +19,7 @@ import { useEffect, useState } from "react";
 import {
   TaskScheduleEditor,
   repeatLabels,
-} from "@/features/chat/task-schedule-editor";
+} from "@/features/tasks/task-schedule-editor";
 import { cn } from "@/lib/utils/cn";
 import { ListTodo, RefreshCw, Trash2, Bell } from "lucide-react";
 import { Status } from "@/components/ui/status";
@@ -27,7 +27,7 @@ import { ListHead } from "@/components/layout/page-toolbar";
 import { formatTaskPriority } from "@/features/chat/message-presentation";
 import type { TaskItem, TaskStatusFilter } from "@/features/chat/types";
 import { COLLAPSED_TASK_LIMIT } from "@/features/chat/types";
-import type { useTasks } from "@/features/chat/use-tasks";
+import type { useTasks } from "@/features/tasks/use-tasks";
 import { removalKey } from "@/lib/ui/removal";
 
 type Props = ReturnType<typeof useTasks>;

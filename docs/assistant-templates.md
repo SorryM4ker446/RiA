@@ -1,40 +1,40 @@
-# 助理模板
+# Assistant templates
 
-默认指令将 RiA 定位为本地优先的桌面 AI Agent：围绕当前任务使用可用知识、工具和已启用技能，完成获准操作并检查结果。普通对话、手动知识检索和联网搜索不再强制“结论／证据／推理”的固定格式；没有历史摘要、记忆或检索片段时不注入空段落。资料只参与相关任务，工具缺失只在阻碍用户要求的操作时说明，仍区分未配置与模板禁用。
+The default instructions position RiA as a local-first desktop AI agent: it works on the current task with the available knowledge, tools and enabled skills, carries out permitted operations and checks the results. Ordinary conversation, manual knowledge search and web search no longer force a fixed “conclusion / evidence / reasoning” format, and no empty section is injected when there is no history summary, memory or retrieved excerpt. Reference material is used only for relevant tasks. A missing tool is mentioned only when it blocks something the user asked for, and the assistant still distinguishes a tool that is not configured from one the template disables.
 
-四个默认模板及其工具：
+The four default templates and their tools:
 
-| 模板 | 版本 | 工具 |
+| Template | Revision | Tools |
 |---|---|---|
-| 知识问答助理 | 3 | 知识检索、读取文档、联网搜索（资料不足或用户要求时，标明来自网络）、转换并导出文档、保存记忆 |
-| 写作助理 | 2 | 知识检索、读取文档、联网搜索（核对事实）、转换并导出文档、保存记忆（长期的文风偏好） |
-| 代码助理 | 4 | 终端（含读写项目文件与终端日志，遵循各目录的审批模式）、知识检索、读取文档、联网搜索（查阅库与 API 文档）、创建任务 |
-| 资料研究助理 | 3 | 联网搜索、知识检索、读取文档、转换并导出文档、保存记忆、创建任务 |
+| Knowledge assistant | 3 | Knowledge search, read document, web search (when material is insufficient or the user asks; marked as coming from the web), convert and export document, save memory |
+| Writing assistant | 2 | Knowledge search, read document, web search (fact checking), convert and export document, save memory (long-term style preferences) |
+| Coding assistant | 4 | Terminal (including reading and writing project files and terminal logs, following each folder's approval mode), knowledge search, read document, web search (library and API documentation), create task |
+| Research assistant | 3 | Web search, knowledge search, read document, convert and export document, save memory, create task |
 
-每个模板还可按需读取已启用的插件技能并压缩上下文。保存记忆、创建任务和外部扩展工具仍需在对话中批准。配置了聊天备用模型时，带工具的会话也会在主模型不可用时由备用模型接管，工具、模板指令和上下文保持不变（备用模型需支持工具调用）；主模型失败后 5 分钟内，后续请求会先交给备用模型，详见 [模型与用量](model-usage.md)。既有会话快照、自定义模板、用户偏好和已安装插件的指令不会被自动重写；旧会话可从 **模板详情 → 更新为最新模板**主动采用新版，或移除模板恢复默认行为。历史消息仍参与上下文，更新指令不等于清空历史。
+Every template can also read enabled plugin skills on demand and compact its context. Saving memories, creating tasks and external extension tools still require approval in the conversation. When a chat fallback model is configured, a conversation with tools is also taken over by the fallback model when the primary model is unavailable, with tools, template instructions and context unchanged (the fallback model must support tool calls). For five minutes after the primary model fails, later requests go to the fallback model first; see [Model usage](model-usage.md). Existing conversation snapshots, custom templates, user preferences and the instructions of installed plugins are never rewritten automatically. An older conversation can adopt the new revision explicitly through **Template details → Update to latest template**, or remove its template to return to the default behaviour. Earlier messages still take part in the context; updating the instructions does not clear the history.
 
-从侧栏打开 **助理模板**。模板以紧凑列表展示，点击 **新建模板**，或在更多操作中选择 **编辑**，会打开编辑抽屉；检索策略默认收起。默认模板和自定义模板一样可以编辑和删除；更多操作中的 **创建副本**会打开预填配置的抽屉，保存后成为独立模板。删除了默认模板后，“默认模板”分组会出现 **恢复默认模板**，只放回已删除的默认模板，仍在的保留你的修改。**复制**按钮直接将助理指令写入剪贴板，成功或失败均有反馈。自定义模板最多 50 个（不含默认模板），支持确认删除。
+Open **Assistant templates** from the sidebar. Templates are shown as a compact list. **New template**, or **Edit** in the more-actions menu, opens the editing drawer; the retrieval strategy is collapsed by default. Default templates can be edited and deleted just like custom ones. **Create copy** in the more-actions menu opens a drawer prefilled with the configuration, which becomes an independent template when saved. After a default template has been deleted, the “Default templates” group shows **Restore defaults**, which puts back only the deleted default templates; those still present keep your changes. The **Copy assistant instructions** button writes the instructions straight to the clipboard and reports success or failure. Up to 50 custom templates can be stored (default templates excluded), and deletion asks for confirmation.
 
-模板保存名称、简介、助理指令、可选的聊天模型绑定、允许的工具、主题、长期记忆开关及检索策略。未绑定模型时跟随会话模型。绑定模型必须在“我的模型”的聊天模型列表内；移除模型后必须修正模板或解除会话模板才能继续调用。模板不提供文件夹权限，不绕过工具审批、模型允许列表或运行预算。
+A template stores its name, description, assistant instructions, an optional chat model binding, the allowed tools, topics, the long-term memory switch and the retrieval strategy. Without a bound model it follows the conversation's model. A bound model must be among the chat models in **My models**; after that model is removed, the template must be corrected or detached from the conversation before calls can continue. Templates grant no folder permission and do not bypass tool approval, the model allow-list or run budgets.
 
-**新建会话**会把配置复制为持久化会话快照，默认标题采用模板名称。聊天标题区域也可给已有会话应用模板。原标题是占位名称或旧模板名称时，切换、更新或移除模板会同步默认标题；独立命名的会话保留其标题，同一请求显式提交的标题优先。应用同时设置主题和记忆开关，并清除历史压缩缓存；原始消息不变。工具列表为空时禁用工具，自动工具和带 `chatId` 的显式工具调用都由服务端校验。没有模板的会话即 **通用助理**：可使用全部已配置的工具，没有模板指令；仍遵守各工具的审批要求和文件夹权限。
+**New conversation** copies the configuration into a persisted conversation snapshot, and the default title is the template name. A template can also be applied to an existing conversation from the chat title area. When the current title is a placeholder or the old template's name, switching, updating or removing the template updates the default title; a conversation the user has named keeps its title, and a title explicitly submitted in the same request takes precedence. Applying a template sets both the topics and the memory switch and clears the history compaction cache; the original messages are unchanged. An empty tool list disables tools, and the server validates both automatic tool use and explicit tool calls that carry a `chatId`. A conversation without a template is the **General assistant**: it can use every configured tool and has no template instructions, while still following each tool's approval requirements and folder permissions.
 
-修改或删除模板不改变已有会话。聊天页不再常驻显示快照版本和工具数量；点击 **模板详情**可在右侧抽屉查看当前会话所用的快照版本、工具数量、模型、模板的记忆与知识范围配置，以及助理指令。详情读取会话内保存的配置，原模板删除后仍可查看；关闭抽屉会将焦点返回入口，并沿用现有抽屉动画和减少动态效果设置。有新版时，点击 **更新为最新模板**才采用新版，模板加载失败时仍可重试。已经开始的请求使用开始时取得的模型、指令、工具、集合与记忆策略，新配置作用于下一次请求。会话内可以单独覆盖集合或记忆开关；再次应用模板会重置为模板值。移除模板保留当前集合和记忆开关，恢复默认指令、工具范围和检索策略。
+Editing or deleting a template does not change existing conversations. The chat page no longer shows the snapshot revision and tool count at all times; **Template details** opens a drawer on the right with the snapshot revision, tool count and model used by the current conversation, the template's memory and knowledge scope, and its assistant instructions. The details are read from the configuration saved in the conversation, so they remain available after the original template is deleted. Closing the drawer returns focus to the control that opened it, and the drawer uses the existing drawer animation and reduced-motion setting. When a newer revision exists, it is adopted only after **Update to latest template**; if the template fails to load, the action can be retried. A request that has already started uses the model, instructions, tools, topics and memory policy it obtained when it started; a new configuration applies from the next request. A conversation can override its topics or memory switch on its own; applying the template again resets them to the template's values. Removing a template keeps the current topics and memory switch and restores the default instructions, tool scope and retrieval strategy.
 
-检索策略设置语义阈值（0.1–0.95）、最多来源数（1–8）及证据片段字符预算（1200–9600）。默认是 0.35、8 和 8000。阈值只过滤向量召回；关键词匹配仍可返回。预算仅统计片段正文，不包含提示词和引用元数据，不能代替模型的 token 上限。完整片段被选择或舍弃，引用不会指向裁剪后的人造原文。提高阈值或缩小预算可能遗漏必要证据，应使用知识库评测检查。
+The retrieval strategy sets the semantic threshold (0.1–0.95), the maximum number of sources (1–8) and the character budget for evidence excerpts (1200–9600). The defaults are 0.35, 8 and 8000. The threshold filters only vector recall; keyword matches can still be returned. The budget counts only excerpt text, not the prompt or citation metadata, and does not replace the model's token limit. Whole excerpts are selected or dropped, so citations never point to artificially truncated source text. Raising the threshold or reducing the budget can miss necessary evidence; check with the knowledge base evaluation.
 
-## 本地 API
+## Local API
 
-- `GET /api/assistants`：默认和自定义模板，字段 `id`、`revision`、`builtin`（是否为默认模板）、`config`。默认模板在前。
-- `POST /api/assistants`：提交配置，创建自定义模板。模型为 `{providerId, modelId}` 或 `null`；`tools` 必填且不允许重复；其余字段与上述配置对应。
-- `PATCH /api/assistants/:id`：`{revision, config}`。版本不匹配返回 409，防止覆盖其他编辑。
-- `DELETE /api/assistants/:id?confirm=true&revision=1`：无请求体，确认删除指定版本，默认模板同样适用。
-- `POST /api/assistants/defaults`：放回已删除的默认模板，返回 `{data, restored}`；已存在的默认模板不被改写。
-- `POST /api/conversations`：可带 `assistantTemplateId`。相同会话 ID 重复创建不会覆盖快照。
-- `PATCH /api/conversations/:id`：`{assistantTemplateId}` 应用最新配置，`null` 移除；不要在同一请求混合模板和集合/记忆覆盖。
+- `GET /api/assistants`: default and custom templates, with the fields `id`, `revision`, `builtin` (whether it is a default template) and `config`. Default templates come first.
+- `POST /api/assistants`: submits a configuration and creates a custom template. The model is `{providerId, modelId}` or `null`; `tools` is required and may not contain duplicates; the other fields correspond to the configuration described above.
+- `PATCH /api/assistants/:id`: `{revision, config}`. A revision mismatch returns 409 so that another edit is not overwritten.
+- `DELETE /api/assistants/:id?confirm=true&revision=1`: no request body; confirms deletion of the given revision. This also applies to default templates.
+- `POST /api/assistants/defaults`: puts back deleted default templates and returns `{data, restored}`; default templates that still exist are not rewritten.
+- `POST /api/conversations`: may include `assistantTemplateId`. Creating the same conversation ID again does not overwrite its snapshot.
+- `PATCH /api/conversations/:id`: `{assistantTemplateId}` applies the latest configuration, and `null` removes it. Do not mix a template change with topic or memory overrides in the same request.
 
-模板写操作限 30 次/分钟，所有接口使用既有本地凭证、Host/Origin 和恢复互斥规则。会话列表和详情返回 `assistantConfig`，旧会话为 `null`。模板绑定模型拒绝客户端传入不同模型。
+Template writes are limited to 30 per minute, and every endpoint uses the existing local credential, Host/Origin checks and restore mutual-exclusion rules. Conversation lists and details return `assistantConfig`, which is `null` for older conversations. A conversation bound to a template model rejects a different model sent by the client.
 
-新增 SQLite 迁移保留旧会话和资料，首次升级由桌面迁移器创建数据库安全副本。便携备份包含全部模板（含默认模板）及所有会话快照；恢复会映射自定义模板身份，默认模板保留原 ID。已删除模板的快照也保留。恢复不含默认模板的旧备份后，可用 **恢复默认模板**放回。新备份需要当前或更高版本恢复。原有文件夹授权仍会在恢复时撤销。无需新增环境变量或依赖。
+The SQLite migration that added templates keeps existing conversations and data, and on the first upgrade the desktop migrator makes a safety copy of the database. Portable backups include every template (default templates included) and every conversation snapshot. Restoring maps the identities of custom templates, while default templates keep their original IDs. Snapshots of deleted templates are retained as well. After restoring an older backup without default templates, **Restore defaults** puts them back. A new backup must be restored by the same or a later version. Existing folder authorizations are still revoked on restore. No new environment variables or dependencies are required.
 
-验收可编辑、删除并恢复默认模板，复制模板，设置集合与工具，创建会话；修改模板后检查旧快照未变，主动更新，再删除模板及重启服务，确认会话仍保留快照。工具限制、恢复和迁移由自动测试覆盖，真实模型回答质量另行通过 [知识检索评测](document-knowledge.md) 核对。
+Acceptance covers editing, deleting and restoring default templates, copying a template, setting topics and tools, and creating a conversation; after editing a template, check that the old snapshot is unchanged, update it explicitly, then delete the template and restart the service to confirm that the conversation keeps its snapshot. Tool restrictions, restore and migration are covered by automated tests; the quality of real model answers is checked separately through the [knowledge search evaluation](document-knowledge.md).

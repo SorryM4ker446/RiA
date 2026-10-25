@@ -1,7 +1,7 @@
 # Document processing and export
 
-Open **知识库 → 文档详情** to read a document, choose **导出** for a format,
-or choose **编辑副本** to revise extracted content before downloading it.
+Open **Knowledge → document details** to read a document, choose **Export** for a format,
+or choose **Edit copy** to revise extracted content before downloading it.
 Knowledge import accepts PDF, Word `.docx`, UTF-8 Markdown and TXT. It uses
 the bounded local extraction worker: up to 8 MiB, 200 PDF pages and 100,000
 extracted characters, with a 30-second parse deadline.
@@ -10,7 +10,7 @@ legacy `.doc` are not supported.
 
 The detail page defaults to original-text reading with two compact actions.
 Editing reveals content/preview tabs; filename and content-type settings remain
-collapsed under **导出选项**. The editable copy lives only in the current page;
+collapsed under **Export options**. The editable copy lives only in the current page;
 download it before leaving. It does not update the stored document, search index
 or citations, and requires no model call. Returning to the original retains the
 copy until navigation. Failure and cancellation preserve edits; an obsolete source
@@ -22,15 +22,15 @@ with a `document` parameter redirect to that document's detail page.
 
 ## Conversion and preview
 
-Choose **Markdown 结构** to interpret headings, emphasis, lists, tables, code,
-links and footnotes, or **纯文本** to preserve literal Markdown characters.
+Choose **Markdown structure** to interpret headings, emphasis, lists, tables, code,
+links and footnotes, or **Plain text** to preserve literal Markdown characters.
 Word uploads escape literal symbols while retaining extracted heading/list/table
 structure; existing knowledge documents use their already extracted text.
 Review that representation and change the content type when needed.
 
 Exports are generated on demand as Markdown, TXT, HTML or Word `.docx`.
-**导出** downloads the displayed source version, refusing changed/deleted sources.
-**导出副本** downloads current edits without changing the knowledge document.
+**Export** downloads the displayed source version, refusing changed/deleted sources.
+**Export copy** downloads current edits without changing the knowledge document.
 Markdown preserves Markdown source; plain text exported to Markdown escapes
 formatting punctuation. TXT renders Markdown
 structure as readable text and tab-separated table rows. Word includes A4 page
@@ -63,8 +63,8 @@ The existing unified registry exposes two additional built-in tools:
 
 The model can find document IDs through `searchKnowledge`. Both tools obey the
 conversation's document collections, assistant tool allowlist, shared execution
-records and run/step budgets. The tool picker lists the actions **读取文档** and
-**转换并导出文档**, not document IDs or filenames. After selecting an action,
+records and run/step budgets. The tool picker lists the actions **Read document** and
+**Convert and export document**, not document IDs or filenames. After selecting an action,
 choose its document parameter by filename from the current topics;
 the internal ID is supplied automatically. An explicit action runs once and
 returns to automatic tools on success, without changing which tools the model

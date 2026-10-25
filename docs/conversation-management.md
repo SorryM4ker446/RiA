@@ -1,15 +1,15 @@
 # Conversation management
 
-Open **管理会话** from the workspace navigation or the **最近会话** popover. Browser and Electron share the same page and authenticated APIs. No search service, model key or paid API call is needed.
+Open **Conversations** from the workspace navigation or the **Recent conversations** popover. Browser and Electron share the same page and authenticated APIs. No search service, model key or paid API call is needed.
 
-The management page uses compact rows and an inline search/filter bar. Changing **会话状态** immediately applies the visible filters and loads that status; text and tag searches can also be submitted with **搜索 / 筛选**. Click a conversation title to open it; pinning remains beside the title. Each row's **更多操作** menu contains archive/restore, tag editing and Markdown/JSON export. Selection, the 50-item bulk-delete limit and explicit deletion confirmation are unchanged. Menus retain keyboard dismissal and focus restoration; tag editing focuses its input.
+The management page uses compact rows and an inline search/filter bar. Changing **Conversation status** immediately applies the visible filters and loads that status; text and tag searches can also be submitted with **Search**. Click a conversation title to open it; pinning remains beside the title. Each row's **More actions** menu contains archive/restore, tag editing and Markdown/JSON export. Selection, the 50-item bulk-delete limit and explicit deletion confirmation are unchanged. Menus retain keyboard dismissal and focus restoration; tag editing focuses its input.
 
 ## Organizing history
 
-- Search matches literal fragments in conversation titles and all stored message text, including older messages outside the loaded chat page. Enter 2–200 characters and submit **搜索 / 筛选**. Search returns conversations, not individual message locations; use **加载更早消息** to read older history after opening one.
+- Search matches literal fragments in conversation titles and all stored message text, including older messages outside the loaded chat page. Enter 2–200 characters and submit **Search**. Search returns conversations, not individual message locations; use **Load earlier messages** to read older history after opening one.
 - Pinned conversations appear first, followed by last-message time and ID. Metadata edits do not change the last-message time.
 - Tags are normalized with Unicode NFKC, trimmed and lowercased. Each conversation supports eight tags of up to 32 characters. Commas/control characters are invalid; duplicate normalized tags collapse into one. Tag filtering matches a complete tag.
-- Archived conversations disappear from the default recent-conversation list and can be searched with **已归档** or **全部**. **恢复并打开** makes one active again. Archiving does not delete messages or revoke API access. It does not make a conversation read-only or stop its independent tasks/reminders.
+- Archived conversations disappear from the default recent-conversation list and can be searched with **Archived** or **All**. **Restore and open** makes one active again. Archiving does not delete messages or revoke API access. It does not make a conversation read-only or stop its independent tasks/reminders.
 - Select up to 50 loaded conversations to delete. The confirmation dialog lists exactly those titles. Changing filters or refreshing clears selection. Deletion is irreversible; an invalid, missing or foreign ID rejects the entire batch without deleting any conversation. Shared media references are retained, and unreferenced files still require the separate storage-cleanup confirmation.
 
 The manager loads 30 conversations at a time. Pinning, archiving and new messages can move rows between requests, so refresh to see concurrent changes. A loaded page is not a frozen snapshot; changes from another browser window are not pushed live.
@@ -28,24 +28,24 @@ question passed along the way. Scrolling manually releases that selection and
 resumes tracking the reader's position. Hover previews include the associated
 answer excerpt; the directory lists only user questions.
 
-**对话目录** opens a transparent, compact scrollable list of user questions;
+**Conversation outline** opens a transparent, compact scrollable list of user questions;
 narrow screens show only this button to preserve reading space. There are no
 position counters or separate entries for replies. Replies whose preceding
 question has not been loaded are omitted until that question is fetched.
 Use its earlier-history control or the
-existing **加载更早消息** button to load another page. Loading preserves the reading
+existing **Load earlier messages** button to load another page. Loading preserves the reading
 position and adds those questions to the locator; opening the locator does not
 fetch history automatically. Attachment-only questions use filenames as excerpts.
 
 Jumping into earlier content during a streamed reply pauses automatic following.
-**回到最新** resumes following the answer. Switching conversations hides the old
+**Jump to latest** resumes following the answer. Switching conversations hides the old
 locations while history loads, and editing/deleting messages updates the existing
 locator. Navigation does not change messages, the composer draft or model context,
 and makes no model calls. It adds no persistent state, API or database migration.
 
 ## Text exports
 
-Each conversation offers **导出 Markdown** and **导出 JSON**. Downloads include all messages in chronological order, status, organization fields, retained document citation excerpts, and private-media references. They do not include raw tool inputs/outputs, approval tokens, local media paths, provider settings or media bytes. Markdown renders message bodies as literal fenced text to keep untrusted message markup inactive. JSON uses `formatVersion: 1`.
+Each conversation offers **Export Markdown** and **Export JSON**. Downloads include all messages in chronological order, status, organization fields, retained document citation excerpts, and private-media references. They do not include raw tool inputs/outputs, approval tokens, local media paths, provider settings or media bytes. Markdown renders message bodies as literal fenced text to keep untrusted message markup inactive. JSON uses `formatVersion: 1`.
 
 Exports are text snapshots, not restorable backups. Private references such as `/api/media/:id` still require the original application and authorized user; they are not portable public download links. Unavailable or legacy embedded media is omitted and marked. Export does not migrate legacy media or modify messages. Message text and citation excerpts may themselves contain information supplied by the user or model; exports are **not** a secret-redaction service. Treat downloaded files as private, even though configuration credentials are not collected.
 
@@ -77,7 +77,7 @@ Desktop startup backs up an existing database before applying pending migrations
 
 ## Recent conversations
 
-The **最近会话** header popover groups the loaded conversations into pinned, today, yesterday, recent seven days and older sections. Each row shows its title, message count and time; its menu contains rename and delete, with deletion still requiring confirmation. The popover initially shows five conversations, keeps the existing expand and load-more controls, and links to the full management page. Its count describes loaded conversations rather than the total stored in the database.
+The **Recent conversations** header popover groups the loaded conversations into pinned, today, yesterday, recent seven days and older sections. Each row shows its title, message count and time; its menu contains rename and delete, with deletion still requiring confirmation. The popover initially shows five conversations, keeps the existing expand and load-more controls, and links to the full management page. Its count describes loaded conversations rather than the total stored in the database.
 
 ## Unsent drafts
 
