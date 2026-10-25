@@ -19,6 +19,7 @@ import { ServiceSettings } from "@/features/settings/service-settings";
 import { LanguageSettings } from "@/features/settings/language";
 import { CloseBehaviourSettings } from "@/features/settings/close-behaviour";
 import { HotkeySettings } from "@/features/settings/hotkey";
+import { UpdateSettings } from "@/features/settings/updates";
 import { ScheduleSettings } from "@/features/settings/schedules";
 import { NoticeCenter } from "@/features/settings/notice-center";
 import { DirectoryGrantSettings } from "@/features/settings/directory-grants";
@@ -54,6 +55,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     else { pushedRef.current = true; window.history.pushState(null, "", url); }
   }, []);
   const clearAnchor = useCallback(() => setAnchor(null), []);
+  // A click on the system notification about a new version opens where it can be installed.
+  useEffect(() => window.riaDesktop?.updates?.onOpen(() => open("application", "updates")), [open]);
   const value = useMemo(() => ({ open, unsavedSections, markUnsaved, pushedRef, anchor, clearAnchor }), [open, unsavedSections, markUnsaved, anchor, clearAnchor]);
   return <SettingsContext.Provider value={value}>
     {children}
@@ -90,7 +93,7 @@ function SectionContent({ id }: { id: SettingsSectionId }) {
   useLocale();
   switch (id) {
     case "services": return <ServiceSettings />;
-    case "application": return <><PageHeader level={2} title={t("ui.settings.application")} /><div className="settings-panel flex flex-col"><LanguageSettings /><CloseBehaviourSettings /><HotkeySettings /></div></>;
+    case "application": return <><PageHeader level={2} title={t("ui.settings.application")} /><div className="settings-panel flex flex-col"><LanguageSettings /><CloseBehaviourSettings /><HotkeySettings /><UpdateSettings /></div></>;
     case "automation": return <><PageHeader level={2} title={t("ui.settings.automationNotifications")} /><div className="settings-panel flex flex-col"><ScheduleSettings /><NoticeCenter /></div></>;
     case "files": return <><PageHeader level={2} title={t("ui.settings.filePermissions")} /><div className="settings-panel"><DirectoryGrantSettings /></div></>;
     case "models": return <ModelSettings />;
