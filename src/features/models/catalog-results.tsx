@@ -1,7 +1,7 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
 
-import { t, formatNumber } from "@/lib/locale";
+import { t, tf, formatNumber } from "@/lib/locale";
 
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -32,12 +32,13 @@ export function CatalogResults({ models, added, busy, onAdd }: {
       <ul className="flex flex-col">{models.slice(0, count).map(item => <li key={modelRefKey(item)} className="catalog-row flex min-w-0 items-center justify-between gap-3 rounded-lg px-3 py-3">
         <div className="flex min-w-0 flex-col gap-1">
           <p className="break-words font-medium tracking-label">{item.name}</p>
-          <p className="break-all font-mono text-xs text-muted-foreground">{`${item.modelId}${item.contextLength ? ` · ${formatNumber(item.contextLength)} context` : ""}${item.supportsImageInput ? ` · ${t("models.catalog.imageInput")}` : ""}${item.supportsTools ? ` · ${t("models.catalog.toolCall")}` : ""}`}</p>
+          <p className="break-all font-mono text-xs text-muted-foreground">{`${item.modelId}${item.contextLength ? ` · ${tf("models.catalog.contextLength", { tokens: formatNumber(item.contextLength) })}` : ""}${item.supportsImageInput ? ` · ${t("models.catalog.imageInput")}` : ""}${item.supportsTools ? ` · ${t("models.catalog.toolCall")}` : ""}`}</p>
           <CatalogPriceDetails name={item.name} pricing={item.pricing} info={item.priceInfo} />
         </div>
         <Button size="sm" variant={added.has(modelRefKey(item)) ? "outline" : "default"} disabled={busy || added.has(modelRefKey(item))} onClick={() => onAdd(item)}>{added.has(modelRefKey(item)) ? t("models.alreadyAdded") : t("models.add")}</Button>
       </li>)}</ul>
-      <p className="catalog-scroll-hint">{count < models.length ? t("ui.models.catalog-results.scrollDownToShowMoreModels") : t("ui.models.catalog-results.allMatchingModelsShown")}</p>
+      {/* The count below already says when everything is shown; the hint only points at more. */}
+      {count < models.length && <p className="catalog-scroll-hint">{t("ui.models.catalog-results.scrollDownToShowMoreModels")}</p>}
     </div>
     <p className="text-xs text-muted-foreground" aria-live="polite">{t("ui.extensions.extension-discovery.showing")}{count} / {models.length} {t("ui.models.catalog-results.matchingModels")}</p>
   </div>;

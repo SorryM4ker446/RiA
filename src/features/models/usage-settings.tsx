@@ -1,12 +1,13 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
+import { useRefreshOnReturn } from "@/lib/use-refresh-on-return";
+import { Button } from "@/components/ui/button";
 
 import { t, localizeMessage } from "@/lib/locale";
 
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Reveal } from "@/components/ui/reveal";
-import { RefreshButton } from "@/components/ui/refresh-button";
 import { SelectField, SelectOption } from "@/components/ui/select";
 import { UsageHistory, sourceNames, type UsageRow } from "@/features/models/usage-history";
 import { settingsRequest } from "@/features/settings/api-client";
@@ -36,11 +37,13 @@ export function UsageSettings() {
     return () => controller.abort();
   }, [usageSource, revision]);
 
+  // Read again when the window comes back into view, instead of a refresh button.
+  useRefreshOnReturn(() => setRevision(value => value + 1));
   return <>
-    <PageHeader level={2} title={t("ui.settingsOverlay.usage")} description={t("models.usageTitle")} actions={<><RefreshButton iconOnly refreshing={refreshing} disabled={refreshing} onClick={() => { setRefreshing(true); setRevision(value => value + 1); }} label={t("models.reloadUsage")} /><UsageHistory rows={usage?.recent} source={usageSource} onSourceChange={changeUsageSource} error={localizeMessage(usageError)} /></>} />
+    <PageHeader level={2} title={t("ui.settingsOverlay.usage")} description={t("models.usageTitle")} actions={<><UsageHistory rows={usage?.recent} source={usageSource} onSourceChange={changeUsageSource} error={localizeMessage(usageError)} /></>} />
     <section id="model-usage" className="flex flex-col gap-5" aria-label={t("models.usageLabel")}>
       <label className="flex items-center gap-3 text-sm">{t("ui.models.callSource")}<SelectField aria-label={t("ui.models.callSource")} value={usageSource} onValueChange={changeUsageSource}><SelectOption value="all">{t("ui.models.allSources")}</SelectOption>{Object.entries(sourceNames()).map(([value, label]) => <SelectOption key={value} value={value}>{label}</SelectOption>)}</SelectField></label>
-      <Reveal>{usageError ? <p role="alert" className="text-sm text-destructive">{localizeMessage(usageError)}</p> : null}</Reveal>
+      <Reveal>{usageError ? <p role="alert" className="text-sm text-destructive"><span>{localizeMessage(usageError)}</span><Button size="sm" variant="ghost" className="ml-2 h-auto px-2 py-0.5 align-baseline" onClick={() => { setRefreshing(true); setRevision(value => value + 1); }}>{t("ui.chat.chat-toolbar.retry")}</Button></p> : null}</Reveal>
       <dl className="stat-grid">
         {[
           { label: t("models.usage.calls"), value: `${usage?.totals.requests ?? 0} ${t("models.usage.times")}` },

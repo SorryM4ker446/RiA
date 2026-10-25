@@ -27,11 +27,11 @@ test("media price details display real units and all specifications without expa
     await expect(results).toContainText("图像输出 · 低质量 · 1K $0.04/张");
     await expect(results).toContainText("报价暂不可用，请刷新目录重试");
     await expect(results).toContainText("服务商暂未提供报价");
-    await expect(results).not.toContainText("$30/M image tokens");
+    await expect(results).not.toContainText("$30/百万图片 Token");
     const trigger = page.getByRole("button", { name: "多规格图片模型的全部报价", exact: true });
     await trigger.click();
     const details = page.getByRole("dialog", { name: "多规格图片模型的价格明细", exact: true });
-    for (const value of ["$30/M image tokens", "$0.06/MP", "$0/张", "中质量 · 2K", "Provider B"]) await expect(details).toContainText(value);
+    for (const value of ["$30/百万图片 Token", "$0.06/MP", "$0/张", "中质量 · 2K", "Provider B"]) await expect(details).toContainText(value);
     await expect(details.getByRole("listitem")).toHaveCount(5);
     await page.screenshot({ path: info.outputPath(`image-price-details-${width}.png`), animations: "disabled" });
     const box = (await details.boundingBox())!;
@@ -44,7 +44,7 @@ test("media price details display real units and all specifications without expa
     await page.getByRole("tab", { name: "视频生成", exact: true }).click();
     await page.getByRole("button", { name: "多规格视频模型的全部报价", exact: true }).click();
     const videoDetails = page.getByRole("dialog", { name: "多规格视频模型的价格明细", exact: true });
-    for (const value of ["1080p", "$0.14/秒", "含音频 · 4K", "$0.3/秒", "$2.4/M video tokens", "4K · 含视频输入", "$0.05/MP·秒", "最低 $0.56/次"]) await expect(videoDetails).toContainText(value);
+    for (const value of ["1080p", "$0.14/秒", "含音频 · 4K", "$0.3/秒", "$2.4/百万视频 Token", "4K · 含视频输入", "$0.05/MP·秒", "最低 $0.56/次"]) await expect(videoDetails).toContainText(value);
     await videoDetails.getByRole("list", { name: "全部计费规格" }).evaluate(node => node.scrollTo({ top: node.scrollHeight, behavior: "instant" }));
     await expect(videoDetails.getByText("最低 $0.56/次", { exact: true })).toBeInViewport();
     await page.screenshot({ path: info.outputPath(`video-price-details-${width}.png`), animations: "disabled" });

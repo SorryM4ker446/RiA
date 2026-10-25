@@ -1,5 +1,6 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
+import { useRefreshOnReturn } from "@/lib/use-refresh-on-return";
 
 import { formatDateTime, t, tf, localizeMessage } from "@/lib/locale";
 import { Status } from "@/components/ui/status";
@@ -21,7 +22,6 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
-import { RefreshButton } from "@/components/ui/refresh-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { DocumentLibrary } from "@/features/knowledge/document-library";
@@ -236,14 +236,16 @@ export default function KnowledgePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one load on mount
   }, []);
 
+  // Read again when the window comes back into view, instead of a refresh button.
+  useRefreshOnReturn(() => loadEntries());
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 md:px-6">
-      <PageHeader back title={t("knowledge.title")} description={t("knowledge.description")} actions={<TopicEntry />} />
+      <PageHeader title={t("knowledge.title")} description={t("knowledge.description")} actions={<TopicEntry />} />
 
       <Reveal className="-mt-6">{error && !createOpen ? (
         <Alert variant="destructive" className="mt-6">
           <AlertTitle>{t("knowledge.error.title")}</AlertTitle>
-          <AlertDescription>{localizeMessage(error)}</AlertDescription>
+          <AlertDescription><span>{localizeMessage(error)}</span><Button size="sm" variant="ghost" className="ml-2 h-auto px-2 py-0.5 align-baseline" onClick={() => void loadEntries()}>{t("ui.chat.chat-toolbar.retry")}</Button></AlertDescription>
         </Alert>
       ) : null}</Reveal>
 
@@ -252,7 +254,6 @@ export default function KnowledgePage() {
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-baseline gap-2"><h2 className="text-base font-semibold tracking-title">{t("knowledge.entriesTitle")}</h2><span className="text-xs text-muted-foreground">{`${t("knowledge.currentPage")} ${entries.length} ${t("knowledge.entryCountUnit")}`}</span></div>
           <div className="flex items-center gap-1">
-            <RefreshButton iconOnly disabled={isSaving || (isLoading && entries.length === 0)} onClick={() => void loadEntries()} refreshing={isLoading} label={t("knowledge.refresh")} />
             <Sheet open={createOpen} onOpenChange={open => { if (!isSaving) { setCreateOpen(open); if (open) setError(null); } }}>
               <SheetTrigger asChild><Button size="sm" variant="ghost"><Plus data-icon="inline-start" />{t("knowledge.create")}</Button></SheetTrigger>
               <SheetContent side="right" className="knowledge-entry-sheet flex flex-col gap-5 p-5 sm:p-6" closeLabel={t("ui.knowledge.closeNewKnowledgeEntry")}>

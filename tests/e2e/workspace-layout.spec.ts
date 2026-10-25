@@ -6,6 +6,7 @@ import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { settingsDialog } from "../helpers/settings";
 import { browserApi } from "../helpers/browser-api";
+import { toasts } from "../helpers/toast";
 import { chooseTaskDateTime } from "../helpers/task-date-picker";
 
 const test = base.extend<{
@@ -185,7 +186,7 @@ test("workspace separates scheduled tasks and retains content during refresh", a
   await expect(page.locator("html")).not.toHaveClass(/dark/);
   await page.goto(`${app.origin}/tasks`);
   await page.getByRole("button", { name: "新建任务", exact: true }).click();
-  const taskComposer = page.getByRole("form", { name: "新建定时任务" });
+  const taskComposer = page.getByRole("form", { name: "新建任务" });
   await taskComposer
     .getByLabel("任务名称", { exact: true })
     .fill("从新任务入口创建的计划");
@@ -293,14 +294,20 @@ test("desktop chat stays translucent and execution history opens without moving 
   );
   await expect(page.locator(".composer-surface")).toHaveCSS("background-color", /rgb\(/);
   expect((await page.locator(".composer-surface").boundingBox())!.width).toBeLessThanOrEqual(672);
-  const memory = page.getByRole("checkbox", { name: "不记长期记忆", exact: true });
-  await memory.click();
+  // The switch says what the conversation does, and its state is in its text.
+  const memory = page.getByRole("switch", { name: "长期记忆", exact: true });
   await expect(memory).toBeChecked();
-  await expect.poll(async () => (await browserApi(page, "/api/conversations/" + conversation.id)).body.data.ephemeral).toBe(true);
-  await page.reload();
-  await expect(memory).toBeChecked();
+  await expect(memory).toHaveText("长期记忆：开");
   await memory.click();
   await expect(memory).not.toBeChecked();
+  await expect(memory).toHaveText("长期记忆：关");
+  await expect(toasts(page)).toContainText("这个会话不再读取或写入长期记忆");
+  await expect.poll(async () => (await browserApi(page, "/api/conversations/" + conversation.id)).body.data.ephemeral).toBe(true);
+  await page.reload();
+  await expect(memory).not.toBeChecked();
+  await memory.click();
+  await expect(memory).toBeChecked();
+  await expect(toasts(page)).toContainText("这个会话会使用长期记忆");
   await expect.poll(async () => (await browserApi(page, "/api/conversations/" + conversation.id)).body.data.ephemeral).toBe(false);
   const records = page.locator(".run-records");
   await expect(records.getByRole("button", { name: "执行记录", exact: true })).toContainText("1");
@@ -346,12 +353,13 @@ test("scheduled task creation validates time and persists without a model", asyn
   await openWorkspace(page, app.origin);
   await page.goto(`${app.origin}/tasks`);
   await page.getByRole("button", { name: "新建任务", exact: true }).click();
-  const form = page.getByRole("form", { name: "新建定时任务" });
+  const form = page.getByRole("form", { name: "新建任务" });
   await form.getByLabel("任务名称", { exact: true }).fill("独立页面的每周提醒");
   await form.getByLabel("到期提醒", { exact: true }).check();
   await form.getByRole("button", { name: "创建任务", exact: true }).click();
   await expect(form.getByRole("alert")).toContainText("需要设置时间");
   expect(app.readRows("SELECT id FROM tasks")).toHaveLength(0);
+  await form.getByText("更多选项", { exact: true }).click();
   await form.getByLabel("时区", { exact: true }).fill("America/New_York");
   await chooseTaskDateTime(page, form, "到期时间", "2026-03-08T02:30");
   await form.getByRole("button", { name: "创建任务", exact: true }).click();

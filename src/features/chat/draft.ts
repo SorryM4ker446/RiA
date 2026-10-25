@@ -32,16 +32,24 @@ const MAX_ATTACHMENTS = 4;
 // conversation should not silently put back a half-written question.
 const MAX_AGE_MS = 14 * 24 * 60 * 60_000;
 
-function getChatDraftKey(chatId: string) {
-  return `${DRAFT_KEY_PREFIX}${chatId}`;
+/**
+ * Where text typed before any conversation exists is kept: a null id is the
+ * conversation that has not been created yet. No conversation id contains a
+ * colon, so this cannot collide with a real one.
+ */
+const NEW_CONVERSATION_DRAFT = ":new";
+
+function getChatDraftKey(chatId: string | null) {
+  return `${DRAFT_KEY_PREFIX}${chatId ?? NEW_CONVERSATION_DRAFT}`;
 }
 
-function getLegacyChatDraftKey(chatId: string) {
-  return `${LEGACY_DRAFT_KEY_PREFIX}${chatId}`;
+function getLegacyChatDraftKey(chatId: string | null) {
+  return `${LEGACY_DRAFT_KEY_PREFIX}${chatId ?? NEW_CONVERSATION_DRAFT}`;
 }
 
+/** A null id reads the draft of the conversation not created yet. */
 export function readChatDraft(chatId: string | null): ChatDraft | null {
-  if (!chatId || typeof window === "undefined") return null;
+  if (typeof window === "undefined") return null;
   try {
     const raw = readRenamedStorageItem(window.localStorage, getChatDraftKey(chatId), getLegacyChatDraftKey(chatId));
     if (!raw) return null;
@@ -64,7 +72,7 @@ export function readChatDraft(chatId: string | null): ChatDraft | null {
 }
 
 export function writeChatDraft(chatId: string | null, draft: Omit<ChatDraft, "updatedAt">) {
-  if (!chatId || typeof window === "undefined") return;
+  if (typeof window === "undefined") return;
   try {
     window.localStorage.removeItem(getLegacyChatDraftKey(chatId));
     if (!draft.text && draft.attachments.length === 0) {
@@ -83,7 +91,7 @@ export function writeChatDraft(chatId: string | null, draft: Omit<ChatDraft, "up
 }
 
 export function clearChatDraft(chatId: string | null) {
-  if (!chatId || typeof window === "undefined") return;
+  if (typeof window === "undefined") return;
   try {
     window.localStorage.removeItem(getChatDraftKey(chatId));
     window.localStorage.removeItem(getLegacyChatDraftKey(chatId));

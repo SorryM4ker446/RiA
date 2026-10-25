@@ -20,7 +20,7 @@ test("image quotes preserve billing units, resolution variants and distinct prov
   const formatted = quotes.rates.map(formatMediaPrice);
   assert.deepEqual(formatted[0], { label: "图像输出", amount: "$0.04/张", spec: "低质量 · 2K", provider: "Provider A" });
   assert.equal(formatted[1].amount, "$0/张");
-  assert.equal(formatted[2].amount, "$30/M image tokens");
+  assert.equal(formatted[2].amount, "$30/百万图片 Token");
   assert.equal(formatted[3].amount, "$0.014/MP");
   assert.equal(formatted[4].provider, "Provider B");
 });
@@ -34,7 +34,7 @@ test("video SKUs convert cents, preserve minimum charges and describe audio, inp
     video_tokens_4k_with_video_input: "0.0000024", video_tokens_without_audio: "0.0000012",
     minimum_cents_per_generation: "56", future_sku: "12", duration_seconds: "-1",
   }).map(formatMediaPrice);
-  assert.deepEqual(rates.map(rate => rate.amount), ["$0.01/张", "$0.14/秒", "$0.3/秒", "$0.07/秒", "$0.1/秒", "$0.12/秒", "$0.31/秒", "$0.035/MP·秒", "$2.4/M video tokens", "$1.2/M video tokens", "最低 $0.56/次", "计费单位待确认（原始值 12）", "价格未提供"]);
+  assert.deepEqual(rates.map(rate => rate.amount), ["$0.01/张", "$0.14/秒", "$0.3/秒", "$0.07/秒", "$0.1/秒", "$0.12/秒", "$0.31/秒", "$0.035/MP·秒", "$2.4/百万视频 Token", "$1.2/百万视频 Token", "最低 $0.56/次", "计费单位待确认（原始值 12）", "价格未提供"]);
   assert.deepEqual(rates.slice(1, 10).map(rate => rate.spec), ["1080p", "含音频 · 4K", "768p", "图生视频 · 720p", "文生视频 · 1080p", "视频续接 · 2K", "精确模式", "4K · 含视频输入", "无音频"]);
   assert.equal(rates[3].label, "参考视频输入");
   assert.equal(formatPriceVariant("future_spec_1.5k"), "future · spec · 1.5K");
@@ -82,7 +82,7 @@ test("video catalogs retain every SKU even when legacy price keys are too long o
   t.mock.method(globalThis, "fetch", async () => Response.json({ data: [{ id: "fixture/video", pricing: {}, pricing_skus: skus }] }));
   const catalog = await openRouterProvider.fetchCatalog("video", new AbortController().signal);
   assert.equal(catalog.models[0].priceInfo.rates.length, 16);
-  assert.equal(formatMediaPrice(catalog.models[0].priceInfo.rates.at(-1)).amount, "$4.7/M video tokens");
+  assert.equal(formatMediaPrice(catalog.models[0].priceInfo.rates.at(-1)).amount, "$4.7/百万视频 Token");
   assert.ok(catalogPriceInfoSchema.safeParse(catalog.models[0].priceInfo).success);
 });
 

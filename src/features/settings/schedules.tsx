@@ -15,6 +15,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from 
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { SettingsHelp, SettingsSection } from "@/features/settings/settings-section";
 import { Input } from "@/components/ui/input";
+import { TimeInput } from "@/components/ui/time-input";
 import { ScheduleHistory } from "@/features/settings/schedule-history";
 import { executionGuidance } from "@/lib/execution-messages";
 import { WorkspaceReviewPreview } from "@/features/settings/workspace-review";
@@ -162,7 +163,7 @@ export function ScheduleSettings() {
         <form className="flex flex-1 flex-col gap-6" onSubmit={create}>
           <FieldGroup className="gap-5">
             <Field><FieldLabel htmlFor="schedule-kind">{t("settings.schedules.kindLabel")}</FieldLabel><SelectField id="schedule-kind" aria-label={t("settings.schedules.kindLabel")} value={kind} onValueChange={value => setKind(value as (typeof KINDS)[number])}>{KINDS.map(option => <SelectOption key={option} value={option}>{t(`settings.schedules.kind.${option}` as never)}</SelectOption>)}</SelectField></Field>
-            <Field><FieldLabel htmlFor="schedule-time">{t("settings.schedules.timeLabel")}</FieldLabel><Input id="schedule-time" aria-label={t("settings.schedules.timeLabel")} type="time" value={localTime} onChange={event => setLocalTime(event.target.value)} required /></Field>
+            <Field><FieldLabel htmlFor="schedule-time">{t("settings.schedules.timeLabel")}</FieldLabel><TimeInput id="schedule-time" aria-label={t("settings.schedules.timeLabel")} value={localTime} onChange={setLocalTime} required /></Field>
             <Field><FieldLabel htmlFor="schedule-interval">{t("settings.schedules.intervalLabel")}</FieldLabel><SelectField id="schedule-interval" aria-label={t("settings.schedules.intervalLabel")} value={interval} onValueChange={value => setInterval(value as "daily" | "weekly")}><SelectOption value="daily">{t("settings.schedules.daily")}</SelectOption><SelectOption value="weekly">{t("settings.schedules.weekly")}</SelectOption></SelectField></Field>
             {interval === "weekly" ? <Field><FieldLabel htmlFor="schedule-day">{t("settings.schedules.weekdayLabel")}</FieldLabel><SelectField id="schedule-day" aria-label={t("settings.schedules.weekdayLabel")} value={dayOfWeek} onValueChange={value => setDayOfWeek(Number(value))}>{WEEKDAYS.map(day => <SelectOption key={day} value={day}>{t(`settings.schedules.weekday.${day}` as never)}</SelectOption>)}</SelectField></Field> : null}
             <Field><FieldLabel htmlFor="schedule-zone">{t("settings.schedules.zoneLabel")}</FieldLabel><Input id="schedule-zone" aria-label={t("settings.schedules.zoneLabel")} value={timeZone} onChange={event => setTimeZone(event.target.value)} placeholder="Asia/Shanghai" required /></Field>

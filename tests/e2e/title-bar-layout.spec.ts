@@ -71,7 +71,7 @@ test("recent conversations open over the canvas without reserving a sidebar", { 
   await page.keyboard.press("Escape");
   await expect(list).toHaveCount(0);
   await expect(trigger).toBeFocused();
-  await page.getByRole("link", { name: "定时任务", exact: true }).click();
+  await page.getByRole("link", { name: "任务", exact: true }).click();
   await expect(page).toHaveURL(app.origin + "/tasks");
   await expect(page.getByTestId("task-panel")).toBeVisible();
 });
@@ -114,7 +114,7 @@ for (const locale of ["zh-CN", "en-US"] as const) {
       if (width < 1024) await page.getByRole("button", { name: english ? "Open navigation" : "打开导航", exact: true }).click();
       const nav = page.getByRole("navigation", { name: english ? "Workspace navigation" : "工作区导航", exact: true });
       await expect(nav).toBeVisible();
-      const conversations = nav.getByRole("link", { name: english ? "Manage conversations" : "管理会话", exact: true });
+      const conversations = nav.getByRole("link", { name: english ? "Conversations" : "管理会话", exact: true });
       await expect(conversations).toHaveAttribute("aria-current", "page");
       const labels = await nav.locator(".workspace-nav-link span").evaluateAll(nodes => nodes.map(node => {
         const label = node as HTMLElement;

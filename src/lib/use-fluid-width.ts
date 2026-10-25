@@ -20,6 +20,10 @@ export function useFluidWidth(ref: RefObject<HTMLElement | null>, enabled = true
     if (!enabled || !node || typeof ResizeObserver === "undefined") return;
     const base = getComputedStyle(node).transition;
     let shown = node.getBoundingClientRect().width;
+    // Text shown at the last settled width. A label arriving where there was
+    // none is a first appearance, not a change: easing it in from the empty
+    // control's width would show its first character alone ("选") before the rest.
+    let shownText = node.textContent?.trim() ?? "";
     let animating = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -43,6 +47,7 @@ export function useFluidWidth(ref: RefObject<HTMLElement | null>, enabled = true
       node!.style.width = "";
       node!.style.transition = "";
       const natural = node!.getBoundingClientRect().width;
+      shownText = node!.textContent?.trim() ?? "";
       animating = false;
       if (Math.abs(natural - target) >= 0.5 && !reduced()) animate(target, natural);
       else shown = natural;
@@ -51,8 +56,10 @@ export function useFluidWidth(ref: RefObject<HTMLElement | null>, enabled = true
     const observer = new ResizeObserver(() => {
       if (animating) return;
       const next = node.getBoundingClientRect().width;
+      const firstText = !shownText;
+      shownText = node.textContent?.trim() ?? "";
       // A change nobody can see, such as a label filled in while hidden, takes effect at once.
-      if (Math.abs(next - shown) < 0.5 || shown === 0 || next === 0 || reduced() || !node.checkVisibility({ visibilityProperty: true })) { shown = next; return; }
+      if (Math.abs(next - shown) < 0.5 || shown === 0 || next === 0 || firstText || reduced() || !node.checkVisibility({ visibilityProperty: true })) { shown = next; return; }
       animate(shown, next);
     });
     const onEnd = (event: TransitionEvent) => { if (event.target === node && event.propertyName === "width") settle(); };

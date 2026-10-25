@@ -31,11 +31,11 @@ test("task creation has aligned dropdowns and a themed calendar on desktop and m
   await page.goto(`${app.origin}/tasks`);
   await expect(page).toHaveTitle(/RiA/);
   await expect(
-    page.getByRole("heading", { name: "Scheduled tasks", exact: true }),
+    page.getByRole("heading", { name: "Tasks", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "New task", exact: true }).click();
   const form = page.getByRole("form", {
-    name: "New scheduled task",
+    name: "New task",
     exact: true,
   });
   await form.getByLabel("Task name", { exact: true }).fill("Calendar task");
@@ -53,6 +53,8 @@ test("task creation has aligned dropdowns and a themed calendar on desktop and m
     "Calendar task",
   );
   await chooseTaskDateTime(page, form, "Due time", "2027-01-15T09:30");
+  // The time zone waits behind "More options".
+  await form.getByText("More options", { exact: true }).click();
   await form.getByLabel("Time zone", { exact: true }).fill("America/New_York");
   await chooseOption(
     form.getByRole("combobox", { name: "Priority", exact: true }),
@@ -110,6 +112,8 @@ test("task creation has aligned dropdowns and a themed calendar on desktop and m
   ).toBeVisible();
   const tasks = await browserData(page, `${app.origin}/api/tasks`);
   expect(tasks).toHaveLength(1);
+  // The user's own task is not presented back to them as something inferred.
+  expect(await browserData(page, `${app.origin}/api/knowledge?view=candidates`)).toHaveLength(0);
   expect(tasks[0]).toMatchObject({
     title: "Calendar task",
     priority: "high",
@@ -245,4 +249,23 @@ test("filter changes preserve rows during requests and ignore late results", asy
   } finally {
     release();
   }
+});
+
+test("a task with only a title is added from the top of the list with Enter", async ({ page, app }) => {
+  await openWorkspace(page, app.origin);
+  await page.goto(`${app.origin}/tasks`);
+  const quick = page.getByRole("textbox", { name: "Quick add task", exact: true });
+  // An empty title does nothing.
+  await quick.press("Enter");
+  expect(await browserData(page, `${app.origin}/api/tasks`)).toHaveLength(0);
+  await quick.fill("  Water the plants  ");
+  await quick.press("Enter");
+  await expect(page.getByTestId("task-item").filter({ hasText: "Water the plants" })).toBeVisible();
+  await expect(quick).toHaveValue("");
+  await expect(quick).toBeFocused();
+  const tasks = await browserData(page, `${app.origin}/api/tasks`);
+  expect(tasks).toHaveLength(1);
+  expect(tasks[0]).toMatchObject({ title: "Water the plants", status: "todo", dueDate: null, reminderEnabled: false, repeatRule: "none", timeZone: "America/New_York" });
+  // Nothing about it is written to memory: it is the user's own record.
+  expect(await browserData(page, `${app.origin}/api/knowledge?view=candidates`)).toHaveLength(0);
 });

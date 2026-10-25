@@ -6,7 +6,8 @@ import { t, localizeMessage } from "@/lib/locale";
 import { SelectField, SelectOption } from "@/components/ui/select";
 
 import { useRef, useState } from "react";
-import { Plus, X } from "lucide-react";
+import { ChevronDown, Plus, X } from "lucide-react";
+import { useToast } from "@/components/ui/toast";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,7 +43,7 @@ export default function TasksPage() {
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-7">
       <PageHeader
-        title={t("settings.schedules.title")}
+        title={t("tasks.title")}
         description={t("ui.tasks.keepTasksAndRemindersHereAnd")}
         actions={
           <Button size="sm" disabled={creating} onClick={() => setCreating(true)}>
@@ -61,8 +62,75 @@ export default function TasksPage() {
           }}
         />
       )}
+      <QuickAddTask
+        onCreated={async () => {
+          tasks.setTaskStatusFilter("all");
+          await tasks.loadTasks("all");
+        }}
+      />
       <TaskPanel {...tasks} />
     </main>
+  );
+}
+
+/** A task with only a title, saved on Enter; the full form is for dates, reminders and repeats. */
+function QuickAddTask({ onCreated }: { onCreated: () => Promise<void> }) {
+  useLocale();
+  const [title, setTitle] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
+  return (
+    <form
+      aria-label={t("tasks.quickAddLabel")}
+      className="-mb-2 flex flex-col"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        const value = title.trim();
+        if (!value || busy) return;
+        setBusy(true);
+        setError(null);
+        try {
+          await chatApi.createTask({
+            title: value,
+            priority: "medium",
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            reminderEnabled: false,
+            repeatRule: "none",
+          });
+          setTitle("");
+          await onCreated();
+          toast(t("tasks.quickAdded"));
+        } catch (cause) {
+          setError(cause instanceof Error ? cause.message : t("ui.tasks.creationFailedPleaseTryAgain"));
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <label className="toolbar-search">
+        <Plus aria-hidden="true" />
+        <input
+          type="text"
+          aria-label={t("tasks.quickAddLabel")}
+          placeholder={t("tasks.quickAddPlaceholder")}
+          maxLength={120}
+          value={title}
+          // Read-only rather than disabled while saving, so focus stays for the next task.
+          readOnly={busy}
+          aria-busy={busy}
+          enterKeyHint="done"
+          onChange={(event) => setTitle(event.target.value)}
+        />
+      </label>
+      <Reveal>
+        {error ? (
+          <p role="alert" className="mt-2 text-sm text-destructive">
+            {localizeMessage(error)}
+          </p>
+        ) : null}
+      </Reveal>
+    </form>
   );
 }
 
@@ -172,17 +240,6 @@ function CreateTaskForm({
                 disabled={busy}
               />
               <Field className="gap-2" data-disabled={busy}>
-                <FieldLabel htmlFor="task-time-zone">
-                  {t("settings.schedules.zoneLabel")}
-                </FieldLabel>
-                <Input
-                  id="task-time-zone"
-                  name="timeZone"
-                  defaultValue={zone}
-                  required
-                />
-              </Field>
-              <Field className="gap-2" data-disabled={busy}>
                 <FieldLabel htmlFor="task-priority">
                   {t("tools.createTask.priorityLabel")}
                 </FieldLabel>
@@ -222,6 +279,24 @@ function CreateTaskForm({
                   ))}
                 </SelectField>
               </Field>
+              {/* The device's time zone is almost always right, so it waits behind "more options". */}
+              <details className="settings-disclosure sm:col-span-2">
+                <summary className="settings-disclosure-trigger">
+                  {t("tasks.moreOptions")}
+                  <ChevronDown aria-hidden="true" className="ml-auto size-4" />
+                </summary>
+                <Field className="gap-2 pt-3 sm:max-w-sm" data-disabled={busy}>
+                  <FieldLabel htmlFor="task-time-zone">
+                    {t("settings.schedules.zoneLabel")}
+                  </FieldLabel>
+                  <Input
+                    id="task-time-zone"
+                    name="timeZone"
+                    defaultValue={zone}
+                    required
+                  />
+                </Field>
+              </details>
               <FieldDescription className="sm:col-span-2">
                 {t("tasks.scheduleHint")}
               </FieldDescription>

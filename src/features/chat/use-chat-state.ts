@@ -187,6 +187,21 @@ export function useChatState() {
     // mid-sentence in the first one.
     const typedBeforeActivation = previousId === null && inputRef.current.length > 0 && inputRef.current !== restoredInputRef.current;
     const draft = readChatDraft(activeChatId);
+    // Text written before any conversation existed moves into the first one to
+    // open that has no draft of its own, so it is neither lost nor left behind
+    // to come back later.
+    if (previousId === null && activeChatId !== null) {
+      const unsaved = typedBeforeActivation ? { text: inputRef.current, attachments: draftAttachmentsRef.current } : draft ? null : readChatDraft(null);
+      if (unsaved) {
+        clearChatDraft(null);
+        writeChatDraft(activeChatId, unsaved);
+        if (typedBeforeActivation) return;
+        restoredInputRef.current = unsaved.text;
+        setInput(unsaved.text);
+        replaceAttachments(unsaved.attachments);
+        return;
+      }
+    }
     if (typedBeforeActivation) return;
     restoredInputRef.current = draft?.text ?? "";
     if (draft) {

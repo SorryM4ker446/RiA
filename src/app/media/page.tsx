@@ -1,5 +1,6 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
+import { useRefreshOnReturn } from "@/lib/use-refresh-on-return";
 
 import { ChevronRight } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
@@ -7,8 +8,9 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import { HelpTip } from "@/components/ui/help-tip";
 import { useAwaitingFirstLoad } from "@/lib/use-awaiting-first-load";
-import { RefreshButton } from "@/components/ui/refresh-button";
 import { Reveal } from "@/components/ui/reveal";
 import { useToast } from "@/components/ui/toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -98,8 +100,10 @@ export default function MediaPage() {
   }
   const disabled = busy || loading;
   const refresh = () => { setSelected(null); setRevision(value => value + 1); void load(); };
+  // Read again when the window comes back into view, instead of a refresh button.
+  useRefreshOnReturn(() => load());
   return <main className="wide-page mx-auto flex max-w-6xl flex-col gap-7">
-    <PageHeader back title={t("media.title")} description={t("media.description")} actions={<RefreshButton iconOnly disabled={disabled} onClick={refresh} refreshing={loading && !awaitingFirstAssetLoad} label={t("media.refresh")} />} />
+    <PageHeader title={t("media.title")} description={t("media.description")} actions={<HelpTip label={t("media.helpLabel")}>{t("media.footnote")}</HelpTip>} />
     <details className="media-storage"><summary className="settings-disclosure-trigger cursor-pointer text-foreground">{t("media.storageSummary")}<ChevronRight className="ml-auto size-4 text-muted-foreground" aria-hidden="true" /></summary><div className="pb-5 pt-1"><StoragePanel embedded revision={revision} onChanged={() => { setSelected(null); void load(); }} /></div></details>
     <div className="flex flex-wrap items-center gap-2">
       {([{ key: "type", label: t("media.filter.typeLabel"), values: [["all", t("media.filter.all")], ["image", t("media.filter.image")], ["video", t("media.filter.video")]] }, { key: "kind", label: t("media.filter.sourceLabel"), values: [["all", t("media.filter.all")], ["attachment", t("media.filter.attachment")], ["generated-image", t("media.filter.generatedImage")], ["generated-video", t("media.filter.generatedVideo")]] }, { key: "usage", label: t("media.filter.usageLabel"), values: [["all", t("media.filter.all")], ["referenced", t("media.filter.referenced")], ["unused", t("media.filter.unused")]] }] as const).map(filter => <Select
@@ -118,7 +122,7 @@ export default function MediaPage() {
         </Select>)}
       <span className="ml-auto text-xs text-muted-foreground" aria-live="polite">{`${t("media.loaded")} ${assets.length} ${t("media.loadedUnit")}`}</span>
     </div>
-    <Reveal className="-mt-7">{error ? <p role="alert" className="mt-7 rounded-lg bg-destructive/5 p-3 text-sm text-destructive shadow-hairline">{localizeMessage(error)}</p> : null}</Reveal>
+    <Reveal className="-mt-7">{error ? <p role="alert" className="mt-7 rounded-lg bg-destructive/5 p-3 text-sm text-destructive shadow-hairline"><span>{localizeMessage(error)}</span><Button size="sm" variant="ghost" className="ml-2 h-auto px-2 py-0.5 align-baseline" onClick={() => void refresh()}>{t("ui.chat.chat-toolbar.retry")}</Button></p> : null}</Reveal>
     <div className="media-grid" aria-busy={disabled}>{assets.map(asset => <article key={asset.id} {...removalKey(asset.id)} aria-label={`${t("media.cardLabel")} ${asset.id}`} className="media-card">
       {/* One control for the whole card: it lies over the image and the text, so a click anywhere opens the details. */}
       <button type="button" className="media-card-open" disabled={disabled} onClick={() => void act(() => show(asset.id))}><span className="sr-only">{t("media.viewDetails")}</span></button>
@@ -134,9 +138,14 @@ export default function MediaPage() {
     {/* Only announce a load when there is nothing on screen yet. Re-announcing
         it over an intact list is what made a refresh read as a re-render. */}
     {awaitingFirstAssetLoad && <div role="status" aria-label={t("media.loading")} className="media-grid">{[0,1,2,3,4].map(key => <Skeleton key={key} className="aspect-square rounded-xl" />)}</div>}
-    {!assets.length && !awaitingFirstAssetLoad && !error && <p className="empty-state">{t("media.empty")}</p>}
+    {/* One sentence and the one thing to do next. */}
+    {!assets.length && !awaitingFirstAssetLoad && !error && <div className="empty-state flex flex-wrap items-center gap-x-3 gap-y-2">
+      <span>{t(sameFilters(filters, defaults) ? "media.emptyNone" : "media.empty")}</span>
+      {sameFilters(filters, defaults)
+        ? <Button asChild size="sm" variant="outline"><Link href="/chat">{t("media.createInChat")}</Link></Button>
+        : <Button type="button" size="sm" variant="outline" onClick={() => setFilters(defaults)}>{t("media.filter.reset")}</Button>}
+    </div>}
     {cursor && <Button className="self-center" disabled={disabled} variant="ghost" onClick={() => void load(cursor)}>{t("media.loadMore")}</Button>}
-    <p className="text-xs text-muted-foreground">{t("media.footnote")}</p>
     <Sheet open={detailOpen && Boolean(selected)} onOpenChange={open => { if (!open && !busy && !dialog.current?.open) setDetailOpen(false); }}>
       {/* The native confirmation lives inside the drawer, so the drawer's focus trap leaves it alone; the drawer cancels Escape's default, so the confirmation closes itself on Escape and the drawer stays. */}
       <SheetContent side="right" showClose={false} aria-describedby={undefined} className="media-detail-sheet flex flex-col gap-4 overflow-y-auto p-5 sm:p-6">

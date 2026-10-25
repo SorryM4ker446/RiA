@@ -6,7 +6,7 @@ import { enUS, zhCN } from "react-day-picker/locale";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { TimeInput } from "@/components/ui/time-input";
 import {
   Popover,
   PopoverContent,
@@ -95,13 +95,12 @@ export function TaskDateTimeField({
       </Field>
       <Field className="min-w-0 gap-2" data-disabled={disabled || !datePart}>
         <FieldLabel htmlFor={`${id}-time`}>{t("tasks.time")}</FieldLabel>
-        <Input
+        <TimeInput
           id={`${id}-time`}
-          type="time"
           value={timePart}
           disabled={disabled || !datePart}
           required={!!datePart}
-          onChange={(event) => onChange(`${datePart}T${event.target.value}`)}
+          onChange={(time) => onChange(`${datePart}T${time}`)}
         />
       </Field>
       {name && <input type="hidden" name={name} value={value} />}

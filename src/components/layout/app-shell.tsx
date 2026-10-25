@@ -36,7 +36,7 @@ const NAV_GROUPS = (): { label: string; items: NavItem[] }[] => ([
   { href: "/", label: t("nav.home"), icon: House },
   { href: "/chat", label: t("nav.chat"), icon: MessagesSquare },
   { href: "/assistants", label: t("ui.assistants.assistantTemplates"), icon: Boxes },
-  { href: "/tasks", label: t("settings.schedules.title"), icon: CalendarClock },
+  { href: "/tasks", label: t("tasks.title"), icon: CalendarClock },
   ] },
   { label: t("ui.layout.app-shell.knowledge"), items: [
   { href: "/conversations", label: t("nav.conversations"), icon: MessagesSquare },
