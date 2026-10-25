@@ -18,7 +18,9 @@ export function ToolbarSearch({ className, ...props }: React.InputHTMLAttributes
   </label>;
 }
 
-/** The quiet column names over a list with columns. Purely visual: each row already says what it is. */
-export function ListHead({ children }: { children: ReactNode }) {
-  return <div className="data-list-head" aria-hidden="true">{children}</div>;
+/** The quiet column names over a list with columns. The names are visual only: each row already says what it is. */
+export function ListHead({ children, lead }: { children: ReactNode; lead?: ReactNode }) {
+  // Column names repeat what each row says, so they are hidden from assistive
+  // technology; a control in the first column (`lead`) stays reachable.
+  return <div className="data-list-head">{lead}<div className="contents" aria-hidden="true">{children}</div></div>;
 }

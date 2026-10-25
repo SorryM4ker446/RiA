@@ -40,7 +40,7 @@ test("knowledge pagination reaches older entries and local search combines confi
   const consoleErrors: string[] = [];
   page.on("pageerror", error => consoleErrors.push(error.message));
   page.on("console", message => { if (message.type() === "error") consoleErrors.push(message.text()); });
-  const pagination = page.getByRole("navigation", { name: "知识条目分页" });
+  const pagination = page.getByRole("navigation", { name: "记忆分页" });
   await expect(page.locator("article")).toHaveCount(25);
   await expect(pagination.getByRole("button", { name: "上一页" })).toBeDisabled();
   for (let i = 2; i <= 6; i++) {
@@ -52,7 +52,7 @@ test("knowledge pagination reaches older entries and local search combines confi
   await expect(pagination.getByRole("button", { name: "下一页" })).toBeDisabled();
   await pagination.getByRole("button", { name: "上一页" }).click();
   await expect(pagination.getByText("第 5 页", { exact: true })).toBeVisible();
-  await page.getByRole("textbox", { name: "搜索知识条目" }).fill("底部关键词");
+  await page.getByRole("textbox", { name: "搜索记忆" }).fill("底部关键词");
   await page.getByRole("button", { name: "搜索", exact: true }).click();
   await expect(page.locator("article")).toHaveCount(3);
   await expect(pagination.getByText("第 1 页", { exact: true })).toBeVisible();
@@ -72,7 +72,7 @@ test("knowledge pagination reaches older entries and local search combines confi
   await mkdir(screenshots, { recursive: true });
   await page.screenshot({ path: join(screenshots, "desktop.png"), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByRole("textbox", { name: "搜索知识条目" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "搜索记忆" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await pagination.locator("..").screenshot({ path: join(screenshots, "mobile.png") });
   expect(consoleErrors).toEqual([]);
@@ -80,7 +80,7 @@ test("knowledge pagination reaches older entries and local search combines confi
 });
 
 test("a saved write with a failed list refresh disables obsolete pagination and recovers from the first page", { tag: "@integration" }, async ({ page, app }) => {
-  const pagination = page.getByRole("navigation", { name: "知识条目分页" });
+  const pagination = page.getByRole("navigation", { name: "记忆分页" });
   await pagination.getByRole("button", { name: "下一页" }).click();
   await expect(pagination.getByText("第 2 页", { exact: true })).toBeVisible();
   await chooseMenuAction(page, "记忆 101", "编辑 记忆 101");
@@ -92,7 +92,8 @@ test("a saved write with a failed list refresh disables obsolete pagination and 
   await expect(pagination.getByRole("button", { name: "下一页" })).toBeDisabled();
   await expect(pagination.getByRole("button", { name: "上一页" })).toBeDisabled();
   await page.unroute("**/api/knowledge?**");
-  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  // The error offers a retry in place of a standing refresh button.
+  await page.getByRole("button", { name: "重试", exact: true }).click();
   await expect(pagination.getByText("第 1 页", { exact: true })).toBeVisible();
   await expect(page.locator("article").first()).toContainText("记忆 101");
   await expect(page.getByText("已保存的编辑", { exact: true })).toBeVisible();
@@ -113,13 +114,13 @@ test("failed knowledge writes preserve drafts and rows, then successful writes r
   await expect(page.locator("article")).toHaveCount(1);
   expect(app.readRows("SELECT value,confirmed FROM memories WHERE id='fixture-001'")[0]).toEqual({ value: "修正后的内容", confirmed: 1 });
   await page.route("**/api/knowledge/fixture-000", route => route.fulfill({ status: 500, json: { error: { code: "INTERNAL_ERROR", message: "模拟删除失败" } } }));
-  await chooseMenuAction(page, "记忆 000", "删除知识 记忆 000");
+  await chooseMenuAction(page, "记忆 000", "删除记忆 记忆 000");
   await expect(page.getByText("模拟删除失败", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "记忆 000", exact: true })).toBeVisible();
   await page.unroute("**/api/knowledge/fixture-000");
-  await chooseMenuAction(page, "记忆 000", "删除知识 记忆 000");
+  await chooseMenuAction(page, "记忆 000", "删除记忆 记忆 000");
   await expect(page.locator("article")).toHaveCount(0);
-  await expect(page.getByText("当前页没有符合条件的知识条目。可调整搜索或返回上一页。", { exact: true })).toBeVisible();
+  await expect(page.getByText("当前页没有符合条件的记忆。可调整搜索或返回上一页。", { exact: true })).toBeVisible();
   expect(app.readRows("SELECT id FROM memories WHERE id='fixture-000'")).toEqual([]);
 });
 
@@ -139,7 +140,7 @@ test("a superseded knowledge search cannot replace newer results, and failed sea
     } else await route.continue();
   });
   try {
-    const search = page.getByRole("textbox", { name: "搜索知识条目" });
+    const search = page.getByRole("textbox", { name: "搜索记忆" });
     await search.fill("慢请求");
     await page.getByRole("button", { name: "搜索", exact: true }).click();
     await received;

@@ -84,12 +84,12 @@ test("catalog prices show dollars per million tokens while retaining non-token u
   await page.goto("/models");
   const catalog = page.getByRole("region", { name: "模型目录结果", exact: true });
   const paid = catalog.getByRole("listitem").filter({ hasText: "fixture/paid" });
-  for (const price of ["$2.5/M input tokens", "$10/M output tokens", "$0.25/M cache read tokens", "$0.04/input image", "$0.003/request"]) await expect(paid).toContainText(price);
+  for (const price of ["$2.5/百万输入 Token", "$10/百万输出 Token", "$0.25/百万缓存读取 Token", "$0.04/张输入图片", "$0.003/次请求"]) await expect(paid).toContainText(price);
   await expect(paid).not.toContainText("这段模型介绍不应显示");
   await expect(paid.getByRole("button", { name: "添加", exact: true })).toBeEnabled();
   const free = catalog.getByRole("listitem").filter({ hasText: "fixture/free" });
-  await expect(free).toContainText("$0/M input tokens");
-  await expect(free).toContainText("$0/M output tokens");
+  await expect(free).toContainText("$0/百万输入 Token");
+  await expect(free).toContainText("$0/百万输出 Token");
   const unknown = catalog.getByRole("listitem").filter({ hasText: "fixture/unknown" });
   await expect(unknown).toContainText("价格暂未提供");
   await expect(unknown).not.toContainText("$0");
@@ -132,8 +132,8 @@ test("shared menus finish their transitions without a position jump and toolbar 
     await expect(control).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     expect((await control.boundingBox())!.height).toBe(32);
   }
-  const memory = page.getByRole("checkbox", { name: "不记长期记忆", exact: true });
-  await expect(memory).toHaveAttribute("aria-checked", "false");
+  const memory = page.getByRole("switch", { name: "长期记忆", exact: true });
+  await expect(memory).toHaveAttribute("aria-checked", "true");
   expect((await memory.boundingBox())!.y).toBe((await assistant.boundingBox())!.y);
   for (const control of [assistant, page.getByRole("combobox", { name: "聊天模式", exact: true, includeHidden: true }), page.getByRole("combobox", { name: "选择模型", exact: true, includeHidden: true }), page.getByRole("combobox", { name: "选择工具", exact: true, includeHidden: true })]) {
     const before = await control.boundingBox();

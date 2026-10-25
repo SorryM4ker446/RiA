@@ -1,11 +1,11 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
+import { useRefreshOnReturn } from "@/lib/use-refresh-on-return";
 
 import { getApiErrorMessage } from "@/lib/api-error-message";
 
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { RefreshButton } from "@/components/ui/refresh-button";
 import { Reveal } from "@/components/ui/reveal";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
@@ -52,7 +52,7 @@ export function StoragePanel({ revision = 0, onChanged, embedded = false }: { re
   }
 
   const content = <div className="flex flex-col gap-4">
-    <Reveal className="-mt-4">{error ? <p role="alert" className="mt-4 rounded-lg bg-destructive/5 p-3 text-sm text-destructive shadow-hairline">{localizeMessage(error)}</p> : null}</Reveal>
+    <Reveal className="-mt-4">{error ? <p role="alert" className="mt-4 rounded-lg bg-destructive/5 p-3 text-sm text-destructive shadow-hairline"><span>{localizeMessage(error)}</span><Button size="sm" variant="ghost" className="ml-2 h-auto px-2 py-0.5 align-baseline" onClick={() => void refresh()}>{t("ui.chat.chat-toolbar.retry")}</Button></p> : null}</Reveal>
     {stats ? <dl className="stat-grid">
       <div><dt>{t("mediaStorage.diskUsage")}</dt><dd>{(stats.totalBytes / 1024 / 1024).toFixed(2)} <span className="text-xs font-normal text-muted-foreground">MiB</span></dd></div>
       <div><dt>{t("mediaStorage.assetCount")}</dt><dd>{stats.assetCount}</dd></div>
@@ -61,8 +61,10 @@ export function StoragePanel({ revision = 0, onChanged, embedded = false }: { re
       <div><dt>{t("mediaStorage.reclaimable")}</dt><dd>{stats.reclaimableCount}</dd></div>
     </dl> : <p className="text-sm text-muted-foreground">{busy ? t("mediaStorage.loading") : t("mediaStorage.empty")}</p>}
     <div className="flex flex-wrap items-center justify-between gap-3"><p className="max-w-2xl text-xs leading-5 text-muted-foreground">{t("mediaStorage.retentionNote")}</p>
-      <div className="flex items-center gap-1"><RefreshButton iconOnly disabled={busy} onClick={() => void refresh()} refreshing={busy && Boolean(stats)} label={t("mediaStorage.refresh")} /><Button size="sm" variant="ghost" disabled={busy || !stats?.reclaimableCount} onClick={() => void askCleanup()}>{t("mediaStorage.cleanup")}</Button></div></div>
+      <div className="flex items-center gap-1"><Button size="sm" variant="ghost" disabled={busy || !stats?.reclaimableCount} onClick={() => void askCleanup()}>{t("mediaStorage.cleanup")}</Button></div></div>
   </div>;
+  // Read again when the window comes back into view, instead of a refresh button.
+  useRefreshOnReturn(() => refresh());
   if (embedded) return content;
   return <section className="surface" aria-label={t("mediaStorage.title")}><div className="flex flex-col gap-1 p-5 pb-0"><h2 className="text-base font-semibold tracking-title">{t("mediaStorage.title")}</h2><p className="text-sm text-muted-foreground">{t("mediaStorage.description")}</p></div><div className="p-5">{content}</div></section>;
 }

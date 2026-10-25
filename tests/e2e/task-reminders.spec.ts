@@ -118,7 +118,7 @@ test("changing reminder options preserves the stored DST occurrence and sub-minu
   const row = page.getByTestId("task-item").filter({ hasText: "精确时刻保留验证" });
   await row.getByRole("button", { name: "设置时间与提醒" }).click();
   await expect(row.getByLabel("截止时间", { exact: true })).toContainText("2026年11月1日");
-  await expect(row.locator('input[type="time"]')).toHaveValue("01:30");
+  await expect(row.locator("[data-time-input]")).toHaveValue("01:30");
   await row.getByLabel("到期桌面通知").check();
   await row.getByRole("button", { name: "保存提醒设置" }).click();
   await expect(row.getByRole("button", { name: "保存提醒设置" })).toHaveCount(0);

@@ -35,8 +35,8 @@ after(async () => { await db.$disconnect(); cleanup(); });
 test("a memory the assistant inferred waits for the user before it is used", async () => {
   await saveMemory({ key: "语言偏好", value: "回答请使用中文", source: "manual" });
   await persistToolMemory({
-    workspaceId: "local", toolId: "createTask", trigger: "auto", state: "output-available",
-    input: { title: "整理资料" }, output: { taskId: "t1" }, assistantText: "已创建任务",
+    workspaceId: "local", toolId: "searchKnowledge", trigger: "auto", state: "output-available",
+    input: { query: "整理资料" }, output: { total: 1, results: [{ title: "资料整理方法", source: "document", score: 0.9 }] }, assistantText: "找到了资料整理方法",
   });
 
   const candidate = await db.memory.findFirst({ where: { key: { startsWith: "tool:" } } });
@@ -56,7 +56,7 @@ test("a memory the assistant inferred waits for the user before it is used", asy
   assert.equal(before.some((entry) => entry.id === candidate.id), false, "an unaccepted candidate must not be retrieved");
 
   await payload(await knowledgeIdRoute.PATCH(req(`/api/knowledge/${candidate.id}`, "PATCH", { confirmed: true }), context(candidate.id)));
-  const after = await getRelevantMemories({ query: "createTask 任务" });
+  const after = await getRelevantMemories({ query: "searchKnowledge 资料整理方法" });
   assert.equal(after.some((entry) => entry.id === candidate.id), true, "an accepted memory is retrieved");
   // And the use is recorded, so the page can say the memory did something.
   const used = await db.memory.findUnique({ where: { id: candidate.id } });

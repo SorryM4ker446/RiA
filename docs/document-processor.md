@@ -65,7 +65,7 @@ The model can find document IDs through `searchKnowledge`. Both tools obey the
 conversation's document collections, assistant tool allowlist, shared execution
 records and run/step budgets. The tool picker lists the actions **读取文档** and
 **转换并导出文档**, not document IDs or filenames. After selecting an action,
-choose its document parameter by filename from the current knowledge collections;
+choose its document parameter by filename from the current topics;
 the internal ID is supplied automatically. An explicit action runs once and
 returns to automatic tools on success, without changing which tools the model
 can use in subsequent chat. Failure retains the selected document and format.

@@ -23,7 +23,7 @@ export function AssetDetailPanel({ asset, busy, close, download, remove, regener
       <Button size="icon-sm" variant="ghost" aria-label={t("asset.closeDetail")} title={t("asset.closeDetail")} disabled={busy} onClick={close}><X aria-hidden="true" /></Button></div>
     {(asset.regenerationUnavailable || asset.messageReferenceCount + asset.generationReferenceCount > 0) && <p className="-mt-3 text-xs text-muted-foreground">{asset.regenerationUnavailable}{asset.regenerationUnavailable && asset.messageReferenceCount + asset.generationReferenceCount > 0 ? " " : ""}{asset.messageReferenceCount + asset.generationReferenceCount > 0 ? t("asset.stillReferenced") : ""}</p>}
     {failed ? <p role="alert">{t("asset.previewFailed")}</p> : asset.mediaType.startsWith("video/")
-      ? <video className="max-h-96 w-full rounded-lg bg-black shadow-hairline" controls preload="metadata" src={asset.url} onError={() => setFailed(true)} />
+      ? <video className="aspect-video max-h-96 w-full rounded-lg bg-black shadow-hairline" controls preload="metadata" src={asset.url} onError={() => setFailed(true)} />
       // Private media must retain the authenticated URL and must not enter an image optimizer cache.
       // eslint-disable-next-line @next/next/no-img-element
       : <img className="max-h-96 w-full rounded-lg object-contain shadow-hairline" src={asset.url} alt={asset.description || t("asset.previewAlt")} onError={() => setFailed(true)} />}

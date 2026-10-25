@@ -7,6 +7,7 @@ import { SelectField, SelectOption } from "@/components/ui/select";
 import { PageHeader } from "@/components/layout/page-header";
 import { ToolbarSearch } from "@/components/layout/page-toolbar";
 import { Reveal } from "@/components/ui/reveal";
+import { Info } from "lucide-react";
 import { Status } from "@/components/ui/status";
 import { useToast } from "@/components/ui/toast";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -24,6 +25,8 @@ import type { LibraryAvailability, LibraryModelFailure, ModelAvailability } from
 import type { CatalogModel } from "@/lib/models/providers/types";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useSettingsDirty } from "@/features/settings/settings-context";
+import { announceModelPreferencesChanged } from "@/features/models/preference-events";
+import { animateRemoval, removalKey } from "@/lib/ui/removal";
 type CatalogState = { models: CatalogModel[]; fetchedAt: string | null; stale: boolean; source: "live" | "cache" | "empty"; error: string | null; failure: string | null; skipped: number };
 type ProviderSummary = { providerId: string; displayName: string; configured: boolean };
 type EmbeddingSummary = { total: number; stale: number; embedding: string | null };
@@ -132,9 +135,20 @@ export function ModelSettings() {
   }, [activeProvider, activeCatalog, catalogMode, loadCatalog]);
   async function addFromCatalog(item: CatalogModel) {
     const key = modelRefKey(item);
-    const result = await settingsRequest<{ data: ModelLibraryItem; alreadyAdded: boolean }>("/api/models/library", jsonRequest("POST", { action: "add", model: { providerId: item.providerId, modelId: item.modelId } }));
-    setSettings(current => current ? { ...current, library: [...current.library.filter(model => modelRefKey(model) !== key), result.data], legacyCandidates: current.legacyCandidates.filter(candidate => modelRefKey(candidate.ref) !== key) } : current);
-    toast(result.alreadyAdded ? t("models.notice.capabilityUpdated") : tf("models.notice.addedBefore", { modelId: item.modelId }));
+    const result = await settingsRequest<{ data: ModelLibraryItem; alreadyAdded: boolean; defaulted: GenerationMode[] }>("/api/models/library", jsonRequest("POST", { action: "add", model: { providerId: item.providerId, modelId: item.modelId } }));
+    // The server may also have made it the default for modes that had none. Both
+    // the form and its saved copy take that in, so it does not read as an unsaved edit.
+    const ref: ModelRef = { providerId: result.data.providerId, modelId: result.data.modelId };
+    const merge = (current: ModelPreferences | null) => current ? {
+      ...current, ...Object.fromEntries(result.defaulted.map(mode => [mode, { ...current[mode], model: ref }])),
+      library: [...current.library.filter(model => modelRefKey(model) !== key), result.data],
+      legacyCandidates: current.legacyCandidates.filter(candidate => modelRefKey(candidate.ref) !== key),
+    } : current;
+    setSettings(merge);
+    setSavedPreferences(merge);
+    announceModelPreferencesChanged();
+    toast(result.alreadyAdded ? tf("models.notice.addedBefore", { modelId: item.modelId })
+      : result.defaulted.length ? tf("models.notice.addedAsDefault", { modelId: item.modelId }) : tf("models.notice.added", { modelId: item.modelId }));
   }
   async function run(operation: () => Promise<void>) { setBusy(true); setError(""); try { await operation(); } catch (cause) { setError(cause instanceof Error ? cause.message : t("models.error.act")); } finally { setBusy(false); } }
   function changeMode(mode: GenerationMode, field: "model" | "fallback", value: ModelRef | null) { if (settings) setSettings({ ...settings, [mode]: { ...settings[mode], [field]: value } }); }
@@ -149,7 +163,7 @@ export function ModelSettings() {
   }, [settings]);
   const filteredModels = useMemo(() => (activeCatalog?.models ?? []).filter(item => `${item.modelId} ${item.name} ${item.description}`.toLowerCase().includes(query.toLowerCase())), [activeCatalog, query]);
   const added = useMemo(() => new Set(settings?.library.map(item => modelRefKey(item)) ?? []), [settings]);
-  function updateSettings(next: ModelPreferences) { setSettings(next); setSavedPreferences(next); }
+  function updateSettings(next: ModelPreferences) { setSettings(next); setSavedPreferences(next); announceModelPreferencesChanged(); }
   useSettingsDirty(Boolean(settings && savedPreferences && preferenceKey(settings) !== preferenceKey(savedPreferences)));
   const providerName = (providerId: string) => providers.find(provider => provider.providerId === providerId)?.displayName ?? providerId;
   // Written out rather than interpolated: the locale table is typed by key, and
@@ -179,9 +193,9 @@ export function ModelSettings() {
     <Reveal className="-mt-7">{error ? <p role="alert" className="mt-7 rounded-lg bg-destructive/5 p-3 text-sm text-destructive shadow-hairline">{localizeMessage(error)}</p> : null}</Reveal>{warnings.map(warning => <p role="alert" key={warning} className="break-words rounded-lg bg-warning/5 p-3 text-sm text-warning shadow-hairline">{warning}</p>)}
     {settings && <>
       <section id="model-library" className="models-section page-section flex flex-col gap-4" aria-label={t("models.libraryLabel")}><div className="flex items-baseline gap-2"><h2 className="text-base font-semibold tracking-title">{t("models.libraryTitle")}</h2><span className="text-xs text-muted-foreground">{settings.library.length}</span></div>
-        {settings.library.length ? <ul className="item-list" style={{ "--cols": "minmax(0, 1fr) 5.5rem 3.5rem", "--cols-narrow": "minmax(0, 1fr) 3.5rem" } as React.CSSProperties}>{settings.library.map(item => <li key={`${item.providerId}:${item.modelId}`} className="item-row data-row catalog-library-row min-w-0"><div className="flex min-w-0 flex-col gap-0.5"><h3 className="break-all text-sm font-medium tracking-label">{item.name}</h3><p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground"><span className="break-all font-mono">{item.modelId}</span><span>· {providerName(item.providerId)}</span></p><p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">{[...item.modes.map(mode => modeNames()[mode]), ...(item.supportsImageInput ? [t("models.badge.imageInput")] : []), ...(item.modes.includes("image") ? [tf("models.badge.imageEndpoint", { status: item.endpointImageInput === null ? t("models.badge.endpointUnverified") : item.endpointImageInput ? t("models.badge.endpointCompatible") : t("models.badge.endpointIncompatible") })] : []), ...(item.supportsTools ? [t("models.badge.tools")] : [])].join(" · ")}{item.providerSearch && <Status tone="warning">{t("models.badge.providerSearch")}</Status>}</p></div><Status className="col-optional col-end" tone={(availability[modelRefKey(item)]?.state ?? "ready") === "ready" ? "success" : "warning"}>{availabilityLabel(availability[modelRefKey(item)]?.state)}</Status><Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive" disabled={busy} onClick={() => void run(async () => { const result = await settingsRequest<{ data: ModelPreferences }>("/api/models/library", jsonRequest("POST", { action: "remove", model: { providerId: item.providerId, modelId: item.modelId } })); updateSettings(result.data); toast(tf("models.removedFromLibrary", { modelId: item.modelId })); })}>{t("models.remove")}</Button></li>)}</ul> : <p className="empty-state !p-4 !text-left">{t("models.libraryEmpty")}</p>}
+        {settings.library.length ? <ul className="item-list" style={{ "--cols": "minmax(0, 1fr) 5.5rem 3.5rem", "--cols-narrow": "minmax(0, 1fr) 3.5rem" } as React.CSSProperties}>{settings.library.map(item => <li key={`${item.providerId}:${item.modelId}`} {...removalKey(`model:${modelRefKey(item)}`)} className="item-row data-row catalog-library-row min-w-0"><div className="flex min-w-0 flex-col gap-0.5"><h3 className="break-all text-sm font-medium tracking-label">{item.name}</h3><p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground"><span className="break-all font-mono">{item.modelId}</span><span>· {providerName(item.providerId)}</span></p><p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">{[...item.modes.map(mode => modeNames()[mode]), ...(item.supportsImageInput ? [t("models.badge.imageInput")] : []), ...(item.modes.includes("image") ? [tf("models.badge.imageEndpoint", { status: item.endpointImageInput === null ? t("models.badge.endpointUnverified") : item.endpointImageInput ? t("models.badge.endpointCompatible") : t("models.badge.endpointIncompatible") })] : []), ...(item.supportsTools ? [t("models.badge.tools")] : [])].join(" · ")}{item.providerSearch && <Status tone="warning">{t("models.badge.providerSearch")}</Status>}</p></div><Status className="col-optional col-end" tone={(availability[modelRefKey(item)]?.state ?? "ready") === "ready" ? "success" : "warning"}>{availabilityLabel(availability[modelRefKey(item)]?.state)}</Status><Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive" disabled={busy} onClick={() => void run(async () => { const result = await settingsRequest<{ data: ModelPreferences }>("/api/models/library", jsonRequest("POST", { action: "remove", model: { providerId: item.providerId, modelId: item.modelId } })); await animateRemoval(`model:${modelRefKey(item)}`, () => updateSettings(result.data)); toast(tf("models.removedFromLibrary", { modelId: item.modelId })); })}>{t("models.remove")}</Button></li>)}</ul> : <p className="empty-state !p-4 !text-left">{t("models.libraryEmpty")}</p>}
       </section>
-      <section id="model-catalog" className="models-section page-section flex flex-col gap-5" aria-label={t("models.catalogLabel")}><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-col gap-2"><h2 className="text-base font-semibold tracking-title">{t("models.catalogTitle")}</h2><p className="text-sm leading-6 text-muted-foreground">{t("models.catalogDescription")}</p></div><RefreshButton iconOnly disabled={busy} onClick={() => void run(async () => { if (activeProvider) await loadCatalog(activeProvider, catalogMode, true); toast(t("models.notice.catalogRefreshed")); })} label={t("models.refreshCatalog")} /></div>
+      <section id="model-catalog" className="models-section page-section flex flex-col gap-5" aria-label={t("models.catalogLabel")}><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-base font-semibold tracking-title">{t("models.catalogTitle")}</h2><RefreshButton iconOnly disabled={busy} onClick={() => void run(async () => { if (activeProvider) await loadCatalog(activeProvider, catalogMode, true); toast(t("models.notice.catalogRefreshed")); })} label={t("models.refreshCatalog")} /></div>
         <label className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">{t("ui.models.modelServices")}<SelectField aria-label={t("models.providerTabsLabel")} value={activeProvider ?? ""} onValueChange={value => { setQuery(""); setCatalogProvider(value); }}>
             {providers.map(provider => <SelectOption key={provider.providerId} value={provider.providerId}>{provider.displayName}</SelectOption>)}
           </SelectField>
@@ -199,8 +213,9 @@ export function ModelSettings() {
         {/* A plain note, not a live region: `role="status"` here would collide
             with the page's save confirmation, and nothing about a skipped row
             is announced — it is already visible in the list below. */}
-        {!activeCatalog?.error && (activeCatalog?.skipped ?? 0) > 0 && <p className="text-xs text-muted-foreground">{tf("models.notice.catalogSkipped", { count: activeCatalog!.skipped })}</p>}
-        <p className="text-xs text-muted-foreground">{`${activeCatalog?.models.length ?? 0} ${t("models.catalog.countUnit")}${activeCatalog?.fetchedAt ? ` ${t("models.divider")} ${t("models.catalog.updatedAt")} ${formatDateTime(activeCatalog.fetchedAt)}` : ""}${activeCatalog?.stale ? ` ${t("models.divider")} ${t("models.catalog.cachedData")}` : ""} ${t("models.divider")} ${t("models.catalog.limit")}`}</p>
+        {/* Rows the parser had to skip leave the rest usable; that is said on demand, not as a headline. */}
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">{`${activeCatalog?.models.length ?? 0} ${t("models.catalog.countUnit")}${activeCatalog?.fetchedAt ? ` ${t("models.divider")} ${t("models.catalog.updatedAt")} ${formatDateTime(activeCatalog.fetchedAt)}` : ""}${activeCatalog?.stale ? ` ${t("models.divider")} ${t("models.catalog.cachedData")}` : ""}`}
+          {!activeCatalog?.error && (activeCatalog?.skipped ?? 0) > 0 && <span role="img" className="inline-flex" aria-label={tf("models.notice.catalogSkipped", { count: activeCatalog!.skipped })} title={tf("models.notice.catalogSkipped", { count: activeCatalog!.skipped })}><Info aria-hidden="true" className="size-3.5" /></span>}</p>
         <CatalogResults key={`${activeProvider}:${catalogMode}:${query}:${activeCatalog?.fetchedAt}`} models={filteredModels} added={added} busy={busy} onAdd={item => void run(() => addFromCatalog(item))} />
         </> : null}</TabsContent>)}
         </Tabs>

@@ -25,13 +25,14 @@ async function create(page: Page, title: string) {
 }
 async function manage(page: Page, origin: string) {
   await page.goto(`${origin}/conversations`);
-  await expect(page.getByRole("button", { name: "搜索 / 筛选" })).toBeEnabled();
+  await expect(page.getByLabel("搜索标题和消息正文")).toBeEnabled();
 }
+/** Filters apply as typing pauses; Enter applies them at once. */
 async function filter(page: Page) {
   const response = page.waitForResponse(response => response.url().includes("/api/conversations?") && response.request().method() === "GET");
-  await page.getByRole("button", { name: "搜索 / 筛选" }).click();
+  await page.getByLabel("搜索标题和消息正文").press("Enter");
   await response;
-  await expect(page.getByRole("button", { name: "搜索 / 筛选" })).toBeEnabled();
+  await expect(page.getByLabel("搜索标题和消息正文")).toBeEnabled();
 }
 
 test("compact conversation rows keep actions accessible at desktop and mobile sizes", async ({ page, app }) => {
@@ -93,11 +94,13 @@ test("search controls keep their appearance during reads and ignore obsolete sta
     if (wait) await wait;
     await route.fulfill({ response });
   });
-  for (const action of ["搜索 / 筛选", "重置", "已归档"]) {
+  // Typing filters on its own; clearing the filter is offered once there is one.
+  for (const action of ["输入", "重置", "已归档"]) {
     let release!: () => void;
     gate = new Promise<void>(resolve => { release = resolve; });
     const previousReads = reads;
     if (action === "已归档") await chooseOption(state, "已归档");
+    else if (action === "输入") await search.fill("讨论");
     else await page.getByRole("button", { name: action, exact: true }).click();
     await expect.poll(() => reads).toBeGreaterThan(previousReads);
     await expect(search).toBeEnabled(); await expect(state).toBeEnabled();
@@ -148,7 +151,7 @@ test("conversation search, pinning, tags and archive restoration survive browser
   await expect(page.getByText("没有符合条件的会话。")).toBeVisible();
   // An old saved selection must not inject an archived chat back into the sidebar.
   await page.evaluate(id => localStorage.setItem("chat:last-active-id", id), id);
-  await page.getByRole("link", { name: "返回聊天" }).click();
+  await page.getByRole("navigation", { name: "工作区导航" }).getByRole("link", { name: "聊天", exact: true }).click();
   await expect(page.getByText("其他会话", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("旅行记录", { exact: true })).toHaveCount(0);
   await app.restart();
@@ -182,15 +185,16 @@ test("conversation pagination and bulk deletion require visible selection and ex
   expect(app.readRows("SELECT id FROM chats")).toHaveLength(33);
   await chooseOption(page.getByLabel("会话状态"), "全部");
   await filter(page);
-  await expect(page.getByRole("button", { name: "删除所选" })).toBeDisabled();
-  await page.getByRole("button", { name: "选择前 50 个已加载会话" }).click();
+  // Bulk actions appear only once something is selected.
+  await expect(page.getByRole("button", { name: "删除所选" })).toHaveCount(0);
+  await page.getByRole("checkbox", { name: "选择前 50 个已加载会话" }).check();
   await page.getByRole("button", { name: "删除所选" }).click();
   await confirm.getByRole("button", { name: "确认永久删除" }).click();
   await expect(page.getByText("已删除 30 个会话。")).toBeVisible();
   await expect(page.getByRole("article")).toHaveCount(3);
   expect(app.readRows("SELECT id FROM chats")).toHaveLength(3);
   // Deleted conversations leave the selection, so another delete right after only sends what is listed.
-  await expect(page.getByText(/已选 0 \/ 50/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "删除所选" })).toHaveCount(0);
   await page.getByRole("article").first().getByRole("checkbox").check();
   await page.getByRole("article").nth(1).getByRole("checkbox").check();
   await expect(page.getByText(/已选 2 \/ 50/)).toBeVisible();

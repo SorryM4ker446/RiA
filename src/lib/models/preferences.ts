@@ -160,7 +160,10 @@ export async function modelInLibrary(mode: LibraryMode, ref: ModelRef | null | u
   return libraryModel(settings, mode, ref) ?? null;
 }
 
-export async function addModel(ref: ModelRef): Promise<{ data: ModelLibraryItem; alreadyAdded: boolean }> {
+/** Generation modes a newly added model can become the default for. Embedding is left alone: choosing it starts indexing the knowledge base. */
+const DEFAULTABLE_MODES = ["chat", "image", "video"] as const;
+
+export async function addModel(ref: ModelRef): Promise<{ data: ModelLibraryItem; alreadyAdded: boolean; defaulted: (typeof DEFAULTABLE_MODES)[number][] }> {
   const key = modelRefKey(ref);
   const provider = getModelProvider(ref.providerId);
   const snapshots = await db.modelCatalogSnapshot.findMany({ where: { providerId: ref.providerId } });
@@ -204,13 +207,18 @@ export async function addModel(ref: ModelRef): Promise<{ data: ModelLibraryItem;
       addedAt: existing?.addedAt ?? new Date().toISOString(),
       lastSeenAt: matches.reduce((date, match) => match.fetchedAt > date ? match.fetchedAt : date, matches[0].fetchedAt).toISOString(),
     });
+    // A mode with no default yet takes the first model added for it, so the
+    // model someone just added is the one their next conversation uses. A
+    // default that is already set is never replaced.
+    const defaulted = DEFAULTABLE_MODES.filter(mode => next.modes.includes(mode) && !current[mode].model);
     const settings = preferencesSchema.parse({
       ...current,
       library: [...current.library.filter(item => modelRefKey(item) !== key), next],
       legacyCandidates: current.legacyCandidates.filter(candidate => modelRefKey(candidate.ref) !== key),
+      ...Object.fromEntries(defaulted.map(mode => [mode, { ...current[mode], model: { providerId: next.providerId, modelId: next.modelId } }])),
     });
     await persist(tx, settings);
-    return { data: next, alreadyAdded: Boolean(existing) };
+    return { data: next, alreadyAdded: Boolean(existing), defaulted };
   }));
 }
 

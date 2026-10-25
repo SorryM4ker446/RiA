@@ -65,7 +65,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 type NavItem = { id: SettingsSectionId; label: string; icon: typeof KeyRound };
 const NAV_GROUPS = (): { label: string; items: NavItem[] }[] => [
   { label: t("ui.settingsOverlay.groupGeneral"), items: [
-    { id: "services", label: t("ui.settings.servicesModels"), icon: KeyRound },
+    { id: "services", label: t("ui.settings.apiKeys"), icon: KeyRound },
     { id: "application", label: t("ui.settings.application"), icon: SlidersHorizontal },
     { id: "automation", label: t("ui.settings.automationNotifications"), icon: BellRing },
     { id: "files", label: t("ui.settings.filePermissions"), icon: FolderLock },
@@ -80,6 +80,11 @@ const NAV_GROUPS = (): { label: string; items: NavItem[] }[] => [
     { id: "storage", label: t("ui.settingsOverlay.storage"), icon: HardDrive },
   ] },
 ];
+
+/** The settings sections in their side-list order, for the command palette. */
+export function settingsSections(): { id: SettingsSectionId; label: string }[] {
+  return NAV_GROUPS().flatMap(group => group.items.map(({ id, label }) => ({ id, label })));
+}
 
 function SectionContent({ id }: { id: SettingsSectionId }) {
   useLocale();

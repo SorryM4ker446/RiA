@@ -1,5 +1,6 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
+import { useRefreshOnReturn } from "@/lib/use-refresh-on-return";
 
 import { t, tf, formatNumber, formatRelativeTime, localizeMessage } from "@/lib/locale";
 
@@ -22,7 +23,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FileInput } from "@/components/ui/file-input";
 import { Input } from "@/components/ui/input";
 import { ToolbarSearch } from "@/components/layout/page-toolbar";
-import { RefreshButton } from "@/components/ui/refresh-button";
 import { DocumentSources } from "@/components/knowledge/document-sources";
 import { RetrievalDiagnostics } from "@/components/knowledge/retrieval-diagnostics";
 import { RetrievalEvaluation } from "./retrieval-evaluation";
@@ -130,10 +130,11 @@ export function DocumentLibrary() {
     });
   }
 
+  // Read again when the window comes back into view, instead of a refresh button.
+  useRefreshOnReturn(() => refresh());
   return <section aria-label={t("documents.libraryTitle")} className="flex min-w-0 flex-col gap-4">
     <header className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex items-baseline gap-2"><h2 className="text-base font-semibold tracking-title">{t("documents.libraryTitle")}</h2><span className="text-xs text-muted-foreground">{documents.length} {t("ui.knowledge.document-library.documents")}</span></div>
-      <RefreshButton iconOnly disabled={busy} onClick={() => void run(refresh)} refreshing={busy} label={t("documents.refresh")} />
     </header>
     <form onSubmit={event => void upload(event)} aria-label={t("ui.knowledge.document-library.importKnowledgeDocuments")}>
       <FieldGroup className="grid items-end gap-3 sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_auto]">
@@ -143,7 +144,7 @@ export function DocumentLibrary() {
       </FieldGroup>
     </form>
     <details className="settings-disclosure knowledge-disclosure group"><summary className="settings-disclosure-trigger py-1 text-xs text-muted-foreground"><Info className="size-3.5" aria-hidden="true" />{t("ui.knowledge.document-library.importPrivacyInformation")}<ChevronRight className="size-3 transition-transform duration-[--dur-fast] group-open:rotate-90" aria-hidden="true" /></summary><div className="flex max-w-3xl flex-col gap-2 py-3 text-xs leading-6 text-muted-foreground"><p>{t("documents.libraryDescription")}</p><p>{t("documents.textOnlyNote")}</p><p>{t("ui.knowledge.document-library.importShowsAnExtractionPreviewFirst")}</p></div></details>
-    <Reveal className="-mt-4">{error ? <Alert variant="destructive" className="mt-4"><AlertTitle>{t("ui.knowledge.document-library.documentOperationIncomplete")}</AlertTitle><AlertDescription>{localizeMessage(error)}</AlertDescription></Alert> : null}</Reveal>
+    <Reveal className="-mt-4">{error ? <Alert variant="destructive" className="mt-4"><AlertTitle>{t("ui.knowledge.document-library.documentOperationIncomplete")}</AlertTitle><AlertDescription><span>{localizeMessage(error)}</span><Button size="sm" variant="ghost" className="ml-2 h-auto px-2 py-0.5 align-baseline" onClick={() => void run(refresh)}>{t("ui.chat.chat-toolbar.retry")}</Button></AlertDescription></Alert> : null}</Reveal>
     {preview ? <section className="knowledge-preview surface-enter flex flex-col gap-3 rounded-xl bg-muted/40 p-4" aria-label={t("ui.knowledge.document-library.documentImportPreview")}>
       <h3 className="break-words text-sm font-medium">{t("ui.knowledge.document-library.preview")}{preview.filename} · {preview.chunks.length} {t("ui.knowledge.document-library.chunks")}{preview.characterCount} {t("documents.characterUnit")}</h3>
       {preview.notes.map(note => <p className="text-xs leading-6 text-muted-foreground" key={note}>{note}</p>)}
@@ -183,7 +184,10 @@ export function DocumentLibrary() {
         </div>
       </li>)}
     </ul>}
-    <IndexStatus documents={documents} progress={progress} busy={busy} start={() => void buildSemanticIndexes(documents.filter(document => document.semantic?.modelRef && document.semantic.indexed < document.semantic.total))} cancel={() => operation.current?.abort()} />
-    <RetrievalEvaluation />
+    {/* Index upkeep and retrieval checks only mean something once there is a document. */}
+    <Reveal>{documents.length > 0 ? <div className="flex flex-col">
+      <IndexStatus documents={documents} progress={progress} busy={busy} start={() => void buildSemanticIndexes(documents.filter(document => document.semantic?.modelRef && document.semantic.indexed < document.semantic.total))} cancel={() => operation.current?.abort()} />
+      <RetrievalEvaluation />
+    </div> : null}</Reveal>
   </section>;
 }

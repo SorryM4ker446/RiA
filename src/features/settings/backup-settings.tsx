@@ -1,11 +1,11 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
+import { useRefreshOnReturn } from "@/lib/use-refresh-on-return";
 
 import { formatDateTime, formatRelativeTime, t, tf, localizeMessage } from "@/lib/locale";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { ListHead } from "@/components/layout/page-toolbar";
-import { RefreshButton } from "@/components/ui/refresh-button";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Archive, Download, Loader2, MoreHorizontal, Plus, RotateCcw, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -86,9 +86,11 @@ export function BackupSettings() {
   const reload = () => void run(async () => { setPending("refresh"); await refresh(); });
   useSettingsDirty(days !== saved.days || count !== saved.count);
   const saveRetention = () => void run(async () => { const settings = await settingsRequest<{ data: ModelPreferences }>("/api/models"); await settingsRequest("/api/models", jsonRequest("PUT", { ...settings.data, backupRetentionDays: days, backupMaxCount: count })); setSaved({ days, count }); toast(t("backups.notice.retentionSaved")); });
+  // Read again when the window comes back into view, instead of a refresh button.
+  useRefreshOnReturn(() => refresh());
   return <>
-    <PageHeader level={2} title={t("backups.title")} description={t("backups.description")} actions={<><RefreshButton iconOnly disabled={busy && pending !== "refresh"} refreshing={pending === "refresh"} onClick={reload} label={t("backups.refresh")} /><Button size="sm" disabled={busy} onClick={create}>{pending === "create" ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Plus data-icon="inline-start" />}{t("backups.create")}</Button></>} />
-    <Reveal className="-mt-7">{error ? <p role="alert" className="mt-7 rounded-lg bg-destructive/5 p-3 text-sm text-destructive shadow-hairline">{localizeMessage(error)}</p> : null}</Reveal>
+    <PageHeader level={2} title={t("backups.title")} description={t("backups.description")} actions={<><Button size="sm" disabled={busy} onClick={create}>{pending === "create" ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Plus data-icon="inline-start" />}{t("backups.create")}</Button></>} />
+    <Reveal className="-mt-7">{error ? <p role="alert" className="mt-7 rounded-lg bg-destructive/5 p-3 text-sm text-destructive shadow-hairline"><span>{localizeMessage(error)}</span><Button size="sm" variant="ghost" className="ml-2 h-auto px-2 py-0.5 align-baseline" onClick={() => void reload()}>{t("ui.chat.chat-toolbar.retry")}</Button></p> : null}</Reveal>
     <Reveal className="-mt-7">{progress !== null ? <div role="status" className="mt-7 flex flex-wrap items-center gap-3 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" aria-hidden="true" />{`${t("backups.importNoticeBefore")} ${progress}%${t("backups.importNoticeAfter")}`}<Button size="sm" variant="ghost" onClick={() => uploadController.current?.abort()}>{t("backups.cancelImport")}</Button></div> : null}</Reveal>
     <section aria-label={t("backups.listLabel")} className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-col gap-1"><h2 className="text-sm font-medium">{t("backups.listLabel")}<span className="ml-2 text-muted-foreground">{backups.length}</span></h2><p className="max-w-2xl text-xs leading-5 text-muted-foreground">{t("backups.overview")}</p></div>

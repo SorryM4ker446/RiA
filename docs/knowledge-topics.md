@@ -1,4 +1,4 @@
-# Knowledge topic workspaces and cited artifacts
+# Knowledge topics and cited artifacts
 
 Open **知识专题** in the sidebar, select 1–12 named document collections and optionally choose a default assistant. Topics reference the existing library; documents and vectors are not copied. An empty collection remains empty, rather than expanding retrieval to the entire library. Up to 50 topics can be stored.
 

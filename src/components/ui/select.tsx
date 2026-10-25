@@ -98,7 +98,7 @@ const SelectTrigger = React.forwardRef<
     <SelectPrimitive.Icon asChild>
       {/* The chevron is ours, not the platform's, so it carries the palette
           and rotates with the open state. */}
-      <ChevronDown className="text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+      <ChevronDown className="text-muted-foreground transition-transform duration-[--dur-fast] group-data-[state=open]:rotate-180" />
     </SelectPrimitive.Icon>
   </SelectPrimitive.Trigger>
   );
@@ -114,7 +114,7 @@ const SelectContent = React.forwardRef<
   <SelectPrimitive.Portal>
     <SelectPrimitive.Content
       className={cn(
-        "ui-select-content relative z-50 max-h-[min(20rem,var(--radix-select-content-available-height))] min-w-[12rem] max-w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-pop",
+        "ui-select-content relative z-50 max-h-[min(20rem,var(--radix-select-content-available-height))] min-w-[12rem] max-w-[calc(100vw-1rem)] overflow-hidden rounded-xl text-popover-foreground",
         className,
       )}
       position={position}
@@ -193,4 +193,8 @@ export function SelectOption({ value, ...props }: Omit<React.ComponentPropsWitho
   return <SelectItem value={String(value) || EMPTY_OPTION} {...props} />;
 }
 
-export { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue };
+function SelectSeparator(props: React.ComponentPropsWithoutRef<typeof SelectPrimitive.Separator>) {
+  return <SelectPrimitive.Separator className="my-1 h-px bg-border" {...props} />;
+}
+
+export { Select, SelectContent, SelectGroup, SelectItem, SelectSeparator, SelectTrigger, SelectValue };

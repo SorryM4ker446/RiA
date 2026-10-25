@@ -32,7 +32,7 @@ test("workspace backup downloads and confirmed restore preserve media and busine
   const download = page.waitForEvent("download"); await chooseRowAction(page, page.getByRole("article"), "下载备份"); const saved = await download; const file = info.outputPath(saved.suggestedFilename()); await saved.saveAs(file);
   const bytes = await readFile(file); expect(bytes.subarray(0, 8).toString()).toBe("RIAB0001"); expect(bytes.includes(Buffer.from("tokenHash"))).toBe(false); expect(bytes.includes(Buffer.from("sessionToken"))).toBe(false);
   await browserApi(page, `/api/conversations/${chat.id}`, "DELETE");
-  await chooseRowAction(page, page.getByRole("article"), "恢复"); const dialog = page.getByRole("dialog", { name: "确认覆盖当前工作区数据？" }); await expect(dialog.getByRole("button", { name: "确认恢复" })).toBeDisabled(); await dialog.getByRole("button", { name: "取消操作" }).click(); expect(await browserData(page, "/api/conversations")).toHaveLength(0);
+  await chooseRowAction(page, page.getByRole("article"), "恢复"); const dialog = page.getByRole("dialog", { name: "确认覆盖当前数据？" }); await expect(dialog.getByRole("button", { name: "确认恢复" })).toBeDisabled(); await dialog.getByRole("button", { name: "取消操作" }).click(); expect(await browserData(page, "/api/conversations")).toHaveLength(0);
   await chooseRowAction(page, page.getByRole("article"), "恢复"); await dialog.getByLabel("恢复确认文字").fill("恢复"); await dialog.getByRole("button", { name: "确认恢复" }).click(); await expect(toasts(page).getByText("恢复完成")).toBeVisible();
   const restored = await browserData(page, "/api/conversations"); expect(restored[0].title).toBe("需要恢复的会话"); expect(restored[0].id).not.toBe(chat.id);
   expect((await browserData(page, `/api/conversations/${restored[0].id}/messages`))[0].content).toBe("备份正文");
@@ -131,7 +131,8 @@ test("saved mode defaults apply to new conversations and model settings survive 
   // The skipped count describes a live parse, so read it after a forced
   // refresh rather than from the cached first load.
   await page.getByRole("button", { name: "刷新当前目录" }).click();
-  await expect(page.getByText("已跳过 2 条无效或重复记录，其余目录可用。", { exact: true })).toBeVisible();
+  // Said beside the count on demand rather than as a headline.
+  await expect(page.getByRole("img", { name: "已跳过 2 条无效或重复记录，其余目录可用。", exact: true })).toBeVisible();
   await expect(page.getByText("Claude Opus Offline", { exact: true })).toBeVisible();
 });
 

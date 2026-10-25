@@ -591,6 +591,25 @@ test("a provider-searching model is recognised from the catalog rather than left
   const view=await payload(await models.GET(req("/api/models")));
   assert.equal(view.data.library.find(item=>item.modelId==="acme/plain").providerSearch,false);
 });
+test("the first model added for a mode becomes its default, and later additions leave that choice alone",async()=>{
+  // A fresh installation: nothing added, nothing selected.
+  await saveModelPreferences(defaultModelPreferences());
+  await storeSnapshot("chat",[catalogRow("acme/first",["chat","embedding"]),catalogRow("acme/second",["chat"])]);
+  await storeSnapshot("image",[catalogRow("acme/paint",["image"])]);
+  const add=async(modelId)=>payload(await libraryRoute.POST(req("/api/models/library","POST",{action:"add",model:ref(modelId)})));
+  const first=await add("acme/first");
+  assert.deepEqual(first.defaulted,["chat"]);
+  let settings=await getModelPreferences();
+  assert.deepEqual(settings.chat.model,ref("acme/first"));
+  // Choosing an embedding model starts indexing, so that stays a deliberate step.
+  assert.equal(settings.embedding,null);
+  assert.deepEqual((await add("acme/second")).defaulted,[]);
+  assert.deepEqual((await add("acme/paint")).defaulted,["image"]);
+  const again=await add("acme/first");
+  assert.equal(again.alreadyAdded,true);assert.deepEqual(again.defaulted,[]);
+  settings=await getModelPreferences();
+  assert.deepEqual(settings.chat.model,ref("acme/first"));assert.deepEqual(settings.image.model,ref("acme/paint"));assert.equal(settings.video.model,null);
+});
 test("a cached read is priced as a cached read, not as a fresh input token",()=>{
   const {usageCost}=usageCostModule;
   const rate={inputPerMillion:10,outputPerMillion:20,perRequest:null,cacheReadPerMillion:1,cacheWritePerMillion:4};

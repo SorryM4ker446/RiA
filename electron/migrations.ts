@@ -49,11 +49,16 @@ function createBackup(database: DatabaseSync, databaseFile: string, backupsDirec
  * migration names are referenced by name in code. See
  * src/db/migrations/README.md before renaming or merging one.
  */
-function applyMigrationSql(database: DatabaseSync, sql: string, migrationName: string) {
+/** Applies one migration and returns how many rows its statements wrote. */
+function applyMigrationSql(database: DatabaseSync, sql: string, migrationName: string): number {
+  const totalChanges = () => Number((database.prepare("SELECT total_changes() AS count").get() as { count: number }).count);
   database.exec("PRAGMA foreign_keys = OFF;");
   database.exec("BEGIN IMMEDIATE;");
+  let rowsChanged = 0;
   try {
+    const before = totalChanges();
     database.exec(sql);
+    rowsChanged = totalChanges() - before;
     // The ledger row is part of the same transaction, so a failure can never
     // mark an incomplete migration as applied.
     database.prepare('INSERT INTO "desktop_migrations" ("name") VALUES (?)').run(migrationName);
@@ -68,6 +73,7 @@ function applyMigrationSql(database: DatabaseSync, sql: string, migrationName: s
   for (const violation of database.prepare("PRAGMA foreign_key_check").all()) {
     throw new Error(`Migration left a foreign key violation: ${JSON.stringify(violation)}`);
   }
+  return rowsChanged;
 }
 
 export function runDesktopMigrations(input: {
@@ -114,11 +120,11 @@ export function runDesktopMigrations(input: {
       }
 
       const sql = readFileSync(join(input.migrationsDirectory, migrationName, "migration.sql"), "utf8");
-      applyMigrationSql(database, sql, migrationName);
+      const rowsChanged = applyMigrationSql(database, sql, migrationName);
 
       known.add(migrationName);
       applied.push(migrationName);
-      input.logger.info("Applied desktop database migration", { migrationName });
+      input.logger.info("Applied desktop database migration", { migrationName, rowsChanged });
     }
 
     const integrity = database.prepare("PRAGMA integrity_check").get() as { integrity_check?: string } | undefined;

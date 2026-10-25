@@ -53,7 +53,7 @@ test("document imports, local retrieval and chat citations persist across reload
   expect(next.chunks[1].id).not.toBe(old.chunks[1].id);
   await chooseMenuAction(page, "星河运行手册.md", "重新索引 星河运行手册.md");
   await expect(page.getByText("已根据保存的文本重建索引。")).toBeVisible();
-  await page.getByRole("link", { name: /返回聊天/ }).click();
+  await page.getByRole("navigation", { name: "工作区导航" }).getByRole("link", { name: "聊天", exact: true }).click();
   await expect(page.getByRole("checkbox", { name: "仅手动", exact: true })).toHaveCount(0);
   await page.getByPlaceholder(/输入你的问题/).fill("星河补给什么时候送达");
   await page.getByRole("button", { name: "发送", exact: true }).click();
@@ -97,7 +97,7 @@ test("document imports, local retrieval and chat citations persist across reload
   await expect(page.getByText("文档及索引已删除。")).toBeVisible();
   expect(app.readRows("SELECT id FROM document_chunks WHERE documentId = ?", documentId)).toEqual([]);
   expect((await browserApi(page, `${localHostOrigin(app.origin)}/api/documents/${documentId}`)).status).toBe(404);
-  await page.getByRole("link", { name: /返回聊天/ }).click();
+  await page.getByRole("navigation", { name: "工作区导航" }).getByRole("link", { name: "聊天", exact: true }).click();
   await openDocumentReferences(page);
   await expect(source).toBeVisible();
   await source.click();

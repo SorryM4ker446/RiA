@@ -14,7 +14,7 @@ export async function chooseTaskDateTime(
     const day = dialog.locator(`button[data-day="${date}"]`);
     if (await day.count()) {
       await day.click();
-      await scope.locator('input[type="time"]').fill(time);
+      await scope.locator("[data-time-input]").fill(time);
       return;
     }
     const middle = await dialog

@@ -1,4 +1,5 @@
 "use client";
+// motion-exempt: the startup sequence is one choreographed intro, timed as a whole rather than from the motion tokens.
 import { useLocale } from "@/lib/locale/client";
 
 import { t } from "@/lib/locale";

@@ -10,6 +10,7 @@ import { createTestDatabase } from "../helpers/database";
 import { localAccessCookie } from "../helpers/local-access";
 import { seedTestModelPreferences } from "../helpers/model-library";
 import { languageModel, resetProviderState } from "../helpers/model-provider";
+import { wireText } from "../helpers/wire-text";
 
 const cleanup = createTestDatabase();
 process.env.RIA_TEST_PROVIDER = "1";
@@ -67,7 +68,7 @@ test("a model reads, fails an inexact edit, sees why, corrects it and the file c
   });
   const response = await route.POST(request({ chatId: (await db.chat.create({ data: { title: "Workspace", workspaceGrantId: grant.id } })).id, messages: [ui("edit-user", "Fix add() in math.ts")] }));
   assert.equal(response.status, 200);
-  assert.match(await response.text(), /Fixed add\(\)/);
+  assert.match(await wireText(response), /Fixed add\(\)/);
   assert.equal(readFileSync(join(root, "math.ts"), "utf8"), "export function add(a: number, b: number) {\n  return a + b;\n}\n");
   assert.match(prompts[1], /"line":2,"text":"  return a - b;"/, "the read result reaches the model");
   assert.match(prompts[2], /edits\[1\]\.oldText was not found/, "the failed edit explains itself to the model");
@@ -94,7 +95,7 @@ test("in approval mode the edit waits with its diff and nothing is written until
   } }) }));
   const response = await route.POST(request({ chatId: (await db.chat.create({ data: { title: "Workspace", workspaceGrantId: grant.id } })).id, messages: [ui("approval-user", "Rename the title")] }));
   assert.equal(response.status, 200);
-  const wire = await response.text();
+  const wire = await wireText(response);
   assert.match(wire, /approval-requested|tool-approval-request/);
   assert.match(wire, /-# Old title\\n\+# New title/, "the approval carries the server-computed diff");
   assert.equal(readFileSync(join(root, "README.md"), "utf8"), "# Old title\n");

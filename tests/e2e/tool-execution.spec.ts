@@ -176,7 +176,10 @@ test("autonomous provider search works without Tavily and all evidence lives in 
   await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes('"provider":"openrouter"'))).toBe(true);
   await expect(page.locator("article").last()).not.toContainText("工具详情");
   await expect(page.locator("article").last()).not.toContainText("检索诊断");
-  await expect(page.locator("article").getByRole("link", { name: /Offline official release/ })).toHaveCount(0);
+  // Under the answer only a compact source card; snippets and diagnostics stay in the execution records.
+  const card = page.locator("article").getByRole("navigation", { name: "使用资料" }).getByRole("link", { name: /Offline official release/ });
+  await expect(card).toHaveAttribute("href", "https://example.invalid/official-release");
+  await expect(page.locator("article").last()).not.toContainText("Official search evidence from the gateway.");
   const details = await openExecutionDetails(page);
   await expect(details.locator(".run-record-trigger").first()).toContainText("已完成");
   await expect(details).toContainText("检索诊断");

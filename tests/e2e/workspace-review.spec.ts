@@ -34,7 +34,7 @@ test("local review exposes real recorded changes, current sources and deleted-so
   } finally { sqlite.close(); }
   await page.goto(`${app.origin}/settings`);
   await page.getByRole("tab", { name: "自动化与通知", exact: true }).click();
-  const review = page.getByRole("region", { name: "工作区事实回顾" });
+  const review = page.getByRole("region", { name: "本地事实回顾" });
   await review.getByRole("textbox", { name: "回顾时区" }).fill("UTC");
   await review.getByRole("button", { name: "查看事实回顾" }).click();
   await expect(review.getByText("任务完成：1 次", { exact: true })).toBeVisible();

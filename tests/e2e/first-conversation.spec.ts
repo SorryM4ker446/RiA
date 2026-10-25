@@ -55,3 +55,23 @@ test("the first message on an empty installation creates its conversation withou
   await expect(page.getByText("离线回答：没有模板的第一条消息", { exact: true })).toBeVisible();
   await expect(composer).toHaveValue("");
 });
+
+test("text written before any conversation exists survives a reload and moves into the first conversation", async ({ page, app }) => {
+  await openWorkspace(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  await page.goto(`${app.origin}/chat`);
+  expect(await browserData(page, "/api/conversations")).toHaveLength(0);
+  const composer = page.getByPlaceholder(/输入你的问题/);
+  await composer.fill("还没有会话时写下的草稿");
+  await page.reload();
+  await expect(composer).toHaveValue("还没有会话时写下的草稿");
+  // Choosing a template creates the first conversation; the draft goes with it.
+  await chooseOption(page.getByRole("combobox", { name: "助理模板", exact: true }), "写作助理");
+  await expect.poll(async () => (await browserData(page, "/api/conversations")).length).toBe(1);
+  await expect(composer).toHaveValue("还没有会话时写下的草稿");
+  const [conversation] = await browserData(page, "/api/conversations");
+  expect(await page.evaluate(() => localStorage.getItem("ria.chat.draft.:new"))).toBeNull();
+  expect(JSON.parse((await page.evaluate(id => localStorage.getItem(`ria.chat.draft.${id}`), conversation.id))!).text).toBe("还没有会话时写下的草稿");
+  await page.reload();
+  await expect(composer).toHaveValue("还没有会话时写下的草稿");
+});

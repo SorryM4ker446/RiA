@@ -26,7 +26,7 @@ async function upload(page: Page, count = 1): Promise<Array<{ assetId: string; u
 }
 async function library(page: Page, origin: string) {
   await page.goto(`${origin}/media`);
-  await expect(page.getByRole("button", { name: "刷新资源" })).toBeEnabled();
+  await expect(page.getByRole("combobox", { name: "媒体类型" })).toBeEnabled();
 }
 async function inspect(page: Page, id: string) {
   await page.getByRole("article", { name: `媒体 ${id}`, exact: true }).getByRole("button", { name: "查看详情", exact: true }).click();

@@ -79,12 +79,10 @@ export const clientMessages = {
   // its own.
   "chatState.streamInterrupted": "（响应中断，已保存当前输出）",
   "chatState.regenerateFailed": "重新生成失败",
-  "chatState.noModelSelected": "请先在“模型与用量”中添加并选择当前模式的模型。",
   "chatState.manualToolAttachmentBlocked": "手动工具调用暂不支持附件，请先清空附件。",
   // A model id is interpolated between the two halves, so neither half carries
   // the surrounding spaces.
-  "chatState.imageInputUnsupportedPrefix": "当前聊天模型",
-  "chatState.imageInputUnsupportedSuffix": "不支持图片输入，请切换视觉模型或移除附件。",
+  "chatState.imageInputUnsupported": "当前聊天模型 {modelId} 不支持图片输入，请切换视觉模型或移除附件。",
   "chatState.toolParamsRequired": "请在输入框中填写工具参数。",
   "chatState.toolRunFailed": "工具执行失败",
   // Default title for a brand new conversation; the user's own text replaces
@@ -103,7 +101,7 @@ export const clientMessages = {
   "tools.fieldMaxPrefix": "最大值为",
 
   // --- manual tool execution (src/features/chat/use-tools.ts) --------------
-  "tools.needChatModel": "请先在“模型与用量”中添加并选择聊天模型。",
+  "tools.needChatModel": "请先在设置的“模型”中添加并选择聊天模型。",
   "tools.manualCallTitlePrefix": "手动工具调用:",
   "tools.manualCallTextPrefix": "手动调用工具",
   "tools.runningPrefix": "正在执行",
@@ -116,7 +114,7 @@ export const clientMessages = {
   // --- media generation hook -----------------------------------------------
   "mediaGen.kindImage": "图片",
   "mediaGen.kindVideo": "视频",
-  "mediaGen.needModel": "请先在“模型与用量”中添加并选择模型。",
+  "mediaGen.needModel": "请先在设置的“模型”中添加并选择模型。",
   // "图片生成" / "视频生成" — the kind word above is reused because the noun is
   // the same one the media filters already show.
   "mediaGen.defaultTitleSuffix": "生成",

@@ -11,6 +11,9 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      // A bare `transition` class follows the app's motion tokens, not Tailwind's 150ms default.
+      transitionDuration: { DEFAULT: "var(--dur-fast)" },
+      transitionTimingFunction: { DEFAULT: "var(--ease-out)" },
       fontFamily: {
         // Geist carries the Latin voice; the interface is Chinese, so the CJK
         // faces must follow it explicitly or the browser picks them per glyph
@@ -51,10 +54,13 @@ const config: Config = {
         surface: "hsl(var(--surface))",
         elevated: "hsl(var(--elevated))",
       },
+      // The same four corner sizes as the CSS (see --radius-* in globals.css):
+      // sm an item inside something, md a control, lg/xl a card or menu.
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        xl: "var(--radius-card)",
+        lg: "var(--radius-card)",
+        md: "var(--radius-control)",
+        sm: "var(--radius-inner)",
       },
       // Geist carries its identity in tracking, but the interface is mostly
       // Chinese, and CJK glyphs crowd under the tight tracking Latin display
@@ -107,7 +113,7 @@ const config: Config = {
         "panel-in-up": "panel-in-up var(--dur-base) var(--ease-out) both",
         "row-in": "row-in var(--dur-fast) var(--ease-out) both",
         "pop-in": "pop-in var(--dur-fast) var(--ease-out) both",
-        shimmer: "shimmer 1.6s linear infinite",
+        shimmer: "shimmer var(--dur-loop) var(--ease-linear) infinite",
       },
     }
   },

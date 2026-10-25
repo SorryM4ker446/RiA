@@ -28,25 +28,27 @@ async function register(page: Page, origin: string) {
 }
 
 type Watch = { emptied: boolean; skeleton: boolean; loadingText: boolean; before: number; after: number; heightShift: number };
+/** In place of a button name: the window coming back into focus, which re-reads lists that have no refresh button. */
+const WINDOW_FOCUS = "window focus";
 
 /**
  * Clicks the button named `name` and records everything `container` renders
  * for the next 1.5s. `container` is a document-level selector.
  */
 async function watchRefresh(page: Page, container: string, name: string): Promise<Watch> {
-  return page.evaluate(async ([selector, buttonName]) => {
+  return page.evaluate(async ([selector, buttonName, focusTrigger]) => {
     const host = document.querySelector(selector as string);
     if (!host) throw new Error(`container ${selector} not found`);
-    const button = [...host.querySelectorAll("button")].find(node =>
+    const button = buttonName === focusTrigger ? null : [...host.querySelectorAll("button")].find(node =>
       node.getAttribute("aria-label") === buttonName || node.textContent?.trim() === buttonName,
     );
-    if (!button) throw new Error(`button ${buttonName} not found inside ${selector}`);
+    if (buttonName !== focusTrigger && !button) throw new Error(`button ${buttonName} not found inside ${selector}`);
 
     // Placeholders are the only skeletons in this app and they carry no marker
     // attribute, so match the classes Skeleton is actually built from. Matching
     // only one of them would leave the check silently passing: the shimmer was
     // introduced in place of a pulse and the assertion never noticed.
-    const placeholders = () => host.querySelectorAll(".animate-shimmer, .animate-pulse").length;
+    const placeholders = () => host.querySelectorAll(".skeleton, .animate-shimmer, .animate-pulse").length;
     // Count real content nodes, not wrappers, so a spinner is not read as a row.
     // `dl` is excluded deliberately: the storage panel renders a stats <dl>
     // inside main, and querySelectorAll matches hidden nodes, so including it
@@ -75,11 +77,11 @@ async function watchRefresh(page: Page, container: string, name: string): Promis
     const before = rows();
     const observer = new MutationObserver(record);
     observer.observe(host, { childList: true, subtree: true, characterData: true });
-    button.click();
+    if (button) button.click(); else window.dispatchEvent(new Event("focus"));
     await new Promise(done => setTimeout(done, 1500));
     observer.disconnect();
     return { ...seen, before, after: rows() };
-  }, [container, name] as const);
+  }, [container, name, WINDOW_FOCUS] as const);
 }
 
 test("knowledge entry refresh keeps the list on screen and never shows a placeholder", { tag: "@integration" }, async ({ page, app }) => {
@@ -88,7 +90,7 @@ test("knowledge entry refresh keeps the list on screen and never shows a placeho
   await page.goto(`${app.origin}/knowledge`);
   await expect(page.getByText("静默刷新", { exact: true })).toBeVisible();
 
-  const result = await watchRefresh(page, "main", "刷新");
+  const result = await watchRefresh(page, "main", WINDOW_FOCUS);
   expect(result.before).toBeGreaterThan(0);
   expect(result.emptied, "the entry list emptied during a refresh").toBe(false);
   expect(result.skeleton, "a skeleton replaced the entries during a refresh").toBe(false);
@@ -108,7 +110,7 @@ test("document library refresh keeps imported documents on screen", { tag: "@int
   expect((await uploaded).ok()).toBe(true);
   await expect(page.getByRole("link", { name: "静默刷新.md", exact: true })).toBeVisible();
 
-  const result = await watchRefresh(page, "main", "刷新文档");
+  const result = await watchRefresh(page, "main", WINDOW_FOCUS);
   expect(result.before).toBeGreaterThan(0);
   expect(result.emptied, "the document list emptied during a refresh").toBe(false);
   expect(result.skeleton, "a skeleton replaced the documents during a refresh").toBe(false);
@@ -130,6 +132,10 @@ test("a refresh never resizes the import button or the page around it", { tag: "
   await page.getByRole("button", { name: "确认保存文档", exact: true }).click();
   expect((await uploaded).ok()).toBe(true);
   await expect(page.getByRole("link", { name: "按钮宽度.md", exact: true })).toBeVisible();
+  // The first document also unfolds index maintenance below the list; the
+  // baseline is taken once that has settled, so only the refresh is measured.
+  await expect(page.getByTestId("index-maintenance")).toBeVisible();
+  await page.waitForFunction(() => document.getAnimations().every(animation => animation.playState !== "running"));
 
   const measured = await page.evaluate(async () => {
     const button = [...document.querySelectorAll("button")].find(node => node.textContent?.trim() === "导入文档");
@@ -137,10 +143,6 @@ test("a refresh never resizes the import button or the page around it", { tag: "
     const width = button.getBoundingClientRect().width;
     const main = document.querySelector("main")!;
     const pageHeight = main.getBoundingClientRect().height;
-    const refresh = [...document.querySelectorAll("button")].find(node => node.getAttribute("aria-label") === "刷新文档" || node.textContent?.trim() === "刷新文档");
-    // An optional-chained click would silently do nothing and leave the
-    // assertion green, so a missing button has to fail the test.
-    if (!refresh) throw new Error("the refresh button was not found");
     let shifted = 0;
     let heightShift = 0;
     const observer = new MutationObserver(() => {
@@ -148,7 +150,8 @@ test("a refresh never resizes the import button or the page around it", { tag: "
       heightShift = Math.max(heightShift, Math.abs(main.getBoundingClientRect().height - pageHeight));
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
-    refresh.click();
+    // The re-read that happens when the window comes back into view.
+    window.dispatchEvent(new Event("focus"));
     await new Promise(done => setTimeout(done, 1500));
     observer.disconnect();
     return { width, shifted, pageHeight, pageAfter: main.getBoundingClientRect().height };
@@ -171,9 +174,6 @@ test("a backup refresh never inserts a busy line that shoves the page down", { t
     // The backups section is the open page of the settings overlay.
     const main = document.querySelector(".settings-window-panel[data-state='active'] .settings-window-page")!;
     const height = main.getBoundingClientRect().height;
-    const refresh = [...document.querySelectorAll("button")].find(node =>
-      node.getAttribute("aria-label") === "刷新备份" || node.textContent?.trim() === "刷新备份");
-    if (!refresh) throw new Error("the backup refresh button was not found");
     let shift = 0;
     let inserted = "";
     const baseline = main.querySelectorAll("p").length;
@@ -181,7 +181,8 @@ test("a backup refresh never inserts a busy line that shoves the page down", { t
       shift = Math.max(shift, Math.abs(main.getBoundingClientRect().height - height));
     });
     observer.observe(main, { childList: true, subtree: true, characterData: true, attributes: true });
-    refresh.click();
+    // The re-read that happens when the window comes back into view.
+    window.dispatchEvent(new Event("focus"));
     await new Promise(done => setTimeout(done, 1500));
     observer.disconnect();
     // Catch the inserted line by count, not by matching a string: the old
@@ -206,14 +207,14 @@ test("an EMPTY list refreshes silently too, so the layout cannot jump", { tag: "
   // flashed a loading sentence on each refresh and then collapsed to the empty
   // state — two different heights, which is the jump.
   await page.goto(`${app.origin}/media`);
-  await expect(page.locator("main")).toContainText("没有符合条件的媒体资源");
+  await expect(page.locator("main")).toContainText("还没有图片或视频");
   const settled = await page.locator("main").evaluate(node => node.getBoundingClientRect().height);
 
-  const result = await watchRefresh(page, "main", "刷新资源");
+  const result = await watchRefresh(page, "main", WINDOW_FOCUS);
   expect(result.skeleton, "an empty list flashed a placeholder on refresh").toBe(false);
   expect(result.loadingText, "an empty list was replaced by a loading sentence").toBe(false);
   expect(result.heightShift, "the empty list changed height during a refresh").toBe(0);
-  await expect(page.locator("main")).toContainText("没有符合条件的媒体资源");
+  await expect(page.locator("main")).toContainText("还没有图片或视频");
   expect(await page.locator("main").evaluate(node => node.getBoundingClientRect().height)).toBe(settled);
 });
 
@@ -227,7 +228,7 @@ test("media and conversation refreshes keep their rows on screen", { tag: "@inte
 
   await page.goto(`${app.origin}/media`);
   await expect(page.getByRole("article").first()).toBeVisible();
-  const media = await watchRefresh(page, "main", "刷新资源");
+  const media = await watchRefresh(page, "main", WINDOW_FOCUS);
   // Scoped to the grid, not to main: the storage panel contributes its own
   // nodes there, so a main-scoped count passes with an empty grid.
   expect(media.before, "the media grid was empty, so this proves nothing").toBeGreaterThan(0);
@@ -239,7 +240,10 @@ test("media and conversation refreshes keep their rows on screen", { tag: "@inte
 
   await page.goto(`${app.origin}/conversations`);
   await expect(page.getByText("静默刷新会话", { exact: true })).toBeVisible();
-  const conversations = await watchRefresh(page, "main", "刷新列表");
+  // The conversation list has no refresh button: it re-reads when the window regains focus.
+  const reread = page.waitForResponse(response => response.url().includes("/api/conversations?"));
+  const conversations = await watchRefresh(page, "main", WINDOW_FOCUS);
+  await reread;
   expect(conversations.before, "the conversation list was empty, so this proves nothing").toBeGreaterThan(0);
   expect(conversations.emptied, "the conversation list emptied during a refresh").toBe(false);
   expect(conversations.skeleton, "a skeleton replaced the conversation list during a refresh").toBe(false);

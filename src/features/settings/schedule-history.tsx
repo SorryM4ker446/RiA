@@ -1,4 +1,5 @@
 "use client";
+import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
 import { useLocale } from "@/lib/locale/client";
 
 import { t, formatDateTime, localizeMessage } from "@/lib/locale";
@@ -21,7 +22,10 @@ export function ScheduleHistory({ refreshKey, onExecuted }: { refreshKey: number
   const [retryError, setRetryError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [automatic, setAutomatic] = useState(true);
+  // Plans run on their own only in the desktop app. Starting from that, the
+  // notice about it is in place from the first paint instead of appearing
+  // when the history answers and pushing everything below it down.
+  const [automatic, setAutomatic] = useState(useDesktopRuntime());
   const latestRequest = useRef(0);
   const load = useCallback(async (signal?: AbortSignal) => {
     const request = ++latestRequest.current;

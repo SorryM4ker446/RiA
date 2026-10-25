@@ -89,7 +89,8 @@ const markdown = (page: Page, id: string) => page.locator(`[data-message-id="${i
 // animated elements anywhere on the page, including ones not being captured.
 const markup = (locator: Locator) => locator.evaluate(node => node.innerHTML.replace(/ style=""/g, "").replace(/>\s+</g, "><").trim());
 // Overlays that sit above the transcript depend on scroll position, not on the message.
-const hideOverlays = ".chat-transcript-content > .sticky, .message-navigator { visibility: hidden !important; }";
+// The streaming caret is a marker on top of the text, not part of how blocks render.
+const hideOverlays = ".chat-transcript-content > .sticky, .message-navigator, .markdown-message[data-streaming] *::after { visibility: hidden !important; } .answer-fold-body { max-height: none !important; mask-image: none !important; } .answer-fold-toggle { display: none !important; }";
 
 /** Compares two PNG screenshots in the browser, which already has a decoder. */
 async function pixelDifference(page: Page, first: Buffer, second: Buffer) {

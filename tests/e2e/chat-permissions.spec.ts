@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { browserApi, browserData } from "../helpers/browser-api";
+import { watchLayout } from "../helpers/layout-watch";
 
 type App = Awaited<ReturnType<typeof startStandaloneServer>> & { folder: string };
 const test = base.extend<{ app: App }>({ app: async ({}, provide) => {
@@ -131,20 +132,13 @@ test("chat permissions choose and grant a directory without sending the draft, a
   await expect(sheet.getByRole("button", { name: "开启终端", exact: true })).toBeVisible();
   await page.emulateMedia({ reducedMotion: "no-preference" });
   // Follow the form below the list frame by frame while the last folder is withdrawn.
-  await sheet.locator("form").last().evaluate(form => {
-    const tops: number[] = [];
-    const sample = () => { tops.push(form.getBoundingClientRect().top); if (tops.length < 90) requestAnimationFrame(sample); };
-    requestAnimationFrame(sample);
-    (window as Window & { formTops?: number[] }).formTops = tops;
-  });
+  const layout = await watchLayout(page, { form: sheet.locator("form").last() });
   await sheet.getByRole("button", { name: "撤销", exact: true }).click();
   // A withdrawn folder is removed from the list rather than kept as history.
   await expect(sheet.getByRole("list", { name: "目录授权", exact: true })).toHaveCount(0);
   await expect(sheet.getByText("还没有授权任何目录，助手目前读不到本机文件。")).toBeVisible();
-  const tops = await page.waitForFunction(() => {
-    const tops = (window as Window & { formTops?: number[] }).formTops!;
-    return tops.length >= 90 && tops;
-  }).then(handle => handle.jsonValue() as Promise<number[]>);
+  await page.waitForTimeout(500);
+  const tops = (await layout.read()).frames.form.map(box => box.top);
   // The row folds away and the empty note eases in; nothing below snaps into place.
   const steps = tops.slice(1).map((top, index) => Math.abs(top - tops[index]));
   expect(Math.max(...steps), tops.join(",")).toBeLessThan(40);

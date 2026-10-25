@@ -107,10 +107,10 @@ const MarkdownBlock = memo(function MarkdownBlock({ text, allowImages }: Require
  * other messages are skipped entirely, and within the growing reply only the
  * block still being written is parsed again.
  */
-export const MarkdownMessage = memo(function MarkdownMessage({ text, allowImages = true }: MarkdownMessageProps) {
+export const MarkdownMessage = memo(function MarkdownMessage({ text, allowImages = true, streaming = false }: MarkdownMessageProps & { streaming?: boolean }) {
   useLocale();
   return (
-    <div className="markdown-message">
+    <div className="markdown-message" data-streaming={streaming || undefined}>
       {splitMarkdownBlocks(text).map((block, index) => <MarkdownBlock key={index} text={block} allowImages={allowImages} />)}
     </div>
   );

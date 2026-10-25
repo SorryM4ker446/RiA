@@ -3,6 +3,7 @@ import { useLocale } from "@/lib/locale/client";
 import { t, tf } from "@/lib/locale";
 import { imagePrompts, quickPrompts, videoPrompts } from "@/features/chat/page-utils";
 import { MarkdownMessage } from "@/components/chat/markdown-message";
+import { AnswerSources } from "@/features/chat/answer-sources";
 import { DocumentAttachment } from "@/components/chat/document-attachment";
 import { DocumentDownload } from "@/features/document-processor/document-download";
 import { EditedFiles } from "./edited-files";
@@ -54,6 +55,34 @@ const DRAFT_HISTORY_QUERY = "draft";
  * Hidden tool and approval transitions belong to execution records and must
  * not move the reader or announce new transcript content.
  */
+/**
+ * A long answer from earlier in the conversation shows its opening and folds
+ * the rest away, so scrolling back passes it quickly; one click shows it all.
+ * Whether it may fold is decided once, when it first appears: the answer being
+ * read when a new question is sent never folds up under the reader.
+ */
+function CollapsibleAnswer({ collapsible, children }: { collapsible: boolean; children: React.ReactNode }) {
+  const [foldable] = useState(collapsible);
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  const body = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const node = body.current;
+    if (!foldable || !node) return;
+    const measure = () => setOverflows(node.scrollHeight > node.clientHeight + 1 || (expanded && node.scrollHeight > ANSWER_FOLD_PX));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [foldable, expanded]);
+  if (!foldable) return <>{children}</>;
+  return <div className="answer-fold" data-folded={!expanded || undefined} data-overflows={overflows || undefined}>
+    <div ref={body} className="answer-fold-body">{children}</div>
+    {overflows ? <button type="button" className="answer-fold-toggle" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{t(expanded ? "chat.messages.collapseAnswer" : "chat.messages.expandAnswer")}</button> : null}
+  </div>;
+}
+const ANSWER_FOLD_PX = 448;
+
 export function messageFollowSignature(messages: UIMessage[]): string {
   const last = messages.at(-1);
   if (!last) return "0";
@@ -139,8 +168,8 @@ function TranscriptSkeleton() {
   </div>;
 }
 
-type Props = Pick<ChatState, "appendQuickPrompt" | "modelMode" | "activeChatId" | "isLoadingHistory" | "isOpeningConversation" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId" | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText" | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel" | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages" | "selectedChatModel">;
-export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, isLoadingHistory, isOpeningConversation, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages }: Props) {
+type Props = Pick<ChatState, "appendQuickPrompt" | "modelMode" | "activeChatId" | "isLoadingHistory" | "isOpeningConversation" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId" | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText" | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel" | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages" | "selectedChatModel"> & { onShowSources?: (messageId: string) => void };
+export function MessageRenderer({ onShowSources, appendQuickPrompt, modelMode, activeChatId, isLoadingHistory, isOpeningConversation, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages }: Props) {
   useLocale();
   // Opening counts as loading: before it is known which conversation is open, or
   // in the render where one has just been chosen, the transcript is not empty yet.
@@ -355,7 +384,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
                   {isLastAssistantStreaming ? (
                     <span className="label-mono inline-flex items-center">
                       <Loader2 aria-hidden="true" className="mr-1 h-3 w-3 animate-spin" />
-                      streaming
+                      {t("chat.toolbar.statusGenerating")}
                     </span>
                   ) : null}
                   <div className="message-actions flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
@@ -435,12 +464,13 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
               {reasoning && !isUser ? <MessageReasoning text={reasoning}
                 active={index === messages.length - 1 && (status === "streaming" || status === "submitted" || toolParts.some(part => part.state === "approval-requested"))}
                 thinking={isLastAssistantStreaming && message.parts.some(part => part.type === "reasoning" && part.state === "streaming")} /> : null}
-              {!isEditing && text ? <MarkdownMessage text={text} /> : null}
+              {!isEditing && text ? <CollapsibleAnswer key={message.id} collapsible={!isUser && index < messages.length - 1}><MarkdownMessage text={text} streaming={isLastAssistantStreaming} /></CollapsibleAnswer> : null}
+              {!isUser && !isLastAssistantStreaming && onShowSources ? <AnswerSources message={message} onShowAll={() => onShowSources(message.id)} /> : null}
               {toolParts.map(part => part.type === "tool-convertDocument" && part.state === "output-available" ? <DocumentDownload key={`download-${part.toolCallId}`} output={part.output} /> : null)}
               {imageUrl ? (
                 <div className="mt-3 space-y-2">
                   <Image
-                    alt="Generated"
+                    alt={t("chat.messages.generatedImage")}
                     className="max-h-[420px] w-full rounded-lg object-contain"
                     src={imageUrl}
                     unoptimized
@@ -466,7 +496,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
               ) : null}
               {videoUrl ? (
                 <video
-                  className="mt-3 max-h-[420px] w-full rounded-lg bg-black object-contain"
+                  className="mt-3 aspect-video max-h-[420px] w-full rounded-lg bg-black object-contain"
                   controls
                   preload="metadata"
                   src={videoUrl}
@@ -513,7 +543,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
                 if (filePart.mediaType.startsWith("video/")) {
                   return (
                     <video
-                      className="mt-3 max-h-[420px] w-full rounded-lg bg-black object-contain"
+                      className="mt-3 aspect-video max-h-[420px] w-full rounded-lg bg-black object-contain"
                       controls
                       key={`${message.id}-file-video-${fileIndex}`}
                       preload="metadata"

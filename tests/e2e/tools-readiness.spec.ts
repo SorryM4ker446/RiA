@@ -295,15 +295,15 @@ test("new knowledge entry can be retrieved by searchKnowledge", async ({ page })
   await expect(page.getByRole("heading", { name: "E2E Chat", exact: true })).toBeVisible();
   await page.getByRole("link", { name: /知识库/ }).click();
   await expect(page).toHaveURL(/\/knowledge$/);
-  await page.getByRole("button", { name: "新增知识", exact: true }).click();
-  const createEntry = page.getByRole("dialog", { name: "新增知识", exact: true });
-  await createEntry.getByLabel("知识标题", { exact: true }).fill("UI fixture keyword");
-  await createEntry.getByLabel("知识内容", { exact: true }).fill("UI fixture knowledge entry visible to searchKnowledge.");
-  await createEntry.getByRole("button", { name: "新增知识", exact: true }).click();
+  await page.getByRole("button", { name: "新增记忆", exact: true }).click();
+  const createEntry = page.getByRole("dialog", { name: "新增记忆", exact: true });
+  await createEntry.getByLabel("记忆名称", { exact: true }).fill("UI fixture keyword");
+  await createEntry.getByLabel("记忆内容", { exact: true }).fill("UI fixture knowledge entry visible to searchKnowledge.");
+  await createEntry.getByRole("button", { name: "新增记忆", exact: true }).click();
   await expect(createEntry).toBeHidden();
   await expect(page.getByText("UI fixture keyword")).toBeVisible();
 
-  await page.getByRole("link", { name: /返回聊天/ }).click();
+  await page.getByRole("navigation", { name: "工作区导航" }).getByRole("link", { name: "聊天", exact: true }).click();
   await expect(page.getByRole("heading", { name: "E2E Chat", exact: true })).toBeVisible();
   await page.getByLabel("选择工具").click();
   await page.getByRole("option", { name: "知识检索" }).click();

@@ -5,7 +5,7 @@ export function executionGuidance(code: string | null): string {
   switch (code) {
     case "CONTEXT_LIMIT": case "context-limit": return t("errors.contextLimit");
     case "output-limit": return t("chat.context.outputLimit");
-    case "CONFIGURATION_ERROR": return "请在模型与用量中配置模型和密钥，再发起新的执行。";
+    case "CONFIGURATION_ERROR": return "请在设置中配置模型和密钥，再发起新的执行。";
     case "FORBIDDEN": case "UNAUTHORIZED": return "请检查访问凭证或重新授权目录；文件写入仍需重新批准。";
     case "UPSTREAM_FAILED": case "MODEL_UNAVAILABLE": return "模型服务不可用，请检查网络和模型配置后重试。";
     case "TIMEOUT": case "ABORTED": return "请求超时或已取消，请检查网络；新的模型请求可能再次计费。";

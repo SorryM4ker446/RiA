@@ -66,6 +66,8 @@ export const chatApi = {
     if (status !== "all") query.set("status", status);
     return requestJson<Data<TaskItem[]>>(`/api/tasks?${query}`, t("chatApi.listTasksFailed"));
   },
+  // The form's choices are checked by the server, which owns the task schema.
+  createTask: (input: { title: string; details?: string; priority: string; timeZone: string; reminderEnabled: boolean; repeatRule: string; dueDate?: string }) => requestJson<Data<TaskItem>>("/api/tasks", t("ui.tasks.creationFailedPleaseTryAgain"), jsonBody("POST", input)),
   updateTask: (id: string, input: Partial<TaskScheduleInput> & { status?: TaskItem["status"] }) => requestJson<Data<TaskItem> & { nextTask?: TaskItem | null }>(`/api/tasks/${encodeURIComponent(id)}`, t("chatApi.updateTaskFailed"), jsonBody("PATCH", input)),
   deleteTask: (id: string) => requestJson<unknown>(`/api/tasks/${encodeURIComponent(id)}`, t("chatApi.deleteTaskFailed"), { method: "DELETE" }),
   async generateMedia(kind: "image" | "video", prompt: string, model: ModelRef, files: UploadableFilePart[], chatId?: string) {

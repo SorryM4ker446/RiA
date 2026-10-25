@@ -15,6 +15,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from 
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { SettingsHelp, SettingsSection } from "@/features/settings/settings-section";
 import { Input } from "@/components/ui/input";
+import { TimeInput } from "@/components/ui/time-input";
 import { ScheduleHistory } from "@/features/settings/schedule-history";
 import { executionGuidance } from "@/lib/execution-messages";
 import { WorkspaceReviewPreview } from "@/features/settings/workspace-review";
@@ -133,7 +134,8 @@ export function ScheduleSettings() {
     }>
       <div className="flex flex-col gap-3">
         {!creating ? failure : null}
-        {loading ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" aria-hidden="true" />{t("settings.schedules.loading")}</p>
+        {/* Loading takes the same box as the empty list, so the sections below do not move when it answers. */}
+        {loading ? <Empty className="items-start px-0 py-3 text-left"><EmptyDescription className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" aria-hidden="true" />{t("settings.schedules.loading")}</EmptyDescription></Empty>
           : jobs.length === 0 ? <Empty className="items-start px-0 py-3 text-left"><EmptyDescription>{t("settings.schedules.empty")} {t("ui.settings.schedules.selectAddScheduleToGetStarted")}</EmptyDescription></Empty>
           : <ul className="settings-list" aria-label={t("ui.settings.schedules.addedSchedules")}>{jobs.map(job => <li key={job.id} {...removalKey(job.id)}>
             <div className="flex min-w-0 flex-1 flex-col gap-1.5">
@@ -144,7 +146,11 @@ export function ScheduleSettings() {
               {job.lastStatus ? <p className="text-xs text-muted-foreground">{tf("settings.schedules.lastRun", { status: job.lastStatus })}{job.lastError ? ` — ${executionGuidance(job.lastError)}` : ""}</p> : null}
             </div>
             <div className="flex shrink-0 items-center gap-1">
-              <Button size="sm" variant="ghost" onClick={() => void send("PATCH", `/api/schedules/${encodeURIComponent(job.id)}`, { enabled: !job.enabled })}>{job.enabled ? t("settings.schedules.pause") : t("settings.schedules.resume")}</Button>
+              <Button size="sm" variant="ghost" onClick={() => {
+                // Pausing or resuming shows at once; a refused save puts it back.
+                setJobs(current => current.map(item => item.id === job.id ? { ...item, enabled: !job.enabled } : item));
+                void send("PATCH", `/api/schedules/${encodeURIComponent(job.id)}`, { enabled: !job.enabled }).then(saved => { if (!saved) setJobs(current => current.map(item => item.id === job.id ? { ...item, enabled: job.enabled } : item)); });
+              }}>{job.enabled ? t("settings.schedules.pause") : t("settings.schedules.resume")}</Button>
               <Button aria-label={t("settings.schedules.delete")} size="icon-sm" variant="ghost" onClick={() => void send("DELETE", `/api/schedules/${encodeURIComponent(job.id)}`, undefined, job.id)}><Trash2 aria-hidden="true" /></Button>
             </div>
           </li>)}</ul>}
@@ -162,7 +168,7 @@ export function ScheduleSettings() {
         <form className="flex flex-1 flex-col gap-6" onSubmit={create}>
           <FieldGroup className="gap-5">
             <Field><FieldLabel htmlFor="schedule-kind">{t("settings.schedules.kindLabel")}</FieldLabel><SelectField id="schedule-kind" aria-label={t("settings.schedules.kindLabel")} value={kind} onValueChange={value => setKind(value as (typeof KINDS)[number])}>{KINDS.map(option => <SelectOption key={option} value={option}>{t(`settings.schedules.kind.${option}` as never)}</SelectOption>)}</SelectField></Field>
-            <Field><FieldLabel htmlFor="schedule-time">{t("settings.schedules.timeLabel")}</FieldLabel><Input id="schedule-time" aria-label={t("settings.schedules.timeLabel")} type="time" value={localTime} onChange={event => setLocalTime(event.target.value)} required /></Field>
+            <Field><FieldLabel htmlFor="schedule-time">{t("settings.schedules.timeLabel")}</FieldLabel><TimeInput id="schedule-time" aria-label={t("settings.schedules.timeLabel")} value={localTime} onChange={setLocalTime} required /></Field>
             <Field><FieldLabel htmlFor="schedule-interval">{t("settings.schedules.intervalLabel")}</FieldLabel><SelectField id="schedule-interval" aria-label={t("settings.schedules.intervalLabel")} value={interval} onValueChange={value => setInterval(value as "daily" | "weekly")}><SelectOption value="daily">{t("settings.schedules.daily")}</SelectOption><SelectOption value="weekly">{t("settings.schedules.weekly")}</SelectOption></SelectField></Field>
             {interval === "weekly" ? <Field><FieldLabel htmlFor="schedule-day">{t("settings.schedules.weekdayLabel")}</FieldLabel><SelectField id="schedule-day" aria-label={t("settings.schedules.weekdayLabel")} value={dayOfWeek} onValueChange={value => setDayOfWeek(Number(value))}>{WEEKDAYS.map(day => <SelectOption key={day} value={day}>{t(`settings.schedules.weekday.${day}` as never)}</SelectOption>)}</SelectField></Field> : null}
             <Field><FieldLabel htmlFor="schedule-zone">{t("settings.schedules.zoneLabel")}</FieldLabel><Input id="schedule-zone" aria-label={t("settings.schedules.zoneLabel")} value={timeZone} onChange={event => setTimeZone(event.target.value)} placeholder="Asia/Shanghai" required /></Field>
