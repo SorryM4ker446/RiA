@@ -88,7 +88,10 @@ test("a send stopped by the composer explains why without calling it a failed re
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6", image: "google/gemini-3.1-flash-image-preview" });
   await page.goto(`${app.origin}/chat`);
   await page.getByPlaceholder(/输入你的问题/).fill("请分析这个附件。");
-  await page.getByLabel("选择要上传的附件", { exact: true }).setInputFiles({ name: "说明.docx", mimeType: docxMime, buffer: await wordDocument("附件内容。") });
+  // setInputFiles dispatches change even on a disabled input; wait until a person could pick a file.
+  const attach = page.getByLabel("选择要上传的附件", { exact: true });
+  await expect(attach).toBeEnabled();
+  await attach.setInputFiles({ name: "说明.docx", mimeType: docxMime, buffer: await wordDocument("附件内容。") });
   await expect(page.getByRole("list", { name: "已添加的附件", exact: true }).getByText("说明.docx", { exact: true })).toBeVisible();
   await page.getByRole("combobox", { name: "聊天模式", exact: true }).click();
   await page.getByRole("option", { name: "文生图模式", exact: true }).click();

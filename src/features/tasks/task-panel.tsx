@@ -264,12 +264,15 @@ export function TaskPanel({
           </Button>
         )}
       </section>
-      <details className="shrink-0 px-1 text-[11px] leading-5 text-muted-foreground">
-        <summary className="cursor-pointer">
-          {t("chat.tasks.reminderInfo")}
-        </summary>
-        <p className="mt-2">{t("chat.tasks.desktopNotice")}</p>
-      </details>
+      {/* The note arrives with the list: the placeholder above is not the height of what replaces it. */}
+      {!awaitingFirstTaskLoad && (
+        <details className="shrink-0 px-1 text-[11px] leading-5 text-muted-foreground">
+          <summary className="cursor-pointer">
+            {t("chat.tasks.reminderInfo")}
+          </summary>
+          <p className="mt-2">{t("chat.tasks.desktopNotice")}</p>
+        </details>
+      )}
     </section>
   );
 }

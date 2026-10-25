@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { browserApi, browserData } from "../helpers/browser-api";
-import { watchLayout } from "../helpers/layout-watch";
+import { expectEased, watchLayout } from "../helpers/layout-watch";
 
 type App = Awaited<ReturnType<typeof startStandaloneServer>> & { folder: string };
 const test = base.extend<{ app: App }>({ app: async ({}, provide) => {
@@ -138,13 +138,12 @@ test("chat permissions choose and grant a directory without sending the draft, a
   await expect(sheet.getByRole("list", { name: "目录授权", exact: true })).toHaveCount(0);
   await expect(sheet.getByText("还没有授权任何目录，助手目前读不到本机文件。")).toBeVisible();
   await page.waitForTimeout(500);
-  const tops = (await layout.read()).frames.form.map(box => box.top);
-  // The row folds away and the empty note eases in; nothing below snaps into place.
-  const steps = tops.slice(1).map((top, index) => Math.abs(top - tops[index]));
-  expect(Math.max(...steps), tops.join(",")).toBeLessThan(40);
-  // Once the row has gone, the empty note opens over several frames instead of landing at full height.
-  const folded = tops.indexOf(Math.min(...tops));
-  expect(Math.max(...steps.slice(folded)), tops.join(",")).toBeLessThan(10);
+  const frames = (await layout.read()).frames.form;
+  const folded = frames.findIndex(frame => frame.top === Math.min(...frames.map(box => box.top)));
+  // The row folds away and nothing below snaps into place: the form rises over time, not in one frame.
+  expectEased({ frames: { form: frames.slice(0, folded + 1) }, shifts: [] }, "form", "top", { atLeast: 40 });
+  // Once the row has gone, the empty note opens over time instead of landing at full height.
+  expectEased({ frames: { form: frames.slice(folded) }, shifts: [] }, "form", "top", { atLeast: 8, overMs: 60 });
   await expect(sheet.getByText(/已撤销/)).toHaveCount(0);
   expect(await browserData(page, "/api/directory-grants")).toHaveLength(0);
   await page.keyboard.press("Escape");
