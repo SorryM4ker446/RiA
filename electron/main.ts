@@ -4,9 +4,10 @@ import { openLocalFile } from "./open-local-file";
 import { createStartupPresentation } from "./startup-presentation";
 import { createWindowTransitions, type WindowAction } from "./window-transitions";
 import { canvasSamplePoints, imageAlphaSampler, type CanvasGeometry } from "./workspace-transparency";
+import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { request as httpRequest } from "node:http";
 import {
   app,
@@ -14,6 +15,7 @@ import {
   dialog,
   ipcMain,
   Menu,
+  net,
   Notification,
   screen,
   Tray,
@@ -31,6 +33,8 @@ import { resolveDesktopPaths, toSqliteUrl, type DesktopPaths } from "./paths";
 import { configureDesktopSession, secureBrowserWindow } from "./security";
 import { DesktopSettingsStore, type DesktopSettingsInput } from "./settings";
 import { handleSquirrelStartupEvent } from "./squirrel";
+import { encodePowerShell, installationRoot, installScript, reconcileUpdateDirectory, UpdateService, type InstallPlan, type UpdateState } from "./updater";
+import { UPDATE_SIGNING_PUBLIC_KEY } from "./update-signing-key";
 import { createTaskNotificationDelivery, TaskReminderPoller, type TaskReminder } from "./task-reminders";
 import { seedTaskReminderSmoke } from "./task-reminders-smoke";
 import { prepareConversationSmoke, verifyConversationSmoke } from "./conversations-smoke";
@@ -97,6 +101,19 @@ let tray: Tray | null = null;
  */
 let closeBehaviour: "quit" | "tray" = "quit";
 const smokeReminders: TaskReminder[] = [];
+
+/*
+ * Updates replace an installed copy, so only an installed copy looks for them: a
+ * development build has nothing for an installer to replace, and a smoke run must
+ * not reach the network or touch the download folder an installed copy uses.
+ */
+const updatesSupported = app.isPackaged && process.platform === "win32" && !smokeTest;
+const UPDATE_FIRST_CHECK_MS = 30_000;
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+let updateService: UpdateService | null = null;
+// One system notification per version per run; the settings card stays the record.
+let notifiedUpdateVersion: string | null = null;
+let updateNotification: Notification | null = null;
 
 function focusMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -307,6 +324,77 @@ async function restartLocalService(destination = "/chat?settings=services&saved=
   return restartInProgress;
 }
 
+function broadcastUpdateState(state: UpdateState) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("desktop:update:changed", state);
+}
+
+/**
+ * Runs the installer once this process has gone.
+ *
+ * The installer is started from a separate PowerShell process that waits for this
+ * one to exit, so Windows Installer never finds the running copy's files in use.
+ * Everything it needs is passed in the encoded command rather than written to a
+ * script file, and both programs are named by their full system path.
+ */
+async function launchUpdateInstaller(plan: Pick<InstallPlan, "installer" | "installLog" | "resultFile">): Promise<void> {
+  const system = join(process.env.SystemRoot || "C:\\Windows", "System32");
+  const installRoot = installationRoot(process.execPath);
+  const script = installScript({
+    ...plan,
+    installRoot,
+    relaunch: join(installRoot, basename(process.execPath)),
+    waitForPid: process.pid,
+  }, join(system, "msiexec.exe"));
+  const child = spawn(join(system, "WindowsPowerShell", "v1.0", "powershell.exe"),
+    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-EncodedCommand", encodePowerShell(script)],
+    { detached: true, stdio: "ignore", windowsHide: true });
+  await new Promise<void>((resolve, reject) => {
+    child.once("spawn", resolve);
+    child.once("error", reject);
+  });
+  child.unref();
+}
+
+function notifyUpdateAvailable(version: string) {
+  if (!Notification.isSupported()) return;
+  const english = settingsStore?.getLocale() === "en-US";
+  updateNotification?.close();
+  updateNotification = new Notification({
+    title: english ? `${PRODUCT_NAME} ${version} is available` : `${PRODUCT_NAME} ${version} 已发布`,
+    body: english ? "Open Settings › Application to download and install it." : "在 设置 › 应用 中下载并安装。",
+  });
+  updateNotification.once("click", () => {
+    showMainWindow();
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("desktop:update:open");
+  });
+  updateNotification.show();
+}
+
+/** A check nobody asked for: skipped when the user turned it off, silent when it fails. */
+async function runAutomaticUpdateCheck() {
+  if (!updateService || isQuitting) return;
+  let enabled = true;
+  try { enabled = settingsStore?.getAutoCheckUpdates() ?? true; } catch { enabled = false; }
+  if (!enabled) return;
+  const state = await updateService.check();
+  if (state.phase === "available" && state.availableVersion && state.availableVersion !== notifiedUpdateVersion) {
+    notifiedUpdateVersion = state.availableVersion;
+    notifyUpdateAvailable(state.availableVersion);
+  }
+}
+
+function scheduleUpdateChecks() {
+  if (!updatesSupported) return;
+  const run = () => { void runAutomaticUpdateCheck().catch(error => logger?.warn("Automatic update check failed", error)); };
+  setTimeout(run, UPDATE_FIRST_CHECK_MS).unref();
+  setInterval(run, UPDATE_CHECK_INTERVAL_MS).unref();
+  // A machine that slept through the interval checks when it wakes, not hours later.
+  powerMonitor.on("resume", () => {
+    const checkedAt = updateService?.getState().checkedAt;
+    if (!checkedAt || Date.now() - Date.parse(checkedAt) >= UPDATE_CHECK_INTERVAL_MS) run();
+  });
+}
+
 function performWindowAction(target: BrowserWindow, action: WindowAction) {
   const transitions = windowTransitions.get(target);
   if (transitions) { transitions.request(action); return; }
@@ -381,6 +469,29 @@ function registerIpcHandlers() {
     return settingsStore.getView();
   });
 
+  const updates = (event: IpcMainInvokeEvent) => {
+    assertTrustedIpcSender(event);
+    if (!updateService) throw new Error("Desktop updates are not ready.");
+    return updateService;
+  };
+  ipcMain.handle("desktop:update:state", event => updates(event).getState());
+  ipcMain.handle("desktop:update:check", event => updates(event).check());
+  /*
+   * Download, verify and install in one request. It outlives the call: progress
+   * arrives as state changes, and the page learns the app is about to quit from
+   * the "installing" state before it does. The installer is waiting for this
+   * process to exit, and the quit is the one the tray uses, so the local service
+   * is stopped first.
+   */
+  ipcMain.handle("desktop:update:apply", event => {
+    const service = updates(event);
+    void service.apply().then(state => {
+      if (state.phase === "installing") setTimeout(() => quitFromTray(), 1500);
+    }, error => logger?.error("Update failed", error));
+    return service.getState();
+  });
+  ipcMain.handle("desktop:update:cancel", event => updates(event).cancelDownload());
+
   ipcMain.handle("desktop:folder:reveal", async (event, target: unknown) => {
     assertTrustedIpcSender(event);
     if (typeof target !== "string" || !target) return { revealed: false };
@@ -425,6 +536,7 @@ function registerIpcHandlers() {
      * OpenRouter identity — so switching the close behaviour no longer parks the
      * window on `about:blank` and reloads it for a change that needed neither.
      */
+    if (input.autoCheckUpdates === true) void runAutomaticUpdateCheck().catch(error => logger?.warn("Update check failed", error));
     if (input.closeBehaviour !== undefined) {
       /*
        * Deliberately not swallowed. `settings.json` saying "tray"
@@ -819,6 +931,10 @@ async function runSmokeAssertion() {
     runtime?: { packaged?: boolean };
     settings?: { hasOpenrouterApiKey?: boolean; hasDeepseekApiKey?: boolean; encryptionAvailable?: boolean };
   };
+  const updates = await mainWindow.webContents.executeJavaScript("window.riaDesktop.updates.state()", true) as { supported?: boolean; currentVersion?: string; phase?: string };
+  if (updates.supported !== false || updates.currentVersion !== applicationVersion || updates.phase !== "idle") {
+    throw new Error(`Desktop update bridge is not wired or not inert in a smoke run: ${JSON.stringify(updates)}`);
+  }
   if (result.health?.status !== 200 || result.health.body?.status !== "ok") {
     throw new Error(`Desktop renderer health check failed: ${JSON.stringify(result)}`);
   }
@@ -1176,6 +1292,29 @@ async function bootstrap() {
   desktopSessionToken = randomBytes(32).toString("hex");
   serverPort = await findAvailablePort();
   nextServer = await launchNextServer();
+  const updateDirectory = join(app.getPath("temp"), `${PRODUCT_NAME}-updates`);
+  /*
+   * Release acceptance has to update a test machine to a build that is not
+   * published yet, so a folder served over HTTP can stand in for the release.
+   * It is no shortcut past the checks: the manifest must still verify against the
+   * shipped key and the installer against the manifest.
+   */
+  const updateFeed = process.env.RIA_UPDATE_FEED_URL?.replace(/\/+$/, "");
+  updateService = new UpdateService({
+    ...(updateFeed ? { manifestUrl: `${updateFeed}/update-manifest.json`, installerUrl: manifest => `${updateFeed}/${manifest.filename}` } : {}),
+    supported: updatesSupported,
+    currentVersion: applicationVersion,
+    directory: updateDirectory,
+    publicKey: UPDATE_SIGNING_PUBLIC_KEY,
+    // Chromium's network stack, so the system proxy configuration applies.
+    fetch: (url, init) => net.fetch(url, init),
+    logger,
+    launch: launchUpdateInstaller,
+    onChange: broadcastUpdateState,
+    previousInstall: updatesSupported
+      ? await reconcileUpdateDirectory({ directory: updateDirectory, currentVersion: applicationVersion, logsDirectory: desktopPaths.logsDirectory, logger })
+      : null,
+  });
   registerIpcHandlers();
 
   const settings = await settingsStore.getView();
@@ -1227,6 +1366,7 @@ async function bootstrap() {
   });
   powerMonitor.on("resume", () => { void recoverAfterResume(); });
   if (smokeTest) await Promise.all([recoverAfterResume(), recoverAfterResume()]);
+  scheduleUpdateChecks();
 
 
   if (smokeTest) {
