@@ -12,8 +12,10 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
+  SelectSeparator,
   SelectValue,
 } from "@/components/ui/select";
+import { useOpenSettings } from "@/features/settings/settings-context";
 import { Textarea } from "@/components/ui/textarea";
 import { CHAT_ATTACHMENT_TYPES, IMAGE_MEDIA_TYPES, isDocumentAttachment } from "@/lib/media/limits";
 import { cn } from "@/lib/utils/cn";
@@ -32,6 +34,8 @@ import { useEffect, useSyncExternalStore } from "react";
  * stands in for the model, so returning to chat starts with the name and the
  * width it ends with rather than growing into them.
  */
+/** The model menu's last entry, which leads to adding a model rather than choosing one. */
+const ADD_MODEL = "__add_model";
 const modelLabelKey = (mode: ModelMode) => `chat:model-label:${mode}`;
 const noSubscription = () => () => {};
 function useRememberedModelLabel(mode: ModelMode) {
@@ -40,6 +44,8 @@ function useRememberedModelLabel(mode: ModelMode) {
 
 type Props = Pick<
   ChatState,
+  | "isModelMenuOpen"
+  | "setIsModelMenuOpen"
   | "onStop"
   | "onSubmit"
   | "modelMode"
@@ -129,11 +135,14 @@ export function Composer({
   onModeSelect,
   onModelSelect,
   modelLibrary,
+  isModelMenuOpen,
+  setIsModelMenuOpen,
   messages,
 }: Props) {
   useLocale();
   const isDocumentTool = modelMode === "chat" && ["readDocument", "convertDocument"].includes(selectedManualToolConfig?.id ?? "");
   const rememberedModelLabel = useRememberedModelLabel(modelMode);
+  const openSettings = useOpenSettings();
   const modelLabel = !selectedModel ? t("chat.toolbar.modelNone")
     : modelLibrary.find(model => modelRefKey(model) === modelRefKey(selectedModel) && model.modes.includes(modelMode))?.name ?? tf("chat.toolbar.modelUnavailable", { modelId: selectedModel.modelId });
   useEffect(() => {
@@ -381,10 +390,14 @@ export function Composer({
             </Select>
             <Select
               disabled={isPending || isDocumentScopeSaving || (modelMode === "chat" && !!activeChat?.assistantConfig?.model)}
-              onValueChange={onModelSelect}
+              open={isModelMenuOpen}
+              onOpenChange={setIsModelMenuOpen}
+              // "添加模型…" opens the model settings instead of becoming the selection.
+              onValueChange={value => value === ADD_MODEL ? openSettings("models") : onModelSelect(value)}
               // Until the saved choice is read, the last model shown stands in for
-              // it, rather than "选择模型" claiming no model is chosen.
-              value={isLoadingPreferences ? "" : selectedModel ? modelRefKey(selectedModel) : "none"}
+              // it, rather than "选择模型" claiming no model is chosen. With no
+              // model the placeholder says so; it is not an item to tick.
+              value={selectedModel && !isLoadingPreferences ? modelRefKey(selectedModel) : ""}
             >
               {/* Sized to the name; a different name eases to its width instead of pushing the tools aside. */}
               <SelectTrigger
@@ -394,12 +407,9 @@ export function Composer({
                 fluid
                 className="w-auto max-w-[200px] data-[placeholder]:text-foreground"
               >
-                <SelectValue className="truncate" placeholder={rememberedModelLabel} />
+                <SelectValue className="truncate" placeholder={isLoadingPreferences ? rememberedModelLabel : t("chat.toolbar.modelNone")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">
-                  {t("chat.toolbar.modelNone")}
-                </SelectItem>
                 {selectedModel &&
                 !modelLibrary.some(
                   (model) =>
@@ -424,6 +434,8 @@ export function Composer({
                       {model.name}
                     </SelectItem>
                   ))}
+                <SelectSeparator />
+                <SelectItem value={ADD_MODEL}>{t("chat.modelHint.addMenuItem")}</SelectItem>
               </SelectContent>
             </Select>
 

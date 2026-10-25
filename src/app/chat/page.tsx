@@ -14,9 +14,10 @@ import { MessageRenderer } from "@/features/chat/message-renderer";
 import { RunRecords } from "@/features/chat/run-records";
 import { ApprovalDock } from "@/features/chat/approval-dock";
 import { DirectoryPermissions } from "@/features/chat/directory-permissions";
+import { ComposerNotice } from "@/features/chat/composer-notice";
 import { useChatState } from "@/features/chat/use-chat-state";
 import { TriangleAlert } from "lucide-react";
-import { t } from "@/lib/locale";
+import { localizeMessage, t } from "@/lib/locale";
 
 export default function ChatPage() {
   useLocale();
@@ -69,6 +70,8 @@ export default function ChatPage() {
                 />
               </div>
 
+              <ComposerNotice modelHint={chat.modelHint} notice={chat.inputNotice} dimmed={chat.isModelMenuOpen} onChooseModel={() => chat.setIsModelMenuOpen(true)} onDismiss={chat.dismissInputNotice} />
+
               {effectiveError ? (
                 <Alert variant="destructive">
                   <AlertTitle className="flex items-center gap-2">
@@ -76,7 +79,8 @@ export default function ChatPage() {
                     {t("chatPage.errorTitle")}
                   </AlertTitle>
                   <AlertDescription>
-                    <p>{effectiveError}</p>
+                    {/* Translated where it is shown, so an application message follows a language switch. */}
+                    <p>{localizeMessage(effectiveError)}</p>
                     {keyError ? (
                       <p className="mt-1">{t("chatPage.keyErrorHint")}</p>
                     ) : null}

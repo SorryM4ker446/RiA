@@ -68,8 +68,9 @@ export const pageMessages = {
   "models.error.load": "读取失败",
   "models.error.loadCatalog": "读取目录失败",
   "models.error.act": "模型设置操作失败。",
-  "models.notice.capabilityUpdated": "模型能力已更新。",
-  "models.notice.addedBefore": "此前已添加 {modelId}。",
+  "models.notice.added": "已添加 {modelId}。",
+  "models.notice.addedAsDefault": "已添加 {modelId}，并设为默认模型。",
+  "models.notice.addedBefore": "此前已添加 {modelId}，已刷新模型能力。",
   "models.notice.catalogRefreshed": "目录刷新完成；若上游不可用，将继续显示上次缓存。",
   "models.notice.catalogStale": "目录刷新失败，当前显示缓存。",
   "models.notice.catalogUnavailable": "目录暂不可用。",
@@ -329,7 +330,6 @@ export const pageMessages = {
 
   // --- settings (desktop) -------------------------------------------------
   "settings.description": "管理模型服务密钥、代理和本地运行信息。",
-  "settings.navModels": "模型与用量",
   "settings.navBackups": "备份与恢复",
   // The browser build hides this page's navigation link, so this is the only
   // explanation a user who follows a bookmarked URL will ever see.
@@ -345,7 +345,6 @@ export const pageMessages = {
   "settings.step.provider": "1. 配置服务商",
   "settings.step.providerDetail": "至少填写一个密钥。DeepSeek 只用于聊天，图片视频需要 OpenRouter。",
   "settings.step.models": "2. 添加模型",
-  "settings.step.modelsDetail": "在“模型与用量”里从官方目录挑选，加入“我的模型”后才可选择。",
   "settings.step.default": "3. 设置默认模型",
   "settings.step.defaultDetail": "为聊天选定默认模型，之后新建的会话直接可用。",
   "settings.serviceTitle": "服务配置",

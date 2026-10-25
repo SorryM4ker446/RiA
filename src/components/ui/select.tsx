@@ -193,4 +193,8 @@ export function SelectOption({ value, ...props }: Omit<React.ComponentPropsWitho
   return <SelectItem value={String(value) || EMPTY_OPTION} {...props} />;
 }
 
-export { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue };
+function SelectSeparator(props: React.ComponentPropsWithoutRef<typeof SelectPrimitive.Separator>) {
+  return <SelectPrimitive.Separator className="my-1 h-px bg-border" {...props} />;
+}
+
+export { Select, SelectContent, SelectGroup, SelectItem, SelectSeparator, SelectTrigger, SelectValue };

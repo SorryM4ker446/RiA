@@ -18,6 +18,7 @@ import { clearChatDraft, readChatDraft, writeChatDraft } from "@/features/chat/d
 import { normalizeManualToolInput, validateManualToolFields } from "@/features/chat/tool-input";
 import type { DeleteTarget } from "@/features/chat/types";
 import type { ModelLibraryItem } from "@/lib/models/preferences-schema";
+import type { InputNotice } from "@/features/chat/composer-notice";
 
 import { persistConversationMessage } from "@/features/chat/api-client";
 import { useChatPreferences } from "@/features/chat/use-chat-preferences";
@@ -45,9 +46,21 @@ export function useChatState() {
   const olderRequestRef = useRef(false);
   const {
     modelMode, setModelMode, selectedChatModel: preferredChatModel, selectedImageModel, selectedVideoModel,
-    applyChatPreferences, onModelSelect,
+    applyChatPreferences, onModelSelect: selectPreferredModel,
     isLoadingPreferences, preferencesError, modelLibrary, clearPreferencesError,
   } = useChatPreferences(activeChatId);
+  // A send with no model chosen is not an error: nothing was requested. It
+  // turns the model hint on, and choosing a model or another mode turns it off.
+  const [sentWithoutModel, setSentWithoutModel] = useState(false);
+  // Why the last send did not leave the composer, when nothing was requested:
+  // kept as a message key so it follows a language switch.
+  const [inputNotice, setInputNotice] = useState<InputNotice | null>(null);
+  const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
+  function onModelSelect(value: string) {
+    setSentWithoutModel(false);
+    setInputNotice(null);
+    selectPreferredModel(value);
+  }
   const {
     chats, activeChat, isLoadingChats, isCreatingChat, editingChatId, editingTitle, setEditingTitle, isChatListExpanded,
     setIsChatListExpanded, visibleChats, hasHiddenChats, loadChats, createNewChat, startEditingChat,
@@ -133,6 +146,10 @@ export function useChatState() {
   const selectedModelInfo: ModelLibraryItem | undefined = selectedModel
     ? modelLibrary.find(model => model.providerId === selectedModel.providerId && model.modelId === selectedModel.modelId && model.modes.includes(modelMode))
     : undefined;
+  // What the composer needs before it can send: a model added for this mode, or
+  // one chosen after a send was attempted without. Nothing while loading.
+  const modelHint: "add" | "choose" | null = isLoadingPreferences || selectedModel ? null
+    : !modelLibrary.some(model => model.modes.includes(modelMode)) ? "add" : sentWithoutModel ? "choose" : null;
   const { visibility: panelVisibility, toggle: togglePanel } = usePanelVisibility();
 
   const effectiveError = pageError ?? preferencesError ?? (error ? readApiErrorMessage(error.message, t("chatState.requestFailed")) : null);
@@ -304,6 +321,7 @@ export function useChatState() {
     setImageByMessageId({});
     setVideoByMessageId({});
     clearAttachments();
+    setInputNotice(null);
   }
   async function loadMessages(chatId: string) {
     const requestId = latestHistoryRequestRef.current + 1;
@@ -314,6 +332,7 @@ export function useChatState() {
     setOlderMessagesCursor(null);
     setIsLoadingOlderMessages(false);
     setPageError(null);
+    setInputNotice(null);
     try {
       const payload = await chatApi.listMessages(chatId);
       if (latestHistoryRequestRef.current !== requestId) {
@@ -532,11 +551,12 @@ export function useChatState() {
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isPending || isDocumentScopeSaving || !isConversationReady) return;
+    setInputNotice(null);
     if (modelMode === "chat" && selectedManualToolConfig) {
       const isDocumentTool = ["readDocument", "convertDocument"].includes(selectedManualToolConfig.id);
       const content = isDocumentTool ? selectedToolDocument?.id ?? "" : input.trim();
-      if (!content) { setPageError(isDocumentTool ? t("ui.chat.use-chat-state.chooseAKnowledgeDocumentFirst") : t("chatState.toolParamsRequired")); return; }
-      if (attachments.length) { setPageError(t("chatState.manualToolAttachmentBlocked")); return; }
+      if (!content) { setInputNotice({ key: isDocumentTool ? "ui.chat.use-chat-state.chooseAKnowledgeDocumentFirst" : "chatState.toolParamsRequired" }); return; }
+      if (attachments.length) { setInputNotice({ key: "chatState.manualToolAttachmentBlocked" }); return; }
       const nextFieldErrors = validateManualToolFields(selectedManualToolConfig, manualToolFieldValues);
       setManualToolFieldErrors(nextFieldErrors);
       if (Object.keys(nextFieldErrors).length > 0) return;
@@ -558,17 +578,17 @@ export function useChatState() {
     const hasContent = content.length > 0;
 
     if (!hasContent && !hasAttachments) return;
-    if (!selectedModel) { setPageError(t("chatState.noModelSelected")); return; }
-    if (modelMode === "video" && attachments.length > 1) { setPageError(t("mediaGen.videoReferenceLimit")); return; }
+    if (!selectedModel) { setSentWithoutModel(true); return; }
+    if (modelMode === "video" && attachments.length > 1) { setInputNotice({ key: "mediaGen.videoReferenceLimit" }); return; }
 
     setPageError(null);
 
     if (modelMode !== "chat" && attachments.some(part => !part.mediaType.startsWith("image/"))) {
-      setPageError(t("ui.chat.use-chat-state.pDFAndWordAttachmentsAreSupported"));
+      setInputNotice({ key: "ui.chat.use-chat-state.pDFAndWordAttachmentsAreSupported" });
       return;
     }
     if (modelMode === "chat" && attachments.some(part => part.mediaType.startsWith("image/")) && !selectedModelInfo?.supportsImageInput) {
-      setPageError(`${t("chatState.imageInputUnsupportedPrefix")} ${selectedChatModel?.modelId ?? ""} ${t("chatState.imageInputUnsupportedSuffix")}`);
+      setInputNotice({ key: "chatState.imageInputUnsupported", values: { modelId: selectedChatModel?.modelId ?? "" } });
       return;
     }
 
@@ -668,6 +688,8 @@ export function useChatState() {
   }
 
   function onModeSelect(value: ModelMode) {
+    setSentWithoutModel(false);
+    setInputNotice(null);
     setModelMode(value);
     if (value !== "chat") {
       setSelectedManualTool("none");
@@ -720,11 +742,11 @@ export function useChatState() {
     taskPanelError: withoutGlobalEcho(taskPanelError),
     visibleTasks, updateTaskStatus, deleteTask, saveTaskSchedule, updatingTaskIds, hasHiddenTasks, setIsTaskListExpanded,
     isTaskListExpanded, activeChat, isPending, isWorking, isLoadingPreferences, isOpeningConversation, isConversationReady, isRunningManualTool, modelMode, selectedModel, selectedModelInfo, onModeSelect,
-    onModelSelect, appendQuickPrompt, isHistoryReady: confirmedChatId !== null && historyState?.chatId === confirmedChatId && historyState.status === "ready", isLoadingHistory, confirmedChatId, messages, imageByMessageId, videoByMessageId,
+    onModelSelect, modelHint, inputNotice, dismissInputNotice: () => setInputNotice(null), isModelMenuOpen, setIsModelMenuOpen, appendQuickPrompt, isHistoryReady: confirmedChatId !== null && historyState?.chatId === confirmedChatId && historyState.status === "ready", isLoadingHistory, confirmedChatId, messages, imageByMessageId, videoByMessageId,
     status, editingMessageId, startEditingMessage, regenerateMessage, requestDeleteMessage,
     setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage,
     attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, addToolApprovalResponse, onStop, onSubmit,
-    removeAttachmentAt, isUploadingAttachments, isDraggingFiles, onComposerDragOver, onComposerDragLeave, onComposerDrop,
+    removeAttachmentAt: (index: number) => { setInputNotice(null); removeAttachmentAt(index); }, isUploadingAttachments, isDraggingFiles, onComposerDragOver, onComposerDragLeave, onComposerDrop,
     setSelectedManualTool, manualToolSelectValue, manualTools, selectedToolDocument, setSelectedToolDocument,
     selectedManualToolConfig, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors,
     setManualToolFieldErrors, unavailableTools, toolCatalogError: withoutGlobalEcho(toolCatalogError), loadToolCatalog,

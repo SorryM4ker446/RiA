@@ -4,6 +4,7 @@ import type { ModelLibraryItem, ModelRef } from "@/lib/models/preferences-schema
 import { useEffect, useRef, useState } from "react";
 import { getChatPrefsStorageKey, getDefaultChatPreferences, readChatPreferences, loadAccountChatDefaults, parseModelRefValue, staleChatModelWarning } from "@/features/chat/preferences";
 import type { ChatScopedPreferences } from "@/features/chat/types";
+import { onModelPreferencesChanged } from "@/features/models/preference-events";
 
 export function useChatPreferences(activeChatId: string | null) {
   const [modelMode, setModelMode] = useState<ModelMode>("chat");
@@ -15,13 +16,18 @@ export function useChatPreferences(activeChatId: string | null) {
   const [defaultsLoaded, setDefaultsLoaded] = useState(false), [preferencesError, setPreferencesError] = useState<string | null>(null);
   const accountDefaults = useRef(getDefaultChatPreferences());
   const defaultsErrorRef = useRef<string | null>(null);
+  // Bumped whenever the settings window changes the model library or defaults,
+  // so the chat offers what was just added without a reload. A reload after the
+  // first keeps the page ready rather than going back to its loading state.
+  const [defaultsVersion, setDefaultsVersion] = useState(0);
+  useEffect(() => onModelPreferencesChanged(() => setDefaultsVersion(version => version + 1)), []);
   useEffect(() => {
     let active = true;
-    void loadAccountChatDefaults().then(value => { if (active) { accountDefaults.current = value.preferences; setModelLibrary(value.library); } })
+    void loadAccountChatDefaults().then(value => { if (active) { accountDefaults.current = value.preferences; defaultsErrorRef.current = null; setModelLibrary(value.library); } })
       .catch(error => { if (active) { const message = error instanceof Error ? error.message : t("chatPrefs.defaultsLoadFailed"); defaultsErrorRef.current = message; setPreferencesError(message); } })
       .finally(() => { if (active) setDefaultsLoaded(true); });
     return () => { active = false; };
-  }, []);
+  }, [defaultsVersion]);
   function applyChatPreferences(preferences: ChatScopedPreferences) {
     setModelMode(preferences.modelMode);
     setSelectedChatModel(preferences.selectedChatModel);
@@ -50,9 +56,17 @@ export function useChatPreferences(activeChatId: string | null) {
   useEffect(() => {
     if (!defaultsLoaded) return;
     const stored = activeChatId ? readChatPreferences(activeChatId) : null;
+    const defaults = accountDefaults.current;
+    // A mode this conversation has no model for follows the account default, so
+    // a model added or made default later reaches conversations that had none.
     // Browser storage must be restored after mount and before saving this chat's controls.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    applyChatPreferences(stored ?? accountDefaults.current);
+    applyChatPreferences(stored ? {
+      ...stored,
+      selectedChatModel: stored.selectedChatModel ?? defaults.selectedChatModel,
+      selectedImageModel: stored.selectedImageModel ?? defaults.selectedImageModel,
+      selectedVideoModel: stored.selectedVideoModel ?? defaults.selectedVideoModel,
+    } : defaults);
     const warning = activeChatId ? staleChatModelWarning(activeChatId, modelLibrary) : null;
     setPreferencesError(warning ?? defaultsErrorRef.current);
     setHydratedChatId(activeChatId);

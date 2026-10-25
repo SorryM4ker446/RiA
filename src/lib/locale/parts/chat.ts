@@ -42,6 +42,11 @@ export const chatMessages = {
   "chat.toolbar.modeImage": "文生图模式",
   "chat.toolbar.modeVideo": "视频生成模式",
   "chat.toolbar.modelNone": "选择模型",
+  "chat.modelHint.add": "还没有可用的模型，添加一个就可以开始对话。",
+  "chat.modelHint.addAction": "添加模型",
+  "chat.modelHint.choose": "先选择一个模型再发送。",
+  "chat.modelHint.chooseAction": "选择模型",
+  "chat.modelHint.addMenuItem": "添加模型…",
   "chat.toolbar.modelUnavailable": "当前模型不可用：{modelId}",
 
   // --- composer ----------------------------------------------------------

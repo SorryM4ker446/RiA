@@ -24,6 +24,7 @@ import type { LibraryAvailability, LibraryModelFailure, ModelAvailability } from
 import type { CatalogModel } from "@/lib/models/providers/types";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useSettingsDirty } from "@/features/settings/settings-context";
+import { announceModelPreferencesChanged } from "@/features/models/preference-events";
 type CatalogState = { models: CatalogModel[]; fetchedAt: string | null; stale: boolean; source: "live" | "cache" | "empty"; error: string | null; failure: string | null; skipped: number };
 type ProviderSummary = { providerId: string; displayName: string; configured: boolean };
 type EmbeddingSummary = { total: number; stale: number; embedding: string | null };
@@ -132,9 +133,20 @@ export function ModelSettings() {
   }, [activeProvider, activeCatalog, catalogMode, loadCatalog]);
   async function addFromCatalog(item: CatalogModel) {
     const key = modelRefKey(item);
-    const result = await settingsRequest<{ data: ModelLibraryItem; alreadyAdded: boolean }>("/api/models/library", jsonRequest("POST", { action: "add", model: { providerId: item.providerId, modelId: item.modelId } }));
-    setSettings(current => current ? { ...current, library: [...current.library.filter(model => modelRefKey(model) !== key), result.data], legacyCandidates: current.legacyCandidates.filter(candidate => modelRefKey(candidate.ref) !== key) } : current);
-    toast(result.alreadyAdded ? t("models.notice.capabilityUpdated") : tf("models.notice.addedBefore", { modelId: item.modelId }));
+    const result = await settingsRequest<{ data: ModelLibraryItem; alreadyAdded: boolean; defaulted: GenerationMode[] }>("/api/models/library", jsonRequest("POST", { action: "add", model: { providerId: item.providerId, modelId: item.modelId } }));
+    // The server may also have made it the default for modes that had none. Both
+    // the form and its saved copy take that in, so it does not read as an unsaved edit.
+    const ref: ModelRef = { providerId: result.data.providerId, modelId: result.data.modelId };
+    const merge = (current: ModelPreferences | null) => current ? {
+      ...current, ...Object.fromEntries(result.defaulted.map(mode => [mode, { ...current[mode], model: ref }])),
+      library: [...current.library.filter(model => modelRefKey(model) !== key), result.data],
+      legacyCandidates: current.legacyCandidates.filter(candidate => modelRefKey(candidate.ref) !== key),
+    } : current;
+    setSettings(merge);
+    setSavedPreferences(merge);
+    announceModelPreferencesChanged();
+    toast(result.alreadyAdded ? tf("models.notice.addedBefore", { modelId: item.modelId })
+      : result.defaulted.length ? tf("models.notice.addedAsDefault", { modelId: item.modelId }) : tf("models.notice.added", { modelId: item.modelId }));
   }
   async function run(operation: () => Promise<void>) { setBusy(true); setError(""); try { await operation(); } catch (cause) { setError(cause instanceof Error ? cause.message : t("models.error.act")); } finally { setBusy(false); } }
   function changeMode(mode: GenerationMode, field: "model" | "fallback", value: ModelRef | null) { if (settings) setSettings({ ...settings, [mode]: { ...settings[mode], [field]: value } }); }
@@ -149,7 +161,7 @@ export function ModelSettings() {
   }, [settings]);
   const filteredModels = useMemo(() => (activeCatalog?.models ?? []).filter(item => `${item.modelId} ${item.name} ${item.description}`.toLowerCase().includes(query.toLowerCase())), [activeCatalog, query]);
   const added = useMemo(() => new Set(settings?.library.map(item => modelRefKey(item)) ?? []), [settings]);
-  function updateSettings(next: ModelPreferences) { setSettings(next); setSavedPreferences(next); }
+  function updateSettings(next: ModelPreferences) { setSettings(next); setSavedPreferences(next); announceModelPreferencesChanged(); }
   useSettingsDirty(Boolean(settings && savedPreferences && preferenceKey(settings) !== preferenceKey(savedPreferences)));
   const providerName = (providerId: string) => providers.find(provider => provider.providerId === providerId)?.displayName ?? providerId;
   // Written out rather than interpolated: the locale table is typed by key, and

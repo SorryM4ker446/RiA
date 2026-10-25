@@ -833,6 +833,9 @@ body:has(.settings-window) .toast-stack { left: 50%; bottom: 24px; }
 .run-record-trigger:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: -2px; }
 .reveal { display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden; transition: grid-template-rows var(--dur-base) var(--ease-out), opacity var(--dur-fast), visibility var(--dur-base); }
 .reveal[data-state="open"] { grid-template-rows: 1fr; opacity: 1; visibility: visible; }
+/* A closed notice in the chat dock gives back the dock's gap too, so it takes no room until it opens. */
+.chat-dock > .chat-dock-notice { transition: grid-template-rows var(--dur-base) var(--ease-out), opacity var(--dur-fast) var(--ease-out), visibility var(--dur-base) var(--ease-out), margin-top var(--dur-base) var(--ease-out); }
+.chat-dock > .chat-dock-notice[data-state="closed"] { margin-top: -0.75rem; }
 .run-detail, .approval-details { display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden; transition: grid-template-rows var(--dur-base) var(--ease-out), opacity var(--dur-fast), visibility var(--dur-base); }
 .run-detail[data-state="open"], .approval-details[data-state="open"] { grid-template-rows: 1fr; opacity: 1; visibility: visible; }
 .approval-details .execution-code { max-height: 12rem; }
