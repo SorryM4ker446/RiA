@@ -134,7 +134,8 @@ export function ScheduleSettings() {
     }>
       <div className="flex flex-col gap-3">
         {!creating ? failure : null}
-        {loading ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" aria-hidden="true" />{t("settings.schedules.loading")}</p>
+        {/* Loading takes the same box as the empty list, so the sections below do not move when it answers. */}
+        {loading ? <Empty className="items-start px-0 py-3 text-left"><EmptyDescription className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" aria-hidden="true" />{t("settings.schedules.loading")}</EmptyDescription></Empty>
           : jobs.length === 0 ? <Empty className="items-start px-0 py-3 text-left"><EmptyDescription>{t("settings.schedules.empty")} {t("ui.settings.schedules.selectAddScheduleToGetStarted")}</EmptyDescription></Empty>
           : <ul className="settings-list" aria-label={t("ui.settings.schedules.addedSchedules")}>{jobs.map(job => <li key={job.id} {...removalKey(job.id)}>
             <div className="flex min-w-0 flex-1 flex-col gap-1.5">

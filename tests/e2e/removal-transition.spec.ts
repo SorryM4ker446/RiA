@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
 import { chooseRowAction } from "../helpers/row-menu";
 import { toasts } from "../helpers/toast";
+import { watchLayout } from "../helpers/layout-watch";
 
 // Deleting an item folds it away so the content after it slides up, instead of
 // the page jumping when the list reloads without it.
@@ -28,18 +29,12 @@ test("deleting a backup folds its card away without the page jumping", async ({ 
   const removed = (await page.getByRole("article", { name: /backup-first/ }).boundingBox())!;
   await chooseRowAction(page, page.getByRole("article", { name: /backup-first/ }), "删除备份");
   // Record where the following card is on every frame from the confirmation on.
-  await page.evaluate(() => {
-    const target = [...document.querySelectorAll("article")].find(node => node.getAttribute("aria-label")?.includes("backup-second"))!;
-    const positions: number[] = [];
-    (window as unknown as { positions: number[] }).positions = positions;
-    const sample = () => { if (!target.isConnected) return; positions.push(target.getBoundingClientRect().top); requestAnimationFrame(sample); };
-    requestAnimationFrame(sample);
-  });
+  const layout = await watchLayout(page, { following: second });
   await page.getByRole("button", { name: "确认删除备份", exact: true }).click();
   await expect(page.getByRole("article", { name: /backup-first/ })).toHaveCount(0);
   await expect(toasts(page).getByText("备份文件已永久删除")).toBeVisible();
   await page.waitForTimeout(400);
-  const positions = await page.evaluate(() => (window as unknown as { positions: number[] }).positions);
+  const positions = (await layout.read()).frames.following.map(box => box.top);
   const steps = positions.slice(1).map((top, index) => Math.abs(top - positions[index]));
   const travelled = Math.abs(positions.at(-1)! - positions[0]);
   // The following row moves up by the removed row's height, spread over many frames.

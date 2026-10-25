@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
+import { expectEased, expectNoUnexpectedShift, expectSteady, watchLayout } from "../helpers/layout-watch";
 
 test("the first launch is dark and the wordmark stays readable across saved themes", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "light" });
@@ -100,7 +101,7 @@ test("moving between a page and chat in the desktop app does not fade the see-th
     document.addEventListener("animationstart", record, true);
   });
   const navigation = page.getByRole("navigation", { name: "工作区导航" });
-  for (const [link, path] of [["聊天", /\/chat$/], ["定时任务", /\/tasks$/], ["聊天", /\/chat$/]] as const) {
+  for (const [link, path] of [["聊天", /\/chat$/], ["任务", /\/tasks$/], ["聊天", /\/chat$/]] as const) {
     await navigation.getByRole("link", { name: link, exact: true }).click();
     await expect(page).toHaveURL(path);
   }
@@ -108,16 +109,23 @@ test("moving between a page and chat in the desktop app does not fade the see-th
   expect(await page.evaluate(() => (window as unknown as { motion: string[] }).motion)).toEqual([]);
 });
 
-type ReturnRecord = { welcome: boolean; stop: boolean; generating: boolean; newChatTitle: boolean; modelPlaceholder: boolean; earlySkeleton: boolean; composerTops: number[]; transcriptBoxes: string[]; toolLefts: number[]; actionLefts: number[] };
+type ReturnRecord = { welcome: boolean; stop: boolean; generating: boolean; newChatTitle: boolean; modelPlaceholder: boolean; earlySkeleton: boolean };
 
 /**
  * Watches the chat page from the moment it mounts: every DOM state it commits
- * (a MutationObserver sees states that never reach a frame) and the position of
- * the composer and the transcript in every painted frame.
+ * (a MutationObserver sees states that never reach a frame), and where the
+ * composer, the transcript and the controls around them are painted.
  */
 async function recordChatReturn(page: Page) {
+  const layout = await watchLayout(page, {
+    composer: ".chat-workspace textarea",
+    transcript: "[data-testid=message-list]",
+    tools: '.chat-workspace [aria-label="选择工具"]',
+    // Conversation controls count only once painted: hidden, they may still settle.
+    assistant: "#chat-assistant",
+  }, { allowShiftsIn: ["[data-testid=message-list]"] });
   await page.evaluate(() => {
-    const seen = { welcome: false, stop: false, generating: false, newChatTitle: false, modelPlaceholder: false, earlySkeleton: false, composerTops: [] as number[], transcriptBoxes: [] as string[], toolLefts: [] as number[], actionLefts: [] as number[] };
+    const seen = { welcome: false, stop: false, generating: false, newChatTitle: false, modelPlaceholder: false, earlySkeleton: false };
     let skeletonSince: number | null = null;
     (window as unknown as { chatReturn: typeof seen }).chatReturn = seen;
     const check = () => {
@@ -132,16 +140,6 @@ async function recordChatReturn(page: Page) {
     new MutationObserver(check).observe(document.body, { childList: true, subtree: true, characterData: true });
     const frame = () => {
       check();
-      const composer = document.querySelector(".chat-workspace textarea");
-      const transcript = document.querySelector("[data-testid=message-list]");
-      if (composer) seen.composerTops.push(Math.round(composer.getBoundingClientRect().top));
-      if (transcript) { const box = transcript.getBoundingClientRect(); seen.transcriptBoxes.push(`${Math.round(box.top)}:${Math.round(box.height)}`); }
-      const tools = document.querySelector('.chat-workspace [aria-label="选择工具"]');
-      if (tools) seen.toolLefts.push(Math.round(tools.getBoundingClientRect().left));
-      // Conversation controls count only once painted: hidden, they may still settle.
-      const actions = document.querySelector(".chat-toolbar-actions");
-      const assistant = document.getElementById("chat-assistant");
-      if (actions && assistant && getComputedStyle(actions).visibility === "visible") seen.actionLefts.push(Math.round(assistant.getBoundingClientRect().left));
       // A placeholder painted within a quick load's first frames is the flash being avoided.
       const skeleton = document.querySelector<HTMLElement>("[data-testid=message-skeleton]");
       if (!skeleton) skeletonSince = null;
@@ -154,7 +152,7 @@ async function recordChatReturn(page: Page) {
     };
     requestAnimationFrame(frame);
   });
-  return () => page.evaluate(() => (window as unknown as { chatReturn: ReturnRecord }).chatReturn);
+  return async () => ({ ...await page.evaluate(() => (window as unknown as { chatReturn: ReturnRecord }).chatReturn), layout: await layout.read() });
 }
 
 for (const reducedMotion of [false, true]) {
@@ -176,7 +174,7 @@ for (const reducedMotion of [false, true]) {
     const navigation = page.getByRole("navigation", { name: "工作区导航" });
     await page.goto("/chat");
     await expect(page.getByText("Returning message 3.", { exact: false }).first()).toBeVisible();
-    await navigation.getByRole("link", { name: "定时任务", exact: true }).click();
+    await navigation.getByRole("link", { name: "任务", exact: true }).click();
     await expect(page).toHaveURL(/\/tasks$/);
 
     const release = { settings: () => {}, list: () => {}, history: () => {} };
@@ -221,18 +219,17 @@ for (const reducedMotion of [false, true]) {
       await expect(page.getByText("Returning message 3.", { exact: false }).first()).toBeVisible();
       await expect(skeleton).toHaveCount(0);
       await expect.poll(() => page.getByTestId("message-list").evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThanOrEqual(2);
-      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await expect(page.getByRole("switch", { name: "长期记忆", exact: true })).toBeVisible();
 
-      const seen = await read();
+      const { layout, ...seen } = await read();
       expect(seen).toMatchObject({ welcome: false, stop: false, generating: false, newChatTitle: false, modelPlaceholder: false, earlySkeleton: false });
-      await expect(page.getByRole("checkbox", { name: "不记长期记忆", exact: true })).toBeVisible();
       // Content changed inside the transcript; nothing around it moved.
-      expect(new Set(seen.composerTops).size).toBe(1);
-      expect(new Set(seen.transcriptBoxes).size).toBe(1);
+      expectSteady(layout, "composer", "top");
+      expectSteady(layout, "transcript");
       // The model name arriving does not push the tool picker, and the toolbar controls appear in place.
-      expect(new Set(seen.toolLefts).size).toBe(1);
-      expect(seen.actionLefts.length).toBeGreaterThan(0);
-      expect(new Set(seen.actionLefts).size).toBe(1);
+      expectSteady(layout, "tools", "left");
+      expectSteady(layout, "assistant", "left");
+      expectNoUnexpectedShift(layout);
     } finally { release.settings(); release.list(); release.history(); }
   });
 }
@@ -293,27 +290,42 @@ for (const reducedMotion of [false, true]) {
     const picker = page.getByRole("combobox", { name: "选择模型", exact: true });
     await expect(picker).toContainText("Short");
     await picker.click();
-    await page.evaluate(() => {
-      const lefts: number[] = [];
-      (window as unknown as { toolLefts: number[] }).toolLefts = lefts;
-      // Read just after each frame is painted: inside requestAnimationFrame the layout
-      // is read before ResizeObserver has held the picker at its old width for that frame.
-      const sample = () => setTimeout(() => {
-        const tools = document.querySelector('.chat-workspace [aria-label="选择工具"]');
-        if (tools) lefts.push(Math.round(tools.getBoundingClientRect().left));
-        if (lefts.length < 40) requestAnimationFrame(sample);
-      }, 0);
-      requestAnimationFrame(sample);
-    });
+    const layout = await watchLayout(page, { tools: '.chat-workspace [aria-label="选择工具"]', composer: ".chat-workspace textarea" });
     await page.getByRole("option", { name: "A considerably longer model name", exact: true }).click();
     await expect(picker).toContainText("A considerably longer model name");
-    const lefts = await page.waitForFunction(() => { const lefts = (window as unknown as { toolLefts: number[] }).toolLefts; return lefts.length >= 40 && lefts; }).then(handle => handle.jsonValue() as Promise<number[]>);
-    const steps = lefts.slice(1).map((left, index) => Math.abs(left - lefts[index])).filter(step => step > 0);
-    const total = lefts.at(-1)! - lefts[0];
-    expect(total, lefts.join(",")).toBeGreaterThan(40);
+    // Long enough for the width easing to finish.
+    await page.waitForTimeout(600);
+    const record = await layout.read();
     // With motion the move is spread over several frames (eased, so the first is the largest);
-    // with reduced motion it happens in one.
-    if (reducedMotion) expect(steps, lefts.join(",")).toHaveLength(1);
-    else { expect(steps.length, lefts.join(",")).toBeGreaterThan(3); expect(Math.max(...steps), lefts.join(",")).toBeLessThan(total * 0.6); }
+    // with reduced motion it happens in one. Nothing else in the composer moves.
+    expectEased(record, "tools", "left", { atLeast: 41, reducedMotion });
+    expectSteady(record, "composer");
   });
 }
+
+test("the first model name the picker shows appears at its full width rather than easing in from empty", async ({ page }) => {
+  const chat = { id: "first-label-conversation", title: "First label", lastMessageAt: "2026-10-24T00:00:00Z", messageCount: 0 };
+  const library = [fixtureLibraryItem("long/model", ["chat"], { name: "A considerably longer model name" })];
+  let releaseSettings!: () => void;
+  const settings = new Promise<void>(resolve => { releaseSettings = resolve; });
+  await page.route("**/api/models", async route => { await settings; await route.fulfill({ json: modelsRouteFixture(library, { chat: "long/model" }) }); });
+  await page.route("**/api/conversations", route => route.fulfill({ json: { data: [chat] } }));
+  await page.route("**/api/conversations/*/messages", route => route.fulfill({ json: { data: [] } }));
+  await page.route("**/api/conversations/*/runs**", route => route.fulfill({ json: { data: [] } }));
+  await page.route("**/api/tasks**", route => route.fulfill({ json: { data: [] } }));
+  await page.route("**/api/tools?*", route => route.fulfill({ json: { data: [] } }));
+  try {
+    // A first visit: no model name is remembered yet, so the picker starts empty.
+    await page.goto("/chat");
+    const picker = page.getByRole("combobox", { name: "选择模型", exact: true });
+    await expect(picker).toBeVisible();
+    expect(await page.evaluate(() => localStorage.getItem("chat:model-label:chat"))).toBeNull();
+    const layout = await watchLayout(page, { picker });
+    releaseSettings();
+    await expect(picker).toContainText("A considerably longer model name");
+    await page.waitForTimeout(500);
+    const widths = (await layout.read()).frames.picker.map(box => box.width);
+    // The empty width, then the full one: no frame in between shows a clipped name.
+    expect(new Set(widths).size, widths.join(",")).toBeLessThanOrEqual(2);
+  } finally { releaseSettings(); }
+});

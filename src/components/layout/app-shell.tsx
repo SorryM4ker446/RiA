@@ -5,7 +5,7 @@ import { t } from "@/lib/locale";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   BookOpen,
   CalendarClock,
@@ -194,6 +194,38 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     document.addEventListener("toggle", reveal, true);
     return () => { document.removeEventListener("click", mark, true); document.removeEventListener("toggle", reveal, true); watching?.disconnect(); };
   }, []);
+  // Each page keeps where it was scrolled to for as long as the window is open,
+  // so leaving a long list and coming back lands on the same rows. Pages load
+  // their content after they mount, so the position is applied again as the
+  // content grows, until it can be reached or the user scrolls on their own.
+  const scrollPositions = useRef(new Map<string, number>());
+  useEffect(() => {
+    const content = document.querySelector<HTMLElement>(".workspace-content");
+    if (!content) return;
+    const target = scrollPositions.current.get(pathname) ?? 0;
+    let restoring = target > 0;
+    const save = () => { if (!restoring) scrollPositions.current.set(pathname, content.scrollTop); };
+    const release = () => { restoring = false; growth.disconnect(); clearTimeout(giveUp); };
+    const apply = () => {
+      if (!restoring) return;
+      content.scrollTo({ top: target, behavior: "instant" });
+      if (Math.abs(content.scrollTop - target) < 2) release();
+    };
+    const growth = new ResizeObserver(apply);
+    const giveUp = setTimeout(release, 1500);
+    const intent = () => release();
+    if (restoring) {
+      for (const child of content.children) growth.observe(child);
+      requestAnimationFrame(apply);
+    } else clearTimeout(giveUp);
+    content.addEventListener("scroll", save, { passive: true });
+    for (const event of ["wheel", "pointerdown", "keydown", "touchstart"]) content.addEventListener(event, intent, { passive: true });
+    return () => {
+      release();
+      content.removeEventListener("scroll", save);
+      for (const event of ["wheel", "pointerdown", "keydown", "touchstart"]) content.removeEventListener(event, intent);
+    };
+  }, [pathname]);
   // The preload bridge only exists under Electron. Read as an external store so
   // the server render stays deterministic and no effect has to cascade a second
   // render to discover it.

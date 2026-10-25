@@ -10,10 +10,19 @@
  * item still there once `commit` settles, for example because the removal
  * failed, is shown again.
  */
-export const REMOVAL_DURATION = 280;
-// Eases in and out: the content below starts moving gently instead of lurching
-// in the first frame, as a strongly decelerating curve would make it.
-const EASING = "cubic-bezier(0.4, 0, 0.2, 1)";
+// A row leaving takes the list-change duration (--dur-base) and eases in and
+// out (--ease-in-out): the content below starts moving gently instead of
+// lurching in the first frame, as a strongly decelerating curve would make it.
+// Read from the motion tokens when the removal runs, since the Web Animations
+// API takes numbers rather than CSS variables.
+function token(name: string, fallback: string) {
+  if (typeof document === "undefined") return fallback;
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+}
+function removalTiming() {
+  const duration = token("--dur-base", "240ms");
+  return { duration: duration.endsWith("ms") ? parseFloat(duration) : parseFloat(duration) * 1000, easing: token("--ease-in-out", "") || undefined };
+}
 
 export function removalKey(key: string) {
   return { "data-removal-key": key };
@@ -54,12 +63,12 @@ function collapse(item: HTMLElement): Animation {
     { height: "0px", opacity: 0, transform: "scale(0.98)",
       marginTop: `${margins.top}px`, marginBottom: `${margins.bottom}px`,
       paddingTop: "0px", paddingBottom: "0px", borderTopWidth: "0px", borderBottomWidth: "0px" },
-  ], { duration: REMOVAL_DURATION, easing: EASING, fill: "forwards" });
+  ], { ...removalTiming(), fill: "forwards" });
 }
 
 function fadeOut(item: HTMLElement): Animation {
   return item.animate([{ opacity: 1, transform: "scale(1)" }, { opacity: 0, transform: "scale(0.95)" }],
-    { duration: REMOVAL_DURATION * 0.75, easing: EASING, fill: "forwards" });
+    { duration: removalTiming().duration * 0.75, easing: removalTiming().easing, fill: "forwards" });
 }
 
 const nextFrame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
@@ -87,7 +96,7 @@ export async function animateRemoval(keys: string | string[], commit: () => unkn
         if (!item.isConnected) continue;
         const after = item.getBoundingClientRect();
         const dx = before.left - after.left, dy = before.top - after.top;
-        if (dx || dy) item.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0, 0)" }], { duration: REMOVAL_DURATION, easing: EASING });
+        if (dx || dy) item.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0, 0)" }], removalTiming());
       }
     }
   } finally {

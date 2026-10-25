@@ -466,7 +466,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
               ) : null}
               {videoUrl ? (
                 <video
-                  className="mt-3 max-h-[420px] w-full rounded-lg bg-black object-contain"
+                  className="mt-3 aspect-video max-h-[420px] w-full rounded-lg bg-black object-contain"
                   controls
                   preload="metadata"
                   src={videoUrl}
@@ -513,7 +513,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
                 if (filePart.mediaType.startsWith("video/")) {
                   return (
                     <video
-                      className="mt-3 max-h-[420px] w-full rounded-lg bg-black object-contain"
+                      className="mt-3 aspect-video max-h-[420px] w-full rounded-lg bg-black object-contain"
                       controls
                       key={`${message.id}-file-video-${fileIndex}`}
                       preload="metadata"

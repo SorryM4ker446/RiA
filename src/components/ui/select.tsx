@@ -98,7 +98,7 @@ const SelectTrigger = React.forwardRef<
     <SelectPrimitive.Icon asChild>
       {/* The chevron is ours, not the platform's, so it carries the palette
           and rotates with the open state. */}
-      <ChevronDown className="text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+      <ChevronDown className="text-muted-foreground transition-transform duration-[--dur-fast] group-data-[state=open]:rotate-180" />
     </SelectPrimitive.Icon>
   </SelectPrimitive.Trigger>
   );

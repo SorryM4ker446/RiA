@@ -11,6 +11,9 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      // A bare `transition` class follows the app's motion tokens, not Tailwind's 150ms default.
+      transitionDuration: { DEFAULT: "var(--dur-fast)" },
+      transitionTimingFunction: { DEFAULT: "var(--ease-out)" },
       fontFamily: {
         // Geist carries the Latin voice; the interface is Chinese, so the CJK
         // faces must follow it explicitly or the browser picks them per glyph
@@ -107,7 +110,7 @@ const config: Config = {
         "panel-in-up": "panel-in-up var(--dur-base) var(--ease-out) both",
         "row-in": "row-in var(--dur-fast) var(--ease-out) both",
         "pop-in": "pop-in var(--dur-fast) var(--ease-out) both",
-        shimmer: "shimmer 1.6s linear infinite",
+        shimmer: "shimmer var(--dur-loop) var(--ease-linear) infinite",
       },
     }
   },

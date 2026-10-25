@@ -17,7 +17,7 @@ export const enUS = {
   "brand.name": "RiA",
   "nav.home": "Home",
   "nav.chat": "Chat",
-  "nav.conversations": "Manage conversations",
+  "nav.conversations": "Conversations",
   "nav.knowledge": "Knowledge",
   "nav.media": "Media library",
   "nav.settings": "Settings",
