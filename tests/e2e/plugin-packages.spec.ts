@@ -64,6 +64,8 @@ test("marketplace installs a skill package, applies it to real chat context and 
   await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.role === "assistant")).toBe(true);
   // The answer is saved before its stream closes; restarting in between would cut the open response.
   await waitForChatStream(page);
+  // So are the reads the page makes once the answer is in (the list, the title): let them finish too.
+  await page.waitForLoadState("networkidle");
   await app.runtime.restart(); await open(page, app);
   await expect(card.getByText("已启用", { exact: true })).toBeVisible();
   await chooseRowAction(page, card, "停用插件"); await expect(card.getByText("已停用", { exact: true })).toBeVisible();

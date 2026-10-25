@@ -10,6 +10,7 @@ import { createTestDatabase } from "../helpers/database";
 import { localAccessCookie } from "../helpers/local-access";
 import { seedTestModelPreferences, CHAT_MODEL_REF } from "../helpers/model-library";
 import { languageModel, resetProviderState } from "../helpers/model-provider";
+import { wireText } from "../helpers/wire-text";
 
 const cleanup = createTestDatabase();
 process.env.RIA_TEST_PROVIDER = "1";
@@ -102,7 +103,7 @@ test("a multi-file code task compacts real terminal failures and passes tests be
   const goal = ui("project-goal", "user", "Fix add(a,b) in this project. Preserve the public API and run the real tests.");
   const response = await route.POST(request({ chatId: await workspaceChat(grant.id), messages: [goal] }));
   assert.equal(response.status, 200);
-  const wire = await response.text();
+  const wire = await wireText(response);
   assert.match(wire, /Tests: 2 passed/);
   const run = await db.agentRun.findFirstOrThrow({ orderBy: { startedAt: "desc" } });
   assert.equal(run.status, "succeeded");
@@ -124,7 +125,7 @@ test("a multi-file code task compacts real terminal failures and passes tests be
   const steps = await db.agentStep.count({ where: { runId: run.id } });
   await db.$disconnect();
   const followup = await route.POST(request({ chatId: run.chatId, messages: [...mapStoredMessagesToUI(rows).uiMessages, ui("after-reload", "user", "Which tests actually passed? Do not rerun them.")] }));
-  assert.equal(followup.status, 200); assert.match(await followup.text(), /Tests: 2 passed/);
+  assert.equal(followup.status, 200); assert.match(await wireText(followup), /Tests: 2 passed/);
   assert.equal(await db.agentStep.count({ where: { runId: run.id } }), steps);
   assert.equal(readFileSync(join(root, "executions.txt"), "utf8"), "inspect\ncheck\nfix\nverify\n");
 });
@@ -145,7 +146,7 @@ test("over-budget approval preflight leaves the stored decision pending and exec
   assert.equal((await db.message.findFirstOrThrow({ where: { chatId: chat.id, role: "assistant" } })).content, original);
   await capacity(200_000);
   const retried = await route.POST(request({ chatId: chat.id, messages }));
-  assert.equal(retried.status, 200); await retried.text();
+  assert.equal(retried.status, 200); await wireText(retried);
   assert.equal(await db.task.count({ where: { title: "Do not duplicate" } }), 1);
 });
 
@@ -231,7 +232,7 @@ test("context exhaustion after a real command closes the run and preserves its c
   });
   const response = await route.POST(request({ chatId: await workspaceChat(grant.id), messages: [ui("large-output-user", "user", "Run the command once and report the tests.")] }));
   assert.equal(response.status, 200);
-  const wire = await response.text(); assert.match(wire, /CONTEXT_LIMIT/); assert.doesNotMatch(wire, /Invalid request body/);
+  const wire = await wireText(response); assert.match(wire, /CONTEXT_LIMIT/); assert.doesNotMatch(wire, /Invalid request body/);
   assert.equal(calls, 1, "no over-budget model step was submitted");
   const run = await db.agentRun.findFirstOrThrow({ orderBy: { startedAt: "desc" } });
   assert.equal(run.status, "failed"); assert.equal(run.stopReason, "context-limit"); assert.ok(run.finishedAt);
@@ -241,7 +242,7 @@ test("context exhaustion after a real command closes the run and preserves its c
   assert.equal(saved.tools[0].state, "output-available");
   await capacity(200_000);
   const recovered = await route.POST(request({ chatId: run.chatId, messages: [...mapStoredMessagesToUI(rows).uiMessages, ui("recovery", "user", "Explain the saved result; do not execute again.")] }));
-  assert.equal(recovered.status, 200); assert.match(await recovered.text(), /exit code 0/);
+  assert.equal(recovered.status, 200); assert.match(await wireText(recovered), /exit code 0/);
   assert.equal(readFileSync(join(root, "once.txt"), "utf8"), "once");
 });
 
@@ -267,7 +268,7 @@ async function calibrationRun(t: TestContext, contextLength: number, reportedFir
   });
   const response = await route.POST(request({ chatId: await workspaceChat(grant.id), messages: [ui("calibration-user", "user", "Run the command once and report the tests.")] }));
   assert.equal(response.status, 200);
-  const wire = await response.text();
+  const wire = await wireText(response);
   const run = await db.agentRun.findFirstOrThrow({ orderBy: { startedAt: "desc" } });
   const rows = await db.message.findMany({ where: { chatId: run.chatId! }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
   const saved = decodePersistedAssistantToolMessage(rows.find(row => row.role === "assistant")!.content)!;
@@ -303,7 +304,7 @@ test("provider usage calibration is applied to later steps and recorded with a c
     controller.close();
   } }) }));
   const next = await route.POST(request({ chatId: result.run.chatId, messages: [ui("calibrated-next", "user", "Summarize the result.")] }));
-  assert.equal(next.status, 200); await next.text();
+  assert.equal(next.status, 200); await wireText(next);
   const rows = await db.message.findMany({ where: { chatId: result.run.chatId! }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
   const latest = decodePersistedAssistantToolMessage(rows.filter(row => row.role === "assistant").at(-1)!.content)!;
   assert.equal(latest.contextBudget!.usageCalibration, learned);
@@ -331,7 +332,7 @@ test("a request that uses up its compaction calls keeps labelled excerpts, compl
     } }) };
   });
   const response = await route.POST(request({ chatId: await workspaceChat(grant.id), messages: [ui("allowance-user", "user", "Run the six steps.")] }));
-  assert.equal(response.status, 200); assert.match(await response.text(), /All steps done/);
+  assert.equal(response.status, 200); assert.match(await wireText(response), /All steps done/);
   assert.equal(summaries, 1, "no summary call beyond the allowance");
   assert.equal(readFileSync(join(root, "steps.txt"), "utf8"), "xxxxxx");
   const run = await db.agentRun.findFirstOrThrow({ orderBy: { startedAt: "desc" } });
@@ -366,7 +367,7 @@ test("output exhaustion marks partial answers and runs failed with explicit reco
     controller.close();
   } }) }));
   const response = await route.POST(request({ messages: [ui("output-limit", "user", "Investigate the problem")] }));
-  await response.text();
+  await wireText(response);
   const run = await db.agentRun.findFirstOrThrow({ orderBy: { startedAt: "desc" } });
   assert.equal(run.status, "failed"); assert.equal(run.stopReason, "output-limit");
   assert.equal((await db.message.findFirstOrThrow({ where: { chatId: run.chatId!, role: "assistant" } })).status, "error");
@@ -394,7 +395,7 @@ test("a step the provider refuses as over its window is compacted and sent again
     ui("o-5", "user", "Summarize both"),
   ] }));
   assert.equal(response.status, 200);
-  assert.match(await response.text(), /Recovered answer/);
+  assert.match(await wireText(response), /Recovered answer/);
   assert.equal(calls, 2, "resent exactly once");
   assert.match(prompts[0], /OLDEST-ANSWER-MARKER/);
   assert.doesNotMatch(prompts[1], /OLDEST-ANSWER-MARKER/, "the resent step no longer carries the folded turn");
@@ -411,7 +412,7 @@ test("a second refusal after recovery is reported instead of retried again", asy
   t.mock.method(languageModel, "doGenerate", async () => summaryAnswer("Earlier work."));
   t.mock.method(languageModel, "doStream", async () => { calls++; throw Object.assign(new Error("maximum context length exceeded"), { statusCode: 400 }); });
   const response = await route.POST(request({ messages: [ui("r-1", "user", "First"), ui("r-2", "assistant", "One"), ui("r-3", "user", "Second"), ui("r-4", "assistant", "Two"), ui("r-5", "user", "Third")] }));
-  await response.text();
+  await wireText(response);
   assert.equal(calls, 2);
   assert.equal((await db.agentRun.findFirstOrThrow({ orderBy: { startedAt: "desc" } })).status, "failed");
 });

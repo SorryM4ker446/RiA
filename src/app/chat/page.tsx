@@ -43,7 +43,7 @@ export default function ChatPage() {
           <ChatToolbar {...chat} conversationControls={<ConversationList {...chat} />} />
 
           <CardContent className="flex min-h-0 flex-1 flex-col gap-0 p-0">
-            <MessageRenderer {...chat} />
+            <MessageRenderer {...chat} onShowSources={showExecutionDetails} />
 
             {/* What the turn did, above the composer: the place someone looks
                 when an answer mentions a task or a search they did not see. */}

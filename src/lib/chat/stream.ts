@@ -6,7 +6,7 @@ import { ApiError, apiErrorPayload, normalizeApiError } from "@/lib/server/api-e
 import { createChatToolSet } from "@/tools/catalog";
 import type { ModelMessage } from "ai";
 import type { LanguageModelV3Prompt } from "@ai-sdk/provider";
-import { asSchema, createUIMessageStream, createUIMessageStreamResponse, generateId, stepCountIs, streamText, wrapLanguageModel } from "ai";
+import { asSchema, createUIMessageStream, createUIMessageStreamResponse, generateId, smoothStream, stepCountIs, streamText, wrapLanguageModel } from "ai";
 import { convertToLanguageModelPrompt, standardizePrompt } from "ai/internal";
 import { isContextOverflow } from "@/lib/models/context-overflow";
 import { claimChatApproval, persistChatResponse, type ChatPersistence } from "@/lib/chat/persistence";
@@ -166,6 +166,11 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
     onStepFinish: ({ usage }) => stepContext.observeUsage(usage.inputTokens),
     abortSignal: signal,
     onChunk: ({ chunk }) => { if (chunk.type === "text-delta") answerText += chunk.text; },
+    // Providers send text in uneven bursts. Released a word at a time (a
+    // character or two in Chinese), a few milliseconds apart, the answer reads
+    // as steady typing rather than jumps; faster than a model writes, so it
+    // does not hold the answer back.
+    experimental_transform: smoothStream({ delayInMs: 6, chunking: new Intl.Segmenter(undefined, { granularity: "word" }) }),
     ...(toolsEnabled
       ? {
         tools,

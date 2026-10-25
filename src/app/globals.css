@@ -236,6 +236,29 @@ input:-webkit-autofill:focus {
     @apply whitespace-normal;
   }
 
+  /* Running text stops at a comfortable line length (about 40 Chinese
+     characters, 68 Latin ones); code, tables and media keep the full column. */
+  .markdown-message > :is(p, ul, ol, blockquote, h1, h2, h3, h4) {
+    max-width: 68ch;
+  }
+
+  /* While an answer streams, a soft caret marks where the next words arrive. */
+  .markdown-message[data-streaming] > p:last-child::after,
+  .markdown-message[data-streaming] > :is(ul, ol):last-child > li:last-child::after {
+    content: "";
+    /* Out of the flow at the end of the text: it never wraps a line, so the
+       answer does not change height when it disappears. */
+    position: absolute;
+    display: inline-block;
+    width: 2px;
+    height: 1.05em;
+    margin-left: 2px;
+    vertical-align: -0.15em;
+    border-radius: 1px;
+    background: hsl(var(--foreground) / .7);
+    animation: caret-pulse calc(var(--dur-slow) * 3) var(--ease-in-out) infinite alternate;
+  }
+
   .markdown-message strong {
     @apply font-semibold;
   }
@@ -1010,6 +1033,15 @@ body:has(.settings-window) .toast-stack { left: 50%; bottom: 24px; }
 .models-section-nav a:hover, .models-section-nav a:focus-visible { color: hsl(var(--foreground)); }
 
 @keyframes content-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes caret-pulse { from { opacity: 1; } to { opacity: .15; } }
+
+/* A long earlier answer shows its opening (28rem) and fades out; the toggle unfolds it. */
+.answer-fold[data-folded] > .answer-fold-body { max-height: 28rem; overflow: hidden; }
+.answer-fold[data-folded][data-overflows] > .answer-fold-body { mask-image: linear-gradient(to bottom, #000 70%, transparent); }
+.answer-fold-toggle { margin-top: 6px; border-radius: var(--radius-control); padding: 4px 8px; margin-left: -8px; font-size: 12px; font-weight: 500; color: hsl(var(--muted-foreground)); transition: background-color var(--dur-instant) var(--ease-out), color var(--dur-instant) var(--ease-out); }
+.answer-fold-toggle:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+.answer-fold-toggle:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+
 /* Placeholders: invisible but in place until a load has taken a moment, then a fade and a steady shimmer. */
 .skeleton { visibility: hidden; animation: shimmer var(--dur-loop) var(--ease-linear) infinite; }
 .skeleton[data-late] { visibility: visible; animation: content-in var(--dur-base) var(--ease-out), shimmer var(--dur-loop) var(--ease-linear) infinite; }
@@ -1017,6 +1049,12 @@ body:has(.settings-window) .toast-stack { left: 50%; bottom: 24px; }
 /* The app-wide tooltip: centred over (or under) what it describes, never catching the pointer. */
 .app-tooltip { position: fixed; z-index: 100; max-width: min(22rem, calc(100vw - 24px)); padding: 6px 10px; border-radius: var(--radius-card); font-size: 12px; line-height: 1.5; color: hsl(var(--popover-foreground)); pointer-events: none; overflow-wrap: anywhere; translate: -50% -100%; animation: content-in var(--dur-fast) var(--ease-out); }
 .app-tooltip[data-side="bottom"] { translate: -50% 0; }
+
+/* The sources an answer drew on: a quiet row of small cards under it. */
+.answer-sources { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.answer-source { display: inline-flex; max-width: min(18rem, 100%); min-height: 28px; align-items: center; gap: 6px; border-radius: var(--radius-control); padding: 4px 10px; font-size: 12px; color: hsl(var(--foreground)); background: hsl(var(--foreground) / .04); box-shadow: 0 0 0 1px hsl(var(--border) / .8); transition: background-color var(--dur-instant) var(--ease-out); }
+.answer-source:hover { background: hsl(var(--foreground) / .08); }
+.answer-source:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
 
 @keyframes overlay-out { from { opacity: 1; } to { opacity: 0; } }
 @keyframes sheet-in { from { opacity: .7; transform: translateX(var(--sheet-offset)); } to { opacity: 1; transform: translateX(0); } }

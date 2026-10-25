@@ -11,6 +11,7 @@ import { createTestDatabase } from "../helpers/database";
 import { localAccessCookie } from "../helpers/local-access";
 import { languageModel, providerState } from "../helpers/model-provider";
 import { seedTestModelPreferences } from "../helpers/model-library";
+import { wireText } from "../helpers/wire-text";
 
 // A prompt message body is either plain text or a list of parts; the
 // assertions below only inspect the leading text part of a turn.
@@ -77,7 +78,7 @@ test("long tool turns accept follow-ups from both live and reloaded history", as
   });
   const response = await chat.POST(request({ messages: [ui("count-loop", "user", "Read repeatedly until finished")] }));
   assert.equal(response.status, 200);
-  const wire = await response.text();
+  const wire = await wireText(response);
   assert.match(wire, /Forty steps completed/);
   assert.equal(calls, 41);
   const run = await db.agentRun.findFirstOrThrow({ orderBy: { startedAt: "desc" } });
@@ -94,14 +95,14 @@ test("long tool turns accept follow-ups from both live and reloaded history", as
   assert.ok(live.parts.length > 100);
   const firstFollowUp = await chat.POST(request({ chatId: run.chatId, messages: [ui("count-loop", "user", "Read repeatedly until finished"), live, ui("live-follow-up", "user", "What did you find?")] }));
   assert.equal(firstFollowUp.status, 200);
-  assert.match(await firstFollowUp.text(), /Forty steps completed/);
+  assert.match(await wireText(firstFollowUp), /Forty steps completed/);
   const stored = await db.message.findMany({ where: { chatId: run.chatId! }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
   const payload = stored.map(row => decodePersistedAssistantToolMessage(row.content)).find(item => item?.runId === run.id)!;
   assert.equal(payload.reasoning?.length, 160_000);
   const restored = mapStoredMessagesToUI(stored).uiMessages;
   const next = await chat.POST(request({ chatId: run.chatId, messages: [...restored, ui("restored-follow-up", "user", "Continue after reload")] }));
   assert.equal(next.status, 200);
-  assert.match(await next.text(), /Forty steps completed/);
+  assert.match(await wireText(next), /Forty steps completed/);
   assert.equal(calls, 43);
   assert.equal(await db.agentStep.count({ where: { runId: run.id } }), 40);
 });
@@ -128,7 +129,7 @@ test("answer persistence failures expose a safe database code without logging co
 test("chat keeps automatic tools available when an older client sends the retired manual-only flag", async () => {
   const response = await chat.POST(request({ messages: [ui("auto-tools", "user", "Explain the available actions")] }));
   assert.equal(response.status, 200);
-  await response.text();
+  await wireText(response);
   const names = languageModel.doStreamCalls.at(-1).tools.map(tool => tool.name);
   for (const id of ["createTask", "searchKnowledge", "readDocument", "convertDocument"]) assert.ok(names.includes(id), id);
 });
@@ -136,7 +137,7 @@ test("chat keeps automatic tools available when an older client sends the retire
 test("ordinary chat receives task-oriented agent instructions without empty retrieval or memory scaffolding", async () => {
   const response = await chat.POST(request({ messages: [ui("agent-goal", "user", "Help me plan a short story")] }));
   assert.equal(response.status, 200);
-  await response.text();
+  await wireText(response);
   const prompt = languageModel.doStreamCalls.at(-1).prompt.find(item => item.role === "system").content;
   assert.match(prompt, /RiA, a local-first desktop AI agent/);
   assert.match(prompt, /carry authorized work through/);
@@ -164,7 +165,7 @@ test("model capacity bounds long persisted conversations while retaining the act
   await db.message.createMany({ data: history.map((item) => ({ chatId: owned.id, clientMessageId: item.id, role: item.role, content: item.parts[0].text })) });
   const response = await chat.POST(request({ chatId: owned.id, messages: [...history, ui("follow-up", "user", "Explain the previous answer")] }));
   assert.equal(response.status, 200);
-  await response.text();
+  await wireText(response);
   const prompt = languageModel.doStreamCalls.at(-1).prompt;
   const capacity = contextBudget(null, Object.values(settings.contextLimits)[0]);
   assert.ok(estimateContextTokens({ prompt, tools: languageModel.doStreamCalls.at(-1).tools }) <= capacity.inputTokens);
@@ -184,7 +185,7 @@ test("chat streams owned document sources and preserves citation snapshots throu
   // A second document in the same workspace is ordinary context, not a leak.
   const response = await chat.POST(request({ messages: [ui("documents-user", "user", "织女星补给何时送达")] }));
   assert.equal(response.status, 200);
-  const wire = await response.text();
+  const wire = await wireText(response);
   assert.match(wire, /documentSources/);
   assert.match(wire, /supply.pdf/);
   const sent = languageModel.doStreamCalls.at(-1).prompt;
