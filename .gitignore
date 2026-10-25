@@ -66,3 +66,6 @@ access-diagnostic.log
 .idea/
 .DS_Store
 Thumbs.db
+
+# Local screenshot baseline for `npm run test:visual`; machine-specific pixels.
+.visual-baseline/
