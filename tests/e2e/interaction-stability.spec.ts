@@ -105,10 +105,25 @@ for (const variant of variants) test.describe(`${variant.theme} theme, ${variant
     const dialog = settingsDialog(page);
     await expect(dialog).toBeVisible();
     await page.waitForTimeout(400);
+    // Every read answers late, as on a busy machine, so each section paints its
+    // loading state first; each section is then left only after its reads end.
+    await page.evaluate(() => {
+      const state = window as unknown as { pendingReads: number };
+      const original = window.fetch.bind(window);
+      state.pendingReads = 0;
+      window.fetch = async (...args) => {
+        state.pendingReads++;
+        try { await new Promise(resolve => setTimeout(resolve, 300)); return await original(...args); }
+        finally { state.pendingReads--; }
+      };
+    });
     const layout = await watchLayout(page, { window: ".settings-window", categories: dialog.getByRole("tablist") });
     for (const section of ["应用偏好", "自动化与通知", "工作区权限", "模型", "用量", "扩展", "备份与恢复", "API 密钥"]) {
       await dialog.getByRole("tab", { name: section, exact: true }).click();
       await expect(dialog.getByRole("tab", { name: section, exact: true })).toHaveAttribute("aria-selected", "true");
+      // Two painted frames let the section's effects start its reads; then wait for them to end.
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 0)))));
+      await page.waitForFunction(() => (window as unknown as { pendingReads: number }).pendingReads === 0);
     }
     const record = await layout.read();
     expectSteady(record, "window");
