@@ -81,6 +81,11 @@ const NAV_GROUPS = (): { label: string; items: NavItem[] }[] => [
   ] },
 ];
 
+/** The settings sections in their side-list order, for the command palette. */
+export function settingsSections(): { id: SettingsSectionId; label: string }[] {
+  return NAV_GROUPS().flatMap(group => group.items.map(({ id, label }) => ({ id, label })));
+}
+
 function SectionContent({ id }: { id: SettingsSectionId }) {
   useLocale();
   switch (id) {

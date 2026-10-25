@@ -663,6 +663,13 @@ export function useChatState() {
   }
 
   function handleTextareaKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    // Escape in the message box stops a running answer; with Shift it is the
+    // "focus the message box" shortcut, which is already satisfied here.
+    if (event.key === "Escape" && !event.shiftKey && isPending) {
+      event.preventDefault();
+      onStop();
+      return;
+    }
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       const hasAttachments = attachments.length > 0;

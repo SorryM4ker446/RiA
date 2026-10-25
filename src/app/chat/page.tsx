@@ -16,6 +16,7 @@ import { ApprovalDock } from "@/features/chat/approval-dock";
 import { DirectoryPermissions } from "@/features/chat/directory-permissions";
 import { ComposerNotice } from "@/features/chat/composer-notice";
 import { useChatState } from "@/features/chat/use-chat-state";
+import { useChatCommands } from "@/features/commands/chat-commands";
 import { TriangleAlert } from "lucide-react";
 import { localizeMessage, t } from "@/lib/locale";
 
@@ -26,6 +27,14 @@ export default function ChatPage() {
   const dock = useRef<HTMLDivElement>(null);
   useToastAnchor(dock);
   const [executionPanel, setExecutionPanel] = useState<{ chatId: string; messageId?: string } | null>(null);
+  // Commands from the palette and keyboard shortcuts; one sent from another page runs once chat is ready.
+  useChatCommands(command => {
+    if (command.type === "new-conversation") void chat.createNewChat();
+    else if (command.type === "open-conversation") void chat.switchActiveChat(command.id);
+    else if (command.type === "focus-composer") chat.textareaRef.current?.focus();
+    else if (command.type === "select-model") { if (chat.modelMode !== "chat") chat.onModeSelect("chat"); chat.onModelSelect(command.model); }
+    else if (command.type === "toggle-records") setExecutionPanel(previous => previous || !chat.activeChatId ? null : { chatId: chat.activeChatId });
+  }, !chat.isLoadingChats);
   const showExecutionDetails = (messageId: string) => {
     if (chat.activeChatId) setExecutionPanel({ chatId: chat.activeChatId, messageId });
   };

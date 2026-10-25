@@ -1056,6 +1056,18 @@ body:has(.settings-window) .toast-stack { left: 50%; bottom: 24px; }
 .answer-source:hover { background: hsl(var(--foreground) / .08); }
 .answer-source:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
 
+/* Command palette: one frosted box near the top of the window, over a light scrim. */
+.command-palette-overlay { position: fixed; inset: 0; z-index: 90; background: hsl(var(--foreground) / .12); animation: overlay-in var(--dur-fast) var(--ease-out); }
+.command-palette { position: fixed; left: 50%; top: 18vh; z-index: 91; display: flex; width: min(36rem, calc(100vw - 32px)); max-height: min(28rem, 70vh); flex-direction: column; overflow: hidden; border-radius: var(--radius-window); translate: -50% 0; animation: pop-in var(--dur-fast) var(--ease-out); }
+.command-palette:focus { outline: none; }
+.command-palette-help { width: min(26rem, calc(100vw - 32px)); }
+.command-palette-search { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid hsl(var(--border) / .7); }
+.command-palette-search input { min-width: 0; flex: 1; background: transparent; font-size: 14px; outline: none; }
+.command-palette-list { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 6px; }
+.command-palette-group { padding: 10px 10px 4px; font-size: 11px; letter-spacing: .02em; color: hsl(var(--muted-foreground) / .85); }
+.command-palette-item { display: flex; min-height: 36px; cursor: pointer; align-items: center; gap: 10px; border-radius: var(--radius-inner); padding: 0 10px; font-size: 13px; transition: background-color var(--dur-instant) var(--ease-out); }
+.command-palette-item.is-active { background: hsl(var(--foreground) / .07); }
+.command-palette-hint { display: inline-flex; min-width: 1.4rem; justify-content: center; border-radius: 5px; padding: 1px 6px; font-family: var(--font-sans); font-size: 11px; color: hsl(var(--muted-foreground)); background: hsl(var(--foreground) / .06); white-space: nowrap; }
 @keyframes overlay-out { from { opacity: 1; } to { opacity: 0; } }
 @keyframes sheet-in { from { opacity: .7; transform: translateX(var(--sheet-offset)); } to { opacity: 1; transform: translateX(0); } }
 @keyframes sheet-out { from { opacity: 1; transform: translateX(0); } to { opacity: .7; transform: translateX(var(--sheet-offset)); } }
