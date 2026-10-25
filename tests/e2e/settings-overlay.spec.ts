@@ -49,12 +49,12 @@ test("settings open over the current page and closing returns to it", async ({ p
 
 test("unsaved edits survive moving between sections and closing asks before discarding them", async ({ page, app }) => {
   await openWorkspace(page, app.origin);
-  const dialog = await openSettings(page, "服务与模型");
+  const dialog = await openSettings(page, "API 密钥");
   await dialog.getByText("连接与站点选项", { exact: false }).click();
   const siteName = dialog.getByLabel("OpenRouter 站点名称", { exact: true });
   await siteName.fill("未保存的站点名称");
   await dialog.getByRole("tab", { name: "备份与恢复", exact: true }).click();
-  await dialog.getByRole("tab", { name: "服务与模型", exact: true }).click();
+  await dialog.getByRole("tab", { name: "API 密钥", exact: true }).click();
   await expect(siteName).toHaveValue("未保存的站点名称");
 
   await page.keyboard.press("Escape");
@@ -68,7 +68,7 @@ test("unsaved edits survive moving between sections and closing asks before disc
   await discard.getByRole("button", { name: "放弃更改", exact: true }).click();
   await expect(dialog).toBeHidden();
   // Going back would drop the edit too, so it asks; keeping it keeps the settings open.
-  await openSettings(page, "服务与模型");
+  await openSettings(page, "API 密钥");
   await dialog.getByText("连接与站点选项", { exact: false }).click();
   await siteName.fill("未保存的站点名称");
   await page.goBack();
@@ -91,7 +91,7 @@ test("unsaved edits survive moving between sections and closing asks before disc
   await expect(dialog).toBeHidden();
 
   // Reopened, the section reads what is stored and nothing is left over.
-  await openSettings(page, "服务与模型");
+  await openSettings(page, "API 密钥");
   await dialog.getByText("连接与站点选项", { exact: false }).click();
   await expect(siteName).toHaveValue("");
   await page.keyboard.press("Escape");

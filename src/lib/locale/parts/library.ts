@@ -119,7 +119,7 @@ export const libraryMessages = {
   "documents.searchLabel": "检索文档",
   "documents.searchPlaceholder": "检索已导入文档中的内容",
   "documents.search": "检索文档",
-  "documents.noMatches": "当前未检索到支持这个问题的资料。可换一种表述、调整集合，或补充资料并构建语义索引。",
+  "documents.noMatches": "当前未检索到支持这个问题的资料。可换一种表述、调整主题，或补充资料并构建语义索引。",
   "documents.backToLibrary": "返回知识库",
   "documents.fallbackTitle": "文档来源",
   "documents.extractedTextNote": "以下为当前保存的提取文本，可能与原文件排版不同。普通长片段含少量重叠，表格片段重复表头以保留行列关系。",

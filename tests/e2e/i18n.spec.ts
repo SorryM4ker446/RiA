@@ -25,14 +25,14 @@ test("a Chinese system defaults to Chinese, switches without losing edits, persi
   await page.goto(`${app.origin}/settings`);
   await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
   await expect(page.getByRole("combobox", { name: "界面语言", exact: true })).toContainText("简体中文");
-  await page.getByRole("tab", { name: "服务与模型", exact: true }).click();
+  await page.getByRole("tab", { name: "API 密钥", exact: true }).click();
   await page.getByText("连接与站点选项", { exact: false }).click();
   await page.getByLabel("OpenRouter 站点名称", { exact: true }).fill("未保存的站点名称");
   await page.getByRole("tab", { name: "应用偏好", exact: true }).click();
   await chooseEnglish(page);
   await expect(page.getByRole("tab", { name: "Application", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("tab", { name: "Models", exact: true })).toBeVisible();
-  await page.getByRole("tab", { name: "Services & models", exact: true }).click();
+  await page.getByRole("tab", { name: "API keys", exact: true }).click();
   await expect(page.getByLabel("OpenRouter site name", { exact: true })).toHaveValue("未保存的站点名称");
   await page.getByRole("tab", { name: "Application", exact: true }).click();
 
@@ -103,6 +103,11 @@ test("English is applied to primary pages and built-in metadata", async ({ page,
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await openWorkspace(page, app.origin);
+  // A document, so the knowledge page offers its retrieval checks.
+  expect(await page.evaluate(async () => {
+    const body = new FormData(); body.set("file", new File(["# Travel\n\nKeep receipts."], "travel.md", { type: "text/markdown" }));
+    return (await fetch("/api/documents", { method: "POST", body })).status;
+  })).toBe(201);
   await page.goto(`${app.origin}/settings`);
   await chooseEnglish(page);
   for (const route of ["/", "/assistants", "/topics", "/tasks", "/conversations", "/knowledge", "/models", "/media", "/backups", "/storage", "/extensions"]) {

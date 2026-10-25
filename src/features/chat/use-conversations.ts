@@ -256,15 +256,18 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
    * updated from the response rather than optimistically, so the header never
    * claims a state the server did not store.
    */
-  async function toggleEphemeral(next: boolean) {
+  /** Resolves whether the change was saved; the list is reloaded either way. */
+  async function toggleEphemeral(next: boolean): Promise<boolean> {
     const chat = chats.find((item) => item.id === activeChatId);
-    if (!chat) return;
+    if (!chat) return false;
     setIsEphemeralSaving(true);
     try {
       await chatApi.setEphemeral(chat.id, next);
       await loadChats();
+      return true;
     } catch {
       await loadChats();
+      return false;
     } finally {
       setIsEphemeralSaving(false);
     }

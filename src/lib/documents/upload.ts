@@ -15,7 +15,7 @@ export async function readDocumentUpload(req: Request, preview: boolean | "proce
   try { form = await new Response(bytes, { headers: { "Content-Type": contentType } }).formData(); }
   catch { throw new ApiError({ code: "VALIDATION_ERROR", message: "无效的文档上传。" }); }
   const allowed = preview === "processor" ? ["file"] : preview ? ["file", "collection"] : ["file", "collection", "previewHash", "base"];
-  if ([...form.keys()].some(key => !allowed.includes(key) || form.getAll(key).length !== 1) || !(form.get("file") instanceof File)) throw new ApiError({ code: "VALIDATION_ERROR", message: "一次只可提交一个文档及其集合。" });
+  if ([...form.keys()].some(key => !allowed.includes(key) || form.getAll(key).length !== 1) || !(form.get("file") instanceof File)) throw new ApiError({ code: "VALIDATION_ERROR", message: "一次只可提交一个文档及其主题。" });
   const file = form.get("file") as File;
   const collection = z.string().trim().max(40).parse(form.get("collection") ?? "") || null;
   const { filename, format } = validateDocumentFile(file);

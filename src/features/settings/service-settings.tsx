@@ -9,16 +9,13 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { PageHeader } from "@/components/layout/page-header";
 import { Reveal } from "@/components/ui/reveal";
 import { Status } from "@/components/ui/status";
-import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { SettingsSection } from "@/features/settings/settings-section";
 import { SettingsLink, useSettingsDirty } from "@/features/settings/settings-context";
 import { Input } from "@/components/ui/input";
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { SelectField, SelectOption } from "@/components/ui/select";
-import { jsonRequest, settingsRequest } from "@/features/settings/api-client";
-import { libraryModel, modelRefKey, type ModelPreferences } from "@/lib/models/preferences-schema";
-import { parseModelRefValue } from "@/features/chat/preferences";
+import { settingsRequest } from "@/features/settings/api-client";
+import { libraryModel, type ModelPreferences } from "@/lib/models/preferences-schema";
 import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
 
 /** Scrolls to a part of this section without writing a fragment into the page's address. */
@@ -26,16 +23,15 @@ function scrollToPart(id: string) {
   document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-/** Provider keys, connection options and the default chat model. */
+/**
+ * Provider keys and connection options. Models and their defaults are chosen
+ * in the models section; the readiness list here only says how far that is.
+ */
 export function ServiceSettings() {
   useLocale();
-  const toast = useToast();
   const windowDesktop = useDesktopRuntime();
   const [settings, setSettings] = useState<DesktopSettingsView | null>(null);
   const [modelState, setModelState] = useState<ModelPreferences | null>(null);
-  const [defaultModel, setDefaultModel] = useState("");
-  const [modelError, setModelError] = useState<string | null>(null);
-  const [savingModel, setSavingModel] = useState(false);
   const [runtime, setRuntime] = useState<DesktopRuntimeInfo | null>(null);
   const [openrouterApiKey, setOpenrouterApiKey] = useState("");
   const [tavilyApiKey, setTavilyApiKey] = useState("");
@@ -64,19 +60,13 @@ export function ServiceSettings() {
       // The readiness steps describe what is configured, and two of the three
       // live in model settings rather than in the desktop store. A failure here
       // must not block the section, so it is settled separately below.
-      settingsRequest<{ data: ModelPreferences }>("/api/models")
-        .catch((error: unknown) => {
-          setModelError(error instanceof Error ? error.message : t("ui.settings.couldNotLoadModelConfiguration"));
-          return null;
-        }),
+      // Unknown readiness is shown as unknown rather than as a failure.
+      settingsRequest<{ data: ModelPreferences }>("/api/models").catch(() => null),
     ])
       .then(([loadedSettings, loadedRuntime, models]) => {
         setSettings(loadedSettings);
         setRuntime(loadedRuntime);
-        if (models?.data) {
-          setModelState(models.data);
-          setDefaultModel(models.data.chat.model ? modelRefKey(models.data.chat.model) : "");
-        }
+        if (models?.data) setModelState(models.data);
         setOutboundProxyUrl(loadedSettings.outboundProxyUrl);
         setOpenrouterSiteName(loadedSettings.openrouterSiteName);
         setOpenrouterHttpReferer(loadedSettings.openrouterHttpReferer);
@@ -98,33 +88,12 @@ export function ServiceSettings() {
 
   const modelCount = modelState?.library.length ?? 0;
   const hasDefaultModel = Boolean(modelState && libraryModel(modelState, "chat", modelState.chat.model));
-  const savedDefault = modelState?.chat.model ? modelRefKey(modelState.chat.model) : "";
   // The connection fields start empty until the desktop settings load, so an
   // edit counts against what was loaded, or against empty when nothing was.
   const loaded = settings ?? { outboundProxyUrl: "", openrouterSiteName: "", openrouterHttpReferer: "" };
   const keysChanged = Boolean(openrouterApiKey || tavilyApiKey || deepseekApiKey || clearOpenrouterApiKey || clearTavilyApiKey || clearDeepseekApiKey)
     || outboundProxyUrl !== loaded.outboundProxyUrl || openrouterSiteName !== loaded.openrouterSiteName || openrouterHttpReferer !== loaded.openrouterHttpReferer;
-  useSettingsDirty(!isSaving && (keysChanged || defaultModel !== savedDefault));
-
-  async function saveDefaultModel() {
-    if (savingModel) return;
-    setSavingModel(true);
-    setModelError(null);
-    try {
-      // Read the other preferences at save time so editing this field preserves them.
-      const { data: latest } = await settingsRequest<{ data: ModelPreferences }>("/api/models");
-      const { data } = await settingsRequest<{ data: ModelPreferences }>("/api/models", jsonRequest("PUT", {
-        ...latest, chat: { ...latest.chat, model: parseModelRefValue(defaultModel) },
-      }));
-      setModelState(data);
-      setDefaultModel(data.chat.model ? modelRefKey(data.chat.model) : "");
-      toast(t("ui.settings.defaultChatModelSavedNewConversations"));
-    } catch (error) {
-      setModelError(error instanceof Error ? error.message : t("ui.settings.couldNotSaveDefaultModel"));
-    } finally {
-      setSavingModel(false);
-    }
-  }
+  useSettingsDirty(!isSaving && keysChanged);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -162,13 +131,13 @@ export function ServiceSettings() {
 
   const steps = settings ? [
     { done: settings.hasOpenrouterApiKey || settings.hasDeepseekApiKey, known: true, label: t("settings.step.provider"), target: "service-keys", detail: t("ui.settings.configureAtLeastOneModelProvider") },
-    { done: modelCount > 0, known: Boolean(modelState), label: t("settings.step.models"), target: null, detail: modelState ? modelCount + t("ui.settings.modelsAdded") : t("ui.settings.modelConfigurationNotLoaded") },
-    { done: hasDefaultModel, known: Boolean(modelState), label: t("settings.step.default"), target: "default-chat-model", detail: hasDefaultModel ? libraryModel(modelState!, "chat", modelState!.chat.model)!.name : modelState ? t("ui.settings.noGlobalDefaultModelSavedYet") : t("ui.settings.modelConfigurationNotLoaded") },
+    { done: modelCount > 0, known: Boolean(modelState), label: t("settings.step.models"), target: null, anchor: "model-library", detail: modelState ? modelCount + t("ui.settings.modelsAdded") : t("ui.settings.modelConfigurationNotLoaded") },
+    { done: hasDefaultModel, known: Boolean(modelState), label: t("settings.step.default"), target: null, anchor: "model-preferences", detail: hasDefaultModel ? libraryModel(modelState!, "chat", modelState!.chat.model)!.name : modelState ? t("ui.settings.noGlobalDefaultModelSavedYet") : t("ui.settings.modelConfigurationNotLoaded") },
   ] : [];
 
   return (
     <>
-      <PageHeader level={2} title={t("ui.settings.servicesModels")} />
+      <PageHeader level={2} title={t("ui.settings.apiKeys")} />
 
       {!windowDesktop && <p role="status" className="text-sm text-muted-foreground">{t("settings.error.desktopOnly")}</p>}
       <Reveal className="-mt-7">{error ? <Alert variant="destructive" className="mt-7"><AlertTitle>{t("settings.error.title")}</AlertTitle><AlertDescription>{localizeMessage(error)}</AlertDescription></Alert> : null}</Reveal>
@@ -186,7 +155,7 @@ export function ServiceSettings() {
                   <li key={step.label} data-complete={step.known ? step.done : "unknown"}>
                     {step.target
                       ? <a href={`#${step.target}`} className="settings-readiness-link" onClick={event => { event.preventDefault(); scrollToPart(step.target!); }}>{content}</a>
-                      : <SettingsLink section="models" className="settings-readiness-link">{content}</SettingsLink>}
+                      : <SettingsLink section="models" anchor={step.anchor} className="settings-readiness-link">{content}</SettingsLink>}
                   </li>
                 );
               })}
@@ -224,20 +193,6 @@ export function ServiceSettings() {
                   <div className="flex justify-end"><Button disabled={isSaving || !settings?.encryptionAvailable} type="submit" size="sm">{isSaving && <Loader2 data-icon="inline-start" aria-hidden="true" className="animate-spin" />}{t("settings.saveAndRestart")}</Button></div>
                 </form>
               )}
-          </SettingsSection>
-
-          <SettingsSection id="default-chat-model" title={t("ui.settings.defaultChatModel")} description={t("ui.settings.newConversationsUseThisModelThe")}>
-            <div className="flex flex-col gap-3">
-              <Reveal className="-mt-3">{modelError ? <Alert variant="destructive" className="mt-3"><AlertTitle>{t("ui.settings.modelConfigurationNotUpdated")}</AlertTitle><AlertDescription>{localizeMessage(modelError)}</AlertDescription></Alert> : null}</Reveal>
-              <div className="flex flex-wrap items-center gap-3">
-                <SelectField aria-label={t("ui.settings.defaultChatModel")} className="min-w-0 flex-1 sm:min-w-48" value={defaultModel} disabled={!modelState || savingModel} onValueChange={setDefaultModel}>
-                  <SelectOption value="">{t("ui.settings.noDefaultModel")}</SelectOption>
-                  {modelState?.library.filter(model => model.modes.includes("chat")).map(model => <SelectOption key={modelRefKey(model)} value={modelRefKey(model)}>{model.name} · {model.providerId}</SelectOption>)}
-                </SelectField>
-                <Button size="sm" disabled={!modelState || savingModel || defaultModel === savedDefault} onClick={() => void saveDefaultModel()}>{savingModel && <Loader2 data-icon="inline-start" aria-hidden="true" className="animate-spin" />}{t("ui.settings.saveDefaultModel")}</Button>
-              </div>
-              <div className="flex flex-wrap gap-4 text-xs"><SettingsLink className="text-muted-foreground hover:text-foreground" section="models" anchor="model-preferences">{t("ui.settings.manageDefaultsAndFallbacksForEach")}</SettingsLink><SettingsLink className="text-muted-foreground hover:text-foreground" section="backups">{t("settings.navBackups")}</SettingsLink></div>
-            </div>
           </SettingsSection>
 
           <details className="settings-disclosure px-1">

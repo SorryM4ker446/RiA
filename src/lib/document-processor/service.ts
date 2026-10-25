@@ -17,7 +17,7 @@ export async function processUpload(input: { filename: string; format: DocumentF
 }
 export async function loadProcessorDocument(id: string, options: { collections?: string[]; version?: string } = {}) {
   const row = await db.knowledgeDocument.findUnique({ where: { id }, select: { id: true, filename: true, format: true, pages: true, contentHash: true, collection: true } });
-  if (!row || (options.collections?.length && !options.collections.includes(row.collection ?? ""))) throw new ApiError({ code: "NOT_FOUND", message: "文档不存在，或不在当前助理允许的知识集合中。" });
+  if (!row || (options.collections?.length && !options.collections.includes(row.collection ?? ""))) throw new ApiError({ code: "NOT_FOUND", message: "文档不存在，或不在当前助理可用的主题中。" });
   if (options.version && row.contentHash !== options.version) throw new ApiError({ code: "CONFLICT", message: "文档已更新，请重新转换后下载。" });
   return { ...processed(row.filename, row.format, documentPagesSchema.parse(row.pages)), source: { id: row.id, contentHash: row.contentHash } };
 }

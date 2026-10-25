@@ -694,7 +694,8 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
   .message-nav-preview, .message-nav-preview[data-state="closed"] { animation: none; }
 }
 .chat-memory-toggle { color: hsl(var(--muted-foreground)); }
-.chat-memory-toggle[aria-checked="true"] { color: hsl(var(--foreground)); background: hsl(var(--foreground) / .08); }
+/* Off is the exception a conversation is put into, so it is the state that stands out. */
+.chat-memory-toggle[aria-checked="false"] { color: hsl(var(--foreground)); background: hsl(var(--foreground) / .08); }
 .chat-welcome { padding: 1.5rem 0; }
 .chat-welcome-title { max-width: 35rem; font-size: clamp(1.5rem, 2.5vw, 2rem); font-weight: 600; line-height: 1.5; letter-spacing: -.035em; text-wrap: balance; }
 .chat-welcome-description { max-width: 29rem; font-size: 14px; line-height: 1.8; color: hsl(var(--muted-foreground)); text-wrap: balance; }

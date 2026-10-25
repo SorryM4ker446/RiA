@@ -55,7 +55,7 @@ test("semantic indexing delivers evidence to chat, marks actual citations and su
   await expect(page.getByLabel("构建语义索引 差旅规程.md")).toBeEnabled();
   await expect(page.getByTestId("index-maintenance")).toContainText("差旅规程.md：已完成");
   expect(app.readRows("SELECT id FROM model_requests WHERE mode='embedding'")).toHaveLength(charged);
-  await page.getByLabel("检索资料集合").click(); await page.getByRole("option", { name: "财务", exact: true }).click();
+  await page.getByLabel("检索的主题").click(); await page.getByRole("option", { name: "财务", exact: true }).click();
   await page.getByRole("button", { name: "检索文档", exact: true }).click();
   const evidence = page.locator("details").filter({ hasText: "文档参考" }).last();
   await expect(evidence).toContainText("十个工作日"); await expect(evidence).toContainText("书面说明");

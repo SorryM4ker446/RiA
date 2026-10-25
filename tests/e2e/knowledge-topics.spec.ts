@@ -66,6 +66,6 @@ test("empty topic scope stays empty and failed loading recovers through explicit
   const url = `${app.origin}/topics/${created.body.data.id}`;
   await page.route(`**/api/topics/${created.body.data.id}`, route => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { code: "UPSTREAM_FAILED", message: "专题读取失败" } }) }));
   await page.goto(url); await expect(page.getByRole("status")).toContainText("专题读取失败"); await page.unroute(`**/api/topics/${created.body.data.id}`);
-  await page.getByRole("button", { name: "刷新专题和成果", exact: true }).click(); await expect(page.getByText("这些集合暂无文档，请导入资料后再检索或生成成果。")).toBeVisible();
+  await page.getByRole("button", { name: "刷新专题和成果", exact: true }).click(); await expect(page.getByText("这些主题暂无文档，请导入资料后再检索或生成成果。")).toBeVisible();
   await page.getByLabel("确认模型调用", { exact: true }).check(); await expect(page.getByRole("button", { name: "生成成果", exact: true })).toBeDisabled(); expect(app.providerCalls.length).toBe(0);
 });

@@ -4,7 +4,8 @@ import { t, localizeMessage } from "@/lib/locale";
 import { SelectField, SelectOption } from "@/components/ui/select";
 import { useEffect, type ReactNode } from "react";
 import Link from "next/link";
-import { ShieldOff } from "lucide-react";
+import { Brain } from "lucide-react";
+import { useToast } from "@/components/ui/toast";
 import { Badge } from "@/components/ui/badge";
 import { CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,7 @@ export function ChatToolbar({
   conversationControls,
 }: Props) {
   useLocale();
+  const toast = useToast();
   // Topics are fetched once for the header; a failure only removes the scope
   // control, it does not affect the conversation.
   useEffect(() => {
@@ -82,7 +84,8 @@ export function ChatToolbar({
           </SelectField>
           {snapshot ? <TemplateDetails key={activeChat?.id} snapshot={snapshot} /> : null}
           <Button asChild variant="ghost" size="sm"><Link href="/assistants">{t("ui.chat.chat-toolbar.manageTemplates")}</Link></Button>
-          {activeChat && <Button role="checkbox" aria-checked={activeChat.ephemeral === true} aria-label={t("chat.ephemeral.label")} title={t("chat.ephemeral.note")} className="chat-memory-toggle" variant="ghost" size="sm" disabled={isEphemeralSaving || isDocumentScopeSaving || isPending} onClick={() => void toggleEphemeral(!activeChat.ephemeral)}><ShieldOff data-icon="inline-start" aria-hidden="true" />{t("chat.ephemeral.label")}</Button>}
+          {/* Said as what the conversation does, with its state in the label, so it reads without the tooltip. */}
+          {activeChat && <Button role="switch" aria-checked={activeChat.ephemeral !== true} aria-label={t("chat.memory.label")} title={t("chat.memory.note")} className="chat-memory-toggle" variant="ghost" size="sm" disabled={isEphemeralSaving || isDocumentScopeSaving || isPending} onClick={() => { const ephemeral = !activeChat.ephemeral; void toggleEphemeral(ephemeral).then(saved => { if (saved) toast(t(ephemeral ? "chat.memory.turnedOff" : "chat.memory.turnedOn")); }); }}><Brain data-icon="inline-start" aria-hidden="true" />{t(activeChat.ephemeral ? "chat.memory.off" : "chat.memory.on")}</Button>}
         </div>
       </div>
       {hasTemplateUpdate || assistantsError ? <div className="flex flex-wrap items-center gap-2 text-xs">

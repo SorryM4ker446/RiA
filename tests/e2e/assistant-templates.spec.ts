@@ -37,7 +37,7 @@ test("template editing, copying and deletion preserve conversation snapshots acr
   await page.getByRole("button", { name: "新建模板", exact: true }).click();
   await page.getByLabel("模板名称", { exact: true }).fill("财务测试助理");
   await page.getByLabel("助理指令", { exact: true }).fill("Keep original financial evidence. ASSISTANT_SNAPSHOT_V1");
-  await page.getByLabel("知识集合（每行一个，留空为全部）").fill("财务");
+  await page.getByLabel("主题（每行一个，留空为全部）").fill("财务");
   await page.getByLabel("使用长期记忆").uncheck();
   await page.getByLabel("绑定聊天模型").click(); await page.getByRole("option", { name: "Claude Opus Offline · openrouter", exact: true }).click();
   await page.getByRole("button", { name: "保存模板", exact: true }).click();
@@ -225,9 +225,15 @@ test("evaluation template loading failures are visible and recover through expli
   const consoleErrors: string[] = []; page.on("console", message => { if (message.type() === "error") consoleErrors.push(message.text()); });
   // Global setup supplies the access cookie. Enter knowledge directly so a late
   // chat hydration request cannot consume the one-shot malformed response.
+  // Retrieval checks are offered once there is a document to check.
+  await page.goto(`${app.origin}/knowledge`);
+  expect(await page.evaluate(async () => {
+    const body = new FormData(); body.set("collection", "评测"); body.set("file", new File(["# 评测资料\n\n用于检索评测的内容。"], "评测资料.md", { type: "text/markdown" }));
+    return (await fetch("/api/documents", { method: "POST", body })).status;
+  })).toBe(201);
   await page.route("**/api/assistants", route => route.fulfill({ status: 200, contentType: "application/json", body: "null" }), { times: 1 });
   const failedTemplates = page.waitForResponse(response => response.url() === `${app.origin}/api/assistants`);
-  await page.goto(`${app.origin}/knowledge`); await page.getByText("检索质量评测", { exact: true }).click();
+  await page.reload(); await page.getByText("检索质量评测", { exact: true }).click();
   const failure = await failedTemplates;
   expect(failure.request().headers().referer).toBe(`${app.origin}/knowledge`);
   expect(await failure.json()).toBeNull();

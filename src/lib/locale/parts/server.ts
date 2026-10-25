@@ -34,7 +34,7 @@ export const serverMessages = {
   "lib.models.notInLibraryHint": "可用清单中；请重新添加或选择其他模型。",
   "lib.models.notAdded": "该模型不在“我的模型”中。",
   "lib.models.removeConflict": "该模型正在移除，请稍后重试。",
-  "lib.models.invalidSettings": "模型设置格式无效，请先导出工作区备份并检查数据。",
+  "lib.models.invalidSettings": "模型设置格式无效，请先导出备份并检查数据。",
   "lib.models.addFirstPrefix": "请先在“模型与用量”中将模型添加到“我的模型”，并设置",
   "lib.models.addFirstSuffix": "默认模型。",
   // The three mode labels differ from `models.mode.*` on purpose: that record

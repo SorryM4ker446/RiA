@@ -124,8 +124,8 @@ test("document tools obey collection scope, assistant allowlists and run budgets
   const options = { toolCallId: "document-call", messages: [] };
   const excerpt = await tools.readDocument.execute!({ documentId: first.document.id, offset: 0, limit: 12 }, options) as any;
   assert.equal(excerpt.text.length, 12); assert.equal(excerpt.nextOffset, 12);
-  await assert.rejects(() => tools.readDocument.execute!({ documentId: second.document.id }, options), /知识集合/);
-  await assert.rejects(() => tools.convertDocument.execute!({ documentId: second.document.id, format: "docx" }, options), /知识集合/);
+  await assert.rejects(() => tools.readDocument.execute!({ documentId: second.document.id }, options), /主题/);
+  await assert.rejects(() => tools.convertDocument.execute!({ documentId: second.document.id, format: "docx" }, options), /主题/);
   const file = await tools.convertDocument.execute!({ documentId: first.document.id, format: "docx" }, options);
   assert.ok(documentDownload(file)); assert.equal(documentDownload({ ...file as object, downloadUrl: "https://foreign.invalid/private" }), null);
   assert.equal((await createChatToolSet({ toolIds: [] })).convertDocument, undefined);
