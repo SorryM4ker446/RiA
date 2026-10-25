@@ -187,6 +187,9 @@ export default function KnowledgePage() {
     if (isSaving || isLoading) return;
     setIsSaving(true);
     setError(null);
+    // Accepting a suggestion shows at once; a refused save puts it back.
+    const before = entries.find(entry => entry.id === entryId);
+    if (body.confirmed !== undefined && body.value === undefined) setEntries(current => current.map(entry => (entry.id === entryId ? { ...entry, confirmed: body.confirmed! } : entry)));
     try {
       const response = await fetch(`/api/knowledge/${entryId}`, {
         method: "PATCH",
@@ -202,6 +205,7 @@ export default function KnowledgePage() {
       setPageNeedsRefresh(true);
       await loadEntries({ ...entryPage, cursors: [null], nextCursor: null });
     } catch (updateError) {
+      if (before) setEntries(current => current.map(entry => (entry.id === entryId ? before : entry)));
       setError(updateError instanceof Error ? updateError.message : t("knowledge.error.update"));
     } finally {
       setIsSaving(false);

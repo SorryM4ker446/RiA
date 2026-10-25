@@ -54,10 +54,13 @@ const config: Config = {
         surface: "hsl(var(--surface))",
         elevated: "hsl(var(--elevated))",
       },
+      // The same four corner sizes as the CSS (see --radius-* in globals.css):
+      // sm an item inside something, md a control, lg/xl a card or menu.
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        xl: "var(--radius-card)",
+        lg: "var(--radius-card)",
+        md: "var(--radius-control)",
+        sm: "var(--radius-inner)",
       },
       // Geist carries its identity in tracking, but the interface is mostly
       // Chinese, and CJK glyphs crowd under the tight tracking Latin display

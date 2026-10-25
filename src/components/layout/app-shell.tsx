@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { WindowControls } from "@/components/layout/window-controls";
+import { AppTooltips } from "@/components/ui/app-tooltips";
 import { cn } from "@/lib/utils/cn";
 import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
 import { useOpenSettings } from "@/features/settings/settings-context";
@@ -262,6 +263,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       occupy.
     */
     <Sheet open={open} onOpenChange={setOpen}>
+      <AppTooltips />
     <div data-desktop={isDesktopRuntime} data-chat-page={pathname === "/chat"} className="workspace-shell flex h-dvh min-h-0 overflow-hidden">
       {/*
         No separate drag strip. A `fixed` band above the header is a SIBLING, so

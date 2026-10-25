@@ -440,7 +440,7 @@ export function MessageRenderer({ appendQuickPrompt, modelMode, activeChatId, is
               {imageUrl ? (
                 <div className="mt-3 space-y-2">
                   <Image
-                    alt="Generated"
+                    alt={t("chat.messages.generatedImage")}
                     className="max-h-[420px] w-full rounded-lg object-contain"
                     src={imageUrl}
                     unoptimized

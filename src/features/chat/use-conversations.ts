@@ -261,6 +261,8 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     const chat = chats.find((item) => item.id === activeChatId);
     if (!chat) return false;
     setIsEphemeralSaving(true);
+    // Shown at once; a refused save puts it back when the list is read again below.
+    setChats((current) => current.map((item) => (item.id === chat.id ? { ...item, ephemeral: next } : item)));
     try {
       await chatApi.setEphemeral(chat.id, next);
       await loadChats();

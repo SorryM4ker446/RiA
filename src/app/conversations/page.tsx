@@ -95,11 +95,15 @@ export default function ConversationsPage() {
     if (active && ids.includes(active)) window.localStorage.removeItem(LAST_ACTIVE_CHAT_STORAGE_KEY);
   }
   async function update(chat: Conversation, value: { pinned?: boolean; archived?: boolean; tags?: string[] }) {
-    return act(async () => {
+    // A pin shows at once, and is put back if the save is refused (the error stays on screen).
+    if (value.pinned !== undefined) setChats(previous => previous.map(item => item.id === chat.id ? { ...item, pinned: value.pinned! } : item));
+    const saved = await act(async () => {
       await conversationsApi.update(chat.id, value);
       if (value.archived) forgetActive([chat.id]);
       toast(t("conversations.notice.updated")); await load();
     });
+    if (!saved && value.pinned !== undefined) setChats(previous => previous.map(item => item.id === chat.id ? { ...item, pinned: chat.pinned } : item));
+    return saved;
   }
   function open(chat: Conversation) {
     void act(async () => {

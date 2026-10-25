@@ -146,7 +146,11 @@ export function ScheduleSettings() {
               {job.lastStatus ? <p className="text-xs text-muted-foreground">{tf("settings.schedules.lastRun", { status: job.lastStatus })}{job.lastError ? ` — ${executionGuidance(job.lastError)}` : ""}</p> : null}
             </div>
             <div className="flex shrink-0 items-center gap-1">
-              <Button size="sm" variant="ghost" onClick={() => void send("PATCH", `/api/schedules/${encodeURIComponent(job.id)}`, { enabled: !job.enabled })}>{job.enabled ? t("settings.schedules.pause") : t("settings.schedules.resume")}</Button>
+              <Button size="sm" variant="ghost" onClick={() => {
+                // Pausing or resuming shows at once; a refused save puts it back.
+                setJobs(current => current.map(item => item.id === job.id ? { ...item, enabled: !job.enabled } : item));
+                void send("PATCH", `/api/schedules/${encodeURIComponent(job.id)}`, { enabled: !job.enabled }).then(saved => { if (!saved) setJobs(current => current.map(item => item.id === job.id ? { ...item, enabled: job.enabled } : item)); });
+              }}>{job.enabled ? t("settings.schedules.pause") : t("settings.schedules.resume")}</Button>
               <Button aria-label={t("settings.schedules.delete")} size="icon-sm" variant="ghost" onClick={() => void send("DELETE", `/api/schedules/${encodeURIComponent(job.id)}`, undefined, job.id)}><Trash2 aria-hidden="true" /></Button>
             </div>
           </li>)}</ul>}

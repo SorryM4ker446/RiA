@@ -114,7 +114,7 @@ const SelectContent = React.forwardRef<
   <SelectPrimitive.Portal>
     <SelectPrimitive.Content
       className={cn(
-        "ui-select-content relative z-50 max-h-[min(20rem,var(--radix-select-content-available-height))] min-w-[12rem] max-w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-pop",
+        "ui-select-content relative z-50 max-h-[min(20rem,var(--radix-select-content-available-height))] min-w-[12rem] max-w-[calc(100vw-1rem)] overflow-hidden rounded-xl text-popover-foreground",
         className,
       )}
       position={position}

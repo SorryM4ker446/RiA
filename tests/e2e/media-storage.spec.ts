@@ -70,7 +70,7 @@ test("real uploaded media renders after reload and survives conversation deletio
     await page.goto("/chat");
     await openRecentConversations(page);
     await page.getByRole("button", { name: new RegExp("^" + title) }).click();
-    const image = page.getByRole("img", { name: "Generated", exact: true });
+    const image = page.getByRole("img", { name: "生成的图片", exact: true });
     await expect(image).toHaveAttribute("src", asset.url);
     await expect.poll(() => image.evaluate((element) => (element as HTMLImageElement).naturalWidth)).toBe(1);
     const newer = await request.post("/api/conversations", { data: { title: `Newer ${randomUUID()}` } });
@@ -151,7 +151,7 @@ test("image generation UI persists the asset response and reloads the protected 
     expect(messages.find((message: { role: string }) => message.role === "assistant").content).toContain(asset.assetId);
     expect(JSON.stringify(messages)).not.toContain("base64");
     await page.reload();
-    const image = page.getByRole("img", { name: "Generated", exact: true });
+    const image = page.getByRole("img", { name: "生成的图片", exact: true });
     await expect(image).toHaveAttribute("src", asset.url);
     await expect.poll(() => image.evaluate((element) => (element as HTMLImageElement).naturalWidth)).toBe(1);
   } finally {

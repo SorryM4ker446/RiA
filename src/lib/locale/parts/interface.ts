@@ -942,6 +942,7 @@ export const interfaceMessages = {
   "settings.language.description": "默认跟随系统语言。仅切换界面语言，模型按你的输入语言回答。",
   "tasks.datePlaceholder": "选择日期",
   "tasks.time": "时间",
+  "chat.messages.generatedImage": "生成的图片",
   "tasks.title": "任务",
   "tasks.quickAddLabel": "快速添加任务",
   "tasks.quickAddPlaceholder": "添加任务，按回车保存",

@@ -2036,6 +2036,7 @@ export const enUS = {
   "settings.language.description": "Uses your system language by default. Interface only; replies follow the language of your input.",
   "tasks.datePlaceholder": "Pick a date",
   "tasks.time": "Time",
+  "chat.messages.generatedImage": "Generated image",
   "tasks.title": "Tasks",
   "tasks.quickAddLabel": "Quick add task",
   "tasks.quickAddPlaceholder": "Add a task and press Enter",
