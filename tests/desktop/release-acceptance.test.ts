@@ -57,7 +57,7 @@ test("acceptance binds the exact artifact and emits evidence digests without cop
     const result = await checkAcceptance(context.manifest, context.record);
     assert.equal(result.manualAcceptance, "pass");
     assert.deepEqual(result.release, context.release);
-    assert.equal(result.scenarios.length, 10);
+    assert.equal(result.scenarios.length, acceptanceScenarios.length);
     const evidence = result.scenarios[0].evidence[0];
     const content = await readFile(join(context.root, evidence.path));
     assert.equal(evidence.sha256, createHash("sha256").update(content).digest("hex"));

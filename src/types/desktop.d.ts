@@ -10,6 +10,22 @@ type DesktopSettingsView = {
   closeBehaviour: "quit" | "tray";
   windowBounds: { x: number; y: number; width: number; height: number } | null;
   globalHotkey: string;
+  autoCheckUpdates: boolean;
+};
+
+type DesktopUpdateState = {
+  supported: boolean;
+  phase: "idle" | "checking" | "current" | "available" | "downloading" | "ready" | "installing";
+  currentVersion: string;
+  availableVersion: string | null;
+  checkedAt: string | null;
+  received: number;
+  total: number;
+  failure: "network" | "verification" | "install" | null;
+  previousInstall:
+    | { outcome: "installed" | "cancelled"; version: string }
+    | { outcome: "failed"; version: string; exitCode: number | null; logFile: string | null }
+    | null;
 };
 
 type DesktopRuntimeInfo = {
@@ -36,6 +52,7 @@ type DesktopSettingsInput = {
   closeBehaviour?: "quit" | "tray";
   globalHotkey?: string;
   windowBounds?: { x: number; y: number; width: number; height: number };
+  autoCheckUpdates?: boolean;
 };
 
 interface Window {
@@ -58,6 +75,14 @@ interface Window {
     setGlobalHotkey: (
       accelerator: string,
     ) => Promise<{ ok: boolean; hotkey: string; reason?: "conflict" | "invalid" | "not-stored" }>;
+    updates?: {
+      state: () => Promise<DesktopUpdateState>;
+      check: () => Promise<DesktopUpdateState>;
+      apply: () => Promise<DesktopUpdateState>;
+      cancel: () => Promise<DesktopUpdateState>;
+      onChange: (listener: (state: DesktopUpdateState) => void) => () => void;
+      onOpen: (listener: () => void) => () => void;
+    };
     windowControls?: {
       minimize: () => void;
       toggleMaximize: () => void;

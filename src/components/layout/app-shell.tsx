@@ -26,6 +26,7 @@ import { AppTooltips } from "@/components/ui/app-tooltips";
 import { cn } from "@/lib/utils/cn";
 import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
 import { useOpenSettings } from "@/features/settings/settings-context";
+import { UpdateNotice } from "@/features/updates/update-notice";
 
 type NavItem = { href: string; label: string; icon: typeof BookOpen };
 
@@ -117,6 +118,7 @@ function SidebarBody({
       <NavLinks onNavigate={onNavigate} pathname={pathname} />
       {/* Everything that configures the app lives in one settings overlay, opened over the current page. */}
       <div className="mt-auto flex flex-col gap-1 border-t pt-3">
+        <UpdateNotice onNavigate={onNavigate} />
         <div className="flex items-center gap-1 pr-2">
           <button
             type="button"

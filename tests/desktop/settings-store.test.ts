@@ -37,7 +37,7 @@ function finish(report, code) {
 }
 
 app.whenReady().then(async () => {
-  const report = { encryptionAvailable: false, partialSave: null, concurrentWrites: null, extensionKeyStable: false, extensionKeyEncrypted: false, unreadableExtensionKeyIsolated: false, defaultLocale: null, savedLocale: null, invalidLocaleRejected: false, error: null };
+  const report = { encryptionAvailable: false, partialSave: null, concurrentWrites: null, extensionKeyStable: false, extensionKeyEncrypted: false, unreadableExtensionKeyIsolated: false, defaultLocale: null, defaultAutoCheckUpdates: null, savedLocale: null, invalidLocaleRejected: false, error: null };
   try {
     // Each case gets its own file: the first must not depend on what the second left.
     const systemFile = join(root, "system.json");
@@ -61,10 +61,12 @@ app.whenReady().then(async () => {
       openrouterHttpReferer: "https://example.invalid/app",
     });
     report.defaultLocale = (await card.getView()).locale;
+    report.defaultAutoCheckUpdates = (await card.getView()).autoCheckUpdates;
     await card.save({ locale: "en-US" });
     // What the close-behaviour card and the hotkey picker each send on their own.
     await card.save({ closeBehaviour: "tray" });
     await card.save({ globalHotkey: "Ctrl+Shift+R" });
+    await card.save({ autoCheckUpdates: false });
     report.partialSave = await card.getView();
     const reopenedCard = new DesktopSettingsStore(join(root, "card.json"));
     report.savedLocale = (await reopenedCard.getView()).locale;
@@ -123,6 +125,9 @@ test("a settings card that sends one field does not wipe the fields beside it", 
     // And the fields the cards did send still took.
     assert.equal(report.partialSave.closeBehaviour, "tray");
     assert.equal(report.partialSave.globalHotkey, "Ctrl+Shift+R");
+    // Update checks are on until turned off, and turning them off is kept.
+    assert.equal(report.defaultAutoCheckUpdates, true);
+    assert.equal(report.partialSave.autoCheckUpdates, false);
     assert.equal(report.defaultLocale, "zh-CN");
     assert.equal(report.savedLocale, "en-US");
     assert.equal(report.partialSave.locale, "en-US");
@@ -164,6 +169,7 @@ test("a key save and a window-geometry save in flight together both survive", {
 
 type SettingsReport = {
   defaultLocale: string | null;
+  defaultAutoCheckUpdates: boolean | null;
   savedLocale: string | null;
   invalidLocaleRejected: boolean;
   error: string | null;

@@ -30,6 +30,7 @@ export type DesktopSettingsInput = {
   closeBehaviour?: DesktopCloseBehaviour;
   globalHotkey?: string;
   windowBounds?: DesktopWindowBounds;
+  autoCheckUpdates?: boolean;
 };
 
 export type DesktopSettingsView = {
@@ -44,6 +45,7 @@ export type DesktopSettingsView = {
   closeBehaviour: DesktopCloseBehaviour;
   globalHotkey: string;
   windowBounds: DesktopWindowBounds | null;
+  autoCheckUpdates: boolean;
 };
 
 type StoredDesktopSettings = {
@@ -61,6 +63,8 @@ type StoredDesktopSettings = {
   closeBehaviour?: DesktopCloseBehaviour;
   windowBounds?: DesktopWindowBounds;
   globalHotkey?: string;
+  // Absent means on: checking reads one small signed file and installs nothing.
+  autoCheckUpdates?: boolean;
 };
 
 /**
@@ -163,6 +167,10 @@ export class DesktopSettingsStore {
     return normalizeHotkey(this.readStored().globalHotkey);
   }
 
+  getAutoCheckUpdates(): boolean {
+    return this.readStored().autoCheckUpdates !== false;
+  }
+
   getLocale(): "zh-CN" | "en-US" {
     return this.resolveLocale(this.readStored().locale);
   }
@@ -212,6 +220,7 @@ export class DesktopSettingsStore {
       closeBehaviour: stored.closeBehaviour === "tray" ? "tray" : "quit",
       globalHotkey: normalizeHotkey(stored.globalHotkey),
       windowBounds: stored.windowBounds ?? null,
+      autoCheckUpdates: stored.autoCheckUpdates !== false,
     };
   }
 
@@ -242,6 +251,7 @@ export class DesktopSettingsStore {
       ...(input.openrouterHttpReferer === undefined ? {} : { openrouterHttpReferer: normalizeHttpUrl(input.openrouterHttpReferer, "HTTP referrer") }),
       ...(input.closeBehaviour === "tray" || input.closeBehaviour === "quit" ? { closeBehaviour: input.closeBehaviour } : {}),
       globalHotkey: input.globalHotkey === undefined ? current.globalHotkey : normalizeHotkey(input.globalHotkey),
+      ...(typeof input.autoCheckUpdates === "boolean" ? { autoCheckUpdates: input.autoCheckUpdates } : {}),
       ...(input.windowBounds ? { windowBounds: input.windowBounds } : {})
     };
 

@@ -1,7 +1,7 @@
 {
   "name": "ria",
   "productName": "RiA",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "packageManager": "npm@11.19.1",
   "description": "A private desktop AI assistant built with Next.js and Electron",
   "author": "RiA",
@@ -34,6 +34,7 @@
     "desktop:make": "node scripts/make-desktop.mjs",
     "desktop:version": "node scripts/bump-version.mjs",
     "desktop:release-manifest": "node scripts/desktop-release-manifest.mjs",
+    "desktop:update-manifest": "node scripts/update-manifest.mjs",
     "desktop:acceptance": "node scripts/desktop-release-acceptance.mjs",
     "desktop:verify": "node scripts/verify-desktop-package.mjs",
     "test:desktop": "npm run desktop:compile && node --import ./tests/helpers/register-typescript.ts --test tests/desktop/*.test.ts",

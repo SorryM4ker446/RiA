@@ -31,6 +31,26 @@ contextBridge.exposeInMainWorld("riaDesktop", {
   // process. There is no renderer notification for it: a channel nothing in the
   // app listens to invites a handler nobody wrote, and the shortcut already works.
   setGlobalHotkey: (accelerator: string) => ipcRenderer.invoke("desktop:hotkey:set", accelerator) as Promise<{ ok: boolean; hotkey: string; reason?: "conflict" | "invalid" | "not-stored" }>,
+  // The main process owns the update; the page reads its state and asks for it.
+  // Applying downloads, verifies and installs, which ends by quitting the app, so
+  // its promise only reports the state at the start.
+  updates: {
+    state: () => ipcRenderer.invoke("desktop:update:state"),
+    check: () => ipcRenderer.invoke("desktop:update:check"),
+    apply: () => ipcRenderer.invoke("desktop:update:apply"),
+    cancel: () => ipcRenderer.invoke("desktop:update:cancel"),
+    onChange: (listener: (state: unknown) => void) => {
+      const handler = (_event: unknown, state: unknown) => listener(state);
+      ipcRenderer.on("desktop:update:changed", handler);
+      return () => ipcRenderer.removeListener("desktop:update:changed", handler);
+    },
+    // A click on the system notification about a new version.
+    onOpen: (listener: () => void) => {
+      const handler = () => listener();
+      ipcRenderer.on("desktop:update:open", handler);
+      return () => ipcRenderer.removeListener("desktop:update:open", handler);
+    },
+  },
   // The page draws the caption, so it needs the verbs and the current state.
   // Absent entirely where the platform keeps its own caption.
   ...(drawsOwnCaption
