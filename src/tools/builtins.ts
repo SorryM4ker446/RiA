@@ -370,29 +370,9 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     inputSchema: createTaskInputSchema,
     execute: async ({ input }) => createTask(input),
     buildAssistantText: ({ output }) => buildCreateTaskAssistantText(output),
-    memory: {
-      enabled: true,
-      minQuality: 0.5,
-      summarize: ({ output }) => {
-        const result = output as Awaited<ReturnType<typeof createTask>>;
-        if (!result.taskId) return null;
-
-        const summary = [
-          tf("tools.createTask.memorySummary", { title: result.title }),
-          `status=${result.status}`,
-          `priority=${result.priority}`,
-          result.dueDate ? `due=${result.dueDate}` : "due=none",
-        ].join(t("tools.createTask.memoryJoin"));
-
-        return {
-          seed: result.taskId,
-          summary,
-          quality: 0.95,
-          score: 0.9,
-          tags: ["task", `status:${result.status}`, `priority:${result.priority}`],
-        };
-      },
-    },
+    // The task is kept on the tasks page; that one was created is not something
+    // to remember about the user.
+    memory: { enabled: false, minQuality: 1, summarize: () => null },
   },
   [COMPACT_CONTEXT_TOOL]: {
     id: COMPACT_CONTEXT_TOOL,

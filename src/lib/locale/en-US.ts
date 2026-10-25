@@ -1067,8 +1067,6 @@ export const enUS = {
   "tools.createTask.reminderSuffix": ", desktop reminder while running",
   "tools.createTask.repeatSuffix": ", repeats {rule} (next occurrence on completion)",
   "tools.createTask.created": "Created task “{title}”{due}{reminder}{repeat}, current status: {status}.",
-  "tools.createTask.memorySummary": "Task “{title}” created",
-  "tools.createTask.memoryJoin": ", ",
   "tools.webSearch.primaryFieldLabel": "Search keywords",
   "tools.webSearch.skippedBudget": "No further search this turn: the result budget has been exhausted.",
   "tools.webSearch.description": "Search the web for external information.",

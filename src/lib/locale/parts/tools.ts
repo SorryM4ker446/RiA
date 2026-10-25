@@ -49,8 +49,6 @@ export const toolsMessages = {
   "tools.createTask.reminderSuffix": "，桌面运行时到期提醒",
   "tools.createTask.repeatSuffix": "，重复规则 {rule}（完成后续建）",
   "tools.createTask.created": "已创建任务「{title}」{due}{reminder}{repeat}，当前状态为 {status}。",
-  "tools.createTask.memorySummary": "任务「{title}」已创建",
-  "tools.createTask.memoryJoin": "，",
 
   // --- webSearch ---------------------------------------------------------
   "tools.webSearch.primaryFieldLabel": "搜索词",

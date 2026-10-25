@@ -103,19 +103,15 @@ function CreateTaskForm({
               throw new Error(t("ui.tasks.remindersAndRecurringTasksRequireA"));
             submitting.current = true;
             setBusy(true);
-            await chatApi.runTool(
-              "createTask",
-              {
-                title: String(values.get("title")),
-                details: String(values.get("details")),
-                priority,
-                timeZone,
-                reminderEnabled,
-                repeatRule,
-                ...(due ? { dueDate: due.toISOString() } : {}),
-              },
-              null,
-            );
+            await chatApi.createTask({
+              title: String(values.get("title")),
+              details: String(values.get("details")),
+              priority,
+              timeZone,
+              reminderEnabled,
+              repeatRule,
+              ...(due ? { dueDate: due.toISOString() } : {}),
+            });
             await onCreated();
           } catch (cause) {
             setError(

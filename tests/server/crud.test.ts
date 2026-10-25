@@ -89,6 +89,22 @@ test("task CRUD validates atomic updates, date normalization and filters", async
   await missing(await task.DELETE(request("/api/tasks", "DELETE"), context(id)));
 });
 
+test("a task created by the user or by the task tool is saved without leaving a memory suggestion", async () => {
+  const created = await data(await tasks.POST(request("/api/tasks", "POST", { title: " 复习泛型笔记 ", details: "", priority: "medium", timeZone: "UTC", reminderEnabled: false, repeatRule: "none" })), 201);
+  assert.equal(created.title, "复习泛型笔记");
+  assert.equal(created.status, "todo");
+  assert.equal(created.details, null);
+  assert.equal((await data(await tasks.GET(request("/api/tasks")))).some(row => row.id === created.id), true);
+  for (const invalid of [{ title: "" }, { title: "提醒需要时间", reminderEnabled: true }, { title: "多余字段", extra: true }]) {
+    assert.equal((await tasks.POST(request("/api/tasks", "POST", invalid))).status, 400);
+  }
+  assert.equal(await db.task.count(), 1);
+  await data(await tools.POST(request("/api/tools/run", "POST", { tool: "createTask", mode: "chat", input: { title: "工具创建的任务" } })));
+  assert.equal(await db.task.count(), 2);
+  // The task list is where tasks are kept; neither path writes to memory.
+  assert.equal(await db.memory.count(), 0);
+});
+
 test("knowledge upserts one row, and an inferred memory is listed and removable like any other", async () => {
   const entry = await data(await knowledge.POST(request("/api/knowledge", "POST", { key: " 数据库约定 ", value: " First " })), 201);
   const updated = await data(await knowledge.POST(request("/api/knowledge", "POST", { key: "数据库约定", value: "Updated", score: 0.7 })), 201);

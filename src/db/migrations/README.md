@@ -1,5 +1,14 @@
 # Database migrations
 
+`20261025100000_drop_task_memory_candidates` removes memory suggestions that
+creating a task used to leave behind: rows whose key starts with
+`tool:createTask:`, inferred by the assistant (`source = 'assistant'`) and never
+accepted (`confirmed = 0`). Accepted entries and other tools' suggestions are
+kept. Desktop startup takes the normal safety backup first and logs how many
+rows the migration changed; running it again removes nothing. Older builds no
+longer list the removed suggestions; restoring them requires the pre-upgrade
+backup.
+
 `20261023120000_default_assistant_templates` writes the four default assistant
 templates into `assistant_templates` under their existing `builtin_*` ids, so
 they can be edited and deleted like the user's own; until now they lived only in
