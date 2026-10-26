@@ -65,7 +65,7 @@ Electron starts and stops the local Next.js service as a child process. Configur
 
 For a browser-based development/test loop, run `npm run dev`. This prints a one-time local entry link and uses `.desktop-data/dev/app.db` by default. The browser server is a development tool; the supported delivered application is the Windows desktop build.
 
-Keep `.npmrc` and `vendor/` when installing dependencies. Reviewed local dependency backports and their maintenance requirements are documented in [vendor/README.md](vendor/README.md). After dependency changes, run `npx --yes npm@11.19.1 audit --audit-level=low` and the relevant regression checks.
+All dependencies are installed from the npm registry. After dependency changes, run `npx --yes npm@11.19.1 audit --audit-level=low` and the relevant regression checks.
 
 Local API requests enforce access credentials, Host/Origin checks, input limits and quotas. See [API security](docs/api-security.md), [local API contracts](docs/local-api.md) and [model catalog maintenance](docs/model-catalog.md). The source layout and runtime model are described in [project structure](docs/project-structure.md).
 

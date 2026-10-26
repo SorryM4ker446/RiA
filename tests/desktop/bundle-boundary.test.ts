@@ -92,7 +92,6 @@ function seedValidRuntime(root, runtime) {
   for (const entry of ["pdfjs-dist/legacy/build/pdf.mjs", "pdfjs-dist/legacy/build/pdf.worker.mjs", "mammoth/lib/index.js", "jszip/lib/index.js"]) {
     write(`node_modules/${entry}`);
   }
-  cpSync(join(repositoryRoot, "vendor", "sprintf-js"), join(runtime, "node_modules", "sprintf-js"), { recursive: true });
   write("node_modules/.prisma/client/query_engine.dll.node");
   return runtime;
 }
@@ -140,30 +139,6 @@ test("packaged verification accepts a package whose longest path still fits", ()
     const result = run(packageDirectory);
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Desktop runtime and package verified/);
-  });
-});
-
-test("packaged verification rejects a document consumer using an unpatched nested formatter", () => {
-  fixture("verify-desktop-package.mjs", (root, run) => {
-    const packageDirectory = packageFixture(root, (runtime) => {
-      const nested = join(runtime, "node_modules", "mammoth", "node_modules", "sprintf-js");
-      mkdirSync(nested, { recursive: true });
-      writeFileSync(join(nested, "index.js"), "exports.sprintf = (format, value) => value.toFixed(Number(format.match(/\\d+/)[0]));");
-    });
-    const result = run(packageDirectory);
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /RangeError|precision guard/);
-  });
-});
-
-test("packaged verification requires the document formatter license", () => {
-  fixture("verify-desktop-package.mjs", (root, run) => {
-    const packageDirectory = packageFixture(root, (runtime) => {
-      rmSync(join(runtime, "node_modules", "sprintf-js", "LICENSE"));
-    });
-    const result = run(packageDirectory);
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /Document formatter backport is missing.*LICENSE/);
   });
 });
 

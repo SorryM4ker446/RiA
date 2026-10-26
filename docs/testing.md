@@ -271,7 +271,7 @@ npx --yes npm@11.19.1 ci
 ```
 
 After dependency changes, validate a clean installation from the committed
-manifest, lockfile, `.npmrc` and local `vendor` packages before running the checks.
+manifest and lockfile before running the checks.
 Passing tests or making an installer with an existing `node_modules` directory
 does not establish that `npm ci` can install the lockfile. Keep optional dependency
 entries in the lockfile: `ci` still validates their dependency tree. A missing
@@ -557,9 +557,9 @@ Failed Electron smoke runs print the bounded tail of the redacted application lo
 
 `npm run test:desktop:smoke -- --maximized` starts the isolated smoke window maximized before loading the renderer; CI exercises this state separately. Both caption checks recognize the middle control as either maximize or restore, and the trusted-click check requires an actual native maximization-state change instead of treating full screen width as evidence of a working click.
 
-Dependency security changes require a clean `npx --yes npm@11.19.1 ci` and the full `npm audit --audit-level=low`, including development dependencies. Keep the project `.npmrc` and `vendor/` in that checkout. `tests/server/dependency-security.test.ts` exercises excessive brace nesting, caller-provided cyclic/shared ASTs, unsupported numeric precision, normal formatting and installed Micromatch, Mammoth and argparse consumers. See [Dependency security backports](../vendor/README.md) for the upstream sources and compatibility limits. An audit result alone does not validate these private backports.
+Dependency security changes require a clean `npx --yes npm@11.19.1 ci` and the full `npm audit --audit-level=low`, including development dependencies. Security fixes for transitive packages are pinned to official registry releases through `overrides`; the project carries no local dependency patches.
 
-Desktop runtime preparation includes the production formatter source and license. Runtime/package verification resolves it from Mammoth's actual location, requires it to stay inside the bundle and exercises its precision guard. Bundle regressions reject an unpatched nested consumer or a missing license. The settings-store Electron runner uses the repository as its working directory, keeping its disposable data directory independent of transient native helper handles.
+The settings-store Electron runner uses the repository as its working directory, keeping its disposable data directory independent of transient native helper handles.
 
 Next.js scoped response caches generated during smoke/browser tests are stripped from the staged installer alongside the image cache. Bundle tests seed both caches independently of a previous build and verify removal while retaining immutable prerender responses and ownership metadata. Validate a fresh packaged smoke after changing these paths; changing cache keys or dropping immutable response seeds would invalidate Next.js route isolation.
 
