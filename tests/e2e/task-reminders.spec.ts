@@ -121,7 +121,8 @@ test("changing reminder options preserves the stored DST occurrence and sub-minu
   await expect(row.locator("[data-time-input]")).toHaveValue("01:30");
   await row.getByLabel("到期桌面通知").check();
   await row.getByRole("button", { name: "保存提醒设置" }).click();
-  await expect(row.getByRole("button", { name: "保存提醒设置" })).toHaveCount(0);
+  // While the save is in flight the button reads "保存中…"; the editor closes only once it is stored.
+  await expect(row.getByRole("button", { name: "设置时间与提醒" })).toHaveAttribute("aria-expanded", "false");
   expect(await browserData(page, `${app.origin}/api/tasks/${id}`)).toMatchObject({
     dueDate: "2026-11-01T06:30:45.123Z", repeatAnchor: "2026-11-01T06:30:45.123Z", reminderEnabled: true,
   });

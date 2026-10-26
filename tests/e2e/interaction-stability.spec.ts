@@ -99,24 +99,31 @@ for (const variant of variants) test.describe(`${variant.theme} theme, ${variant
   });
 
   test("the settings window keeps its size and its categories still while sections change", async ({ page, app }) => {
+    // Reads are counted from the page's first request on. The chat page behind
+    // the window loads its own data, which a cold service can take seconds to
+    // answer; it must have arrived before anything is watched.
+    await page.addInitScript(() => {
+      const state = window as unknown as { pendingReads: number; readDelay: number };
+      const original = window.fetch.bind(window);
+      state.pendingReads = 0;
+      state.readDelay = 0;
+      window.fetch = async (...args) => {
+        state.pendingReads++;
+        try { if (state.readDelay) await new Promise(resolve => setTimeout(resolve, state.readDelay)); return await original(...args); }
+        finally { state.pendingReads--; }
+      };
+    });
     await openWorkspace(page, app.origin);
     await page.goto(`${app.origin}/chat`);
+    await expect(page.getByText("还没有可用的模型，添加一个就可以开始对话")).toBeVisible();
+    await page.waitForFunction(() => (window as unknown as { pendingReads: number }).pendingReads === 0);
     await page.getByRole("button", { name: "设置", exact: true }).click();
     const dialog = settingsDialog(page);
     await expect(dialog).toBeVisible();
     await page.waitForTimeout(400);
-    // Every read answers late, as on a busy machine, so each section paints its
-    // loading state first; each section is then left only after its reads end.
-    await page.evaluate(() => {
-      const state = window as unknown as { pendingReads: number };
-      const original = window.fetch.bind(window);
-      state.pendingReads = 0;
-      window.fetch = async (...args) => {
-        state.pendingReads++;
-        try { await new Promise(resolve => setTimeout(resolve, 300)); return await original(...args); }
-        finally { state.pendingReads--; }
-      };
-    });
+    // Every read now answers late, as on a busy machine, so each section paints
+    // its loading state first; each section is then left only after its reads end.
+    await page.evaluate(() => { (window as unknown as { readDelay: number }).readDelay = 300; });
     const layout = await watchLayout(page, { window: ".settings-window", categories: dialog.getByRole("tablist") });
     for (const section of ["应用偏好", "自动化与通知", "工作区权限", "模型", "用量", "扩展", "备份与恢复", "API 密钥"]) {
       await dialog.getByRole("tab", { name: section, exact: true }).click();
