@@ -1,5 +1,4 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { createRequire } from "node:module";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runtimeCacheDirectories } from "./desktop-package-hooks.mjs";
@@ -58,19 +57,6 @@ function verifyRuntime(directory, { enforceWindowsPathBudget = false } = {}) {
   requireFile(join(directory, "prisma", "schema.prisma"), "Prisma schema");
   for (const entry of ["pdfjs-dist/legacy/build/pdf.mjs", "pdfjs-dist/legacy/build/pdf.worker.mjs", "mammoth/lib/index.js", "jszip/lib/index.js"]) {
     requireFile(join(directory, "node_modules", entry), "Document parser dependency");
-  }
-
-  for (const entry of ["package.json", "src/sprintf.js", "LICENSE"]) {
-    requireFile(join(directory, "node_modules", "sprintf-js", entry), "Document formatter backport");
-  }
-  const documentRequire = createRequire(join(directory, "node_modules", "mammoth", "lib", "index.js"));
-  const formatterPath = documentRequire.resolve("sprintf-js");
-  if (relative(directory, formatterPath).startsWith(`..${sep}`)) {
-    throw new Error("Document formatter resolves outside the desktop runtime.");
-  }
-  const { sprintf } = documentRequire("sprintf-js");
-  if (sprintf("%.999999f", 1.25) !== sprintf("%.100f", 1.25)) {
-    throw new Error("Document formatter precision guard is missing from the desktop runtime.");
   }
 
   const files = walk(directory);

@@ -87,7 +87,6 @@
     "react-markdown": "^10.1.0",
     "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1",
-    "sprintf-js": "file:vendor/sprintf-js",
     "tailwind-merge": "3.5.0",
     "undici": "8.12.3",
     "yaml": "2.9.1",
@@ -102,7 +101,6 @@
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "autoprefixer": "10.5.0",
-    "braces": "file:vendor/braces",
     "electron": "44.9.3",
     "eslint": "9.39.4",
     "eslint-config-next": "16.3.8",
@@ -119,8 +117,6 @@
     "unrs-resolver@1.11.1": true
   },
   "overrides": {
-    "braces": "$braces",
-    "sprintf-js": "$sprintf-js",
     "@babel/core": "7.29.6",
     "deepmerge-ts": "8.0.2",
     "extract-zip": "npm:@electron-internal/extract-zip@1.0.5",
