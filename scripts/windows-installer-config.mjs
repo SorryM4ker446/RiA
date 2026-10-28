@@ -17,7 +17,7 @@ export const windowsInstallerConfig = {
   icon: fileURLToPath(new URL("../assets/desktop-icon.ico", import.meta.url)),
   // Keep this identity stable across versions so MSI recognizes upgrades.
   upgradeCode: "918C97A2-902B-42D0-9B52-F979309DAC68",
-  appUserModelId: "com.squirrel.RiA.RiA",
+  appUserModelId: "com.ria.RiA",
   shortcutFolderName: "RiA",
   shortcutName: "RiA",
   programFilesFolderName: "RiA",
