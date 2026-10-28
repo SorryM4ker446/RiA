@@ -29,8 +29,11 @@ const base = {
   "nav.settings": "设置",
   "nav.label": "工作区导航",
   "nav.environment": "Local",
-  "nav.openMenu": "打开导航",
-  "nav.closeMenu": "关闭导航",
+  "nav.expandSidebar": "展开侧边栏",
+  "nav.pinSidebar": "固定侧边栏",
+  "nav.foldSidebar": "收起侧边栏",
+  "nav.resizeSidebar": "调整侧边栏宽度",
+  "nav.resizeSidebarHint": "拖动调整宽度，拖到最窄以下可收起，双击恢复默认",
 
   // --- theme -------------------------------------------------------------
   "theme.toggle": "切换主题",

@@ -12,16 +12,16 @@ import {
   Boxes,
   House,
   MessagesSquare,
-  PanelLeft,
   Settings,
   Layers3,
   Images,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { WindowControls } from "@/components/layout/window-controls";
 import { CommandPalette, CommandSearchButton } from "@/features/commands/command-palette";
+import { RailResizer } from "@/components/layout/rail-resizer";
+import { RailControls, RailFoldButton } from "@/components/layout/rail-controls";
+import { useRailLayout } from "@/components/layout/rail-layout";
 import { AppTooltips } from "@/components/ui/app-tooltips";
 import { cn } from "@/lib/utils/cn";
 import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
@@ -69,7 +69,7 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+function NavLinks({ pathname }: { pathname: string }) {
   useLocale();
   return (
     <nav aria-label={t("nav.label")} className="workspace-navigation flex flex-col gap-6">
@@ -83,7 +83,6 @@ function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
             className="workspace-nav-link group"
             href={item.href}
             key={item.href}
-            onClick={onNavigate}
           >
             <item.icon aria-hidden="true" className="size-4 shrink-0" />
             <span className="min-w-0 flex-1 whitespace-normal break-words leading-5">{item.label}</span>
@@ -94,37 +93,34 @@ function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
   );
 }
 
-function SidebarBody({
-  pathname,
-  onNavigate,
-}: {
-  pathname: string;
-  onNavigate?: () => void;
-}) {
+/** `action`: the sidebar button at the right of the header, which folds or pins it. */
+function SidebarBody({ pathname, action }: { pathname: string; action: React.ReactNode }) {
   useLocale();
   const openSettings = useOpenSettings();
   return (
     <div className="workspace-sidebar-body flex h-full min-h-0 flex-col gap-7 overflow-y-auto px-3 pb-4">
-      <div className="workspace-sidebar-header desktop-titlebar-drag flex h-16 shrink-0 items-center px-2">
+      {/* The same height as the page's top row: the brand on the left, the sidebar
+          button at the right edge, quiet until pointed at. */}
+      <div className="workspace-sidebar-header desktop-titlebar-drag flex h-11 shrink-0 items-center justify-between gap-2 pl-1">
         <Link
-          className="desktop-titlebar-interactive workspace-brand flex items-center gap-2.5 rounded-lg px-1 py-2 text-xl font-semibold tracking-title"
+          className="desktop-titlebar-interactive workspace-brand flex items-center gap-2.5 rounded-lg px-1 py-1 text-xl font-semibold tracking-title"
           href="/chat"
           aria-label={t("brand.name")}
-          onClick={onNavigate}
         >
           <span className="workspace-brand-wordmark">{t("brand.name")}</span>
         </Link>
+        {action}
       </div>
-      <NavLinks onNavigate={onNavigate} pathname={pathname} />
+      <NavLinks pathname={pathname} />
       {/* Everything that configures the app lives in one settings overlay, opened over the current page. */}
       <div className="mt-auto flex flex-col gap-1 border-t pt-3">
-        <UpdateNotice onNavigate={onNavigate} />
+        <UpdateNotice />
         <div className="flex items-center gap-1 pr-2">
           <button
             type="button"
             aria-haspopup="dialog"
             className="workspace-nav-link min-w-0 flex-1"
-            onClick={() => { onNavigate?.(); openSettings(); }}
+            onClick={() => openSettings()}
           >
             <Settings aria-hidden="true" className="size-4 shrink-0" />
             {t("nav.settings")}
@@ -137,23 +133,14 @@ function SidebarBody({
 }
 
 /**
- * Persistent rail on wide screens, slide-over below `lg`. The chat view reads
- * as one application rather than a page with floating buttons on top of it.
+ * A sidebar that can be widened, narrowed or folded away, and a top row shared
+ * by every page. Folded (always, at first, on a narrow window), it is shown
+ * over the page from the sidebar button and pinned back in place by clicking it.
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
   useLocale();
   const pathname = usePathname();
-  // The drawer is open only for the route it was opened on, so navigating by
-  // any means (link, back button) closes it without a synchronizing effect.
-  const [openedOn, setOpenedOn] = useState<string | null>(null);
-  const open = openedOn === pathname;
-  const setOpen = (next: boolean) => setOpenedOn(next ? pathname : null);
-  useEffect(() => {
-    const wide = window.matchMedia("(min-width: 1024px)");
-    const close = () => setOpenedOn(null);
-    wide.addEventListener("change", close);
-    return () => wide.removeEventListener("change", close);
-  }, []);
+  const { folded } = useRailLayout();
   // Opening a collapsed section (a <details> anywhere: a page, the settings, a
   // sheet) brings what it revealed into view instead of leaving it below the
   // fold. Only an opening the person asked for counts: a section rendered open
@@ -265,64 +252,33 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       seam under it, and it wasted the space the brand and the section name now
       occupy.
     */
-    <Sheet open={open} onOpenChange={setOpen}>
+    <>
       <CommandPalette pages={NAV_GROUPS().flatMap(group => group.items)} />
       <AppTooltips />
-    <div data-desktop={isDesktopRuntime} data-chat-page={pathname === "/chat"} className="workspace-shell flex h-dvh min-h-0 overflow-hidden">
+    <div data-desktop={isDesktopRuntime} data-chat-page={pathname === "/chat"} className="workspace-shell relative flex h-dvh min-h-0 overflow-hidden">
       {/*
         No separate drag strip. A `fixed` band above the header is a SIBLING, so
         it wins the hit test and swallows every click on the caption and the
         brand — `no-drag` only rescues an element from an ANCESTOR drag region.
         The drag region therefore lives on the real top-row elements below (the
-        header bars and the rail's brand row), where interactive children can
+        header bar and the rail's brand row), where interactive children can
         opt back out of it.
       */}
 
-      <div className="workspace-rail hidden w-52 shrink-0 border-r lg:block">
-        <SidebarBody pathname={pathname} />
+      {/* Its width follows `--rail-width`; the content keeps that width while the rail
+          folds, so it slides away clipped instead of re-wrapping on the way. Folded,
+          it is inert: the sidebar shown over the page is the one in use. */}
+      <div className="workspace-rail workspace-rail-docked shrink-0">
+        <div className="workspace-rail-inner h-full" inert={folded || undefined}>
+          <SidebarBody pathname={pathname} action={<RailFoldButton />} />
+        </div>
       </div>
-
-      {/*
-        Narrow screens only: there is no room for a permanent rail, so the menu
-        toggle and the section name need a bar of their own. It is the opaque
-        surface content scrolls beneath, and the drag handle above it stays
-        transparent — the bar supplies the paint.
-      */}
-      <header
-        className={cn("workspace-topbar desktop-titlebar-drag absolute inset-x-0 top-0 z-30 flex h-11 items-center gap-2 border-b pl-3 lg:hidden", !isDesktopRuntime && "desktop-titlebar-plain")}
-        onDoubleClick={() => window.riaDesktop?.windowControls?.toggleMaximize()}
-      >
-        <SheetTrigger asChild><Button
-          aria-expanded={open}
-          aria-label={t("nav.openMenu")}
-          className="desktop-titlebar-interactive"
-          variant="ghost"
-          size="icon-sm"
-          type="button"
-        >
-          <PanelLeft aria-hidden="true" className="h-4 w-4" />
-        </Button></SheetTrigger>
-        {/* A span, not a heading: every page owns its own <h1>, and two
-            headings per page would break the document outline. */}
-        <span className="workspace-section-title min-w-0 flex-1 truncate text-sm font-semibold tracking-label" data-concealed={titleInView || undefined} aria-hidden={titleInView || undefined}>
-          {sectionLabel(pathname)}
-        </span>
-        <WindowControls />
-      </header>
-
-      <SheetContent className="workspace-rail" closeLabel={t("nav.closeMenu")} aria-describedby={undefined}>
-            <SheetTitle className="sr-only">{t("nav.label")}</SheetTitle>
-            <SidebarBody
-              onNavigate={() => setOpen(false)}
-              pathname={pathname}
-            />
-      </SheetContent>
 
       {/* The header is a sibling of the content and shares this column, so the
           rail's brand and the section name line up in the same row. */}
-      <div className="workspace-main flex min-h-0 min-w-0 flex-1 flex-col pt-11 lg:pt-0">
+      <div className="workspace-main flex min-h-0 min-w-0 flex-1 flex-col">
         <div
-          className={cn("workspace-topbar desktop-titlebar-drag z-30 hidden h-11 shrink-0 items-center gap-2 border-b pl-5 lg:flex", !isDesktopRuntime && "desktop-titlebar-plain")}
+          className={cn("workspace-topbar desktop-titlebar-drag relative z-30 flex h-11 shrink-0 items-center gap-2 border-b pl-5", !isDesktopRuntime && "desktop-titlebar-plain")}
           onDoubleClick={() => window.riaDesktop?.windowControls?.toggleMaximize()}
         >
           {/* A span, not a heading: every page owns its own <h1>, and two
@@ -337,7 +293,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {children}
         </div>
       </div>
+      {/* Last on purpose. The desktop window reads drag regions in document
+          order, so a control lying over the top row must come after it, or the
+          row's drag region claims its clicks and the pointer never reaches it. */}
+      <RailResizer />
+      <RailControls renderBody={action => <SidebarBody pathname={pathname} action={action} />} />
     </div>
-    </Sheet>
+    </>
   );
 }

@@ -604,6 +604,68 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .workspace-shell .workspace-topbar, .workspace-shell .workspace-rail, .workspace-shell .chat-rail, .workspace-shell .chat-toolbar { border-color: transparent; }
 .workspace-rail > div > .border-t, .conversation-rail-body > footer { border-color: transparent; }
 .workspace-rail { background: hsl(var(--surface)); border-color: hsl(var(--border)); }
+/* Sidebar. The docked rail and its content share `--rail-width`; folding takes the rail to nothing while the
+   content keeps its width and slides a little aside, so nothing re-wraps on the way out. Motion is opt-in: a
+   change the person makes (fold, pin, a snap while dragging, a reset) sets `data-rail-animating` for its
+   duration, and every moving part (rail, title padding, corner button) then moves on one curve. Anything else
+   (the pointer during a drag, the window crossing the boundary, the first paint) lands at once. */
+.workspace-rail-docked { width: var(--rail-width, 13rem); overflow: hidden; }
+.workspace-rail-inner { width: var(--rail-width, 13rem); }
+html[data-rail-animating] .workspace-rail-docked { transition: width var(--dur-base) var(--ease-out); }
+html[data-rail-animating] .workspace-rail-inner { transition: opacity var(--dur-base) var(--ease-out), translate var(--dur-base) var(--ease-out); }
+html[data-rail-animating] .workspace-main > .workspace-topbar { transition: padding-left var(--dur-base) var(--ease-out); }
+/* Shown at once, so it can take focus at once; hidden only after it has faded. */
+html[data-rail-animating] .rail-toggle { transition: opacity var(--dur-base) var(--ease-out), visibility 0s; }
+html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !important; user-select: none; }
+/* Placed by the rail's width rather than by its slot in the row, so it can come last in the document. */
+.rail-resizer { position: absolute; inset-block: 0; left: var(--rail-width, 13rem); z-index: 40; width: 0; }
+.rail-resizer-handle { position: absolute; inset-block: 0; left: -4px; width: 8px; cursor: col-resize; touch-action: none; outline: none; }
+/* A hairline that appears after a short hover, at once while dragging or focused. */
+.rail-resizer-handle::after { content: ""; position: absolute; inset-block: 0; left: 3px; width: 2px; border-radius: 1px; background: hsl(var(--ring) / .55); opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.rail-resizer-handle:hover::after { opacity: 1; transition-delay: var(--dur-fast); }
+.rail-resizer-handle:focus-visible::after, html[data-rail-dragging] .rail-resizer-handle::after { opacity: 1; transition-delay: 0ms; }
+/* Focused from the keyboard, the whole grip is tinted, not only its hairline. */
+.rail-resizer-handle:focus-visible { background: hsl(var(--ring) / .14); }
+/* Docked, the sidebar's button sits at the right of its header, quiet until pointed at. Folded, its
+   counterpart takes the window's top-left corner, centred on the 44px top row, fading in as the rail slides
+   away; the sidebar shown over the page covers it, its own button where the docked one will be. Folded, the
+   page title moves over to clear it. */
+.rail-header-button { color: hsl(var(--muted-foreground)); }
+.rail-header-button:hover, .rail-header-button:focus-visible { color: hsl(var(--foreground)); }
+.rail-toggle { position: absolute; left: 12px; top: 6px; z-index: 44; color: hsl(var(--muted-foreground)); }
+.rail-toggle:hover, .rail-toggle:focus-visible { color: hsl(var(--foreground)); }
+/* Folded: on a wide window, as last left (`data-rail-collapsed`, saved); on a narrow one, unless pinned for now
+   (`data-rail-pinned`). Media queries pick which applies, so a window crossing the boundary is laid out right in
+   the same frame, not one frame later. The width matches RAIL_NARROW_QUERY. */
+@media (min-width: 1024px) {
+  html[data-rail-collapsed="true"] .workspace-rail-docked { width: 0; }
+  html[data-rail-collapsed="true"] .workspace-rail-docked > .workspace-rail-inner { opacity: 0; translate: -16px 0; }
+  html[data-rail-collapsed="true"]:not([data-rail-dragging]) .rail-resizer { display: none; }
+  html[data-rail-collapsed="true"] .workspace-main > .workspace-topbar { padding-left: 52px; }
+  html:not([data-rail-collapsed="true"]) .rail-toggle { opacity: 0; visibility: hidden; pointer-events: none; }
+  html[data-rail-animating]:not([data-rail-collapsed="true"]) .rail-toggle { transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast) allow-discrete; }
+}
+@media (max-width: 1023px) {
+  html:not([data-rail-pinned="true"]) .workspace-rail-docked { width: 0; }
+  html:not([data-rail-pinned="true"]) .workspace-rail-docked > .workspace-rail-inner { opacity: 0; translate: -16px 0; }
+  html:not([data-rail-pinned="true"]):not([data-rail-dragging]) .rail-resizer { display: none; }
+  html:not([data-rail-pinned="true"]) .workspace-main > .workspace-topbar { padding-left: 52px; }
+  html[data-rail-pinned="true"] .rail-toggle { opacity: 0; visibility: hidden; pointer-events: none; }
+  html[data-rail-animating][data-rail-pinned="true"] .rail-toggle { transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast) allow-discrete; }
+}
+/* The sidebar over the page while folded: the docked rail's twin, so pinning can swap one for the other unseen.
+   It slides out on the shared curve and back a little faster. Pinning holds it still and lets its shadow go while
+   the rail opens beneath; then it is removed outright. */
+.rail-peek { position: absolute; inset-block: 0; left: 0; z-index: 45; width: var(--rail-width, 13rem); overflow: hidden; background: hsl(var(--surface)); box-shadow: 0 0 0 1px hsl(var(--border) / .6), 16px 0 40px -18px hsl(var(--shadow) / .45); transition: box-shadow var(--dur-base) var(--ease-out); animation: rail-peek-in var(--dur-base) var(--ease-out); }
+/* The desktop window treats a drag region as its title bar and stops reporting the pointer there, which would
+   read as the pointer leaving. Shown over the page, the sidebar is all page: its header does not drag the window,
+   and, coming last, it cuts the top row's drag region away beneath it. */
+.rail-peek, .rail-peek .workspace-sidebar-header { -webkit-app-region: no-drag; }
+.rail-peek[data-state="closing"] { pointer-events: none; animation: rail-peek-out var(--dur-fast) var(--ease-in-out) forwards; }
+.rail-peek[data-state="pinning"] { box-shadow: 0 0 0 1px transparent, 16px 0 40px -18px transparent; }
+@keyframes rail-peek-in { from { translate: -100% 0; } }
+@keyframes rail-peek-out { to { translate: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { html[data-rail-animating] :is(.workspace-rail-docked, .workspace-rail-inner, .workspace-main > .workspace-topbar, .rail-toggle) { transition: none; } .rail-peek, .rail-peek[data-state] { transition: none; animation-duration: 0s; } }
 .workspace-content { background: hsl(var(--surface)); scrollbar-gutter: stable; scroll-behavior: smooth; }
 .workspace-content > main:not(.chat-workspace) { width: 100%; padding: clamp(1.5rem, 3vw, 3rem); }
 /* Workspace pages share one measure: wide enough for a list with a few columns, narrow enough that
@@ -628,6 +690,10 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .workspace-brand:active { transform: scale(.98); }
 .workspace-brand-wordmark { font-size: 24px; font-weight: 600; line-height: 28px; letter-spacing: -.055em; }
 
+/* A sheet and its scrim lie over the window's drag band at the top. Both opt out of it, so a click there
+   closes or reaches the sheet instead of grabbing the window; a header inside that should drag (the
+   sidebar's) opts back in, and its own buttons, the close button among them, opt out again. */
+.sheet-overlay, .sheet-content { -webkit-app-region: no-drag; }
 .sheet-overlay { position: fixed; inset: 0; z-index: 50; background: hsl(var(--scrim) / .5); backdrop-filter: blur(8px); }
 .sheet-content { position: fixed; top: 0; bottom: 0; z-index: 50; width: min(19rem, 88vw); background: hsl(var(--background)); color: hsl(var(--foreground)); box-shadow: 0 12px 48px hsl(var(--shadow) / .15); outline: none; }
 .sheet-content[data-side="left"] { left: 0; border-right: 1px solid hsl(var(--border)); --sheet-offset: -100%; }

@@ -131,17 +131,15 @@ test("workspace separates scheduled tasks and retains content during refresh", a
       animations: "disabled",
     });
   }
-  await page.getByRole("button", { name: "打开导航" }).click();
-  const navigation = page.getByRole("dialog", { name: "工作区导航" });
-  await expect(navigation).toBeVisible();
-  await page.keyboard.press("Shift+Tab");
-  expect(
-    await navigation.evaluate((element) =>
-      element.contains(document.activeElement),
-    ),
-  ).toBe(true);
-  await page.keyboard.press("Escape");
-  await expect(navigation).not.toBeVisible();
+  // The narrow window starts folded; the sidebar button pins and folds it from the keyboard.
+  await page.getByRole("button", { name: "展开侧边栏", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("navigation", { name: "工作区导航" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "收起侧边栏", exact: true })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "展开侧边栏", exact: true })).toBeFocused();
+  // Folding eases; measure the layout once it has settled, not in the middle of it.
+  await expect(page.locator("html")).not.toHaveAttribute("data-rail-animating", "");
   await page.setViewportSize({ width: 1440, height: 960 });
   const recent = page.getByRole("button", { name: "会话列表", exact: true });
   const composerBeforeMenu = await page.locator(".composer-surface").boundingBox();

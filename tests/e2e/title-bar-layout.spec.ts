@@ -98,7 +98,7 @@ test("the brand stays clickable inside the drag row", { tag: "@integration" }, a
 });
 
 for (const locale of ["zh-CN", "en-US"] as const) {
-  test(`navigation labels remain fully visible on desktop and in the drawer in ${locale}`, async ({ page, app }) => {
+  test(`navigation labels remain fully visible on desktop and pinned on a narrow window in ${locale}`, async ({ page, app }) => {
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
     page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
@@ -111,7 +111,8 @@ for (const locale of ["zh-CN", "en-US"] as const) {
     const english = locale === "en-US";
     for (const width of [1440, 1024, 390]) {
       await page.setViewportSize({ width, height: 860 });
-      if (width < 1024) await page.getByRole("button", { name: english ? "Open navigation" : "打开导航", exact: true }).click();
+      // A narrow window starts with the sidebar folded; pinning it puts it in place.
+      if (width < 1024) await page.getByRole("button", { name: english ? "Expand sidebar" : "展开侧边栏", exact: true }).click();
       const nav = page.getByRole("navigation", { name: english ? "Workspace navigation" : "工作区导航", exact: true });
       await expect(nav).toBeVisible();
       const conversations = nav.getByRole("link", { name: english ? "Conversations" : "管理会话", exact: true });
@@ -127,9 +128,10 @@ for (const locale of ["zh-CN", "en-US"] as const) {
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await page.locator(".workspace-rail:visible").screenshot({ path: join(tmpdir(), `ria-navigation-${locale}-${width}.png`) });
       if (width < 1024) {
+        // Pinned, it stays in place from page to page.
         await nav.getByRole("link", { name: english ? "Knowledge" : "知识库", exact: true }).click();
         await expect(page).toHaveURL(`${app.origin}/knowledge`);
-        await expect(nav).toBeHidden();
+        await expect(nav).toBeVisible();
       }
     }
     expect(errors).toEqual([]);

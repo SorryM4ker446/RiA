@@ -39,7 +39,7 @@ export function SheetContent({
       >
         {children}
         {showClose ? <SheetClose asChild>
-          <Button className="absolute right-3 top-3" variant="ghost" size="icon-sm" aria-label={closeLabel}>
+          <Button className="desktop-titlebar-interactive absolute right-3 top-3" variant="ghost" size="icon-sm" aria-label={closeLabel}>
             <X aria-hidden="true" />
           </Button>
         </SheetClose> : null}
