@@ -19,7 +19,7 @@ test.use({ timezoneId: "UTC" });
 async function desktopBridge(page: Page, locale: string) {
   // On the desktop the interface language is a desktop setting, read from here.
   await page.addInitScript(locale => {
-    const settings = { locale, hasOpenrouterApiKey: true, hasDeepseekApiKey: false, hasTavilyApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "Control+Shift+Space", windowBounds: null };
+    const settings = { locale, hasOpenrouterApiKey: true, hasDeepseekApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "Control+Shift+Space", windowBounds: null };
     Object.defineProperty(window, "riaDesktop", { value: {
       getSettings: async () => settings,
       getRuntimeInfo: async () => ({ appVersion: "0.0.0", packaged: true, dataDirectory: "C:/RiA/data", mediaDirectory: "C:/RiA/media", logFile: "C:/RiA/logs/main.log" }),

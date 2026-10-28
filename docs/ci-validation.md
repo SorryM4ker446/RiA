@@ -22,8 +22,6 @@ $env:APP_RUNTIME = 'test'
 $env:LOCAL_DATABASE_FILE = ".desktop-data/ci-local/$([guid]::NewGuid())/app.db"
 $env:OPENROUTER_API_KEY = ''
 $env:DEEPSEEK_API_KEY = ''
-$env:TAVILY_API_KEY = 'test-tavily-key'
-$env:TAVILY_SEARCH_URL = 'http://127.0.0.1:4010/search'
 npx --yes npm@11.19.1 ci
 npx --yes npm@11.19.1 audit --audit-level=low
 npx --yes npm@11.19.1 run db:generate
@@ -43,15 +41,13 @@ Run the three server shards with the workflow's test concurrency and empty
 provider keys; check each exit status:
 
 ```powershell
-$env:TAVILY_API_KEY = ''
 foreach ($shard in 1..3) {
   node --import ./tests/helpers/register-typescript.ts --test --test-concurrency=2 --test-shard="$shard/3" tests/server/*.test.ts
   if ($LASTEXITCODE) { throw "Server shard $shard failed" }
 }
 ```
 
-For browser validation, restore the fixture search configuration and use the
-production-build harness, two workers per shard and zero retries. CI runs three
+For browser validation, use the production-build harness, two workers per shard and zero retries. CI runs three
 independent browser shards with `fail-fast: false`; the validation gate requires
 every shard to pass. Each shard builds its own runtime and uploads a uniquely
 named diagnostic artifact on failure. This reduces the longest job without
@@ -60,7 +56,6 @@ Do not reuse a local development server or run another build/desktop smoke
 concurrently in the same checkout:
 
 ```powershell
-$env:TAVILY_API_KEY = 'test-tavily-key'
 npx --yes npm@11.19.1 exec -- playwright install chromium
 npx --yes npm@11.19.1 run test:e2e:diagnostics
 npx --yes npm@11.19.1 run test:e2e

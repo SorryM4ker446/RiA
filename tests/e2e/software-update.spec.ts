@@ -31,7 +31,7 @@ async function updateBridge(page: Page, initial: Record<string, unknown> = {}) {
       received: 0, total: 0, failure: null, previousInstall: null, ...initial,
     };
     const change = (next: Record<string, unknown>) => { state = { ...state, ...next }; listeners.forEach(listener => listener(state)); return state; };
-    const settings = { hasOpenrouterApiKey: true, hasDeepseekApiKey: false, hasTavilyApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "", windowBounds: null, autoCheckUpdates: true, locale: "zh-CN" };
+    const settings = { hasOpenrouterApiKey: true, hasDeepseekApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "", windowBounds: null, autoCheckUpdates: true, locale: "zh-CN" };
     Object.assign(window, { __updates: recorded, __set: change, __openUpdates: () => openers.forEach(open => open()) });
     Object.defineProperty(window, "riaDesktop", { value: {
       getSettings: async () => settings,

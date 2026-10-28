@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { after, beforeEach, test } from "node:test";
 import type { TestContext } from "node:test";
-import type { AddressInfo } from "node:net";
 import type { ToolExecutionOptions } from "ai";
 import { createTestDatabase } from "../helpers/database";
+import { seedSearchModelPreferences, SEARCH_MODEL_REF } from "../helpers/model-library";
+import { startSearchServer } from "../helpers/search-server";
 
 const cleanup = createTestDatabase();
 process.env.RIA_TEST_PROVIDER = "1";
@@ -18,6 +19,8 @@ beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {});
   t.mock.method(console, "warn", () => {});
   process.env.OPENROUTER_API_KEY = "offline-fixture-placeholder";
+  process.env.DEEPSEEK_API_KEY = "";
+  process.env.DEEPSEEK_BASE_URL = "";
   // The wrapper checks the tool quota before it does anything else, so a quota
   // left spent by an earlier test would make these tests measure the rate limit
   // instead of the step record.
@@ -37,28 +40,18 @@ function stepsOf(runId: string) {
 }
 
 /**
- * A loopback stand-in for Tavily, so the search tool genuinely runs without a
- * billed request. Configuring it is also what makes `webSearch` available, which
- * is what the budget and mid-turn unavailability paths need in order to be
- * reachable at all.
+ * A loopback provider search endpoint, so the search tool genuinely runs
+ * without a billed request. Configuring the provider key is also what makes
+ * `webSearch` available, which the budget and mid-turn unavailability paths
+ * need in order to be reachable at all.
  */
 async function withLocalSearchServer(run) {
-  const { createServer } = await import("node:http");
-  const server = createServer((request, response) => {
-    response.writeHead(200, { "Content-Type": "application/json" });
-    response.end(JSON.stringify({ query: "steps", request_id: "local", response_time: 0.01, images: [], results: [{ title: "Local fixture", url: "https://example.invalid/steps", content: "fixture", score: 1 }] }));
-  });
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-  const previousKey = process.env.TAVILY_API_KEY;
-  const previousUrl = process.env.TAVILY_SEARCH_URL;
-  process.env.TAVILY_API_KEY = "local-step-fixture";
-  process.env.TAVILY_SEARCH_URL = `http://127.0.0.1:${(server.address() as AddressInfo).port}/search`;
+  const server = await startSearchServer();
+  await seedSearchModelPreferences(db, server.baseURL);
   try {
     return await run();
   } finally {
-    if (previousKey === undefined) delete process.env.TAVILY_API_KEY; else process.env.TAVILY_API_KEY = previousKey;
-    if (previousUrl === undefined) delete process.env.TAVILY_SEARCH_URL; else process.env.TAVILY_SEARCH_URL = previousUrl;
-    await new Promise(resolve => server.close(resolve));
+    await server.close();
   }
 }
 
@@ -95,7 +88,7 @@ test("a step whose tool throws is recorded as failed and the error still propaga
 test("successive searches complete after exceeding the former per-turn result quota", async () => {
   const run = await startRun({ chatId: null, goal: "多次搜索收集证据" });
   await withLocalSearchServer(async () => {
-    const tools = await createChatToolSet({ toolIds: ["webSearch"], runId: run.id });
+    const tools = await createChatToolSet({ modelRef: SEARCH_MODEL_REF, toolIds: ["webSearch"], runId: run.id });
     await tools.webSearch.execute({ query: "first", maxResults: 15 }, toolOptions);
     const second = await tools.webSearch.execute({ query: "second", maxResults: 12 }, toolOptions);
     assert.equal(second.skipped, undefined);
@@ -115,10 +108,10 @@ test("a step whose tool is no longer configured is recorded as skipped", async (
   process.env.DEEPSEEK_API_KEY = "";
   const run = await startRun({ chatId: null, goal: "工具在执行前失效" });
   await withLocalSearchServer(async () => {
-    const tools = await createChatToolSet({ toolIds: ["webSearch"], runId: run.id });
+    const tools = await createChatToolSet({ modelRef: SEARCH_MODEL_REF, toolIds: ["webSearch"], runId: run.id });
     // The tool set is built while the tool is configured; the key disappears
     // before the call, which is the mid-turn unavailability the wrapper handles.
-    process.env.TAVILY_API_KEY = "";
+    process.env.DEEPSEEK_API_KEY = "";
     const refused = await tools.webSearch.execute({ query: "gone", maxResults: 3 }, toolOptions);
     assert.equal(refused.skipped, "notConfigured");
   });
@@ -136,7 +129,7 @@ test("a turn leaves no step still running once every exit has been taken", async
     // practice: the wrapper's step position counter is per tool set, and a
     // second set for the same run would restart it against the unique
     // (runId, position) index.
-    const tools = await createChatToolSet({ toolIds: ["createTask", "webSearch"], runId: run.id });
+    const tools = await createChatToolSet({ modelRef: SEARCH_MODEL_REF, toolIds: ["createTask", "webSearch"], runId: run.id });
     await tools.createTask.execute({ title: "成功的一步" }, toolOptions);
 
     const descriptor = getToolDescriptor("createTask");

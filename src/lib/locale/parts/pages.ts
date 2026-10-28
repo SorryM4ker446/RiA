@@ -354,8 +354,6 @@ export const pageMessages = {
   "settings.deepseekPlaceholder": "sk-…",
   "settings.deepseekHint": "仅用于聊天模型。图片与视频生成仍需 OpenRouter。",
   "settings.clearDeepseek": "清除已保存的 DeepSeek 密钥",
-  "settings.clearTavily": "删除已保存的 Tavily 密钥",
-  "settings.tavilyPlaceholder": "tvly-…（备用搜索，可选）",
   "settings.proxyLabel": "出站代理 URL",
   "settings.proxyPlaceholder": "http://127.0.0.1:7897（可选）",
   "settings.siteNameLabel": "OpenRouter 站点名称",

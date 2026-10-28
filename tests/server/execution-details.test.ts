@@ -26,7 +26,7 @@ const request = (url: string, method = "GET", body?: unknown, auth = localAccess
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {}); t.mock.method(console, "info", () => {});
   globalThis.__riaRateLimitStore?.clear(); resetProviderState();
-  process.env.OPENROUTER_API_KEY = "offline-key"; process.env.DEEPSEEK_API_KEY = ""; process.env.TAVILY_API_KEY = "";
+  process.env.OPENROUTER_API_KEY = "offline-key"; process.env.DEEPSEEK_API_KEY = "";
   await db.chat.deleteMany({}); await db.agentRun.deleteMany({}); await seedTestModelPreferences(db);
 });
 after(async () => { await db.$disconnect(); cleanup(); });
@@ -53,7 +53,7 @@ test("execution details use the persisted server run identity after reload and r
   assert.equal((await get(conversation.id, "invalid%22id")).status, 400);
 });
 
-test("a template with no tools is described as template-disabled, while configured provider search is never reported as missing Tavily", async () => {
+test("a template with no tools is described as template-disabled, while configured provider search is never reported as missing", async () => {
   for (const restricted of [false, true]) {
     const template = restricted ? await saveAssistant(assistantConfigSchema.parse({ name: "No tools", instructions: "Be helpful", tools: [] })) : null;
     const conversation = await createChat({ title: "Prompt status", ...(template ? { assistantTemplateId: template.id } : {}) });

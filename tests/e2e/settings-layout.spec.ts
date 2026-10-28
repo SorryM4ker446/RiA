@@ -13,7 +13,7 @@ const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>
 
 async function desktopBridge(page: Page) {
   await page.addInitScript(() => {
-    const settings = { hasOpenrouterApiKey: true, hasDeepseekApiKey: false, hasTavilyApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "Control+Shift+Space", windowBounds: null };
+    const settings = { hasOpenrouterApiKey: true, hasDeepseekApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "Control+Shift+Space", windowBounds: null };
     Object.defineProperty(window, "riaDesktop", { value: {
       getSettings: async () => settings,
       getRuntimeInfo: async () => ({ appVersion: "0.1.2", packaged: false, dataDirectory: "fixture/data", mediaDirectory: "fixture/media", logFile: "fixture/log" }),
@@ -69,7 +69,7 @@ test("compact settings preserve unsaved fields across tabs and keep connection o
   await page.getByRole("checkbox", { name: "删除已保存的 OpenRouter 密钥", exact: true }).check();
   await expect(key).toBeDisabled();
   await page.getByRole("button", { name: "保存并重启本地服务", exact: true }).click();
-  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("desktop-settings-input")!))).toMatchObject({ clearOpenrouterApiKey: true, outboundProxyUrl: "http://127.0.0.1:7897", openrouterSiteName: "RiA", deepseekApiKey: "", tavilyApiKey: "" });
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("desktop-settings-input")!))).toMatchObject({ clearOpenrouterApiKey: true, outboundProxyUrl: "http://127.0.0.1:7897", openrouterSiteName: "RiA", deepseekApiKey: "" });
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 960 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

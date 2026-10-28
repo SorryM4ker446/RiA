@@ -29,7 +29,7 @@ On first launch, the interface follows your system's preferred languages: Chines
 ## Start using RiA
 
 1. Install the Windows x64 `RiA-<version>-x64.msi` produced by the [build instructions](#build-an-installer). The installed application does not require a separate Node.js installation or database server.
-2. Open **Settings** and configure OpenRouter or DeepSeek. OpenRouter is required for the supported image, video and embedding features. Provider search works without Tavily, which is an optional fallback.
+2. Open **Settings** and configure OpenRouter or DeepSeek. OpenRouter is required for the supported image, video and embedding features. Web search runs through the selected chat model's provider; there is no separate search key.
 3. In **Settings → Models**, add models to **My models** and select a default chat model. Agent tool use and on-demand community Skill reading require a tool-capable model.
 4. Start a conversation or apply an assistant template. Image, PDF and Word (`.docx`) attachments are available in chat. Documents are parsed for the conversation without being added automatically to the knowledge library. [Chat attachments](docs/media-storage.md#pdf-and-word-in-chat)
 5. To build a reusable knowledge library, open **Knowledge**, preview an import and confirm saving. Keyword indexing is local; semantic indexing is optional and sends snippets to the selected embedding provider.

@@ -19,10 +19,8 @@ export type DesktopWindowBounds = { x: number; y: number; width: number; height:
 export type DesktopSettingsInput = {
   locale?: "zh-CN" | "en-US";
   openrouterApiKey?: string;
-  tavilyApiKey?: string;
   deepseekApiKey?: string;
   clearOpenrouterApiKey?: boolean;
-  clearTavilyApiKey?: boolean;
   clearDeepseekApiKey?: boolean;
   outboundProxyUrl?: string;
   openrouterSiteName?: string;
@@ -36,7 +34,6 @@ export type DesktopSettingsInput = {
 export type DesktopSettingsView = {
   locale: "zh-CN" | "en-US";
   hasOpenrouterApiKey: boolean;
-  hasTavilyApiKey: boolean;
   hasDeepseekApiKey: boolean;
   outboundProxyUrl: string;
   openrouterSiteName: string;
@@ -52,7 +49,6 @@ type StoredDesktopSettings = {
   locale?: "zh-CN" | "en-US";
   version: 1;
   encryptedOpenrouterApiKey?: string;
-  encryptedTavilyApiKey?: string;
   // Each provider keeps its own key. They are not interchangeable and neither
   // is derivable from the other, so a provider can be configured on its own.
   encryptedDeepseekApiKey?: string;
@@ -125,8 +121,12 @@ export class DesktopSettingsStore {
   private readStored(): StoredDesktopSettings {
     if (!existsSync(this.settingsFile)) return { version: 1 };
     try {
-      const parsed = JSON.parse(readFileSync(this.settingsFile, "utf8")) as StoredDesktopSettings;
-      return parsed.version === 1 ? parsed : { version: 1 };
+      const parsed = JSON.parse(readFileSync(this.settingsFile, "utf8")) as StoredDesktopSettings & { encryptedTavilyApiKey?: unknown };
+      if (parsed.version !== 1) return { version: 1 };
+      // Search runs through the model providers now. A key saved for the former
+      // separate search service is dropped, so the next write removes it.
+      const { encryptedTavilyApiKey: _retired, ...settings } = parsed;
+      return settings;
     } catch {
       throw new Error(`Desktop settings are unreadable: ${this.settingsFile}`);
     }
@@ -211,7 +211,6 @@ export class DesktopSettingsStore {
     return {
       locale: this.resolveLocale(stored.locale),
       hasOpenrouterApiKey: Boolean(stored.encryptedOpenrouterApiKey),
-      hasTavilyApiKey: Boolean(stored.encryptedTavilyApiKey),
       hasDeepseekApiKey: Boolean(stored.encryptedDeepseekApiKey),
       outboundProxyUrl: stored.outboundProxyUrl || "",
       openrouterSiteName: stored.openrouterSiteName || "",
@@ -256,14 +255,11 @@ export class DesktopSettingsStore {
     };
 
     if (input.clearOpenrouterApiKey) delete next.encryptedOpenrouterApiKey;
-    if (input.clearTavilyApiKey) delete next.encryptedTavilyApiKey;
     if (input.clearDeepseekApiKey) delete next.encryptedDeepseekApiKey;
 
     const openrouterApiKey = normalizeText(input.openrouterApiKey, 4096);
-    const tavilyApiKey = normalizeText(input.tavilyApiKey, 4096);
     const deepseekApiKey = normalizeText(input.deepseekApiKey, 4096);
     if (openrouterApiKey) next.encryptedOpenrouterApiKey = await this.encrypt(openrouterApiKey);
-    if (tavilyApiKey) next.encryptedTavilyApiKey = await this.encrypt(tavilyApiKey);
     if (deepseekApiKey) next.encryptedDeepseekApiKey = await this.encrypt(deepseekApiKey);
 
     this.writeStored(next);
@@ -273,7 +269,6 @@ export class DesktopSettingsStore {
   async getServerEnvironment(): Promise<Record<string, string>> {
     const stored = this.readStored();
     const openrouterApiKey = await this.decrypt(stored.encryptedOpenrouterApiKey);
-    const tavilyApiKey = await this.decrypt(stored.encryptedTavilyApiKey);
     const deepseekApiKey = await this.decrypt(stored.encryptedDeepseekApiKey);
     // One persistent, OS-protected key encrypts extension credentials in SQLite.
     // Keep it out of the renderer view and portable workspace archives.
@@ -289,7 +284,6 @@ export class DesktopSettingsStore {
     return {
       RIA_EXTENSION_KEY: extensionKey,
       OPENROUTER_API_KEY: openrouterApiKey,
-      TAVILY_API_KEY: tavilyApiKey,
       DEEPSEEK_API_KEY: deepseekApiKey,
       OUTBOUND_PROXY_URL: stored.outboundProxyUrl || "",
       OPENROUTER_SITE_NAME: stored.openrouterSiteName || "RiA Desktop",

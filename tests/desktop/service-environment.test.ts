@@ -7,11 +7,11 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { desktopServiceEnvironment } from "../../electron/next-server";
 
-const settings = { OPENROUTER_API_KEY: "", DEEPSEEK_API_KEY: "", TAVILY_API_KEY: "", OUTBOUND_PROXY_URL: "", OPENROUTER_SITE_NAME: "RiA Desktop" };
+const settings = { OPENROUTER_API_KEY: "", DEEPSEEK_API_KEY: "", OUTBOUND_PROXY_URL: "", OPENROUTER_SITE_NAME: "RiA Desktop" };
 
 test("provider keys and the proxy left empty in Settings stay empty for the service", () => {
   const environment = desktopServiceEnvironment(settings);
-  for (const key of ["OPENROUTER_API_KEY", "DEEPSEEK_API_KEY", "TAVILY_API_KEY", "OUTBOUND_PROXY_URL"]) assert.equal(environment[key], "", key);
+  for (const key of ["OPENROUTER_API_KEY", "DEEPSEEK_API_KEY", "OUTBOUND_PROXY_URL"]) assert.equal(environment[key], "", key);
   assert.equal(desktopServiceEnvironment({ ...settings, OPENROUTER_API_KEY: "saved-in-settings" }).OPENROUTER_API_KEY, "saved-in-settings");
 });
 

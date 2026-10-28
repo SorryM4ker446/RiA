@@ -30,9 +30,8 @@ beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {});
   t.mock.method(console, "warn", () => {});
   process.env.OPENROUTER_API_KEY = "offline-fixture-placeholder";
-  // The search tool is only mounted when it is configured, and both budget
-  // refusals below are answered before any request is made.
-  process.env.TAVILY_API_KEY = "offline-fixture-placeholder";
+  // The OpenRouter key also configures search, so the tool is mounted; both
+  // budget refusals below are answered before any request is made.
   // The wrapper checks the tool quota before anything else.
   globalThis.__riaRateLimitStore.clear();
   await db.directoryGrant.deleteMany({});

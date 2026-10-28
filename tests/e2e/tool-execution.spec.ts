@@ -154,7 +154,7 @@ test("manual provider search hides result controls and lets the selected model p
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "搜索数量由模型决定" })).body.data;
   await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
   await page.getByLabel("选择工具").click();
-  await page.getByRole("option", { name: "Web Search", exact: true }).click();
+  await page.getByRole("option", { name: "联网搜索", exact: true }).click();
   await expect(page.locator("#manual-tool-maxResults")).toHaveCount(0);
   const query = page.getByPlaceholder(/输入要搜索的关键词/);
   await query.fill("Compare current official release options");
@@ -166,7 +166,7 @@ test("manual provider search hides result controls and lets the selected model p
   expect(errors).toEqual([]);
 });
 
-test("autonomous provider search works without Tavily and all evidence lives in execution details", async ({ page, app }) => {
+test("autonomous provider search keeps all evidence in execution details", async ({ page, app }) => {
   await openWorkspace(page, app.origin);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "自主搜索" })).body.data;

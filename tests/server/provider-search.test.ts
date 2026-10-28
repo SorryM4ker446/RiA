@@ -16,8 +16,6 @@ const row = { title: "Release", url: "https://example.com/release", summary: "Ve
 beforeEach(async () => {
   process.env.OPENROUTER_API_KEY = "offline-provider-key";
   process.env.DEEPSEEK_API_KEY = "offline-provider-key";
-  process.env.TAVILY_API_KEY = "";
-  process.env.TAVILY_SEARCH_URL = "";
   process.env.DEEPSEEK_BASE_URL = "";
   await seedTestModelPreferences(db);
   await db.modelRequest.deleteMany({});
@@ -31,20 +29,17 @@ function fixture(payload: unknown, inspect?: (url: string, body: any) => void): 
   };
 }
 
-test("provider search remains available without Tavily and wins when a third-party key is present", async () => {
+test("search routes only through the selected chat model's provider", async () => {
   assert.equal(resolveSearchRoute(deepseek), "deepseek-native");
   assert.equal(resolveSearchRoute({ ...deepseek, modelId: "deepseek-flash" }), "deepseek-search");
   assert.equal(resolveSearchRoute(CHAT_MODEL_REF), "openrouter");
   assert.equal((await toolAvailability("webSearch", CHAT_MODEL_REF)).available, true);
   assert.ok((await createChatToolSet({ modelRef: CHAT_MODEL_REF, toolIds: ["webSearch"] })).webSearch);
   assert.equal((await createChatToolSet({ modelRef: CHAT_MODEL_REF, toolIds: [] })).webSearch, undefined);
-  process.env.TAVILY_API_KEY = "offline-backup-key";
-  assert.equal(resolveSearchRoute(deepseek), "deepseek-native");
-  assert.equal(resolveSearchRoute(CHAT_MODEL_REF), "openrouter");
   process.env.OPENROUTER_API_KEY = "";
-  assert.equal(resolveSearchRoute(CHAT_MODEL_REF), "tavily");
-  process.env.TAVILY_API_KEY = "";
+  assert.equal(resolveSearchRoute(CHAT_MODEL_REF), null);
   assert.equal(searchConfigured(CHAT_MODEL_REF), false);
+  assert.equal((await toolAvailability("webSearch", CHAT_MODEL_REF)).available, false);
   assert.equal(searchConfigured(deepseek), true);
 });
 
@@ -211,28 +206,20 @@ test("provider errors do not silently perform another paid search and cancellati
   await assert.rejects(pending, /cancelled/);
 });
 
-for (const status of [404, 501]) test(`an unsupported provider search endpoint (HTTP ${status}) can use configured Tavily without making it a prerequisite`, async t => {
-  process.env.TAVILY_API_KEY = "offline-backup-key";
+for (const status of [404, 501]) test(`an unsupported provider search endpoint (HTTP ${status}) is reported without searching elsewhere`, async t => {
   const calls: string[] = [];
-  t.mock.method(globalThis, "fetch", async (url, init) => {
+  t.mock.method(globalThis, "fetch", async url => {
     calls.push(String(url));
-    if (String(url).startsWith("https://openrouter.ai/")) return new Response(null, { status });
-    assert.equal(String(url), "https://api.tavily.com/search");
-    assert.equal(JSON.parse(String(init?.body)).max_results, 2);
-    return Response.json({ results: [{ title: "Backup", url: row.url, content: "Backup evidence" }] });
+    return new Response(null, { status });
   });
   const { runWebSearch } = await import("@/tools/definitions/web-search");
-  const output = await runWebSearch(input, undefined, CHAT_MODEL_REF);
-  assert.equal(output.provider, "tavily");
-  assert.equal(output.fallbackFrom, "openrouter");
-  assert.equal(output.results[0].snippet, "Backup evidence");
-  assert.equal(calls.length, 2);
+  await assert.rejects(runWebSearch(input, undefined, CHAT_MODEL_REF), { code: "SERVICE_UNAVAILABLE", message: `openrouter search endpoint is unavailable (HTTP ${status}).` });
+  assert.deepEqual(calls, ["https://openrouter.ai/api/v1/chat/completions"]);
   assert.equal((await db.modelRequest.findFirstOrThrow()).status, "error");
   assert.equal(await db.modelRequest.count({ where: { status: "pending" } }), 0);
 });
 
-test("configured backups cannot bypass provider permission, balance, quota errors or ambiguous failures", async t => {
-  process.env.TAVILY_API_KEY = "offline-backup-key";
+test("provider permission, balance, quota and ambiguous failures are reported after one request", async t => {
   let status = 403;
   let calls = 0;
   t.mock.method(globalThis, "fetch", async url => {

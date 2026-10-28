@@ -26,7 +26,7 @@ async function desktop(page: Page, app: App) {
         sessionStorage.setItem("folder-dialog-calls", String(calls + 1));
         return calls === 0 ? { canceled: true } : { canceled: false, path: folder };
       },
-      getSettings: async () => ({ hasOpenrouterApiKey: false, hasDeepseekApiKey: false, hasTavilyApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "Control+Shift+Space", windowBounds: null }),
+      getSettings: async () => ({ hasOpenrouterApiKey: false, hasDeepseekApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "Control+Shift+Space", windowBounds: null }),
       getRuntimeInfo: async () => ({ appVersion: "0.1.3", packaged: false, dataDirectory: "fixture/data", mediaDirectory: "fixture/media", logFile: "fixture/log" }),
     } });
   }, app.folder);

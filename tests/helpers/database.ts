@@ -30,7 +30,6 @@ export function createTestDatabase() {
   process.env.APP_RUNTIME = "test";
   process.env.APP_ORIGIN = "";
   process.env.OPENROUTER_API_KEY = "";
-  process.env.TAVILY_API_KEY = "";
   process.env.OUTBOUND_PROXY_URL = "";
   return () => {
     if (dirname(root) !== resolve(tmpdir()) || !basename(root).startsWith("ria-server-")) {

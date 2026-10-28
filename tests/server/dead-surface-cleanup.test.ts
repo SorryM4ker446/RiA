@@ -91,16 +91,17 @@ test("a search connection withdrawn while the tool is running is logged as a con
   writeFileSync(path.join(root, "notes", "a.md"), "# A");
   const grant = await createGrant({ path: root });
 
-  const previous = process.env.TAVILY_API_KEY;
-  process.env.TAVILY_API_KEY = "offline-search";
-  t.after(() => { if (previous === undefined) delete process.env.TAVILY_API_KEY; else process.env.TAVILY_API_KEY = previous; });
+  const previous = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = "offline-search";
+  process.env.DEEPSEEK_API_KEY = "";
+  t.after(() => { if (previous === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = previous; });
   const tools = await createChatToolSet({ toolIds: ["webSearch"] });
   // The folder is withdrawn while the tool is running: the availability check
   // that ran before the call still saw the grant, so this is the mid-execute
   // branch rather than the one that refuses before the tool starts.
   const descriptor = getToolDescriptor("webSearch");
   t.mock.method(descriptor, "execute", async () => {
-    delete process.env.TAVILY_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
     throw new Error("the folder is gone");
   });
 
@@ -128,9 +129,10 @@ test("a genuinely transient failure is still logged as an upstream failure", asy
   writeFileSync(path.join(root, "a.md"), "# A");
   await createGrant({ path: root });
 
-  const previous = process.env.TAVILY_API_KEY;
-  process.env.TAVILY_API_KEY = "offline-search";
-  t.after(() => { if (previous === undefined) delete process.env.TAVILY_API_KEY; else process.env.TAVILY_API_KEY = previous; });
+  const previous = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = "offline-search";
+  process.env.DEEPSEEK_API_KEY = "";
+  t.after(() => { if (previous === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = previous; });
   const tools = await createChatToolSet({ toolIds: ["webSearch"] });
   // The folder stays granted, so this refusal is about the provider rather
   // than about anything the user has to set up.

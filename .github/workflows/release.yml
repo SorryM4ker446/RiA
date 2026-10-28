@@ -29,7 +29,6 @@ jobs:
       APP_RUNTIME: test
       LOCAL_DATABASE_FILE: .desktop-data/release/${{ github.run_id }}-${{ github.run_attempt }}/app.db
       OPENROUTER_API_KEY: ""
-      TAVILY_API_KEY: ""
 
     steps:
       - name: Check out repository

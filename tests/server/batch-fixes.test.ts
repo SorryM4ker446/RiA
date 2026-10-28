@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { after, beforeEach, test } from "node:test";
 import type { TestContext } from "node:test";
-import type { AddressInfo } from "node:net";
 import type { UIMessage, ToolExecutionOptions } from "ai";
 import { NextRequest } from "next/server";
 import { createTestDatabase } from "../helpers/database";
 import { localAccessCookie } from "../helpers/local-access";
 import { languageModel, providerState } from "../helpers/model-provider";
-import { seedTestModelPreferences } from "../helpers/model-library";
+import { seedSearchModelPreferences, seedTestModelPreferences, SEARCH_MODEL_REF } from "../helpers/model-library";
+import { startSearchServer } from "../helpers/search-server";
 
 const cleanup = createTestDatabase();
 process.env.RIA_TEST_PROVIDER = "1";
@@ -28,6 +28,8 @@ beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {});
   t.mock.method(console, "warn", () => {});
   process.env.OPENROUTER_API_KEY = "offline-fixture-placeholder";
+  process.env.DEEPSEEK_API_KEY = "";
+  process.env.DEEPSEEK_BASE_URL = "";
   providerState.streamGate = undefined;
   providerState.streamError = false;
   cookie = localAccessCookie();
@@ -93,45 +95,32 @@ test("a still-unrenamed conversation is titled from its first user message", asy
 });
 
 test("web search refuses to run after cancellation", async () => {
-  process.env.TAVILY_API_KEY = "offline-fixture-key";
-  const controller = new AbortController();
-  controller.abort();
-  await assert.rejects(runWebSearch({ query: "test" }, controller.signal), (error: any) => error.code === "TIMEOUT");
-  delete process.env.TAVILY_API_KEY;
+  await withLocalSearchServer(async requests => {
+    const controller = new AbortController();
+    controller.abort();
+    await assert.rejects(runWebSearch({ query: "test" }, controller.signal, SEARCH_MODEL_REF), (error: any) => error.code === "TIMEOUT");
+    assert.equal(requests(), 0);
+  });
 });
 
 /**
- * A Tavily-shaped endpoint on loopback. The tool is only mounted when it is
- * configured, so a budget test has to configure it — and configuring it against
- * the real service would turn a unit test into a billed request.
+ * A loopback provider search endpoint. The tool is only mounted when a provider
+ * key is configured, so a budget test has to configure one — and configuring it
+ * against the real service would turn a unit test into a billed request.
  */
 async function withLocalSearchServer(run) {
-  const { createServer } = await import("node:http");
-  let requests = 0;
-  const server = createServer((request, response) => {
-    requests += 1;
-    response.writeHead(200, { "Content-Type": "application/json" });
-    // The shape the installed Tavily adapter expects; a partial body is
-    // rejected by the adapter and reads as an unreachable upstream.
-    response.end(JSON.stringify({ query: "budget", request_id: "local", response_time: 0.01, images: [], results: [{ title: "Local fixture", url: "https://example.invalid/budget", content: "fixture", score: 1 }] }));
-  });
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-  const previousKey = process.env.TAVILY_API_KEY;
-  const previousUrl = process.env.TAVILY_SEARCH_URL;
-  process.env.TAVILY_API_KEY = "local-budget-fixture";
-  process.env.TAVILY_SEARCH_URL = `http://127.0.0.1:${(server.address() as AddressInfo).port}/search`;
+  const server = await startSearchServer();
+  await seedSearchModelPreferences(db, server.baseURL);
   try {
-    return await run(() => requests);
+    return await run(() => server.requests.length);
   } finally {
-    if (previousKey === undefined) delete process.env.TAVILY_API_KEY; else process.env.TAVILY_API_KEY = previousKey;
-    if (previousUrl === undefined) delete process.env.TAVILY_SEARCH_URL; else process.env.TAVILY_SEARCH_URL = previousUrl;
-    await new Promise(resolve => server.close(resolve));
+    await server.close();
   }
 }
 
 test("parallel searches execute independently without a shared result-count quota", async () => {
   await withLocalSearchServer(async requests => {
-    const toolSet = await createChatToolSet({ toolIds: ["webSearch"] });
+    const toolSet = await createChatToolSet({ modelRef: SEARCH_MODEL_REF, toolIds: ["webSearch"] });
     const webSearch = toolSet.webSearch;
     const first = webSearch.execute({ query: "parallel one", maxResults: 16 }, toolOptions);
     const second = webSearch.execute({ query: "parallel two", maxResults: 18 }, toolOptions);
@@ -154,9 +143,7 @@ test("an unconfigured optional tool is not handed to the model at all", async()=
   process.env.OPENROUTER_API_KEY = "";
   process.env.DEEPSEEK_API_KEY = "";
   const {createChatToolSet,toolAvailability,listPublicToolCatalog,assertToolConfiguration}=await import("@/tools/catalog");
-  const previous=process.env.TAVILY_API_KEY;
   try{
-    delete process.env.TAVILY_API_KEY;
     // The model never sees it, so it cannot call it, retry it, or spend a step
     // discovering that it is missing. No search request is ever attempted.
     assert.equal("webSearch" in (await createChatToolSet({})), false);
@@ -176,7 +163,7 @@ test("an unconfigured optional tool is not handed to the model at all", async()=
     assert.equal(catalog.find(tool=>tool.id==="createTask").configEntry,null);
     assert.equal(catalog.find(tool=>tool.id==="createTask").available,true);
   }finally{
-    if(previous===undefined) delete process.env.TAVILY_API_KEY; else process.env.TAVILY_API_KEY=previous;
+    process.env.OPENROUTER_API_KEY = "offline-fixture-placeholder";
   }
 });
 
@@ -193,7 +180,7 @@ test("capability context explains a failed requested action without volunteering
 test("a subsequent search still reaches the provider after requesting more than ten results", async()=>{
   const {createChatToolSet}=await import("@/tools/catalog");
   await withLocalSearchServer(async requests=>{
-    const webSearch=(await createChatToolSet({toolIds:["webSearch"]})).webSearch;
+    const webSearch=(await createChatToolSet({modelRef:SEARCH_MODEL_REF,toolIds:["webSearch"]})).webSearch;
     await webSearch.execute({query:"first",maxResults:18},toolOptions);
     const second=await webSearch.execute({query:"second",maxResults:15},toolOptions);
     assert.equal(second.skipped, undefined);
@@ -203,35 +190,28 @@ test("a subsequent search still reaches the provider after requesting more than 
 });
 
 test("an optional tool that becomes unavailable mid-turn answers instead of failing the turn", async()=>{
-  process.env.OPENROUTER_API_KEY = "";
-  process.env.DEEPSEEK_API_KEY = "";
   await withLocalSearchServer(async()=>{
     const {createChatToolSet}=await import("@/tools/catalog");
     // Built while the key is present, so the tool is mounted…
-    const webSearch=(await createChatToolSet({toolIds:["webSearch"]})).webSearch;
+    const webSearch=(await createChatToolSet({modelRef:SEARCH_MODEL_REF,toolIds:["webSearch"]})).webSearch;
     // …and the key disappears before it runs, as it would if it were cleared in
     // another window.
-    delete process.env.TAVILY_API_KEY;
-    try{
-      const output=await webSearch.execute({query:"still here?"},toolOptions);
-      // A controlled result, so the model is told once and spends the rest of
-      // the turn on what it can do.
-      assert.deepEqual(output,{query:"still here?",results:[],skipped:"notConfigured"});
-    }finally{
-      process.env.TAVILY_API_KEY="local-budget-fixture";
-    }
+    process.env.DEEPSEEK_API_KEY="";
+    const output=await webSearch.execute({query:"still here?"},toolOptions);
+    // A controlled result, so the model is told once and spends the rest of
+    // the turn on what it can do.
+    assert.deepEqual(output,{query:"still here?",results:[],skipped:"notConfigured"});
   });
 });
 
 test("a transient search failure is a skipped result, while a refused call still fails", async()=>{
   const {createChatToolSet}=await import("@/tools/catalog");
   await withLocalSearchServer(async()=>{
-    const webSearch=(await createChatToolSet({toolIds:["webSearch"]})).webSearch;
+    const webSearch=(await createChatToolSet({modelRef:SEARCH_MODEL_REF,toolIds:["webSearch"]})).webSearch;
     // Point the search at a port with nothing behind it: a transport failure
     // that a retry will not fix on its own.
-    const previousUrl=process.env.TAVILY_SEARCH_URL;
-    process.env.TAVILY_SEARCH_URL="http://127.0.0.1:1/search";
-    try{
+    process.env.DEEPSEEK_BASE_URL="http://127.0.0.1:1";
+    {
       const output=await webSearch.execute({query:"unreachable",maxResults:4},toolOptions);
       assert.equal(output.skipped,"temporarilyUnavailable");
       assert.deepEqual(output.results,[]);
@@ -239,8 +219,6 @@ test("a transient search failure is a skipped result, while a refused call still
       const {getWebSearchSources}=await import("@/features/chat/message-presentation");
       // Only the part's output carries the sources; the reader keys off that.
       assert.deepEqual(getWebSearchSources([{type:"tool-webSearch",state:"output-available",output}] as unknown as Parameters<typeof getWebSearchSources>[0]),[]);
-    }finally{
-      process.env.TAVILY_SEARCH_URL=previousUrl;
     }
   });
 });

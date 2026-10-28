@@ -27,8 +27,6 @@ jobs:
       APP_RUNTIME: test
       LOCAL_DATABASE_FILE: .desktop-data/ci/${{ github.run_id }}-${{ github.run_attempt }}/app.db
       OPENROUTER_API_KEY: ""
-      TAVILY_API_KEY: test-tavily-key
-      TAVILY_SEARCH_URL: http://127.0.0.1:4010/search
 
     steps:
       - name: Check out repository
@@ -86,7 +84,6 @@ jobs:
       APP_RUNTIME: test
       OPENROUTER_API_KEY: ""
       DEEPSEEK_API_KEY: ""
-      TAVILY_API_KEY: ""
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -124,8 +121,6 @@ jobs:
       LOCAL_DATABASE_FILE: .desktop-data/ci-browser/${{ github.run_id }}-${{ github.run_attempt }}/${{ matrix.shard }}/app.db
       OPENROUTER_API_KEY: ""
       DEEPSEEK_API_KEY: ""
-      TAVILY_API_KEY: test-tavily-key
-      TAVILY_SEARCH_URL: http://127.0.0.1:4010/search
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -192,7 +187,6 @@ jobs:
       APP_RUNTIME: test
       LOCAL_DATABASE_FILE: .desktop-data/ci-desktop/${{ github.run_id }}-${{ github.run_attempt }}/app.db
       OPENROUTER_API_KEY: ""
-      TAVILY_API_KEY: ""
 
     steps:
       - name: Check out repository

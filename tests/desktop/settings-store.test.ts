@@ -37,7 +37,7 @@ function finish(report, code) {
 }
 
 app.whenReady().then(async () => {
-  const report = { encryptionAvailable: false, partialSave: null, concurrentWrites: null, extensionKeyStable: false, extensionKeyEncrypted: false, unreadableExtensionKeyIsolated: false, defaultLocale: null, defaultAutoCheckUpdates: null, savedLocale: null, invalidLocaleRejected: false, error: null };
+  const report = { encryptionAvailable: false, partialSave: null, concurrentWrites: null, extensionKeyStable: false, extensionKeyEncrypted: false, unreadableExtensionKeyIsolated: false, defaultLocale: null, defaultAutoCheckUpdates: null, savedLocale: null, invalidLocaleRejected: false, retiredSearchKeyDropped: false, error: null };
   try {
     // Each case gets its own file: the first must not depend on what the second left.
     const systemFile = join(root, "system.json");
@@ -71,6 +71,17 @@ app.whenReady().then(async () => {
     const reopenedCard = new DesktopSettingsStore(join(root, "card.json"));
     report.savedLocale = (await reopenedCard.getView()).locale;
     try { await card.save({ locale: "invalid" }); } catch { report.invalidLocaleRejected = (await card.getView()).locale === "en-US"; }
+    // Search runs through the model providers; a key saved for the former
+    // separate search service is neither reported, exported nor kept.
+    const retiredFile = join(root, "retired-search-key.json");
+    writeFileSync(retiredFile, JSON.stringify({ version: 1, encryptedTavilyApiKey: "retired-search-key", openrouterSiteName: "Kept" }));
+    const retired = new DesktopSettingsStore(retiredFile, ["zh-CN"]);
+    const retiredView = await retired.getView();
+    const retiredEnvironment = await retired.getServerEnvironment();
+    await retired.save({ closeBehaviour: "tray" });
+    const retiredStored = JSON.parse(readFileSync(retiredFile, "utf8"));
+    report.retiredSearchKeyDropped = !("hasTavilyApiKey" in retiredView) && !("TAVILY_API_KEY" in retiredEnvironment)
+      && !("encryptedTavilyApiKey" in retiredStored) && retiredStored.openrouterSiteName === "Kept";
 
     const concurrent = new DesktopSettingsStore(join(root, "concurrent.json"));
     report.encryptionAvailable = (await concurrent.getView()).encryptionAvailable;
@@ -132,6 +143,7 @@ test("a settings card that sends one field does not wipe the fields beside it", 
     assert.equal(report.savedLocale, "en-US");
     assert.equal(report.partialSave.locale, "en-US");
     assert.equal(report.invalidLocaleRejected, true);
+    assert.equal(report.retiredSearchKeyDropped, true);
   } finally {
     if (resolve(dirname(root)) !== resolve(tmpdir())) throw new Error("Unexpected test directory");
     rmSync(root, { recursive: true, force: true });
@@ -172,6 +184,7 @@ type SettingsReport = {
   defaultAutoCheckUpdates: boolean | null;
   savedLocale: string | null;
   invalidLocaleRejected: boolean;
+  retiredSearchKeyDropped: boolean;
   error: string | null;
   encryptionAvailable: boolean;
   extensionKeyStable: boolean;

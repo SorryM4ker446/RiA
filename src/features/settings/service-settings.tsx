@@ -34,13 +34,11 @@ export function ServiceSettings() {
   const [modelState, setModelState] = useState<ModelPreferences | null>(null);
   const [runtime, setRuntime] = useState<DesktopRuntimeInfo | null>(null);
   const [openrouterApiKey, setOpenrouterApiKey] = useState("");
-  const [tavilyApiKey, setTavilyApiKey] = useState("");
   const [deepseekApiKey, setDeepseekApiKey] = useState("");
   const [outboundProxyUrl, setOutboundProxyUrl] = useState("");
   const [openrouterSiteName, setOpenrouterSiteName] = useState("");
   const [openrouterHttpReferer, setOpenrouterHttpReferer] = useState("");
   const [clearOpenrouterApiKey, setClearOpenrouterApiKey] = useState(false);
-  const [clearTavilyApiKey, setClearTavilyApiKey] = useState(false);
   const [clearDeepseekApiKey, setClearDeepseekApiKey] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -91,7 +89,7 @@ export function ServiceSettings() {
   // The connection fields start empty until the desktop settings load, so an
   // edit counts against what was loaded, or against empty when nothing was.
   const loaded = settings ?? { outboundProxyUrl: "", openrouterSiteName: "", openrouterHttpReferer: "" };
-  const keysChanged = Boolean(openrouterApiKey || tavilyApiKey || deepseekApiKey || clearOpenrouterApiKey || clearTavilyApiKey || clearDeepseekApiKey)
+  const keysChanged = Boolean(openrouterApiKey || deepseekApiKey || clearOpenrouterApiKey || clearDeepseekApiKey)
     || outboundProxyUrl !== loaded.outboundProxyUrl || openrouterSiteName !== loaded.openrouterSiteName || openrouterHttpReferer !== loaded.openrouterHttpReferer;
   useSettingsDirty(!isSaving && keysChanged);
 
@@ -106,10 +104,8 @@ export function ServiceSettings() {
     try {
       const result = await bridge.saveSettings({
         openrouterApiKey,
-        tavilyApiKey,
         deepseekApiKey,
         clearOpenrouterApiKey,
-        clearTavilyApiKey,
         clearDeepseekApiKey,
         outboundProxyUrl,
         openrouterSiteName,
@@ -117,10 +113,8 @@ export function ServiceSettings() {
       });
       setSettings(result.settings);
       setOpenrouterApiKey("");
-      setTavilyApiKey("");
       setDeepseekApiKey("");
       setClearOpenrouterApiKey(false);
-      setClearTavilyApiKey(false);
       setClearDeepseekApiKey(false);
       setNotice(t("settings.notice.saving"));
     } catch (saveError) {
@@ -168,7 +162,6 @@ export function ServiceSettings() {
                     {[
                       { id: "openrouter-key", label: "OpenRouter API Key", value: openrouterApiKey, onChange: setOpenrouterApiKey, configured: settings?.hasOpenrouterApiKey, clear: clearOpenrouterApiKey, onClear: setClearOpenrouterApiKey, clearLabel: t("settings.clearOpenrouter"), placeholder: "sk-or-v1-…", hint: t("ui.settings.chatImageAndVideoGeneration") },
                       { id: "deepseek-key", label: "DeepSeek API Key", value: deepseekApiKey, onChange: setDeepseekApiKey, configured: settings?.hasDeepseekApiKey, clear: clearDeepseekApiKey, onClear: setClearDeepseekApiKey, clearLabel: t("settings.clearDeepseek"), placeholder: t("settings.deepseekPlaceholder"), hint: t("ui.settings.chatOnly") },
-                      { id: "tavily-key", label: "Tavily API Key", value: tavilyApiKey, onChange: setTavilyApiKey, configured: settings?.hasTavilyApiKey, clear: clearTavilyApiKey, onClear: setClearTavilyApiKey, clearLabel: t("settings.clearTavily"), placeholder: t("settings.tavilyPlaceholder"), hint: t("ui.settings.backupSearchDoesNotAffectProvider") },
                     ].map(field => (
                       <Field key={field.id} orientation="horizontal" className="settings-field" data-disabled={!settings?.encryptionAvailable || field.clear}>
                         <FieldContent><FieldLabel htmlFor={field.id}>{field.label}</FieldLabel><FieldDescription>{field.hint}</FieldDescription></FieldContent>

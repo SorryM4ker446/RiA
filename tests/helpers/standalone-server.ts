@@ -38,7 +38,7 @@ export async function startStandaloneServer(options: { modelFixture?: boolean; m
     DESKTOP_SESSION_TOKEN: options.desktopScheduler ? TEST_ACCESS_TOKEN : "",
     HOSTNAME: "127.0.0.1", PORT: String(port), LOCAL_DATABASE_FILE: database,
     DATABASE_URL: `file:${database.replaceAll("\\", "/")}`, MEDIA_DIRECTORY: join(root, "media"), LEGACY_VIDEO_DIRECTORY: join(root, "legacy-videos"),
-    OPENROUTER_API_KEY: options.modelFixture ? "offline-fixture-placeholder" : "", DEEPSEEK_API_KEY: "", TAVILY_API_KEY: "", TAVILY_SEARCH_URL: "",
+    OPENROUTER_API_KEY: options.modelFixture ? "offline-fixture-placeholder" : "", DEEPSEEK_API_KEY: "",
     OUTBOUND_PROXY_URL: "", HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "", http_proxy: "", https_proxy: "", all_proxy: "",
     RIA_HTTP_FIXTURE: options.modelFixture ? "1" : "0",
     RIA_FIXTURE_CONTEXT_LENGTH: String(options.modelContextLength ?? 200_000),

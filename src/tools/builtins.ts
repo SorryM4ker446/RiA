@@ -391,10 +391,10 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
   },
   webSearch: {
     id: "webSearch",
-    displayName: "Web Search",
+    displayName: t("tools.webSearch.displayName"),
     description: t("tools.webSearch.description"),
     modelDescription:
-      "Retrieve external information through web search. Choose maxResults yourself according to the question's complexity and breadth; there is no RiA per-turn result quota. Provider per-request limits still apply (DeepSeek Search: 50, OpenRouter: 25, Tavily: 20). Search again with focused queries if more evidence is needed. Use it when the answer depends on facts outside this workspace: current events, external facts, web sources, links, or anything the user expects to be looked up. Do not use it for questions you can answer from general knowledge, and prefer the knowledge base when the answer is already stored there.",
+      "Retrieve external information through web search. Choose maxResults yourself according to the question's complexity and breadth; there is no RiA per-turn result quota. Provider per-request limits still apply (DeepSeek Search: 50, OpenRouter: 25). Search again with focused queries if more evidence is needed. Use it when the answer depends on facts outside this workspace: current events, external facts, web sources, links, or anything the user expects to be looked up. Do not use it for questions you can answer from general knowledge, and prefer the knowledge base when the answer is already stored there.",
     modeSupport: ["chat"],
     manual: {
       enabled: true,
@@ -456,7 +456,7 @@ export async function builtinToolAvailability(toolId: string, modelRef?: ModelRe
   if (toolId === "webSearch" && !searchConfigured(modelRef)) {
     // The reason a tool is missing comes with where to fix it, so the interface
     // can offer the way out instead of only reporting the absence.
-    // The search key is entered with the provider keys.
+    // Search uses the provider keys entered in the same section.
     return { available: false, reason: "notConfigured", configEntry: settingsHref("services") };
   }
   return { available: true, reason: null, configEntry: null };
