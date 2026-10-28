@@ -137,6 +137,15 @@ states, reduced-motion behavior, keyboard toggling and narrow-screen controls.
 An additional Chromium case uses CPU throttling to exercise slower rendering;
 this simulation is separate from validation on the actual hosted runner.
 
+Conversation-switch layout checks wait for the saved model label and its initial
+width transition to settle before recording the interaction. History can be ready
+while that earlier transition is still running: a hosted trace captured its final
+one-pixel movement before the conversation-list click. The check waits for the
+actual animation and temporary inline width to clear, then watches through the
+list's closing animation without a fixed delay. Exact frame-by-frame position and
+unexpected-layout-shift assertions remain in place. A separate case uses 6x CPU
+throttling, while model-selection tests still verify intentional width easing.
+
 Report local commands, environment, scope and failures separately from hosted
 Actions results. Only a new successful hosted run establishes that GitHub
 Actions passed. Changes remain unpublished until the repository owner submits
