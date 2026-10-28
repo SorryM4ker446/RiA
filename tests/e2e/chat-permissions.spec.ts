@@ -45,7 +45,9 @@ test("chat permissions choose and grant a directory without sending the draft, a
   const draft = page.getByPlaceholder(/输入你的问题/);
   await draft.fill("保留这段尚未发送的草稿");
   await page.getByRole("combobox", { name: "选择工具", exact: true }).click();
-  await expect(page.getByRole("option", { name: "执行终端命令（未配置）", exact: true })).toBeVisible();
+  const terminal = page.getByRole("option", { name: "执行终端命令", exact: true });
+  await expect(terminal).toBeDisabled();
+  await expect(terminal).toHaveAccessibleDescription("未配置");
   await page.keyboard.press("Escape");
   const trigger = page.getByRole("button", { name: "工作区权限", exact: true });
   const records = await page.getByRole("button", { name: "执行记录", exact: true }).boundingBox();
@@ -107,7 +109,7 @@ test("chat permissions choose and grant a directory without sending the draft, a
   expect((await browserData(page, `/api/conversations/${chat.id}`)).workspaceGrantId).toBe(grant.id);
   await expect(draft).toHaveValue("保留这段尚未发送的草稿");
   await page.getByRole("combobox", { name: "选择工具", exact: true }).click();
-  await expect(page.getByRole("option", { name: "执行终端命令（未配置）", exact: true })).toHaveCount(0);
+  await expect(terminal).toHaveCount(0);
   await page.keyboard.press("Escape");
   await page.setViewportSize({ width: 390, height: 844 });
   await trigger.click();
@@ -150,7 +152,7 @@ test("chat permissions choose and grant a directory without sending the draft, a
   await expect(page.getByRole("button", { name: "工作区：选择工作区", exact: true })).toBeVisible();
   expect((await browserData(page, `/api/conversations/${chat.id}`)).workspaceGrantId).toBeNull();
   await page.getByRole("combobox", { name: "选择工具", exact: true }).click();
-  await expect(page.getByRole("option", { name: "执行终端命令（未配置）", exact: true })).toBeVisible();
+  await expect(terminal).toBeDisabled();
   expect(chatRequests).toBe(0);
   expect(errors).toEqual([]);
 });

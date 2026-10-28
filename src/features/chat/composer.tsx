@@ -5,12 +5,12 @@ import { modelRefKey } from "@/lib/models/preferences-schema";
 import { attachmentLabel } from "@/features/chat/draft";
 import { DocumentAttachment } from "@/components/chat/document-attachment";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectSeparator,
   SelectValue,
@@ -21,7 +21,7 @@ import { CHAT_ATTACHMENT_TYPES, IMAGE_MEDIA_TYPES, isDocumentAttachment } from "
 import { cn } from "@/lib/utils/cn";
 import { ArrowUp, Loader2, Paperclip, Square, X } from "lucide-react";
 import { DocumentToolInput } from "@/features/chat/document-tool-input";
-import { getManualToolFieldError } from "@/features/chat/tool-input";
+import { ManualToolFields } from "@/features/chat/manual-tool-fields";
 import type { ManualToolSelection } from "@/features/chat/types";
 import type { ChatState } from "@/features/chat/use-chat-state";
 import { ModelMode } from "@/features/chat/page-utils";
@@ -141,6 +141,7 @@ export function Composer({
 }: Props) {
   useLocale();
   const isDocumentTool = modelMode === "chat" && ["readDocument", "convertDocument"].includes(selectedManualToolConfig?.id ?? "");
+  const toolFields = modelMode === "chat" && selectedManualToolConfig ? selectedManualToolConfig.manual.fields.filter(field => !field.hidden) : [];
   const rememberedModelLabel = useRememberedModelLabel(modelMode);
   const openSettings = useOpenSettings();
   const modelLabel = !selectedModel ? t("chat.toolbar.modelNone")
@@ -164,116 +165,19 @@ export function Composer({
       onDrop={onComposerDrop}
       onSubmit={onSubmit}
     >
-      {modelMode === "chat" &&
-      selectedManualToolConfig &&
-      selectedManualToolConfig.manual.fields.length > 0 ? (
-        <FieldGroup className="gap-2 rounded-xl border border-border/60 bg-card/70 p-3 md:grid md:grid-cols-3">
-          {selectedManualToolConfig.manual.fields.map((field) => {
-            const value = manualToolFieldValues[field.key] ?? "";
-            const fieldId = `manual-tool-${field.key}`;
-            if (field.type === "select") {
-              return (
-                <Field key={field.key}>
-                  <FieldLabel htmlFor={fieldId} className="sr-only">{localizeMessage(field.label)}</FieldLabel>
-                  <Select
-                    onValueChange={(nextValue) =>
-                      setManualToolFieldValues((prev) => ({
-                        ...prev,
-                        [field.key]: nextValue,
-                      }))
-                    }
-                    value={value || field.defaultValue || ""}
-                  >
-                    <SelectTrigger id={fieldId} className="h-8">
-                      <SelectValue placeholder={localizeMessage(field.label)} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(field.options ?? []).map((option) => (
-                        <SelectItem
-                          key={`${field.key}-${option.value}`}
-                          value={option.value}
-                        >
-                          {localizeMessage(option.label)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-              );
-            }
-
-            const error = manualToolFieldErrors[field.key];
-            const fieldErrorId = `manual-tool-${field.key}-error`;
-            return (
-              <Field className="gap-1.5" key={field.key} data-invalid={!!error}>
-                <FieldLabel htmlFor={fieldId} className="sr-only">{localizeMessage(field.label)}</FieldLabel>
-                <Input
-                  id={fieldId}
-                  aria-describedby={error ? fieldErrorId : undefined}
-                  aria-invalid={error ? true : undefined}
-                  className={cn(
-                    "h-8",
-                    error
-                      ? "border-destructive/60 bg-background text-foreground focus-visible:border-destructive focus-visible:ring-destructive/20"
-                      : "",
-                  )}
-                  inputMode={field.type === "number" ? "decimal" : undefined}
-                  onChange={(event) => {
-                    const nextValue = event.target.value;
-                    setManualToolFieldValues((prev) => ({
-                      ...prev,
-                      [field.key]: nextValue,
-                    }));
-                    setManualToolFieldErrors((prev) => {
-                      const nextError = getManualToolFieldError(
-                        field,
-                        nextValue,
-                      );
-                      if (nextError) {
-                        return { ...prev, [field.key]: nextError };
-                      }
-                      const rest = { ...prev };
-                      delete rest[field.key];
-                      return rest;
-                    });
-                  }}
-                  placeholder={localizeMessage(field.placeholder ?? field.label)}
-                  type={field.type === "number" ? "text" : field.type}
-                  value={value}
-                />
-                {error ? (
-                  <p
-                    className="px-1 text-[11px] leading-4 text-destructive/90"
-                    id={fieldErrorId}
-                    role="alert"
-                  >
-                    <span>{localizeMessage(error)}</span>
-                  </p>
-                ) : null}
-              </Field>
-            );
-          })}
-        </FieldGroup>
-      ) : null}
-
-      {modelMode === "chat" ? (
-        toolCatalogError ? (
-          <p className="text-[11px] text-warning">
-            {tf("chat.composer.toolCatalogError", { detail: toolCatalogError })}
-          </p>
-        ) : selectedManualToolConfig ? (
-          <p className="text-[11px] text-muted-foreground">
-            {localizeMessage(selectedManualToolConfig.description)}
-          </p>
-        ) : null
+      {modelMode === "chat" && toolCatalogError ? (
+        <p className="text-[11px] text-warning">
+          {tf("chat.composer.toolCatalogError", { detail: toolCatalogError })}
+        </p>
       ) : null}
 
       {/* One bordered surface holds the prompt, the controls that shape it, and the
         send action. Scattering those across separate full-width rows left the
         send button visually unconnected to what it submits. */}
       <div className="composer-surface">
-        {isDocumentTool ? <DocumentToolInput key={`${activeChat?.documentScope ?? ""}:${selectedManualToolConfig?.id}`} value={selectedToolDocument} onChange={setSelectedToolDocument} scope={activeChat?.documentScope} disabled={isPending} /> : <Textarea
-          className="composer-input block h-20 min-h-0 resize-none overflow-y-auto rounded-none px-4 py-3 shadow-none focus-visible:ring-0"
+        {isDocumentTool ? <DocumentToolInput key={`${activeChat?.documentScope ?? ""}:${selectedManualToolConfig?.id}`} value={selectedToolDocument} onChange={setSelectedToolDocument} scope={activeChat?.documentScope} disabled={isPending}
+          options={toolFields.length > 0 ? <ManualToolFields className="p-0" fields={toolFields} values={manualToolFieldValues} setValues={setManualToolFieldValues} errors={manualToolFieldErrors} setErrors={setManualToolFieldErrors} disabled={isPending} /> : null} /> : <div className={cn(toolFields.length > 0 && "flex h-20 flex-col")}><Textarea
+          className={cn("composer-input block min-h-0 resize-none overflow-y-auto rounded-none px-4 shadow-none focus-visible:ring-0", toolFields.length > 0 ? "flex-1 py-2" : "h-20 py-3")}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={handleTextareaKeyDown}
           onPaste={onTextareaPaste}
@@ -289,7 +193,9 @@ export function Composer({
           ref={textareaRef}
           rows={3}
           value={input}
-        />}
+        />
+        {toolFields.length > 0 ? <ManualToolFields fields={toolFields} values={manualToolFieldValues} setValues={setManualToolFieldValues} errors={manualToolFieldErrors} setErrors={setManualToolFieldErrors} disabled={isPending} /> : null}
+        </div>}
         {/*
         A thumbnail is worth more than a file name here: the user is deciding
         whether the right picture got attached, and a name cannot answer that.
@@ -456,24 +362,32 @@ export function Composer({
                   >
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">
+                  <SelectContent className="w-72">
+                    <SelectItem value="none" description={t("chat.composer.toolAutoDescription")}>
                       {t("chat.composer.toolAutoOption")}
                     </SelectItem>
-                    {unavailableTools.map((tool) => (
-                      <SelectItem
-                        disabled
-                        key={tool.id}
-                        value={`unavailable-${tool.id}`}
-                      >
-                        {`${(tool.extensionId ? tool.displayName : localizeMessage(tool.displayName))}（${tool.extensionId ? tool.reason === "disabled" ? t("ui.chat.composer.disabled") : tool.reason === "notTested" ? t("ui.chat.composer.notTested") : tool.reason === "toolDisabled" ? t("ui.chat.composer.toolNotEnabled") : t("ui.chat.composer.credentialsUnavailable") : t("chat.composer.toolNotConfigured")}）`}
-                      </SelectItem>
-                    ))}
+                    {manualTools.length > 0 ? <SelectSeparator /> : null}
                     {manualTools.map((tool) => (
-                      <SelectItem key={tool.id} value={tool.id}>
+                      <SelectItem key={tool.id} value={tool.id} description={tool.description ? (tool.extensionId ? tool.description : localizeMessage(tool.description)) : undefined}>
                         {(tool.extensionId ? tool.displayName : localizeMessage(tool.displayName))}
                       </SelectItem>
                     ))}
+                    {unavailableTools.length > 0 ? <>
+                      <SelectSeparator />
+                      <SelectGroup>
+                        <SelectLabel>{t("chat.composer.toolUnavailableGroup")}</SelectLabel>
+                        {unavailableTools.map((tool) => (
+                          <SelectItem
+                            disabled
+                            key={tool.id}
+                            value={`unavailable-${tool.id}`}
+                            hint={tool.extensionId ? tool.reason === "disabled" ? t("ui.chat.composer.disabled") : tool.reason === "notTested" ? t("ui.chat.composer.notTested") : tool.reason === "toolDisabled" ? t("ui.chat.composer.toolNotEnabled") : t("ui.chat.composer.credentialsUnavailable") : t("chat.composer.toolNotConfigured")}
+                          >
+                            {(tool.extensionId ? tool.displayName : localizeMessage(tool.displayName))}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </> : null}
                   </SelectContent>
                 </Select>
                 <ContextUsage messages={messages} />

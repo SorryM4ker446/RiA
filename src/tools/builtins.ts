@@ -240,9 +240,12 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       primaryFieldLabel: t("tools.saveMemory.primaryFieldLabel"),
       fields: [
         {
+          // A handle for updating the fact later; a fact saved by hand has no
+          // name of its own to update it by, so it is not asked for.
           key: "key",
           label: t("tools.saveMemory.keyLabel"),
           type: "text",
+          hidden: true,
           required: true,
           defaultValue: "user_memory",
         },
@@ -284,17 +287,9 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       submitLabel: t("tools.common.submitLabel"),
       primaryFieldKey: "query",
       primaryFieldLabel: t("tools.searchKnowledge.primaryFieldLabel"),
-      fields: [
-        {
-          key: "topK",
-          label: "topK",
-          type: "number",
-          min: 1,
-          max: 8,
-          step: 1,
-          defaultValue: "4",
-        },
-      ],
+      // How many results to return is the tool's own default, not a choice to
+      // put in front of someone searching.
+      fields: [],
     },
     inputSchema: searchKnowledgeInputSchema,
     execute: async ({ input, documentCollections, documentRetrievalPolicy, usesMemory, signal }) => searchKnowledge(input, { collections: documentCollections, policy: documentRetrievalPolicy, usesMemory, signal }),
@@ -355,9 +350,9 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
           type: "select",
           defaultValue: "medium",
           options: [
-            { label: "low", value: "low" },
-            { label: "medium", value: "medium" },
-            { label: "high", value: "high" },
+            { label: t("chatMsg.priorityLow"), value: "low" },
+            { label: t("chatMsg.priorityMedium"), value: "medium" },
+            { label: t("chatMsg.priorityHigh"), value: "high" },
           ],
         },
         {

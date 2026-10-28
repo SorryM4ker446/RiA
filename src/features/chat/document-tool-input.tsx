@@ -4,7 +4,7 @@ import { useLocale } from "@/lib/locale/client";
 import { t, localizeMessage } from "@/lib/locale";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -13,11 +13,13 @@ import { chatApi } from "@/features/chat/api-client";
 import type { ToolDocumentSelection } from "@/features/chat/types";
 import { decodeDocumentScope } from "@/lib/documents/scope";
 
-export function DocumentToolInput({ value, onChange, scope = "", disabled }: {
+export function DocumentToolInput({ value, onChange, scope = "", disabled, options }: {
   value: ToolDocumentSelection | null;
   onChange: (document: ToolDocumentSelection | null) => void;
   scope?: string;
   disabled: boolean;
+  /** The tool's own choices, such as an export format, beside the document. */
+  options?: ReactNode;
 }) {
   useLocale();
   const [documents, setDocuments] = useState<Array<ToolDocumentSelection & { collection: string | null }>>([]);
@@ -41,14 +43,19 @@ export function DocumentToolInput({ value, onChange, scope = "", disabled }: {
   }, [scope, revision, onChange]);
   const loading = loadedScope !== scope;
   const available = !loading && documents.some(document => document.id === value?.id);
-  return <FieldGroup className="px-4 pb-3 pt-4">
-    <Field>
-      <FieldLabel htmlFor="tool-document">{t("ui.chat.document-tool-input.knowledgeDocuments")}</FieldLabel>
-      <SelectField id="tool-document" value={available ? value!.id : ""} disabled={disabled || loading || !!error} onValueChange={id => onChange(documents.find(document => document.id === id) ?? null)}>
+  // The same height as the text area it stands in for, so choosing a document
+  // tool leaves the composer where it was.
+  return <FieldGroup className="h-20 justify-center gap-1 px-3">
+    <Field className="gap-1">
+      <FieldLabel htmlFor="tool-document" className="sr-only">{t("ui.chat.document-tool-input.knowledgeDocuments")}</FieldLabel>
+      <div className="flex min-w-0 items-center gap-1">
+      <SelectField id="tool-document" size="sm" className="min-w-0 flex-1" value={available ? value!.id : ""} disabled={disabled || loading || !!error} onValueChange={id => onChange(documents.find(document => document.id === id) ?? null)}>
         <SelectOption value="">{loading ? t("ui.chat.document-tool-input.loadingDocuments") : t("ui.chat.document-tool-input.chooseADocumentToProcess")}</SelectOption>
         {documents.map(document => <SelectOption key={document.id} value={document.id}>{document.filename}{document.collection ? ` · ${document.collection}` : ""}</SelectOption>)}
       </SelectField>
-      {error ? <div className="flex flex-wrap items-center gap-2"><p role="alert" className="text-xs text-destructive">{localizeMessage(error)}</p><Button size="sm" variant="ghost" disabled={disabled} onClick={() => { setLoadedScope(null); onChange(null); setRevision(old => old + 1); }}><RefreshCw data-icon="inline-start" />{t("ui.chat.chat-toolbar.retry")}</Button></div> : !loading && !documents.length ? <FieldDescription>{t("ui.chat.document-tool-input.noDocumentsInTheCurrentKnowledge")}<Link href="/knowledge">{t("ui.chat.document-tool-input.importInKnowledge")}</Link></FieldDescription> : <FieldDescription>{t("ui.chat.document-tool-input.selectByFilenameExecutionDoesNot")}</FieldDescription>}
+      {options}
+      </div>
+      {error ? <div className="flex min-w-0 items-center gap-2 px-1"><p role="alert" className="truncate text-xs text-destructive">{localizeMessage(error)}</p><Button size="sm" variant="ghost" disabled={disabled} onClick={() => { setLoadedScope(null); onChange(null); setRevision(old => old + 1); }}><RefreshCw data-icon="inline-start" />{t("ui.chat.chat-toolbar.retry")}</Button></div> : !loading && !documents.length ? <FieldDescription className="truncate px-1 text-xs">{t("ui.chat.document-tool-input.noDocumentsInTheCurrentKnowledge")}<Link href="/knowledge">{t("ui.chat.document-tool-input.importInKnowledge")}</Link></FieldDescription> : <FieldDescription className="truncate px-1 text-xs">{t("ui.chat.document-tool-input.selectByFilenameExecutionDoesNot")}</FieldDescription>}
     </Field>
   </FieldGroup>;
 }

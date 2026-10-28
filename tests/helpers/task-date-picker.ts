@@ -14,7 +14,14 @@ export async function chooseTaskDateTime(
     const day = dialog.locator(`button[data-day="${date}"]`);
     if (await day.count()) {
       await day.click();
-      await scope.locator("[data-time-input]").fill(time);
+      // The compact picker keeps its time in the popover, which stays open
+      // until it is done; the full field closes it and has the time beside it.
+      const inPopover = dialog.locator("[data-time-input]");
+      if (await inPopover.count()) {
+        await inPopover.fill(time);
+        await dialog.getByRole("button", { name: "完成", exact: true }).click();
+        await expect(dialog).toBeHidden();
+      } else await scope.locator("[data-time-input]").fill(time);
       return;
     }
     const middle = await dialog
