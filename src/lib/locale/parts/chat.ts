@@ -113,7 +113,6 @@ export const chatMessages = {
   "chat.memory.label": "长期记忆",
   "chat.memory.on": "长期记忆：开",
   "chat.memory.off": "长期记忆：关",
-  "chat.memory.note": "只影响这个会话。开启时会读取和写入长期记忆；关闭后两者都不做。消息、草稿、已上传的图片和用量记录始终保存。",
   "chat.memory.onTitle": "长期记忆已开启",
   "chat.memory.offTitle": "长期记忆已关闭",
   "chat.memory.turnedOn": "这个会话会使用长期记忆",
