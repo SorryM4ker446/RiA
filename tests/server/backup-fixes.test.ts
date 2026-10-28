@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, beforeEach, test } from "node:test";
 import type { TestContext } from "node:test";
 import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import { utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NextRequest } from "next/server";
@@ -161,6 +162,34 @@ test("a completed restore pauses schedules and grants in the same commit and rep
   assert.equal((await db.scheduledJob.findFirstOrThrow({ where: { kind: "scheduledBackup" } })).enabled, false);
   assert.equal((await db.scheduledJob.findFirstOrThrow({ where: { kind: "dailyBrief" } })).enabled, false, "an already-off schedule stays off");
   assert.equal(await db.directoryGrant.count({ where: { id: grant.id } }), 0, "a withdrawn grant is removed, not kept");
+});
+
+// --- pruning old backups is background work, not an exclusive operation -----
+
+test("pruning old backups keeps serving requests and stays out of a backup's or restore's way", async () => {
+  const { maintainBackups } = await import("@/lib/backups/maintenance");
+  const old = await exclusiveDataOperation(() => archive.createAccountBackup(false));
+  await exclusiveDataOperation(() => archive.createAccountBackup(false));
+  await utimes(await files.backupFile(old.id), new Date(0), new Date(0));
+  const kept = async () => (await files.listBackupFiles()).some(file => file.id === old.id);
+
+  // Skipped while a backup or restore holds the workspace; the next tick retries.
+  await exclusiveDataOperation(async () => {
+    await assert.rejects(maintainBackups());
+  });
+  assert.equal(await kept(), true);
+
+  // Started 30 seconds after launch, it used to turn every request away as
+  // "backup or restore in progress" for as long as it ran. A restore still waits.
+  const route = protectDataOperation(async () => Response.json({ ok: true }));
+  const pruning = maintainBackups();
+  const restore = exclusiveDataOperation(async () => {});
+  const request = route(new NextRequest("http://localhost/api/terminal/files/resolve", { headers: { cookie } }));
+  await assert.rejects(restore, /仍有请求/);
+  assert.equal((await request).status, 200);
+  await pruning;
+  assert.equal(await kept(), false);
+  await exclusiveDataOperation(async () => {});
 });
 
 // --- a scheduled backup is a reader, not an exclusive operation ---------------

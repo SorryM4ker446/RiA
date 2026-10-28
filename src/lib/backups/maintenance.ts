@@ -1,9 +1,12 @@
-import { exclusiveDataOperation } from "@/lib/server/data-operations";
+import { runBackgroundDataOperation } from "@/lib/server/data-operations";
 import { pruneAccountBackups } from "@/lib/backups/archive";
 const shared = globalThis as typeof globalThis & { backupMaintenanceTimer?: ReturnType<typeof setInterval> };
 export async function maintainBackups() {
-  // One workspace, so retention is a single pass.
-  await exclusiveDataOperation(async () => {
+  // One workspace, so retention is a single pass. It only removes expired backup
+  // files, so like any background work it keeps backups, restores and imports
+  // from starting while it runs (and is skipped during one) without turning
+  // ordinary requests away as if a backup or restore were in progress.
+  await runBackgroundDataOperation(async () => {
     await pruneAccountBackups();
   });
 }
