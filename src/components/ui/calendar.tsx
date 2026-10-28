@@ -15,6 +15,7 @@ function Calendar({
   className,
   classNames,
   showOutsideDays = true,
+  fixedWeeks = true,
   captionLayout = "label",
   buttonVariant = "ghost",
   formatters,
@@ -28,6 +29,9 @@ function Calendar({
   return (
     <DayPicker
       showOutsideDays={showOutsideDays}
+      // Six rows every month: a month of five rows made the calendar shorter, and
+      // its popover flipped above or below the field while paging months.
+      fixedWeeks={fixedWeeks}
       className={cn(
         "bg-background group/calendar p-3 [--cell-size:2rem] [[data-slot=card-content]_&]:bg-transparent [[data-slot=popover-content]_&]:bg-transparent",
         className,
