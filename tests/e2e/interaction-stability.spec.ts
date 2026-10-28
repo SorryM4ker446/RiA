@@ -63,7 +63,7 @@ for (const variant of variants) test.describe(`${variant.theme} theme, ${variant
     await expect.poll(() => content.evaluate(node => Math.round(node.scrollTop))).toBe(0);
   });
 
-  test("switching conversations replaces the transcript without moving the composer or the toolbar", async ({ page, app }) => {
+  for (const cpuRate of variant.reducedMotion === "reduce" ? [1] : [1, 6]) test(`switching conversations replaces the transcript without moving the composer or the toolbar${cpuRate > 1 ? " with CPU throttling" : ""}`, async ({ page, app }) => {
     await openWorkspace(page, app.origin);
     await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
     // Off the chat page while the conversations are made: a chat page still reading
@@ -71,10 +71,21 @@ for (const variant of variants) test.describe(`${variant.theme} theme, ${variant
     await page.goto(`${app.origin}/`);
     await conversationWithMessages(page, "第一段对话", 4);
     await conversationWithMessages(page, "第二段对话", 6);
+    if (cpuRate > 1) {
+      const session = await page.context().newCDPSession(page);
+      await session.send("Emulation.setCPUThrottlingRate", { rate: cpuRate });
+    }
     await page.goto(`${app.origin}/chat`);
     const title = page.locator(".chat-toolbar h3");
     await expect(title).toHaveText("第二段对话");
     await expect(page.getByText("第二段对话 的第 6 条消息。", { exact: false }).first()).toBeVisible();
+    const model = page.getByRole("combobox", { name: "选择模型", exact: true });
+    await expect(model).toContainText("Claude Opus Offline");
+    // History can arrive before the saved model's width has finished easing.
+    // Let ResizeObserver process the label, then wait for the actual transition
+    // and its temporary width to clear before watching conversation switching.
+    await model.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => setTimeout(resolve, 0))));
+    await expect.poll(() => model.evaluate(node => node.style.width === "" && node.getAnimations().length === 0)).toBe(true);
     await page.evaluate(() => {
       const seen = { welcome: false };
       (window as unknown as { switchSeen: typeof seen }).switchSeen = seen;
@@ -90,7 +101,7 @@ for (const variant of variants) test.describe(`${variant.theme} theme, ${variant
     await page.getByRole("complementary", { name: "会话列表", exact: true }).getByRole("button", { name: /^第一段对话/ }).click();
     await expect(title).toHaveText("第一段对话");
     await expect(page.getByText("第一段对话 的第 4 条消息。", { exact: false }).first()).toBeVisible();
-    await page.waitForTimeout(300);
+    await expect(page.getByRole("complementary", { name: "会话列表", exact: true })).toHaveCount(0);
     const record = await layout.read();
     // The old conversation gives way to the new one directly: no welcome page in between.
     expect(await page.evaluate(() => (window as unknown as { switchSeen: { welcome: boolean } }).switchSeen.welcome)).toBe(false);
