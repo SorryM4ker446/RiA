@@ -732,6 +732,10 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
 .ui-select-content { transform-origin: var(--radix-select-content-transform-origin); }
 .ui-select-content[data-state="open"] { animation: pop-in var(--dur-fast) var(--ease-out); }
 .ui-select-content[data-state="closed"] { animation: pop-out var(--dur-instant) var(--ease-in-out); }
+/* Radix hides the list's scrollbar and scrolls by hover arrows instead; a long
+   list keeps the window's thin scrollbar and stops at its ends. */
+.ui-select-content [data-radix-select-viewport] { scrollbar-width: thin; overscroll-behavior: contain; }
+.ui-select-item-description { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 12px; line-height: 1.45; color: hsl(var(--muted-foreground)); white-space: normal; }
 .ui-popover-content { transform-origin: var(--radix-popover-content-transform-origin); }
 .ui-popover-content[data-state="open"] { animation: pop-in var(--dur-fast) var(--ease-out); }
 .ui-popover-content[data-state="closed"] { animation: pop-out var(--dur-instant) var(--ease-in-out); }

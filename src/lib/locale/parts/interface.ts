@@ -977,6 +977,7 @@ export const interfaceMessages = {
   "tasks.moreOptions": "更多选项",
   "ui.time.format": "24 小时制，例如 09:30",
   "tasks.clearDate": "清除日期",
+  "tasks.dateDone": "完成",
   "tasks.scheduleHint": "日期和时间按“更多选项”里的时区保存，默认是本机时区。提醒和重复任务需要设置到期时间。",
   "models.catalog.contextLength": "{tokens} 上下文",
   "settings.language.saveFailed": "语言保存失败，请重试。",

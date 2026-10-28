@@ -6,6 +6,7 @@ import JSZip from "jszip";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { browserApi, browserData } from "../helpers/browser-api";
 import { configureOfflineModels } from "../helpers/model-fixture";
+import { chooseOption } from "../helpers/select";
 import { textPdf, wordTableDocument } from "../helpers/document-fixtures";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({ app: async ({}, provide) => {
@@ -159,6 +160,8 @@ test("document action failures retain the chosen resource and scope changes disc
   await expect(source).toBeEnabled(); await source.click();
   await expect(page.getByRole("option", { name: "其他资料.md · 其他资料", exact: true })).toHaveCount(0);
   await page.getByRole("option", { name: "本次资料.md · 本次资料", exact: true }).click();
+  // The format is chosen beside the document and is what the export uses.
+  await chooseOption(page.getByRole("combobox", { name: "导出格式", exact: true }), "Markdown");
   await page.evaluate(() => {
     const original = window.fetch.bind(window);
     let fail = true;
@@ -178,7 +181,7 @@ test("document action failures retain the chosen resource and scope changes disc
   await page.screenshot({ path: join(screenshots, "document-action-mobile.png"), animations: "disabled" });
   await page.getByRole("button", { name: "转换并导出文档", exact: true }).click();
   await expect(tools).toContainText("自动工具");
-  await expect(page.getByRole("button", { name: "下载 Word · 本次资料.docx", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "下载 Markdown · 本次资料.md", exact: true })).toBeVisible();
   await tools.click(); await page.getByRole("option", { name: "读取文档", exact: true }).click();
   await expect(source).toBeEnabled(); await source.click();
   await page.getByRole("option", { name: "本次资料.md · 本次资料", exact: true }).click();

@@ -106,7 +106,27 @@ test("knowledge tool results stay within the conversation collection and remain 
     await route.continue();
   };
   await page.route(`**/api/conversations/${chat.id}`, holdScope);
-  await scope.click();
+  // A rejected save still reads the list back before it ends, and the scope stays
+  // pressable meanwhile; the failure is said only once a retry would be taken.
+  let reloadHeld!: () => void;
+  const reloadReached = new Promise<void>(resolve => { reloadHeld = resolve; });
+  let releaseReload!: () => void;
+  const reloadGate = new Promise<void>(resolve => { releaseReload = resolve; });
+  const holdReload = async (route: import("@playwright/test").Route) => {
+    reloadHeld();
+    await reloadGate;
+    await route.continue();
+  };
+  await page.route("**/api/conversations", holdReload);
+  try {
+    await scope.click();
+    await reloadReached;
+    expect(scopeWrites).toBe(1);
+    await expect(page.getByRole("alert").filter({ hasText: "Scope save rejected" })).toHaveCount(0);
+  } finally {
+    releaseReload();
+  }
+  await page.unroute("**/api/conversations", holdReload);
   await expect(page.getByRole("alert").filter({ hasText: "Scope save rejected" })).toBeVisible();
   await expect(scope).toHaveAttribute("aria-pressed", "false");
   await expect(scope).toBeEnabled();

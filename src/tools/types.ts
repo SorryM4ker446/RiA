@@ -64,6 +64,8 @@ export type ManualFieldMeta = {
   key: string;
   label: string;
   type: "text" | "number" | "select" | "datetime-local";
+  /** Sent with its default value but never shown: the tool needs it, the user does not choose it. */
+  hidden?: boolean;
   required?: boolean;
   placeholder?: string;
   defaultValue?: string;

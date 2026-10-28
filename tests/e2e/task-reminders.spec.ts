@@ -26,7 +26,9 @@ test("task reminder settings validate local dates and persist recurrence across 
   await page.getByLabel("选择工具").click();
   await page.getByRole("option", { name: "创建任务" }).click();
   await page.getByPlaceholder(/输入任务标题/).fill("重复提醒浏览器验证");
-  await page.locator('input[type="datetime-local"]').fill("2026-01-31T09:00");
+  const composer = page.locator("form").filter({ has: page.getByPlaceholder(/输入任务标题/) });
+  await chooseTaskDateTime(page, composer, "截止时间", "2026-01-31T09:00");
+  await expect(composer.getByRole("button", { name: "截止时间 2026-01-31 09:00", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "执行工具" }).click();
   await expect.poll(async () => (await browserData(page, `${app.origin}/api/tasks`)).length).toBe(1);
   await page.goto(`${app.origin}/tasks`);

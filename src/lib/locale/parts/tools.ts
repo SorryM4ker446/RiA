@@ -40,8 +40,7 @@ export const toolsMessages = {
   "tools.createTask.priorityLabel": "优先级",
   "tools.createTask.priorityPlaceholder": "留空由模型决定",
   "tools.createTask.dueLabel": "截止时间",
-  "tools.createTask.description":
-    "为当前用户创建任务，支持截止时间、IANA timeZone（默认 UTC）、reminderEnabled 桌面到期提醒和 repeatRule（none/daily/weekly/monthly，完成后续建）。提醒和重复都需要 dueDate；无偏移时间按 timeZone 解释。",
+  "tools.createTask.description": "记下一件待办，可加详情、优先级和截止时间。",
   "tools.createTask.manualLabel": "手动：创建任务",
   "tools.createTask.placeholder": "输入任务标题...（Enter 手动触发）",
   "tools.createTask.detailPlaceholder": "任务详情（可选）",

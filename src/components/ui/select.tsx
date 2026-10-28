@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
-import { Check, ChevronDown, ChevronUp } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { useFluidWidth } from "@/lib/use-fluid-width";
 
@@ -128,7 +128,9 @@ const SelectContent = React.forwardRef<
         if (event.target instanceof Node && interaction?.triggerRef.current?.contains(event.target)) event.preventDefault();
       }}
     >
-      <SelectPrimitive.ScrollUpButton className="flex items-center justify-center bg-popover py-1 text-muted-foreground"><ChevronUp className="size-4" aria-hidden="true" /></SelectPrimitive.ScrollUpButton>
+      {/* A long list scrolls like any other: by wheel, drag or keys. Radix's scroll
+        arrows started scrolling as soon as the pointer crossed them on its way
+        to the last item, so the list ran away from the pointer. */}
       <SelectPrimitive.Viewport
         className={cn(
           "p-1",
@@ -141,18 +143,28 @@ const SelectContent = React.forwardRef<
       >
         <SelectPrimitive.Group>{children}</SelectPrimitive.Group>
       </SelectPrimitive.Viewport>
-      <SelectPrimitive.ScrollDownButton className="flex items-center justify-center bg-popover py-1 text-muted-foreground"><ChevronDown className="size-4" aria-hidden="true" /></SelectPrimitive.ScrollDownButton>
     </SelectPrimitive.Content>
   </SelectPrimitive.Portal>
   );
 });
 SelectContent.displayName = SelectPrimitive.Content.displayName;
 
+type SelectItemProps = React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item> & {
+  /** A muted second line under the option, not shown in the trigger. */
+  description?: React.ReactNode;
+  /** A short muted note at the end of the row, such as why it is unavailable. */
+  hint?: React.ReactNode;
+};
 const SelectItem = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Item>,
-  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item>
->(({ className, children, ...props }, ref) => (
-  <SelectPrimitive.Item
+  SelectItemProps
+>(({ className, children, description, hint, ...props }, ref) => {
+  // Radix names the option by its item text alone; the description and hint
+  // are read as its description rather than running into its name.
+  const id = React.useId();
+  const described = [description === undefined ? "" : `${id}-description`, hint === undefined ? "" : `${id}-hint`].filter(Boolean).join(" ");
+  return <SelectPrimitive.Item
+    aria-describedby={described || undefined}
     className={cn(
       "relative flex min-h-9 w-full cursor-pointer select-none items-center rounded-md py-2 pl-8 pr-3 text-sm outline-none transition-colors duration-[--dur-fast]",
       "text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
@@ -167,9 +179,15 @@ const SelectItem = React.forwardRef<
         <Check aria-hidden="true" className="h-3.5 w-3.5" />
       </SelectPrimitive.ItemIndicator>
     </span>
-    <SelectPrimitive.ItemText className="block truncate">{children}</SelectPrimitive.ItemText>
-  </SelectPrimitive.Item>
-));
+    {description === undefined
+      ? <SelectPrimitive.ItemText className="block truncate">{children}</SelectPrimitive.ItemText>
+      : <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="truncate"><SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText></span>
+        <span id={`${id}-description`} className="ui-select-item-description">{description}</span>
+      </span>}
+    {hint === undefined ? null : <span id={`${id}-hint`} className="ml-auto shrink-0 pl-4 text-xs text-muted-foreground">{hint}</span>}
+  </SelectPrimitive.Item>;
+});
 SelectItem.displayName = SelectPrimitive.Item.displayName;
 
 const EMPTY_OPTION = "__empty_option__";
@@ -193,8 +211,12 @@ export function SelectOption({ value, ...props }: Omit<React.ComponentPropsWitho
   return <SelectItem value={String(value) || EMPTY_OPTION} {...props} />;
 }
 
+function SelectLabel({ className, ...props }: React.ComponentPropsWithoutRef<typeof SelectPrimitive.Label>) {
+  return <SelectPrimitive.Label className={cn("px-2.5 pb-1 pt-2 text-xs font-medium text-muted-foreground", className)} {...props} />;
+}
+
 function SelectSeparator(props: React.ComponentPropsWithoutRef<typeof SelectPrimitive.Separator>) {
   return <SelectPrimitive.Separator className="my-1 h-px bg-border" {...props} />;
 }
 
-export { Select, SelectContent, SelectGroup, SelectItem, SelectSeparator, SelectTrigger, SelectValue };
+export { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue };

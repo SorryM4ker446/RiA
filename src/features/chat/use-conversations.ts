@@ -304,19 +304,23 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     invalidateChatReads();
     setIsDocumentScopeSaving(true);
     setPageError(null);
+    let failure: string | null = null;
     try {
       await chatApi.setDocumentScope(chat.id, next);
     } catch (scopeError) {
       // The toolbar asks for a scope without awaiting this, so a rejection would
       // be an unhandled one: the chips would quietly go on showing the scope the
       // change was meant to replace, with nothing saying the change did not take.
-      setPageError(scopeError instanceof Error ? scopeError.message : t("chatApi.setDocumentScopeFailed"));
+      failure = scopeError instanceof Error ? scopeError.message : t("chatApi.setDocumentScopeFailed");
     } finally {
       // Once either way, and once: the list is what the chips read, so it has to
       // be the stored scope rather than the one that was asked for.
       await loadChats();
       scopeSavingRef.current = false;
       setIsDocumentScopeSaving(false);
+      // Said only now: the chips stay pressable while saving, so a failure shown
+      // before the save ended invited a retry that was then silently ignored.
+      if (failure !== null) setPageError(failure);
     }
   }
 
@@ -331,18 +335,21 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     invalidateChatReads();
     setIsWorkspaceSaving(true);
     setPageError(null);
+    let failure: string | null = null;
     try {
       const chatId = activeChatId ?? await ensureActiveChatId(t("chatState.defaultChatTitle"));
       const payload = await chatApi.setWorkspace(chatId, grantId);
       setChats(previous => previous.map(item => item.id === chatId ? payload.data : item));
       return true;
     } catch (workspaceError) {
-      setPageError(workspaceError instanceof Error ? workspaceError.message : t("ui.chat.workspace.failed"));
+      failure = workspaceError instanceof Error ? workspaceError.message : t("ui.chat.workspace.failed");
       return false;
     } finally {
       await loadChats({ silent: true });
       workspaceSavingRef.current = false;
       setIsWorkspaceSaving(false);
+      // As with the scope: a failure is said once another choice will be taken.
+      if (failure !== null) setPageError(failure);
     }
   }
 
