@@ -694,6 +694,10 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
    closes or reaches the sheet instead of grabbing the window; a header inside that should drag (the
    sidebar's) opts back in, and its own buttons, the close button among them, opt out again. */
 .sheet-overlay, .sheet-content { -webkit-app-region: no-drag; }
+/* Every other floating layer is placed at the end of the page too, and can reach the drag band: a long list
+   opened upward, the command palette moved to the top, a dialog's backdrop. Each opts out as a whole, so none of
+   its controls loses clicks to the window there. Tooltips take no clicks and need not. */
+[data-radix-popper-content-wrapper], .alert-dialog-overlay, .alert-dialog-content, .command-palette { -webkit-app-region: no-drag; }
 .sheet-overlay { position: fixed; inset: 0; z-index: 50; background: hsl(var(--scrim) / .5); backdrop-filter: blur(8px); }
 .sheet-content { position: fixed; top: 0; bottom: 0; z-index: 50; width: min(19rem, 88vw); background: hsl(var(--background)); color: hsl(var(--foreground)); box-shadow: 0 12px 48px hsl(var(--shadow) / .15); outline: none; }
 .sheet-content[data-side="left"] { left: 0; border-right: 1px solid hsl(var(--border)); --sheet-offset: -100%; }
