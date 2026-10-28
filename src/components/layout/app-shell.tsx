@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { WindowControls } from "@/components/layout/window-controls";
-import { CommandPalette } from "@/features/commands/command-palette";
+import { CommandPalette, CommandSearchButton } from "@/features/commands/command-palette";
 import { AppTooltips } from "@/components/ui/app-tooltips";
 import { cn } from "@/lib/utils/cn";
 import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
@@ -330,6 +330,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <span className="workspace-section-title min-w-0 flex-1 truncate text-sm font-semibold tracking-label" data-concealed={titleInView || undefined} aria-hidden={titleInView || undefined}>
             {sectionLabel(pathname)}
           </span>
+          {pathname === "/chat" && <CommandSearchButton />}
           <WindowControls />
         </div>
         <div className={cn("workspace-content min-h-0 min-w-0 flex-1", pathname === "/chat" ? "overflow-hidden" : "overflow-y-auto overscroll-contain")}>
