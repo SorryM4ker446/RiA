@@ -36,6 +36,12 @@ if ($properties.ProductVersion -ne "$($package.version).0" -or
     $properties.MsiLogging -ne 'voicewarmup') {
     throw 'MSI version, upgrade identity, language, installation scope or default logging is incorrect'
 }
+$applicationIds = @(Read-MsiTable 'MsiShortcutProperty' | Where-Object {
+    $_[1] -eq 'ApplicationStartMenuShortcut' -and $_[2] -eq 'System.AppUserModel.ID' -and $_[3] -eq $config.appUserModelId
+})
+if ($applicationIds.Count -ne 1) {
+    throw 'Compiled MSI Start menu shortcut application identity is incorrect'
+}
 # Registry roots: 1 = HKEY_CURRENT_USER, 2 = HKEY_LOCAL_MACHINE.
 $perUserSearch = @(Read-MsiTable 'RegLocator' | Where-Object { $_[0] -eq 'PerUserRiaMarker' -and $_[1] -eq '1' -and $_[2] -eq 'Software\Microsoft\RiA' -and $_[3] -eq 'installed' })
 $refusal = @(Read-MsiTable 'LaunchCondition' | Where-Object { $_[0] -eq 'Installed OR WIX_UPGRADE_DETECTED OR NOT PERUSERRIA' })
@@ -54,4 +60,4 @@ $responseCache = @(Read-MsiTable 'Directory' | Where-Object { $_[2] -match '(^|\
 if ($responseCache.Count -ne 0) {
     throw 'Compiled MSI contains regenerable Next.js response caches'
 }
-Write-Output "Verified compiled MSI version, Chinese directory selection, per-machine scope, per-user installation refusal, default logging and uninstall actions: $artifact"
+Write-Output "Verified compiled MSI version, application identity, Chinese directory selection, per-machine scope, per-user installation refusal, default logging and uninstall actions: $artifact"

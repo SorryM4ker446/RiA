@@ -8,6 +8,7 @@ import { perUserInstallationMessage, windowsInstallerConfig } from "../../script
 import { DEVELOPMENT_APP_USER_MODEL_ID, INSTALLED_APP_USER_MODEL_ID } from "../../electron/app-identity";
 
 test("the installed application posts notifications under its shortcut's ID, and development runs under another", () => {
+  assert.equal(INSTALLED_APP_USER_MODEL_ID, "com.ria.RiA");
   // Windows names a notification after the Start menu shortcut with the same ID.
   assert.equal(windowsInstallerConfig.appUserModelId, INSTALLED_APP_USER_MODEL_ID);
   // electron.exe posting under the installed ID once is enough for Windows to label it "Electron".
@@ -48,7 +49,7 @@ test("Windows installer installs per machine, refuses to install beside a per-us
     assert.ok(xml.includes(`<Condition Message="${perUserInstallationMessage}"><![CDATA[Installed OR WIX_UPGRADE_DETECTED OR NOT PERUSERRIA]]></Condition>`));
     assert.match(xml, /<Property Id="MsiLogging" Value="voicewarmup" \/>/);
     assert.doesNotMatch(xml, /DISABLEROLLBACK|AlwaysInstallElevated/);
-    assert.match(xml, /com\.squirrel\.RiA\.RiA/);
+    assert.match(xml, /<ShortcutProperty Key="System\.AppUserModel\.ID" Value="com\.ria\.RiA"\s*\/>/);
     assert.doesNotMatch(xml, /<util:RemoveFolderEx/);
     assert.doesNotMatch(xml, /Feature Id="AutoUpdate|Feature Id="AutoLaunch/);
     assert.throws(() => windowsInstallerConfig.beforeCreate!({ wixTemplate: "changed upstream template" } as MSICreator), /Review/);

@@ -32,7 +32,6 @@ import { desktopServiceEnvironment, findAvailablePort, startNextServer, type Nex
 import { resolveDesktopPaths, toSqliteUrl, type DesktopPaths } from "./paths";
 import { configureDesktopSession, secureBrowserWindow } from "./security";
 import { DesktopSettingsStore, type DesktopSettingsInput } from "./settings";
-import { handleSquirrelStartupEvent } from "./squirrel";
 import { installationRoot, launchInstaller, reconcileUpdateDirectory, UpdateService, type InstallPlan, type UpdateState } from "./updater";
 import { DEVELOPMENT_APP_USER_MODEL_ID, INSTALLED_APP_USER_MODEL_ID } from "./app-identity";
 import { UPDATE_SIGNING_PUBLIC_KEY } from "./update-signing-key";
@@ -48,7 +47,6 @@ const DESKTOP_COOKIE_NAME = "desktop_session";
 const forcePackagedRuntime = process.env.DESKTOP_FORCE_PACKAGED === "1";
 const packagedRuntime = app.isPackaged || forcePackagedRuntime;
 const smokeTest = process.env.DESKTOP_SMOKE_TEST === "1";
-const squirrelEventHandled = handleSquirrelStartupEvent();
 const applicationVersion = packagedRuntime
   ? app.getVersion()
   : (JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")) as { version: string }).version;
@@ -59,8 +57,8 @@ if (process.env.DESKTOP_USER_DATA_DIR) {
 
 app.setName(PRODUCT_NAME);
 
-const singleInstanceLock = squirrelEventHandled ? false : app.requestSingleInstanceLock();
-if (!squirrelEventHandled && !singleInstanceLock) {
+const singleInstanceLock = app.requestSingleInstanceLock();
+if (!singleInstanceLock) {
   app.quit();
 }
 
@@ -1450,7 +1448,7 @@ app.on("before-quit", (event) => {
   })().finally(() => app.exit(0));
 });
 
-if (singleInstanceLock && !squirrelEventHandled) {
+if (singleInstanceLock) {
   void bootstrap().catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
     logger?.error("Desktop application failed to start", error);
