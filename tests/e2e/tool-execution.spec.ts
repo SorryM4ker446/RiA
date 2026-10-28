@@ -113,7 +113,13 @@ test("knowledge tool results stay within the conversation collection and remain 
   try {
     await scope.click();
     await expect.poll(() => scopeWrites).toBe(2);
-    await expect(scope).toBeDisabled();
+    // The scope stays as it looks while it saves (no blink to disabled), and a
+    // second press during the save does not send another write. Sending waits:
+    // the scope being saved is what the next message will use.
+    await expect(scope).toBeEnabled();
+    await scope.click();
+    await page.waitForTimeout(300);
+    expect(scopeWrites).toBe(2);
     await expect(page.getByRole("button", { name: "发送", exact: true })).toBeDisabled();
   } finally {
     releaseScope();

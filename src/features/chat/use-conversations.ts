@@ -44,6 +44,13 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   const [nextChatsCursor, setNextChatsCursor] = useState<string | null>(null);
   const [isLoadingMoreChats, setIsLoadingMoreChats] = useState(false);
   const chatsRequestRef = useRef(0);
+  // Loading means the list has not been read yet. Reading it again after a save
+  // keeps showing the list it has, so controls never blink while that happens.
+  const hasReadChatsRef = useRef(false);
+  const ephemeralSavingRef = useRef(false);
+  // A save makes any read already under way stale: that read started before the
+  // change and must not land after it. Each save reads the list again itself.
+  const invalidateChatReads = () => { chatsRequestRef.current += 1; };
   // The conversation reopened from the last visit before the list has answered.
   // It is active so its history loads alongside the list, but it is not shown or
   // sent to until the list confirms it still exists and is not archived.
@@ -57,7 +64,7 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   const visibleChats = isChatListExpanded ? chats : chats.slice(0, COLLAPSED_CHAT_LIMIT);
   async function loadChats({ silent = false }: { silent?: boolean } = {}) {
     const requestId = ++chatsRequestRef.current;
-    setIsLoadingChats(true);
+    if (!hasReadChatsRef.current) setIsLoadingChats(true);
     loadingMoreRef.current = false;
     setIsLoadingMoreChats(false);
     try {
@@ -70,6 +77,7 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
       }
       if (requestId !== chatsRequestRef.current) return;
       setChats(list);
+      hasReadChatsRef.current = true;
       setNextChatsCursor(payload.pageInfo?.nextCursor ?? null);
       const restored = restoringRef.current;
       if (restored && activeIdRef.current === restored && !list.some((chat) => chat.id === restored)) {
@@ -259,7 +267,9 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   /** Resolves whether the change was saved; the list is reloaded either way. */
   async function toggleEphemeral(next: boolean): Promise<boolean> {
     const chat = chats.find((item) => item.id === activeChatId);
-    if (!chat) return false;
+    if (!chat || ephemeralSavingRef.current) return false;
+    ephemeralSavingRef.current = true;
+    invalidateChatReads();
     setIsEphemeralSaving(true);
     // Shown at once; a refused save puts it back when the list is read again below.
     setChats((current) => current.map((item) => (item.id === chat.id ? { ...item, ephemeral: next } : item)));
@@ -271,6 +281,7 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
       await loadChats();
       return false;
     } finally {
+      ephemeralSavingRef.current = false;
       setIsEphemeralSaving(false);
     }
   }
@@ -294,6 +305,7 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     const chat = chats.find((item) => item.id === activeChatId);
     if (!chat || isLoadingChats || scopeSavingRef.current) return;
     scopeSavingRef.current = true;
+    invalidateChatReads();
     setIsDocumentScopeSaving(true);
     setPageError(null);
     try {
@@ -320,6 +332,7 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   async function setWorkspace(grantId: string | null): Promise<boolean> {
     if (isLoadingChats || workspaceSavingRef.current) return false;
     workspaceSavingRef.current = true;
+    invalidateChatReads();
     setIsWorkspaceSaving(true);
     setPageError(null);
     try {
@@ -347,7 +360,7 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     // choosing one starts that conversation with it, named after the template.
     const starting = !chat && !activeChatId && templateId !== null;
     if ((!chat && !starting) || isLoadingChats || scopeSavingRef.current) return;
-    scopeSavingRef.current = true; setIsDocumentScopeSaving(true); setPageError(null);
+    scopeSavingRef.current = true; invalidateChatReads(); setIsDocumentScopeSaving(true); setPageError(null);
     try {
       if (chat) {
         const payload = await chatApi.setAssistant(chat.id, templateId);

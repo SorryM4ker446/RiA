@@ -728,7 +728,7 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 /* Frosted glass, the one material for everything that floats over content (menus, pickers, popovers,
    tooltips, previews, notices): what is beneath shows through as colour, blurred enough that its text
    cannot compete. Solid backgrounds are kept for real panels: the settings window, the rail, sheets. */
-.message-nav-preview, .message-nav-outline, .toast, .ui-select-content, .ui-popover-content, .ui-dropdown-content, .ui-tooltip-content, .command-palette { background: hsl(var(--popover) / .55); border: 0; box-shadow: 0 0 0 1px hsl(var(--border) / .7), 0 8px 28px -8px hsl(var(--shadow) / .28); backdrop-filter: blur(20px) saturate(1.4); }
+.message-nav-preview, .message-nav-outline, .ui-select-content, .ui-popover-content, .ui-dropdown-content, .ui-tooltip-content { background: hsl(var(--popover) / .55); border: 0; box-shadow: 0 0 0 1px hsl(var(--border) / .7), 0 8px 28px -8px hsl(var(--shadow) / .28); backdrop-filter: blur(20px) saturate(1.4); }
 .message-nav-preview { width: min(19rem, calc(100vw - 72px)); padding: 12px; transform-origin: var(--radix-tooltip-content-transform-origin); animation: message-preview-in var(--dur-base) var(--ease-out); }
 .message-nav-preview[data-state="closed"] { animation: none; }
 .message-nav-outline { display: flex; width: min(19rem, calc(100vw - 64px)); max-height: min(30rem, var(--radix-popover-content-available-height)); flex-direction: column; padding: 0; overflow: hidden; }
@@ -862,17 +862,22 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .stat-grid > div { display: flex; flex-direction: column-reverse; gap: 2px; }
 .stat-grid dt { font-size: 12px; color: hsl(var(--muted-foreground)); }
 .stat-grid dd { font-size: 20px; font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-/* Short confirmations in one slot: centred over the chat composer just above its controls (the
-   chat page sets the anchor), elsewhere at the bottom centre. A new one fades in over the last as it
-   fades out, so nothing shifts; they take no clicks, so they never block what is underneath. The
-   surface is the message navigator's frosted preview. */
-.toast-stack { position: fixed; left: var(--toast-center, 50%); bottom: var(--toast-bottom, 24px); z-index: 60; display: grid; justify-items: center; align-items: end; width: max-content; max-width: calc(100vw - 32px); transform: translateX(-50%); pointer-events: none; }
-body:has(.settings-window) .toast-stack { left: 50%; bottom: 24px; }
-.toast { grid-area: 1 / 1; display: flex; align-items: flex-start; gap: 8px; width: max-content; max-width: min(36rem, calc(100vw - 32px)); border-radius: 12px; padding: 8px 12px; color: hsl(var(--popover-foreground)); font-size: 13px; line-height: 20px; animation: toast-in var(--dur-base) var(--ease-out); }
-.toast-icon { width: 16px; height: 16px; flex-shrink: 0; margin-top: 2px; color: hsl(var(--success)); }
-.toast[data-leaving] { animation: toast-out var(--dur-base) var(--ease-in-out) forwards; }
-@keyframes toast-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes toast-out { to { opacity: 0; } }
+/* Short confirmations in one slot: centred in line with the chat toolbar's first row (the chat page
+   sets the anchor), elsewhere at the bottom centre. A new one fades in over the last as it
+   fades out, so nothing shifts; they take no clicks, so they never block what is underneath. Frosted
+   glass, but denser and more blurred than menus: a notice sits over running text, which may tint it
+   but must never read through it. */
+.toast-stack { position: fixed; left: var(--toast-center, 50%); bottom: 24px; z-index: 60; display: grid; justify-items: center; align-items: end; width: max-content; max-width: calc(100vw - 32px); transform: translateX(-50%); pointer-events: none; }
+html[data-toast-anchored] .toast-stack { top: var(--toast-top); bottom: auto; align-items: center; translate: 0 -50%; }
+body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; align-items: end; translate: none; }
+.toast { grid-area: 1 / 1; display: flex; flex-direction: column; gap: 1px; width: max-content; min-width: 13rem; max-width: min(24rem, calc(100vw - 32px)); border-radius: 12px; padding: 9px 16px 10px; background: hsl(var(--popover) / .72); color: hsl(var(--popover-foreground)); box-shadow: 0 0 0 1px hsl(var(--foreground) / .07), inset 0 1px 0 hsl(0 0% 100% / .5), 0 1px 2px hsl(var(--shadow) / .06), 0 14px 36px -12px hsl(var(--shadow) / .3); -webkit-backdrop-filter: blur(28px) saturate(1.8); backdrop-filter: blur(28px) saturate(1.8); font-size: 13px; line-height: 20px; text-align: left; transform-origin: 50% 100%; animation: toast-in var(--dur-base) var(--ease-out); }
+.dark .toast { background: hsl(var(--popover) / .68); box-shadow: 0 0 0 1px hsl(var(--foreground) / .1), inset 0 1px 0 hsl(var(--foreground) / .08), 0 16px 40px -12px hsl(var(--shadow) / .7); }
+.toast-title { font-weight: 500; letter-spacing: -.005em; }
+.toast-description { font-size: 12px; line-height: 18px; color: hsl(var(--muted-foreground)); }
+.toast[data-leaving] { animation: toast-out var(--dur-fast) var(--ease-in-out) forwards; }
+/* It settles into focus as it rises, and softens as it goes. */
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px) scale(.96); filter: blur(4px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes toast-out { to { opacity: 0; transform: translateY(3px) scale(.98); filter: blur(2px); } }
 @media (min-width: 768px) { .conversation-filters { grid-template-columns: minmax(12rem, 1fr) minmax(7rem, 10rem) 8rem auto; } }
 @media (hover: none) { .message-actions { opacity: 1; } }
 .usage-history-sheet { width: min(38rem, 100vw); }

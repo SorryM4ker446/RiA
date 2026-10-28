@@ -349,6 +349,35 @@ test("desktop chat stays translucent and execution history opens without moving 
   await expect(content).toHaveCSS("overflow-y", "auto");
 });
 
+test("the memory confirmation states the result and its effect, then leaves on its own", async ({ page, app }) => {
+  await openWorkspace(page, app.origin);
+  await browserApi(page, "/api/conversations", "POST", { title: "记忆提示" });
+  await page.goto(`${app.origin}/chat`);
+  const memory = page.getByRole("switch", { name: "长期记忆", exact: true });
+  const notice = toasts(page).locator(".toast").last();
+  // Saving and reading the list again must not blink the controls around it.
+  await expect(page.locator(".chat-workspace-picker")).toBeEnabled();
+  await page.evaluate(() => {
+    const blinked: string[] = [];
+    (window as unknown as { blinked: string[] }).blinked = blinked;
+    const watched = [".chat-workspace-picker", ".chat-memory-toggle", "#chat-assistant"];
+    new MutationObserver(records => {
+      for (const record of records) {
+        const node = record.target as Element;
+        const name = watched.find(selector => node.matches(selector));
+        if (name && (node.hasAttribute("disabled") || node.getAttribute("data-disabled") !== null)) blinked.push(name);
+      }
+    }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ["disabled", "data-disabled"] });
+  });
+  await memory.click();
+  await expect(notice.locator(".toast-title")).toHaveText("长期记忆已关闭");
+  await expect(notice.locator(".toast-description")).toHaveText("这个会话不再读取或写入长期记忆");
+  // A notice, not a control: it takes no clicks and is gone within a few seconds.
+  await expect(notice).toHaveCSS("pointer-events", "none");
+  await expect(toasts(page).locator(".toast")).toHaveCount(0, { timeout: 4500 });
+  expect(await page.evaluate(() => (window as unknown as { blinked: string[] }).blinked)).toEqual([]);
+});
+
 test("scheduled task creation validates time and persists without a model", async ({ page, app }) => {
   await openWorkspace(page, app.origin);
   await page.goto(`${app.origin}/tasks`);

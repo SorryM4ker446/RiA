@@ -2,7 +2,7 @@
 import { useLocale } from "@/lib/locale/client";
 import { t, localizeMessage } from "@/lib/locale";
 import { SelectField, SelectOption } from "@/components/ui/select";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, type ReactNode, type Ref } from "react";
 import Link from "next/link";
 import { Brain } from "lucide-react";
 import { useToast } from "@/components/ui/toast";
@@ -21,33 +21,36 @@ type Props = Pick<
   | "isPending"
   | "isWorking"
   | "isLoadingChats"
-  | "isDocumentScopeSaving"
   | "modelMode"
   | "appendQuickPrompt"
   | "toggleEphemeral"
-  | "isEphemeralSaving"
   | "documentTopics"
   | "setDocumentScope"
   | "loadDocumentTopics"
   | "assistants" | "assistantsError" | "loadAssistants" | "applyAssistant"
-> & { conversationControls?: ReactNode };
+> & { conversationControls?: ReactNode; rowRef?: Ref<HTMLDivElement> };
 export function ChatToolbar({
   activeChat,
   isPending,
   isWorking,
   isLoadingChats,
-  isDocumentScopeSaving,
   modelMode,
   toggleEphemeral,
-  isEphemeralSaving,
   documentTopics,
   setDocumentScope,
   loadDocumentTopics,
   assistants, assistantsError, loadAssistants, applyAssistant,
   conversationControls,
+  rowRef,
 }: Props) {
   useLocale();
   const toast = useToast();
+  // The result, then what it means for this conversation.
+  const setMemory = (ephemeral: boolean) => {
+    void toggleEphemeral(ephemeral).then(saved => {
+      if (saved) toast({ title: t(ephemeral ? "chat.memory.offTitle" : "chat.memory.onTitle"), description: t(ephemeral ? "chat.memory.turnedOff" : "chat.memory.turnedOn") });
+    });
+  };
   // Topics are fetched once for the header; a failure only removes the scope
   // control, it does not affect the conversation.
   useEffect(() => {
@@ -63,7 +66,7 @@ export function ChatToolbar({
 
   return (
     <CardHeader className="chat-toolbar max-h-[30%] shrink-0 gap-3 overflow-y-auto border-b px-6 py-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div ref={rowRef} className="flex flex-wrap items-center justify-between gap-3">
         {conversationControls}
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <CardTitle className="min-w-0 truncate">{activeChat?.title ?? (awaitingConversation ? null : t("chat.toolbar.newChat"))}</CardTitle>
@@ -77,7 +80,7 @@ export function ChatToolbar({
           hold back, then appear once in place instead of sliding aside as each arrives. */}
         <div className="chat-toolbar-actions flex max-w-full flex-wrap items-center gap-2" data-waiting={awaitingConversation || undefined}>
           <label className="sr-only" htmlFor="chat-assistant">{t("ui.assistants.assistantTemplates")}</label>
-          <SelectField id="chat-assistant" aria-label={t("ui.assistants.assistantTemplates")} variant="ghost" size="sm" fluid className="min-w-0 max-w-48" value={snapshot?.templateId ?? ""} disabled={isPending || isLoadingChats || isDocumentScopeSaving || isEphemeralSaving} onValueChange={value => void applyAssistant(value || null)}>
+          <SelectField id="chat-assistant" aria-label={t("ui.assistants.assistantTemplates")} variant="ghost" size="sm" fluid className="min-w-0 max-w-48" value={snapshot?.templateId ?? ""} disabled={isPending || isLoadingChats} onValueChange={value => void applyAssistant(value || null)}>
             <SelectOption value="">{t("ui.chat.chat-toolbar.generalAssistant")}</SelectOption>
             {snapshot && !currentTemplate ? <SelectOption value={snapshot.templateId}>{snapshot.name}</SelectOption> : null}
             {assistants.map(item => <SelectOption key={item.id} value={item.id}>{item.builtin ? localizeMessage(item.config.name) : item.config.name}</SelectOption>)}
@@ -85,11 +88,11 @@ export function ChatToolbar({
           {snapshot ? <TemplateDetails key={activeChat?.id} snapshot={snapshot} /> : null}
           <Button asChild variant="ghost" size="sm"><Link href="/assistants">{t("ui.chat.chat-toolbar.manageTemplates")}</Link></Button>
           {/* Said as what the conversation does, with its state in the label, so it reads without the tooltip. */}
-          {activeChat && <Button role="switch" aria-checked={activeChat.ephemeral !== true} aria-label={t("chat.memory.label")} title={t("chat.memory.note")} className="chat-memory-toggle" variant="ghost" size="sm" disabled={isEphemeralSaving || isDocumentScopeSaving || isPending} onClick={() => { const ephemeral = !activeChat.ephemeral; void toggleEphemeral(ephemeral).then(saved => { if (saved) toast(t(ephemeral ? "chat.memory.turnedOff" : "chat.memory.turnedOn")); }); }}><Brain data-icon="inline-start" aria-hidden="true" />{t(activeChat.ephemeral ? "chat.memory.off" : "chat.memory.on")}</Button>}
+          {activeChat && <Button role="switch" aria-checked={activeChat.ephemeral !== true} aria-label={t("chat.memory.label")} title={t("chat.memory.note")} className="chat-memory-toggle" variant="ghost" size="sm" disabled={isPending} onClick={() => setMemory(!activeChat.ephemeral)}><Brain data-icon="inline-start" aria-hidden="true" />{t(activeChat.ephemeral ? "chat.memory.off" : "chat.memory.on")}</Button>}
         </div>
       </div>
       {hasTemplateUpdate || assistantsError ? <div className="flex flex-wrap items-center gap-2 text-xs">
-        {hasTemplateUpdate ? <Button variant="ghost" size="sm" disabled={isPending || isDocumentScopeSaving} onClick={() => void applyAssistant(snapshot.templateId)}>{t("ui.chat.chat-toolbar.updateToLatestTemplate")}</Button> : null}
+        {hasTemplateUpdate ? <Button variant="ghost" size="sm" disabled={isPending} onClick={() => void applyAssistant(snapshot.templateId)}>{t("ui.chat.chat-toolbar.updateToLatestTemplate")}</Button> : null}
         {assistantsError ? <span role="alert">{localizeMessage(assistantsError)} <Button variant="ghost" size="sm" onClick={() => void loadAssistants()}>{t("ui.chat.chat-toolbar.retry")}</Button></span> : null}
       </div> : null}
 
@@ -100,7 +103,7 @@ export function ChatToolbar({
           <span>{t("chat.scope.label")}</span>
           <button
             aria-pressed={!(activeChat?.documentScope ?? "")}
-            disabled={!activeChat || isLoadingChats || isDocumentScopeSaving || isPending}
+            disabled={!activeChat || isLoadingChats || isPending}
             className={cn(
               "rounded-full border border-border px-2 py-0.5",
               !(activeChat?.documentScope ?? "") && "bg-accent text-foreground",
@@ -116,7 +119,7 @@ export function ChatToolbar({
             return (
               <button
                 aria-pressed={selected}
-                disabled={!activeChat || isLoadingChats || isDocumentScopeSaving || isPending}
+                disabled={!activeChat || isLoadingChats || isPending}
                 className={cn(
                   "rounded-full border border-border px-2 py-0.5",
                   selected && "bg-accent text-foreground",

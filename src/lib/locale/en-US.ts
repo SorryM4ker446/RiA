@@ -185,6 +185,8 @@ export const enUS = {
   "chat.memory.on": "Memory: on",
   "chat.memory.off": "Memory: off",
   "chat.memory.note": "Applies to this conversation only. When on, it reads and writes long-term memory; when off, it does neither. Messages, drafts, uploaded images, and usage records are always saved.",
+  "chat.memory.onTitle": "Long-term memory on",
+  "chat.memory.offTitle": "Long-term memory off",
   "chat.memory.turnedOn": "This conversation uses long-term memory",
   "chat.memory.turnedOff": "This conversation no longer reads or writes long-term memory",
   "runs.title": "Execution records",

@@ -50,13 +50,13 @@ type Props = Pick<
   | "onSubmit"
   | "modelMode"
   | "isPending"
+  | "isDocumentScopeSaving"
   | "isWorking"
   | "isLoadingPreferences"
   | "isConversationReady"
   | "isRunningManualTool"
   | "selectedToolDocument"
   | "setSelectedToolDocument"
-  | "isDocumentScopeSaving"
   | "setSelectedManualTool"
   | "manualToolSelectValue"
   | "manualTools"
@@ -96,13 +96,13 @@ export function Composer({
   onSubmit,
   modelMode,
   isPending,
+  isDocumentScopeSaving,
   isWorking,
   isLoadingPreferences,
   isConversationReady,
   isRunningManualTool,
   selectedToolDocument,
   setSelectedToolDocument,
-  isDocumentScopeSaving,
   setSelectedManualTool,
   manualToolSelectValue,
   manualTools,
@@ -272,7 +272,7 @@ export function Composer({
         send action. Scattering those across separate full-width rows left the
         send button visually unconnected to what it submits. */}
       <div className="composer-surface">
-        {isDocumentTool ? <DocumentToolInput key={`${activeChat?.documentScope ?? ""}:${selectedManualToolConfig?.id}`} value={selectedToolDocument} onChange={setSelectedToolDocument} scope={activeChat?.documentScope} disabled={isPending || isDocumentScopeSaving} /> : <Textarea
+        {isDocumentTool ? <DocumentToolInput key={`${activeChat?.documentScope ?? ""}:${selectedManualToolConfig?.id}`} value={selectedToolDocument} onChange={setSelectedToolDocument} scope={activeChat?.documentScope} disabled={isPending} /> : <Textarea
           className="composer-input block h-20 min-h-0 resize-none overflow-y-auto rounded-none px-4 py-3 shadow-none focus-visible:ring-0"
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={handleTextareaKeyDown}
@@ -389,7 +389,7 @@ export function Composer({
               </SelectContent>
             </Select>
             <Select
-              disabled={isPending || isDocumentScopeSaving || (modelMode === "chat" && !!activeChat?.assistantConfig?.model)}
+              disabled={isPending || (modelMode === "chat" && !!activeChat?.assistantConfig?.model)}
               open={isModelMenuOpen}
               onOpenChange={setIsModelMenuOpen}
               // "添加模型…" opens the model settings instead of becoming the selection.

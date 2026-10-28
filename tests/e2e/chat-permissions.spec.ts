@@ -95,14 +95,13 @@ test("chat permissions choose and grant a directory without sending the draft, a
   // Released, the route passes every later request straight through.
   releaseList();
   await expect(page.getByRole("button", { name: "发送", exact: true })).toBeEnabled();
-  // The confirmation appears just above the composer's controls, centred on the composer, and takes no clicks.
+  // The confirmation appears centred in line with the toolbar's first row, not over the conversation, and takes no clicks.
   const toast = page.getByRole("region", { name: "通知", exact: true }).locator(".toast").last();
   await expect(toast).toContainText("已切换到工作区");
-  const composer = (await page.locator("form").filter({ has: draft }).boundingBox())!;
-  const row = (await page.getByRole("button", { name: "工作区权限", exact: true }).boundingBox())!;
+  const row = (await page.locator(".chat-toolbar > div").first().boundingBox())!;
   await expect.poll(async () => {
     const box = (await toast.boundingBox())!;
-    return box.y + box.height <= row.y && Math.abs(box.x + box.width / 2 - (composer.x + composer.width / 2)) <= 1;
+    return Math.abs(box.y + box.height / 2 - (row.y + row.height / 2)) <= 1 && Math.abs(box.x + box.width / 2 - (row.x + row.width / 2)) <= 1;
   }).toBe(true);
   await expect(toast).toHaveCSS("pointer-events", "none");
   expect((await browserData(page, `/api/conversations/${chat.id}`)).workspaceGrantId).toBe(grant.id);
