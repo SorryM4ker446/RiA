@@ -1,7 +1,7 @@
 {
   "name": "ria",
   "productName": "RiA",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "packageManager": "npm@11.19.1",
   "description": "A private desktop AI assistant built with Next.js and Electron",
   "author": "RiA",
