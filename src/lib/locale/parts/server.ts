@@ -49,7 +49,7 @@ export const serverMessages = {
   "lib.models.fallbackMustDiffer": "备用模型必须与默认模型不同",
   "lib.models.embeddingNotAdded": "嵌入模型尚未添加到“我的模型”",
   "lib.tools.localFilesNotGranted": "尚未授权资料目录，请在工作区权限中添加目录。",
-  "lib.tools.webSearchNotConfigured": "联网搜索尚未配置，请配置搜索服务或选择支持搜索的服务商。",
+  "lib.tools.webSearchNotConfigured": "联网搜索尚未配置，请填写 DeepSeek 或 OpenRouter 密钥并选择对应的聊天模型。",
   "lib.models.providerNotConfigured": "该服务商尚未配置密钥，请先在设置中填写后再试。",
   "lib.models.providerNoModePrefix": "该服务商不提供",
   "lib.models.providerNoModeSuffix": "模型生成，请为该模式另选服务商。",

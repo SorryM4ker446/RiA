@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { createServer, type ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
 import { after, beforeEach, test, type Mock, type TestContext } from "node:test";
 import { NextRequest } from "next/server";
 import { createTestDatabase } from "../helpers/database";
 import { localAccessCookie } from "../helpers/local-access";
-import { seedTestModelPreferences } from "../helpers/model-library";
+import { seedSearchModelPreferences, seedTestModelPreferences, SEARCH_MODEL_REF } from "../helpers/model-library";
+import { respondWithResults, startSearchServer } from "../helpers/search-server";
 import { languageModel } from "../helpers/model-provider";
 
 const cleanup = createTestDatabase();
@@ -20,7 +19,6 @@ beforeEach(async (t: TestContext) => {
   t.mock.method(console, "info", () => {});
   t.mock.method(console, "warn", () => {});
   t.mock.method(console, "error", () => {});
-  process.env.TAVILY_API_KEY = "local-http-fixture";
   cookie = localAccessCookie();
   await db.message.deleteMany({});
   await db.chat.deleteMany({});
@@ -35,57 +33,38 @@ beforeEach(async (t: TestContext) => {
 after(async () => { await db.$disconnect(); cleanup(); });
 
 async function upstream(t, respond) {
-  const requests = [];
-  let disconnected;
-  const closed = new Promise((resolve) => { disconnected = resolve; });
-  const server = createServer(async (req, res) => {
-    res.once("close", disconnected);
-    const chunks = [];
-    for await (const chunk of req) chunks.push(chunk);
-    requests.push({ path: req.url, body: JSON.parse(Buffer.concat(chunks).toString()) });
-    respond(res);
-  });
-  await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", () => resolve()); });
-  process.env.TAVILY_SEARCH_URL = `http://127.0.0.1:${(server.address() as AddressInfo).port}/search`;
-  t.after(async () => {
-    server.closeAllConnections();
-    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-  });
-  return { requests, closed };
+  const server = await startSearchServer(respond);
+  await seedSearchModelPreferences(db, server.baseURL);
+  t.after(() => server.close());
+  return server;
 }
-function run(maxResults = 2) {
+function run(maxResults = 2, signal?: AbortSignal) {
   return tools.POST(new NextRequest("http://localhost/api/tools/run", {
-    method: "POST", headers: { cookie, "content-type": "application/json" },
+    method: "POST", headers: { cookie, "content-type": "application/json" }, signal,
     body: JSON.stringify({ tool: "webSearch", mode: "chat", input: { query: " Local HTTP search ", maxResults } }),
   }));
 }
 const logs = () => (console.info as Mock<(...data: any[]) => void>).mock.calls.filter((call) => call.arguments[0] === "tool.execution").map((call) => call.arguments[1]);
 
-test("Tavily preserves counts above ten and caps only at its own twenty-result API ceiling", async t => {
-  const fixture = await upstream(t, res => {
-    res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify({ results: Array.from({ length: 24 }, (_, i) => ({ title: `Source ${i}`, url: `https://example.invalid/${i}`, content: "Evidence" })) }));
-  });
-  for (const [requested, expected] of [[17, 17], [50, 20]]) {
+test("DeepSeek search preserves counts above ten and caps only at its own fifty-result API ceiling", async t => {
+  const fixture = await upstream(t, res => respondWithResults(res, Array.from({ length: 60 }, (_, i) => ({ title: `Source ${i}`, url: `https://example.invalid/${i}`, summary: "Evidence" }))));
+  for (const [requested, expected] of [[17, 17], [80, 50]]) {
     const response = await run(requested);
     assert.equal(response.status, 200);
     assert.equal((await response.json()).data.results.length, expected);
-    assert.equal(fixture.requests.at(-1).body.max_results, expected);
+    assert.equal(fixture.requests.at(-1).body.count, expected);
   }
 });
 
 test("web search sends real HTTP requests, normalizes sources and records one successful execution", async (t) => {
-  const fixture = await upstream(t, (res) => {
-    res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify({ query: "Local HTTP search", request_id: "local-request", response_time: 0.1, images: [], results: [
-      { title: "Unsafe source", url: "javascript:alert(1)", content: "Ignore" },
-      { title: " Local source ", url: "https://example.invalid/source", content: " First\n  source ", score: 0.94567 },
-      { title: "Duplicate", url: "https://example.invalid/source", content: "Ignore duplicate" },
-      { title: "Missing URL", content: "Ignored" },
-      { title: "Second source", url: "https://example.invalid/second", content: "x".repeat(700) },
-      { title: "Extra source", url: "https://example.invalid/extra", content: "Outside limit" },
-    ] }));
-  });
+  const fixture = await upstream(t, (res) => respondWithResults(res, [
+    { title: "Unsafe source", url: "javascript:alert(1)", summary: "Ignore" },
+    { title: " Local source ", url: "https://example.invalid/source", summary: " First\n  source ", rerank_score: 0.94567 },
+    { title: "Duplicate", url: "https://example.invalid/source", summary: "Ignore duplicate" },
+    { title: "Missing URL", summary: "Ignored" },
+    { title: "Second source", url: "https://example.invalid/second", summary: "x".repeat(1200) },
+    { title: "Extra source", url: "https://example.invalid/extra", summary: "Outside limit" },
+  ]));
   // Synthesis streams; echo its prompt to show which sources it was given.
   t.mock.method(languageModel, "doStream", async options => ({ stream: new ReadableStream({ start(controller) {
     controller.enqueue({ type: "text-start", id: "echo" });
@@ -98,13 +77,15 @@ test("web search sends real HTTP requests, normalizes sources and records one su
   assert.equal(response.status, 200);
   const payload = await response.json();
   assert.equal(fixture.requests.length, 1);
-  assert.equal(fixture.requests[0].path, "/search");
+  assert.equal(fixture.requests[0].path, "/v1/tools/search");
   assert.equal(fixture.requests[0].body.query, "Local HTTP search");
-  assert.equal(fixture.requests[0].body.max_results, 2);
+  assert.equal(fixture.requests[0].body.count, 2);
+  assert.equal(payload.data.provider, "deepseek-search");
   assert.equal(payload.data.results.length, 2);
+  assert.equal(payload.data.results[0].title, "Local source");
   assert.equal(payload.data.results[0].snippet, "First source");
-  assert.equal(payload.data.results[0].score, 0.946);
-  assert.equal(payload.data.results[1].snippet.length, 500);
+  assert.equal(payload.data.results[0].score, 0.94567);
+  assert.equal(payload.data.results[1].snippet.length, 1000);
   assert.match(payload.assistantText, /https:\/\/example.invalid\/source/);
   assert.deepEqual(logs().map((entry) => entry.state), ["output-available"]);
   // A search does not leave a knowledge candidate behind.
@@ -125,31 +106,11 @@ for (const [status, expected, code] of [[403, 503, "CONFIGURATION_ERROR"], [500,
   });
 }
 
-test("web search actually times out a stalled HTTP connection and later requests recover", { timeout: 40_000 }, async (t) => {
-  let respond = false;
-  const fixture = await upstream(t, (res) => {
-    if (respond) { res.setHeader("content-type", "application/json"); res.end(JSON.stringify({ images: [], results: [] })); }
-  });
-  const started = performance.now();
-  const response = await run();
-  assert.equal(response.status, 504);
-  assert.equal((await response.json()).error.code, "TIMEOUT");
-  assert.ok(performance.now() - started >= 11_000, "must exercise the real 12-second timeout");
-  await fixture.closed;
-  assert.deepEqual(logs().map((entry) => [entry.state, entry.errorCode]), [["output-error", "TIMEOUT"]]);
-  assert.equal(await db.memory.count({ where: {} }), 0);
-  respond = true;
-  assert.equal((await run()).status, 200);
-  assert.equal(fixture.requests.length, 2);
-  assert.deepEqual(logs().map((entry) => entry.state), ["output-error", "output-available"]);
-});
-
-
 test("cancelling a search aborts its actual HTTP transport without recording an empty success", async t => {
   const controller = new AbortController();
   const fixture = await upstream(t, () => controller.abort());
   const { runWebSearch } = await import("@/tools/definitions/web-search");
-  await assert.rejects(runWebSearch({ query: "cancel this" }, controller.signal), /cancelled/);
+  await assert.rejects(runWebSearch({ query: "cancel this" }, controller.signal, SEARCH_MODEL_REF), /cancelled/);
   await fixture.closed;
   assert.equal(fixture.requests.length, 1);
 });

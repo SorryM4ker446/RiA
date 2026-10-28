@@ -102,8 +102,8 @@ export const chatMessages = {
   "chat.conversations.empty": "还没有会话。\n从上方开启一段新的对话。",
   "chat.conversations.messageCountUnit": "条消息",
   "chat.conversations.rename": "重命名",
-  "chat.conversations.collapse": "收起会话",
-  "chat.conversations.loadMore": "加载更多会话",
+  "chat.conversations.scrollForMore": "下滑加载更多会话",
+  "chat.conversations.loadingMore": "正在加载更多会话…",
 
   // --- message list ------------------------------------------------------
   "chat.summary.none": "这一轮还没有摘要。",
@@ -114,6 +114,8 @@ export const chatMessages = {
   "chat.memory.on": "长期记忆：开",
   "chat.memory.off": "长期记忆：关",
   "chat.memory.note": "只影响这个会话。开启时会读取和写入长期记忆；关闭后两者都不做。消息、草稿、已上传的图片和用量记录始终保存。",
+  "chat.memory.onTitle": "长期记忆已开启",
+  "chat.memory.offTitle": "长期记忆已关闭",
   "chat.memory.turnedOn": "这个会话会使用长期记忆",
   "chat.memory.turnedOff": "这个会话不再读取或写入长期记忆",
   "runs.title": "执行记录",
@@ -233,15 +235,6 @@ export const chatMessages = {
   "chat.delete.confirm": "确认删除",
 
   // --- quick prompt seeds ------------------------------------------------
-  "chat.prompts.quickSummarize": "帮我总结这段内容：",
-  "chat.prompts.quickRewrite": "把这段话改写得更专业：",
-  "chat.prompts.quickPlan": "帮我制定一周学习计划：",
-  "chat.prompts.image1": "赛博朋克夜景，霓虹灯雨夜，电影感构图",
-  "chat.prompts.image2": "产品海报：极简风智能手表，白底，商业摄影",
-  "chat.prompts.image3": "国风插画：山水与飞鹤，留白，高细节",
-  "chat.prompts.video1": "清晨海边航拍镜头，电影级光影，慢速推进",
-  "chat.prompts.video2": "未来城市街头追逐，霓虹反射，动态运镜",
-  "chat.prompts.video3": "国风山水云海延时，薄雾流动，4K质感",
   "chat.delete.quoted": "「{text}」",
   "chat.composer.fileInputLabel": "选择要上传的附件",
   "chat.composer.attachmentsSelected": "已选择 {count} 个附件：{names}",

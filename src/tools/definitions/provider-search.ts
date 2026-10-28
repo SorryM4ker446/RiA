@@ -5,32 +5,25 @@ import { deepSeekBaseURL } from "@/lib/models/providers/deepseek-chat";
 import type { ModelRef } from "@/lib/models/preferences-schema";
 import type { WebSearchInput, WebSearchOutput, WebSearchResultItem } from "./web-search";
 
-export type SearchRoute = "deepseek-native" | "deepseek-search" | "openrouter" | "tavily";
+export type SearchRoute = "deepseek-native" | "deepseek-search" | "openrouter";
 
-export class ProviderSearchUnavailableError extends ApiError {
-  constructor(route: SearchRoute, status: number) {
-    super({ code: "SERVICE_UNAVAILABLE", message: `${route} search endpoint is unavailable (HTTP ${status}).` });
-  }
-}
-
-/** Provider credentials enable provider search independently of optional Tavily. */
+/** Search always runs through the selected chat model's provider. */
 export function resolveSearchRoute(ref?: ModelRef): SearchRoute | null {
   if (ref?.providerId === "deepseek" && process.env.DEEPSEEK_API_KEY?.trim()) {
     // This is the documented Responses capability, not a guessed model-family match.
     return ref.modelId === "deepseek-v4-pro" ? "deepseek-native" : "deepseek-search";
   }
   if (ref?.providerId === "openrouter" && process.env.OPENROUTER_API_KEY?.trim()) return "openrouter";
-  if (process.env.TAVILY_API_KEY?.trim()) return "tavily";
   return null;
 }
 
 export function searchConfigured(ref?: ModelRef): boolean {
-  return ref ? resolveSearchRoute(ref) !== null : Boolean(process.env.DEEPSEEK_API_KEY?.trim() || process.env.OPENROUTER_API_KEY?.trim() || process.env.TAVILY_API_KEY?.trim());
+  return ref ? resolveSearchRoute(ref) !== null : Boolean(process.env.DEEPSEEK_API_KEY?.trim() || process.env.OPENROUTER_API_KEY?.trim());
 }
 
 /** Only transport limits documented by the search services, not a RiA quota. */
 export function searchResultLimit(route: SearchRoute | null): number | undefined {
-  return route === "deepseek-search" ? 50 : route === "openrouter" ? 25 : route === "tavily" ? 20 : undefined;
+  return route === "deepseek-search" ? 50 : route === "openrouter" ? 25 : undefined;
 }
 
 const record = z.record(z.string(), z.unknown());
@@ -54,7 +47,7 @@ function resultsFrom(rows: unknown[], route: SearchRoute, max?: number): WebSear
 export type ProviderSearchResult = { output: WebSearchOutput; usage: { inputTokens?: number; outputTokens?: number }; metadata?: { openrouter: { cost?: number } } };
 
 /** One bounded provider request. Never retry a potentially billable search on another engine. */
-export async function executeProviderSearch(route: Exclude<SearchRoute, "tavily">, input: WebSearchInput, ref: ModelRef, signal?: AbortSignal, fetcher: typeof fetch = fetch): Promise<ProviderSearchResult> {
+export async function executeProviderSearch(route: SearchRoute, input: WebSearchInput, ref: ModelRef, signal?: AbortSignal, fetcher: typeof fetch = fetch): Promise<ProviderSearchResult> {
   const limit = searchResultLimit(route);
   const max = input.maxResults === undefined ? undefined : Math.min(input.maxResults, limit ?? input.maxResults);
   const query = input.query.trim();
@@ -73,7 +66,7 @@ export async function executeProviderSearch(route: Exclude<SearchRoute, "tavily"
     const response = await fetcher(url, { method: "POST", redirect: "error", cache: "no-store", signal: abortSignal, headers: { "Content-Type": "application/json", Authorization: `Bearer ${(isDeepSeek ? process.env.DEEPSEEK_API_KEY : process.env.OPENROUTER_API_KEY)?.trim() ?? ""}` }, body: JSON.stringify(body) });
     if (!response.ok) {
       await response.body?.cancel();
-      if (response.status === 404 || response.status === 501) throw new ProviderSearchUnavailableError(route, response.status);
+      if (response.status === 404 || response.status === 501) throw new ApiError({ code: "SERVICE_UNAVAILABLE", message: `${route} search endpoint is unavailable (HTTP ${response.status}).` });
       throw new ApiError({ code: response.status === 401 || response.status === 402 || response.status === 403 ? "CONFIGURATION_ERROR" : response.status === 429 ? "RATE_LIMITED" : "UPSTREAM_FAILED", message: `${route} search failed (HTTP ${response.status}). Check provider search access and balance.` });
     }
     payload = obj(await readLimitedJson(response, 2 * 1024 * 1024));

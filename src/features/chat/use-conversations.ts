@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { chatApi } from "@/features/chat/api-client";
 import { getChatPrefsStorageKey, loadAccountChatDefaults } from "@/features/chat/preferences";
 import type { ChatScopedPreferences } from "@/features/chat/types";
-import { COLLAPSED_CHAT_LIMIT, LAST_ACTIVE_CHAT_STORAGE_KEY } from "@/features/chat/types";
+import { LAST_ACTIVE_CHAT_STORAGE_KEY } from "@/features/chat/types";
 import type { AssistantTemplate } from "@/lib/assistants/schema";
 import { animateRemoval } from "@/lib/ui/removal";
 
@@ -32,7 +32,6 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   const [isCreatingChat, setIsCreatingChat] = useState(false);
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
-  const [isChatListExpanded, setIsChatListExpanded] = useState(false);
   const [isEphemeralSaving, setIsEphemeralSaving] = useState(false);
   const [documentTopics, setDocumentTopics] = useState<string[]>([]);
   const [isDocumentScopeSaving, setIsDocumentScopeSaving] = useState(false);
@@ -44,6 +43,13 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   const [nextChatsCursor, setNextChatsCursor] = useState<string | null>(null);
   const [isLoadingMoreChats, setIsLoadingMoreChats] = useState(false);
   const chatsRequestRef = useRef(0);
+  // Loading means the list has not been read yet. Reading it again after a save
+  // keeps showing the list it has, so controls never blink while that happens.
+  const hasReadChatsRef = useRef(false);
+  const ephemeralSavingRef = useRef(false);
+  // A save makes any read already under way stale: that read started before the
+  // change and must not land after it. Each save reads the list again itself.
+  const invalidateChatReads = () => { chatsRequestRef.current += 1; };
   // The conversation reopened from the last visit before the list has answered.
   // It is active so its history loads alongside the list, but it is not shown or
   // sent to until the list confirms it still exists and is not archived.
@@ -53,11 +59,9 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   const activeIdRef = useRef(activeChatId);
   useEffect(() => { activeIdRef.current = activeChatId; }, [activeChatId]);
   const activeChat = chats.find((chat) => chat.id === activeChatId) ?? null;
-  const hasHiddenChats = chats.length > COLLAPSED_CHAT_LIMIT;
-  const visibleChats = isChatListExpanded ? chats : chats.slice(0, COLLAPSED_CHAT_LIMIT);
   async function loadChats({ silent = false }: { silent?: boolean } = {}) {
     const requestId = ++chatsRequestRef.current;
-    setIsLoadingChats(true);
+    if (!hasReadChatsRef.current) setIsLoadingChats(true);
     loadingMoreRef.current = false;
     setIsLoadingMoreChats(false);
     try {
@@ -70,6 +74,7 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
       }
       if (requestId !== chatsRequestRef.current) return;
       setChats(list);
+      hasReadChatsRef.current = true;
       setNextChatsCursor(payload.pageInfo?.nextCursor ?? null);
       const restored = restoringRef.current;
       if (restored && activeIdRef.current === restored && !list.some((chat) => chat.id === restored)) {
@@ -111,7 +116,6 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
       if (requestId !== chatsRequestRef.current) return;
       setChats((current) => [...current, ...page.data.filter((chat) => !current.some((item) => item.id === chat.id))]);
       setNextChatsCursor(page.pageInfo?.nextCursor ?? null);
-      setIsChatListExpanded(true);
     } catch (error) {
       if (requestId === chatsRequestRef.current) setPageError(error instanceof Error ? error.message : t("conversationsHook.loadMoreFailed"));
     } finally {
@@ -259,7 +263,9 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   /** Resolves whether the change was saved; the list is reloaded either way. */
   async function toggleEphemeral(next: boolean): Promise<boolean> {
     const chat = chats.find((item) => item.id === activeChatId);
-    if (!chat) return false;
+    if (!chat || ephemeralSavingRef.current) return false;
+    ephemeralSavingRef.current = true;
+    invalidateChatReads();
     setIsEphemeralSaving(true);
     // Shown at once; a refused save puts it back when the list is read again below.
     setChats((current) => current.map((item) => (item.id === chat.id ? { ...item, ephemeral: next } : item)));
@@ -271,6 +277,7 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
       await loadChats();
       return false;
     } finally {
+      ephemeralSavingRef.current = false;
       setIsEphemeralSaving(false);
     }
   }
@@ -294,6 +301,7 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     const chat = chats.find((item) => item.id === activeChatId);
     if (!chat || isLoadingChats || scopeSavingRef.current) return;
     scopeSavingRef.current = true;
+    invalidateChatReads();
     setIsDocumentScopeSaving(true);
     setPageError(null);
     try {
@@ -320,6 +328,7 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   async function setWorkspace(grantId: string | null): Promise<boolean> {
     if (isLoadingChats || workspaceSavingRef.current) return false;
     workspaceSavingRef.current = true;
+    invalidateChatReads();
     setIsWorkspaceSaving(true);
     setPageError(null);
     try {
@@ -347,7 +356,7 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     // choosing one starts that conversation with it, named after the template.
     const starting = !chat && !activeChatId && templateId !== null;
     if ((!chat && !starting) || isLoadingChats || scopeSavingRef.current) return;
-    scopeSavingRef.current = true; setIsDocumentScopeSaving(true); setPageError(null);
+    scopeSavingRef.current = true; invalidateChatReads(); setIsDocumentScopeSaving(true); setPageError(null);
     try {
       if (chat) {
         const payload = await chatApi.setAssistant(chat.id, templateId);
@@ -366,8 +375,8 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     assistants, assistantsError, loadAssistants, applyAssistant,
     toggleEphemeral, isEphemeralSaving, documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving,
     setWorkspace, isWorkspaceSaving, restoringChatId, isRestoringChat: (chatId: string) => restoringRef.current === chatId,
-    chats, activeChat, isLoadingChats, isCreatingChat, editingChatId, editingTitle, setEditingTitle, isChatListExpanded,
-    setIsChatListExpanded, visibleChats, hasHiddenChats, loadChats, createNewChat, startEditingChat,
+    chats, activeChat, isLoadingChats, isCreatingChat, editingChatId, editingTitle, setEditingTitle,
+    loadChats, createNewChat, startEditingChat,
     cancelEditingChat, saveEditedTitle, performDeleteChat, ensureActiveChatId,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats,
   };

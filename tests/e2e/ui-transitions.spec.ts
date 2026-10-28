@@ -35,29 +35,40 @@ test("desktop settings hydrate before exposing controls supplied by preload", as
   expect(errors).toEqual([]);
 });
 
-test("navigation sheets animate in both directions and return keyboard focus", async ({ page }) => {
+test("the folded sidebar slides over the page and back, and its button keeps keyboard focus", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
-  await page.setViewportSize({ width: 390, height: 780 });
+  await page.setViewportSize({ width: 900, height: 780 });
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto("/");
-  const trigger = page.getByRole("button", { name: "打开导航" });
-  await trigger.click();
-  const navigation = page.getByRole("dialog", { name: "工作区导航" });
-  await expect(navigation).toBeVisible();
-  await expect(navigation).toHaveCSS("animation-name", "sheet-in");
-  await page.keyboard.press("Shift+Tab");
-  expect(await navigation.evaluate(node => node.contains(document.activeElement))).toBe(true);
-  await page.keyboard.press("Escape");
-  await expect(navigation).toBeHidden();
-  await expect(trigger).toBeFocused();
-  await expect(page.locator(".sheet-overlay")).toHaveCount(0);
-  await trigger.click();
-  await navigation.getByRole("link", { name: "知识库", exact: true }).click();
+  const button = page.getByRole("button", { name: "展开侧边栏", exact: true });
+  const peek = page.locator(".rail-peek");
+  await button.hover();
+  await expect(peek).toHaveAttribute("data-state", "open");
+  // It slides in on the shared curve and back out, then leaves the page.
+  await expect(peek).toHaveCSS("animation-name", "rail-peek-in");
+  await peek.evaluate(node => {
+    const seen: string[] = [];
+    (window as unknown as { peekStates: string[] }).peekStates = seen;
+    new MutationObserver(() => seen.push(`${node.getAttribute("data-state")}:${getComputedStyle(node).animationName}`)).observe(node, { attributes: true, attributeFilter: ["data-state"] });
+  });
+  await page.mouse.move(800, 500);
+  // Not at once: there is time to come back before it goes.
+  await expect(peek).toHaveCount(1);
+  await expect(peek).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { peekStates: string[] }).peekStates)).toEqual(["closing:rail-peek-out"]);
+  // From the keyboard the button pins and folds it, and keeps focus throughout.
+  await button.focus();
+  await page.keyboard.press("Enter");
+  const folding = page.getByRole("button", { name: "收起侧边栏", exact: true });
+  await expect(folding).toBeFocused();
+  await page.getByRole("navigation", { name: "工作区导航" }).getByRole("link", { name: "知识库", exact: true }).click();
   await expect(page).toHaveURL(/\/knowledge$/);
-  await expect(navigation).toBeHidden();
-  await expect(page.locator("body")).not.toHaveCSS("pointer-events", "none");
   await expect(page.locator("main h1")).toContainText("知识库");
+  await folding.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "展开侧边栏", exact: true })).toBeFocused();
+  await expect(page.locator("body")).not.toHaveCSS("pointer-events", "none");
   expect(errors).toEqual([]);
 });
 
@@ -65,11 +76,10 @@ test("reduced motion keeps navigation and model tabs usable without animations",
   await page.setViewportSize({ width: 390, height: 780 });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
-  await page.getByRole("button", { name: "打开导航" }).click();
-  const navigation = page.getByRole("dialog", { name: "工作区导航" });
-  await expect(navigation).toHaveCSS("animation-name", "none");
-  await navigation.getByRole("button", { name: "设置", exact: true }).click();
-  await expect(navigation).toBeHidden();
+  await page.getByRole("button", { name: "展开侧边栏", exact: true }).click();
+  const rail = page.locator(".workspace-rail-docked");
+  await expect(rail).toHaveCSS("transition-duration", "0s");
+  await rail.getByRole("button", { name: "设置", exact: true }).click();
   await page.getByRole("dialog", { name: "设置", exact: true }).getByRole("tab", { name: "模型", exact: true }).click();
   const imageTab = page.getByRole("tab", { name: "图片生成", exact: true });
   await imageTab.click();

@@ -76,7 +76,7 @@ test("English settings remain usable on desktop and mobile and failed saves keep
 test("desktop language uses device settings instead of origin storage and saves without restarting", async ({ page, app }) => {
   await page.addInitScript(() => {
     const locale = sessionStorage.getItem("desktop-locale") === "en-US" ? "en-US" : "zh-CN";
-    const settings = { locale, hasOpenrouterApiKey: false, hasDeepseekApiKey: false, hasTavilyApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "", windowBounds: null };
+    const settings = { locale, hasOpenrouterApiKey: false, hasDeepseekApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "", windowBounds: null };
     Object.defineProperty(window, "riaDesktop", { value: {
       getSettings: async () => settings,
       getRuntimeInfo: async () => ({ appVersion: "fixture", packaged: true, dataDirectory: "fixture", mediaDirectory: "fixture", logFile: "fixture" }),

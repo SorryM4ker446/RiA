@@ -38,3 +38,23 @@ export async function seedTestModelPreferences(db) {
   await db.workspacePreference.upsert({ where: { id: "local" }, create: { id: "local", settings }, update: { settings } });
   return settings;
 }
+
+// Search runs through the chat model's provider. DeepSeek's independent search
+// endpoint follows DEEPSEEK_BASE_URL, so a loopback fixture can answer it over
+// real HTTP while synthesis still uses the substituted test model.
+export const SEARCH_MODEL_REF: ModelRef = { providerId: "deepseek", modelId: "deepseek-v4-flash" };
+
+export async function seedSearchModelPreferences(db, baseURL: string) {
+  process.env.DEEPSEEK_API_KEY = "offline-search-fixture";
+  process.env.DEEPSEEK_BASE_URL = baseURL;
+  const settings = defaultModelPreferences();
+  settings.chat.model = SEARCH_MODEL_REF;
+  settings.image.model = IMAGE_MODEL_REF;
+  settings.video.model = VIDEO_MODEL_REF;
+  settings.library = [...rows, {
+    providerId: "deepseek", modelId: SEARCH_MODEL_REF.modelId, name: "DeepSeek V4 Flash", description: "Test model", modes: ["chat"],
+    supportsImageInput: false, endpointImageInput: null, supportsTools: true, contextLength: null, pricing: {}, addedAt: now, lastSeenAt: now,
+  }];
+  await db.workspacePreference.upsert({ where: { id: "local" }, create: { id: "local", settings }, update: { settings } });
+  return settings;
+}

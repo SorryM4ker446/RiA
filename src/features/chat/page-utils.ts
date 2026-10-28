@@ -55,24 +55,6 @@ export type UploadableFilePart = {
   filename?: string;
 };
 
-export const quickPrompts = () => ([
-  t("chat.prompts.quickSummarize"),
-  t("chat.prompts.quickRewrite"),
-  t("chat.prompts.quickPlan"),
-]);
-
-export const imagePrompts = () => ([
-  t("chat.prompts.image1"),
-  t("chat.prompts.image2"),
-  t("chat.prompts.image3"),
-]);
-
-export const videoPrompts = () => ([
-  t("chat.prompts.video1"),
-  t("chat.prompts.video2"),
-  t("chat.prompts.video3"),
-]);
-
 /**
  * The model's chain of thought for a message, concatenated.
  *

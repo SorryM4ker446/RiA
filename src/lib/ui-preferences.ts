@@ -1,6 +1,12 @@
 export const THEME_STORAGE_KEY = "ui:theme";
 export const DEFAULT_THEME = "dark";
 export const PANEL_VISIBILITY_STORAGE_KEY = "ria.chat.panel-visibility";
+/** The wide-window sidebar's width and whether it is folded away. */
+export const RAIL_STORAGE_KEY = "ria.sidebar";
+/** Pixels. Dragged below `collapseAt`, the sidebar folds away. */
+export const RAIL_BOUNDS = { min: 176, max: 360, default: 208, collapseAt: 128 } as const;
+/** Below this the sidebar starts folded, and pinning it lasts until the window crosses back. */
+export const RAIL_NARROW_QUERY = "(max-width: 1023px)";
 /** The panel preference's name before the product was renamed RiA. */
 export const LEGACY_PANEL_VISIBILITY_STORAGE_KEY = "private-ai.chat.panel-visibility";
 

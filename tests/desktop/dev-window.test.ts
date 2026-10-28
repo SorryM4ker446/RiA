@@ -46,7 +46,7 @@ test("desktop development launcher allows the application window to become visib
         return window.loadURL("data:text/html,<title>Desktop startup regression check</title><p>Checking window visibility</p>");
       }).catch(() => finish({ visible: false, error: "Window initialization failed" }));
     `);
-    const environment: NodeJS.ProcessEnv = { ...process.env, OPENROUTER_API_KEY: "", TAVILY_API_KEY: "" };
+    const environment: NodeJS.ProcessEnv = { ...process.env, OPENROUTER_API_KEY: "" };
     delete environment.ELECTRON_RUN_AS_NODE;
     const result = spawnSync(process.execPath, [join(root, "scripts", "run-desktop-dev.mjs")], {
       cwd: root, env: environment, encoding: "utf8", windowsHide: true, timeout: 20_000,

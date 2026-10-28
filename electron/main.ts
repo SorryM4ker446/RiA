@@ -548,10 +548,8 @@ function registerIpcHandlers() {
     }
     const needsRestart = Boolean(
       input.openrouterApiKey
-      || input.tavilyApiKey
       || input.deepseekApiKey
       || input.clearOpenrouterApiKey
-      || input.clearTavilyApiKey
       || input.clearDeepseekApiKey
       || input.outboundProxyUrl !== undefined
       || input.openrouterSiteName !== undefined

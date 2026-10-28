@@ -48,7 +48,6 @@ beforeEach(async (t: TestContext) => {
   process.env.APP_RUNTIME = "test";
   process.env.APP_ORIGIN = "";
   process.env.OPENROUTER_API_KEY = "";
-  process.env.TAVILY_API_KEY = "";
   resetLimits();
   providerState.streamError = false;
   providerState.streamGate = undefined;

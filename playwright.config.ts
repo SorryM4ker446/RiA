@@ -63,8 +63,6 @@ export default (async () => {
         LOCAL_ACCESS_TOKEN: TEST_ACCESS_TOKEN,
         OPENROUTER_API_KEY: "",
         DEEPSEEK_API_KEY: "",
-        TAVILY_API_KEY: "test-tavily-key",
-        TAVILY_SEARCH_URL: "http://127.0.0.1:4010/search",
       },
     },
     projects: [

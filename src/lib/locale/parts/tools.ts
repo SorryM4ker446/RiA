@@ -51,15 +51,16 @@ export const toolsMessages = {
   "tools.createTask.created": "已创建任务「{title}」{due}{reminder}{repeat}，当前状态为 {status}。",
 
   // --- webSearch ---------------------------------------------------------
+  "tools.webSearch.displayName": "联网搜索",
   "tools.webSearch.primaryFieldLabel": "搜索词",
   "tools.webSearch.skippedBudget": "本轮未再检索：已用完本轮的结果额度。",
   "tools.webSearch.description": "通过网络搜索获取外部信息。",
-  "tools.webSearch.manualLabel": "手动：Web 搜索",
+  "tools.webSearch.manualLabel": "手动：联网搜索",
   "tools.webSearch.placeholder": "输入要搜索的关键词...（Enter 手动触发）",
   "tools.webSearch.resultCountLabel": "结果数（可空）",
   "tools.webSearch.snippetSeparator": "：",
-  "tools.webSearch.noResults": "已执行 Web Search，但暂未返回可用结果：{query}",
-  "tools.webSearch.completed": "已完成 Web Search，返回 {count} 条结果。",
+  "tools.webSearch.noResults": "已执行联网搜索，但暂未返回可用结果：{query}",
+  "tools.webSearch.completed": "已完成联网搜索，返回 {count} 条结果。",
   "tools.webSearch.expandHint": "可在下方展开查看搜索来源。",
   // --- saveMemory ---------------------------------------------------------
   "tools.saveMemory.displayName": "记住信息",

@@ -2,7 +2,7 @@
 import { useLocale } from "@/lib/locale/client";
 import { formatDateTime, t, tf } from "@/lib/locale";
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState, type UIEvent, type WheelEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -11,18 +11,22 @@ import { Input } from "@/components/ui/input";
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { useAwaitingFirstLoad } from "@/lib/use-awaiting-first-load";
-import { ArrowUpRight, Bot, Check, ChevronDown, ChevronUp, History, Loader2, MessageSquareText, MoreHorizontal, PencilLine, Pin, SquarePen, Trash2, X } from "lucide-react";
-import { COLLAPSED_CHAT_LIMIT } from "@/features/chat/types";
+import { ArrowUpRight, Bot, Check, ChevronDown, History, Loader2, MessageSquareText, MoreHorizontal, PencilLine, Pin, SquarePen, Trash2, X } from "lucide-react";
 import type { ChatSummary } from "@/features/chat/page-utils";
 import type { ChatState } from "@/features/chat/use-chat-state";
 import { removalKey } from "@/lib/ui/removal";
 type Props = Pick<ChatState,
-  | "isLoadingChats" | "isCreatingChat" | "createNewChat" | "chats" | "visibleChats"
+  | "isLoadingChats" | "isCreatingChat" | "createNewChat" | "chats"
   | "activeChatId" | "editingChatId" | "setEditingTitle" | "editingTitle" | "saveEditedTitle"
   | "cancelEditingChat" | "switchActiveChat" | "startEditingChat" | "requestDeleteConversation"
-  | "hasHiddenChats" | "setIsChatListExpanded" | "isChatListExpanded" | "nextChatsCursor"
+  | "nextChatsCursor"
   | "isLoadingMoreChats" | "loadMoreChats"
 >;
+
+/** Rows revealed per step: enough to fill the drawer, so there is always something to scroll. */
+const BATCH = 10;
+/** How close to the end a downward scroll has to come before the next rows appear. */
+const END_DISTANCE = 80;
 
 type SectionKey = "pinned" | "today" | "yesterday" | "week" | "older";
 const sectionKeys: SectionKey[] = ["pinned", "today", "yesterday", "week", "older"];
@@ -52,20 +56,39 @@ function compactTime(value: string, now: Date) {
 }
 
 export function ConversationList({
-  isLoadingChats, isCreatingChat, createNewChat, chats, visibleChats, activeChatId,
+  isLoadingChats, isCreatingChat, createNewChat, chats, activeChatId,
   editingChatId, setEditingTitle, editingTitle, saveEditedTitle, cancelEditingChat,
-  switchActiveChat, startEditingChat, requestDeleteConversation, hasHiddenChats,
-  setIsChatListExpanded, isChatListExpanded, nextChatsCursor, isLoadingMoreChats,
-  loadMoreChats,
+  switchActiveChat, startEditingChat, requestDeleteConversation, nextChatsCursor,
+  isLoadingMoreChats, loadMoreChats,
 }: Props) {
   useLocale();
   const awaitingFirstLoad = useAwaitingFirstLoad(isLoadingChats, "conversations");
   const [open, setOpen] = useState(false);
+  // Rows appear only as the list is scrolled down, like the model catalog: the
+  // loaded ones first, then the next page from the service once they run out.
+  const [limit, setLimit] = useState(BATCH);
+  const previousTop = useRef(0);
   const now = new Date();
-  const sections = conversationSections(visibleChats, now);
+  const sections = conversationSections(chats.slice(0, limit), now);
+  const hasMore = limit < chats.length || Boolean(nextChatsCursor);
+  const revealMore = () => {
+    if (limit < chats.length) setLimit(Math.min(limit + BATCH, chats.length));
+    else if (nextChatsCursor && !isLoadingMoreChats) { setLimit(limit + BATCH); void loadMoreChats(); }
+  };
+  const onListScroll = (event: UIEvent<HTMLDivElement>) => {
+    const node = event.currentTarget;
+    const movingDown = node.scrollTop > previousTop.current;
+    previousTop.current = node.scrollTop;
+    if (movingDown && node.scrollTop + node.clientHeight >= node.scrollHeight - END_DISTANCE) revealMore();
+  };
+  // A list too short to scroll, or already at its end, still answers a downward wheel.
+  const onListWheel = (event: WheelEvent<HTMLDivElement>) => {
+    const node = event.currentTarget;
+    if (event.deltaY > 0 && node.scrollHeight - node.scrollTop - node.clientHeight <= 1) revealMore();
+  };
   return (
     <div className="flex shrink-0 items-center gap-1">
-      <Popover open={open} onOpenChange={next => { setOpen(next); if (!next) cancelEditingChat(); }}>
+      <Popover open={open} onOpenChange={next => { setOpen(next); if (next) { setLimit(BATCH); previousTop.current = 0; } else cancelEditingChat(); }}>
         <PopoverTrigger asChild><Button variant="ghost" size="sm" aria-label={t("chat.conversations.title")}><History data-icon="inline-start" aria-hidden="true" />{t("chat.conversations.recent")}<ChevronDown data-icon="inline-end" aria-hidden="true" /></Button></PopoverTrigger>
         <PopoverContent align="start" sideOffset={10} collisionPadding={12} className="conversation-popover" aria-label={t("chat.conversations.recent")} onEscapeKeyDown={event => { if (editingChatId) { event.preventDefault(); cancelEditingChat(); } }}>
         <aside aria-label={t("chat.conversations.title")} className="flex min-h-0 flex-col">
@@ -81,7 +104,7 @@ export function ConversationList({
             </Button>
           </div>
         </header>
-        <div className="chat-list-scroll flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain px-3 pb-4">
+        <div className="chat-list-scroll flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain px-3 pb-4" onScroll={onListScroll} onWheel={onListWheel}>
           {awaitingFirstLoad ? (
             <div role="status" aria-label={t("ui.chat.conversation-list.loadConversation")} className="flex flex-col gap-3 pt-2">
               <Skeleton className="h-4 w-12" />
@@ -157,17 +180,10 @@ export function ConversationList({
               })}
             </section>
           ))}
-          {hasHiddenChats ? (
-            <Button variant="ghost" size="sm" className="w-full" onClick={() => setIsChatListExpanded(previous => !previous)}>
-              {isChatListExpanded ? <ChevronUp data-icon="inline-start" aria-hidden="true" /> : <ChevronDown data-icon="inline-start" aria-hidden="true" />}
-              {isChatListExpanded ? t("chat.conversations.collapse") : tf("chat.common.expandMore", { count: chats.length - COLLAPSED_CHAT_LIMIT })}
-            </Button>
-          ) : null}
-          {nextChatsCursor && (isChatListExpanded || !hasHiddenChats) ? (
-            <Button variant="ghost" size="sm" className="w-full" disabled={isLoadingMoreChats} onClick={() => void loadMoreChats()}>
-              {isLoadingMoreChats ? <Loader2 data-icon="inline-start" className="animate-spin" aria-hidden="true" /> : <ChevronDown data-icon="inline-start" aria-hidden="true" />}
-              {t("chat.conversations.loadMore")}
-            </Button>
+          {!awaitingFirstLoad && chats.length > 0 && hasMore ? (
+            <p className="conversation-more" aria-live="polite">
+              {isLoadingMoreChats ? <><Loader2 aria-hidden="true" className="size-3.5 animate-spin" />{t("chat.conversations.loadingMore")}</> : <><ChevronDown aria-hidden="true" className="size-3.5" />{t("chat.conversations.scrollForMore")}</>}
+            </p>
           ) : null}
         </div>
         <footer className="flex shrink-0 flex-col gap-1 border-t px-3 py-3">

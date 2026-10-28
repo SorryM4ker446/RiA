@@ -9,7 +9,7 @@ async function desktop(page: Page, theme = "dark", locale: "zh-CN" | "en-US" = "
     let claim: Promise<string | null> | undefined;
     Object.assign(window, {
       riaDesktop: {
-        getSettings: async () => ({ locale, hasOpenrouterApiKey: false, hasDeepseekApiKey: false, hasTavilyApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "", windowBounds: null }),
+        getSettings: async () => ({ locale, hasOpenrouterApiKey: false, hasDeepseekApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "", windowBounds: null }),
         startup: {
           claim: () => claim ??= Promise.resolve(sessionStorage.getItem("startup-consumed") ? null : (sessionStorage.setItem("startup-consumed", "true"), "first-window")),
           present: () => new Promise<boolean>((resolve, reject) => Object.assign(window, { releaseStartup: resolve, rejectStartup: reject })),

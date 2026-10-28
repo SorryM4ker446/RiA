@@ -69,7 +69,7 @@ export function DirectoryPermissions({ workspaceGrantId, locked, saving, onSelec
   return <>
     <DropdownMenu onOpenChange={open => { if (open) void load(); }}>
       <DropdownMenuTrigger asChild>
-        <Button size="sm" variant="ghost" className="chat-workspace-picker max-w-[7.5rem] sm:max-w-[14rem]" disabled={locked || saving}
+        <Button size="sm" variant="ghost" className="chat-workspace-picker max-w-[7.5rem] sm:max-w-[14rem]" disabled={locked}
           aria-label={tf("ui.chat.workspace.current", { v0: name })} title={locked ? t("ui.chat.workspace.lockedWhileGenerating") : selected?.realPath ?? t("ui.chat.workspace.choose")}>
           <Folder aria-hidden="true" data-icon="inline-start" />
           <span className="min-w-0 truncate">{name}</span>

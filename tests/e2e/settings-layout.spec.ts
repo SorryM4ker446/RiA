@@ -13,7 +13,7 @@ const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>
 
 async function desktopBridge(page: Page) {
   await page.addInitScript(() => {
-    const settings = { hasOpenrouterApiKey: true, hasDeepseekApiKey: false, hasTavilyApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "Control+Shift+Space", windowBounds: null };
+    const settings = { hasOpenrouterApiKey: true, hasDeepseekApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "Control+Shift+Space", windowBounds: null };
     Object.defineProperty(window, "riaDesktop", { value: {
       getSettings: async () => settings,
       getRuntimeInfo: async () => ({ appVersion: "0.1.2", packaged: false, dataDirectory: "fixture/data", mediaDirectory: "fixture/media", logFile: "fixture/log" }),
@@ -69,7 +69,7 @@ test("compact settings preserve unsaved fields across tabs and keep connection o
   await page.getByRole("checkbox", { name: "删除已保存的 OpenRouter 密钥", exact: true }).check();
   await expect(key).toBeDisabled();
   await page.getByRole("button", { name: "保存并重启本地服务", exact: true }).click();
-  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("desktop-settings-input")!))).toMatchObject({ clearOpenrouterApiKey: true, outboundProxyUrl: "http://127.0.0.1:7897", openrouterSiteName: "RiA", deepseekApiKey: "", tavilyApiKey: "" });
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("desktop-settings-input")!))).toMatchObject({ clearOpenrouterApiKey: true, outboundProxyUrl: "http://127.0.0.1:7897", openrouterSiteName: "RiA", deepseekApiKey: "" });
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 960 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -138,7 +138,8 @@ for (const theme of ["dark", "light"] as const) {
     await plans.getByRole("button", { name: "启用", exact: true }).click();
     await expect(plans).toContainText("已启用");
     await expect(plans).toContainText("周一");
-    expect((await browserData(page, "/api/schedules"))[0]).toMatchObject({ enabled: true, useModel: false, interval: "weekly", dayOfWeek: 1, timeZone: "UTC", nextRunAt: jobs[0].nextRunAt });
+    // The switch shows at once and saves behind it; what matters is what was saved once the save lands.
+    await expect.poll(async () => (await browserData(page, "/api/schedules"))[0]).toMatchObject({ enabled: true, useModel: false, interval: "weekly", dayOfWeek: 1, timeZone: "UTC", nextRunAt: jobs[0].nextRunAt });
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 });
       for (const tab of ["API 密钥", "应用偏好", "自动化与通知", "工作区权限"]) {

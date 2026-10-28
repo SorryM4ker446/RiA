@@ -62,8 +62,8 @@ export function useChatState() {
     selectPreferredModel(value);
   }
   const {
-    chats, activeChat, isLoadingChats, isCreatingChat, editingChatId, editingTitle, setEditingTitle, isChatListExpanded,
-    setIsChatListExpanded, visibleChats, hasHiddenChats, loadChats, createNewChat, startEditingChat,
+    chats, activeChat, isLoadingChats, isCreatingChat, editingChatId, editingTitle, setEditingTitle,
+    loadChats, createNewChat, startEditingChat,
     cancelEditingChat, saveEditedTitle, performDeleteChat, ensureActiveChatId,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, toggleEphemeral, isEphemeralSaving,
     documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
@@ -700,15 +700,6 @@ export function useChatState() {
       .finally(() => { if (messageId) inFlightSendsRef.current.delete(messageId); });
   }, [activeChatId, historyState, isLoadingHistory, pendingSend, sendMessage]);
 
-  function appendQuickPrompt(prompt: string) {
-    setInput((prev) => {
-      if (!prev.trim()) return prompt;
-      if (prev.endsWith("\n")) return `${prev}${prompt}`;
-      return `${prev}\n${prompt}`;
-    });
-    textareaRef.current?.focus();
-  }
-
   function onModeSelect(value: ModelMode) {
     setSentWithoutModel(false);
     setInputNotice(null);
@@ -757,14 +748,14 @@ export function useChatState() {
     toggleEphemeral, isEphemeralSaving, documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
     setWorkspace, isWorkspaceSaving, loadChats,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages,
-    isLoadingChats, isCreatingChat, createNewChat, chats, visibleChats, activeChatId, editingChatId, setEditingTitle,
+    isLoadingChats, isCreatingChat, createNewChat, chats, activeChatId, editingChatId, setEditingTitle,
     editingTitle, saveEditedTitle, cancelEditingChat, switchActiveChat, startEditingChat,
-    requestDeleteConversation, hasHiddenChats, setIsChatListExpanded, isChatListExpanded, filteredTasks,
+    requestDeleteConversation, filteredTasks,
     isLoadingTasks, loadTasks, setTaskStatusFilter, taskStatusFilter,
     taskPanelError: withoutGlobalEcho(taskPanelError),
     visibleTasks, updateTaskStatus, deleteTask, saveTaskSchedule, updatingTaskIds, hasHiddenTasks, setIsTaskListExpanded,
     isTaskListExpanded, activeChat, isPending, isWorking, isLoadingPreferences, isOpeningConversation, isConversationReady, isRunningManualTool, modelMode, selectedModel, selectedModelInfo, onModeSelect,
-    onModelSelect, modelHint, inputNotice, dismissInputNotice: () => setInputNotice(null), isModelMenuOpen, setIsModelMenuOpen, appendQuickPrompt, isHistoryReady: confirmedChatId !== null && historyState?.chatId === confirmedChatId && historyState.status === "ready", isLoadingHistory, confirmedChatId, messages, imageByMessageId, videoByMessageId,
+    onModelSelect, modelHint, inputNotice, dismissInputNotice: () => setInputNotice(null), isModelMenuOpen, setIsModelMenuOpen, isHistoryReady: confirmedChatId !== null && historyState?.chatId === confirmedChatId && historyState.status === "ready", isLoadingHistory, confirmedChatId, messages, imageByMessageId, videoByMessageId,
     status, editingMessageId, startEditingMessage, regenerateMessage, requestDeleteMessage,
     setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage,
     attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, addToolApprovalResponse, onStop, onSubmit,

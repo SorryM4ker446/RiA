@@ -1,7 +1,6 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
 import { t, tf } from "@/lib/locale";
-import { imagePrompts, quickPrompts, videoPrompts } from "@/features/chat/page-utils";
 import { MarkdownMessage } from "@/components/chat/markdown-message";
 import { AnswerSources } from "@/features/chat/answer-sources";
 import { DocumentAttachment } from "@/components/chat/document-attachment";
@@ -168,8 +167,8 @@ function TranscriptSkeleton() {
   </div>;
 }
 
-type Props = Pick<ChatState, "appendQuickPrompt" | "modelMode" | "activeChatId" | "isLoadingHistory" | "isOpeningConversation" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId" | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText" | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel" | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages" | "selectedChatModel"> & { onShowSources?: (messageId: string) => void };
-export function MessageRenderer({ onShowSources, appendQuickPrompt, modelMode, activeChatId, isLoadingHistory, isOpeningConversation, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages }: Props) {
+type Props = Pick<ChatState, "modelMode" | "activeChatId" | "isLoadingHistory" | "isOpeningConversation" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId" | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText" | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel" | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages" | "selectedChatModel"> & { onShowSources?: (messageId: string) => void };
+export function MessageRenderer({ onShowSources, modelMode, activeChatId, isLoadingHistory, isOpeningConversation, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages }: Props) {
   useLocale();
   // Opening counts as loading: before it is known which conversation is open, or
   // in the render where one has just been chosen, the transcript is not empty yet.
@@ -344,12 +343,9 @@ export function MessageRenderer({ onShowSources, appendQuickPrompt, modelMode, a
       bubble's own metrics, so the swap changes content and not geometry.
     */}
     {awaitingFirstHistoryLoad ? <TranscriptSkeleton /> : messages.length === 0 ? (
-      <div className="chat-welcome flex min-h-40 flex-1 flex-col items-center justify-center gap-4 text-center">
+      <div className="chat-welcome flex min-h-40 flex-1 flex-col items-center justify-center gap-2 text-center">
         <h1 className="chat-welcome-title">{modelMode === "image" ? t("ui.chat.message-renderer.bringYourImaginationIntoView") : modelMode === "video" ? t("ui.chat.message-renderer.turnInspirationIntoMotion") : t("ui.chat.message-renderer.whatWouldYouLikeToWork")}</h1>
         <p className="chat-welcome-description">{t("chat.messages.empty")}</p>
-        <div className="mt-4 flex max-w-2xl flex-wrap justify-center gap-3">
-          {(modelMode === "image" ? imagePrompts() : modelMode === "video" ? videoPrompts() : quickPrompts()).map(prompt => <Button key={prompt} variant="outline" className="h-auto min-h-10 whitespace-normal py-2.5" onClick={() => appendQuickPrompt(prompt)}>{prompt.replace(/[:：]$/, "")}</Button>)}
-        </div>
       </div>
     ) : (
       messages.map((message, index) => {

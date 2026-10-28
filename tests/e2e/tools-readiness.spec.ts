@@ -164,19 +164,19 @@ async function setupToolUiMocks(page: Page) {
           tool: "webSearch",
           data: {
             query: body.input.query,
-            requestId: "e2e-tavily-request",
+            requestId: "e2e-search-request",
             results: [
               {
                 title: "Tool UI Fixture Source",
                 url: "https://example.com/tool-ui",
-                snippet: "Mocked Tavily result used by the tool UI flow E2E flow.",
+                snippet: "Mocked provider result used by the tool UI flow E2E flow.",
                 score: 0.94,
-                source: "tavily",
+                source: "openrouter",
               },
             ],
           },
           assistantText:
-            "已完成 Web Search，返回 1 条结果。\n\n结论：tool UI flow 的搜索结果已可用于综合判断。搜索来源可在下方展开查看。",
+            "已完成联网搜索，返回 1 条结果。\n\n结论：tool UI flow 的搜索结果已可用于综合判断。搜索来源可在下方展开查看。",
         },
       });
       return;
@@ -257,13 +257,13 @@ test("manual webSearch shows traceable source in chat UI", async ({ page }) => {
   await page.goto("/chat");
   await expect(page.getByRole("heading", { name: "E2E Chat", exact: true })).toBeVisible();
   await page.getByLabel("选择工具").click();
-  await page.getByRole("option", { name: "Web Search" }).click();
+  await page.getByRole("option", { name: "联网搜索" }).click();
   await expect(page.locator("#manual-tool-maxResults")).toHaveCount(0);
   await expect(page.getByPlaceholder("留空由模型决定")).toHaveCount(0);
   await page.getByPlaceholder(/输入要搜索的关键词/).fill("tool UI flow");
   await page.getByRole("button", { name: "执行工具" }).click();
 
-  await expect(page.getByText("已完成 Web Search")).toBeVisible();
+  await expect(page.getByText("已完成联网搜索")).toBeVisible();
   await openExecutionDetails(page);
   await page.getByText(/搜索来源（1）/).click();
   await expect(page.getByRole("link", { name: "Tool UI Fixture Source" })).toHaveAttribute(

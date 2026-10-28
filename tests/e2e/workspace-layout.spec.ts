@@ -131,17 +131,15 @@ test("workspace separates scheduled tasks and retains content during refresh", a
       animations: "disabled",
     });
   }
-  await page.getByRole("button", { name: "打开导航" }).click();
-  const navigation = page.getByRole("dialog", { name: "工作区导航" });
-  await expect(navigation).toBeVisible();
-  await page.keyboard.press("Shift+Tab");
-  expect(
-    await navigation.evaluate((element) =>
-      element.contains(document.activeElement),
-    ),
-  ).toBe(true);
-  await page.keyboard.press("Escape");
-  await expect(navigation).not.toBeVisible();
+  // The narrow window starts folded; the sidebar button pins and folds it from the keyboard.
+  await page.getByRole("button", { name: "展开侧边栏", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("navigation", { name: "工作区导航" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "收起侧边栏", exact: true })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "展开侧边栏", exact: true })).toBeFocused();
+  // Folding eases; measure the layout once it has settled, not in the middle of it.
+  await expect(page.locator("html")).not.toHaveAttribute("data-rail-animating", "");
   await page.setViewportSize({ width: 1440, height: 960 });
   const recent = page.getByRole("button", { name: "会话列表", exact: true });
   const composerBeforeMenu = await page.locator(".composer-surface").boundingBox();
@@ -347,6 +345,35 @@ test("desktop chat stays translucent and execution history opens without moving 
   );
   await expect.poll(() => content.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
   await expect(content).toHaveCSS("overflow-y", "auto");
+});
+
+test("the memory confirmation states the result and its effect, then leaves on its own", async ({ page, app }) => {
+  await openWorkspace(page, app.origin);
+  await browserApi(page, "/api/conversations", "POST", { title: "记忆提示" });
+  await page.goto(`${app.origin}/chat`);
+  const memory = page.getByRole("switch", { name: "长期记忆", exact: true });
+  const notice = toasts(page).locator(".toast").last();
+  // Saving and reading the list again must not blink the controls around it.
+  await expect(page.locator(".chat-workspace-picker")).toBeEnabled();
+  await page.evaluate(() => {
+    const blinked: string[] = [];
+    (window as unknown as { blinked: string[] }).blinked = blinked;
+    const watched = [".chat-workspace-picker", ".chat-memory-toggle", "#chat-assistant"];
+    new MutationObserver(records => {
+      for (const record of records) {
+        const node = record.target as Element;
+        const name = watched.find(selector => node.matches(selector));
+        if (name && (node.hasAttribute("disabled") || node.getAttribute("data-disabled") !== null)) blinked.push(name);
+      }
+    }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ["disabled", "data-disabled"] });
+  });
+  await memory.click();
+  await expect(notice.locator(".toast-title")).toHaveText("长期记忆已关闭");
+  await expect(notice.locator(".toast-description")).toHaveText("这个会话不再读取或写入长期记忆");
+  // A notice, not a control: it takes no clicks and is gone within a few seconds.
+  await expect(notice).toHaveCSS("pointer-events", "none");
+  await expect(toasts(page).locator(".toast")).toHaveCount(0, { timeout: 4500 });
+  expect(await page.evaluate(() => (window as unknown as { blinked: string[] }).blinked)).toEqual([]);
 });
 
 test("scheduled task creation validates time and persists without a model", async ({ page, app }) => {

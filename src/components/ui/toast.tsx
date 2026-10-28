@@ -1,16 +1,17 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { CircleCheck } from "lucide-react";
 import { useLocale } from "@/lib/locale/client";
 import { t } from "@/lib/locale";
 
-type Toast = { id: number; message: string; leaving: boolean };
-type Show = (message: string) => void;
+/** A line of text, or a result with a quieter line on what it means. */
+export type ToastInput = string | { title: string; description?: string };
+type Toast = { id: number; title: string; description?: string; leaving: boolean };
+type Show = (toast: ToastInput) => void;
 
 const ToastContext = createContext<Show | null>(null);
-/** A glance for a short line, a little more for longer ones. */
-const duration = (message: string) => Math.min(5000, 2500 + message.length * 30);
+/** Long enough to read once, never long enough to linger. */
+const duration = (toast: Toast) => Math.min(3500, 1800 + (toast.title.length + (toast.description?.length ?? 0)) * 20);
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /**
@@ -31,9 +32,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     if (reducedMotion()) remove(id);
     else setToasts(old => old.map(item => item.id === id ? { ...item, leaving: true } : item));
   }, [remove]);
-  const show = useCallback<Show>(message => {
+  const show = useCallback<Show>(input => {
     const id = ++next.current;
-    const arriving = { id, message, leaving: false };
+    const arriving: Toast = { id, leaving: false, ...(typeof input === "string" ? { title: input } : input) };
     setToasts(old => reducedMotion() ? [arriving] : [...old.map(item => ({ ...item, leaving: true })), arriving]);
   }, []);
 
@@ -52,17 +53,22 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 function ToastItem({ toast, onDismiss, onRemove }: { toast: Toast; onDismiss: (id: number) => void; onRemove: (id: number) => void }) {
   useEffect(() => {
     if (toast.leaving) return;
-    const timer = window.setTimeout(() => onDismiss(toast.id), duration(toast.message));
+    const timer = window.setTimeout(() => onDismiss(toast.id), duration(toast));
     return () => window.clearTimeout(timer);
-  }, [toast.leaving, toast.id, toast.message, onDismiss]);
-  return <div className="toast" data-leaving={toast.leaving || undefined} onAnimationEnd={event => { if (toast.leaving && event.target === event.currentTarget) onRemove(toast.id); }}><CircleCheck aria-hidden="true" className="toast-icon" /><span>{toast.message}</span></div>;
+  }, [toast, onDismiss]);
+  return (
+    <div className="toast" data-leaving={toast.leaving || undefined} onAnimationEnd={event => { if (toast.leaving && event.target === event.currentTarget) onRemove(toast.id); }}>
+      <p className="toast-title">{toast.title}</p>
+      {toast.description ? <p className="toast-description">{toast.description}</p> : null}
+    </div>
+  );
 }
 
 /**
- * Places confirmations just above an element held to the bottom of the
- * window and centred on it, such as the chat page's composer dock, for as
- * long as it is on screen. They follow it as it grows and return to the
- * bottom centre when it goes.
+ * Centres confirmations on an element, such as the chat page's toolbar row,
+ * for as long as it is on screen, so they appear in line with it instead of
+ * over the content. They follow it as it moves and return to the bottom
+ * centre when it goes.
  */
 export function useToastAnchor(ref: RefObject<HTMLElement | null>) {
   useEffect(() => {
@@ -71,17 +77,19 @@ export function useToastAnchor(ref: RefObject<HTMLElement | null>) {
     const root = document.documentElement;
     const update = () => {
       const box = node.getBoundingClientRect();
-      root.style.setProperty("--toast-bottom", `${Math.round(window.innerHeight - box.top + 4)}px`);
+      root.style.setProperty("--toast-top", `${Math.round(box.top + box.height / 2)}px`);
       root.style.setProperty("--toast-center", `${Math.round(box.left + box.width / 2)}px`);
     };
     update();
+    root.dataset.toastAnchored = "";
     const observer = new ResizeObserver(update);
     observer.observe(node);
     window.addEventListener("resize", update);
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", update);
-      root.style.removeProperty("--toast-bottom");
+      delete root.dataset.toastAnchored;
+      root.style.removeProperty("--toast-top");
       root.style.removeProperty("--toast-center");
     };
   }, [ref]);

@@ -604,6 +604,68 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .workspace-shell .workspace-topbar, .workspace-shell .workspace-rail, .workspace-shell .chat-rail, .workspace-shell .chat-toolbar { border-color: transparent; }
 .workspace-rail > div > .border-t, .conversation-rail-body > footer { border-color: transparent; }
 .workspace-rail { background: hsl(var(--surface)); border-color: hsl(var(--border)); }
+/* Sidebar. The docked rail and its content share `--rail-width`; folding takes the rail to nothing while the
+   content keeps its width and slides a little aside, so nothing re-wraps on the way out. Motion is opt-in: a
+   change the person makes (fold, pin, a snap while dragging, a reset) sets `data-rail-animating` for its
+   duration, and every moving part (rail, title padding, corner button) then moves on one curve. Anything else
+   (the pointer during a drag, the window crossing the boundary, the first paint) lands at once. */
+.workspace-rail-docked { width: var(--rail-width, 13rem); overflow: hidden; }
+.workspace-rail-inner { width: var(--rail-width, 13rem); }
+html[data-rail-animating] .workspace-rail-docked { transition: width var(--dur-base) var(--ease-out); }
+html[data-rail-animating] .workspace-rail-inner { transition: opacity var(--dur-base) var(--ease-out), translate var(--dur-base) var(--ease-out); }
+html[data-rail-animating] .workspace-main > .workspace-topbar { transition: padding-left var(--dur-base) var(--ease-out); }
+/* Shown at once, so it can take focus at once; hidden only after it has faded. */
+html[data-rail-animating] .rail-toggle { transition: opacity var(--dur-base) var(--ease-out), visibility 0s; }
+html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !important; user-select: none; }
+/* Placed by the rail's width rather than by its slot in the row, so it can come last in the document. */
+.rail-resizer { position: absolute; inset-block: 0; left: var(--rail-width, 13rem); z-index: 40; width: 0; }
+.rail-resizer-handle { position: absolute; inset-block: 0; left: -4px; width: 8px; cursor: col-resize; touch-action: none; outline: none; }
+/* A hairline that appears after a short hover, at once while dragging or focused. */
+.rail-resizer-handle::after { content: ""; position: absolute; inset-block: 0; left: 3px; width: 2px; border-radius: 1px; background: hsl(var(--ring) / .55); opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.rail-resizer-handle:hover::after { opacity: 1; transition-delay: var(--dur-fast); }
+.rail-resizer-handle:focus-visible::after, html[data-rail-dragging] .rail-resizer-handle::after { opacity: 1; transition-delay: 0ms; }
+/* Focused from the keyboard, the whole grip is tinted, not only its hairline. */
+.rail-resizer-handle:focus-visible { background: hsl(var(--ring) / .14); }
+/* Docked, the sidebar's button sits at the right of its header, quiet until pointed at. Folded, its
+   counterpart takes the window's top-left corner, centred on the 44px top row, fading in as the rail slides
+   away; the sidebar shown over the page covers it, its own button where the docked one will be. Folded, the
+   page title moves over to clear it. */
+.rail-header-button { color: hsl(var(--muted-foreground)); }
+.rail-header-button:hover, .rail-header-button:focus-visible { color: hsl(var(--foreground)); }
+.rail-toggle { position: absolute; left: 12px; top: 6px; z-index: 44; color: hsl(var(--muted-foreground)); }
+.rail-toggle:hover, .rail-toggle:focus-visible { color: hsl(var(--foreground)); }
+/* Folded: on a wide window, as last left (`data-rail-collapsed`, saved); on a narrow one, unless pinned for now
+   (`data-rail-pinned`). Media queries pick which applies, so a window crossing the boundary is laid out right in
+   the same frame, not one frame later. The width matches RAIL_NARROW_QUERY. */
+@media (min-width: 1024px) {
+  html[data-rail-collapsed="true"] .workspace-rail-docked { width: 0; }
+  html[data-rail-collapsed="true"] .workspace-rail-docked > .workspace-rail-inner { opacity: 0; translate: -16px 0; }
+  html[data-rail-collapsed="true"]:not([data-rail-dragging]) .rail-resizer { display: none; }
+  html[data-rail-collapsed="true"] .workspace-main > .workspace-topbar { padding-left: 52px; }
+  html:not([data-rail-collapsed="true"]) .rail-toggle { opacity: 0; visibility: hidden; pointer-events: none; }
+  html[data-rail-animating]:not([data-rail-collapsed="true"]) .rail-toggle { transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast) allow-discrete; }
+}
+@media (max-width: 1023px) {
+  html:not([data-rail-pinned="true"]) .workspace-rail-docked { width: 0; }
+  html:not([data-rail-pinned="true"]) .workspace-rail-docked > .workspace-rail-inner { opacity: 0; translate: -16px 0; }
+  html:not([data-rail-pinned="true"]):not([data-rail-dragging]) .rail-resizer { display: none; }
+  html:not([data-rail-pinned="true"]) .workspace-main > .workspace-topbar { padding-left: 52px; }
+  html[data-rail-pinned="true"] .rail-toggle { opacity: 0; visibility: hidden; pointer-events: none; }
+  html[data-rail-animating][data-rail-pinned="true"] .rail-toggle { transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast) allow-discrete; }
+}
+/* The sidebar over the page while folded: the docked rail's twin, so pinning can swap one for the other unseen.
+   It slides out on the shared curve and back a little faster. Pinning holds it still and lets its shadow go while
+   the rail opens beneath; then it is removed outright. */
+.rail-peek { position: absolute; inset-block: 0; left: 0; z-index: 45; width: var(--rail-width, 13rem); overflow: hidden; background: hsl(var(--surface)); box-shadow: 0 0 0 1px hsl(var(--border) / .6), 16px 0 40px -18px hsl(var(--shadow) / .45); transition: box-shadow var(--dur-base) var(--ease-out); animation: rail-peek-in var(--dur-base) var(--ease-out); }
+/* The desktop window treats a drag region as its title bar and stops reporting the pointer there, which would
+   read as the pointer leaving. Shown over the page, the sidebar is all page: its header does not drag the window,
+   and, coming last, it cuts the top row's drag region away beneath it. */
+.rail-peek, .rail-peek .workspace-sidebar-header { -webkit-app-region: no-drag; }
+.rail-peek[data-state="closing"] { pointer-events: none; animation: rail-peek-out var(--dur-fast) var(--ease-in-out) forwards; }
+.rail-peek[data-state="pinning"] { box-shadow: 0 0 0 1px transparent, 16px 0 40px -18px transparent; }
+@keyframes rail-peek-in { from { translate: -100% 0; } }
+@keyframes rail-peek-out { to { translate: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { html[data-rail-animating] :is(.workspace-rail-docked, .workspace-rail-inner, .workspace-main > .workspace-topbar, .rail-toggle) { transition: none; } .rail-peek, .rail-peek[data-state] { transition: none; animation-duration: 0s; } }
 .workspace-content { background: hsl(var(--surface)); scrollbar-gutter: stable; scroll-behavior: smooth; }
 .workspace-content > main:not(.chat-workspace) { width: 100%; padding: clamp(1.5rem, 3vw, 3rem); }
 /* Workspace pages share one measure: wide enough for a list with a few columns, narrow enough that
@@ -628,6 +690,10 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .workspace-brand:active { transform: scale(.98); }
 .workspace-brand-wordmark { font-size: 24px; font-weight: 600; line-height: 28px; letter-spacing: -.055em; }
 
+/* A sheet and its scrim lie over the window's drag band at the top. Both opt out of it, so a click there
+   closes or reaches the sheet instead of grabbing the window; a header inside that should drag (the
+   sidebar's) opts back in, and its own buttons, the close button among them, opt out again. */
+.sheet-overlay, .sheet-content { -webkit-app-region: no-drag; }
 .sheet-overlay { position: fixed; inset: 0; z-index: 50; background: hsl(var(--scrim) / .5); backdrop-filter: blur(8px); }
 .sheet-content { position: fixed; top: 0; bottom: 0; z-index: 50; width: min(19rem, 88vw); background: hsl(var(--background)); color: hsl(var(--foreground)); box-shadow: 0 12px 48px hsl(var(--shadow) / .15); outline: none; }
 .sheet-content[data-side="left"] { left: 0; border-right: 1px solid hsl(var(--border)); --sheet-offset: -100%; }
@@ -668,6 +734,7 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .conversation-popover { width: min(21rem, calc(100vw - 24px)); padding: 0; border-radius: var(--radius-window); overflow: hidden; }
 .conversation-popover > aside { max-height: min(36rem, var(--radix-popover-content-available-height)); }
 .conversation-popover .chat-list-scroll { min-height: 4rem; }
+.conversation-more { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 4px 0 2px; font-size: 12px; color: hsl(var(--muted-foreground)); }
 .ui-dropdown-content { z-index: 50; min-width: 10rem; max-height: var(--radix-dropdown-menu-content-available-height); overflow-y: auto; border-radius: var(--radius-card); padding: 4px; color: hsl(var(--popover-foreground)); transform-origin: var(--radix-dropdown-menu-content-transform-origin); }
 .ui-dropdown-content[data-state="open"] { animation: pop-in var(--dur-fast) var(--ease-out); }
 .ui-dropdown-item { display: flex; min-height: 36px; cursor: pointer; align-items: center; gap: 10px; border-radius: var(--radius-inner); padding: 8px 10px; font-size: 13px; outline: none; transition: background-color var(--dur-fast) var(--ease-out); }
@@ -728,7 +795,7 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 /* Frosted glass, the one material for everything that floats over content (menus, pickers, popovers,
    tooltips, previews, notices): what is beneath shows through as colour, blurred enough that its text
    cannot compete. Solid backgrounds are kept for real panels: the settings window, the rail, sheets. */
-.message-nav-preview, .message-nav-outline, .toast, .ui-select-content, .ui-popover-content, .ui-dropdown-content, .ui-tooltip-content, .command-palette { background: hsl(var(--popover) / .55); border: 0; box-shadow: 0 0 0 1px hsl(var(--border) / .7), 0 8px 28px -8px hsl(var(--shadow) / .28); backdrop-filter: blur(20px) saturate(1.4); }
+.message-nav-preview, .message-nav-outline, .ui-select-content, .ui-popover-content, .ui-dropdown-content, .ui-tooltip-content { background: hsl(var(--popover) / .55); border: 0; box-shadow: 0 0 0 1px hsl(var(--border) / .7), 0 8px 28px -8px hsl(var(--shadow) / .28); backdrop-filter: blur(20px) saturate(1.4); }
 .message-nav-preview { width: min(19rem, calc(100vw - 72px)); padding: 12px; transform-origin: var(--radix-tooltip-content-transform-origin); animation: message-preview-in var(--dur-base) var(--ease-out); }
 .message-nav-preview[data-state="closed"] { animation: none; }
 .message-nav-outline { display: flex; width: min(19rem, calc(100vw - 64px)); max-height: min(30rem, var(--radix-popover-content-available-height)); flex-direction: column; padding: 0; overflow: hidden; }
@@ -748,7 +815,8 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .chat-memory-toggle { color: hsl(var(--muted-foreground)); }
 /* Off is the exception a conversation is put into, so it is the state that stands out. */
 .chat-memory-toggle[aria-checked="false"] { color: hsl(var(--foreground)); background: hsl(var(--foreground) / .08); }
-.chat-welcome { padding: 1.5rem 0; }
+/* Title and line sit a little above the middle of the space, where the eye expects the centre. */
+.chat-welcome { padding: 1.5rem 0 4.5rem; }
 .chat-welcome-title { max-width: 35rem; font-size: clamp(1.5rem, 2.5vw, 2rem); font-weight: 600; line-height: 1.5; letter-spacing: -.035em; text-wrap: balance; }
 .chat-welcome-description { max-width: 29rem; font-size: 14px; line-height: 1.8; color: hsl(var(--muted-foreground)); text-wrap: balance; }
 .chat-dock { background: transparent; }
@@ -862,17 +930,22 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .stat-grid > div { display: flex; flex-direction: column-reverse; gap: 2px; }
 .stat-grid dt { font-size: 12px; color: hsl(var(--muted-foreground)); }
 .stat-grid dd { font-size: 20px; font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-/* Short confirmations in one slot: centred over the chat composer just above its controls (the
-   chat page sets the anchor), elsewhere at the bottom centre. A new one fades in over the last as it
-   fades out, so nothing shifts; they take no clicks, so they never block what is underneath. The
-   surface is the message navigator's frosted preview. */
-.toast-stack { position: fixed; left: var(--toast-center, 50%); bottom: var(--toast-bottom, 24px); z-index: 60; display: grid; justify-items: center; align-items: end; width: max-content; max-width: calc(100vw - 32px); transform: translateX(-50%); pointer-events: none; }
-body:has(.settings-window) .toast-stack { left: 50%; bottom: 24px; }
-.toast { grid-area: 1 / 1; display: flex; align-items: flex-start; gap: 8px; width: max-content; max-width: min(36rem, calc(100vw - 32px)); border-radius: 12px; padding: 8px 12px; color: hsl(var(--popover-foreground)); font-size: 13px; line-height: 20px; animation: toast-in var(--dur-base) var(--ease-out); }
-.toast-icon { width: 16px; height: 16px; flex-shrink: 0; margin-top: 2px; color: hsl(var(--success)); }
-.toast[data-leaving] { animation: toast-out var(--dur-base) var(--ease-in-out) forwards; }
-@keyframes toast-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes toast-out { to { opacity: 0; } }
+/* Short confirmations in one slot: centred in line with the chat toolbar's first row (the chat page
+   sets the anchor), elsewhere at the bottom centre. A new one fades in over the last as it
+   fades out, so nothing shifts; they take no clicks, so they never block what is underneath. Frosted
+   glass, but denser and more blurred than menus: a notice sits over running text, which may tint it
+   but must never read through it. */
+.toast-stack { position: fixed; left: var(--toast-center, 50%); bottom: 24px; z-index: 60; display: grid; justify-items: center; align-items: end; width: max-content; max-width: calc(100vw - 32px); transform: translateX(-50%); pointer-events: none; }
+html[data-toast-anchored] .toast-stack { top: var(--toast-top); bottom: auto; align-items: center; translate: 0 -50%; }
+body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; align-items: end; translate: none; }
+.toast { grid-area: 1 / 1; display: flex; flex-direction: column; gap: 1px; width: max-content; min-width: 13rem; max-width: min(24rem, calc(100vw - 32px)); border-radius: 12px; padding: 9px 16px 10px; background: hsl(var(--popover) / .72); color: hsl(var(--popover-foreground)); box-shadow: 0 0 0 1px hsl(var(--foreground) / .07), inset 0 1px 0 hsl(0 0% 100% / .5), 0 1px 2px hsl(var(--shadow) / .06), 0 14px 36px -12px hsl(var(--shadow) / .3); -webkit-backdrop-filter: blur(28px) saturate(1.8); backdrop-filter: blur(28px) saturate(1.8); font-size: 13px; line-height: 20px; text-align: left; transform-origin: 50% 100%; animation: toast-in var(--dur-base) var(--ease-out); }
+.dark .toast { background: hsl(var(--popover) / .68); box-shadow: 0 0 0 1px hsl(var(--foreground) / .1), inset 0 1px 0 hsl(var(--foreground) / .08), 0 16px 40px -12px hsl(var(--shadow) / .7); }
+.toast-title { font-weight: 500; letter-spacing: -.005em; }
+.toast-description { font-size: 12px; line-height: 18px; color: hsl(var(--muted-foreground)); }
+.toast[data-leaving] { animation: toast-out var(--dur-fast) var(--ease-in-out) forwards; }
+/* It settles into focus as it rises, and softens as it goes. */
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px) scale(.96); filter: blur(4px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes toast-out { to { opacity: 0; transform: translateY(3px) scale(.98); filter: blur(2px); } }
 @media (min-width: 768px) { .conversation-filters { grid-template-columns: minmax(12rem, 1fr) minmax(7rem, 10rem) 8rem auto; } }
 @media (hover: none) { .message-actions { opacity: 1; } }
 .usage-history-sheet { width: min(38rem, 100vw); }
@@ -1056,9 +1129,29 @@ body:has(.settings-window) .toast-stack { left: 50%; bottom: 24px; }
 .answer-source:hover { background: hsl(var(--foreground) / .08); }
 .answer-source:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
 
-/* Command palette: one frosted box near the top of the window, over a light scrim. */
-.command-palette-overlay { position: fixed; inset: 0; z-index: 90; background: hsl(var(--foreground) / .12); animation: overlay-in var(--dur-fast) var(--ease-out); }
-.command-palette { position: fixed; left: 50%; top: 18vh; z-index: 91; display: flex; width: min(36rem, calc(100vw - 32px)); max-height: min(28rem, 70vh); flex-direction: column; overflow: hidden; border-radius: var(--radius-window); translate: -50% 0; animation: pop-in var(--dur-fast) var(--ease-out); }
+/* Command palette: a floating box near the top of the window. No scrim, so the page keeps its colour and
+   stays usable; the surface is nearly opaque so the page's text does not read through the list. */
+.command-palette { position: fixed; left: 50%; top: 18vh; z-index: 91; display: flex; width: min(36rem, calc(100vw - 32px)); max-height: min(28rem, 70vh); flex-direction: column; overflow: hidden; border-radius: var(--radius-window); translate: -50% 0; background: hsl(var(--popover) / .97); box-shadow: 0 0 0 1px hsl(var(--border)), 0 4px 12px -2px hsl(var(--shadow) / .1), 0 24px 56px -12px hsl(var(--shadow) / .35); backdrop-filter: blur(16px); animation: pop-in var(--dur-fast) var(--ease-out); }
+.dark .command-palette { box-shadow: 0 0 0 1px hsl(var(--foreground) / .1), inset 0 1px 0 hsl(var(--foreground) / .05), 0 24px 56px -12px hsl(var(--shadow) / .7); }
+.command-palette[data-moved] { animation: none; }
+/* Pinned and set aside, its contents step back until it is used again. The surface stays opaque, so
+   the page never reads through it. */
+.command-palette > * { transition: opacity var(--dur-base) var(--ease-out); }
+.command-palette[data-pinned]:not(:focus-within, :hover) > * { opacity: .55; }
+/* The title-bar search: centred over the content column, quiet until pointed at. */
+.command-search { position: absolute; left: 50%; top: 50%; translate: -50% -50%; display: flex; width: min(22rem, 44%); height: 26px; align-items: center; justify-content: center; gap: 6px; border-radius: 7px; padding: 0 8px; font-size: 12px; color: hsl(var(--muted-foreground)); background: hsl(var(--foreground) / .04); box-shadow: inset 0 0 0 1px hsl(var(--foreground) / .06); cursor: pointer; transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.command-search:hover { color: hsl(var(--foreground)); background: hsl(var(--foreground) / .07); }
+.command-search:focus-visible { outline: none; box-shadow: inset 0 0 0 1px hsl(var(--ring)), 0 0 0 3px hsl(var(--ring) / .2); }
+.command-search-key { margin-left: 2px; font-family: var(--font-sans); font-size: 11px; color: hsl(var(--muted-foreground) / .75); }
+@media (max-width: 639px) { .command-search { display: none; } }
+.command-palette-close[aria-pressed="true"] { color: hsl(var(--foreground)); background: hsl(var(--foreground) / .08); }
+.command-palette-search, .command-palette-footer { cursor: grab; touch-action: none; }
+.command-palette-search:active:not(:has(input:active, button:active)), .command-palette-footer:active { cursor: grabbing; }
+.command-palette-search input { cursor: text; }
+.command-palette-close { display: inline-flex; width: 24px; height: 24px; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 6px; color: hsl(var(--muted-foreground)); cursor: pointer; }
+.command-palette-close:hover { background: hsl(var(--foreground) / .07); color: hsl(var(--foreground)); }
+.command-palette-footer { display: flex; align-items: center; gap: 12px; padding: 7px 12px; border-top: 1px solid hsl(var(--border) / .7); font-size: 11px; color: hsl(var(--muted-foreground)); user-select: none; }
+@media (max-width: 520px) { .command-palette-footer > :first-child { display: none; } }
 .command-palette:focus { outline: none; }
 .command-palette-help { width: min(26rem, calc(100vw - 32px)); }
 .command-palette-search { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid hsl(var(--border) / .7); }
@@ -1094,7 +1187,6 @@ body:has(.settings-window) .toast-stack { left: 50%; bottom: 24px; }
   .chat-toolbar-actions { transition: opacity var(--dur-base) var(--ease-out); }
   .chat-welcome > * { animation: panel-in-up var(--dur-slow) var(--ease-out) both; }
   .chat-welcome > :nth-child(2) { animation-delay: calc(var(--stagger-step) * 1.5); }
-  .chat-welcome > :nth-child(3) { animation-delay: calc(var(--stagger-step) * 3); }
   dialog { transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-base) var(--ease-out); opacity: 0; transform: translateY(8px) scale(.99); }
   dialog[open] { opacity: 1; transform: none; }
   dialog::backdrop { transition: opacity var(--dur-base) var(--ease-out); opacity: 0; }
@@ -1115,7 +1207,7 @@ body:has(.settings-window) .toast-stack { left: 50%; bottom: 24px; }
   .chat-welcome-description { font-size: 13px; }
   .chat-welcome [data-slot="empty-content"] { margin-top: .5rem; }
 }
-@media (max-height: 700px) { .chat-welcome { gap: .5rem; padding: .5rem 0; } }
+@media (max-height: 700px) { .chat-welcome { gap: .5rem; padding: .5rem 0 2rem; } }
 /*
  * The rail tightens on short windows instead of scrolling: at the desktop
  * window's 640px minimum every entry still fits. It can still scroll if a
