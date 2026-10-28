@@ -116,6 +116,15 @@ test("cancelling stops the update, and a failure offers a retry", async ({ page,
   expect((await recorded(page)).calls).toEqual(["apply", "cancel", "apply", "apply"]);
 });
 
+test("an installer that never ran is reported as not run, not as an error code", async ({ page, app }) => {
+  await updateBridge(page, { previousInstall: { outcome: "failed", version: "0.1.16", exitCode: null, logFile: null } });
+  await openWorkspace(page, app.origin);
+  await page.goto(`${app.origin}/chat?settings=application`);
+  const card = settingsDialog(page).locator("#updates");
+  await expect(card).toContainText("0.1.16 的安装程序没有运行，安装包已删除。重新更新即可再试。");
+  await expect(card).not.toContainText("错误代码");
+});
+
 test("the settings card checks, reports the last install and starts the same update", async ({ page, app }) => {
   await updateBridge(page, { previousInstall: { outcome: "failed", version: "0.1.15", exitCode: 1603, logFile: "C:\\RiA\\logs\\update-install.log" } });
   await openWorkspace(page, app.origin);

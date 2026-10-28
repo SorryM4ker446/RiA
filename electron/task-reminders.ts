@@ -4,13 +4,13 @@ import type { DesktopLogger } from "./logger";
 export type TaskReminder = { id: string; title: string; dueDate: string; timeZone: string };
 type NotificationConstructor = new (options: NotificationConstructorOptions) => Notification;
 
-export function createTaskNotificationDelivery(NativeNotification: NotificationConstructor, focus: () => void, logger: DesktopLogger, getLocale: () => "zh-CN" | "en-US" = () => "zh-CN") {
+export function createTaskNotificationDelivery(NativeNotification: NotificationConstructor, focus: () => void, logger: DesktopLogger, getLocale: () => "zh-CN" | "en-US" = () => "zh-CN", icon: () => { icon?: string } = () => ({})) {
   const active = new Set<Notification>();
   return (task: TaskReminder) => {
     const locale = getLocale();
     const due = new Date(task.dueDate).toLocaleString(locale, { timeZone: task.timeZone });
     const body = locale === "en-US" ? `Task due: ${due} (${task.timeZone})` : `任务已到期：${due}（${task.timeZone}）`;
-    const notification = new NativeNotification({ title: task.title, body, silent: false });
+    const notification = new NativeNotification({ ...icon(), title: task.title, body, silent: false });
     notification.once("click", focus);
     notification.once("close", () => active.delete(notification));
     notification.once("failed", () => {

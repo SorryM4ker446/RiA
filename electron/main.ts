@@ -33,7 +33,8 @@ import { resolveDesktopPaths, toSqliteUrl, type DesktopPaths } from "./paths";
 import { configureDesktopSession, secureBrowserWindow } from "./security";
 import { DesktopSettingsStore, type DesktopSettingsInput } from "./settings";
 import { handleSquirrelStartupEvent } from "./squirrel";
-import { encodePowerShell, installationRoot, installScript, reconcileUpdateDirectory, UpdateService, type InstallPlan, type UpdateState } from "./updater";
+import { installationRoot, launchInstaller, reconcileUpdateDirectory, UpdateService, type InstallPlan, type UpdateState } from "./updater";
+import { DEVELOPMENT_APP_USER_MODEL_ID, INSTALLED_APP_USER_MODEL_ID } from "./app-identity";
 import { UPDATE_SIGNING_PUBLIC_KEY } from "./update-signing-key";
 import { createTaskNotificationDelivery, TaskReminderPoller, type TaskReminder } from "./task-reminders";
 import { seedTaskReminderSmoke } from "./task-reminders-smoke";
@@ -329,30 +330,18 @@ function broadcastUpdateState(state: UpdateState) {
 }
 
 /**
- * Runs the installer once this process has gone.
- *
- * The installer is started from a separate PowerShell process that waits for this
- * one to exit, so Windows Installer never finds the running copy's files in use.
- * Everything it needs is passed in the encoded command rather than written to a
- * script file, and both programs are named by their full system path.
+ * Runs the installer once this process has gone, from a helper that outlives it
+ * (see launchInstaller). Both programs are named by their full system path.
  */
 async function launchUpdateInstaller(plan: Pick<InstallPlan, "installer" | "installLog" | "resultFile">): Promise<void> {
   const system = join(process.env.SystemRoot || "C:\\Windows", "System32");
   const installRoot = installationRoot(process.execPath);
-  const script = installScript({
+  await launchInstaller({
     ...plan,
     installRoot,
     relaunch: join(installRoot, basename(process.execPath)),
     waitForPid: process.pid,
-  }, join(system, "msiexec.exe"));
-  const child = spawn(join(system, "WindowsPowerShell", "v1.0", "powershell.exe"),
-    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-EncodedCommand", encodePowerShell(script)],
-    { detached: true, stdio: "ignore", windowsHide: true });
-  await new Promise<void>((resolve, reject) => {
-    child.once("spawn", resolve);
-    child.once("error", reject);
-  });
-  child.unref();
+  }, { directory: dirname(plan.installer), system, installer: { program: join(system, "msiexec.exe"), window: 1 } });
 }
 
 function notifyUpdateAvailable(version: string) {
@@ -360,6 +349,7 @@ function notifyUpdateAvailable(version: string) {
   const english = settingsStore?.getLocale() === "en-US";
   updateNotification?.close();
   updateNotification = new Notification({
+    ...notificationIcon(),
     title: english ? `${PRODUCT_NAME} ${version} is available` : `${PRODUCT_NAME} ${version} 已发布`,
     body: english ? "Open Settings › Application to download and install it." : "在 设置 › 应用 中下载并安装。",
   });
@@ -643,6 +633,15 @@ function trayIconCandidates(): string[] {
 
 function trayIconPath(): string | null {
   return trayIconCandidates().find((candidate) => existsSync(candidate)) ?? null;
+}
+
+/**
+ * RiA's own picture in a notification, so it never depends on how Windows has
+ * resolved the application ID to a name and icon.
+ */
+function notificationIcon(): { icon?: string } {
+  const icon = trayIconPath();
+  return icon ? { icon } : {};
 }
 
 function createTray(): Tray {
@@ -1230,12 +1229,13 @@ async function bootstrap() {
   await app.whenReady();
   /*
     Windows groups a taskbar entry and routes a notification by this id, and
-    Squirrel builds it from the installation name it was packaged under. It has
-    to match that name exactly: leaving the old one here while the installer now
-    says RiA gives a window whose taskbar group and notifications belong to an
-    application that no longer exists.
+    takes the notification's name and icon from the Start menu shortcut the
+    installer registers under it. Only an installed copy may use that id: a
+    development or test run is electron.exe, and Windows remembers the name and
+    icon of the first program that posts under an id, so sharing it left the
+    installed application's notifications labelled "Electron".
   */
-  app.setAppUserModelId("com.squirrel.RiA.RiA");
+  app.setAppUserModelId(packagedRuntime ? INSTALLED_APP_USER_MODEL_ID : DEVELOPMENT_APP_USER_MODEL_ID);
 
   desktopPaths = resolveDesktopPaths({
     isPackaged: packagedRuntime,
@@ -1325,7 +1325,7 @@ async function bootstrap() {
   reminderPoller = new TaskReminderPoller({
     connection: () => nextServer ? { origin: nextServer.origin, cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}` } : null,
     supported: () => smokeTest || Notification.isSupported(),
-    deliver: smokeTest ? task => { smokeReminders.push(task); } : createTaskNotificationDelivery(Notification, focusMainWindow, logger, () => settingsStore?.getLocale() ?? "zh-CN"),
+    deliver: smokeTest ? task => { smokeReminders.push(task); } : createTaskNotificationDelivery(Notification, focusMainWindow, logger, () => settingsStore?.getLocale() ?? "zh-CN", notificationIcon),
     logger,
   });
   reminderPoller.start();

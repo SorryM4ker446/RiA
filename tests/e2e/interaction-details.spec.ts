@@ -35,14 +35,25 @@ test("text cut short with an ellipsis shows in full on hover", async ({ page, ap
   await page.mouse.move(0, 0);
   await expect(tip).toHaveCount(0);
 
+  // The long-term memory switch explains itself in its label and carries no tooltip.
+  await expect(page.getByRole("switch", { name: "长期记忆", exact: true })).not.toHaveAttribute("title", /.*/);
   // A plain title gets the same tooltip, and the browser's own one is held back while it shows.
-  const memory = page.getByRole("switch", { name: "长期记忆", exact: true });
-  const note = await memory.getAttribute("title");
-  await memory.hover();
+  const create = page.getByRole("button", { name: "创建会话", exact: true });
+  const note = await create.getAttribute("title");
+  await create.hover();
   await expect(page.getByRole("tooltip")).toHaveText(note!);
-  await expect(memory).not.toHaveAttribute("title", /.*/);
+  // It sits wholly inside the window, beside its button rather than over it.
+  const box = (await page.getByRole("tooltip").boundingBox())!;
+  const view = page.viewportSize()!;
+  const anchor = (await create.boundingBox())!;
+  expect(box.x).toBeGreaterThanOrEqual(8);
+  expect(box.y).toBeGreaterThanOrEqual(8);
+  expect(box.x + box.width).toBeLessThanOrEqual(view.width - 8);
+  expect(box.y + box.height).toBeLessThanOrEqual(view.height - 8);
+  expect(box.y >= anchor.y + anchor.height || box.y + box.height <= anchor.y).toBe(true);
+  await expect(create).not.toHaveAttribute("title", /.*/);
   await page.mouse.move(0, 0);
-  await expect(memory).toHaveAttribute("title", note!);
+  await expect(create).toHaveAttribute("title", note!);
 });
 
 test("a pin shows at once and is put back when the save is refused", async ({ page, app }) => {

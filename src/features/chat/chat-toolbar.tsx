@@ -87,7 +87,7 @@ export function ChatToolbar({
           {snapshot ? <TemplateDetails key={activeChat?.id} snapshot={snapshot} /> : null}
           <Button asChild variant="ghost" size="sm"><Link href="/assistants">{t("ui.chat.chat-toolbar.manageTemplates")}</Link></Button>
           {/* Said as what the conversation does, with its state in the label, so it reads without the tooltip. */}
-          {activeChat && <Button role="switch" aria-checked={activeChat.ephemeral !== true} aria-label={t("chat.memory.label")} title={t("chat.memory.note")} className="chat-memory-toggle" variant="ghost" size="sm" disabled={isPending} onClick={() => setMemory(!activeChat.ephemeral)}><Brain data-icon="inline-start" aria-hidden="true" />{t(activeChat.ephemeral ? "chat.memory.off" : "chat.memory.on")}</Button>}
+          {activeChat && <Button role="switch" aria-checked={activeChat.ephemeral !== true} aria-label={t("chat.memory.label")} className="chat-memory-toggle" variant="ghost" size="sm" disabled={isPending} onClick={() => setMemory(!activeChat.ephemeral)}><Brain data-icon="inline-start" aria-hidden="true" />{t(activeChat.ephemeral ? "chat.memory.off" : "chat.memory.on")}</Button>}
         </div>
       </div>
       {hasTemplateUpdate || assistantsError ? <div className="flex flex-wrap items-center gap-2 text-xs">

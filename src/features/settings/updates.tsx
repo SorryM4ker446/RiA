@@ -129,7 +129,8 @@ function PreviousInstallNote({ previous }: { previous: NonNullable<DesktopUpdate
   const logFile = previous.logFile;
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-      <span>{tf("settings.updates.failed", { version: previous.version, code: previous.exitCode ?? "—" })}</span>
+      {/* No exit code means Windows Installer never ran, which an error code of "—" did not say. */}
+      <span>{previous.exitCode === null ? tf("settings.updates.notStarted", { version: previous.version }) : tf("settings.updates.failed", { version: previous.version, code: previous.exitCode })}</span>
       {logFile ? <Button onClick={() => void window.riaDesktop?.revealPath(logFile)} size="sm" type="button" variant="ghost">{t("settings.updates.showLog")}</Button> : null}
     </div>
   );

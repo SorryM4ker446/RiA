@@ -56,6 +56,19 @@ test("the top row starts at the window edge and owns its content row", { tag: "@
   expect(geometry.mainBackground).toBe(geometry.rootBackground);
 });
 
+test("floating layers that can reach the window's drag band opt out of it", async ({ page, app }) => {
+  await open(page, app.origin, "/chat");
+  // The desktop window hands clicks in a drag region to the window; the browser has none, so check what it reads.
+  const region = (selector: string) => page.locator(selector).first().evaluate(node => getComputedStyle(node).getPropertyValue("-webkit-app-region"));
+  await page.getByRole("combobox", { name: "聊天模式", exact: true }).click();
+  await expect(page.getByRole("listbox")).toBeVisible();
+  expect(await region("[data-radix-popper-content-wrapper]")).toBe("no-drag");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Control+K");
+  await expect(page.locator(".command-palette")).toBeVisible();
+  expect(await region(".command-palette")).toBe("no-drag");
+});
+
 test("recent conversations open over the canvas without reserving a sidebar", { tag: "@integration" }, async ({ page, app }) => {
   await open(page, app.origin, "/chat");
   const trigger = page.getByRole("button", { name: "会话列表", exact: true });

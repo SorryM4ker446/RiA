@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { createHash, createPublicKey, verify } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { copyFile, mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -54,6 +55,7 @@ const USER_CANCELLED = 1602;
 const PENDING_FILE = "pending.json";
 const RESULT_FILE = "install-result.json";
 const INSTALL_LOG = "install.log";
+const LAUNCHER_FILE = "install.js";
 
 export function compareVersions(left: string, right: string): number {
   const a = VERSION.exec(left), b = VERSION.exec(right);
@@ -105,34 +107,57 @@ export function installationRoot(executable: string): string {
   return /^app-\d+\.\d+\.\d+$/i.test(basename(folder)) ? dirname(folder) : folder;
 }
 
-const quoted = (value: string) => `'${value.replaceAll("'", "''")}'`;
+/** How Windows Installer is started and shown; tests pass a stand-in that runs unseen. */
+export type InstallerProgram = { program: string; window: 0 | 1 };
 
 /**
- * The PowerShell that runs the installer after this process has exited.
+ * The script Windows Script Host runs to install the update once this process has gone.
  *
- * Waiting for the process first means no file of the running copy is still in
- * use when Windows Installer replaces it. The installer file is deleted as soon
- * as Windows Installer is done with it, which keeps its own cached copy; the
- * outcome is recorded for the next start, which removes everything else. The
- * application is started again either way, so a cancelled elevation prompt
- * returns the user to the version they had.
+ * It waits for the application to exit, so Windows Installer never finds the running
+ * copy's files in use, then runs the installer in its own progress window and waits
+ * for it. Whatever the outcome, it records the exit code for the next start, deletes
+ * the downloaded installer (Windows Installer keeps its own cached copy) and starts
+ * the application again, so a cancelled elevation prompt returns the user to the
+ * version they had.
  */
-export function installScript(plan: InstallPlan, installerProgram = "msiexec.exe"): string {
-  // Windows paths cannot contain a double quote, so these need no escaping.
-  const arguments_ = `/i "${plan.installer}" /passive /norestart /L*V "${plan.installLog}" APPLICATIONROOTDIRECTORY="${plan.installRoot}"`;
+export function installLauncher(plan: InstallPlan, installer: InstallerProgram = { program: "msiexec.exe", window: 1 }): string {
+  // JSON string literals are valid JScript string literals. Windows paths cannot
+  // contain a double quote, so the command lines need no further escaping.
+  const literal = (value: string | number) => JSON.stringify(value);
+  const command = `"${installer.program}" /i "${plan.installer}" /passive /norestart /L*V "${plan.installLog}" APPLICATIONROOTDIRECTORY="${plan.installRoot}"`;
   return [
-    `Wait-Process -Id ${Math.trunc(plan.waitForPid)} -Timeout 120 -ErrorAction SilentlyContinue`,
-    "$code = -1",
-    `try { $process = Start-Process -FilePath ${quoted(installerProgram)} -ArgumentList ${quoted(arguments_)} -Wait -PassThru -ErrorAction Stop; $code = $process.ExitCode } catch { }`,
-    `[System.IO.File]::WriteAllText(${quoted(plan.resultFile)}, '{"exitCode":' + $code + '}')`,
-    `Remove-Item -LiteralPath ${quoted(plan.installer)} -Force -ErrorAction SilentlyContinue`,
-    `try { Start-Process -FilePath ${quoted(plan.relaunch)} -ErrorAction Stop } catch { }`,
-  ].join("\n");
+    'var shell = new ActiveXObject("WScript.Shell");',
+    'var files = new ActiveXObject("Scripting.FileSystemObject");',
+    `var processes = GetObject(${literal(String.raw`winmgmts:{impersonationLevel=impersonate}!\\.\root\cimv2`)});`,
+    "var deadline = new Date().getTime() + 120000;",
+    `while (new Date().getTime() < deadline && processes.ExecQuery("SELECT ProcessId FROM Win32_Process WHERE ProcessId = " + ${literal(Math.trunc(plan.waitForPid))}).Count > 0) WScript.Sleep(200);`,
+    "var code = -1;",
+    `try { code = shell.Run(${literal(command)}, ${installer.window}, true); } catch (error) {}`,
+    `try { var result = files.CreateTextFile(${literal(plan.resultFile)}, true); result.Write('{"exitCode":' + code + '}'); result.Close(); } catch (error) {}`,
+    `try { files.DeleteFile(${literal(plan.installer)}, true); } catch (error) {}`,
+    `try { shell.Run(${literal(`"${plan.relaunch}"`)}, 1, false); } catch (error) {}`,
+  ].join("\r\n");
 }
 
-/** PowerShell's `-EncodedCommand` takes UTF-16LE in base64, which needs no quoting at all. */
-export function encodePowerShell(script: string): string {
-  return Buffer.from(script, "utf16le").toString("base64");
+/**
+ * Starts the installer step so that it outlives this process.
+ *
+ * Through Windows Script Host rather than a detached PowerShell: started hidden
+ * from the application, PowerShell has no console and exits before running
+ * anything, so no installation ever began. wscript.exe needs no console, shows no
+ * window, and keeps running after the application quits. The script is written
+ * as UTF-16 with a byte-order mark, which Windows Script Host reads as Unicode, so
+ * paths outside the ANSI code page survive.
+ */
+export async function launchInstaller(plan: InstallPlan, options: { directory: string; system: string; installer?: InstallerProgram }): Promise<void> {
+  const launcher = join(options.directory, LAUNCHER_FILE);
+  await writeFile(launcher, `\ufeff${installLauncher(plan, options.installer)}`, "utf16le");
+  const child = spawn(join(options.system, "wscript.exe"), ["//B", "//Nologo", "//E:jscript", launcher], { detached: true, stdio: "ignore", windowsHide: true });
+  await new Promise<void>((resolve, reject) => {
+    child.once("spawn", resolve);
+    child.once("error", reject);
+  });
+  child.unref();
 }
 
 /**

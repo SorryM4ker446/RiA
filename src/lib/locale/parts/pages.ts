@@ -477,6 +477,7 @@ export const pageMessages = {
   "settings.updates.installed": "已更新到 {version}，安装包和临时文件已清理。",
   "settings.updates.cancelled": "{version} 的安装已取消，安装包已删除。",
   "settings.updates.failed": "{version} 未能安装（错误代码 {code}），安装包已删除。",
+  "settings.updates.notStarted": "{version} 的安装程序没有运行，安装包已删除。重新更新即可再试。",
   "settings.updates.showLog": "查看安装日志",
   "settings.updates.failure.network": "无法连接更新服务器，请检查网络后重试。",
   "settings.updates.failure.verification": "更新文件未通过签名或校验，已丢弃。",

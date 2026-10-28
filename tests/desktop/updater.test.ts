@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
-  compareVersions, encodePowerShell, installationRoot, installScript, reconcileUpdateDirectory, UpdateService, verifyManifest,
+  compareVersions, installationRoot, launchInstaller, reconcileUpdateDirectory, UpdateService, verifyManifest,
   type UpdateManifest, type UpdateState,
 } from "../../electron/updater";
 
@@ -275,39 +275,39 @@ test("the update folder is emptied at start-up and the outcome of the last insta
 test("the installation root is the folder above the versioned application folder", () => {
   assert.equal(installationRoot(join("D:\\Apps\\RiA", "app-0.1.15", "RiA.exe")), join("D:\\Apps\\RiA"));
   assert.equal(installationRoot(join("D:\\Portable", "RiA.exe")), join("D:\\Portable"));
-  assert.equal(Buffer.from(encodePowerShell("Write-Output 'é'"), "base64").toString("utf16le"), "Write-Output 'é'");
 });
 
-test("the installer step waits for the app, removes the installer, records the result and restarts the app", { skip: process.platform !== "win32", timeout: 60_000 }, async () => {
-  // A quote and spaces in every path the script has to carry.
-  const folder = temporary("ria update it's-");
+test("the installer step, started as the application starts it, waits for the app, removes the installer, records the result and restarts the app", { skip: process.platform !== "win32", timeout: 60_000 }, async () => {
+  // A quote, spaces and characters outside the ANSI code page in every path the script has to carry.
+  const folder = temporary("ria update it's 更新-");
   try {
     const root = join(folder.root, "Install Root");
     mkdirSync(root);
     const installer = join(folder.root, "RiA-1.2.4-x64.msi");
     writeFileSync(installer, "installer");
+    // Records the arguments it received as UTF-8, as Windows Installer receives them: as Unicode.
     const fakeInstaller = join(folder.root, "fake installer.cmd");
-    writeFileSync(fakeInstaller, `@echo %*> "%~dp0arguments.txt"\r\n@exit /b 1603\r\n`);
+    writeFileSync(join(folder.root, "record.js"), `require("node:fs").writeFileSync(require("node:path").join(__dirname, "arguments.json"), JSON.stringify(process.argv.slice(2))); process.exit(1603);`);
+    writeFileSync(fakeInstaller, `@"${process.execPath}" "%~dp0record.js" %*\r\n@exit /b %ERRORLEVEL%\r\n`);
     const relaunch = join(root, "relaunch.cmd");
     writeFileSync(relaunch, `@echo relaunched> "%~dp0relaunched.txt"\r\n`);
     const application = spawn(process.execPath, ["-e", "setTimeout(() => {}, 1500)"], { stdio: "ignore", windowsHide: true });
     const exited = new Promise<number>(resolve => application.once("exit", () => resolve(Date.now())));
-    const script = installScript({
+    // Detached through Windows Script Host, exactly as the application starts it:
+    // a detached PowerShell started this way once exited without running anything.
+    await launchInstaller({
       installer, installLog: join(folder.root, "install.log"), resultFile: join(folder.root, "install-result.json"),
       installRoot: root, relaunch, waitForPid: application.pid!,
-    }, fakeInstaller);
-    // Asynchronous, so the application's exit is timed while the script is waiting on it.
-    const runner = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encodePowerShell(script)], { windowsHide: true });
-    let errors = "";
-    runner.stderr.on("data", chunk => { errors += chunk; });
-    const status = await new Promise<number | null>(resolve => runner.once("close", resolve));
-    assert.equal(status, 0, errors);
+    }, { directory: folder.root, system: join(process.env.SystemRoot || "C:\\Windows", "System32"), installer: { program: fakeInstaller, window: 0 } });
+    const resultFile = join(folder.root, "install-result.json");
+    const finished = Date.now() + 30_000;
+    while (!existsSync(resultFile) && Date.now() < finished) await new Promise(resolve => setTimeout(resolve, 100));
     const applicationExit = await exited;
 
-    const argumentsFile = join(folder.root, "arguments.txt");
+    const argumentsFile = join(folder.root, "arguments.json");
     assert.ok(statSync(argumentsFile).mtimeMs >= applicationExit - 50, "the installer ran before the application exited");
-    assert.equal(readFileSync(argumentsFile, "utf8").trim(),
-      `/i "${installer}" /passive /norestart /L*V "${join(folder.root, "install.log")}" APPLICATIONROOTDIRECTORY="${root}"`);
+    assert.deepEqual(JSON.parse(readFileSync(argumentsFile, "utf8")),
+      ["/i", installer, "/passive", "/norestart", "/L*V", join(folder.root, "install.log"), `APPLICATIONROOTDIRECTORY=${root}`]);
     assert.deepEqual(JSON.parse(readFileSync(join(folder.root, "install-result.json"), "utf8")), { exitCode: 1603 });
     assert.equal(existsSync(installer), false, "the installer was not deleted after the installation");
     const deadline = Date.now() + 15_000;
