@@ -22,7 +22,6 @@ type Props = Pick<
   | "isWorking"
   | "isLoadingChats"
   | "modelMode"
-  | "appendQuickPrompt"
   | "toggleEphemeral"
   | "documentTopics"
   | "setDocumentScope"

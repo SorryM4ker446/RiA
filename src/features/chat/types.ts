@@ -93,5 +93,4 @@ export type SearchSourceItem = {
 
 export const CHAT_PREFS_STORAGE_PREFIX = "chat:prefs:";
 export const LAST_ACTIVE_CHAT_STORAGE_KEY = "chat:last-active-id";
-export const COLLAPSED_CHAT_LIMIT = 5;
 export const COLLAPSED_TASK_LIMIT = 3;

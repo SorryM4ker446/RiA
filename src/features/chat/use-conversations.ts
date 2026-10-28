@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { chatApi } from "@/features/chat/api-client";
 import { getChatPrefsStorageKey, loadAccountChatDefaults } from "@/features/chat/preferences";
 import type { ChatScopedPreferences } from "@/features/chat/types";
-import { COLLAPSED_CHAT_LIMIT, LAST_ACTIVE_CHAT_STORAGE_KEY } from "@/features/chat/types";
+import { LAST_ACTIVE_CHAT_STORAGE_KEY } from "@/features/chat/types";
 import type { AssistantTemplate } from "@/lib/assistants/schema";
 import { animateRemoval } from "@/lib/ui/removal";
 
@@ -32,7 +32,6 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   const [isCreatingChat, setIsCreatingChat] = useState(false);
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
-  const [isChatListExpanded, setIsChatListExpanded] = useState(false);
   const [isEphemeralSaving, setIsEphemeralSaving] = useState(false);
   const [documentTopics, setDocumentTopics] = useState<string[]>([]);
   const [isDocumentScopeSaving, setIsDocumentScopeSaving] = useState(false);
@@ -60,8 +59,6 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   const activeIdRef = useRef(activeChatId);
   useEffect(() => { activeIdRef.current = activeChatId; }, [activeChatId]);
   const activeChat = chats.find((chat) => chat.id === activeChatId) ?? null;
-  const hasHiddenChats = chats.length > COLLAPSED_CHAT_LIMIT;
-  const visibleChats = isChatListExpanded ? chats : chats.slice(0, COLLAPSED_CHAT_LIMIT);
   async function loadChats({ silent = false }: { silent?: boolean } = {}) {
     const requestId = ++chatsRequestRef.current;
     if (!hasReadChatsRef.current) setIsLoadingChats(true);
@@ -119,7 +116,6 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
       if (requestId !== chatsRequestRef.current) return;
       setChats((current) => [...current, ...page.data.filter((chat) => !current.some((item) => item.id === chat.id))]);
       setNextChatsCursor(page.pageInfo?.nextCursor ?? null);
-      setIsChatListExpanded(true);
     } catch (error) {
       if (requestId === chatsRequestRef.current) setPageError(error instanceof Error ? error.message : t("conversationsHook.loadMoreFailed"));
     } finally {
@@ -379,8 +375,8 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     assistants, assistantsError, loadAssistants, applyAssistant,
     toggleEphemeral, isEphemeralSaving, documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving,
     setWorkspace, isWorkspaceSaving, restoringChatId, isRestoringChat: (chatId: string) => restoringRef.current === chatId,
-    chats, activeChat, isLoadingChats, isCreatingChat, editingChatId, editingTitle, setEditingTitle, isChatListExpanded,
-    setIsChatListExpanded, visibleChats, hasHiddenChats, loadChats, createNewChat, startEditingChat,
+    chats, activeChat, isLoadingChats, isCreatingChat, editingChatId, editingTitle, setEditingTitle,
+    loadChats, createNewChat, startEditingChat,
     cancelEditingChat, saveEditedTitle, performDeleteChat, ensureActiveChatId,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats,
   };

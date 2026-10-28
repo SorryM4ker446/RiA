@@ -170,9 +170,9 @@ for (const narrow of [false, true]) {
     for (const [group, title] of [["置顶", "本周工作计划"], ["今天", longTitle], ["昨天", "读书笔记"], ["近 7 天", "下周学习安排"], ["更早", "项目需求讨论"]]) {
       await expect(sidebar.getByRole("region", { name: group, exact: true }).getByRole("button", { name: new RegExp(`^${title}`) })).toBeVisible();
     }
-    await expect(sidebar.getByRole("button", { name: /^知识库文档总结/ })).toHaveCount(0);
-    await sidebar.getByRole("button", { name: /展开更多/ }).click();
+    // Six fit in the first batch: every one shows without an expand step.
     await expect(sidebar.getByRole("button", { name: /^知识库文档总结/ })).toBeVisible();
+    await expect(sidebar.getByText("下滑加载更多会话")).toHaveCount(0);
     await expect(sidebar.getByText("已加载 6 个会话", { exact: true })).toBeVisible();
     const action = sidebar.getByRole("button", { name: `会话操作：${longTitle}`, exact: true });
     await action.focus();

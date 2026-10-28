@@ -668,6 +668,7 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .conversation-popover { width: min(21rem, calc(100vw - 24px)); padding: 0; border-radius: var(--radius-window); overflow: hidden; }
 .conversation-popover > aside { max-height: min(36rem, var(--radix-popover-content-available-height)); }
 .conversation-popover .chat-list-scroll { min-height: 4rem; }
+.conversation-more { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 4px 0 2px; font-size: 12px; color: hsl(var(--muted-foreground)); }
 .ui-dropdown-content { z-index: 50; min-width: 10rem; max-height: var(--radix-dropdown-menu-content-available-height); overflow-y: auto; border-radius: var(--radius-card); padding: 4px; color: hsl(var(--popover-foreground)); transform-origin: var(--radix-dropdown-menu-content-transform-origin); }
 .ui-dropdown-content[data-state="open"] { animation: pop-in var(--dur-fast) var(--ease-out); }
 .ui-dropdown-item { display: flex; min-height: 36px; cursor: pointer; align-items: center; gap: 10px; border-radius: var(--radius-inner); padding: 8px 10px; font-size: 13px; outline: none; transition: background-color var(--dur-fast) var(--ease-out); }
@@ -748,7 +749,8 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .chat-memory-toggle { color: hsl(var(--muted-foreground)); }
 /* Off is the exception a conversation is put into, so it is the state that stands out. */
 .chat-memory-toggle[aria-checked="false"] { color: hsl(var(--foreground)); background: hsl(var(--foreground) / .08); }
-.chat-welcome { padding: 1.5rem 0; }
+/* Title and line sit a little above the middle of the space, where the eye expects the centre. */
+.chat-welcome { padding: 1.5rem 0 4.5rem; }
 .chat-welcome-title { max-width: 35rem; font-size: clamp(1.5rem, 2.5vw, 2rem); font-weight: 600; line-height: 1.5; letter-spacing: -.035em; text-wrap: balance; }
 .chat-welcome-description { max-width: 29rem; font-size: 14px; line-height: 1.8; color: hsl(var(--muted-foreground)); text-wrap: balance; }
 .chat-dock { background: transparent; }
@@ -1099,7 +1101,6 @@ body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; al
   .chat-toolbar-actions { transition: opacity var(--dur-base) var(--ease-out); }
   .chat-welcome > * { animation: panel-in-up var(--dur-slow) var(--ease-out) both; }
   .chat-welcome > :nth-child(2) { animation-delay: calc(var(--stagger-step) * 1.5); }
-  .chat-welcome > :nth-child(3) { animation-delay: calc(var(--stagger-step) * 3); }
   dialog { transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-base) var(--ease-out); opacity: 0; transform: translateY(8px) scale(.99); }
   dialog[open] { opacity: 1; transform: none; }
   dialog::backdrop { transition: opacity var(--dur-base) var(--ease-out); opacity: 0; }
@@ -1120,7 +1121,7 @@ body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; al
   .chat-welcome-description { font-size: 13px; }
   .chat-welcome [data-slot="empty-content"] { margin-top: .5rem; }
 }
-@media (max-height: 700px) { .chat-welcome { gap: .5rem; padding: .5rem 0; } }
+@media (max-height: 700px) { .chat-welcome { gap: .5rem; padding: .5rem 0 2rem; } }
 /*
  * The rail tightens on short windows instead of scrolling: at the desktop
  * window's 640px minimum every entry still fits. It can still scroll if a
