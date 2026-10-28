@@ -138,7 +138,8 @@ for (const theme of ["dark", "light"] as const) {
     await plans.getByRole("button", { name: "启用", exact: true }).click();
     await expect(plans).toContainText("已启用");
     await expect(plans).toContainText("周一");
-    expect((await browserData(page, "/api/schedules"))[0]).toMatchObject({ enabled: true, useModel: false, interval: "weekly", dayOfWeek: 1, timeZone: "UTC", nextRunAt: jobs[0].nextRunAt });
+    // The switch shows at once and saves behind it; what matters is what was saved once the save lands.
+    await expect.poll(async () => (await browserData(page, "/api/schedules"))[0]).toMatchObject({ enabled: true, useModel: false, interval: "weekly", dayOfWeek: 1, timeZone: "UTC", nextRunAt: jobs[0].nextRunAt });
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 });
       for (const tab of ["API 密钥", "应用偏好", "自动化与通知", "工作区权限"]) {
