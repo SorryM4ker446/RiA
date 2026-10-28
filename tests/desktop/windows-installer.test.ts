@@ -5,6 +5,15 @@ import { test } from "node:test";
 import { MSICreator } from "electron-wix-msi";
 import { tmpdir } from "node:os";
 import { perUserInstallationMessage, windowsInstallerConfig } from "../../scripts/windows-installer-config.mjs";
+import { DEVELOPMENT_APP_USER_MODEL_ID, INSTALLED_APP_USER_MODEL_ID } from "../../electron/app-identity";
+
+test("the installed application posts notifications under its shortcut's ID, and development runs under another", () => {
+  // Windows names a notification after the Start menu shortcut with the same ID.
+  assert.equal(windowsInstallerConfig.appUserModelId, INSTALLED_APP_USER_MODEL_ID);
+  // electron.exe posting under the installed ID once is enough for Windows to label it "Electron".
+  assert.notEqual(DEVELOPMENT_APP_USER_MODEL_ID, INSTALLED_APP_USER_MODEL_ID);
+});
+
 
 test("Windows installer installs per machine, refuses to install beside a per-user copy, exposes directory selection and preserves files outside its manifest", { skip: process.platform !== "win32" }, async () => {
   const parent = resolve(".desktop-data/test");
