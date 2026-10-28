@@ -33,7 +33,7 @@ import { resolveDesktopPaths, toSqliteUrl, type DesktopPaths } from "./paths";
 import { configureDesktopSession, secureBrowserWindow } from "./security";
 import { DesktopSettingsStore, type DesktopSettingsInput } from "./settings";
 import { handleSquirrelStartupEvent } from "./squirrel";
-import { encodePowerShell, installationRoot, installScript, reconcileUpdateDirectory, UpdateService, type InstallPlan, type UpdateState } from "./updater";
+import { installationRoot, launchInstaller, reconcileUpdateDirectory, UpdateService, type InstallPlan, type UpdateState } from "./updater";
 import { UPDATE_SIGNING_PUBLIC_KEY } from "./update-signing-key";
 import { createTaskNotificationDelivery, TaskReminderPoller, type TaskReminder } from "./task-reminders";
 import { seedTaskReminderSmoke } from "./task-reminders-smoke";
@@ -329,30 +329,18 @@ function broadcastUpdateState(state: UpdateState) {
 }
 
 /**
- * Runs the installer once this process has gone.
- *
- * The installer is started from a separate PowerShell process that waits for this
- * one to exit, so Windows Installer never finds the running copy's files in use.
- * Everything it needs is passed in the encoded command rather than written to a
- * script file, and both programs are named by their full system path.
+ * Runs the installer once this process has gone, from a helper that outlives it
+ * (see launchInstaller). Both programs are named by their full system path.
  */
 async function launchUpdateInstaller(plan: Pick<InstallPlan, "installer" | "installLog" | "resultFile">): Promise<void> {
   const system = join(process.env.SystemRoot || "C:\\Windows", "System32");
   const installRoot = installationRoot(process.execPath);
-  const script = installScript({
+  await launchInstaller({
     ...plan,
     installRoot,
     relaunch: join(installRoot, basename(process.execPath)),
     waitForPid: process.pid,
-  }, join(system, "msiexec.exe"));
-  const child = spawn(join(system, "WindowsPowerShell", "v1.0", "powershell.exe"),
-    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-EncodedCommand", encodePowerShell(script)],
-    { detached: true, stdio: "ignore", windowsHide: true });
-  await new Promise<void>((resolve, reject) => {
-    child.once("spawn", resolve);
-    child.once("error", reject);
-  });
-  child.unref();
+  }, { directory: dirname(plan.installer), system, installer: { program: join(system, "msiexec.exe"), window: 1 } });
 }
 
 function notifyUpdateAvailable(version: string) {

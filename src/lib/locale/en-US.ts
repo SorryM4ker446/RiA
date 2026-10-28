@@ -928,6 +928,7 @@ export const enUS = {
   "settings.updates.installed": "Updated to {version}. The installer and temporary files were removed.",
   "settings.updates.cancelled": "Installation of {version} was cancelled. The installer was deleted.",
   "settings.updates.failed": "{version} could not be installed (error code {code}). The installer was deleted.",
+  "settings.updates.notStarted": "The {version} installer did not run. It was deleted; update again to retry.",
   "settings.updates.showLog": "Show installer log",
   "settings.updates.failure.network": "Could not reach the update server. Check the connection and try again.",
   "settings.updates.failure.verification": "The update failed its signature or checksum check and was discarded.",
