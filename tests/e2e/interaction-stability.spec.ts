@@ -66,6 +66,9 @@ for (const variant of variants) test.describe(`${variant.theme} theme, ${variant
   test("switching conversations replaces the transcript without moving the composer or the toolbar", async ({ page, app }) => {
     await openWorkspace(page, app.origin);
     await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+    // Off the chat page while the conversations are made: a chat page still reading
+    // its list could open, and remember, the first one before the second exists.
+    await page.goto(`${app.origin}/`);
     await conversationWithMessages(page, "第一段对话", 4);
     await conversationWithMessages(page, "第二段对话", 6);
     await page.goto(`${app.origin}/chat`);
