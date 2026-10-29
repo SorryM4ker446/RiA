@@ -223,17 +223,19 @@ test("knowledge evaluation exposes real adapter results, citations and an export
 test("evaluation template loading failures are visible and recover through explicit retry", { tag: "@integration" }, async ({ page, app }) => {
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
   const consoleErrors: string[] = []; page.on("console", message => { if (message.type() === "error") consoleErrors.push(message.text()); });
-  // Global setup supplies the access cookie. Enter knowledge directly so a late
-  // chat hydration request cannot consume the one-shot malformed response.
-  // Retrieval checks are offered once there is a document to check.
-  await page.goto(`${app.origin}/knowledge`);
-  expect(await page.evaluate(async () => {
-    const body = new FormData(); body.set("collection", "评测"); body.set("file", new File(["# 评测资料\n\n用于检索评测的内容。"], "评测资料.md", { type: "text/markdown" }));
-    return (await fetch("/api/documents", { method: "POST", body })).status;
-  })).toBe(201);
+  // Seed the document before mounting the page. Otherwise an initial template
+  // request can still be pending and match the response waiter during reload.
+  // The request context shares the access cookie from global setup.
+  const upload = await page.request.post(`${app.origin}/api/documents`, {
+    multipart: {
+      collection: "评测",
+      file: { name: "评测资料.md", mimeType: "text/markdown", buffer: Buffer.from("# 评测资料\n\n用于检索评测的内容。") },
+    },
+  });
+  expect(upload.status()).toBe(201);
   await page.route("**/api/assistants", route => route.fulfill({ status: 200, contentType: "application/json", body: "null" }), { times: 1 });
   const failedTemplates = page.waitForResponse(response => response.url() === `${app.origin}/api/assistants`);
-  await page.reload(); await page.getByText("检索质量评测", { exact: true }).click();
+  await page.goto(`${app.origin}/knowledge`); await page.getByText("检索质量评测", { exact: true }).click();
   const failure = await failedTemplates;
   expect(failure.request().headers().referer).toBe(`${app.origin}/knowledge`);
   expect(await failure.json()).toBeNull();
