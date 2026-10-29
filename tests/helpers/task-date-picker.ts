@@ -19,9 +19,19 @@ export async function chooseTaskDateTime(
       const inPopover = dialog.locator("[data-time-input]");
       if (await inPopover.count()) {
         await inPopover.fill(time);
+        await expect(inPopover).toHaveValue(time);
         await dialog.getByRole("button", { name: "完成", exact: true }).click();
-        await expect(dialog).toBeHidden();
-      } else await scope.locator("[data-time-input]").fill(time);
+        await expect(dialog).toHaveCount(0);
+      } else {
+        // Closing the calendar restores focus after its exit animation. A fill
+        // during that handoff can clear the input and send text to the trigger.
+        await expect(dialog).toHaveCount(0);
+        await expect(scope.getByLabel(label, { exact: true })).toBeFocused();
+        const input = scope.locator("[data-time-input]");
+        await input.fill(time);
+        await input.blur();
+        await expect(input).toHaveValue(time);
+      }
       return;
     }
     const middle = await dialog

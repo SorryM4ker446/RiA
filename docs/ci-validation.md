@@ -87,6 +87,22 @@ tool details: delayed terminal details must gain their automatic expansion while
 preserving explicit mouse and keyboard choices. These transitions are covered
 without longer timeouts or retries.
 
+Task date checks wait for the calendar's exit animation to unmount its popover
+and return focus to the date trigger before filling the separate time field.
+Filling during that handoff can clear the old value and send the replacement
+text to the trigger instead, leaving native required-field validation to block
+submission. The scheduled-task regression slows the real exit animation and
+checks that time entry starts after the handoff, while preserving local-time,
+recurrence and restart assertions.
+
+The evaluation-template failure check uploads its fixture document through the
+authenticated API context before first opening the knowledge page. It arms the
+malformed-response route and response waiter before navigation. Uploading from
+an already mounted page and then reloading can leave an initial template request
+pending; its response can satisfy the waiter even though navigation discarded
+its body. The check still verifies the malformed body, visible error and explicit
+retry against the real template endpoint.
+
 The recently edited files summary appears only after the reply finishes. Its
 browser test consumes the submitted chat stream and waits for the composer to
 leave its busy state before checking the summary. Terminal work on the hosted

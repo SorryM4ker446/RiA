@@ -379,8 +379,15 @@ test("the memory confirmation states the result and its effect, then leaves on i
 test("scheduled task creation validates time and persists without a model", async ({ page, app }) => {
   await openWorkspace(page, app.origin);
   await page.goto(`${app.origin}/tasks`);
+  // Keep the real exit animation in progress long enough to expose typing
+  // before the calendar has unmounted and returned focus to its trigger.
+  await page.addStyleTag({ content: '.ui-popover-content[data-state="closed"] { animation-duration: 600ms; }' });
   await page.getByRole("button", { name: "新建任务", exact: true }).click();
   const form = page.getByRole("form", { name: "新建任务" });
+  const time = form.locator("[data-time-input]");
+  await time.evaluate(input => input.addEventListener("focus", () => {
+    if (document.querySelector('.ui-popover-content[data-state="closed"]')) input.setAttribute("data-focused-during-calendar-exit", "");
+  }));
   await form.getByLabel("任务名称", { exact: true }).fill("独立页面的每周提醒");
   await form.getByLabel("到期提醒", { exact: true }).check();
   await form.getByRole("button", { name: "创建任务", exact: true }).click();
@@ -394,6 +401,7 @@ test("scheduled task creation validates time and persists without a model", asyn
   expect(app.readRows("SELECT id FROM tasks")).toHaveLength(0);
   await form.getByLabel("时区", { exact: true }).fill("Asia/Shanghai");
   await chooseTaskDateTime(page, form, "到期时间", "2026-11-20T09:00");
+  await expect(time).not.toHaveAttribute("data-focused-during-calendar-exit", "");
   await form.getByRole("combobox", { name: /^重复/ }).click(); await page.getByRole("option", { name: "每周", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 780 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
