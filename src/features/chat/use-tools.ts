@@ -102,7 +102,7 @@ export function useTools({ activeChatId, isHistoryReady, setMessages, reloadMess
       // Only a conversation already open can show progress; a new one shows the stored result below.
       const shownLive = origin === chatId && viewRef.current.chatId === chatId && viewRef.current.ready;
       if (shownLive) viewRef.current.setMessages(previous => [...previous,
-        { id: userMessageId, role: "user", metadata: { invocation: params.invocation }, parts: [{ type: "text", text }, ...params.files] },
+        { id: userMessageId, role: "user", metadata: { invocation: params.invocation, createdAt: new Date().toISOString() }, parts: [{ type: "text", text }, ...params.files] },
         { id: assistantMessageId, role: "assistant", parts: [{ type: "text", text: t("chat.convert.running") }, ...calls.map(call => part(call, { state: "input-available" }))] },
       ]);
       await persistConversationMessage({ chatId, role: "user", content: encodePersistedUserMessage({ type: "user-message", text, files: params.files.map(file => ({ url: file.url, mediaType: file.mediaType, ...(file.filename ? { filename: file.filename } : {}) })), invocation: params.invocation }), clientMessageId: userMessageId });
@@ -117,7 +117,7 @@ export function useTools({ activeChatId, isHistoryReady, setMessages, reloadMess
       // Whoever moved on to another conversation finds this one complete when they return.
       const view = viewRef.current;
       if (view.chatId === chatId) {
-        if (shownLive && view.ready) view.setMessages(previous => previous.map(message => message.id === assistantMessageId ? { ...message, parts: [{ type: "text", text: summary }, ...results.map(result => part(result.call, "errorText" in result ? { state: "output-error", errorText: result.errorText } : { state: "output-available", output: result.output }))] } : message));
+        if (shownLive && view.ready) view.setMessages(previous => previous.map(message => message.id === assistantMessageId ? { ...message, metadata: { createdAt: new Date().toISOString() }, parts: [{ type: "text", text: summary }, ...results.map(result => part(result.call, "errorText" in result ? { state: "output-error", errorText: result.errorText } : { state: "output-available", output: result.output }))] } : message));
         else await view.reloadMessages(chatId);
       }
       await loadChats();

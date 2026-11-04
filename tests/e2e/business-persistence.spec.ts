@@ -55,17 +55,19 @@ test("streamed chat, follow-up context and edited regeneration survive a service
   await firstTurn.getByRole("button", { name: "编辑消息" }).click();
   const editor = page.locator("article").filter({ has: page.locator("textarea") });
   await editor.locator("textarea").fill("修改后的问题");
-  await editor.getByRole("button", { name: "保存", exact: true }).click();
+  // A later turn follows it, so it goes out again at the end and the rest stays.
+  await editor.getByRole("button", { name: "重新发送", exact: true }).click();
   await expect(page.getByText("离线回答：修改后的问题", { exact: true })).toBeVisible();
-  await expect.poll(async () => (await history()).map((row: { content: string }) => decodePersistedAssistantToolMessage(row.content)?.text ?? row.content)).toEqual(["修改后的问题", "离线回答：修改后的问题"]);
-  const savedAnswer = (await history()).find((row: { role: string }) => row.role === "assistant");
+  const transcript = ["第一轮问题", "离线回答：第一轮问题", "继续解释上一轮", "离线回答：继续解释上一轮", "修改后的问题", "离线回答：修改后的问题"];
+  await expect.poll(async () => (await history()).map((row: { content: string }) => decodePersistedAssistantToolMessage(row.content)?.text ?? row.content)).toEqual(transcript);
+  const savedAnswer = (await history()).filter((row: { role: string }) => row.role === "assistant").at(-1);
   expect(decodePersistedAssistantToolMessage(savedAnswer.content)?.documentDiagnostics?.outcome).toBe("empty-library");
-  expect(app.readRows("SELECT status FROM messages WHERE chatId = ?", chatId)).toEqual([{ status: "success" }, { status: "success" }]);
+  expect(app.readRows("SELECT status FROM messages WHERE chatId = ?", chatId)).toEqual(transcript.map(() => ({ status: "success" })));
 
   await app.restart();
   await page.reload();
   await expect(page.getByText("离线回答：修改后的问题", { exact: true })).toBeVisible();
-  await expect(page.getByText("离线回答：第一轮问题", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("离线回答：第一轮问题", { exact: true })).toBeVisible();
   expect((await browserApi(page, `${app.origin}/api/conversations`)).status).toBe(200);
   const stranger = await browser.newContext({ storageState: NO_CREDENTIAL_STATE });
   try {
@@ -77,7 +79,17 @@ test("streamed chat, follow-up context and edited regeneration survive a service
     expect((await browserApi(otherPage, `${app.origin}/api/conversations/${chatId}`, "DELETE")).status).toBe(401);
     expect((await browserApi(otherPage, `${app.origin}/api/conversations`)).status).toBe(401);
   } finally { await stranger.close(); }
-  expect((await history()).length).toBe(2);
+  expect((await history()).length).toBe(transcript.length);
+
+  // With only its own answer below it, the latest message is answered again where it is.
+  const latestTurn = page.locator("article").filter({ has: page.getByText("修改后的问题", { exact: true }) });
+  await latestTurn.hover();
+  await latestTurn.getByRole("button", { name: "编辑消息" }).click();
+  const latestEditor = page.locator("article").filter({ has: page.locator("textarea") });
+  await latestEditor.locator("textarea").fill("再改一次");
+  await latestEditor.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByText("离线回答：再改一次", { exact: true })).toBeVisible();
+  await expect.poll(async () => (await history()).map((row: { content: string }) => decodePersistedAssistantToolMessage(row.content)?.text ?? row.content)).toEqual([...transcript.slice(0, 4), "再改一次", "离线回答：再改一次"]);
 });
 
 test("tasks and knowledge use real APIs, persist across restart and remain private", { tag: "@integration" }, async ({ page, browser, app }) => {

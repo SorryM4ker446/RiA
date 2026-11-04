@@ -1,6 +1,7 @@
 import { localizeMessage, t, tf } from "@/lib/locale";
 import {
   ChatSummary,
+  hasLaterUserMessage,
   isToolPart,
   mapStoredMessagesToUI,
   ModelMode,
@@ -523,6 +524,9 @@ export function useChatState() {
     if (isPending || isDocumentScopeSaving) return;
     const nextText = editingMessageText.trim();
     if (!nextText || !activeChatId) return;
+    // Later turns were answered from the message as it was, so rewriting it would
+    // leave them answering something no longer there. It goes out again at the end.
+    if (hasLaterUserMessage(messages, message.id)) { await resendEditedMessage(message, nextText, activeChatId); return; }
 
     const previous = messages;
     setEditingMessageId(null);
@@ -542,6 +546,30 @@ export function useChatState() {
       return;
     }
     await regenerateMessage(message.id);
+  }
+
+  /** The original and everything after it stay as they are. A failure reopens the edit. */
+  async function resendEditedMessage(message: UIMessage, text: string, chatId: string) {
+    if (!selectedModel) { setSentWithoutModel(true); return; }
+    setEditingMessageId(null);
+    setEditingMessageText("");
+    setPageError(null);
+    if (modelMode === "image") { await generateImage(text, []); return; }
+    if (modelMode === "video") { await generateVideo(text, []); return; }
+    const invocation = readMessageInvocation(message.metadata);
+    const restore = () => { setEditingMessageId(message.id); setEditingMessageText(text); };
+    try {
+      const failed = await new Promise<boolean>((resolve, reject) => setPendingSend({
+        chatId,
+        message: { id: crypto.randomUUID(), role: "user", metadata: { ...(invocation ? { invocation } : {}), createdAt: new Date().toISOString() }, parts: [{ type: "text", text }] },
+        options: { body: { chatId, ...(selectedChatModel ? { model: selectedChatModel } : {}), mode: "chat" } },
+        resolve, reject,
+      }));
+      if (failed) restore(); else await loadChats();
+    } catch (sendError) {
+      restore();
+      setPageError(sendError instanceof Error ? sendError.message : t("chatState.sendFailed"));
+    }
   }
 
   async function regenerateMessage(messageId: string) {
@@ -643,7 +671,7 @@ export function useChatState() {
       // after that instance and its initial history are ready, not through draft's closure.
       const failed = await new Promise<boolean>((resolve, reject) => setPendingSend({
         chatId,
-        message: { id: userMessageId, role: "user", ...(invocation ? { metadata: { invocation } } : {}), parts: [...uploadParts, ...(hasContent ? [{ type: "text" as const, text: content }] : [])] },
+        message: { id: userMessageId, role: "user", metadata: { ...(invocation ? { invocation } : {}), createdAt: new Date().toISOString() }, parts: [...uploadParts, ...(hasContent ? [{ type: "text" as const, text: content }] : [])] },
         options: { body: { chatId, ...(selectedChatModel ? { model: selectedChatModel } : {}), mode: "chat" } },
         resolve, reject,
       }));

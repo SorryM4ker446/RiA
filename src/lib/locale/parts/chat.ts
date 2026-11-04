@@ -13,6 +13,10 @@ export const chatMessages = {
   // --- shared across the chat surface -------------------------------------
   "chat.common.cancel": "取消",
   "chat.common.save": "保存",
+  "chat.toolFailure.invalidInput": "模型填写的工具参数不正确",
+  "chat.toolFailure.invalidInputDetail": "模型填写的工具参数不正确：{detail}",
+  "chat.toolFailure.noSuchTool": "模型调用了不存在的工具：{name}",
+  "chat.messages.resendEdited": "重新发送",
   "chat.common.delete": "删除",
   "chat.common.expandMore": "展开更多（{count}）",
 

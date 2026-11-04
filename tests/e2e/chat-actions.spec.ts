@@ -433,6 +433,53 @@ test("saving an edited user message regenerates from the edited text", async ({ 
   await expect(page.getByText("Original answer", { exact: true })).toHaveCount(0);
 });
 
+test("editing a message with later turns under it sends it again at the end and changes nothing above", async ({ page }) => {
+  const later: HistoryMessage = { id: "row-u2", clientMessageId: "user-2", role: "user", content: "Later question", createdAt: now };
+  const laterAnswer: HistoryMessage = { id: "row-a2", clientMessageId: "assistant-2", role: "assistant", content: "Later answer", createdAt: now };
+  await mockHistory(page, [userMessage, assistantMessage, later, laterAnswer]);
+  let rewrites = 0, sends = 0;
+  await page.route("**/api/conversations/*/messages/user-1", async route => { rewrites++; await route.fulfill({ status: 500, json: {} }); });
+  let failNext = true;
+  await page.route("**/api/chat", async route => {
+    sends++;
+    const body = route.request().postDataJSON();
+    expect(body.trigger).toBe("submit-message");
+    expect(body.messages.at(-1).parts[0].text).toBe("Edited question");
+    expect(body.messages.at(-1).id).not.toBe("user-1");
+    expect(body.messages.map((message: { id: string }) => message.id).slice(0, 2)).toEqual(["user-1", "assistant-1"]);
+    if (failNext) { failNext = false; await route.fulfill({ status: 500, json: { error: { code: "UPSTREAM_FAILED", message: "暂时不可用", details: {} } } }); return; }
+    await route.fulfill({ contentType: "text/event-stream", headers: { "x-vercel-ai-ui-message-stream": "v1" }, body: streamBody([
+      { type: "start", messageId: "resent" },
+      { type: "text-start", id: "answer" },
+      { type: "text-delta", id: "answer", delta: "Resent answer" },
+      { type: "text-end", id: "answer" },
+      { type: "finish", finishReason: "stop" },
+    ]) });
+  });
+  await page.goto("/chat");
+  await page.getByText("Original question", { exact: true }).hover();
+  await page.locator('[data-message-id="user-1"]').getByRole("button", { name: "编辑消息" }).click();
+  const original = page.locator('[data-message-id="user-1"]');
+  await original.locator("textarea").fill("Edited question");
+  // The button says what will happen, since it is not saving over the message.
+  await expect(original.getByRole("button", { name: "保存", exact: true })).toHaveCount(0);
+  await original.getByRole("button", { name: "重新发送", exact: true }).click();
+  // A failed send gives the edit back rather than losing it.
+  await expect(original.locator("textarea")).toHaveValue("Edited question");
+  await original.getByRole("button", { name: "重新发送", exact: true }).click();
+  await expect(page.getByText("Resent answer", { exact: true })).toBeVisible();
+  expect(rewrites).toBe(0);
+  expect(sends).toBe(2);
+  await expect(page.getByText("Original question", { exact: true })).toBeVisible();
+  await expect(page.getByText("Original answer", { exact: true })).toBeVisible();
+  await expect(page.getByText("Later question", { exact: true })).toBeVisible();
+  await expect(page.getByText("Later answer", { exact: true })).toBeVisible();
+  // At the very end, below everything that was already there.
+  const order = await page.locator("[data-message-id]").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-message-role")));
+  expect(order.at(-1)).toBe("assistant");
+  await expect(page.locator('[data-message-role="user"]').last()).toContainText("Edited question");
+});
+
 for (const width of [1440, 390]) {
   test(`user messages omit the role row and reveal actions below the bottom right corner at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });

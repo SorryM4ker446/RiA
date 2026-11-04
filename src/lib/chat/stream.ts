@@ -24,6 +24,7 @@ import { createStepContext } from "./step-context";
 import { createThinkingClock, thinkingRecordSchema } from "./thinking";
 import { summarizeTaskState, type CompactionAllowance } from "./task-summary";
 import { contextCalibration, recordContextCalibration } from "@/lib/models/context-calibration";
+import { createTurnFailureReader } from "./tool-failure";
 /** OpenRouter passes along reasoning it cannot show as encrypted details. */
 function hasEncryptedReasoning(metadata: unknown) {
   const details = (metadata as { openrouter?: { reasoning_details?: unknown } } | undefined)?.openrouter?.reasoning_details;
@@ -217,12 +218,16 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
   }));
 
   const streamError = (error: unknown) => JSON.stringify(apiErrorPayload(normalizeApiError(error, t("lib.chat.generateFailed"))));
+  // Sent at the start too, for an answer stopped before it finishes. A resumed turn
+  // keeps the time of the message it continues, as its stored row does.
+  const answeredAt = () => input.isApprovalResume ? {} : { createdAt: new Date().toISOString() };
+  const readFailure = createTurnFailureReader();
   const stream = result.toUIMessageStream({
     generateMessageId: generateId,
-    onError: (error) => streamError(error instanceof ApiError ? error : new ApiError({ code: "UPSTREAM_FAILED", message: t("lib.chat.providerUnavailable") })),
+    onError: (error) => streamError(readFailure(error)),
     originalMessages: messages,
-    messageMetadata: ({ part }) => part.type === "start" ? { documentSources: params.documentSources ?? [], documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}` }
-      : part.type === "finish" ? { documentSources: markDocumentCitations(params.documentSources ?? [], answerText), documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}`, contextBudget: contextReport(), ...(skippedTool ? { skippedTool } : {}), ...(thinkingClock.report() ? { thinking: thinkingClock.report() } : {}) } : undefined,
+    messageMetadata: ({ part }) => part.type === "start" ? { ...answeredAt(), documentSources: params.documentSources ?? [], documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}` }
+      : part.type === "finish" ? { ...answeredAt(), documentSources: markDocumentCitations(params.documentSources ?? [], answerText), documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}`, contextBudget: contextReport(), ...(skippedTool ? { skippedTool } : {}), ...(thinkingClock.report() ? { thinking: thinkingClock.report() } : {}) } : undefined,
     onFinish: async ({ responseMessage, isAborted }) => {
       let persistenceFailed = false;
       try {

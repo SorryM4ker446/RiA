@@ -146,9 +146,10 @@ test("ordinary chat receives task-oriented agent instructions without empty retr
   assert.equal(prompt.split("runTerminalCommand").length - 1, 1);
   assert.match(prompt, /say when evidence for a requested workspace fact is missing/);
   assert.doesNotMatch(prompt, /Knowledge evidence|Long-term memories|Summary of earlier turns|Incomplete excerpts|\[Tooling Policy/);
-  // Nothing was retrieved or remembered, so the user's message carries no context block.
-  const latest = languageModel.doStreamCalls.at(-1).prompt.at(-1);
-  assert.equal(JSON.stringify(latest.content).includes("[Context for this request"), false);
+  // Nothing was retrieved or remembered, so the context block holds the time and nothing else.
+  const latest = JSON.stringify(languageModel.doStreamCalls.at(-1).prompt.at(-1).content);
+  assert.match(latest, /Current date and time/);
+  assert.doesNotMatch(latest, /Knowledge evidence|Long-term memories|Summary of earlier turns|Incomplete excerpts/);
   assert.doesNotMatch(prompt, /No supporting document excerpts|No relevant long-term memory|No earlier messages omitted|Prefer a direct answer for ordinary questions|Order: factual points/);
 });
 

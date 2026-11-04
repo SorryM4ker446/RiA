@@ -243,3 +243,13 @@ export function truncateTitle(input: string, maxLength = 60): string {
   if (normalized.length <= maxLength) return normalized;
   return `${normalized.slice(0, maxLength)}...`;
 }
+
+/** A stored or streamed tool error as a sentence; errors are stored as the API's JSON shape. */
+export function readToolError(errorText: string) {
+  try {
+    const message = (JSON.parse(errorText) as { error?: { message?: unknown } } | null)?.error?.message;
+    return typeof message === "string" && message ? message : errorText;
+  } catch {
+    return errorText;
+  }
+}

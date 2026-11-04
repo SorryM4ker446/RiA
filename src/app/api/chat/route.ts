@@ -1,6 +1,6 @@
 import { protectDataOperation } from "@/lib/server/data-operations";
 import { currentWorkspaceId, requireLocalWorkspace } from "@/lib/local/workspace";
-import { buildRequestContext, buildSystemPrompt, formatLongTermContext, prepareModelContext, withRequestContext } from "@/lib/chat/model-context";
+import { buildRequestContext, buildSystemPrompt, formatCurrentTime, formatLongTermContext, prepareModelContext, withRequestContext } from "@/lib/chat/model-context";
 import { prepareChatPersistence } from "@/lib/chat/persistence";
 import { readChatRequest } from "@/lib/chat/request";
 import { streamChatResponse } from "@/lib/chat/stream";
@@ -126,6 +126,7 @@ async function POSTHandler(req: NextRequest) {
       ? formatWorkspaceContext(await conversationWorkspace(conversation.chat.id), await db.directoryGrant.count({ where: { revokedAt: null } }) > 0)
       : "";
     const requestContext = buildRequestContext({
+      currentTime: formatCurrentTime(),
       workspace,
       summary: summary?.summary,
       historyExcerpt: summary ? "" : context.historyExcerpt,

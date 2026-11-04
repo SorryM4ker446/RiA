@@ -1,4 +1,5 @@
 import { COMPACT_CONTEXT_TOOL } from "@/lib/chat/compact-context";
+import { ToolRunError } from "@/lib/chat/tool-failure";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { ApiError } from "@/lib/server/api-error";
 import { reserveRunStep, updateStep, type StepState } from "@/lib/agent/runs";
@@ -350,6 +351,12 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; chatId?
       if (tool.bindForApproval) await tool.bindForApproval(input);
       return typeof tool.requiresApproval === "function" ? tool.requiresApproval(input) : true;
     } } : {}),
-    execute: async (input: unknown, callOptions?: { abortSignal?: AbortSignal; toolCallId?: string }) => (await executeRegisteredTool(tool, input, { ...options, trigger: "auto", signal: callOptions?.abortSignal, toolCallId: callOptions?.toolCallId, resultBudgetUsed })).output,
+    execute: async (input: unknown, callOptions?: { abortSignal?: AbortSignal; toolCallId?: string }) => {
+      try { return (await executeRegisteredTool(tool, input, { ...options, trigger: "auto", signal: callOptions?.abortSignal, toolCallId: callOptions?.toolCallId, resultBudgetUsed })).output; }
+      catch (error) {
+        if (error instanceof ApiError || (error as Error | null)?.name === "AbortError") throw error;
+        throw new ToolRunError(error);
+      }
+    },
   }]));
 }

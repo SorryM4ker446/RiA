@@ -25,9 +25,8 @@ export type ChatSummary = {
 /**
  * A message as the browser receives it, so the fields are the serialised ones.
  *
- * `createdAt` is deliberately absent: the API sends it, but nothing in the
- * client reads it, and declaring it here only invited callers to hand over a
- * database row — where it is a `Date` — as if it were already on the wire.
+ * `createdAt` is a string from the API and a `Date` from a database row; either
+ * reaches the interface as an ISO string in the message's metadata.
  * `status` is here because the API does send it and a message can be stored as
  * pending, successful or failed.
  */
@@ -37,6 +36,7 @@ export type StoredMessage = {
   role: "user" | "assistant" | "system";
   content: string;
   status?: "pending" | "success" | "error";
+  createdAt?: string | Date;
 };
 
 export type ToolPart = Extract<UIMessage["parts"][number], { type: `tool-${string}` }>;
@@ -131,6 +131,15 @@ export function dedupeAttachmentNames(names: string[]): string[] {
   return [...new Set(names.filter(Boolean))];
 }
 
+/**
+ * Whether the conversation has moved on since this message. Its own answer does not
+ * count: a message with only that below it can still be answered again in place.
+ */
+export function hasLaterUserMessage(messages: UIMessage[], messageId: string) {
+  const index = messages.findIndex(message => message.id === messageId);
+  return index >= 0 && messages.slice(index + 1).some(message => message.role === "user");
+}
+
 export function mapStoredMessagesToUI(messages: StoredMessage[]): {
   uiMessages: UIMessage[];
   imageMap: Record<string, string>;
@@ -138,7 +147,7 @@ export function mapStoredMessagesToUI(messages: StoredMessage[]): {
 } {
   const imageMap: Record<string, string> = {};
   const videoMap: Record<string, string> = {};
-  const uiMessages = messages.map((message) => {
+  const mapped = messages.map((message) => {
     const normalizedClientMessageId =
       typeof message.clientMessageId === "string" && message.clientMessageId.trim().length > 0
         ? message.clientMessageId.trim()
@@ -244,6 +253,12 @@ export function mapStoredMessagesToUI(messages: StoredMessage[]): {
     } satisfies UIMessage;
   });
 
+  // Added here because each kind of message above builds its own metadata, or none.
+  const uiMessages = mapped.map((message, index): UIMessage => {
+    const saved = messages[index].createdAt;
+    const at = saved === undefined ? null : new Date(saved);
+    return at && !Number.isNaN(at.getTime()) ? { ...message, metadata: { ...(message.metadata as object | undefined), createdAt: at.toISOString() } } : message;
+  });
   return { uiMessages, imageMap, videoMap };
 }
 

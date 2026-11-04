@@ -69,7 +69,8 @@ function getToolItemsFromResponseMessage(message: UIMessage): PersistedAssistant
       ...("title" in part && typeof part.title === "string" ? { title: part.title } : {}),
       toolCallId: part.toolCallId,
       state: part.state,
-      ...("input" in part && part.input !== undefined ? { input: part.input } : {}),
+      // A call refused for bad input keeps what the model sent under another name.
+      ...("input" in part && part.input !== undefined ? { input: part.input } : "rawInput" in part && part.rawInput !== undefined ? { input: part.rawInput } : {}),
       ...("output" in part && part.output !== undefined ? { output: part.output } : {}),
       ...("errorText" in part && typeof part.errorText === "string" ? { errorText: part.errorText } : {}),
       ...("approval" in part && part.approval ? { approval: part.approval } : {}),

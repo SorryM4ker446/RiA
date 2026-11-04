@@ -138,7 +138,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     displayName: t("tools.createTask.displayName"),
     description: t("tools.createTask.description"),
     modelDescription:
-      "Create a task for the current user. Supports a due date, an IANA timeZone (default UTC), reminderEnabled for desktop due reminders, and repeatRule (none/daily/weekly/monthly, where each repeat is created after the previous one completes). Both reminders and repeats require dueDate; a time without an offset is interpreted in timeZone. Use it only when the user wants something tracked or scheduled. Do not use it to answer a question, and never create a task the user did not ask for.",
+      "Create a task for the current user. Supports a due date, an IANA timeZone (default UTC), reminderEnabled for desktop due reminders, and repeatRule (none/daily/weekly/monthly, where each repeat is created after the previous one completes). Both reminders and repeats require dueDate; a time without an offset is interpreted in timeZone. dueDate is an ISO 8601 date or local date-time such as 2030-01-31T09:30, so work out a relative date such as tomorrow from the current date and time in the request context, and use the time zone given there unless the user names another. Use it only when the user wants something tracked or scheduled. Do not use it to answer a question, and never create a task the user did not ask for.",
     modeSupport: ["chat"],
     requiresApproval: true,
     surface: { category: "tasks", user: { run: "model", hint: t("tools.createTask.hint") }, template: "selectable" },

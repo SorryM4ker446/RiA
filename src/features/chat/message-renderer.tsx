@@ -7,6 +7,7 @@ import { DocumentAttachment } from "@/components/chat/document-attachment";
 import { DocumentDownload } from "@/features/document-processor/document-download";
 import { EditedFiles } from "./edited-files";
 import { MessageThinking, ReplyPending } from "./message-thinking";
+import { formatMessageTime, fullMessageTime, readMessageTime, useDayRollover } from "./message-time";
 import { readThinking } from "@/lib/chat/thinking";
 import { toolLabel } from "./use-tools";
 import { MessageChoices } from "./composer-choices";
@@ -21,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   getFileParts,
   getMessageRoleLabel,
+  hasLaterUserMessage,
   isToolPart,
   readText,
 } from "@/features/chat/page-utils";
@@ -177,6 +179,7 @@ export function MessageRenderer({ tools, selectedModelInfo, onShowSources, model
   };
   // A model that must reason is reasoning from the moment it is asked, whatever it shows of it.
   const alwaysReasons = selectedModelInfo?.reasoning?.mandatory === true;
+  useDayRollover();
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const followingRef = useRef(true);
@@ -370,6 +373,8 @@ export function MessageRenderer({ tools, selectedModelInfo, onShowSources, model
         const isEditing = editingMessageId === message.id;
         const isEditable = isUser && fileParts.length === 0 && !isEditing && !isPending;
         const isRegenerable = message.role === "assistant" && index === messages.length - 1;
+        // An answer still being written has no time to state yet.
+        const savedAt = isLive || isEditing ? null : readMessageTime(message.metadata);
 
         return (
           <div className={cn("flex w-full", isUser ? "justify-end pb-4" : "justify-start")} key={message.id} {...removalKey(message.id)} data-message-id={message.id} data-message-role={message.role}>
@@ -393,6 +398,7 @@ export function MessageRenderer({ tools, selectedModelInfo, onShowSources, model
                     </span>
                   ) : null}
                   <div className="message-actions flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                    {savedAt ? <time className="message-time mr-1 whitespace-nowrap font-mono text-[11px] font-medium tracking-wider tabular-nums text-muted-foreground" dateTime={savedAt.toISOString()} title={fullMessageTime(savedAt)}>{formatMessageTime(savedAt)}</time> : null}
                     {isEditable ? (
                       <Button
                         aria-label={t("chat.messages.edit")}
@@ -457,7 +463,7 @@ export function MessageRenderer({ tools, selectedModelInfo, onShowSources, model
                   <div className="flex items-center gap-1">
                     <Button onClick={() => void saveEditedMessage(message)} size="sm" type="button">
                       <Check aria-hidden="true" className="mr-1 h-3.5 w-3.5" />
-                      {t("chat.common.save")}
+                      {hasLaterUserMessage(messages, message.id) ? t("chat.messages.resendEdited") : t("chat.common.save")}
                     </Button>
                     <Button onClick={cancelEditingMessage} size="sm" type="button" variant="ghost">
                       <X aria-hidden="true" className="mr-1 h-3.5 w-3.5" />

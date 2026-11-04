@@ -816,7 +816,7 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
 /* Frosted glass, the one material for everything that floats over content (menus, pickers, popovers,
    tooltips, previews, notices): what is beneath shows through as colour, blurred enough that its text
    cannot compete. Solid backgrounds are kept for real panels: the settings window, the rail, sheets. */
-.message-nav-preview, .message-nav-outline, .ui-select-content, .ui-popover-content, .ui-dropdown-content, .ui-tooltip-content { background: hsl(var(--popover) / .55); border: 0; box-shadow: 0 0 0 1px hsl(var(--border) / .7), 0 8px 28px -8px hsl(var(--shadow) / .28); backdrop-filter: blur(20px) saturate(1.4); }
+.message-nav-preview, .message-nav-outline, .ui-select-content, .ui-popover-content, .ui-dropdown-content { background: hsl(var(--popover) / .55); border: 0; box-shadow: 0 0 0 1px hsl(var(--border) / .7), 0 8px 28px -8px hsl(var(--shadow) / .28); backdrop-filter: blur(20px) saturate(1.4); }
 .message-nav-preview { width: min(19rem, calc(100vw - 72px)); padding: 12px; transform-origin: var(--radix-tooltip-content-transform-origin); animation: message-preview-in var(--dur-base) var(--ease-out); }
 .message-nav-preview[data-state="closed"] { animation: none; }
 .message-nav-outline { display: flex; width: min(19rem, calc(100vw - 64px)); max-height: min(30rem, var(--radix-popover-content-available-height)); flex-direction: column; padding: 0; overflow: hidden; }
@@ -1212,8 +1212,11 @@ body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; al
 .skeleton { visibility: hidden; animation: shimmer var(--dur-loop) var(--ease-linear) infinite; }
 .skeleton[data-late] { visibility: visible; animation: content-in var(--dur-base) var(--ease-out), shimmer var(--dur-loop) var(--ease-linear) infinite; }
 
+/* A tooltip is a short note, not a panel: a small solid label in the theme's own colours, with a hairline
+   and a shallow shadow instead of glass. The message preview is a real panel, and stays frosted above. */
+.ui-tooltip-content:not(.message-nav-preview) { padding: 4px 8px; border: 0; border-radius: 6px; font-size: 12px; line-height: 1.4; color: hsl(var(--popover-foreground)); background: hsl(var(--popover)); box-shadow: 0 0 0 1px hsl(var(--border) / .7), 0 2px 8px -2px hsl(var(--shadow) / .14); }
 /* The app-wide tooltip: centred over (or under) what it describes, never catching the pointer. */
-.app-tooltip { position: fixed; z-index: 100; max-width: min(22rem, calc(100vw - 24px)); padding: 6px 10px; border-radius: var(--radius-card); font-size: 12px; line-height: 1.5; color: hsl(var(--popover-foreground)); pointer-events: none; overflow-wrap: anywhere; animation: content-in var(--dur-fast) var(--ease-out); }
+.app-tooltip { position: fixed; z-index: 100; max-width: min(22rem, calc(100vw - 24px)); pointer-events: none; overflow-wrap: anywhere; animation: content-in var(--dur-fast) var(--ease-out); }
 
 /* The sources an answer drew on: a quiet row of small cards under it. */
 .answer-sources { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
