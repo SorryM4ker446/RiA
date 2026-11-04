@@ -1,3 +1,4 @@
+import { thinkingMarks, type ThinkingRecord } from "./thinking";
 import { db } from "@/db";
 import { t } from "@/lib/locale";
 import {
@@ -123,7 +124,7 @@ export async function claimChatApproval(chatId: string, message: UIMessage) {
     throw error;
   }
 }
-export async function persistChatResponse(params: { skippedTool?: string; input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; documentSources?: DocumentSource[]; documentDiagnostics?: DocumentDiagnostics; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean; contextReport?: unknown }) {
+export async function persistChatResponse(params: { skippedTool?: string; thinking?: Pick<ThinkingRecord, "kind" | "durationMs"> | null; input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; documentSources?: DocumentSource[]; documentDiagnostics?: DocumentDiagnostics; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean; contextReport?: unknown }) {
   const { input, conversation, responseMessage, isAborted, generationFailed } = params;
   const { latestUserMessage, modelRef } = input;
   const { unavailableTools = [] } = params;
@@ -148,11 +149,12 @@ export async function persistChatResponse(params: { skippedTool?: string; input:
     // metadata, and those are the turns whose context accounting matters most.
     const contextReport = contextReportSchema.safeParse(params.contextReport ?? (responseMessage.metadata as { contextBudget?: unknown } | undefined)?.contextBudget);
     const content =
-      params.runId || toolItems.length > 0 || reasoning || (params.documentSources?.length && assistantText) || (params.documentDiagnostics && assistantText)
+      params.runId || toolItems.length > 0 || reasoning || params.thinking || (params.documentSources?.length && assistantText) || (params.documentDiagnostics && assistantText)
         ? encodePersistedAssistantToolMessage({
           type: "assistant-tool-message",
           text: assistantText,
           ...(reasoning ? { reasoning } : {}),
+          ...(params.thinking ? { thinking: { ...params.thinking, ...(reasoning ? { marks: thinkingMarks(responseMessage.parts) } : {}) } } : {}),
           ...(contextReport.success ? { contextBudget: contextReport.data } : {}),
           // Recorded so the note about a tool this turn could not use survives a
           // reload and is stated once, instead of only existing in the model's

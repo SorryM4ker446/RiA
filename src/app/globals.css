@@ -771,20 +771,33 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
 .chat-toolbar-actions[data-waiting] { visibility: hidden; opacity: 0; }
 .chat-transcript { scrollbar-gutter: stable both-edges; overflow-anchor: none; }
 .chat-transcript-content > :not(.chat-welcome) { width: 100%; max-width: 42rem; margin-inline: auto; }
-.message-reasoning { interpolate-size: allow-keywords; }
+.message-reasoning { margin-bottom: 10px; }
 .message-reasoning > summary { list-style: none; }
 .message-reasoning > summary::-webkit-details-marker { display: none; }
-.message-reasoning::details-content {
-  block-size: 0;
-  opacity: 0;
-  overflow: clip;
-  transition: block-size var(--dur-base) var(--ease-out), opacity var(--dur-base) var(--ease-out), content-visibility var(--dur-base) allow-discrete;
-}
-.message-reasoning[open]::details-content { block-size: auto; opacity: 1; }
-.reasoning-chevron { transition: transform var(--dur-base) var(--ease-out); }
-.message-reasoning[open] .reasoning-chevron { transform: rotate(90deg); }
+/* Its own formatting context, or the body's margins escape it and snap away when
+   the fold ends. Its height moves in whole pixels from script; see useDisclosureMotion. */
+.message-reasoning::details-content { display: flow-root; overflow: clip; transition: opacity var(--dur-slow) var(--ease-in-out); }
+.message-reasoning[open]::details-content { block-size: var(--fold-block, auto); opacity: 1; }
+.message-reasoning[data-folding="closing"]::details-content { opacity: 0; }
+.message-reasoning-summary { display: inline-flex; align-items: center; gap: 4px; min-height: 22px; font-size: 13px; color: hsl(var(--muted-foreground)); cursor: pointer; transition: color var(--dur-fast) var(--ease-out); }
+.message-reasoning-summary:hover { color: hsl(var(--foreground)); }
+.message-reasoning-summary:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; border-radius: 4px; }
+.reasoning-chevron { flex-shrink: 0; width: 14px; height: 14px; transition: transform var(--dur-slow) var(--ease-in-out); }
+.message-reasoning[open]:not([data-folding="closing"]) .reasoning-chevron { transform: rotate(90deg); }
+/* Six lines while it arrives, so the answer is never far away; more once it is there to read. */
+.message-reasoning-body { display: flex; flex-direction: column; gap: 8px; max-height: 21rem; margin: 6px 0 2px 6px; padding: 0 10px 0 12px; overflow-y: auto; overscroll-behavior: contain; border-left: 1px solid hsl(var(--border)); font-size: 13px; line-height: 1.6; color: hsl(var(--muted-foreground)); scrollbar-width: thin; }
+.message-reasoning[data-live] .message-reasoning-body { max-height: 9.6em; }
+.message-reasoning-step { margin-top: 6px; font-size: 12px; color: hsl(var(--muted-foreground) / .8); }
+.message-reasoning-static { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-height: 22px; margin-bottom: 10px; font-size: 13px; color: hsl(var(--muted-foreground)); }
+.message-reasoning-note { font-size: 12px; color: hsl(var(--muted-foreground) / .75); }
+.reply-pending { min-height: 22px; font-size: 13px; line-height: 22px; animation: tool-bar-in var(--dur-base) var(--ease-out); }
+.reply-pending:not(article *) { width: 100%; max-width: 42rem; margin-inline: auto; padding: 12px 16px; }
+/* A soft light passing over the words while the model is at work. */
+.thinking-live { color: transparent; background: linear-gradient(100deg, hsl(var(--muted-foreground)) 35%, hsl(var(--foreground)) 50%, hsl(var(--muted-foreground)) 65%) 0 0 / 240% 100%; -webkit-background-clip: text; background-clip: text; animation: thinking-light calc(var(--dur-slow) * 6) var(--ease-in-out) infinite; }
+@keyframes thinking-light { from { background-position: 100% 0; } to { background-position: 0 0; } }
 @media (prefers-reduced-motion: reduce) {
-  .message-reasoning::details-content, .reasoning-chevron { transition: none; }
+  .message-reasoning::details-content, .reasoning-chevron, .reply-pending { transition: none; animation: none; }
+  .thinking-live { animation: none; color: hsl(var(--muted-foreground)); background: none; }
 }
 .chat-transcript-frame[data-navigation="true"] .chat-transcript { padding-inline: 3rem; }
 .chat-user-actions button { width: 28px; height: 28px; }

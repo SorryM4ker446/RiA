@@ -55,22 +55,6 @@ export type UploadableFilePart = {
   filename?: string;
 };
 
-/**
- * The model's chain of thought for a message, concatenated.
- *
- * It is rendered separately from the answer: it is the model's working, not
- * its conclusion, and mixing the two in one block makes the answer harder to
- * read and the reasoning look like part of the claim.
- */
-export function readReasoning(message: UIMessage): string {
-  if (!Array.isArray(message.parts)) return "";
-  return message.parts
-    .filter((part): part is { type: "reasoning"; text: string } => part.type === "reasoning" && typeof (part as { text?: unknown }).text === "string")
-    .map((part) => part.text)
-    .join("")
-    .trim();
-}
-
 export function readText(message: UIMessage): string {
   const text = message.parts
     .filter(
@@ -214,7 +198,7 @@ export function mapStoredMessagesToUI(messages: StoredMessage[]): {
       return {
         id: uiMessageId,
         role: message.role,
-          ...(parsedAssistantToolMessage.skippedTool || parsedAssistantToolMessage.runId || parsedAssistantToolMessage.runIds?.length || parsedAssistantToolMessage.modelLabel || parsedAssistantToolMessage.contextBudget || parsedAssistantToolMessage.documentSources?.length || parsedAssistantToolMessage.unavailableTools?.length || parsedAssistantToolMessage.documentDiagnostics
+          ...(parsedAssistantToolMessage.thinking || parsedAssistantToolMessage.skippedTool || parsedAssistantToolMessage.runId || parsedAssistantToolMessage.runIds?.length || parsedAssistantToolMessage.modelLabel || parsedAssistantToolMessage.contextBudget || parsedAssistantToolMessage.documentSources?.length || parsedAssistantToolMessage.unavailableTools?.length || parsedAssistantToolMessage.documentDiagnostics
           ? { metadata: {
               ...(parsedAssistantToolMessage.runId ? { runId: parsedAssistantToolMessage.runId } : {}),
               ...(parsedAssistantToolMessage.runIds?.length ? { runIds: parsedAssistantToolMessage.runIds } : {}),
@@ -224,6 +208,7 @@ export function mapStoredMessagesToUI(messages: StoredMessage[]): {
               ...(parsedAssistantToolMessage.documentSources?.length ? { documentSources: parsedAssistantToolMessage.documentSources } : {}),
               ...(parsedAssistantToolMessage.unavailableTools?.length ? { unavailableTools: parsedAssistantToolMessage.unavailableTools } : {}),
               ...(parsedAssistantToolMessage.skippedTool ? { skippedTool: parsedAssistantToolMessage.skippedTool } : {}),
+              ...(parsedAssistantToolMessage.thinking ? { thinking: parsedAssistantToolMessage.thinking } : {}),
             } }
           : {}),
         parts: parts.length > 0 ? parts : [{ type: "text", text: t("chat.messages.toolCallFallback") }],

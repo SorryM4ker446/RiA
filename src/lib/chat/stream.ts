@@ -21,8 +21,15 @@ import { decodeDocumentScope } from "@/lib/documents/scope";
 import { contextBudget } from "@/lib/models/context-budget";
 import { modelRefKey } from "@/lib/models/preferences-schema";
 import { createStepContext } from "./step-context";
+import { createThinkingClock, thinkingRecordSchema } from "./thinking";
 import { summarizeTaskState, type CompactionAllowance } from "./task-summary";
 import { contextCalibration, recordContextCalibration } from "@/lib/models/context-calibration";
+/** OpenRouter passes along reasoning it cannot show as encrypted details. */
+function hasEncryptedReasoning(metadata: unknown) {
+  const details = (metadata as { openrouter?: { reasoning_details?: unknown } } | undefined)?.openrouter?.reasoning_details;
+  return Array.isArray(details) && details.some(detail => (detail as { type?: unknown })?.type === "reasoning.encrypted");
+}
+
 type TurnOutcome = { finishReason: unknown; generationFailed: boolean; aborted: boolean };
 
 /**
@@ -73,6 +80,9 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
   let generationFailed = false;
   let contextLimitFailed = false;
   let skippedTool: string | undefined;
+  // An approval resume continues the same turn, so its reasoning time adds up.
+  const earlierThinking = input.isApprovalResume ? thinkingRecordSchema.safeParse((messages.at(-1)?.metadata as { thinking?: unknown } | undefined)?.thinking) : null;
+  const thinkingClock = createThinkingClock(Date.now, earlierThinking?.success ? earlierThinking.data : undefined);
   const runId = params.runId ?? null;
   let runIds = [...new Set([...(conversation.previousRunIds ?? []), ...(runId ? [runId] : [])])];
   const stepCeiling = await runStepCeiling(runId);
@@ -155,13 +165,22 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
     // The tool the user chose is the only one on offer at first, which needs no
     // provider's support for forcing a call and cannot be refused for reasoning.
     // The model may still answer without it; the turn records that when it does.
-    prepareStep: async ({ messages: stepMessages, stepNumber }) => ({ ...await stepContext.prepare(stepMessages), ...(stepNumber === 0 && params.chosenTool ? { activeTools: [params.chosenTool] } : {}) }),
-    onStepFinish: ({ usage, toolCalls, stepNumber }) => {
+    prepareStep: async ({ messages: stepMessages, stepNumber }) => {
+      const prepared = await stepContext.prepare(stepMessages);
+      thinkingClock.stepStarted();
+      return { ...prepared, ...(stepNumber === 0 && params.chosenTool ? { activeTools: [params.chosenTool] } : {}) };
+    },
+    onStepFinish: ({ usage, toolCalls, stepNumber, reasoning, providerMetadata }) => {
       stepContext.observeUsage(usage.inputTokens);
+      thinkingClock.stepFinished({ reasoning, hiddenReasoning: (usage.outputTokenDetails?.reasoningTokens ?? 0) > 0 || hasEncryptedReasoning(providerMetadata) });
       if (stepNumber === 0 && params.chosenTool && !toolCalls.some(call => call.toolName === params.chosenTool)) skippedTool = params.chosenTool;
     },
     abortSignal: signal,
-    onChunk: ({ chunk }) => { if (chunk.type === "text-delta") answerText += chunk.text; },
+    onChunk: ({ chunk }) => {
+      if (chunk.type === "text-delta") answerText += chunk.text;
+      if (chunk.type === "reasoning-delta") thinkingClock.reasoning();
+      else if (chunk.type === "text-delta" || chunk.type === "tool-call" || chunk.type === "tool-input-start") thinkingClock.output();
+    },
     // Providers send text in uneven bursts. Released a word at a time (a
     // character or two in Chinese), a few milliseconds apart, the answer reads
     // as steady typing rather than jumps; faster than a model writes, so it
@@ -203,12 +222,12 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
     onError: (error) => streamError(error instanceof ApiError ? error : new ApiError({ code: "UPSTREAM_FAILED", message: t("lib.chat.providerUnavailable") })),
     originalMessages: messages,
     messageMetadata: ({ part }) => part.type === "start" ? { documentSources: params.documentSources ?? [], documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}` }
-      : part.type === "finish" ? { documentSources: markDocumentCitations(params.documentSources ?? [], answerText), documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}`, contextBudget: contextReport(), ...(skippedTool ? { skippedTool } : {}) } : undefined,
+      : part.type === "finish" ? { documentSources: markDocumentCitations(params.documentSources ?? [], answerText), documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}`, contextBudget: contextReport(), ...(skippedTool ? { skippedTool } : {}), ...(thinkingClock.report() ? { thinking: thinkingClock.report() } : {}) } : undefined,
     onFinish: async ({ responseMessage, isAborted }) => {
       let persistenceFailed = false;
       try {
         await persistChatResponse({
-          input, conversation, responseMessage, isAborted, generationFailed, skippedTool,
+          input, conversation, responseMessage, isAborted, generationFailed, skippedTool, thinking: thinkingClock.report(),
           documentSources: params.documentSources,
           documentDiagnostics: params.documentDiagnostics,
           unavailableTools: params.unavailableTools,

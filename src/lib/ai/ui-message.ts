@@ -1,3 +1,4 @@
+import { thinkingRecordSchema, type ThinkingRecord } from "@/lib/chat/thinking";
 import { messageInvocationSchema, readMessageInvocation, type MessageInvocation } from "@/lib/chat/invocation-schema";
 import { documentDiagnosticsSchema, type DocumentDiagnostics } from "@/lib/documents/diagnostics";
 import { UIMessage } from "ai";
@@ -47,6 +48,8 @@ export type PersistedAssistantToolMessagePayload = {
    * user text-input limit.
    */
   reasoning?: string;
+  /** What kind of reasoning the turn had, how long it took and where tools broke it up. */
+  thinking?: ThinkingRecord;
   /** Optional tools this turn could not use, recorded for the note below. */
   unavailableTools?: string[];
   /** The tool the user chose for this turn, when the model answered without calling it. */
@@ -220,6 +223,7 @@ export function decodePersistedAssistantToolMessage(
       ...(typeof parsed.modelLabel === "string" ? { modelLabel: parsed.modelLabel.slice(0, 240) } : {}),
       ...(contextReportSchema.safeParse(parsed.contextBudget).success ? { contextBudget: contextReportSchema.parse(parsed.contextBudget) } : {}),
       ...(reasoning ? { reasoning } : {}),
+      ...(thinkingRecordSchema.safeParse(parsed.thinking).success ? { thinking: thinkingRecordSchema.parse(parsed.thinking) } : {}),
       ...(unavailableTools?.length ? { unavailableTools } : {}),
       ...(typeof parsed.skippedTool === "string" ? { skippedTool: parsed.skippedTool.slice(0, 100) } : {}),
       tools,

@@ -1,11 +1,14 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
-import { t, tf } from "@/lib/locale";
+import { localizeMessage, t, tf } from "@/lib/locale";
 import { MarkdownMessage } from "@/components/chat/markdown-message";
 import { AnswerSources } from "@/features/chat/answer-sources";
 import { DocumentAttachment } from "@/components/chat/document-attachment";
 import { DocumentDownload } from "@/features/document-processor/document-download";
 import { EditedFiles } from "./edited-files";
+import { MessageThinking, ReplyPending } from "./message-thinking";
+import { readThinking } from "@/lib/chat/thinking";
+import { toolLabel } from "./use-tools";
 import { MessageChoices } from "./composer-choices";
 import { readMessageInvocation } from "@/lib/chat/invocation-schema";
 import { MessageNavigator } from "./message-navigator";
@@ -19,7 +22,6 @@ import {
   getFileParts,
   getMessageRoleLabel,
   isToolPart,
-  readReasoning,
   readText,
 } from "@/features/chat/page-utils";
 import { cn } from "@/lib/utils/cn";
@@ -28,7 +30,6 @@ import {
   AlertCircle,
   ArrowDown,
   Check,
-  ChevronRight,
   Copy,
   Loader2,
   PencilLine,
@@ -88,22 +89,17 @@ export function messageFollowSignature(messages: UIMessage[]): string {
   const last = messages.at(-1);
   if (!last) return "0";
   const downloads = last.parts.flatMap(part => part.type === "tool-convertDocument" && part.state === "output-available" ? [part.toolCallId] : []).join(",");
-  return `${messages.length}:${last.id}:${readText(last).length}:${readReasoning(last).length}:${getFileParts(last).length}:${downloads}`;
+  return `${messages.length}:${last.id}:${readText(last).length}:${(readThinking(last)?.text.length ?? 0)}:${getFileParts(last).length}:${downloads}`;
 }
 
-function MessageReasoning({ text, active, thinking }: { text: string; active: boolean; thinking: boolean }) {
-  useLocale();
-  const disclosureRef = useRef<HTMLDetailsElement>(null);
-  // Native disclosure state preserves manual choices while a turn is active.
-  // Only a turn starting or completing changes it automatically.
-  useLayoutEffect(() => { if (disclosureRef.current) disclosureRef.current.open = active; }, [active]);
-  return <details ref={disclosureRef} className="message-reasoning mb-2 rounded-lg bg-muted text-xs">
-    <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 font-medium">
-      <ChevronRight aria-hidden="true" className="reasoning-chevron size-3.5 shrink-0" />
-      {thinking ? t("chat.messages.reasoningLive") : t("chat.messages.reasoningTitle")}
-    </summary>
-    <div className="whitespace-pre-wrap border-t px-3 py-2 leading-5 text-muted-foreground">{text}</div>
-  </details>;
+/** Whether the answer has begun since the latest reasoning; a later tool step may reason again. */
+function answerStarted(message: UIMessage) {
+  for (let index = message.parts.length - 1; index >= 0; index--) {
+    const part = message.parts[index];
+    if (part.type === "text" && part.text.trim()) return true;
+    if (part.type === "reasoning") return false;
+  }
+  return false;
 }
 
 type OpenLayoutInput = {
@@ -169,12 +165,18 @@ function TranscriptSkeleton() {
   </div>;
 }
 
-type Props = Pick<ChatState, "modelMode" | "activeChatId" | "isLoadingHistory" | "isOpeningConversation" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId" | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText" | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel" | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages" | "selectedChatModel"> & { onShowSources?: (messageId: string) => void };
-export function MessageRenderer({ onShowSources, modelMode, activeChatId, isLoadingHistory, isOpeningConversation, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages }: Props) {
+type Props = Pick<ChatState, "tools" | "selectedModelInfo" | "modelMode" | "activeChatId" | "isLoadingHistory" | "isOpeningConversation" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId" | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText" | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel" | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages" | "selectedChatModel"> & { onShowSources?: (messageId: string) => void };
+export function MessageRenderer({ tools, selectedModelInfo, onShowSources, modelMode, activeChatId, isLoadingHistory, isOpeningConversation, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages }: Props) {
   useLocale();
   // Opening counts as loading: before it is known which conversation is open, or
   // in the render where one has just been chosen, the transcript is not empty yet.
   const awaitingFirstHistoryLoad = useAwaitingFirstLoad(isLoadingHistory || isOpeningConversation, activeChatId ?? DRAFT_HISTORY_QUERY);
+  const toolName = (id: string) => {
+    const tool = tools.find(item => item.id === id);
+    return tool ? (tool.extensionId ? toolLabel(tool) : localizeMessage(tool.displayName)) : null;
+  };
+  // A model that must reason is reasoning from the moment it is asked, whatever it shows of it.
+  const alwaysReasons = selectedModelInfo?.reasoning?.mandatory === true;
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const followingRef = useRef(true);
@@ -349,20 +351,22 @@ export function MessageRenderer({ onShowSources, modelMode, activeChatId, isLoad
         <h1 className="chat-welcome-title">{modelMode === "image" ? t("ui.chat.message-renderer.bringYourImaginationIntoView") : modelMode === "video" ? t("ui.chat.message-renderer.turnInspirationIntoMotion") : t("ui.chat.message-renderer.whatWouldYouLikeToWork")}</h1>
         <p className="chat-welcome-description">{t("chat.messages.empty")}</p>
       </div>
-    ) : (
-      messages.map((message, index) => {
+    ) : (<>
+      {messages.map((message, index) => {
         const isUser = message.role === "user";
         const text = readText(message);
         const fileParts = getFileParts(message);
         const imageUrl = imageByMessageId[message.id];
         const videoUrl = videoByMessageId[message.id];
         const toolParts = message.parts.filter(isToolPart);
-        const reasoning = readReasoning(message);
+        const thinking = isUser ? null : readThinking(message);
         const invocation = isUser ? readMessageInvocation(message.metadata) : null;
         const skippedTool = !isUser && !(index === messages.length - 1 && isPending) && typeof (message.metadata as { skippedTool?: unknown } | undefined)?.skippedTool === "string"
           ? readMessageInvocation(messages[index - 1]?.metadata)?.tool?.label ?? null : null;
         const isLastAssistantStreaming =
           status === "streaming" && index === messages.length - 1 && message.role === "assistant";
+        const isLive = !isUser && index === messages.length - 1 && (status === "streaming" || status === "submitted" || toolParts.some(part => part.state === "approval-requested"));
+        const isReasoning = isLastAssistantStreaming && message.parts.some(part => part.type === "reasoning" && part.state === "streaming");
         const isEditing = editingMessageId === message.id;
         const isEditable = isUser && fileParts.length === 0 && !isEditing && !isPending;
         const isRegenerable = message.role === "assistant" && index === messages.length - 1;
@@ -462,9 +466,11 @@ export function MessageRenderer({ onShowSources, modelMode, activeChatId, isLoad
                   </div>
                 </div>
               ) : null}
-              {reasoning && !isUser ? <MessageReasoning text={reasoning}
-                active={index === messages.length - 1 && (status === "streaming" || status === "submitted" || toolParts.some(part => part.state === "approval-requested"))}
-                thinking={isLastAssistantStreaming && message.parts.some(part => part.type === "reasoning" && part.state === "streaming")} /> : null}
+              {thinking ? <MessageThinking thinking={thinking} toolName={toolName}
+                live={isLive}
+                reasoning={isReasoning}
+                answering={answerStarted(message)} /> : null}
+              {isLive && !isReasoning && !text && !(thinking && thinking.kind !== "hidden") && !toolParts.some(part => part.state === "approval-requested") ? <ReplyPending reasoning={alwaysReasons} /> : null}
               {isUser && !isEditing && invocation ? <MessageChoices invocation={invocation} /> : null}
               {!isEditing && text ? <CollapsibleAnswer key={message.id} collapsible={!isUser && index < messages.length - 1}><MarkdownMessage text={text} streaming={isLastAssistantStreaming} /></CollapsibleAnswer> : null}
               {skippedTool ? <p className="mt-2 text-xs text-muted-foreground">{tf("chat.slash.toolNotCalled", { name: skippedTool })}</p> : null}
@@ -571,8 +577,9 @@ export function MessageRenderer({ onShowSources, modelMode, activeChatId, isLoad
             </article>
           </div>
         );
-      })
-    )}
+      })}
+      {status === "submitted" && modelMode === "chat" && messages.at(-1)?.role === "user" ? <ReplyPending reasoning={alwaysReasons} /> : null}
+    </>)}
   </div>
   </div>
   {showNavigation && <MessageNavigator key={activeChatId ?? "draft"} messages={messages} scrollRef={scrollRef} onNavigate={jumpToMessage}

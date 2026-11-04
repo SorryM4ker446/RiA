@@ -189,6 +189,19 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
           ];
           return chunks.map(chunk => `data: ${JSON.stringify({ ...base, ...chunk })}\n\n`).join("") + "data: [DONE]\n\n";
         }
+        // What each kind of reasoning looks like on the wire, through the real provider adapter.
+        const thinkingCase = /OFFLINE_THINKING_(FULL|SUMMARY|HIDDEN)/.exec(prompt)?.[1];
+        if (thinkingCase) {
+          const delta = thinkingCase === "FULL" ? { reasoning: "逐步推理的内容", reasoning_details: [{ type: "reasoning.text", text: "逐步推理的内容" }] }
+            : thinkingCase === "SUMMARY" ? { reasoning_details: [{ type: "reasoning.summary", summary: "概括后的思路" }] }
+            : { reasoning_details: [{ type: "reasoning.encrypted", data: "opaque-reasoning" }] };
+          const answer = thinkingCase === "FULL" ? "完整思考的回答" : thinkingCase === "SUMMARY" ? "只有摘要的回答" : "没给思考的回答";
+          return [
+            { ...base, choices: [{ index: 0, delta: { role: "assistant", ...delta }, finish_reason: null }] },
+            { ...base, choices: [{ index: 0, delta: { content: answer }, finish_reason: null }] },
+            { ...base, usage: { prompt_tokens: 10, completion_tokens: 30, total_tokens: 40, completion_tokens_details: { reasoning_tokens: 20 } }, choices: [{ index: 0, delta: {}, finish_reason: "stop" }] },
+          ].map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n";
+        }
         const taskRequested = prompt.includes("OFFLINE_CREATE_TASK");
         const webRequested = prompt.includes("OFFLINE_WEB_SEARCH");
         const knowledgeRequested = prompt.includes("OFFLINE_SEARCH_KNOWLEDGE");
