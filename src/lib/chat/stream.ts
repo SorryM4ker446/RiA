@@ -1,6 +1,5 @@
 import { withModelCallSource } from "@/lib/models/call-context";
 import { getChatModel } from "@/lib/ai/client";
-import { getModelProvider } from "@/lib/models/providers";
 import { t } from "@/lib/locale";
 import { ApiError, apiErrorPayload, normalizeApiError } from "@/lib/server/api-error";
 import { createChatToolSet } from "@/tools/catalog";
@@ -94,17 +93,7 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
     await finishRun(runId, runStatusFor(outcome), reason ?? runStopReason(outcome)).catch(() => null);
   };
 
-  // The provider decides how the workspace's reasoning preference is expressed
-  // in its own request; a provider with no such notion contributes nothing and
-  // the call goes out exactly as before.
   const preferences = await getModelPreferences();
-  // The fallback model answers with the same reasoning preference. Provider
-  // options are keyed by provider, so each model reads only its own.
-  const fallbackRef = preferences.chat.fallback;
-  const reasoningFor = (ref: { providerId: string }) => getModelProvider(ref.providerId as typeof modelRef.providerId).reasoningOptions?.(input.reasoning);
-  const providerOptions = fallbackRef && fallbackRef.providerId !== modelRef.providerId
-    ? (() => { const merged = { ...(reasoningFor(fallbackRef) ?? {}), ...(reasoningFor(modelRef) ?? {}) }; return Object.keys(merged).length ? merged : undefined; })()
-    : reasoningFor(modelRef);
   const tools = toolsEnabled ? await createChatToolSet({ modelRef, chatId: chat.id, runId, toolIds: input.assistant?.tools, usesMemory: params.usesMemory !== false, documentCollections: decodeDocumentScope(input.conversationPolicy?.documentScope ?? chat.documentScope), documentRetrievalPolicy: input.assistant?.retrieval }) : undefined;
   const budget = contextBudget(input.model, preferences.contextLimits[modelRefKey(modelRef)]);
   const toolDefinitions = tools ? await Promise.all(Object.entries(tools).map(async ([name, tool]) => tool.type === "provider"
@@ -123,6 +112,7 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
   let activeRef = modelRef;
   const toPrompt = async (stepMessages: ModelMessage[]): Promise<LanguageModelV3Prompt> => convertToLanguageModelPrompt({ prompt: await standardizePrompt({ system: systemPrompt, messages: stepMessages }), supportedUrls: await observed.supportedUrls, download: undefined });
   const observed: ReturnType<typeof getChatModel> = withModelCallSource("chat", () => getChatModel(modelRef, {
+    reasoning: input.reasoning,
     // Whichever model answers takes the request as it stands — same tools, same
     // messages — and the rest of it is planned for that model's own window: the
     // step it takes over is fitted again, and later steps compact against it.
@@ -156,7 +146,6 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
   }
   const result = withModelCallSource("chat", () => streamText({
     model,
-    ...(providerOptions ? { providerOptions } : {}),
     maxRetries: 0,
     system: systemPrompt,
     messages: modelMessages,

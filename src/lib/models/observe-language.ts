@@ -3,6 +3,7 @@ import { t } from "@/lib/locale";
 import { dataRequestContext } from "@/lib/server/data-operations";
 import { ApiError } from "@/lib/server/api-error";
 import { acquireModelLease, getModelPreferences, modelInLibrary, withModelLease } from "@/lib/models/preferences";
+import { getModelProvider, type ReasoningPreference } from "@/lib/models/providers";
 import { canFallback, recordModelAttempt } from "@/lib/models/usage";
 import { modelCallSource } from "./call-context";
 import { beginModelAttempt } from "./call-controls";
@@ -29,6 +30,8 @@ export type ObserveOptions = {
    * prepared for it.
    */
   onSwitch?: (ref: ModelRef) => Promise<Prompt | undefined>;
+  /** Applied per attempt, in the terms of whichever model answers it. */
+  reasoning?: ReasoningPreference;
 };
 
 const sameRef = (a: ModelRef, b: ModelRef) => a.providerId === b.providerId && a.modelId === b.modelId;
@@ -110,6 +113,11 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
     if (sameRef(selected, modelRef)) degradations.set(modelRefKey(modelRef), { fallback: modelRefKey(next), until: Date.now() + DEGRADED_FOR_MS });
   };
   const noteAnswered = (selected: ModelRef) => { if (sameRef(selected, modelRef)) degradations.delete(modelRefKey(modelRef)); };
+  const withReasoning = async <T extends { providerOptions?: Record<string, Record<string, unknown>> }>(selected: ModelRef, params: T): Promise<T> => {
+    if (!options.reasoning) return params;
+    const own = getModelProvider(selected.providerId).reasoningOptions?.(options.reasoning, await modelInLibrary("chat", selected));
+    return own ? { ...params, providerOptions: { ...params.providerOptions, ...own } } : params;
+  };
 
   const wrapped: Model = wrapLanguageModel({ model, middleware: {
     specificationVersion: "v3",
@@ -126,7 +134,7 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
         let admission: Awaited<ReturnType<typeof beginModelAttempt>> | undefined;
         try {
           if (!sameRef(selected, current)) base = await switchTo(selected, params);
-          const selectedParams = { ...base, maxOutputTokens: await plannedCap(selected, base) };
+          const selectedParams = await withReasoning(selected, { ...base, maxOutputTokens: await plannedCap(selected, base) });
           const result = await withModelLease("chat", selected, async () => {
             admission = await beginModelAttempt({ mode: "chat", ref: selected, source: callSource, prompt: selectedParams.prompt, maxOutputTokens: selectedParams.maxOutputTokens, fallback: isFallback, signal: params.abortSignal });
             return (isFallback ? alternate(selected) : model).doGenerate(selectedParams);
@@ -175,10 +183,10 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
           if (!sameRef(selected, current)) base = await switchTo(selected, params);
           const lease = await acquireModelLease("chat", selected);
           releaseLease = lease.release;
-          const selectedParams = { ...base, maxOutputTokens: await plannedCap(selected, base),
+          const selectedParams = await withReasoning(selected, { ...base, maxOutputTokens: await plannedCap(selected, base),
             // Chat steps repeat their prefix across turns and tool steps, so a
             // cache write is read back; one-off generated calls are not marked.
-            ...(needsCacheBreakpoints(selected) ? { prompt: withCacheBreakpoints(base.prompt) } : {}) };
+            ...(needsCacheBreakpoints(selected) ? { prompt: withCacheBreakpoints(base.prompt) } : {}) });
           admission = await beginModelAttempt({ mode: "chat", ref: selected, source: callSource, prompt: selectedParams.prompt, maxOutputTokens: selectedParams.maxOutputTokens, fallback: isFallback, signal: params.abortSignal });
           const result = await (isFallback ? alternate(selected) : model).doStream(selectedParams);
           reader = result.stream.getReader();

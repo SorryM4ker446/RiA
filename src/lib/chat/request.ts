@@ -11,6 +11,7 @@ import { validateUIMessages, type UIMessage } from "ai";
 import { readAssistantSnapshot } from "@/lib/assistants/schema";
 import { externalInputSchema, externalToolIdPattern } from "@/lib/extensions/schema";
 import { resolveToolDescriptor, toolAvailability } from "@/tools/registry";
+import { templateAllowsTool } from "@/tools/template-access";
 
 export async function readChatRequest(req: Request) {
   // Terminal scripts are echoed in approvals and later history. Read them in
@@ -51,7 +52,7 @@ export async function readChatRequest(req: Request) {
       throw new ApiError({ code: "NOT_FOUND", message: "Conversation was not found" });
     }
   }
-  if (isApprovalResume && assistant && messages.some(message => message.parts.some(part => part.type.startsWith("tool-") && "state" in part && part.state === "approval-responded" && !assistant.tools.includes(part.type.slice(5))))) {
+  if (isApprovalResume && assistant && messages.some(message => message.parts.some(part => part.type.startsWith("tool-") && "state" in part && part.state === "approval-responded" && !templateAllowsTool(assistant.tools, part.type.slice(5))))) {
     throw new ApiError({ code: "VALIDATION_ERROR", message: "当前助理模板不允许执行此工具。" });
   }
   for (const message of messages) {

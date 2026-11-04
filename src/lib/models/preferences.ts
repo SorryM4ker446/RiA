@@ -15,6 +15,8 @@ import {
   type ModelLibraryItem,
   type ModelPreferences,
   type ModelRef,
+  type ProviderId,
+  type ReasoningCapability,
 } from "@/lib/models/preferences-schema";
 
 export const PREFERENCE_ROW_ID = "local";
@@ -170,7 +172,7 @@ export async function addModel(ref: ModelRef): Promise<{ data: ModelLibraryItem;
   // A catalog row is provider data and may carry fields this application does
   // not store. The library entry is built from an explicit list of them, so a
   // new provider field cannot make a model silently un-addable.
-  const libraryFields = { providerId: true, modelId: true, name: true, description: true, modes: true, supportsImageInput: true, endpointImageInput: true, supportsTools: true, providerSearch: true, contextLength: true, maxOutputTokens: true, pricing: true, addedAt: true, lastSeenAt: true } as const;
+  const libraryFields = { providerId: true, modelId: true, name: true, description: true, modes: true, supportsImageInput: true, endpointImageInput: true, supportsTools: true, providerSearch: true, reasoning: true, contextLength: true, maxOutputTokens: true, pricing: true, addedAt: true, lastSeenAt: true } as const;
   const matches = snapshots.flatMap(snapshot => {
     const rows = Array.isArray(snapshot.models) ? snapshot.models : [];
     return rows.flatMap(row => {
@@ -219,6 +221,24 @@ export async function addModel(ref: ModelRef): Promise<{ data: ModelLibraryItem;
     });
     await persist(tx, settings);
     return { data: next, alreadyAdded: Boolean(existing), defaulted };
+  }));
+}
+
+/**
+ * Library entries otherwise describe a model as it was when added. Whether its
+ * reasoning can be turned off decides whether a request is accepted at all, so
+ * that much follows each catalog read, including for entries added before the
+ * catalog was read for it. A row that does not say leaves the entry as it is.
+ */
+export async function syncLibraryReasoning(providerId: ProviderId, models: Array<{ modelId: string; reasoning?: ReasoningCapability | null }>) {
+  const rows = new Map(models.flatMap(model => model.reasoning === undefined ? [] : [[model.modelId, model.reasoning] as const]));
+  if (!rows.size) return;
+  await withModelSettingsLock(() => db.$transaction(async tx => {
+    const current = await readPreferences(tx);
+    const changed = (item: ModelLibraryItem) => item.providerId === providerId && item.modes.includes("chat") && rows.has(item.modelId)
+      && JSON.stringify(rows.get(item.modelId)) !== JSON.stringify(item.reasoning);
+    if (!current.library.some(changed)) return;
+    await persist(tx, preferencesSchema.parse({ ...current, library: current.library.map(item => changed(item) ? { ...item, reasoning: rows.get(item.modelId) } : item) }));
   }));
 }
 

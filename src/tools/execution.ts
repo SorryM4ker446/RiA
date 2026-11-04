@@ -9,7 +9,8 @@ import type { ModelRef } from "@/lib/models/preferences-schema";
 import type { RetrievalPolicy } from "@/lib/assistants/schema";
 import type { AnyToolDescriptor, ToolSkipReason, ToolTriggerType } from "./types";
 import { listAvailableRegisteredTools, toolAvailability, unavailabilityError, skipReasonFor } from "./registry";
-import { TERMINAL_COMPANION_TOOLS, TERMINAL_FOLDER_TOOLS } from "./terminal-companions";
+import { TERMINAL_FOLDER_TOOLS } from "./terminal-companions";
+import { templateAllowsTool } from "./template-access";
 import { conversationWorkspace, requireConversationWorkspace } from "@/lib/local-files/workspace";
 
 type ExecutionOptions = { modelRef?: ModelRef; chatId?: string | null; runId?: string | null; toolCallId?: string; usesMemory?: boolean; documentCollections?: string[]; documentRetrievalPolicy?: RetrievalPolicy; signal?: AbortSignal; trigger: ToolTriggerType; resultBudgetUsed?: Map<string, number> };
@@ -322,18 +323,13 @@ export async function executeRegisteredTool(tool: AnyToolDescriptor, input: unkn
 }
 
 export async function createChatToolSet(options?: { modelRef?: ModelRef; chatId?: string | null; toolIds?: string[]; runId?: string | null; usesMemory?: boolean; documentCollections?: string[]; documentRetrievalPolicy?: RetrievalPolicy }): Promise<ToolSet> {
-  const allowed = new Set(options?.toolIds ?? []);
-  const hasRestriction = options?.toolIds !== undefined;
   const resultBudgetUsed = new Map<string, number>();
   // An unconfigured optional tool is filtered out here rather than mounted and
   // failed later. The model never sees it, so it cannot call it, retry it, or
   // report a search that never happened.
-  // Reading already-enabled skill guidance, like compacting this conversation's
-  // own context, grants no external capability;
-  // assistant tool restrictions still apply to every action a skill suggests.
+  // Assistant tool restrictions still apply to every action a skill suggests.
   const offered = (await listAvailableRegisteredTools("chat", options?.modelRef)).filter((tool) =>
-    // File and log tools are ways of using a folder's terminal access, so they come with it.
-    (hasRestriction ? allowed.has(tool.id) || tool.id === "readPluginSkill" || tool.id === COMPACT_CONTEXT_TOOL || (TERMINAL_COMPANION_TOOLS.has(tool.id) && allowed.has("runTerminalCommand")) : true) && !(tool.id === "saveMemory" && options?.usesMemory === false));
+    (options?.toolIds === undefined || templateAllowsTool(options.toolIds, tool.id)) && !(tool.id === "saveMemory" && options?.usesMemory === false));
   // Compaction accompanies tool use; on its own it would turn tools on for a
   // chat whose assistant allows none, or none of whose tools are available.
   const descriptors = offered.some(tool => tool.id !== COMPACT_CONTEXT_TOOL) ? offered : offered.filter(tool => tool.id !== COMPACT_CONTEXT_TOOL);

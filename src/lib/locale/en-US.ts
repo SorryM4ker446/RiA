@@ -603,7 +603,7 @@ export const enUS = {
   "models.notice.embeddingReindexed": "Rebuilt {reindexed} memory embeddings; {remaining} remaining.",
   "models.preferencesNote": "Fallback models may cost extra. Media regeneration still uses the original model. After changing embedding models, old embeddings are excluded and memory retrieval falls back to keywords.",
   "models.thinkingEnabled": "Enable reasoning",
-  "models.thinkingDescription": "The model reasons before answering. Applies only to providers that support reasoning; others ignore this setting.",
+  "models.thinkingDescription": "The model reasons before answering. Applied within each model's abilities: effort uses the closest level it offers, and a model that must reason cannot be turned off.",
   "models.thinkingEffortLabel": "Reasoning effort",
   "models.thinkingEffortDefault": "Provider default",
   "models.thinkingEffort.low": "Low",

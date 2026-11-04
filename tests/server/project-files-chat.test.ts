@@ -21,6 +21,9 @@ const { setTerminalPermission } = await import("@/lib/terminal/permissions");
 const { decodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
 const { collectEditedFiles } = await import("@/lib/terminal/file-change-summary");
 const { contentHash } = await import("@/lib/project-files/text");
+const { saveAssistant } = await import("@/lib/assistants/store");
+const { assistantConfigSchema } = await import("@/lib/assistants/schema");
+const { createChat } = await import("@/lib/chat/store");
 const roots: string[] = [];
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {}); t.mock.method(console, "info", () => {});
@@ -99,4 +102,44 @@ test("in approval mode the edit waits with its diff and nothing is written until
   assert.match(wire, /approval-requested|tool-approval-request/);
   assert.match(wire, /-# Old title\\n\+# New title/, "the approval carries the server-computed diff");
   assert.equal(readFileSync(join(root, "README.md"), "utf8"), "# Old title\n");
+});
+
+test("a template allowing the terminal describes its file tools truthfully and an edit it proposed can be approved", { timeout: 30_000 }, async t => {
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ria-edit-chat-"))); roots.push(root);
+  writeFileSync(join(root, "README.md"), "# Old title\n");
+  const grant = await createGrant({ path: root });
+  await setTerminalPermission(grant.id, true, grant.updatedAt, "approval");
+  const template = await saveAssistant(assistantConfigSchema.parse({ name: "Terminal only", instructions: "Work in the folder", tools: ["runTerminalCommand"] }));
+  const chat = await createChat({ title: "Template workspace", assistantTemplateId: template.id });
+  await db.chat.update({ where: { id: chat.id }, data: { workspaceGrantId: grant.id } });
+  const hash = contentHash(readFileSync(join(root, "README.md")));
+  const calls: { prompt: string; tools: string[] }[] = [];
+  t.mock.method(languageModel, "doStream", async options => {
+    calls.push({ prompt: JSON.stringify(options.prompt), tools: (options.tools ?? []).map(tool => tool.name) });
+    const propose = calls.length === 1;
+    return { stream: new ReadableStream<LanguageModelV3StreamPart>({ start(controller) {
+      controller.enqueue({ type: "stream-start", warnings: [] });
+      if (propose) controller.enqueue({ type: "tool-call", toolCallId: "template-edit", toolName: "editProjectFile", input: JSON.stringify({ grantId: grant.id, path: "README.md", expectedHash: hash, edits: [{ oldText: "Old title", newText: "New title" }] }) });
+      else { controller.enqueue({ type: "text-start", id: "a" }); controller.enqueue({ type: "text-delta", id: "a", delta: "Renamed." }); controller.enqueue({ type: "text-end", id: "a" }); }
+      controller.enqueue({ type: "finish", finishReason: { unified: propose ? "tool-calls" : "stop", raw: undefined }, usage });
+      controller.close();
+    } }) };
+  });
+  const user = ui("template-user", "Rename the title");
+  const proposed = await route.POST(request({ chatId: chat.id, messages: [user] }));
+  assert.equal(proposed.status, 200);
+  await wireText(proposed);
+  assert.ok(["readProjectFile", "editProjectFile", "readTerminalLog", "compactContext"].every(name => calls[0].tools.includes(name)), "the terminal's file tools and context compaction are offered");
+  const statusLine = /Capability status \(internal context\): ([^.]*) are disabled by the current assistant template/.exec(calls[0].prompt)?.[1] ?? "";
+  assert.match(statusLine, /webSearch/, "a tool the template left out is still reported");
+  assert.doesNotMatch(statusLine, /readProjectFile|editProjectFile|readTerminalLog|compactContext|runTerminalCommand/, "a tool the model was given is not reported as disabled");
+
+  const saved = await db.message.findFirstOrThrow({ where: { chatId: chat.id, role: "assistant" } });
+  const edit = decodePersistedAssistantToolMessage(saved.content)!.tools[0];
+  const resumed = await route.POST(request({ chatId: chat.id, messages: [user, { id: saved.clientMessageId ?? saved.id, role: "assistant", parts: [
+    { type: "tool-editProjectFile", toolCallId: edit.toolCallId, state: "approval-responded", input: edit.input, approval: { id: edit.approval!.id, approved: true } },
+  ] }] }));
+  assert.equal(resumed.status, 200, "the template that offered the edit also allows approving it");
+  assert.match(await wireText(resumed), /Renamed\./);
+  assert.equal(readFileSync(join(root, "README.md"), "utf8"), "# New title\n");
 });

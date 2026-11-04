@@ -131,7 +131,7 @@ export const pageMessages = {
   "models.preferencesNote":
     "备用模型可能额外收费；媒体库按原参数重新生成仍只使用原模型。更换嵌入模型后，旧向量不会被误用于新模型，记忆检索会回退到关键词。",
   "models.thinkingEnabled": "启用思考模式",
-  "models.thinkingDescription": "模型先推理再回答。仅对支持思考的服务商生效，其余服务商忽略此设置。",
+  "models.thinkingDescription": "模型先推理再回答。按所选模型的能力生效：强度取它支持的最接近档位，必须思考的模型无法关闭。",
   "models.thinkingEffortLabel": "思考强度",
   "models.thinkingEffortDefault": "由服务商决定",
   "models.thinkingEffort.low": "低",

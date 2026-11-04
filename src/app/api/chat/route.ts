@@ -20,6 +20,7 @@ import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { NextRequest } from "next/server";
 import { documentRetrievalQuery, formatDocumentContext, retrieveDocuments } from "@/lib/documents/retrieval";
 import { listPublicToolCatalog } from "@/tools/catalog";
+import { templateAllowsTool } from "@/tools/template-access";
 import { documentSourceSchema } from "@/lib/documents/types";
 import { decodeDocumentScope } from "@/lib/documents/scope";
 import { formatAssistantInstructions } from "@/lib/assistants/schema";
@@ -162,7 +163,7 @@ function previousUserText(messages: UIMessage[]): string | undefined {
  */
 async function unavailableChatTools(allowedToolIds?: string[], modelSupportsTools = true, modelRef?: ModelRef) {
   return (await listPublicToolCatalog("chat", modelRef)).flatMap(tool => {
-    const reason = allowedToolIds !== undefined && !allowedToolIds.includes(tool.id) ? "templateDisabled"
+    const reason = allowedToolIds !== undefined && !templateAllowsTool(allowedToolIds, tool.id) ? "templateDisabled"
       : !modelSupportsTools ? "modelUnsupported" : !tool.available ? tool.reason ?? "unavailable" : null;
     return reason ? [{ id: tool.id, reason }] : [];
   });
