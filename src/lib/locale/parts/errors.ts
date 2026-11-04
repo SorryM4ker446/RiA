@@ -122,6 +122,5 @@ export const errorMessages = {
   "errors.fileMovedOrWasDeletedAndCannotBe": "文件已移动或删除，无法打开。",
   "errors.fileMovedOutsideTheAuthorizedDirectoryAndCannot": "文件已移出授权目录，无法打开。",
   "errors.thisLocationIsNoLongerAFile": "此位置已不是文件。",
-  "errors.thisConversationUsesATemplateAssignedModel": "会话使用模板绑定的模型。",
   "errors.topicChangedRefreshBeforeSearching": "专题已修改，请刷新后检索。"
 } as const;

@@ -18,7 +18,7 @@ const { saveMemory } = await import("@/lib/memory/store");
 const { getRegenerationSnapshot, saveRegeneratedResponse, saveChatMessage } = await import("@/lib/chat/store");
 const { ApiError } = await import("@/lib/server/api-error");
 const { encodePersistedAssistantToolMessage, decodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
-const { getToolDescriptor } = await import("@/tools/catalog");
+const { executeRegisteredTool, getToolDescriptor } = await import("@/tools/catalog");
 const chat = await import("@/app/api/chat/route");
 const tools = await import("@/app/api/tools/run/route");
 const conversations = await import("@/app/api/conversations/route");
@@ -90,31 +90,25 @@ test("local workspace access is required before any business route responds", as
   }
 });
 
-test("manual task execution persists data and emits one success log", async () => {
-  const response = await tools.POST(request("/api/tools/run", "POST", { tool: "createTask", mode: "chat", input: { title: "Integration task" } }, cookie));
-  assert.equal(response.status, 200);
-  const payload = await response.json();
-  assert.ok(await db.task.findUnique({ where: { id: payload.data.taskId } }));
+const runCreateTask = (input: unknown) => executeRegisteredTool(getToolDescriptor("createTask")!, input, { trigger: "manual" });
+
+test("a task tool run persists data and emits one success log", async () => {
+  const { output } = await runCreateTask({ title: "Integration task" });
+  assert.ok(await db.task.findUnique({ where: { id: output.taskId } }));
   const logs = infoCalls().filter((call) => call.arguments[0] === "tool.execution");
   assert.deepEqual(logs.map((call) => call.arguments[1].state), ["output-available"]);
 });
 
-test("manual tasks work without any model and reject an explicitly removed selection", async () => {
-  await db.workspacePreference.deleteMany({});
-  const response = await tools.POST(request("/api/tools/run", "POST", { tool: "createTask", mode: "chat", input: { title: "Offline local task" } }, cookie));
-  assert.equal(response.status, 200);
-  assert.equal(await db.task.count({ where: { title: "Offline local task" } }), 1);
-  assert.equal(await db.modelRequest.count(), 0);
-  const invalid = await tools.POST(request("/api/tools/run", "POST", { tool: "createTask", mode: "chat", model: { providerId: "openrouter", modelId: "removed/model" }, input: { title: "Must not be created" } }, cookie));
-  assert.equal(invalid.status, 503);
-  assert.equal(await db.task.count({ where: { title: "Must not be created" } }), 0);
+test("tools the conversation runs are not reachable through the direct route", async () => {
+  const response = await tools.POST(request("/api/tools/run", "POST", { tool: "createTask", input: { title: "Must not exist" } }, cookie));
+  assert.equal(response.status, 400);
+  assert.equal(await db.task.count({ where: { title: "Must not exist" } }), 0);
 });
 
 for (const code of ["TIMEOUT", "UPSTREAM_FAILED"] as const) {
-  test(`manual ${code} execution emits only one failure log`, async (t) => {
-    t.mock.method(getToolDescriptor("createTask"), "execute", async () => { throw new ApiError({ code, message: "Simulated failure" }); });
-    const response = await tools.POST(request("/api/tools/run", "POST", { tool: "createTask", mode: "chat", input: { title: "Must not exist" } }, cookie));
-    assert.equal(response.status, code === "TIMEOUT" ? 504 : 502);
+  test(`a tool ${code} emits only one failure log`, async (t) => {
+    t.mock.method(getToolDescriptor("createTask")!, "execute", async () => { throw new ApiError({ code, message: "Simulated failure" }); });
+    await assert.rejects(runCreateTask({ title: "Must not exist" }), { code });
     assert.equal(await db.task.count({ where: {} }), 0);
     const logs = infoCalls().filter((call) => call.arguments[0] === "tool.execution");
     assert.equal(logs.length, 1);
@@ -124,8 +118,7 @@ for (const code of ["TIMEOUT", "UPSTREAM_FAILED"] as const) {
 }
 
 test("invalid tool input never emits a success record", async () => {
-  const response = await tools.POST(request("/api/tools/run", "POST", { tool: "createTask", mode: "chat", input: { title: "" } }, cookie));
-  assert.equal(response.status, 400);
+  await assert.rejects(runCreateTask({ title: "" }), { code: "VALIDATION_ERROR" });
   const logs = infoCalls().filter((call) => call.arguments[0] === "tool.execution");
   assert.deepEqual(logs.map((call) => call.arguments[1].state), ["output-error"]);
 });

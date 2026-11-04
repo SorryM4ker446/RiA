@@ -62,7 +62,7 @@ async function costOfTurn(params: { usage: unknown; providerMetadata: unknown; m
   }
 }
 
-export async function streamChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; documentSources?: DocumentSource[]; documentDiagnostics?: DocumentDiagnostics; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean; compactionAllowance?: CompactionAllowance }) {
+export async function streamChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; documentSources?: DocumentSource[]; documentDiagnostics?: DocumentDiagnostics; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean; compactionAllowance?: CompactionAllowance; chosenTool?: string | null }) {
   const { input, conversation, systemPrompt, modelMessages, toolsEnabled, signal } = params;
   let answerText = "";
   const { modelRef, body, messages } = input;
@@ -72,6 +72,7 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
   }
   let generationFailed = false;
   let contextLimitFailed = false;
+  let skippedTool: string | undefined;
   const runId = params.runId ?? null;
   let runIds = [...new Set([...(conversation.previousRunIds ?? []), ...(runId ? [runId] : [])])];
   const stepCeiling = await runStepCeiling(runId);
@@ -151,8 +152,14 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
     messages: modelMessages,
     // Each step's output cap is set where every call is admitted, from that
     // step's own input; see requestOutputCap.
-    prepareStep: ({ messages: stepMessages }) => stepContext.prepare(stepMessages),
-    onStepFinish: ({ usage }) => stepContext.observeUsage(usage.inputTokens),
+    // The tool the user chose is the only one on offer at first, which needs no
+    // provider's support for forcing a call and cannot be refused for reasoning.
+    // The model may still answer without it; the turn records that when it does.
+    prepareStep: async ({ messages: stepMessages, stepNumber }) => ({ ...await stepContext.prepare(stepMessages), ...(stepNumber === 0 && params.chosenTool ? { activeTools: [params.chosenTool] } : {}) }),
+    onStepFinish: ({ usage, toolCalls, stepNumber }) => {
+      stepContext.observeUsage(usage.inputTokens);
+      if (stepNumber === 0 && params.chosenTool && !toolCalls.some(call => call.toolName === params.chosenTool)) skippedTool = params.chosenTool;
+    },
     abortSignal: signal,
     onChunk: ({ chunk }) => { if (chunk.type === "text-delta") answerText += chunk.text; },
     // Providers send text in uneven bursts. Released a word at a time (a
@@ -196,12 +203,12 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
     onError: (error) => streamError(error instanceof ApiError ? error : new ApiError({ code: "UPSTREAM_FAILED", message: t("lib.chat.providerUnavailable") })),
     originalMessages: messages,
     messageMetadata: ({ part }) => part.type === "start" ? { documentSources: params.documentSources ?? [], documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}` }
-      : part.type === "finish" ? { documentSources: markDocumentCitations(params.documentSources ?? [], answerText), documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}`, contextBudget: contextReport() } : undefined,
+      : part.type === "finish" ? { documentSources: markDocumentCitations(params.documentSources ?? [], answerText), documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}`, contextBudget: contextReport(), ...(skippedTool ? { skippedTool } : {}) } : undefined,
     onFinish: async ({ responseMessage, isAborted }) => {
       let persistenceFailed = false;
       try {
         await persistChatResponse({
-          input, conversation, responseMessage, isAborted, generationFailed,
+          input, conversation, responseMessage, isAborted, generationFailed, skippedTool,
           documentSources: params.documentSources,
           documentDiagnostics: params.documentDiagnostics,
           unavailableTools: params.unavailableTools,

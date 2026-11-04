@@ -4,37 +4,9 @@ import {
 } from "@/features/chat/page-utils";
 import { UIMessage } from "ai";
 import type { ModelRef } from "@/lib/models/preferences-schema";
+import type { ToolSurface } from "@/tools/types";
 
-export type ManualToolSelection = "none" | string;
 export type ToolDocumentSelection = { id: string; filename: string };
-
-export type ManualToolFieldMeta = {
-  key: string;
-  label: string;
-  type: "text" | "number" | "select" | "datetime-local";
-  /** Sent with its default value but never shown: the tool needs it, the user does not choose it. */
-  hidden?: boolean;
-  required?: boolean;
-  placeholder?: string;
-  defaultValue?: string;
-  min?: number;
-  max?: number;
-  step?: number;
-  options?: Array<{
-    label: string;
-    value: string;
-  }>;
-};
-
-export type ManualToolMeta = {
-  enabled: boolean;
-  label: string;
-  placeholder: string;
-  submitLabel: string;
-  primaryFieldKey: string;
-  primaryFieldLabel: string;
-  fields: ManualToolFieldMeta[];
-};
 
 export type ToolCatalogItem = {
   /** Whether the tool can run right now; an unconfigured one is not offered. */
@@ -42,14 +14,16 @@ export type ToolCatalogItem = {
   reason: "notConfigured" | "noDirectoryGranted" | "disabled" | "notTested" | "toolDisabled" | null;
   configEntry?: string | null;
   extensionId?: string;
+  extensionName?: string;
   id: string;
   displayName: string;
   description: string;
   modeSupport: string[];
-  manual: ManualToolMeta;
+  surface: ToolSurface;
+  requiresApproval: boolean;
 };
 
-export type ManualToolFieldValues = Record<string, string>;
+export type SkillCatalogItem = { packageId: string; skillId: string; name: string; description: string; plugin: string };
 
 export type TaskStatusFilter = "all" | "todo" | "in_progress" | "done";
 

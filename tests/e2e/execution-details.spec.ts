@@ -268,9 +268,7 @@ for (const width of [1440, 390]) test(`the composer shows the latest request's c
   const indicator = page.getByLabel("上下文已用约 13%", { exact: true });
   await expect(indicator).toHaveText("13%");
   await expect(indicator).toHaveAttribute("data-state", "normal");
-  const tools = page.getByRole("combobox", { name: "选择工具", exact: false });
-  const toolBox = await tools.boundingBox(), box = (await indicator.boundingBox())!;
-  if (toolBox && width >= 768) expect(box.x).toBeGreaterThan(toolBox.x + toolBox.width - 1);
+  const box = (await indicator.boundingBox())!;
   expect(box.height).toBeLessThanOrEqual(28);
   await indicator.hover();
   const tooltip = page.getByRole("tooltip");

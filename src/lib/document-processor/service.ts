@@ -2,6 +2,8 @@ import { db } from "@/db";
 import { parseDocument } from "@/lib/documents/parser";
 import { hashDocumentContent } from "@/lib/documents/chunks";
 import { documentPagesSchema, type DocumentFormat, type DocumentPage } from "@/lib/documents/types";
+import { DOCUMENT_ATTACHMENT_TYPES, isDocumentAttachment } from "@/lib/media/limits";
+import { getMediaAsset, readMediaAsset } from "@/lib/media/storage";
 import { ApiError } from "@/lib/server/api-error";
 import { htmlDocument, parseContent, plainText, exportCsp } from "./ast";
 import { wordDocument } from "./docx";
@@ -20,6 +22,15 @@ export async function loadProcessorDocument(id: string, options: { collections?:
   if (!row || (options.collections?.length && !options.collections.includes(row.collection ?? ""))) throw new ApiError({ code: "NOT_FOUND", message: "文档不存在，或不在当前助理可用的主题中。" });
   if (options.version && row.contentHash !== options.version) throw new ApiError({ code: "CONFLICT", message: "文档已更新，请重新转换后下载。" });
   return { ...processed(row.filename, row.format, documentPagesSchema.parse(row.pages)), source: { id: row.id, contentHash: row.contentHash } };
+}
+/** A document attached to a conversation, read the way an uploaded document is. */
+export async function loadAttachmentDocument(id: string, signal?: AbortSignal) {
+  const asset = await getMediaAsset(id);
+  if (asset.kind !== "attachment" || !isDocumentAttachment(asset.mediaType)) throw new ApiError({ code: "VALIDATION_ERROR", message: "只能转换 PDF 或 Word 附件。" });
+  const format: DocumentFormat = asset.mediaType === DOCUMENT_ATTACHMENT_TYPES[0] ? "pdf" : "docx";
+  const pages = await parseDocument(new Uint8Array(await readMediaAsset(asset)), format, signal, { escapeMarkdown: true });
+  signal?.throwIfAborted();
+  return processed(asset.description || `document.${format}`, format, pages);
 }
 export async function exportDocument(raw: unknown, signal?: AbortSignal) {
   const input = exportRequestSchema.parse(raw);

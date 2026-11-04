@@ -174,13 +174,15 @@ export function buildRequestContext(parts: { workspace?: string; summary?: strin
  * Attach the context block to the latest user message, ahead of its text.
  * Earlier turns are left byte-for-byte unchanged, so the prompt prefix up to the
  * previous turn stays cacheable; the block is rebuilt per request, never saved.
+ * A directive is what the user chose for this message: unlike the reference data
+ * it is meant to be followed, so it stands apart from the block.
  */
-export function withRequestContext(messages: ModelMessage[], context: string): ModelMessage[] {
-  if (!context) return messages;
+export function withRequestContext(messages: ModelMessage[], context: string, directive = ""): ModelMessage[] {
+  if (!context && !directive) return messages;
   let latest = -1;
   messages.forEach((message, index) => { if (message.role === "user") latest = index; });
   if (latest < 0) return messages;
   const message = messages[latest] as Extract<ModelMessage, { role: "user" }>;
   const content = typeof message.content === "string" ? [{ type: "text" as const, text: message.content }] : message.content;
-  return messages.map((item, index) => index === latest ? { ...message, content: [{ type: "text" as const, text: context }, ...content] } : item);
+  return messages.map((item, index) => index === latest ? { ...message, content: [...[context, directive].filter(Boolean).map(text => ({ type: "text" as const, text })), ...content] } : item);
 }

@@ -6,6 +6,7 @@ import { openWorkspace } from "../helpers/workspace-entry";
 import { browserApi, browserData } from "../helpers/browser-api";
 import { chooseOption } from "../helpers/select";
 import { chooseTaskDateTime } from "../helpers/task-date-picker";
+import { newTask } from "../helpers/slash-menu";
 
 const test = base.extend<{
   app: Awaited<ReturnType<typeof startStandaloneServer>>;
@@ -177,15 +178,15 @@ test("filter changes preserve rows during requests and ignore late results", asy
   for (const title of ["Pending task", "Completed task"]) {
     const result = await browserApi(
       page,
-      `${app.origin}/api/tools/run`,
+      `${app.origin}/api/tasks`,
       "POST",
-      { tool: "createTask", mode: "chat", input: { title } },
+      newTask(title),
     );
-    expect(result.status).toBe(200);
+    expect(result.status).toBe(201);
     if (title === "Completed task")
       await browserApi(
         page,
-        `${app.origin}/api/tasks/${result.body.data.taskId}`,
+        `${app.origin}/api/tasks/${result.body.data.id}`,
         "PATCH",
         { status: "done" },
       );

@@ -47,7 +47,8 @@ test("community Skill search, preview, installation and real chat resource reads
   const card = page.getByTestId(`plugin-${plugin.id}`);
   await card.getByRole("button", { name: "启用插件", exact: true }).click();
   await expect(card.getByText("已启用", { exact: true })).toBeVisible();
-  expect((await browserData(page, "/api/tools?mode=chat")).some(tool => tool.id === "readPluginSkill")).toBe(false);
+  // Listed with everything the model can reach, but not something a person calls.
+  expect((await browserData(page, "/api/tools?mode=chat")).find(tool => tool.id === "readPluginSkill")?.surface.user).toBeNull();
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "Community writing acceptance" })).body.data;
   await page.evaluate(id => localStorage.setItem("chat:last-active-id", id), chat.id);

@@ -13,7 +13,9 @@ process.env.RIA_TEST_PROVIDER = "1";
 for (const key of ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]) process.env[key] = "";
 const { db } = await import("@/db");
 
-const tools = await import("@/app/api/tools/run/route");
+const { executeRegisteredTool, getToolDescriptor } = await import("@/tools/catalog");
+const { getModelPreferences } = await import("@/lib/models/preferences");
+const { createApiErrorResponse } = await import("@/lib/server/api-error");
 let cookie;
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "info", () => {});
@@ -38,11 +40,11 @@ async function upstream(t, respond) {
   t.after(() => server.close());
   return server;
 }
-function run(maxResults = 2, signal?: AbortSignal) {
-  return tools.POST(new NextRequest("http://localhost/api/tools/run", {
-    method: "POST", headers: { cookie, "content-type": "application/json" }, signal,
-    body: JSON.stringify({ tool: "webSearch", mode: "chat", input: { query: " Local HTTP search ", maxResults } }),
-  }));
+async function run(maxResults = 2, signal?: AbortSignal) {
+  try {
+    const { output } = await executeRegisteredTool(getToolDescriptor("webSearch")!, { query: " Local HTTP search ", maxResults }, { trigger: "manual", signal, modelRef: (await getModelPreferences()).chat.model ?? undefined });
+    return Response.json({ data: output });
+  } catch (error) { return createApiErrorResponse(error, "Failed to run tool"); }
 }
 const logs = () => (console.info as Mock<(...data: any[]) => void>).mock.calls.filter((call) => call.arguments[0] === "tool.execution").map((call) => call.arguments[1]);
 
@@ -65,14 +67,6 @@ test("web search sends real HTTP requests, normalizes sources and records one su
     { title: "Second source", url: "https://example.invalid/second", summary: "x".repeat(1200) },
     { title: "Extra source", url: "https://example.invalid/extra", summary: "Outside limit" },
   ]));
-  // Synthesis streams; echo its prompt to show which sources it was given.
-  t.mock.method(languageModel, "doStream", async options => ({ stream: new ReadableStream({ start(controller) {
-    controller.enqueue({ type: "text-start", id: "echo" });
-    controller.enqueue({ type: "text-delta", id: "echo", delta: JSON.stringify(options.prompt) });
-    controller.enqueue({ type: "text-end", id: "echo" });
-    controller.enqueue({ type: "finish", finishReason: { unified: "stop", raw: "stop" }, usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } } });
-    controller.close();
-  } }) }));
   const response = await run();
   assert.equal(response.status, 200);
   const payload = await response.json();
@@ -86,7 +80,6 @@ test("web search sends real HTTP requests, normalizes sources and records one su
   assert.equal(payload.data.results[0].snippet, "First source");
   assert.equal(payload.data.results[0].score, 0.94567);
   assert.equal(payload.data.results[1].snippet.length, 1000);
-  assert.match(payload.assistantText, /https:\/\/example.invalid\/source/);
   assert.deepEqual(logs().map((entry) => entry.state), ["output-available"]);
   // A search does not leave a knowledge candidate behind.
   assert.equal(await db.memory.count({ where: { key: { startsWith: "tool:webSearch:" } } }), 0);

@@ -8,26 +8,27 @@ import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectSeparator,
   SelectValue,
 } from "@/components/ui/select";
 import { useOpenSettings } from "@/features/settings/settings-context";
+import { SETTINGS_PARAM, type SettingsSectionId } from "@/lib/settings/sections";
 import { Textarea } from "@/components/ui/textarea";
-import { CHAT_ATTACHMENT_TYPES, IMAGE_MEDIA_TYPES, isDocumentAttachment } from "@/lib/media/limits";
+import { CHAT_ATTACHMENT_TYPES, DOCUMENT_ATTACHMENT_TYPES, IMAGE_MEDIA_TYPES, isDocumentAttachment } from "@/lib/media/limits";
 import { cn } from "@/lib/utils/cn";
 import { ArrowUp, Loader2, Paperclip, Square, X } from "lucide-react";
-import { DocumentToolInput } from "@/features/chat/document-tool-input";
-import { ManualToolFields } from "@/features/chat/manual-tool-fields";
-import type { ManualToolSelection } from "@/features/chat/types";
+import { rememberSlashItem, recentSlashItems } from "@/features/chat/slash-recent";
+import { DocumentToolBar } from "@/features/chat/document-tool-bar";
+import { ComposerChoices, type ChoiceWord } from "@/features/chat/composer-choices";
+import { filterSlashItems, SKILL_ICON, SlashMenu, slashQuery, TEMPLATE_ICON, toolIcon, type SlashItem } from "@/features/chat/slash-menu";
+import { DOCUMENT_TOOLS, toolLabel } from "@/features/chat/use-tools";
 import type { ChatState } from "@/features/chat/use-chat-state";
 import { ModelMode } from "@/features/chat/page-utils";
 import type { ModelLibraryItem } from "@/lib/models/preferences-schema";
 import { ContextUsage } from "@/features/chat/context-usage";
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type UIEvent } from "react";
 
 /**
  * The model name last shown for a mode. Until the saved choice is read it
@@ -54,25 +55,25 @@ type Props = Pick<
   | "isWorking"
   | "isLoadingPreferences"
   | "isConversationReady"
-  | "isRunningManualTool"
-  | "selectedToolDocument"
-  | "setSelectedToolDocument"
-  | "setSelectedManualTool"
-  | "manualToolSelectValue"
-  | "manualTools"
-  | "selectedManualToolConfig"
-  | "manualToolFieldValues"
-  | "setManualToolFieldValues"
-  | "manualToolFieldErrors"
-  | "setManualToolFieldErrors"
+  | "isConverting"
+  | "tools"
+  | "skills"
+  | "choice"
+  | "chooseTool"
+  | "toggleSkill"
+  | "removeLastChoice"
+  | "removeTool"
+  | "setToolDocument"
+  | "setToolFormat"
+  | "loadToolCatalog"
   | "toolCatalogError"
-  | "unavailableTools"
+  | "assistants"
+  | "applyAssistant"
   | "setInput"
   | "handleTextareaKeyDown"
   | "onTextareaPaste"
   | "textareaRef"
   | "input"
-  | "isManualToolSelected"
   | "onAttachmentInputChange"
   | "fileInputRef"
   | "attachments"
@@ -86,6 +87,7 @@ type Props = Pick<
   | "attachmentNames"
   | "activeChat"
   | "selectedModel"
+  | "selectedModelInfo"
   | "onModeSelect"
   | "onModelSelect"
   | "modelLibrary"
@@ -100,25 +102,25 @@ export function Composer({
   isWorking,
   isLoadingPreferences,
   isConversationReady,
-  isRunningManualTool,
-  selectedToolDocument,
-  setSelectedToolDocument,
-  setSelectedManualTool,
-  manualToolSelectValue,
-  manualTools,
-  selectedManualToolConfig,
-  manualToolFieldValues,
-  setManualToolFieldValues,
-  manualToolFieldErrors,
-  setManualToolFieldErrors,
+  isConverting,
+  tools,
+  skills,
+  choice,
+  chooseTool,
+  toggleSkill,
+  removeLastChoice,
+  removeTool,
+  setToolDocument,
+  setToolFormat,
+  loadToolCatalog,
   toolCatalogError,
-  unavailableTools,
+  assistants,
+  applyAssistant,
   setInput,
   handleTextareaKeyDown,
   onTextareaPaste,
   textareaRef,
   input,
-  isManualToolSelected,
   onAttachmentInputChange,
   fileInputRef,
   attachments,
@@ -132,6 +134,7 @@ export function Composer({
   attachmentNames,
   activeChat,
   selectedModel,
+  selectedModelInfo,
   onModeSelect,
   onModelSelect,
   modelLibrary,
@@ -140,10 +143,134 @@ export function Composer({
   messages,
 }: Props) {
   useLocale();
-  const isDocumentTool = modelMode === "chat" && ["readDocument", "convertDocument"].includes(selectedManualToolConfig?.id ?? "");
-  const toolFields = modelMode === "chat" && selectedManualToolConfig ? selectedManualToolConfig.manual.fields.filter(field => !field.hidden) : [];
-  const rememberedModelLabel = useRememberedModelLabel(modelMode);
+  const isDocumentTool = modelMode === "chat" && DOCUMENT_TOOLS.has(choice.tool?.id ?? "");
+  const isConvertTool = modelMode === "chat" && choice.tool?.id === "convertDocument";
+  const isDirectRun = modelMode === "chat" && choice.tool?.surface.user?.run === "direct" && !input.trim();
+  const canSend = isDocumentTool ? attachments.length > 0 || Boolean(choice.document) : Boolean(input.trim()) || attachments.length > 0;
+  const allowedToolIds = activeChat?.assistantConfig?.tools;
+  const modelCanCallTools = selectedModelInfo?.supportsTools !== false;
   const openSettings = useOpenSettings();
+
+  // A template that no longer allows the chosen tool takes it away, rather than refusing the send later.
+  useEffect(() => { if (choice.tool && allowedToolIds && !allowedToolIds.includes(choice.tool.id)) removeTool(); }, [choice.tool, allowedToolIds, removeTool]);
+  // Converting a Word file into Word would be no conversion at all.
+  const sourceIsWord = attachments.length ? attachments.every(part => part.mediaType === DOCUMENT_ATTACHMENT_TYPES[1]) : /\.docx$/i.test(choice.document?.filename ?? "");
+  useEffect(() => { if (choice.tool?.id === "convertDocument" && sourceIsWord && choice.format === "docx") setToolFormat("md"); }, [choice.tool?.id, choice.format, sourceIsWord, setToolFormat]);
+
+  // ---- The slash menu: what the word being typed offers, and moving through it.
+  const listId = useId();
+  const [caret, setCaret] = useState(0);
+  const [dismissedAt, setDismissedAt] = useState<number | null>(null);
+  const [activeRow, setActiveRow] = useState({ word: "", index: 0 });
+  const slash = modelMode === "chat" ? slashQuery(input, caret) : null;
+  const allItems = useMemo<SlashItem[]>(() => {
+    const items: SlashItem[] = [];
+    for (const tool of tools) {
+      const user = tool.surface.user;
+      if (!user || !tool.modeSupport.includes("chat") || (allowedToolIds && !allowedToolIds.includes(tool.id))) continue;
+      if (tool.id === "saveMemory" && activeChat?.ephemeral) continue;
+      const label = tool.extensionId ? toolLabel(tool) : localizeMessage(tool.displayName);
+      const blocked = !tool.available ? t("chat.slash.needsSetup") : user.run === "model" && !modelCanCallTools ? t("chat.slash.modelCannotCall") : undefined;
+      items.push({
+        key: `tool:${tool.id}`, group: tool.extensionId ? "plugins" : "tools", label, description: tool.extensionId ? tool.description : localizeMessage(tool.description),
+        meta: tool.extensionName, icon: toolIcon(tool.id, Boolean(tool.extensionId)), chosen: choice.tool?.id === tool.id, blocked, terms: tool.id,
+        // A tool waiting on setup leads there; one the model cannot call has nothing to offer.
+        run: () => {
+          if (tool.available) return chooseTool(tool);
+          const section = tool.configEntry ? new URL(tool.configEntry, window.location.href).searchParams.get(SETTINGS_PARAM) : null;
+          if (section) openSettings(section as SettingsSectionId);
+        },
+        opensSetup: !tool.available,
+      });
+    }
+    for (const skill of skills) items.push({
+      key: `skill:${skill.packageId}:${skill.skillId}`, group: "skills", label: skill.name, description: skill.description, meta: skill.plugin, icon: SKILL_ICON,
+      chosen: choice.skills.some(item => item.packageId === skill.packageId && item.skillId === skill.skillId), run: () => toggleSkill(skill),
+    });
+    for (const template of assistants) {
+      const name = template.builtin ? localizeMessage(template.config.name) : template.config.name;
+      items.push({ key: `template:${template.id}`, group: "templates", label: name, description: template.builtin ? localizeMessage(template.config.description) : template.config.description, icon: TEMPLATE_ICON, chosen: activeChat?.assistantConfig?.templateId === template.id, run: () => void applyAssistant(template.id) });
+    }
+    return items;
+  }, [tools, skills, assistants, allowedToolIds, modelCanCallTools, choice.tool, choice.skills, activeChat?.assistantConfig?.templateId, activeChat?.ephemeral, chooseTool, toggleSkill, applyAssistant, openSettings]);
+  const visibleItems = useMemo(() => {
+    if (!slash) return [];
+    if (slash.query) return filterSlashItems(allItems, slash.query);
+    // Before anything is typed, only what can be used now, led by what was used last.
+    const usable = allItems.filter(item => !item.blocked);
+    const recent = recentSlashItems().flatMap(key => usable.filter(item => item.key === key)).slice(0, 4);
+    return [...recent.map(item => ({ ...item, group: "recent" as const })), ...usable.filter(item => !recent.includes(item))];
+  }, [allItems, slash]);
+  const menuOpen = Boolean(slash) && visibleItems.length > 0 && dismissedAt !== slash?.start && !isPending;
+  // The catalog may have changed in settings since this page loaded.
+  const wasOpen = useRef(false);
+  useEffect(() => { if (menuOpen && !wasOpen.current) void loadToolCatalog(); wasOpen.current = menuOpen; }, [menuOpen, loadToolCatalog]);
+  // Each new word starts from the top of what it finds.
+  const slashWord = `${slash?.start}:${slash?.query}`;
+  const activeIndex = activeRow.word === slashWord ? activeRow.index : 0;
+  const setActiveIndex = (index: number) => setActiveRow({ word: slashWord, index });
+  function selectItem(item: SlashItem) {
+    if (!slash) return;
+    if (item.blocked && !item.opensSetup) return;
+    if (!item.blocked) rememberSlashItem(item.key);
+    const end = slash.start + 1 + slash.query.length;
+    setInput(current => `${current.slice(0, slash.start)}${current.slice(end)}`);
+    setCaret(slash.start);
+    item.run();
+    const box = textareaRef.current, at = slash.start;
+    requestAnimationFrame(() => { box?.focus(); box?.setSelectionRange(at, at); });
+  }
+  function onComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (menuOpen && !event.nativeEvent.isComposing) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const step = event.key === "ArrowDown" ? 1 : -1;
+        setActiveIndex((activeIndex + step + visibleItems.length) % visibleItems.length);
+        return;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        event.preventDefault();
+        const item = visibleItems[Math.min(activeIndex, visibleItems.length - 1)];
+        if (item) selectItem(item);
+        return;
+      }
+      if (event.key === "Escape") { event.preventDefault(); setDismissedAt(slash?.start ?? null); return; }
+    }
+    // A second slash on a word whose menu was just closed asks for the menu again.
+    if (event.key === "/" && slash && !slash.query && dismissedAt === slash.start && !event.nativeEvent.isComposing) { event.preventDefault(); setDismissedAt(null); return; }
+    const box = event.currentTarget;
+    if (event.key === "Backspace" && !event.nativeEvent.isComposing && box.selectionStart === 0 && box.selectionEnd === 0 && (choice.tool || choice.skills.length)) { event.preventDefault(); removeLastChoice(); return; }
+    handleTextareaKeyDown(event);
+  }
+
+  // ---- The chosen words sit in the box's first line; the text starts right after them.
+  const choiceWords: ChoiceWord[] = modelMode !== "chat" ? [] : [
+    ...(choice.tool ? [{ key: choice.tool.id, label: choice.tool.extensionId ? toolLabel(choice.tool) : localizeMessage(choice.tool.displayName), icon: toolIcon(choice.tool.id, Boolean(choice.tool.extensionId)), remove: removeTool }] : []),
+    ...choice.skills.map(skill => ({ key: `${skill.packageId}:${skill.skillId}`, label: skill.name, icon: SKILL_ICON, remove: () => toggleSkill(skill) })),
+  ];
+  const choicesRef = useRef<HTMLDivElement>(null);
+  const wordKeys = choiceWords.map(word => `${word.key}:${word.label}`).join("|");
+  useLayoutEffect(() => {
+    const box = choicesRef.current, input = textareaRef.current;
+    if (!input) return;
+    const measure = () => {
+      const last = box?.querySelector<HTMLElement>("[data-choice-word]:last-child");
+      const first = box?.querySelector<HTMLElement>("[data-choice-word]");
+      if (!box || !last || !first) { input.style.textIndent = ""; input.style.paddingTop = ""; return; }
+      const right = last.getBoundingClientRect().right + parseFloat(getComputedStyle(last).marginRight);
+      input.style.textIndent = `${Math.round(right - box.getBoundingClientRect().left)}px`;
+      input.style.paddingTop = `calc(0.75rem + ${Math.round(last.getBoundingClientRect().top - first.getBoundingClientRect().top)}px)`;
+    };
+    measure();
+    if (!box) return;
+    // A word's own width changes when the font finishes loading, which the box around it never notices.
+    const observer = new ResizeObserver(measure);
+    box.querySelectorAll("[data-choice-word]").forEach(word => observer.observe(word));
+    void document.fonts?.ready.then(measure);
+    return () => observer.disconnect();
+  }, [wordKeys, textareaRef]);
+  const followScroll = (event: UIEvent<HTMLTextAreaElement>) => { if (choicesRef.current) choicesRef.current.style.transform = `translateY(${-event.currentTarget.scrollTop}px)`; };
+  const rememberedModelLabel = useRememberedModelLabel(modelMode);
   const modelLabel = !selectedModel ? t("chat.toolbar.modelNone")
     : modelLibrary.find(model => modelRefKey(model) === modelRefKey(selectedModel) && model.modes.includes(modelMode))?.name ?? tf("chat.toolbar.modelUnavailable", { modelId: selectedModel.modelId });
   useEffect(() => {
@@ -174,28 +301,44 @@ export function Composer({
       {/* One bordered surface holds the prompt, the controls that shape it, and the
         send action. Scattering those across separate full-width rows left the
         send button visually unconnected to what it submits. */}
+      <SlashMenu open={menuOpen} items={visibleItems} activeIndex={activeIndex} query={slash?.query ?? ""} listId={listId} onActivate={setActiveIndex} onSelect={selectItem} onDismiss={() => setDismissedAt(slash?.start ?? null)} anchor={
       <div className="composer-surface">
-        {isDocumentTool ? <DocumentToolInput key={`${activeChat?.documentScope ?? ""}:${selectedManualToolConfig?.id}`} value={selectedToolDocument} onChange={setSelectedToolDocument} scope={activeChat?.documentScope} disabled={isPending}
-          options={toolFields.length > 0 ? <ManualToolFields className="p-0" fields={toolFields} values={manualToolFieldValues} setValues={setManualToolFieldValues} errors={manualToolFieldErrors} setErrors={setManualToolFieldErrors} disabled={isPending} /> : null} /> : <div className={cn(toolFields.length > 0 && "flex h-20 flex-col")}><Textarea
-          className={cn("composer-input block min-h-0 resize-none overflow-y-auto rounded-none px-4 shadow-none focus-visible:ring-0", toolFields.length > 0 ? "flex-1 py-2" : "h-20 py-3")}
-          onChange={(event) => setInput(event.target.value)}
-          onKeyDown={handleTextareaKeyDown}
-          onPaste={onTextareaPaste}
-          placeholder={
-            modelMode === "image"
-              ? t("chat.composer.placeholderImage")
-              : modelMode === "video"
-                ? t("chat.composer.placeholderVideo")
-                : selectedManualToolConfig
-                  ? localizeMessage(selectedManualToolConfig.manual.placeholder)
-                  : t("chat.composer.placeholderChat")
-          }
-          ref={textareaRef}
-          rows={3}
-          value={input}
-        />
-        {toolFields.length > 0 ? <ManualToolFields fields={toolFields} values={manualToolFieldValues} setValues={setManualToolFieldValues} errors={manualToolFieldErrors} setErrors={setManualToolFieldErrors} disabled={isPending} /> : null}
-        </div>}
+        <div className="composer-body">
+          <div className="composer-field">
+            {choiceWords.length ? <ComposerChoices ref={choicesRef} words={choiceWords} /> : null}
+            <Textarea
+              className="composer-input block h-full min-h-0 w-full resize-none overflow-y-auto rounded-none px-4 py-3 shadow-none focus-visible:ring-0"
+              onChange={(event) => {
+                setInput(event.target.value); setCaret(event.target.selectionStart);
+                // A closed menu stays closed only for the word it was closed on.
+                if (slashQuery(event.target.value, event.target.selectionStart)?.start !== dismissedAt) setDismissedAt(null);
+              }}
+              onKeyDown={onComposerKeyDown}
+              onSelect={event => setCaret(event.currentTarget.selectionStart)}
+              onScroll={followScroll}
+              onPaste={onTextareaPaste}
+              placeholder={
+                modelMode === "image"
+                  ? t("chat.composer.placeholderImage")
+                  : modelMode === "video"
+                    ? t("chat.composer.placeholderVideo")
+                    : choice.tool?.surface.user
+                      ? localizeMessage(choice.tool.surface.user.hint)
+                      : choice.skills.length
+                        ? t("chat.slash.skillHint")
+                        : t("chat.composer.placeholderChat")
+              }
+              ref={textareaRef}
+              rows={3}
+              value={input}
+              role={menuOpen ? "combobox" : undefined}
+              aria-expanded={menuOpen ? true : undefined}
+              aria-controls={menuOpen ? listId : undefined}
+              aria-autocomplete={menuOpen ? "list" : undefined}
+              aria-activedescendant={menuOpen ? `${listId}-${activeIndex}` : undefined}
+            />
+          </div>
+        </div>
         {/*
         A thumbnail is worth more than a file name here: the user is deciding
         whether the right picture got attached, and a name cannot answer that.
@@ -253,7 +396,7 @@ export function Composer({
               className={cn(
                 "inline-flex h-7 w-7 shrink-0 cursor-pointer select-none items-center justify-center rounded-md text-xs text-muted-foreground transition-colors focus-within:ring-1 focus-within:ring-ring",
                 "hover:bg-accent hover:text-foreground",
-                (!isConversationReady || isManualToolSelected || isUploadingAttachments) && "pointer-events-none opacity-50",
+                (!isConversationReady || isUploadingAttachments) && "pointer-events-none opacity-50",
               )}
             >
               <Paperclip aria-hidden="true" className="h-3.5 w-3.5" />
@@ -262,14 +405,16 @@ export function Composer({
                 accept={modelMode === "chat" ? [...CHAT_ATTACHMENT_TYPES, ".pdf", ".docx"].join(",") : IMAGE_MEDIA_TYPES.join(",")}
                 aria-label={t("chat.composer.fileInputLabel")}
                 className="sr-only"
-                disabled={!isConversationReady || isManualToolSelected || isUploadingAttachments}
+                disabled={!isConversationReady || isUploadingAttachments}
                 multiple
                 onChange={onAttachmentInputChange}
                 ref={fileInputRef}
                 type="file"
               />
             </label>
-            <Select
+            {/* Choosing a document tool already says what kind of work this is, and a
+              conversion needs no model, so their controls make way for its own. */}
+            {isDocumentTool ? null : <Select
               disabled={isPending}
               onValueChange={(value) => onModeSelect(value as ModelMode)}
               value={modelMode}
@@ -293,8 +438,8 @@ export function Composer({
                   {t("chat.toolbar.modeVideo")}
                 </SelectItem>
               </SelectContent>
-            </Select>
-            <Select
+            </Select>}
+            {isConvertTool ? null : <Select
               disabled={isPending || (modelMode === "chat" && !!activeChat?.assistantConfig?.model)}
               open={isModelMenuOpen}
               onOpenChange={setIsModelMenuOpen}
@@ -343,56 +488,10 @@ export function Composer({
                 <SelectSeparator />
                 <SelectItem value={ADD_MODEL}>{t("chat.modelHint.addMenuItem")}</SelectItem>
               </SelectContent>
-            </Select>
+            </Select>}
+            {isDocumentTool ? <DocumentToolBar document={choice.document} onDocumentChange={setToolDocument} format={choice.format} onFormatChange={setToolFormat} showFormat={choice.tool?.id === "convertDocument"} hasAttachments={attachments.length > 0} scope={activeChat?.documentScope} disabled={isPending} /> : null}
 
-            {modelMode === "chat" ? (
-              <>
-                <Select
-                  disabled={isPending}
-                  onValueChange={(value) =>
-                    setSelectedManualTool(value as ManualToolSelection)
-                  }
-                  value={manualToolSelectValue}
-                >
-                  <SelectTrigger
-                    aria-label={t("chat.composer.toolSelectLabel")}
-                    variant="ghost"
-                    size="sm"
-                    className="w-auto max-w-[160px]"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="w-72">
-                    <SelectItem value="none" description={t("chat.composer.toolAutoDescription")}>
-                      {t("chat.composer.toolAutoOption")}
-                    </SelectItem>
-                    {manualTools.length > 0 ? <SelectSeparator /> : null}
-                    {manualTools.map((tool) => (
-                      <SelectItem key={tool.id} value={tool.id} description={tool.description ? (tool.extensionId ? tool.description : localizeMessage(tool.description)) : undefined}>
-                        {(tool.extensionId ? tool.displayName : localizeMessage(tool.displayName))}
-                      </SelectItem>
-                    ))}
-                    {unavailableTools.length > 0 ? <>
-                      <SelectSeparator />
-                      <SelectGroup>
-                        <SelectLabel>{t("chat.composer.toolUnavailableGroup")}</SelectLabel>
-                        {unavailableTools.map((tool) => (
-                          <SelectItem
-                            disabled
-                            key={tool.id}
-                            value={`unavailable-${tool.id}`}
-                            hint={tool.extensionId ? tool.reason === "disabled" ? t("ui.chat.composer.disabled") : tool.reason === "notTested" ? t("ui.chat.composer.notTested") : tool.reason === "toolDisabled" ? t("ui.chat.composer.toolNotEnabled") : t("ui.chat.composer.credentialsUnavailable") : t("chat.composer.toolNotConfigured")}
-                          >
-                            {(tool.extensionId ? tool.displayName : localizeMessage(tool.displayName))}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </> : null}
-                  </SelectContent>
-                </Select>
-                <ContextUsage messages={messages} />
-              </>
-            ) : null}
+            {modelMode === "chat" && !isConvertTool ? <ContextUsage messages={messages} /> : null}
 
             {/* Visible hint stays exactly as before; this second, hidden node
               exists only so a screen reader hears the attachment state in the
@@ -403,9 +502,7 @@ export function Composer({
               </span>
             ) : (
               <span className="sr-only">
-                {isManualToolSelected
-                  ? t("chat.composer.attachmentsBlocked")
-                  : t("chat.composer.pasteHint")}
+                {t("chat.composer.pasteHint")}
               </span>
             )}
             <span aria-live="polite" className="sr-only">
@@ -435,7 +532,7 @@ export function Composer({
           {/* Stopping replaces sending while a turn is running. The label says
             exactly that: the request to the provider is abandoned, not undone,
             and anything already produced stays on screen. */}
-          {isRunningManualTool ? <Button size="icon" className="rounded-full" disabled aria-label={t("ui.chat.composer.runningTool")}><Loader2 data-icon="inline-start" className="animate-spin" /></Button> : isWorking ? (
+          {isConverting ? <Button size="icon" className="rounded-full" disabled aria-label={t("ui.chat.composer.runningTool")}><Loader2 data-icon="inline-start" className="animate-spin" /></Button> : isWorking ? (
             <Button
               aria-label={t("chat.composer.stop")}
               className="rounded-full"
@@ -451,20 +548,18 @@ export function Composer({
             <Button
               size="icon"
               className="rounded-full"
-              disabled={!isConversationReady || isDocumentScopeSaving || (isDocumentTool ? !selectedToolDocument : !input.trim() && attachments.length === 0)}
+              disabled={!isConversationReady || isDocumentScopeSaving || !canSend}
               type="submit"
             >
               <ArrowUp aria-hidden="true" strokeWidth={2.25} />
               <span className="sr-only">
-                {isManualToolSelected
-                  ? ((selectedManualToolConfig ? localizeMessage(selectedManualToolConfig.manual.submitLabel) : undefined) ??
-                    t("chat.composer.runTool"))
-                  : t("chat.composer.send")}
+                {isDirectRun ? t("chat.convert.submit") : t("chat.composer.send")}
               </span>
             </Button>
           )}
         </div>
       </div>
+      } />
     </form>
   );
 }

@@ -8,6 +8,7 @@ import { browserApi, browserData } from "../helpers/browser-api";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { chooseOption } from "../helpers/select";
 import { textPdf, wordTableDocument } from "../helpers/document-fixtures";
+import { chooseFromSlashMenu } from "../helpers/slash-menu";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({ app: async ({}, provide) => {
   const app = await startStandaloneServer({ modelFixture: true });
@@ -99,27 +100,20 @@ test("document actions select files as parameters and return to automatic tools 
     localStorage.setItem(`chat:prefs:${id}`, JSON.stringify({ modelMode: "chat", selectedChatModel: { providerId: "openrouter", modelId: "anthropic/claude-opus-4.6" }, selectedManualTool: "readDocument", manualToolsOnly: true }));
   }, chat.id);
   await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
-  const tools = page.getByRole("combobox", { name: "选择工具", exact: true });
-  await expect(tools).toContainText("自动工具");
   await expect(page.getByRole("checkbox", { name: "仅手动", exact: true })).toHaveCount(0);
   await expect(page.locator(".composer-input")).toHaveCSS("height", "80px");
   expect((await page.locator(".composer-surface").boundingBox())!.width).toBe(672);
-  await page.getByPlaceholder(/输入你的问题/).fill("保留这份普通对话草稿");
-  await tools.click();
-  await expect(page.getByRole("option", { name: "文档 ID", exact: true })).toHaveCount(0);
-  await page.getByRole("option", { name: "读取文档", exact: true }).click();
-  const submit = page.getByRole("button", { name: "读取文档", exact: true });
+  // Reading a library document goes through the model, which gets the chosen document.
+  await chooseFromSlashMenu(page, "读取文档");
+  const submit = page.getByRole("button", { name: "发送", exact: true });
   await expect(submit).toBeDisabled();
   const source = page.getByRole("combobox", { name: "知识库文档", exact: true });
   await expect(source).toBeEnabled(); await source.click();
   await page.getByRole("option", { name: "差旅标准.md", exact: true }).click();
-  const calls = app.providerCalls.length;
   await submit.click();
-  await expect(tools).toContainText("自动工具");
-  await expect(page.getByText("读取文档：差旅标准.md", { exact: true })).toBeVisible();
-  await expect(page.getByText(/请保留这些文档内容。/).first()).toBeVisible();
-  await expect(page.getByPlaceholder(/输入你的问题/)).toHaveValue("保留这份普通对话草稿");
-  expect(app.providerCalls.length).toBe(calls);
+  await expect(page.locator(".message-choices").getByText("差旅标准.md", { exact: true })).toBeVisible();
+  await expect(page.getByText("读取 差旅标准.md", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
   const requests: unknown[] = []; page.on("request", request => { if (request.url().endsWith("/api/chat") && request.method() === "POST") requests.push(request.postDataJSON()); });
   await page.getByPlaceholder(/输入你的问题/).fill("OFFLINE_CREATE_TASK 帮我创建任务");
   await page.getByRole("button", { name: "发送", exact: true }).click();
@@ -138,7 +132,31 @@ test("document actions select files as parameters and return to automatic tools 
   expect(errors).toEqual([]);
 });
 
-test("document action failures retain the chosen resource and scope changes discard obsolete choices", async ({ page, app }) => {
+test("an attached Word file converts in one click from a new conversation, with no model", async ({ page, app }) => {
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  await page.goto(`${app.origin}/chat`);
+  await chooseFromSlashMenu(page, "转换并导出文档");
+  await page.getByLabel("选择要上传的附件", { exact: true }).setInputFiles({ name: "方案.docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", buffer: await wordTableDocument() });
+  const format = page.getByRole("combobox", { name: "输出格式", exact: true });
+  // Converting Word into Word would change nothing, so it starts on another format.
+  await expect(format).toContainText("Markdown");
+  await expect(page.getByRole("combobox", { name: "知识库文档", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "转换", exact: true }).click();
+  const download = page.getByRole("button", { name: "下载 Markdown · 方案.md", exact: true });
+  await expect(download).toBeVisible();
+  await expect(page.locator(".composer-choices .composer-choice")).toHaveCount(0);
+  await expect(page.locator(".message-choices").getByText("转换并导出文档", { exact: true })).toBeVisible();
+  const saved = page.waitForEvent("download");
+  await download.click();
+  expect((await saved).suggestedFilename()).toBe("方案.md");
+  // The conversation is the real one: the result is still there after a reload.
+  await page.reload();
+  await expect(page.getByRole("button", { name: "下载 Markdown · 方案.md", exact: true })).toBeVisible();
+  expect(app.providerCalls).toHaveLength(0);
+  expect(errors).toEqual([]);
+});
+
+test("a failed conversion keeps its choice to retry, needs no model, and scope changes discard obsolete documents", async ({ page, app }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`${app.origin}/knowledge`);
   const docs = await page.evaluate(async () => {
@@ -154,14 +172,14 @@ test("document action failures retain the chosen resource and scope changes disc
   await browserApi(page, `/api/conversations/${chat.id}`, "PATCH", { documentScope: ["本次资料"] });
   await page.evaluate(id => localStorage.setItem("chat:last-active-id", id), chat.id);
   await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
-  const tools = page.getByRole("combobox", { name: "选择工具", exact: true });
-  await tools.click(); await page.getByRole("option", { name: "转换并导出文档", exact: true }).click();
+  const word = page.locator(".composer-choices .composer-choice");
+  await chooseFromSlashMenu(page, "转换并导出文档");
   const source = page.getByRole("combobox", { name: "知识库文档", exact: true });
   await expect(source).toBeEnabled(); await source.click();
   await expect(page.getByRole("option", { name: "其他资料.md · 其他资料", exact: true })).toHaveCount(0);
   await page.getByRole("option", { name: "本次资料.md · 本次资料", exact: true }).click();
   // The format is chosen beside the document and is what the export uses.
-  await chooseOption(page.getByRole("combobox", { name: "导出格式", exact: true }), "Markdown");
+  await chooseOption(page.getByRole("combobox", { name: "输出格式", exact: true }), "Markdown");
   await page.evaluate(() => {
     const original = window.fetch.bind(window);
     let fail = true;
@@ -174,28 +192,25 @@ test("document action failures retain the chosen resource and scope changes disc
       return original(input, init);
     };
   });
-  await page.getByRole("button", { name: "转换并导出文档", exact: true }).click();
-  await expect(page.getByRole("alert").filter({ hasText: "请求失败" })).toContainText("文档服务暂不可用");
-  await expect(tools).toContainText("转换并导出文档"); await expect(source).toContainText("本次资料.md");
+  const convert = page.getByRole("button", { name: "转换", exact: true });
+  await convert.click();
+  await expect(page.getByText("转换失败。", { exact: true })).toBeVisible();
+  await expect(word).toHaveText(["转换并导出文档"]); await expect(source).toContainText("本次资料.md");
   await mkdir(screenshots, { recursive: true });
   await page.screenshot({ path: join(screenshots, "document-action-mobile.png"), animations: "disabled" });
-  await page.getByRole("button", { name: "转换并导出文档", exact: true }).click();
-  await expect(tools).toContainText("自动工具");
+  await convert.click();
+  await expect(word).toHaveCount(0);
   await expect(page.getByRole("button", { name: "下载 Markdown · 本次资料.md", exact: true })).toBeVisible();
-  await tools.click(); await page.getByRole("option", { name: "读取文档", exact: true }).click();
-  await expect(source).toBeEnabled(); await source.click();
-  await page.getByRole("option", { name: "本次资料.md · 本次资料", exact: true }).click();
   await browserApi(page, `/api/conversations/${chat.id}`, "PATCH", { documentScope: ["其他资料"] });
   await page.reload();
-  await expect(tools).toContainText("自动工具");
-  await tools.click(); await page.getByRole("option", { name: "读取文档", exact: true }).click();
-  await expect(page.getByRole("button", { name: "读取文档", exact: true })).toBeDisabled();
+  await expect(word).toHaveCount(0);
+  await chooseFromSlashMenu(page, "转换并导出文档");
   await expect(source).toBeEnabled(); await source.click();
   await expect(page.getByRole("option", { name: "本次资料.md · 本次资料", exact: true })).toHaveCount(0);
   await page.getByRole("option", { name: "其他资料.md · 其他资料", exact: true }).click();
-  await page.getByRole("button", { name: "读取文档", exact: true }).click();
-  await expect(tools).toContainText("自动工具");
-  expect((await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes(`"documentId":"${docs[1].id}"`))).toBe(true);
+  await page.getByRole("button", { name: "转换", exact: true }).click();
+  await expect(word).toHaveCount(0);
+  await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes(`"documentId":"${docs[1].id}"`))).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(app.providerCalls).toHaveLength(0);
 });

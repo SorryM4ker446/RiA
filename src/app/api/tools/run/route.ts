@@ -1,165 +1,53 @@
 import { protectDataOperation } from "@/lib/server/data-operations";
-import { LOCAL_WORKSPACE_ID } from "@/lib/local/workspace";
-import { chatModelSchema } from "@/lib/server/request-schemas";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { readJsonBody } from "@/lib/server/request-body";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { ApiError, normalizeApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { requireLocalWorkspace } from "@/lib/local/workspace";
-import { logToolExecution } from "@/lib/server/tool-log";
-import { executeRegisteredTool, resolveToolDescriptor, type ToolMode } from "@/tools/catalog";
-import { persistToolMemory } from "@/tools/memory-policy";
-import { getModelPreferences, preferredModel } from "@/lib/models/preferences";
-import { t } from "@/lib/locale";
+import { executeRegisteredTool, resolveToolDescriptor } from "@/tools/catalog";
+import { templateAllowsTool } from "@/tools/template-access";
 import { db } from "@/db";
 import { identifierSchema } from "@/lib/server/request-schemas";
 import { decodeDocumentScope } from "@/lib/documents/scope";
 import { readAssistantSnapshot } from "@/lib/assistants/schema";
 
-const TOOL_DEBUG = process.env.TOOL_DEBUG === "1";
-
 const runToolSchema = z.strictObject({
   tool: z.string().trim().min(1).max(100),
   input: z.json(),
-  model: chatModelSchema.optional(),
-  mode: z.literal("chat"),
   chatId: identifierSchema.optional(),
 });
 
+/**
+ * Runs a tool the composer can finish without a model, such as converting a
+ * document. Everything else goes through the conversation, where the model has
+ * the context to fill in the tool's input and to use what it returns.
+ */
 async function POSTHandler(req: NextRequest) {
-  const startedAt = Date.now();
-  let logContext: { toolId: string; requestId?: string } | null = null;
-  let executionStarted = false;
-
   try {
     await requireLocalWorkspace(req);
     enforceRateLimit("tools");
     const parsed = runToolSchema.safeParse(await readJsonBody(req));
-
-    if (!parsed.success) {
-      throw new ApiError({
-        code: "VALIDATION_ERROR",
-        message: "Invalid tool request",
-        details: parsed.error.flatten(),
-      });
-    }
-
-    const toolId = parsed.data.tool.trim();
-    const mode = parsed.data.mode as ToolMode;
-    logContext = { toolId };
-
+    if (!parsed.success) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid tool request", details: parsed.error.flatten() });
+    const toolId = parsed.data.tool;
     const descriptor = await resolveToolDescriptor(toolId);
-    if (!descriptor) {
-      throw new ApiError({
-        code: "VALIDATION_ERROR",
-        message: `Unsupported tool: ${toolId}`,
-      });
-    }
-
-    if (!descriptor.modeSupport.includes(mode)) {
-      throw new ApiError({
-        code: "VALIDATION_ERROR",
-        message: `Tool ${toolId} is not supported in mode: ${mode}`,
-      });
-    }
-
-    if (!descriptor.manual.enabled) {
-      throw new ApiError({
-        code: "VALIDATION_ERROR",
-        message: `Tool ${toolId} is not available for manual invocation`,
-      });
-    }
-
-    const parsedInput = descriptor.inputSchema.safeParse(parsed.data.input);
-    if (!parsedInput.success) {
-      throw new ApiError({
-        code: "VALIDATION_ERROR",
-        message: "Invalid tool input",
-        details: parsedInput.error.flatten(),
-      });
-    }
-
+    if (descriptor?.surface.user?.run !== "direct") throw new ApiError({ code: "VALIDATION_ERROR", message: `Tool ${toolId} cannot run without the conversation` });
+    const input = descriptor.inputSchema.safeParse(parsed.data.input);
+    if (!input.success) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid tool input", details: input.error.flatten() });
     const conversation = parsed.data.chatId
-      ? await db.chat.findUnique({ where: { id: parsed.data.chatId }, select: { documentScope: true, ephemeral: true, assistantConfig: true } })
+      ? await db.chat.findUnique({ where: { id: parsed.data.chatId }, select: { documentScope: true, assistantConfig: true } })
       : null;
     if (parsed.data.chatId && !conversation) throw new ApiError({ code: "NOT_FOUND", message: "Conversation was not found" });
     const assistant = readAssistantSnapshot(conversation?.assistantConfig);
-    if (assistant && !assistant.tools.includes(toolId)) throw new ApiError({ code: "VALIDATION_ERROR", message: "当前助理模板不允许执行此工具。" });
-    if (assistant?.model && parsed.data.model && (assistant.model.providerId !== parsed.data.model.providerId || assistant.model.modelId !== parsed.data.model.modelId)) throw new ApiError({ code: "VALIDATION_ERROR", message: "会话使用模板绑定的模型。" });
-    const usesMemory = !conversation?.ephemeral;
-    // Manual execution is explicit user input. A model is only optional
-    // synthesis, so local tasks and retrieval must work with an empty library.
-    const chosenModel = assistant?.model ?? parsed.data.model;
-    const modelRef = chosenModel
-      ? await preferredModel("chat", chosenModel)
-      : (await getModelPreferences()).chat.model ?? undefined;
-    executionStarted = true;
-    const { input: preparedInput, output: data } = await executeRegisteredTool(descriptor, parsedInput.data, {
-      modelRef, trigger: "manual", signal: req.signal,
+    if (assistant && !templateAllowsTool(assistant.tools, toolId)) throw new ApiError({ code: "VALIDATION_ERROR", message: "当前助理模板不允许执行此工具。" });
+    const { output } = await executeRegisteredTool(descriptor, input.data, {
+      trigger: "manual", signal: req.signal,
       documentCollections: decodeDocumentScope(conversation?.documentScope),
-      documentRetrievalPolicy: assistant?.retrieval, usesMemory,
+      documentRetrievalPolicy: assistant?.retrieval,
     });
-    const requestId =
-      data && typeof data === "object" && "requestId" in data && typeof data.requestId === "string"
-        ? data.requestId
-        : undefined;
-    logContext = { toolId, requestId };
-
-    const assistantText = (
-      await descriptor.buildAssistantText({
-        input: preparedInput,
-        output: data,
-        modelRef,
-        trigger: "manual",
-        signal: req.signal,
-      })
-    ).trim();
-
-    try {
-      if (usesMemory) {
-        const memoryResult = await persistToolMemory({
-          workspaceId: LOCAL_WORKSPACE_ID,
-          toolId,
-          trigger: "manual",
-          state: "output-available",
-          input: preparedInput,
-          output: data,
-          assistantText,
-          modelRef,
-        });
-
-        if (TOOL_DEBUG) {
-          console.info("tools.run.memory", {
-            toolId,
-            trigger: "manual",
-            writeDecision: memoryResult.reason,
-            written: memoryResult.written,
-          });
-        }
-      }
-    } catch (memoryError) {
-      console.warn("tools.run memory.persist warning", normalizeApiError(memoryError).code);
-    }
-
-    const response = Response.json({
-      tool: toolId,
-      data,
-      assistantText,
-    });
-    return response;
+    return Response.json({ tool: toolId, data: output });
   } catch (error) {
     console.error("/api/tools/run POST error", normalizeApiError(error).code);
-    if (logContext && !executionStarted) {
-      logToolExecution({
-        toolId: logContext.toolId,
-        trigger: "manual",
-        state: "output-error",
-        durationMs: Date.now() - startedAt,
-        requestId: logContext.requestId,
-        errorCode: error instanceof ApiError ? error.code : "INTERNAL_ERROR",
-      });
-    }
     return createApiErrorResponse(error, "Failed to run tool");
   }
 }

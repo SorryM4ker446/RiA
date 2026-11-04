@@ -1,3 +1,4 @@
+import { messageInvocationSchema, readMessageInvocation, type MessageInvocation } from "@/lib/chat/invocation-schema";
 import { documentDiagnosticsSchema, type DocumentDiagnostics } from "@/lib/documents/diagnostics";
 import { UIMessage } from "ai";
 import { documentSourceSchema, type DocumentSource } from "@/lib/documents/types";
@@ -15,6 +16,8 @@ export type PersistedUserMessagePayload = {
   type: "user-message";
   text: string;
   files: PersistedFilePart[];
+  /** What the user chose in the composer for this message. */
+  invocation?: MessageInvocation;
 };
 
 export type PersistedAssistantToolItem = {
@@ -46,6 +49,8 @@ export type PersistedAssistantToolMessagePayload = {
   reasoning?: string;
   /** Optional tools this turn could not use, recorded for the note below. */
   unavailableTools?: string[];
+  /** The tool the user chose for this turn, when the model answered without calling it. */
+  skippedTool?: string;
   documentSources?: DocumentSource[];
   documentDiagnostics?: DocumentDiagnostics;
   runId?: string;
@@ -95,6 +100,7 @@ export function getLatestUserMessage(messages: UIMessage[]): {
   id?: string;
   text: string;
   files: PersistedFilePart[];
+  invocation: MessageInvocation | null;
 } | null {
   const userMessages = messages.filter((message) => message.role === "user");
   const latest = userMessages[userMessages.length - 1];
@@ -110,7 +116,7 @@ export function getLatestUserMessage(messages: UIMessage[]): {
     }));
 
   if (!text && files.length === 0) return null;
-  return { id: latest.id, text, files };
+  return { id: latest.id, text, files, invocation: readMessageInvocation(latest.metadata) };
 }
 
 export function encodePersistedUserMessage(payload: PersistedUserMessagePayload): string {
@@ -135,9 +141,11 @@ export function decodePersistedUserMessage(content: string): PersistedUserMessag
         file.mediaType.length > 0,
     );
 
+    const invocation = messageInvocationSchema.safeParse(parsed.invocation);
     return {
       type: "user-message",
       text: parsed.text,
+      ...(invocation.success ? { invocation: invocation.data } : {}),
       files: validFiles.map((file) => ({
         url: file.url,
         mediaType: file.mediaType,
@@ -213,6 +221,7 @@ export function decodePersistedAssistantToolMessage(
       ...(contextReportSchema.safeParse(parsed.contextBudget).success ? { contextBudget: contextReportSchema.parse(parsed.contextBudget) } : {}),
       ...(reasoning ? { reasoning } : {}),
       ...(unavailableTools?.length ? { unavailableTools } : {}),
+      ...(typeof parsed.skippedTool === "string" ? { skippedTool: parsed.skippedTool.slice(0, 100) } : {}),
       tools,
       ...(documentDiagnosticsSchema.safeParse(parsed.documentDiagnostics).success ? { documentDiagnostics: documentDiagnosticsSchema.parse(parsed.documentDiagnostics) } : {}),
       ...(Array.isArray(parsed.documentSources) ? { documentSources: parsed.documentSources.slice(0, 8).flatMap(source => {

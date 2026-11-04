@@ -14,7 +14,6 @@ const { searchKnowledge } = await import("@/tools/definitions/search-knowledge")
 const { tokenizeQuery, scoreMemory, rankByScore, CONTEXT_MEMORY_POLICY, KNOWLEDGE_MEMORY_POLICY } = await import("@/lib/memory/retrieval");
 import { seedTestModelPreferences } from "../helpers/model-library";
 const { getDefaultChatPreferences, readChatPreferences } = await import("@/features/chat/preferences");
-const { buildDefaultManualFieldValues, validateManualToolFields, normalizeManualToolInput } = await import("@/features/chat/tool-input");
 after(async () => { await db.$disconnect(); cleanup(); });
 
 test("memory ranking preserves lexical, semantic, recency and manual weighting", () => {
@@ -95,12 +94,3 @@ test("per-conversation preferences preserve stale model references for explicit 
   assert.deepEqual(readChatPreferences("conversation"), { ...getDefaultChatPreferences(), selectedImageModel: { providerId: "openrouter", modelId: "image/one" } });
 });
 
-test("manual tool fields preserve defaults, numeric bounds and normalized input", () => {
-  // The manual-field helpers read only `tool.manual`, so the fixture supplies
-  // just that subtree rather than the catalog fields the picker fills in.
-  const tool = { manual: { primaryFieldKey: "query", fields: [{ key: "topK", type: "number", required: true, min: 1, max: 8, defaultValue: "4" }] } } as unknown as ToolCatalogItem;
-  assert.deepEqual(buildDefaultManualFieldValues(tool), { topK: "4" });
-  assert.deepEqual(validateManualToolFields(tool, { topK: "9" }), { topK: "最大值为 8" });
-  assert.deepEqual(validateManualToolFields(tool, { topK: "abc" }), { topK: "请输入有效数字" });
-  assert.deepEqual(normalizeManualToolInput({ tool, text: "SQLite", fieldValues: {} }), { query: "SQLite", topK: 4 });
-});

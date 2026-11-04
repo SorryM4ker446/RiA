@@ -101,7 +101,7 @@ test("permission updates are authenticated, strict and versioned; a tool cannot 
   assert.equal((await permissionRoute.PATCH(request(url, "PATCH", { terminalEnabled: true, terminalApprovalMode: "sometimes", revision: grant.updatedAt }), ctx(grant.id))).status, 400);
   assert.equal((await permissionRoute.PATCH(request(url, "PATCH", { terminalEnabled: true, revision: grant.updatedAt }), ctx(grant.id))).status, 200);
   assert.equal((await permissionRoute.PATCH(request(url, "PATCH", { terminalEnabled: false, revision: grant.updatedAt }), ctx(grant.id))).status, 409);
-  assert.equal((await manualRoute.POST(request("/api/tools/run", "POST", { tool: "runTerminalCommand", mode: "chat", input: { grantId: grant.id, command: echo } }))).status, 400);
+  assert.equal((await manualRoute.POST(request("/api/tools/run", "POST", { tool: "runTerminalCommand", input: { grantId: grant.id, command: echo } }))).status, 400);
   const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"], chatId: await workspaceChat(grant.id) });
   const schema = await asSchema(tools.runTerminalCommand.inputSchema).jsonSchema;
   assert.equal((schema.properties as Record<string, unknown>).timeoutSeconds, undefined);

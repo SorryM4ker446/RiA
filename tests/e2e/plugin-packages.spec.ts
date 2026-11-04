@@ -12,6 +12,7 @@ import { acceptConfirm } from "../helpers/confirm";
 import { chooseRowAction, openRowMenu } from "../helpers/row-menu";
 import { toasts } from "../helpers/toast";
 import { trackChatStreams, waitForChatStream } from "../helpers/chat-stream";
+import { chosenWords, composerInput, slashOption } from "../helpers/slash-menu";
 
 type App = { runtime: Awaited<ReturnType<typeof startStandaloneServer>>; service: Awaited<ReturnType<typeof startExtensionService>> };
 const test = base.extend<{ app: App }>({ app: async ({}, provide) => {
@@ -116,6 +117,20 @@ for (const kind of ["http", "mcp-http"] as const) test(`${kind} combination pack
     app.service.state.hold = false;
   }
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  // Once enabled, its skill and its connection's tools can be chosen with a slash.
+  await page.goto(`${app.runtime.origin}/chat`);
+  await composerInput(page).click();
+  await page.keyboard.type("/");
+  const slashList = page.getByRole("listbox", { name: "工具、技能和插件", exact: true });
+  await expect(slashList).toBeVisible();
+  await expect(slashList.locator(".slash-menu-heading").getByText("技能", { exact: true })).toBeVisible();
+  await expect(slashList.locator(".slash-menu-heading").getByText("插件", { exact: true })).toBeVisible();
+  await expect(page.getByRole("option").filter({ hasText: "Package echo" })).toBeVisible();
+  await slashOption(page, "Research skill").click();
+  await expect(chosenWords(page)).toHaveText(["Research skill"]);
+  await page.keyboard.type("/");
+  await page.getByRole("option").filter({ hasText: "Package echo" }).click();
+  await expect(chosenWords(page)).toHaveCount(2);
   const chat = await send(page, app, "OFFLINE_EXTENSION_TOOL");
   const approval = page.getByRole("button", { name: "批准", exact: true }); await expect(approval).toBeEnabled();
   await expect.poll(() => systemText(app)).toContain("Use for package acceptance questions."); expect(app.service.state.calls).toHaveLength(0);

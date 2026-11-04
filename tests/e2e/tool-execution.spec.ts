@@ -7,6 +7,7 @@ import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { browserApi, browserData } from "../helpers/browser-api";
+import { chooseFromSlashMenu, composerInput } from "../helpers/slash-menu";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => {
@@ -179,16 +180,13 @@ test("manual provider search hides result controls and lets the selected model p
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "搜索数量由模型决定" })).body.data;
   await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
-  await page.getByLabel("选择工具").click();
-  await page.getByRole("option", { name: "联网搜索", exact: true }).click();
-  await expect(page.locator("#manual-tool-maxResults")).toHaveCount(0);
-  const query = page.getByPlaceholder(/输入要搜索的关键词/);
-  await query.fill("Compare current official release options");
+  await chooseFromSlashMenu(page, "联网搜索");
+  await composerInput(page).fill("OFFLINE_WEB_SEARCH Compare current official release options");
   await page.screenshot({ path: join(tmpdir(), "ria-model-search-count.png"), animations: "disabled" });
-  await page.getByRole("button", { name: "执行工具", exact: true }).click();
-  await expect(page.locator("article").last()).toContainText("离线回答：User question: Compare current official release options");
-  expect(app.providerCalls.some(call => JSON.stringify(call.messages).includes("Choose the number of web search results"))).toBe(true);
-  expect(app.providerCalls.some(call => JSON.stringify(call.messages).includes("14 relevant sources"))).toBe(true);
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  await expect(page.locator(".message-choices").getByText("联网搜索", { exact: true })).toBeVisible();
+  await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes('"provider":"openrouter"'))).toBe(true);
+  await expect(page.getByText(/没有调用你选择的/)).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 

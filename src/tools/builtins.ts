@@ -1,24 +1,17 @@
 import { COMPACT_CONTEXT_TOOL } from "@/lib/chat/compact-context";
 import { settingsHref } from "@/lib/settings/sections";
 import { withModelCallSource } from "@/lib/models/call-context";
-import { generateText, Output, streamText } from "ai";
-import { MODEL_CALL_DEADLINE_MS, streamDeadline } from "@/lib/models/call-deadlines";
+import { generateText, Output } from "ai";
+import { MODEL_CALL_DEADLINE_MS } from "@/lib/models/call-deadlines";
 import { z } from "zod";
-import { ApiError, normalizeApiError } from "@/lib/server/api-error";
+import { ApiError } from "@/lib/server/api-error";
 import { getChatModel } from "@/lib/ai/client";
-import { t, tf, formatDateTime } from "@/lib/locale";
+import { t, tf } from "@/lib/locale";
 import { saveMemory } from "@/lib/memory/store";
 import { preferredModel, getModelPreferences } from "@/lib/models/preferences";
 import type { ModelRef } from "@/lib/models/preferences-schema";
-import {
-  SEARCH_ANSWER_OUTPUT,
-  SEARCH_ANSWER_SYSTEM,
-  WEB_ANSWER_OUTPUT,
-  WEB_ANSWER_SYSTEM,
-} from "@/lib/prompts";
 import { createTask, createTaskInputSchema } from "@/tools/definitions/create-task";
 import { searchKnowledge, searchKnowledgeInputSchema } from "@/tools/definitions/search-knowledge";
-import { documentSourceUrl } from "@/lib/documents/types";
 import { searchConfigured, resolveSearchRoute, searchResultLimit } from "./definitions/provider-search";
 import { runWebSearch, webSearchInput } from "@/tools/definitions/web-search";
 import { documentProcessorTools } from "@/tools/definitions/document-processor";
@@ -31,98 +24,6 @@ import { TERMINAL_COMPANION_TOOLS } from "./terminal-companions";
 import { terminalRuntimeAllowed } from "@/lib/terminal/schema";
 
 import type { AnyToolDescriptor, ToolMode, ToolAvailability } from "./types";
-
-function buildSearchFallbackText(result: Awaited<ReturnType<typeof searchKnowledge>>): string {
-  if (result.total === 0 || result.results.length === 0) {
-    return tf("tools.searchKnowledge.noResults", { query: result.query });
-  }
-
-  const top = result.results[0];
-  const sourceLabel = top.source === "document"
-    ? tf("tools.searchKnowledge.sourceDocument", { title: top.title })
-    : top.source === "memory"
-      ? t("tools.searchKnowledge.sourceMemory")
-      : t("tools.searchKnowledge.sourceBuiltin");
-  return `${sourceLabel}${t("tools.searchKnowledge.sourceSeparator")}${top.snippet}`;
-}
-
-async function buildSearchAssistantText(params: {
-  signal?: AbortSignal;
-  result: Awaited<ReturnType<typeof searchKnowledge>>;
-  modelRef?: ModelRef;
-}): Promise<string> {
-  const { result, modelRef } = params;
-
-  if (result.total === 0 || result.results.length === 0) {
-    return buildSearchFallbackText(result);
-  }
-
-  const references = result.results.slice(0, 5).map((item, index) => ({
-    index: index + 1,
-    title: item.title,
-    snippet: item.snippet,
-    source: item.source,
-    ...(item.reference ? { url: documentSourceUrl(item.reference), page: item.reference.pageNumber } : {}),
-    score: item.score,
-  }));
-
-  try {
-    const selectedModel = await preferredModel("chat", modelRef);
-    const reasoning = await workspaceReasoning();
-    const deadline = streamDeadline(params.signal);
-    const answer = withModelCallSource("tool", () => streamText({
-      model: getChatModel(selectedModel, { reasoning }),
-      system: SEARCH_ANSWER_SYSTEM,
-      maxRetries: 0, abortSignal: deadline.signal, onChunk: deadline.touch, onError: () => undefined,
-      prompt: [
-        `User question: ${result.query}`,
-        "",
-        "Knowledge-base retrieval results (ordered by relevance):",
-        JSON.stringify(references, null, 2),
-        "",
-        SEARCH_ANSWER_OUTPUT,
-      ].join("\n"),
-    }));
-
-    const text = (await Promise.resolve(answer.text).finally(deadline.dispose)).trim();
-    if (text) return text;
-  } catch {
-    // Fallback to deterministic summary when synthesis fails.
-  }
-
-  return buildSearchFallbackText(result);
-}
-
-function buildCreateTaskAssistantText(result: Awaited<ReturnType<typeof createTask>>): string {
-  const due = result.dueDate
-    ? tf("tools.createTask.duePrefix", {
-        value: formatDateTime(result.dueDate, { timeZone: result.timeZone }),
-        timeZone: result.timeZone,
-      })
-    : "";
-  const reminder = result.reminderEnabled ? t("tools.createTask.reminderSuffix") : "";
-  const repeat = result.repeatRule !== "none"
-    ? tf("tools.createTask.repeatSuffix", { rule: result.repeatRule })
-    : "";
-  return tf("tools.createTask.created", { title: result.title, due, reminder, repeat, status: result.status });
-}
-
-function buildWebSearchFallbackText(result: Awaited<ReturnType<typeof runWebSearch>>): string {
-  // A skipped lookup is reported as skipped, not as an empty result set, so
-  // the answer never implies a search happened.
-  if (result.skipped === "resultBudget" || result.skipped === "budget") return t("tools.webSearch.skippedBudget");
-  if (result.skipped === "runStopped") return t("tools.webSearch.skippedStopped");
-  if (result.skipped) return t("tools.webSearch.skippedUnavailable");
-  const count = Array.isArray(result.results) ? result.results.length : 0;
-  if (count === 0) {
-    return tf("tools.webSearch.noResults", { query: result.query });
-  }
-  const references = result.results
-    .map((item, index) => `${index + 1}. [${item.title}](${item.url})${item.snippet ? `${t("tools.webSearch.snippetSeparator")}${item.snippet}` : ""}`)
-    .join("\n");
-
-  return [tf("tools.webSearch.completed", { count }), "", t("tools.webSearch.expandHint"), references].join("\n");
-}
 
 async function resolveWebSearchInput(params: {
   input: z.infer<typeof webSearchInput>;
@@ -149,53 +50,6 @@ async function resolveWebSearchInput(params: {
     abortSignal: params.signal ? AbortSignal.any([params.signal, AbortSignal.timeout(MODEL_CALL_DEADLINE_MS)]) : AbortSignal.timeout(MODEL_CALL_DEADLINE_MS),
   }));
   return { ...params.input, maxResults: plan.output.maxResults };
-}
-
-async function buildWebSearchAssistantText(params: {
-  signal?: AbortSignal;
-  result: Awaited<ReturnType<typeof runWebSearch>>;
-  modelRef?: ModelRef;
-}): Promise<string> {
-  const { result, modelRef } = params;
-  const count = Array.isArray(result.results) ? result.results.length : 0;
-  if (count === 0) {
-    return buildWebSearchFallbackText(result);
-  }
-
-  const references = result.results.map((item, index) => ({
-    index: index + 1,
-    title: item.title,
-    url: item.url,
-    snippet: item.snippet,
-    score: item.score,
-    source: item.source,
-  }));
-
-  try {
-    const selectedModel = await preferredModel("chat", modelRef);
-    const reasoning = await workspaceReasoning();
-    const deadline = streamDeadline(params.signal);
-    const answer = withModelCallSource("tool", () => streamText({
-      model: getChatModel(selectedModel, { reasoning }),
-      system: WEB_ANSWER_SYSTEM,
-      maxRetries: 0, abortSignal: deadline.signal, onChunk: deadline.touch, onError: () => undefined,
-      prompt: [
-        `User question: ${result.query}`,
-        "",
-        "Web search results (ordered by relevance):",
-        JSON.stringify(references, null, 2),
-        "",
-        ...WEB_ANSWER_OUTPUT,
-      ].join("\n"),
-    }));
-
-    const text = (await Promise.resolve(answer.text).finally(deadline.dispose)).trim();
-    if (text) return text;
-  } catch (error) {
-    console.warn("webSearch synthesis failed", normalizeApiError(error).code);
-  }
-
-  return buildWebSearchFallbackText(result);
 }
 
 /**
@@ -226,26 +80,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     modelDescription:
       "Store one durable fact about the user so future conversations can act on it: a name, a preference, a constraint, a standing instruction. Use it when the user states something they want kept, such as \"remember that ...\" or \"my name is ...\", in any language. Do not use it for passing information, for conversation-specific context, or for anything the user did not ask you to keep.",
     modeSupport: ["chat"],
-    manual: {
-      enabled: true,
-      label: t("tools.saveMemory.manualLabel"),
-      placeholder: t("tools.saveMemory.placeholder"),
-      submitLabel: t("tools.common.submitLabel"),
-      primaryFieldKey: "value",
-      primaryFieldLabel: t("tools.saveMemory.primaryFieldLabel"),
-      fields: [
-        {
-          // A handle for updating the fact later; a fact saved by hand has no
-          // name of its own to update it by, so it is not asked for.
-          key: "key",
-          label: t("tools.saveMemory.keyLabel"),
-          type: "text",
-          hidden: true,
-          required: true,
-          defaultValue: "user_memory",
-        },
-      ],
-    },
+    surface: { category: "knowledge", user: { run: "model", hint: t("tools.saveMemory.hint") }, template: "selectable" },
     inputSchema: saveMemoryInputSchema,
     // A memory enters every later conversation it matches. The model may be
     // acting on text it read in a page, document or command output, so its
@@ -255,10 +90,6 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     execute: async ({ input, usesMemory }) => {
       if (usesMemory === false) throw new ApiError({ code: "VALIDATION_ERROR", message: t("tools.saveMemory.disabled") });
       return saveMemory({ key: input.key, value: input.value, score: 0.9, onConflict: "keep-both" });
-    },
-    buildAssistantText: ({ output, input }) => {
-      const result = output as { key: string };
-      return tf("tools.saveMemory.saved", { key: result.key, value: input.value });
     },
     memory: {
       // The tool's whole job is already to write a memory, so recording the
@@ -275,24 +106,9 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     modelDescription:
       "Search imported documents, stored knowledge memory, and built-in knowledge; returns citable results. Use it when the user asks what the project already knows, imports, or records about a topic. Do not use it for general knowledge, opinions, or anything answerable without the workspace.",
     modeSupport: ["chat"],
-    manual: {
-      enabled: true,
-      label: t("tools.searchKnowledge.manualLabel"),
-      placeholder: t("tools.searchKnowledge.placeholder"),
-      submitLabel: t("tools.common.submitLabel"),
-      primaryFieldKey: "query",
-      primaryFieldLabel: t("tools.searchKnowledge.primaryFieldLabel"),
-      // How many results to return is the tool's own default, not a choice to
-      // put in front of someone searching.
-      fields: [],
-    },
+    surface: { category: "knowledge", user: { run: "model", hint: t("tools.searchKnowledge.hint") }, template: "selectable" },
     inputSchema: searchKnowledgeInputSchema,
     execute: async ({ input, documentCollections, documentRetrievalPolicy, usesMemory, signal }) => searchKnowledge(input, { collections: documentCollections, policy: documentRetrievalPolicy, usesMemory, signal }),
-    buildAssistantText: async ({ output, modelRef, signal }) =>
-      buildSearchAssistantText({
-        result: output,
-        modelRef, signal,
-      }),
     memory: {
       enabled: true,
       minQuality: 0.25,
@@ -325,41 +141,9 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       "Create a task for the current user. Supports a due date, an IANA timeZone (default UTC), reminderEnabled for desktop due reminders, and repeatRule (none/daily/weekly/monthly, where each repeat is created after the previous one completes). Both reminders and repeats require dueDate; a time without an offset is interpreted in timeZone. Use it only when the user wants something tracked or scheduled. Do not use it to answer a question, and never create a task the user did not ask for.",
     modeSupport: ["chat"],
     requiresApproval: true,
-    manual: {
-      enabled: true,
-      label: t("tools.createTask.manualLabel"),
-      placeholder: t("tools.createTask.placeholder"),
-      submitLabel: t("tools.common.submitLabel"),
-      primaryFieldKey: "title",
-      primaryFieldLabel: t("tools.createTask.primaryFieldLabel"),
-      fields: [
-        {
-          key: "details",
-          label: t("tools.createTask.detailLabel"),
-          type: "text",
-          placeholder: t("tools.createTask.detailPlaceholder"),
-        },
-        {
-          key: "priority",
-          label: t("tools.createTask.priorityLabel"),
-          type: "select",
-          defaultValue: "medium",
-          options: [
-            { label: t("chatMsg.priorityLow"), value: "low" },
-            { label: t("chatMsg.priorityMedium"), value: "medium" },
-            { label: t("chatMsg.priorityHigh"), value: "high" },
-          ],
-        },
-        {
-          key: "dueDate",
-          label: t("tools.createTask.dueLabel"),
-          type: "datetime-local",
-        },
-      ],
-    },
+    surface: { category: "tasks", user: { run: "model", hint: t("tools.createTask.hint") }, template: "selectable" },
     inputSchema: createTaskInputSchema,
     execute: async ({ input }) => createTask(input),
-    buildAssistantText: ({ output }) => buildCreateTaskAssistantText(output),
     // The task is kept on the tasks page; that one was created is not something
     // to remember about the user.
     memory: { enabled: false, minQuality: 1, summarize: () => null },
@@ -371,12 +155,11 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     modelDescription:
       "Fold the completed earlier work of this conversation into a concise task handoff before your next step, freeing context. The application already does this automatically near the context limit; call it yourself when a phase of work is finished and its tool output (logs, file contents, search results) is no longer needed verbatim, or before starting a large new phase. Pass focus to name what the handoff must keep, such as decisions, file paths or failing tests. The latest user request, your most recent interaction and pending approvals are always kept. Do not call it repeatedly, in a short conversation, or while you still need exact earlier output.",
     modeSupport: ["chat"],
-    manual: { enabled: false, label: "", placeholder: "", submitLabel: "", primaryFieldKey: "focus", primaryFieldLabel: "", fields: [] },
+    surface: { category: "context", user: null, template: "always" },
     inputSchema: z.strictObject({ focus: z.string().trim().max(2000).optional().describe("What the handoff must keep, in a sentence or two.") }),
     // The fold itself happens where context is planned, before the next step;
     // this result only acknowledges the request in the transcript.
     execute: async () => ({ status: "scheduled" as const }),
-    buildAssistantText: () => t("tools.compactContext.scheduled"),
     memory: { enabled: false, minQuality: 1, summarize: () => null },
   },
   webSearch: {
@@ -386,15 +169,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     modelDescription:
       "Retrieve external information through web search. Choose maxResults yourself according to the question's complexity and breadth; there is no RiA per-turn result quota. Provider per-request limits still apply (DeepSeek Search: 50, OpenRouter: 25). Search again with focused queries if more evidence is needed. Use it when the answer depends on facts outside this workspace: current events, external facts, web sources, links, or anything the user expects to be looked up. Do not use it for questions you can answer from general knowledge, and prefer the knowledge base when the answer is already stored there.",
     modeSupport: ["chat"],
-    manual: {
-      enabled: true,
-      label: t("tools.webSearch.manualLabel"),
-      placeholder: t("tools.webSearch.placeholder"),
-      submitLabel: t("tools.common.submitLabel"),
-      primaryFieldKey: "query",
-      primaryFieldLabel: t("tools.webSearch.primaryFieldLabel"),
-      fields: [],
-    },
+    surface: { category: "web", user: { run: "model", hint: t("tools.webSearch.hint") }, template: "selectable" },
     inputSchema: webSearchInput,
     prepareInput: ({ input, modelRef, signal }) =>
       resolveWebSearchInput({
@@ -410,11 +185,6 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       return { query, results: [], skipped: reason };
     },
     execute: async ({ input, signal, modelRef }) => runWebSearch(input, signal, modelRef),
-    buildAssistantText: ({ output, modelRef, signal }) =>
-      buildWebSearchAssistantText({
-        result: output,
-        modelRef, signal,
-      }),
     // A search leaves nothing in the knowledge base. All a candidate could say
     // is what was searched and how many pages came back, which would not help a
     // later answer once accepted and only crowded the list waiting for review.

@@ -87,11 +87,12 @@ export async function prepareChatPersistence(input: ChatRequest, options: { defe
 
   if (latestUserMessage && !isApprovalResume) {
     const userContent =
-      latestUserMessage.files.length > 0
+      latestUserMessage.files.length > 0 || latestUserMessage.invocation
         ? encodePersistedUserMessage({
           type: "user-message",
           text: latestUserMessage.text,
           files: latestUserMessage.files,
+          ...(latestUserMessage.invocation ? { invocation: latestUserMessage.invocation } : {}),
         })
         : latestUserMessage.text;
 
@@ -122,7 +123,7 @@ export async function claimChatApproval(chatId: string, message: UIMessage) {
     throw error;
   }
 }
-export async function persistChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; documentSources?: DocumentSource[]; documentDiagnostics?: DocumentDiagnostics; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean; contextReport?: unknown }) {
+export async function persistChatResponse(params: { skippedTool?: string; input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; documentSources?: DocumentSource[]; documentDiagnostics?: DocumentDiagnostics; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean; contextReport?: unknown }) {
   const { input, conversation, responseMessage, isAborted, generationFailed } = params;
   const { latestUserMessage, modelRef } = input;
   const { unavailableTools = [] } = params;
@@ -160,6 +161,7 @@ export async function persistChatResponse(params: { input: ChatRequest; conversa
           ...(params.runId ? { runIds: [...new Set([...(conversation.previousRunIds ?? []), params.runId])] } : {}),
           modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}`,
           ...(unavailableTools.length ? { unavailableTools } : {}),
+          ...(params.skippedTool ? { skippedTool: params.skippedTool } : {}),
           tools: toolItems,
           ...(params.documentDiagnostics ? { documentDiagnostics: params.documentDiagnostics } : {}),
           ...(params.documentSources?.length ? { documentSources: markDocumentCitations(params.documentSources, assistantText) } : {}),

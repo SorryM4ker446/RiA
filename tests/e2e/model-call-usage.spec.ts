@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { configureOfflineModels } from "../helpers/model-fixture";
+import { newTask } from "../helpers/slash-menu";
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => { const app = await startStandaloneServer({ modelFixture: true }); try { await runTest(app); } finally { await app.close(); } },
 });
@@ -84,12 +85,7 @@ test("offline local startup keeps tasks and stored conversations available", asy
   await openWorkspace(page, app.origin);
   await page.route(/https?:\/\/(?!localhost[:/]|127\.0\.0\.1[:/])/, route => route.abort("internetdisconnected"));
   await page.goto(`${app.origin}/chat`);
-  await page.getByLabel("选择工具").click();
-  await page.getByRole("option", { name: "创建任务" }).click();
-  await page.getByPlaceholder(/输入任务标题/).fill("Offline task");
-  await page.getByRole("button", { name: "执行工具", exact: true }).click();
-  await expect(page.getByRole("combobox", { name: "选择工具", exact: true })).toContainText("自动工具");
-  await expect(page.getByText(/Offline task/).first()).toBeVisible();
+  expect(await page.evaluate(task => fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(task) }).then(response => response.status), newTask("Offline task"))).toBe(201);
   await page.goto(`${app.origin}/tasks`);
   await expect(page.getByTestId("task-panel").getByText("Offline task", { exact: true })).toBeVisible();
   await app.restart(); await page.reload();

@@ -36,7 +36,7 @@ When the chat model can call tools, enabled skills contribute only a compact ind
 subsequent chat requests. The internal `readPluginSkill` tool returns a package's
 skill instructions on demand, and for community skills also loads `SKILL.md` and
 selected references with 12,000-character pages and explicit continuation
-offsets. Without tool calling, bundled skill instructions are included in full. It is absent from the manual tool picker and template capability list;
+offsets. Without tool calling, bundled skill instructions are included in full. Choosing skills in the composer's slash menu sends their instructions with that message. The reader itself is absent from the slash menu and template capability list;
 reading enabled guidance cannot bypass assistant tool restrictions. The complete
 downloaded files are saved in the package manifest in the local SQLite database,
 not truncated to the inline instruction limit or written to executable folders.

@@ -125,16 +125,24 @@ for status and validation rules. Historical excerpts remain unchanged when
 current source text changes or is deleted.
 
 
-Manual tool execution (`POST /api/tools/run`) accepts an absent model: local task creation, memory operations and deterministic retrieval must work with an empty model library. An explicitly supplied model still needs to be a library member. Manual execution does not require model tool-call capability because the user supplies the command; automatic chat tool calls retain capability checks and approval rules. Search answer synthesis may use the configured chat default, but a missing model or failed synthesis retains deterministic evidence. Manual synthesis receives the request cancellation signal and disables automatic provider retries.
+`POST /api/tools/run` runs only tools that finish without a model, currently `convertDocument`. Any other tool returns a validation error and goes through the conversation, where the model has the context to fill in its input and use its result.
 
 Normal chat offers all available tools allowed by the current assistant to a
 tool-capable model. The retired `manualToolsOnly` boolean remains accepted by
 `POST /api/chat` for older clients but is ignored; it cannot disable automatic
-tools. The renderer no longer saves that flag or tool selections with conversation
-model preferences. Selecting an action in the tool picker executes only that
-action through `/api/tools/run` and returns to automatic selection after success.
-Failed actions retain their input for correction or retry. This selection never
-changes the assistant's tool allowlist or bypasses external-tool approval.
+tools. A user message may carry `metadata.invocation`, what the person chose in the
+composer's slash menu: at most one tool and any number of skills. The server checks
+the choice against the assistant's allowlist, the model's tool support and current
+availability, and refuses the message when it cannot be honoured. A chosen tool is
+the only one offered on the turn's first step, and every allowed tool is offered
+after that; a chosen skill's instructions travel with the message. An approval
+resume does not repeat the choice. When the model answers without calling the chosen
+tool, the saved answer records it as `skippedTool`. The choice never changes the
+assistant's tool allowlist or bypasses external-tool approval.
+
+`GET /api/tools` lists every tool the model can reach, with `surface` stating who can
+call it, plus the `toolCalling` entry for the model's ability to call tools at all and
+the enabled `skills`.
 
 Usage supports an optional `source` query (`chat`, `summary`, `scheduled`, `tool`, `embedding`, `media`, `unattributed`), rejecting invalid or duplicated parameters. Limits and current local-date allowance are returned with usage. A denied admission reports a conflict or configuration problem and submits no provider call; it does not fabricate a usage charge. See [Model settings and usage](model-usage.md).
 

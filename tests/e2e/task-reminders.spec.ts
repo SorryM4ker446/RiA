@@ -5,6 +5,7 @@ import { startStandaloneServer } from "../helpers/standalone-server";
 import { browserApi, browserData } from "../helpers/browser-api";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { chooseOption } from "../helpers/select";
+import { newTask } from "../helpers/slash-menu";
 import { chooseTaskDateTime } from "../helpers/task-date-picker";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
@@ -23,14 +24,7 @@ async function register(page: Page, origin: string) {
 test("task reminder settings validate local dates and persist recurrence across browser and service restarts", { tag: "@integration" }, async ({ page, app, browser }) => {
   await register(page, app.origin);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
-  await page.getByLabel("选择工具").click();
-  await page.getByRole("option", { name: "创建任务" }).click();
-  await page.getByPlaceholder(/输入任务标题/).fill("重复提醒浏览器验证");
-  const composer = page.locator("form").filter({ has: page.getByPlaceholder(/输入任务标题/) });
-  await chooseTaskDateTime(page, composer, "截止时间", "2026-01-31T09:00");
-  await expect(composer.getByRole("button", { name: "截止时间 2026-01-31 09:00", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "执行工具" }).click();
-  await expect.poll(async () => (await browserData(page, `${app.origin}/api/tasks`)).length).toBe(1);
+  expect((await browserApi(page, `${app.origin}/api/tasks`, "POST", newTask("重复提醒浏览器验证", { dueDate: "2026-01-31T09:00", timeZone: "America/New_York" }))).status).toBe(201);
   await page.goto(`${app.origin}/tasks`);
   const panel = page.getByTestId("task-panel");
   const row = panel.getByTestId("task-item").filter({ hasText: "重复提醒浏览器验证" });
@@ -92,10 +86,10 @@ test("task reminder settings validate local dates and persist recurrence across 
 test("task reminder mutations reject CSRF, incomplete schedules and a missing credential without changing data", { tag: "@integration" }, async ({ page, app }) => {
   await register(page, app.origin);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
-  const creation = await browserApi(page, `${app.origin}/api/tools/run`, "POST", { tool: "createTask", mode: "chat", input: { title: "安全提醒验证" } });
-  expect(creation.status).toBe(200);
+  const creation = await browserApi(page, `${app.origin}/api/tasks`, "POST", newTask("安全提醒验证"));
+  expect(creation.status).toBe(201);
   const created = creation.body.data;
-  const url = `${app.origin}/api/tasks/${created.taskId}`;
+  const url = `${app.origin}/api/tasks/${created.id}`;
   expect((await browserApi(page, url, "PATCH", { reminderEnabled: true })).status).toBe(400);
   expect((await browserApi(page, url, "PATCH", { dueDate: "2026-02-30", repeatRule: "daily" })).status).toBe(400);
   const denied = await page.context().request.patch(url, { headers: { Origin: "https://outside.invalid" }, data: { reminderEnabled: true } });
@@ -103,18 +97,16 @@ test("task reminder mutations reject CSRF, incomplete schedules and a missing cr
   // Dropping the credential makes the workspace unreachable again.
   await page.context().clearCookies();
   expect((await browserApi(page, url, "PATCH", { dueDate: "2026-09-01T09:00Z", timeZone: "UTC", reminderEnabled: true })).status).toBe(401);
-  expect(app.readRows("SELECT dueDate,reminderEnabled,repeatRule FROM tasks WHERE id=?", created.taskId)).toEqual([{ dueDate: null, reminderEnabled: 0, repeatRule: "none" }]);
+  expect(app.readRows("SELECT dueDate,reminderEnabled,repeatRule FROM tasks WHERE id=?", created.id)).toEqual([{ dueDate: null, reminderEnabled: 0, repeatRule: "none" }]);
   expect(app.providerCalls).toEqual([]);
 });
 
 test("changing reminder options preserves the stored DST occurrence and sub-minute deadline", { tag: "@integration" }, async ({ page, app }) => {
   await register(page, app.origin);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
-  const creation = await browserApi(page, `${app.origin}/api/tools/run`, "POST", { tool: "createTask", mode: "chat", input: {
-    title: "精确时刻保留验证", dueDate: "2026-11-01T01:30:45.123-05:00", timeZone: "America/New_York", repeatRule: "monthly",
-  } });
-  expect(creation.status).toBe(200);
-  const id = creation.body.data.taskId;
+  const creation = await browserApi(page, `${app.origin}/api/tasks`, "POST", newTask("精确时刻保留验证", { dueDate: "2026-11-01T01:30:45.123-05:00", timeZone: "America/New_York", repeatRule: "monthly" }));
+  expect(creation.status).toBe(201);
+  const id = creation.body.data.id;
   await page.goto(`${app.origin}/tasks`);
   await page.getByRole("button", { name: "刷新任务" }).click();
   const row = page.getByTestId("task-item").filter({ hasText: "精确时刻保留验证" });

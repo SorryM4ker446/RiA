@@ -423,5 +423,5 @@ test("the compaction tool is offered to every chat, including assistants with a 
   const restricted = await createChatToolSet({ modelRef: CHAT_MODEL_REF, toolIds: ["createTask"] });
   assert.ok("compactContext" in restricted);
   assert.ok(!("webSearch" in restricted));
-  assert.equal(getToolDescriptor("compactContext")?.manual.enabled, false, "it acts on a running chat, so it is not a manual tool");
+  assert.equal(getToolDescriptor("compactContext")?.surface.user, null, "it acts on a running chat, so people do not choose it");
 });

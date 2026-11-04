@@ -11,12 +11,15 @@ export const processorTextSchema = z.string().min(1).max(DOCUMENT_LIMITS.charact
 export const processorFilenameSchema = z.string().trim().min(1).max(180).refine(value => !/[/\\\x00-\x1f\x7f\ud800-\udfff]/u.test(value) && value !== "." && value !== "..", "文件名不能包含路径、控制字符或无效文本。");
 export const exportRequestSchema = z.strictObject({ filename: processorFilenameSchema, content: processorTextSchema, syntax: z.enum(["markdown", "plain"]), format: exportFormatSchema });
 export const documentReadSchema = z.strictObject({ documentId: documentIdSchema, offset: z.number().int().min(0).max(DOCUMENT_LIMITS.characters).default(0), limit: z.number().int().min(1).max(12_000).default(6000) });
-export const documentConvertSchema = z.strictObject({ documentId: documentIdSchema, format: exportFormatSchema });
+export const documentConvertSchema = z.strictObject({ documentId: documentIdSchema.optional(), attachmentId: documentIdSchema.optional(), format: exportFormatSchema })
+  .refine(value => Boolean(value.documentId) !== Boolean(value.attachmentId), "Pass exactly one of documentId and attachmentId");
 export function documentDownload(value: unknown) {
-  const parsed = z.object({ documentId: documentIdSchema, contentHash: z.string().regex(/^[a-f0-9]{64}$/), filename: processorFilenameSchema, format: exportFormatSchema, downloadUrl: z.string() }).safeParse(value);
+  const parsed = z.object({ documentId: documentIdSchema.optional(), attachmentId: documentIdSchema.optional(), contentHash: z.string().regex(/^[a-f0-9]{64}$/).optional(), filename: processorFilenameSchema, format: exportFormatSchema, downloadUrl: z.string() }).safeParse(value);
   if (!parsed.success) return null;
   const output = parsed.data;
-  return output.downloadUrl === `/api/documents/${encodeURIComponent(output.documentId)}/export?format=${output.format}&version=${output.contentHash}` ? output : null;
+  const expected = output.attachmentId ? `/api/media/${encodeURIComponent(output.attachmentId)}/export?format=${output.format}`
+    : output.documentId ? `/api/documents/${encodeURIComponent(output.documentId)}/export?format=${output.format}&version=${output.contentHash}` : null;
+  return output.downloadUrl === expected ? output : null;
 }
 
 export function exportFilename(filename: string, format: ExportFormat) {

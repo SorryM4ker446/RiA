@@ -6,6 +6,8 @@ import { AnswerSources } from "@/features/chat/answer-sources";
 import { DocumentAttachment } from "@/components/chat/document-attachment";
 import { DocumentDownload } from "@/features/document-processor/document-download";
 import { EditedFiles } from "./edited-files";
+import { MessageChoices } from "./composer-choices";
+import { readMessageInvocation } from "@/lib/chat/invocation-schema";
 import { MessageNavigator } from "./message-navigator";
 import { collectEditedFiles } from "@/lib/terminal/file-change-summary";
 import { isDocumentAttachment } from "@/lib/media/limits";
@@ -356,6 +358,9 @@ export function MessageRenderer({ onShowSources, modelMode, activeChatId, isLoad
         const videoUrl = videoByMessageId[message.id];
         const toolParts = message.parts.filter(isToolPart);
         const reasoning = readReasoning(message);
+        const invocation = isUser ? readMessageInvocation(message.metadata) : null;
+        const skippedTool = !isUser && !(index === messages.length - 1 && isPending) && typeof (message.metadata as { skippedTool?: unknown } | undefined)?.skippedTool === "string"
+          ? readMessageInvocation(messages[index - 1]?.metadata)?.tool?.label ?? null : null;
         const isLastAssistantStreaming =
           status === "streaming" && index === messages.length - 1 && message.role === "assistant";
         const isEditing = editingMessageId === message.id;
@@ -460,7 +465,9 @@ export function MessageRenderer({ onShowSources, modelMode, activeChatId, isLoad
               {reasoning && !isUser ? <MessageReasoning text={reasoning}
                 active={index === messages.length - 1 && (status === "streaming" || status === "submitted" || toolParts.some(part => part.state === "approval-requested"))}
                 thinking={isLastAssistantStreaming && message.parts.some(part => part.type === "reasoning" && part.state === "streaming")} /> : null}
+              {isUser && !isEditing && invocation ? <MessageChoices invocation={invocation} /> : null}
               {!isEditing && text ? <CollapsibleAnswer key={message.id} collapsible={!isUser && index < messages.length - 1}><MarkdownMessage text={text} streaming={isLastAssistantStreaming} /></CollapsibleAnswer> : null}
+              {skippedTool ? <p className="mt-2 text-xs text-muted-foreground">{tf("chat.slash.toolNotCalled", { name: skippedTool })}</p> : null}
               {!isUser && !isLastAssistantStreaming && onShowSources ? <AnswerSources message={message} onShowAll={() => onShowSources(message.id)} /> : null}
               {toolParts.map(part => part.type === "tool-convertDocument" && part.state === "output-available" ? <DocumentDownload key={`download-${part.toolCallId}`} output={part.output} /> : null)}
               {imageUrl ? (

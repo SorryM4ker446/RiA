@@ -79,11 +79,9 @@ export const clientMessages = {
   // its own.
   "chatState.streamInterrupted": "（响应中断，已保存当前输出）",
   "chatState.regenerateFailed": "重新生成失败",
-  "chatState.manualToolAttachmentBlocked": "手动工具调用暂不支持附件，请先清空附件。",
   // A model id is interpolated between the two halves, so neither half carries
   // the surrounding spaces.
   "chatState.imageInputUnsupported": "当前聊天模型 {modelId} 不支持图片输入，请切换视觉模型或移除附件。",
-  "chatState.toolParamsRequired": "请在输入框中填写工具参数。",
   "chatState.toolRunFailed": "工具执行失败",
   // Default title for a brand new conversation; the user's own text replaces
   // it as soon as the model answers.
@@ -93,23 +91,14 @@ export const clientMessages = {
   "chatState.historyRecovery": "请重新加载会话后再发送。",
 
   // --- manual tool field validation (src/features/chat/tool-input.ts) ------
-  "tools.fieldRequired": "请填写此项",
-  "tools.fieldInvalidNumber": "请输入有效数字",
   // Both are a static lead-in for the bound value; the space is supplied by the
   // template so the number can be positioned independently.
-  "tools.fieldMinPrefix": "最小值为",
-  "tools.fieldMaxPrefix": "最大值为",
 
   // --- manual tool execution (src/features/chat/use-tools.ts) --------------
   "tools.needChatModel": "请先在设置的“模型”中添加并选择聊天模型。",
-  "tools.manualCallTitlePrefix": "手动工具调用:",
-  "tools.manualCallTextPrefix": "手动调用工具",
   "tools.runningPrefix": "正在执行",
   // The corner brackets hug the tool id, so they travel with the static halves
   // and the id is interpolated bare between them.
-  "tools.completedPrefix": "已完成工具「",
-  "tools.completedSuffix": "」调用。",
-  "tools.failedText": "工具执行失败。",
 
   // --- media generation hook -----------------------------------------------
   "mediaGen.kindImage": "图片",

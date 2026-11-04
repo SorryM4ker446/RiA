@@ -4,7 +4,7 @@
 
 Manual tool calls and automatic semantic tool calls are the same tool capability with different trigger sources.
 
-- `manual`: the user explicitly selects a tool and runs it.
+- `manual`: the composer runs a tool directly, without the model, such as converting a document.
 - `auto`: the system decides from the user request that a tool should be used.
 
 The trigger records how the tool call started. It must not create a separate business path for the tool.

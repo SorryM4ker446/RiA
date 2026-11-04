@@ -16,11 +16,11 @@ const { startRun } = await import("@/lib/agent/runs");
 const { indexDocument } = await import("@/lib/documents/store");
 const { searchDocuments } = await import("@/lib/documents/retrieval");
 const { updateConversation } = await import("@/lib/conversations/mutations");
+const { executeRegisteredTool, getToolDescriptor } = await import("@/tools/catalog");
 const { encodeDocumentScope, decodeDocumentScope } = await import("@/lib/documents/scope");
 const { summarizeOlderTurns } = await import("@/lib/chat/summary");
 const { observeLanguageModel } = await import("@/lib/models/observe-language");
 const { removeModel, getModelPreferences, withModelSettingsLock } = await import("@/lib/models/preferences");
-const manualRoute = await import("@/app/api/tools/run/route");
 
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "info", () => {});
@@ -38,18 +38,13 @@ beforeEach(async (t: TestContext) => {
 after(async () => { await db.$disconnect(); cleanup(); });
 
 const options = {} as never;
-test("memory-disabled tool sets omit saving and the manual API refuses writes", async () => {
+test("memory-disabled tool sets omit saving and the tool itself refuses writes", async () => {
   const tools = await createChatToolSet({ usesMemory: false, toolIds: ["saveMemory"] });
   assert.equal(tools.saveMemory, undefined);
-  const chat = await db.chat.create({ data: { title: "Memory disabled", ephemeral: true } });
-  const request = () => new NextRequest("http://localhost/api/tools/run", {
-    method: "POST", headers: { cookie: localAccessCookie(), "content-type": "application/json" },
-    body: JSON.stringify({ tool: "saveMemory", input: { key: "preference", value: "private fact" }, model: CHAT_MODEL_REF, mode: "chat", chatId: chat.id }),
-  });
-  assert.equal((await manualRoute.POST(request())).status, 400);
+  const save = (usesMemory: boolean) => executeRegisteredTool(getToolDescriptor("saveMemory")!, { key: "preference", value: "private fact" }, { trigger: "manual", usesMemory });
+  await assert.rejects(save(false), { code: "VALIDATION_ERROR" });
   assert.equal(await db.memory.count(), 0);
-  await db.chat.update({ where: { id: chat.id }, data: { ephemeral: false } });
-  assert.equal((await manualRoute.POST(request())).status, 200);
+  await save(true);
   assert.equal(await db.memory.count(), 1);
 });
 

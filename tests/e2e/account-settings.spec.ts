@@ -10,6 +10,7 @@ import { browserApi, browserData } from "../helpers/browser-api";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { chooseOption } from "../helpers/select";
 import { closeSettings, openSettings, settingsDialog } from "../helpers/settings";
+import { newTask } from "../helpers/slash-menu";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({ app: async ({}, runTest) => { const app = await startStandaloneServer({ modelFixture: true }); try { await runTest(app); } finally { await app.close(); } } });
 async function register(page: Page, origin: string) {
@@ -24,7 +25,7 @@ test("workspace backup downloads and confirmed restore preserve media and busine
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "需要恢复的会话" })).body.data;
   await browserApi(page, `/api/conversations/${chat.id}/messages`, "POST", { role: "user", content: "备份正文", clientMessageId: randomUUID() });
   await browserApi(page, "/api/knowledge", "POST", { key: "restore-key", value: "保留知识" });
-  expect((await browserApi(page, "/api/tools/run", "POST", { tool: "createTask", mode: "chat", input: { title: "保留任务" } })).status).toBe(200);
+  expect((await browserApi(page, "/api/tasks", "POST", newTask("保留任务"))).status).toBe(201);
   const image = await browserApi(page, "/api/image", "POST", { prompt: "备份图片", chatId: chat.id }); expect(image.status).toBe(200);
   await openBackups(page, app.origin);
   await page.getByRole("button", { name: "创建备份", exact: true }).click(); await expect(page.getByRole("article")).toHaveCount(1);

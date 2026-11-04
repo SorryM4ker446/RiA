@@ -23,6 +23,7 @@ const { createAccountBackup, readBackupManifest } = await import("@/lib/backups/
 const { openBackup } = await import("@/lib/backups/files");
 const { restoreAccountBackup } = await import("@/lib/backups/restore");
 const { exclusiveDataOperation } = await import("@/lib/server/data-operations");
+const { executeRegisteredTool, getToolDescriptor } = await import("@/tools/catalog");
 const routes = { root: await import("@/app/api/assistants/route"), item: await import("@/app/api/assistants/[id]/route"), defaults: await import("@/app/api/assistants/defaults/route"), chat: await import("@/app/api/chat/route"), tool: await import("@/app/api/tools/run/route") };
 let cookie: string;
 const context = (id: string) => ({ params: Promise.resolve({ id }) });
@@ -150,11 +151,11 @@ test("updating a renamed template follows the previous snapshot name without rew
   assert.equal((await updateConversation(chat.id, { assistantTemplateId: saved.id })).title, "财务核对记录");
 });
 
-test("empty tool restrictions disable tools and manual execution cannot bypass the conversation policy", async () => {
+test("empty tool restrictions disable tools and the direct route cannot bypass the conversation policy", async () => {
   assert.deepEqual(await createChatToolSet({ toolIds: [] }), {});
   const allowed = await createChatToolSet({ toolIds: ["searchKnowledge"] }); assert.deepEqual(Object.keys(allowed), ["searchKnowledge", "compactContext"], "context compaction accompanies an allowed tool");
   const chat = await createChat({ assistantTemplateId: "builtin_writing" });
-  const response = await routes.tool.POST(request("/api/tools/run", "POST", { tool: "createTask", input: { title: "Must not write" }, mode: "chat", chatId: chat.id }));
+  const response = await routes.tool.POST(request("/api/tools/run", "POST", { tool: "createTask", input: { title: "Must not write" }, chatId: chat.id }));
   assert.equal(response.status, 400); assert.equal(await db.task.count({ where: { title: "Must not write" } }), 0);
 });
 
@@ -183,13 +184,10 @@ test("bound models reject client overrides and removed models cannot be used by 
   await assert.rejects(updateConversation(chat.id, { assistantTemplateId: saved.id }), /模板绑定的模型已移除/);
 });
 
-test("permitted manual knowledge calls use the conversation's collections and template evidence budget", async () => {
+test("a permitted knowledge call uses the conversation's collections and template evidence budget", async () => {
   const saved = await saveAssistant(config({ tools: ["searchKnowledge"], retrieval: { maxSources: 1, contextChars: 1200, semanticThreshold: 0.8 } }));
-  const chat = await createChat({ assistantTemplateId: saved.id });
   for (const collection of ["财务", "医疗"]) await indexDocument({ filename: `${collection}.txt`, collection, format: "txt", byteSize: 100, pages: [{ pageNumber: null, text: `费用核销 ${collection} 规则，应当保留票据。` }] });
-  const response = await routes.tool.POST(request("/api/tools/run", "POST", { tool: "searchKnowledge", input: { query: "费用核销", topK: 8 }, mode: "chat", chatId: chat.id }));
-  assert.equal(response.status, 200, await response.clone().text());
-  const output = (await response.json()).data;
+  const { output } = await executeRegisteredTool(getToolDescriptor("searchKnowledge")!, { query: "费用核销", topK: 8 }, { trigger: "manual", documentCollections: ["财务"], documentRetrievalPolicy: { maxSources: 1, contextChars: 1200, semanticThreshold: 0.8 } });
   assert.equal(output.results.length, 1); assert.equal(output.results[0].reference.collection, "财务");
   assert.equal(output.diagnostics.policy.semanticThreshold, 0.8); assert.equal(output.diagnostics.policy.maxSources, 1);
   assert.equal(await db.memory.count(), 0);

@@ -61,7 +61,7 @@ test("connection creation is inactive, detection executes no business call, and 
   assert.equal(service.state.calls.length, 0); assert.equal(service.state.probes, 1);
   assert.equal(enabled.enabled, true);
   const tool = (await listPublicToolCatalog("chat")).find(item => item.extensionId === row.id)!;
-  assert.equal(tool.available, true); assert.equal(tool.manual.enabled, false);
+  assert.equal(tool.available, true); assert.equal(tool.surface.user?.run, "model");
   assert.ok(tool.id.length <= 64);
   assert.ok((await createChatToolSet())[tool.id]);
   assert.equal((await createChatToolSet({ toolIds: [] }))[tool.id], undefined);
@@ -213,9 +213,9 @@ test("management routes require the local credential and reject foreign origins 
   for (const handler of [itemRoute.PUT, itemRoute.PATCH, itemRoute.DELETE, probeRoute.POST]) assert.equal((await handler(request("POST", { revision: 1 }, {}, ""), context(nonexistent))).status, 401);
 });
 
-test("manual invocation cannot bypass external approval", async t => {
+test("the direct route cannot bypass external approval", async t => {
   const { row } = await fixture(t); const enabled = await enable(row);
-  const response = await toolRoute.POST(new NextRequest("http://localhost/api/tools/run", { method: "POST", headers: { cookie, "Content-Type": "application/json" }, body: JSON.stringify({ tool: enabled.tools[0].id, mode: "chat", input: { arguments: { text: "bypass" } } }) }));
+  const response = await toolRoute.POST(new NextRequest("http://localhost/api/tools/run", { method: "POST", headers: { cookie, "Content-Type": "application/json" }, body: JSON.stringify({ tool: enabled.tools[0].id, input: { arguments: { text: "bypass" } } }) }));
   assert.equal(response.status, 400);
 });
 

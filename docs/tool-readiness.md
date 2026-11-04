@@ -12,7 +12,7 @@ requires human review. Linked approval continuations share one execution entry.
 
 RiA has a shared tool registry and execution pipeline for built-in tools, MCP servers and HTTP connectors. The earlier three-tool checklist and fixed weekly schedule are historical; they no longer describe the delivered application. This document records implemented behavior and remaining validation, without subjective readiness scores.
 
-Normal chat uses automatic tool selection. An explicit tool choice requests a one-shot action; it does not restrict all subsequent model calls to that tool. Document IDs are arguments identifying stored documents, rather than capabilities to list as tools. The internal Skill reader is omitted from the manual picker and template capability list.
+Normal chat uses automatic tool selection. Typing `/` in the composer chooses a tool or skills for one message: a chosen tool is offered alone on the first step only, so it does not restrict later model calls. Each tool declares who can reach it (`surface`), and the slash menu, template editor and built-in tool list all follow that declaration. Tools only the model uses, such as the terminal and the Skill reader, never appear in the slash menu.
 
 ## Implemented capabilities
 
@@ -30,7 +30,7 @@ Normal chat uses automatic tool selection. An explicit tool choice requests a on
 
 ## Shared execution contract
 
-- Descriptors own schemas, input preparation, execution and output policy. Built-in and external tools resolve through the same registry; manual and model-selected calls retain the relevant shared checks. [Pipeline](tool-trigger-unified-pipeline.md)
+- Descriptors own schemas, input preparation, execution and output policy. Built-in and external tools resolve through the same registry; chosen and model-selected calls retain the relevant shared checks. [Pipeline](tool-trigger-unified-pipeline.md)
 - Availability is checked before exposing tools and again when executing. Optional missing/unavailable tools can return a controlled skip; invalid input, rejected approval and refused writes are not treated as successful fallback.
 - Model tool support, assistant scope, connection state, directory grants and per-call approvals are separate requirements. Importing a plugin or viewing marketplace metadata satisfies none of these automatically.
 - Runs and steps record kind, tool name, state, error code, timing and a bounded input/output summary. Step, failure, time and cost controls apply; cancellation stops subsequent work and does not undo completed effects. Interrupted writes and old approvals are not automatically replayed. [Execution records](execution-history.md)

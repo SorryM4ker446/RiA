@@ -20,11 +20,10 @@ import { assistantConfigSchema, type AssistantConfig, type AssistantTemplate } f
 import { DEFAULT_ASSISTANTS } from "@/lib/assistants/defaults";
 import type { ModelLibraryItem } from "@/lib/models/preferences-schema";
 import { chatApi } from "@/features/chat/api-client";
-import { LAST_ACTIVE_CHAT_STORAGE_KEY } from "@/features/chat/types";
+import { LAST_ACTIVE_CHAT_STORAGE_KEY, type ToolCatalogItem } from "@/features/chat/types";
 import { animateRemoval, removalKey } from "@/lib/ui/removal";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
-type ToolOption = { id: string; displayName: string };
 const initialConfig: AssistantConfig = { name: "", description: "", instructions: "", model: null, tools: [], collections: [], usesMemory: true, retrieval: { semanticThreshold: 0.35, maxSources: 8, contextChars: 8000 } };
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -41,7 +40,7 @@ export default function AssistantsPage() {
   const router = useRouter();
   const [templates, setTemplates] = useState<AssistantTemplate[]>([]);
   const [models, setModels] = useState<ModelLibraryItem[]>([]);
-  const [tools, setTools] = useState<ToolOption[]>([]);
+  const [tools, setTools] = useState<ToolCatalogItem[]>([]);
   const [editing, setEditing] = useState<AssistantTemplate | null>(null);
   const [config, setConfig] = useState(initialConfig);
   const [collections, setCollections] = useState("");
@@ -55,7 +54,7 @@ export default function AssistantsPage() {
   async function load(signal?: AbortSignal) {
     const [assistants, preferences, catalog] = await Promise.all([
       chatApi.listAssistants(signal), request<{ data: { library: ModelLibraryItem[] } }>("/api/models", { signal }),
-      request<{ data: ToolOption[] }>("/api/tools?mode=chat", { signal }),
+      request<{ data: ToolCatalogItem[] }>("/api/tools?mode=chat", { signal }),
     ]);
     if (signal?.aborted) return;
     setTemplates(assistants.data);

@@ -45,16 +45,14 @@ test("search routes only through the selected chat model's provider", async () =
 
 test("search counts are positive model choices without the former ten-result schema or catalog quota", () => {
   const descriptor = getToolDescriptor("webSearch")!;
-  assert.deepEqual(descriptor.manual.fields, []);
   assert.equal(descriptor.resultBudget, undefined);
   for (const maxResults of [1, 17, 50, 100]) assert.equal(descriptor.inputSchema.safeParse({ query: "research", maxResults }).success, true);
   for (const maxResults of [0, -1, 1.5, Infinity, NaN]) assert.equal(descriptor.inputSchema.safeParse({ query: "research", maxResults }).success, false);
 });
 
-test("manual search asks the selected model for a count and uses all selected evidence in synthesis", async t => {
+test("a search without a count asks the selected model for one and returns every result", async t => {
   let plans = 0;
   let searches = 0;
-  let syntheses = 0;
   const sources = Array.from({ length: 14 }, (_, i) => ({ ...row, title: `Source ${i + 1}`, url: `https://example.com/source-${i + 1}` }));
   t.mock.method(globalThis, "fetch", async (_url, init) => {
     const body = JSON.parse(String(init?.body));
@@ -64,27 +62,14 @@ test("manual search asks the selected model for a count and uses all selected ev
       assert.equal(body.tools[0].parameters.max_results, 14);
       return Response.json({ choices: [{ message: { content: "Evidence", annotations: sources.map(source => ({ type: "url_citation", url_citation: source })) } }] });
     }
-    if (body.response_format) {
-      plans++;
-      assert.match(JSON.stringify(body.messages), /Choose the number of web search results/);
-      return Response.json({ choices: [{ index: 0, message: { role: "assistant", content: '{"maxResults":14}' }, finish_reason: "stop" }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } });
-    }
-    syntheses++;
-    assert.match(JSON.stringify(body.messages), /source-14/);
-    // Synthesis streams, so it ends on inactivity rather than a fixed total.
-    assert.equal(body.stream, true);
-    const events = [{ id: "s", choices: [{ index: 0, delta: { role: "assistant", content: "Answer with all the evidence." } }] },
-      { id: "s", choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 } }];
-    return new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join("") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
+    plans++;
+    assert.match(JSON.stringify(body.messages), /Choose the number of web search results/);
+    return Response.json({ choices: [{ index: 0, message: { role: "assistant", content: '{"maxResults":14}' }, finish_reason: "stop" }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } });
   });
-  const descriptor = getToolDescriptor("webSearch")!;
-  const result = await executeRegisteredTool(descriptor, { query: "Compare the current release options" }, { trigger: "manual", modelRef: CHAT_MODEL_REF });
+  const result = await executeRegisteredTool(getToolDescriptor("webSearch")!, { query: "Compare the current release options" }, { trigger: "manual", modelRef: CHAT_MODEL_REF });
   assert.equal(result.input.maxResults, 14);
   assert.equal(result.output.results.length, 14);
-  const text = await descriptor.buildAssistantText({ ...result, modelRef: CHAT_MODEL_REF, trigger: "manual" });
-  assert.equal(text, "Answer with all the evidence.");
-  assert.deepEqual([plans, searches, syntheses], [1, 1, 1]);
-  assert.ok(await db.modelRequest.count({ where: { source: "tool", status: "success" } }) >= 3);
+  assert.deepEqual([plans, searches], [1, 1]);
 });
 
 test("a failed count plan never starts a search or substitutes a fixed default", async t => {
@@ -181,16 +166,12 @@ test("no search call, empty results and malformed or failed output remain distin
 test("a provider response that never searched records a skipped step and never claims result-budget exhaustion", async t => {
   t.mock.method(globalThis, "fetch", fixture({ choices: [{ message: { content: "Answer without a search" } }] }));
   const { startRun } = await import("@/lib/agent/runs");
-  const { getToolDescriptor } = await import("@/tools/catalog");
   const run = await startRun({ chatId: null, goal: "Search the web" });
   const tools = await createChatToolSet({ modelRef: CHAT_MODEL_REF, toolIds: ["webSearch"], runId: run.id });
   const output = await tools.webSearch.execute!(input, {} as never) as any;
   assert.equal(output.skipped, "temporarilyUnavailable");
   assert.deepEqual(output.results, []);
   assert.equal((await db.agentStep.findFirstOrThrow({ where: { runId: run.id } })).state, "skipped");
-  const text = await getToolDescriptor("webSearch")!.buildAssistantText!({ input, output, modelRef: CHAT_MODEL_REF, trigger: "manual" });
-  assert.match(text, /未完成有效搜索/);
-  assert.doesNotMatch(text, /预算|返回 0/);
 });
 
 test("provider errors do not silently perform another paid search and cancellation reaches the transport", async () => {

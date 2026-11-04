@@ -28,6 +28,7 @@ import { formatPluginSkills } from "@/lib/plugins/store";
 import { selectAutomaticEvidence } from "@/lib/documents/auto-context";
 import { CONTEXT_MEMORY_MIN_MATCH } from "@/lib/memory/retrieval";
 import { conversationWorkspace, formatWorkspaceContext } from "@/lib/local-files/workspace";
+import { resolveInvocation } from "@/lib/chat/invocation";
 import { db } from "@/db";
 
 async function POSTHandler(req: NextRequest) {
@@ -50,7 +51,6 @@ async function POSTHandler(req: NextRequest) {
 
 
     const { context, modelMessages } = await prepareModelContext(input, req.signal);
-    const conversation = await prepareChatPersistence(input, { deferApproval: true });
     const mode = body.mode ?? "chat";
     const isChatMode = mode === "chat";
     const canUseTools = isChatMode && input.model?.supportsTools === true;
@@ -59,6 +59,13 @@ async function POSTHandler(req: NextRequest) {
     // and each tool's modelDescription, not from a second LLM call that would
     // have to guess from the latest message alone.
     const toolsEnabled = canUseTools && (!input.assistant || input.assistant.tools.length > 0);
+    // Checked before the message is saved: a refused message goes back to the
+    // composer, and saving it too would leave a copy behind for every retry. An
+    // approval resume continues a turn that already honoured its choice.
+    const invocation = latestUserMessage?.invocation && !input.isApprovalResume
+      ? await resolveInvocation(latestUserMessage.invocation, { allowedToolIds: input.assistant?.tools, modelSupportsTools: toolsEnabled, modelRef, usesMemory: !input.conversationPolicy?.ephemeral })
+      : null;
+    const conversation = await prepareChatPersistence(input, { deferApproval: true });
     const unavailableStatuses = await unavailableChatTools(input.assistant?.tools, canUseTools, modelRef);
     const unavailableTools = unavailableStatuses.map(tool => tool.id);
 
@@ -133,7 +140,7 @@ async function POSTHandler(req: NextRequest) {
       : null;
 
     return await streamChatResponse({
-      input, conversation, systemPrompt, modelMessages: withRequestContext(modelMessages, requestContext), toolsEnabled, signal: req.signal,
+      input, conversation, systemPrompt, modelMessages: withRequestContext(modelMessages, requestContext, invocation?.directive), toolsEnabled, signal: req.signal, chosenTool: invocation?.toolId ?? null,
       documentSources, documentDiagnostics: retrieved?.diagnostics, runId: run?.id ?? null, usesMemory,
       // The prompt has been telling the model which tools this turn could not
       // use. Without this the list never reaches persistence, so the turn's own
@@ -162,7 +169,9 @@ function previousUserText(messages: UIMessage[]): string | undefined {
  * what was available.
  */
 async function unavailableChatTools(allowedToolIds?: string[], modelSupportsTools = true, modelRef?: ModelRef) {
-  return (await listPublicToolCatalog("chat", modelRef)).flatMap(tool => {
+  // A tool always allowed is never one this turn went without on the template's
+  // account, and whether skills are installed says nothing the model has to explain.
+  return (await listPublicToolCatalog("chat", modelRef)).filter(tool => tool.surface.template !== "always").flatMap(tool => {
     const reason = allowedToolIds !== undefined && !templateAllowsTool(allowedToolIds, tool.id) ? "templateDisabled"
       : !modelSupportsTools ? "modelUnsupported" : !tool.available ? tool.reason ?? "unavailable" : null;
     return reason ? [{ id: tool.id, reason }] : [];
