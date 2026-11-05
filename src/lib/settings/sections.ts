@@ -6,7 +6,7 @@
  */
 export const SETTINGS_PARAM = "settings";
 
-export const SETTINGS_SECTIONS = ["services", "application", "automation", "files", "models", "usage", "extensions", "backups", "storage"] as const;
+export const SETTINGS_SECTIONS = ["services", "application", "ria", "automation", "files", "models", "usage", "extensions", "backups", "storage"] as const;
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number];
 
 const isSection = (value: string): value is SettingsSectionId => (SETTINGS_SECTIONS as readonly string[]).includes(value);
