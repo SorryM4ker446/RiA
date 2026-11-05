@@ -48,8 +48,12 @@ Chat submissions send at most the latest 100 loaded messages. The server reads t
 | `GET /api/conversations/:id/runs?limit=...` | Execution summaries with optional `messageId` (client message ID when available) for grouping approval continuations; steps include saved bounded `input`/`output` summaries |
 | `GET /api/tasks/:id` | Task detail, including title, details, due date, priority and status |
 | `PATCH /api/tasks/:id` | Task update, including deadline, time zone, reminder and recurrence; returns `data` plus `nextTask` when completion creates a successor |
-| `GET /api/memory?query=...&limit=5` | Relevant local memories; maximum 20, empty query returns an empty list |
-| `POST /api/memory` | Upsert a local memory using `key` (1–120 characters), `value` (1–4000) and optional `score` (0–1); returns `201` with `data` |
+| `GET /api/memory?query=...&limit=5` | Relevant knowledge entries (the path keeps its older name); maximum 20, empty query returns an empty list |
+| `POST /api/memory` | Upsert a knowledge entry using `key` (1–120 characters), `value` (1–4000) and optional `score` (0–1); returns `201` with `data` |
+| `GET /api/memory/document` | MEMORY.md as `data` with `content`, `revision`, `updatedAt`, the notes sorted into `topics`, those not yet sorted in `unsorted`, and whether sorting is `settled` or `organizing` |
+| `PATCH /api/memory/document` | Rewords a note, with `revision`, `line` and `text` (1–500 characters); a revision that is out of date returns `409` |
+| `POST /api/memory/document` | Sorts the notes into topics in the background if they need it, using the model; returns the same `data` as `GET` |
+| `DELETE /api/memory/document?revision=...&lines=1,2` | Deletes those notes, or everything when `lines` is left out; a revision that is out of date returns `409` |
 | `POST /api/retrieval` | Retrieve local memories using JSON `query` (1–2000 characters) and optional `limit` (1–20, default 6); returns `data` |
 
 The memory and retrieval endpoints remain deliberate local integration contracts even though the UI uses the knowledge page and tools. Missing or foreign detail records return `404`; unauthenticated requests return `401`. Mutations use the same bounded JSON parsing and same-origin checks as UI requests. Embedding configuration is optional; keyword retrieval remains available without a provider key.
@@ -97,7 +101,7 @@ review results remain failures while preserving answers. See [Document knowledge
 
 Queries use the runtime's Chinese word segmentation, Unicode compatibility normalization, duplicate removal and a small stop-word list. Word boundaries may vary with the runtime's ICU version. Ranking evaluates scores once and uses deterministic ordering for ties. Unrelated entries cannot rank solely because they are recent or manually weighted.
 
-Memory search compares every confirmed memory, by keyword and, where a compatible vector exists, by meaning. Context recall retains tool memories and its recency/manual weights and also matches the previous user message at reduced weight when the latest one is a short follow-up; explicit knowledge search excludes tool memories and merges built-in entries and imported document results. Memory retrieval remains keyword/embedding retrieval, not a guarantee of semantic recall.
+Entry search compares every confirmed knowledge entry, by keyword and, where a compatible vector exists, by meaning. Nothing is added to a chat request on its own: the model reaches entries and documents through `searchKnowledge`, which merges both. This is keyword/embedding retrieval, not a guarantee of semantic recall.
 
 Imported documents use local BM25 ranking plus optional semantic vectors in SQLite. Explicit indexing and queries against compatible vectors call the selected embedding provider and may incur costs; import/reindex remain local. See [Document knowledge](document-knowledge.md) for endpoints, confirmation, batching and limits. Knowledge-tool results preserve fused document ranking and adjacent evidence before filling remaining slots with confirmed memories and built-in entries. Each document result has `source: "document"` and a versioned `reference` containing document/chunk IDs, filename, excerpt, heading, retrieval method and optional PDF page. Chat streams include server-produced `metadata.documentSources`; persisted assistant messages retain these snapshots and actual citation-link status for history rendering. Source pages require the local workspace credential and do not provide public file URLs.
 

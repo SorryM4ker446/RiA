@@ -4,7 +4,7 @@ Open **Knowledge topics** in the sidebar, select 1–12 named document collectio
 
 The workspace shows collection documents, local and semantic index coverage, scoped retrieval, topic conversations and artifact history. Use **Manage documents & indexes** to import documents or repair their indices. Retrieval uses the existing hybrid RAG pipeline and the assistant's retrieval policy. Without usable vectors it retains the existing lexical fallback and reports diagnostics; unrelated collections are never added as a fallback.
 
-New topic conversations snapshot the current template and use the topic's collections, overriding the template's default collections. Editing a topic or template does not change existing conversations. Users can explicitly adjust a conversation's settings afterward. Deleting a topic removes its artifacts and unlinks its conversations, preserving library documents and conversation history.
+New topic conversations snapshot the current template and use the topic's collections, overriding the template's default collections. Editing a topic or template does not change existing conversations. Users can adjust a conversation's memory and template afterward; its collections stay those of the topic unless another template is applied. Deleting a topic removes its artifacts and unlinks its conversations, preserving library documents and conversation history.
 
 ## Generating and checking artifacts
 

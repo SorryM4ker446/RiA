@@ -19,7 +19,8 @@ Normal chat uses automatic tool selection. Typing `/` in the composer chooses a 
 | Area | Current behavior | Boundaries and documentation |
 | --- | --- | --- |
 | Knowledge: `searchKnowledge` | Memories and documents, local keyword retrieval, optional semantic + BM25 retrieval, collection scope, versioned citations and quality evaluations | Candidate memories stay outside model context until confirmed. Embedding and answer-quality checks may call configured services. [Document knowledge](document-knowledge.md) |
-| Memory: `saveMemory` | Stores reusable information with provenance and confirmation policy; a save the model requests waits for approval and never overwrites a different memory under the same key; entries can be reviewed, edited, confirmed and deleted | No-memory conversations do not read/write long-term memory; messages, drafts, media and usage still persist. [Execution and memory](execution-history.md) |
+| Memory: `extractMemory` | The model's own: a person cannot run or choose it, and it is offered only while long-term memory is on. See [long-term memory](long-term-memory.md) | Always ready while memory is on |
+| Knowledge: `saveKnowledgeEntry` | Adds a named entry to the knowledge base, with provenance; a save the model requests waits for approval and never overwrites a different entry | Always ready |
 | Tasks: `createTask` | Creation through chat; list/edit/status/delete management, time zones, due reminders and recurrence | The next recurring task is created on completion; desktop reminders require the application to remain running. [Task reminders](task-reminders.md) |
 | Search: `webSearch` | DeepSeek native/Search API, OpenRouter gateway search through the selected chat model's provider, model-selected result counts and citations | No RiA per-turn result-count quota; provider API ceilings and run execution limits apply. Missing configuration is distinct from zero results. No general search-result cache or automatic retry is promised. [Search notes](web-search-budget-and-quality.md) |
 | Documents: `readDocument`, `convertDocument` | Reads stored extracted text in bounded ranges; exports Markdown, TXT, HTML or DOCX | Knowledge document details integrate copy editing, preview and export; import supports PDF/DOCX/Markdown/TXT. Chat PDF/DOCX attachments are parsed without automatic knowledge import. [Document processing](document-processor.md) · [Chat attachments](media-storage.md#pdf-and-word-in-chat) |
@@ -59,3 +60,12 @@ The repository includes contract, server/SQLite, browser and desktop coverage fo
 These files document coverage, not a claim that every suite was rerun during this documentation update. Current checks and fixture boundaries are described in [testing](testing.md). Local results must be distinguished from actual CI runs, live-service compatibility and real-model answer quality.
 
 Before release, validate representative configured Skills/connectors with their real prerequisites, review results against real documents, and complete installation/upgrade and native behavior checks for the actual MSI. Follow [Windows release acceptance](windows-release-acceptance.md); a successful package build does not fill manual acceptance results.
+
+## Models that cannot call tools
+
+A chat model without tool calling loses everything built on tools: knowledge search, web
+search, the terminal, file reading and editing, tasks and extension tools. Before chatting
+with one, the chat page says so and asks the person to carry on or change the model. Leaving
+the model menu without changing it asks again. The answer holds for that model until the app
+closes. A model set by the assistant template can only be accepted here, a template with no
+tools is not asked about, and image and video modes do not use tools.

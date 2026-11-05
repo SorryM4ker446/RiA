@@ -22,14 +22,14 @@ The system prompt holds only rules that stay the same across a conversation's
 turns: the base instructions, tool rules, capability status, user preferences,
 the assistant template and the skill index. Each rule is stated once. This turn's
 reference data — excerpts of any older turns no summary covers, which files changed,
-matching memories and automatically added knowledge evidence — is sent as one labelled
+and MEMORY.md when this copy has not been sent yet — is sent as one labelled
 context block at the start of the user message it belongs to. The conversation's summary, when there is one, opens
 the messages as a labelled user message, with an exact record of what was done and
 the files and skills put back underneath. Earlier turns follow exactly as they were
 sent: each with the context block and directive it went out with, step by step, with
 its real tool calls and results, so a provider's prompt cache matches everything up to
 the new message. The block is saved with its message for this, unless it is over
-32,000 characters, in which case it is sent once. An approval resuming continues the
+64,000 characters, in which case it is sent once. An approval resuming continues the
 same request and sends the block it already had. A file not read back the same way, or
 a turn saved before steps were recorded, simply misses the cache once.
 
