@@ -106,6 +106,11 @@ const preferencesShape = {
   image: modePreference,
   video: modePreference,
   embedding: modelRefSchema.nullable(),
+  /**
+   * The model for work around a turn: summaries, planning a search. Null means the
+   * model that work is for does it, so a workspace that never chose one is unchanged.
+   */
+  auxiliary: modelRefSchema.nullable().default(null),
   legacyCandidates: z.array(legacyModelCandidateSchema).max(20),
   library: z.array(modelLibraryItemSchema).max(1000).refine(rows => new Set(rows.map(row => modelRefKey(row))).size === rows.length, "Duplicate models in library"),
   // Keyed by `provider:model`, so two providers offering the same underlying
@@ -158,6 +163,7 @@ export const preferencesSchema = z.strictObject(preferencesShape).superRefine((s
     if (preference.model && sameRef(preference.model, preference.fallback)) issue([mode, "fallback"], t("lib.models.fallbackMustDiffer"));
   }
   if (settings.embedding && !library.get(modelRefKey(settings.embedding))?.modes.includes("embedding")) issue(["embedding"], t("lib.models.embeddingNotAdded"));
+  if (settings.auxiliary && !library.get(modelRefKey(settings.auxiliary))?.modes.includes("chat")) issue(["auxiliary"], t("lib.models.auxiliaryNotAdded"));
 });
 export type ModelPreferences = z.infer<typeof preferencesSchema>;
 
@@ -202,6 +208,7 @@ export function defaultModelPreferences(): ModelPreferences {
     image: { model: null, fallback: null },
     video: { model: null, fallback: null },
     embedding: null,
+    auxiliary: null,
     legacyCandidates: [],
     library: [],
     rates: {},

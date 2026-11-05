@@ -112,10 +112,14 @@ export async function acquireModelLease(mode: LibraryMode, ref: ModelRef) {
 }
 
 async function persist(tx: PreferenceTx, settings: ModelPreferences) {
+  // Older builds refuse a settings document with a field they do not know, so one
+  // left at its default stays out of it and going back to them keeps working.
+  const { auxiliary, ...withoutAuxiliary } = settings;
+  const stored = (auxiliary ? settings : withoutAuxiliary) as Prisma.InputJsonValue;
   await tx.workspacePreference.upsert({
     where: { id: PREFERENCE_ROW_ID },
-    create: { id: PREFERENCE_ROW_ID, settings: settings as Prisma.InputJsonValue },
-    update: { settings: settings as Prisma.InputJsonValue },
+    create: { id: PREFERENCE_ROW_ID, settings: stored },
+    update: { settings: stored },
   });
 }
 
@@ -154,6 +158,16 @@ export async function preferredModel(mode: GenerationMode, supplied?: ModelRef |
   if (!ref) throw new ApiError({ code: "CONFIGURATION_ERROR", message: `${t("lib.models.addFirstPrefix")}${mode === "chat" ? t("lib.models.modeChat") : mode === "image" ? t("lib.models.modeImage") : t("lib.models.modeVideo")}${t("lib.models.addFirstSuffix")}` });
   if (!libraryModel(settings, mode, ref)) throw new ApiError({ code: "CONFIGURATION_ERROR", message: `${t("lib.models.modelWord")} ${ref.modelId} ${t("lib.models.notInLibrary")}${mode}${t("lib.models.notInLibraryHint")}` });
   return ref;
+}
+
+/**
+ * Which model does the work around a turn. With none chosen, or one that can no
+ * longer be called, it falls to the model the work is for.
+ */
+export async function auxiliaryModel(main: ModelRef): Promise<ModelRef> {
+  const settings = await getModelPreferences();
+  const chosen = settings.auxiliary;
+  return chosen && libraryModel(settings, "chat", chosen) && getModelProvider(chosen.providerId).isConfigured() ? chosen : main;
 }
 
 export async function modelInLibrary(mode: LibraryMode, ref: ModelRef | null | undefined) {
@@ -267,6 +281,7 @@ export async function removeModel(ref: ModelRef) {
         image: { model: clear(current.image.model), fallback: clear(current.image.fallback) },
         video: { model: clear(current.video.model), fallback: clear(current.video.fallback) },
         embedding: clear(current.embedding),
+        auxiliary: clear(current.auxiliary),
       });
       await persist(tx, settings);
       return settings;
