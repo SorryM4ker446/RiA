@@ -1,15 +1,17 @@
 import { protectDataOperation } from "@/lib/server/data-operations";
 import { currentWorkspaceId, requireLocalWorkspace } from "@/lib/local/workspace";
-import { buildRequestContext, buildSystemPrompt, formatCurrentTime, formatLongTermContext, prepareModelContext, withRequestContext } from "@/lib/chat/model-context";
+import { buildRequestContext, buildSystemPrompt, filesSeen, formatCurrentTime, formatLongTermContext, keepRequestContext, prepareModelContext, storedSummary, withRequestTexts } from "@/lib/chat/model-context";
+import { changedFiles } from "@/lib/chat/compaction-restore";
 import { prepareChatPersistence } from "@/lib/chat/persistence";
 import { readChatRequest } from "@/lib/chat/request";
 import { streamChatResponse } from "@/lib/chat/stream";
 import { getRelevantMemories } from "@/lib/memory/store";
 import { startRun } from "@/lib/agent/runs";
-import type { ModelRef } from "@/lib/models/preferences-schema";
+import { modelRefKey, type ModelRef } from "@/lib/models/preferences-schema";
+import { contextBudget } from "@/lib/models/context-budget";
 import { getModelPreferences } from "@/lib/models/preferences";
 import { getModelProvider } from "@/lib/models/providers";
-import { summarizeOlderTurns } from "@/lib/chat/summary";
+import { compactForRequest } from "@/lib/chat/compaction";
 import { createCompactionAllowance } from "@/lib/chat/task-summary";
 import { getTextFromUIMessage as readText } from "@/lib/ai/ui-message";
 import type { UIMessage } from "ai";
@@ -88,22 +90,15 @@ async function POSTHandler(req: NextRequest) {
     // A conversation that named its document topics only draws on those; an
     // empty scope means every topic, as before.
     const scope = decodeDocumentScope(input.conversationPolicy?.documentScope ?? conversation.chat.documentScope);
-    // Long conversations are compressed by a model-written summary that covers
-    // the older turns and names the last message it includes. A summary never
-    // replaces the stored messages themselves.
     // One allowance per request covers older-turn summaries and in-stream compaction.
     const compactionAllowance = createCompactionAllowance((await getModelPreferences()).callLimits.compactionCallsPerTurn);
-    const summary = latestUserMessage?.text
-      ? await summarizeOlderTurns({
-        chatId: conversation.chat.id,
-        messages: context.allMessages.map((message) => ({ id: message.id ?? "", role: message.role, text: readText(message) })),
-        keepRecent: context.messages.length,
-        force: context.omittedMessages > 0,
-        modelRef,
-        signal: req.signal,
-        allowance: compactionAllowance,
-      }).catch(() => null)
-      : null;
+    // Long conversations are compressed by a model-written summary that covers the
+    // older turns and names the last message it includes; it never replaces the
+    // stored messages. A finished turn nearing the limit keeps it up to date in the
+    // background, so a request reads what is there and excerpts fill any gap behind
+    // it. Only a conversation with no summary yet waits for one, and says so.
+    const olderTurns = latestUserMessage?.text ? context.allMessages.slice(0, context.omittedMessages) : [];
+    const awaitsSummary = olderTurns.length > 0 && !input.isApprovalResume && !await storedSummary(conversation.chat.id);
 
     const knowledgeQuery = documentRetrievalQuery(context.allMessages.map(message => ({ role: message.role, text: readText(message) })));
     const retrievalQuery = knowledgeQuery || latestUserMessage?.text || "";
@@ -116,23 +111,37 @@ async function POSTHandler(req: NextRequest) {
     // The system prompt carries only rules that stay the same across turns. The
     // optional tools configured away this turn are named there, so the model
     // can answer honestly about what it could not check.
+    const skillsPrompt = await formatPluginSkills({ onDemand: toolsEnabled });
     const systemPrompt = buildSystemPrompt(toolsEnabled, unavailableStatuses, (await getModelPreferences()).persona)
-      + formatAssistantInstructions(input.assistant) + await formatPluginSkills({ onDemand: toolsEnabled });
-    // This turn's reference data travels with the user's message. Excerpts of
-    // older turns are a fallback for when no summary covers them.
+      + formatAssistantInstructions(input.assistant) + skillsPrompt;
     // Which folder this conversation works in is restated on every request, so
     // a switch made between turns is what the model acts on next.
     const workspace = toolsEnabled && (!input.assistant || input.assistant.tools.includes("runTerminalCommand"))
       ? formatWorkspaceContext(await conversationWorkspace(conversation.chat.id), await db.directoryGrant.count({ where: { revokedAt: null } }) > 0)
       : "";
-    const requestContext = buildRequestContext({
-      currentTime: formatCurrentTime(),
-      workspace,
-      summary: summary?.summary,
-      historyExcerpt: summary ? "" : context.historyExcerpt,
-      memories: formatLongTermContext(relevantMemories),
-      evidence: formatDocumentContext(documentSources),
-    });
+    // Whether the summary and the messages sent leave nothing out between them. A
+    // fold during the turn may only move the summary's end if they do.
+    let historyComplete = olderTurns.length === 0;
+    // This turn's reference data travels with the user's message.
+    const withEarlierTurns = async () => {
+      const stored = await storedSummary(conversation.chat.id);
+      historyComplete ||= Boolean(stored?.coveredIds.includes(olderTurns.at(-1)!.id));
+      // An approval resuming continues the same request, which already holds its context.
+      if (input.isApprovalResume) return modelMessages;
+      const workspaceGrant = toolsEnabled && (!input.assistant || templateAllowsTool(input.assistant.tools, "readProjectFile")) ? (await conversationWorkspace(conversation.chat.id))?.id : null;
+      const fileChanges = workspaceGrant ? await changedFiles({ seen: filesSeen(stored?.state, context.messages, workspaceGrant), grantId: workspaceGrant, signal: req.signal }) : "";
+      const block = buildRequestContext({
+        currentTime: formatCurrentTime(),
+        workspace,
+        historyExcerpt: historyComplete ? "" : context.historyExcerpt,
+        fileChanges,
+        memories: formatLongTermContext(relevantMemories),
+        evidence: formatDocumentContext(documentSources),
+      });
+      const texts = [block, invocation?.directive ?? ""].filter(Boolean);
+      await keepRequestContext(conversation.chat.id, latestUserMessage?.id, texts);
+      return withRequestTexts(modelMessages, texts);
+    };
 
     // A run exists only for a turn that can actually use tools. Creating one
     // for a plain answer would fill the record with empty runs that did nothing.
@@ -141,8 +150,15 @@ async function POSTHandler(req: NextRequest) {
       : null;
 
     return await streamChatResponse({
-      input, conversation, systemPrompt, modelMessages: withRequestContext(modelMessages, requestContext, invocation?.directive), toolsEnabled, signal: req.signal, chosenTool: invocation?.toolId ?? null,
+      input, conversation, systemPrompt, skillsPrompt, toolsEnabled, signal: req.signal, chosenTool: invocation?.toolId ?? null,
+      ...(awaitsSummary ? {
+        settleContext: async () => {
+          await untilAborted(compactForRequest({ chatId: conversation.chat.id, messages: context.allMessages, keepRecent: context.messages.length, modelRef, allowance: compactionAllowance }), req.signal);
+          return withEarlierTurns();
+        },
+      } : { modelMessages: await withEarlierTurns() }),
       documentSources, documentDiagnostics: retrieved?.diagnostics, runId: run?.id ?? null, usesMemory,
+      foldHistory: { messages: context.messages, complete: () => historyComplete },
       // The prompt has been telling the model which tools this turn could not
       // use. Without this the list never reaches persistence, so the turn's own
       // record could not show it and the "this turn had no web search" badge
@@ -155,6 +171,14 @@ async function POSTHandler(req: NextRequest) {
     console.error("/api/chat error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to generate chat response");
   }
+}
+
+/** Stops waiting when the request does; the work it was waiting on carries on. */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal) {
+  return Promise.race([work, new Promise<never>((_, reject) => {
+    if (signal.aborted) reject(signal.reason);
+    else signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+  })]);
 }
 
 /** The user message before the latest one, as plain text. */

@@ -13,6 +13,7 @@ type ToolExecutionContext<Input> = {
   modelRef?: ModelRef;
   trigger: ToolTriggerType;
   signal?: AbortSignal;
+  chatId?: string | null;
   runId?: string | null;
   documentCollections?: string[];
   documentRetrievalPolicy?: RetrievalPolicy;
@@ -70,9 +71,17 @@ export type ToolSurface = {
   user: { run: "model" | "direct"; hint: string } | null;
   /**
    * How a template treats it: chosen one by one, always allowed because it grants
-   * nothing external, or allowed along with the tool it is a way of using.
+   * nothing external, allowed along with the tool it is a way of using, or allowed
+   * along with any tool, so a template with no tools still has none.
    */
-  template: "selectable" | "always" | { follows: string };
+  template: "selectable" | "always" | { follows: string } | "with-any";
+  /**
+   * Not a tool of the kind people or templates choose. Who drives it differs:
+   * `application` is never in the tool set sent to the model, since what it does is
+   * decided without asking the model, as when a number crosses a line. `model` is the
+   * model's alone: it goes to the model, which can only call what a request defines.
+   */
+  underlying?: "application" | "model";
 };
 
 export type ToolMemoryPolicy<Input, Output> = {

@@ -81,10 +81,11 @@ export async function restoreAccountBackup(id: string) {
       // one as covering nothing.
       const chats = manifest.chats.map(({ messages, tags: _tags, ...chat }) => {
         const validSummary = chat.summary && chat.summaryRevision != null && chat.summaryRevision === (chat.historyRevision ?? 0)
-          && messages.some(message => message.id === chat.summaryUpToMessageId);
+          && (!chat.summaryUpToMessageId ? Boolean(chat.summaryState) : messages.some(message => message.id === chat.summaryUpToMessageId));
         return { ...chat, topicId: chat.topicId ? mapped(chat.topicId) : null, assistantConfig: chat.assistantConfig ? { ...chat.assistantConfig, templateId: templateIds.get(chat.assistantConfig.templateId) ?? chat.assistantConfig.templateId } : Prisma.DbNull, id: mapped(chat.id), historyRevision: chat.historyRevision ?? 0,
           summary: validSummary ? chat.summary : null, summaryRevision: validSummary ? chat.summaryRevision : null,
           summaryModelId: validSummary ? chat.summaryModelId : null,
+          summaryState: validSummary ? chat.summaryState : null,
           summaryUpToMessageId: validSummary && chat.summaryUpToMessageId ? mapped(chat.summaryUpToMessageId) : null,
         };
       });

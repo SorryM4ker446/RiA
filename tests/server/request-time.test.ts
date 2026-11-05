@@ -55,7 +55,7 @@ test("it leads the context block, and the block stays empty without it", () => {
   assert.ok(block.indexOf("Current date and time") < block.indexOf("workspace"));
 });
 
-test("each request tells the model the time on its latest message only, so earlier turns stay as they were for the prompt cache", async t => {
+test("each message keeps the time it was sent at, so earlier turns repeat exactly for the prompt cache", async t => {
   const prompts = capturePrompts(t);
   const chat = await createChat({ title: "Time" });
   await (await post({ chatId: chat.id, messages: [user("first", "第一句")] })).text();
@@ -65,7 +65,7 @@ test("each request tells the model the time on its latest message only, so earli
   const [firstTurn, secondTurn] = prompts.map(users);
   assert.match(firstTurn[0], /Current date and time: \d{4}-\d{2}-\d{2} \d{2}:\d{2}, \w+day \(/);
   assert.equal(secondTurn.length, 2);
-  assert.doesNotMatch(secondTurn[0], /Current date and time/);
+  assert.equal(secondTurn[0], firstTurn[0], "the first message is sent again exactly as it was");
   assert.match(secondTurn[1], /Current date and time/);
   assert.equal(JSON.stringify(prompts[1].find(message => message.role === "system")), JSON.stringify(prompts[0].find(message => message.role === "system")), "the system prompt does not change with the clock");
 });

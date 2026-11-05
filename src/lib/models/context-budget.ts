@@ -24,13 +24,15 @@ export type ContextBudget = {
  */
 export const COMPACTION_TRIGGER = 0.9;
 export const COMPACTION_TARGET = 0.6;
+/** Share of the window older turns leave behind when they are folded into the summary. */
+export const COMPACTED_TAIL = 0.3;
 
 /**
- * Lowest calibration scale: the documented overestimate of the local count is
- * at most about 2x, so provider usage may lower the estimate to half and no
+ * Lowest calibration scale. The local count overestimates, by about 2.4x on Chinese
+ * as DeepSeek counts it, so provider usage may lower the estimate to a third and no
  * further, however small one turn's ratio (images count a token per byte).
  */
-export const MIN_CALIBRATION = 0.5;
+export const MIN_CALIBRATION = 1 / 3;
 
 /** Unknown capacity is an application planning ceiling, never a model capability claim. */
 export function contextBudget(model?: ContextCapacity | null, configured?: ContextCapacity): ContextBudget {

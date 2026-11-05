@@ -207,7 +207,7 @@ export function mapStoredMessagesToUI(messages: StoredMessage[]): {
       return {
         id: uiMessageId,
         role: message.role,
-          ...(parsedAssistantToolMessage.thinking || parsedAssistantToolMessage.skippedTool || parsedAssistantToolMessage.runId || parsedAssistantToolMessage.runIds?.length || parsedAssistantToolMessage.modelLabel || parsedAssistantToolMessage.contextBudget || parsedAssistantToolMessage.documentSources?.length || parsedAssistantToolMessage.unavailableTools?.length || parsedAssistantToolMessage.documentDiagnostics
+          ...(parsedAssistantToolMessage.thinking || parsedAssistantToolMessage.steps || parsedAssistantToolMessage.skippedTool || parsedAssistantToolMessage.runId || parsedAssistantToolMessage.runIds?.length || parsedAssistantToolMessage.modelLabel || parsedAssistantToolMessage.contextBudget || parsedAssistantToolMessage.documentSources?.length || parsedAssistantToolMessage.unavailableTools?.length || parsedAssistantToolMessage.documentDiagnostics
           ? { metadata: {
               ...(parsedAssistantToolMessage.runId ? { runId: parsedAssistantToolMessage.runId } : {}),
               ...(parsedAssistantToolMessage.runIds?.length ? { runIds: parsedAssistantToolMessage.runIds } : {}),
@@ -218,6 +218,7 @@ export function mapStoredMessagesToUI(messages: StoredMessage[]): {
               ...(parsedAssistantToolMessage.unavailableTools?.length ? { unavailableTools: parsedAssistantToolMessage.unavailableTools } : {}),
               ...(parsedAssistantToolMessage.skippedTool ? { skippedTool: parsedAssistantToolMessage.skippedTool } : {}),
               ...(parsedAssistantToolMessage.thinking ? { thinking: parsedAssistantToolMessage.thinking } : {}),
+              ...(parsedAssistantToolMessage.steps ? { steps: parsedAssistantToolMessage.steps } : {}),
             } }
           : {}),
         parts: parts.length > 0 ? parts : [{ type: "text", text: t("chat.messages.toolCallFallback") }],

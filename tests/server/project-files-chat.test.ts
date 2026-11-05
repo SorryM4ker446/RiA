@@ -129,10 +129,10 @@ test("a template allowing the terminal describes its file tools truthfully and a
   const proposed = await route.POST(request({ chatId: chat.id, messages: [user] }));
   assert.equal(proposed.status, 200);
   await wireText(proposed);
-  assert.ok(["readProjectFile", "editProjectFile", "readTerminalLog", "compactContext"].every(name => calls[0].tools.includes(name)), "the terminal's file tools and context compaction are offered");
+  assert.ok(["readProjectFile", "editProjectFile", "readTerminalLog"].every(name => calls[0].tools.includes(name)), "the terminal's file tools are offered");
   const statusLine = /Capability status \(internal context\): ([^.]*) are disabled by the current assistant template/.exec(calls[0].prompt)?.[1] ?? "";
   assert.match(statusLine, /webSearch/, "a tool the template left out is still reported");
-  assert.doesNotMatch(statusLine, /readProjectFile|editProjectFile|readTerminalLog|compactContext|runTerminalCommand/, "a tool the model was given is not reported as disabled");
+  assert.doesNotMatch(statusLine, /readProjectFile|editProjectFile|readTerminalLog|runTerminalCommand/, "a tool the model was given is not reported as disabled");
 
   const saved = await db.message.findFirstOrThrow({ where: { chatId: chat.id, role: "assistant" } });
   const edit = decodePersistedAssistantToolMessage(saved.content)!.tools[0];

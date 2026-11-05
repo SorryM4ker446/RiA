@@ -22,6 +22,8 @@ type Part = StreamResult["stream"] extends ReadableStream<infer T> ? T : never;
 type Prompt = Parameters<Model["doStream"]>[0]["prompt"];
 
 export type ObserveOptions = {
+  /** This generated call repeats a prefix the conversation just sent, so it may read it from a provider's cache. */
+  readsCachedPrefix?: boolean;
   /**
    * Called when the model answering changes: to the fallback when it takes
    * over, or back to the selected model when the fallback, tried first during a
@@ -134,7 +136,8 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
         let admission: Awaited<ReturnType<typeof beginModelAttempt>> | undefined;
         try {
           if (!sameRef(selected, current)) base = await switchTo(selected, params);
-          const selectedParams = await withReasoning(selected, { ...base, maxOutputTokens: await plannedCap(selected, base) });
+          const selectedParams = await withReasoning(selected, { ...base, maxOutputTokens: await plannedCap(selected, base),
+            ...(options?.readsCachedPrefix && needsCacheBreakpoints(selected) ? { prompt: withCacheBreakpoints(base.prompt) } : {}) });
           const result = await withModelLease("chat", selected, async () => {
             admission = await beginModelAttempt({ mode: "chat", ref: selected, source: callSource, prompt: selectedParams.prompt, maxOutputTokens: selectedParams.maxOutputTokens, fallback: isFallback, signal: params.abortSignal });
             return (isFallback ? alternate(selected) : model).doGenerate(selectedParams);

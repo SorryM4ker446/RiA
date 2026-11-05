@@ -1,4 +1,6 @@
+import type { UIMessage } from "ai";
 import { db } from "@/db";
+import { conversationRatio } from "@/lib/chat/context-report";
 import { modelRefKey, type ModelRef } from "@/lib/models/preferences-schema";
 import { MIN_CALIBRATION } from "./context-budget";
 
@@ -25,6 +27,18 @@ export async function contextCalibration(ref: ModelRef): Promise<number> {
     const samples = row ? parseSamples(row.samples) : [];
     return samples.length ? Math.max(MIN_CALIBRATION, ...samples) : 1;
   } catch { return 1; }
+}
+
+/**
+ * The scale for this conversation: how its own latest request compared with the
+ * estimate, since what it is written in matters most (Chinese counts far lower than
+ * English on the same estimate). Without one, what the model has seen lately. A
+ * conversation that turns heavier is caught by the provider's usage on the next step,
+ * and an underestimate the provider refuses is recovered from.
+ */
+export async function conversationCalibration(ref: ModelRef, messages: UIMessage[]): Promise<number> {
+  const ratio = conversationRatio(messages, `${ref.providerId}/${ref.modelId}`);
+  return ratio === null ? contextCalibration(ref) : Math.max(MIN_CALIBRATION, ratio);
 }
 
 /**

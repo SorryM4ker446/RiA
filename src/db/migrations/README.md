@@ -1,5 +1,16 @@
 # Database migrations
 
+`20261105090000_message_request_context` adds an optional column to messages holding
+the reference data a user message was sent with, so later requests repeat it exactly
+and a provider's prompt cache keeps matching. A missing value means that message is
+sent without it once. It is additive, and older builds ignore it.
+
+`20261104120000_chat_summary_state` adds an optional column to conversations
+holding what goes with the summary: the tool calls it stands in for, and the files
+and skills to put back after a fold. Existing summaries stay valid with nothing
+recorded; a missing or unreadable value means folding again. It is additive, and
+older builds ignore it.
+
 `20261025100000_drop_task_memory_candidates` removes memory suggestions that
 creating a task used to leave behind: rows whose key starts with
 `tool:createTask:`, inferred by the assistant (`source = 'assistant'`) and never

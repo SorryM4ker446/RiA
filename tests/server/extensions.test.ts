@@ -226,10 +226,10 @@ test("assistant templates accept external tools, retain their allowlist and can 
   const config = assistantConfigSchema.parse({ name: "External assistant", instructions: "Use only the selected tool.", tools: [id] });
   const template = await saveAssistant(config);
   const snapshot = await resolveAssistant(template.id);
-  // Context compaction accompanies any available tool and grants no capability.
-  assert.deepEqual(Object.keys(await createChatToolSet({ toolIds: snapshot.tools })), ["compactContext", id]);
+  const offered = async () => Object.keys(await createChatToolSet({ toolIds: snapshot.tools })).filter(name => name !== "readConversationHistory");
+  assert.deepEqual(await offered(), [id]);
   await activateExtension(row.id, { revision: enabled.revision, enabled: false, tools: [enabled.tools[0].name] });
-  assert.deepEqual(Object.keys(await createChatToolSet({ toolIds: snapshot.tools })), []);
+  assert.deepEqual(await offered(), []);
   const latest = (await listExtensions()).items[0]; await deleteExtension(row.id, latest.revision);
   assert.deepEqual((await resolveAssistant(template.id)).tools, [id]);
   await saveAssistant({ ...config, tools: [] }, template.id, template.revision);

@@ -163,7 +163,7 @@ test("a document attachment converts and downloads without a model", async () =>
 test("every tool states who can reach it, and the lists follow from that", async () => {
   for (const tool of listToolDescriptors()) assert.ok(tool.surface && tool.surface.category, tool.id);
   const user = listToolDescriptors("chat").filter(tool => tool.surface.user).map(tool => tool.id).sort();
-  assert.deepEqual(user, ["convertDocument", "createTask", "readDocument", "saveMemory", "searchKnowledge", "webSearch"]);
+  assert.deepEqual(user, ["compactContext", "convertDocument", "createTask", "readDocument", "saveMemory", "searchKnowledge", "webSearch"]);
   const catalog = await listPublicToolCatalog("chat");
   assert.ok(catalog.some(tool => tool.id === "readPluginSkill"), "tools only the model uses are listed too");
   const calling = catalog.find(tool => tool.id === "toolCalling")!;

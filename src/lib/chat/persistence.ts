@@ -1,4 +1,5 @@
 import { thinkingMarks, type ThinkingRecord } from "./thinking";
+import { stepsOfMessage } from "@/lib/ai/ui-message";
 import { db } from "@/db";
 import { t } from "@/lib/locale";
 import {
@@ -157,6 +158,7 @@ export async function persistChatResponse(params: { skippedTool?: string; thinki
           ...(reasoning ? { reasoning } : {}),
           ...(params.thinking ? { thinking: { ...params.thinking, ...(reasoning ? { marks: thinkingMarks(responseMessage.parts) } : {}) } } : {}),
           ...(contextReport.success ? { contextBudget: contextReport.data } : {}),
+          ...(stepsOfMessage(responseMessage.parts) ? { steps: stepsOfMessage(responseMessage.parts) } : {}),
           // Recorded so the note about a tool this turn could not use survives a
           // reload and is stated once, instead of only existing in the model's
           // prose or only in the live stream.

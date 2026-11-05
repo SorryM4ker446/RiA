@@ -100,6 +100,8 @@ model Chat {
   summary         String?
   summaryUpToMessageId String?
   summaryModelId  String?
+  // The tool calls the summary stands in for and what to put back after a fold, as JSON.
+  summaryState    String?
   historyRevision Int          @default(0)
   summaryRevision Int?
 
@@ -227,6 +229,7 @@ model Message {
   role            MessageRole
   content         String
   status          MessageStatus @default(success)
+  requestContext  String?
   createdAt       DateTime      @default(now())
   chat            Chat          @relation(fields: [chatId], references: [id], onDelete: Cascade)
   media           MessageMedia[]

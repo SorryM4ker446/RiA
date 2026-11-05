@@ -42,7 +42,7 @@ test("large terminal results and the next pending approval persist intact and ea
   await claimToolApproval(chat.id, approve("second"));
   await assert.rejects(claimToolApproval(chat.id, approve("second")), { code: "CONFLICT" });
   assert.equal(await db.message.count({ where: { chatId: chat.id } }), 1);
-  assert.equal((await db.chat.findUniqueOrThrow({ where: { id: chat.id } })).historyRevision, 2);
+  assert.equal((await db.chat.findUniqueOrThrow({ where: { id: chat.id } })).historyRevision, 1, "only the rewrite changed history; the first save added to it");
 });
 
 test("a failed answer replacement rolls back content, media retention and summary invalidation and can be retried", async () => {
@@ -67,14 +67,14 @@ test("a failed answer replacement rolls back content, media retention and summar
   for (const field of ["summary", "summaryRevision", "summaryModelId", "summaryUpToMessageId"]) assert.equal(updated[field], null);
 });
 
-test("concurrent replacements keep one message identity and invalidate each accepted history revision", async () => {
+test("concurrent saves of one message keep its identity, and the one that rewrites it advances the history revision", async () => {
   const chat = await db.chat.create({ data: { title: "Concurrent replacement" } });
   const results = await Promise.allSettled(["First", "Second"].map(content => saveChatMessage({ chatId: chat.id, role: "assistant", content, clientMessageId: "answer", updateExisting: true })));
   for (const result of results) if (result.status === "rejected") throw result.reason;
   const messages = await db.message.findMany({ where: { chatId: chat.id } });
   assert.equal(messages.length, 1);
   assert.ok(["First", "Second"].includes(messages[0].content));
-  assert.equal((await db.chat.findUniqueOrThrow({ where: { id: chat.id } })).historyRevision, 2);
+  assert.equal((await db.chat.findUniqueOrThrow({ where: { id: chat.id } })).historyRevision, 1);
 });
 
 test("replacement writes without a client identity create distinct messages", async () => {

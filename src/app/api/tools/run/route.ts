@@ -41,7 +41,7 @@ async function POSTHandler(req: NextRequest) {
     const assistant = readAssistantSnapshot(conversation?.assistantConfig);
     if (assistant && !templateAllowsTool(assistant.tools, toolId)) throw new ApiError({ code: "VALIDATION_ERROR", message: "当前助理模板不允许执行此工具。" });
     const { output } = await executeRegisteredTool(descriptor, input.data, {
-      trigger: "manual", signal: req.signal,
+      trigger: "manual", signal: req.signal, chatId: parsed.data.chatId,
       documentCollections: decodeDocumentScope(conversation?.documentScope),
       documentRetrievalPolicy: assistant?.retrieval,
     });

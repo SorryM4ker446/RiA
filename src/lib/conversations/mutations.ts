@@ -46,7 +46,7 @@ export async function updateConversation(id: string, input: z.infer<typeof updat
       ...(input.assistantTemplateId !== undefined ? {
         assistantConfig: assistant ?? Prisma.DbNull,
         ...(assistant ? { documentScope: encodeDocumentScope(assistant.collections), ephemeral: !assistant.usesMemory } : {}),
-        historyRevision: { increment: 1 }, summary: null, summaryUpToMessageId: null, summaryModelId: null, summaryRevision: null,
+        historyRevision: { increment: 1 }, summary: null, summaryUpToMessageId: null, summaryModelId: null, summaryRevision: null, summaryState: null,
       } : {}),
       ...(title !== undefined ? { title: truncateTitle(title) } : {}),
       ...(input.pinned !== undefined ? { pinned: input.pinned } : {}),

@@ -1,6 +1,7 @@
 import type { UIMessage } from "ai";
 import { historicalToolText, historyTextExcerpt } from "./tool-history";
 import { estimateTextTokens } from "@/lib/models/context-budget";
+import type { PersistedStep } from "@/lib/ai/ui-message";
 
 type ContextOptions = {
   maxMessages?: number;
@@ -22,6 +23,24 @@ type ContextOptions = {
    * on every request. Without it, only as much as needed is dropped.
    */
   refillRatio?: number;
+  /** What each user message was sent with, kept so a later request repeats it exactly. */
+  requestContexts?: ReadonlyMap<string, string[]>;
+  /**
+   * Keep finished tool calls and their results as they were, rather than as text
+   * excerpts, so a later turn can use what an earlier one read. Space is made only
+   * when the request nears the limit.
+   */
+  toolRecords?: {
+    replaysReasoning?: boolean;
+    /** Calls the summary already stands in for: they are not sent, so they take no room. */
+    covered?: readonly string[];
+    /**
+     * A request stays in touch with the turn before it: a turn whose tool results do not
+     * fit keeps its calls, its reply and short forms of its results, which the per-step
+     * check makes, rather than dropping out whole.
+     */
+    keepPreviousToolTurn?: boolean;
+  };
 };
 
 function isToolPart(part: UIMessage["parts"][number]) {
@@ -37,7 +56,7 @@ export function isToolApprovalContinuation(messages: UIMessage[]): boolean {
   );
 }
 
-export function historicalText(message: UIMessage, maxCharacters?: number): string {
+export function historicalText(message: UIMessage, maxCharacters?: number, recordCharacters?: number): string {
   if (maxCharacters !== undefined) {
     const tools = message.parts.filter(isToolPart);
     const prose = message.parts.map(part => part.type === "text" ? part.text : part.type === "file" ? `[attachment: ${part.filename || part.mediaType}]` : "").filter(Boolean).join("\n");
@@ -53,11 +72,79 @@ export function historicalText(message: UIMessage, maxCharacters?: number): stri
     if (part.type === "text") return part.text;
     if (part.type === "file") return `[attachment: ${part.filename || part.mediaType}]`;
     if (isToolPart(part) && "state" in part) {
-      return historicalToolText(part);
+      return historicalToolText(part, recordCharacters);
     }
     return "";
   }).filter(Boolean).join("\n");
 }
+
+const HISTORY_INPUT_CHARACTERS = 8000;
+const finished = (part: UIMessage["parts"][number]) => "state" in part && (part.state === "output-available" || part.state === "output-error");
+
+/**
+ * An assistant turn as later requests carry it: its finished calls and results,
+ * then its text. A call that never finished has no result to pair it with, so it
+ * stays only as a note. The turn always ends in text: a request ending on results
+ * reads to a provider as a tool loop still running, not as a new question.
+ */
+function historyTurn(message: UIMessage, replaysReasoning: boolean): UIMessage {
+  const tools = message.parts.filter(isToolPart);
+  if (!tools.some(finished)) return { id: message.id, role: "assistant", parts: [{ type: "text", text: historicalText(message) || "(empty response)" }] };
+  // An approval already settled; the result it led to is what remains of it. A
+  // very long input, such as a whole script, must not push the turn out of the
+  // window for the sake of text the model rarely needs again.
+  const record = (part: UIMessage["parts"][number]) => {
+    const { approval: _settled, ...rest } = part as typeof part & { approval?: unknown; input?: unknown };
+    const input = JSON.stringify(rest.input) ?? "";
+    return (input.length > HISTORY_INPUT_CHARACTERS ? { ...rest, input: { excerpt: historyTextExcerpt(input, HISTORY_INPUT_CHARACTERS) } } : rest) as UIMessage["parts"][number];
+  };
+  const notes = tools.filter(part => !finished(part)).map(part => historicalToolText(part));
+  const inSteps = withSteps(message).parts;
+  // Step by step, as it was sent while the turn ran, so a provider's prompt cache keeps
+  // matching it. A turn saved before steps were recorded has its calls first, then its text.
+  if (inSteps.some(part => part.type === "step-start")) {
+    const parts = inSteps.flatMap((part): UIMessage["parts"] => part.type === "step-start" ? [part]
+      // Exactly as it was, whitespace included: a cache match is exact.
+      : part.type === "reasoning" ? (replaysReasoning && part.text ? [part] : [])
+      : part.type === "text" ? (part.text ? [part] : [])
+      : isToolPart(part) && finished(part) ? [record(part)] : []);
+    if (notes.length) parts.push({ type: "text", text: notes.join("\n") });
+    // A request ending on results reads to a provider as a tool loop still running.
+    while (parts.at(-1)?.type === "step-start") parts.pop();
+    if (parts.at(-1)?.type !== "text") parts.push({ type: "step-start" }, { type: "text", text: "(no reply text)" });
+    return { id: message.id, role: "assistant", parts };
+  }
+  const text = [...message.parts.flatMap(part => part.type === "text" && part.text.trim() ? [part.text] : []), ...notes].join("\n");
+  return { id: message.id, role: "assistant", parts: [
+    ...(replaysReasoning ? message.parts.filter(part => part.type === "reasoning" && part.text.trim()) : []),
+    ...tools.filter(finished).map(record),
+    { type: "step-start" },
+    { type: "text", text: text || "(no reply text)" },
+  ] };
+}
+
+/** A message read back from storage, laid out in the steps it was recorded with. */
+function withSteps(message: UIMessage): UIMessage {
+  const steps = (message.metadata as { steps?: PersistedStep[] } | undefined)?.steps;
+  if (!steps?.length || message.parts.some(part => part.type === "step-start")) return message;
+  const calls = new Map(message.parts.flatMap(part => "toolCallId" in part && typeof part.toolCallId === "string" ? [[part.toolCallId, part] as const] : []));
+  const parts = steps.flatMap((step, index): UIMessage["parts"] => [
+    ...(index ? [{ type: "step-start" as const }] : []),
+    ...(step.reasoning ? [{ type: "reasoning" as const, text: step.reasoning }] : []),
+    ...(step.text ? [{ type: "text" as const, text: step.text }] : []),
+    ...step.calls.flatMap(id => calls.get(id) ? [calls.get(id)!] : []),
+  ]);
+  // A call the record does not name, such as one resumed after it was written, still counts.
+  const named = new Set(steps.flatMap(step => step.calls));
+  parts.push(...[...calls].filter(([id]) => !named.has(id)).map(([, part]) => part));
+  return { ...message, parts };
+}
+
+/** A message as it counts toward the window. */
+const recordText = (message: UIMessage, covered: ReadonlySet<string>) => message.parts.map(part => part.type === "text" ? part.text : part.type === "step-start" ? "" : part.type === "file" ? `[attachment: ${part.filename || part.mediaType}]`
+  : "toolCallId" in part && covered.has(part.toolCallId) ? "" : JSON.stringify(part)).join("\n");
+/** About what a shortened tool result takes, with its call. */
+const SHORTENED_RESULT_TOKENS = 150;
 
 /** Keep recent turns verbatim; older data is explicitly labelled as incomplete excerpts. */
 export function buildChatContext(messages: UIMessage[], options: ContextOptions = {}) {
@@ -71,15 +158,30 @@ export function buildChatContext(messages: UIMessage[], options: ContextOptions 
   conversation.forEach((message, index) => { if (message.role === "user") latestUserIndex = index; });
   const normalized = conversation.map((message, index): UIMessage => {
     // Preserve the active approval call and its response together for AI SDK conversion.
-    if (approvalResume && index >= latestUserIndex) return message;
+    if (approvalResume && index >= latestUserIndex) return message.role === "assistant" ? withSteps(message) : message;
     if (message.role === "user") return message;
+    if (options.toolRecords) return historyTurn(message, options.toolRecords.replaysReasoning === true);
     return { id: message.id, role: "assistant", parts: [{ type: "text", text: historicalText(message) || "(empty response)" }] };
   });
 
   let start = Math.max(0, normalized.length - Math.max(2, maxMessages));
   if (latestUserIndex >= 0) start = Math.min(start, latestUserIndex);
-  const sizes = normalized.map(message => measure(historicalText(message)));
+  const covered = new Set(options.toolRecords?.covered);
+  // What an earlier message was sent with goes with it again. The latest request gets
+  // its own, except an approval resuming, which continues the same request.
+  const sentWith = (message: UIMessage, index: number) => message.role === "user" && (index !== latestUserIndex || approvalResume) ? options.requestContexts?.get(message.id) ?? [] : [];
+  const sizes = normalized.map((message, index) => measure(options.toolRecords ? recordText(message, covered) : historicalText(message)) + sentWith(message, index).reduce((sum, text) => sum + measure(text), 0));
   const sizeFrom = (from: number) => sizes.slice(from).reduce((sum, value) => sum + value, 0);
+  // Only when what cannot be shortened fits; a turn of long text can still drop out.
+  let keepFrom = latestUserIndex;
+  if (options.toolRecords?.keepPreviousToolTurn) {
+    let previous = latestUserIndex - 1;
+    while (previous >= 0 && normalized[previous].role !== "user") previous--;
+    const turn = previous >= 0 ? normalized.slice(previous, latestUserIndex) : [];
+    const tools = turn.flatMap(message => message.parts.filter(isToolPart)).length;
+    const fixed = turn.reduce((sum, message) => sum + measure(recordText({ ...message, parts: message.parts.filter(part => !isToolPart(part)) }, covered)), 0);
+    if (tools && fixed + tools * SHORTENED_RESULT_TOKENS <= windowSize * (options.refillRatio ?? 1)) keepFrom = previous;
+  }
   const anchors = new Set(options.anchorMessageIds ?? []);
   const anchorIndex = anchors.size ? normalized.findIndex(message => anchors.has(message.id)) : -1;
   const anchored = anchorIndex >= 0 && anchorIndex < latestUserIndex ? anchorIndex + 1 : -1;
@@ -88,7 +190,7 @@ export function buildChatContext(messages: UIMessage[], options: ContextOptions 
   } else {
     let size = sizeFrom(start);
     const limit = size > windowSize && options.refillRatio ? windowSize * options.refillRatio : windowSize;
-    while (start < latestUserIndex && size > limit) {
+    while (start < keepFrom && size > limit) {
       size -= sizes[start];
       start += 1;
     }
@@ -100,7 +202,10 @@ export function buildChatContext(messages: UIMessage[], options: ContextOptions 
   const excerpt = older.map((message) => `${message.role}: ${historicalText(message, options.excerptMessageCharacters ?? 500)}`)
     .join("\n").slice(-excerptCharacters);
   return {
-    messages: normalized.slice(start),
+    messages: normalized.slice(start).map((message, index) => {
+      const texts = sentWith(message, index + start);
+      return texts.length ? { ...message, parts: [...texts.map(text => ({ type: "text" as const, text })), ...message.parts] } : message;
+    }),
     // The whole conversation, not the window. Work that needs to look back over
     // the turns the window dropped — compressing older turns into a summary —
     // was handed `messages` above, which is at most `maxMessages` long, so it

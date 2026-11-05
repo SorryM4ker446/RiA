@@ -125,8 +125,8 @@ test("automatic evidence selection keeps strong matches and their neighbors and 
 
 test("the request context is one labelled block ahead of the latest user message", () => {
   assert.equal(buildRequestContext({}), "");
-  const block = buildRequestContext({ summary: "Earlier: tests failed", historyExcerpt: "", memories: "1. a: b", evidence: "Knowledge evidence: []" });
-  assert.match(block, /^\[Context for this request[\s\S]*Summary of earlier turns[\s\S]*Long-term memories[\s\S]*Knowledge evidence[\s\S]*\[End of context; the user's message follows\]$/);
+  const block = buildRequestContext({ historyExcerpt: "", memories: "1. a: b", evidence: "Knowledge evidence: []" });
+  assert.match(block, /^\[Context for this request[\s\S]*Long-term memories[\s\S]*Knowledge evidence[\s\S]*\[End of context; the user's message follows\]$/);
   const messages = [{ role: "user" as const, content: "first" }, { role: "assistant" as const, content: [{ type: "text" as const, text: "ok" }] }, { role: "user" as const, content: [{ type: "text" as const, text: "second" }] }];
   const result = withRequestContext(messages, block);
   assert.equal(result[0], messages[0]); assert.equal(result[1], messages[1]);

@@ -37,11 +37,18 @@ function terminalMessage(commentary: string) {
 function promptText(prompt: { content: string | unknown[] }[]) {
   return prompt.map(message => typeof message.content === "string" ? message.content : message.content.map(part => {
     const text = part as { type: string; text?: string };
-    return text.type === "text" ? text.text : "";
+    return text.type === "text" ? text.text : JSON.stringify(part);
   }).join("\n")).join("\n");
 }
 
-for (const longCommentary of [false, true]) test(`the next model request receives terminal diagnostics through ${longCommentary ? "the older-history excerpt" : "recent history"}`, async () => {
+for (const longCommentary of [false, true]) test(`the next model request receives terminal diagnostics through ${longCommentary ? "the older-history excerpt when no summary can be written" : "recent history"}`, async t => {
+  if (longCommentary) {
+    t.mock.method(languageModel, "doGenerate", async () => { throw new Error("summary provider down"); });
+    // Small enough that the commentary falls outside the window.
+    const settings = await seedTestModelPreferences(db);
+    settings.contextLimits = { [`openrouter:${settings.chat.model!.modelId}`]: { contextLength: 40_000, maxOutputTokens: 2048 } };
+    await db.workspacePreference.update({ where: { id: "local" }, data: { settings } });
+  }
   const chat = await db.chat.create({ data: { title: "Continue a build" } });
   const original = terminalMessage(longCommentary ? "build 1234567890 ".repeat(5500) : "Build attempted");
   const rows = [
@@ -57,8 +64,10 @@ for (const longCommentary of [false, true]) test(`the next model request receive
   assert.match(prompt, /error TS2304: Cannot find name widget/);
   assert.match(prompt, /"exitCode":2/);
   if (!longCommentary) {
+    const last = languageModel.doStreamCalls.at(-1)!.prompt;
+    assert.ok(last.some(message => message.role === "tool"), "a later turn sees the tool's real result, not a note about it");
     assert.match(prompt, /Tests: 34 passed, 2 failed/);
-    assert.match(prompt, /modified: src\/main\.ts/);
+    assert.match(prompt, /"path":"src\/main\.ts","kind":"modified"/);
   } else assert.match(prompt, /Incomplete excerpts/);
   assert.equal((await db.message.findUniqueOrThrow({ where: { id: rows[1].id } })).content, original);
   assert.equal(await db.agentStep.count({ where: { run: { chatId: chat.id } } }), 0);

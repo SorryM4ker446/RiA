@@ -1,4 +1,3 @@
-import { COMPACT_CONTEXT_TOOL } from "@/lib/chat/compact-context";
 import { ToolRunError } from "@/lib/chat/tool-failure";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { ApiError } from "@/lib/server/api-error";
@@ -257,6 +256,7 @@ export async function executeRegisteredTool(tool: AnyToolDescriptor, input: unkn
         modelRef: options.modelRef,
         trigger,
         signal,
+        chatId: options.chatId,
         runId: options.runId,
         documentCollections: options.documentCollections,
         documentRetrievalPolicy: options.documentRetrievalPolicy,
@@ -329,11 +329,8 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; chatId?
   // failed later. The model never sees it, so it cannot call it, retry it, or
   // report a search that never happened.
   // Assistant tool restrictions still apply to every action a skill suggests.
-  const offered = (await listAvailableRegisteredTools("chat", options?.modelRef)).filter((tool) =>
-    (options?.toolIds === undefined || templateAllowsTool(options.toolIds, tool.id)) && !(tool.id === "saveMemory" && options?.usesMemory === false));
-  // Compaction accompanies tool use; on its own it would turn tools on for a
-  // chat whose assistant allows none, or none of whose tools are available.
-  const descriptors = offered.some(tool => tool.id !== COMPACT_CONTEXT_TOOL) ? offered : offered.filter(tool => tool.id !== COMPACT_CONTEXT_TOOL);
+  const descriptors = (await listAvailableRegisteredTools("chat", options?.modelRef)).filter((tool) =>
+    tool.surface.underlying !== "application" && (options?.toolIds === undefined || templateAllowsTool(options.toolIds, tool.id)) && !(tool.id === "saveMemory" && options?.usesMemory === false));
 
   // Folder tools are told about the conversation's one workspace, never every
   // granted folder, so the model cannot pick a folder the user did not choose.

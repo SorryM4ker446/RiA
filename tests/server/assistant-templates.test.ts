@@ -153,7 +153,7 @@ test("updating a renamed template follows the previous snapshot name without rew
 
 test("empty tool restrictions disable tools and the direct route cannot bypass the conversation policy", async () => {
   assert.deepEqual(await createChatToolSet({ toolIds: [] }), {});
-  const allowed = await createChatToolSet({ toolIds: ["searchKnowledge"] }); assert.deepEqual(Object.keys(allowed), ["searchKnowledge", "compactContext"], "context compaction accompanies an allowed tool");
+  const allowed = await createChatToolSet({ toolIds: ["searchKnowledge"] }); assert.deepEqual(Object.keys(allowed), ["searchKnowledge", "readConversationHistory"], "compacting context is not the model's to call; looking up its own conversation comes with any tool");
   const chat = await createChat({ assistantTemplateId: "builtin_writing" });
   const response = await routes.tool.POST(request("/api/tools/run", "POST", { tool: "createTask", input: { title: "Must not write" }, chatId: chat.id }));
   assert.equal(response.status, 400); assert.equal(await db.task.count({ where: { title: "Must not write" } }), 0);

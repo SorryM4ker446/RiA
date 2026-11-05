@@ -1,11 +1,12 @@
 import { withModelCallSource } from "@/lib/models/call-context";
 import { getChatModel } from "@/lib/ai/client";
+import { getLatestUserMessage } from "@/lib/ai/ui-message";
 import { t } from "@/lib/locale";
 import { ApiError, apiErrorPayload, normalizeApiError } from "@/lib/server/api-error";
 import { createChatToolSet } from "@/tools/catalog";
 import type { ModelMessage } from "ai";
 import type { LanguageModelV3Prompt } from "@ai-sdk/provider";
-import { asSchema, createUIMessageStream, createUIMessageStreamResponse, generateId, smoothStream, stepCountIs, streamText, wrapLanguageModel } from "ai";
+import { asSchema, createUIMessageStream, createUIMessageStreamResponse, generateId, smoothStream, stepCountIs, streamText, wrapLanguageModel, type UIMessageChunk, type UIMessageStreamWriter } from "ai";
 import { convertToLanguageModelPrompt, standardizePrompt } from "ai/internal";
 import { isContextOverflow } from "@/lib/models/context-overflow";
 import { claimChatApproval, persistChatResponse, type ChatPersistence } from "@/lib/chat/persistence";
@@ -20,10 +21,18 @@ import { getModelPreferences, modelInLibrary } from "@/lib/models/preferences";
 import { decodeDocumentScope } from "@/lib/documents/scope";
 import { contextBudget } from "@/lib/models/context-budget";
 import { modelRefKey } from "@/lib/models/preferences-schema";
-import { createStepContext } from "./step-context";
+import { createStepContext, withoutToolRecords } from "./step-context";
 import { createThinkingClock, thinkingRecordSchema } from "./thinking";
-import { summarizeTaskState, type CompactionAllowance } from "./task-summary";
-import { contextCalibration, recordContextCalibration } from "@/lib/models/context-calibration";
+import { summarizeWithAuxiliary, type CompactionAllowance } from "./task-summary";
+import { commitTurnFold, keepRestoredContext } from "./summary";
+import { storedSummary } from "./model-context";
+import { EMPTY_SUMMARY_STATE, foldIntoState, recordedFacts, toolCallsIn, type SummaryState } from "./compaction-state";
+import { restoredContext } from "./compaction-restore";
+import { conversationWorkspace } from "@/lib/local-files/workspace";
+import { externalToolIdPattern } from "@/lib/extensions/schema";
+import { templateAllowsTool } from "@/tools/template-access";
+import { contextCalibration, conversationCalibration, recordContextCalibration } from "@/lib/models/context-calibration";
+import { compactAfterTurn } from "./compaction";
 import { createTurnFailureReader } from "./tool-failure";
 /** OpenRouter passes along reasoning it cannot show as encrypted details. */
 function hasEncryptedReasoning(metadata: unknown) {
@@ -70,9 +79,68 @@ async function costOfTurn(params: { usage: unknown; providerMetadata: unknown; m
   }
 }
 
-export async function streamChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; documentSources?: DocumentSource[]; documentDiagnostics?: DocumentDiagnostics; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean; compactionAllowance?: CompactionAllowance; chosenTool?: string | null }) {
-  const { input, conversation, systemPrompt, modelMessages, toolsEnabled, signal } = params;
-  let answerText = "";
+type ChatAnswer = { input: ChatRequest; conversation: ChatPersistence; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; documentSources?: DocumentSource[]; documentDiagnostics?: DocumentDiagnostics; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean; compactionAllowance?: CompactionAllowance; chosenTool?: string | null;
+  /** The part of the system prompt listing skills, which the usage view counts separately. */
+  skillsPrompt?: string;
+  /** The messages this request sent, and whether they and the summary leave nothing out. */
+  foldHistory?: { messages: { id: string; role: string }[]; complete: () => boolean };
+  onModelFold?: () => void };
+const LOOKUP_HINT = "The original messages and tool results stay saved: readConversationHistory finds them by toolCallId, messageId or text.";
+const streamError = (error: unknown) => JSON.stringify(apiErrorPayload(normalizeApiError(error, t("lib.chat.generateFailed"))));
+
+/**
+ * The response for one turn. Given `settleContext`, the response starts first and
+ * tells the reader context is being organized, then the answer opens once it is
+ * ready, so anything that refuses the answer from then on reads as a stream error.
+ */
+export async function streamChatResponse(params: Omit<ChatAnswer, "modelMessages"> & ({ modelMessages: ModelMessage[]; settleContext?: undefined } | { modelMessages?: undefined; settleContext: () => Promise<ModelMessage[]> })) {
+  const respond = (execute: (writer: UIMessageStreamWriter) => Promise<void>) => createUIMessageStreamResponse({
+    stream: createUIMessageStream({ execute: ({ writer }) => execute(writer), onError: streamError }),
+    headers: { "x-chat-id": params.conversation.chat.id, "x-model-id": params.input.modelRef.modelId, "Cache-Control": "no-store" },
+  });
+  const relay = async (stream: ReadableStream<UIMessageChunk>, writer: UIMessageStreamWriter) => {
+    // The SDK continues consuming after the HTTP reader disconnects. Hold
+    // the restore gate until that consumer and message persistence finish.
+    const release = retainDataOperation(), reader = stream.getReader();
+    try { for (;;) { const item = await reader.read(); if (item.done) break; writer.write(item.value); } }
+    finally { reader.releaseLock(); release(); }
+  };
+  if (!params.settleContext) {
+    // A request that must fold before it can start stops holding the response back,
+    // so the reader is told why the answer is taking a while.
+    let announce!: () => void;
+    const folding = new Promise<"folding">(resolve => { announce = () => resolve("folding"); });
+    const opening = openChatAnswer({ ...params, modelMessages: params.modelMessages, onModelFold: () => announce() });
+    const first = await Promise.race([opening, folding]);
+    if (first !== "folding") return respond(writer => relay(first, writer));
+    return respond(async writer => {
+      const release = retainDataOperation();
+      try {
+        writer.write({ type: "data-context-status", data: { organizing: true }, transient: true });
+        const stream = await opening;
+        writer.write({ type: "data-context-status", data: { organizing: false }, transient: true });
+        await relay(stream, writer);
+      } finally { release(); }
+    });
+  }
+  const { settleContext } = params;
+  return respond(async writer => {
+    const release = retainDataOperation();
+    try {
+      writer.write({ type: "data-context-status", data: { organizing: true }, transient: true });
+      const modelMessages = await settleContext().catch(async (error: unknown) => {
+        if (params.runId) await finishRun(params.runId, "cancelled", "stopped-by-user").catch(() => null);
+        throw error;
+      });
+      writer.write({ type: "data-context-status", data: { organizing: false }, transient: true });
+      await relay(await openChatAnswer({ ...params, modelMessages }), writer);
+    } finally { release(); }
+  });
+}
+
+async function openChatAnswer(params: ChatAnswer) {
+  const { input, conversation, systemPrompt, toolsEnabled, signal } = params;
+  let answerText = "", lastStepText = "";
   const { modelRef, body, messages } = input;
   const { chat } = conversation;
   if (toolsEnabled && input.model?.supportsTools !== true) {
@@ -107,14 +175,53 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
 
   const preferences = await getModelPreferences();
   const tools = toolsEnabled ? await createChatToolSet({ modelRef, chatId: chat.id, runId, toolIds: input.assistant?.tools, usesMemory: params.usesMemory !== false, documentCollections: decodeDocumentScope(input.conversationPolicy?.documentScope ?? chat.documentScope), documentRetrievalPolicy: input.assistant?.retrieval }) : undefined;
+  // An assistant's tools can all be unavailable this turn, leaving none to send.
+  const modelMessages = tools && !Object.keys(tools).length && !input.isApprovalResume ? withoutToolRecords(params.modelMessages) : params.modelMessages;
   const budget = contextBudget(input.model, preferences.contextLimits[modelRefKey(modelRef)]);
   const toolDefinitions = tools ? await Promise.all(Object.entries(tools).map(async ([name, tool]) => tool.type === "provider"
     ? { type: "provider", name, id: tool.id, args: tool.args }
     : { type: "function", name, description: tool.description, inputSchema: await asSchema(tool.inputSchema).jsonSchema })) : undefined;
-  const calibration = await contextCalibration(modelRef);
+  const calibration = await conversationCalibration(modelRef, messages);
   const contextReport = () => ({ ...stepContext.report, ...(params.compactionAllowance?.exhausted ? { compactionAllowanceExhausted: true } : {}) });
-  const stepContext = createStepContext({ budget, system: systemPrompt, tools: toolDefinitions, signal, calibration,
-    summarize: (records, previous, focus) => summarizeTaskState({ modelRef: activeRef, records, previous, signal, allowance: params.compactionAllowance, focus }),
+  // The conversation's one summary. A fold during this turn updates it, so the next
+  // request, or this turn resuming after an approval, does not pay for the work again.
+  const stored = await storedSummary(chat.id);
+  let keptSummary = stored?.summary ?? null, summaryModel = "", foldState = stored?.state ?? EMPTY_SUMMARY_STATE;
+  let foldWrites: Promise<unknown> = Promise.resolve();
+  let restoredSeen: SummaryState["files"] = [];
+  const stepContext = createStepContext({ budget, system: systemPrompt, tools: toolDefinitions, signal, calibration, onModelFold: params.onModelFold,
+    sizes: { skills: params.skillsPrompt, extensionTools: toolDefinitions?.filter(tool => externalToolIdPattern.test(tool.name)) },
+    handoff: stored ? { state: stored.summary, calls: stored.state.calls, ...(stored.state.restored === undefined ? {} : { restored: stored.state.restored }) } : null,
+    recorded: () => [recordedFacts(foldState), tools?.readConversationHistory ? LOOKUP_HINT : ""].filter(Boolean).join("\n"),
+    summarize: async (records, previous, sent) => {
+      const { state, modelRef: used } = await summarizeWithAuxiliary({ main: activeRef, records, previous, signal, allowance: params.compactionAllowance, request: getLatestUserMessage(messages)?.text,
+        ...(sent ? { conversation: { system: systemPrompt, tools, ...sent } } : {}) });
+      summaryModel = `${used.providerId}:${used.modelId}`;
+      return state;
+    },
+    ...(toolsEnabled ? {
+      restoreAfterFold: async (inUse: Set<string>) => {
+        const { text, seen } = await restoredContext({ state: foldState, inUse, signal, inputTokens: budget.inputTokens, allowSkills: true,
+          workspaceId: (await conversationWorkspace(chat.id))?.id ?? null, allowFiles: !input.assistant || templateAllowsTool(input.assistant.tools, "readProjectFile") });
+        restoredSeen = seen;
+        return text;
+      },
+      onRestored: (restored: string) => {
+        const seen = restoredSeen;
+        foldWrites = foldWrites.then(async () => { if (keptSummary) await keepRestoredContext({ chatId: chat.id, expected: keptSummary, restored, seen }); }).catch(() => console.error("chat.fold.save.failed"));
+      },
+    } : {}),
+    onFold: fold => {
+      foldState = foldIntoState(foldState, { toolCalls: toolCallsIn(fold.evidence) });
+      // Labelled excerpts stand in for this turn only; the stored summary stays as it was.
+      if (fold.degraded) return;
+      const history = params.foldHistory?.messages ?? [];
+      const firstKept = history.flatMap((message, index) => message.role === "user" ? [index] : [])[fold.coveredTurns];
+      const upToMessageId = fold.coveredTurns > 0 && firstKept > 0 && params.foldHistory?.complete() ? history[firstKept - 1].id : undefined;
+      foldWrites = foldWrites.then(async () => {
+        if (await commitTurnFold({ chatId: chat.id, expected: keptSummary, summary: fold.state, change: { calls: fold.calls, toolCalls: toolCallsIn(fold.evidence) }, upToMessageId, modelId: summaryModel })) keptSummary = fold.state;
+      }).catch(() => console.error("chat.fold.save.failed"));
+    },
   });
   // A provider that refuses a step's input as over its window means the local
   // count was low. The step is compacted and sent again once; the SDK's own
@@ -171,8 +278,9 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
       thinkingClock.stepStarted();
       return { ...prepared, ...(stepNumber === 0 && params.chosenTool ? { activeTools: [params.chosenTool] } : {}) };
     },
-    onStepFinish: ({ usage, toolCalls, stepNumber, reasoning, providerMetadata }) => {
+    onStepFinish: ({ usage, toolCalls, stepNumber, reasoning, providerMetadata, text }) => {
       stepContext.observeUsage(usage.inputTokens);
+      lastStepText = text;
       thinkingClock.stepFinished({ reasoning, hiddenReasoning: (usage.outputTokenDetails?.reasoningTokens ?? 0) > 0 || hasEncryptedReasoning(providerMetadata) });
       if (stepNumber === 0 && params.chosenTool && !toolCalls.some(call => call.toolName === params.chosenTool)) skippedTool = params.chosenTool;
     },
@@ -217,12 +325,11 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
     },
   }));
 
-  const streamError = (error: unknown) => JSON.stringify(apiErrorPayload(normalizeApiError(error, t("lib.chat.generateFailed"))));
   // Sent at the start too, for an answer stopped before it finishes. A resumed turn
   // keeps the time of the message it continues, as its stored row does.
   const answeredAt = () => input.isApprovalResume ? {} : { createdAt: new Date().toISOString() };
   const readFailure = createTurnFailureReader();
-  const stream = result.toUIMessageStream({
+  return result.toUIMessageStream({
     generateMessageId: generateId,
     onError: (error) => streamError(readFailure(error)),
     originalMessages: messages,
@@ -252,17 +359,14 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
           aborted: isAborted || signal.aborted,
         }, completedTurn?.cost ?? null, persistenceFailed && !isAborted && !signal.aborted ? "persistence-error" : contextLimitFailed ? "context-limit" : undefined);
       }
+      await foldWrites;
+      // Runs after the answer is saved, and nothing here waits for it.
+      if (!isAborted && !signal.aborted && !persistenceFailed && (body.mode ?? "chat") === "chat") void compactAfterTurn({ chatId: chat.id, modelRef,
+        conversation: () => {
+          if (activeRef !== modelRef) return null;
+          const sent = stepContext.conversationSent(lastStepText);
+          return sent ? { system: systemPrompt, tools, ...sent } : null;
+        } });
     },
   });
-  return createUIMessageStreamResponse({
-    stream: createUIMessageStream({ execute: async ({ writer }) => {
-      // The SDK continues consuming after the HTTP reader disconnects. Hold
-      // the restore gate until that consumer and message persistence finish.
-      const release = retainDataOperation(), reader = stream.getReader();
-      try { for (;;) { const item = await reader.read(); if (item.done) break; writer.write(item.value); } }
-      finally { reader.releaseLock(); release(); }
-    }, onError: streamError }),
-    headers: { "x-chat-id": chat.id, "x-model-id": modelRef.modelId, "Cache-Control": "no-store" },
-  });
-
 }

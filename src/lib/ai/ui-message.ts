@@ -2,6 +2,7 @@ import { thinkingRecordSchema, type ThinkingRecord } from "@/lib/chat/thinking";
 import { messageInvocationSchema, readMessageInvocation, type MessageInvocation } from "@/lib/chat/invocation-schema";
 import { documentDiagnosticsSchema, type DocumentDiagnostics } from "@/lib/documents/diagnostics";
 import { UIMessage } from "ai";
+import { z } from "zod";
 import { documentSourceSchema, type DocumentSource } from "@/lib/documents/types";
 import { contextReportSchema, type ContextReport } from "@/lib/chat/context-report";
 
@@ -50,6 +51,11 @@ export type PersistedAssistantToolMessagePayload = {
   reasoning?: string;
   /** What kind of reasoning the turn had, how long it took and where tools broke it up. */
   thinking?: ThinkingRecord;
+  /**
+   * The turn step by step, as the model produced it. A later request repeats it in
+   * this order, so a provider's prompt cache keeps matching it.
+   */
+  steps?: PersistedStep[];
   /** Optional tools this turn could not use, recorded for the note below. */
   unavailableTools?: string[];
   /** The tool the user chose for this turn, when the model answered without calling it. */
@@ -162,6 +168,23 @@ export function decodePersistedUserMessage(content: string): PersistedUserMessag
   }
 }
 
+export type PersistedStep = { reasoning?: string; text?: string; calls: string[] };
+
+const persistedStepSchema = z.object({ reasoning: z.string().optional(), text: z.string().optional(), calls: z.array(z.string()) });
+
+/** Where the steps of a response begin and what each held. A single step needs no record. */
+export function stepsOfMessage(parts: UIMessage["parts"]): PersistedStep[] | undefined {
+  const steps: PersistedStep[] = [{ calls: [] }];
+  for (const part of parts) {
+    const step = steps.at(-1)!;
+    if (part.type === "step-start") { if (step.calls.length || step.text || step.reasoning) steps.push({ calls: [] }); }
+    else if (part.type === "reasoning") step.reasoning = `${step.reasoning ?? ""}${part.text}`;
+    else if (part.type === "text") step.text = `${step.text ?? ""}${part.text}`;
+    else if ("toolCallId" in part && typeof part.toolCallId === "string") step.calls.push(part.toolCallId);
+  }
+  return steps.some(step => step.calls.length) ? steps : undefined;
+}
+
 export function encodePersistedAssistantToolMessage(
   payload: PersistedAssistantToolMessagePayload,
 ): string {
@@ -224,6 +247,7 @@ export function decodePersistedAssistantToolMessage(
       ...(contextReportSchema.safeParse(parsed.contextBudget).success ? { contextBudget: contextReportSchema.parse(parsed.contextBudget) } : {}),
       ...(reasoning ? { reasoning } : {}),
       ...(thinkingRecordSchema.safeParse(parsed.thinking).success ? { thinking: thinkingRecordSchema.parse(parsed.thinking) } : {}),
+      ...(z.array(persistedStepSchema).safeParse(parsed.steps).success ? { steps: z.array(persistedStepSchema).parse(parsed.steps) } : {}),
       ...(unavailableTools?.length ? { unavailableTools } : {}),
       ...(typeof parsed.skippedTool === "string" ? { skippedTool: parsed.skippedTool.slice(0, 100) } : {}),
       tools,

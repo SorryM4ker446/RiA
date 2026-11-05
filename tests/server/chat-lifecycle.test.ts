@@ -162,7 +162,7 @@ test("model capacity bounds long persisted conversations while retaining the act
   settings.contextLimits = { [`openrouter:${settings.chat.model!.modelId}`]: { contextLength: 30_000, maxOutputTokens: 2048 } };
   await db.workspacePreference.update({ where: { id: "local" }, data: { settings } });
   const owned = await db.chat.create({ data: { title: "Long conversation" } });
-  const history = Array.from({ length: 40 }, (_, index) => ui(`turn-${index}`, index % 2 ? "assistant" : "user", `Recorded turn ${index}${index < 38 ? " notes 1234".repeat(80) : ""}`));
+  const history = Array.from({ length: 40 }, (_, index) => ui(`turn-${index}`, index % 2 ? "assistant" : "user", `Recorded turn ${index}${index < 38 ? " notes 1234".repeat(200) : ""}`));
   await db.message.createMany({ data: history.map((item) => ({ chatId: owned.id, clientMessageId: item.id, role: item.role, content: item.parts[0].text })) });
   const response = await chat.POST(request({ chatId: owned.id, messages: [...history, ui("follow-up", "user", "Explain the previous answer")] }));
   assert.equal(response.status, 200);
@@ -170,10 +170,10 @@ test("model capacity bounds long persisted conversations while retaining the act
   const prompt = languageModel.doStreamCalls.at(-1).prompt;
   const capacity = contextBudget(null, Object.values(settings.contextLimits)[0]);
   assert.ok(estimateContextTokens({ prompt, tools: languageModel.doStreamCalls.at(-1).tools }) <= capacity.inputTokens);
-  // Older turns reach the model through the request's context block, not the system prompt.
-  assert.doesNotMatch(prompt.find((item) => item.role === "system").content, /Recorded turn 0|Summary of earlier turns|Incomplete excerpts/);
+  // Older turns reach the model as a summary ahead of the conversation, or as excerpts in the request's context block, never in the system prompt.
+  assert.doesNotMatch(prompt.find((item) => item.role === "system").content, /Recorded turn 0|Summary of earlier conversation|Incomplete excerpts/);
   const latestParts = prompt.at(-1).content;
-  assert.match(textPart(latestParts[0]).text, /^\[Context for this request[\s\S]*(Summary of earlier turns|Incomplete excerpts from .* earlier messages)/);
+  assert.match(JSON.stringify(prompt.filter((item) => item.role !== "system")), /Summary of earlier conversation|Incomplete excerpts from .* earlier messages/);
   assert.equal(textPart(latestParts.at(-1)).text, "Explain the previous answer");
   assert.ok(prompt.some((item) => item.role === "assistant" && textPart(item.content[0]).text === "Recorded turn 39"));
   assert.equal(await db.message.count({ where: { chatId: owned.id } }), 42);

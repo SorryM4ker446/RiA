@@ -7,5 +7,5 @@ import { getToolDescriptor } from "./builtins";
 export function templateAllowsTool(allowed: readonly string[], toolId: string) {
   if (allowed.includes(toolId)) return true;
   const rule = getToolDescriptor(toolId)?.surface.template;
-  return rule === "always" || (typeof rule === "object" && allowed.includes(rule.follows));
+  return rule === "always" || (rule === "with-any" && allowed.length > 0) || (typeof rule === "object" && allowed.includes(rule.follows));
 }
