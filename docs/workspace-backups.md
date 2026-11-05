@@ -102,8 +102,12 @@ for retention and the distinction between current previews and frozen reports.
 ## Summary and citation evidence
 
 Chat snapshots include optional history/summary revisions. A valid summary keeps
-its covered-message pointer remapped on restore; summaries without matching
-revision evidence are cleared, while original messages remain. Citation snapshots
+its covered-message pointer remapped on restore, along with what goes with it: the
+tool calls it stands in for, the files and skills to put back, what was put back and
+the exact record of what was done. Files named there belong to a machine-local folder
+grant, so after a restore elsewhere they are simply not put back. Messages keep the
+reference data they were sent with, so the restored conversation repeats it. Summaries without matching revision evidence are cleared, while
+original messages remain. Citation snapshots
 keep document hashes and answer-time excerpts; structured IDs and local Markdown
 source links are remapped to the restored documents and chunks. Old citation
 snapshots without hashes remain readable and explicitly unverified.

@@ -42,6 +42,7 @@ Chat submissions send at most the latest 100 loaded messages. The server reads t
 | Endpoint | Supported behavior |
 | --- | --- |
 | `GET /api/conversations/:id` | Conversation summary: ID, title, timestamps and message count; used by selection restoration |
+| `GET /api/conversations/:id/summary` | The summary standing in for earlier turns, as `data` with `summary` and `coveredIds` (identities of the message it ends after, empty when it ends at none); `data` is `null` when there is none, including for an unknown conversation |
 | `GET /api/conversations/:id/messages/:messageId` | Message by persisted or client message ID; returns `data` with role, content, status and timestamps; retains private-media migration |
 | `GET /api/conversations/:id/runs?runId=...` | Persisted assistant message associated with a server-issued run ID, or `null` when unavailable; verifies run ownership in this conversation and uses private/no-store caching |
 | `GET /api/conversations/:id/runs?limit=...` | Execution summaries with optional `messageId` (client message ID when available) for grouping approval continuations; steps include saved bounded `input`/`output` summaries |
@@ -125,7 +126,7 @@ for status and validation rules. Historical excerpts remain unchanged when
 current source text changes or is deleted.
 
 
-`POST /api/tools/run` runs only tools that finish without a model, currently `convertDocument`. Any other tool returns a validation error and goes through the conversation, where the model has the context to fill in its input and use its result.
+`POST /api/tools/run` runs only tools that finish without a model, currently `convertDocument` and `compactContext`. The second folds a conversation's turns before its latest exchange into its summary: it takes an optional `focus` and the `chatId`, and returns `status` (`compacted` or `nothing`) and an estimate of `freedTokens`. Any other tool returns a validation error and goes through the conversation, where the model has the context to fill in its input and use its result.
 
 Normal chat offers all available tools allowed by the current assistant to a
 tool-capable model. The retired `manualToolsOnly` boolean remains accepted by
@@ -140,8 +141,13 @@ resume does not repeat the choice. When the model answers without calling the ch
 tool, the saved answer records it as `skippedTool`. The choice never changes the
 assistant's tool allowlist or bypasses external-tool approval.
 
-`GET /api/tools` lists every tool the model can reach, with `surface` stating who can
-call it, plus the `toolCalling` entry for the model's ability to call tools at all and
+A conversation with older turns and no summary yet starts its response before the
+answer: the stream opens with a transient `data-context-status` part, `{ organizing: true }`,
+then `{ organizing: false }` once the answer can start. A refusal after that point
+arrives as a stream error rather than an HTTP status.
+
+`GET /api/tools` lists the registered tools, with `surface` stating who can
+call each; one with `underlying` set to `application` is never offered to the model, and one set to `model` is for the model alone. It also returns the `toolCalling` entry for the model's ability to call tools at all and
 the enabled `skills`.
 
 Usage supports an optional `source` query (`chat`, `summary`, `scheduled`, `tool`, `embedding`, `media`, `unattributed`), rejecting invalid or duplicated parameters. Limits and current local-date allowance are returned with usage. A denied admission reports a conflict or configuration problem and submits no provider call; it does not fabricate a usage charge. See [Model settings and usage](model-usage.md).
