@@ -113,6 +113,12 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
       if (fileEditRequest) content = "已完成个人资料卡片的整理。\n\n- 统一了界面配色与间距。\n- 新增资料卡组件和使用说明。\n- 清理了不再使用的旧草稿。\n\n下方是本轮文件变更，点击文件即可继续检查。";
       // Controlled grounded response for the real streaming/citation workflow.
       // It exercises evidence transport, never measures a live model's reasoning.
+      if (prompt.includes("QUERY=出门办事的钱怎样领回来") && body.messages.some(message => message.role === "tool")) {
+        const results = body.messages.filter(message => message.role === "tool").flatMap(message => JSON.parse(typeof message.content === "string" ? message.content : JSON.stringify(message.content)).results ?? []);
+        const main = results.find(result => result.snippet.includes("十个工作日"));
+        const exception = results.find(result => result.snippet.includes("书面说明"));
+        if (main && exception) content = `保留税务票据，在回程后的十个工作日内提交费用核销申请。[差旅规程](${main.url})\n\n逾期需要主管提供书面说明。[例外条款](${exception.url})`;
+      }
       if (prompt === "出门办事的钱怎样领回来") {
         const system = body.messages.filter(message => message.role === "system").map(message => typeof message.content === "string"
           ? message.content : message.content.filter(part => part.type === "text").map(part => part.text).join("\n")).join("\n");
@@ -189,15 +195,28 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
           ];
           return chunks.map(chunk => `data: ${JSON.stringify({ ...base, ...chunk })}\n\n`).join("") + "data: [DONE]\n\n";
         }
+        // What each kind of reasoning looks like on the wire, through the real provider adapter.
+        const thinkingCase = /OFFLINE_THINKING_(FULL|SUMMARY|HIDDEN)/.exec(prompt)?.[1];
+        if (thinkingCase) {
+          const delta = thinkingCase === "FULL" ? { reasoning: "逐步推理的内容", reasoning_details: [{ type: "reasoning.text", text: "逐步推理的内容" }] }
+            : thinkingCase === "SUMMARY" ? { reasoning_details: [{ type: "reasoning.summary", summary: "概括后的思路" }] }
+            : { reasoning_details: [{ type: "reasoning.encrypted", data: "opaque-reasoning" }] };
+          const answer = thinkingCase === "FULL" ? "完整思考的回答" : thinkingCase === "SUMMARY" ? "只有摘要的回答" : "没给思考的回答";
+          return [
+            { ...base, choices: [{ index: 0, delta: { role: "assistant", ...delta }, finish_reason: null }] },
+            { ...base, choices: [{ index: 0, delta: { content: answer }, finish_reason: null }] },
+            { ...base, usage: { prompt_tokens: 10, completion_tokens: 30, total_tokens: 40, completion_tokens_details: { reasoning_tokens: 20 } }, choices: [{ index: 0, delta: {}, finish_reason: "stop" }] },
+          ].map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n";
+        }
         const taskRequested = prompt.includes("OFFLINE_CREATE_TASK");
         const webRequested = prompt.includes("OFFLINE_WEB_SEARCH");
         const knowledgeRequested = prompt.includes("OFFLINE_SEARCH_KNOWLEDGE");
         const extensionRequested = prompt.includes("OFFLINE_EXTENSION_TOOL");
         const documentRequested = prompt.includes("OFFLINE_CONVERT_DOCUMENT");
         if ((taskRequested || webRequested || knowledgeRequested || extensionRequested || documentRequested) && !body.messages.some(message => message.role === "tool") && body.tools?.length) {
-          const name = taskRequested ? "createTask" : webRequested ? "webSearch" : knowledgeRequested ? "searchKnowledge" : documentRequested ? "convertDocument" : body.tools.find(tool => tool.function?.name?.startsWith("ext"))?.function.name;
+          const name = taskRequested ? "createTask" : webRequested ? "webSearch" : knowledgeRequested ? "searchKnowledge" : documentRequested ? "convertDocument" : body.tools.find(tool => /^ext[a-f0-9]{56}$/.test(tool.function?.name ?? ""))?.function.name;
           if (!name) throw new Error("The requested extension tool was not offered to the fixture model");
-          const args = webRequested ? { query: "official release", maxResults: 2 } : taskRequested ? { title: "浏览器真实任务" } : knowledgeRequested ? { query: "发布回滚窗口", topK: 4 } : documentRequested ? { documentId: /DOCUMENT_ID=([a-zA-Z0-9_-]+)/.exec(prompt)?.[1], format: "docx" } : { arguments: { text: "browser-extension-result" } };
+          const args = webRequested ? { query: "official release", maxResults: 2 } : taskRequested ? { title: "浏览器真实任务" } : knowledgeRequested ? { query: /QUERY=([^\s"\\]+)/.exec(prompt)?.[1] ?? "发布回滚窗口", topK: 4 } : documentRequested ? { documentId: /DOCUMENT_ID=([a-zA-Z0-9_-]+)/.exec(prompt)?.[1], format: "docx" } : { arguments: { text: "browser-extension-result" } };
           const chunks = [
             { ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "call_browser_fixture", type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: null }] },
             { ...base, choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] },

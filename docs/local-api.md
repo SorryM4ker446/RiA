@@ -42,13 +42,18 @@ Chat submissions send at most the latest 100 loaded messages. The server reads t
 | Endpoint | Supported behavior |
 | --- | --- |
 | `GET /api/conversations/:id` | Conversation summary: ID, title, timestamps and message count; used by selection restoration |
+| `GET /api/conversations/:id/summary` | The summary standing in for earlier turns, as `data` with `summary` and `coveredIds` (identities of the message it ends after, empty when it ends at none); `data` is `null` when there is none, including for an unknown conversation |
 | `GET /api/conversations/:id/messages/:messageId` | Message by persisted or client message ID; returns `data` with role, content, status and timestamps; retains private-media migration |
 | `GET /api/conversations/:id/runs?runId=...` | Persisted assistant message associated with a server-issued run ID, or `null` when unavailable; verifies run ownership in this conversation and uses private/no-store caching |
 | `GET /api/conversations/:id/runs?limit=...` | Execution summaries with optional `messageId` (client message ID when available) for grouping approval continuations; steps include saved bounded `input`/`output` summaries |
 | `GET /api/tasks/:id` | Task detail, including title, details, due date, priority and status |
 | `PATCH /api/tasks/:id` | Task update, including deadline, time zone, reminder and recurrence; returns `data` plus `nextTask` when completion creates a successor |
-| `GET /api/memory?query=...&limit=5` | Relevant local memories; maximum 20, empty query returns an empty list |
-| `POST /api/memory` | Upsert a local memory using `key` (1–120 characters), `value` (1–4000) and optional `score` (0–1); returns `201` with `data` |
+| `GET /api/memory?query=...&limit=5` | Relevant knowledge entries (the path keeps its older name); maximum 20, empty query returns an empty list |
+| `POST /api/memory` | Upsert a knowledge entry using `key` (1–120 characters), `value` (1–4000) and optional `score` (0–1); returns `201` with `data` |
+| `GET /api/memory/document` | MEMORY.md as `data` with `content`, `revision`, `updatedAt`, the notes sorted into `topics`, those not yet sorted in `unsorted`, and whether sorting is `settled` or `organizing` |
+| `PATCH /api/memory/document` | Rewords a note, with `revision`, `line` and `text` (1–500 characters); a revision that is out of date returns `409` |
+| `POST /api/memory/document` | Sorts the notes into topics in the background if they need it, using the model; returns the same `data` as `GET` |
+| `DELETE /api/memory/document?revision=...&lines=1,2` | Deletes those notes, or everything when `lines` is left out; a revision that is out of date returns `409` |
 | `POST /api/retrieval` | Retrieve local memories using JSON `query` (1–2000 characters) and optional `limit` (1–20, default 6); returns `data` |
 
 The memory and retrieval endpoints remain deliberate local integration contracts even though the UI uses the knowledge page and tools. Missing or foreign detail records return `404`; unauthenticated requests return `401`. Mutations use the same bounded JSON parsing and same-origin checks as UI requests. Embedding configuration is optional; keyword retrieval remains available without a provider key.
@@ -96,7 +101,7 @@ review results remain failures while preserving answers. See [Document knowledge
 
 Queries use the runtime's Chinese word segmentation, Unicode compatibility normalization, duplicate removal and a small stop-word list. Word boundaries may vary with the runtime's ICU version. Ranking evaluates scores once and uses deterministic ordering for ties. Unrelated entries cannot rank solely because they are recent or manually weighted.
 
-Memory search compares every confirmed memory, by keyword and, where a compatible vector exists, by meaning. Context recall retains tool memories and its recency/manual weights and also matches the previous user message at reduced weight when the latest one is a short follow-up; explicit knowledge search excludes tool memories and merges built-in entries and imported document results. Memory retrieval remains keyword/embedding retrieval, not a guarantee of semantic recall.
+Entry search compares every confirmed knowledge entry, by keyword and, where a compatible vector exists, by meaning. Nothing is added to a chat request on its own: the model reaches entries and documents through `searchKnowledge`, which merges both. This is keyword/embedding retrieval, not a guarantee of semantic recall.
 
 Imported documents use local BM25 ranking plus optional semantic vectors in SQLite. Explicit indexing and queries against compatible vectors call the selected embedding provider and may incur costs; import/reindex remain local. See [Document knowledge](document-knowledge.md) for endpoints, confirmation, batching and limits. Knowledge-tool results preserve fused document ranking and adjacent evidence before filling remaining slots with confirmed memories and built-in entries. Each document result has `source: "document"` and a versioned `reference` containing document/chunk IDs, filename, excerpt, heading, retrieval method and optional PDF page. Chat streams include server-produced `metadata.documentSources`; persisted assistant messages retain these snapshots and actual citation-link status for history rendering. Source pages require the local workspace credential and do not provide public file URLs.
 
@@ -125,16 +130,29 @@ for status and validation rules. Historical excerpts remain unchanged when
 current source text changes or is deleted.
 
 
-Manual tool execution (`POST /api/tools/run`) accepts an absent model: local task creation, memory operations and deterministic retrieval must work with an empty model library. An explicitly supplied model still needs to be a library member. Manual execution does not require model tool-call capability because the user supplies the command; automatic chat tool calls retain capability checks and approval rules. Search answer synthesis may use the configured chat default, but a missing model or failed synthesis retains deterministic evidence. Manual synthesis receives the request cancellation signal and disables automatic provider retries.
+`POST /api/tools/run` runs only tools that finish without a model, currently `convertDocument` and `compactContext`. The second folds a conversation's turns before its latest exchange into its summary: it takes an optional `focus` and the `chatId`, and returns `status` (`compacted` or `nothing`) and an estimate of `freedTokens`. Any other tool returns a validation error and goes through the conversation, where the model has the context to fill in its input and use its result.
 
 Normal chat offers all available tools allowed by the current assistant to a
 tool-capable model. The retired `manualToolsOnly` boolean remains accepted by
 `POST /api/chat` for older clients but is ignored; it cannot disable automatic
-tools. The renderer no longer saves that flag or tool selections with conversation
-model preferences. Selecting an action in the tool picker executes only that
-action through `/api/tools/run` and returns to automatic selection after success.
-Failed actions retain their input for correction or retry. This selection never
-changes the assistant's tool allowlist or bypasses external-tool approval.
+tools. A user message may carry `metadata.invocation`, what the person chose in the
+composer's slash menu: at most one tool and any number of skills. The server checks
+the choice against the assistant's allowlist, the model's tool support and current
+availability, and refuses the message when it cannot be honoured. A chosen tool is
+the only one offered on the turn's first step, and every allowed tool is offered
+after that; a chosen skill's instructions travel with the message. An approval
+resume does not repeat the choice. When the model answers without calling the chosen
+tool, the saved answer records it as `skippedTool`. The choice never changes the
+assistant's tool allowlist or bypasses external-tool approval.
+
+A conversation with older turns and no summary yet starts its response before the
+answer: the stream opens with a transient `data-context-status` part, `{ organizing: true }`,
+then `{ organizing: false }` once the answer can start. A refusal after that point
+arrives as a stream error rather than an HTTP status.
+
+`GET /api/tools` lists the registered tools, with `surface` stating who can
+call each; one with `underlying` set to `application` is never offered to the model, and one set to `model` is for the model alone. It also returns the `toolCalling` entry for the model's ability to call tools at all and
+the enabled `skills`.
 
 Usage supports an optional `source` query (`chat`, `summary`, `scheduled`, `tool`, `embedding`, `media`, `unattributed`), rejecting invalid or duplicated parameters. Limits and current local-date allowance are returned with usage. A denied admission reports a conflict or configuration problem and submits no provider call; it does not fabricate a usage charge. See [Model settings and usage](model-usage.md).
 

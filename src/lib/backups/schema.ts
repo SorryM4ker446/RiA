@@ -15,11 +15,11 @@ const date = z.iso.datetime();
 const count = z.number().int().nonnegative();
 const text = z.string().max(2 * 1024 * 1024);
 const timestamps = { createdAt: date, updatedAt: date };
-const message = z.strictObject({ id, chatId: id, clientMessageId: id.nullable(), role: z.enum(["user", "assistant", "system"]), content: text, status: z.enum(["pending", "success", "error"]), createdAt: date });
+const message = z.strictObject({ id, chatId: id, clientMessageId: id.nullable(), role: z.enum(["user", "assistant", "system"]), content: text, requestContext: text.nullable().optional(), status: z.enum(["pending", "success", "error"]), createdAt: date });
 const storedScope = z.string().max(MAX_DOCUMENT_SCOPE_LENGTH).refine(value => {
   try { decodeDocumentScope(value); return true; } catch { return false; }
 }, "Invalid document collection scope");
-const chat = z.strictObject({ id, title: z.string().max(4000), pinned: z.boolean(), archived: z.boolean(), topicId: id.nullable().default(null), ephemeral: z.boolean().optional(), documentScope: storedScope.optional(), assistantConfig: assistantSnapshotSchema.nullable().default(null), summary: z.string().nullable().optional(), summaryUpToMessageId: z.string().nullable().optional(), summaryModelId: z.string().nullable().optional(), historyRevision: count.optional(), summaryRevision: count.nullable().optional(), lastMessageAt: date, ...timestamps, tags: z.array(z.strictObject({ chatId: id, label: z.string().min(1).max(40) })).max(8), messages: z.array(message).max(BACKUP_LIMITS.rows) });
+const chat = z.strictObject({ id, title: z.string().max(4000), pinned: z.boolean(), archived: z.boolean(), topicId: id.nullable().default(null), ephemeral: z.boolean().optional(), documentScope: storedScope.optional(), assistantConfig: assistantSnapshotSchema.nullable().default(null), summary: z.string().nullable().optional(), memoryExtractedAt: date.nullable().optional(), memoryResumedAt: date.nullable().optional(), summaryUpToMessageId: z.string().nullable().optional(), summaryModelId: z.string().nullable().optional(), summaryState: z.string().nullable().optional(), historyRevision: count.optional(), summaryRevision: count.nullable().optional(), lastMessageAt: date, ...timestamps, tags: z.array(z.strictObject({ chatId: id, label: z.string().min(1).max(40) })).max(8), messages: z.array(message).max(BACKUP_LIMITS.rows) });
 // Provenance travels with the entry: restoring a memory the user never
 // accepted must not turn it into one they are treated as having accepted.
 const memory = z.strictObject({ id, key: z.string().max(2000), value: text, score: z.number().nullable(), source: z.enum(["manual", "assistant"]).optional(), confirmed: z.boolean().optional(), lastUsedAt: date.nullable().optional(), embedding: z.array(z.number()).max(16_384).nullable(), embeddingModelId: z.string().max(200).nullable().optional(), embeddingModelProvider: providerIdSchema.nullable().optional(), ...timestamps });
@@ -41,6 +41,7 @@ export const backupManifestSchema = z.strictObject({
   topics: z.array(z.strictObject({ id, config: topicConfigSchema, revision: count.positive(), ...timestamps })).max(50).default([]),
   artifacts: z.array(z.strictObject({ id, topicId: id, requestHash: z.string().regex(/^[a-f0-9]{64}$/), title: z.string().min(1).max(120), kind: z.enum(["report", "plan", "summary"]), topicRevision: count.positive(), status: artifactStatusSchema,
     errorCode: z.string().max(60).nullable(), content: z.string().max(30_000).nullable(), metadata: artifactMetadataSchema, ...timestamps })).max(200).default([]),
+  memoryDocument: z.strictObject({ id: z.literal("local"), content: text, revision: z.number().int().nonnegative(), deletedRevision: z.number().int().nonnegative(), topics: text.optional(), updatedAt: date }).nullable().optional(),
   chats: z.array(chat).max(BACKUP_LIMITS.rows), memories: z.array(memory).max(BACKUP_LIMITS.rows), tasks: z.array(task).max(BACKUP_LIMITS.rows), documents: z.array(document).max(100), assets: z.array(asset).max(BACKUP_LIMITS.rows), // Every shape the library has had, so an archive written before provider
   // qualified references still imports. Conversion happens on read; the archive
   // itself is never rewritten.

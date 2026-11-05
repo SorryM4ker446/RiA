@@ -1,7 +1,7 @@
 import { UIMessage } from "ai";
 import { t } from "@/lib/locale";
 import type { SearchSourceItem, TaskItem } from "@/features/chat/types";
-import { documentSourceSchema, type DocumentSource } from "@/lib/documents/types";
+import { documentSourceSchema, markDocumentCitations, type DocumentSource } from "@/lib/documents/types";
 
 /**
  * What this turn could not do, stated once next to the message it belongs to.
@@ -21,16 +21,27 @@ export function getTurnNotices(message: UIMessage): string[] {
 export function getDocumentSources(message: UIMessage): DocumentSource[] {
   if (message.role !== "assistant") return [];
   const metadata = message.metadata as { documentSources?: unknown } | undefined;
-  const candidates: unknown[] = Array.isArray(metadata?.documentSources) ? metadata.documentSources.slice(0, 8) : [];
-  for (const part of message.parts) {
-    if (part.type !== "tool-searchKnowledge" || part.state !== "output-available") continue;
-    const output = part.output as { results?: { reference?: unknown }[] } | undefined;
-    if (Array.isArray(output?.results)) candidates.push(...output.results.slice(0, 8).map(item => item?.reference));
-  }
-  return [...new Map(candidates.flatMap(source => {
+  const parse = (source: unknown) => {
     const result = documentSourceSchema.safeParse(source);
-    return result.success ? [[result.data.chunkId, result.data] as const] : [];
-  })).values()].slice(0, 8);
+    return result.success ? [result.data] : [];
+  };
+  const stored = Array.isArray(metadata?.documentSources) ? metadata.documentSources.slice(0, 8).flatMap(parse) : [];
+  const searched = message.parts.flatMap(part => {
+    if (part.type !== "tool-searchKnowledge" || part.state !== "output-available") return [];
+    const output = part.output as { results?: { reference?: unknown }[] } | undefined;
+    return Array.isArray(output?.results) ? output.results.slice(0, 8).flatMap(item => parse(item?.reference)) : [];
+  });
+  // What a search returned is marked against the answer that followed it.
+  const answer = message.parts.flatMap(part => part.type === "text" ? [part.text] : []).join("\n");
+  return [...new Map([...stored, ...markDocumentCitations(searched, answer)].map(source => [source.chunkId, source] as const)).values()].slice(0, 8);
+}
+
+/** How the turn's knowledge lookup went: recorded by an earlier version, or from its latest search. */
+export function getRetrievalDiagnostics(message: UIMessage): unknown {
+  const stored = (message.metadata as { documentDiagnostics?: unknown } | undefined)?.documentDiagnostics;
+  if (stored) return stored;
+  const search = [...message.parts].reverse().find(part => part.type === "tool-searchKnowledge" && part.state === "output-available");
+  return search && "output" in search ? (search.output as { diagnostics?: unknown } | undefined)?.diagnostics : undefined;
 }
 
 export function resolveMessageSourceTag(params: {

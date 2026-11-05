@@ -19,6 +19,7 @@ const route = await import("@/app/api/chat/route");
 const { createGrant, revokeGrant } = await import("@/lib/local-files/grants");
 const { setTerminalPermission } = await import("@/lib/terminal/permissions");
 const { summarizeOlderTurns } = await import("@/lib/chat/summary");
+const { compactionsSettled } = await import("@/lib/chat/compaction");
 const { TASK_STATE_VERSION } = await import("@/lib/chat/task-summary");
 const { encodePersistedAssistantToolMessage, decodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
 const { mapStoredMessagesToUI } = await import("@/features/chat/page-utils");
@@ -107,8 +108,6 @@ test("a multi-file code task compacts real terminal failures and passes tests be
   assert.match(wire, /Tests: 2 passed/);
   const run = await db.agentRun.findFirstOrThrow({ orderBy: { startedAt: "desc" } });
   assert.equal(run.status, "succeeded");
-  assert.ok(summaryInputs.length >= 2, "multiple context compactions occurred during one tool loop");
-  assert.ok(summaryInputs.some(input => input.includes("AssertionError")), "failure evidence reaches task state");
   assert.match(prompts[2], /AssertionError/);
   assert.match(prompts[3], /Modified math.cjs/);
   assert.match(prompts[4], /Tests: 2 passed/);
@@ -118,11 +117,13 @@ test("a multi-file code task compacts real terminal failures and passes tests be
   const rows = await db.message.findMany({ where: { chatId: run.chatId! }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
   const saved = decodePersistedAssistantToolMessage(rows.find(row => row.role === "assistant")!.content)!;
   assert.equal(saved.tools.length, 4);
-  assert.ok(saved.contextBudget && saved.contextBudget.compactions >= 2);
+  assert.ok(saved.contextBudget && saved.contextBudget.excerptedToolResults! >= 1);
+  assert.equal(saved.contextBudget.compactions, 0, "shortening older results to excerpts was enough for this loop");
   assert.ok((mapStoredMessagesToUI(rows).uiMessages.at(-1)!.metadata as { contextBudget?: unknown }).contextBudget);
   const outputs = saved.tools.map(tool => tool.output as { exitCode: number; stdout: string; stderr: string });
   assert.notEqual(outputs[1].exitCode, 0); assert.equal(outputs[3].exitCode, 0); assert.match(outputs[3].stdout, /Tests: 2 passed/);
   const steps = await db.agentStep.count({ where: { runId: run.id } });
+  await compactionsSettled();
   await db.$disconnect();
   const followup = await route.POST(request({ chatId: run.chatId, messages: [...mapStoredMessagesToUI(rows).uiMessages, ui("after-reload", "user", "Which tests actually passed? Do not rerun them.")] }));
   assert.equal(followup.status, 200); assert.match(await wireText(followup), /Tests: 2 passed/);
@@ -208,7 +209,7 @@ test("pagination gaps are folded from stored evidence and an older request canno
   assert.equal((await db.chat.findUniqueOrThrow({ where: { id: chat.id } })).summaryUpToMessageId, rows[7].id);
 });
 
-test("context exhaustion after a real command closes the run and preserves its completed result for a later request", { timeout: 15_000 }, async t => {
+test("a command whose output would not fit reaches the model as an excerpt, runs once and keeps its whole result", { timeout: 15_000 }, async t => {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ria-context-project-"))); roots.push(root);
   writeFileSync(join(root, "large.cjs"), "require('node:fs').appendFileSync('once.txt','once'); console.log('0'.repeat(45000)); console.log('Tests: 1 passed');\n");
   const grant = await createGrant({ path: root });
@@ -232,14 +233,17 @@ test("context exhaustion after a real command closes the run and preserves its c
   });
   const response = await route.POST(request({ chatId: await workspaceChat(grant.id), messages: [ui("large-output-user", "user", "Run the command once and report the tests.")] }));
   assert.equal(response.status, 200);
-  const wire = await wireText(response); assert.match(wire, /CONTEXT_LIMIT/); assert.doesNotMatch(wire, /Invalid request body/);
-  assert.equal(calls, 1, "no over-budget model step was submitted");
+  const wire = await wireText(response); assert.doesNotMatch(wire, /CONTEXT_LIMIT|Invalid request body/);
+  assert.match(wire, /exit code 0/, "the model carried on from the excerpt");
+  assert.equal(calls, 2);
+  assert.equal(readFileSync(join(root, "once.txt"), "utf8"), "once");
   const run = await db.agentRun.findFirstOrThrow({ orderBy: { startedAt: "desc" } });
-  assert.equal(run.status, "failed"); assert.equal(run.stopReason, "context-limit"); assert.ok(run.finishedAt);
+  assert.equal(run.status, "succeeded"); assert.ok(run.finishedAt);
   const rows = await db.message.findMany({ where: { chatId: run.chatId! }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
   const saved = decodePersistedAssistantToolMessage(rows.find(row => row.role === "assistant")!.content)!;
   assert.equal((saved.tools[0].output as { exitCode: number }).exitCode, 0);
   assert.equal(saved.tools[0].state, "output-available");
+  assert.ok((saved.tools[0].output as { stdout: string }).stdout.length >= 45_000, "the stored result is whole");
   await capacity(200_000);
   const recovered = await route.POST(request({ chatId: run.chatId, messages: [...mapStoredMessagesToUI(rows).uiMessages, ui("recovery", "user", "Explain the saved result; do not execute again.")] }));
   assert.equal(recovered.status, 200); assert.match(await wireText(recovered), /exit code 0/);
@@ -317,15 +321,16 @@ test("a request that uses up its compaction calls keeps labelled excerpts, compl
   await setTerminalPermission(grant.id, true, grant.updatedAt, "full-access");
   await capacity(20_000);
   await saveModelPreferences({ ...await getModelPreferences(), callLimits: { ...(await getModelPreferences()).callLimits, compactionCallsPerTurn: 1 } });
-  let summaries = 0, calls = 0;
-  t.mock.method(languageModel, "doGenerate", async () => { summaries++; return summaryAnswer("Steps ran; continue with the next step."); });
+  // The bulk is in the calls, which excerpts leave alone, so summaries are needed.
+  let summaries = 0, calls = 0, summaryPrompt = "";
+  t.mock.method(languageModel, "doGenerate", async options => { summaries++; summaryPrompt = JSON.stringify(options.prompt); return summaryAnswer("Steps ran; continue with the next step."); });
   t.mock.method(languageModel, "doStream", async options => {
     const step = calls++;
     const reported = estimateContextTokens({ prompt: options.prompt, tools: options.tools });
     const node = process.execPath.replaceAll("'", process.platform === "win32" ? "''" : "'\\''");
     return { stream: new ReadableStream<LanguageModelV3StreamPart>({ start(controller) {
       controller.enqueue({ type: "stream-start", warnings: [] });
-      if (step < 6) controller.enqueue({ type: "tool-call", toolCallId: `step-${step}`, toolName: "runTerminalCommand", input: JSON.stringify({ grantId: grant.id, command: `${process.platform === "win32" ? "& " : ""}'${node}' ./step.cjs` }) });
+      if (step < 6) controller.enqueue({ type: "tool-call", toolCallId: `step-${step}`, toolName: "runTerminalCommand", input: JSON.stringify({ grantId: grant.id, command: `${process.platform === "win32" ? "& " : ""}'${node}' ./step.cjs # ${"0".repeat(1500)}` }) });
       else { controller.enqueue({ type: "text-start", id: "a" }); controller.enqueue({ type: "text-delta", id: "a", delta: "All steps done" }); controller.enqueue({ type: "text-end", id: "a" }); }
       controller.enqueue({ type: "finish", finishReason: { unified: step < 6 ? "tool-calls" : "stop", raw: undefined }, usage: { inputTokens: { total: reported, noCache: reported, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 10, text: 10, reasoning: 0 } } });
       controller.close();
@@ -334,6 +339,8 @@ test("a request that uses up its compaction calls keeps labelled excerpts, compl
   const response = await route.POST(request({ chatId: await workspaceChat(grant.id), messages: [ui("allowance-user", "user", "Run the six steps.")] }));
   assert.equal(response.status, 200); assert.match(await wireText(response), /All steps done/);
   assert.equal(summaries, 1, "no summary call beyond the allowance");
+  assert.match(summaryPrompt, /request being worked on[\s\S]*Run the six steps\./, "a fold during a turn knows what the work is for, though no folded evidence shows it");
+  assert.match(summaryPrompt, /are not a user message/, "and its own writing rules are not mistaken for one");
   assert.equal(readFileSync(join(root, "steps.txt"), "utf8"), "xxxxxx");
   const run = await db.agentRun.findFirstOrThrow({ orderBy: { startedAt: "desc" } });
   assert.equal(run.status, "succeeded");
@@ -399,7 +406,7 @@ test("a step the provider refuses as over its window is compacted and sent again
   assert.equal(calls, 2, "resent exactly once");
   assert.match(prompts[0], /OLDEST-ANSWER-MARKER/);
   assert.doesNotMatch(prompts[1], /OLDEST-ANSWER-MARKER/, "the resent step no longer carries the folded turn");
-  assert.match(prompts[1], /Earlier task state/);
+  assert.match(prompts[1], /Summary of earlier conversation/);
   assert.match(prompts[1], /Summarize both/);
   const run = await db.agentRun.findFirstOrThrow({ orderBy: { startedAt: "desc" } });
   assert.equal(run.status, "succeeded");
@@ -417,11 +424,11 @@ test("a second refusal after recovery is reported instead of retried again", asy
   assert.equal((await db.agentRun.findFirstOrThrow({ orderBy: { startedAt: "desc" } })).status, "failed");
 });
 
-test("the compaction tool is offered to every chat, including assistants with a restricted tool list", async () => {
+test("compacting context is listed for people and never offered to the model, whatever an assistant allows", async () => {
   const { createChatToolSet } = await import("@/tools/catalog");
   const { getToolDescriptor } = await import("@/tools/builtins");
   const restricted = await createChatToolSet({ modelRef: CHAT_MODEL_REF, toolIds: ["createTask"] });
-  assert.ok("compactContext" in restricted);
-  assert.ok(!("webSearch" in restricted));
-  assert.equal(getToolDescriptor("compactContext")?.manual.enabled, false, "it acts on a running chat, so it is not a manual tool");
+  assert.deepEqual(Object.keys(restricted), ["createTask", "extractMemory", "readConversationHistory"], "the model's own underlying tools come with any tool");
+  assert.ok(!("compactContext" in await createChatToolSet({ modelRef: CHAT_MODEL_REF })));
+  assert.equal(getToolDescriptor("compactContext")?.surface.user?.run, "direct", "a person runs it from the slash menu, with no model answering");
 });

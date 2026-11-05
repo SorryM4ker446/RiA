@@ -20,7 +20,7 @@ export function canFallback(error: unknown, signal?: AbortSignal) {
   if (error instanceof ApiError && !["UPSTREAM_FAILED", "SERVICE_UNAVAILABLE", "RATE_LIMITED"].includes(error.code)) return false;
   if (signal?.aborted || object(error).name === "AbortError" || object(error).name === "TimeoutError") return false;
   const status = finite(object(error).statusCode);
-  return status === null || status === 404 || status === 429 || status >= 500;
+  return status === null || status === 402 || status === 404 || status === 429 || status >= 500;
 }
 export function usageCost(mode: Mode, usage: unknown, metadata: unknown, rate?: ModelPreferences["rates"][string]) {
   const values = object(usage);

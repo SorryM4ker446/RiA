@@ -14,7 +14,6 @@ const cleanup = createTestDatabase();
 delete process.env.RIA_TEST_PROVIDER;
 const { db } = await import("@/db");
 const chatRoute = await import("@/app/api/chat/route");
-const manualRoute = await import("@/app/api/tools/run/route");
 const { defaultModelPreferences } = await import("@/lib/models/preferences-schema");
 const { mapStoredMessagesToUI } = await import("@/features/chat/page-utils");
 const { indexDocument } = await import("@/lib/documents/store");
@@ -127,12 +126,12 @@ test("rejecting the streamed task leaves no task and persists denial", async () 
   assert.equal(findTool((await stored(conversation.id)).at(-1)!, "createTask").state, "output-denied");
 });
 
-test("automatic and manual knowledge search respect conversation collections and ephemeral memory", async () => {
+test("knowledge search respects conversation collections and ephemeral memory", async () => {
   const a = await indexDocument({ filename: "发布A.txt", collection: "A|B", format: "txt", byteSize: 20, pages: [{ pageNumber: null, text: "发布回滚窗口为三十分钟。" }] });
   await indexDocument({ filename: "发布B.txt", collection: "B", format: "txt", byteSize: 20, pages: [{ pageNumber: null, text: "发布回滚窗口为六十分钟。" }] });
   await db.memory.create({ data: { key: "发布回滚窗口", value: "不得进入无记忆会话", confirmed: true } });
   const { encodeDocumentScope } = await import("@/lib/documents/scope");
-  const conversation = await db.chat.create({ data: { title: "Scoped search", documentScope: encodeDocumentScope(["A|B"]), ephemeral: true } });
+  const conversation = await db.chat.create({ data: { title: "Scoped search", topic: { create: { config: {} } }, documentScope: encodeDocumentScope(["A|B"]), ephemeral: true } });
   selectedTool = "searchKnowledge";
   selectedInput = { query: "发布回滚窗口", topK: 4 };
   const response = await chatRoute.POST(request("/api/chat", { chatId: conversation.id, model: ref, messages: [{ id: "query-user", role: "user", parts: [{ type: "text", text: "检索发布回滚窗口" }] }] }));
@@ -142,10 +141,4 @@ test("automatic and manual knowledge search respect conversation collections and
   assert.equal(tool.state, "output-available");
   assert.equal(tool.output.results.length, 1);
   assert.equal(tool.output.results[0].reference!.documentId, a.document.id);
-  const manual = await manualRoute.POST(request("/api/tools/run", { chatId: conversation.id, model: ref, tool: "searchKnowledge", mode: "chat", input: selectedInput }));
-  assert.equal(manual.status, 200);
-  assert.equal((await manual.json()).data.results.length, 1);
-  assert.equal(await db.memory.count(), 1);
-  const missing = await manualRoute.POST(request("/api/tools/run", { chatId: "missing-chat", model: ref, tool: "searchKnowledge", mode: "chat", input: selectedInput }));
-  assert.equal(missing.status, 404);
 });

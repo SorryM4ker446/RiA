@@ -1043,7 +1043,8 @@ async function runSmokeAssertion() {
       const image = await captureWindow.capturePage();
       const alpha = imageAlphaSampler(image);
       const sidebarAlpha = alpha(0.04, 0.55);
-      const dockAlpha = alpha(0.98, 0.98);
+      // Above the corner, where a development run shows Next's own badge.
+      const dockAlpha = alpha(0.98, 0.92);
       const headerAlpha = alpha(0.8, 0.02);
       const canvasPoints = canvasSamplePoints(geometry);
       const canvasAlpha = canvasPoints.map(point => alpha(point.x, point.y));

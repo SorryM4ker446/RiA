@@ -8,6 +8,7 @@ import { settingsDialog } from "../helpers/settings";
 import { browserApi } from "../helpers/browser-api";
 import { toasts } from "../helpers/toast";
 import { chooseTaskDateTime } from "../helpers/task-date-picker";
+import { newTask as taskInput } from "../helpers/slash-menu";
 
 const test = base.extend<{
   app: Awaited<ReturnType<typeof startStandaloneServer>>;
@@ -34,12 +35,8 @@ test("workspace separates scheduled tasks and retains content during refresh", a
       localStorage.setItem("ui:theme", "dark");
   });
   await openWorkspace(page, app.origin);
-  const created = await browserApi(page, "/api/tools/run", "POST", {
-    tool: "createTask",
-    mode: "chat",
-    input: { title: "保持可见的任务" },
-  });
-  expect(created.status).toBe(200);
+  const created = await browserApi(page, "/api/tasks", "POST", taskInput("保持可见的任务"));
+  expect(created.status).toBe(201);
   let finishInitial!: () => void;
   const firstGate = new Promise<void>((resolve) => {
     finishInitial = resolve;

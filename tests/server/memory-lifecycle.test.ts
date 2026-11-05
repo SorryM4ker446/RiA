@@ -7,8 +7,7 @@ import { localAccessCookie } from "../helpers/local-access";
 const cleanup = createTestDatabase();
 process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
-const { saveMemory, getRelevantMemories } = await import("@/lib/memory/store");
-const { persistToolMemory } = await import("@/tools/memory-policy");
+const { saveKnowledgeEntry, getRelevantEntries } = await import("@/lib/knowledge/entries");
 const knowledgeRoute = await import("@/app/api/knowledge/route");
 const knowledgeIdRoute = await import("@/app/api/knowledge/[id]/route");
 
@@ -33,14 +32,12 @@ beforeEach(async () => {
 after(async () => { await db.$disconnect(); cleanup(); });
 
 test("a memory the assistant inferred waits for the user before it is used", async () => {
-  await saveMemory({ key: "语言偏好", value: "回答请使用中文", source: "manual" });
-  await persistToolMemory({
-    workspaceId: "local", toolId: "searchKnowledge", trigger: "auto", state: "output-available",
-    input: { query: "整理资料" }, output: { total: 1, results: [{ title: "资料整理方法", source: "document", score: 0.9 }] }, assistantText: "找到了资料整理方法",
-  });
+  await saveKnowledgeEntry({ key: "语言偏好", value: "回答请使用中文", source: "manual" });
+  // New ones are no longer made; ones already there, or from a backup, behave the same.
+  await saveKnowledgeEntry({ key: "tool:searchKnowledge:资料整理方法", value: "searchKnowledge 资料整理方法", source: "assistant" });
 
   const candidate = await db.memory.findFirst({ where: { key: { startsWith: "tool:" } } });
-  assert.ok(candidate, "the tool memory should be stored");
+  assert.ok(candidate, "the candidate should be stored");
   assert.equal(candidate.source, "assistant");
   assert.equal(candidate.confirmed, false);
 
@@ -51,12 +48,12 @@ test("a memory the assistant inferred waits for the user before it is used", asy
   // And it is not in the context until it is accepted. The manual entry is what
   // proves the search itself is working: without it "not found" would look the
   // same either way.
-  const before = await getRelevantMemories({ query: "回答请使用中文" });
+  const before = await getRelevantEntries({ query: "回答请使用中文" });
   assert.deepEqual(keysOf(before), ["语言偏好"], "only the confirmed memory is retrieved");
   assert.equal(before.some((entry) => entry.id === candidate.id), false, "an unaccepted candidate must not be retrieved");
 
   await payload(await knowledgeIdRoute.PATCH(req(`/api/knowledge/${candidate.id}`, "PATCH", { confirmed: true }), context(candidate.id)));
-  const after = await getRelevantMemories({ query: "searchKnowledge 资料整理方法" });
+  const after = await getRelevantEntries({ query: "searchKnowledge 资料整理方法" });
   assert.equal(after.some((entry) => entry.id === candidate.id), true, "an accepted memory is retrieved");
   // And the use is recorded, so the page can say the memory did something.
   const used = await db.memory.findUnique({ where: { id: candidate.id } });
@@ -64,26 +61,26 @@ test("a memory the assistant inferred waits for the user before it is used", asy
 });
 
 test("editing a memory replaces its text and counts as accepting it", async () => {
-  const created = await saveMemory({ key: "输出风格", value: "先给结论", source: "assistant" });
+  const created = await saveKnowledgeEntry({ key: "输出风格", value: "先给结论", source: "assistant" });
   assert.equal(created.confirmed, false, "an inferred entry starts as a candidate");
   const updated = await payload(await knowledgeIdRoute.PATCH(req(`/api/knowledge/${created.id}`, "PATCH", { value: "先给结论，再给三点理由" }), context(created.id)));
   assert.equal(updated.data.value, "先给结论，再给三点理由");
   assert.equal(updated.data.confirmed, true, "editing is how a wrong memory is corrected");
 
-  const found = await getRelevantMemories({ query: "输出风格" });
+  const found = await getRelevantEntries({ query: "输出风格" });
   assert.equal(found.find((entry) => entry.id === created.id)?.value, "先给结论，再给三点理由");
 });
 
 test("deleting a memory stops it from being retrieved", async () => {
-  const created = await saveMemory({ key: "临时记下的偏好", value: "不要使用表情符号", source: "manual" });
-  assert.deepEqual(keysOf(await getRelevantMemories({ query: "不要使用表情符号" })), ["临时记下的偏好"]);
+  const created = await saveKnowledgeEntry({ key: "临时记下的偏好", value: "不要使用表情符号", source: "manual" });
+  assert.deepEqual(keysOf(await getRelevantEntries({ query: "不要使用表情符号" })), ["临时记下的偏好"]);
   await payload(await knowledgeIdRoute.DELETE(req(`/api/knowledge/${created.id}`, "DELETE"), context(created.id)));
-  assert.deepEqual(keysOf(await getRelevantMemories({ query: "不要使用表情符号" })), []);
+  assert.deepEqual(keysOf(await getRelevantEntries({ query: "不要使用表情符号" })), []);
 });
 
 test("the knowledge list separates accepted entries from candidates", async () => {
-  const manual = await saveMemory({ key: "我确认的", value: "内容 A", source: "manual" });
-  const candidate = await saveMemory({ key: "待确认的", value: "内容 B", source: "assistant" });
+  const manual = await saveKnowledgeEntry({ key: "我确认的", value: "内容 A", source: "manual" });
+  const candidate = await saveKnowledgeEntry({ key: "待确认的", value: "内容 B", source: "assistant" });
   const confirmed = await payload(await knowledgeRoute.GET(req("/api/knowledge?view=confirmed")));
   const candidates = await payload(await knowledgeRoute.GET(req("/api/knowledge?view=candidates")));
   assert.equal(confirmed.data.some((row: { id: string }) => row.id === manual.id), true);
@@ -134,10 +131,10 @@ test("an execution record bounds the turn and can be stopped without undoing it"
 });
 
 test("an ephemeral conversation neither reads nor writes long-term memory", async () => {
-  const { saveMemory, getRelevantMemories } = await import("@/lib/memory/store");
+  const { saveKnowledgeEntry, getRelevantEntries } = await import("@/lib/knowledge/entries");
   const { createChat } = await import("@/lib/chat/store");
   const { updateConversation: patchConversation } = await import("@/lib/conversations/mutations");
-  await saveMemory({ key: "语言偏好", value: "回答请使用中文", source: "manual" });
+  await saveKnowledgeEntry({ key: "语言偏好", value: "回答请使用中文", source: "manual" });
   const chat = await createChat({ title: "临时会话" });
   const updated = await patchConversation(chat.id, { ephemeral: true });
   assert.equal(updated.ephemeral, true);
@@ -226,10 +223,10 @@ test("a long conversation is summarized without losing the original messages", a
 });
 
 test("a fact saved from a conversation never overwrites a different memory under the same key", async () => {
-  await saveMemory({ key: "preference", value: "Answer in Chinese" });
-  const second = await saveMemory({ key: "preference", value: "Use metric units", onConflict: "keep-both" });
-  const third = await saveMemory({ key: "preference", value: "Prefer short answers", onConflict: "keep-both" });
-  const repeated = await saveMemory({ key: "preference", value: "Use metric units", onConflict: "keep-both" });
+  await saveKnowledgeEntry({ key: "preference", value: "Answer in Chinese" });
+  const second = await saveKnowledgeEntry({ key: "preference", value: "Use metric units", onConflict: "keep-both" });
+  const third = await saveKnowledgeEntry({ key: "preference", value: "Prefer short answers", onConflict: "keep-both" });
+  const repeated = await saveKnowledgeEntry({ key: "preference", value: "Use metric units", onConflict: "keep-both" });
   assert.equal(second.key, "preference (2)");
   assert.equal(third.key, "preference (3)");
   assert.equal(repeated.id, second.id, "the same fact is not stored twice");
@@ -238,17 +235,17 @@ test("a fact saved from a conversation never overwrites a different memory under
     ["preference", "Answer in Chinese"], ["preference (2)", "Use metric units"], ["preference (3)", "Prefer short answers"],
   ]);
   // Editing a memory explicitly still replaces it.
-  await saveMemory({ key: "preference", value: "Answer in English" });
+  await saveKnowledgeEntry({ key: "preference", value: "Answer in English" });
   assert.equal((await db.memory.findUnique({ where: { key: "preference" } }))?.value, "Answer in English");
 });
 
 test("the model's request to save a memory waits for approval, while saving by hand does not", async () => {
   const { createChatToolSet, executeRegisteredTool } = await import("@/tools/execution");
   const { getToolDescriptor } = await import("@/tools/builtins");
-  const tools = await createChatToolSet({ toolIds: ["saveMemory"] });
-  const saveTool = tools.saveMemory as unknown as { needsApproval?: (input: unknown) => Promise<boolean> };
+  const tools = await createChatToolSet({ toolIds: ["saveKnowledgeEntry"] });
+  const saveTool = tools.saveKnowledgeEntry as unknown as { needsApproval?: (input: unknown) => Promise<boolean> };
   assert.equal(await saveTool.needsApproval?.({ key: "name", value: "Ada" }), true);
-  const descriptor = getToolDescriptor("saveMemory");
+  const descriptor = getToolDescriptor("saveKnowledgeEntry");
   assert.ok(descriptor);
   await executeRegisteredTool(descriptor, { key: "name", value: "Ada" }, { trigger: "manual" });
   const saved = await db.memory.findUnique({ where: { key: "name" } });
@@ -256,43 +253,22 @@ test("the model's request to save a memory waits for approval, while saving by h
 });
 
 test("memory recall survives long messages and short follow-ups, and compares every confirmed memory", async () => {
-  const { getMemorySearchCandidates, CONTEXT_MEMORY_POLICY } = await import("@/lib/memory/retrieval");
-  const { CONTEXT_MEMORY_MIN_MATCH } = await import("@/lib/memory/retrieval");
-  await saveMemory({ key: "数据库选择", value: "项目使用 SQLite 本地数据库，不使用 PostgreSQL" });
+  const { getEntrySearchCandidates, CONTEXT_ENTRY_POLICY } = await import("@/lib/knowledge/entry-retrieval");
+  const { CONTEXT_ENTRY_MIN_MATCH } = await import("@/lib/knowledge/entry-retrieval");
+  await saveKnowledgeEntry({ key: "数据库选择", value: "项目使用 SQLite 本地数据库，不使用 PostgreSQL" });
   const long = "我在想下周的发布计划里，数据库迁移这一步要不要提前做，另外 SQLite 的备份脚本、日志清理和监控告警是不是也得一起检查，顺便看看文档有没有过时的地方";
-  assert.deepEqual(keysOf(await getRelevantMemories({ query: long, minMatch: CONTEXT_MEMORY_MIN_MATCH })), ["数据库选择"],
+  assert.deepEqual(keysOf(await getRelevantEntries({ query: long, minMatch: CONTEXT_ENTRY_MIN_MATCH })), ["数据库选择"],
     "two shared words in a long message are a match");
   const oneWord = "下周的发布计划里日志清理和监控告警要一起检查，文档也要更新，顺便整理 SQLite 之外的其他事项和周会安排";
-  assert.deepEqual(await getRelevantMemories({ query: oneWord, minMatch: CONTEXT_MEMORY_MIN_MATCH }), [],
+  assert.deepEqual(await getRelevantEntries({ query: oneWord, minMatch: CONTEXT_ENTRY_MIN_MATCH }), [],
     "one shared word in a long message is not");
-  assert.deepEqual(await getRelevantMemories({ query: "那它呢？", minMatch: CONTEXT_MEMORY_MIN_MATCH }), []);
-  assert.deepEqual(keysOf(await getRelevantMemories({ query: "那它呢？", followUp: "SQLite 数据库怎么备份", minMatch: CONTEXT_MEMORY_MIN_MATCH })), ["数据库选择"],
+  assert.deepEqual(await getRelevantEntries({ query: "那它呢？", minMatch: CONTEXT_ENTRY_MIN_MATCH }), []);
+  assert.deepEqual(keysOf(await getRelevantEntries({ query: "那它呢？", followUp: "SQLite 数据库怎么备份", minMatch: CONTEXT_ENTRY_MIN_MATCH })), ["数据库选择"],
     "a follow-up finds what the previous message asked about");
-  assert.deepEqual(await getRelevantMemories({ query: "Write a haiku about autumn", followUp: "SQLite 数据库怎么备份", minMatch: CONTEXT_MEMORY_MIN_MATCH }), [],
+  assert.deepEqual(await getRelevantEntries({ query: "Write a haiku about autumn", followUp: "SQLite 数据库怎么备份", minMatch: CONTEXT_ENTRY_MIN_MATCH }), [],
     "a message on a new subject does not carry the previous subject's memories");
 
   await db.memory.createMany({ data: Array.from({ length: 150 }, (_, index) => ({ key: `note-${index}`, value: `unrelated note ${index}`, confirmed: true })) });
-  const { candidates } = await getMemorySearchCandidates("anything", CONTEXT_MEMORY_POLICY);
+  const { candidates } = await getEntrySearchCandidates("anything", CONTEXT_ENTRY_POLICY);
   assert.equal(candidates.length, 151, "every confirmed memory is a candidate, not only the newest");
-});
-
-test("unaccepted tool candidates expire and are capped, accepted memories are kept", async () => {
-  const { pruneToolMemoryCandidates, TOOL_CANDIDATE_LIMIT, TOOL_CANDIDATE_MAX_AGE_MS } = await import("@/tools/memory-policy");
-  const now = Date.now();
-  const old = new Date(now - TOOL_CANDIDATE_MAX_AGE_MS - 60_000);
-  await db.memory.createMany({ data: [
-    { key: "tool:webSearch:old", value: "old candidate", source: "assistant", confirmed: false, updatedAt: old },
-    { key: "tool:webSearch:accepted", value: "accepted long ago", source: "assistant", confirmed: true, updatedAt: old },
-    { key: "manual old", value: "written by hand", source: "manual", confirmed: true, updatedAt: old },
-    ...Array.from({ length: TOOL_CANDIDATE_LIMIT + 5 }, (_, index) => ({
-      key: `tool:createTask:${index}`, value: `candidate ${index}`, source: "assistant", confirmed: false, updatedAt: new Date(now - index * 1000),
-    })),
-  ] });
-  await pruneToolMemoryCandidates(now);
-  const remaining = await db.memory.findMany({ select: { key: true } });
-  const keys = new Set(remaining.map(entry => entry.key));
-  assert.equal(keys.has("tool:webSearch:old"), false);
-  assert.ok(keys.has("tool:webSearch:accepted") && keys.has("manual old"));
-  assert.equal(remaining.filter(entry => entry.key.startsWith("tool:createTask:")).length, TOOL_CANDIDATE_LIMIT);
-  assert.ok(keys.has("tool:createTask:0") && !keys.has(`tool:createTask:${TOOL_CANDIDATE_LIMIT + 4}`), "the newest candidates are kept");
 });

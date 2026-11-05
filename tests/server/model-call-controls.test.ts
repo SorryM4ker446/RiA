@@ -141,7 +141,7 @@ test("a smaller fallback rejects oversized context before submission and release
   const primary = new MockLanguageModelV3({ doStream: async () => { primaryCalls++; throw Object.assign(new Error("unavailable"), { statusCode: 503 }); } });
   const backup = new MockLanguageModelV3({ doStream: async () => { fallbackCalls++; throw new Error("must not submit"); } });
   const observed = observeLanguageModel(primary, CHAT_MODEL_REF, () => backup);
-  await assert.rejects(async () => observed.doStream({ prompt: [{ role: "user", content: [{ type: "text", text: "0".repeat(6000) }] }] }), { code: "CONTEXT_LIMIT" });
+  await assert.rejects(async () => observed.doStream({ prompt: [{ role: "user", content: [{ type: "text", text: "0".repeat(12_000) }] }] }), { code: "CONTEXT_LIMIT" });
   assert.equal(primaryCalls, 3, "two retries of the transient failure"); assert.equal(fallbackCalls, 0);
   assert.equal(await db.modelRequest.count({ where: { status: "pending" } }), 0);
   assert.equal(await db.modelRequest.count(), 3);

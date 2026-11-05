@@ -12,6 +12,7 @@ import { acceptConfirm } from "../helpers/confirm";
 import { chooseRowAction, openRowMenu } from "../helpers/row-menu";
 import { toasts } from "../helpers/toast";
 import { trackChatStreams, waitForChatStream } from "../helpers/chat-stream";
+import { chosenWords, composerInput, slashOption } from "../helpers/slash-menu";
 
 type App = { runtime: Awaited<ReturnType<typeof startStandaloneServer>>; service: Awaited<ReturnType<typeof startExtensionService>> };
 const test = base.extend<{ app: App }>({ app: async ({}, provide) => {
@@ -66,7 +67,8 @@ test("marketplace installs a skill package, applies it to real chat context and 
   await waitForChatStream(page);
   // So are the reads the page makes once the answer is in (the list, the title): let them finish too.
   await page.waitForLoadState("networkidle");
-  await app.runtime.restart(); await open(page, app);
+  // Off the app first: an open page asking the stopped server for anything logs a refused connection.
+  await page.goto("about:blank"); await app.runtime.restart(); await open(page, app);
   await expect(card.getByText("已启用", { exact: true })).toBeVisible();
   await chooseRowAction(page, card, "停用插件"); await expect(card.getByText("已停用", { exact: true })).toBeVisible();
   const before = app.runtime.providerCalls.length;
@@ -116,6 +118,20 @@ for (const kind of ["http", "mcp-http"] as const) test(`${kind} combination pack
     app.service.state.hold = false;
   }
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  // Once enabled, its skill and its connection's tools can be chosen with a slash.
+  await page.goto(`${app.runtime.origin}/chat`);
+  await composerInput(page).click();
+  await page.keyboard.type("/");
+  const slashList = page.getByRole("listbox", { name: "工具、技能和插件", exact: true });
+  await expect(slashList).toBeVisible();
+  await expect(slashList.locator(".slash-menu-heading").getByText("技能", { exact: true })).toBeVisible();
+  await expect(slashList.locator(".slash-menu-heading").getByText("插件", { exact: true })).toBeVisible();
+  await expect(page.getByRole("option").filter({ hasText: "Package echo" })).toBeVisible();
+  await slashOption(page, "Research skill").click();
+  await expect(chosenWords(page)).toHaveText(["Research skill"]);
+  await page.keyboard.type("/");
+  await page.getByRole("option").filter({ hasText: "Package echo" }).click();
+  await expect(chosenWords(page)).toHaveCount(2);
   const chat = await send(page, app, "OFFLINE_EXTENSION_TOOL");
   const approval = page.getByRole("button", { name: "批准", exact: true }); await expect(approval).toBeEnabled();
   await expect.poll(() => systemText(app)).toContain("Use for package acceptance questions."); expect(app.service.state.calls).toHaveLength(0);

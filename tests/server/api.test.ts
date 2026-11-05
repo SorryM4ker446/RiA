@@ -14,11 +14,11 @@ process.env.RIA_TEST_PROVIDER = "1";
 
 const { db } = await import("@/db");
 
-const { saveMemory } = await import("@/lib/memory/store");
+const { saveKnowledgeEntry } = await import("@/lib/knowledge/entries");
 const { getRegenerationSnapshot, saveRegeneratedResponse, saveChatMessage } = await import("@/lib/chat/store");
 const { ApiError } = await import("@/lib/server/api-error");
 const { encodePersistedAssistantToolMessage, decodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
-const { getToolDescriptor } = await import("@/tools/catalog");
+const { executeRegisteredTool, getToolDescriptor } = await import("@/tools/catalog");
 const chat = await import("@/app/api/chat/route");
 const tools = await import("@/app/api/tools/run/route");
 const conversations = await import("@/app/api/conversations/route");
@@ -90,31 +90,25 @@ test("local workspace access is required before any business route responds", as
   }
 });
 
-test("manual task execution persists data and emits one success log", async () => {
-  const response = await tools.POST(request("/api/tools/run", "POST", { tool: "createTask", mode: "chat", input: { title: "Integration task" } }, cookie));
-  assert.equal(response.status, 200);
-  const payload = await response.json();
-  assert.ok(await db.task.findUnique({ where: { id: payload.data.taskId } }));
+const runCreateTask = (input: unknown) => executeRegisteredTool(getToolDescriptor("createTask")!, input, { trigger: "manual" });
+
+test("a task tool run persists data and emits one success log", async () => {
+  const { output } = await runCreateTask({ title: "Integration task" });
+  assert.ok(await db.task.findUnique({ where: { id: output.taskId } }));
   const logs = infoCalls().filter((call) => call.arguments[0] === "tool.execution");
   assert.deepEqual(logs.map((call) => call.arguments[1].state), ["output-available"]);
 });
 
-test("manual tasks work without any model and reject an explicitly removed selection", async () => {
-  await db.workspacePreference.deleteMany({});
-  const response = await tools.POST(request("/api/tools/run", "POST", { tool: "createTask", mode: "chat", input: { title: "Offline local task" } }, cookie));
-  assert.equal(response.status, 200);
-  assert.equal(await db.task.count({ where: { title: "Offline local task" } }), 1);
-  assert.equal(await db.modelRequest.count(), 0);
-  const invalid = await tools.POST(request("/api/tools/run", "POST", { tool: "createTask", mode: "chat", model: { providerId: "openrouter", modelId: "removed/model" }, input: { title: "Must not be created" } }, cookie));
-  assert.equal(invalid.status, 503);
-  assert.equal(await db.task.count({ where: { title: "Must not be created" } }), 0);
+test("tools the conversation runs are not reachable through the direct route", async () => {
+  const response = await tools.POST(request("/api/tools/run", "POST", { tool: "createTask", input: { title: "Must not exist" } }, cookie));
+  assert.equal(response.status, 400);
+  assert.equal(await db.task.count({ where: { title: "Must not exist" } }), 0);
 });
 
 for (const code of ["TIMEOUT", "UPSTREAM_FAILED"] as const) {
-  test(`manual ${code} execution emits only one failure log`, async (t) => {
-    t.mock.method(getToolDescriptor("createTask"), "execute", async () => { throw new ApiError({ code, message: "Simulated failure" }); });
-    const response = await tools.POST(request("/api/tools/run", "POST", { tool: "createTask", mode: "chat", input: { title: "Must not exist" } }, cookie));
-    assert.equal(response.status, code === "TIMEOUT" ? 504 : 502);
+  test(`a tool ${code} emits only one failure log`, async (t) => {
+    t.mock.method(getToolDescriptor("createTask")!, "execute", async () => { throw new ApiError({ code, message: "Simulated failure" }); });
+    await assert.rejects(runCreateTask({ title: "Must not exist" }), { code });
     assert.equal(await db.task.count({ where: {} }), 0);
     const logs = infoCalls().filter((call) => call.arguments[0] === "tool.execution");
     assert.equal(logs.length, 1);
@@ -124,8 +118,7 @@ for (const code of ["TIMEOUT", "UPSTREAM_FAILED"] as const) {
 }
 
 test("invalid tool input never emits a success record", async () => {
-  const response = await tools.POST(request("/api/tools/run", "POST", { tool: "createTask", mode: "chat", input: { title: "" } }, cookie));
-  assert.equal(response.status, 400);
+  await assert.rejects(runCreateTask({ title: "" }), { code: "VALIDATION_ERROR" });
   const logs = infoCalls().filter((call) => call.arguments[0] === "tool.execution");
   assert.deepEqual(logs.map((call) => call.arguments[1].state), ["output-error"]);
 });
@@ -152,12 +145,12 @@ test("conversation, message, task and knowledge APIs enforce user ownership", as
 });
 
 test("concurrent memory saves share one row and clear stale embeddings", async () => {
-  const results = await Promise.allSettled(Array.from({ length: 8 }, (_, index) => saveMemory({ key: "preference", value: `value ${index}`, score: 0.9 })));
+  const results = await Promise.allSettled(Array.from({ length: 8 }, (_, index) => saveKnowledgeEntry({ key: "preference", value: `value ${index}`, score: 0.9 })));
   // A failed write must not leave the remaining writes running into the next test.
   for (const result of results) if (result.status === "rejected") throw result.reason;
   assert.equal(await db.memory.count({ where: { key: "preference" } }), 1);
   await db.memory.update({ where: { key: "preference" }, data: { embedding: [1, 2] } });
-  const updated = await saveMemory({ key: "preference", value: "updated without embeddings" });
+  const updated = await saveKnowledgeEntry({ key: "preference", value: "updated without embeddings" });
   assert.equal(updated.embedding, null);
   assert.equal(updated.score, 0.9);
 });
@@ -187,7 +180,6 @@ test("chat sends assistant history to the model and persists the streamed answer
   assert.ok(languageModel.doStreamCalls.at(-1).prompt.some((item) => item.role === "assistant" && textPart(item.content[0]).text === "Original answer"));
   const answers = await db.message.findMany({ where: { chatId: owned.id, role: "assistant" } });
   assert.equal(answers.filter(row => decodePersistedAssistantToolMessage(row.content)?.text === "Generated answer").length, 1);
-  assert.equal(decodePersistedAssistantToolMessage(answers.find(row => decodePersistedAssistantToolMessage(row.content)?.text === "Generated answer")!.content)?.documentDiagnostics?.outcome, "empty-library");
 });
 
 test("failed regeneration leaves the original answer intact", async () => {

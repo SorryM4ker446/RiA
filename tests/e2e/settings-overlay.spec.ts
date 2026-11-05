@@ -132,5 +132,5 @@ test("expanding a section brings it into view without shifting the content sidew
   await dialog.locator("summary").filter({ hasText: "内置工具" }).click();
   await expect.poll(() => panel.evaluate(node => node.scrollTop)).toBeGreaterThan(before.top);
   expect(await panel.evaluate(node => node.clientWidth)).toBe(before.width);
-  await expect(dialog.getByText("执行终端命令", { exact: true })).toBeInViewport();
+  await expect(dialog.getByText("读取文档", { exact: true })).toBeInViewport();
 });

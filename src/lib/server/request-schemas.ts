@@ -2,6 +2,7 @@ import { z } from "zod";
 import { CHAT_ATTACHMENT_TYPES, IMAGE_MEDIA_TYPES, MEDIA_LIMITS } from "@/lib/media/limits";
 import { modelRefSchema } from "@/lib/models/preferences-schema";
 import { getToolDescriptor, listToolDescriptors } from "@/tools/builtins";
+import { currentToolId, legacyToolIds } from "@/tools/legacy-names";
 import { externalToolIdPattern, externalInputSchema } from "@/lib/extensions/schema";
 
 export const identifierSchema = z.string().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/);
@@ -36,7 +37,7 @@ const filePart = imageReference.extend({ type: z.literal("file"), mediaType: z.e
  * every later request, so one tool absent from the list makes each following
  * message fail validation with no way for the user to recover.
  */
-const chatToolPartTypes = listToolDescriptors("chat").map((tool) => `tool-${tool.id}` as const);
+const chatToolPartTypes = [...listToolDescriptors("chat").map(tool => tool.id), ...legacyToolIds].map(id => `tool-${id}` as const);
 const toolPart = z.strictObject({
   // The cast keeps `tool-${string}` as the field's type so the parts union below
   // still discriminates on `type`; the values it accepts are still exactly the
@@ -59,7 +60,7 @@ const toolPart = z.strictObject({
   if (part.state === "approval-requested" && part.approval?.approved !== undefined) fail("Pending approval cannot include a decision");
   if (part.state === "approval-responded" && typeof part.approval?.approved !== "boolean") fail("Approval decision is required");
   if (part.state === "output-denied" && part.approval?.approved !== false) fail("Denied output requires a rejected approval");
-  if (!["input-streaming", "output-error"].includes(part.state) && !(externalToolIdPattern.test(part.type.slice(5)) ? externalInputSchema : getToolDescriptor(part.type.slice(5))?.inputSchema)?.safeParse(part.input).success) fail("Invalid tool input");
+  if (!["input-streaming", "output-error"].includes(part.state) && !(externalToolIdPattern.test(part.type.slice(5)) ? externalInputSchema : getToolDescriptor(currentToolId(part.type.slice(5)))?.inputSchema)?.safeParse(part.input).success) fail("Invalid tool input");
   if (part.output !== undefined && part.state !== "output-available") fail("Tool output is not allowed in this state");
   if (part.errorText !== undefined && part.state !== "output-error") fail("Tool error is not allowed in this state");
   if (part.approval && ["input-streaming", "input-available"].includes(part.state)) fail("Approval is not allowed in this state");

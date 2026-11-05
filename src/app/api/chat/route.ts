@@ -1,15 +1,17 @@
 import { protectDataOperation } from "@/lib/server/data-operations";
 import { currentWorkspaceId, requireLocalWorkspace } from "@/lib/local/workspace";
-import { buildRequestContext, buildSystemPrompt, formatLongTermContext, prepareModelContext, withRequestContext } from "@/lib/chat/model-context";
+import { buildRequestContext, buildSystemPrompt, filesSeen, formatCurrentTime, formatKnowledgeScope, keepRequestContext, prepareModelContext, storedSummary, withRequestTexts } from "@/lib/chat/model-context";
+import { changedFiles } from "@/lib/chat/compaction-restore";
+import { memoryForRequest, readMemoryDocument } from "@/lib/memory/document";
 import { prepareChatPersistence } from "@/lib/chat/persistence";
 import { readChatRequest } from "@/lib/chat/request";
 import { streamChatResponse } from "@/lib/chat/stream";
-import { getRelevantMemories } from "@/lib/memory/store";
 import { startRun } from "@/lib/agent/runs";
-import type { ModelRef } from "@/lib/models/preferences-schema";
+import { modelRefKey, type ModelRef } from "@/lib/models/preferences-schema";
+import { contextBudget } from "@/lib/models/context-budget";
 import { getModelPreferences } from "@/lib/models/preferences";
 import { getModelProvider } from "@/lib/models/providers";
-import { summarizeOlderTurns } from "@/lib/chat/summary";
+import { compactForRequest } from "@/lib/chat/compaction";
 import { createCompactionAllowance } from "@/lib/chat/task-summary";
 import { getTextFromUIMessage as readText } from "@/lib/ai/ui-message";
 import type { UIMessage } from "ai";
@@ -18,15 +20,13 @@ import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/serve
 import { setupServerProxy } from "@/lib/server/proxy";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { NextRequest } from "next/server";
-import { documentRetrievalQuery, formatDocumentContext, retrieveDocuments } from "@/lib/documents/retrieval";
 import { listPublicToolCatalog } from "@/tools/catalog";
-import { documentSourceSchema } from "@/lib/documents/types";
-import { decodeDocumentScope } from "@/lib/documents/scope";
+import { templateAllowsTool } from "@/tools/template-access";
 import { formatAssistantInstructions } from "@/lib/assistants/schema";
 import { formatPluginSkills } from "@/lib/plugins/store";
-import { selectAutomaticEvidence } from "@/lib/documents/auto-context";
-import { CONTEXT_MEMORY_MIN_MATCH } from "@/lib/memory/retrieval";
+import { conversationCollections } from "@/lib/conversations/document-scope";
 import { conversationWorkspace, formatWorkspaceContext } from "@/lib/local-files/workspace";
+import { resolveInvocation } from "@/lib/chat/invocation";
 import { db } from "@/db";
 
 async function POSTHandler(req: NextRequest) {
@@ -49,7 +49,6 @@ async function POSTHandler(req: NextRequest) {
 
 
     const { context, modelMessages } = await prepareModelContext(input, req.signal);
-    const conversation = await prepareChatPersistence(input, { deferApproval: true });
     const mode = body.mode ?? "chat";
     const isChatMode = mode === "chat";
     const canUseTools = isChatMode && input.model?.supportsTools === true;
@@ -58,72 +57,66 @@ async function POSTHandler(req: NextRequest) {
     // and each tool's modelDescription, not from a second LLM call that would
     // have to guess from the latest message alone.
     const toolsEnabled = canUseTools && (!input.assistant || input.assistant.tools.length > 0);
+    // Checked before the message is saved: a refused message goes back to the
+    // composer, and saving it too would leave a copy behind for every retry. An
+    // approval resume continues a turn that already honoured its choice.
+    const invocation = latestUserMessage?.invocation && !input.isApprovalResume
+      ? await resolveInvocation(latestUserMessage.invocation, { allowedToolIds: input.assistant?.tools, modelSupportsTools: toolsEnabled, modelRef })
+      : null;
+    const conversation = await prepareChatPersistence(input, { deferApproval: true });
     const unavailableStatuses = await unavailableChatTools(input.assistant?.tools, canUseTools, modelRef);
     const unavailableTools = unavailableStatuses.map(tool => tool.id);
 
-    // An ephemeral conversation neither reads long-term memory nor writes any.
-    // It is a memory switch, not a promise that nothing is kept: the messages,
-    // uploads and usage stay exactly as they otherwise would.
+    // The switch is about long-term memory: MEMORY.md and the tool that writes it. It is
+    // not a promise that nothing is kept: the messages, uploads and usage stay as they
+    // otherwise would, and the knowledge base is still there to draw on.
     const usesMemory = !(input.conversationPolicy?.ephemeral ?? conversation.chat.ephemeral);
-    // A shared keyword alone does not make a memory part of every request.
-    const relevantMemories = usesMemory && latestUserMessage?.text
-      ? await getRelevantMemories({
-        query: latestUserMessage.text,
-        followUp: previousUserText(input.messages),
-        limit: 6,
-        minMatch: CONTEXT_MEMORY_MIN_MATCH,
-        signal: req.signal,
-      })
-      : [];
-
-
-    // A conversation that named its document topics only draws on those; an
-    // empty scope means every topic, as before.
-    const scope = decodeDocumentScope(input.conversationPolicy?.documentScope ?? conversation.chat.documentScope);
-    // Long conversations are compressed by a model-written summary that covers
-    // the older turns and names the last message it includes. A summary never
-    // replaces the stored messages themselves.
     // One allowance per request covers older-turn summaries and in-stream compaction.
     const compactionAllowance = createCompactionAllowance((await getModelPreferences()).callLimits.compactionCallsPerTurn);
-    const summary = latestUserMessage?.text
-      ? await summarizeOlderTurns({
-        chatId: conversation.chat.id,
-        messages: context.allMessages.map((message) => ({ id: message.id ?? "", role: message.role, text: readText(message) })),
-        keepRecent: context.messages.length,
-        force: context.omittedMessages > 0,
-        modelRef,
-        signal: req.signal,
-        allowance: compactionAllowance,
-      }).catch(() => null)
-      : null;
+    // Long conversations are compressed by a model-written summary that covers the
+    // older turns and names the last message it includes; it never replaces the
+    // stored messages. A finished turn nearing the limit keeps it up to date in the
+    // background, so a request reads what is there and excerpts fill any gap behind
+    // it. Only a conversation with no summary yet waits for one, and says so.
+    const olderTurns = latestUserMessage?.text ? context.allMessages.slice(0, context.omittedMessages) : [];
+    const awaitsSummary = olderTurns.length > 0 && !input.isApprovalResume && !await storedSummary(conversation.chat.id);
 
-    const knowledgeQuery = documentRetrievalQuery(context.allMessages.map(message => ({ role: message.role, text: readText(message) })));
-    const retrievalQuery = knowledgeQuery || latestUserMessage?.text || "";
-    const searchable = toolsEnabled && !unavailableTools.includes("searchKnowledge") && (!input.assistant || input.assistant.tools.includes("searchKnowledge"));
-    const retrieved = latestUserMessage?.text
-      ? selectAutomaticEvidence(await retrieveDocuments(retrievalQuery, 8, scope, req.signal, input.assistant?.retrieval), retrievalQuery,
-        { userScoped: scope.length > 0 || (input.assistant?.collections.length ?? 0) > 0, canSearch: searchable })
-      : null;
-    const documentSources = retrieved?.sources.map(source => documentSourceSchema.parse(source)) ?? [];
     // The system prompt carries only rules that stay the same across turns. The
     // optional tools configured away this turn are named there, so the model
     // can answer honestly about what it could not check.
+    const skillsPrompt = await formatPluginSkills({ onDemand: toolsEnabled });
     const systemPrompt = buildSystemPrompt(toolsEnabled, unavailableStatuses, (await getModelPreferences()).persona)
-      + formatAssistantInstructions(input.assistant) + await formatPluginSkills({ onDemand: toolsEnabled });
-    // This turn's reference data travels with the user's message. Excerpts of
-    // older turns are a fallback for when no summary covers them.
+      + formatAssistantInstructions(input.assistant)
+      + (toolsEnabled && !unavailableTools.includes("searchKnowledge") ? formatKnowledgeScope(conversationCollections(input.conversationPolicy ?? conversation.chat)) : "")
+      + skillsPrompt;
     // Which folder this conversation works in is restated on every request, so
     // a switch made between turns is what the model acts on next.
     const workspace = toolsEnabled && (!input.assistant || input.assistant.tools.includes("runTerminalCommand"))
       ? formatWorkspaceContext(await conversationWorkspace(conversation.chat.id), await db.directoryGrant.count({ where: { revokedAt: null } }) > 0)
       : "";
-    const requestContext = buildRequestContext({
-      workspace,
-      summary: summary?.summary,
-      historyExcerpt: summary ? "" : context.historyExcerpt,
-      memories: formatLongTermContext(relevantMemories),
-      evidence: formatDocumentContext(documentSources),
-    });
+    // Whether the summary and the messages sent leave nothing out between them. A
+    // fold during the turn may only move the summary's end if they do.
+    let historyComplete = olderTurns.length === 0;
+    // This turn's reference data travels with the user's message.
+    const withEarlierTurns = async () => {
+      const stored = await storedSummary(conversation.chat.id);
+      historyComplete ||= Boolean(stored?.coveredIds.includes(olderTurns.at(-1)!.id));
+      // An approval resuming continues the same request, which already holds its context.
+      if (input.isApprovalResume) return modelMessages;
+      const workspaceGrant = toolsEnabled && (!input.assistant || templateAllowsTool(input.assistant.tools, "readProjectFile")) ? (await conversationWorkspace(conversation.chat.id))?.id : null;
+      const fileChanges = workspaceGrant ? await changedFiles({ seen: filesSeen(stored?.state, context.messages, workspaceGrant), grantId: workspaceGrant, signal: req.signal }) : "";
+      const sentTexts = context.messages.flatMap(message => message.role === "user" ? message.parts.flatMap(part => part.type === "text" ? [part.text] : []) : []);
+      const block = buildRequestContext({
+        currentTime: formatCurrentTime(),
+        workspace,
+        historyExcerpt: historyComplete ? "" : context.historyExcerpt,
+        fileChanges,
+        memoryDocument: usesMemory ? memoryForRequest(await readMemoryDocument(), sentTexts) : "",
+      });
+      const texts = [block, invocation?.directive ?? ""].filter(Boolean);
+      await keepRequestContext(conversation.chat.id, latestUserMessage?.id, texts);
+      return withRequestTexts(modelMessages, texts);
+    };
 
     // A run exists only for a turn that can actually use tools. Creating one
     // for a plain answer would fill the record with empty runs that did nothing.
@@ -132,8 +125,15 @@ async function POSTHandler(req: NextRequest) {
       : null;
 
     return await streamChatResponse({
-      input, conversation, systemPrompt, modelMessages: withRequestContext(modelMessages, requestContext), toolsEnabled, signal: req.signal,
-      documentSources, documentDiagnostics: retrieved?.diagnostics, runId: run?.id ?? null, usesMemory,
+      input, conversation, systemPrompt, skillsPrompt, toolsEnabled, signal: req.signal, chosenTool: invocation?.toolId ?? null,
+      ...(awaitsSummary ? {
+        settleContext: async () => {
+          await untilAborted(compactForRequest({ chatId: conversation.chat.id, messages: context.allMessages, keepRecent: context.messages.length, modelRef, allowance: compactionAllowance }), req.signal);
+          return withEarlierTurns();
+        },
+      } : { modelMessages: await withEarlierTurns() }),
+      runId: run?.id ?? null, usesMemory,
+      foldHistory: { messages: context.messages, complete: () => historyComplete },
       // The prompt has been telling the model which tools this turn could not
       // use. Without this the list never reaches persistence, so the turn's own
       // record could not show it and the "this turn had no web search" badge
@@ -148,11 +148,12 @@ async function POSTHandler(req: NextRequest) {
   }
 }
 
-/** The user message before the latest one, as plain text. */
-function previousUserText(messages: UIMessage[]): string | undefined {
-  const users = messages.filter(message => message.role === "user");
-  const previous = users.at(-2);
-  return previous ? readText(previous) || undefined : undefined;
+/** Stops waiting when the request does; the work it was waiting on carries on. */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal) {
+  return Promise.race([work, new Promise<never>((_, reject) => {
+    if (signal.aborted) reject(signal.reason);
+    else signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+  })]);
 }
 
 /**
@@ -161,8 +162,10 @@ function previousUserText(messages: UIMessage[]): string | undefined {
  * what was available.
  */
 async function unavailableChatTools(allowedToolIds?: string[], modelSupportsTools = true, modelRef?: ModelRef) {
-  return (await listPublicToolCatalog("chat", modelRef)).flatMap(tool => {
-    const reason = allowedToolIds !== undefined && !allowedToolIds.includes(tool.id) ? "templateDisabled"
+  // A tool always allowed is never one this turn went without on the template's
+  // account, and whether skills are installed says nothing the model has to explain.
+  return (await listPublicToolCatalog("chat", modelRef)).filter(tool => tool.surface.template !== "always").flatMap(tool => {
+    const reason = allowedToolIds !== undefined && !templateAllowsTool(allowedToolIds, tool.id) ? "templateDisabled"
       : !modelSupportsTools ? "modelUnsupported" : !tool.available ? tool.reason ?? "unavailable" : null;
     return reason ? [{ id: tool.id, reason }] : [];
   });

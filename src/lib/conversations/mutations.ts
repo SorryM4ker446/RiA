@@ -16,13 +16,12 @@ export const updateConversationSchema = z.strictObject({
   pinned: z.boolean().optional(),
   archived: z.boolean().optional(),
   ephemeral: z.boolean().optional(),
-  documentScope: z.array(z.string().trim().min(1).max(40)).max(12).optional(),
   // One granted folder, or null to work without one.
   workspaceGrantId: z.string().trim().min(1).max(200).nullable().optional(),
   assistantTemplateId: assistantIdSchema.nullable().optional(),
   tags: z.array(chatTagSchema).max(8).transform(tags => [...new Set(tags)].sort()).optional(),
 }).refine(value => Object.keys(value).length > 0, "At least one field is required")
-  .refine(value => value.assistantTemplateId === undefined || (value.ephemeral === undefined && value.documentScope === undefined), "Apply a template separately from memory and collection overrides");
+  .refine(value => value.assistantTemplateId === undefined || value.ephemeral === undefined, "Apply a template separately from memory overrides");
 
 export const bulkDeleteSchema = z.strictObject({
   ids: z.array(z.string().min(1).max(200)).min(1).max(50).refine(ids => new Set(ids).size === ids.length, "Duplicate conversation IDs"),
@@ -33,7 +32,7 @@ export async function updateConversation(id: string, input: z.infer<typeof updat
   const selectedAssistant = input.assistantTemplateId ? await resolveAssistant(input.assistantTemplateId) : null;
   if (input.workspaceGrantId !== undefined) await assertSelectableWorkspace(input.workspaceGrantId);
   return db.$transaction(async tx => {
-    const current = await tx.chat.findFirst({ where: { id }, select: { title: true, assistantConfig: true } });
+    const current = await tx.chat.findFirst({ where: { id }, select: { title: true, assistantConfig: true, topicId: true, ephemeral: true } });
     if (!current) throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
     const assistant = selectedAssistant;
     // Only a placeholder or the previous template's default name follows the
@@ -42,17 +41,20 @@ export async function updateConversation(id: string, input: z.infer<typeof updat
     const followsTemplate = ["new chat", "新会话", "untitled"].includes(current.title.trim().toLowerCase())
       || (previousAssistant !== null && current.title === truncateTitle(previousAssistant.name));
     const title = input.title ?? (input.assistantTemplateId !== undefined && followsTemplate ? assistant?.name ?? "New Chat" : undefined);
+    // What was said while memory was off stays out of it once memory is on again.
+    const ephemeral = input.ephemeral ?? (input.assistantTemplateId !== undefined && assistant ? !assistant.usesMemory : current.ephemeral);
     const chat = await tx.chat.update({ where: { id }, data: {
+      ...(current.ephemeral && !ephemeral ? { memoryResumedAt: new Date() } : {}),
       ...(input.assistantTemplateId !== undefined ? {
         assistantConfig: assistant ?? Prisma.DbNull,
-        ...(assistant ? { documentScope: encodeDocumentScope(assistant.collections), ephemeral: !assistant.usesMemory } : {}),
-        historyRevision: { increment: 1 }, summary: null, summaryUpToMessageId: null, summaryModelId: null, summaryRevision: null,
+        // A topic's conversation stays on the topic's selection, whichever template it uses.
+        ...(assistant ? { ...(current.topicId ? {} : { documentScope: encodeDocumentScope(assistant.collections) }), ephemeral: !assistant.usesMemory } : {}),
+        historyRevision: { increment: 1 }, summary: null, summaryUpToMessageId: null, summaryModelId: null, summaryRevision: null, summaryState: null,
       } : {}),
       ...(title !== undefined ? { title: truncateTitle(title) } : {}),
       ...(input.pinned !== undefined ? { pinned: input.pinned } : {}),
       ...(input.archived !== undefined ? { archived: input.archived } : {}),
       ...(input.ephemeral !== undefined ? { ephemeral: input.ephemeral } : {}),
-      ...(input.documentScope !== undefined ? { documentScope: encodeDocumentScope(input.documentScope) } : {}),
       ...(input.workspaceGrantId !== undefined ? { workspaceGrantId: input.workspaceGrantId } : {}),
       ...(input.tags !== undefined ? { tags: { deleteMany: {}, create: input.tags.map(label => ({ label })) } } : {}),
     }, include: { tags: { orderBy: { label: "asc" } }, _count: { select: { messages: true } } } });

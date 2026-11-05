@@ -1,10 +1,10 @@
 import { db } from "@/db";
 import { embedTextWithModel } from "@/lib/ai/embedding";
 import { Prisma } from "@prisma/client";
-import { CONTEXT_MEMORY_POLICY, getMemorySearchCandidates, rankByScore } from "@/lib/memory/retrieval";
+import { CONTEXT_ENTRY_POLICY, getEntrySearchCandidates, rankByScore } from "@/lib/knowledge/entry-retrieval";
 import { recordWorkspaceEvent } from "@/lib/activity/events";
 
-export type SaveMemoryInput = {
+export type SaveEntryInput = {
   key: string;
   value: string;
   score?: number;
@@ -22,7 +22,7 @@ export type SaveMemoryInput = {
   onConflict?: "replace" | "keep-both";
 };
 
-export type GetRelevantMemoriesInput = {
+export type GetRelevantEntriesInput = {
   query: string;
   limit?: number;
   /** Minimum keyword or semantic match before recency and manual weight count. */
@@ -32,7 +32,7 @@ export type GetRelevantMemoriesInput = {
   signal?: AbortSignal;
 };
 
-export async function saveMemory(input: SaveMemoryInput) {
+export async function saveKnowledgeEntry(input: SaveEntryInput) {
   const normalizedKey = input.key.trim();
   const normalizedValue = input.value.trim();
 
@@ -91,13 +91,13 @@ export async function saveMemory(input: SaveMemoryInput) {
   });
 }
 
-export async function getRelevantMemories(input: GetRelevantMemoriesInput) {
+export async function getRelevantEntries(input: GetRelevantEntriesInput) {
   const query = input.query.trim();
   if (!query) return [];
   if (input.signal?.aborted) return [];
 
   const limit = input.limit ?? 5;
-  const { candidates } = await getMemorySearchCandidates(query, CONTEXT_MEMORY_POLICY, input.signal, input.followUp);
+  const { candidates } = await getEntrySearchCandidates(query, CONTEXT_ENTRY_POLICY, input.signal, input.followUp);
   const relevant = input.minMatch ? candidates.filter((item) => item.match >= input.minMatch!) : candidates;
   const used = rankByScore(relevant, (item) => item.relevance, limit).map(({ memory }) => ({
     id: memory.id, key: memory.key, value: memory.value, score: memory.score, updatedAt: memory.updatedAt,

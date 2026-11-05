@@ -108,15 +108,19 @@ New messages are followed while the reader is already at the bottom, and are ign
 
 ## Summary invalidation
 
-Editing, deleting, replacing a persisted answer or successfully regenerating
-history clears the stored compression and increments its history revision in the
-same transaction. Summaries are built from stored message content rather than a
-stale browser transcript. Stored messages use the existing readable historical
-representation, without replaying approval metadata, reasoning or attachment bytes.
+Editing, deleting or successfully regenerating history clears the stored compression
+and increments its history revision in the same transaction. Saving a new message
+changes neither. Rewriting a saved message, as an answer continuing after an approval
+does, increments the revision and clears the summary unless the summary provably ends
+before that message. Summaries are built from stored message content rather than a
+stale browser transcript. Stored messages use the same bounded record form as in-turn folds, without replaying
+approval metadata, reasoning or attachment bytes.
 A model result is saved only if the history revision
 still matches; a slower result cannot restore obsolete decisions after an edit.
 A missing covered message causes fallback to existing bounded history excerpts.
 Cached summaries are reused only when both revision and covered identity match.
+
+Where the summary ends, the transcript shows a marker that opens to what it says.
 
 The additive migration drops earlier unverifiable summaries while preserving all
 original messages. Desktop startup snapshots existing data before this migration.

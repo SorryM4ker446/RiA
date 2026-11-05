@@ -6,7 +6,7 @@ import { t } from "@/lib/locale";
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Archive, BarChart3, BellRing, Cpu, FolderLock, HardDrive, KeyRound, Puzzle, SlidersHorizontal, X } from "lucide-react";
+import { Archive, BarChart3, BellRing, Cpu, FolderLock, HardDrive, KeyRound, Puzzle, SlidersHorizontal, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -16,6 +16,7 @@ import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
 import { defaultSettingsSection, resolveSettingsSection, SETTINGS_PARAM, settingsUrl, type SettingsSectionId } from "@/lib/settings/sections";
 import { SettingsContext, SettingsSectionContext, useSettingsContext } from "@/features/settings/settings-context";
 import { ServiceSettings } from "@/features/settings/service-settings";
+import { YourRia } from "@/features/settings/your-ria";
 import { LanguageSettings } from "@/features/settings/language";
 import { CloseBehaviourSettings } from "@/features/settings/close-behaviour";
 import { HotkeySettings } from "@/features/settings/hotkey";
@@ -70,6 +71,7 @@ const NAV_GROUPS = (): { label: string; items: NavItem[] }[] => [
   { label: t("ui.settingsOverlay.groupGeneral"), items: [
     { id: "services", label: t("ui.settings.apiKeys"), icon: KeyRound },
     { id: "application", label: t("ui.settings.application"), icon: SlidersHorizontal },
+    { id: "ria", label: t("settings.yourRia.title"), icon: Sparkles },
     { id: "automation", label: t("ui.settings.automationNotifications"), icon: BellRing },
     { id: "files", label: t("ui.settings.filePermissions"), icon: FolderLock },
   ] },
@@ -92,6 +94,7 @@ export function settingsSections(): { id: SettingsSectionId; label: string }[] {
 function SectionContent({ id }: { id: SettingsSectionId }) {
   useLocale();
   switch (id) {
+    case "ria": return <><PageHeader level={2} title={t("settings.yourRia.title")} /><div className="settings-panel flex flex-col"><YourRia /></div></>;
     case "services": return <ServiceSettings />;
     case "application": return <><PageHeader level={2} title={t("ui.settings.application")} /><div className="settings-panel flex flex-col"><LanguageSettings /><CloseBehaviourSettings /><HotkeySettings /><UpdateSettings /></div></>;
     case "automation": return <><PageHeader level={2} title={t("ui.settings.automationNotifications")} /><div className="settings-panel flex flex-col"><ScheduleSettings /><NoticeCenter /></div></>;

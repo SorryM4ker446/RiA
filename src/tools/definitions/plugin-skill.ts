@@ -4,10 +4,10 @@ import { activeSkillPackages } from "@/lib/plugins/store";
 import type { AnyToolDescriptor } from "../types";
 
 export const readPluginSkill: AnyToolDescriptor = {
-  id: "readPluginSkill", displayName: "读取插件技能", description: "按需读取已启用 Skill 的指令与配套参考文件。",
+  id: "readPluginSkill", displayName: "读取插件技能", description: "用到时才加载已启用技能的说明。",
   modelDescription: "Load an enabled plugin skill listed in the skill index. Omit path to get the package's skill instructions and, for marketplace skills, its bundled files; then read SKILL.md and relevant references by path. A file response contains at most 12000 characters; continue at nextOffset until null. This tool cannot access local files, network or execute scripts. Do not use for user documents or inactive/uninstalled skills.",
   modeSupport: ["chat"],
-  manual: { enabled: false, label: "读取插件技能", placeholder: "", submitLabel: "", primaryFieldKey: "packageId", primaryFieldLabel: "技能", fields: [] },
+  surface: { category: "context", user: null, template: "always" },
   inputSchema: z.strictObject({ packageId: z.string().max(100), path: z.string().max(300).optional(), offset: z.number().int().min(0).max(500_000).default(0) }),
   execute: async ({ input, signal }) => {
     signal?.throwIfAborted();
@@ -28,6 +28,4 @@ export const readPluginSkill: AnyToolDescriptor = {
     const end = Math.min(file.contents.length, input.offset + 12_000);
     return { packageId: row.packageId, hash: snapshot.hash, path: file.path, contents: file.contents.slice(input.offset, end), nextOffset: end < file.contents.length ? end : null, scriptsExecutable: false };
   },
-  buildAssistantText: ({ output }) => JSON.stringify(output),
-  memory: { enabled: false, minQuality: 1, summarize: () => null },
 };

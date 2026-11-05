@@ -15,6 +15,8 @@ import {
   type ModelLibraryItem,
   type ModelPreferences,
   type ModelRef,
+  type ProviderId,
+  type ReasoningCapability,
 } from "@/lib/models/preferences-schema";
 
 export const PREFERENCE_ROW_ID = "local";
@@ -110,10 +112,14 @@ export async function acquireModelLease(mode: LibraryMode, ref: ModelRef) {
 }
 
 async function persist(tx: PreferenceTx, settings: ModelPreferences) {
+  // Older builds refuse a settings document with a field they do not know, so one
+  // left at its default stays out of it and going back to them keeps working.
+  const { auxiliary, ...withoutAuxiliary } = settings;
+  const stored = (auxiliary ? settings : withoutAuxiliary) as Prisma.InputJsonValue;
   await tx.workspacePreference.upsert({
     where: { id: PREFERENCE_ROW_ID },
-    create: { id: PREFERENCE_ROW_ID, settings: settings as Prisma.InputJsonValue },
-    update: { settings: settings as Prisma.InputJsonValue },
+    create: { id: PREFERENCE_ROW_ID, settings: stored },
+    update: { settings: stored },
   });
 }
 
@@ -154,6 +160,16 @@ export async function preferredModel(mode: GenerationMode, supplied?: ModelRef |
   return ref;
 }
 
+/**
+ * Which model does the work around a turn. With none chosen, or one that can no
+ * longer be called, it falls to the model the work is for.
+ */
+export async function auxiliaryModel(main: ModelRef): Promise<ModelRef> {
+  const settings = await getModelPreferences();
+  const chosen = settings.auxiliary;
+  return chosen && libraryModel(settings, "chat", chosen) && getModelProvider(chosen.providerId).isConfigured() ? chosen : main;
+}
+
 export async function modelInLibrary(mode: LibraryMode, ref: ModelRef | null | undefined) {
   if (!ref) return null;
   const settings = await getModelPreferences();
@@ -170,7 +186,7 @@ export async function addModel(ref: ModelRef): Promise<{ data: ModelLibraryItem;
   // A catalog row is provider data and may carry fields this application does
   // not store. The library entry is built from an explicit list of them, so a
   // new provider field cannot make a model silently un-addable.
-  const libraryFields = { providerId: true, modelId: true, name: true, description: true, modes: true, supportsImageInput: true, endpointImageInput: true, supportsTools: true, providerSearch: true, contextLength: true, maxOutputTokens: true, pricing: true, addedAt: true, lastSeenAt: true } as const;
+  const libraryFields = { providerId: true, modelId: true, name: true, description: true, modes: true, supportsImageInput: true, endpointImageInput: true, supportsTools: true, providerSearch: true, reasoning: true, contextLength: true, maxOutputTokens: true, pricing: true, addedAt: true, lastSeenAt: true } as const;
   const matches = snapshots.flatMap(snapshot => {
     const rows = Array.isArray(snapshot.models) ? snapshot.models : [];
     return rows.flatMap(row => {
@@ -222,6 +238,24 @@ export async function addModel(ref: ModelRef): Promise<{ data: ModelLibraryItem;
   }));
 }
 
+/**
+ * Library entries otherwise describe a model as it was when added. Whether its
+ * reasoning can be turned off decides whether a request is accepted at all, so
+ * that much follows each catalog read, including for entries added before the
+ * catalog was read for it. A row that does not say leaves the entry as it is.
+ */
+export async function syncLibraryReasoning(providerId: ProviderId, models: Array<{ modelId: string; reasoning?: ReasoningCapability | null }>) {
+  const rows = new Map(models.flatMap(model => model.reasoning === undefined ? [] : [[model.modelId, model.reasoning] as const]));
+  if (!rows.size) return;
+  await withModelSettingsLock(() => db.$transaction(async tx => {
+    const current = await readPreferences(tx);
+    const changed = (item: ModelLibraryItem) => item.providerId === providerId && item.modes.includes("chat") && rows.has(item.modelId)
+      && JSON.stringify(rows.get(item.modelId)) !== JSON.stringify(item.reasoning);
+    if (!current.library.some(changed)) return;
+    await persist(tx, preferencesSchema.parse({ ...current, library: current.library.map(item => changed(item) ? { ...item, reasoning: rows.get(item.modelId) } : item) }));
+  }));
+}
+
 export async function removeModel(ref: ModelRef) {
   const key = modelRefKey(ref);
   await withModelSettingsLock(async () => {
@@ -247,6 +281,7 @@ export async function removeModel(ref: ModelRef) {
         image: { model: clear(current.image.model), fallback: clear(current.image.fallback) },
         video: { model: clear(current.video.model), fallback: clear(current.video.fallback) },
         embedding: clear(current.embedding),
+        auxiliary: clear(current.auxiliary),
       });
       await persist(tx, settings);
       return settings;

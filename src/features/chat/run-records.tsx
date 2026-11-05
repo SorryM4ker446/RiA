@@ -183,7 +183,9 @@ export function RunRecords({ activeChatId, refreshKey, messages, open, onOpenCha
     return () => controller.abort();
   }, [activeChatId, expanded, selectedRunId, selectedRunStatus, selectedMessageId, needsSavedDetail, open, refreshKey]);
   const savedDetail = detail?.key === expanded ? detail.message : undefined;
-  const detailMessage = selectedRunStatus === "running" || selectedRunStatus === "waiting_approval" ? liveDetail ?? savedDetail : savedDetail ?? liveDetail;
+  // A saved copy is a reading from when it was asked for, and it fills in only what the
+  // live message lacks. Once the live message has settled it is the newer of the two.
+  const detailMessage = !runFinished ? liveDetail ?? savedDetail : needsSavedDetail ? savedDetail ?? liveDetail : liveDetail;
 
   if (!activeChatId) return null;
 

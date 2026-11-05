@@ -49,11 +49,14 @@ test("the upgrade removes only unaccepted suggestions left by creating tasks, on
       const upgraded = new DatabaseSync(databaseFile, { readOnly: true });
       try { return upgraded.prepare('SELECT "id" FROM "memories" ORDER BY "id"').all().map(row => row.id); } finally { upgraded.close(); }
     };
-    assert.deepEqual(remaining(), ["accepted-task", "other-case", "other-tool", "typed-task"]);
+    // A later migration removes the other unaccepted suggestions, now that none are made.
+    // Both keep what a person accepted or wrote.
+    assert.deepEqual(logged.find(entry => entry.details?.migrationName === "20261105120000_memory_document")?.details, { migrationName: "20261105120000_memory_document", rowsChanged: 2 });
+    assert.deepEqual(remaining(), ["accepted-task", "typed-task"]);
 
     // A later start applies nothing and removes nothing more.
     assert.deepEqual(runDesktopMigrations(options).applied, []);
-    assert.deepEqual(remaining(), ["accepted-task", "other-case", "other-tool", "typed-task"]);
+    assert.deepEqual(remaining(), ["accepted-task", "typed-task"]);
   } finally {
     if (resolve(dirname(root)) !== resolve(tmpdir()) || !root.startsWith(join(tmpdir(), "ria-task-memory-upgrade-"))) throw new Error("Unexpected test directory");
     rmSync(root, { recursive: true, force: true });

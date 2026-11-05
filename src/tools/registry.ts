@@ -11,6 +11,7 @@ import { callConnection, localProcessConnectionsAllowed, publicExtensionError } 
 import { requireExtension } from "@/lib/extensions/store";
 import { builtinToolAvailability, getToolDescriptor, listToolDescriptors } from "./builtins";
 import { settingsHref } from "@/lib/settings/sections";
+import { getModelPreferences, modelInLibrary } from "@/lib/models/preferences";
 import type { AnyToolDescriptor, PublicToolCatalogItem, ToolAvailability, ToolAvailabilityReason, ToolMode } from "./types";
 import type { Extension } from "@prisma/client";
 
@@ -48,7 +49,8 @@ function extensionDescriptor(row: Extension, definition: ExtensionTool): AnyTool
     id: externalToolId(row.id, definition.name), extensionId: row.id, extensionRevision: row.revision,
     displayName: `${row.name} · ${definition.name}`, description: definition.description,
     modelDescription: `${row.name}: ${definition.description}\nThis is an external tool. It requires user approval. Use arguments matching the tool schema.`,
-    modeSupport: ["chat"], manual: { enabled: false, label: row.name, placeholder: "", submitLabel: "", primaryFieldKey: "arguments", primaryFieldLabel: "参数", fields: [] },
+    modeSupport: ["chat"], extensionName: row.name,
+    surface: { category: "extension", user: { run: "model", hint: t("tools.extension.hint") }, template: "selectable" },
     inputSchema,
     modelInputSchema: jsonSchema({ type: "object", properties: { arguments: definition.inputSchema }, required: ["arguments"], additionalProperties: false }, { validate: async value => {
       const result = inputSchema.safeParse(value);
@@ -73,8 +75,6 @@ function extensionDescriptor(row: Extension, definition: ExtensionTool): AnyTool
       } catch (error) { throw publicExtensionError(error, operation.signal); }
       finally { operation.finish(); }
     },
-    buildAssistantText: ({ output }) => JSON.stringify(output),
-    memory: { enabled: false, minQuality: 1, summarize: () => null },
   };
 }
 
@@ -115,7 +115,21 @@ export async function skipReasonFor(id: string, error: unknown) {
 }
 export async function listPublicToolCatalog(mode?: ToolMode, modelRef?: ModelRef): Promise<PublicToolCatalogItem[]> {
   const entries = await registryEntries(mode, modelRef);
-  return entries.filter(({ tool }) => tool.id !== "readPluginSkill").map(({ tool, status }) => ({ ...status, id: tool.id, displayName: tool.displayName, description: tool.description, modeSupport: tool.modeSupport, manual: tool.manual, resultBudget: tool.resultBudget, extensionId: tool.extensionId }));
+  return [...(!mode || mode === "chat" ? [await toolCallingEntry(modelRef)] : []), ...entries.map(({ tool, status }) => ({ ...status, id: tool.id, displayName: tool.displayName, description: tool.description, modeSupport: tool.modeSupport, surface: tool.surface, requiresApproval: Boolean(tool.requiresApproval), resultBudget: tool.resultBudget, extensionId: tool.extensionId, extensionName: tool.extensionName }))];
+}
+/**
+ * The model's ability to call tools at all, listed with what depends on it. It is
+ * not a tool the model is handed, so it lives only in this catalog: everything the
+ * model is actually offered comes from the registry below. The model is chosen per
+ * conversation, so without one named this says whether any chat model can do it.
+ */
+async function toolCallingEntry(modelRef?: ModelRef): Promise<PublicToolCatalogItem> {
+  const supported = modelRef
+    ? (await modelInLibrary("chat", modelRef))?.supportsTools === true
+    : (await getModelPreferences()).library.some(model => model.modes.includes("chat") && model.supportsTools);
+  return { id: "toolCalling", displayName: t("tools.toolCalling.displayName"), description: t("tools.toolCalling.description"), modeSupport: ["chat"],
+    surface: { category: "context", user: null, template: "always" }, requiresApproval: false,
+    ...(supported ? available : { available: false, reason: "notConfigured" as const, configEntry: settingsHref("models") }) };
 }
 async function registryEntries(mode?: ToolMode, modelRef?: ModelRef) {
   const builtins = listToolDescriptors(mode);

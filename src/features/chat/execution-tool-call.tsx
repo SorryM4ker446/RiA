@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { readToolError } from "@/lib/ai/ui-message";
 import { ChevronRight } from "lucide-react";
 import { t, tf, localizeMessage } from "@/lib/locale";
 import { useLocale } from "@/lib/locale/client";
@@ -62,7 +63,7 @@ export function ExecutionToolCall({ call, isLatest, waiting, onReviewApproval }:
           <p className="text-[11px] text-muted-foreground">{t("ui.chat.execution-turn-details.executionResult")}</p>
           <pre className="execution-code chat-list-scroll">{safeJson(part.output)}</pre>
         </div> : null}
-        {part.state === "output-error" && part.errorText ? <p className="break-words leading-5 text-destructive">{part.errorText}</p> : null}
+        {part.state === "output-error" && part.errorText ? <p className="break-words leading-5 text-destructive">{readToolError(part.errorText)}</p> : null}
       </> : <>
         <p role="status" className="leading-5 text-muted-foreground">{t(waiting ? "ui.chat.run-records.waitingForDetails" : "ui.chat.run-records.detailsUnavailable")}</p>
         {step?.input != null || step?.output != null ? <>

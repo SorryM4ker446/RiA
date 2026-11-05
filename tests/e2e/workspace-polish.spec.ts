@@ -18,7 +18,7 @@ for (const pointer of ["mouse", "touch"] as const) {
         page.on("request", request => { if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) writes++; });
         await page.goto("/chat");
         const click = async (locator: import("@playwright/test").Locator) => pointer === "touch" ? locator.tap() : locator.click();
-        for (const name of ["助理模板", "聊天模式", "选择模型", "选择工具"]) {
+        for (const name of ["助理模板", "聊天模式", "选择模型"]) {
           const trigger = page.getByRole("combobox", { name, exact: true, includeHidden: true });
           await expect(trigger).toBeEnabled();
           const selected = await trigger.textContent();
@@ -135,7 +135,7 @@ test("shared menus finish their transitions without a position jump and toolbar 
   const memory = page.getByRole("switch", { name: "长期记忆", exact: true });
   await expect(memory).toHaveAttribute("aria-checked", "true");
   expect((await memory.boundingBox())!.y).toBe((await assistant.boundingBox())!.y);
-  for (const control of [assistant, page.getByRole("combobox", { name: "聊天模式", exact: true, includeHidden: true }), page.getByRole("combobox", { name: "选择模型", exact: true, includeHidden: true }), page.getByRole("combobox", { name: "选择工具", exact: true, includeHidden: true })]) {
+  for (const control of [assistant, page.getByRole("combobox", { name: "聊天模式", exact: true, includeHidden: true }), page.getByRole("combobox", { name: "选择模型", exact: true, includeHidden: true })])  {
     const before = await control.boundingBox();
     await control.click();
     await expectStableAnimationEnd(page.getByRole("listbox"));

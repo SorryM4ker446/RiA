@@ -433,6 +433,53 @@ test("saving an edited user message regenerates from the edited text", async ({ 
   await expect(page.getByText("Original answer", { exact: true })).toHaveCount(0);
 });
 
+test("editing a message with later turns under it sends it again at the end and changes nothing above", async ({ page }) => {
+  const later: HistoryMessage = { id: "row-u2", clientMessageId: "user-2", role: "user", content: "Later question", createdAt: now };
+  const laterAnswer: HistoryMessage = { id: "row-a2", clientMessageId: "assistant-2", role: "assistant", content: "Later answer", createdAt: now };
+  await mockHistory(page, [userMessage, assistantMessage, later, laterAnswer]);
+  let rewrites = 0, sends = 0;
+  await page.route("**/api/conversations/*/messages/user-1", async route => { rewrites++; await route.fulfill({ status: 500, json: {} }); });
+  let failNext = true;
+  await page.route("**/api/chat", async route => {
+    sends++;
+    const body = route.request().postDataJSON();
+    expect(body.trigger).toBe("submit-message");
+    expect(body.messages.at(-1).parts[0].text).toBe("Edited question");
+    expect(body.messages.at(-1).id).not.toBe("user-1");
+    expect(body.messages.map((message: { id: string }) => message.id).slice(0, 2)).toEqual(["user-1", "assistant-1"]);
+    if (failNext) { failNext = false; await route.fulfill({ status: 500, json: { error: { code: "UPSTREAM_FAILED", message: "暂时不可用", details: {} } } }); return; }
+    await route.fulfill({ contentType: "text/event-stream", headers: { "x-vercel-ai-ui-message-stream": "v1" }, body: streamBody([
+      { type: "start", messageId: "resent" },
+      { type: "text-start", id: "answer" },
+      { type: "text-delta", id: "answer", delta: "Resent answer" },
+      { type: "text-end", id: "answer" },
+      { type: "finish", finishReason: "stop" },
+    ]) });
+  });
+  await page.goto("/chat");
+  await page.getByText("Original question", { exact: true }).hover();
+  await page.locator('[data-message-id="user-1"]').getByRole("button", { name: "编辑消息" }).click();
+  const original = page.locator('[data-message-id="user-1"]');
+  await original.locator("textarea").fill("Edited question");
+  // The button says what will happen, since it is not saving over the message.
+  await expect(original.getByRole("button", { name: "保存", exact: true })).toHaveCount(0);
+  await original.getByRole("button", { name: "重新发送", exact: true }).click();
+  // A failed send gives the edit back rather than losing it.
+  await expect(original.locator("textarea")).toHaveValue("Edited question");
+  await original.getByRole("button", { name: "重新发送", exact: true }).click();
+  await expect(page.getByText("Resent answer", { exact: true })).toBeVisible();
+  expect(rewrites).toBe(0);
+  expect(sends).toBe(2);
+  await expect(page.getByText("Original question", { exact: true })).toBeVisible();
+  await expect(page.getByText("Original answer", { exact: true })).toBeVisible();
+  await expect(page.getByText("Later question", { exact: true })).toBeVisible();
+  await expect(page.getByText("Later answer", { exact: true })).toBeVisible();
+  // At the very end, below everything that was already there.
+  const order = await page.locator("[data-message-id]").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-message-role")));
+  expect(order.at(-1)).toBe("assistant");
+  await expect(page.locator('[data-message-role="user"]').last()).toContainText("Edited question");
+});
+
 for (const width of [1440, 390]) {
   test(`user messages omit the role row and reveal actions below the bottom right corner at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
@@ -525,15 +572,29 @@ for (const { width, reducedMotion } of [
       const reasoning = page.locator('.message-reasoning');
       await expect(reasoning).toHaveAttribute('open', '');
       await expect.poll(gap).toBeLessThanOrEqual(2);
-      await page.evaluate(() => (window as unknown as StreamWindow).approvalStream.emit(0, [
-        { type: 'reasoning-end', id: 'thought' },
-        { type: 'text-start', id: 'answer' },
-        { type: 'text-delta', id: 'answer', delta: '![Delayed layout](/stream-layout.svg)\n\n' + 'Answer paragraph.\n\n'.repeat(25) },
-      ]));
+      // Reasoning folds, with a transition, the moment the answer starts.
+      const folding = await reasoning.evaluate(async node => {
+        const initial = node.getBoundingClientRect().height;
+        (window as unknown as StreamWindow).approvalStream.emit(0, [
+          { type: 'reasoning-end', id: 'thought' },
+          { type: 'text-start', id: 'answer' },
+          { type: 'text-delta', id: 'answer', delta: '![Delayed layout](/stream-layout.svg)\n\n' + 'Answer paragraph.\n\n'.repeat(25) },
+        ]);
+        const heights: number[] = [];
+        for (let i = 0; i < 90; i++) {
+          await new Promise(resolve => requestAnimationFrame(resolve));
+          heights.push(node.getBoundingClientRect().height);
+          if (!(node as HTMLDetailsElement).open && !node.getAnimations({ subtree: true }).length) break;
+        }
+        return { initial, heights, final: node.getBoundingClientRect().height, duration: getComputedStyle(node, '::details-content').transitionDuration };
+      });
+      await expect(reasoning).not.toHaveAttribute('open', '');
+      expect(folding.final).toBeLessThan(folding.initial - 100);
+      if (reducedMotion) expect(folding.duration).toBe('0s');
+      else expect(folding.heights.some(height => height > folding.final + 1 && height < folding.initial - 1)).toBe(true);
       const image = page.getByAltText('Delayed layout');
       await expect(image).toBeAttached();
       await expect.poll(gap).toBeLessThanOrEqual(2);
-      await expect(reasoning).toHaveAttribute('open', '');
       const beforeImage = await panel.evaluate(node => node.scrollTop);
       releaseImage();
       await expect.poll(() => image.evaluate(node => (node as HTMLImageElement).naturalHeight)).toBe(1000);
@@ -562,23 +623,10 @@ for (const { width, reducedMotion } of [
       await expect(panel).toContainText('Following resumed.');
       await expect.poll(gap).toBeLessThanOrEqual(2);
 
-      const folding = await reasoning.evaluate(async node => {
-        const initial = node.getBoundingClientRect().height;
-        (window as unknown as StreamWindow).approvalStream.emit(0, [
-          { type: 'text-end', id: 'answer' }, { type: 'finish', finishReason: 'stop' },
-        ], true);
-        const heights: number[] = [];
-        for (let i = 0; i < 90; i++) {
-          await new Promise(resolve => requestAnimationFrame(resolve));
-          heights.push(node.getBoundingClientRect().height);
-          if (!(node as HTMLDetailsElement).open && !node.getAnimations({ subtree: true }).length) break;
-        }
-        return { initial, heights, final: node.getBoundingClientRect().height, duration: getComputedStyle(node, '::details-content').transitionDuration };
-      });
+      await page.evaluate(() => (window as unknown as StreamWindow).approvalStream.emit(0, [
+        { type: 'text-end', id: 'answer' }, { type: 'finish', finishReason: 'stop' },
+      ], true));
       await expect(reasoning).not.toHaveAttribute('open', '');
-      expect(folding.final).toBeLessThan(folding.initial - 100);
-      if (reducedMotion) expect(folding.duration).toBe('0s');
-      else expect(folding.heights.some(height => height > folding.final + 1 && height < folding.initial - 1)).toBe(true);
       await expect.poll(gap).toBeLessThanOrEqual(2);
       await expect(latest).toHaveCount(0);
       await reasoning.locator('summary').click();
@@ -628,11 +676,12 @@ for (const width of [1440, 390]) {
     await expect(reasoning).toContainText('Reading step 99');
     const before = await page.locator('.chat-transcript').evaluate(async panel => {
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      panel.scrollTop = (panel.scrollHeight - panel.clientHeight) / 2;
-      panel.dispatchEvent(new Event('scroll'));
+      // Reasoning scrolls inside its own short box while the turn is running.
       const body = panel.querySelector('.message-reasoning > div')!;
+      body.scrollTop = (body.scrollHeight - body.clientHeight) / 2;
+      body.dispatchEvent(new Event('scroll'));
       body.setAttribute('data-reader-marker', 'same-content');
-      return { top: panel.scrollTop, y: body.getBoundingClientRect().y, height: body.getBoundingClientRect().height };
+      return { top: body.scrollTop, y: body.getBoundingClientRect().y, height: body.getBoundingClientRect().height };
     });
     expect(before.top).toBeGreaterThan(100);
     await page.evaluate(() => (window as unknown as StreamWindow).approvalStream.emit(0, [
@@ -644,7 +693,7 @@ for (const width of [1440, 390]) {
     await expect(card.getByRole('button', { name: '批准', exact: true })).toBeEnabled();
     await expect(reasoning).toHaveAttribute('open', '');
     await expect(reasoning.locator('[data-reader-marker]')).toHaveCount(1);
-    const position = await page.locator('.chat-transcript').evaluate(panel => ({ top: panel.scrollTop, y: panel.querySelector('.message-reasoning > div')!.getBoundingClientRect().y, height: panel.querySelector('.message-reasoning > div')!.getBoundingClientRect().height }));
+    const position = await page.locator('.chat-transcript').evaluate(panel => ({ top: panel.querySelector('.message-reasoning > div')!.scrollTop, y: panel.querySelector('.message-reasoning > div')!.getBoundingClientRect().y, height: panel.querySelector('.message-reasoning > div')!.getBoundingClientRect().height }));
     expect(position.top).toBeCloseTo(before.top, 0);
     expect(position.y).toBeCloseTo(before.y, 0);
     expect(position.height).toBeCloseTo(before.height, 0);

@@ -5,9 +5,9 @@ import { z } from "zod";
 import { requireLocalWorkspace } from "@/lib/local/workspace";
 import { createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
-import { getRelevantMemories, saveMemory } from "@/lib/memory/store";
+import { getRelevantEntries, saveKnowledgeEntry } from "@/lib/knowledge/entries";
 
-const saveMemorySchema = z.strictObject({
+const saveEntrySchema = z.strictObject({
   key: z.string().trim().min(1).max(120),
   value: z.string().trim().min(1).max(4000),
   score: z.number().min(0).max(1).optional(),
@@ -43,7 +43,7 @@ async function GETHandler(req: NextRequest) {
       return Response.json({ data: [], message: "query is empty" });
     }
 
-    const memories = await getRelevantMemories({
+    const memories = await getRelevantEntries({
       query,
       limit,
     });
@@ -59,13 +59,13 @@ async function POSTHandler(req: NextRequest) {
   try {
     await requireLocalWorkspace(req);
     enforceRateLimit("memory");
-    const parsed = saveMemorySchema.safeParse(await readJsonBody(req));
+    const parsed = saveEntrySchema.safeParse(await readJsonBody(req));
 
     if (!parsed.success) {
       throw parsed.error;
     }
 
-    const memory = await saveMemory({
+    const memory = await saveKnowledgeEntry({
       key: parsed.data.key,
       value: parsed.data.value,
       score: parsed.data.score,

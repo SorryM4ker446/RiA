@@ -15,7 +15,7 @@ const { localAccessToken, issueHandshakeCode, consumeHandshakeCode, hasValidLoca
 const { checkRateLimit, enforceRateLimit, RATE_LIMIT_POLICIES } = await import("@/lib/server/rate-limit");
 const { createApiErrorResponse, ApiError } = await import("@/lib/server/api-error");
 const { getApiErrorMessage } = await import("@/lib/api-error-message");
-const { createChatToolSet, getToolDescriptor } = await import("@/tools/catalog");
+const { createChatToolSet, executeRegisteredTool, getToolDescriptor } = await import("@/tools/catalog");
 const { saveChatMessage } = await import("@/lib/chat/store");
 const { proxy, config: proxyConfig } = await import("@/proxy");
 const { readChatRequest } = await import("@/lib/chat/request");
@@ -173,15 +173,15 @@ test("tool configuration is checked only after input validation and before plann
   const descriptor = getToolDescriptor("webSearch");
   const preparation = t.mock.method(descriptor, "prepareInput", async () => { throw new Error("must not plan"); });
   const execution = t.mock.method(descriptor, "execute", async () => { throw new Error("must not execute"); });
-  await expectError(await routes["tools/run"].POST(request("tools/run", { tool: "webSearch", mode: "chat", input: { query: " " } })), 400, "VALIDATION_ERROR");
-  await expectError(await routes["tools/run"].POST(request("tools/run", { tool: "webSearch", mode: "chat", input: { query: "weather" } })), 503, "CONFIGURATION_ERROR");
+  await assert.rejects(executeRegisteredTool(descriptor, { query: " " }, { trigger: "manual" }), { code: "VALIDATION_ERROR" });
+  await assert.rejects(executeRegisteredTool(descriptor, { query: "weather" }, { trigger: "manual" }), { code: "CONFIGURATION_ERROR" });
   assert.equal(preparation.mock.callCount(), 0);
   assert.equal(execution.mock.callCount(), 0);
 });
 
 // Each case names the rate-limit policy, the route it protects and one body
 // the route is willing to parse, so the quota is measured on real requests.
-const quotaCases: [string, string, unknown][] = [["chat", "chat", { messages: [textMessage()] }], ["tools", "tools/run", { tool: "createTask", mode: "chat", input: { title: "" } }], ["image", "image", { prompt: "x" }], ["video", "video", { prompt: "x" }], ["upload", "media/upload", {}]];
+const quotaCases: [string, string, unknown][] = [["chat", "chat", { messages: [textMessage()] }], ["tools", "tools/run", { tool: "convertDocument", input: {} }], ["image", "image", { prompt: "x" }], ["video", "video", { prompt: "x" }], ["upload", "media/upload", {}]];
 for (const [policy, name, body] of quotaCases) {
   test(`${policy} requests enforce a bounded quota with retry information`, async (t) => {
     let now = Date.now();

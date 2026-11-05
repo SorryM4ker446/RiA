@@ -16,11 +16,11 @@ const { startRun } = await import("@/lib/agent/runs");
 const { indexDocument } = await import("@/lib/documents/store");
 const { searchDocuments } = await import("@/lib/documents/retrieval");
 const { updateConversation } = await import("@/lib/conversations/mutations");
+const { executeRegisteredTool, getToolDescriptor } = await import("@/tools/catalog");
 const { encodeDocumentScope, decodeDocumentScope } = await import("@/lib/documents/scope");
 const { summarizeOlderTurns } = await import("@/lib/chat/summary");
 const { observeLanguageModel } = await import("@/lib/models/observe-language");
 const { removeModel, getModelPreferences, withModelSettingsLock } = await import("@/lib/models/preferences");
-const manualRoute = await import("@/app/api/tools/run/route");
 
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "info", () => {});
@@ -38,18 +38,11 @@ beforeEach(async (t: TestContext) => {
 after(async () => { await db.$disconnect(); cleanup(); });
 
 const options = {} as never;
-test("memory-disabled tool sets omit saving and the manual API refuses writes", async () => {
-  const tools = await createChatToolSet({ usesMemory: false, toolIds: ["saveMemory"] });
-  assert.equal(tools.saveMemory, undefined);
-  const chat = await db.chat.create({ data: { title: "Memory disabled", ephemeral: true } });
-  const request = () => new NextRequest("http://localhost/api/tools/run", {
-    method: "POST", headers: { cookie: localAccessCookie(), "content-type": "application/json" },
-    body: JSON.stringify({ tool: "saveMemory", input: { key: "preference", value: "private fact" }, model: CHAT_MODEL_REF, mode: "chat", chatId: chat.id }),
-  });
-  assert.equal((await manualRoute.POST(request())).status, 400);
-  assert.equal(await db.memory.count(), 0);
-  await db.chat.update({ where: { id: chat.id }, data: { ephemeral: false } });
-  assert.equal((await manualRoute.POST(request())).status, 200);
+test("with memory off the model cannot extract notes, while saving to the knowledge base still works", async () => {
+  const tools = await createChatToolSet({ usesMemory: false, toolIds: ["saveKnowledgeEntry"] });
+  assert.ok(tools.saveKnowledgeEntry);
+  assert.equal(tools.extractMemory, undefined);
+  await executeRegisteredTool(getToolDescriptor("saveKnowledgeEntry")!, { key: "reference", value: "a fact to look up" }, { trigger: "manual", usesMemory: false });
   assert.equal(await db.memory.count(), 1);
 });
 
@@ -72,11 +65,19 @@ test("a failed budget reservation cannot execute a task", async () => {
   assert.equal(await db.agentStep.count({ where: { runId: run.id } }), 0);
 });
 
+test("only a topic or a template limits what a conversation searches", async () => {
+  const { conversationCollections } = await import("@/lib/conversations/document-scope");
+  const { updateConversationSchema } = await import("@/lib/conversations/mutations");
+  const stored = encodeDocumentScope(["财务"]);
+  assert.deepEqual(conversationCollections({ topicId: "topic", assistantConfig: null, documentScope: stored }), ["财务"]);
+  assert.deepEqual(conversationCollections({ topicId: null, assistantConfig: null, documentScope: stored }), [], "a value left by an earlier version or a deleted topic");
+  assert.equal(updateConversationSchema.safeParse({ documentScope: ["财务"] }).success, false, "a conversation cannot be narrowed by hand");
+});
+
 test("collection names with separators remain exact across scope encoding and retrieval", async () => {
   await indexDocument({ filename: "exact.txt", collection: "A|B", format: "txt", byteSize: 10, pages: [{ pageNumber: null, text: "scopedneedle" }] });
   await indexDocument({ filename: "outside.txt", collection: "A", format: "txt", byteSize: 10, pages: [{ pageNumber: null, text: "scopedneedle" }] });
-  const chat = await db.chat.create({ data: { title: "Exact collection" } });
-  await updateConversation(chat.id, { documentScope: ["A|B"] });
+  const chat = await db.chat.create({ data: { title: "Exact collection", documentScope: encodeDocumentScope(["A|B"]) } });
   const saved = await db.chat.findUniqueOrThrow({ where: { id: chat.id } });
   assert.deepEqual(decodeDocumentScope(saved.documentScope), ["A|B"]);
   assert.deepEqual((await searchDocuments("scopedneedle", 4, decodeDocumentScope(saved.documentScope))).map(item => item.filename), ["exact.txt"]);

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { ModelMessage, UIMessage } from "ai";
 import { createHash } from "node:crypto";
 import { assertContextFits, contextBudget, estimateContextTokens, estimateImageTokens, imageDimensions, estimateTextTokens, requestOutputCap, DEFAULT_OUTPUT_LIMIT, MIN_CALIBRATION } from "@/lib/models/context-budget";
-import { createStepContext, modelHistoryRecords } from "@/lib/chat/step-context";
+import { createStepContext, modelHistoryRecords, withoutToolRecords } from "@/lib/chat/step-context";
 import { buildChatContext } from "@/lib/chat/context";
 import { summaryCapacity } from "@/lib/chat/task-summary";
 import { preferencesSchema, defaultModelPreferences } from "@/lib/models/preferences-schema";
@@ -12,6 +12,12 @@ const user: ModelMessage = { role: "user", content: "Fix the bug. Preserve the p
 function block(id: string, size = 3500): ModelMessage[] { return [
   { role: "assistant", content: [{ type: "tool-call", toolName: "runTerminalCommand", toolCallId: id, input: { command: `node test-${id}.cjs` } }] },
   { role: "tool", content: [{ type: "tool-result", toolName: "runTerminalCommand", toolCallId: id, output: { type: "json", value: { status: "completed", exitCode: 2, stdout: `progress ${"0".repeat(22)}\n`.repeat(Math.ceil(size / 32)) + `error TS2304 ${id}\nTests: 2 failed`, fileChanges: { complete: true, files: [{ kind: "modified", path: "src/math.ts" }] } } } }] },
+]; }
+
+/** Excerpts only shorten results, so with the bulk in the call only a model fold can make room. */
+function bulkyBlock(id: string): ModelMessage[] { return [
+  { role: "assistant", content: [{ type: "tool-call", toolName: "runTerminalCommand", toolCallId: id, input: { command: `node test-${id}.cjs`, script: `progress ${"0".repeat(22)}\n`.repeat(Math.ceil(3500 / 32)) } }] },
+  { role: "tool", content: [{ type: "tool-result", toolName: "runTerminalCommand", toolCallId: id, output: { type: "json", value: { status: "completed", exitCode: 2, stdout: `error TS2304 ${id}`, stderr: "" } } }] },
 ]; }
 
 test("model capacity uses catalog limits, configurable reductions, and a labelled unknown planning ceiling", () => {
@@ -80,9 +86,10 @@ test("summary capacity grows with the model window within fixed bounds", () => {
   const small = summaryCapacity(contextBudget({ contextLength: 12_000 }));
   assert.ok(small.outputTokens <= 2048); assert.ok(small.inputTokens <= contextBudget({ contextLength: 12_000 }).inputTokens);
   const medium = summaryCapacity(contextBudget({ contextLength: 128_000, maxOutputTokens: 16_384 }));
-  assert.equal(medium.outputTokens, 4000); assert.ok(medium.inputTokens >= 24_000);
+  assert.equal(medium.outputTokens, 8000);
+  assert.ok(medium.inputTokens > 100_000, "evidence goes in one call when the model can hold it");
   const large = summaryCapacity(contextBudget({ contextLength: 1_000_000, maxOutputTokens: 32_000 }));
-  assert.equal(large.outputTokens, 8192); assert.equal(large.inputTokens, 128_000);
+  assert.equal(large.outputTokens, 16_384); assert.ok(large.inputTokens > 900_000);
   assert.ok(large.stateTokens >= large.outputTokens * 4 && large.stateTokens <= large.inputTokens / 2);
   assert.equal(summaryCapacity(contextBudget({ contextLength: 1_000_000, maxOutputTokens: 1024 })).outputTokens, 1024, "never above the model's output limit");
 });
@@ -100,14 +107,17 @@ test("the history window is measured in estimated tokens when a token budget is 
 });
 
 test("provider-reported input usage raises later step estimates for the stream and is never lowered", async () => {
-  const messages = [user, ...block("one"), ...block("two")];
+  const messages = [user, ...bulkyBlock("one"), ...bulkyBlock("two")];
   const manager = createStepContext({ budget: contextBudget({ contextLength: 40_000 }), system: "system", summarize: async () => "state" });
   await manager.prepare(messages);
   assert.equal(manager.report.compactions, 0);
   const first = manager.report.estimatedInputTokens;
   manager.observeUsage(undefined);
   manager.observeUsage(first / 2);
-  assert.equal(manager.report.usageCalibration, 1);
+  assert.ok(manager.report.usageCalibration < 0.6, "what the provider counted replaces the guess the stream began with");
+  const lowered = manager.report.usageCalibration;
+  manager.observeUsage(first / 4);
+  assert.equal(manager.report.usageCalibration, lowered, "from there it does not drop back within the stream");
   manager.observeUsage(first * 5);
   assert.ok(manager.report.usageCalibration > 4.9);
   await manager.prepare(messages);
@@ -129,7 +139,7 @@ test("later steps of a stream are measured from the provider's reported input pl
 });
 
 test("successive tool steps compact completed pairs while preserving the user and newest protocol verbatim", async () => {
-  const messages = [user, ...block("one"), ...block("two")];
+  const messages = [user, ...bulkyBlock("one"), ...bulkyBlock("two")];
   const original = structuredClone(messages), folded: string[][] = [];
   const manager = createStepContext({ budget: contextBudget({ contextLength: 10_000 }), system: "Follow user constraints.",
     summarize: async (records, previous) => { folded.push(records); return previous + "\nAPI unchanged. src/math.ts has TS2304; tests failed; next fix and verify."; } });
@@ -138,7 +148,7 @@ test("successive tool steps compact completed pairs while preserving the user an
   assert.deepEqual(first.messages.slice(-2), messages.slice(-2));
   assert.match(first.messages[0].content as string, /tests failed/);
   assert.match(folded[0].join("\n"), /error TS2304 one/);
-  messages.push(...block("three"));
+  messages.push(...bulkyBlock("three"));
   const next = await manager.prepare(messages);
   assert.ok(next.messages.includes(user));
   assert.deepEqual(next.messages.slice(-2), messages.slice(-2));
@@ -149,13 +159,96 @@ test("successive tool steps compact completed pairs while preserving the user an
 
 test("compression failures retain labelled bounded evidence without replaying tool calls", async () => {
   const manager = createStepContext({ budget: contextBudget({ contextLength: 10_000 }), system: "system", summarize: async () => { throw new Error("summary unavailable"); } });
-  const messages = [user, ...block("failed"), ...block("current")];
+  const messages = [user, ...bulkyBlock("failed"), ...bulkyBlock("current")];
   const result = await manager.prepare(messages);
   assert.equal(manager.report.degraded, true);
   assert.match(result.messages[0].content as string, /incomplete evidence/);
   assert.match(result.messages[0].content as string, /TS2304 failed/);
   assert.equal(result.messages.filter(message => message.role === "tool").length, 1);
   assert.ok(estimateContextTokens({ system: "system", messages: result.messages }) <= manager.report.budget.inputTokens);
+});
+
+test("older tool results are shortened to excerpts before any model call, keeping each call and result paired", async () => {
+  const messages = [user, ...block("one"), ...block("two"), ...block("three")], original = structuredClone(messages);
+  let summaries = 0;
+  const manager = createStepContext({ budget: contextBudget({ contextLength: 10_000 }), system: "system", summarize: async () => { summaries++; return "state"; } });
+  const { messages: prepared } = await manager.prepare(messages);
+  assert.equal(summaries, 0, "excerpts were enough");
+  assert.equal(manager.report.compactions, 0);
+  assert.ok(manager.report.excerptedToolResults! >= 1);
+  const calls = prepared.flatMap(message => Array.isArray(message.content) ? message.content.flatMap(part => part.type === "tool-call" ? [part.toolCallId] : []) : []);
+  const results = prepared.flatMap(message => Array.isArray(message.content) ? message.content.flatMap(part => part.type === "tool-result" ? [part] : []) : []);
+  assert.deepEqual(calls, ["one", "two", "three"]);
+  assert.deepEqual(results.map(part => part.toolCallId), calls, "every call still has its result");
+  assert.equal(results[0].output.type, "text");
+  assert.match((results[0].output as { value: string }).value, /Historical tool record/);
+  assert.match((results[0].output as { value: string }).value, /TS2304 one/, "a failure stays readable in the excerpt");
+  assert.deepEqual(prepared.slice(-2), messages.slice(-2), "the newest interaction is untouched");
+  assert.deepEqual(messages, original, "stored messages are not changed");
+  // The same excerpts next step, so the prompt prefix stops changing.
+  const again = await manager.prepare(messages);
+  assert.deepEqual(again.messages, prepared);
+});
+
+test("a fold done before an approval pause is picked up again on resume, with no second model call", async () => {
+  const messages = [user, ...bulkyBlock("one"), ...bulkyBlock("two")];
+  const saved: { state: string; calls: string[] }[] = [];
+  const paused = createStepContext({ budget: contextBudget({ contextLength: 10_000 }), system: "system", summarize: async () => "[Task state v1]\nchecked one", onFold: next => saved.push(next) });
+  await paused.prepare(messages);
+  assert.equal(saved.length, 1);
+  assert.ok(saved[0].calls.includes("one"));
+  assert.ok(!saved[0].calls.includes("two"), "the newest interaction stays out of the fold");
+  // A reload rebuilds the messages, so only identities carry over.
+  let summaries = 0;
+  const resumed = createStepContext({ budget: contextBudget({ contextLength: 10_000 }), system: "system", handoff: saved[0], summarize: async () => { summaries++; return "again"; } });
+  const { messages: prepared } = await resumed.prepare(structuredClone(messages));
+  assert.equal(summaries, 0);
+  assert.match(prepared[0].content as string, /checked one/);
+  assert.equal(JSON.stringify(prepared).includes('"toolCallId":"one"'), false, "folded work is not sent again");
+  assert.equal(JSON.stringify(prepared).includes('"toolCallId":"two"'), true);
+});
+
+test("a turn whose folds are used up at once stops, instead of spending on every step", async () => {
+  let summaries = 0;
+  const manager = createStepContext({ budget: contextBudget({ contextLength: 10_000 }), system: "system", summarize: async () => { summaries++; return "state"; } });
+  const messages: ModelMessage[] = [user];
+  let refused: unknown = null;
+  for (let step = 0; step < 30 && !refused; step++) {
+    messages.push(...bulkyBlock(`read-${step}`));
+    await manager.prepare(messages).catch(error => { refused = error; });
+  }
+  assert.equal((refused as { code?: string } | null)?.code, "CONTEXT_LIMIT");
+  assert.ok(summaries <= 9, `stopped after ${summaries} summaries`);
+
+  // The same number of folds with room to work between them is an ordinary long turn.
+  const steady = createStepContext({ budget: contextBudget({ contextLength: 10_000 }), system: "system", summarize: async () => "state" });
+  const small: ModelMessage[] = [user];
+  for (let step = 0; step < 60; step++) {
+    small.push(...bulkyBlock(`read-${step}`).map((message, index) => index === 0 ? { ...message, content: (message.content as { input: unknown }[]).map(part => ({ ...part, input: { command: `node ${step}`, script: `progress ${"0".repeat(22)}\n`.repeat(25) } })) } as ModelMessage : message));
+    await steady.prepare(small);
+  }
+  assert.ok(steady.report.compactions >= 8, `folded ${steady.report.compactions} times`);
+
+  // Not in a row, but a summary every two or three steps costs as much as the work.
+  let spacedSummaries = 0;
+  const spaced = createStepContext({ budget: contextBudget({ contextLength: 10_000 }), system: "system", summarize: async () => { spacedSummaries++; return "state"; } });
+  const growing: ModelMessage[] = [user];
+  let stopped: unknown = null;
+  for (let step = 0; step < 30 && !stopped; step++) {
+    growing.push(...bulkyBlock(`read-${step}`));
+    for (let pass = 0; pass < (step % 2 ? 3 : 2) && !stopped; pass++) await spaced.prepare(growing).catch(error => { stopped = error; });
+  }
+  assert.equal((stopped as { code?: string } | null)?.code, "CONTEXT_LIMIT");
+  assert.ok(spacedSummaries <= 9, `stopped after ${spacedSummaries} summaries`);
+});
+
+test("a request sent without tools carries tool records as text, keeping what they found", () => {
+  const messages = [user, ...block("one", 100), { role: "assistant", content: [{ type: "text", text: "Answered" }] } as ModelMessage, { role: "user", content: "Next" } as ModelMessage];
+  const result = withoutToolRecords(messages);
+  assert.deepEqual(result.map(message => message.role), ["user", "assistant", "assistant", "user"]);
+  assert.match(result[1].content as string, /TS2304 one/);
+  assert.equal(JSON.stringify(result).includes('"tool-call"'), false);
+  assert.equal(result[2], messages[3], "messages without records are left alone");
 });
 
 test("pending approvals and their complete input are never shortened to force a request through", async () => {
@@ -172,7 +265,7 @@ test("pending approvals and their complete input are never shortened to force a 
 
 test("cancellation during compaction leaves source messages intact and prevents the next request", async () => {
   const controller = new AbortController();
-  const messages = [user, ...block("one"), ...block("two")], original = structuredClone(messages);
+  const messages = [user, ...bulkyBlock("one"), ...bulkyBlock("two")], original = structuredClone(messages);
   const manager = createStepContext({ budget: contextBudget({ contextLength: 10_000 }), system: "system", signal: controller.signal,
     summarize: async () => { controller.abort(); return "obsolete summary"; } });
   await assert.rejects(manager.prepare(messages), { name: "AbortError" });
@@ -181,13 +274,14 @@ test("cancellation during compaction leaves source messages intact and prevents 
 });
 
 test("completed calls packed beside a pending approval can be folded by identity without altering its command", async () => {
-  const completed = block("old", 7000);
-  const oldCall = (completed[0].content as Exclude<ModelMessage["content"], string>)[0];
-  const oldResult = (completed[1].content as Exclude<ModelMessage["content"], string>)[0];
+  // The bulk is in the calls, so excerpts of the results would not make room.
+  const completed = ["old-1", "old-2", "old-3"].map(id => bulkyBlock(id));
+  const oldCalls = completed.map(([call]) => (call.content as Exclude<ModelMessage["content"], string>)[0]);
+  const oldResults = completed.map(([, result]) => (result.content as Exclude<ModelMessage["content"], string>)[0]);
   const pending = { type: "tool-call" as const, toolName: "runTerminalCommand", toolCallId: "pending", input: { command: "echo exact-command" } };
-  const messages: ModelMessage[] = [user, { role: "assistant", content: [oldCall, pending,
+  const messages: ModelMessage[] = [user, { role: "assistant", content: [...oldCalls, pending,
     { type: "tool-approval-request", toolCallId: "pending", approvalId: "approval" },
-  ] as Extract<ModelMessage, { role: "assistant" }>["content"] }, { role: "tool", content: [oldResult,
+  ] as Extract<ModelMessage, { role: "assistant" }>["content"] }, { role: "tool", content: [...oldResults,
     { type: "tool-approval-response", approvalId: "approval", approved: true },
   ] as Extract<ModelMessage, { role: "tool" }>["content"] }];
   const source = structuredClone(messages);
@@ -199,26 +293,6 @@ test("completed calls packed beside a pending approval can be folded by identity
   assert.match(JSON.stringify(prepared.messages), /tool-approval-response/);
   assert.doesNotMatch(JSON.stringify(prepared.messages), /progress/);
   assert.deepEqual(messages, source);
-});
-
-test("a compactContext request folds completed work below the trigger, once, keeping its focus", async () => {
-  const { COMPACT_CONTEXT_TOOL } = await import("@/lib/chat/compact-context");
-  const folded: { records: string[]; focus?: string }[] = [];
-  const manager = createStepContext({ budget: contextBudget({ contextLength: 1_000_000 }), system: "system",
-    summarize: async (records, _previous, focus) => { folded.push({ records, focus }); return "Phase one done: TS2304 fixed in src/math.ts."; } });
-  const request: ModelMessage[] = [
-    { role: "assistant", content: [{ type: "tool-call", toolName: COMPACT_CONTEXT_TOOL, toolCallId: "compact", input: { focus: "keep the failing test name" } }] },
-    { role: "tool", content: [{ type: "tool-result", toolName: COMPACT_CONTEXT_TOOL, toolCallId: "compact", output: { type: "json", value: { status: "scheduled" } } }] },
-  ];
-  const messages = [user, ...block("one"), ...block("two"), ...request];
-  const first = await manager.prepare(messages);
-  assert.equal(manager.report.compactions, 1, "folded although far below the trigger");
-  assert.equal(folded[0].focus, "keep the failing test name");
-  assert.ok(folded[0].records.join("\n").includes("TS2304 one") && folded[0].records.join("\n").includes("TS2304 two"), "every completed interaction is folded");
-  assert.match(first.messages[0].content as string, /Phase one done/);
-  assert.deepEqual(first.messages.slice(-2), request, "the request itself stays as the newest interaction");
-  await manager.prepare([...messages, ...block("three")]);
-  assert.equal(manager.report.compactions, 1, "a request is acted on once");
 });
 
 test("an overflow recovery raises the scale and folds completed work before the step is resent", async () => {

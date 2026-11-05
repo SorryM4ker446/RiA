@@ -44,16 +44,14 @@ test("chat permissions choose and grant a directory without sending the draft, a
   await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
   const draft = page.getByPlaceholder(/输入你的问题/);
   await draft.fill("保留这段尚未发送的草稿");
-  await page.getByRole("combobox", { name: "选择工具", exact: true }).click();
-  const terminal = page.getByRole("option", { name: "执行终端命令", exact: true });
-  await expect(terminal).toBeDisabled();
-  await expect(terminal).toHaveAccessibleDescription("未配置");
-  await page.keyboard.press("Escape");
+  const terminalAvailable = async () => (await browserData(page, "/api/tools?mode=chat")).find((tool: { id: string }) => tool.id === "runTerminalCommand").available;
+  expect(await terminalAvailable()).toBe(false);
   const trigger = page.getByRole("button", { name: "工作区权限", exact: true });
+  // The row eases in with the page, so the two are compared once it has settled.
+  await expect.poll(async () => (await trigger.boundingBox())!.y === (await page.getByRole("button", { name: "执行记录", exact: true }).boundingBox())!.y).toBe(true);
   const records = await page.getByRole("button", { name: "执行记录", exact: true }).boundingBox();
   const permissions = await trigger.boundingBox();
   expect(records!.x).toBeGreaterThanOrEqual(permissions!.x + permissions!.width);
-  expect(permissions!.y).toBe(records!.y);
   await page.screenshot({ path: join(tmpdir(), "ria-chat-permissions-entry.png"), animations: "disabled" });
   await trigger.click();
   const sheet = page.getByRole("dialog", { name: "工作区权限", exact: true });
@@ -108,9 +106,7 @@ test("chat permissions choose and grant a directory without sending the draft, a
   await expect(toast).toHaveCSS("pointer-events", "none");
   expect((await browserData(page, `/api/conversations/${chat.id}`)).workspaceGrantId).toBe(grant.id);
   await expect(draft).toHaveValue("保留这段尚未发送的草稿");
-  await page.getByRole("combobox", { name: "选择工具", exact: true }).click();
-  await expect(terminal).toHaveCount(0);
-  await page.keyboard.press("Escape");
+  expect(await terminalAvailable()).toBe(true);
   await page.setViewportSize({ width: 390, height: 844 });
   await trigger.click();
   await expect(sheet).toBeVisible();
@@ -151,8 +147,7 @@ test("chat permissions choose and grant a directory without sending the draft, a
   // Withdrawing the folder also clears it as this conversation's workspace.
   await expect(page.getByRole("button", { name: "工作区：选择工作区", exact: true })).toBeVisible();
   expect((await browserData(page, `/api/conversations/${chat.id}`)).workspaceGrantId).toBeNull();
-  await page.getByRole("combobox", { name: "选择工具", exact: true }).click();
-  await expect(terminal).toBeDisabled();
+  expect(await terminalAvailable()).toBe(false);
   expect(chatRequests).toBe(0);
   expect(errors).toEqual([]);
 });

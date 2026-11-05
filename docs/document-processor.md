@@ -59,23 +59,24 @@ The existing unified registry exposes two additional built-in tools:
 | Tool | Behavior |
 | --- | --- |
 | `readDocument` | Read a knowledge document by `documentId`, with `offset` and `limit` (default 6,000, maximum 12,000 UTF-16 characters); returns page excerpts, a content version and `nextOffset` |
-| `convertDocument` | Prepare a download for a knowledge document as `md`, `txt`, `html` or `docx`; returns a version-bound URL and a download button |
+| `convertDocument` | Prepare a download of a knowledge document (`documentId`) or a PDF or Word attachment (`attachmentId`) as `md`, `txt`, `html` or `docx`; returns a URL and a download button |
 
 The model can find document IDs through `searchKnowledge`. Both tools obey the
 conversation's document collections, assistant tool allowlist, shared execution
-records and run/step budgets. The tool picker lists the actions **Read document** and
-**Convert and export document**, not document IDs or filenames. After selecting an action,
-choose its document parameter by filename from the current topics;
-the internal ID is supplied automatically. An explicit action runs once and
-returns to automatic tools on success, without changing which tools the model
-can use in subsequent chat. Failure retains the selected document and format.
+records and run/step budgets. In the composer, type `/` and choose **Read document**
+or **Convert and export document**. Attached PDF or Word files are the source when
+there are any; otherwise choose a document by filename from the current topics.
+Converting with no message text runs at once and needs no model, one result per
+file, and a failure keeps the choice for a retry. With text, or for reading, the
+message goes to the model with the chosen document. A choice applies to one message
+and does not change which tools the model can use afterwards.
 They do not read arbitrary filesystem paths, write files to granted folders or
 upload content. File saving happens when the user clicks download. Model-assisted
 chat remains subject to normal provider usage; editing and export in document
 details require no model key.
 
-Downloads in chat survive service restart while that source version exists. A
-changed source returns 409 and requires a fresh conversion; a deleted source
+Downloads in chat survive service restart while that source version exists; an
+attachment's copy lasts as long as the attachment does. A changed source returns 409 and requires a fresh conversion; a deleted source
 returns 404. Download errors stay in chat instead of saving an error response as
 a Word file. Document details provide the same formats directly.
 

@@ -54,6 +54,11 @@ function sameRef(ref: ModelRef | null | undefined, other: ModelRef | null | unde
 
 const modePreference = z.strictObject({ model: modelRefSchema.nullable(), fallback: modelRefSchema.nullable() });
 
+export const reasoningEfforts = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+/** What a model's catalog says about reasoning: whether it can be turned off, and the efforts it offers. */
+export const reasoningCapabilitySchema = z.strictObject({ mandatory: z.boolean(), efforts: z.array(z.enum(reasoningEfforts)).max(reasoningEfforts.length).optional() });
+export type ReasoningCapability = z.infer<typeof reasoningCapabilitySchema>;
+
 export const modelLibraryItemSchema = z.strictObject({
   providerId: providerIdSchema,
   modelId: modelIdSchema,
@@ -70,6 +75,8 @@ export const modelLibraryItemSchema = z.strictObject({
    * for — and an entry written before this field existed means "not known".
    */
   providerSearch: z.boolean().optional(),
+  /** Null when the catalog says the model does not reason; absent when it has not said. */
+  reasoning: reasoningCapabilitySchema.nullable().optional(),
   contextLength: z.number().int().positive().nullable(),
   maxOutputTokens: z.number().int().positive().nullable().optional(),
   pricing: z.record(z.string().max(40), z.string().max(80)).refine(value => Object.keys(value).length <= 12),
@@ -99,6 +106,11 @@ const preferencesShape = {
   image: modePreference,
   video: modePreference,
   embedding: modelRefSchema.nullable(),
+  /**
+   * The model for work around a turn: summaries, planning a search. Null means the
+   * model that work is for does it, so a workspace that never chose one is unchanged.
+   */
+  auxiliary: modelRefSchema.nullable().default(null),
   legacyCandidates: z.array(legacyModelCandidateSchema).max(20),
   library: z.array(modelLibraryItemSchema).max(1000).refine(rows => new Set(rows.map(row => modelRefKey(row))).size === rows.length, "Duplicate models in library"),
   // Keyed by `provider:model`, so two providers offering the same underlying
@@ -151,6 +163,7 @@ export const preferencesSchema = z.strictObject(preferencesShape).superRefine((s
     if (preference.model && sameRef(preference.model, preference.fallback)) issue([mode, "fallback"], t("lib.models.fallbackMustDiffer"));
   }
   if (settings.embedding && !library.get(modelRefKey(settings.embedding))?.modes.includes("embedding")) issue(["embedding"], t("lib.models.embeddingNotAdded"));
+  if (settings.auxiliary && !library.get(modelRefKey(settings.auxiliary))?.modes.includes("chat")) issue(["auxiliary"], t("lib.models.auxiliaryNotAdded"));
 });
 export type ModelPreferences = z.infer<typeof preferencesSchema>;
 
@@ -195,6 +208,7 @@ export function defaultModelPreferences(): ModelPreferences {
     image: { model: null, fallback: null },
     video: { model: null, fallback: null },
     embedding: null,
+    auxiliary: null,
     legacyCandidates: [],
     library: [],
     rates: {},

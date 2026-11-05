@@ -48,6 +48,7 @@ export const serverMessages = {
   "lib.models.notYetAddedSuffix": "清单中",
   "lib.models.fallbackMustDiffer": "备用模型必须与默认模型不同",
   "lib.models.embeddingNotAdded": "嵌入模型尚未添加到“我的模型”",
+  "lib.models.auxiliaryNotAdded": "辅助模型还没有添加到模型库",
   "lib.tools.localFilesNotGranted": "尚未授权资料目录，请在工作区权限中添加目录。",
   "lib.tools.webSearchNotConfigured": "联网搜索尚未配置，请填写 DeepSeek 或 OpenRouter 密钥并选择对应的聊天模型。",
   "lib.models.providerNotConfigured": "该服务商尚未配置密钥，请先在设置中填写后再试。",
@@ -152,6 +153,8 @@ export const serverMessages = {
   "lib.chat.saveFailed": "回答保存失败，请重新加载会话后重试。",
   "lib.chat.generateFailed": "聊天生成或保存失败，请重试或重新加载会话。",
   "lib.chat.providerUnavailable": "模型服务暂时不可用，请稍后重试。",
+  "lib.chat.providerOutOfBalance": "模型服务账户余额不足，请充值后再试，或换一个模型。",
+  "lib.chat.providerOutOfBalanceNamed": "{provider} 账户余额不足，请充值后再试，或换一个模型。",
 
   // --- local HTTP layer ----------------------------------------------------
   "lib.server.backupRestoreBusy": "正在备份或恢复数据，请稍后重试。",

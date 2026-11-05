@@ -1,15 +1,17 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
 
-import {  t, tf , localizeMessage } from "@/lib/locale";
+import { t } from "@/lib/locale";
 
 import type { Dispatch, FormEvent, SetStateAction } from "react";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Field, FieldDescription, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { SelectField, SelectOption } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { TemplateTools } from "@/features/assistants/template-tools";
+import type { ToolCatalogItem } from "@/features/chat/types";
 import type { AssistantConfig } from "@/lib/assistants/schema";
 import { modelRefKey, type ModelLibraryItem } from "@/lib/models/preferences-schema";
 
@@ -19,7 +21,7 @@ type Props = {
   collections: string;
   setCollections: (value: string) => void;
   models: ModelLibraryItem[];
-  tools: { id: string; displayName: string }[];
+  tools: ToolCatalogItem[];
   disabled: boolean;
   busy: boolean;
   onSubmit: (event: FormEvent) => void;
@@ -27,7 +29,6 @@ type Props = {
 
 export function TemplateEditor({ config, setConfig, collections, setCollections, models, tools, disabled, busy, onSubmit }: Props) {
   useLocale();
-  const toolOptions = [...tools, ...config.tools.filter(id => !tools.some(tool => tool.id === id)).map(id => ({ id, displayName: tf("ui.assistants.template-editor.removedTool", { v0: id.slice(-8) }) }))];
   return <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col gap-4">
     <fieldset disabled={disabled} className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain pr-1">
       <FieldGroup className="gap-4">
@@ -39,10 +40,8 @@ export function TemplateEditor({ config, setConfig, collections, setCollections,
           {config.model && !models.some(model => modelRefKey(model) === modelRefKey(config.model!)) ? <SelectOption value={modelRefKey(config.model)}>{t("ui.assistants.template-editor.removed")}{config.model.modelId}</SelectOption> : null}
           {models.map(model => <SelectOption key={modelRefKey(model)} value={modelRefKey(model)}>{model.name} · {model.providerId}</SelectOption>)}
         </SelectField></Field>
-        <FieldSet className="gap-2"><FieldLegend variant="label">{t("ui.assistants.template-editor.availableTools")}</FieldLegend><FieldDescription>{t("ui.assistants.template-editor.onlySelectedToolsAreAllowedApprovals")}</FieldDescription>
-          <FieldGroup className="grid grid-cols-1 gap-1 sm:grid-cols-2">{toolOptions.map(tool => <Field key={tool.id} orientation="horizontal" className="gap-2 rounded-md px-2 py-1.5"><input id={`template-tool-${tool.id}`} type="checkbox" className="size-3.5 shrink-0 accent-foreground" checked={config.tools.includes(tool.id)} onChange={event => setConfig({ ...config, tools: event.target.checked ? [...config.tools, tool.id] : config.tools.filter(id => id !== tool.id) })} /><FieldLabel htmlFor={`template-tool-${tool.id}`} className="min-w-0 break-words">{tool.id.startsWith("ext") ? tool.displayName : localizeMessage(tool.displayName)}</FieldLabel></Field>)}</FieldGroup>
-        </FieldSet>
-        <Field className="gap-2"><FieldLabel htmlFor="template-collections">{t("ui.assistants.template-editor.knowledgeCollectionsOnePerLineBlank")}</FieldLabel><Textarea id="template-collections" rows={2} maxLength={600} value={collections} onChange={event => setCollections(event.target.value)} /></Field>
+        <TemplateTools tools={tools} value={config.tools} onChange={next => setConfig({ ...config, tools: next })} />
+        <Field className="gap-2"><FieldLabel htmlFor="template-collections">{t("ui.assistants.template-editor.knowledgeCollectionsOnePerLineBlank")}</FieldLabel><Textarea id="template-collections" rows={2} maxLength={600} value={collections} onChange={event => setCollections(event.target.value)} />{collections.trim() && !config.tools.includes("searchKnowledge") ? <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"><FieldDescription>{t("ui.assistants.template-editor.collectionsNeedSearch")}</FieldDescription><Button type="button" size="sm" variant="secondary" onClick={() => setConfig({ ...config, tools: [...config.tools, "searchKnowledge"] })}>{t("ui.assistants.template-editor.enableSearch")}</Button></div> : null}</Field>
         <Field orientation="horizontal" className="gap-2"><input id="template-memory" type="checkbox" className="size-3.5 accent-foreground" checked={config.usesMemory} onChange={event => setConfig({ ...config, usesMemory: event.target.checked })} /><FieldLabel htmlFor="template-memory">{t("ui.assistants.template-editor.useLongTermMemory")}</FieldLabel></Field>
       </FieldGroup>
       <details className="settings-disclosure">

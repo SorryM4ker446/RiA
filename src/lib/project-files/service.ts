@@ -82,6 +82,14 @@ async function readCurrent(absolutePath: string) {
   return { bytes, hash: contentHash(bytes), file: decodeProjectText(bytes) };
 }
 
+/** When a file was last modified, in milliseconds. */
+export async function projectFileModifiedAt(input: { grantId: string; path: string }, signal?: AbortSignal) {
+  const grant = await projectGrant(input.grantId);
+  const target = await resolveProjectFile(grant, input.path, "read");
+  signal?.throwIfAborted();
+  return (await stat(target.absolutePath)).mtimeMs;
+}
+
 export async function readProjectFile(input: ReadProjectFileInput, signal?: AbortSignal) {
   const grant = await projectGrant(input.grantId);
   const target = await resolveProjectFile(grant, input.path, "read");

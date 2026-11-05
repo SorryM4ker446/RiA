@@ -11,8 +11,41 @@ import { resolveAssistant } from "@/lib/assistants/store";
 import { encodeDocumentScope } from "@/lib/documents/scope";
 
 const summaryInvalidation = {
-  historyRevision: { increment: 1 }, summary: null, summaryUpToMessageId: null, summaryModelId: null, summaryRevision: null,
+  historyRevision: { increment: 1 }, summary: null, summaryUpToMessageId: null, summaryModelId: null, summaryRevision: null, summaryState: null,
 };
+
+/**
+ * What rewriting a stored message does to the summary, run before the write.
+ *
+ * Saving a new message changes no history, so it leaves everything alone; the
+ * answer ending every turn is saved this way, and clearing the summary there would
+ * have each long conversation summarized from scratch on every request. Rewriting
+ * a message advances the revision, which refuses any summary still being written
+ * from the old text. The stored summary goes too, unless it provably ends before
+ * that message, as it does for an answer continuing after an approval. A summary
+ * with no end marks only tool calls folded during the turn, whose ids a rewrite of
+ * that turn keeps, so it stays as well.
+ */
+function rewriteStatements(client: Pick<Prisma.TransactionClient, "$executeRaw">, chatId: string, messageRef: string) {
+  return [
+    client.$executeRaw`
+      UPDATE "chats" SET "historyRevision" = "historyRevision" + 1, "summary" = NULL, "summaryUpToMessageId" = NULL, "summaryModelId" = NULL, "summaryRevision" = NULL, "summaryState" = NULL
+      WHERE "id" = ${chatId}
+        AND EXISTS (SELECT 1 FROM "messages" m WHERE m."chatId" = ${chatId} AND m."clientMessageId" = ${messageRef})
+        AND NOT ("summary" IS NOT NULL AND "summaryState" IS NOT NULL AND "summaryUpToMessageId" IS NULL)
+        AND NOT EXISTS (
+          SELECT 1 FROM "messages" m JOIN "messages" c ON c."id" = "chats"."summaryUpToMessageId" AND c."chatId" = m."chatId"
+          WHERE m."chatId" = ${chatId} AND m."clientMessageId" = ${messageRef}
+            AND (c."createdAt" < m."createdAt" OR (c."createdAt" = m."createdAt" AND c."id" < m."id")))`,
+    // Whatever the statement above did not clear is still valid at the new revision.
+    client.$executeRaw`
+      UPDATE "chats" SET "historyRevision" = "historyRevision" + 1,
+        "summaryRevision" = CASE WHEN "summaryRevision" = "historyRevision" THEN "historyRevision" + 1 ELSE "summaryRevision" END
+      WHERE "id" = ${chatId}
+        AND EXISTS (SELECT 1 FROM "messages" m WHERE m."chatId" = ${chatId} AND m."clientMessageId" = ${messageRef})
+        AND "summary" IS NOT NULL`,
+  ];
+}
 
 export async function getChat(chatId: string) {
   return db.chat.findFirst({ where: { id: chatId } });
@@ -100,7 +133,9 @@ export async function saveChatMessage(params: {
     const message = normalizedClientMessageId
       ? { chatId, clientMessageId: normalizedClientMessageId }
       : { id: { in: [] as string[] } };
-    const [, , saved] = await db.$transaction([
+    const rewrite = normalizedClientMessageId ? rewriteStatements(db, chatId, normalizedClientMessageId) : [];
+    const saved = (await db.$transaction([
+      ...rewrite,
       db.mediaAsset.updateMany({ where: { references: { some: { message } } }, data: { lastUsedAt: new Date() } }),
       db.messageMedia.deleteMany({ where: { message } }),
       normalizedClientMessageId
@@ -114,13 +149,13 @@ export async function saveChatMessage(params: {
             RETURNING "id", "chatId", "clientMessageId", "role", "content", "status", "createdAt"
           `
         : db.message.create({ data }),
-      db.chat.update({ where: { id: chatId }, data: { ...summaryInvalidation, lastMessageAt: new Date() } }),
-    ]);
+      db.chat.update({ where: { id: chatId }, data: { lastMessageAt: new Date() } }),
+    ])).at(-2) as Message | Message[];
     return Array.isArray(saved) ? saved[0] : saved;
   }
 
   return db.$transaction(async (tx) => {
-    if (updateExisting) await invalidateChatSummary(tx, chatId);
+    if (updateExisting && normalizedClientMessageId) for (const statement of rewriteStatements(tx, chatId, normalizedClientMessageId)) await statement;
     const message = await writeMessage(tx);
     if (message.content === prepared.content) await replaceMessageMedia(tx, message.id, prepared.assetIds);
     await tx.chat.update({ where: { id: chatId }, data: { lastMessageAt: new Date() } });
@@ -225,7 +260,9 @@ export async function saveRegeneratedResponse(params: {
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
     // A concurrent edit/send must not be discarded by a slower generation.
-    if (JSON.stringify(current) !== JSON.stringify(snapshot.messages)) {
+    // What a request was sent with is written as the request starts, and changes nothing a person wrote.
+    const compared = (messages: typeof current) => JSON.stringify(messages.map(({ requestContext: _sentWith, ...message }) => message));
+    if (compared(current) !== compared(snapshot.messages)) {
       throw new ApiError({ code: "CONFLICT", message: "Conversation changed while regenerating; original messages were preserved" });
     }
     const index = current.findIndex((message) =>

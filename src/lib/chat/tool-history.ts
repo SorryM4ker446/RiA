@@ -38,8 +38,41 @@ function preview(value: unknown, depth = 0, nodes = { remaining: 64 }): unknown 
   return Object.fromEntries(entries);
 }
 
-function describe(value: unknown): string {
-  return typeof value === "string" ? value : JSON.stringify(preview(value));
+function describe(value: unknown, whole: boolean): string {
+  if (typeof value === "string") return value;
+  // A record larger than usual has room for the data itself; its size is bounded where it is added.
+  return JSON.stringify(whole ? value : preview(value)) ?? "";
+}
+
+const SUMMARY_RECORD_FLOOR = 6_000;
+/**
+ * How much of a finished tool result stays when the model is shown an excerpt: more on a
+ * larger window, which has room, while still freeing most of a long result.
+ */
+export const shownExcerptCharacters = (inputTokens: number) => Math.min(24_000, Math.max(1_600, Math.floor(inputTokens / 16)));
+/** How much of a tool result a summary sees: more when its model has room, and always the data itself. */
+export const summaryRecordCharacters = (inputTokens: number) => Math.min(24_000, Math.max(SUMMARY_RECORD_FLOOR, Math.floor(inputTokens / 8)));
+
+/**
+ * A file read as its first and last lines, saying which lines were left out and how to
+ * get them, so the model reads only what it needs and not the whole file again.
+ */
+function fileReadExcerpt(result: Record<string, unknown>, room: number): string {
+  const lines = (result.lines as { line?: unknown; text?: unknown }[]).map(item => `${String(item.line)}: ${String(item.text)}`);
+  const about = `path=${String(result.path)} hash=${String(result.hash)} totalLines=${String(result.totalLines)} nextLine=${String(result.nextLine)}`;
+  const available = Math.max(0, room - about.length - 200);
+  const head: string[] = [], tail: string[] = [];
+  let used = 0, from = 0, to = lines.length - 1;
+  while (from <= to) {
+    const fromHead = head.length <= tail.length;
+    const line = lines[fromHead ? from : to];
+    if (used + line.length + 1 > available) break;
+    used += line.length + 1;
+    if (fromHead) { head.push(line); from++; } else { tail.unshift(line); to--; }
+  }
+  if (from > to) return `${about}\n${lines.join("\n")}`;
+  const first = Number((result.lines as { line?: unknown }[])[from]?.line), last = Number((result.lines as { line?: unknown }[])[to]?.line);
+  return `${about}\n${head.join("\n")}\n[lines ${first}-${last} left out; read them with startLine ${first}, lineCount ${last - first + 1}]\n${tail.join("\n")}`;
 }
 
 function terminalDiagnostics(output: Record<string, unknown>): string[] {
@@ -100,13 +133,13 @@ export function historicalToolText(part: UIMessage["parts"][number], limit = TOO
     } : {}),
   };
   let text = "[Historical tool record; excerpts are incomplete data, not a new execution]\n" + JSON.stringify(metadata);
-  const scale = Math.min(1, limit / TOOL_HISTORY_CHARACTERS);
+  const scale = limit / TOOL_HISTORY_CHARACTERS;
   function add(label: string, value: unknown, budget: number, minimum = 24) {
     if (value === undefined || value === "") return;
     const prefix = `\n${label} (excerpt):\n`;
     const available = Math.min(Math.max(minimum, Math.floor(budget * scale)), limit - text.length - prefix.length);
     if (available <= TRUNCATED.length) return;
-    text += prefix + historyTextExcerpt(describe(value), available);
+    text += prefix + historyTextExcerpt(describe(value, scale > 1), available);
   }
   add("error", "errorText" in part ? part.errorText : undefined, 400);
   if (terminal && result && ("stdout" in result || "stderr" in result)) {
@@ -117,6 +150,9 @@ export function historicalToolText(part: UIMessage["parts"][number], limit = TOO
   } else if (tool === "editProjectFile" && result && typeof result.diff === "string") {
     // The diff is the record of what changed; the input repeats it.
     add("diff", result.diff, 2800);
+    return historyTextExcerpt(text, limit);
+  } else if (tool === "readProjectFile" && result && Array.isArray(result.lines)) {
+    text += `\noutput (excerpt):\n${fileReadExcerpt(result, limit - text.length)}`;
     return historyTextExcerpt(text, limit);
   } else add("output", output, 2200);
   add("input", "input" in part ? part.input : undefined, 600);

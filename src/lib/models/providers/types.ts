@@ -1,7 +1,7 @@
 import type { EmbeddingModel, ImageModel, LanguageModel } from "ai";
 import type { SharedV3ProviderOptions } from "@ai-sdk/provider";
 import type { Experimental_VideoModelV3 } from "@ai-sdk/provider";
-import type { LibraryMode, ProviderId } from "@/lib/models/preferences-schema";
+import type { LibraryMode, ProviderId, ReasoningCapability } from "@/lib/models/preferences-schema";
 import type { CatalogPriceInfo } from "@/lib/models/catalog-prices";
 
 // The AI SDK names these by version rather than a stable alias. Deriving the
@@ -34,6 +34,8 @@ export type CatalogModel = {
   supportsTools: boolean;
   /** The provider runs its own web search for this model, at extra cost. */
   providerSearch: boolean;
+  /** Null when the catalog says the model does not reason; absent when it has not said. */
+  reasoning?: ReasoningCapability | null;
   contextLength: number | null;
   maxOutputTokens?: number | null;
   pricing: Record<string, string>;
@@ -100,10 +102,11 @@ export type ModelProvider = {
   isConfigured: () => boolean;
   /**
    * Translates the workspace's reasoning preference into this provider's own
-   * request options. Absent when the provider has no notion of it, which is
-   * what keeps the preference from being guessed at by the call sites.
+   * request options for one model. Absent when the provider has no notion of
+   * it, which is what keeps the preference from being guessed at by the call
+   * sites.
    */
-  reasoningOptions?: (preference: ReasoningPreference) => SharedV3ProviderOptions | undefined;
+  reasoningOptions?: (preference: ReasoningPreference, model?: { reasoning?: ReasoningCapability | null } | null) => SharedV3ProviderOptions | undefined;
   /** Reads one mode's catalog. Throws `CatalogFetchError`, never a raw fetch error. */
   fetchCatalog: (mode: LibraryMode, signal: AbortSignal) => Promise<{ models: CatalogModel[]; invalidRows: number }>;
   createChatModel: (modelId: string) => LanguageModelV3;

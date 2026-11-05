@@ -289,9 +289,6 @@ test("the workspace reasoning preference is translated into the provider's own r
   assert.deepEqual(deepseek.reasoningOptions({ enabled: false, effort: "max" }), { deepseek: { thinking: { enabled: false } } });
   assert.deepEqual(deepseek.reasoningOptions({ enabled: true, effort: null }), { deepseek: { thinking: { enabled: true } } });
   assert.deepEqual(deepseek.reasoningOptions({ enabled: true, effort: "max" }), { deepseek: { thinking: { enabled: true, effort: "max" } } });
-  // A provider with no notion of it contributes nothing, so its requests are
-  // unchanged by a setting it does not understand.
-  assert.equal(getModelProvider("openrouter").reasoningOptions, undefined);
 });
 
 test("the preference round-trips through the stored settings and defaults sensibly", async () => {

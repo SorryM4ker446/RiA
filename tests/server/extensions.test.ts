@@ -61,7 +61,7 @@ test("connection creation is inactive, detection executes no business call, and 
   assert.equal(service.state.calls.length, 0); assert.equal(service.state.probes, 1);
   assert.equal(enabled.enabled, true);
   const tool = (await listPublicToolCatalog("chat")).find(item => item.extensionId === row.id)!;
-  assert.equal(tool.available, true); assert.equal(tool.manual.enabled, false);
+  assert.equal(tool.available, true); assert.equal(tool.surface.user?.run, "model");
   assert.ok(tool.id.length <= 64);
   assert.ok((await createChatToolSet())[tool.id]);
   assert.equal((await createChatToolSet({ toolIds: [] }))[tool.id], undefined);
@@ -213,9 +213,9 @@ test("management routes require the local credential and reject foreign origins 
   for (const handler of [itemRoute.PUT, itemRoute.PATCH, itemRoute.DELETE, probeRoute.POST]) assert.equal((await handler(request("POST", { revision: 1 }, {}, ""), context(nonexistent))).status, 401);
 });
 
-test("manual invocation cannot bypass external approval", async t => {
+test("the direct route cannot bypass external approval", async t => {
   const { row } = await fixture(t); const enabled = await enable(row);
-  const response = await toolRoute.POST(new NextRequest("http://localhost/api/tools/run", { method: "POST", headers: { cookie, "Content-Type": "application/json" }, body: JSON.stringify({ tool: enabled.tools[0].id, mode: "chat", input: { arguments: { text: "bypass" } } }) }));
+  const response = await toolRoute.POST(new NextRequest("http://localhost/api/tools/run", { method: "POST", headers: { cookie, "Content-Type": "application/json" }, body: JSON.stringify({ tool: enabled.tools[0].id, input: { arguments: { text: "bypass" } } }) }));
   assert.equal(response.status, 400);
 });
 
@@ -226,10 +226,10 @@ test("assistant templates accept external tools, retain their allowlist and can 
   const config = assistantConfigSchema.parse({ name: "External assistant", instructions: "Use only the selected tool.", tools: [id] });
   const template = await saveAssistant(config);
   const snapshot = await resolveAssistant(template.id);
-  // Context compaction accompanies any available tool and grants no capability.
-  assert.deepEqual(Object.keys(await createChatToolSet({ toolIds: snapshot.tools })), ["compactContext", id]);
+  const offered = async () => Object.keys(await createChatToolSet({ toolIds: snapshot.tools })).filter(name => name !== "readConversationHistory" && name !== "extractMemory");
+  assert.deepEqual(await offered(), [id]);
   await activateExtension(row.id, { revision: enabled.revision, enabled: false, tools: [enabled.tools[0].name] });
-  assert.deepEqual(Object.keys(await createChatToolSet({ toolIds: snapshot.tools })), []);
+  assert.deepEqual(await offered(), []);
   const latest = (await listExtensions()).items[0]; await deleteExtension(row.id, latest.revision);
   assert.deepEqual((await resolveAssistant(template.id)).tools, [id]);
   await saveAssistant({ ...config, tools: [] }, template.id, template.revision);

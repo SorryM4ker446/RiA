@@ -8,6 +8,7 @@ import { startStandaloneServer } from "../helpers/standalone-server";
 import { browserApi, browserData } from "../helpers/browser-api";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { decodePersistedAssistantToolMessage } from "../../src/lib/ai/ui-message";
+import { chooseFromSlashMenu, composerInput, newTask } from "../helpers/slash-menu";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => {
@@ -54,17 +55,18 @@ test("streamed chat, follow-up context and edited regeneration survive a service
   await firstTurn.getByRole("button", { name: "编辑消息" }).click();
   const editor = page.locator("article").filter({ has: page.locator("textarea") });
   await editor.locator("textarea").fill("修改后的问题");
-  await editor.getByRole("button", { name: "保存", exact: true }).click();
+  // A later turn follows it, so it goes out again at the end and the rest stays.
+  await editor.getByRole("button", { name: "重新发送", exact: true }).click();
   await expect(page.getByText("离线回答：修改后的问题", { exact: true })).toBeVisible();
-  await expect.poll(async () => (await history()).map((row: { content: string }) => decodePersistedAssistantToolMessage(row.content)?.text ?? row.content)).toEqual(["修改后的问题", "离线回答：修改后的问题"]);
-  const savedAnswer = (await history()).find((row: { role: string }) => row.role === "assistant");
-  expect(decodePersistedAssistantToolMessage(savedAnswer.content)?.documentDiagnostics?.outcome).toBe("empty-library");
-  expect(app.readRows("SELECT status FROM messages WHERE chatId = ?", chatId)).toEqual([{ status: "success" }, { status: "success" }]);
+  const transcript = ["第一轮问题", "离线回答：第一轮问题", "继续解释上一轮", "离线回答：继续解释上一轮", "修改后的问题", "离线回答：修改后的问题"];
+  await expect.poll(async () => (await history()).map((row: { content: string }) => decodePersistedAssistantToolMessage(row.content)?.text ?? row.content)).toEqual(transcript);
+  const savedAnswer = (await history()).filter((row: { role: string }) => row.role === "assistant").at(-1);
+  expect(app.readRows("SELECT status FROM messages WHERE chatId = ?", chatId)).toEqual(transcript.map(() => ({ status: "success" })));
 
   await app.restart();
   await page.reload();
   await expect(page.getByText("离线回答：修改后的问题", { exact: true })).toBeVisible();
-  await expect(page.getByText("离线回答：第一轮问题", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("离线回答：第一轮问题", { exact: true })).toBeVisible();
   expect((await browserApi(page, `${app.origin}/api/conversations`)).status).toBe(200);
   const stranger = await browser.newContext({ storageState: NO_CREDENTIAL_STATE });
   try {
@@ -76,17 +78,23 @@ test("streamed chat, follow-up context and edited regeneration survive a service
     expect((await browserApi(otherPage, `${app.origin}/api/conversations/${chatId}`, "DELETE")).status).toBe(401);
     expect((await browserApi(otherPage, `${app.origin}/api/conversations`)).status).toBe(401);
   } finally { await stranger.close(); }
-  expect((await history()).length).toBe(2);
+  expect((await history()).length).toBe(transcript.length);
+
+  // With only its own answer below it, the latest message is answered again where it is.
+  const latestTurn = page.locator("article").filter({ has: page.getByText("修改后的问题", { exact: true }) });
+  await latestTurn.hover();
+  await latestTurn.getByRole("button", { name: "编辑消息" }).click();
+  const latestEditor = page.locator("article").filter({ has: page.locator("textarea") });
+  await latestEditor.locator("textarea").fill("再改一次");
+  await latestEditor.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByText("离线回答：再改一次", { exact: true })).toBeVisible();
+  await expect.poll(async () => (await history()).map((row: { content: string }) => decodePersistedAssistantToolMessage(row.content)?.text ?? row.content)).toEqual([...transcript.slice(0, 4), "再改一次", "离线回答：再改一次"]);
 });
 
-test("manual tasks and knowledge use real APIs, persist across restart and remain private", { tag: "@integration" }, async ({ page, browser, app }) => {
+test("tasks and knowledge use real APIs, persist across restart and remain private", { tag: "@integration" }, async ({ page, browser, app }) => {
   await register(page, app.origin);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
-  await page.getByLabel("选择工具").click();
-  await page.getByRole("option", { name: "创建任务" }).click();
-  await page.getByPlaceholder(/输入任务标题/).fill("浏览器持久化任务");
-  await page.getByRole("button", { name: "执行工具" }).click();
-  await expect.poll(async () => (await browserData(page, `${app.origin}/api/tasks`)).length).toBe(1);
+  expect((await browserApi(page, `${app.origin}/api/tasks`, "POST", newTask("浏览器持久化任务"))).status).toBe(201);
   await page.goto(`${app.origin}/tasks`);
   const taskPanel = page.getByTestId("task-panel");
   await expect(taskPanel.getByText("浏览器持久化任务", { exact: true })).toBeVisible();
@@ -97,29 +105,26 @@ test("manual tasks and knowledge use real APIs, persist across restart and remai
   expect(app.readRows("SELECT title, status FROM tasks WHERE id = ?", task.id)).toEqual([{ title: "浏览器持久化任务", status: "done" }]);
 
   await page.getByRole("link", { name: /知识库/ }).click();
-  await page.getByRole("button", { name: "新增记忆", exact: true }).click();
-  await page.getByPlaceholder("记忆名称").fill("月光档案");
-  await page.getByPlaceholder("记忆内容").fill("月光档案保存在本地 SQLite。");
-  await page.getByRole("dialog", { name: "新增记忆", exact: true }).getByRole("button", { name: "新增记忆", exact: true }).click();
+  await page.getByRole("button", { name: "新增条目", exact: true }).click();
+  await page.getByPlaceholder("条目名称").fill("月光档案");
+  await page.getByPlaceholder("条目内容").fill("月光档案保存在本地 SQLite。");
+  await page.getByRole("dialog", { name: "新增条目", exact: true }).getByRole("button", { name: "新增条目", exact: true }).click();
   await expect(page.getByRole("heading", { name: "月光档案", exact: true })).toBeVisible();
   const entry = (await browserData(page, `${app.origin}/api/knowledge`))[0];
-  await page.getByRole("button", { name: "新增记忆", exact: true }).click();
-  await page.getByPlaceholder("记忆名称").fill("月光档案");
-  await page.getByPlaceholder("记忆内容").fill("月光档案更新后仍然只有一份。");
-  await page.getByRole("dialog", { name: "新增记忆", exact: true }).getByRole("button", { name: "新增记忆", exact: true }).click();
+  await page.getByRole("button", { name: "新增条目", exact: true }).click();
+  await page.getByPlaceholder("条目名称").fill("月光档案");
+  await page.getByPlaceholder("条目内容").fill("月光档案更新后仍然只有一份。");
+  await page.getByRole("dialog", { name: "新增条目", exact: true }).getByRole("button", { name: "新增条目", exact: true }).click();
   await expect(page.locator("article").getByText("月光档案更新后仍然只有一份。", { exact: true })).toBeVisible();
   await expect.poll(() => app.readRows("SELECT id, value FROM memories WHERE key = ?", "月光档案")).toEqual([{ id: entry.id, value: "月光档案更新后仍然只有一份。" }]);
   await page.getByRole("navigation", { name: "工作区导航" }).getByRole("link", { name: "聊天", exact: true }).click();
-  await page.getByLabel("选择工具").click();
-  await page.getByRole("option", { name: "知识检索" }).click();
-  await page.getByPlaceholder(/输入要检索的关键词/).fill("月光档案");
-  const toolResponse = page.waitForResponse((response) => response.url() === `${app.origin}/api/tools/run`);
-  await page.getByRole("button", { name: "执行工具" }).click();
-  const result = await (await toolResponse).json();
-  expect(result.data.results.some((item: { id: string; snippet: string }) => item.id === entry.id && item.snippet.includes("更新后仍然只有一份"))).toBe(true);
+  await chooseFromSlashMenu(page, "知识检索");
+  await composerInput(page).fill("OFFLINE_SEARCH_KNOWLEDGE 月光档案");
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  await expect(page.locator(".message-choices").getByText("知识检索", { exact: true })).toBeVisible();
   const chats = await browserData(page, `${app.origin}/api/conversations`);
   const chatId = chats[0].id;
-  await expect.poll(() => app.readRows("SELECT id FROM messages WHERE chatId = ?", chatId).length).toBe(4);
+  await expect.poll(() => app.readRows("SELECT id FROM messages WHERE chatId = ?", chatId).length).toBe(2);
   await openRecentConversations(page);
   await page.getByRole("button", { name: /^会话操作：/ }).first().click();
   await page.getByRole("menuitem", { name: "重命名", exact: true }).click();
@@ -152,7 +157,7 @@ test("manual tasks and knowledge use real APIs, persist across restart and remai
   await expect.poll(() => app.readRows("SELECT id FROM tasks WHERE id = ?", task.id).length).toBe(0);
   await page.getByRole("link", { name: /知识库/ }).click();
   await expect(page.getByText("月光档案更新后仍然只有一份。", { exact: true })).toBeVisible();
-  await chooseMenuAction(page, "月光档案", "删除记忆 月光档案");
+  await chooseMenuAction(page, "月光档案", "删除条目 月光档案");
   await expect.poll(() => app.readRows("SELECT id FROM memories WHERE id = ?", entry.id).length).toBe(0);
   await page.getByRole("navigation", { name: "工作区导航" }).getByRole("link", { name: "聊天", exact: true }).click();
   await openRecentConversations(page);

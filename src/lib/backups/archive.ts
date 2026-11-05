@@ -76,6 +76,7 @@ export async function createAccountBackup(prune = true) {
     (SELECT coalesce(sum(length(CAST(config AS BLOB))),0) FROM knowledge_topics) +
     (SELECT coalesce(sum(length(CAST(metadata AS BLOB))+coalesce(length(CAST(content AS BLOB)),0)),0) FROM knowledge_artifacts) AS bytes`);
   if (counts.some(count => count > BACKUP_LIMITS.rows) || counts[5] > 50 || topicCount > 50 || artifactCount > 200 || documentsCount > 100 || termsCount > 100_000 || eventCount > 10_000 || reviewCount > 1000 || Number(volume.bytes) > BACKUP_LIMITS.manifest) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.backups.workspaceTooLarge") });
+  const memoryDocument = await db.memoryDocument.findUnique({ where: { id: "local" } });
   const [chats, memories, tasks, documents, assets, preferences, usage, events, activityState, reviews, assistantTemplates, topics, artifacts] = await Promise.all([
     db.chat.findMany({ include: { tags: true, messages: true } }),
     db.memory.findMany(), db.task.findMany(),
@@ -102,7 +103,7 @@ export async function createAccountBackup(prune = true) {
   const activityCoverage = activityState ? { recordingStartedAt: activityState.recordingStartedAt, completeSince: activityState.completeSince } : null;
   // Semantic vectors are regenerable and can dwarf the portable text archive.
   // Restore retains lexical retrieval and asks for explicit semantic rebuilding.
-  const manifest = backupManifestSchema.parse(JSON.parse(JSON.stringify({ format: BACKUP_FORMAT, version: 1, createdAt: new Date().toISOString(), chats: chats.map(({ workspaceGrantId: _workspace, ...chat }) => ({ ...chat, messages: chat.messages.map(message => ({ ...message, content: portableContent(message.content) })) })), memories, tasks, documents, assets: media, preferences, usage, events, activityCoverage, reviews, assistantTemplates, topics, artifacts })));
+  const manifest = backupManifestSchema.parse(JSON.parse(JSON.stringify({ format: BACKUP_FORMAT, version: 1, createdAt: new Date().toISOString(), chats: chats.map(({ workspaceGrantId: _workspace, ...chat }) => ({ ...chat, messages: chat.messages.map(message => ({ ...message, content: portableContent(message.content) })) })), memories, tasks, documents, assets: media, preferences, usage, events, activityCoverage, reviews, assistantTemplates, topics, artifacts, memoryDocument })));
   const json = Buffer.from(JSON.stringify(manifest));
   if (json.length > BACKUP_LIMITS.manifest || 44 + json.length + assets.reduce((sum, asset) => sum + asset.byteSize, 0) > BACKUP_LIMITS.bytes) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.backups.contentTooLarge") });
   const id = randomUUID(), temporary = await backupFile(id, "partial");

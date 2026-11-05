@@ -33,7 +33,6 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [isEphemeralSaving, setIsEphemeralSaving] = useState(false);
-  const [documentTopics, setDocumentTopics] = useState<string[]>([]);
   const [isDocumentScopeSaving, setIsDocumentScopeSaving] = useState(false);
   const [isWorkspaceSaving, setIsWorkspaceSaving] = useState(false);
   const workspaceSavingRef = useRef(false);
@@ -282,48 +281,6 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     }
   }
 
-  /** The topics a conversation may draw on. Empty means every topic. */
-  const loadDocumentTopics = useCallback(async () => {
-    try {
-      const response = await fetch("/api/documents", { cache: "no-store" });
-      if (!response.ok) return;
-      const payload = await response.json();
-      const topics = (Array.isArray(payload.data) ? payload.data : [])
-        .map((document: { collection?: string | null }) => document.collection)
-        .filter((value: unknown): value is string => typeof value === "string" && value.length > 0);
-      setDocumentTopics([...new Set<string>(topics)].sort());
-    } catch {
-      // A conversation can still be created without a scope.
-    }
-  }, []);
-
-  async function setDocumentScope(next: string[]) {
-    const chat = chats.find((item) => item.id === activeChatId);
-    if (!chat || isLoadingChats || scopeSavingRef.current) return;
-    scopeSavingRef.current = true;
-    invalidateChatReads();
-    setIsDocumentScopeSaving(true);
-    setPageError(null);
-    let failure: string | null = null;
-    try {
-      await chatApi.setDocumentScope(chat.id, next);
-    } catch (scopeError) {
-      // The toolbar asks for a scope without awaiting this, so a rejection would
-      // be an unhandled one: the chips would quietly go on showing the scope the
-      // change was meant to replace, with nothing saying the change did not take.
-      failure = scopeError instanceof Error ? scopeError.message : t("chatApi.setDocumentScopeFailed");
-    } finally {
-      // Once either way, and once: the list is what the chips read, so it has to
-      // be the stored scope rather than the one that was asked for.
-      await loadChats();
-      scopeSavingRef.current = false;
-      setIsDocumentScopeSaving(false);
-      // Said only now: the chips stay pressable while saving, so a failure shown
-      // before the save ended invited a retry that was then silently ignored.
-      if (failure !== null) setPageError(failure);
-    }
-  }
-
   /**
    * The one granted folder this conversation works in, from the next message on.
    * Choosing one before the first message creates the conversation to hold it.
@@ -380,7 +337,7 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
 
   return {
     assistants, assistantsError, loadAssistants, applyAssistant,
-    toggleEphemeral, isEphemeralSaving, documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving,
+    toggleEphemeral, isEphemeralSaving, isDocumentScopeSaving,
     setWorkspace, isWorkspaceSaving, restoringChatId, isRestoringChat: (chatId: string) => restoringRef.current === chatId,
     chats, activeChat, isLoadingChats, isCreatingChat, editingChatId, editingTitle, setEditingTitle,
     loadChats, createNewChat, startEditingChat,

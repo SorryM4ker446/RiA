@@ -1,7 +1,8 @@
-import { test as base, expect, type Page } from "@playwright/test";
+import { test as base, expect } from "@playwright/test";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { configureOfflineModels } from "../helpers/model-fixture";
+import { chooseFromSlashMenu, chosenWords, composerInput, slashOption } from "../helpers/slash-menu";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => {
@@ -10,77 +11,137 @@ const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>
   },
 });
 
-const frames = (page: Page, count: number) => page.evaluate(count => new Promise<void>(resolve => {
-  const step = (left: number) => left ? requestAnimationFrame(() => step(left - 1)) : resolve();
-  step(count);
-}), count);
-
-test("the tool menu scrolls only when asked, and a tool's fields leave the composer where it was", async ({ page, app }) => {
+test("the slash menu offers only what a person can call, by keyboard and mouse, and reopens after Escape", async ({ page, app }) => {
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
   await openWorkspace(page, app.origin);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
-  const composer = page.locator("form").filter({ has: page.locator(".composer-surface") });
-  const surface = composer.locator(".composer-surface");
-  const place = async () => { const box = (await surface.boundingBox())!; return { y: box.y, height: box.height }; };
-  await page.setViewportSize({ width: 1280, height: 720 });
-  await expect(page.getByPlaceholder(/输入你的问题/)).toBeVisible();
-  const before = await place();
+  const input = composerInput(page);
+  const list = page.getByRole("listbox", { name: "工具、技能和插件", exact: true });
+  await input.click();
 
-  // A short window makes the list overflow. Reaching its last visible row does
-  // not start it scrolling (Radix's hover arrows did); the wheel still does.
-  await page.setViewportSize({ width: 1280, height: 560 });
-  const tools = page.getByRole("combobox", { name: "选择工具", exact: true });
-  await tools.click();
-  const list = page.getByRole("listbox");
+  // A slash inside a word or a path is just text.
+  await page.keyboard.type("a/b D:/work");
+  await expect(list).toBeHidden();
+  await input.fill("");
+
+  await page.keyboard.type("/");
   await expect(list).toBeVisible();
-  await expect(list.getByRole("option", { name: "自动工具", exact: true })).toHaveAccessibleDescription("由模型按需调用工具。");
-  await expect(list.getByRole("option", { name: "创建任务", exact: true })).toHaveAccessibleDescription("记下一件待办，可加详情、优先级和截止时间。");
-  const viewport = list.locator("[data-radix-select-viewport]");
-  expect(await viewport.evaluate(element => element.scrollHeight - element.clientHeight)).toBeGreaterThan(0);
-  const box = (await viewport.boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height - 3);
-  await frames(page, 12);
-  expect(await viewport.evaluate(element => element.scrollTop)).toBe(0);
-  await page.mouse.wheel(0, 200);
-  await expect.poll(() => viewport.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+  await expect(slashOption(page, "联网搜索")).toBeVisible();
+  await expect(slashOption(page, "压缩上下文")).toBeVisible();
+  for (const internal of ["执行终端命令", "读取终端日志", "读取项目文件", "编辑项目文件", "读取插件技能", "工具调用"]) await expect(slashOption(page, internal)).toHaveCount(0);
+  await expect(input).toBeFocused();
+
+  // Escape keeps the typed slash; a second slash, or typing it again, brings the menu back.
   await page.keyboard.press("Escape");
   await expect(list).toBeHidden();
-
-  // The fields sit inside the composer, which keeps its place and its height.
-  await page.setViewportSize({ width: 1280, height: 720 });
-  await tools.click();
-  await page.getByRole("option", { name: "创建任务", exact: true }).click();
-  await expect(page.getByPlaceholder(/输入任务标题/)).toBeVisible();
-  await expect(composer.getByRole("combobox", { name: "优先级", exact: true })).toContainText("中");
-  expect(await place()).toEqual(before);
-  await tools.click();
-  await page.getByRole("option", { name: "自动工具", exact: true }).click();
-  await expect(page.getByPlaceholder(/输入你的问题/)).toBeVisible();
-  expect(await place()).toEqual(before);
-  // The document tools put a document picker where the text area was, at its height.
-  for (const name of ["读取文档", "转换并导出文档"]) {
-    await tools.click();
-    await page.getByRole("option", { name, exact: true }).click();
-    await expect(composer.getByRole("combobox", { name: "知识库文档", exact: true })).toBeVisible();
-    // Converting asks which format, beside the document; reading has no other choice.
-    await expect(composer.getByRole("combobox", { name: "导出格式", exact: true })).toHaveCount(name === "转换并导出文档" ? 1 : 0);
-    expect(await place()).toEqual(before);
-  }
-
-  // Paging months keeps the calendar on one side of its button: every month
-  // has six rows, so its height never changes under the popover.
-  await tools.click();
-  await page.getByRole("option", { name: "创建任务", exact: true }).click();
-  await composer.getByRole("button", { name: "截止时间", exact: true }).click();
-  const calendar = page.getByRole("dialog", { name: "截止时间", exact: true });
-  await expect(calendar).toBeVisible();
-  const side = await calendar.getAttribute("data-side");
-  const rows = await calendar.locator("tbody tr, .rdp-week").count();
-  for (let month = 0; month < 6; month++) {
-    await calendar.locator(".rdp-button_next").click();
-    await expect(calendar).toHaveAttribute("data-side", side!);
-    expect(await calendar.locator("tbody tr, .rdp-week").count()).toBe(rows);
-  }
+  await expect(input).toHaveValue("/");
+  await page.keyboard.type("/");
+  await expect(list).toBeVisible();
+  await expect(input).toHaveValue("/");
   await page.keyboard.press("Escape");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.type("/");
+  await expect(list).toBeVisible();
+
+  // Typing narrows; arrows move; Enter chooses and leaves the caret ready to write.
+  await page.keyboard.type("检索");
+  await expect(page.getByRole("option").first()).toContainText("知识检索");
+  await page.keyboard.press("Enter");
+  await expect(list).toBeHidden();
+  await expect(input).toHaveValue("");
+  await expect(chosenWords(page)).toHaveText(["知识检索"]);
+  await expect(input).toBeFocused();
+  await page.keyboard.type("周报");
+  await expect(input).toHaveValue("周报");
+
+  // The text starts after the chosen word, never under it.
+  const word = (await chosenWords(page).boundingBox())!;
+  const indent = await input.evaluate(element => parseFloat(getComputedStyle(element).textIndent) + parseFloat(getComputedStyle(element).paddingLeft) + element.getBoundingClientRect().left);
+  expect(indent).toBeGreaterThanOrEqual(word.x + word.width);
+
+  // One tool at a time: another replaces it, and Backspace at the start removes it.
+  await chooseFromSlashMenu(page, "创建任务");
+  await expect(chosenWords(page)).toHaveText(["创建任务"]);
+  await expect(input).toHaveValue("周报");
+  await page.keyboard.press("Control+Home");
+  await page.keyboard.press("Backspace");
+  await expect(chosenWords(page)).toHaveCount(0);
+  await expect(input).toHaveValue("周报");
   expect(errors).toEqual([]);
+});
+
+test("choosing a tool leaves the composer where it was, and a document tool's controls replace what it does not use", async ({ page, app }) => {
+  await openWorkspace(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const surface = page.locator(".composer-surface");
+  const place = async () => { const box = (await surface.boundingBox())!; return { y: box.y, height: box.height }; };
+  await expect(page.getByPlaceholder(/输入你的问题/)).toBeVisible();
+  const before = await place();
+  const model = page.getByRole("combobox", { name: "选择模型", exact: true });
+  const mode = page.getByRole("combobox", { name: "聊天模式", exact: true });
+  const format = page.getByRole("combobox", { name: "输出格式", exact: true });
+
+  await chooseFromSlashMenu(page, "联网搜索");
+  await expect(page.getByPlaceholder("想搜索什么？")).toBeVisible();
+  expect(await place()).toEqual(before);
+
+  await chooseFromSlashMenu(page, "转换并导出文档");
+  await expect(format).toBeVisible();
+  await expect(model).toHaveCount(0);
+  await expect(mode).toHaveCount(0);
+  expect(await place()).toEqual(before);
+
+  await chooseFromSlashMenu(page, "读取文档");
+  await expect(format).toHaveCount(0);
+  await expect(model).toBeVisible();
+  expect(await place()).toEqual(before);
+
+  await page.keyboard.press("Control+Home");
+  await page.keyboard.press("Backspace");
+  await expect(mode).toBeVisible();
+  expect(await place()).toEqual(before);
+});
+
+test("the chosen tool shows on the sent message and is offered first", async ({ page, app }) => {
+  await openWorkspace(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  await chooseFromSlashMenu(page, "知识检索");
+  await composerInput(page).fill("OFFLINE_SEARCH_KNOWLEDGE 发布回滚窗口");
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  await expect(page.locator(".message-choices").getByText("知识检索", { exact: true })).toBeVisible();
+  await expect(chosenWords(page)).toHaveCount(0);
+  await expect.poll(() => app.providerCalls.length).toBeGreaterThan(1);
+  // The model was given the chosen tool and did call it, so no note says otherwise.
+  await expect(page.getByText(/没有调用你选择的/)).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator(".message-choices").getByText("知识检索", { exact: true })).toBeVisible();
+});
+
+test("the menu keeps its contents while it fades out, so it never shrinks to a sliver above the composer", async ({ page, app }) => {
+  await openWorkspace(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  await composerInput(page).click();
+  await page.keyboard.type("/");
+  const menu = page.locator(".slash-menu");
+  await expect(menu).toBeVisible();
+  await expect.poll(() => menu.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThan(100);
+  const opened = await menu.evaluate(element => element.getBoundingClientRect().height);
+  await page.evaluate(() => {
+    const heights: number[] = [];
+    (window as unknown as { menuHeights: number[] }).menuHeights = heights;
+    const sample = () => {
+      const element = document.querySelector(".slash-menu");
+      if (!element) return;
+      heights.push(element.getBoundingClientRect().height);
+      requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+  await page.keyboard.press("Enter");
+  await expect(menu).toHaveCount(0);
+  const heights = await page.evaluate(() => (window as unknown as { menuHeights: number[] }).menuHeights);
+  expect(heights.length).toBeGreaterThan(0);
+  // The exit animation scales it slightly; its contents do not collapse.
+  expect(Math.min(...heights)).toBeGreaterThan(opened * 0.9);
 });

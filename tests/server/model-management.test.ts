@@ -115,8 +115,10 @@ test("a stored version 1 or 2 workspace upgrades in place on read",async()=>{
     assert.equal(read.version,3);
     assert.deepEqual(read.chat.model,expected.model);
     assert.deepEqual(read.legacyCandidates.map(candidate=>candidate.ref),expected.candidates);
-    // The upgrade is persisted, so the next read is an ordinary version 3 read.
-    assert.deepEqual((await db.workspacePreference.findUnique({where:{id:"local"}})).settings,read);
+    // The upgrade is persisted, so the next read is an ordinary version 3 read. A setting left unset is not written.
+    const {auxiliary:unset,...written}=read;
+    assert.equal(unset,null);
+    assert.deepEqual((await db.workspacePreference.findUnique({where:{id:"local"}})).settings,written);
   }
 });
 test("model removal waits for an active provider lease",async()=>{

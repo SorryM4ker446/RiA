@@ -13,7 +13,7 @@ const messages = await import("@/app/api/conversations/[id]/messages/route");
 const message = await import("@/app/api/conversations/[id]/messages/[messageId]/route");
 const tasks = await import("@/app/api/tasks/route");
 const task = await import("@/app/api/tasks/[id]/route");
-const tools = await import("@/app/api/tools/run/route");
+const { executeRegisteredTool, getToolDescriptor } = await import("@/tools/catalog");
 const knowledge = await import("@/app/api/knowledge/route");
 const knowledgeEntry = await import("@/app/api/knowledge/[id]/route");
 let cookie;
@@ -69,8 +69,8 @@ test("conversation and message CRUD persists edits, deduplicates retries and sco
 });
 
 test("task CRUD validates atomic updates, date normalization and filters", async () => {
-  const created = await data(await tools.POST(request("/api/tools/run", "POST", { tool: "createTask", mode: "chat", input: { title: "Task", dueDate: "2026-09-01T08:00:00+08:00", priority: "high" } })));
-  const id = created.taskId;
+  const created = await data(await tasks.POST(request("/api/tasks", "POST", { title: "Task", dueDate: "2026-09-01T08:00:00+08:00", priority: "high", timeZone: "UTC", reminderEnabled: false, repeatRule: "none" })), 201);
+  const id = created.id;
   assert.equal((await data(await task.GET(request("/api/tasks"), context(id)))).dueDate, "2026-09-01T00:00:00.000Z");
   const invalid = await task.PATCH(request("/api/tasks", "PATCH", { title: "Must not persist", dueDate: "invalid date" }), context(id));
   assert.equal(invalid.status, 400);
@@ -99,7 +99,7 @@ test("a task created by the user or by the task tool is saved without leaving a 
     assert.equal((await tasks.POST(request("/api/tasks", "POST", invalid))).status, 400);
   }
   assert.equal(await db.task.count(), 1);
-  await data(await tools.POST(request("/api/tools/run", "POST", { tool: "createTask", mode: "chat", input: { title: "工具创建的任务" } })));
+  await executeRegisteredTool(getToolDescriptor("createTask")!, { title: "工具创建的任务" }, { trigger: "manual" });
   assert.equal(await db.task.count(), 2);
   // The task list is where tasks are kept; neither path writes to memory.
   assert.equal(await db.memory.count(), 0);

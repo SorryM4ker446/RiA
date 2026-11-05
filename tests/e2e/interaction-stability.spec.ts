@@ -95,7 +95,7 @@ for (const variant of variants) test.describe(`${variant.theme} theme, ${variant
       composer: ".chat-workspace textarea",
       transcript: "[data-testid=message-list]",
       workspace: page.getByRole("button", { name: /选择工作区|工作区：/ }).first(),
-      tools: '.chat-workspace [aria-label="选择工具"]',
+      model: '.chat-workspace [aria-label="选择模型"]',
     }, { allowShiftsIn: ["[data-testid=message-list]", ".chat-toolbar h3"] });
     await openRecentConversations(page);
     await page.getByRole("complementary", { name: "会话列表", exact: true }).getByRole("button", { name: /^第一段对话/ }).click();
@@ -108,7 +108,7 @@ for (const variant of variants) test.describe(`${variant.theme} theme, ${variant
     expectSteady(record, "composer");
     expectSteady(record, "transcript");
     expectSteady(record, "workspace", "left");
-    expectSteady(record, "tools", "left");
+    expectSteady(record, "model", "left");
     expectNoUnexpectedShift(record);
   });
 
@@ -158,7 +158,7 @@ for (const variant of variants) test.describe(`${variant.theme} theme, ${variant
     await conversationWithMessages(page, "菜单测试", 2);
     await page.goto(`${app.origin}/chat`);
     await expect(page.locator(".chat-toolbar h3")).toHaveText("菜单测试");
-    for (const name of ["选择模型", "聊天模式", "选择工具", "助理模板"]) {
+    for (const name of ["选择模型", "聊天模式", "助理模板"]) {
       const trigger = page.getByRole("combobox", { name, exact: true });
       await expect(trigger).toBeEnabled();
       const layout = await watchLayout(page, { trigger, composer: ".chat-workspace textarea" });

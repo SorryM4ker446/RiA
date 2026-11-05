@@ -14,7 +14,7 @@ export const documentDiagnosticsSchema = z.strictObject({
   selectedSources: z.number().int().nonnegative().max(8),
   contextChars: z.number().int().nonnegative().max(9600),
   durationMs: z.number().nonnegative(),
-  // Weak matches left for the model to search for instead of being added automatically.
+  // Recorded by an earlier version, which added strong matches to a request on its own.
   withheldSources: z.number().int().nonnegative().max(8).optional(),
   policy: retrievalPolicySchema,
 });

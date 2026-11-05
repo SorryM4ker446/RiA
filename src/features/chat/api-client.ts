@@ -6,7 +6,7 @@ import { DefaultChatTransport } from "ai";
 import type { ModelRef } from "@/lib/models/preferences-schema";
 import type { AssistantTemplate } from "@/lib/assistants/schema";
 import type { ChatSummary, MessageStatus, StoredMessage, UploadableFilePart } from "@/features/chat/page-utils";
-import type { ChatScopedPreferences, TaskItem, TaskScheduleInput, TaskStatusFilter, ToolCatalogItem } from "@/features/chat/types";
+import type { ChatScopedPreferences, TaskItem, TaskScheduleInput, TaskStatusFilter, SkillCatalogItem, ToolCatalogItem } from "@/features/chat/types";
 
 type Data<T> = { data: T };
 type Page<T> = Data<T[]> & { pageInfo?: { nextCursor: string | null; hasMore: boolean } };
@@ -46,7 +46,6 @@ export const chatApi = {
   listAssistants: (signal?: AbortSignal) => requestJson<Data<AssistantTemplate[]>>("/api/assistants", t("ui.chat.api-client.couldNotLoadAssistantTemplates"), { signal }),
   setAssistant: (id: string, assistantTemplateId: string | null) => requestJson<Data<ChatSummary>>(conversationPath(id), t("ui.chat.api-client.couldNotApplyAssistantTemplate"), jsonBody("PATCH", { assistantTemplateId })),
   renameConversation: (id: string, title: string) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatApi.renameConversationFailed"), jsonBody("PATCH", { title })),
-  setDocumentScope: (id: string, documentScope: string[]) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatApi.setDocumentScopeFailed"), jsonBody("PATCH", { documentScope })),
   setWorkspace: (id: string, workspaceGrantId: string | null) => requestJson<Data<ChatSummary>>(conversationPath(id), t("ui.chat.workspace.failed"), jsonBody("PATCH", { workspaceGrantId })),
   setEphemeral: (id: string, ephemeral: boolean) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatApi.setEphemeralFailed"), jsonBody("PATCH", { ephemeral })),
   deleteConversation: (id: string) => requestJson<unknown>(conversationPath(id), t("chatApi.deleteConversationFailed"), { method: "DELETE" }),
@@ -54,10 +53,14 @@ export const chatApi = {
   editMessage: (chatId: string, messageId: string, content: string) => requestJson<unknown>(messagePath(chatId, messageId), t("chatApi.saveEditFailed"), jsonBody("PATCH", { content })),
   deleteMessage: (chatId: string, messageId: string) => requestJson<unknown>(messagePath(chatId, messageId), t("chatApi.deleteMessageFailed"), { method: "DELETE" }),
   listDocuments: (signal: AbortSignal) => requestJson<Data<Array<{ id: string; filename: string; collection: string | null }>>>("/api/documents", t("ui.chat.api-client.couldNotLoadKnowledgeDocuments"), { signal }),
-  listTools: () => requestJson<Data<ToolCatalogItem[]>>("/api/tools?mode=chat", t("chatApi.listToolsFailed")),
-  async runTool(tool: string, input: Record<string, unknown>, model: ModelRef | null, chatId?: string) {
+  listTools: () => requestJson<Data<ToolCatalogItem[]> & { skills?: SkillCatalogItem[] }>("/api/tools?mode=chat", t("chatApi.listToolsFailed")),
+  /** What stands in for a conversation's earlier turns, if anything does. */
+  async conversationSummary(chatId: string) {
+    return (await requestJson<{ data: { summary: string; coveredIds: string[] } | null }>(`/api/conversations/${encodeURIComponent(chatId)}/summary`, t("chat.compact.failed"))).data;
+  },
+  async runTool(tool: string, input: Record<string, unknown>, chatId?: string) {
     const failed = `${tool} ${t("chatApi.runToolFailed")}`;
-    const payload = await requestJson<ToolResult>("/api/tools/run", failed, jsonBody("POST", { tool, input, ...(model ? { model } : {}), mode: "chat", ...(chatId ? { chatId } : {}) }));
+    const payload = await requestJson<ToolResult>("/api/tools/run", failed, jsonBody("POST", { tool, input, ...(chatId ? { chatId } : {}) }));
     if (payload.data === undefined) throw new Error(failed);
     return payload;
   },

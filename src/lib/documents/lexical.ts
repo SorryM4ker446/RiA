@@ -1,4 +1,4 @@
-import { tokenizeQuery } from "@/lib/memory/retrieval";
+import { tokenizeQuery } from "@/lib/knowledge/entry-retrieval";
 
 const segmenter = new Intl.Segmenter("zh-CN", { granularity: "word" });
 export function documentTerms(text: string) {

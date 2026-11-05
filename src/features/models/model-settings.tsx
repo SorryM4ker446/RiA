@@ -159,6 +159,7 @@ export function ModelSettings() {
     if (!settings) return [];
     const refs: ModelRef[] = [...modelModes.flatMap(mode => [settings[mode].model, settings[mode].fallback]).filter((ref): ref is ModelRef => Boolean(ref))];
     if (settings.embedding) refs.push(settings.embedding);
+    if (settings.auxiliary) refs.push(settings.auxiliary);
     return [...new Set(refs.map(ref => modelRefKey(ref)))];
   }, [settings]);
   const filteredModels = useMemo(() => (activeCatalog?.models ?? []).filter(item => `${item.modelId} ${item.name} ${item.description}`.toLowerCase().includes(query.toLowerCase())), [activeCatalog, query]);
@@ -241,6 +242,15 @@ export function ModelSettings() {
               </SelectContent>
             </Select>)}</div>
           </div>; })}
+          <div className="setting-row"><span className="setting-row-label">{t("models.auxiliaryModelLabel")}<span className="setting-row-hint">{t("models.auxiliaryModelHint")}</span></span>
+            <Select disabled={busy} onValueChange={value => setSettings({ ...settings, auxiliary: fromSelectValue(value) })} value={toSelectValue(settings.auxiliary ?? null)}>
+              <SelectTrigger aria-label={t("models.auxiliaryModelLabel")} className="w-44"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={UNSET}>{t("models.auxiliaryFollowsChat")}</SelectItem>
+                {settings.library.filter(item => item.modes.includes("chat")).map(item => <SelectItem key={modelRefKey(item)} value={modelRefKey(item)}>{item.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="setting-row"><span className="setting-row-label">{t("models.embeddingModelLabel")}</span>
             <Select disabled={busy} onValueChange={value => setSettings({ ...settings, embedding: fromSelectValue(value) })} value={toSelectValue(settings.embedding)}>
               <SelectTrigger aria-label={t("models.embeddingModelLabel")} className="w-44"><SelectValue /></SelectTrigger>

@@ -130,7 +130,7 @@ async function recordChatReturn(page: Page) {
   const layout = await watchLayout(page, {
     composer: ".chat-workspace textarea",
     transcript: "[data-testid=message-list]",
-    tools: '.chat-workspace [aria-label="选择工具"]',
+    model: '.chat-workspace [aria-label="选择模型"]',
     // Conversation controls count only once painted: hidden, they may still settle.
     assistant: "#chat-assistant",
   }, { allowShiftsIn: ["[data-testid=message-list]"] });
@@ -237,7 +237,7 @@ for (const reducedMotion of [false, true]) {
       expectSteady(layout, "composer", "top");
       expectSteady(layout, "transcript");
       // The model name arriving does not push the tool picker, and the toolbar controls appear in place.
-      expectSteady(layout, "tools", "left");
+      expectSteady(layout, "model", "left");
       expectSteady(layout, "assistant", "left");
       expectNoUnexpectedShift(layout);
     } finally { release.settings(); release.list(); release.history(); }
@@ -300,7 +300,7 @@ for (const reducedMotion of [false, true]) {
     const picker = page.getByRole("combobox", { name: "选择模型", exact: true });
     await expect(picker).toContainText("Short");
     await picker.click();
-    const layout = await watchLayout(page, { tools: '.chat-workspace [aria-label="选择工具"]', composer: ".chat-workspace textarea" });
+    const layout = await watchLayout(page, { model: '.chat-workspace [aria-label="选择模型"]', composer: ".chat-workspace textarea" });
     await page.getByRole("option", { name: "A considerably longer model name", exact: true }).click();
     await expect(picker).toContainText("A considerably longer model name");
     // Long enough for the width easing to finish.
@@ -308,7 +308,7 @@ for (const reducedMotion of [false, true]) {
     const record = await layout.read();
     // With motion the move is spread over several frames (eased, so the first is the largest);
     // with reduced motion it happens in one. Nothing else in the composer moves.
-    expectEased(record, "tools", "left", { atLeast: 41, reducedMotion });
+    expectEased(record, "model", "width", { atLeast: 41, reducedMotion });
     expectSteady(record, "composer");
   });
 }

@@ -7,7 +7,7 @@ import { db } from "@/db";
 import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { requireLocalWorkspace } from "@/lib/local/workspace";
-import { saveMemory } from "@/lib/memory/store";
+import { saveKnowledgeEntry } from "@/lib/knowledge/entries";
 import { pageResult, readPageOptions } from "@/lib/server/pagination";
 
 const createKnowledgeSchema = z.strictObject({
@@ -120,7 +120,7 @@ async function POSTHandler(req: NextRequest) {
       });
     }
 
-    const memory = await saveMemory({
+    const memory = await saveKnowledgeEntry({
       key: parsed.data.key,
       value: parsed.data.value,
       score: parsed.data.score,

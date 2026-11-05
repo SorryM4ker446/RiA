@@ -4,6 +4,7 @@ import { t } from "@/lib/locale";
 import { libraryModes, modelIdSchema, providerIdSchema, type LibraryMode, type ProviderId } from "@/lib/models/preferences-schema";
 import { CatalogFetchError, getModelProvider, listModelProviders, type CatalogFailureReason, type CatalogModel } from "@/lib/models/providers";
 import { catalogPriceInfoSchema } from "@/lib/models/catalog-prices";
+import { syncLibraryReasoning } from "@/lib/models/preferences";
 
 export type { CatalogModel } from "@/lib/models/providers";
 
@@ -107,6 +108,8 @@ async function refresh(providerId: ProviderId, mode: LibraryMode): Promise<Catal
       update: { models: models as never, fetchedAt, lastFailure: null, lastFailureAt: null },
     });
     failures.delete(key);
+    // The catalog was read; a library that could not be updated catches up on the next read.
+    if (mode === "chat") await syncLibraryReasoning(providerId, models).catch(error => console.warn("catalog.reasoning.sync.failed", error instanceof Error ? error.name : "UnknownError"));
     return { providerId, mode, models, fetchedAt: fetchedAt.toISOString(), stale: false, source: "live", error: null, failure: null, skipped: invalidRows };
   } catch (error) {
     const reason = error instanceof CatalogFetchError ? error.reason : "network";

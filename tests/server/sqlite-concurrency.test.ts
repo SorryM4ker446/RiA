@@ -12,7 +12,7 @@ const withResolvers = <T>() => (Promise as unknown as {
   withResolvers: <U>() => { promise: Promise<U>; resolve: (value: U) => void; reject: (reason?: unknown) => void };
 }).withResolvers<T>();
 const { db } = await import("@/db");
-const { saveMemory } = await import("@/lib/memory/store");
+const { saveKnowledgeEntry } = await import("@/lib/knowledge/entries");
 after(async () => { await db.$disconnect(); cleanup(); });
 
 test("concurrent memory writes and transactions queue beyond the SQLite lock timeout", { timeout: 45_000 }, async () => {
@@ -37,7 +37,7 @@ test("concurrent memory writes and transactions queue beyond the SQLite lock tim
   try {
     await locked.promise;
     writes = Promise.allSettled([
-      ...Array.from({ length: 8 }, (_, index) => saveMemory({ key: "queued preference", value: `value ${index}`, score: 0.9,
+      ...Array.from({ length: 8 }, (_, index) => saveKnowledgeEntry({ key: "queued preference", value: `value ${index}`, score: 0.9,
       })),
       db.$transaction((tx) => tx.task.update({ where: { id: queuedTaskId }, data: { details: "Queued transaction" } })),
     ]);
@@ -49,7 +49,7 @@ test("concurrent memory writes and transactions queue beyond the SQLite lock tim
     for (const result of results) if (result.status === "rejected") throw result.reason;
     assert.equal((await db.task.findUniqueOrThrow({ where: { id: queuedTaskId } })).details, "Queued transaction");
     assert.equal(await db.memory.count({ where: { key: "queued preference" } }), 1);
-    const updated = await saveMemory({ key: "queued preference", value: "Queue recovered" });
+    const updated = await saveKnowledgeEntry({ key: "queued preference", value: "Queue recovered" });
     assert.equal(updated.value, "Queue recovered");
     assert.equal(updated.score, 0.9);
   } finally {
@@ -66,7 +66,7 @@ test("an external SQLite writer still times out and later writes recover", { tim
   try {
     external.exec("BEGIN IMMEDIATE");
     try {
-      await assert.rejects(saveMemory({ key: "external lock", value: "Must not be saved" }), (error: any) => error.code === "P1008");
+      await assert.rejects(saveKnowledgeEntry({ key: "external lock", value: "Must not be saved" }), (error: any) => error.code === "P1008");
     } finally {
       external.exec("ROLLBACK");
     }
@@ -74,6 +74,6 @@ test("an external SQLite writer still times out and later writes recover", { tim
     external.close();
   }
   assert.equal(await db.memory.count({ where: { key: "external lock" } }), 0);
-  await saveMemory({ key: "external lock", value: "Saved after unlock" });
+  await saveKnowledgeEntry({ key: "external lock", value: "Saved after unlock" });
   assert.equal(await db.memory.count({ where: { key: "external lock" } }), 1);
 });

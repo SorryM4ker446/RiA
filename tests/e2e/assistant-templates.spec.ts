@@ -27,6 +27,25 @@ async function expectSnapshotDetails(page: Page, revision: number, toolCount: nu
   await expect(trigger).toBeFocused();
 }
 
+test("topics set without the tool that reads them say so, and the tool can be turned on from there", async ({ page, app }) => {
+  await openWorkspace(page, app.origin); await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  await page.goto(`${app.origin}/assistants`);
+  await page.getByRole("button", { name: "新建模板", exact: true }).click();
+  const hint = page.getByText("这个模板没有启用“知识检索”，模型用不到这些主题。");
+  await expect(hint, "nothing to say before a topic is named").toHaveCount(0);
+  await page.getByLabel("主题（每行一个，留空为全部）").fill("财务");
+  await expect(hint).toBeVisible();
+  await page.getByRole("button", { name: "启用知识检索", exact: true }).click();
+  await expect(hint).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "启用知识检索", exact: true })).toHaveCount(0);
+  await page.getByLabel("模板名称", { exact: true }).fill("财务检索助理");
+  await page.getByLabel("助理指令").fill("回答财务问题。");
+  const saved = page.waitForResponse(response => new URL(response.url()).pathname === "/api/assistants" && response.request().method() === "POST");
+  await page.getByRole("button", { name: "保存模板", exact: true }).click();
+  const body = await (await saved).json();
+  expect(body.data.config.tools).toContain("searchKnowledge");
+});
+
 test("template editing, copying and deletion preserve conversation snapshots across service restart", { tag: "@integration" }, async ({ page, app }) => {
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
   const consoleErrors: string[] = []; page.on("console", message => { if (message.type() === "error") consoleErrors.push(message.text()); });
@@ -38,6 +57,7 @@ test("template editing, copying and deletion preserve conversation snapshots acr
   await page.getByLabel("模板名称", { exact: true }).fill("财务测试助理");
   await page.getByLabel("助理指令", { exact: true }).fill("Keep original financial evidence. ASSISTANT_SNAPSHOT_V1");
   await page.getByLabel("主题（每行一个，留空为全部）").fill("财务");
+  await expect(page.getByText("这个模板没有启用“知识检索”，模型用不到这些主题。"), "topics do nothing without the tool that reads them").toBeVisible();
   await page.getByLabel("使用长期记忆").uncheck();
   await page.getByLabel("绑定聊天模型").click(); await page.getByRole("option", { name: "Claude Opus Offline · openrouter", exact: true }).click();
   await page.getByRole("button", { name: "保存模板", exact: true }).click();
@@ -52,7 +72,6 @@ test("template editing, copying and deletion preserve conversation snapshots acr
   await page.getByPlaceholder(/输入你的问题/).fill("Explain the working rules"); await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.locator("article").last()).not.toContainText("检索诊断");
   const executionDetails = await openExecutionDetails(page);
-  await expect(executionDetails).toContainText("检索诊断");
   await executionDetails.getByRole("button", { name: "关闭", exact: true }).click();
   await expect.poll(() => JSON.stringify(app.providerCalls.filter(call => call.stream).at(-1)?.messages) ?? "").toContain("ASSISTANT_SNAPSHOT_V1");
   await page.goto(`${app.origin}/assistants`); await card.getByRole("button", { name: /更多操作/ }).click(); await page.getByRole("menuitem", { name: "编辑", exact: true }).click();
@@ -76,7 +95,7 @@ test("template editing, copying and deletion preserve conversation snapshots acr
   await expect(page.getByLabel("助理模板", { exact: true })).toContainText("财务测试助理"); await expectSnapshotDetails(page, 2, 0);
   const restored = (await browserApi(page, `/api/conversations/${chat.id}`)).body.data; expect(restored.assistantConfig.instructions).toBe("ASSISTANT_SNAPSHOT_V2");
   expect(consoleErrors).toEqual([]);
-  const denied = await browserApi(page, "/api/tools/run", "POST", { mode: "chat", chatId: chat.id, tool: "createTask", input: { title: "Denied by template" } }); expect(denied.status).toBe(400);
+  const denied = await browserApi(page, "/api/tools/run", "POST", { chatId: chat.id, tool: "createTask", input: { title: "Denied by template" } }); expect(denied.status).toBe(400);
   await page.getByLabel("助理模板", { exact: true }).click(); await page.getByRole("option", { name: "通用助理", exact: true }).click(); await expect(page.getByLabel("选择模型")).toBeEnabled();
   await expect(page.getByRole("button", { name: "模板详情", exact: true })).toHaveCount(0);
   expect(errors).toEqual([]);

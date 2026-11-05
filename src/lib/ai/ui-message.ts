@@ -1,5 +1,9 @@
+import { thinkingRecordSchema, type ThinkingRecord } from "@/lib/chat/thinking";
+import { messageInvocationSchema, readMessageInvocation, type MessageInvocation } from "@/lib/chat/invocation-schema";
 import { documentDiagnosticsSchema, type DocumentDiagnostics } from "@/lib/documents/diagnostics";
 import { UIMessage } from "ai";
+import { z } from "zod";
+import { currentToolId } from "@/tools/legacy-names";
 import { documentSourceSchema, type DocumentSource } from "@/lib/documents/types";
 import { contextReportSchema, type ContextReport } from "@/lib/chat/context-report";
 
@@ -15,6 +19,8 @@ export type PersistedUserMessagePayload = {
   type: "user-message";
   text: string;
   files: PersistedFilePart[];
+  /** What the user chose in the composer for this message. */
+  invocation?: MessageInvocation;
 };
 
 export type PersistedAssistantToolItem = {
@@ -44,8 +50,17 @@ export type PersistedAssistantToolMessagePayload = {
    * user text-input limit.
    */
   reasoning?: string;
+  /** What kind of reasoning the turn had, how long it took and where tools broke it up. */
+  thinking?: ThinkingRecord;
+  /**
+   * The turn step by step, as the model produced it. A later request repeats it in
+   * this order, so a provider's prompt cache keeps matching it.
+   */
+  steps?: PersistedStep[];
   /** Optional tools this turn could not use, recorded for the note below. */
   unavailableTools?: string[];
+  /** The tool the user chose for this turn, when the model answered without calling it. */
+  skippedTool?: string;
   documentSources?: DocumentSource[];
   documentDiagnostics?: DocumentDiagnostics;
   runId?: string;
@@ -95,6 +110,7 @@ export function getLatestUserMessage(messages: UIMessage[]): {
   id?: string;
   text: string;
   files: PersistedFilePart[];
+  invocation: MessageInvocation | null;
 } | null {
   const userMessages = messages.filter((message) => message.role === "user");
   const latest = userMessages[userMessages.length - 1];
@@ -110,7 +126,7 @@ export function getLatestUserMessage(messages: UIMessage[]): {
     }));
 
   if (!text && files.length === 0) return null;
-  return { id: latest.id, text, files };
+  return { id: latest.id, text, files, invocation: readMessageInvocation(latest.metadata) };
 }
 
 export function encodePersistedUserMessage(payload: PersistedUserMessagePayload): string {
@@ -135,9 +151,11 @@ export function decodePersistedUserMessage(content: string): PersistedUserMessag
         file.mediaType.length > 0,
     );
 
+    const invocation = messageInvocationSchema.safeParse(parsed.invocation);
     return {
       type: "user-message",
       text: parsed.text,
+      ...(invocation.success ? { invocation: invocation.data } : {}),
       files: validFiles.map((file) => ({
         url: file.url,
         mediaType: file.mediaType,
@@ -149,6 +167,23 @@ export function decodePersistedUserMessage(content: string): PersistedUserMessag
   } catch {
     return null;
   }
+}
+
+export type PersistedStep = { reasoning?: string; text?: string; calls: string[] };
+
+const persistedStepSchema = z.object({ reasoning: z.string().optional(), text: z.string().optional(), calls: z.array(z.string()) });
+
+/** Where the steps of a response begin and what each held. A single step needs no record. */
+export function stepsOfMessage(parts: UIMessage["parts"]): PersistedStep[] | undefined {
+  const steps: PersistedStep[] = [{ calls: [] }];
+  for (const part of parts) {
+    const step = steps.at(-1)!;
+    if (part.type === "step-start") { if (step.calls.length || step.text || step.reasoning) steps.push({ calls: [] }); }
+    else if (part.type === "reasoning") step.reasoning = `${step.reasoning ?? ""}${part.text}`;
+    else if (part.type === "text") step.text = `${step.text ?? ""}${part.text}`;
+    else if ("toolCallId" in part && typeof part.toolCallId === "string") step.calls.push(part.toolCallId);
+  }
+  return steps.some(step => step.calls.length) ? steps : undefined;
 }
 
 export function encodePersistedAssistantToolMessage(
@@ -189,7 +224,7 @@ export function decodePersistedAssistantToolMessage(
       )
       .map((tool) => ({
         ...(typeof tool.title === "string" ? { title: tool.title.slice(0, 500) } : {}),
-        toolName: tool.toolName,
+        toolName: currentToolId(tool.toolName),
         toolCallId: tool.toolCallId,
         state: tool.state,
         ...(tool.input !== undefined ? { input: tool.input } : {}),
@@ -212,7 +247,10 @@ export function decodePersistedAssistantToolMessage(
       ...(typeof parsed.modelLabel === "string" ? { modelLabel: parsed.modelLabel.slice(0, 240) } : {}),
       ...(contextReportSchema.safeParse(parsed.contextBudget).success ? { contextBudget: contextReportSchema.parse(parsed.contextBudget) } : {}),
       ...(reasoning ? { reasoning } : {}),
+      ...(thinkingRecordSchema.safeParse(parsed.thinking).success ? { thinking: thinkingRecordSchema.parse(parsed.thinking) } : {}),
+      ...(z.array(persistedStepSchema).safeParse(parsed.steps).success ? { steps: z.array(persistedStepSchema).parse(parsed.steps) } : {}),
       ...(unavailableTools?.length ? { unavailableTools } : {}),
+      ...(typeof parsed.skippedTool === "string" ? { skippedTool: parsed.skippedTool.slice(0, 100) } : {}),
       tools,
       ...(documentDiagnosticsSchema.safeParse(parsed.documentDiagnostics).success ? { documentDiagnostics: documentDiagnosticsSchema.parse(parsed.documentDiagnostics) } : {}),
       ...(Array.isArray(parsed.documentSources) ? { documentSources: parsed.documentSources.slice(0, 8).flatMap(source => {
@@ -229,4 +267,14 @@ export function truncateTitle(input: string, maxLength = 60): string {
   const normalized = input.replace(/\s+/g, " ").trim();
   if (normalized.length <= maxLength) return normalized;
   return `${normalized.slice(0, maxLength)}...`;
+}
+
+/** A stored or streamed tool error as a sentence; errors are stored as the API's JSON shape. */
+export function readToolError(errorText: string) {
+  try {
+    const message = (JSON.parse(errorText) as { error?: { message?: unknown } } | null)?.error?.message;
+    return typeof message === "string" && message ? message : errorText;
+  } catch {
+    return errorText;
+  }
 }

@@ -1,9 +1,9 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { z } from "zod";
 import { BodyReadError, readLimitedJson } from "@/lib/models/catalog-read";
-import { libraryModes } from "@/lib/models/preferences-schema";
+import { libraryModes, reasoningEfforts, type ReasoningCapability } from "@/lib/models/preferences-schema";
 import { openRouterImagePrices, openRouterVideoPrices } from "@/lib/models/catalog-prices";
-import { CatalogFetchError, type CatalogModel, type ModelProvider } from "@/lib/models/providers/types";
+import { CatalogFetchError, type CatalogModel, type ModelProvider, type ReasoningPreference } from "@/lib/models/providers/types";
 
 const catalogMaxBodyBytes = 8 * 1024 * 1024;
 const openrouter = createOpenRouter({
@@ -31,6 +31,7 @@ const rawModel = z.object({
   top_provider: z.object({ context_length: z.number().int().positive().nullish(), max_completion_tokens: z.number().int().positive().nullish() }).nullish(),
   architecture: z.object({ modality: z.string().optional(), input_modalities: z.array(z.string()).optional(), output_modalities: z.array(z.string()).optional() }).passthrough().nullable().optional(),
   supported_parameters: z.union([z.array(z.string()), z.record(z.string(), z.unknown())]).nullable().optional(),
+  reasoning: z.unknown().optional(),
   supported_frame_images: z.array(z.string()).nullable().optional(),
   supported_durations: z.array(z.unknown()).nullable().optional(),
   supported_resolutions: z.array(z.unknown()).nullable().optional(),
@@ -46,6 +47,30 @@ function hasPositiveReferenceLimit(value: unknown) {
   if (!value || typeof value !== "object") return false;
   const max = (value as { max?: unknown }).max;
   return typeof max === "number" && max > 0;
+}
+
+const declaredReasoning = z.object({ mandatory: z.boolean(), supported_efforts: z.array(z.string()).nullish() });
+
+/**
+ * A malformed field reads as not stated rather than failing the row, and a model
+ * that lists the parameter without describing it is not known to be switchable.
+ */
+function reasoningCapability(declared: unknown, parameterNames: string[]): ReasoningCapability | null | undefined {
+  const parsed = declaredReasoning.safeParse(declared);
+  if (!parsed.success) return parameterNames.includes("reasoning") ? undefined : null;
+  const efforts = reasoningEfforts.filter(effort => parsed.data.supported_efforts?.includes(effort));
+  return { mandatory: parsed.data.mandatory, ...(efforts.length ? { efforts } : {}) };
+}
+
+/** The offered level nearest the one asked for; the higher of two equally near ones. */
+function closestEffort(wanted: NonNullable<ReasoningPreference["effort"]>, offered: ReasoningCapability["efforts"]) {
+  // With no list the model takes the common levels, and `max` is too new to assume.
+  if (!offered) return wanted === "max" ? "high" : wanted;
+  const rank = (effort: string) => reasoningEfforts.indexOf(effort as (typeof reasoningEfforts)[number]);
+  return offered.filter(effort => effort !== "none").reduce<string>((best, effort) => {
+    const gap = Math.abs(rank(effort) - rank(wanted)), bestGap = Math.abs(rank(best) - rank(wanted));
+    return gap < bestGap || (gap === bestGap && rank(effort) > rank(best)) ? effort : best;
+  }, offered.find(effort => effort !== "none") ?? wanted);
 }
 
 function normalizeOpenRouterRow(value: unknown, mode: (typeof libraryModes)[number]): CatalogModel | null {
@@ -76,6 +101,7 @@ function normalizeOpenRouterRow(value: unknown, mode: (typeof libraryModes)[numb
     // provider and billed for it, which the user is told rather than left to
     // discover on an invoice.
     providerSearch: /:online$/.test(row.id) || Object.keys(row.pricing ?? row.pricing_skus ?? {}).some(key => key.includes("search")) || parameterNames.some(x => /web[_-]?search/i.test(x)),
+    ...(mode === "chat" ? { reasoning: reasoningCapability(row.reasoning, parameterNames) } : {}),
     contextLength: row.context_length && row.top_provider?.context_length ? Math.min(row.context_length, row.top_provider.context_length) : row.context_length ?? row.top_provider?.context_length ?? null,
     maxOutputTokens: row.top_provider?.max_completion_tokens ?? null,
     pricing: Object.fromEntries(Object.entries({ ...row.pricing_skus, ...row.pricing }).filter(([k, v]) => k.length <= 40 && ["string", "number"].includes(typeof v) && String(v).length <= 80).slice(0, 12).map(([k, v]) => [k, String(v)])),
@@ -173,6 +199,18 @@ export const openRouterProvider: ModelProvider = {
   isTrustedModelId: (value) => openRouterModelIdSchema.safeParse(value).success,
   offeredModes: ["chat", "image", "video", "embedding"],
   isConfigured: () => Boolean(openRouterKey()),
+  // With no effort chosen nothing is sent, so the model's own default stands. A
+  // model that must reason rejects being turned off, and one not known to be
+  // switchable is left alone rather than risking that refusal on every message.
+  reasoningOptions: (preference, model) => {
+    const capability = model?.reasoning;
+    if (capability === null) return undefined;
+    if (!preference.enabled) {
+      if (!capability || capability.mandatory) return undefined;
+      return { openrouter: { reasoning: capability.efforts?.includes("none") ? { effort: "none" } : { enabled: false } } };
+    }
+    return preference.effort ? { openrouter: { reasoning: { effort: closestEffort(preference.effort, capability?.efforts) } } } : undefined;
+  },
   fetchCatalog: fetchOpenRouterCatalog,
   createChatModel: (modelId) => openrouter(modelId),
   createImageModel: (modelId) => openrouter.imageModel(modelId),

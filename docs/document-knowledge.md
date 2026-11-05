@@ -1,9 +1,8 @@
 # Document knowledge
 
-Automatic `searchKnowledge` tool calls and manual searches from a conversation
-honor that conversation's selected collections. An empty selection searches all
-collections. In a conversation with memory disabled, these tools do not read or
-write long-term memories; imported documents remain available. Manual tool API
+An ordinary conversation searches the whole library, and the model decides through
+`searchKnowledge` what to look up. Only a topic conversation or a template with
+collections narrows that search; knowledge entries are included only when nothing does. Manual tool API
 requests may include `chatId` so the server can derive these settings from the
 stored conversation. A missing supplied conversation returns 404.
 
@@ -22,14 +21,14 @@ use **Reindex** to repair their saved headings/table chunks; affected semantic
 vectors are invalidated and need explicit rebuilding. Unchanged paragraphs retain
 their IDs, and a content-preserving reindex keeps document citation versions.
 
-The document panel supports keyword search without a model key, and hybrid search when compatible semantic vectors exist. Chat retrieves up to eight versioned snippets for each message. When the conversation or its template selects topics, or the chat model cannot call `searchKnowledge`, all of them are supplied. Otherwise only strong matches are added automatically — a semantic similarity of at least 0.5, or matched terms covering at least 60% of the query — and the model searches with `searchKnowledge` when it needs more; retrieval diagnostics count the weak matches that were withheld. Retrieval expands adjacent paragraphs, which follow their anchor, to retain conditions and exceptions. The knowledge-search tool prioritizes document evidence before filling remaining slots with confirmed memories. Filenames, excerpts and source links appear below the answer. PDF sources identify their page; other formats identify their chunk. The source page requires the same authentication as the knowledge library and renders extracted text rather than document HTML.
+The document panel supports keyword search without a model key, and hybrid search when compatible semantic vectors exist. Chat adds nothing from the knowledge base on its own: the model calls `searchKnowledge` when it judges a question needs it, and a request that does not search carries no knowledge text. A chat model without tool calling, or a template that does not allow `searchKnowledge`, therefore answers without the knowledge base. Source cards under an answer come from those searches; answers stored by earlier versions keep the sources they recorded.
 
 ## Configure and build semantic retrieval
 
 1. Select an embedding model from the existing model settings and configure its provider.
 2. Import documents and inspect their extracted text. For older documents, use **Reindex** first.
 3. Click **Build semantic index** for one document or **Build or resume in bulk** for pending documents in the current library, and confirm sending their filenames, collections, section paths and text snippets to that model. The panel shows indexed/total chunks for the selected model.
-4. Ask a paraphrased question in the library or chat. Select the appropriate collections to narrow evidence. A short follow-up can reuse the preceding user question; assistant speculation is excluded from this query context.
+4. Ask a paraphrased question in the library or chat. A short follow-up can reuse the preceding user question; assistant speculation is excluded from this query context.
 
 Import never starts billable indexing automatically. Each explicit indexing request processes at most 32 pending chunks, with a 30-second provider deadline. One page operation makes at most 12 sequential requests in total and at most eight for a document. Completed batches persist if a later batch fails, hits quota or is cancelled; refresh and click the button again to continue, including after a service restart. An unchanged completed index makes no new provider call. Quota and conflict stop the operation; other document failures are reported while remaining documents can proceed. Embedding calls have no automatic retries. Duplicate requests for one document return conflict; document/model changes or cancellation prevent an obsolete batch from committing. **Cancel indexing** and leaving the library cancel its in-flight request. Cancellation cannot undo an already committed batch or guarantee a provider has not charged for submitted work.
 
@@ -90,12 +89,13 @@ Multipart requests reject unknown/duplicate fields, require one file and reject 
 
 PDF.js, Mammoth and JSZip are application dependencies, pinned in the lockfile. The worker uses native Node resolution because bundler module IDs are not filesystem paths. Next's output tracing explicitly includes these packages and their installed runtime dependencies, including PDF character maps/fonts and the optional platform canvas binding when present. Keep that tracing synchronized when upgrading parsers. Browser integration tests import actual generated PDF/DOCX files through the production standalone service; Electron smoke tests repeat binary imports and verify text/index retention after service restart. No paid provider is used by these checks.
 
-## Memory provenance and candidates
+## Knowledge entries
 
-The conversation's memory switch also controls the explicit `saveMemory` tool:
-it is omitted from automatic tools when memory is disabled, and manual calls
-return a validation error without writing. Other conversations can still save
-memory normally.
+Knowledge entries are the part of the knowledge base a person or the assistant writes as
+short named items rather than imports. They are not long-term memory, which is
+[a separate document the model keeps](long-term-memory.md), and a conversation's memory
+switch does not touch them. They are still stored in the `memories` table and reached at
+`/api/memory`, names kept so existing data, backups and integrations keep working.
 
 Collection names containing `|` are supported. Such scopes are stored as a
 versioned JSON string; ordinary scopes retain the previous representation. The
@@ -105,13 +105,13 @@ already ambiguous; clear it and select the intended collection again. No
 document is renamed or deleted. Backups containing the new representation
 require this version or a newer version to restore the scope correctly.
 
-Every memory records where it came from: added by hand, or inferred by the assistant. An inferred entry is stored as a **candidate**: visible, editable and deletable in the knowledge page, but it does not enter the context of any answer until you accept it. An inference therefore does not become a fact on the next turn, and it never takes effect where you cannot see it. Knowledge searches and created tasks can leave such candidates; web searches do not. Candidates written from tool results that stay unaccepted for 30 days, or beyond the newest 200, are removed; accepted and hand-written memories are never removed automatically.
+Every entry records where it came from: added by hand, or inferred by the assistant. An inferred entry is stored as a **candidate**: visible, editable and deletable in the knowledge page, but it does not enter the context of any answer until you accept it. New candidates are no longer made; older ones may arrive from a backup.
 
-When the model asks to save a memory with `saveMemory`, the request waits for your approval with its key and value shown, because a saved memory enters every later conversation it matches and the model may be acting on text it read in a page, document or command output. Saving through the tool form yourself needs no approval. A fact saved this way never overwrites a different memory under the same key: it is kept under a numbered key such as `preference (2)`, and saving the same text again changes nothing. Editing a memory on the knowledge page still replaces it.
+When the model asks to save an entry with `saveKnowledgeEntry`, the request waits for your approval with its name and content shown, because a saved entry enters every later conversation it matches and the model may be acting on text it read in a page, document or command output. Saving by hand needs no approval. Anything naming the tool's earlier id, `saveMemory`, in old conversations, templates and backups reads as this one.
 
-Chat includes at most six confirmed memories, and only those that match the message — a keyword or semantic match of at least 0.3 — before recency and manual weight order them. Keyword matching counts the message's words a memory contains, up to four: in a long message two shared words are a match and a single shared word is not. A message of three words or fewer is read as a follow-up: the previous user message is matched as well, at 0.8 of the weight, so "and that one?" still finds what it refers to, while a longer message on a new subject does not carry the previous subject's memories. Every confirmed memory is compared, however old.
+Chat includes at most six confirmed entries, and only those that match the message — a keyword or semantic match of at least 0.3 — before recency and manual weight order them. An entry belongs to no topic, so a conversation or search kept to chosen topics leaves entries out.
 
-Editing a candidate is how it is accepted. A memory written by hand is stamped with the time it was last used, and the page shows **last used** so it is clear which memories are doing something and which have gone untouched.
+Editing a candidate is how it is accepted. An entry is stamped with the time it was last used, and the page shows **last used** so it is clear which entries are doing something and which have gone untouched.
 
 Provenance travels with workspace backups. Restoring an archive does not turn an inference you never accepted into one you are treated as having accepted.
 
@@ -156,7 +156,7 @@ and 1–12 `cases`. Each case contains `question`, optional `collections`,
 `kind: fact|condition|exception|quantity|conflict` and a complete `statement` of at
 most 400 characters), and `answerable` (default true). An unanswerable
 case must leave expected documents, facts and expectations empty. Explicit case collections
-override template collections for that evaluation; normal chat uses its own saved scope.
+override template collections for that evaluation; normal chat uses the limit from its topic or template.
 
 The returned report includes each case's actual excerpts, diagnostics, filename
 recall, exact-text fact coverage in evidence/answer, matching citation count,
@@ -210,12 +210,11 @@ examples are for human calibration, never additions to the generation prompt.
 The offline regression validates all 50 case contracts and local retrieval of the
 40 named-document cases; it does not measure real semantic judgment quality.
 
-Document search and automatic chat context use the same hybrid retrieval. Preview
+Document search and `searchKnowledge` use the same hybrid retrieval. Preview
 search does not call a chat model. The library's collection selector uses
 exact names, including names containing `|`. `POST /api/documents/search` accepts
 optional `collections` (up to 12 names of 40 characters); omitted or empty means
-all collections. Chat and tool retrieval continue using the stored conversation
-scope. Results distinguish `local-keyword`, `semantic`, `hybrid` and `neighbor`,
+all collections. Chat and tool retrieval use the limit from the conversation's topic or template. Results distinguish `local-keyword`, `semantic`, `hybrid` and `neighbor`,
 and include section paths, matched terms, collection and document content hash.
 These explain how a fragment was selected, not a probability
 that it answers the question. A keyword overlap can be useful yet contain no answer.
@@ -279,7 +278,7 @@ latency and costs. These calls are explicit and can incur charges.
 
 The knowledge page keeps document import and retrieval above a compact document list. **Import & privacy information**, **Index maintenance** and **Retrieval quality evaluation** expand on demand. Document rows show filename, collection, chunk/character counts, index time and keyword/semantic status; the three labelled icon actions retain semantic indexing, local reindexing and deletion. Open **Index maintenance** to run or continue a batch, inspect diagnostics or cancel an active build. These layout changes do not start indexing or change confirmation and billing behavior.
 
-Memories use a full-width searchable list with existing confirmation filters and pagination. **Add memory** opens a keyboard-accessible sheet; failed saves retain the draft, and long entries support an abbreviated preview with **Expand full text**. Existing entry edits, confirmation and deletion remain available inline.
+Knowledge entries use a full-width searchable list with existing confirmation filters and pagination. **Add entry** opens a keyboard-accessible sheet; failed saves retain the draft, and long entries support an abbreviated preview with **Expand full text**. Existing entry edits, confirmation and deletion remain available inline.
 
 
 Recognized `tool-memory-v1` records display a readable subject, tool label and summary instead of their storage envelope. **View content** expands a sanitized Markdown answer excerpt; **Original record** exposes the complete stored key/value. Previewing these excerpts does not load embedded images. This is presentation only: editing still uses the original value, and search, confirmation, IDs and persisted keys remain unchanged. Manual notes and unsupported or malformed envelopes retain their plain text; long or multiline notes use a two-line preview with full expansion.

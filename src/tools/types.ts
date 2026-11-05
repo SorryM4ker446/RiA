@@ -13,6 +13,7 @@ type ToolExecutionContext<Input> = {
   modelRef?: ModelRef;
   trigger: ToolTriggerType;
   signal?: AbortSignal;
+  chatId?: string | null;
   runId?: string | null;
   documentCollections?: string[];
   documentRetrievalPolicy?: RetrievalPolicy;
@@ -36,14 +37,6 @@ type ToolPrepareInputContext<Input> = {
   signal?: AbortSignal;
 };
 
-type ToolAssistantTextContext<Input, Output> = {
-  signal?: AbortSignal;
-  input: Input;
-  output: Output;
-  modelRef?: ModelRef;
-  trigger: ToolTriggerType;
-};
-
 export type ToolMemoryDraft = {
   seed: string;
   summary: string;
@@ -60,38 +53,35 @@ type ToolMemoryContext<Input, Output> = {
   modelRef?: ModelRef;
 };
 
-export type ManualFieldMeta = {
-  key: string;
-  label: string;
-  type: "text" | "number" | "select" | "datetime-local";
-  /** Sent with its default value but never shown: the tool needs it, the user does not choose it. */
-  hidden?: boolean;
-  required?: boolean;
-  placeholder?: string;
-  defaultValue?: string;
-  min?: number;
-  max?: number;
-  step?: number;
-  options?: Array<{
-    label: string;
-    value: string;
-  }>;
-};
+/** Where a tool sits when people browse or choose tools. */
+export type ToolCategory = "knowledge" | "web" | "workspace" | "tasks" | "context" | "extension";
 
-export type ManualToolMeta = {
-  enabled: boolean;
-  label: string;
-  placeholder: string;
-  submitLabel: string;
-  primaryFieldKey: string;
-  primaryFieldLabel: string;
-  fields: ManualFieldMeta[];
-};
-
-export type ToolMemoryPolicy<Input, Output> = {
-  enabled: boolean;
-  minQuality: number;
-  summarize: (context: ToolMemoryContext<Input, Output>) => ToolMemoryDraft | null;
+/**
+ * Who can reach a tool, stated once. Every list of tools is derived from this:
+ * the slash menu, a template's tool choice, the built-in tool list, and which
+ * tools the system prompt may call unavailable.
+ */
+export type ToolSurface = {
+  category: ToolCategory;
+  /**
+   * How a person chooses it in the composer; null when only the model calls it.
+   * `model` sends the message through the model with this tool offered first.
+   * `direct` needs no model and runs from the composer's own controls.
+   */
+  user: { run: "model" | "direct"; hint: string } | null;
+  /**
+   * How a template treats it: chosen one by one, always allowed because it grants
+   * nothing external, allowed along with the tool it is a way of using, or allowed
+   * along with any tool, so a template with no tools still has none.
+   */
+  template: "selectable" | "always" | { follows: string } | "with-any";
+  /**
+   * Not a tool of the kind people or templates choose. Who drives it differs:
+   * `application` is never in the tool set sent to the model, since what it does is
+   * decided without asking the model, as when a number crosses a line. `model` is the
+   * model's alone: it goes to the model, which can only call what a request defines.
+   */
+  underlying?: "application" | "model";
 };
 
 export type ToolDescriptor<Input = unknown, Output = unknown> = {
@@ -113,7 +103,7 @@ export type ToolDescriptor<Input = unknown, Output = unknown> = {
    */
   modelDescription: string;
   modeSupport: ToolMode[];
-  manual: ManualToolMeta;
+  surface: ToolSurface;
   /** Caps how many results one turn may pull, to bound cost and latency. */
   resultBudget?: {
     inputKey: string;
@@ -122,6 +112,8 @@ export type ToolDescriptor<Input = unknown, Output = unknown> = {
   inputSchema: z.ZodType<Input>;
   modelInputSchema?: FlexibleSchema<Input>;
   extensionId?: string;
+  /** The connection this tool comes from, as people named it. */
+  extensionName?: string;
   extensionRevision?: number;
   requiresApproval?: boolean | ((input: unknown) => Promise<boolean>);
   /**
@@ -144,14 +136,13 @@ export type ToolDescriptor<Input = unknown, Output = unknown> = {
    */
   buildUnavailableOutput?: (context: { input: unknown; reason: ToolSkipReason; error: unknown }) => Output;
   execute: (context: ToolExecutionContext<Input>) => Promise<Output>;
-  buildAssistantText: (context: ToolAssistantTextContext<Input, Output>) => Promise<string> | string;
-  memory: ToolMemoryPolicy<Input, Output>;
 };
 
 export type AnyToolDescriptor = ToolDescriptor<any, any>;
 
 export type PublicToolCatalogItem = {
   extensionId?: string;
+  extensionName?: string;
   /** Whether this tool can run right now, and why not when it cannot. */
   available: boolean;
   reason: ToolAvailabilityReason | null;
@@ -161,7 +152,9 @@ export type PublicToolCatalogItem = {
   displayName: string;
   description: string;
   modeSupport: ToolMode[];
-  manual: ManualToolMeta;
+  surface: ToolSurface;
+  /** Whether a call may wait for the user first; the final say can depend on its input. */
+  requiresApproval: boolean;
   resultBudget?: {
     inputKey: string;
     maxPerTurn: number;

@@ -135,20 +135,21 @@ export async function runMediaGeneration({ kind, model, content, uploadParts, ge
       return;
     }
     const userMessage: UIMessage = {
-      id: crypto.randomUUID(), role: "user",
+      id: crypto.randomUUID(), role: "user", metadata: { createdAt: new Date().toISOString() },
       parts: [...(content ? [{ type: "text" as const, text: content }] : []), ...uploadParts],
     };
     const assistantMessage: UIMessage = {
       id: crypto.randomUUID(), role: "assistant", parts: [{ type: "text", text: `${t("mediaGen.generatingPrefix")}${label}...` }],
     };
-    function publish(text: string, url?: string) {
+    // The placeholder has no time; the answer's is when it arrived, as its row says.
+    function publish(text: string, url?: string, settled = true) {
       const view = getView();
       if (view.chatId !== chatId || !view.ready) return;
       // History may have replaced the placeholder after A -> B -> A. Merge only
       // this request's messages, never replay the array captured when it started.
       view.setMessages((current) => {
         if (getView().chatId !== chatId) return current;
-        const result = { ...assistantMessage, parts: [{ type: "text" as const, text }] };
+        const result = { ...assistantMessage, ...(settled ? { metadata: { createdAt: new Date().toISOString() } } : {}), parts: [{ type: "text" as const, text }] };
         const withUser = current.some((message) => message.id === userMessage.id) ? current : [...current, userMessage];
         return withUser.some((message) => message.id === result.id)
           ? withUser.map((message) => message.id === result.id ? result : message)
@@ -156,7 +157,7 @@ export async function runMediaGeneration({ kind, model, content, uploadParts, ge
       });
       if (url) setAsset(assistantMessage.id, url);
     }
-    publish(`${t("mediaGen.generatingPrefix")}${label}...`);
+    publish(`${t("mediaGen.generatingPrefix")}${label}...`, undefined, false);
     try {
       await persistConversationMessage({
         chatId, role: "user", clientMessageId: userMessage.id,

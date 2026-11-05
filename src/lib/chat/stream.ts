@@ -1,29 +1,43 @@
 import { withModelCallSource } from "@/lib/models/call-context";
 import { getChatModel } from "@/lib/ai/client";
 import { getModelProvider } from "@/lib/models/providers";
+import { getLatestUserMessage } from "@/lib/ai/ui-message";
 import { t } from "@/lib/locale";
 import { ApiError, apiErrorPayload, normalizeApiError } from "@/lib/server/api-error";
 import { createChatToolSet } from "@/tools/catalog";
 import type { ModelMessage } from "ai";
 import type { LanguageModelV3Prompt } from "@ai-sdk/provider";
-import { asSchema, createUIMessageStream, createUIMessageStreamResponse, generateId, smoothStream, stepCountIs, streamText, wrapLanguageModel } from "ai";
+import { asSchema, createUIMessageStream, createUIMessageStreamResponse, generateId, smoothStream, stepCountIs, streamText, wrapLanguageModel, type UIMessageChunk, type UIMessageStreamWriter } from "ai";
 import { convertToLanguageModelPrompt, standardizePrompt } from "ai/internal";
 import { isContextOverflow } from "@/lib/models/context-overflow";
 import { claimChatApproval, persistChatResponse, type ChatPersistence } from "@/lib/chat/persistence";
 import type { ChatRequest } from "@/lib/chat/request";
-import type { DocumentDiagnostics } from "@/lib/documents/diagnostics";
-import type { DocumentSource } from "@/lib/documents/types";
-import { markDocumentCitations } from "@/lib/documents/references";
 import { retainDataOperation } from "@/lib/server/data-operations";
 import { addRunCost, finishRun, runStillAllowsStep, runStepCeiling } from "@/lib/agent/runs";
 import { usageCost } from "@/lib/models/usage";
 import { getModelPreferences, modelInLibrary } from "@/lib/models/preferences";
-import { decodeDocumentScope } from "@/lib/documents/scope";
+import { conversationCollections } from "@/lib/conversations/document-scope";
 import { contextBudget } from "@/lib/models/context-budget";
 import { modelRefKey } from "@/lib/models/preferences-schema";
-import { createStepContext } from "./step-context";
-import { summarizeTaskState, type CompactionAllowance } from "./task-summary";
-import { contextCalibration, recordContextCalibration } from "@/lib/models/context-calibration";
+import { createStepContext, withoutToolRecords } from "./step-context";
+import { createThinkingClock, thinkingRecordSchema } from "./thinking";
+import { summarizeWithAuxiliary, type CompactionAllowance } from "./task-summary";
+import { commitTurnFold, keepRestoredContext } from "./summary";
+import { storedSummary } from "./model-context";
+import { EMPTY_SUMMARY_STATE, foldIntoState, recordedFacts, toolCallsIn, type SummaryState } from "./compaction-state";
+import { restoredContext } from "./compaction-restore";
+import { conversationWorkspace } from "@/lib/local-files/workspace";
+import { externalToolIdPattern } from "@/lib/extensions/schema";
+import { templateAllowsTool } from "@/tools/template-access";
+import { contextCalibration, conversationCalibration, recordContextCalibration } from "@/lib/models/context-calibration";
+import { compactAfterTurn } from "./compaction";
+import { createTurnFailureReader } from "./tool-failure";
+/** OpenRouter passes along reasoning it cannot show as encrypted details. */
+function hasEncryptedReasoning(metadata: unknown) {
+  const details = (metadata as { openrouter?: { reasoning_details?: unknown } } | undefined)?.openrouter?.reasoning_details;
+  return Array.isArray(details) && details.some(detail => (detail as { type?: unknown })?.type === "reasoning.encrypted");
+}
+
 type TurnOutcome = { finishReason: unknown; generationFailed: boolean; aborted: boolean };
 
 /**
@@ -63,9 +77,68 @@ async function costOfTurn(params: { usage: unknown; providerMetadata: unknown; m
   }
 }
 
-export async function streamChatResponse(params: { input: ChatRequest; conversation: ChatPersistence; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; documentSources?: DocumentSource[]; documentDiagnostics?: DocumentDiagnostics; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean; compactionAllowance?: CompactionAllowance }) {
-  const { input, conversation, systemPrompt, modelMessages, toolsEnabled, signal } = params;
-  let answerText = "";
+type ChatAnswer = { input: ChatRequest; conversation: ChatPersistence; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean; compactionAllowance?: CompactionAllowance; chosenTool?: string | null;
+  /** The part of the system prompt listing skills, which the usage view counts separately. */
+  skillsPrompt?: string;
+  /** The messages this request sent, and whether they and the summary leave nothing out. */
+  foldHistory?: { messages: { id: string; role: string }[]; complete: () => boolean };
+  onModelFold?: () => void };
+const LOOKUP_HINT = "The original messages and tool results stay saved: readConversationHistory finds them by toolCallId, messageId or text.";
+const streamError = (error: unknown) => JSON.stringify(apiErrorPayload(normalizeApiError(error, t("lib.chat.generateFailed"))));
+
+/**
+ * The response for one turn. Given `settleContext`, the response starts first and
+ * tells the reader context is being organized, then the answer opens once it is
+ * ready, so anything that refuses the answer from then on reads as a stream error.
+ */
+export async function streamChatResponse(params: Omit<ChatAnswer, "modelMessages"> & ({ modelMessages: ModelMessage[]; settleContext?: undefined } | { modelMessages?: undefined; settleContext: () => Promise<ModelMessage[]> })) {
+  const respond = (execute: (writer: UIMessageStreamWriter) => Promise<void>) => createUIMessageStreamResponse({
+    stream: createUIMessageStream({ execute: ({ writer }) => execute(writer), onError: streamError }),
+    headers: { "x-chat-id": params.conversation.chat.id, "x-model-id": params.input.modelRef.modelId, "Cache-Control": "no-store" },
+  });
+  const relay = async (stream: ReadableStream<UIMessageChunk>, writer: UIMessageStreamWriter) => {
+    // The SDK continues consuming after the HTTP reader disconnects. Hold
+    // the restore gate until that consumer and message persistence finish.
+    const release = retainDataOperation(), reader = stream.getReader();
+    try { for (;;) { const item = await reader.read(); if (item.done) break; writer.write(item.value); } }
+    finally { reader.releaseLock(); release(); }
+  };
+  if (!params.settleContext) {
+    // A request that must fold before it can start stops holding the response back,
+    // so the reader is told why the answer is taking a while.
+    let announce!: () => void;
+    const folding = new Promise<"folding">(resolve => { announce = () => resolve("folding"); });
+    const opening = openChatAnswer({ ...params, modelMessages: params.modelMessages, onModelFold: () => announce() });
+    const first = await Promise.race([opening, folding]);
+    if (first !== "folding") return respond(writer => relay(first, writer));
+    return respond(async writer => {
+      const release = retainDataOperation();
+      try {
+        writer.write({ type: "data-context-status", data: { organizing: true }, transient: true });
+        const stream = await opening;
+        writer.write({ type: "data-context-status", data: { organizing: false }, transient: true });
+        await relay(stream, writer);
+      } finally { release(); }
+    });
+  }
+  const { settleContext } = params;
+  return respond(async writer => {
+    const release = retainDataOperation();
+    try {
+      writer.write({ type: "data-context-status", data: { organizing: true }, transient: true });
+      const modelMessages = await settleContext().catch(async (error: unknown) => {
+        if (params.runId) await finishRun(params.runId, "cancelled", "stopped-by-user").catch(() => null);
+        throw error;
+      });
+      writer.write({ type: "data-context-status", data: { organizing: false }, transient: true });
+      await relay(await openChatAnswer({ ...params, modelMessages }), writer);
+    } finally { release(); }
+  });
+}
+
+async function openChatAnswer(params: ChatAnswer) {
+  const { input, conversation, systemPrompt, toolsEnabled, signal } = params;
+  let answerText = "", lastStepText = "";
   const { modelRef, body, messages } = input;
   const { chat } = conversation;
   if (toolsEnabled && input.model?.supportsTools !== true) {
@@ -73,6 +146,10 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
   }
   let generationFailed = false;
   let contextLimitFailed = false;
+  let skippedTool: string | undefined;
+  // An approval resume continues the same turn, so its reasoning time adds up.
+  const earlierThinking = input.isApprovalResume ? thinkingRecordSchema.safeParse((messages.at(-1)?.metadata as { thinking?: unknown } | undefined)?.thinking) : null;
+  const thinkingClock = createThinkingClock(Date.now, earlierThinking?.success ? earlierThinking.data : undefined);
   const runId = params.runId ?? null;
   let runIds = [...new Set([...(conversation.previousRunIds ?? []), ...(runId ? [runId] : [])])];
   const stepCeiling = await runStepCeiling(runId);
@@ -94,26 +171,55 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
     await finishRun(runId, runStatusFor(outcome), reason ?? runStopReason(outcome)).catch(() => null);
   };
 
-  // The provider decides how the workspace's reasoning preference is expressed
-  // in its own request; a provider with no such notion contributes nothing and
-  // the call goes out exactly as before.
   const preferences = await getModelPreferences();
-  // The fallback model answers with the same reasoning preference. Provider
-  // options are keyed by provider, so each model reads only its own.
-  const fallbackRef = preferences.chat.fallback;
-  const reasoningFor = (ref: { providerId: string }) => getModelProvider(ref.providerId as typeof modelRef.providerId).reasoningOptions?.(input.reasoning);
-  const providerOptions = fallbackRef && fallbackRef.providerId !== modelRef.providerId
-    ? (() => { const merged = { ...(reasoningFor(fallbackRef) ?? {}), ...(reasoningFor(modelRef) ?? {}) }; return Object.keys(merged).length ? merged : undefined; })()
-    : reasoningFor(modelRef);
-  const tools = toolsEnabled ? await createChatToolSet({ modelRef, chatId: chat.id, runId, toolIds: input.assistant?.tools, usesMemory: params.usesMemory !== false, documentCollections: decodeDocumentScope(input.conversationPolicy?.documentScope ?? chat.documentScope), documentRetrievalPolicy: input.assistant?.retrieval }) : undefined;
+  const tools = toolsEnabled ? await createChatToolSet({ modelRef, chatId: chat.id, runId, toolIds: input.assistant?.tools, usesMemory: params.usesMemory !== false, documentCollections: conversationCollections(input.conversationPolicy ?? chat), documentRetrievalPolicy: input.assistant?.retrieval }) : undefined;
+  // An assistant's tools can all be unavailable this turn, leaving none to send.
+  const modelMessages = tools && !Object.keys(tools).length && !input.isApprovalResume ? withoutToolRecords(params.modelMessages) : params.modelMessages;
   const budget = contextBudget(input.model, preferences.contextLimits[modelRefKey(modelRef)]);
   const toolDefinitions = tools ? await Promise.all(Object.entries(tools).map(async ([name, tool]) => tool.type === "provider"
     ? { type: "provider", name, id: tool.id, args: tool.args }
     : { type: "function", name, description: tool.description, inputSchema: await asSchema(tool.inputSchema).jsonSchema })) : undefined;
-  const calibration = await contextCalibration(modelRef);
+  const calibration = await conversationCalibration(modelRef, messages);
   const contextReport = () => ({ ...stepContext.report, ...(params.compactionAllowance?.exhausted ? { compactionAllowanceExhausted: true } : {}) });
-  const stepContext = createStepContext({ budget, system: systemPrompt, tools: toolDefinitions, signal, calibration,
-    summarize: (records, previous, focus) => summarizeTaskState({ modelRef: activeRef, records, previous, signal, allowance: params.compactionAllowance, focus }),
+  // The conversation's one summary. A fold during this turn updates it, so the next
+  // request, or this turn resuming after an approval, does not pay for the work again.
+  const stored = await storedSummary(chat.id);
+  let keptSummary = stored?.summary ?? null, summaryModel = "", foldState = stored?.state ?? EMPTY_SUMMARY_STATE;
+  let foldWrites: Promise<unknown> = Promise.resolve();
+  let restoredSeen: SummaryState["files"] = [];
+  const stepContext = createStepContext({ budget, system: systemPrompt, tools: toolDefinitions, signal, calibration, onModelFold: params.onModelFold,
+    sizes: { skills: params.skillsPrompt, extensionTools: toolDefinitions?.filter(tool => externalToolIdPattern.test(tool.name)) },
+    handoff: stored ? { state: stored.summary, calls: stored.state.calls, ...(stored.state.restored === undefined ? {} : { restored: stored.state.restored }) } : null,
+    recorded: () => [recordedFacts(foldState), tools?.readConversationHistory ? LOOKUP_HINT : ""].filter(Boolean).join("\n"),
+    summarize: async (records, previous, sent) => {
+      const { state, modelRef: used } = await summarizeWithAuxiliary({ main: activeRef, records, previous, signal, allowance: params.compactionAllowance, request: getLatestUserMessage(messages)?.text,
+        ...(sent ? { conversation: { system: systemPrompt, tools, ...sent } } : {}) });
+      summaryModel = `${used.providerId}:${used.modelId}`;
+      return state;
+    },
+    ...(toolsEnabled ? {
+      restoreAfterFold: async (inUse: Set<string>) => {
+        const { text, seen } = await restoredContext({ state: foldState, inUse, signal, inputTokens: budget.inputTokens, allowSkills: true,
+          workspaceId: (await conversationWorkspace(chat.id))?.id ?? null, allowFiles: !input.assistant || templateAllowsTool(input.assistant.tools, "readProjectFile") });
+        restoredSeen = seen;
+        return text;
+      },
+      onRestored: (restored: string) => {
+        const seen = restoredSeen;
+        foldWrites = foldWrites.then(async () => { if (keptSummary) await keepRestoredContext({ chatId: chat.id, expected: keptSummary, restored, seen }); }).catch(() => console.error("chat.fold.save.failed"));
+      },
+    } : {}),
+    onFold: fold => {
+      foldState = foldIntoState(foldState, { toolCalls: toolCallsIn(fold.evidence) });
+      // Labelled excerpts stand in for this turn only; the stored summary stays as it was.
+      if (fold.degraded) return;
+      const history = params.foldHistory?.messages ?? [];
+      const firstKept = history.flatMap((message, index) => message.role === "user" ? [index] : [])[fold.coveredTurns];
+      const upToMessageId = fold.coveredTurns > 0 && firstKept > 0 && params.foldHistory?.complete() ? history[firstKept - 1].id : undefined;
+      foldWrites = foldWrites.then(async () => {
+        if (await commitTurnFold({ chatId: chat.id, expected: keptSummary, summary: fold.state, change: { calls: fold.calls, toolCalls: toolCallsIn(fold.evidence) }, upToMessageId, modelId: summaryModel })) keptSummary = fold.state;
+      }).catch(() => console.error("chat.fold.save.failed"));
+    },
   });
   // A provider that refuses a step's input as over its window means the local
   // count was low. The step is compacted and sent again once; the SDK's own
@@ -123,6 +229,7 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
   let activeRef = modelRef;
   const toPrompt = async (stepMessages: ModelMessage[]): Promise<LanguageModelV3Prompt> => convertToLanguageModelPrompt({ prompt: await standardizePrompt({ system: systemPrompt, messages: stepMessages }), supportedUrls: await observed.supportedUrls, download: undefined });
   const observed: ReturnType<typeof getChatModel> = withModelCallSource("chat", () => getChatModel(modelRef, {
+    reasoning: input.reasoning,
     // Whichever model answers takes the request as it stands — same tools, same
     // messages — and the rest of it is planned for that model's own window: the
     // step it takes over is fitted again, and later steps compact against it.
@@ -156,16 +263,31 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
   }
   const result = withModelCallSource("chat", () => streamText({
     model,
-    ...(providerOptions ? { providerOptions } : {}),
     maxRetries: 0,
     system: systemPrompt,
     messages: modelMessages,
     // Each step's output cap is set where every call is admitted, from that
     // step's own input; see requestOutputCap.
-    prepareStep: ({ messages: stepMessages }) => stepContext.prepare(stepMessages),
-    onStepFinish: ({ usage }) => stepContext.observeUsage(usage.inputTokens),
+    // The tool the user chose is the only one on offer at first, which needs no
+    // provider's support for forcing a call and cannot be refused for reasoning.
+    // The model may still answer without it; the turn records that when it does.
+    prepareStep: async ({ messages: stepMessages, stepNumber }) => {
+      const prepared = await stepContext.prepare(stepMessages);
+      thinkingClock.stepStarted();
+      return { ...prepared, ...(stepNumber === 0 && params.chosenTool ? { activeTools: [params.chosenTool] } : {}) };
+    },
+    onStepFinish: ({ usage, toolCalls, stepNumber, reasoning, providerMetadata, text }) => {
+      stepContext.observeUsage(usage.inputTokens);
+      lastStepText = text;
+      thinkingClock.stepFinished({ reasoning, hiddenReasoning: (usage.outputTokenDetails?.reasoningTokens ?? 0) > 0 || hasEncryptedReasoning(providerMetadata) });
+      if (stepNumber === 0 && params.chosenTool && !toolCalls.some(call => call.toolName === params.chosenTool)) skippedTool = params.chosenTool;
+    },
     abortSignal: signal,
-    onChunk: ({ chunk }) => { if (chunk.type === "text-delta") answerText += chunk.text; },
+    onChunk: ({ chunk }) => {
+      if (chunk.type === "text-delta") answerText += chunk.text;
+      if (chunk.type === "reasoning-delta") thinkingClock.reasoning();
+      else if (chunk.type === "text-delta" || chunk.type === "tool-call" || chunk.type === "tool-input-start") thinkingClock.output();
+    },
     // Providers send text in uneven bursts. Released a word at a time (a
     // character or two in Chinese), a few milliseconds apart, the answer reads
     // as steady typing rather than jumps; faster than a model writes, so it
@@ -201,23 +323,23 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
     },
   }));
 
-  const streamError = (error: unknown) => JSON.stringify(apiErrorPayload(normalizeApiError(error, t("lib.chat.generateFailed"))));
-  const stream = result.toUIMessageStream({
+  // Sent at the start too, for an answer stopped before it finishes. A resumed turn
+  // keeps the time of the message it continues, as its stored row does.
+  const answeredAt = () => input.isApprovalResume ? {} : { createdAt: new Date().toISOString() };
+  const readFailure = createTurnFailureReader(() => { try { return getModelProvider(activeRef.providerId).displayName; } catch { return undefined; } });
+  return result.toUIMessageStream({
     generateMessageId: generateId,
-    onError: (error) => streamError(error instanceof ApiError ? error : new ApiError({ code: "UPSTREAM_FAILED", message: t("lib.chat.providerUnavailable") })),
+    onError: (error) => streamError(readFailure(error)),
     originalMessages: messages,
-    messageMetadata: ({ part }) => part.type === "start" ? { documentSources: params.documentSources ?? [], documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}` }
-      : part.type === "finish" ? { documentSources: markDocumentCitations(params.documentSources ?? [], answerText), documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}`, contextBudget: contextReport() } : undefined,
+    messageMetadata: ({ part }) => part.type === "start" ? { ...answeredAt(), runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}` }
+      : part.type === "finish" ? { ...answeredAt(), runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}`, contextBudget: contextReport(), ...(skippedTool ? { skippedTool } : {}), ...(thinkingClock.report() ? { thinking: thinkingClock.report() } : {}) } : undefined,
     onFinish: async ({ responseMessage, isAborted }) => {
       let persistenceFailed = false;
       try {
         await persistChatResponse({
-          input, conversation, responseMessage, isAborted, generationFailed,
-          documentSources: params.documentSources,
-          documentDiagnostics: params.documentDiagnostics,
+          input, conversation, responseMessage, isAborted, generationFailed, skippedTool, thinking: thinkingClock.report(),
           unavailableTools: params.unavailableTools,
           runId: params.runId,
-          usesMemory: params.usesMemory !== false,
           contextReport: contextReport(),
         });
       } catch (error) {
@@ -232,17 +354,14 @@ export async function streamChatResponse(params: { input: ChatRequest; conversat
           aborted: isAborted || signal.aborted,
         }, completedTurn?.cost ?? null, persistenceFailed && !isAborted && !signal.aborted ? "persistence-error" : contextLimitFailed ? "context-limit" : undefined);
       }
+      await foldWrites;
+      // Runs after the answer is saved, and nothing here waits for it.
+      if (!isAborted && !signal.aborted && !persistenceFailed && (body.mode ?? "chat") === "chat") void compactAfterTurn({ chatId: chat.id, modelRef,
+        conversation: () => {
+          if (activeRef !== modelRef) return null;
+          const sent = stepContext.conversationSent(lastStepText);
+          return sent ? { system: systemPrompt, tools, ...sent } : null;
+        } });
     },
   });
-  return createUIMessageStreamResponse({
-    stream: createUIMessageStream({ execute: async ({ writer }) => {
-      // The SDK continues consuming after the HTTP reader disconnects. Hold
-      // the restore gate until that consumer and message persistence finish.
-      const release = retainDataOperation(), reader = stream.getReader();
-      try { for (;;) { const item = await reader.read(); if (item.done) break; writer.write(item.value); } }
-      finally { reader.releaseLock(); release(); }
-    }, onError: streamError }),
-    headers: { "x-chat-id": chat.id, "x-model-id": modelRef.modelId, "Cache-Control": "no-store" },
-  });
-
 }

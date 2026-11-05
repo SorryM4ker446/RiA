@@ -9,12 +9,12 @@ type RankingPolicy = {
 };
 
 // Context recall and explicit knowledge search retain their existing selection rules.
-export const CONTEXT_MEMORY_POLICY: RankingPolicy = {
+export const CONTEXT_ENTRY_POLICY: RankingPolicy = {
   excludeToolMemories: false, manualWeight: 0.4, recencyWeight: 0.2,
 };
 /** Chat context only includes memories that match the request itself this well. */
-export const CONTEXT_MEMORY_MIN_MATCH = 0.3;
-export const KNOWLEDGE_MEMORY_POLICY: RankingPolicy = {
+export const CONTEXT_ENTRY_MIN_MATCH = 0.3;
+export const SEARCH_ENTRY_POLICY: RankingPolicy = {
   excludeToolMemories: true, manualWeight: 0.2, recencyWeight: 0,
 };
 /**
@@ -98,7 +98,7 @@ async function searchQuery(text: string, signal?: AbortSignal) {
  * message it follows up on. All of them are compared: a memory that is old,
  * or that shares no word with the query, is still found by meaning.
  */
-export async function getMemorySearchCandidates(query: string, policy: RankingPolicy, signal?: AbortSignal, followUp?: string) {
+export async function getEntrySearchCandidates(query: string, policy: RankingPolicy, signal?: AbortSignal, followUp?: string) {
   const isFollowUp = Boolean(followUp?.trim()) && tokenizeQuery(query).length <= FOLLOW_UP_MAX_WORDS;
   const [primary, previous] = await Promise.all([searchQuery(query, signal), isFollowUp ? searchQuery(followUp!, signal) : null]);
   const queryTokens = primary.tokens;

@@ -299,10 +299,14 @@ test("the installer step, started as the application starts it, waits for the ap
       installer, installLog: join(folder.root, "install.log"), resultFile: join(folder.root, "install-result.json"),
       installRoot: root, relaunch, waitForPid: application.pid!,
     }, { directory: folder.root, system: join(process.env.SystemRoot || "C:\\Windows", "System32"), installer: { program: fakeInstaller, window: 0 } });
-    const resultFile = join(folder.root, "install-result.json");
-    const finished = Date.now() + 30_000;
-    while (!existsSync(resultFile) && Date.now() < finished) await new Promise(resolve => setTimeout(resolve, 100));
+    // Starting the application again is the step's last action, so its effect is the signal
+    // that everything before it has happened. The result file is not: the installer is
+    // deleted after that file appears.
+    const relaunched = join(root, "relaunched.txt");
+    const finished = Date.now() + 45_000;
+    while (!existsSync(relaunched) && Date.now() < finished) await new Promise(resolve => setTimeout(resolve, 100));
     const applicationExit = await exited;
+    assert.ok(existsSync(relaunched), "the application was not started again");
 
     const argumentsFile = join(folder.root, "arguments.json");
     assert.ok(statSync(argumentsFile).mtimeMs >= applicationExit - 50, "the installer ran before the application exited");
@@ -310,9 +314,6 @@ test("the installer step, started as the application starts it, waits for the ap
       ["/i", installer, "/passive", "/norestart", "/L*V", join(folder.root, "install.log"), `APPLICATIONROOTDIRECTORY=${root}`]);
     assert.deepEqual(JSON.parse(readFileSync(join(folder.root, "install-result.json"), "utf8")), { exitCode: 1603 });
     assert.equal(existsSync(installer), false, "the installer was not deleted after the installation");
-    const deadline = Date.now() + 15_000;
-    while (!existsSync(join(root, "relaunched.txt")) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 100));
-    assert.ok(existsSync(join(root, "relaunched.txt")), "the application was not started again");
   } finally {
     folder.remove();
   }

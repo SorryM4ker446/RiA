@@ -1,13 +1,16 @@
-import { t } from "@/lib/locale";
+import { localizeMessage, t, tf } from "@/lib/locale";
 import {
   ChatSummary,
+  hasLaterUserMessage,
   isToolPart,
   mapStoredMessagesToUI,
   ModelMode,
   readText,
   UploadableFilePart
 } from "@/features/chat/page-utils";
-import { encodePersistedAssistantToolMessage } from "@/lib/ai/ui-message";
+import { encodePersistedAssistantToolMessage, encodePersistedUserMessage } from "@/lib/ai/ui-message";
+import { readMessageInvocation } from "@/lib/chat/invocation-schema";
+import { isDocumentAttachment } from "@/lib/media/limits";
 import { getApiErrorMessage as readApiErrorMessage } from "@/lib/api-error-message";
 import { usePanelVisibility } from "./use-panel-visibility";
 import { useChat } from "@ai-sdk/react";
@@ -15,7 +18,6 @@ import { lastAssistantMessageIsCompleteWithApprovalResponses, UIMessage } from "
 import { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { chatApi, createChatTransport, isNotFoundError } from "@/features/chat/api-client";
 import { clearChatDraft, readChatDraft, writeChatDraft } from "@/features/chat/draft";
-import { normalizeManualToolInput, validateManualToolFields } from "@/features/chat/tool-input";
 import type { DeleteTarget } from "@/features/chat/types";
 import type { ModelLibraryItem } from "@/lib/models/preferences-schema";
 import type { InputNotice } from "@/features/chat/composer-notice";
@@ -25,7 +27,9 @@ import { useChatPreferences } from "@/features/chat/use-chat-preferences";
 import { useConversations } from "@/features/chat/use-conversations";
 import { useMediaGeneration } from "@/features/chat/use-media-generation";
 import { useTasks } from "@/features/tasks/use-tasks";
-import { useTools } from "@/features/chat/use-tools";
+import { DOCUMENT_TOOLS, invocationOf, useTools, type ComposerChoice } from "@/features/chat/use-tools";
+import { useToast } from "@/components/ui/toast";
+import { COMPACT_CONTEXT_TOOL } from "@/lib/chat/compact-context";
 import { animateRemoval } from "@/lib/ui/removal";
 export function useChatState() {
   const [input, setInput] = useState("");
@@ -66,7 +70,7 @@ export function useChatState() {
     loadChats, createNewChat, startEditingChat,
     cancelEditingChat, saveEditedTitle, performDeleteChat, ensureActiveChatId,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, toggleEphemeral, isEphemeralSaving,
-    documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
+    isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
     setWorkspace, isWorkspaceSaving, restoringChatId, isRestoringChat,
   } = useConversations({ activeChatId, setActiveChatId, preferences: { modelMode, selectedChatModel: preferredChatModel, selectedImageModel, selectedVideoModel }, applyChatPreferences, resetConversation, persistCurrentStreamingAssistantIfNeeded, setPageError });
   // A remembered conversation the list has not confirmed yet is not one to send to,
@@ -76,6 +80,15 @@ export function useChatState() {
   const confirmedChatId = restoringChatId === null ? activeChatId : null;
   const selectedChatModel = activeChat?.assistantConfig?.model ?? preferredChatModel;
   const transport = useMemo(() => createChatTransport(activeChatId, { selectedChatModel, modelMode }), [activeChatId, selectedChatModel, modelMode]);
+  const toast = useToast();
+  // The server is folding older turns before it can answer; only meaningful until the answer opens.
+  const [isOrganizing, setIsOrganizing] = useState(false);
+  // The conversation whose earlier turns the person asked to have folded.
+  const [compactingChatId, setCompactingChatId] = useState<string | null>(null);
+  const [compaction, setCompaction] = useState<{ chatId: string; summary: string; coveredIds: string[] } | null>(null);
+  // Space freed by a fold since the latest request measured its input; the next one measures anew.
+  const [freedByCompaction, setFreedByCompaction] = useState<{ chatId: string; lastMessageId?: string; tokens: number } | null>(null);
+  const compactionRequest = useRef(0);
   const { messages, setMessages, sendMessage, regenerate, addToolApprovalResponse, status, error, clearError, stop } = useChat({
     id: activeChatId ?? "draft",
     transport,
@@ -84,6 +97,7 @@ export function useChatState() {
     // the trailing update still delivers the final text.
     experimental_throttle: 50,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
+    onData: part => { if (part.type === "data-context-status") setIsOrganizing((part.data as { organizing: boolean }).organizing); },
     onFinish: ({ messages: finishedMessages, isError }) => {
       if (!isError) return;
       const latestUser = [...finishedMessages].reverse().find(message => message.role === "user");
@@ -91,6 +105,14 @@ export function useChatState() {
       if (pending) pending.failed = true;
     },
   });
+  useEffect(() => { if (status !== "submitted") setIsOrganizing(false); }, [status]);
+  const loadCompaction = useCallback(async (chatId: string | null) => {
+    const request = ++compactionRequest.current;
+    const found = chatId ? await chatApi.conversationSummary(chatId).catch(() => null) : null;
+    if (request === compactionRequest.current) setCompaction(found && chatId ? { chatId, ...found } : null);
+  }, []);
+  // A fold can happen during a turn or just after one, so a finished turn looks again.
+  useEffect(() => { if (status === "ready") void loadCompaction(confirmedChatId); }, [status, confirmedChatId, loadCompaction]);
   type PendingSend = {
     chatId: string;
     message: Parameters<typeof sendMessage>[0];
@@ -114,11 +136,9 @@ export function useChatState() {
     appendAttachments, onReuseImageForEditing, onAttachmentInputChange, generateImage, generateVideo,
   } = useMediaGeneration({ activeChatId, isConversationReady, isHistoryReady: historyState?.chatId === activeChatId && historyState.status === "ready", setMessages, reloadMessages: loadMessages, ensureActiveChatId, loadChats, setPageError, modelMode, selectedImageModel, selectedVideoModel, textareaRef });
   const {
-    toolCatalogError, unavailableTools, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors,
-    setManualToolFieldErrors, isRunningManualTool, manualTools, selectedManualToolConfig,
-    selectedManualTool, setSelectedManualTool, selectedToolDocument, setSelectedToolDocument,
-    manualToolSelectValue, isManualToolSelected, runManualTool, loadToolCatalog,
-  } = useTools({ activeChatId, allowedToolIds: activeChat?.assistantConfig?.tools, setMessages, ensureActiveChatId, loadChats, selectedChatModel, modelMode, loadTasks, taskStatusFilter });
+    tools, skills, toolCatalogError, loadToolCatalog, choice, setChoice, chooseTool, toggleSkill, removeLastChoice, removeTool,
+    setToolDocument, setToolFormat, clearChoice, isConverting, convertDocuments, compactContext,
+  } = useTools({ activeChatId, isHistoryReady: historyState?.chatId === activeChatId && historyState.status === "ready", setMessages, reloadMessages: loadMessages, ensureActiveChatId, loadChats, modelMode });
   // Work in flight that the "generating" status and the stop control stand for.
   // Reading the saved preferences is not part of it: it blocks sending like the
   // rest, but showing it as a running turn flashed both every time chat opened.
@@ -130,7 +150,7 @@ export function useChatState() {
     isGeneratingVideo ||
     isUploadingAttachments ||
     isLoadingOlderMessages ||
-    isRunningManualTool;
+    isConverting;
   const isPending = isLoadingPreferences || isWorking;
   // Until the list says which conversation to restore, and that conversation's
   // history has been asked for, the transcript has nothing true to show. Showing
@@ -157,7 +177,7 @@ export function useChatState() {
   // A draft belongs to one conversation. Switching away parks it and switching
   // back brings it back, so a half-written question survives navigating around.
   const draftChatIdRef = useRef<string | null>(null);
-  const pendingSendDraftRef = useRef<{ chatId: string; messageId: string; text: string; pendingChat?: boolean; afterIndex: number } | null>(null);
+  const pendingSendDraftRef = useRef<{ chatId: string; messageId: string; text: string; choice: ComposerChoice; pendingChat?: boolean; afterIndex: number } | null>(null);
   const draftAttachmentsRef = useRef<UploadableFilePart[]>(attachments);
   draftAttachmentsRef.current = attachments;
 
@@ -258,7 +278,6 @@ export function useChatState() {
    * text does not light up the whole composer.
    */
   function onComposerDragOver(event: DragEvent<HTMLElement>) {
-    if (isManualToolSelected) return;
     if (!Array.from(event.dataTransfer?.types ?? []).includes("Files")) return;
     event.preventDefault();
     event.dataTransfer!.dropEffect = "copy";
@@ -273,7 +292,6 @@ export function useChatState() {
   }
 
   function onComposerDrop(event: DragEvent<HTMLElement>) {
-    if (isManualToolSelected) return;
     const files = Array.from(event.dataTransfer?.files ?? []);
     setIsDraggingFiles(false);
     if (!files.length) return;
@@ -307,6 +325,7 @@ export function useChatState() {
     if (!pending || pending.messageId !== messageId || !pendingCoversCurrentChat(pending)) return;
     pendingSendDraftRef.current = null;
     setInput(pending.text);
+    setChoice(pending.choice);
   }
 
   /**
@@ -446,7 +465,6 @@ export function useChatState() {
   }
 
   function onTextareaPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
-    if (isManualToolSelected) return;
 
     const pastedFiles = Array.from(event.clipboardData?.items ?? [])
       .filter((item) => item.kind === "file")
@@ -526,6 +544,9 @@ export function useChatState() {
     if (isPending || isDocumentScopeSaving) return;
     const nextText = editingMessageText.trim();
     if (!nextText || !activeChatId) return;
+    // Later turns were answered from the message as it was, so rewriting it would
+    // leave them answering something no longer there. It goes out again at the end.
+    if (hasLaterUserMessage(messages, message.id)) { await resendEditedMessage(message, nextText, activeChatId); return; }
 
     const previous = messages;
     setEditingMessageId(null);
@@ -537,13 +558,38 @@ export function useChatState() {
     );
 
     try {
-      await chatApi.editMessage(activeChatId, message.id, nextText);
+      const invocation = readMessageInvocation(message.metadata);
+      await chatApi.editMessage(activeChatId, message.id, invocation ? encodePersistedUserMessage({ type: "user-message", text: nextText, files: [], invocation }) : nextText);
     } catch (editError) {
       setMessages(previous);
       setPageError(editError instanceof Error ? editError.message : t("chatApi.saveEditFailed"));
       return;
     }
     await regenerateMessage(message.id);
+  }
+
+  /** The original and everything after it stay as they are. A failure reopens the edit. */
+  async function resendEditedMessage(message: UIMessage, text: string, chatId: string) {
+    if (!selectedModel) { setSentWithoutModel(true); return; }
+    setEditingMessageId(null);
+    setEditingMessageText("");
+    setPageError(null);
+    if (modelMode === "image") { await generateImage(text, []); return; }
+    if (modelMode === "video") { await generateVideo(text, []); return; }
+    const invocation = readMessageInvocation(message.metadata);
+    const restore = () => { setEditingMessageId(message.id); setEditingMessageText(text); };
+    try {
+      const failed = await new Promise<boolean>((resolve, reject) => setPendingSend({
+        chatId,
+        message: { id: crypto.randomUUID(), role: "user", metadata: { ...(invocation ? { invocation } : {}), createdAt: new Date().toISOString() }, parts: [{ type: "text", text }] },
+        options: { body: { chatId, ...(selectedChatModel ? { model: selectedChatModel } : {}), mode: "chat" } },
+        resolve, reject,
+      }));
+      if (failed) restore(); else await loadChats();
+    } catch (sendError) {
+      restore();
+      setPageError(sendError instanceof Error ? sendError.message : t("chatState.sendFailed"));
+    }
   }
 
   async function regenerateMessage(messageId: string) {
@@ -567,28 +613,43 @@ export function useChatState() {
     event.preventDefault();
     if (isPending || isDocumentScopeSaving || !isConversationReady) return;
     setInputNotice(null);
-    if (modelMode === "chat" && selectedManualToolConfig) {
-      const isDocumentTool = ["readDocument", "convertDocument"].includes(selectedManualToolConfig.id);
-      const content = isDocumentTool ? selectedToolDocument?.id ?? "" : input.trim();
-      if (!content) { setInputNotice({ key: isDocumentTool ? "ui.chat.use-chat-state.chooseAKnowledgeDocumentFirst" : "chatState.toolParamsRequired" }); return; }
-      if (attachments.length) { setInputNotice({ key: "chatState.manualToolAttachmentBlocked" }); return; }
-      const nextFieldErrors = validateManualToolFields(selectedManualToolConfig, manualToolFieldValues);
-      setManualToolFieldErrors(nextFieldErrors);
-      if (Object.keys(nextFieldErrors).length > 0) return;
-      setPageError(null);
+    const chosenTool = modelMode === "chat" ? choice.tool : null;
+    const isDocumentTool = Boolean(chosenTool && DOCUMENT_TOOLS.has(chosenTool.id));
+    if (isDocumentTool && attachments.some(part => !isDocumentAttachment(part.mediaType))) { setInputNotice({ key: "chat.document.onlyDocuments" }); return; }
+    if (isDocumentTool && !attachments.length && !choice.document) { setInputNotice({ key: "ui.chat.use-chat-state.chooseAKnowledgeDocumentFirst" }); return; }
+    // Whatever was typed says what to keep; no model answers this one.
+    if (chosenTool?.id === COMPACT_CONTEXT_TOOL) {
+      const focus = input.trim(), sent = choice;
+      setPageError(null); clearChoice(); setInput(""); setCompactingChatId(activeChatId);
       try {
-        const result = await runManualTool({
-          tool: selectedManualToolConfig.id,
-          input: normalizeManualToolInput({ tool: selectedManualToolConfig, text: content, fieldValues: manualToolFieldValues }),
-          userVisibleText: isDocumentTool ? `${selectedManualToolConfig.displayName}：${selectedToolDocument!.filename}` : content,
-        });
-        if (result.isCurrent && !isDocumentTool) setInput(current => current.trim() === content ? "" : current);
+        const { status: outcome, freedTokens } = await compactContext(focus);
+        toast(t(outcome === "compacted" ? "chat.compact.done" : "chat.compact.nothing"));
+        if (outcome === "compacted" && activeChatId) {
+          setFreedByCompaction({ chatId: activeChatId, lastMessageId: messages.at(-1)?.id, tokens: freedTokens });
+          await loadCompaction(activeChatId);
+        }
+      }
+      catch (submitError) {
+        setChoice(sent); setInput(focus);
+        setPageError(submitError instanceof Error ? submitError.message : t("chat.compact.failed"));
+      }
+      finally { setCompactingChatId(null); }
+      return;
+    }
+    // Nothing to say to a model: the choice itself is the whole request.
+    if (chosenTool?.surface.user?.run === "direct" && !input.trim()) {
+      const sent = choice;
+      setPageError(null); clearChoice();
+      try {
+        const { failed } = await convertDocuments({ files: attachments, document: choice.document, format: choice.format, text: "", invocation: invocationOf(choice, localizeMessage)! });
+        if (failed) setChoice(sent); else clearAttachments();
       } catch (submitError) {
+        setChoice(sent);
         setPageError(submitError instanceof Error ? submitError.message : t("chatState.toolRunFailed"));
       }
       return;
     }
-    const content = input.trim();
+    const content = input.trim() || (isDocumentTool && choice.document ? tf("chat.document.readRequest", { name: choice.document.filename }) : "");
     const hasAttachments = attachments.length > 0;
     const hasContent = content.length > 0;
 
@@ -607,14 +668,16 @@ export function useChatState() {
       return;
     }
 
-    if (hasContent) setInput("");
+    setInput("");
     // Remembered until the turn produces an answer, so a failure can put the
     // text back instead of making the user retype it. The conversation id is
     // filled in once the first message has created one: a send that creates the
     // conversation switches the active id mid-flight, and the draft has to
     // follow it rather than be read back as empty.
     const userMessageId = crypto.randomUUID();
-    pendingSendDraftRef.current = { chatId: activeChatId ?? "", messageId: userMessageId, text: content, pendingChat: activeChatId === null, afterIndex: messages.length };
+    const invocation = modelMode === "chat" ? invocationOf(choice, localizeMessage) : null;
+    pendingSendDraftRef.current = { chatId: activeChatId ?? "", messageId: userMessageId, text: input.trim(), choice, pendingChat: activeChatId === null, afterIndex: messages.length };
+    clearChoice();
 
     // The attachments are already uploaded references, so a submission no
     // longer depends on reading a file that may no longer be in memory. This
@@ -647,7 +710,7 @@ export function useChatState() {
       // after that instance and its initial history are ready, not through draft's closure.
       const failed = await new Promise<boolean>((resolve, reject) => setPendingSend({
         chatId,
-        message: { id: userMessageId, role: "user", parts: [...uploadParts, ...(hasContent ? [{ type: "text" as const, text: content }] : [])] },
+        message: { id: userMessageId, role: "user", metadata: { ...(invocation ? { invocation } : {}), createdAt: new Date().toISOString() }, parts: [...uploadParts, ...(hasContent ? [{ type: "text" as const, text: content }] : [])] },
         options: { body: { chatId, ...(selectedChatModel ? { model: selectedChatModel } : {}), mode: "chat" } },
         resolve, reject,
       }));
@@ -675,7 +738,7 @@ export function useChatState() {
       const hasAttachments = attachments.length > 0;
       const hasContent = input.trim().length > 0;
       if (isPending || !isConversationReady) return;
-      if (!hasContent && !hasAttachments && !selectedToolDocument) return;
+      if (!hasContent && !hasAttachments && !choice.document) return;
       void onSubmit(event as unknown as FormEvent<HTMLFormElement>);
     }
   }
@@ -704,11 +767,6 @@ export function useChatState() {
     setSentWithoutModel(false);
     setInputNotice(null);
     setModelMode(value);
-    if (value !== "chat") {
-      setSelectedManualTool("none");
-      setManualToolFieldValues({});
-      setManualToolFieldErrors({});
-    }
   }
   useEffect(() => {
     if (!activeChatId) {
@@ -745,7 +803,7 @@ export function useChatState() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [pendingDelete, isDeleting, isPending, onStop]);
   return {
-    toggleEphemeral, isEphemeralSaving, documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
+    toggleEphemeral, isEphemeralSaving, isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
     setWorkspace, isWorkspaceSaving, loadChats,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages,
     isLoadingChats, isCreatingChat, createNewChat, chats, activeChatId, editingChatId, setEditingTitle,
@@ -754,18 +812,18 @@ export function useChatState() {
     isLoadingTasks, loadTasks, setTaskStatusFilter, taskStatusFilter,
     taskPanelError: withoutGlobalEcho(taskPanelError),
     visibleTasks, updateTaskStatus, deleteTask, saveTaskSchedule, updatingTaskIds, hasHiddenTasks, setIsTaskListExpanded,
-    isTaskListExpanded, activeChat, isPending, isWorking, isLoadingPreferences, isOpeningConversation, isConversationReady, isRunningManualTool, modelMode, selectedModel, selectedModelInfo, onModeSelect,
+    compaction: compaction?.chatId === activeChatId ? compaction : null,
+    freedByCompaction: freedByCompaction?.chatId === activeChatId && freedByCompaction.lastMessageId === messages.at(-1)?.id ? freedByCompaction.tokens : 0,
+    isOrganizing, isCompacting: compactingChatId !== null && compactingChatId === activeChatId, isTaskListExpanded, activeChat, isPending, isWorking, isLoadingPreferences, isOpeningConversation, isConversationReady, isConverting, modelMode, selectedModel, selectedModelInfo, onModeSelect,
     onModelSelect, modelHint, inputNotice, dismissInputNotice: () => setInputNotice(null), isModelMenuOpen, setIsModelMenuOpen, isHistoryReady: confirmedChatId !== null && historyState?.chatId === confirmedChatId && historyState.status === "ready", isLoadingHistory, confirmedChatId, messages, imageByMessageId, videoByMessageId,
     status, editingMessageId, startEditingMessage, regenerateMessage, requestDeleteMessage,
     setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage,
     attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, addToolApprovalResponse, onStop, onSubmit,
     removeAttachmentAt: (index: number) => { setInputNotice(null); removeAttachmentAt(index); }, isUploadingAttachments, isDraggingFiles, onComposerDragOver, onComposerDragLeave, onComposerDrop,
-    setSelectedManualTool, manualToolSelectValue, manualTools, selectedToolDocument, setSelectedToolDocument,
-    selectedManualToolConfig, manualToolFieldValues, setManualToolFieldValues, manualToolFieldErrors,
-    setManualToolFieldErrors, unavailableTools, toolCatalogError: withoutGlobalEcho(toolCatalogError), loadToolCatalog,
+    tools, skills, choice, chooseTool, toggleSkill, removeLastChoice, removeTool, setToolDocument, setToolFormat, toolCatalogError: withoutGlobalEcho(toolCatalogError), loadToolCatalog,
     setInput, handleTextareaKeyDown, onTextareaPaste,
-    textareaRef, input, isManualToolSelected, onAttachmentInputChange, fileInputRef, attachments,
-    clearAttachments, attachmentNames, selectedImageModel, selectedVideoModel, selectedManualTool,
+    textareaRef, input, onAttachmentInputChange, fileInputRef, attachments,
+    clearAttachments, attachmentNames, selectedImageModel, selectedVideoModel,
     selectedChatModel, pendingDelete, isDeleting, closeDeleteDialog, confirmDelete,
     effectiveError, keyError, setPageError, clearError, clearPreferencesError, modelLibrary,
     panelVisibility, togglePanel,

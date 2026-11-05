@@ -3,7 +3,7 @@ import { readJsonBody } from "@/lib/server/request-body";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { requireLocalWorkspace } from "@/lib/local/workspace";
-import { getRelevantMemories } from "@/lib/memory/store";
+import { getRelevantEntries } from "@/lib/knowledge/entries";
 import { createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 
@@ -20,7 +20,7 @@ async function POSTHandler(req: NextRequest) {
     const parsed = retrievalSchema.safeParse(await readJsonBody(req));
     if (!parsed.success) throw parsed.error;
 
-    const memories = await getRelevantMemories({
+    const memories = await getRelevantEntries({
       query: parsed.data.query,
       limit: parsed.data.limit ?? 6,
     });
