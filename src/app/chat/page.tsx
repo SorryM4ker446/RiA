@@ -18,6 +18,7 @@ import { ComposerNotice } from "@/features/chat/composer-notice";
 import { useChatState } from "@/features/chat/use-chat-state";
 import { useChatCommands } from "@/features/commands/chat-commands";
 import { TriangleAlert } from "lucide-react";
+import { ToolLessModelNotice } from "@/features/chat/tool-less-model-notice";
 import { localizeMessage, t } from "@/lib/locale";
 
 export default function ChatPage() {
@@ -48,6 +49,7 @@ export default function ChatPage() {
   } = chat;
   return (
     <main className="chat-workspace relative flex h-full min-h-0 w-full overflow-hidden">
+      <ToolLessModelNotice {...chat} />
       <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Card className="chat-canvas relative flex h-full min-h-0 flex-col overflow-hidden rounded-none border-0 bg-transparent shadow-none">
           <ChatToolbar {...chat} rowRef={toolbarRow} conversationControls={<ConversationList {...chat} />} />
