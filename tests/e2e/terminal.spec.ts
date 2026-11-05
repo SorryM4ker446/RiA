@@ -153,6 +153,42 @@ test("desktop folder permission, exact command approval and persisted output sur
   expect(errors).toEqual([]);
 });
 
+test("a saved copy read before a call finished does not outlast it in the execution record", async ({ page, app }) => {
+  const grant = await setup(page, app);
+  const chat = await ask(page, app, grant.id);
+  const runsPath = `/api/conversations/${chat.id}/runs`;
+  const [run] = await browserData(page, `${runsPath}?limit=10`) as unknown as { id: string }[];
+  // What the record held while the call waited for approval, and a list that reads the
+  // request as over while the conversation has yet to hear how the call ended: the moment
+  // between a run closing on the server and its stream reaching the page.
+  const saved = (await browserApi(page, `${runsPath}?runId=${run.id}`, "GET")).body;
+  let readsAsOver = true;
+  await page.route(url => url.pathname === runsPath && url.searchParams.has("runId"), route => route.fulfill({ json: saved }));
+  await page.route(url => url.pathname === runsPath && url.searchParams.has("limit"), async route => {
+    if (!readsAsOver) return route.continue();
+    const response = await route.fetch();
+    const body = await response.json();
+    await route.fulfill({ response, json: { ...body, data: body.data.map((item: object) => ({ ...item, status: "succeeded" })) } });
+  });
+  let release = () => {};
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/chat", async route => { await held; await route.continue(); });
+
+  await page.getByRole("button", { name: "批准", exact: true }).click();
+  const dialog = await openExecutionDetails(page);
+  const call = dialog.locator("details.execution-disclosure[data-call-id]");
+  await expect(call).toHaveCount(1);
+  await expect(dialog.locator(".run-record-trigger"), "the saved copy fills in while the call is unsettled").toContainText("等待批准");
+
+  readsAsOver = false;
+  release();
+  await expect(page.getByLabel("终端输出", { exact: true })).toContainText("terminal-ready-你好");
+  await expect(dialog.locator(".run-record-trigger"), "the record ends on what happened, not on the copy").toContainText("已完成");
+  await expect(call, "the settled call folds, as it does when no saved copy was read").not.toHaveAttribute("open");
+  await call.locator("summary").click();
+  await expect(page.getByText("退出码：0", { exact: true })).toBeVisible();
+});
+
 test("a long-reasoning terminal turn can be approved and followed up before and after reloading without re-execution", async ({ page, app }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
