@@ -5,6 +5,7 @@ import { DesktopStartup } from "@/components/layout/desktop-startup";
 import "./globals.css";
 import { LocaleProvider } from "@/lib/locale/client";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
+import { FormHints } from "@/components/ui/form-hints";
 import { ToastProvider } from "@/components/ui/toast";
 import { UpdateProvider } from "@/features/updates/update-provider";
 import { SettingsProvider } from "@/features/settings/settings-overlay";
@@ -43,7 +44,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: `document.documentElement.dataset.desktopRuntime=String(Boolean(window.riaDesktop));try{var theme=localStorage.getItem(${JSON.stringify(THEME_STORAGE_KEY)})||${JSON.stringify(DEFAULT_THEME)};var dark=theme!=='light';document.documentElement.classList.toggle('dark',dark);document.documentElement.style.colorScheme=dark?'dark':'light'}catch{};try{var panels=JSON.parse(localStorage.getItem(${JSON.stringify(PANEL_VISIBILITY_STORAGE_KEY)})||localStorage.getItem(${JSON.stringify(LEGACY_PANEL_VISIBILITY_STORAGE_KEY)})||'null')||{};document.documentElement.dataset.conversationsOpen=String(panels.conversations!==false);document.documentElement.dataset.tasksOpen=String(panels.tasks!==false)}catch{};try{var rail=null;try{rail=JSON.parse(localStorage.getItem(${JSON.stringify(RAIL_STORAGE_KEY)})||'null')}catch{};if(rail&&typeof rail.width==='number'&&isFinite(rail.width))document.documentElement.style.setProperty('--rail-width',Math.round(Math.min(${RAIL_BOUNDS.max},Math.max(${RAIL_BOUNDS.min},rail.width)))+'px');document.documentElement.dataset.railCollapsed=String(!!(rail&&rail.collapsed===true))}catch{}` }} />
       </head>
       <body className={`${sans.variable} ${mono.variable} font-sans antialiased`}>
-        <LocaleProvider><ToastProvider><ConfirmProvider><DesktopStartup><UpdateProvider><SettingsProvider><AppShell>{children}</AppShell></SettingsProvider></UpdateProvider></DesktopStartup></ConfirmProvider></ToastProvider></LocaleProvider>
+        <LocaleProvider><ToastProvider><ConfirmProvider><DesktopStartup><UpdateProvider><SettingsProvider><AppShell>{children}</AppShell></SettingsProvider></UpdateProvider></DesktopStartup></ConfirmProvider></ToastProvider><FormHints /></LocaleProvider>
       </body>
     </html>
   );
