@@ -257,6 +257,7 @@ for (const width of [1440, 390]) test(`the composer shows the latest request's c
   await page.setViewportSize({ width, height: 700 });
   await workspace(page);
   const report = (estimatedInputTokens: number) => ({ checks: 3, compactions: 1, degraded: false, estimatedInputTokens, usageCalibration: 0.6,
+    breakdown: { messages: 2000, toolResults: 1000, summary: 400, system: 300, tools: 200, extensionTools: 0, skills: 100, reference: 0 },
     budget: { contextWindow: 32000, capacitySource: "catalog", counting: "character-class-estimate", inputTokens: 28000, triggerTokens: 20000 } });
   const answer = (estimatedInputTokens: number) => ({ id: "usage-answer", clientMessageId: "usage-answer", role: "assistant", createdAt: now,
     content: "__ASSISTANT_TOOL_MESSAGE__:" + JSON.stringify({ type: "assistant-tool-message", text: "Done", tools: [], contextBudget: report(estimatedInputTokens) }) });
@@ -272,10 +273,34 @@ for (const width of [1440, 390]) test(`the composer shows the latest request's c
   expect(box.height).toBeLessThanOrEqual(28);
   await indicator.hover();
   const tooltip = page.getByRole("tooltip");
-  await expect(tooltip).toContainText("上次请求约 4,000 / 32,000 tokens");
-  await expect(tooltip).toContainText("达到约 63% 时自动压缩");
-  await expect(tooltip).toContainText("已压缩 1 次");
-  await page.locator("form").first().screenshot({ path: testInfo.outputPath(`composer-${width}.png`) });
+  await expect(tooltip).toContainText("上下文13%");
+  // Each row's tokens are in the page, closed until the pointer is on that row.
+  for (const row of ["对话2k6.3%", "工具结果1k3.1%", "摘要与恢复4001.3%", "系统提示3000.9%", "内置工具2000.6%", "技能1000.3%", "压缩预留12k37.5%", "剩余空间16k50.0%"]) await expect(tooltip).toContainText(row);
+  await expect(tooltip).not.toContainText("32k");
+  await expect(tooltip).not.toContainText("扩展工具");
+  await expect(tooltip).not.toContainText("自动压缩");
+  const card = page.locator(".context-usage-card");
+  await expect(async () => {
+    const shown = (await card.boundingBox())!;
+    expect(shown.width).toBeLessThanOrEqual(170);
+    expect(shown.y + shown.height).toBeLessThanOrEqual(box.y);
+    // Centred above the ring, unless the window's edge is in the way.
+    if (width > 800) expect(Math.abs(shown.x + shown.width / 2 - (box.x + box.width / 2))).toBeLessThanOrEqual(1);
+  }).toPass();
+  const messagesRow = card.locator(".context-usage-row").filter({ hasText: "对话" });
+  const tokens = messagesRow.locator(".context-usage-tokens");
+  await expect(tokens).toHaveCSS("opacity", "0");
+  await expect(tokens).toHaveCSS("max-width", "0px");
+  const shareRight = async () => { const shown = (await messagesRow.getByText("6.3%").boundingBox())!; return shown.x + shown.width; };
+  const before = await shareRight();
+  await messagesRow.hover();
+  await expect(tokens).toHaveText("2k");
+  await expect(tokens).toHaveCSS("opacity", "1");
+  await expect(messagesRow).toContainText("2k6.3%");
+  expect(await shareRight()).toBeCloseTo(before, 0);
+  await expect(tokens).toHaveCSS("transition-property", /opacity/);
+  await expect(card.locator(".context-usage-row").filter({ hasText: "工具结果" }).locator(".context-usage-tokens")).toHaveCSS("opacity", "0");
+  await page.screenshot({ path: testInfo.outputPath(`composer-${width}.png`) });
 
   used = 19000;
   await page.reload();

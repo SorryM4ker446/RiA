@@ -38,6 +38,9 @@ export const toolsMessages = {
   // --- createTask --------------------------------------------------------
   "tools.compactContext.displayName": "压缩上下文",
   "tools.compactContext.description": "对话太长时整理前面的内容，腾出空间继续。",
+  "tools.compactContext.hint": "可以写上要重点保留的内容，发送后开始",
+  "tools.readConversationHistory.displayName": "查看对话原文",
+  "tools.readConversationHistory.description": "查找这段对话里被摘要或缩短的原始内容。",
   "tools.createTask.displayName": "创建任务",
   "tools.createTask.priorityLabel": "优先级",
   "tools.createTask.priorityPlaceholder": "留空由模型决定",

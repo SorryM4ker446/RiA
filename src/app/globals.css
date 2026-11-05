@@ -20,6 +20,14 @@
   --accent-foreground: 240 6% 10%;
   --destructive: 0 72% 40%;
   --destructive-foreground: 0 0% 100%;
+  --context-part-1: #2a78d6;
+  --context-part-2: #eb6834;
+  --context-part-3: #1baf7a;
+  --context-part-4: #eda100;
+  --context-part-5: #e87ba4;
+  --context-part-6: #008300;
+  --context-part-7: #6250d6;
+  --context-part-8: #e34948;
   --success: 152 62% 26%;
   --success-foreground: 0 0% 100%;
   --warning: 32 84% 32%;
@@ -57,6 +65,14 @@
   --accent-foreground: 220 14% 94%;
   --destructive: 0 66% 67%;
   --destructive-foreground: 225 8% 9%;
+  --context-part-1: #3987e5;
+  --context-part-2: #d95926;
+  --context-part-3: #199e70;
+  --context-part-4: #c98500;
+  --context-part-5: #d55181;
+  --context-part-6: #008300;
+  --context-part-7: #9085e9;
+  --context-part-8: #e66767;
   --success: 152 45% 63%;
   --success-foreground: 225 8% 9%;
   --warning: 38 72% 66%;
@@ -787,6 +803,7 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
 /* Six lines while it arrives, so the answer is never far away; more once it is there to read. */
 .message-reasoning-body { display: flex; flex-direction: column; gap: 8px; max-height: 21rem; margin: 6px 0 2px 6px; padding: 0 10px 0 12px; overflow-y: auto; overscroll-behavior: contain; border-left: 1px solid hsl(var(--border)); font-size: 13px; line-height: 1.6; color: hsl(var(--muted-foreground)); scrollbar-width: thin; }
 .message-reasoning[data-live] .message-reasoning-body { max-height: 9.6em; }
+.compaction-marker { margin: 8px 0 20px; }
 .message-reasoning-step { margin-top: 6px; font-size: 12px; color: hsl(var(--muted-foreground) / .8); }
 .message-reasoning-static { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-height: 22px; margin-bottom: 10px; font-size: 13px; color: hsl(var(--muted-foreground)); }
 .message-reasoning-note { font-size: 12px; color: hsl(var(--muted-foreground) / .75); }
@@ -1331,3 +1348,27 @@ body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; al
 }
 
 :root dialog::backdrop, .dialog-overlay-enter { background-color: hsl(var(--scrim) / .5); }
+
+/* What the context window holds, on the usage ring's hover. */
+.context-usage-card { width: 10.5rem; max-width: calc(100vw - 2rem); padding: .625rem .75rem; font-size: 11px; font-weight: 400; line-height: 1rem; }
+.context-usage-bar { position: relative; display: flex; gap: 1px; height: .25rem; margin-top: .5rem; overflow: hidden; border-radius: 9999px; background: hsl(var(--foreground) / .09); }
+.context-usage-bar > span { min-width: 2px; height: 100%; }
+.context-usage-buffer { position: absolute; top: 0; right: 0; bottom: 0; background: hsl(var(--foreground) / .22); }
+.context-usage-rows { display: grid; row-gap: .125rem; margin-top: .5rem; color: hsl(var(--muted-foreground)); }
+.context-usage-row { display: grid; grid-template-columns: .375rem minmax(0, 1fr) auto; align-items: center; column-gap: .5rem; }
+/* A row's tokens open beside its share while the pointer is on it; the share stays put. */
+.context-usage-tokens { max-width: 0; overflow: hidden; white-space: nowrap; opacity: 0; transform: translateX(.25rem); transition: max-width var(--dur-fast) var(--ease-out), padding-right var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.context-usage-row:hover .context-usage-tokens { max-width: 3rem; padding-right: .375rem; opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) { .context-usage-tokens { transition: none; } }
+.context-usage-swatch { width: .375rem; height: .375rem; border-radius: 9999px; }
+.context-usage-divider { height: 1px; margin: .25rem 0; background: hsl(var(--foreground) / .08); }
+.context-part-1 { background: var(--context-part-1); }
+.context-part-2 { background: var(--context-part-2); }
+.context-part-3 { background: var(--context-part-3); }
+.context-part-4 { background: var(--context-part-4); }
+.context-part-5 { background: var(--context-part-5); }
+.context-part-6 { background: var(--context-part-6); }
+.context-part-7 { background: var(--context-part-7); }
+.context-part-8 { background: var(--context-part-8); }
+.context-part-buffer { background: hsl(var(--foreground) / .22); }
+.context-part-free { background: hsl(var(--foreground) / .1); }
