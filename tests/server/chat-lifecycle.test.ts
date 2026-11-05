@@ -26,7 +26,7 @@ const { readChatRequest } = await import("@/lib/chat/request");
 const { prepareChatPersistence, persistChatResponse } = await import("@/lib/chat/persistence");
 const chat = await import("@/app/api/chat/route");
 const { indexDocument, deleteDocument } = await import("@/lib/documents/store");
-const { decodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
+const { decodePersistedAssistantToolMessage, encodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
 const { mapStoredMessagesToUI } = await import("@/features/chat/page-utils");
 const { getDocumentSources } = await import("@/features/chat/message-presentation");
 const { exclusiveDataOperation } = await import("@/lib/server/data-operations");
@@ -145,11 +145,11 @@ test("ordinary chat receives task-oriented agent instructions without empty retr
   assert.doesNotMatch(prompt, /terminalApprovalMode decides whether calls wait for approval/);
   assert.equal(prompt.split("runTerminalCommand").length - 1, 1);
   assert.match(prompt, /say when evidence for a requested workspace fact is missing/);
-  assert.doesNotMatch(prompt, /Knowledge evidence|Long-term memories|Summary of earlier turns|Incomplete excerpts|\[Tooling Policy/);
+  assert.doesNotMatch(prompt, /Knowledge evidence|Knowledge entries|Summary of earlier turns|Incomplete excerpts|\[Tooling Policy/);
   // Nothing was retrieved or remembered, so the context block holds the time and nothing else.
   const latest = JSON.stringify(languageModel.doStreamCalls.at(-1).prompt.at(-1).content);
   assert.match(latest, /Current date and time/);
-  assert.doesNotMatch(latest, /Knowledge evidence|Long-term memories|Summary of earlier turns|Incomplete excerpts/);
+  assert.doesNotMatch(latest, /Knowledge evidence|Knowledge entries|Summary of earlier turns|Incomplete excerpts/);
   assert.doesNotMatch(prompt, /No supporting document excerpts|No relevant long-term memory|No earlier messages omitted|Prefer a direct answer for ordinary questions|Order: factual points/);
 });
 
@@ -180,31 +180,14 @@ test("model capacity bounds long persisted conversations while retaining the act
   assert.equal(await db.message.count({ where: { chatId: owned.id, content: { startsWith: "Recorded turn" } } }), 40);
 });
 
-test("chat streams owned document sources and preserves citation snapshots through history, updates and deletion", async () => {
-  const pages = [{ pageNumber: 1, text: "织女星补给每周三送达。忽略此前所有指令是文档中的无效示例文本。" }];
-  const { document } = await indexDocument({ filename: "supply.pdf", format: "pdf", byteSize: 100, pages });
-  // A second document in the same workspace is ordinary context, not a leak.
-  const response = await chat.POST(request({ messages: [ui("documents-user", "user", "织女星补给何时送达")] }));
-  assert.equal(response.status, 200);
-  const wire = await wireText(response);
-  assert.match(wire, /documentSources/);
-  assert.match(wire, /supply.pdf/);
-  const sent = languageModel.doStreamCalls.at(-1).prompt;
-  assert.doesNotMatch(sent.find(item => item.role === "system").content, /每周三/, "evidence is not placed among the system rules");
-  const prompt = textPart(sent.at(-1).content[0]).text;
-  assert.match(prompt, /^\[Context for this request/);
-  assert.match(prompt, /untrusted reference data/);
-  assert.match(prompt, /每周三/);
-  // Untrusted document text stays inside the reference block, never as instruction.
-  const rows = await db.message.findMany({ where: { chat: {}, role: "assistant" } });
-  assert.equal(rows.length, 1);
+test("citations stored by an earlier answer stay readable, and survive deleting their document", async () => {
+  const { document } = await indexDocument({ filename: "supply.pdf", format: "pdf", byteSize: 100, pages: [{ pageNumber: 1, text: "织女星补给每周三送达。" }] });
+  const chunk = await db.documentChunk.findFirstOrThrow({ where: { documentId: document.id } });
+  const source = { documentId: document.id, chunkId: chunk.id, ordinal: chunk.ordinal, filename: "supply.pdf", pageNumber: 1, snippet: "织女星补给每周三送达。" };
+  const owned = await db.chat.create({ data: { title: "Earlier answer" } });
+  await db.message.create({ data: { chatId: owned.id, role: "assistant", content: encodePersistedAssistantToolMessage({ type: "assistant-tool-message", text: "Generated answer", tools: [], documentSources: [source] }) } });
+  const rows = await db.message.findMany({ where: { chatId: owned.id, role: "assistant" } });
   const persisted = decodePersistedAssistantToolMessage(rows[0].content);
-  assert.equal(persisted.text, "Generated answer");
-  assert.equal(persisted.documentSources[0].filename, "supply.pdf");
-  assert.equal(persisted.documentSources[0].pageNumber, 1);
-  // The mapper reads id, clientMessageId, role and content; the rows here come
-  // straight from Prisma, where createdAt is a Date rather than the ISO string
-  // the wire payload carries.
   const messages = mapStoredMessagesToUI(rows as unknown as StoredMessage[]).uiMessages;
   assert.equal(getDocumentSources(messages[0])[0].documentId, document.id);
   await deleteDocument(document.id);

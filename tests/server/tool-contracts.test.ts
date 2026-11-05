@@ -38,13 +38,11 @@ beforeEach(async (t: TestContext) => {
 after(async () => { await db.$disconnect(); cleanup(); });
 
 const options = {} as never;
-test("memory-disabled tool sets omit saving and the tool itself refuses writes", async () => {
-  const tools = await createChatToolSet({ usesMemory: false, toolIds: ["saveMemory"] });
-  assert.equal(tools.saveMemory, undefined);
-  const save = (usesMemory: boolean) => executeRegisteredTool(getToolDescriptor("saveMemory")!, { key: "preference", value: "private fact" }, { trigger: "manual", usesMemory });
-  await assert.rejects(save(false), { code: "VALIDATION_ERROR" });
-  assert.equal(await db.memory.count(), 0);
-  await save(true);
+test("with memory off the model cannot extract notes, while saving to the knowledge base still works", async () => {
+  const tools = await createChatToolSet({ usesMemory: false, toolIds: ["saveKnowledgeEntry"] });
+  assert.ok(tools.saveKnowledgeEntry);
+  assert.equal(tools.extractMemory, undefined);
+  await executeRegisteredTool(getToolDescriptor("saveKnowledgeEntry")!, { key: "reference", value: "a fact to look up" }, { trigger: "manual", usesMemory: false });
   assert.equal(await db.memory.count(), 1);
 });
 
@@ -67,11 +65,19 @@ test("a failed budget reservation cannot execute a task", async () => {
   assert.equal(await db.agentStep.count({ where: { runId: run.id } }), 0);
 });
 
+test("only a topic or a template limits what a conversation searches", async () => {
+  const { conversationCollections } = await import("@/lib/conversations/document-scope");
+  const { updateConversationSchema } = await import("@/lib/conversations/mutations");
+  const stored = encodeDocumentScope(["财务"]);
+  assert.deepEqual(conversationCollections({ topicId: "topic", assistantConfig: null, documentScope: stored }), ["财务"]);
+  assert.deepEqual(conversationCollections({ topicId: null, assistantConfig: null, documentScope: stored }), [], "a value left by an earlier version or a deleted topic");
+  assert.equal(updateConversationSchema.safeParse({ documentScope: ["财务"] }).success, false, "a conversation cannot be narrowed by hand");
+});
+
 test("collection names with separators remain exact across scope encoding and retrieval", async () => {
   await indexDocument({ filename: "exact.txt", collection: "A|B", format: "txt", byteSize: 10, pages: [{ pageNumber: null, text: "scopedneedle" }] });
   await indexDocument({ filename: "outside.txt", collection: "A", format: "txt", byteSize: 10, pages: [{ pageNumber: null, text: "scopedneedle" }] });
-  const chat = await db.chat.create({ data: { title: "Exact collection" } });
-  await updateConversation(chat.id, { documentScope: ["A|B"] });
+  const chat = await db.chat.create({ data: { title: "Exact collection", documentScope: encodeDocumentScope(["A|B"]) } });
   const saved = await db.chat.findUniqueOrThrow({ where: { id: chat.id } });
   assert.deepEqual(decodeDocumentScope(saved.documentScope), ["A|B"]);
   assert.deepEqual((await searchDocuments("scopedneedle", 4, decodeDocumentScope(saved.documentScope))).map(item => item.filename), ["exact.txt"]);

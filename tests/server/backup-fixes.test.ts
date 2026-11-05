@@ -86,6 +86,34 @@ async function seed() {
 
 // --- a summary pointer survives the id remap ----------------------------------
 
+test("MEMORY.md and what a conversation sent travel with a backup, and a restore replaces the document", async () => {
+  const original = await seed();
+  const asked = new Date(2026, 10, 2);
+  await db.chat.update({ where: { id: original.chat.id }, data: { memoryExtractedAt: asked } });
+  const sent = await db.message.create({ data: { chatId: original.chat.id, role: "user", content: "with context", requestContext: JSON.stringify(["a block"]) } });
+  await db.memoryDocument.create({ data: { id: "local", content: "# MEMORY\n\n## About the user\n- Kept.\n", revision: 4, deletedRevision: 2, topics: JSON.stringify([{ id: "t", title: "Sorted", summary: "s", notes: ["Kept."], updatedAt: "2026-11-05T00:00:00.000Z" }]) } });
+
+  const backup = await exclusiveDataOperation(() => archive.createAccountBackup());
+  await db.memoryDocument.update({ where: { id: "local" }, data: { content: "changed after the backup", revision: 9 } });
+  await exclusiveDataOperation(() => restoreAccountBackup(backup.id));
+
+  const document = await db.memoryDocument.findUniqueOrThrow({ where: { id: "local" } });
+  assert.match(document.content, /Kept/);
+  assert.equal(document.revision, 4);
+  assert.equal(document.deletedRevision, 2);
+  assert.match(document.topics, /Sorted/, "how the notes are sorted comes back with them");
+  const restored = await db.chat.findFirstOrThrow({ where: {}, include: { messages: true } });
+  assert.equal(restored.memoryExtractedAt?.getTime(), asked.getTime());
+  assert.equal(restored.messages.find(message => message.content === sent.content)?.requestContext, JSON.stringify(["a block"]));
+
+  // A backup from before there was a document leaves none, and still restores.
+  await db.memoryDocument.deleteMany({});
+  const without = await exclusiveDataOperation(() => archive.createAccountBackup());
+  await db.memoryDocument.create({ data: { id: "local", content: "current", revision: 1 } });
+  await exclusiveDataOperation(() => restoreAccountBackup(without.id));
+  assert.equal(await db.memoryDocument.count(), 0);
+});
+
 test("restore rewrites the chat summary pointer onto the message it now covers", async () => {
   const original = await seed();
   const covered = await db.message.create({ data: { chatId: original.chat.id, role: "assistant", content: "covered by the summary" } });

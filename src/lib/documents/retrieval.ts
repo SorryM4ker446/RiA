@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/db";
-import { tokenizeQuery } from "@/lib/memory/retrieval";
+import { tokenizeQuery } from "@/lib/knowledge/entry-retrieval";
 import { cosineSimilarity, embedTextWithModel } from "@/lib/ai/embedding";
 import { documentEmbeddingText } from "@/lib/documents/lexical";
 import { hashDocumentContent } from "@/lib/documents/chunks";
@@ -169,13 +169,6 @@ export async function retrieveDocuments(query: string, limit = 8, collections: s
   }
   diagnostics.outcome = bounded.length ? "hits" : "no-hits";
   return finish(bounded);
-}
-
-export function documentRetrievalQuery(messages: Array<{ role: string; text: string }>) {
-  const users = messages.filter(message => message.role === "user" && message.text.trim());
-  const latest = users.at(-1)?.text.trim() ?? "";
-  const followUp = latest.length <= 120 && /(?:那|它|这(?:个|些)|上述|之前|继续|还有|^(?:需要)?多久|^多少|\b(?:it|that|those|then|what about)\b)/iu.test(latest);
-  return followUp && users.length > 1 ? `${users.at(-2)!.text.slice(0, 1000)}\nFollow-up: ${latest}`.slice(0, 2000) : latest.slice(0, 2000);
 }
 
 export function formatDocumentContext(sources: DocumentSource[]) {

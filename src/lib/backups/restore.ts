@@ -71,6 +71,8 @@ export async function restoreAccountBackup(id: string) {
       await tx.workspaceEvent.deleteMany({});
       await tx.mediaAsset.deleteMany({});
       await tx.memory.deleteMany({});
+      await tx.memoryDocument.deleteMany({});
+      if (manifest.memoryDocument) await tx.memoryDocument.create({ data: manifest.memoryDocument });
       await tx.task.deleteMany({});
       await tx.knowledgeDocument.deleteMany({});
       await tx.modelRequest.deleteMany({});

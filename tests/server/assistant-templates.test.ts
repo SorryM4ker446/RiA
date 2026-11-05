@@ -44,9 +44,6 @@ after(async () => { await db.$disconnect(); cleanup(); });
 test("the migration writes the defaults exactly as they are defined", () => {
   const expected = DEFAULT_ASSISTANTS.map(template => ({ id: template.id, config: template.config, revision: template.revision }));
   assert.deepEqual([...migrated].sort((a, b) => a.id.localeCompare(b.id)), [...expected].sort((a, b) => a.id.localeCompare(b.id)));
-  // The migration is generated from the definitions; this keeps the two from drifting apart.
-  const sql = readFileSync("src/db/migrations/20261023120000_default_assistant_templates/migration.sql", "utf8");
-  for (const template of DEFAULT_ASSISTANTS) assert.ok(sql.includes(`'${JSON.stringify(template.config).replaceAll("'", "''")}', ${template.revision}`), template.id);
 });
 
 test("default templates can be edited, deleted and restored, and custom updates reject stale revisions", async () => {
@@ -93,7 +90,7 @@ test("applying a template stores an immutable snapshot and atomically applies sc
   await db.assistantTemplate.delete({ where: { id: saved.id } });
   assert.equal(readAssistantSnapshot((await db.chat.findUniqueOrThrow({ where: { id: chat.id } })).assistantConfig)?.instructions, "New instructions");
   const removed = await updateConversation(chat.id, { assistantTemplateId: null });
-  assert.equal(removed.assistantConfig, null); assert.deepEqual(decodeDocumentScope(removed.documentScope), ["医疗"]);
+  assert.equal(removed.assistantConfig, null); assert.deepEqual(decodeDocumentScope(removed.documentScope), [], "with the template gone, nothing narrows the search");
 });
 
 test("an idempotent conversation creation preserves its applied snapshot", async () => {
@@ -114,7 +111,8 @@ test("updated built-in agent guidance preserves old snapshots until the user rea
   assert.doesNotMatch(coding.config.instructions, /obtain approval for every terminal command/);
   const knowledge = templates.find(template => template.id === "builtin_knowledge")!;
   assert.equal(knowledge.revision, 3);
-  assert.match(knowledge.config.instructions, /Call searchKnowledge when the evidence sent with the request does not cover the question/);
+  assert.match(knowledge.config.instructions, /Search the knowledge base with searchKnowledge before answering/);
+  assert.doesNotMatch(knowledge.config.instructions, /evidence sent with the request/, "nothing reaches the model unless it searches");
   // Citing and preserving evidence is a system rule; the template does not repeat it.
   assert.doesNotMatch(knowledge.config.instructions, /conditions, exceptions/);
   assert.match(research.config.instructions, /only when it prevents research the user requested/);
@@ -153,25 +151,22 @@ test("updating a renamed template follows the previous snapshot name without rew
 
 test("empty tool restrictions disable tools and the direct route cannot bypass the conversation policy", async () => {
   assert.deepEqual(await createChatToolSet({ toolIds: [] }), {});
-  const allowed = await createChatToolSet({ toolIds: ["searchKnowledge"] }); assert.deepEqual(Object.keys(allowed), ["searchKnowledge", "readConversationHistory"], "compacting context is not the model's to call; looking up its own conversation comes with any tool");
+  const allowed = await createChatToolSet({ toolIds: ["searchKnowledge"] }); assert.deepEqual(Object.keys(allowed), ["searchKnowledge", "extractMemory", "readConversationHistory"], "compacting context is not the model's to call; the model's own underlying tools come with any tool");
   const chat = await createChat({ assistantTemplateId: "builtin_writing" });
   const response = await routes.tool.POST(request("/api/tools/run", "POST", { tool: "createTask", input: { title: "Must not write" }, chatId: chat.id }));
   assert.equal(response.status, 400); assert.equal(await db.task.count({ where: { title: "Must not write" } }), 0);
 });
 
-test("chat uses template instructions, scoped evidence and bounded policy without memory or forbidden tools", async () => {
+test("chat uses template instructions without memory, forbidden tools or added knowledge text", async () => {
   const saved = await saveAssistant(config({ retrieval: { maxSources: 1, contextChars: 1200, semanticThreshold: 0.6 } }));
   const chat = await createChat({ assistantTemplateId: saved.id });
   for (const collection of ["财务", "医疗"]) await indexDocument({ filename: `${collection}.txt`, collection, format: "txt", byteSize: 100, pages: [{ pageNumber: null, text: collection === "财务" ? "费用核销时限为十个工作日。" : "费用核销的医疗机密不应读取。" }] });
   await db.memory.create({ data: { key: "费用核销", value: "私有记忆不应读取", confirmed: true } });
   const response = await routes.chat.POST(request("/api/chat", "POST", { chatId: chat.id, messages: [{ id: "user-turn", role: "user", parts: [{ type: "text", text: "费用核销时限" }] }] }));
   assert.equal(response.status, 200, await response.clone().text());
-  const stream = await response.text(); assert.match(stream, /documentDiagnostics/);
+  await response.text();
   const call = languageModel.doStreamCalls.at(-1)!;
-  const prompt = JSON.stringify(call.prompt); assert.match(prompt, /Only apply documented financial rules/); assert.match(prompt, /十个工作日/); assert.doesNotMatch(prompt, /医疗机密|私有记忆/); assert.ok(!call.tools?.length);
-  const message = await db.message.findFirstOrThrow({ where: { chatId: chat.id, role: "assistant" } });
-  const persisted = decodePersistedAssistantToolMessage(message.content)!;
-  assert.equal(persisted.documentDiagnostics?.policy.semanticThreshold, 0.6); assert.equal(persisted.documentSources?.length, 1);
+  const prompt = JSON.stringify(call.prompt); assert.match(prompt, /Only apply documented financial rules/); assert.doesNotMatch(prompt, /医疗机密|私有记忆/); assert.ok(!call.tools?.length);
 });
 
 test("bound models reject client overrides and removed models cannot be used by templates", async () => {

@@ -172,7 +172,6 @@ export function Composer({
     for (const tool of tools) {
       const user = tool.surface.user;
       if (!user || !tool.modeSupport.includes("chat") || (allowedToolIds && tool.surface.template !== "always" && !allowedToolIds.includes(tool.id))) continue;
-      if (tool.id === "saveMemory" && activeChat?.ephemeral) continue;
       const label = tool.extensionId ? toolLabel(tool) : localizeMessage(tool.displayName);
       const blocked = !tool.available ? t("chat.slash.needsSetup") : user.run === "model" && !modelCanCallTools ? t("chat.slash.modelCannotCall") : undefined;
       items.push({
@@ -196,7 +195,7 @@ export function Composer({
       items.push({ key: `template:${template.id}`, group: "templates", label: name, description: template.builtin ? localizeMessage(template.config.description) : template.config.description, icon: TEMPLATE_ICON, chosen: activeChat?.assistantConfig?.templateId === template.id, run: () => void applyAssistant(template.id) });
     }
     return items;
-  }, [tools, skills, assistants, allowedToolIds, modelCanCallTools, choice.tool, choice.skills, activeChat?.assistantConfig?.templateId, activeChat?.ephemeral, chooseTool, toggleSkill, applyAssistant, openSettings]);
+  }, [tools, skills, assistants, allowedToolIds, modelCanCallTools, choice.tool, choice.skills, activeChat?.assistantConfig?.templateId, chooseTool, toggleSkill, applyAssistant, openSettings]);
   const visibleItems = useMemo(() => {
     if (!slash) return [];
     if (slash.query) return filterSlashItems(allItems, slash.query);

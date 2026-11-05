@@ -70,7 +70,7 @@ export function useChatState() {
     loadChats, createNewChat, startEditingChat,
     cancelEditingChat, saveEditedTitle, performDeleteChat, ensureActiveChatId,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, toggleEphemeral, isEphemeralSaving,
-    documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
+    isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
     setWorkspace, isWorkspaceSaving, restoringChatId, isRestoringChat,
   } = useConversations({ activeChatId, setActiveChatId, preferences: { modelMode, selectedChatModel: preferredChatModel, selectedImageModel, selectedVideoModel }, applyChatPreferences, resetConversation, persistCurrentStreamingAssistantIfNeeded, setPageError });
   // A remembered conversation the list has not confirmed yet is not one to send to,
@@ -803,7 +803,7 @@ export function useChatState() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [pendingDelete, isDeleting, isPending, onStop]);
   return {
-    toggleEphemeral, isEphemeralSaving, documentTopics, loadDocumentTopics, setDocumentScope, isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
+    toggleEphemeral, isEphemeralSaving, isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
     setWorkspace, isWorkspaceSaving, loadChats,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages,
     isLoadingChats, isCreatingChat, createNewChat, chats, activeChatId, editingChatId, setEditingTitle,

@@ -55,13 +55,13 @@ test("document imports, local retrieval and chat citations persist across reload
   await expect(page.getByText("已根据保存的文本重建索引。")).toBeVisible();
   await page.getByRole("navigation", { name: "工作区导航" }).getByRole("link", { name: "聊天", exact: true }).click();
   await expect(page.getByRole("checkbox", { name: "仅手动", exact: true })).toHaveCount(0);
-  await page.getByPlaceholder(/输入你的问题/).fill("星河补给什么时候送达");
+  await page.getByPlaceholder(/输入你的问题/).fill("OFFLINE_SEARCH_KNOWLEDGE QUERY=星河补给什么时候送达");
   await page.getByRole("button", { name: "发送", exact: true }).click();
-  await expect(page.getByText("离线回答：星河补给什么时候送达", { exact: true })).toBeVisible();
+  await expect(page.getByText("离线回答：OFFLINE_SEARCH_KNOWLEDGE QUERY=星河补给什么时候送达", { exact: true })).toBeVisible();
   const source = page.getByRole("link", { name: "星河运行手册.md · 片段 2", exact: true });
   await openDocumentReferences(page);
   await expect(source).toBeVisible();
-  await expect(page.getByRole("dialog", { name: "执行记录", exact: true }).getByText(/星河补给每周四送达/)).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "执行记录", exact: true }).getByText(/星河补给每周四送达/).locator("visible=true").first()).toBeVisible();
   expect(JSON.stringify(app.providerCalls.filter(call => call.stream).at(-1)?.messages)).toContain("每周四");
   await page.reload();
   await openDocumentReferences(page);
@@ -72,7 +72,7 @@ test("document imports, local retrieval and chat citations persist across reload
   await expect(source).toBeVisible();
   await source.click();
   await expect(page.getByRole("heading", { name: "星河运行手册.md", exact: true })).toBeVisible();
-  await expect(page.getByText(/星河补给每周四送达/)).toBeVisible();
+  await expect(page.getByText(/星河补给每周四送达/).locator("visible=true").first()).toBeVisible();
 
   // A browser that never obtained the credential reaches no stored document.
   const stranger = await browser.newContext({ storageState: NO_CREDENTIAL_STATE });

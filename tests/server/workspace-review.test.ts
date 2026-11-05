@@ -10,7 +10,7 @@ import { localAccessCookie } from "../helpers/local-access";
 const cleanup = createTestDatabase();
 const { db } = await import("@/db");
 const { updateTask } = await import("@/lib/tasks/service");
-const { saveMemory } = await import("@/lib/memory/store");
+const { saveKnowledgeEntry } = await import("@/lib/knowledge/entries");
 const { indexDocument, reindexDocument, deleteDocument } = await import("@/lib/documents/store");
 const { getEventSource, recordWorkspaceEvent, pruneWorkspaceEvents } = await import("@/lib/activity/events");
 const { reviewWindow } = await import("@/lib/activity/window");
@@ -120,12 +120,12 @@ test("document imports and changes record events while duplicate import and rein
 });
 
 test("memory confirmation is transactional and repeated acceptance or assistant inference adds no confirmation", async () => {
-  const candidate = await saveMemory({ key: "Preference", value: "Candidate", source: "assistant" });
+  const candidate = await saveKnowledgeEntry({ key: "Preference", value: "Candidate", source: "assistant" });
   assert.equal(await db.workspaceEvent.count(), 0);
   const path = `/api/knowledge/${candidate.id}`, context = { params: Promise.resolve({ id: candidate.id }) };
   assert.equal((await knowledgeRoute.PATCH(request(path, "PATCH", { confirmed: true }), context)).status, 200);
   assert.equal((await knowledgeRoute.PATCH(request(path, "PATCH", { confirmed: true }), context)).status, 200);
-  await saveMemory({ key: candidate.key, value: "Discarded inference", source: "assistant" });
+  await saveKnowledgeEntry({ key: candidate.key, value: "Discarded inference", source: "assistant" });
   assert.equal(await db.workspaceEvent.count(), 1);
   assert.equal((await db.memory.findUniqueOrThrow({ where: { id: candidate.id } })).value, "Candidate");
 });

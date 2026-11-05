@@ -42,3 +42,8 @@ export function documentSourceUrl(source: Pick<DocumentSource, "documentId" | "c
 }
 
 export type DocumentReferenceStatus = { chunkId: string; status: "current" | "changed" | "deleted" | "unverified" };
+
+export function markDocumentCitations(sources: DocumentSource[], answer: string): DocumentSource[] {
+  const urls = new Set([...answer.matchAll(/\[[^\]]+\]\(([^\s)]+)\)/gu)].map(match => match[1]));
+  return sources.map(source => ({ ...source, citationStatus: urls.has(documentSourceUrl(source)) ? "cited" : "not-cited" }));
+}

@@ -153,6 +153,8 @@ export const serverMessages = {
   "lib.chat.saveFailed": "回答保存失败，请重新加载会话后重试。",
   "lib.chat.generateFailed": "聊天生成或保存失败，请重试或重新加载会话。",
   "lib.chat.providerUnavailable": "模型服务暂时不可用，请稍后重试。",
+  "lib.chat.providerOutOfBalance": "模型服务账户余额不足，请充值后再试，或换一个模型。",
+  "lib.chat.providerOutOfBalanceNamed": "{provider} 账户余额不足，请充值后再试，或换一个模型。",
 
   // --- local HTTP layer ----------------------------------------------------
   "lib.server.backupRestoreBusy": "正在备份或恢复数据，请稍后重试。",

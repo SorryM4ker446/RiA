@@ -17,6 +17,7 @@ import { db } from "@/db";
 import { conversationCalibration } from "@/lib/models/context-calibration";
 import { readSummaryState } from "./compaction-state";
 import { REQUEST_CONTEXT_HEADER } from "./context-report";
+import { readMemoryDocument, withoutWithheldMemory } from "@/lib/memory/document";
 import { mapStoredMessagesToUI } from "@/features/chat/page-utils";
 function stripFilePartsForTextOnlyModel(messages: UIMessage[]): UIMessage[] {
   return messages.map((message) => {
@@ -149,19 +150,35 @@ export function filesSeen(state: { files: { grantId: string; path: string; hash?
   return seen;
 }
 
+/**
+ * Knowledge entries and document excerpts used to go into a request on their own, and a
+ * block kept from then would go on repeating them, whatever has since been deleted. The
+ * knowledge base is reached by searching now, so those sections are not sent again. The
+ * prompt cache misses once.
+ */
+export function withoutRetiredContext(text: string) {
+  return text
+    .replace(/(?:Long-term memories|Knowledge entries) that may be relevant:\n[\s\S]*?(?:\n\n(?=Knowledge evidence \(|\[MEMORY\.md revision|\[End of context)|$)/g, "")
+    .replace(/Knowledge evidence \(incomplete excerpts;[^\n]*\n[^\n]*(?:\n\n)?/g, "");
+}
+
 /** Most of a request's reference data kept to send again; a larger block is sent once. */
-const MAX_KEPT_REQUEST_CONTEXT = 32_000;
+const MAX_KEPT_REQUEST_CONTEXT = 64_000;
 
 /** What the user messages of a conversation were sent with, by every id the browser may use. */
-async function sentRequestContexts(chatId: string) {
+async function sentRequestContexts(chatId: string, ephemeral: boolean | undefined) {
+  const chat = await db.chat.findUnique({ where: { id: chatId }, select: { ephemeral: true } });
+  const memoryOn = !(ephemeral ?? chat?.ephemeral ?? false);
   const rows = await db.message.findMany({ where: { chatId, requestContext: { not: null } }, select: { id: true, clientMessageId: true, requestContext: true } });
+  const { deletedRevision } = await readMemoryDocument();
   const contexts = new Map<string, string[]>();
   for (const row of rows) {
     let texts: unknown;
     try { texts = JSON.parse(row.requestContext!); } catch { continue; }
     if (!Array.isArray(texts) || !texts.every(text => typeof text === "string")) continue;
-    contexts.set(row.id, texts as string[]);
-    if (row.clientMessageId) contexts.set(row.clientMessageId, texts as string[]);
+    const allowed = (texts as string[]).map(text => withoutWithheldMemory(withoutRetiredContext(text), { memoryOn, deletedRevision }));
+    contexts.set(row.id, allowed);
+    if (row.clientMessageId) contexts.set(row.clientMessageId, allowed);
   }
   return contexts;
 }
@@ -188,21 +205,13 @@ export async function prepareModelContext(input: ChatRequest, signal?: AbortSign
     ...await conversationWindow(model, input.modelRef, messages),
     maxMessages: effectiveMessages.length,
     anchorMessageIds: anchor,
-    requestContexts: input.requestedChatId ? await sentRequestContexts(input.requestedChatId) : undefined,
+    requestContexts: input.requestedChatId ? await sentRequestContexts(input.requestedChatId, input.conversationPolicy?.ephemeral) : undefined,
     // A model that cannot take tools cannot take a record of them either.
     ...((input.body.mode ?? "chat") === "chat" && input.model?.supportsTools === true && (!input.assistant || input.assistant.tools.length > 0) ? { toolRecords: { replaysReasoning: input.modelRef.providerId === "deepseek", covered: stored?.state.calls, keepPreviousToolTurn: true } } : {}),
   });
   const modelMessages = await convertToModelMessages(await materializeChatAttachments(context.messages, signal));
 
   return { context, modelMessages };
-}
-export function formatLongTermContext(
-  memories: Array<{ key: string; value: string; score: number | null }>,
-): string {
-  if (memories.length === 0) return "";
-  return memories
-    .map((memory, index) => `${index + 1}. ${memory.key}: ${memory.value}`)
-    .join("\n");
 }
 /**
  * The user's stated preferences, rendered as instructions.
@@ -247,6 +256,14 @@ export function buildSystemPrompt(
   ].join("\n");
 }
 
+/**
+ * Tells the model a conversation is kept to chosen topics. Nothing from them reaches it
+ * unless it searches, and without this it cannot tell that this is what the user came for.
+ */
+export function formatKnowledgeScope(collections: string[]) {
+  return collections.length ? `\n[Knowledge scope]\nIn this conversation searchKnowledge covers only these topics of the user's knowledge base: ${JSON.stringify(collections)}. This conversation was set up to work with them, so search them for anything they may cover rather than answering from general knowledge.` : "";
+}
+
 export { REQUEST_CONTEXT_HEADER };
 export const REQUEST_CONTEXT_FOOTER = "[End of context; the user's message follows]";
 
@@ -261,14 +278,13 @@ export function formatCurrentTime(now = new Date(), timeZone = Intl.DateTimeForm
 }
 
 /** This turn's reference data, as one labelled block; empty when there is none. */
-export function buildRequestContext(parts: { currentTime?: string; workspace?: string; historyExcerpt?: string; fileChanges?: string; memories?: string; evidence?: string }): string {
+export function buildRequestContext(parts: { currentTime?: string; workspace?: string; historyExcerpt?: string; fileChanges?: string; memoryDocument?: string }): string {
   const sections = [
     parts.currentTime?.trim() ?? "",
     parts.workspace?.trim() ?? "",
     parts.historyExcerpt?.trim() ?? "",
     parts.fileChanges?.trim() ?? "",
-    parts.memories?.trim() ? `Long-term memories that may be relevant:\n${parts.memories.trim()}` : "",
-    parts.evidence?.trim() ?? "",
+    parts.memoryDocument?.trim() ?? "",
   ].filter(Boolean);
   return sections.length ? [REQUEST_CONTEXT_HEADER, ...sections, REQUEST_CONTEXT_FOOTER].join("\n\n") : "";
 }

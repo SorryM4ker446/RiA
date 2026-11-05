@@ -19,14 +19,13 @@ export type ResolvedInvocation = {
  * choice that cannot be honoured refuses the message rather than quietly sending
  * it as something else, and the composer puts the draft back.
  */
-export async function resolveInvocation(invocation: MessageInvocation, context: { allowedToolIds?: string[]; modelSupportsTools: boolean; modelRef?: ModelRef; usesMemory?: boolean }): Promise<ResolvedInvocation> {
+export async function resolveInvocation(invocation: MessageInvocation, context: { allowedToolIds?: string[]; modelSupportsTools: boolean; modelRef?: ModelRef }): Promise<ResolvedInvocation> {
   const lines: string[] = [];
   let toolId: string | null = null;
   if (invocation.tool) {
     const tool = await resolveToolDescriptor(invocation.tool.id);
     if (!tool?.surface.user) throw new ApiError({ code: "VALIDATION_ERROR", message: t("lib.chat.invocation.toolNotCallable") });
     if (context.allowedToolIds && !templateAllowsTool(context.allowedToolIds, tool.id)) throw new ApiError({ code: "VALIDATION_ERROR", message: t("lib.chat.invocation.toolNotInTemplate") });
-    if (tool.id === "saveMemory" && context.usesMemory === false) throw new ApiError({ code: "VALIDATION_ERROR", message: t("tools.saveMemory.disabled") });
     if (!context.modelSupportsTools) throw new ApiError({ code: "VALIDATION_ERROR", message: t("lib.chat.invocation.modelCannotCallTools") });
     if (!(await toolAvailability(tool.id, context.modelRef)).available) throw new ApiError({ code: "CONFIGURATION_ERROR", message: t("lib.chat.invocation.toolUnavailable") });
     // Reading an attached file needs no call: its text already travels with the message.

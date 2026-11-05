@@ -626,7 +626,7 @@ test("what a request was sent with is kept only while it is small enough to send
   await db.message.create({ data: { chatId: chat.id, role: "user", clientMessageId: "asked", content: "Question" } });
   await keepRequestContext(chat.id, "asked", ["small block"]);
   assert.equal((await db.message.findFirstOrThrow({ where: { chatId: chat.id } })).requestContext, JSON.stringify(["small block"]));
-  await keepRequestContext(chat.id, "asked", ["x".repeat(40_000)]);
+  await keepRequestContext(chat.id, "asked", ["x".repeat(70_000)]);
   assert.equal((await db.message.findFirstOrThrow({ where: { chatId: chat.id } })).requestContext, null);
 });
 

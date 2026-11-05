@@ -23,10 +23,11 @@ function retryAfterMs(error: unknown, now = Date.now()): number | null {
  * retried. Only failures that happened before any output reached the caller are
  * ever passed here, so a retry cannot repeat delivered text or a tool call.
  * Retried: rate limits, server errors and connection failures. Never retried:
- * cancellation, timeouts, other client errors and a missing model.
+ * cancellation, timeouts, other client errors, a missing model and an account out of
+ * balance, none of which waiting will change.
  */
 export function retryDelay(error: unknown, retries: number, signal?: AbortSignal): number | null {
-  if (retries >= MODEL_RETRIES || !canFallback(error, signal) || object(error).statusCode === 404) return null;
+  if (retries >= MODEL_RETRIES || !canFallback(error, signal) || object(error).statusCode === 404 || object(error).statusCode === 402) return null;
   const requested = retryAfterMs(error);
   if (requested !== null) return requested <= MAX_RETRY_DELAY_MS ? requested : null;
   return BASE_RETRY_DELAY_MS * 2 ** retries;

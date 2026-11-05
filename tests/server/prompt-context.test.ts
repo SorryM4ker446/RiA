@@ -10,12 +10,12 @@ import { seedTestModelPreferences } from "../helpers/model-library";
 
 const cleanup = createTestDatabase();
 process.env.RIA_TEST_PROVIDER = "1";
+const { documentSourceUrl, markDocumentCitations } = await import("@/lib/documents/types");
 const { db } = await import("@/db");
 const chat = await import("@/app/api/chat/route");
 const { indexDocument } = await import("@/lib/documents/store");
 const { encodeDocumentScope } = await import("@/lib/documents/scope");
-const { saveMemory, getRelevantMemories } = await import("@/lib/memory/store");
-const { selectAutomaticEvidence } = await import("@/lib/documents/auto-context");
+const { saveKnowledgeEntry, getRelevantEntries } = await import("@/lib/knowledge/entries");
 const { withRequestContext, buildRequestContext, REQUEST_CONTEXT_HEADER } = await import("@/lib/chat/model-context");
 const { installPlugin, setPluginState } = await import("@/lib/plugins/store");
 const { parsePlugin } = await import("@/lib/plugins/schema");
@@ -43,55 +43,42 @@ async function send(body: Record<string, unknown>) {
   return response.text();
 }
 
-test("weak keyword matches stay out of a request the model can search for, but scoped conversations still receive them", async () => {
-  await indexDocument({ filename: "release-notes.md", collection: "产品", format: "md", byteSize: 100, pages: [{ pageNumber: 1, text: "The quarterly build of the marketing site ships every Friday with new banners." }] });
-  const wire = await send({ messages: [ui("coding", "user", "Fix the failing build in my parser module and rerun its tests")] });
-  const prompt = lastPrompt();
-  assert.doesNotMatch(JSON.stringify(prompt), /quarterly build/, "a single shared word does not steer an unrelated request");
-  assert.match(wire, /"withheldSources":1/);
-
-  const scoped = await db.chat.create({ data: { title: "Scoped", documentScope: encodeDocumentScope(["产品"]) } });
-  await send({ chatId: scoped.id, messages: [ui("scoped", "user", "Fix the failing build in my parser module and rerun its tests")] });
-  assert.match(textOf(lastPrompt().at(-1)), /quarterly build/, "a conversation scoped to the knowledge still receives it");
+test("a search gives the model the url it is told to cite with", async () => {
+  await indexDocument({ filename: "citable.md", format: "md", byteSize: 100, pages: [{ pageNumber: 1, text: "织女星补给每周三送达仓库。" }] });
+  const { searchKnowledge } = await import("@/tools/definitions/search-knowledge");
+  const [hit] = (await searchKnowledge({ query: "织女星补给", topK: 4 })).results;
+  assert.equal(hit.url, documentSourceUrl(hit.reference!));
+  assert.deepEqual(markDocumentCitations([hit.reference!], `[citable](${hit.url})`).map(source => source.citationStatus), ["cited"]);
 });
 
-test("strong matches are added automatically, and only to the latest user message", async () => {
+test("nothing from the knowledge base is added to a request; the model searches for it", async () => {
   await indexDocument({ filename: "supply.md", format: "md", byteSize: 100, pages: [{ pageNumber: 1, text: "织女星补给每周三送达仓库。" }] });
-  await send({ messages: [ui("strong", "user", "织女星补给何时送达")] });
-  const prompt = lastPrompt();
-  assert.doesNotMatch(systemOf(prompt), /每周三/);
-  const latest = prompt.at(-1)!;
-  assert.equal(latest.role, "user");
-  const parts = latest.content as { type: string; text: string }[];
-  assert.match(parts[0].text, new RegExp(`^${REQUEST_CONTEXT_HEADER.replace(/[[\]]/g, "\\$&")}`));
-  assert.match(parts[0].text, /每周三/);
-  assert.equal(parts.at(-1)!.text, "织女星补给何时送达");
-  const stored = await db.message.findFirstOrThrow({ where: { role: "user" } });
-  assert.doesNotMatch(stored.content, /Context for this request/, "the context block is rebuilt per request, never saved");
+  await saveKnowledgeEntry({ key: "deployment region", value: "Production deploys go to the Frankfurt region." });
+  const wire = await send({ messages: [ui("strong", "user", "织女星补给何时送达 deployment region")] });
+  const sent = JSON.stringify(lastPrompt());
+  assert.doesNotMatch(sent, /每周三/); assert.doesNotMatch(sent, /Frankfurt/);
+  assert.doesNotMatch(wire, /documentSources|documentDiagnostics/);
+  assert.ok(languageModel.doStreamCalls.at(-1)!.tools?.some(tool => tool.name === "searchKnowledge"));
 });
 
 test("the system prompt stays identical across turns while each turn's context changes, keeping earlier turns unchanged", async () => {
-  await saveMemory({ key: "deployment region", value: "Production deploys go to the Frankfurt region." });
+  await saveKnowledgeEntry({ key: "deployment region", value: "Production deploys go to the Frankfurt region." });
   await send({ messages: [ui("first", "user", "Which region do production deploys use?")] });
   const first = lastPrompt();
-  assert.match(textOf(first.at(-1)), /Frankfurt/);
   const history = [ui("first", "user", "Which region do production deploys use?"), ui("first-answer", "assistant", "Generated answer"), ui("second", "user", "Write a haiku about autumn")];
   await send({ messages: history });
   const second = lastPrompt();
   assert.equal(systemOf(second), systemOf(first), "nothing turn-specific lives in the system prompt");
   const earlierUser = second.filter(message => message.role === "user").at(-2);
   assert.equal(textOf(earlierUser), "Which region do production deploys use?", "an earlier turn is sent exactly as before");
-  assert.doesNotMatch(textOf(second.at(-1)), /Frankfurt/, "an unrelated turn does not carry the memory");
 });
 
 test("chat memories need a real match, while the memory API keeps its existing ranking", async () => {
-  await saveMemory({ key: "favorite editor", value: "Uses Neovim with a dark theme for writing Rust services." });
+  await saveKnowledgeEntry({ key: "favorite editor", value: "Uses Neovim with a dark theme for writing Rust services." });
   const loose = "Explain how a dark matter halo shapes galaxy rotation curves";
-  assert.ok((await getRelevantMemories({ query: loose })).length > 0, "unchanged API behavior");
-  assert.equal((await getRelevantMemories({ query: loose, minMatch: 0.3 })).length, 0);
-  assert.equal((await getRelevantMemories({ query: "which editor and theme do I use", minMatch: 0.3 })).length, 1);
-  await send({ messages: [ui("loose", "user", loose)] });
-  assert.doesNotMatch(JSON.stringify(lastPrompt()), /Neovim/);
+  assert.ok((await getRelevantEntries({ query: loose })).length > 0, "unchanged API behavior");
+  assert.equal((await getRelevantEntries({ query: loose, minMatch: 0.3 })).length, 0);
+  assert.equal((await getRelevantEntries({ query: "which editor and theme do I use", minMatch: 0.3 })).length, 1);
 });
 
 test("skills are an index when they can be loaded on demand", async () => {
@@ -104,29 +91,10 @@ test("skills are an index when they can be loaded on demand", async () => {
   assert.ok(languageModel.doStreamCalls.at(-1)!.tools?.some(tool => tool.name === "readPluginSkill"));
 });
 
-test("automatic evidence selection keeps strong matches and their neighbors and reports what it withheld", () => {
-  const base = { documentId: "doc", contentHash: "a".repeat(64), filename: "f.md", pageNumber: null, snippet: "x", heading: null, collection: null };
-  const diagnostics = { outcome: "hits" as const, semantic: "ready" as const, corpusChunks: 4, compatibleVectors: 4, scannedVectors: 4, staleVectors: 0, invalidVectors: 0, lexicalCandidates: 3, semanticCandidates: 1, selectedSources: 4, contextChars: 4, durationMs: 1, policy: { semanticThreshold: 0.35, maxSources: 8, contextChars: 8000 } };
-  const sources = [
-    { ...base, chunkId: "strong", ordinal: 1, matchedTerms: ["fix", "parser", "build"] },
-    { ...base, chunkId: "neighbor", ordinal: 2, retrieval: "neighbor" as const, anchorChunkId: "strong", matchedTerms: [] },
-    { ...base, chunkId: "semantic", ordinal: 3, semanticScore: 0.62, matchedTerms: [] },
-    { ...base, chunkId: "weak", ordinal: 4, matchedTerms: ["build"] },
-  ];
-  const query = "fix parser build";
-  const selected = selectAutomaticEvidence({ sources, diagnostics }, query, { userScoped: false, canSearch: true });
-  assert.deepEqual(selected.sources.map(source => source.chunkId), ["strong", "neighbor", "semantic"]);
-  assert.equal(selected.diagnostics.withheldSources, 1); assert.equal(selected.diagnostics.selectedSources, 3);
-  assert.equal(selectAutomaticEvidence({ sources, diagnostics }, query, { userScoped: true, canSearch: true }).sources.length, 4);
-  assert.equal(selectAutomaticEvidence({ sources, diagnostics }, query, { userScoped: false, canSearch: false }).sources.length, 4);
-  const none = selectAutomaticEvidence({ sources: [sources[3]], diagnostics }, query, { userScoped: false, canSearch: true });
-  assert.equal(none.diagnostics.outcome, "no-hits"); assert.equal(none.sources.length, 0);
-});
-
 test("the request context is one labelled block ahead of the latest user message", () => {
   assert.equal(buildRequestContext({}), "");
-  const block = buildRequestContext({ historyExcerpt: "", memories: "1. a: b", evidence: "Knowledge evidence: []" });
-  assert.match(block, /^\[Context for this request[\s\S]*Long-term memories[\s\S]*Knowledge evidence[\s\S]*\[End of context; the user's message follows\]$/);
+  const block = buildRequestContext({ historyExcerpt: "", memoryDocument: "notes" });
+  assert.match(block, /^\[Context for this request[\s\S]*notes[\s\S]*\[End of context; the user's message follows\]$/);
   const messages = [{ role: "user" as const, content: "first" }, { role: "assistant" as const, content: [{ type: "text" as const, text: "ok" }] }, { role: "user" as const, content: [{ type: "text" as const, text: "second" }] }];
   const result = withRequestContext(messages, block);
   assert.equal(result[0], messages[0]); assert.equal(result[1], messages[1]);

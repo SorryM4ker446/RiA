@@ -102,6 +102,10 @@ model Chat {
   summaryModelId  String?
   // The tool calls the summary stands in for and what to put back after a fold, as JSON.
   summaryState    String?
+  // When a turn last asked for memories to be extracted from this conversation.
+  memoryExtractedAt DateTime?
+  // When long-term memory was last turned back on. Notes are read only from messages after it.
+  memoryResumedAt DateTime?
   historyRevision Int          @default(0)
   summaryRevision Int?
 
@@ -286,6 +290,22 @@ model MediaGenerationInput {
   @@id([assetId, inputAssetId])
   @@index([inputAssetId])
   @@map("media_generation_inputs")
+}
+
+// MEMORY.md: what the model has noted across conversations. There is one, and it is
+// kept here so it travels with backups and every write can check what it was based on.
+model MemoryDocument {
+  id        String   @id @default("local")
+  content   String   @default("")
+  revision  Int      @default(0)
+  // The revision of a person's latest deletion: copies older than this are not sent again.
+  deletedRevision Int @default(0)
+  // How the notes are sorted for a person to look through, as JSON. Worked out from them,
+  // and never sent to a model as memory.
+  topics    String   @default("[]")
+  updatedAt DateTime @updatedAt
+
+  @@map("memory_documents")
 }
 
 model Memory {

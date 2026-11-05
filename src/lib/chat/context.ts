@@ -2,6 +2,7 @@ import type { UIMessage } from "ai";
 import { historicalToolText, historyTextExcerpt } from "./tool-history";
 import { estimateTextTokens } from "@/lib/models/context-budget";
 import type { PersistedStep } from "@/lib/ai/ui-message";
+import { currentToolId } from "@/tools/legacy-names";
 
 type ContextOptions = {
   maxMessages?: number;
@@ -123,6 +124,12 @@ function historyTurn(message: UIMessage, replaysReasoning: boolean): UIMessage {
   ] };
 }
 
+/** A page still open from before a tool was renamed sends the old name back. */
+function withCurrentToolNames(message: UIMessage): UIMessage {
+  if (!message.parts.some(part => part.type.startsWith("tool-") && currentToolId(part.type.slice(5)) !== part.type.slice(5))) return message;
+  return { ...message, parts: message.parts.map(part => part.type.startsWith("tool-") ? { ...part, type: `tool-${currentToolId(part.type.slice(5))}` } as UIMessage["parts"][number] : part) };
+}
+
 /** A message read back from storage, laid out in the steps it was recorded with. */
 function withSteps(message: UIMessage): UIMessage {
   const steps = (message.metadata as { steps?: PersistedStep[] } | undefined)?.steps;
@@ -152,7 +159,7 @@ export function buildChatContext(messages: UIMessage[], options: ContextOptions 
   const windowSize = options.maxTokens ?? options.maxCharacters ?? 48_000;
   const measure = options.maxTokens !== undefined ? estimateTextTokens : (text: string) => text.length;
   const excerptCharacters = options.excerptCharacters ?? 4_000;
-  const conversation = messages.filter((message) => message.role === "user" || message.role === "assistant");
+  const conversation = messages.filter((message) => message.role === "user" || message.role === "assistant").map(withCurrentToolNames);
   const approvalResume = isToolApprovalContinuation(conversation);
   let latestUserIndex = -1;
   conversation.forEach((message, index) => { if (message.role === "user") latestUserIndex = index; });

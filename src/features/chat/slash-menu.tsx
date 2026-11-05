@@ -1,7 +1,7 @@
 "use client";
 import { useLayoutEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { Book, Box, Boxes, Brain, Check, FileOutput, FileText, Globe, ListChecks, Minimize2, Plug, Wrench } from "lucide-react";
+import { Book, BookPlus, Box, Boxes, Brain, Check, FileOutput, FileText, Globe, ListChecks, Minimize2, Plug, Wrench } from "lucide-react";
 import { t } from "@/lib/locale";
 import { cn } from "@/lib/utils/cn";
 
@@ -24,7 +24,7 @@ export type SlashItem = {
   run: () => void;
 };
 
-const TOOL_ICONS: Record<string, SlashIcon> = { compactContext: Minimize2, webSearch: Globe, searchKnowledge: Book, saveMemory: Brain, createTask: ListChecks, readDocument: FileText, convertDocument: FileOutput };
+const TOOL_ICONS: Record<string, SlashIcon> = { compactContext: Minimize2, webSearch: Globe, searchKnowledge: Book, saveKnowledgeEntry: BookPlus, createTask: ListChecks, readDocument: FileText, convertDocument: FileOutput };
 export const toolIcon = (toolId: string, isExtension: boolean): SlashIcon => isExtension ? Plug : TOOL_ICONS[toolId] ?? Wrench;
 export const SKILL_ICON: SlashIcon = Box;
 export const TEMPLATE_ICON: SlashIcon = Boxes;

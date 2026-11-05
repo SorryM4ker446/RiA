@@ -69,88 +69,15 @@ test("knowledge tool results stay within the conversation collection and remain 
     }, { collection, label });
     expect(result).toBe(201);
   }
-  const chat = (await browserApi(page, "/api/conversations", "POST", { title: "集合检索验证" })).body.data;
-  let releaseHistory!: () => void;
-  const historyGate = new Promise<void>(resolve => { releaseHistory = resolve; });
-  const holdHistory = async (route: import("@playwright/test").Route) => {
-    await historyGate;
-    await route.continue();
-  };
-  await page.route("**/api/conversations", holdHistory);
-  let topicLoads = 0;
-  await page.route("**/api/documents", async route => {
-    topicLoads += 1;
-    await route.continue();
-  });
-  const scope = page.getByRole("button", { name: "A|B", exact: true });
-  try {
-    await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
-    await expect(scope).toBeVisible();
-    await expect(scope).toBeDisabled();
-  } finally {
-    releaseHistory();
-  }
-  await expect(scope).toBeEnabled();
-  await page.unroute("**/api/conversations", holdHistory);
+  const topic = (await browserApi(page, "/api/topics", "POST", { name: "集合检索", description: "", collections: ["A|B"], assistantTemplateId: null })).body.data;
+  const chat = (await browserApi(page, `/api/topics/${topic.id}/conversations`, "POST", { revision: topic.revision, title: "集合检索验证" })).body.data;
+  await page.evaluate(id => localStorage.setItem("chat:last-active-id", id), chat.id);
+  await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
   const composer = page.getByPlaceholder(/输入你的问题/);
   await composer.fill("OFFLINE_SEARCH_KNOWLEDGE 检索发布回滚窗口");
-  let releaseScope!: () => void;
-  const scopeGate = new Promise<void>(resolve => { releaseScope = resolve; });
-  let scopeWrites = 0;
-  const holdScope = async (route: import("@playwright/test").Route) => {
-    if (route.request().method() !== "PATCH") return route.continue();
-    scopeWrites += 1;
-    if (scopeWrites === 1) {
-      return route.fulfill({ status: 500, json: { error: { code: "INTERNAL_ERROR", message: "Scope save rejected" } } });
-    }
-    await scopeGate;
-    await route.continue();
-  };
-  await page.route(`**/api/conversations/${chat.id}`, holdScope);
-  // A rejected save still reads the list back before it ends, and the scope stays
-  // pressable meanwhile; the failure is said only once a retry would be taken.
-  let reloadHeld!: () => void;
-  const reloadReached = new Promise<void>(resolve => { reloadHeld = resolve; });
-  let releaseReload!: () => void;
-  const reloadGate = new Promise<void>(resolve => { releaseReload = resolve; });
-  const holdReload = async (route: import("@playwright/test").Route) => {
-    reloadHeld();
-    await reloadGate;
-    await route.continue();
-  };
-  await page.route("**/api/conversations", holdReload);
-  try {
-    await scope.click();
-    await reloadReached;
-    expect(scopeWrites).toBe(1);
-    await expect(page.getByRole("alert").filter({ hasText: "Scope save rejected" })).toHaveCount(0);
-  } finally {
-    releaseReload();
-  }
-  await page.unroute("**/api/conversations", holdReload);
-  await expect(page.getByRole("alert").filter({ hasText: "Scope save rejected" })).toBeVisible();
-  await expect(scope).toHaveAttribute("aria-pressed", "false");
-  await expect(scope).toBeEnabled();
-  try {
-    await scope.click();
-    await expect.poll(() => scopeWrites).toBe(2);
-    // The scope stays as it looks while it saves (no blink to disabled), and a
-    // second press during the save does not send another write. Sending waits:
-    // the scope being saved is what the next message will use.
-    await expect(scope).toBeEnabled();
-    await scope.click();
-    await page.waitForTimeout(300);
-    expect(scopeWrites).toBe(2);
-    await expect(page.getByRole("button", { name: "发送", exact: true })).toBeDisabled();
-  } finally {
-    releaseScope();
-  }
-  await expect(scope).toHaveAttribute("aria-pressed", "true");
-  await expect(scope).toBeEnabled();
-  await page.unroute(`**/api/conversations/${chat.id}`, holdScope);
-  expect(scopeWrites).toBe(2);
-  expect(topicLoads).toBe(1);
-  await expect(page.getByRole("alert").filter({ hasText: "Scope save rejected" })).toHaveCount(0);
+  // The limit comes from the topic; the conversation offers no control for it.
+  await expect(page.getByRole("button", { name: "A|B", exact: true })).toHaveCount(0);
+  await expect(page.getByText("资料范围", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await openExecutionDetails(page);
   await page.getByText(/^文档参考/).click();
@@ -165,11 +92,9 @@ test("knowledge tool results stay within the conversation collection and remain 
   const payload = JSON.parse(reply.content.slice(reply.content.indexOf(":") + 1));
   expect(payload.tools[0].output.results.map(result => result.reference.filename)).toEqual(["发布A.txt"]);
   await page.reload();
-  await expect(scope).toHaveAttribute("aria-pressed", "true");
   await openExecutionDetails(page);
   await page.getByText(/^文档参考/).click();
   await expect(page.getByRole("link", { name: /发布A.txt/ }).first()).toBeVisible();
-  expect(topicLoads).toBe(2);
 });
 
 
@@ -206,7 +131,6 @@ test("autonomous provider search keeps all evidence in execution details", async
   await expect(page.locator("article").last()).not.toContainText("Official search evidence from the gateway.");
   const details = await openExecutionDetails(page);
   await expect(details.locator(".run-record-trigger").first()).toContainText("已完成");
-  await expect(details).toContainText("检索诊断");
   await details.getByText(/搜索来源（1）/).click();
   await expect(details.getByRole("link", { name: /Offline official release/ })).toHaveAttribute("href", "https://example.invalid/official-release");
   await expect(details).toContainText("工具详情：webSearch");

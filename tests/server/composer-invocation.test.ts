@@ -103,7 +103,7 @@ test("a choice that cannot be honoured refuses the message before any model call
   assert.equal((await post({ chatId: limited.id, messages: [user("refused-template", "查一下", searchChoice)] })).status, 400);
   assert.equal(calls.length, 0);
   const ephemeral = await db.chat.create({ data: { title: "No memory", ephemeral: true } });
-  assert.equal((await post({ chatId: ephemeral.id, messages: [user("refused-memory", "记住这个", { tool: { id: "saveMemory", label: "记住信息" } })] })).status, 400, "memory is off here");
+  assert.equal((await post({ chatId: ephemeral.id, messages: [user("refused-memory", "记住这个", { tool: { id: "extractMemory", label: "整理长期记忆" } })] })).status, 400, "that one is the model's own");
   // Search needs a provider key that this environment has taken away.
   process.env.OPENROUTER_API_KEY = "";
   await assert.rejects(resolveInvocation({ tool: { id: "webSearch", label: "联网搜索" } }, { modelSupportsTools: true, modelRef: CHAT_MODEL_REF }), { code: "CONFIGURATION_ERROR" });
@@ -163,7 +163,7 @@ test("a document attachment converts and downloads without a model", async () =>
 test("every tool states who can reach it, and the lists follow from that", async () => {
   for (const tool of listToolDescriptors()) assert.ok(tool.surface && tool.surface.category, tool.id);
   const user = listToolDescriptors("chat").filter(tool => tool.surface.user).map(tool => tool.id).sort();
-  assert.deepEqual(user, ["compactContext", "convertDocument", "createTask", "readDocument", "saveMemory", "searchKnowledge", "webSearch"]);
+  assert.deepEqual(user, ["compactContext", "convertDocument", "createTask", "readDocument", "saveKnowledgeEntry", "searchKnowledge", "webSearch"]);
   const catalog = await listPublicToolCatalog("chat");
   assert.ok(catalog.some(tool => tool.id === "readPluginSkill"), "tools only the model uses are listed too");
   const calling = catalog.find(tool => tool.id === "toolCalling")!;

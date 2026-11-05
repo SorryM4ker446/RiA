@@ -55,8 +55,8 @@ export const apiMessages = {
   "api.runs.nothingRunning": "当前没有正在执行的轮次。",
   "api.runs.stoppedByUser": "用户停止了后续步骤",
   "api.models.libraryUpdateFailed": "更新我的模型失败。",
-  "api.memory.reindexReadFailed": "读取记忆向量状态失败。",
-  "api.memory.reindexFailed": "重建记忆向量失败。",
+  "api.memory.reindexReadFailed": "读取知识条目向量状态失败。",
+  "api.memory.reindexFailed": "重建知识条目向量失败。",
   "api.models.catalogReadFailed": "读取 OpenRouter 模型目录失败。",
   "api.models.catalogRefreshFailed": "刷新 OpenRouter 模型目录失败。",
 

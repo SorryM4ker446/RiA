@@ -5,7 +5,7 @@ import { createApiErrorResponse } from "@/lib/server/api-error";
 import { readJsonBody } from "@/lib/server/request-body";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { protectDataOperation } from "@/lib/server/data-operations";
-import { reindexStaleEmbeddings, staleEmbeddingSummary } from "@/lib/memory/reindex";
+import { reindexStaleEmbeddings, staleEmbeddingSummary } from "@/lib/knowledge/entry-reindex";
 import { t } from "@/lib/locale";
 
 export const GET = protectDataOperation(async (req: NextRequest) => {

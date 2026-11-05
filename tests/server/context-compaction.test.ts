@@ -428,7 +428,7 @@ test("compacting context is listed for people and never offered to the model, wh
   const { createChatToolSet } = await import("@/tools/catalog");
   const { getToolDescriptor } = await import("@/tools/builtins");
   const restricted = await createChatToolSet({ modelRef: CHAT_MODEL_REF, toolIds: ["createTask"] });
-  assert.deepEqual(Object.keys(restricted), ["createTask", "readConversationHistory"], "looking up its own conversation grants nothing external");
+  assert.deepEqual(Object.keys(restricted), ["createTask", "extractMemory", "readConversationHistory"], "the model's own underlying tools come with any tool");
   assert.ok(!("compactContext" in await createChatToolSet({ modelRef: CHAT_MODEL_REF })));
   assert.equal(getToolDescriptor("compactContext")?.surface.user?.run, "direct", "a person runs it from the slash menu, with no model answering");
 });

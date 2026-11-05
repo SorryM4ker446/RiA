@@ -45,7 +45,7 @@ test("local review exposes real recorded changes, current sources and deleted-so
   await expect(page.getByText("done", { exact: true })).toBeVisible();
   await browserApi(page, `/api/tasks/${taskId}`, "DELETE");
   await page.reload();
-  await expect(page.getByText("原任务、资料或记忆已删除，历史事件仍然保留。")).toBeVisible();
+  await expect(page.getByText("原任务、资料或知识条目已删除，历史事件仍然保留。")).toBeVisible();
   await page.getByRole("link", { name: "返回设置与回顾" }).click();
   await page.getByRole("tab", { name: "自动化与通知", exact: true }).click();
   await review.getByRole("textbox", { name: "回顾时区" }).fill("UTC");

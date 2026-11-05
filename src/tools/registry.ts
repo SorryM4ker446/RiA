@@ -75,7 +75,6 @@ function extensionDescriptor(row: Extension, definition: ExtensionTool): AnyTool
       } catch (error) { throw publicExtensionError(error, operation.signal); }
       finally { operation.finish(); }
     },
-    memory: { enabled: false, minQuality: 1, summarize: () => null },
   };
 }
 

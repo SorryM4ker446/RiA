@@ -1,5 +1,26 @@
 # Database migrations
 
+`20261105160000_memory_resumed` adds an optional column on conversations for when long-term
+memory was last turned back on, so what was said while it was off is not read for notes.
+A missing value means memory was never turned back on. It is additive, and older builds
+ignore it.
+
+`20261105150000_memory_topics` adds a column to MEMORY.md's row holding how its notes are
+sorted into topics, worked out from them. It is additive, and older builds ignore it.
+
+`20261105140000_knowledge_tool_only` rewords a sentence in the default knowledge template
+that spoke of evidence sent with the request, which no longer happens. A template a person
+changed is left as it is.
+
+`20261105130000_knowledge_entry_tool` renames the knowledge base's save tool in the default
+templates and adjusts the sentences that named it. Older builds reading such a template
+find a tool id they do not know, which they leave out.
+
+`20261105120000_memory_document` adds a table for MEMORY.md and an optional column on
+conversations. It is additive, and older builds ignore both. It also deletes candidates
+written from tool results that nobody accepted, which held raw records of no use and
+are no longer made; a backup keeps them if one is restored. Accepted entries stay.
+
 `20261105090000_message_request_context` adds an optional column to messages holding
 the reference data a user message was sent with, so later requests repeat it exactly
 and a provider's prompt cache keeps matching. A missing value means that message is

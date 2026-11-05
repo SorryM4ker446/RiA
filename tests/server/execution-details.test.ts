@@ -80,7 +80,7 @@ test("approval continuations retain every server run link and display one reques
   const conversation = await prepareChatPersistence(input);
   assert.deepEqual(conversation.previousRunIds, [first.id]);
   const second = await db.agentRun.create({ data: { chatId: chat.id, goal: "Create task", status: "succeeded", finishedAt: new Date() } });
-  await persistChatResponse({ input, conversation, responseMessage: { ...decision, parts: [{ type: "text", text: "Done" }] }, isAborted: false, generationFailed: false, runId: second.id, usesMemory: false });
+  await persistChatResponse({ input, conversation, responseMessage: { ...decision, parts: [{ type: "text", text: "Done" }] }, isAborted: false, generationFailed: false, runId: second.id });
   const reply = await db.message.findUniqueOrThrow({ where: { id: stored.id } });
   const payload = decodePersistedAssistantToolMessage(reply.content)!;
   assert.deepEqual(payload.runIds, [first.id, second.id]);

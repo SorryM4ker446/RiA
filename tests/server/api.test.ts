@@ -14,7 +14,7 @@ process.env.RIA_TEST_PROVIDER = "1";
 
 const { db } = await import("@/db");
 
-const { saveMemory } = await import("@/lib/memory/store");
+const { saveKnowledgeEntry } = await import("@/lib/knowledge/entries");
 const { getRegenerationSnapshot, saveRegeneratedResponse, saveChatMessage } = await import("@/lib/chat/store");
 const { ApiError } = await import("@/lib/server/api-error");
 const { encodePersistedAssistantToolMessage, decodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
@@ -145,12 +145,12 @@ test("conversation, message, task and knowledge APIs enforce user ownership", as
 });
 
 test("concurrent memory saves share one row and clear stale embeddings", async () => {
-  const results = await Promise.allSettled(Array.from({ length: 8 }, (_, index) => saveMemory({ key: "preference", value: `value ${index}`, score: 0.9 })));
+  const results = await Promise.allSettled(Array.from({ length: 8 }, (_, index) => saveKnowledgeEntry({ key: "preference", value: `value ${index}`, score: 0.9 })));
   // A failed write must not leave the remaining writes running into the next test.
   for (const result of results) if (result.status === "rejected") throw result.reason;
   assert.equal(await db.memory.count({ where: { key: "preference" } }), 1);
   await db.memory.update({ where: { key: "preference" }, data: { embedding: [1, 2] } });
-  const updated = await saveMemory({ key: "preference", value: "updated without embeddings" });
+  const updated = await saveKnowledgeEntry({ key: "preference", value: "updated without embeddings" });
   assert.equal(updated.embedding, null);
   assert.equal(updated.score, 0.9);
 });
@@ -180,7 +180,6 @@ test("chat sends assistant history to the model and persists the streamed answer
   assert.ok(languageModel.doStreamCalls.at(-1).prompt.some((item) => item.role === "assistant" && textPart(item.content[0]).text === "Original answer"));
   const answers = await db.message.findMany({ where: { chatId: owned.id, role: "assistant" } });
   assert.equal(answers.filter(row => decodePersistedAssistantToolMessage(row.content)?.text === "Generated answer").length, 1);
-  assert.equal(decodePersistedAssistantToolMessage(answers.find(row => decodePersistedAssistantToolMessage(row.content)?.text === "Generated answer")!.content)?.documentDiagnostics?.outcome, "empty-library");
 });
 
 test("failed regeneration leaves the original answer intact", async () => {

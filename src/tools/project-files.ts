@@ -15,7 +15,6 @@ export const readProjectFileTool: ToolDescriptor<ReadProjectFileInput, Awaited<R
   surface: { category: "workspace", user: null, template: { follows: "runTerminalCommand" } },
   inputSchema: readProjectFileInputSchema,
   execute: async ({ input, signal }) => readProjectFile(input, signal),
-  memory: { enabled: false, minQuality: 1, summarize: () => null },
 };
 
 // The model never supplies a binding; the server computes it from the file.
@@ -38,5 +37,4 @@ export const editProjectFileTool: ToolDescriptor<EditProjectFileInput, ProjectEd
   } }),
   bindForApproval: bindProjectEdit,
   execute: async ({ input, signal }) => applyProjectEdit(input, signal),
-  memory: { enabled: false, minQuality: 1, summarize: () => null },
 };

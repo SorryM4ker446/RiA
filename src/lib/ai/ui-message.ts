@@ -3,6 +3,7 @@ import { messageInvocationSchema, readMessageInvocation, type MessageInvocation 
 import { documentDiagnosticsSchema, type DocumentDiagnostics } from "@/lib/documents/diagnostics";
 import { UIMessage } from "ai";
 import { z } from "zod";
+import { currentToolId } from "@/tools/legacy-names";
 import { documentSourceSchema, type DocumentSource } from "@/lib/documents/types";
 import { contextReportSchema, type ContextReport } from "@/lib/chat/context-report";
 
@@ -223,7 +224,7 @@ export function decodePersistedAssistantToolMessage(
       )
       .map((tool) => ({
         ...(typeof tool.title === "string" ? { title: tool.title.slice(0, 500) } : {}),
-        toolName: tool.toolName,
+        toolName: currentToolId(tool.toolName),
         toolCallId: tool.toolCallId,
         state: tool.state,
         ...(tool.input !== undefined ? { input: tool.input } : {}),

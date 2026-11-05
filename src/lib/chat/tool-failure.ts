@@ -34,7 +34,7 @@ function inputProblems(error: unknown) {
  * stream reports a bad tool call and an unreachable provider the same way, so only
  * what is left once tools are ruled out reads as the provider being unavailable.
  */
-export function describeTurnFailure(error: unknown): ApiError {
+export function describeTurnFailure(error: unknown, providerName?: string): ApiError {
   if (error instanceof ApiError) return error;
   if (InvalidToolInputError.isInstance(error)) {
     const problems = inputProblems(error);
@@ -42,6 +42,8 @@ export function describeTurnFailure(error: unknown): ApiError {
   }
   if (NoSuchToolError.isInstance(error)) return new ApiError({ code: "VALIDATION_ERROR", message: tf("chat.toolFailure.noSuchTool", { name: error.toolName }) });
   if (error instanceof ToolRunError) return new ApiError({ code: "INTERNAL_ERROR", message: t("chatState.toolRunFailed") });
+  // Payment required is what DeepSeek and OpenRouter both answer when an account has run out.
+  if ((error as { statusCode?: unknown } | null)?.statusCode === 402) return new ApiError({ code: "UPSTREAM_FAILED", message: providerName ? tf("lib.chat.providerOutOfBalanceNamed", { provider: providerName }) : t("lib.chat.providerOutOfBalance") });
   return new ApiError({ code: "UPSTREAM_FAILED", message: t("lib.chat.providerUnavailable") });
 }
 
@@ -50,12 +52,12 @@ export function describeTurnFailure(error: unknown): ApiError {
  * error itself, then as that error's message alone, and the second report is the one
  * a part keeps. So what the first said is remembered for the second to find.
  */
-export function createTurnFailureReader() {
+export function createTurnFailureReader(providerName?: () => string | undefined) {
   const refusals = new Map<string, ApiError>();
   return (error: unknown) => {
     const remembered = typeof error === "string" ? refusals.get(error) : undefined;
     if (remembered) return remembered;
-    const failure = describeTurnFailure(error);
+    const failure = describeTurnFailure(error, providerName?.());
     if (InvalidToolInputError.isInstance(error) || NoSuchToolError.isInstance(error)) refusals.set(error.message, failure);
     return failure;
   };

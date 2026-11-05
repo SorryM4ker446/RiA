@@ -28,5 +28,4 @@ export const readPluginSkill: AnyToolDescriptor = {
     const end = Math.min(file.contents.length, input.offset + 12_000);
     return { packageId: row.packageId, hash: snapshot.hash, path: file.path, contents: file.contents.slice(input.offset, end), nextOffset: end < file.contents.length ? end : null, scriptsExecutable: false };
   },
-  memory: { enabled: false, minQuality: 1, summarize: () => null },
 };

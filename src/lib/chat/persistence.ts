@@ -13,11 +13,7 @@ import {
 import { claimToolApproval, createChat, getChat, getRegenerationSnapshot, releaseUnclaimedToolApproval, saveChatMessage, saveRegeneratedResponse } from "@/lib/chat/store";
 import { ApiError, normalizeApiError } from "@/lib/server/api-error";
 import { type UIMessage } from "ai";
-import { persistResponseToolMemories } from "@/lib/chat/memory";
 import type { ChatRequest } from "@/lib/chat/request";
-import type { DocumentDiagnostics } from "@/lib/documents/diagnostics";
-import type { DocumentSource } from "@/lib/documents/types";
-import { markDocumentCitations } from "@/lib/documents/references";
 import { contextReportSchema } from "./context-report";
 async function getOrCreateChat(params: {
   requestedChatId?: string;
@@ -126,7 +122,7 @@ export async function claimChatApproval(chatId: string, message: UIMessage) {
     throw error;
   }
 }
-export async function persistChatResponse(params: { skippedTool?: string; thinking?: Pick<ThinkingRecord, "kind" | "durationMs"> | null; input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; documentSources?: DocumentSource[]; documentDiagnostics?: DocumentDiagnostics; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean; contextReport?: unknown }) {
+export async function persistChatResponse(params: { skippedTool?: string; thinking?: Pick<ThinkingRecord, "kind" | "durationMs"> | null; input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; unavailableTools?: string[]; runId?: string | null; contextReport?: unknown }) {
   const { input, conversation, responseMessage, isAborted, generationFailed } = params;
   const { latestUserMessage, modelRef } = input;
   const { unavailableTools = [] } = params;
@@ -151,7 +147,7 @@ export async function persistChatResponse(params: { skippedTool?: string; thinki
     // metadata, and those are the turns whose context accounting matters most.
     const contextReport = contextReportSchema.safeParse(params.contextReport ?? (responseMessage.metadata as { contextBudget?: unknown } | undefined)?.contextBudget);
     const content =
-      params.runId || toolItems.length > 0 || reasoning || params.thinking || (params.documentSources?.length && assistantText) || (params.documentDiagnostics && assistantText)
+      params.runId || toolItems.length > 0 || reasoning || params.thinking || (contextReport.success && assistantText)
         ? encodePersistedAssistantToolMessage({
           type: "assistant-tool-message",
           text: assistantText,
@@ -168,8 +164,6 @@ export async function persistChatResponse(params: { skippedTool?: string; thinki
           ...(unavailableTools.length ? { unavailableTools } : {}),
           ...(params.skippedTool ? { skippedTool: params.skippedTool } : {}),
           tools: toolItems,
-          ...(params.documentDiagnostics ? { documentDiagnostics: params.documentDiagnostics } : {}),
-          ...(params.documentSources?.length ? { documentSources: markDocumentCitations(params.documentSources, assistantText) } : {}),
         })
         : assistantText;
 
@@ -206,12 +200,6 @@ export async function persistChatResponse(params: { skippedTool?: string; thinki
         updatedAt: new Date(),
       },
     });
-
-    // An ephemeral conversation writes no long-term memory. The run record and
-    // the messages still exist, which is what "no memory" is meant to mean.
-    if (params.usesMemory !== false) {
-      await persistResponseToolMemories({ chatId: chat.id, toolItems, assistantText, modelRef });
-    }
   } catch (persistError) {
     const code = persistError instanceof Error && "code" in persistError && typeof persistError.code === "string" && /^P\d{4}$/.test(persistError.code)
       ? persistError.code : normalizeApiError(persistError).code;

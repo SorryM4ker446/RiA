@@ -67,7 +67,8 @@ test("marketplace installs a skill package, applies it to real chat context and 
   await waitForChatStream(page);
   // So are the reads the page makes once the answer is in (the list, the title): let them finish too.
   await page.waitForLoadState("networkidle");
-  await app.runtime.restart(); await open(page, app);
+  // Off the app first: an open page asking the stopped server for anything logs a refused connection.
+  await page.goto("about:blank"); await app.runtime.restart(); await open(page, app);
   await expect(card.getByText("已启用", { exact: true })).toBeVisible();
   await chooseRowAction(page, card, "停用插件"); await expect(card.getByText("已停用", { exact: true })).toBeVisible();
   const before = app.runtime.providerCalls.length;

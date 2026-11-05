@@ -2,9 +2,23 @@ import { createHash } from "node:crypto";
 import { db } from "@/db";
 import { ApiError } from "@/lib/server/api-error";
 import { decodePersistedAssistantToolMessage, decodePersistedUserMessage, ASSISTANT_TOOL_MESSAGE_PREFIX, USER_MESSAGE_PREFIX } from "@/lib/ai/ui-message";
+import { documentSourceSchema } from "@/lib/documents/types";
 import { decodeMediaMessage, IMAGE_MESSAGE_PREFIX, VIDEO_MESSAGE_PREFIX, mediaUrl } from "@/lib/media/message-codec";
 
 const CONVERSATION_EXPORT_LIMITS = { messages: 5000, sourceBytes: 32 * 1024 * 1024, outputBytes: 16 * 1024 * 1024 } as const;
+
+/** What a turn cited from: recorded on the message by an earlier version, or returned by its searches. */
+function sourcesOf(assistant: NonNullable<ReturnType<typeof decodePersistedAssistantToolMessage>>) {
+  const searched = assistant.tools.flatMap(tool => {
+    if (tool.toolName !== "searchKnowledge" || tool.state !== "output-available") return [];
+    const results = (tool.output as { results?: { reference?: unknown }[] } | undefined)?.results;
+    return Array.isArray(results) ? results.flatMap(item => {
+      const parsed = documentSourceSchema.safeParse(item?.reference);
+      return parsed.success ? [parsed.data] : [];
+    }) : [];
+  });
+  return [...new Map([...(assistant.documentSources ?? []), ...searched].map(source => [source.chunkId, source] as const)).values()];
+}
 
 function exportContent(content: string) {
   const user = decodePersistedUserMessage(content);
@@ -13,7 +27,7 @@ function exportContent(content: string) {
   if (assistant) return {
     text: assistant.text, hasMedia: false,
     tools: assistant.tools.map(tool => ({ name: tool.toolName, state: tool.state })),
-    documentSources: assistant.documentSources?.map(source => ({
+    documentSources: sourcesOf(assistant).map(source => ({
       documentId: source.documentId, chunkId: source.chunkId, filename: source.filename,
       pageNumber: source.pageNumber, excerpt: source.snippet,
     })),

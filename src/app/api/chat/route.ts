@@ -1,11 +1,11 @@
 import { protectDataOperation } from "@/lib/server/data-operations";
 import { currentWorkspaceId, requireLocalWorkspace } from "@/lib/local/workspace";
-import { buildRequestContext, buildSystemPrompt, filesSeen, formatCurrentTime, formatLongTermContext, keepRequestContext, prepareModelContext, storedSummary, withRequestTexts } from "@/lib/chat/model-context";
+import { buildRequestContext, buildSystemPrompt, filesSeen, formatCurrentTime, formatKnowledgeScope, keepRequestContext, prepareModelContext, storedSummary, withRequestTexts } from "@/lib/chat/model-context";
 import { changedFiles } from "@/lib/chat/compaction-restore";
+import { memoryForRequest, readMemoryDocument } from "@/lib/memory/document";
 import { prepareChatPersistence } from "@/lib/chat/persistence";
 import { readChatRequest } from "@/lib/chat/request";
 import { streamChatResponse } from "@/lib/chat/stream";
-import { getRelevantMemories } from "@/lib/memory/store";
 import { startRun } from "@/lib/agent/runs";
 import { modelRefKey, type ModelRef } from "@/lib/models/preferences-schema";
 import { contextBudget } from "@/lib/models/context-budget";
@@ -20,15 +20,11 @@ import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/serve
 import { setupServerProxy } from "@/lib/server/proxy";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { NextRequest } from "next/server";
-import { documentRetrievalQuery, formatDocumentContext, retrieveDocuments } from "@/lib/documents/retrieval";
 import { listPublicToolCatalog } from "@/tools/catalog";
 import { templateAllowsTool } from "@/tools/template-access";
-import { documentSourceSchema } from "@/lib/documents/types";
-import { decodeDocumentScope } from "@/lib/documents/scope";
 import { formatAssistantInstructions } from "@/lib/assistants/schema";
 import { formatPluginSkills } from "@/lib/plugins/store";
-import { selectAutomaticEvidence } from "@/lib/documents/auto-context";
-import { CONTEXT_MEMORY_MIN_MATCH } from "@/lib/memory/retrieval";
+import { conversationCollections } from "@/lib/conversations/document-scope";
 import { conversationWorkspace, formatWorkspaceContext } from "@/lib/local-files/workspace";
 import { resolveInvocation } from "@/lib/chat/invocation";
 import { db } from "@/db";
@@ -65,31 +61,16 @@ async function POSTHandler(req: NextRequest) {
     // composer, and saving it too would leave a copy behind for every retry. An
     // approval resume continues a turn that already honoured its choice.
     const invocation = latestUserMessage?.invocation && !input.isApprovalResume
-      ? await resolveInvocation(latestUserMessage.invocation, { allowedToolIds: input.assistant?.tools, modelSupportsTools: toolsEnabled, modelRef, usesMemory: !input.conversationPolicy?.ephemeral })
+      ? await resolveInvocation(latestUserMessage.invocation, { allowedToolIds: input.assistant?.tools, modelSupportsTools: toolsEnabled, modelRef })
       : null;
     const conversation = await prepareChatPersistence(input, { deferApproval: true });
     const unavailableStatuses = await unavailableChatTools(input.assistant?.tools, canUseTools, modelRef);
     const unavailableTools = unavailableStatuses.map(tool => tool.id);
 
-    // An ephemeral conversation neither reads long-term memory nor writes any.
-    // It is a memory switch, not a promise that nothing is kept: the messages,
-    // uploads and usage stay exactly as they otherwise would.
+    // The switch is about long-term memory: MEMORY.md and the tool that writes it. It is
+    // not a promise that nothing is kept: the messages, uploads and usage stay as they
+    // otherwise would, and the knowledge base is still there to draw on.
     const usesMemory = !(input.conversationPolicy?.ephemeral ?? conversation.chat.ephemeral);
-    // A shared keyword alone does not make a memory part of every request.
-    const relevantMemories = usesMemory && latestUserMessage?.text
-      ? await getRelevantMemories({
-        query: latestUserMessage.text,
-        followUp: previousUserText(input.messages),
-        limit: 6,
-        minMatch: CONTEXT_MEMORY_MIN_MATCH,
-        signal: req.signal,
-      })
-      : [];
-
-
-    // A conversation that named its document topics only draws on those; an
-    // empty scope means every topic, as before.
-    const scope = decodeDocumentScope(input.conversationPolicy?.documentScope ?? conversation.chat.documentScope);
     // One allowance per request covers older-turn summaries and in-stream compaction.
     const compactionAllowance = createCompactionAllowance((await getModelPreferences()).callLimits.compactionCallsPerTurn);
     // Long conversations are compressed by a model-written summary that covers the
@@ -100,20 +81,14 @@ async function POSTHandler(req: NextRequest) {
     const olderTurns = latestUserMessage?.text ? context.allMessages.slice(0, context.omittedMessages) : [];
     const awaitsSummary = olderTurns.length > 0 && !input.isApprovalResume && !await storedSummary(conversation.chat.id);
 
-    const knowledgeQuery = documentRetrievalQuery(context.allMessages.map(message => ({ role: message.role, text: readText(message) })));
-    const retrievalQuery = knowledgeQuery || latestUserMessage?.text || "";
-    const searchable = toolsEnabled && !unavailableTools.includes("searchKnowledge") && (!input.assistant || input.assistant.tools.includes("searchKnowledge"));
-    const retrieved = latestUserMessage?.text
-      ? selectAutomaticEvidence(await retrieveDocuments(retrievalQuery, 8, scope, req.signal, input.assistant?.retrieval), retrievalQuery,
-        { userScoped: scope.length > 0 || (input.assistant?.collections.length ?? 0) > 0, canSearch: searchable })
-      : null;
-    const documentSources = retrieved?.sources.map(source => documentSourceSchema.parse(source)) ?? [];
     // The system prompt carries only rules that stay the same across turns. The
     // optional tools configured away this turn are named there, so the model
     // can answer honestly about what it could not check.
     const skillsPrompt = await formatPluginSkills({ onDemand: toolsEnabled });
     const systemPrompt = buildSystemPrompt(toolsEnabled, unavailableStatuses, (await getModelPreferences()).persona)
-      + formatAssistantInstructions(input.assistant) + skillsPrompt;
+      + formatAssistantInstructions(input.assistant)
+      + (toolsEnabled && !unavailableTools.includes("searchKnowledge") ? formatKnowledgeScope(conversationCollections(input.conversationPolicy ?? conversation.chat)) : "")
+      + skillsPrompt;
     // Which folder this conversation works in is restated on every request, so
     // a switch made between turns is what the model acts on next.
     const workspace = toolsEnabled && (!input.assistant || input.assistant.tools.includes("runTerminalCommand"))
@@ -130,13 +105,13 @@ async function POSTHandler(req: NextRequest) {
       if (input.isApprovalResume) return modelMessages;
       const workspaceGrant = toolsEnabled && (!input.assistant || templateAllowsTool(input.assistant.tools, "readProjectFile")) ? (await conversationWorkspace(conversation.chat.id))?.id : null;
       const fileChanges = workspaceGrant ? await changedFiles({ seen: filesSeen(stored?.state, context.messages, workspaceGrant), grantId: workspaceGrant, signal: req.signal }) : "";
+      const sentTexts = context.messages.flatMap(message => message.role === "user" ? message.parts.flatMap(part => part.type === "text" ? [part.text] : []) : []);
       const block = buildRequestContext({
         currentTime: formatCurrentTime(),
         workspace,
         historyExcerpt: historyComplete ? "" : context.historyExcerpt,
         fileChanges,
-        memories: formatLongTermContext(relevantMemories),
-        evidence: formatDocumentContext(documentSources),
+        memoryDocument: usesMemory ? memoryForRequest(await readMemoryDocument(), sentTexts) : "",
       });
       const texts = [block, invocation?.directive ?? ""].filter(Boolean);
       await keepRequestContext(conversation.chat.id, latestUserMessage?.id, texts);
@@ -157,7 +132,7 @@ async function POSTHandler(req: NextRequest) {
           return withEarlierTurns();
         },
       } : { modelMessages: await withEarlierTurns() }),
-      documentSources, documentDiagnostics: retrieved?.diagnostics, runId: run?.id ?? null, usesMemory,
+      runId: run?.id ?? null, usesMemory,
       foldHistory: { messages: context.messages, complete: () => historyComplete },
       // The prompt has been telling the model which tools this turn could not
       // use. Without this the list never reaches persistence, so the turn's own
@@ -179,13 +154,6 @@ function untilAborted<T>(work: Promise<T>, signal: AbortSignal) {
     if (signal.aborted) reject(signal.reason);
     else signal.addEventListener("abort", () => reject(signal.reason), { once: true });
   })]);
-}
-
-/** The user message before the latest one, as plain text. */
-function previousUserText(messages: UIMessage[]): string | undefined {
-  const users = messages.filter(message => message.role === "user");
-  const previous = users.at(-2);
-  return previous ? readText(previous) || undefined : undefined;
 }
 
 /**

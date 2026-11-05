@@ -12,8 +12,8 @@ const { encodePersistedAssistantToolMessage, decodePersistedAssistantToolMessage
 const { saveChatMessage, claimToolApproval } = await import("@/lib/chat/store");
 const { prepareChatPersistence } = await import("@/lib/chat/persistence");
 const { startRun, finishRun, checkRunAllowance, reconcileInterruptedRuns, recordStep } = await import("@/lib/agent/runs");
-const { saveMemory } = await import("@/lib/memory/store");
-const { reindexStaleEmbeddings, currentEmbeddingRef } = await import("@/lib/memory/reindex");
+const { saveKnowledgeEntry } = await import("@/lib/knowledge/entries");
+const { reindexStaleEmbeddings, currentEmbeddingRef } = await import("@/lib/knowledge/entry-reindex");
 const { defaultModelPreferences } = await import("@/lib/models/preferences-schema");
 
 const EMBEDDING_REF = { providerId: "openrouter", modelId: "test-embedding-v1" } as const;
@@ -170,10 +170,10 @@ test("a run left behind by an earlier process is still reconciled as interrupted
 });
 
 test("an inference never takes the place of a memory the user accepted", async () => {
-  const accepted = await saveMemory({ key: "tool:createTask:milk", value: "the user's own text" });
+  const accepted = await saveKnowledgeEntry({ key: "tool:createTask:milk", value: "the user's own text" });
   assert.equal(accepted.confirmed, true);
 
-  await saveMemory({ key: "tool:createTask:milk", value: "the assistant's summary", source: "assistant" });
+  await saveKnowledgeEntry({ key: "tool:createTask:milk", value: "the assistant's summary", source: "assistant" });
 
   const stored = await db.memory.findUnique({ where: { key: "tool:createTask:milk" } });
   assert.equal(stored.value, "the user's own text", "a confirmed memory is not silently replaced");
@@ -182,14 +182,14 @@ test("an inference never takes the place of a memory the user accepted", async (
 });
 
 test("a candidate stays a candidate until it is written by hand", async () => {
-  const candidate = await saveMemory({ key: "tool:createTask:bread", value: "first inference", source: "assistant" });
+  const candidate = await saveKnowledgeEntry({ key: "tool:createTask:bread", value: "first inference", source: "assistant" });
   assert.equal(candidate.confirmed, false);
 
-  const later = await saveMemory({ key: "tool:createTask:bread", value: "second inference", source: "assistant" });
+  const later = await saveKnowledgeEntry({ key: "tool:createTask:bread", value: "second inference", source: "assistant" });
   assert.equal(later.value, "second inference", "an unaccepted candidate is still the assistant's to rewrite");
   assert.equal(later.confirmed, false);
 
-  const accepted = await saveMemory({ key: "tool:createTask:bread", value: "what the user typed" });
+  const accepted = await saveKnowledgeEntry({ key: "tool:createTask:bread", value: "what the user typed" });
   assert.equal(accepted.confirmed, true);
   assert.equal(accepted.source, "manual");
 });

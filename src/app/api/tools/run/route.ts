@@ -9,7 +9,7 @@ import { executeRegisteredTool, resolveToolDescriptor } from "@/tools/catalog";
 import { templateAllowsTool } from "@/tools/template-access";
 import { db } from "@/db";
 import { identifierSchema } from "@/lib/server/request-schemas";
-import { decodeDocumentScope } from "@/lib/documents/scope";
+import { conversationCollections } from "@/lib/conversations/document-scope";
 import { readAssistantSnapshot } from "@/lib/assistants/schema";
 
 const runToolSchema = z.strictObject({
@@ -35,14 +35,14 @@ async function POSTHandler(req: NextRequest) {
     const input = descriptor.inputSchema.safeParse(parsed.data.input);
     if (!input.success) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid tool input", details: input.error.flatten() });
     const conversation = parsed.data.chatId
-      ? await db.chat.findUnique({ where: { id: parsed.data.chatId }, select: { documentScope: true, assistantConfig: true } })
+      ? await db.chat.findUnique({ where: { id: parsed.data.chatId }, select: { topicId: true, documentScope: true, assistantConfig: true } })
       : null;
     if (parsed.data.chatId && !conversation) throw new ApiError({ code: "NOT_FOUND", message: "Conversation was not found" });
     const assistant = readAssistantSnapshot(conversation?.assistantConfig);
     if (assistant && !templateAllowsTool(assistant.tools, toolId)) throw new ApiError({ code: "VALIDATION_ERROR", message: "当前助理模板不允许执行此工具。" });
     const { output } = await executeRegisteredTool(descriptor, input.data, {
       trigger: "manual", signal: req.signal, chatId: parsed.data.chatId,
-      documentCollections: decodeDocumentScope(conversation?.documentScope),
+      documentCollections: conversation ? conversationCollections(conversation) : [],
       documentRetrievalPolicy: assistant?.retrieval,
     });
     return Response.json({ tool: toolId, data: output });

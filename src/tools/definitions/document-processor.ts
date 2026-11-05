@@ -18,7 +18,6 @@ export const documentProcessorTools: Record<string, AnyToolDescriptor> = {
       const pages = document.pages.flatMap(page => { const start = position; position += page.text.length + 2; return start < end && start + page.text.length > parsed.offset ? [{ pageNumber: page.pageNumber, text: page.text.slice(Math.max(0, parsed.offset - start), Math.max(0, end - start)) }] : []; });
       return { documentId: parsed.documentId, filename: document.filename, contentHash: document.source.contentHash, characterCount: document.content.length, offset: parsed.offset, text: document.content.slice(parsed.offset, end), pages, nextOffset: end < document.content.length ? end : null, notes: conversionNotes };
     },
-    memory: { enabled: false, minQuality: 1, summarize: () => null },
   },
   convertDocument: {
     id: "convertDocument", displayName: "转换并导出文档", description: "把文档或附件转成 Markdown、TXT、HTML 或 Word。",
@@ -35,6 +34,5 @@ export const documentProcessorTools: Record<string, AnyToolDescriptor> = {
       const document = await loadProcessorDocument(parsed.documentId!, { collections: documentCollections }); signal?.throwIfAborted();
       return { documentId: parsed.documentId, contentHash: document.source.contentHash, filename: exportFilename(document.filename, parsed.format), format: parsed.format, downloadUrl: `/api/documents/${encodeURIComponent(parsed.documentId!)}/export?format=${parsed.format}&version=${document.source.contentHash}`, notes: conversionNotes };
     },
-    memory: { enabled: false, minQuality: 1, summarize: () => null },
   },
 };

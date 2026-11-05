@@ -1,5 +1,6 @@
 import { withModelCallSource } from "@/lib/models/call-context";
 import { getChatModel } from "@/lib/ai/client";
+import { getModelProvider } from "@/lib/models/providers";
 import { getLatestUserMessage } from "@/lib/ai/ui-message";
 import { t } from "@/lib/locale";
 import { ApiError, apiErrorPayload, normalizeApiError } from "@/lib/server/api-error";
@@ -11,14 +12,11 @@ import { convertToLanguageModelPrompt, standardizePrompt } from "ai/internal";
 import { isContextOverflow } from "@/lib/models/context-overflow";
 import { claimChatApproval, persistChatResponse, type ChatPersistence } from "@/lib/chat/persistence";
 import type { ChatRequest } from "@/lib/chat/request";
-import type { DocumentDiagnostics } from "@/lib/documents/diagnostics";
-import type { DocumentSource } from "@/lib/documents/types";
-import { markDocumentCitations } from "@/lib/documents/references";
 import { retainDataOperation } from "@/lib/server/data-operations";
 import { addRunCost, finishRun, runStillAllowsStep, runStepCeiling } from "@/lib/agent/runs";
 import { usageCost } from "@/lib/models/usage";
 import { getModelPreferences, modelInLibrary } from "@/lib/models/preferences";
-import { decodeDocumentScope } from "@/lib/documents/scope";
+import { conversationCollections } from "@/lib/conversations/document-scope";
 import { contextBudget } from "@/lib/models/context-budget";
 import { modelRefKey } from "@/lib/models/preferences-schema";
 import { createStepContext, withoutToolRecords } from "./step-context";
@@ -79,7 +77,7 @@ async function costOfTurn(params: { usage: unknown; providerMetadata: unknown; m
   }
 }
 
-type ChatAnswer = { input: ChatRequest; conversation: ChatPersistence; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; documentSources?: DocumentSource[]; documentDiagnostics?: DocumentDiagnostics; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean; compactionAllowance?: CompactionAllowance; chosenTool?: string | null;
+type ChatAnswer = { input: ChatRequest; conversation: ChatPersistence; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean; compactionAllowance?: CompactionAllowance; chosenTool?: string | null;
   /** The part of the system prompt listing skills, which the usage view counts separately. */
   skillsPrompt?: string;
   /** The messages this request sent, and whether they and the summary leave nothing out. */
@@ -174,7 +172,7 @@ async function openChatAnswer(params: ChatAnswer) {
   };
 
   const preferences = await getModelPreferences();
-  const tools = toolsEnabled ? await createChatToolSet({ modelRef, chatId: chat.id, runId, toolIds: input.assistant?.tools, usesMemory: params.usesMemory !== false, documentCollections: decodeDocumentScope(input.conversationPolicy?.documentScope ?? chat.documentScope), documentRetrievalPolicy: input.assistant?.retrieval }) : undefined;
+  const tools = toolsEnabled ? await createChatToolSet({ modelRef, chatId: chat.id, runId, toolIds: input.assistant?.tools, usesMemory: params.usesMemory !== false, documentCollections: conversationCollections(input.conversationPolicy ?? chat), documentRetrievalPolicy: input.assistant?.retrieval }) : undefined;
   // An assistant's tools can all be unavailable this turn, leaving none to send.
   const modelMessages = tools && !Object.keys(tools).length && !input.isApprovalResume ? withoutToolRecords(params.modelMessages) : params.modelMessages;
   const budget = contextBudget(input.model, preferences.contextLimits[modelRefKey(modelRef)]);
@@ -328,23 +326,20 @@ async function openChatAnswer(params: ChatAnswer) {
   // Sent at the start too, for an answer stopped before it finishes. A resumed turn
   // keeps the time of the message it continues, as its stored row does.
   const answeredAt = () => input.isApprovalResume ? {} : { createdAt: new Date().toISOString() };
-  const readFailure = createTurnFailureReader();
+  const readFailure = createTurnFailureReader(() => { try { return getModelProvider(activeRef.providerId).displayName; } catch { return undefined; } });
   return result.toUIMessageStream({
     generateMessageId: generateId,
     onError: (error) => streamError(readFailure(error)),
     originalMessages: messages,
-    messageMetadata: ({ part }) => part.type === "start" ? { ...answeredAt(), documentSources: params.documentSources ?? [], documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}` }
-      : part.type === "finish" ? { ...answeredAt(), documentSources: markDocumentCitations(params.documentSources ?? [], answerText), documentDiagnostics: params.documentDiagnostics, runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}`, contextBudget: contextReport(), ...(skippedTool ? { skippedTool } : {}), ...(thinkingClock.report() ? { thinking: thinkingClock.report() } : {}) } : undefined,
+    messageMetadata: ({ part }) => part.type === "start" ? { ...answeredAt(), runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}` }
+      : part.type === "finish" ? { ...answeredAt(), runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}`, contextBudget: contextReport(), ...(skippedTool ? { skippedTool } : {}), ...(thinkingClock.report() ? { thinking: thinkingClock.report() } : {}) } : undefined,
     onFinish: async ({ responseMessage, isAborted }) => {
       let persistenceFailed = false;
       try {
         await persistChatResponse({
           input, conversation, responseMessage, isAborted, generationFailed, skippedTool, thinking: thinkingClock.report(),
-          documentSources: params.documentSources,
-          documentDiagnostics: params.documentDiagnostics,
           unavailableTools: params.unavailableTools,
           runId: params.runId,
-          usesMemory: params.usesMemory !== false,
           contextReport: contextReport(),
         });
       } catch (error) {

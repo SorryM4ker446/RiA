@@ -51,7 +51,7 @@ test("the time says the date, the weekday and the zone, as they are where the us
 
 test("it leads the context block, and the block stays empty without it", () => {
   assert.equal(buildRequestContext({}), "");
-  const block = buildRequestContext({ currentTime: "Current date and time: x", workspace: "workspace", memories: "1. a: b" });
+  const block = buildRequestContext({ currentTime: "Current date and time: x", workspace: "workspace" });
   assert.ok(block.indexOf("Current date and time") < block.indexOf("workspace"));
 });
 

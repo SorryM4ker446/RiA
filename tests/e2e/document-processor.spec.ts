@@ -126,7 +126,7 @@ test("document actions select files as parameters and return to automatic tools 
   await page.getByRole("dialog", { name: "执行记录", exact: true }).getByRole("button", { name: "关闭", exact: true }).click();
   await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
   const history = await browserData(page, `/api/conversations/${chat.id}/messages`);
-  expect(history.some(message => message.content.includes(`"documentId":"${document.id}"`))).toBe(true);
+  expect(history.some(message => message.content.includes("差旅标准.md"))).toBe(true);
   await mkdir(screenshots, { recursive: true });
   await page.screenshot({ path: join(screenshots, "automatic-tools.png"), animations: "disabled" });
   expect(errors).toEqual([]);
@@ -168,8 +168,11 @@ test("a failed conversion keeps its choice to retry, needs no model, and scope c
     }
     return docs;
   });
-  const chat = (await browserApi(page, "/api/conversations", "POST", { title: "文档操作恢复" })).body.data;
-  await browserApi(page, `/api/conversations/${chat.id}`, "PATCH", { documentScope: ["本次资料"] });
+  const topicChat = async (collection: string) => {
+    const topic = (await browserApi(page, "/api/topics", "POST", { name: collection, description: "", collections: [collection], assistantTemplateId: null })).body.data;
+    return (await browserApi(page, `/api/topics/${topic.id}/conversations`, "POST", { revision: topic.revision, title: "文档操作恢复" })).body.data;
+  };
+  const chat = await topicChat("本次资料");
   await page.evaluate(id => localStorage.setItem("chat:last-active-id", id), chat.id);
   await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
   const word = page.locator(".composer-choices .composer-choice");
@@ -201,8 +204,9 @@ test("a failed conversion keeps its choice to retry, needs no model, and scope c
   await convert.click();
   await expect(word).toHaveCount(0);
   await expect(page.getByRole("button", { name: "下载 Markdown · 本次资料.md", exact: true })).toBeVisible();
-  await browserApi(page, `/api/conversations/${chat.id}`, "PATCH", { documentScope: ["其他资料"] });
-  await page.reload();
+  const other = await topicChat("其他资料");
+  await page.evaluate(id => localStorage.setItem("chat:last-active-id", id), other.id);
+  await page.goto(`${app.origin}/chat?conversationId=${other.id}`);
   await expect(word).toHaveCount(0);
   await chooseFromSlashMenu(page, "转换并导出文档");
   await expect(source).toBeEnabled(); await source.click();
@@ -210,7 +214,7 @@ test("a failed conversion keeps its choice to retry, needs no model, and scope c
   await page.getByRole("option", { name: "其他资料.md · 其他资料", exact: true }).click();
   await page.getByRole("button", { name: "转换", exact: true }).click();
   await expect(word).toHaveCount(0);
-  await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes(`"documentId":"${docs[1].id}"`))).toBe(true);
+  await expect.poll(async () => (await browserData(page, `/api/conversations/${other.id}/messages`)).some(message => message.content.includes(`"documentId":"${docs[1].id}"`))).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(app.providerCalls).toHaveLength(0);
 });

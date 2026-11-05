@@ -330,7 +330,7 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; chatId?
   // report a search that never happened.
   // Assistant tool restrictions still apply to every action a skill suggests.
   const descriptors = (await listAvailableRegisteredTools("chat", options?.modelRef)).filter((tool) =>
-    tool.surface.underlying !== "application" && (options?.toolIds === undefined || templateAllowsTool(options.toolIds, tool.id)) && !(tool.id === "saveMemory" && options?.usesMemory === false));
+    tool.surface.underlying !== "application" && (options?.toolIds === undefined || templateAllowsTool(options.toolIds, tool.id)) && !(tool.id === "extractMemory" && options?.usesMemory === false));
 
   // Folder tools are told about the conversation's one workspace, never every
   // granted folder, so the model cannot pick a folder the user did not choose.

@@ -19,7 +19,7 @@ export const toolsMessages = {
   "tools.searchKnowledge.hint": "想查什么？",
   "tools.createTask.hint": "要做什么，什么时候？",
   "tools.webSearch.hint": "想搜索什么？",
-  "tools.saveMemory.hint": "写下要记住的内容",
+  "tools.saveKnowledgeEntry.hint": "写下要保存的内容",
   "tools.readDocument.hint": "想了解什么？",
   "tools.convertDocument.hint": "附加文件或选择文档，发送即可转换",
   "tools.extension.hint": "说说想让它做什么",
@@ -31,7 +31,7 @@ export const toolsMessages = {
 
   // --- searchKnowledge ----------------------------------------------------
   "tools.searchKnowledge.displayName": "知识检索",
-  "tools.searchKnowledge.description": "在你的文档和记忆里找答案，并附上出处。",
+  "tools.searchKnowledge.description": "在你的文档和知识条目里找答案，并附上出处。",
   "tools.searchKnowledge.hitOne": "查询「{query}」命中 1 条：{title}（{source}）",
   "tools.searchKnowledge.hitMany": "查询「{query}」命中 {total} 条，首条为 {title}（{source}）",
 
@@ -39,6 +39,8 @@ export const toolsMessages = {
   "tools.compactContext.displayName": "压缩上下文",
   "tools.compactContext.description": "对话太长时整理前面的内容，腾出空间继续。",
   "tools.compactContext.hint": "可以写上要重点保留的内容，发送后开始",
+  "tools.extractMemory.displayName": "整理长期记忆",
+  "tools.extractMemory.description": "模型判断值得记住时，把你说过的内容整理进 MEMORY.md。",
   "tools.readConversationHistory.displayName": "查看对话原文",
   "tools.readConversationHistory.description": "查找这段对话里被摘要或缩短的原始内容。",
   "tools.createTask.displayName": "创建任务",
@@ -50,10 +52,9 @@ export const toolsMessages = {
   "tools.webSearch.displayName": "联网搜索",
   "tools.webSearch.description": "上网查最新的信息和资料。",
   "tools.webSearch.resultCountLabel": "结果数（可空）",
-  // --- saveMemory ---------------------------------------------------------
-  "tools.saveMemory.displayName": "记住信息",
-  "tools.saveMemory.description": "记下你想让它长期记住的事。",
-  "tools.saveMemory.disabled": "当前会话已关闭长期记忆，无法保存。请先关闭“不记长期记忆”。",
+  // --- saveKnowledgeEntry ---------------------------------------------------------
+  "tools.saveKnowledgeEntry.displayName": "保存知识条目",
+  "tools.saveKnowledgeEntry.description": "把信息存进知识库，之后可以检索和引用。",
 
   // --- local files ----------------------------------------------------------
   "tools.listLocalFiles.displayName": "列出资料目录",

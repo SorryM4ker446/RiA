@@ -14,7 +14,7 @@ const { providerState, resetProviderState } = await import("../helpers/model-pro
 const { defaultModelPreferences } = await import("@/lib/models/preferences-schema");
 const { indexDocument, deleteDocument } = await import("@/lib/documents/store");
 const { indexDocumentEmbeddings, semanticCoverage, validDocumentVector } = await import("@/lib/documents/semantic");
-const { searchDocuments, documentRetrievalQuery, formatDocumentContext } = await import("@/lib/documents/retrieval");
+const { searchDocuments, formatDocumentContext } = await import("@/lib/documents/retrieval");
 const { buildSystemPrompt } = await import("@/lib/chat/model-context");
 const { markDocumentCitations } = await import("@/lib/documents/references");
 const { documentSourceUrl } = await import("@/lib/documents/types");
@@ -218,9 +218,7 @@ test("embedding API requires authentication, explicit confirmation and matching 
   assert.equal(await db.documentChunk.count({ where: { documentId: target.id } }), 0);
 });
 
-test("follow-up retrieval uses prior user context without importing assistant speculation", () => {
-  assert.equal(documentRetrievalQuery([{ role: "user", text: "星河项目的发布流程是什么" }, { role: "assistant", text: "invented secret topic" }, { role: "user", text: "那它需要多久？" }]), "星河项目的发布流程是什么\nFollow-up: 那它需要多久？");
-  assert.equal(documentRetrievalQuery([{ role: "user", text: "差旅申请" }, { role: "user", text: "医疗预约流程" }]), "医疗预约流程");
+test("the rules for relying on search results are stated in the system prompt", () => {
   const prompt = buildSystemPrompt(true) + formatDocumentContext([]);
   assert.match(prompt, /say when evidence for a requested workspace fact is missing rather than filling the gap/);
   assert.match(prompt, /cite it as a Markdown link with the reference's file name and url/);

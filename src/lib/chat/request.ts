@@ -21,7 +21,7 @@ export async function readChatRequest(req: Request) {
     throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid message parts or tool state" });
   });
   const requestedChatId = body.chatId ?? body.conversationId ?? body.id;
-  const existing = requestedChatId ? await db.chat.findUnique({ where: { id: requestedChatId }, select: { id: true, assistantConfig: true, documentScope: true, ephemeral: true } }) : null;
+  const existing = requestedChatId ? await db.chat.findUnique({ where: { id: requestedChatId }, select: { id: true, topicId: true, assistantConfig: true, documentScope: true, ephemeral: true } }) : null;
   const assistant = readAssistantSnapshot(existing?.assistantConfig);
   if (assistant?.model && body.model && (body.model.providerId !== assistant.model.providerId || body.model.modelId !== assistant.model.modelId)) {
     throw new ApiError({ code: "VALIDATION_ERROR", message: "会话使用模板绑定的模型，请移除模板后切换模型。" });

@@ -28,7 +28,6 @@ export const terminalTool: ToolDescriptor<TerminalInput, TerminalCommandResult> 
     const { command: _command, ...result } = await runTerminalCommand(input, signal, runId);
     return result;
   },
-  memory: { enabled: false, minQuality: 1, summarize: () => null },
 };
 
 export const readTerminalLogTool: ToolDescriptor<ReadTerminalLogInput, Awaited<ReturnType<typeof readTerminalLog>>> = {
@@ -40,5 +39,4 @@ export const readTerminalLogTool: ToolDescriptor<ReadTerminalLogInput, Awaited<R
   surface: { category: "workspace", user: null, template: { follows: "runTerminalCommand" } },
   inputSchema: readTerminalLogInputSchema,
   execute: async ({ input, signal }) => readTerminalLog(input, terminalGrant, signal),
-  memory: { enabled: false, minQuality: 1, summarize: () => null },
 };

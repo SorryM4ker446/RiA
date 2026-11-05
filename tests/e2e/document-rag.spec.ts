@@ -69,7 +69,7 @@ test("semantic indexing delivers evidence to chat, marks actual citations and su
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(`${app.origin}/chat`);
   await expect(page.getByRole("checkbox", { name: "仅手动", exact: true })).toHaveCount(0);
-  await page.getByPlaceholder(/输入你的问题/).fill("出门办事的钱怎样领回来");
+  await page.getByPlaceholder(/输入你的问题/).fill("OFFLINE_SEARCH_KNOWLEDGE QUERY=出门办事的钱怎样领回来");
   await page.getByRole("button", { name: "发送", exact: true }).click();
   const article = page.locator("article").last();
   await expect(article).toContainText("逾期需要主管提供书面说明");
@@ -79,9 +79,6 @@ test("semantic indexing delivers evidence to chat, marks actual citations and su
   await expect(details.getByText("检索参考：回答未引用此片段", { exact: true })).toHaveCount(1);
   expect(JSON.stringify(app.providerCalls.filter(call => call.stream).at(-1)?.messages)).toContain("十个工作日");
   expect(JSON.stringify(app.providerCalls.filter(call => call.stream).at(-1)?.messages)).not.toContain("医院接诊");
-  await expect.poll(() => app.readRows("SELECT content FROM messages WHERE role='assistant'").map(row => String(row.content)).join("\n")).toContain('"citationStatus":"cited"');
-  const saved = app.readRows("SELECT content FROM messages WHERE role='assistant'").map(row => String(row.content)).join("\n");
-  expect(saved).toContain('"citationStatus":"cited"'); expect(saved).toContain('"citationStatus":"not-cited"');
   await app.restart(); await page.reload();
   await openExecutionDetails(page);
   await expect(details.getByText("回答已引用此片段（仍需核对内容）", { exact: true })).toHaveCount(2);

@@ -10,8 +10,6 @@ import { Badge } from "@/components/ui/badge";
 import { CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import type { ChatState } from "@/features/chat/use-chat-state";
-import { cn } from "@/lib/utils/cn";
-import { decodeDocumentScope } from "@/lib/documents/scope";
 import { TemplateDetails } from "@/features/assistants/template-details";
 import { useAwaitingFirstLoad } from "@/lib/use-awaiting-first-load";
 
@@ -23,9 +21,6 @@ type Props = Pick<
   | "isLoadingChats"
   | "modelMode"
   | "toggleEphemeral"
-  | "documentTopics"
-  | "setDocumentScope"
-  | "loadDocumentTopics"
   | "assistants" | "assistantsError" | "loadAssistants" | "applyAssistant"
 > & { conversationControls?: ReactNode; rowRef?: Ref<HTMLDivElement> };
 export function ChatToolbar({
@@ -35,9 +30,6 @@ export function ChatToolbar({
   isLoadingChats,
   modelMode,
   toggleEphemeral,
-  documentTopics,
-  setDocumentScope,
-  loadDocumentTopics,
   assistants, assistantsError, loadAssistants, applyAssistant,
   conversationControls,
   rowRef,
@@ -50,11 +42,6 @@ export function ChatToolbar({
       if (saved) toast({ title: t(ephemeral ? "chat.memory.offTitle" : "chat.memory.onTitle"), description: t(ephemeral ? "chat.memory.turnedOff" : "chat.memory.turnedOn") });
     });
   };
-  // Topics are fetched once for the header; a failure only removes the scope
-  // control, it does not affect the conversation.
-  useEffect(() => {
-    void loadDocumentTopics();
-  }, [loadDocumentTopics]);
   useEffect(() => { const controller = new AbortController(); void loadAssistants(controller.signal); return () => controller.abort(); }, [loadAssistants]);
   // Until the list first answers, no title is known: naming it a new conversation
   // then is a claim the restored conversation's title replaces a moment later.
@@ -94,51 +81,6 @@ export function ChatToolbar({
         {hasTemplateUpdate ? <Button variant="ghost" size="sm" disabled={isPending} onClick={() => void applyAssistant(snapshot.templateId)}>{t("ui.chat.chat-toolbar.updateToLatestTemplate")}</Button> : null}
         {assistantsError ? <span role="alert">{localizeMessage(assistantsError)} <Button variant="ghost" size="sm" onClick={() => void loadAssistants()}>{t("ui.chat.chat-toolbar.retry")}</Button></span> : null}
       </div> : null}
-
-      {/* What this conversation is allowed to draw on. Empty means every topic,
-        which is why the control says so rather than looking unselected. */}
-      {documentTopics.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span>{t("chat.scope.label")}</span>
-          <button
-            aria-pressed={!(activeChat?.documentScope ?? "")}
-            disabled={!activeChat || isLoadingChats || isPending}
-            className={cn(
-              "rounded-full border border-border px-2 py-0.5",
-              !(activeChat?.documentScope ?? "") && "bg-accent text-foreground",
-            )}
-            onClick={() => void setDocumentScope([])}
-            type="button"
-          >
-            {t("chat.scope.all")}
-          </button>
-          {documentTopics.map((topic) => {
-            const current = decodeDocumentScope(activeChat?.documentScope);
-            const selected = current.includes(topic);
-            return (
-              <button
-                aria-pressed={selected}
-                disabled={!activeChat || isLoadingChats || isPending}
-                className={cn(
-                  "rounded-full border border-border px-2 py-0.5",
-                  selected && "bg-accent text-foreground",
-                )}
-                key={topic}
-                onClick={() =>
-                  void setDocumentScope(
-                    selected
-                      ? current.filter((item) => item !== topic)
-                      : [...current, topic],
-                  )
-                }
-                type="button"
-              >
-                {topic}
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
     </CardHeader>
   );
 }

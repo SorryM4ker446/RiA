@@ -84,12 +84,6 @@ export type ToolSurface = {
   underlying?: "application" | "model";
 };
 
-export type ToolMemoryPolicy<Input, Output> = {
-  enabled: boolean;
-  minQuality: number;
-  summarize: (context: ToolMemoryContext<Input, Output>) => ToolMemoryDraft | null;
-};
-
 export type ToolDescriptor<Input = unknown, Output = unknown> = {
   id: string;
   displayName: string;
@@ -142,7 +136,6 @@ export type ToolDescriptor<Input = unknown, Output = unknown> = {
    */
   buildUnavailableOutput?: (context: { input: unknown; reason: ToolSkipReason; error: unknown }) => Output;
   execute: (context: ToolExecutionContext<Input>) => Promise<Output>;
-  memory: ToolMemoryPolicy<Input, Output>;
 };
 
 export type AnyToolDescriptor = ToolDescriptor<any, any>;
