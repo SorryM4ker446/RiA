@@ -55,6 +55,10 @@ export const chatApi = {
   deleteMessage: (chatId: string, messageId: string) => requestJson<unknown>(messagePath(chatId, messageId), t("chatApi.deleteMessageFailed"), { method: "DELETE" }),
   listDocuments: (signal: AbortSignal) => requestJson<Data<Array<{ id: string; filename: string; collection: string | null }>>>("/api/documents", t("ui.chat.api-client.couldNotLoadKnowledgeDocuments"), { signal }),
   listTools: () => requestJson<Data<ToolCatalogItem[]> & { skills?: SkillCatalogItem[] }>("/api/tools?mode=chat", t("chatApi.listToolsFailed")),
+  /** What stands in for a conversation's earlier turns, if anything does. */
+  async conversationSummary(chatId: string) {
+    return (await requestJson<{ data: { summary: string; coveredIds: string[] } | null }>(`/api/conversations/${encodeURIComponent(chatId)}/summary`, t("chat.compact.failed"))).data;
+  },
   async runTool(tool: string, input: Record<string, unknown>, chatId?: string) {
     const failed = `${tool} ${t("chatApi.runToolFailed")}`;
     const payload = await requestJson<ToolResult>("/api/tools/run", failed, jsonBody("POST", { tool, input, ...(chatId ? { chatId } : {}) }));

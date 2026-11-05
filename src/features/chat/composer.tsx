@@ -28,6 +28,7 @@ import type { ChatState } from "@/features/chat/use-chat-state";
 import { ModelMode } from "@/features/chat/page-utils";
 import type { ModelLibraryItem } from "@/lib/models/preferences-schema";
 import { ContextUsage } from "@/features/chat/context-usage";
+import { COMPACT_CONTEXT_TOOL } from "@/lib/chat/compact-context";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type UIEvent } from "react";
 
 /**
@@ -56,6 +57,7 @@ type Props = Pick<
   | "isLoadingPreferences"
   | "isConversationReady"
   | "isConverting"
+  | "freedByCompaction"
   | "tools"
   | "skills"
   | "choice"
@@ -103,6 +105,7 @@ export function Composer({
   isLoadingPreferences,
   isConversationReady,
   isConverting,
+  freedByCompaction,
   tools,
   skills,
   choice,
@@ -146,13 +149,14 @@ export function Composer({
   const isDocumentTool = modelMode === "chat" && DOCUMENT_TOOLS.has(choice.tool?.id ?? "");
   const isConvertTool = modelMode === "chat" && choice.tool?.id === "convertDocument";
   const isDirectRun = modelMode === "chat" && choice.tool?.surface.user?.run === "direct" && !input.trim();
-  const canSend = isDocumentTool ? attachments.length > 0 || Boolean(choice.document) : Boolean(input.trim()) || attachments.length > 0;
+  const isCompact = modelMode === "chat" && choice.tool?.id === COMPACT_CONTEXT_TOOL;
+  const canSend = isCompact || (isDocumentTool ? attachments.length > 0 || Boolean(choice.document) : Boolean(input.trim()) || attachments.length > 0);
   const allowedToolIds = activeChat?.assistantConfig?.tools;
   const modelCanCallTools = selectedModelInfo?.supportsTools !== false;
   const openSettings = useOpenSettings();
 
   // A template that no longer allows the chosen tool takes it away, rather than refusing the send later.
-  useEffect(() => { if (choice.tool && allowedToolIds && !allowedToolIds.includes(choice.tool.id)) removeTool(); }, [choice.tool, allowedToolIds, removeTool]);
+  useEffect(() => { if (choice.tool && allowedToolIds && choice.tool.surface.template !== "always" && !allowedToolIds.includes(choice.tool.id)) removeTool(); }, [choice.tool, allowedToolIds, removeTool]);
   // Converting a Word file into Word would be no conversion at all.
   const sourceIsWord = attachments.length ? attachments.every(part => part.mediaType === DOCUMENT_ATTACHMENT_TYPES[1]) : /\.docx$/i.test(choice.document?.filename ?? "");
   useEffect(() => { if (choice.tool?.id === "convertDocument" && sourceIsWord && choice.format === "docx") setToolFormat("md"); }, [choice.tool?.id, choice.format, sourceIsWord, setToolFormat]);
@@ -167,7 +171,7 @@ export function Composer({
     const items: SlashItem[] = [];
     for (const tool of tools) {
       const user = tool.surface.user;
-      if (!user || !tool.modeSupport.includes("chat") || (allowedToolIds && !allowedToolIds.includes(tool.id))) continue;
+      if (!user || !tool.modeSupport.includes("chat") || (allowedToolIds && tool.surface.template !== "always" && !allowedToolIds.includes(tool.id))) continue;
       if (tool.id === "saveMemory" && activeChat?.ephemeral) continue;
       const label = tool.extensionId ? toolLabel(tool) : localizeMessage(tool.displayName);
       const blocked = !tool.available ? t("chat.slash.needsSetup") : user.run === "model" && !modelCanCallTools ? t("chat.slash.modelCannotCall") : undefined;
@@ -491,7 +495,7 @@ export function Composer({
             </Select>}
             {isDocumentTool ? <DocumentToolBar document={choice.document} onDocumentChange={setToolDocument} format={choice.format} onFormatChange={setToolFormat} showFormat={choice.tool?.id === "convertDocument"} hasAttachments={attachments.length > 0} scope={activeChat?.documentScope} disabled={isPending} /> : null}
 
-            {modelMode === "chat" && !isConvertTool ? <ContextUsage messages={messages} /> : null}
+            {modelMode === "chat" && !isConvertTool ? <ContextUsage messages={messages} freedTokens={freedByCompaction} /> : null}
 
             {/* Visible hint stays exactly as before; this second, hidden node
               exists only so a screen reader hears the attachment state in the
@@ -553,7 +557,7 @@ export function Composer({
             >
               <ArrowUp aria-hidden="true" strokeWidth={2.25} />
               <span className="sr-only">
-                {isDirectRun ? t("chat.convert.submit") : t("chat.composer.send")}
+                {isCompact ? t("chat.compact.submit") : isDirectRun ? t("chat.convert.submit") : t("chat.composer.send")}
               </span>
             </Button>
           )}

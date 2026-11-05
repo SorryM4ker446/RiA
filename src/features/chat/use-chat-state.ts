@@ -28,6 +28,8 @@ import { useConversations } from "@/features/chat/use-conversations";
 import { useMediaGeneration } from "@/features/chat/use-media-generation";
 import { useTasks } from "@/features/tasks/use-tasks";
 import { DOCUMENT_TOOLS, invocationOf, useTools, type ComposerChoice } from "@/features/chat/use-tools";
+import { useToast } from "@/components/ui/toast";
+import { COMPACT_CONTEXT_TOOL } from "@/lib/chat/compact-context";
 import { animateRemoval } from "@/lib/ui/removal";
 export function useChatState() {
   const [input, setInput] = useState("");
@@ -78,6 +80,15 @@ export function useChatState() {
   const confirmedChatId = restoringChatId === null ? activeChatId : null;
   const selectedChatModel = activeChat?.assistantConfig?.model ?? preferredChatModel;
   const transport = useMemo(() => createChatTransport(activeChatId, { selectedChatModel, modelMode }), [activeChatId, selectedChatModel, modelMode]);
+  const toast = useToast();
+  // The server is folding older turns before it can answer; only meaningful until the answer opens.
+  const [isOrganizing, setIsOrganizing] = useState(false);
+  // The conversation whose earlier turns the person asked to have folded.
+  const [compactingChatId, setCompactingChatId] = useState<string | null>(null);
+  const [compaction, setCompaction] = useState<{ chatId: string; summary: string; coveredIds: string[] } | null>(null);
+  // Space freed by a fold since the latest request measured its input; the next one measures anew.
+  const [freedByCompaction, setFreedByCompaction] = useState<{ chatId: string; lastMessageId?: string; tokens: number } | null>(null);
+  const compactionRequest = useRef(0);
   const { messages, setMessages, sendMessage, regenerate, addToolApprovalResponse, status, error, clearError, stop } = useChat({
     id: activeChatId ?? "draft",
     transport,
@@ -86,6 +97,7 @@ export function useChatState() {
     // the trailing update still delivers the final text.
     experimental_throttle: 50,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
+    onData: part => { if (part.type === "data-context-status") setIsOrganizing((part.data as { organizing: boolean }).organizing); },
     onFinish: ({ messages: finishedMessages, isError }) => {
       if (!isError) return;
       const latestUser = [...finishedMessages].reverse().find(message => message.role === "user");
@@ -93,6 +105,14 @@ export function useChatState() {
       if (pending) pending.failed = true;
     },
   });
+  useEffect(() => { if (status !== "submitted") setIsOrganizing(false); }, [status]);
+  const loadCompaction = useCallback(async (chatId: string | null) => {
+    const request = ++compactionRequest.current;
+    const found = chatId ? await chatApi.conversationSummary(chatId).catch(() => null) : null;
+    if (request === compactionRequest.current) setCompaction(found && chatId ? { chatId, ...found } : null);
+  }, []);
+  // A fold can happen during a turn or just after one, so a finished turn looks again.
+  useEffect(() => { if (status === "ready") void loadCompaction(confirmedChatId); }, [status, confirmedChatId, loadCompaction]);
   type PendingSend = {
     chatId: string;
     message: Parameters<typeof sendMessage>[0];
@@ -117,7 +137,7 @@ export function useChatState() {
   } = useMediaGeneration({ activeChatId, isConversationReady, isHistoryReady: historyState?.chatId === activeChatId && historyState.status === "ready", setMessages, reloadMessages: loadMessages, ensureActiveChatId, loadChats, setPageError, modelMode, selectedImageModel, selectedVideoModel, textareaRef });
   const {
     tools, skills, toolCatalogError, loadToolCatalog, choice, setChoice, chooseTool, toggleSkill, removeLastChoice, removeTool,
-    setToolDocument, setToolFormat, clearChoice, isConverting, convertDocuments,
+    setToolDocument, setToolFormat, clearChoice, isConverting, convertDocuments, compactContext,
   } = useTools({ activeChatId, isHistoryReady: historyState?.chatId === activeChatId && historyState.status === "ready", setMessages, reloadMessages: loadMessages, ensureActiveChatId, loadChats, modelMode });
   // Work in flight that the "generating" status and the stop control stand for.
   // Reading the saved preferences is not part of it: it blocks sending like the
@@ -597,6 +617,25 @@ export function useChatState() {
     const isDocumentTool = Boolean(chosenTool && DOCUMENT_TOOLS.has(chosenTool.id));
     if (isDocumentTool && attachments.some(part => !isDocumentAttachment(part.mediaType))) { setInputNotice({ key: "chat.document.onlyDocuments" }); return; }
     if (isDocumentTool && !attachments.length && !choice.document) { setInputNotice({ key: "ui.chat.use-chat-state.chooseAKnowledgeDocumentFirst" }); return; }
+    // Whatever was typed says what to keep; no model answers this one.
+    if (chosenTool?.id === COMPACT_CONTEXT_TOOL) {
+      const focus = input.trim(), sent = choice;
+      setPageError(null); clearChoice(); setInput(""); setCompactingChatId(activeChatId);
+      try {
+        const { status: outcome, freedTokens } = await compactContext(focus);
+        toast(t(outcome === "compacted" ? "chat.compact.done" : "chat.compact.nothing"));
+        if (outcome === "compacted" && activeChatId) {
+          setFreedByCompaction({ chatId: activeChatId, lastMessageId: messages.at(-1)?.id, tokens: freedTokens });
+          await loadCompaction(activeChatId);
+        }
+      }
+      catch (submitError) {
+        setChoice(sent); setInput(focus);
+        setPageError(submitError instanceof Error ? submitError.message : t("chat.compact.failed"));
+      }
+      finally { setCompactingChatId(null); }
+      return;
+    }
     // Nothing to say to a model: the choice itself is the whole request.
     if (chosenTool?.surface.user?.run === "direct" && !input.trim()) {
       const sent = choice;
@@ -773,7 +812,9 @@ export function useChatState() {
     isLoadingTasks, loadTasks, setTaskStatusFilter, taskStatusFilter,
     taskPanelError: withoutGlobalEcho(taskPanelError),
     visibleTasks, updateTaskStatus, deleteTask, saveTaskSchedule, updatingTaskIds, hasHiddenTasks, setIsTaskListExpanded,
-    isTaskListExpanded, activeChat, isPending, isWorking, isLoadingPreferences, isOpeningConversation, isConversationReady, isConverting, modelMode, selectedModel, selectedModelInfo, onModeSelect,
+    compaction: compaction?.chatId === activeChatId ? compaction : null,
+    freedByCompaction: freedByCompaction?.chatId === activeChatId && freedByCompaction.lastMessageId === messages.at(-1)?.id ? freedByCompaction.tokens : 0,
+    isOrganizing, isCompacting: compactingChatId !== null && compactingChatId === activeChatId, isTaskListExpanded, activeChat, isPending, isWorking, isLoadingPreferences, isOpeningConversation, isConversationReady, isConverting, modelMode, selectedModel, selectedModelInfo, onModeSelect,
     onModelSelect, modelHint, inputNotice, dismissInputNotice: () => setInputNotice(null), isModelMenuOpen, setIsModelMenuOpen, isHistoryReady: confirmedChatId !== null && historyState?.chatId === confirmedChatId && historyState.status === "ready", isLoadingHistory, confirmedChatId, messages, imageByMessageId, videoByMessageId,
     status, editingMessageId, startEditingMessage, regenerateMessage, requestDeleteMessage,
     setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage,

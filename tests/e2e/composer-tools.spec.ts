@@ -27,7 +27,8 @@ test("the slash menu offers only what a person can call, by keyboard and mouse, 
   await page.keyboard.type("/");
   await expect(list).toBeVisible();
   await expect(slashOption(page, "联网搜索")).toBeVisible();
-  for (const internal of ["执行终端命令", "读取终端日志", "读取项目文件", "编辑项目文件", "压缩上下文", "读取插件技能", "工具调用"]) await expect(slashOption(page, internal)).toHaveCount(0);
+  await expect(slashOption(page, "压缩上下文")).toBeVisible();
+  for (const internal of ["执行终端命令", "读取终端日志", "读取项目文件", "编辑项目文件", "读取插件技能", "工具调用"]) await expect(slashOption(page, internal)).toHaveCount(0);
   await expect(input).toBeFocused();
 
   // Escape keeps the typed slash; a second slash, or typing it again, brings the menu back.

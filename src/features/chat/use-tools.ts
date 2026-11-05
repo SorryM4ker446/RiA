@@ -9,6 +9,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { chatApi, persistConversationMessage } from "@/features/chat/api-client";
 import type { SkillCatalogItem, ToolCatalogItem, ToolDocumentSelection } from "@/features/chat/types";
+import { COMPACT_CONTEXT_TOOL } from "@/lib/chat/compact-context";
 
 /** What the composer has chosen for the next message: at most one tool, and any number of skills. */
 export type ComposerChoice = { tool: ToolCatalogItem | null; skills: SkillCatalogItem[]; document: ToolDocumentSelection | null; format: ExportFormat };
@@ -125,5 +126,15 @@ export function useTools({ activeChatId, isHistoryReady, setMessages, reloadMess
     } finally { converting.current = false; setIsConverting(false); }
   }
 
-  return { tools, skills, toolCatalogError, loadToolCatalog, choice, setChoice, chooseTool, toggleSkill, removeLastChoice, removeTool, setToolDocument, setToolFormat, clearChoice, isConverting, convertDocuments };
+  /** Folds the open conversation's earlier turns, keeping what `focus` names. */
+  async function compactContext(focus: string) {
+    if (converting.current) throw new Error(t("ui.chat.use-tools.waitForTheCurrentToolTo"));
+    const chatId = viewRef.current.chatId;
+    if (!chatId) return { status: "nothing" as const, freedTokens: 0 };
+    converting.current = true; setIsConverting(true);
+    try { return (await chatApi.runTool(COMPACT_CONTEXT_TOOL, focus ? { focus } : {}, chatId)).data as { status: "compacted" | "nothing"; freedTokens: number }; }
+    finally { converting.current = false; setIsConverting(false); }
+  }
+
+  return { compactContext, tools, skills, toolCatalogError, loadToolCatalog, choice, setChoice, chooseTool, toggleSkill, removeLastChoice, removeTool, setToolDocument, setToolFormat, clearChoice, isConverting, convertDocuments };
 }

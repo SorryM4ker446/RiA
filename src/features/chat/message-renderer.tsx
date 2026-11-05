@@ -7,6 +7,7 @@ import { DocumentAttachment } from "@/components/chat/document-attachment";
 import { DocumentDownload } from "@/features/document-processor/document-download";
 import { EditedFiles } from "./edited-files";
 import { MessageThinking, ReplyPending } from "./message-thinking";
+import { CompactionMarker } from "./compaction-marker";
 import { formatMessageTime, fullMessageTime, readMessageTime, useDayRollover } from "./message-time";
 import { readThinking } from "@/lib/chat/thinking";
 import { toolLabel } from "./use-tools";
@@ -39,7 +40,7 @@ import {
   Trash2,
   X
 } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Image from "next/image";
 import type { ChatState } from "@/features/chat/use-chat-state";
 import type { UIMessage } from "ai";
@@ -167,8 +168,8 @@ function TranscriptSkeleton() {
   </div>;
 }
 
-type Props = Pick<ChatState, "tools" | "selectedModelInfo" | "modelMode" | "activeChatId" | "isLoadingHistory" | "isOpeningConversation" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId" | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText" | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel" | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages" | "selectedChatModel"> & { onShowSources?: (messageId: string) => void };
-export function MessageRenderer({ tools, selectedModelInfo, onShowSources, modelMode, activeChatId, isLoadingHistory, isOpeningConversation, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages }: Props) {
+type Props = Pick<ChatState, "compaction" | "isOrganizing" | "isCompacting" | "tools" | "selectedModelInfo" | "modelMode" | "activeChatId" | "isLoadingHistory" | "isOpeningConversation" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId" | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText" | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel" | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages" | "selectedChatModel"> & { onShowSources?: (messageId: string) => void };
+export function MessageRenderer({ compaction, isOrganizing, isCompacting, tools, selectedModelInfo, onShowSources, modelMode, activeChatId, isLoadingHistory, isOpeningConversation, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages }: Props) {
   useLocale();
   // Opening counts as loading: before it is known which conversation is open, or
   // in the render where one has just been chosen, the transcript is not empty yet.
@@ -377,7 +378,7 @@ export function MessageRenderer({ tools, selectedModelInfo, onShowSources, model
         const savedAt = isLive || isEditing ? null : readMessageTime(message.metadata);
 
         return (
-          <div className={cn("flex w-full", isUser ? "justify-end pb-4" : "justify-start")} key={message.id} {...removalKey(message.id)} data-message-id={message.id} data-message-role={message.role}>
+          <Fragment key={message.id}><div className={cn("flex w-full", isUser ? "justify-end pb-4" : "justify-start")} {...removalKey(message.id)} data-message-id={message.id} data-message-role={message.role}>
             <article
               className={cn(
                 "group min-w-0 rounded-xl px-4 py-3 text-sm",
@@ -581,10 +582,10 @@ export function MessageRenderer({ tools, selectedModelInfo, onShowSources, model
               })}
               {!isUser && !(index === messages.length - 1 && isPending) && !toolParts.some(part => part.state === "approval-requested") ? <EditedFiles parts={toolParts} /> : null}
             </article>
-          </div>
+          </div>{compaction?.coveredIds.includes(message.id) ? <CompactionMarker summary={compaction.summary} /> : null}</Fragment>
         );
       })}
-      {status === "submitted" && modelMode === "chat" && messages.at(-1)?.role === "user" ? <ReplyPending reasoning={alwaysReasons} /> : null}
+      {isCompacting || (status === "submitted" && modelMode === "chat" && messages.at(-1)?.role === "user") ? <ReplyPending reasoning={alwaysReasons} organizing={isCompacting || isOrganizing} /> : null}
     </>)}
   </div>
   </div>

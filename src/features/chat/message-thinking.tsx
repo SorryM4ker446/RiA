@@ -38,7 +38,7 @@ function tokenMs(name: string) {
  * bottom of a scroll position that only takes whole pixels, so a height eased in
  * fractions, as a CSS transition does, makes the text shake by a pixel every frame.
  */
-function useDisclosureMotion() {
+export function useDisclosureMotion() {
   const frame = useRef<number | null>(null);
   const shown = useRef<number | null>(null);
   const settle = useCallback((node: HTMLDetailsElement, open: boolean) => {
@@ -139,7 +139,7 @@ export function MessageThinking({ thinking, live, reasoning, answering, toolName
 }
 
 /** Between sending and the first thing the model returns. */
-export function ReplyPending({ reasoning }: { reasoning: boolean }) {
+export function ReplyPending({ reasoning, organizing = false }: { reasoning: boolean; organizing?: boolean }) {
   useLocale();
-  return <p className="reply-pending" role="status"><span className="thinking-live">{reasoning ? t("chat.messages.reasoningLive") : t("chat.thinking.replying")}</span></p>;
+  return <p className="reply-pending" role="status"><span className="thinking-live">{organizing ? t("chat.thinking.organizing") : reasoning ? t("chat.messages.reasoningLive") : t("chat.thinking.replying")}</span></p>;
 }
