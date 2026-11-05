@@ -324,8 +324,9 @@ export function MessageRenderer({ compaction, isOrganizing, isCompacting, tools,
 
   return (<div className="chat-transcript-frame relative flex min-h-0 flex-1" data-navigation={showNavigation}>
   <div ref={scrollRef} className="chat-transcript relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-6 sm:px-7" data-testid="message-list">
-  <div ref={contentRef} className="chat-transcript-content flex min-h-full flex-col gap-5">
-  {/* The control stays inside the transcript and never overlaps the composer. */}
+  {/* The control stays inside the transcript and never overlaps the composer. It sits
+      outside the message column: an item of that column, however short, adds the column's
+      gap, which would push what is being read down the page when it appears. */}
   {hasUnreadBelow ? (
     <div className="pointer-events-none sticky top-0 z-20 flex h-0 justify-center">
       <Button className="pointer-events-auto shadow-card" onClick={jumpToLatest} size="sm" type="button" variant="secondary">
@@ -334,6 +335,7 @@ export function MessageRenderer({ compaction, isOrganizing, isCompacting, tools,
       </Button>
     </div>
   ) : null}
+  <div ref={contentRef} className="chat-transcript-content flex min-h-full flex-col gap-5">
     {/* Same rule as the conversation list: the label stays put while older
         messages load, so the button does not resize and the scroll position
         does not shift. */}
