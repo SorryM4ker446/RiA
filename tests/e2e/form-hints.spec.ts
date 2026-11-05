@@ -10,10 +10,30 @@ async function watchInvalid(page: Page) {
   });
 }
 
+/**
+ * A page can be on screen before React has hydrated it, and the listener is attached only
+ * then. Until it is, a refused form is the browser's alone. Asks the same question a
+ * refused form does: an invalid field reports whether the app took the event.
+ */
+async function formHintsReady(page: Page) {
+  await expect.poll(() => page.evaluate(() => {
+    const probe = document.createElement("input");
+    probe.required = true;
+    let taken = false;
+    probe.addEventListener("invalid", event => { taken = event.defaultPrevented; });
+    document.body.append(probe);
+    probe.checkValidity();
+    probe.remove();
+    return taken;
+  })).toBe(true);
+  await expect(hint(page), "the probe leaves no hint behind").toHaveCount(0);
+}
+
 test("a refused form explains itself in the app's own style and language, at the field", async ({ page }) => {
   await page.goto("/knowledge");
   const submit = page.getByRole("button", { name: "导入文档", exact: true });
   await expect(submit).toBeVisible();
+  await formHintsReady(page);
   await watchInvalid(page);
   await submit.click();
 
@@ -38,6 +58,7 @@ test("a refused form explains itself in the app's own style and language, at the
 test("every kind of refusal gets its own sentence, only the first field speaks, and it leaves with the field", async ({ page }) => {
   await page.goto("/knowledge");
   await expect(page.getByRole("button", { name: "导入文档", exact: true })).toBeVisible();
+  await formHintsReady(page);
   const refuse = async (attributes: Record<string, string>, value = "") => {
     await page.evaluate(({ attributes, value }) => {
       document.querySelector("#hint-form")?.remove();

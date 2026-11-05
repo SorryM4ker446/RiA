@@ -235,9 +235,13 @@ test("locating an earlier message during streaming preserves reading position an
   const latestQuestion = page.getByRole("button", { name: /定位提问 13：继续完善这个方案/ });
   await mark(page, "a-2").click(); await expectLocated(page, "a-2");
   const top = await page.locator(".chat-transcript").evaluate(panel => panel.scrollTop);
+  const readingPosition = () => anchor(page, "a-2").evaluate(element => element.getBoundingClientRect().top - element.closest(".chat-transcript")!.getBoundingClientRect().top);
+  const reading = await readingPosition();
   await page.evaluate(() => (window as unknown as StreamWindow).navigationStream.emit([{ type: "text-delta", id: "text", delta: "补充更多设计细节。\n\n".repeat(30) }]));
   await expect(page.getByRole("button", { name: "回到最新", exact: true })).toBeVisible();
   expect(await page.locator(".chat-transcript").evaluate(panel => panel.scrollTop)).toBeCloseTo(top, 0);
+  // The way back appearing must not push what is being read down the page.
+  expect(await readingPosition()).toBeCloseTo(reading, 0);
   await expect(mark(page, "a-2")).toHaveAttribute("aria-current", "location");
   await page.getByRole("button", { name: "回到最新", exact: true }).click();
   await expect(latestQuestion).toHaveAttribute("aria-current", "location");
