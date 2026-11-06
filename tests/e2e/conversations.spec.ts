@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { browserApi, browserData } from "../helpers/browser-api";
 import { chooseOption } from "../helpers/select";
+import { configureOfflineModels } from "../helpers/model-fixture";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => {
@@ -279,4 +280,27 @@ test("conversation validation, rate limits and credential refusal surface action
   // The workspace itself stays usable; there is no login page to fall back to.
   await page.reload(); await expect(page).not.toHaveURL(/\/login$/);
   expect(app.providerCalls).toHaveLength(0);
+});
+
+test("a message sent while a new conversation is still being created goes into it, and only one is created", async ({ page, app }) => {
+  await register(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  await page.goto(`${app.origin}/chat`);
+  const composer = page.getByPlaceholder(/输入你的问题/);
+  await expect(composer).toBeEnabled();
+  // Creating reads the saved defaults first; held back, as on a slow machine, the message is
+  // sent before the conversation exists. It used to create a second one and be dropped.
+  await page.route(url => url.pathname === "/api/models", async route => { await new Promise(resolve => setTimeout(resolve, 1500)); await route.continue(); });
+  const newChat = page.getByRole("button", { name: "创建会话", exact: true });
+  await newChat.click();
+  await composer.fill("新会话里的第一句话");
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  await expect(page.getByText("离线回答：新会话里的第一句话", { exact: true })).toBeVisible();
+  // The button stays disabled while it creates; once it is back, creating has finished,
+  // and the page must still show the answer rather than a second, empty conversation.
+  await expect(newChat).toBeEnabled();
+  await expect(page.getByText("离线回答：新会话里的第一句话", { exact: true })).toBeVisible();
+  const chats = await browserData(page, "/api/conversations");
+  expect(chats).toHaveLength(1);
+  expect(chats[0].title).toBe("新会话里的第一句话");
 });

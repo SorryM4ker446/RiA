@@ -16,9 +16,14 @@ test("a long tool-heavy conversation streams as smoothly as an empty one", async
       await context.close();
     }
   };
-  const empty = await measure(heavyHistory(0, 0));
-  const heavy = await measure(heavyHistory(40, 5));
-  const summary = JSON.stringify({ empty, heavy });
+  // The other worker's tests come and go during a run; one measured after the other, a
+  // burst of their load (a server starting, say) fell on one side only. Measured in turn,
+  // empty-heavy-heavy-empty, each side keeps its quieter run and both see the same load.
+  const runs = [];
+  for (const size of [0, 40, 40, 0]) runs.push({ size, load: await measure(size ? heavyHistory(size, 5) : heavyHistory(0, 0)) });
+  const quieter = (size: number) => runs.filter(run => run.size === size).map(run => run.load).reduce((best, load) => load.elapsed < best.elapsed ? load : best);
+  const empty = quieter(0), heavy = quieter(40);
+  const summary = JSON.stringify({ empty, heavy, elapsed: runs.map(run => `${run.size}:${run.load.elapsed}`) });
   test.info().annotations.push({ type: "stream-load", description: summary });
   expect(heavy.elapsed, summary).toBeLessThan(empty.elapsed * 1.5);
 });
