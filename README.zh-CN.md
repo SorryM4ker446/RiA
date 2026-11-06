@@ -142,3 +142,7 @@ npm run test:desktop:smoke
 | `src/db/` | Prisma 结构和 SQLite 迁移 |
 | `scripts/` | 开发、迁移、打包和验证脚本 |
 | `tests/` | 服务端、浏览器和桌面端回归测试 |
+
+## 许可证
+
+[MIT](LICENSE)

@@ -142,3 +142,7 @@ Older account-based databases are inventoried and snapshotted before becoming a 
 | `src/db/` | Prisma schema and SQLite migrations |
 | `scripts/` | Development, migration, packaging and validation utilities |
 | `tests/` | Server, browser and desktop regression tests |
+
+## License
+
+[MIT](LICENSE)
