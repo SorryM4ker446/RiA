@@ -163,6 +163,12 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
             : { grantId, path: "README.md" };
           return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: `project-edit-call-${editResults.length}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
         }
+        // Save one knowledge entry: OFFLINE_SAVE_ENTRY KEY=<key> VALUE=<value>, both up to the next space.
+        if (prompt.includes("OFFLINE_SAVE_ENTRY") && !body.messages.some(message => message.role === "tool")) {
+          if (!body.tools?.some(tool => tool.function?.name === "saveKnowledgeEntry")) throw new Error("saveKnowledgeEntry was not offered to the fixture model");
+          const args = { key: /KEY=(\S+)/.exec(prompt)?.[1], value: /VALUE=(\S+)/.exec(prompt)?.[1] };
+          return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "save-entry-call", type: "function", function: { name: "saveKnowledgeEntry", arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
+        }
         const terminalResults = body.messages.filter(message => message.role === "tool").length;
         if ((prompt.includes("OFFLINE_TERMINAL_COMMAND") || fileEditRequest) && terminalResults < (prompt.includes("TERMINAL_TWICE") ? 2 : 1)) {
           const name = "runTerminalCommand";

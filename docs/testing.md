@@ -69,6 +69,8 @@ CI uploads this screenshot alongside desktop logs with seven-day retention.
 
 Approval-card regressions verify decisions above the composer without automatic
 sheet opening, sequential approval queues, exact terminal command review,
+knowledge entries replaced under their existing name with the replaced text shown
+(and not overwritten when edited before approval),
 rejection, reload, execution-once behavior and narrow layouts. Run-detail tests
 cover server-owned continuation links, one combined request entry, legacy file
 details, ambiguous-history refusal and explicit missing-detail summaries. Pending

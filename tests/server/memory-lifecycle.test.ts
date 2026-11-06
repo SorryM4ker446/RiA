@@ -259,3 +259,50 @@ test("entry lookup compares every confirmed entry, however old", async () => {
   const { candidates } = await getEntrySearchCandidates("anything", LOOKUP_ENTRY_POLICY);
   assert.equal(candidates.length, 151, "every confirmed memory is a candidate, not only the newest");
 });
+
+test("the model's call under an existing key replaces that entry, after the user sees the text it replaces", async () => {
+  const { createChatToolSet, executeRegisteredTool } = await import("@/tools/execution");
+  const { getToolDescriptor } = await import("@/tools/builtins");
+  const descriptor = getToolDescriptor("saveKnowledgeEntry")!;
+  const saveTool = (await createChatToolSet({ toolIds: ["saveKnowledgeEntry"] })).saveKnowledgeEntry as unknown as { needsApproval: (input: unknown) => Promise<boolean> };
+  await saveKnowledgeEntry({ key: "投影仪遥控器", value: "放在前台第二个抽屉里。" });
+
+  // Asking for approval records what would be replaced, on the call the user is shown.
+  const update = { key: "投影仪遥控器", value: "现在放在行政室。" } as Record<string, unknown>;
+  assert.equal(await saveTool.needsApproval(update), true);
+  assert.deepEqual((update.binding as { replaces: { value: string } }).replaces.value, "放在前台第二个抽屉里。");
+  await executeRegisteredTool(descriptor, update, { trigger: "auto" });
+  const rows = await db.memory.findMany({ where: { key: { startsWith: "投影仪遥控器" } } });
+  assert.deepEqual(rows.map(row => [row.key, row.value]), [["投影仪遥控器", "现在放在行政室。"]], "replaced, not kept beside a numbered copy");
+
+  // A new key adds an entry and replaces nothing.
+  const added = { key: "咖啡机", value: "每周五下午清洗。" } as Record<string, unknown>;
+  await saveTool.needsApproval(added);
+  assert.equal((added.binding as { replaces: unknown }).replaces, null);
+  await executeRegisteredTool(descriptor, added, { trigger: "auto" });
+  assert.equal((await db.memory.findUnique({ where: { key: "咖啡机" } }))?.value, "每周五下午清洗。");
+
+  // A model call that never went through the server's binding is not saved.
+  await assert.rejects(executeRegisteredTool(descriptor, { key: "咖啡机", value: "不再清洗。" }, { trigger: "auto" }), (error: { code?: string }) => error.code === "CONFLICT");
+  assert.equal((await db.memory.findUnique({ where: { key: "咖啡机" } }))?.value, "每周五下午清洗。");
+});
+
+test("an entry changed after the model proposed replacing it is not overwritten", async () => {
+  const { createChatToolSet, executeRegisteredTool } = await import("@/tools/execution");
+  const { getToolDescriptor } = await import("@/tools/builtins");
+  const descriptor = getToolDescriptor("saveKnowledgeEntry")!;
+  const saveTool = (await createChatToolSet({ toolIds: ["saveKnowledgeEntry"] })).saveKnowledgeEntry as unknown as { needsApproval: (input: unknown) => Promise<boolean> };
+  await saveKnowledgeEntry({ key: "门禁卡", value: "找行政办理。" });
+  const proposal = { key: "门禁卡", value: "找保安办理。" } as Record<string, unknown>;
+  await saveTool.needsApproval(proposal);
+  await saveKnowledgeEntry({ key: "门禁卡", value: "找人事办理。" });
+
+  // Executed with what was approved: the text the user saw is no longer there.
+  await assert.rejects(executeRegisteredTool(descriptor, structuredClone(proposal), { trigger: "auto" }), (error: { code?: string }) => error.code === "CONFLICT");
+  // Bound again when the approval comes back, it is marked stale and still refused.
+  const resumed = structuredClone(proposal);
+  await saveTool.needsApproval(resumed);
+  assert.equal((resumed.binding as { stale?: boolean }).stale, true);
+  await assert.rejects(executeRegisteredTool(descriptor, resumed, { trigger: "auto" }), (error: { code?: string }) => error.code === "CONFLICT");
+  assert.equal((await db.memory.findUnique({ where: { key: "门禁卡" } }))?.value, "找人事办理。");
+});

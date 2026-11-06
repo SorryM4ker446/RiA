@@ -3,6 +3,7 @@ import { embedTextWithModel } from "@/lib/ai/embedding";
 import { Prisma } from "@prisma/client";
 import { getEntrySearchCandidates, LOOKUP_ENTRY_POLICY, rankByScore } from "@/lib/knowledge/entry-retrieval";
 import { recordWorkspaceEvent } from "@/lib/activity/events";
+import { ApiError } from "@/lib/server/api-error";
 
 export type SaveEntryInput = {
   key: string;
@@ -20,6 +21,8 @@ export type SaveEntryInput = {
    * numbered key, so it cannot silently overwrite an unrelated memory.
    */
   onConflict?: "replace" | "keep-both";
+  /** The entry a replacement was approved against: it must still be there with this text. */
+  expected?: { id: string; value: string };
 };
 
 export type GetRelevantEntriesInput = {
@@ -50,6 +53,9 @@ export async function saveKnowledgeEntry(input: SaveEntryInput) {
   return db.$transaction(async tx => {
   let key = normalizedKey;
   let existing = await tx.memory.findUnique({ where: { key } });
+  if (input.expected && (existing?.id !== input.expected.id || existing.value !== input.expected.value)) {
+    throw new ApiError({ code: "CONFLICT", message: `The entry "${key}" changed after this was proposed, so nothing was saved. Search for it again and propose the change anew.` });
+  }
   if (input.onConflict === "keep-both" && existing && existing.value !== normalizedValue) {
     for (let suffix = 2; existing && existing.value !== normalizedValue; suffix++) {
       key = `${normalizedKey} (${suffix})`;
