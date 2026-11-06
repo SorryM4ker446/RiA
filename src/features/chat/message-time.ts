@@ -29,7 +29,10 @@ export function formatMessageTime(at: Date, now = new Date()): string {
 /** The full date and the time to the minute, for the tooltip. */
 export const fullMessageTime = (at: Date) => formatDateTime(at, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
-/** Renders again at midnight, so a window left open does not keep calling yesterday today. */
+/**
+ * Renders again at midnight, so a window left open does not keep calling yesterday today.
+ * Returns a count that changes at each midnight, for content that renders only when its props change.
+ */
 export function useDayRollover() {
   const [day, setDay] = useState(0);
   useEffect(() => {
@@ -38,4 +41,5 @@ export function useDayRollover() {
     const timer = setTimeout(() => setDay(current => current + 1), midnight.getTime() - Date.now());
     return () => clearTimeout(timer);
   }, [day]);
+  return day;
 }

@@ -29,6 +29,31 @@ test("the default is Chinese, unsupported preferences fall back, and server rend
   assert.equal(formatDateTime(date, options, "en-US"), date.toLocaleString("en-US", options));
 });
 
+test("formatted dates read exactly as toLocaleString does, whether the formatter is new or reused", () => {
+  const dates = [new Date("2026-10-20T12:00:00Z"), new Date("2025-01-03T23:59:30Z"), new Date("2026-03-08T09:05:00Z")];
+  const optionSets: Intl.DateTimeFormatOptions[] = [
+    {},
+    { timeZone: "UTC" },
+    { timeZone: "Asia/Shanghai", timeZoneName: "short" },
+    { hour: "numeric", minute: "2-digit" },
+    { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" },
+    { month: "short", day: "numeric" },
+    { dateStyle: "short", timeStyle: "short" },
+    { timeZone: "UTC", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" },
+  ];
+  for (const locale of ["zh-CN", "en-US"] as const) {
+    for (const options of optionSets) {
+      for (const date of dates) {
+        // Twice: the second call is answered by the formatter the first one kept.
+        for (let call = 0; call < 2; call++) assert.equal(formatDateTime(date, options, locale), date.toLocaleString(locale, options), `${locale} ${JSON.stringify(options)} ${date.toISOString()}`);
+      }
+    }
+    assert.equal(formatDateTime("2026-10-20T12:00:00Z", {}, locale), new Date("2026-10-20T12:00:00Z").toLocaleString(locale));
+    assert.equal(formatDateTime("not a date", {}, locale), new Date("not a date").toLocaleString(locale));
+  }
+  assert.throws(() => formatDateTime(new Date(), { timeZone: "Not/AZone" }, "en-US"), RangeError);
+});
+
 test("renderer subscriptions update copy and dates without changing unknown or user content", () => {
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
   const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");

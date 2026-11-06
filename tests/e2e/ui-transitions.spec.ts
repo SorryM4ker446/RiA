@@ -146,6 +146,9 @@ async function recordChatReturn(page: Page) {
       if (toolbar?.querySelector("h3")?.textContent === "新会话") seen.newChatTitle = true;
       // The model is already chosen; "选择模型" in its place would be a claim that it is not.
       if (document.querySelector('.chat-workspace [aria-label="选择模型"]')?.textContent?.includes("选择模型")) seen.modelPlaceholder = true;
+      // The placeholder's age counts from when it was inserted. Counted from the first frame
+      // that saw it, a busy runner's late first frame made a reveal held back on time look early.
+      skeletonSince = document.querySelector("[data-testid=message-skeleton]") ? skeletonSince ?? performance.now() : null;
     };
     new MutationObserver(check).observe(document.body, { childList: true, subtree: true, characterData: true });
     const frame = () => {

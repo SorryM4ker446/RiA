@@ -43,8 +43,25 @@ export function tf(key: MessageKey, vars: Record<string, string | number>, local
     Object.hasOwn(vars, name) ? String(vars[name]) : match,
   );
 }
+// Building a formatter is far costlier than using one, and `toLocaleString` builds one
+// on every call: a transcript re-rendered on each streamed delta spent most of the
+// stream formatting the same message times. The keys are the option sets the
+// interface uses, so the cache stays small.
+const dateTimeFormats = new Map<string, Intl.DateTimeFormat>();
+const dateTimeComponents = ["weekday", "year", "month", "day", "dayPeriod", "hour", "minute", "second", "fractionalSecondDigits", "dateStyle", "timeStyle"] as const;
+/** The same text as `Date#toLocaleString(locale, options)`, from a reused formatter. */
 export function formatDateTime(value: string | number | Date, options: Intl.DateTimeFormatOptions = {}, locale: Locale = getLocale()): string {
-  return new Date(value).toLocaleString(locale, options);
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return date.toLocaleString(locale, options);
+  const key = `${locale}|${JSON.stringify(options)}`;
+  let formatter = dateTimeFormats.get(key);
+  if (!formatter) {
+    // With no date or time field named, `toLocaleString` shows both; a formatter alone shows only the date.
+    const named = dateTimeComponents.some(name => options[name] !== undefined);
+    formatter = new Intl.DateTimeFormat(locale, named ? options : { ...options, year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric" });
+    dateTimeFormats.set(key, formatter);
+  }
+  return formatter.format(date);
 }
 /**
  * Recent moments read relative ("刚刚", "5 分钟前", "昨天"); anything older than a week reads as a
