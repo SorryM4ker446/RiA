@@ -212,7 +212,7 @@ Assistant template tests cover immutable conversation snapshots, explicit update
 read-only built-ins, stale revision rejection, bound-model validation, server tool
 restrictions (including an empty allowlist), scoped chat evidence and portable
 restore. Retrieval diagnostics tests cover missing indices, provider outages,
-thresholds, excerpt budgets, conflicting clauses in one document, empty-result
+low-similarity models without a fixed threshold, query case kept for embedding, meaning outranking a few shared words, BM25-scored keyword candidates in a large section, excerpt budgets, conflicting clauses in one document, empty-result
 metadata and evaluator input/cancellation boundaries. Expected facts stay outside
 the answer prompt; citation matches and fact coverage are contract checks, not
 semantic correctness judgments.

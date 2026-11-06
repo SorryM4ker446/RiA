@@ -4,11 +4,12 @@ import { getChatModel } from "@/lib/ai/client";
 import { preferredModel } from "@/lib/models/preferences";
 import { withModelCallSource } from "@/lib/models/call-context";
 import { resolveAssistant } from "@/lib/assistants/store";
-import { assistantIdSchema, formatAssistantInstructions, retrievalPolicySchema } from "@/lib/assistants/schema";
+import { assistantIdSchema, formatAssistantInstructions } from "@/lib/assistants/schema";
 import { documentSourceSchema, documentSourceUrl } from "./types";
 import { documentDiagnosticsSchema } from "./diagnostics";
 import { markDocumentCitations } from "./references";
-import { retrieveDocuments, formatDocumentContext } from "./retrieval";
+import { formatDocumentContext } from "./retrieval";
+import { searchKnowledge } from "@/tools/definitions/search-knowledge";
 import { normalizeApiError } from "@/lib/server/api-error";
 import { modelRefSchema } from "@/lib/models/preferences-schema";
 import { expectationSchema, qualityCheckSchema, qualityCriteria, qualityJudgeSystem, validateQualityOutput } from "./quality";
@@ -19,7 +20,6 @@ export const evaluationRequestSchema = z.strictObject({
   judgeAnswers: z.boolean().default(false),
   judgeModel: modelRefSchema.optional(),
   assistantTemplateId: assistantIdSchema.optional(),
-  policy: retrievalPolicySchema.optional(),
   cases: z.array(z.strictObject({
     question: z.string().trim().min(1).max(2000),
     collections: z.array(z.string().trim().min(1).max(40)).max(12).optional(),
@@ -28,8 +28,7 @@ export const evaluationRequestSchema = z.strictObject({
     expectations: z.array(expectationSchema).max(12).default([]),
     answerable: z.boolean().default(true),
   }).refine(item => item.answerable || (!item.expectedFilenames.length && !item.requiredFacts.length && !item.expectations.length), "Unanswerable cases cannot specify expected documents or facts")).min(1).max(12),
-}).refine(input => !input.assistantTemplateId || !input.policy, "A template owns its retrieval policy")
-  .refine(input => !input.judgeAnswers || input.generateAnswers, "Answer judging requires answer generation")
+}).refine(input => !input.judgeAnswers || input.generateAnswers, "Answer judging requires answer generation")
   .refine(input => !input.judgeModel || input.judgeAnswers, "A judge model requires answer judging");
 
 const nullableMetric = z.number().min(0).max(1).nullable();
@@ -65,7 +64,6 @@ export async function evaluateDocuments(input: z.infer<typeof evaluationRequestS
   const assistant = input.assistantTemplateId ? await resolveAssistant(input.assistantTemplateId) : null;
   const model = input.generateAnswers ? await preferredModel("chat", assistant?.model ?? undefined) : null;
   const judgeModel = input.judgeAnswers ? await preferredModel("chat", input.judgeModel ?? model ?? undefined) : null;
-  const policy = assistant?.retrieval ?? input.policy;
   const cases: EvaluationReport["cases"] = [];
   for (const item of input.cases) {
     signal.throwIfAborted();
@@ -73,8 +71,9 @@ export async function evaluateDocuments(input: z.infer<typeof evaluationRequestS
     const row: EvaluationReport["cases"][number] = { question: item.question, answerable: item.answerable, status: "success", errorCode: null, sources: [], diagnostics: null,
       documentRecall: null, evidenceFactCoverage: null, answerFactCoverage: null, unexpectedEvidence: false, citedSources: 0, unknownCitations: [], answer: null, responseModelId: null, quality: null, durationMs: 0 };
     try {
-      const result = await retrieveDocuments(item.question, 8, item.collections ?? assistant?.collections, signal, policy);
-      row.sources = result.sources.map(source => documentSourceSchema.parse(source)); row.diagnostics = result.diagnostics;
+      // The path a conversation takes, so what is measured is what the model would see.
+      const result = await searchKnowledge({ query: item.question, topK: 8 }, { collections: item.collections ?? assistant?.collections, signal });
+      row.sources = result.results.flatMap(found => found.reference ? [documentSourceSchema.parse(found.reference)] : []); row.diagnostics = result.diagnostics;
       const filenames = new Set(row.sources.map(source => source.filename));
       row.documentRecall = item.expectedFilenames.length ? item.expectedFilenames.filter(filename => filenames.has(filename)).length / item.expectedFilenames.length : null;
       row.evidenceFactCoverage = coverage(item.requiredFacts, row.sources.map(source => source.snippet).join("\n"));

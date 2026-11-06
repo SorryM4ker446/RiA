@@ -45,9 +45,6 @@ test("a memory search is metered, because it embeds the query", async () => {
 
   const refused = await route.POST(req("/api/retrieval", "POST", { query: "notes" }));
   assert.equal(refused.status, 429);
-  // The reindex beside this route was already metered while this one, which
-  // reaches a provider on every call, was not.
-  assert.ok(RATE_LIMIT_POLICIES.memoryReindex.limit < limit);
 });
 
 test("writing a memory is metered on the same quota", async () => {

@@ -11,6 +11,8 @@ import { readDocumentUpload } from "@/lib/documents/upload";
 import { hashDocumentContent, DOCUMENT_INDEX_VERSION } from "@/lib/documents/chunks";
 import { t } from "@/lib/locale";
 import { semanticCoverage } from "@/lib/documents/semantic";
+import { documentIndexingStatus, resumeDocumentIndexing, scheduleDocumentIndexing } from "@/lib/documents/auto-index";
+import { staleEmbeddingSummary } from "@/lib/knowledge/entry-reindex";
 
 async function GETHandler(req: NextRequest) {
   try {
@@ -18,7 +20,8 @@ async function GETHandler(req: NextRequest) {
     if (req.nextUrl.searchParams.size) throw new ApiError({ code: "VALIDATION_ERROR", message: "Unexpected query parameter" });
     const data = await db.knowledgeDocument.findMany({ where: {}, orderBy: [{ updatedAt: "desc" }, { id: "desc" }], take: DOCUMENT_LIMITS.documentsPerUser, select: documentSummarySelect });
     const coverage = await semanticCoverage(data.map(document => document.id));
-    return Response.json({ data: data.map(document => ({ ...document, semantic: {
+    resumeDocumentIndexing(Boolean(coverage.modelRef) && (data.some(document => (coverage.counts.get(document.id) ?? 0) < document._count.chunks || document.indexVersion !== DOCUMENT_INDEX_VERSION) || (await staleEmbeddingSummary()).stale > 0));
+    return Response.json({ indexing: documentIndexingStatus(), data: data.map(document => ({ ...document, semantic: {
       modelRef: coverage.modelRef, indexed: coverage.counts.get(document.id) ?? 0, total: document._count.chunks, lexicalCurrent: document.indexVersion === DOCUMENT_INDEX_VERSION,
       ...(coverage.details.get(document.id) ?? { stale: 0, differentModel: 0, invalid: 0 }),
     } })) }, { headers: { "Cache-Control": "no-store" } });
@@ -34,6 +37,7 @@ async function POSTHandler(req: NextRequest) {
     if (req.signal.aborted) throw new ApiError({ code: "VALIDATION_ERROR", message: t("api.documents.importCancelled") });
     if (previewHash && previewHash !== hashDocumentContent(JSON.stringify(pages))) throw new ApiError({ code: "CONFLICT", message: "文件与预览内容不同，请重新预览。" });
     const data = await indexDocument({ filename, collection, format, byteSize: file.size, pages }, undefined, base);
+    scheduleDocumentIndexing();
     return Response.json({ data }, { status: data.change === "created" ? 201 : 200, headers: { "Cache-Control": "no-store" } });
   } catch (error) { return createApiErrorResponse(error, t("api.documents.importFailed")); }
 }

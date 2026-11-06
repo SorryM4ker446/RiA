@@ -46,13 +46,14 @@ test("document imports, local retrieval and chat citations persist across reload
   await expect(page.getByText(/星河补给每周三送达/)).toBeVisible();
   const old = await browserData(page, `${localHostOrigin(app.origin)}/api/documents/${documentId}`);
   const updated = await importFile(page, "星河运行手册.md", Buffer.from("# 星河运行手册\n\n星河补给每周四送达，回滚窗口为三十分钟。\n\n备用线路每月巡检。"));
-  expect(updated.retained).toBe(2);
+  // The heading's chunk stays; the section's paragraphs share one chunk, which changed.
+  expect(updated.retained).toBe(1);
   expect(updated.document.id).toBe(documentId);
   const next = await browserData(page, `${localHostOrigin(app.origin)}/api/documents/${documentId}`);
   expect(next.chunks[0].id).toBe(old.chunks[0].id);
   expect(next.chunks[1].id).not.toBe(old.chunks[1].id);
-  await chooseMenuAction(page, "星河运行手册.md", "重新索引 星河运行手册.md");
-  await expect(page.getByText("已根据保存的文本重建索引。")).toBeVisible();
+  await chooseMenuAction(page, "星河运行手册.md", "重新处理 星河运行手册.md");
+  await expect(page.getByText("已根据保存的文本重新处理。")).toBeVisible();
   await page.getByRole("navigation", { name: "工作区导航" }).getByRole("link", { name: "聊天", exact: true }).click();
   await expect(page.getByRole("checkbox", { name: "仅手动", exact: true })).toHaveCount(0);
   await page.getByPlaceholder(/输入你的问题/).fill("OFFLINE_SEARCH_KNOWLEDGE QUERY=星河补给什么时候送达");
@@ -89,12 +90,12 @@ test("document imports, local retrieval and chat citations persist across reload
   // Deleting asks in the app's own dialog; dismissing it keeps the document.
   await chooseMenuAction(page, "星河运行手册.md", "删除文档 星河运行手册.md");
   const confirm = page.getByRole("alertdialog", { name: "删除文档？" });
-  await expect(confirm).toContainText("删除文档「星河运行手册.md」及其索引？");
+  await expect(confirm).toContainText("删除文档「星河运行手册.md」？");
   await expect(confirm.getByRole("button", { name: "取消", exact: true })).toBeFocused();
   await page.keyboard.press("Escape"); await expect(confirm).toBeHidden();
   await expect(page.getByRole("button", { name: "更多操作 星河运行手册.md", exact: true })).toBeVisible();
   await chooseMenuAction(page, "星河运行手册.md", "删除文档 星河运行手册.md"); await acceptConfirm(page);
-  await expect(page.getByText("文档及索引已删除。")).toBeVisible();
+  await expect(page.getByText("文档已删除。")).toBeVisible();
   expect(app.readRows("SELECT id FROM document_chunks WHERE documentId = ?", documentId)).toEqual([]);
   expect((await browserApi(page, `${localHostOrigin(app.origin)}/api/documents/${documentId}`)).status).toBe(404);
   await page.getByRole("navigation", { name: "工作区导航" }).getByRole("link", { name: "聊天", exact: true }).click();

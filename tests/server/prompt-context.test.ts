@@ -73,13 +73,6 @@ test("the system prompt stays identical across turns while each turn's context c
   assert.equal(textOf(earlierUser), "Which region do production deploys use?", "an earlier turn is sent exactly as before");
 });
 
-test("chat memories need a real match, while the memory API keeps its existing ranking", async () => {
-  await saveKnowledgeEntry({ key: "favorite editor", value: "Uses Neovim with a dark theme for writing Rust services." });
-  const loose = "Explain how a dark matter halo shapes galaxy rotation curves";
-  assert.ok((await getRelevantEntries({ query: loose })).length > 0, "unchanged API behavior");
-  assert.equal((await getRelevantEntries({ query: loose, minMatch: 0.3 })).length, 0);
-  assert.equal((await getRelevantEntries({ query: "which editor and theme do I use", minMatch: 0.3 })).length, 1);
-});
 
 test("skills are an index when they can be loaded on demand", async () => {
   const plugin = await installPlugin(parsePlugin(pluginFixture()));

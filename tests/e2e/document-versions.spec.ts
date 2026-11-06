@@ -31,11 +31,12 @@ test("local search explains scope and old chat citations distinguish changed and
   await page.getByLabel("检索的主题").click(); await page.getByRole("option", { name: "Support", exact: true }).click();
   await page.getByLabel("检索文档", { exact: true }).fill("星河回滚窗口");
   await page.getByRole("button", { name: "检索文档", exact: true }).click();
-  await expect(page.getByText("当前未检索到支持这个问题的资料。可换一种表述、调整主题，或补充资料并构建语义索引。", { exact: true })).toBeVisible();
+  await expect(page.getByText("当前没有找到支持这个问题的资料。可以换一种说法、调整主题，或补充资料。", { exact: true })).toBeVisible();
   await page.getByLabel("检索的主题").click(); await page.getByRole("option", { name: "Manual|操作", exact: true }).click();
   await page.getByRole("button", { name: "检索文档", exact: true }).click();
-  await expect(page.getByText(/本地关键词检索 · 主题：Manual/)).toHaveCount(2);
-  await expect(page.getByText("引用版本一致（已核对）", { exact: true })).toHaveCount(2);
+  // Both paragraphs are one chunk now: a section's short paragraphs are read together.
+  await expect(page.getByText(/^主题：Manual/)).toHaveCount(1);
+  await expect(page.getByText("引用版本一致（已核对）", { exact: true })).toHaveCount(1);
   expect(app.providerCalls).toHaveLength(0);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   await page.goto(`${app.origin}/chat`);
@@ -63,11 +64,12 @@ test("local search explains scope and old chat citations distinguish changed and
   await evidence.screenshot({ path: join(dir, "mobile.png"), animations: "disabled" });
   await source.click();
   await expect(page.getByText(/资料版本或原引用片段已变化/)).toBeVisible();
-  await expect(page.getByText("备用线路每天巡检。", { exact: true })).toBeVisible();
+  // The quoted passage now holds both paragraphs of the section.
+  await expect(page.getByText(/备用线路每天巡检。/).first()).toBeVisible();
   await page.getByRole("link", { name: "返回知识库", exact: true }).click();
   await page.getByLabel("检索的主题").click(); await page.getByRole("option", { name: "Manual|操作", exact: true }).click();
   await chooseMenuAction(page, "星河手册.txt", "删除文档 星河手册.txt"); await acceptConfirm(page);
-  await expect(page.getByText("文档及索引已删除。", { exact: true })).toBeVisible();
+  await expect(page.getByText("文档已删除。", { exact: true })).toBeVisible();
   await expect(page.getByLabel("检索的主题")).toContainText("Manual|操作（暂无资料）");
   await page.getByLabel("检索的主题").click();
   await expect(page.getByRole("option", { name: "Manual|操作（暂无资料）", exact: true })).toHaveAttribute("aria-selected", "true");
@@ -75,7 +77,7 @@ test("local search explains scope and old chat citations distinguish changed and
   await page.goto(chatUrl);
   await openDocumentReferences(page);
   await expect(source.locator("..").getByText("资料已删除：下方仅为历史摘录，原文已不可访问。", { exact: true })).toBeVisible();
-  await expect(page.getByRole("dialog", { name: "执行记录", exact: true }).getByText("星河回滚窗口为三十分钟。", { exact: true })).toBeVisible();
+  await expect(source.locator("..").getByText(/星河回滚窗口为三十分钟。/)).toBeVisible();
   await app.restart(); await page.reload();
   await openDocumentReferences(page);
   await expect(source.locator("..").getByText("资料已删除：下方仅为历史摘录，原文已不可访问。", { exact: true })).toBeVisible();

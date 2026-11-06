@@ -19,17 +19,17 @@ after(async () => { await db.$disconnect(); cleanup(); });
 const upload = (text: string, collection = "Manual|操作") => indexDocument({ filename: "Operations.txt", format: "txt", byteSize: Buffer.byteLength(text), collection, pages: [{ pageNumber: null, text }] });
 const request = (path: string, body: unknown, auth = true) => new NextRequest(`http://localhost${path}`, { method: "POST", headers: { ...(auth ? { cookie: localAccessCookie() } : {}), "Content-Type": "application/json" }, body: JSON.stringify(body) });
 test("unchanged chunks still report a changed document version and a reindex alone remains current", async () => {
-  await upload("Deployment requires two approvals.\n\nRollback deadline is twenty minutes.");
+  await upload("# Deployment\n\nDeployment requires two approvals.\n\n# Rollback\n\nRollback deadline is twenty minutes.");
   const source = documentSourceSchema.parse((await searchDocuments("two approvals"))[0]);
   assert.equal((await checkDocumentReferences([source]))[0].status, "current");
   await reindexDocument(source.documentId); assert.equal((await checkDocumentReferences([source]))[0].status, "current");
-  await upload("Deployment requires two approvals.\n\nRollback deadline is ten minutes.");
+  await upload("# Deployment\n\nDeployment requires two approvals.\n\n# Rollback\n\nRollback deadline is ten minutes.");
   assert.ok(await db.documentChunk.findUnique({ where: { id: source.chunkId } }));
   assert.equal((await checkDocumentReferences([source]))[0].status, "changed");
   assert.equal(source.snippet, "Deployment requires two approvals.");
   assert.match(documentSourceUrl(source), /\?version=[a-f0-9]{64}#/);
   await deleteDocument(source.documentId); assert.equal((await checkDocumentReferences([source]))[0].status, "deleted");
-  await upload("Deployment requires two approvals."); assert.equal((await checkDocumentReferences([source]))[0].status, "deleted");
+  await upload("# Deployment\n\nDeployment requires two approvals."); assert.equal((await checkDocumentReferences([source]))[0].status, "deleted");
 });
 test("legacy sources are unverified and moving a collection invalidates its captured provenance", async () => {
   await upload("Aurora support hours are nine to six.");

@@ -12,8 +12,8 @@ import { modelRefKey } from "@/lib/models/preferences-schema";
  * an error, but it is a silent downgrade the user deserves to see and be able
  * to undo.
  *
- * Rebuilding is explicit and bounded: it is never triggered automatically,
- * because each pass is a paid request per memory.
+ * Each pass is bounded. It runs in the background with document indexing while an
+ * embedding model is chosen, since choosing one is the consent to send the knowledge base.
  */
 
 const BATCH_SIZE = 50;

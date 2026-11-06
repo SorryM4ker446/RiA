@@ -101,7 +101,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     modeSupport: ["chat"],
     surface: { category: "knowledge", user: { run: "model", hint: t("tools.searchKnowledge.hint") }, template: "selectable" },
     inputSchema: searchKnowledgeInputSchema,
-    execute: async ({ input, documentCollections, documentRetrievalPolicy, signal }) => searchKnowledge(input, { collections: documentCollections, policy: documentRetrievalPolicy, signal }),
+    execute: async ({ input, documentCollections, signal }) => searchKnowledge(input, { collections: documentCollections, signal }),
   },
   createTask: {
     id: "createTask",

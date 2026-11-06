@@ -154,9 +154,8 @@ test("template instructions copy to the clipboard while creating a copy opens an
   await expect(drawer).toBeVisible();
   await expect(drawer.getByLabel("模板名称", { exact: true })).toHaveValue("代码助理 副本");
   await expect(drawer.getByLabel("助理指令", { exact: true })).toHaveValue(original.config.instructions);
-  await expect(drawer.getByLabel("语义阈值")).not.toBeVisible();
-  await drawer.getByText("检索策略", { exact: true }).click();
-  await expect(drawer.getByLabel("语义阈值")).toBeVisible();
+  // Every search uses one default; a template has no retrieval settings of its own.
+  await expect(drawer.getByText("检索策略", { exact: true })).toHaveCount(0);
   await page.keyboard.press("Escape"); await expect(drawer).toBeHidden(); await expect(more).toBeFocused();
   const desktopDir = join(tmpdir(), "ria-template-management-qa"); await mkdir(desktopDir, { recursive: true });
   await page.screenshot({ path: join(desktopDir, "templates-dark.png"), animations: "disabled" });
@@ -204,7 +203,8 @@ test("knowledge evaluation exposes real adapter results, citations and an export
   await page.getByLabel("选择知识文档").setInputFiles({ name: "差旅规程.md", mimeType: "text/markdown", buffer: Buffer.from("# 差旅规程\n\n公务出行的开支需要保留税务票据，回程后的十个工作日内提交费用核销申请。\n\n超过期限需要主管提供书面说明。") });
   await page.getByRole("button", { name: "导入文档", exact: true }).click(); await expect(page.getByRole("button", { name: "导入文档", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "确认保存文档", exact: true }).click();
-  await page.getByLabel("构建语义索引 差旅规程.md").click(); await acceptConfirm(page); await expect(page.getByLabel("构建语义索引 差旅规程.md")).toBeEnabled();
+  await expect.poll(async () => (await browserData(page, "/api/documents"))[0]?.semantic?.indexed).toBeGreaterThan(0);
+  await page.getByTestId("index-maintenance").locator(":scope > summary").click();
   await page.getByText("检索质量评测", { exact: true }).click();
   await page.getByLabel("评测问题 JSON（最多 12 个）").fill(JSON.stringify([{ question: "出门办事的钱怎样领回来", collections: ["财务"], expectedFilenames: ["差旅规程.md"], requiredFacts: ["十个工作日", "书面说明"], expectations: [{ kind: "exception", statement: "逾期须主管提供书面说明。" }], answerable: true }, { question: "木星表面温度", answerable: false }]));
   await expect(page.getByLabel("模型语义评审（额外调用聊天模型）")).toBeDisabled();
@@ -254,7 +254,7 @@ test("evaluation template loading failures are visible and recover through expli
   expect(upload.status()).toBe(201);
   await page.route("**/api/assistants", route => route.fulfill({ status: 200, contentType: "application/json", body: "null" }), { times: 1 });
   const failedTemplates = page.waitForResponse(response => response.url() === `${app.origin}/api/assistants`);
-  await page.goto(`${app.origin}/knowledge`); await page.getByText("检索质量评测", { exact: true }).click();
+  await page.goto(`${app.origin}/knowledge`); await page.getByTestId("index-maintenance").locator(":scope > summary").click(); await page.getByText("检索质量评测", { exact: true }).click();
   const failure = await failedTemplates;
   expect(failure.request().headers().referer).toBe(`${app.origin}/knowledge`);
   expect(await failure.json()).toBeNull();

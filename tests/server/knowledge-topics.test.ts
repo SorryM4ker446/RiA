@@ -111,13 +111,13 @@ test("insufficient evidence creates a failed record without a chat model call", 
   assert.throws(() => exportArtifact(result, "markdown"), { code: "CONFLICT" });
 });
 
-test("artifact generation applies template instructions and retrieval policy while retaining the topic's authoritative scope", async t => {
+test("artifact generation applies template instructions while retaining the topic's authoritative scope", async t => {
   const seeded = await seed();
-  const assistant = await saveAssistant(assistantConfigSchema.parse({ name: "严格财务助理", instructions: "TOPIC_TEMPLATE_RULE Preserve conditions", collections: ["医疗"], tools: [], usesMemory: false, retrieval: { maxSources: 1, contextChars: 1200, semanticThreshold: 0.6 } }));
+  const assistant = await saveAssistant(assistantConfigSchema.parse({ name: "严格财务助理", instructions: "TOPIC_TEMPLATE_RULE Preserve conditions", collections: ["医疗"], tools: [], usesMemory: false }));
   await saveTopic({ ...config(), assistantTemplateId: assistant.id }, seeded.id, 1);
   const fixture = model(t), result = await generateArtifact(seeded.id, input(2), signal());
   assert.equal(result.status, "ready"); assert.match(fixture.prompts[0], /TOPIC_TEMPLATE_RULE/); assert.doesNotMatch(fixture.prompts[0], /医疗机密|私有记忆/);
-  assert.equal(result.metadata.sources.length, 1); assert.deepEqual(result.metadata.assistant?.collections, ["财务"]); assert.equal(result.metadata.diagnostics?.policy.semanticThreshold, 0.6);
+  assert.ok(result.metadata.sources.length); assert.ok(result.metadata.sources.every(source => source.collection === "财务")); assert.deepEqual(result.metadata.assistant?.collections, ["财务"]);
 });
 
 test("generation admission rejects absent confirmation, obsolete revisions and full topic history before a model call", async t => {

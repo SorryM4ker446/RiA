@@ -25,13 +25,15 @@ async function upload(page: Page, filename: string, text: string, collection: st
   await expect(page.getByRole("button", { name: "导入文档", exact: true })).toBeEnabled();
   return (await result.json()).data.document;
 }
-async function build(page: Page, filename: string) {
+const embedded = (app: { readRows: (sql: string, ...args: unknown[]) => unknown[] }, documentId: string) => (app.readRows("SELECT count(*) AS count FROM document_chunks WHERE documentId=? AND embedding IS NOT NULL", documentId)[0] as { count: number }).count;
+// Building by hand lives in the library's search settings, for what is still pending.
+async function build(page: Page) {
   const response = page.waitForResponse(response => response.url().endsWith("/embeddings"));
-  await page.getByLabel(`构建语义索引 ${filename}`).click(); await acceptConfirm(page, "可能产生费用");
+  await page.getByRole("button", { name: "批量构建或继续", exact: true }).click(); await acceptConfirm(page, "可能产生费用");
   const result = await response; expect(result.ok(), await result.text()).toBe(true);
   const progress = (await result.json()).data;
   expect(progress.remaining).toBe(0);
-  await expect(page.getByLabel(`构建语义索引 ${filename}`)).toBeEnabled();
+  await expect(page.getByRole("button", { name: "批量构建或继续", exact: true })).toBeDisabled();
   return progress;
 }
 
@@ -40,27 +42,32 @@ test("semantic indexing delivers evidence to chat, marks actual citations and su
   await openWorkspace(page, app.origin);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6", embedding: "openai/text-embedding-3-small" });
   await page.goto(`${app.origin}/knowledge`);
-  const finance = await upload(page, "差旅规程.md", "# 差旅规程\n\n公务出行的开支需要保留税务票据，回程后的十个工作日内提交费用核销申请。\n\n超过期限需要主管提供书面说明。\n\n遗失票据必须提供替代证明，不能直接申报。", "财务");
+  const finance = await upload(page, "差旅规程.md", "# 差旅规程\n\n公务出行的开支需要保留税务票据，回程后的十个工作日内提交费用核销申请。\n\n## 逾期\n\n超过期限需要主管提供书面说明。\n\n## 遗失票据\n\n遗失票据必须提供替代证明，不能直接申报。", "财务");
   await upload(page, "医疗服务.md", "医院接诊需要预约，非急诊的医疗服务开放时间为八点至十七点。", "医疗");
-  expect(app.readRows("SELECT id FROM model_requests WHERE mode='embedding'")).toHaveLength(0);
-  await page.getByLabel("检索文档", { exact: true }).fill("出门办事的钱怎样领回来");
-  await page.getByRole("button", { name: "检索文档", exact: true }).click();
-  await expect(page.getByText(/当前未检索到支持这个问题的资料/)).toBeVisible();
-  const progress = await build(page, "差旅规程.md");
-  expect(progress.indexed).toBe(finance._count.chunks);
+  // Choosing the model was the consent: the index builds after import, with nothing to click.
+  await expect.poll(() => embedded(app, finance.id)).toBe(finance._count.chunks);
+  expect(app.readRows("SELECT id FROM model_requests WHERE mode='embedding'").length).toBeGreaterThan(0);
+  const progress = { total: finance._count.chunks };
   expect(app.readRows("SELECT embeddingModelId,embeddingContextHash FROM document_chunks WHERE documentId=? AND embedding IS NOT NULL", finance.id)).toHaveLength(progress.total);
+  await page.reload();
   const charged = app.readRows("SELECT id FROM model_requests WHERE mode='embedding'").length;
-  // Complete indices now skip the HTTP batch as well as the provider call.
-  await page.getByLabel("构建语义索引 差旅规程.md").click(); await acceptConfirm(page);
-  await expect(page.getByLabel("构建语义索引 差旅规程.md")).toBeEnabled();
-  await expect(page.getByTestId("index-maintenance")).toContainText("差旅规程.md：已完成");
+  // The row says it in plain words; with nothing pending there is nothing to build by hand.
+  await expect(page.getByRole("listitem").filter({ hasText: "差旅规程.md" }).getByText("就绪", { exact: true })).toBeVisible();
+  await page.getByTestId("index-maintenance").locator(":scope > summary").click();
+  await expect(page.getByRole("button", { name: "批量构建或继续", exact: true })).toBeDisabled();
+  await page.getByTestId("index-maintenance").locator(":scope > summary").click();
   expect(app.readRows("SELECT id FROM model_requests WHERE mode='embedding'")).toHaveLength(charged);
+  await page.getByLabel("检索文档", { exact: true }).fill("出门办事的钱怎样领回来");
   await page.getByLabel("检索的主题").click(); await page.getByRole("option", { name: "财务", exact: true }).click();
   await page.getByRole("button", { name: "检索文档", exact: true }).click();
   const evidence = page.locator("details").filter({ hasText: "文档参考" }).last();
   await expect(evidence).toContainText("十个工作日"); await expect(evidence).toContainText("书面说明");
   await expect(evidence).not.toContainText("医疗服务.md");
-  await expect(evidence).toContainText("语义检索");
+  // The citation says where the excerpt is from; how it was found is in the search settings.
+  await expect(evidence).not.toContainText("语义检索");
+  await page.getByTestId("index-maintenance").locator(":scope > summary").click();
+  await expect(page.getByRole("region", { name: "最近一次搜索", exact: true })).toContainText("混合检索已运行");
+  await page.getByTestId("index-maintenance").locator(":scope > summary").click();
   const dir = join(tmpdir(), "ria-document-rag-qa"); await mkdir(dir, { recursive: true });
   await evidence.screenshot({ path: join(dir, "desktop.png"), animations: "disabled" });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -96,19 +103,17 @@ test("a failed later indexing batch exposes saved progress and resumes without c
   await openWorkspace(page, app.origin);
   await configureOfflineModels(page, { embedding: "openai/text-embedding-3-small" });
   await page.goto(`${app.origin}/knowledge`);
-  const doc = await upload(page, "费用规程.md", Array.from({ length: 40 }, (_, i) => `费用核销条款 ${i}：公务出行须保留票据。`).join("\n\n"), "财务");
-  let batches = 0;
-  await page.route(`**/api/documents/${doc.id}/embeddings`, async route => {
-    if (++batches === 2) await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { code: "UPSTREAM_FAILED", message: "模拟服务中断" } }) });
-    else await route.continue();
-  });
-  await page.getByLabel("构建语义索引 费用规程.md").click(); await acceptConfirm(page);
-  await expect(page.locator("main").getByRole("alert")).toContainText("模拟服务中断");
-  await expect(page.getByText(/语义索引 32\/40/)).toBeVisible();
-  expect(app.readRows("SELECT id FROM document_chunks WHERE documentId=? AND embedding IS NOT NULL", doc.id)).toHaveLength(32);
-  expect(app.readRows("SELECT id FROM model_requests WHERE mode='embedding'")).toHaveLength(1);
-  await page.unroute(`**/api/documents/${doc.id}/embeddings`);
-  const completed = await build(page, "费用规程.md");
+  // Each clause is long enough to be a chunk of its own, and the second batch fails once.
+  const doc = await upload(page, "费用规程.md", Array.from({ length: 40 }, (_, i) => `费用核销条款 ${i}：公务出行须保留票据。OFFLINE_EMBED_FAIL_AT=2 ${"说明".repeat(400)}`).join("\n\n"), "财务");
+  await expect.poll(() => embedded(app, doc.id)).toBe(32);
+  await page.reload();
+  const maintenance = page.getByTestId("index-maintenance");
+  await maintenance.locator(":scope > summary").click();
+  await expect(maintenance).toContainText("自动建立索引已停止");
+  await expect(page.getByText("待处理 32/40", { exact: true })).toBeVisible();
+  expect(embedded(app, doc.id)).toBe(32);
+  const charged = app.readRows("SELECT id FROM model_requests WHERE mode='embedding'").length;
+  const completed = await build(page);
   expect(completed.indexed).toBe(40);
-  expect(app.readRows("SELECT id FROM model_requests WHERE mode='embedding'")).toHaveLength(2);
+  expect(app.readRows("SELECT id FROM model_requests WHERE mode='embedding'")).toHaveLength(charged + 1);
 });

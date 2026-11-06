@@ -24,7 +24,7 @@ import { LAST_ACTIVE_CHAT_STORAGE_KEY, type ToolCatalogItem } from "@/features/c
 import { animateRemoval, removalKey } from "@/lib/ui/removal";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
-const initialConfig: AssistantConfig = { name: "", description: "", instructions: "", model: null, tools: [], collections: [], usesMemory: true, retrieval: { semanticThreshold: 0.35, maxSources: 8, contextChars: 8000 } };
+const initialConfig: AssistantConfig = { name: "", description: "", instructions: "", model: null, tools: [], collections: [], usesMemory: true };
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, { cache: "no-store", ...options });

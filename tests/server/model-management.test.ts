@@ -28,7 +28,7 @@ const {getImageModel,providerState,resetProviderState,testPng}=await import("../
 const imageRoute=await import("@/app/api/image/route");
 const models=await import("@/app/api/models/route"), usageRoute=await import("@/app/api/usage/route");
 const catalogRoute=await import("@/app/api/models/catalog/route"), libraryRoute=await import("@/app/api/models/library/route");
-const reindexRoute=await import("@/app/api/memory/reindex/route");
+const {reindexStaleEmbeddings,staleEmbeddingSummary}=await import("@/lib/knowledge/entry-reindex");
 const ref=(modelId)=>({providerId:"openrouter" as const,modelId});
 // A model reference names a provider by id, so the fixtures' plain object
 // literals are stated as the same reference the schema parses.
@@ -429,9 +429,8 @@ test("GET /api/models reports availability beside the library without fetching a
   assert.deepEqual(data.providers,[{providerId:"openrouter",displayName:"OpenRouter",configured:true},{providerId:"deepseek",displayName:"DeepSeek",configured:false}]);
   assert.equal(calls.length,0);
 });
-test("embedding reindex counts stale vectors, rebuilds them and is a safe no-op without a model",async()=>{
-  const summary=await payload(await reindexRoute.GET(req("/api/memory/reindex")));
-  assert.deepEqual(summary.data,{total:0,stale:0,embedding:null});
+test("entry reindexing counts stale vectors, rebuilds them and is a safe no-op without a model",async()=>{
+  assert.deepEqual(await staleEmbeddingSummary(),{total:0,stale:0,embedding:null});
   for(const [index,row] of [["a","SQLite"],["b","旅行"]].entries()) {
     await db.memory.create({data:{key:row[1],value:`Value ${index}`,score:0.5,embedding:[1,0,0],embeddingModelId:"old/embed",embeddingModelProvider:"openrouter"}});
   }
@@ -440,30 +439,25 @@ test("embedding reindex counts stale vectors, rebuilds them and is a safe no-op 
   await saveModelPreferences({...await getModelPreferences(),embedding:ref("openai/text-embedding-3-small")});
   // Vectors written by a different model are not comparable with the ones the
   // current model would produce, so they count as stale even though they exist.
-  const staleReport=await payload(await reindexRoute.GET(req("/api/memory/reindex")));
-  assert.equal(staleReport.data.total,3);assert.equal(staleReport.data.stale,2);assert.equal(staleReport.data.embedding,"openrouter:openai/text-embedding-3-small");
-  const rebuilt=await payload(await reindexRoute.POST(req("/api/memory/reindex","POST",{confirm:true})));
-  assert.equal(rebuilt.data.reindexed,2);assert.equal(rebuilt.data.remaining,0);assert.equal(rebuilt.data.embedding,"openrouter:openai/text-embedding-3-small");
-  assert.equal((await payload(await reindexRoute.GET(req("/api/memory/reindex")))).data.stale,0);
+  const staleReport=await staleEmbeddingSummary();
+  assert.equal(staleReport.total,3);assert.equal(staleReport.stale,2);assert.equal(staleReport.embedding,"openrouter:openai/text-embedding-3-small");
+  const rebuilt=await reindexStaleEmbeddings();
+  assert.equal(rebuilt.reindexed,2);assert.equal(rebuilt.remaining,0);assert.equal(rebuilt.embedding,"openrouter:openai/text-embedding-3-small");
+  assert.equal((await staleEmbeddingSummary()).stale,0);
   assert.deepEqual((await db.memory.findMany({where:{}})).map(row=>row.embeddingModelProvider),["openrouter","openrouter","openrouter"]);
   // A second rebuild has nothing to do and spends nothing.
-  const again=await payload(await reindexRoute.POST(req("/api/memory/reindex","POST",{confirm:true})));
-  assert.deepEqual(again.data,{reindexed:0,remaining:0,embedding:"openrouter:openai/text-embedding-3-small"});
-  // Re-embedding is a paid request per memory, so it is not a bulk operation
-  // to repeat until the queue drains.
-  assert.equal((await reindexRoute.POST(req("/api/memory/reindex","POST",{confirm:true}))).status,429);
+  assert.deepEqual(await reindexStaleEmbeddings(),{reindexed:0,remaining:0,embedding:"openrouter:openai/text-embedding-3-small"});
 });
 test("reindexing without a configured embedding model does nothing and calls no provider",async t=>{
   for(const key of [["a","SQLite"],["b","旅行"]]) await db.memory.create({data:{key:key[1],value:"Value",score:0.5}});
   const calls=[];
   t.mock.method(globalThis,"fetch",async input=>{calls.push(String(input));throw new Error("no provider call is allowed");});
-  const summary=await payload(await reindexRoute.GET(req("/api/memory/reindex")));
-  assert.deepEqual(summary.data,{total:2,stale:2,embedding:null});
-  const result=await payload(await reindexRoute.POST(req("/api/memory/reindex","POST",{confirm:true})));
+  assert.deepEqual(await staleEmbeddingSummary(),{total:2,stale:2,embedding:null});
+  const result=await reindexStaleEmbeddings();
   // With no embedding model selected the rebuild is refused as a no-op: the
   // rows stay without vectors, keyword scoring still finds them, and nothing is
   // spent on a model the user did not choose.
-  assert.deepEqual(result.data,{reindexed:0,remaining:2,embedding:null});
+  assert.deepEqual(result,{reindexed:0,remaining:2,embedding:null});
   assert.equal(calls.length,0);
   assert.deepEqual((await db.memory.findMany({where:{}})).map(row=>row.embeddingModelId),[null,null]);
 });

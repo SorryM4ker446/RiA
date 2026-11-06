@@ -117,8 +117,10 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
       // It exercises evidence transport, never measures a live model's reasoning.
       if (prompt.includes("QUERY=出门办事的钱怎样领回来") && body.messages.some(message => message.role === "tool")) {
         const results = body.messages.filter(message => message.role === "tool").flatMap(message => JSON.parse(typeof message.content === "string" ? message.content : JSON.stringify(message.content)).results ?? []);
-        const main = results.find(result => result.snippet.includes("十个工作日"));
-        const exception = results.find(result => result.snippet.includes("书面说明"));
+        // Document results carry their text in the reference only.
+        const text = (result: { snippet?: string; reference?: { snippet: string } }) => result.reference?.snippet ?? result.snippet ?? "";
+        const main = results.find(result => text(result).includes("十个工作日"));
+        const exception = results.find(result => text(result).includes("书面说明"));
         if (main && exception) content = `保留税务票据，在回程后的十个工作日内提交费用核销申请。[差旅规程](${main.url})\n\n逾期需要主管提供书面说明。[例外条款](${exception.url})`;
       }
       if (prompt === "出门办事的钱怎样领回来") {
@@ -235,13 +237,21 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
       return JSON.stringify({ ...base, choices: [{ message: { role: "assistant", content }, finish_reason: "stop" }] });
     }, { headers: { "content-type": stream ? "text/event-stream" : "application/json" } }).persist();
   }
-  provider.intercept({ path: "/api/v1/embeddings", method: "POST" }).reply(200, (options) => {
+  // OFFLINE_EMBED_FAIL_AT=N in a text makes the Nth request carrying it fail once.
+  const markedRequests = new Map<string, number>();
+  provider.intercept({ path: "/api/v1/embeddings", method: "POST" }).reply((options) => {
     const body = JSON.parse(String(options.body));
     const values = Array.isArray(body.input) ? body.input : [body.input];
+    const marker = values.map((text: string) => /OFFLINE_EMBED_FAIL_AT=(\d+)/u.exec(text)).find(Boolean);
+    if (marker) {
+      const seen = (markedRequests.get(marker[0]) ?? 0) + 1;
+      markedRequests.set(marker[0], seen);
+      if (seen === Number(marker[1])) return { statusCode: 503, data: JSON.stringify({ error: { code: 503, message: "Offline embedding outage" } }), responseOptions: { headers: { "content-type": "application/json" } } };
+    }
     const vector = (text: string) => /公务出行|费用核销|出门办事|差旅/u.test(text) ? [1, 0, 0]
       : /医疗|医院/u.test(text) ? [0, 1, 0] : [0, 0, 1];
-    return JSON.stringify({ object: "list", model: body.model, data: values.map((text, index) => ({ object: "embedding", index, embedding: vector(text) })), usage: { prompt_tokens: values.length, total_tokens: values.length } });
-  }, { headers: { "content-type": "application/json" } }).persist();
+    return { statusCode: 200, data: JSON.stringify({ object: "list", model: body.model, data: values.map((text: string, index: number) => ({ object: "embedding", index, embedding: vector(text) })), usage: { prompt_tokens: values.length, total_tokens: values.length } }), responseOptions: { headers: { "content-type": "application/json" } } };
+  }).persist();
   provider.intercept({ path: "/api/v1/videos", method: "POST" }).reply(200, options => {
     const body = JSON.parse(String(options.body));
     process.send({ type: "provider-call", stream: false, messages: [{ role: "user", content: body.prompt }] });

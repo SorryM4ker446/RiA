@@ -84,6 +84,6 @@ test("translated labels preserve word boundaries and interpolate user content", 
     assert.equal(tf("ui.document-processor.document-download.download", { format: "Word", filename: "notes.docx" }, locale), english ? "Download Word · notes.docx" : "下载 Word · notes.docx");
     assert.equal(tf("ui.chat.approval-dock.more", { count: 1 }, locale), english ? "1 more" : "还有 1 项");
     assert.equal(tf("ui.knowledge.retrieval-evaluation.semanticReviewComplete", { completed: 0, total: 1, failed: 1, skipped: 0 }, locale), english ? "Semantic review complete 0/1 · Failed 1 · Not run 0" : "语义评审完成 0/1 · 失败 1 · 未运行 0");
-    assert.equal(tf("ui.topics.topic-workspace.semanticIndex", { indexed: 2, total: 2 }, locale), english ? "· Semantic index 2/2" : "· 语义索引 2/2");
+    assert.equal(tf("ui.knowledge.document-status.processing", { v0: 2, v1: 5 }, locale), english ? "Processing 2/5" : "处理中 2/5");
   }
 });

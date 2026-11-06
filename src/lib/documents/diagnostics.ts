@@ -16,7 +16,8 @@ export const documentDiagnosticsSchema = z.strictObject({
   durationMs: z.number().nonnegative(),
   // Recorded by an earlier version, which added strong matches to a request on its own.
   withheldSources: z.number().int().nonnegative().max(8).optional(),
-  policy: retrievalPolicySchema,
+  // Diagnostics saved before similarity stopped having a fixed threshold still record one.
+  policy: retrievalPolicySchema.extend({ semanticThreshold: z.number().optional() }),
 });
 export type DocumentDiagnostics = z.infer<typeof documentDiagnosticsSchema>;
 export function describeDocumentDiagnostics(value: DocumentDiagnostics) {

@@ -56,9 +56,9 @@ test("compact knowledge layout imports and searches documents, expands long entr
   // Lists are read again when the window comes back into view.
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect(page.getByRole("link", { name: filename, exact: true })).toBeVisible();
-  await page.getByTestId("index-maintenance").locator("summary").click();
+  await page.getByTestId("index-maintenance").locator(":scope > summary").click();
   await expect(page.getByRole("button", { name: "批量构建或继续", exact: true })).toBeVisible();
-  await page.getByTestId("index-maintenance").locator("summary").click();
+  await page.getByTestId("index-maintenance").locator(":scope > summary").click();
   await expect.poll(() => page.getByTestId("index-maintenance").evaluate(element => element.getBoundingClientRect().height)).toBeLessThan(50);
   await page.getByRole("combobox", { name: "检索的主题", exact: true }).click();
   await page.getByRole("option", { name: "产品政策", exact: true }).click();

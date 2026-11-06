@@ -86,7 +86,7 @@ export async function generateArtifact(topicId: string, raw: ArtifactInput, call
       await tx.knowledgeArtifact.create({ data: { id: input.requestId, topicId, requestHash, topicRevision: input.revision, title: input.title, kind: input.kind, status: "generating", metadata } });
     });
     claimed = true;
-    const evidence = await retrieveDocuments(input.brief, 8, topic.config.collections, signal, assistant?.retrieval);
+    const evidence = await retrieveDocuments(input.brief, 8, topic.config.collections, signal);
     metadata.sources = evidence.sources.map(source => documentSourceSchema.parse(source)); metadata.diagnostics = evidence.diagnostics;
     await db.knowledgeArtifact.update({ where: { id: input.requestId }, data: { metadata } });
     if (!metadata.sources.length) {

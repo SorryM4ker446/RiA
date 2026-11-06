@@ -43,7 +43,6 @@ async function POSTHandler(req: NextRequest) {
     const { output } = await executeRegisteredTool(descriptor, input.data, {
       trigger: "manual", signal: req.signal, chatId: parsed.data.chatId,
       documentCollections: conversation ? conversationCollections(conversation) : [],
-      documentRetrievalPolicy: assistant?.retrieval,
     });
     return Response.json({ tool: toolId, data: output });
   } catch (error) {

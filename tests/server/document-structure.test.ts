@@ -155,7 +155,7 @@ test("preview confirmation rejects changed or deleted/recreated documents but un
 });
 
 test("index summaries derive fresh, stale, malformed and different-model vectors from stored content", async () => {
-  const doc = await document("第一段报销规定。\n\n第二段报销规定。\n\n第三段报销规定。\n\n第四段报销规定。");
+  const doc = await document(["第一段", "第二段", "第三段", "第四段"].map(name => `${name}报销规定。`.repeat(60)).join("\n\n"));
   await indexDocumentEmbeddings(doc.id, doc.contentHash, modelRef);
   const rows = await db.documentChunk.findMany({ where: { documentId: doc.id }, orderBy: { ordinal: "asc" } });
   await db.documentChunk.update({ where: { id: rows[0].id }, data: { embeddingContextHash: "stale" } });
@@ -170,7 +170,7 @@ test("index summaries derive fresh, stale, malformed and different-model vectors
 });
 
 test("batch maintenance resumes real persisted batches and never charges completed documents", async () => {
-  const doc = await document(Array.from({ length: 40 }, (_, index) => `报销条件${index}。`).join("\n\n"));
+  const doc = await document(Array.from({ length: 40 }, (_, index) => `报销条件${index}。${"内容".repeat(420)}`).join("\n\n"));
   const summary = { ...doc, indexedAt: doc.indexedAt.toISOString(), semantic: { indexed: 0, total: 40, modelRef, lexicalCurrent: true } };
   const progress = [];
   let batches = 0;
@@ -185,7 +185,7 @@ test("batch maintenance resumes real persisted batches and never charges complet
 });
 
 test("maintenance cancellation and quota pauses stop further work and preserve saved progress", async () => {
-  const doc = await document(Array.from({ length: 40 }, (_, index) => `保存片段${index}。`).join("\n\n"));
+  const doc = await document(Array.from({ length: 40 }, (_, index) => `保存片段${index}。${"内容".repeat(420)}`).join("\n\n"));
   const summary = { ...doc, indexedAt: doc.indexedAt.toISOString(), semantic: { indexed: 0, total: 40, modelRef, lexicalCurrent: true } };
   const controller = new AbortController(); let calls = 0;
   const request = async <T>(url: string, init?: RequestInit): Promise<T> => {
@@ -208,5 +208,5 @@ test("maintenance isolates document failures, stops stale work and enforces its 
   const stale = await maintainDocumentIndexes(targets, new AbortController().signal, () => {}, async () => { calls++; throw new DocumentRequestError("文档已改变。", 409, null); });
   assert.equal(calls, 1); assert.equal(stale[0].status, "failed"); assert.equal(stale[1].status, "waiting");
   await db.knowledgeDocument.update({ where: { id: doc.id }, data: { indexVersion: 2 } });
-  await reindexDocument(doc.id); assert.equal((await db.knowledgeDocument.findUnique({ where: { id: doc.id } })).indexVersion, 3);
+  await reindexDocument(doc.id); assert.equal((await db.knowledgeDocument.findUnique({ where: { id: doc.id } })).indexVersion, 4);
 });
