@@ -102,6 +102,8 @@ withTools("with a model that cannot call tools the composer offers what still wo
   const input = composerInput(page);
   await input.click();
   await page.keyboard.type("/检索");
+  // Enter chooses from the menu a person sees; before the tool list has loaded there is none.
+  await expect(slashOption(page, "知识检索")).toBeVisible();
   await page.keyboard.press("Enter");
   await expect(chosenWords(page)).toHaveText(["知识检索"]);
   await expect(page.getByRole("button", { name: /^工作区：/ })).toBeVisible();
@@ -186,6 +188,7 @@ withTools("choosing a template that uses tools asks again, and what follows is t
   const input = composerInput(page);
   await input.click();
   await page.keyboard.type("/资料研究");
+  await expect(slashOption(page, "资料研究助理")).toBeVisible();
   await page.keyboard.press("Enter");
   await expect(notice(page), "the template relies on tools the model cannot call").toBeVisible();
   await expect(notice(page)).toContainText("不支持工具调用");

@@ -160,9 +160,12 @@ test("task creation has aligned dropdowns and a themed calendar on desktop and m
   await card
     .getByRole("button", { name: "Save reminder settings", exact: true })
     .click();
+  // While saving, the button reads "Saving…"; the editor closes only once the
+  // server has stored the change, so its trigger coming back marks the end.
   await expect(
-    card.getByRole("button", { name: "Save reminder settings", exact: true }),
-  ).toHaveCount(0);
+    card.getByRole("button", { name: "Set time and reminders", exact: true }),
+  ).toBeVisible();
+  await expect(card.getByRole("button", { name: /^(Save reminder settings|Saving…)$/ })).toHaveCount(0);
   expect((await browserData(page, `${app.origin}/api/tasks`))[0]).toMatchObject(
     { dueDate: null, repeatRule: "none", reminderEnabled: false },
   );
