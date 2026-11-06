@@ -8,22 +8,13 @@ type RankingPolicy = {
   recencyWeight: number;
 };
 
-// Context recall and explicit knowledge search retain their existing selection rules.
-export const CONTEXT_ENTRY_POLICY: RankingPolicy = {
+/** The local API's lookup of entries, which keeps its own ranking. */
+export const LOOKUP_ENTRY_POLICY: RankingPolicy = {
   excludeToolMemories: false, manualWeight: 0.4, recencyWeight: 0.2,
 };
-/** Chat context only includes memories that match the request itself this well. */
-export const CONTEXT_ENTRY_MIN_MATCH = 0.3;
 export const SEARCH_ENTRY_POLICY: RankingPolicy = {
   excludeToolMemories: true, manualWeight: 0.2, recencyWeight: 0,
 };
-/**
- * A message this short ("and that one?") is read as a follow-up: the previous
- * user message is matched too, ranked a little lower. A longer message stands
- * on its own, so changing the subject does not carry the old subject's memories.
- */
-export const FOLLOW_UP_MAX_WORDS = 3;
-export const FOLLOW_UP_WEIGHT = 0.8;
 /**
  * Matching this many of the query's words is a full keyword match. A long
  * message is not diluted below the threshold by words a memory cannot share,
@@ -47,18 +38,21 @@ export function keywordScore(queryTokens: string[], text: string): number {
   return queryTokens.filter((token) => normalized.includes(token)).length / Math.min(queryTokens.length, KEYWORD_SATURATION);
 }
 
-/** How well a memory matches the query itself, before recency and manual weight. */
+/**
+ * How well a memory matches the query itself, before recency and manual weight: the share of
+ * the query's words it contains, and its similarity in meaning on the embedding model's own scale.
+ */
 export function memoryMatch(
   memory: { key: string; value: string; embedding: unknown; embeddingModelId?: string | null; embeddingModelProvider?: string | null },
   queryTokens: string[],
   queryEmbedding: number[] | null,
   queryModelRef?: ModelRef | null,
-): number {
+): { lexical: number; semantic: number } {
   const lexical = keywordScore(queryTokens, `${memory.key} ${memory.value}`);
   // A vector is only comparable with one written by the same provider and model.
   const sameSpace = Boolean(queryModelRef && memory.embeddingModelId === queryModelRef.modelId && memory.embeddingModelProvider === queryModelRef.providerId);
   const semantic = Math.max(0, sameSpace ? cosineSimilarity(queryEmbedding, toEmbeddingVector(memory.embedding)) : 0);
-  return Math.max(lexical, semantic * 0.85);
+  return { lexical, semantic };
 }
 
 export function scoreMemory(
@@ -88,42 +82,28 @@ export function rankByScore<T>(items: T[], score: (item: T) => number, limit: nu
     .slice(0, limit).map((entry) => entry.item);
 }
 
-async function searchQuery(text: string, signal?: AbortSignal) {
-  const { embedding, modelRef } = await embedTextWithModel(text, signal);
-  return { tokens: tokenizeQuery(text), embedding, modelRef };
-}
-
 /**
- * Scores every confirmed memory against the query and, when given, the
- * message it follows up on. All of them are compared: a memory that is old,
- * or that shares no word with the query, is still found by meaning.
+ * Scores every confirmed entry against the query. All of them are compared: an entry
+ * that is old, or that shares no word with the query, is still found by meaning.
  */
-export async function getEntrySearchCandidates(query: string, policy: RankingPolicy, signal?: AbortSignal, followUp?: string) {
-  const isFollowUp = Boolean(followUp?.trim()) && tokenizeQuery(query).length <= FOLLOW_UP_MAX_WORDS;
-  const [primary, previous] = await Promise.all([searchQuery(query, signal), isFollowUp ? searchQuery(followUp!, signal) : null]);
-  const queryTokens = primary.tokens;
+export async function getEntrySearchCandidates(query: string, policy: RankingPolicy, signal?: AbortSignal, embedQuery?: () => ReturnType<typeof embedTextWithModel>) {
+  const { embedding, modelRef } = await (embedQuery ? embedQuery() : embedTextWithModel(query, signal));
+  const queryTokens = tokenizeQuery(query);
   // An entry the user has not accepted is not evidence. Candidates stay visible
   // in the interface but never reach a model until they are confirmed.
   const scope = {
     confirmed: true,
     ...(policy.excludeToolMemories ? { NOT: [{ key: { startsWith: "tool:" } }] } : {}),
   };
-  const searchable = (search: Awaited<ReturnType<typeof searchQuery>> | null) => Boolean(search && (search.tokens.length || search.embedding));
-  if (!searchable(primary) && !searchable(previous)) return { queryTokens, candidates: [] };
+  if (!queryTokens.length && !embedding) return { queryTokens, candidates: [] };
   const candidates = await db.memory.findMany({ where: scope, orderBy: [{ updatedAt: "desc" }, { id: "desc" }] });
   const now = Date.now();
   return {
     queryTokens,
-    candidates: candidates.map((memory) => {
-      const follow = previous ? {
-        match: FOLLOW_UP_WEIGHT * memoryMatch(memory, previous.tokens, previous.embedding, previous.modelRef),
-        relevance: FOLLOW_UP_WEIGHT * scoreMemory(memory, previous.tokens, previous.embedding, policy, now, previous.modelRef),
-      } : { match: 0, relevance: 0 };
-      return {
-        memory,
-        match: Math.max(memoryMatch(memory, primary.tokens, primary.embedding, primary.modelRef), follow.match),
-        relevance: Math.max(scoreMemory(memory, primary.tokens, primary.embedding, policy, now, primary.modelRef), follow.relevance),
-      };
-    }),
+    candidates: candidates.map((memory) => ({
+      memory,
+      match: memoryMatch(memory, queryTokens, embedding, modelRef),
+      relevance: scoreMemory(memory, queryTokens, embedding, policy, now, modelRef),
+    })),
   };
 }

@@ -73,13 +73,6 @@ test("the system prompt stays identical across turns while each turn's context c
   assert.equal(textOf(earlierUser), "Which region do production deploys use?", "an earlier turn is sent exactly as before");
 });
 
-test("chat memories need a real match, while the memory API keeps its existing ranking", async () => {
-  await saveKnowledgeEntry({ key: "favorite editor", value: "Uses Neovim with a dark theme for writing Rust services." });
-  const loose = "Explain how a dark matter halo shapes galaxy rotation curves";
-  assert.ok((await getRelevantEntries({ query: loose })).length > 0, "unchanged API behavior");
-  assert.equal((await getRelevantEntries({ query: loose, minMatch: 0.3 })).length, 0);
-  assert.equal((await getRelevantEntries({ query: "which editor and theme do I use", minMatch: 0.3 })).length, 1);
-});
 
 test("skills are an index when they can be loaded on demand", async () => {
   const plugin = await installPlugin(parsePlugin(pluginFixture()));
@@ -134,4 +127,13 @@ test("with a current summary only the turns after it are read from storage", asy
   assert.match(prompt, /SUMMARY-MARKER/, "the summary stands for the turns before its boundary");
   assert.match(prompt, /Routine question number 10\b/, "turns after the boundary are read from storage");
   assert.doesNotMatch(prompt, /BLUE-WHALE-42|Routine question number 5\b/, "turns inside the summary are not resent");
+});
+
+test("a model that cannot call tools is told so once, not tool by tool", async () => {
+  const { unavailableToolLines } = await import("@/lib/prompts");
+  const lines = unavailableToolLines([{ id: "webSearch", reason: "modelUnsupported" }, { id: "searchKnowledge", reason: "modelUnsupported" }, { id: "createTask", reason: "modelUnsupported" }]);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /cannot call tools/);
+  assert.doesNotMatch(lines[0], /webSearch|searchKnowledge|createTask/);
+  assert.match(unavailableToolLines([{ id: "webSearch", reason: "templateDisabled" }])[0], /webSearch/, "a template's choice still names the tool");
 });

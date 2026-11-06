@@ -69,6 +69,8 @@ CI uploads this screenshot alongside desktop logs with seven-day retention.
 
 Approval-card regressions verify decisions above the composer without automatic
 sheet opening, sequential approval queues, exact terminal command review,
+knowledge entries replaced under their existing name with the replaced text shown
+(and not overwritten when edited before approval),
 rejection, reload, execution-once behavior and narrow layouts. Run-detail tests
 cover server-owned continuation links, one combined request entry, legacy file
 details, ambiguous-history refusal and explicit missing-detail summaries. Pending
@@ -212,7 +214,7 @@ Assistant template tests cover immutable conversation snapshots, explicit update
 read-only built-ins, stale revision rejection, bound-model validation, server tool
 restrictions (including an empty allowlist), scoped chat evidence and portable
 restore. Retrieval diagnostics tests cover missing indices, provider outages,
-thresholds, excerpt budgets, conflicting clauses in one document, empty-result
+low-similarity models without a fixed threshold, query case kept for embedding, meaning outranking a few shared words, BM25-scored keyword candidates in a large section, excerpt budgets, conflicting clauses in one document, empty-result
 metadata and evaluator input/cancellation boundaries. Expected facts stay outside
 the answer prompt; citation matches and fact coverage are contract checks, not
 semantic correctness judgments.

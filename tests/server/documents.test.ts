@@ -60,16 +60,17 @@ test("PDF, DOCX, Markdown and text import actual extracted content with page ref
 });
 
 test("incremental updates retain unchanged chunk IDs, retries deduplicate, reindex repairs terms and deletion cascades", async () => {
-  const original = await data(await upload("runbook.txt", "蓝鲸发布需要审批。\n\n蓝鲸备份保留七天。"), 201);
+  const original = await data(await upload("runbook.txt", "蓝鲸发布需要审批。\n\n# 备份\n\n蓝鲸备份保留七天。"), 201);
   const old = await data(await detail.GET(request(), context(original.document.id)));
-  const retry = await data(await upload("runbook.txt", "蓝鲸发布需要审批。\n\n蓝鲸备份保留七天。"));
+  const retry = await data(await upload("runbook.txt", "蓝鲸发布需要审批。\n\n# 备份\n\n蓝鲸备份保留七天。"));
   assert.equal(retry.change, "unchanged");
   assert.equal(retry.document.id, old.id);
-  const updated = await data(await upload("runbook.txt", "蓝鲸发布需要审批。\n\n蓝鲸备份保留三十天。"));
-  assert.deepEqual([updated.added, updated.retained, updated.removed], [1, 1, 1]);
+  const updated = await data(await upload("runbook.txt", "蓝鲸发布需要审批。\n\n# 备份\n\n蓝鲸备份保留三十天。"));
+  assert.deepEqual([updated.added, updated.retained, updated.removed], [1, 2, 1], "the other section and its heading keep their chunks");
   const next = await data(await detail.GET(request(), context(old.id)));
   assert.equal(next.chunks[0].id, old.chunks[0].id);
-  assert.notEqual(next.chunks[1].id, old.chunks[1].id);
+  assert.equal(next.chunks[1].id, old.chunks[1].id);
+  assert.notEqual(next.chunks[2].id, old.chunks[2].id);
   await db.documentTerm.deleteMany({ where: { chunk: { documentId: old.id } } });
   assert.deepEqual(await searchDocuments("蓝鲸备份"), []);
   const reindexed = await data(await detail.POST(request("POST"), context(old.id)));
@@ -137,7 +138,7 @@ test("parser timeout and cancellation release concurrency capacity", async t => 
 test("failed indexing and stale reindex keep previous document and its index atomic", async () => {
   const { document } = await data(await upload("atomic.txt", "月球基地补给每周二抵达。"), 201);
   const original = await db.knowledgeDocument.findUnique({ where: { id: document.id } });
-  await assert.rejects(indexDocument({ ...original, pages: [{ pageNumber: null, text: "a\n\n".repeat(300) }] }), (error: any) => error.code === "PAYLOAD_TOO_LARGE");
+  await assert.rejects(indexDocument({ ...original, pages: [{ pageNumber: null, text: "# a\n\n".repeat(300) }] }), (error: any) => error.code === "PAYLOAD_TOO_LARGE");
   await assert.rejects(indexDocument({ ...original, pages: original.pages as DocumentPage[] }, { id: original.id, contentHash: "stale" }), (error: any) => error.code === "CONFLICT");
   assert.equal((await db.knowledgeDocument.findUnique({ where: { id: document.id } })).contentHash, original.contentHash);
   assert.ok((await searchDocuments("月球基地补给")).length);

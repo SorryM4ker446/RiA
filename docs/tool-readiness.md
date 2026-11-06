@@ -20,7 +20,7 @@ Normal chat uses automatic tool selection. Typing `/` in the composer chooses a 
 | --- | --- | --- |
 | Knowledge: `searchKnowledge` | Memories and documents, local keyword retrieval, optional semantic + BM25 retrieval, collection scope, versioned citations and quality evaluations | Candidate memories stay outside model context until confirmed. Embedding and answer-quality checks may call configured services. [Document knowledge](document-knowledge.md) |
 | Memory: `extractMemory` | The model's own: a person cannot run or choose it, and it is offered only while long-term memory is on. See [long-term memory](long-term-memory.md) | Always ready while memory is on |
-| Knowledge: `saveKnowledgeEntry` | Adds a named entry to the knowledge base, with provenance; a save the model requests waits for approval and never overwrites a different entry | Always ready |
+| Knowledge: `saveKnowledgeEntry` | Adds a named entry to the knowledge base, with provenance; a save the model requests waits for approval; saving under an existing name replaces that entry after the approval shows the text being replaced, and an entry edited meanwhile is not overwritten | Always ready |
 | Tasks: `createTask` | Creation through chat; list/edit/status/delete management, time zones, due reminders and recurrence | The next recurring task is created on completion; desktop reminders require the application to remain running. [Task reminders](task-reminders.md) |
 | Search: `webSearch` | DeepSeek native/Search API, OpenRouter gateway search through the selected chat model's provider, model-selected result counts and citations | No RiA per-turn result-count quota; provider API ceilings and run execution limits apply. Missing configuration is distinct from zero results. No general search-result cache or automatic retry is promised. [Search notes](web-search-budget-and-quality.md) |
 | Documents: `readDocument`, `convertDocument` | Reads stored extracted text in bounded ranges; exports Markdown, TXT, HTML or DOCX | Knowledge document details integrate copy editing, preview and export; import supports PDF/DOCX/Markdown/TXT. Chat PDF/DOCX attachments are parsed without automatic knowledge import. [Document processing](document-processor.md) · [Chat attachments](media-storage.md#pdf-and-word-in-chat) |
@@ -67,5 +67,15 @@ A chat model without tool calling loses everything built on tools: knowledge sea
 search, the terminal, file reading and editing, tasks and extension tools. Before chatting
 with one, the chat page says so and asks the person to carry on or change the model. Leaving
 the model menu without changing it asks again. The answer holds for that model until the app
-closes. A model set by the assistant template can only be accepted here, a template with no
+closes. Choosing an assistant template that uses tools asks again for that template, and what
+follows is the same as for the model. A model set by the assistant template can only be accepted here, a template with no
 tools is not asked about, and image and video modes do not use tools.
+
+With such a model the composer offers what needs no model call, such as compacting the
+context, and explains in the slash menu why the rest is missing; a tool the model would have
+to call can be found but not chosen, and one chosen earlier is dropped. The workspace folder
+picker is hidden, since no tool would use it. A request already waiting for approval cannot
+be approved, because either answer continues the turn. Its card offers to change the model, after
+which it is answered as usual, or to give the request up: that records it as rejected without
+running it or calling the model, and the conversation goes on from the next message.
+The system prompt says once that no tools are available, rather than naming each tool.

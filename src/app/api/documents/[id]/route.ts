@@ -2,6 +2,7 @@ import { protectDataOperation } from "@/lib/server/data-operations";
 import { NextRequest } from "next/server";
 import { currentWorkspaceId, requireLocalWorkspace } from "@/lib/local/workspace";
 import { deleteDocument, getDocument, reindexDocument } from "@/lib/documents/store";
+import { scheduleDocumentIndexing } from "@/lib/documents/auto-index";
 import { documentIdSchema } from "@/lib/documents/types";
 import { createApiErrorResponse } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
@@ -20,7 +21,9 @@ async function POSTHandler(req: NextRequest, context: Context) {
     await requireLocalWorkspace(req); enforceRateLimit("documents");
     const id = documentIdSchema.parse((await context.params).id);
     await readEmptyBody(req);
-    return Response.json({ data: await reindexDocument(id) }, { headers: { "Cache-Control": "no-store" } });
+    const data = await reindexDocument(id);
+    scheduleDocumentIndexing();
+    return Response.json({ data }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return createApiErrorResponse(error, t("api.documents.reindexFailed")); }
 }
 async function DELETEHandler(req: NextRequest, context: Context) {

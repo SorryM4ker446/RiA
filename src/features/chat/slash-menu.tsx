@@ -61,8 +61,10 @@ function highlighted(text: string, query: string): ReactNode {
 
 const MAX_LIST_HEIGHT = 272;
 
-export function SlashMenu({ open, items: liveItems, activeIndex, query: liveQuery, listId, anchor, onActivate, onSelect, onDismiss }: {
+export function SlashMenu({ open, notice: liveNotice, items: liveItems, activeIndex, query: liveQuery, listId, anchor, onActivate, onSelect, onDismiss }: {
   open: boolean;
+  /** Why some of what is usually here is not. */
+  notice?: string;
   items: SlashItem[];
   activeIndex: number;
   query: string;
@@ -74,9 +76,9 @@ export function SlashMenu({ open, items: liveItems, activeIndex, query: liveQuer
 }) {
   // Closing clears the list, and the panel is still fading out then. It keeps what
   // it showed, or it would collapse to a bright sliver above the composer.
-  const [shown, setShown] = useState({ items: liveItems, query: liveQuery });
-  if (open && (shown.items !== liveItems || shown.query !== liveQuery)) setShown({ items: liveItems, query: liveQuery });
-  const { items, query } = open ? { items: liveItems, query: liveQuery } : shown;
+  const [shown, setShown] = useState({ items: liveItems, query: liveQuery, notice: liveNotice });
+  if (open && (shown.items !== liveItems || shown.query !== liveQuery || shown.notice !== liveNotice)) setShown({ items: liveItems, query: liveQuery, notice: liveNotice });
+  const { items, query, notice } = open ? { items: liveItems, query: liveQuery, notice: liveNotice } : shown;
   const listRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const markerRef = useRef<HTMLDivElement>(null);
@@ -117,6 +119,7 @@ export function SlashMenu({ open, items: liveItems, activeIndex, query: liveQuer
         <div ref={listRef} id={listId} role="listbox" aria-label={t("chat.slash.label")} className="slash-menu-list">
           <div ref={contentRef} className="slash-menu-content">
             <div ref={markerRef} aria-hidden="true" className="slash-menu-marker" />
+            {notice ? <p role="status" className="slash-menu-notice">{notice}</p> : null}
             {items.map((item, index) => {
               const heading = item.group !== items[index - 1]?.group ? t(`chat.slash.group.${item.group}`) : null;
               const Icon = item.icon;

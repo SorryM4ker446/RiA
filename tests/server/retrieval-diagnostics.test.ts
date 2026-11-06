@@ -14,6 +14,7 @@ const { indexDocument } = await import("@/lib/documents/store");
 const { indexDocumentEmbeddings } = await import("@/lib/documents/semantic");
 const { retrieveDocuments } = await import("@/lib/documents/retrieval");
 const { defaultRetrievalPolicy } = await import("@/lib/assistants/schema");
+const { documentDiagnosticsSchema } = await import("@/lib/documents/diagnostics");
 const { evaluateDocuments, evaluationRequestSchema } = await import("@/lib/documents/evaluation");
 const { qualityCriteria, validateQualityOutput } = await import("@/lib/documents/quality");
 const { documentSourceUrl } = await import("@/lib/documents/types");
@@ -47,21 +48,29 @@ test("retrieval diagnoses empty ranges, absent indices and model outages without
   const empty = await retrieveDocuments("费用核销", 8, ["未知集合"]); assert.equal(empty.diagnostics.outcome, "empty-library"); assert.deepEqual(empty.sources, []);
 });
 
-test("thresholds filter semantic evidence and evidence budgets preserve complete versioned excerpts", async () => {
+test("a model whose similarities run low still finds its closest passages, and budgets keep excerpts whole", async () => {
   const doc = await document(Array.from({ length: 8 }, (_, i) => `公务出行费用核销条款 ${i}：${"必须保留真实票据并经主管审批，".repeat(40)}`).join("\n\n"));
   await indexDocumentEmbeddings(doc.id, doc.contentHash, modelRef);
-  providerState.embeddingFunction = () => [0.4, Math.sqrt(0.84), 0];
-  const accepted = await retrieveDocuments("出门办事的钱怎样领回来", 8, [], undefined, { ...defaultRetrievalPolicy, semanticThreshold: 0.35, contextChars: 1200 });
-  assert.ok(accepted.sources.length); assert.ok(accepted.diagnostics.contextChars <= 1200);
+  // Shares no word with the passages and is only 0.2 similar: below the fixed 0.35 there used to be.
+  providerState.embeddingFunction = () => [0.2, Math.sqrt(0.96), 0];
+  const found = await retrieveDocuments("出门办事的钱怎样领回来", 8, [], undefined, { ...defaultRetrievalPolicy, contextChars: 1200 });
+  assert.ok(found.sources.length); assert.equal(found.sources[0].retrieval, "semantic"); assert.ok(found.diagnostics.contextChars <= 1200);
+  assert.equal("semanticThreshold" in found.diagnostics.policy, false);
   const original = await db.documentChunk.findMany({ where: { documentId: doc.id } });
-  assert.ok(accepted.sources.every(source => original.some(chunk => chunk.id === source.chunkId && chunk.text === source.snippet)));
-  const excluded = await retrieveDocuments("出门办事的钱怎样领回来", 8, [], undefined, { ...defaultRetrievalPolicy, semanticThreshold: 0.5 });
-  assert.deepEqual(excluded.sources, []);
+  assert.ok(found.sources.every(source => original.some(chunk => chunk.id === source.chunkId && chunk.text === source.snippet)));
+  // A vector pointing away is no evidence at all.
+  providerState.embeddingFunction = () => [-1, 0, 0];
+  assert.deepEqual((await retrieveDocuments("出门办事的钱怎样领回来")).sources, []);
+});
+
+test("diagnostics saved with the old fixed threshold still read", () => {
+  const saved = { outcome: "hits", semantic: "ready", corpusChunks: 1, compatibleVectors: 1, scannedVectors: 1, staleVectors: 0, lexicalCandidates: 0, semanticCandidates: 1, selectedSources: 1, contextChars: 10, durationMs: 1, policy: { semanticThreshold: 0.35, maxSources: 8, contextChars: 8000 } };
+  assert.equal(documentDiagnosticsSchema.safeParse(saved).success, true);
 });
 
 test("similar clauses with conflicting quantities in the same document are retained as distinct evidence", async () => {
   const prefix = "公务出行费用核销需要保留税务票据，填写真实费用清单，由部门主管核对相关凭证并签字审批，归档后向财务部门提交。";
-  await document(`${prefix} 提交时限为十个工作日。\n\n${prefix} 提交时限为二十个工作日。`);
+  await document(`# 甲\n\n${prefix} 提交时限为十个工作日。\n\n# 乙\n\n${prefix} 提交时限为二十个工作日。`);
   const result = await retrieveDocuments("费用核销时限", 2);
   assert.equal(result.sources.length, 2); assert.ok(result.sources.some(source => source.snippet.includes("为十个"))); assert.ok(result.sources.some(source => source.snippet.includes("为二十个")));
 });
@@ -254,4 +263,28 @@ test("the fifty-question quality corpus preserves structured expectations and ex
   }
   assert.equal(answerable, 40); assert.equal(recalled, 40); assert.ok(relatedButUnanswerable >= 7);
   assert.equal(providerState.embeddingCalls.length, 0);
+});
+
+test("a query is embedded with its case kept, as the passages are", async () => {
+  const doc = await document("The NAS keeps the SQLite file; WAL mode needs shared memory.", "nas.md", "运维");
+  await indexDocumentEmbeddings(doc.id, doc.contentHash, modelRef);
+  const embedded: string[] = [];
+  providerState.embeddingFunction = text => { embedded.push(text); return [1, 0, 0]; };
+  await retrieveDocuments("  Can SQLite WAL run on a NAS?  ");
+  const { searchKnowledge } = await import("@/tools/definitions/search-knowledge");
+  await searchKnowledge({ query: "Can SQLite WAL run on a NAS?", topK: 6 });
+  assert.deepEqual(embedded, ["Can SQLite WAL run on a NAS?", "Can SQLite WAL run on a NAS?"]);
+});
+
+test("a passage close in meaning outranks one that only shares a few of the question's words", async () => {
+  providerState.embeddingFunction = text => text.includes("公务出行") ? [0.9, Math.sqrt(0.19), 0]
+    : text.includes("月底") ? [0.3, Math.sqrt(0.91), 0] : text.includes("会议室") ? [0.1, Math.sqrt(0.99), 0] : [1, 0, 0];
+  for (const [filename, text] of [["差旅.md", "公务出行的费用核销应在十个工作日内提交。"], ["零用.md", "零用的钱在月底前领回来即可。"], ["会议.md", "会议室需提前一天预订。"]]) {
+    const doc = await document(text, filename);
+    await indexDocumentEmbeddings(doc.id, doc.contentHash, modelRef);
+  }
+  // Adding ranks put the passage sharing 钱 and 领回来, second by meaning, above the answer.
+  const result = await retrieveDocuments("出门办事的钱怎样领回来");
+  assert.equal(result.sources[0]?.filename, "差旅.md");
+  assert.equal(result.sources[0]?.retrieval, "semantic");
 });

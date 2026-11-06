@@ -5,7 +5,6 @@ import { readJsonBody } from "@/lib/server/request-body";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { ApiError } from "@/lib/server/api-error";
 import { retrieveDocuments } from "@/lib/documents/retrieval";
-import { resolveAssistant } from "@/lib/assistants/store";
 import { topicIdSchema } from "@/lib/topics/schema";
 import { getTopic } from "@/lib/topics/store";
 import { topicResponse } from "@/lib/topics/api";
@@ -14,8 +13,7 @@ export const POST = protectDataOperation((req: NextRequest, ctx: { params: Promi
   const input = z.strictObject({ revision: z.number().int().positive(), query: z.string().trim().min(1).max(2000) }).parse(await readJsonBody(req, 10_000));
   const id = topicIdSchema.parse((await ctx.params).id), topic = await getTopic(id);
   if (topic.revision !== input.revision) throw new ApiError({ code: "CONFLICT", message: "专题已修改，请刷新后检索。" });
-  const assistant = topic.config.assistantTemplateId ? await resolveAssistant(topic.config.assistantTemplateId) : null;
-  const result = await retrieveDocuments(input.query, 8, topic.config.collections, req.signal, assistant?.retrieval);
+  const result = await retrieveDocuments(input.query, 8, topic.config.collections, req.signal);
   if ((await getTopic(id)).revision !== input.revision) throw new ApiError({ code: "CONFLICT", message: "专题已修改，请刷新后检索。" });
   return result;
 }));

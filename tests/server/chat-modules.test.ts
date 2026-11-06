@@ -11,7 +11,7 @@ process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 const { getRelevantEntries } = await import("@/lib/knowledge/entries");
 const { searchKnowledge } = await import("@/tools/definitions/search-knowledge");
-const { tokenizeQuery, scoreMemory, rankByScore, CONTEXT_ENTRY_POLICY, SEARCH_ENTRY_POLICY } = await import("@/lib/knowledge/entry-retrieval");
+const { tokenizeQuery, scoreMemory, rankByScore, LOOKUP_ENTRY_POLICY, SEARCH_ENTRY_POLICY } = await import("@/lib/knowledge/entry-retrieval");
 import { seedTestModelPreferences } from "../helpers/model-library";
 const { getDefaultChatPreferences, readChatPreferences } = await import("@/features/chat/preferences");
 after(async () => { await db.$disconnect(); cleanup(); });
@@ -23,7 +23,7 @@ test("memory ranking preserves lexical, semantic, recency and manual weighting",
   assert.equal(tokens[0], "sqlite");
   assert.equal(tokens.slice(1).join(""), "本地数据库");
   assert.ok(tokens.length > 2);
-  assert.equal(scoreMemory(memory, ["sqlite"], null, CONTEXT_ENTRY_POLICY, now), 1.4);
+  assert.equal(scoreMemory(memory, ["sqlite"], null, LOOKUP_ENTRY_POLICY, now), 1.4);
   assert.equal(scoreMemory(memory, ["sqlite"], null, SEARCH_ENTRY_POLICY, now), 1.1);
   assert.equal(scoreMemory(memory, ["unmatched"], [1, 0], SEARCH_ENTRY_POLICY, now, { providerId: "openrouter", modelId: "embed-v1" }), 0.95);
   assert.equal(scoreMemory(memory, ["unmatched"], [1, 0], SEARCH_ENTRY_POLICY, now, { providerId: "openrouter", modelId: "embed-v2" }), 0);
@@ -34,7 +34,7 @@ test("memory ranking preserves lexical, semantic, recency and manual weighting",
   assert.equal(scoreMemory(memory, ["unmatched"], [1, 0], SEARCH_ENTRY_POLICY, now, { providerId: "other" as ModelRef["providerId"], modelId: "embed-v1" }), 0);
   // A row with no recorded provider is left out of semantic scoring entirely.
   assert.equal(scoreMemory({ ...memory, embeddingModelProvider: null }, ["unmatched"], [1, 0], SEARCH_ENTRY_POLICY, now, { providerId: "openrouter", modelId: "embed-v1" }), 0);
-  assert.equal(scoreMemory({ ...memory, embedding: null, score: null, updatedAt: new Date(now - 31 * 86400000) }, ["unmatched"], [1, 0], CONTEXT_ENTRY_POLICY, now, { providerId: "openrouter", modelId: "embed-v1" }), 0);
+  assert.equal(scoreMemory({ ...memory, embedding: null, score: null, updatedAt: new Date(now - 31 * 86400000) }, ["unmatched"], [1, 0], LOOKUP_ENTRY_POLICY, now, { providerId: "openrouter", modelId: "embed-v1" }), 0);
   const rows = [{ id: "first", score: 1 }, { id: "zero", score: 0 }, { id: "second", score: 1 }, { id: "high", score: 2 }];
   assert.deepEqual(rankByScore(rows, (row) => row.score, 3).map((row) => row.id), ["high", "first", "second"]);
   assert.equal(rows[0].id, "first");

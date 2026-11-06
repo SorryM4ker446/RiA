@@ -62,7 +62,7 @@ export default function ChatPage() {
             <div className="chat-dock flex max-h-[50%] shrink-0 flex-col gap-3 overflow-y-auto px-4 pb-5 pt-2 sm:px-7">
               {chat.isHistoryReady ? <ApprovalDock key={chat.activeChatId} {...chat} onDetails={showExecutionDetails} /> : null}
               <div className="mx-auto flex w-full max-w-[42rem] flex-wrap items-center gap-1">
-                {chat.modelMode === "chat" ? <DirectoryPermissions
+                {chat.modelMode === "chat" && chat.selectedModelInfo?.supportsTools !== false ? <DirectoryPermissions
                   workspaceGrantId={chat.activeChat?.workspaceGrantId ?? null}
                   locked={chat.isPending}
                   saving={chat.isWorkspaceSaving || chat.isLoadingChats}

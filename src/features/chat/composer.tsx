@@ -154,6 +154,8 @@ export function Composer({
   const allowedToolIds = activeChat?.assistantConfig?.tools;
   const modelCanCallTools = selectedModelInfo?.supportsTools !== false;
   const openSettings = useOpenSettings();
+  // A tool the model would have to call goes with a model that cannot, as it does with a template that does not allow it.
+  useEffect(() => { if (modelMode === "chat" && !modelCanCallTools && choice.tool?.surface.user?.run === "model") removeTool(); }, [modelMode, modelCanCallTools, choice.tool, removeTool]);
 
   // A template that no longer allows the chosen tool takes it away, rather than refusing the send later.
   useEffect(() => { if (choice.tool && allowedToolIds && choice.tool.surface.template !== "always" && !allowedToolIds.includes(choice.tool.id)) removeTool(); }, [choice.tool, allowedToolIds, removeTool]);
@@ -204,7 +206,9 @@ export function Composer({
     const recent = recentSlashItems().flatMap(key => usable.filter(item => item.key === key)).slice(0, 4);
     return [...recent.map(item => ({ ...item, group: "recent" as const })), ...usable.filter(item => !recent.includes(item))];
   }, [allItems, slash]);
-  const menuOpen = Boolean(slash) && visibleItems.length > 0 && dismissedAt !== slash?.start && !isPending;
+  // Said where the missing tools would be, so a short or empty list explains itself.
+  const slashNotice = slash && !modelCanCallTools ? t("chat.slash.toolLessNotice") : undefined;
+  const menuOpen = Boolean(slash) && (visibleItems.length > 0 || Boolean(slashNotice)) && dismissedAt !== slash?.start && !isPending;
   // The catalog may have changed in settings since this page loaded.
   const wasOpen = useRef(false);
   useEffect(() => { if (menuOpen && !wasOpen.current) void loadToolCatalog(); wasOpen.current = menuOpen; }, [menuOpen, loadToolCatalog]);
@@ -304,7 +308,7 @@ export function Composer({
       {/* One bordered surface holds the prompt, the controls that shape it, and the
         send action. Scattering those across separate full-width rows left the
         send button visually unconnected to what it submits. */}
-      <SlashMenu open={menuOpen} items={visibleItems} activeIndex={activeIndex} query={slash?.query ?? ""} listId={listId} onActivate={setActiveIndex} onSelect={selectItem} onDismiss={() => setDismissedAt(slash?.start ?? null)} anchor={
+      <SlashMenu open={menuOpen} notice={slashNotice} items={visibleItems} activeIndex={activeIndex} query={slash?.query ?? ""} listId={listId} onActivate={setActiveIndex} onSelect={selectItem} onDismiss={() => setDismissedAt(slash?.start ?? null)} anchor={
       <div className="composer-surface">
         <div className="composer-body">
           <div className="composer-field">

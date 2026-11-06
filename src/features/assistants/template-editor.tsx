@@ -4,7 +4,6 @@ import { useLocale } from "@/lib/locale/client";
 import { t } from "@/lib/locale";
 
 import type { Dispatch, FormEvent, SetStateAction } from "react";
-import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -44,15 +43,6 @@ export function TemplateEditor({ config, setConfig, collections, setCollections,
         <Field className="gap-2"><FieldLabel htmlFor="template-collections">{t("ui.assistants.template-editor.knowledgeCollectionsOnePerLineBlank")}</FieldLabel><Textarea id="template-collections" rows={2} maxLength={600} value={collections} onChange={event => setCollections(event.target.value)} />{collections.trim() && !config.tools.includes("searchKnowledge") ? <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"><FieldDescription>{t("ui.assistants.template-editor.collectionsNeedSearch")}</FieldDescription><Button type="button" size="sm" variant="secondary" onClick={() => setConfig({ ...config, tools: [...config.tools, "searchKnowledge"] })}>{t("ui.assistants.template-editor.enableSearch")}</Button></div> : null}</Field>
         <Field orientation="horizontal" className="gap-2"><input id="template-memory" type="checkbox" className="size-3.5 accent-foreground" checked={config.usesMemory} onChange={event => setConfig({ ...config, usesMemory: event.target.checked })} /><FieldLabel htmlFor="template-memory">{t("ui.assistants.template-editor.useLongTermMemory")}</FieldLabel></Field>
       </FieldGroup>
-      <details className="settings-disclosure">
-        <summary className="settings-disclosure-trigger justify-between">{t("ui.assistants.template-editor.retrievalStrategy")}<ChevronDown className="size-4" aria-hidden="true" /></summary>
-        <FieldGroup className="gap-3 pt-3">
-          {([
-            ["semanticThreshold", t("ui.knowledge.retrieval-diagnostics.semanticThreshold"), 0.1, 0.95, 0.05], ["maxSources", t("ui.assistants.template-editor.evidenceCount"), 1, 8, 1], ["contextChars", t("ui.assistants.template-editor.evidenceCharacterBudget"), 1200, 9600, 100],
-          ] as const).map(([key, label, min, max, step]) => <Field orientation="horizontal" key={key} className="justify-between"><FieldLabel htmlFor={`template-${key}`}>{label}</FieldLabel><Input id={`template-${key}`} className="w-28" type="number" required min={min} max={max} step={step} value={config.retrieval[key]} onChange={event => setConfig({ ...config, retrieval: { ...config.retrieval, [key]: Number(event.target.value) } })} /></Field>)}
-          <FieldDescription>{t("ui.assistants.template-editor.theSemanticThresholdOnlyFiltersVector")}</FieldDescription>
-        </FieldGroup>
-      </details>
     </fieldset>
     <div className="flex shrink-0 justify-end"><Button type="submit" disabled={disabled}>{busy ? t("ui.assistants.template-editor.saving") : t("ui.assistants.template-editor.saveTemplate")}</Button></div>
   </form>;

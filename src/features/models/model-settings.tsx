@@ -29,7 +29,6 @@ import { announceModelPreferencesChanged } from "@/features/models/preference-ev
 import { animateRemoval, removalKey } from "@/lib/ui/removal";
 type CatalogState = { models: CatalogModel[]; fetchedAt: string | null; stale: boolean; source: "live" | "cache" | "empty"; error: string | null; failure: string | null; skipped: number };
 type ProviderSummary = { providerId: string; displayName: string; configured: boolean };
-type EmbeddingSummary = { total: number; stale: number; embedding: string | null };
 const modeNames = (): Record<LibraryMode, string> => ({ chat: t("models.mode.chat"), image: t("models.mode.image"), video: t("models.mode.video"), embedding: t("models.mode.embedding") });
 // Radix reserves the empty string for "no selection" and throws if an item
 // declares it, so "not configured" needs a value that cannot collide with a
@@ -103,7 +102,6 @@ export function ModelSettings() {
   const [query, setQuery] = useState("");
   const [availability, setAvailability] = useState<LibraryAvailability>({});
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
-  const [embeddings, setEmbeddings] = useState<EmbeddingSummary | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const load = useCallback(async () => {
     const preferences = await settingsRequest<{ data: ModelPreferences; availability: LibraryAvailability; providers: ProviderSummary[]; recentFailures: LibraryModelFailure[] }>("/api/models");
@@ -112,12 +110,6 @@ export function ModelSettings() {
     setAvailability(preferences.availability ?? {});
     setProviders(preferences.providers ?? []);
     setWarnings(preferences.recentFailures.map(item => tf("models.notFoundOn", { modelId: item.modelId, date: formatDateTime(item.failedAt, { month: "short", day: "numeric" }) })));
-    // The embedding summary is an aside on this page. A failure reading it must
-    // not take the library, the catalog and the preferences down with it, so it
-    // settles on its own and only reports itself.
-    settingsRequest<{ data: EmbeddingSummary }>("/api/memory/reindex")
-      .then(response => setEmbeddings(response.data))
-      .catch(() => setEmbeddings(null));
   }, []);
   const loadCatalog = useCallback(async (providerId: string, mode: LibraryMode, force = false) => {
     const query2 = force ? "" : `?providerId=${encodeURIComponent(providerId)}&mode=${mode}`;
@@ -178,15 +170,6 @@ export function ModelSettings() {
   };
   const availabilityLabel = (state: ModelAvailability["state"] | undefined) => availabilityLabels[state ?? "ready"]();
 
-  /**
-   * Rebuilding is paid work, so it asks first.
-   */
-  async function rebuildEmbeddings() {
-    if (!(await confirm({ title: t("ui.confirm.rebuildEmbeddings"), description: t("models.embeddingReindexConfirm") }))) return;
-    const response = await settingsRequest<{ data: { reindexed: number; remaining: number } }>("/api/memory/reindex", jsonRequest("POST", { confirm: true }));
-    toast(tf("models.notice.embeddingReindexed", { reindexed: response.data.reindexed, remaining: response.data.remaining }));
-    setEmbeddings(current => current ? { ...current, stale: response.data.remaining } : current);
-  }
   const limitProblems = settings ? callLimitProblems(settings.callLimits) : new Set<CallLimitKey | "timeZone">();
   return <>
     <PageHeader level={2} title={t("ui.settingsOverlay.models")} description={t("ui.settingsOverlay.modelsDescription")} />
@@ -251,7 +234,7 @@ export function ModelSettings() {
               </SelectContent>
             </Select>
           </div>
-          <div className="setting-row"><span className="setting-row-label">{t("models.embeddingModelLabel")}</span>
+          <div className="setting-row"><span className="setting-row-label">{t("models.embeddingModelLabel")}<span className="setting-row-hint">{t("models.embeddingModelHint")}</span></span>
             <Select disabled={busy} onValueChange={value => setSettings({ ...settings, embedding: fromSelectValue(value) })} value={toSelectValue(settings.embedding)}>
               <SelectTrigger aria-label={t("models.embeddingModelLabel")} className="w-44"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -260,9 +243,6 @@ export function ModelSettings() {
               </SelectContent>
             </Select>
           </div>
-          {embeddings && <div className="setting-row"><span className="setting-row-label">{t("models.embeddingReindex")}<span className="setting-row-hint">{embeddings.stale > 0 ? tf("models.embeddingStale", { count: embeddings.stale }) : t("models.embeddingStaleNone")}</span></span>
-            <Button size="sm" disabled={busy || embeddings.stale === 0 || !embeddings.embedding} onClick={() => void run(rebuildEmbeddings)} variant="ghost">{t("models.embeddingReindex")}</Button>
-          </div>}
           <div className="setting-row"><label className="flex min-w-0 flex-[1_1_12rem] items-center gap-3">
               <input checked={settings.thinking.enabled} disabled={busy} onChange={event => setSettings({ ...settings, thinking: { ...settings.thinking, enabled: event.target.checked } })} type="checkbox" />
               <span className="flex flex-col">{t("models.thinkingEnabled")}<span className="setting-row-hint">{t("models.thinkingDescription")}</span></span>

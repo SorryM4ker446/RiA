@@ -220,6 +220,33 @@ export async function claimToolApproval(chatId: string, message: UIMessage) {
 }
 
 /**
+ * Rejects every pending approval in a reply without continuing the turn, for a model that
+ * cannot call tools and so cannot carry on from either answer. Nothing runs; the calls are
+ * recorded as rejected, and the conversation goes on from the next message.
+ */
+export async function declineToolApprovals(chatId: string, messageId: string, reason: string) {
+  const existing = await db.message.findFirst({ where: {
+    chatId, role: "assistant",
+    OR: [{ id: messageId }, { clientMessageId: messageId }],
+  } });
+  const persisted = existing ? decodePersistedAssistantToolMessage(existing.content) : null;
+  if (!existing || !persisted) throw new ApiError({ code: "NOT_FOUND", message: "Pending tool approval was not found" });
+  const pending = persisted.tools.filter(tool => tool.state === "approval-requested" && tool.approval?.id);
+  if (!pending.length) throw new ApiError({ code: "CONFLICT", message: "This approval is no longer pending; refresh the conversation" });
+  for (const tool of pending) {
+    tool.state = "output-denied";
+    tool.approval = { ...tool.approval!, approved: false, reason };
+  }
+  // Guarded on the content read, so a decision made at the same moment elsewhere wins once.
+  const declined = await db.message.updateMany({
+    where: { id: existing.id, content: existing.content },
+    data: { content: encodePersistedAssistantToolMessage(persisted) },
+  });
+  if (declined.count !== 1) throw new ApiError({ code: "CONFLICT", message: "This approval has already been processed" });
+  return pending.map(tool => tool.toolCallId);
+}
+
+/**
  * Restores an approval that was claimed but never reached tool execution, so
  * the user can retry the same decision after a failed preparation step. The
  * restore only applies while the row still holds this claim's decision.

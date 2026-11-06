@@ -23,6 +23,8 @@ test("topic workspace scopes conversations and artifacts, exports snapshots and 
     }, collection);
     expect(uploaded.status).toBe(201);
     const document = uploaded.body.data.document;
+    // Built in the background once imported, since an embedding model is chosen.
+    await expect.poll(() => (app.readRows("SELECT count(*) AS count FROM document_chunks WHERE documentId=? AND embedding IS NULL", document.id)[0] as { count: number }).count).toBe(0);
     const indexed = await browserApi(page, `/api/documents/${document.id}/embeddings`, "POST", { confirm: true, contentHash: document.contentHash, modelRef: { providerId: "openrouter", modelId: "openai/text-embedding-3-small" } }); expect(indexed.status).toBe(200);
   }
   await page.goto(`${app.origin}/topics`); await page.getByRole("button", { name: "新建专题", exact: true }).click();
@@ -32,9 +34,10 @@ test("topic workspace scopes conversations and artifacts, exports snapshots and 
   await expect(page.getByRole("link", { name: "财务.md", exact: true })).toBeVisible(); await expect(page.getByRole("link", { name: "医疗.md", exact: true })).toHaveCount(0);
   const financial = (await browserData(page, "/api/documents")).find(document => document.collection === "财务");
   expect(financial.semantic.indexed).toBe(financial._count.chunks);
-  await expect(page.getByText(`语义索引 ${financial._count.chunks}/${financial._count.chunks}`, { exact: false })).toBeVisible();
+  await expect(page.getByText(/财务 · 就绪/)).toBeVisible();
   await page.getByLabel("专题检索问题", { exact: true }).fill("出门办事的钱怎样领回来"); await page.getByRole("button", { name: "检索专题", exact: true }).click(); await expect(page.getByRole("button", { name: "检索专题", exact: true })).toBeEnabled();
-  await expect(page.getByText(/^检索诊断：/).first()).toBeVisible();
+  // How the search ran is shown only in the library's search settings and diagnostics.
+  await expect(page.getByText(/检索诊断/)).toHaveCount(0);
   const topic = (await browserData(page, "/api/topics"))[0], workspaceUrl = `${app.origin}/topics/${topic.id}`;
   await page.getByRole("button", { name: "开始专题会话", exact: true }).click(); await expect(page).toHaveURL(/\/chat$/);
   const chat = (await browserData(page, "/api/conversations"))[0]; expect(chat.documentScope).toBe("财务");

@@ -169,7 +169,7 @@ All topic routes require the same local workspace access, Host/Origin validation
 | `DELETE /api/topics/:id?confirm=true&revision=N` | Require the current revision; cascade artifacts, unlink conversations, retain documents |
 | `GET /api/topics/:id/conversations` | Latest 50 associated conversations |
 | `POST /api/topics/:id/conversations` | Create `{revision,title}` with scope and assistant snapshot |
-| `POST /api/topics/:id/search` | Retrieve `{revision,query}` using server-owned topic collections and assistant policy |
+| `POST /api/topics/:id/search` | Retrieve `{revision,query}` using server-owned topic collections and the default retrieval policy |
 | `GET /api/topics/:id/artifacts` | List up to 50 saved artifact summaries; recover orphaned generating records as interrupted |
 | `POST /api/topics/:id/artifacts` | Generate `{confirm:true, requestId:UUID, revision, title, kind:"report"\|"plan"\|"summary", brief}` |
 | `GET /api/topics/:id/artifacts/:artifactId` | Body, state and saved provenance metadata |

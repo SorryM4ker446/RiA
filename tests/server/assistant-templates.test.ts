@@ -12,7 +12,7 @@ process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 const { saveAssistant, listAssistants, restoreDefaultAssistants } = await import("@/lib/assistants/store");
 const { DEFAULT_ASSISTANTS } = await import("@/lib/assistants/defaults");
-const { assistantConfigSchema, readAssistantSnapshot } = await import("@/lib/assistants/schema");
+const { assistantConfigSchema, defaultRetrievalPolicy, readAssistantSnapshot } = await import("@/lib/assistants/schema");
 const { createChat } = await import("@/lib/chat/store");
 const { updateConversation } = await import("@/lib/conversations/mutations");
 const { createChatToolSet } = await import("@/tools/catalog");
@@ -43,7 +43,10 @@ after(async () => { await db.$disconnect(); cleanup(); });
 
 test("the migration writes the defaults exactly as they are defined", () => {
   const expected = DEFAULT_ASSISTANTS.map(template => ({ id: template.id, config: template.config, revision: template.revision }));
-  assert.deepEqual([...migrated].sort((a, b) => a.id.localeCompare(b.id)), [...expected].sort((a, b) => a.id.localeCompare(b.id)));
+  // The migration's rows still hold the retrieval settings templates had then; read as the app reads them, they match.
+  const read = migrated.map(row => ({ ...row, config: JSON.parse(JSON.stringify(assistantConfigSchema.parse(row.config))) }));
+  assert.ok(migrated.every(row => "retrieval" in (row.config as object)), "the shipped migration is unchanged");
+  assert.deepEqual(read.sort((a, b) => a.id.localeCompare(b.id)), [...expected].sort((a, b) => a.id.localeCompare(b.id)));
 });
 
 test("default templates can be edited, deleted and restored, and custom updates reject stale revisions", async () => {
@@ -71,7 +74,7 @@ test("default templates can be edited, deleted and restored, and custom updates 
 test("template APIs enforce local access, input bounds, supported tools and confirmation", async () => {
   assert.equal((await routes.root.GET(request("/api/assistants", "GET", undefined, ""))).status, 401);
   assert.equal((await routes.root.POST(request("/api/assistants", "POST", config(), cookie, { origin: "https://invalid.example" }))).status, 403);
-  for (const value of [{ ...config(), tools: ["unknownTool"] }, { ...config(), tools: ["searchKnowledge", "searchKnowledge"] }, { ...config(), retrieval: { semanticThreshold: 0.01 } }]) {
+  for (const value of [{ ...config(), tools: ["unknownTool"] }, { ...config(), tools: ["searchKnowledge", "searchKnowledge"] }]) {
     assert.equal((await routes.root.POST(request("/api/assistants", "POST", value))).status, 400);
   }
   const saved = await saveAssistant(config());
@@ -158,7 +161,7 @@ test("empty tool restrictions disable tools and the direct route cannot bypass t
 });
 
 test("chat uses template instructions without memory, forbidden tools or added knowledge text", async () => {
-  const saved = await saveAssistant(config({ retrieval: { maxSources: 1, contextChars: 1200, semanticThreshold: 0.6 } }));
+  const saved = await saveAssistant(config());
   const chat = await createChat({ assistantTemplateId: saved.id });
   for (const collection of ["财务", "医疗"]) await indexDocument({ filename: `${collection}.txt`, collection, format: "txt", byteSize: 100, pages: [{ pageNumber: null, text: collection === "财务" ? "费用核销时限为十个工作日。" : "费用核销的医疗机密不应读取。" }] });
   await db.memory.create({ data: { key: "费用核销", value: "私有记忆不应读取", confirmed: true } });
@@ -179,12 +182,25 @@ test("bound models reject client overrides and removed models cannot be used by 
   await assert.rejects(updateConversation(chat.id, { assistantTemplateId: saved.id }), /模板绑定的模型已移除/);
 });
 
-test("a permitted knowledge call uses the conversation's collections and template evidence budget", async () => {
-  const saved = await saveAssistant(config({ tools: ["searchKnowledge"], retrieval: { maxSources: 1, contextChars: 1200, semanticThreshold: 0.8 } }));
+test("retrieval settings a template saved earlier are read without error and no longer apply", async () => {
+  // Templates once carried their own threshold and evidence sizes; searches now use one default.
+  const legacy = { ...config(), retrieval: { maxSources: 1, contextChars: 1200, semanticThreshold: 0.8 } };
+  const created = await routes.root.POST(request("/api/assistants", "POST", legacy));
+  assert.equal(created.status, 201);
+  const id = (await created.json()).data.id as string;
+  assert.equal("retrieval" in ((await db.assistantTemplate.findUniqueOrThrow({ where: { id } })).config as object), false, "a new save leaves it out");
+  await db.assistantTemplate.update({ where: { id }, data: { config: legacy } });
+  const listed = (await listAssistants()).find(item => item.id === id)!;
+  assert.equal(listed.config.retrieval, undefined, "a row stored with it still reads");
+  assert.equal(readAssistantSnapshot({ ...legacy, templateId: id, templateRevision: 1 })?.retrieval, undefined, "and so does a conversation's copy");
+});
+
+test("a permitted knowledge call uses the conversation's collections and the default evidence policy", async () => {
+  const saved = await saveAssistant(config({ tools: ["searchKnowledge"] }));
   for (const collection of ["财务", "医疗"]) await indexDocument({ filename: `${collection}.txt`, collection, format: "txt", byteSize: 100, pages: [{ pageNumber: null, text: `费用核销 ${collection} 规则，应当保留票据。` }] });
-  const { output } = await executeRegisteredTool(getToolDescriptor("searchKnowledge")!, { query: "费用核销", topK: 8 }, { trigger: "manual", documentCollections: ["财务"], documentRetrievalPolicy: { maxSources: 1, contextChars: 1200, semanticThreshold: 0.8 } });
+  const { output } = await executeRegisteredTool(getToolDescriptor("searchKnowledge")!, { query: "费用核销", topK: 8 }, { trigger: "manual", documentCollections: ["财务"] });
   assert.equal(output.results.length, 1); assert.equal(output.results[0].reference.collection, "财务");
-  assert.equal(output.diagnostics.policy.semanticThreshold, 0.8); assert.equal(output.diagnostics.policy.maxSources, 1);
+  assert.deepEqual(output.diagnostics.policy, defaultRetrievalPolicy);
   assert.equal(await db.memory.count(), 0);
 });
 

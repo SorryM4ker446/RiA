@@ -1,59 +1,86 @@
 # RiA
 
-A local-first desktop AI agent with knowledge, tools, and plugins.
+**English** · [简体中文](README.zh-CN.md)
 
-RiA brings streaming chat, document retrieval, and tool execution into a Windows desktop workspace. Tool-capable models can select tools and work through multiple steps, with execution records, directory permissions, and approval controls.
+**A local-first AI agent for your Windows desktop: it answers from your own documents, uses tools with your approval, and remembers what matters to you.**
 
-Conversations, knowledge, attachments, and workspace settings are stored locally. Model, embedding, search, and connector requests send the content needed for that operation to the configured service.
+![RiA answering a question from the user's own documents, with citations](docs/images/chat.png)
 
-Built with Electron, Next.js, Vercel AI SDK, Prisma, and SQLite.
+RiA keeps your conversations, knowledge base, memory and settings on your computer, in a local SQLite database. You bring the model: connect OpenRouter for hundreds of chat, image, video and embedding models, or DeepSeek directly. Only what an operation needs is sent to the service that performs it.
 
-## Capabilities
+Current version: **0.1.18** · Windows x64 · Built with Electron, Next.js, the Vercel AI SDK, Prisma and SQLite.
 
-| Area | What you can do |
+## Ask your own documents
+
+![The knowledge library: imported documents, their status and a search with cited passages](docs/images/knowledge.png)
+
+Import PDF, Word, Markdown or text files, check the extracted text, and save them under topics such as Finance or IT. RiA indexes them in the background as soon as an embedding model is chosen; each document simply shows **Ready**, **Processing** or **Pending**.
+
+Search combines keyword matching (BM25) with search by meaning, so a question in your own words still finds the paragraph that uses different ones. In chat the model searches when a question depends on your material and cites the exact passage, with a link back to the version it read. Knowledge entries hold short facts you want kept, such as an address, a code or a definition. [Knowledge library](docs/document-knowledge.md) · [Knowledge topics](docs/knowledge-topics.md)
+
+## Tools, one keystroke away
+
+![The slash menu listing tools and assistant templates](docs/images/slash-menu.png)
+
+Type `/` in the message box to pick a tool, a Skill or an assistant template. Only what you can actually use is listed; the model can also choose tools on its own. Built in: knowledge search, document reading and conversion to Markdown, TXT, HTML or Word, web search through your chat model's provider, tasks with reminders, a PowerShell terminal, and file reading and editing in folders you grant. [Tools](docs/tool-readiness.md) · [Assistant templates](docs/assistant-templates.md)
+
+## Nothing happens behind your back
+
+![An approval card showing the knowledge entry text that will be replaced](docs/images/approval.png)
+
+Actions with consequences wait for you. Each terminal command, file edit, external tool call and knowledge-base change shows exactly what will happen before you approve or reject it: the command, the diff, or the entry text being replaced. **Execution records** keep every step, tool input and output, source and failure for each request. Folder access is granted per folder, and the terminal is enabled separately. [Execution records](docs/execution-history.md) · [Terminal](docs/terminal-tools.md)
+
+## It remembers what matters
+
+![Long-term memory sorted into topics under Settings, Your RiA](docs/images/memory.png)
+
+With long-term memory on, the model notes durable things about you, such as your role, how you like answers and the projects you work on, in a plain **MEMORY.md**. It judges carefully: most turns write nothing, and it never writes when you tell it not to. The notes are sorted into topics you can browse, edit and delete under **Settings → Your RiA**. Long conversations stay usable: as the context fills up, older turns are summarized while the model can still look up the original messages. [Long-term memory](docs/long-term-memory.md) · [Context management](docs/context-management.md)
+
+## Your models, your keys
+
+![My models: chat, image, video and embedding models from OpenRouter](docs/images/models.png)
+
+Add the models you want from the live OpenRouter catalog or DeepSeek, choose defaults for chat, images, video and embeddings, and pick an optional auxiliary model for background work such as summaries. Context window, tool support and pricing come from the provider. Usage is recorded per request, and the usage ring in the message box shows what the context currently holds. A model that cannot call tools still chats; RiA asks you to confirm first and explains which features it can't use. API keys are kept in the system-encrypted store. [Models and usage](docs/model-usage.md)
+
+## Extend it
+
+- **Community Skills** from skills.sh: instructions and reference files the model reads when they are relevant.
+- **MCP servers and HTTP APIs**: discover servers in the official MCP Registry or connect Streamable HTTP, local stdio MCP or plain HTTP tools yourself. Every external call needs your approval.
+- **RiA plugin packages** (`.ria-plugin.json`) combine Skills with connections and install in one step.
+
+Installing a Skill never runs its scripts or grants file access. [Plugins](docs/plugin-packages.md) · [Connections](docs/extensions.md)
+
+## More in the box
+
+| | |
 | --- | --- |
-| Chat and assistants | Stream multi-turn conversations, use default or custom assistant templates (all editable), attach images/PDF/Word documents, and search, tag, archive or export history. [Templates](docs/assistant-templates.md) · [Conversations](docs/conversation-management.md) |
-| Knowledge | Import PDF, DOCX, Markdown and TXT with preview and confirmation; use local keyword or optional semantic + BM25 hybrid retrieval, versioned citations, index maintenance and retrieval evaluations. [Knowledge library](docs/document-knowledge.md) |
-| Documents | Preview and edit extracted text; export Markdown, TXT, HTML or DOCX; read and convert documents through chat tools. [Document processor](docs/document-processor.md) |
-| Agent tools | Let the model select tools automatically or request a one-shot explicit action; inspect tool inputs, outputs, steps, failures and execution limits. [Execution records](docs/execution-history.md) |
-| Terminal and files | Authorize folders and use one general PowerShell tool for file management, editing and development commands, with live output and stop controls. Every command requires human approval. [Terminal tool](docs/terminal-tools.md) |
-| Plugins and Skills | Discover official MCP Registry servers and skills.sh community Skills, or import RiA packages combining Skill instructions with MCP/HTTP connections. [Plugins](docs/plugin-packages.md) · [Connections](docs/extensions.md) |
-| Models and media | Use OpenRouter or direct DeepSeek chat, maintain a provider-aware model allowlist and defaults, review usage estimates, and generate images/videos through supported OpenRouter models. [Models and usage](docs/model-usage.md) · [Media library](docs/media-library.md) |
-| Tasks and topics | Manage time zones, recurring tasks and due reminders; organize knowledge topics and generate reports, plans or summaries with saved evidence. [Reminders](docs/task-reminders.md) · [Knowledge topics](docs/knowledge-topics.md) |
-| Local workspace | Back up and restore workspace data, manage media storage, and keep desktop API keys in the system-encrypted store. [Backups](docs/workspace-backups.md) · [Storage](docs/media-storage.md) |
+| Chat | Streaming answers, reasoning shown while the model thinks and folded when it answers, image/PDF/Word attachments, message times, search, tags, archive and export. [Conversations](docs/conversation-management.md) |
+| Knowledge topics | Workspaces over chosen collections that turn sources into reports, plans or summaries with saved evidence. [Topics](docs/knowledge-topics.md) |
+| Media | Image and video generation through supported OpenRouter models, kept in a private media library. [Media library](docs/media-library.md) |
+| Tasks | Due dates, time zones, repeats and desktop reminders. [Reminders](docs/task-reminders.md) |
+| Desktop | Tray, global hotkey, command palette (**Ctrl+K**), light and dark themes, Chinese and English interface. [Desktop](docs/desktop.md) |
+| Your data | Backup and restore, storage cleanup, scheduled backups and workspace reviews. [Backups](docs/workspace-backups.md) · [Storage](docs/media-storage.md) |
 
-The interface supports light/dark themes, compact management views, keyboard navigation and reduced motion. Windows includes a translucent chat canvas, window transitions and a theme-aware startup animation.
+![The same conversation in the light theme](docs/images/chat-light.png)
 
-On first launch, the interface follows your system's preferred languages: Chinese uses Simplified Chinese, and English uses English. If neither is supported, it falls back to English. Use **Settings → Application → Language** to choose either language manually. Changes apply immediately without restarting or clearing drafts. Desktop preferences persist in the device's settings file across launches; the browser version uses browser language preferences and saves manual choices locally, synchronizing them across tabs. Existing language preferences take priority over system defaults. This setting affects interface text and date/number formatting only. Model replies follow the language of the latest user message, or an explicit request for another language; existing messages and user content are preserved.
+<sub>Screenshots are of RiA 0.1.18 running with demo documents and a test model.</sub>
 
-## Start using RiA
+## Get started
 
-1. Install the Windows x64 `RiA-<version>-x64.msi` produced by the [build instructions](#build-an-installer). The installed application does not require a separate Node.js installation or database server.
-2. Open **Settings** and configure OpenRouter or DeepSeek. OpenRouter is required for the supported image, video and embedding features. Web search runs through the selected chat model's provider; there is no separate search key.
-3. In **Settings → Models**, add models to **My models** and select a default chat model. Agent tool use and on-demand community Skill reading require a tool-capable model.
-4. Start a conversation or apply an assistant template. Image, PDF and Word (`.docx`) attachments are available in chat. Documents are parsed for the conversation without being added automatically to the knowledge library. [Chat attachments](docs/media-storage.md#pdf-and-word-in-chat)
-5. To build a reusable knowledge library, open **Knowledge**, preview an import and confirm saving. Keyword indexing is local; semantic indexing is optional and sends snippets to the selected embedding provider.
-6. Open **Extensions** for Skills, plugin packages and tool connections. Grant local folders through **Workspace permissions** to the left of **Execution records**, or through Settings, then explicitly enable terminal access. Approve or reject each operation in the compact card above this toolbar; expand **View details** to review its command or parameters. Approval cards disappear after a decision; reasoning stays expanded unless you collapse it, without reopening or collapsing on approval. **Execution records** retains the request's execution stages, full tool details, sources and diagnostics in one entry. Web Search result counts are chosen by the model; RiA has no per-turn result-count quota, while provider API limits still apply.
+1. Install `RiA-<version>-x64.msi`, built as described in [Build an installer](#build-an-installer). No separate Node.js or database server is needed.
+2. Open **Settings → API keys** and add an OpenRouter or DeepSeek key. OpenRouter is needed for images, video and embeddings.
+3. In **Settings → Models**, add models to **My models** and choose a default chat model. Pick one that supports tool calling to use tools, Skills and knowledge search, and choose an embedding model to search by meaning.
+4. Start chatting. Import documents under **Knowledge**, type `/` for tools, and grant folders through **Workspace permissions** when you want RiA to work with files.
 
-Press **Ctrl+K** (⌘K on macOS) anywhere, or click the search field at the top of the chat page, to open the command palette: go to a page or a settings section, find and open a conversation, switch the chat model, or start a new one. It floats without blocking the page and closes once a command runs or you click elsewhere. Pin it, or drag it aside, to keep it open beside your work: it then stays through commands and clicks elsewhere, dims while unused, and Ctrl+K brings focus back. **Ctrl+Shift+O** starts a conversation, **Shift+Esc** focuses the message box, **Esc** in the message box stops an answer, **Ctrl+Shift+E** shows execution records, and **Ctrl+/** lists every shortcut.
+History, local keyword search and manual tasks work without a model service. Reminders and scheduled work run while RiA is open, including in the tray.
 
-General settings use four categories: **API keys**, **Application**, **Automation & notifications**, and **Workspace permissions**. Models and their defaults are chosen under **Models**. Under **Automation & notifications**, choose **Add schedule** to configure a schedule in a side panel. Execution history, local fact reviews and reminders have their own sections; detailed rules expand on demand. Switching categories preserves unsaved inputs.
+## Privacy
 
-Stored history, local keyword retrieval and manual task management remain available without a model service. Generation, remote search and external connectors need their configured services. Desktop reminders and scheduled work require RiA to remain running.
-
-## Extend RiA
-
-- **Community Skills:** open **Extensions → Plugin marketplace → Discover skills**, search, inspect the instructions and files, install, then enable the package under **My extensions → My plugins**. Relevant text resources are loaded on demand during chat.
-- **MCP and HTTP tools:** discover a server through **Discover extensions**, or configure a Streamable HTTP MCP, local stdio MCP or HTTP API connection manually. Supply required credentials, detect the connection, review its tools and explicitly enable them.
-- **RiA plugin packages:** import a `.ria-plugin.json` file or paste its manifest, review the preview, install, configure its connections and enable it. Packages can combine Skills with MCP/HTTP connections; disabling or uninstalling preserves historical conversations and results.
-
-Installing a Skill adds instructions and reference files. It does not install required software, execute bundled scripts or grant file access. Local MCP processes require separate consent and an installed runtime. Tool allowlists, directory permissions and per-call approvals still apply. The terminal runs a fresh non-interactive process for each command.
-
-Automatic plugin updates and rollback are not implemented. RiA does not execute arbitrary Claude or DSH plugin runtimes. See [plugin formats, compatibility and limits](docs/plugin-packages.md) and [connection setup](docs/extensions.md).
+Everything RiA stores is local: by default under `%APPDATA%\RiA`. A model, embedding, search or connector request sends only what that operation needs to the service you configured; choosing an embedding model is the consent to send your knowledge base's text to it. Portable backups exclude API keys and the local access credential. Local API requests are checked for the access credential, Host and Origin, size limits and rate limits. [API security](docs/api-security.md) · [Backups](docs/workspace-backups.md)
 
 ## Development
 
-Use Windows x64 for desktop packaging. Development and CI use Node.js **24.9.0** and npm **11.19.1**.
+Development and CI use Node.js **24.9.0** and npm **11.19.1** on Windows x64.
 
 ```powershell
 npx --yes npm@11.19.1 ci
@@ -61,42 +88,27 @@ npm run db:generate
 npm run desktop:dev
 ```
 
-Electron starts and stops the local Next.js service as a child process. Configure credentials through desktop Settings; no application account is required.
+Electron starts and stops the local Next.js service as a child process; configure keys in the desktop Settings. `npm run dev` runs a browser-based development loop on `.desktop-data/dev/app.db`; the delivered application is the desktop build. After dependency changes, run `npx --yes npm@11.19.1 audit --audit-level=low`. See [project structure](docs/project-structure.md), [local API contracts](docs/local-api.md) and [model catalog maintenance](docs/model-catalog.md).
 
-For a browser-based development/test loop, run `npm run dev`. This prints a one-time local entry link and uses `.desktop-data/dev/app.db` by default. The browser server is a development tool; the supported delivered application is the Windows desktop build.
-
-All dependencies are installed from the npm registry. After dependency changes, run `npx --yes npm@11.19.1 audit --audit-level=low` and the relevant regression checks.
-
-Local API requests enforce access credentials, Host/Origin checks, input limits and quotas. See [API security](docs/api-security.md), [local API contracts](docs/local-api.md) and [model catalog maintenance](docs/model-catalog.md). The source layout and runtime model are described in [project structure](docs/project-structure.md).
-
-## Build an installer
+### Build an installer
 
 ```powershell
 npm run desktop:make
 ```
 
-This prepares WiX, builds the desktop runtime and packages the application into a versioned MSI with SHA-256 verification metadata:
-
-```text
-out/make/wix/x64/RiA-<version>-x64.msi
-out/make/wix/x64/verification.json
-```
-
-The installer supports choosing the program directory; installed workspace data lives under `%APPDATA%\RiA` by default. Changing the program directory does not move the workspace.
-
-For a new version, run `npm run desktop:version` once before building. It synchronizes `package.json` and the lockfile; builds do not increment the version automatically.
+This builds the desktop runtime and packages a versioned MSI with SHA-256 verification metadata in `out/make/wix/x64/`. Run `npm run desktop:version` once before building a new version; builds do not change the version on their own.
 
 | Command | Output |
 | --- | --- |
 | `npm run desktop:build` | Verified standalone runtime in `.desktop-runtime/` |
-| `npm run desktop:package` | Unpacked Windows application in `out/RiA-win32-x64/` |
+| `npm run desktop:package` | Unpacked application in `out/RiA-win32-x64/` |
 | `npm run desktop:make` | MSI and verification metadata in `out/make/wix/x64/` |
 
-CI builds and validates the Windows package but uploads failure diagnostics only, rather than installers. A manually started release workflow builds a draft GitHub release with a signed update manifest; installed copies offer a published release in Settings and install it on request. Windows code signing is not configured. Building or smoke-testing an MSI does not establish that clean installation and upgrades have passed. See [desktop development and release](docs/desktop.md) and [Windows release acceptance](docs/windows-release-acceptance.md).
+The installer lets you choose the program directory; workspace data stays under `%APPDATA%\RiA`. A manually started release workflow builds a draft GitHub release with a signed update manifest, and installed copies offer published releases in Settings. Windows code signing is not configured. See [desktop development and release](docs/desktop.md) and [Windows release acceptance](docs/windows-release-acceptance.md).
 
-## Validation
+### Validation
 
-`npm test` runs the configured type, lint, schema, server, desktop, diagnostic and browser checks. Individual checks include:
+`npm test` runs the type, lint, schema, server, desktop, diagnostic and browser checks. Individually:
 
 ```powershell
 npm run lint
@@ -104,50 +116,33 @@ npm run typecheck
 npm run test:server
 npm run test:db
 npm run test:desktop
-npm run test:e2e:diagnostics
 npm run test:e2e
-```
-
-After preparing the corresponding runtime/package, validate desktop resources and startup with:
-
-```powershell
 npm run test:desktop:smoke
-npm run desktop:verify
-npm run test:desktop:package
 ```
 
-Tests use isolated SQLite databases and deterministic external-service fixtures. They verify application behavior without proving live-provider answer quality or replacing Windows installation/upgrade acceptance. See [testing and validation](docs/testing.md).
+Tests use isolated SQLite databases and deterministic fixtures for external services. They check application behavior; they do not measure live model quality or replace installation and upgrade acceptance on a clean Windows machine. See [testing](docs/testing.md) and [CI validation](docs/ci-validation.md).
 
-## Data and recovery
+### Upgrading older workspaces
 
-**Backup & restore** exports workspace business data and media, and creates a safety backup before restoring. Portable archives are unencrypted and exclude provider keys and the local access credential. Plugin/connector declarations are machine-local and omitted from portable archives; restoring keeps existing local declarations but disables them and invalidates approvals. See [backup rules](docs/workspace-backups.md) and [plugin persistence](docs/plugin-packages.md#persistence-and-api).
+Older account-based databases are inventoried and snapshotted before becoming a local workspace, and data from several accounts needs an explicit ownership decision rather than a silent merge. Use `npm run workspace:status`, `workspace:inventory`, `workspace:prepare` and `workspace:restore`; see [workspace upgrade and recovery](docs/workspace-upgrade.md).
 
-Private media assets hold images, videos and document attachments. **Storage** provides explicit cleanup with reference protection. See [media storage](docs/media-storage.md).
-
-Older account-scoped databases are inventoried and snapshotted before adopting a local workspace. Data spread across several accounts requires an explicit ownership decision instead of a silent merge.
-
-```powershell
-npm run workspace:status
-npm run workspace:inventory
-npm run workspace:prepare
-npm run workspace:restore
-```
-
-See [local workspace upgrade and recovery](docs/workspace-upgrade.md) for the migration and restore procedure.
-
-## Project layout
+### Project layout
 
 | Path | Responsibility |
 | --- | --- |
 | `electron/` | Main process, preload bridge, settings, migrations and desktop security |
 | `src/app/` | Pages and local API route handlers |
-| `src/features/chat/` | Chat views, API client and conversation/media/tool hooks |
-| `src/lib/chat/` | Validated requests, context, streaming and persistence |
-| `src/tools/` | Shared tool registry, descriptors and execution |
-| `src/lib/documents/` | Extraction, indexing, retrieval and document processing |
-| `src/lib/plugins/` | Plugin packages and community Skill integration |
-| `src/lib/extensions/` | MCP/HTTP connections and official Registry discovery |
-| `src/lib/memory/` | Memory storage and retrieval policies |
+| `src/features/` | Interface by area: chat, knowledge, models, assistants, settings |
+| `src/lib/chat/` | Requests, context, compaction, streaming and persistence |
+| `src/lib/documents/` | Extraction, chunking, indexing and hybrid retrieval |
+| `src/lib/knowledge/` | Knowledge entries and their search |
+| `src/lib/memory/` | Long-term memory (MEMORY.md) and its topics |
+| `src/tools/` | Tool registry, descriptors and execution |
+| `src/lib/plugins/`, `src/lib/extensions/` | Plugin packages, Skills, MCP/HTTP connections and Registry discovery |
 | `src/db/` | Prisma schema and SQLite migrations |
 | `scripts/` | Development, migration, packaging and validation utilities |
-| `tests/` | Server, browser and desktop regression coverage |
+| `tests/` | Server, browser and desktop regression tests |
+
+## License
+
+[MIT](LICENSE)

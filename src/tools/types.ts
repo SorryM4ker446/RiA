@@ -1,7 +1,6 @@
 import type { z } from "zod";
 import type { FlexibleSchema } from "ai";
 import type { ModelRef } from "@/lib/models/preferences-schema";
-import type { RetrievalPolicy } from "@/lib/assistants/schema";
 
 export type ToolMode = "chat" | "image" | "video";
 export type ToolTriggerType = "manual" | "auto";
@@ -16,7 +15,6 @@ type ToolExecutionContext<Input> = {
   chatId?: string | null;
   runId?: string | null;
   documentCollections?: string[];
-  documentRetrievalPolicy?: RetrievalPolicy;
   usesMemory?: boolean;
 };
 

@@ -5,6 +5,7 @@ import { readJsonBody } from "@/lib/server/request-body";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { protectDataOperation } from "@/lib/server/data-operations";
 import { getModelPreferences, saveModelPreferences } from "@/lib/models/preferences";
+import { scheduleDocumentIndexing } from "@/lib/documents/auto-index";
 import { readCachedCatalogs } from "@/lib/models/catalog";
 import { describeProviders, libraryModelFailures, resolveLibraryAvailability } from "@/lib/models/availability";
 import { db } from "@/db";
@@ -29,6 +30,6 @@ export const GET = protectDataOperation(async (req: NextRequest) => {
 });
 
 export const PUT = protectDataOperation(async (req: NextRequest) => {
-  try { await requireLocalWorkspace(req); enforceRateLimit("modelSettings"); return Response.json({ data: await saveModelPreferences(await readJsonBody(req, 128 * 1024)) }, { headers: { "Cache-Control": "no-store" } }); }
+  try { await requireLocalWorkspace(req); enforceRateLimit("modelSettings"); const data = await saveModelPreferences(await readJsonBody(req, 128 * 1024)); if (data.embedding) scheduleDocumentIndexing(); return Response.json({ data }, { headers: { "Cache-Control": "no-store" } }); }
   catch (error) { return createApiErrorResponse(error, t("api.models.settingsSaveFailed")); }
 });

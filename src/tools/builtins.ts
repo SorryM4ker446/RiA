@@ -1,13 +1,13 @@
 import { COMPACT_CONTEXT_TOOL } from "@/lib/chat/compact-context";
 import { settingsHref } from "@/lib/settings/sections";
 import { withModelCallSource } from "@/lib/models/call-context";
-import { generateText, Output } from "ai";
+import { generateText, jsonSchema, Output, zodSchema } from "ai";
 import { MODEL_CALL_DEADLINE_MS } from "@/lib/models/call-deadlines";
 import { z } from "zod";
 import { ApiError } from "@/lib/server/api-error";
 import { getChatModel } from "@/lib/ai/client";
 import { t, tf } from "@/lib/locale";
-import { saveKnowledgeEntry } from "@/lib/knowledge/entries";
+import { bindEntryReplacement, saveApprovedEntry, saveKnowledgeEntryFields, saveKnowledgeEntryModelFields, type SaveKnowledgeEntryToolInput } from "@/lib/knowledge/entry-approval";
 import { auxiliaryModel, preferredModel, getModelPreferences } from "@/lib/models/preferences";
 import type { ModelRef } from "@/lib/models/preferences-schema";
 import { createTask, createTaskInputSchema } from "@/tools/definitions/create-task";
@@ -64,11 +64,6 @@ async function workspaceReasoning() {
   return (await getModelPreferences()).thinking;
 }
 
-const saveKnowledgeEntryInputSchema = z.strictObject({
-  key: z.string().min(1).max(200).describe("Short stable handle for the fact, reused to update it later."),
-  value: z.string().min(1).max(4000).describe("The fact itself, in the user's own words."),
-});
-
 const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
   runTerminalCommand: terminalTool,
   readTerminalLog: readTerminalLogTool,
@@ -81,16 +76,23 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     displayName: t("tools.saveKnowledgeEntry.displayName"),
     description: t("tools.saveKnowledgeEntry.description"),
     modelDescription:
-      "Add one entry to the user's knowledge base, where searchKnowledge can find it later. Use it when the user asks to save or add something to the knowledge base, such as a reference, a definition, a procedure or a fact to look up later. Do not use it for notes about the user or how they want you to work, for passing information, or for anything the user did not ask you to save. The user approves the entry before it is saved.",
+      "Add one entry to the user's knowledge base, where searchKnowledge can find it later, or change one. Use it when the user asks to save or add something to the knowledge base, such as a reference, a definition, a procedure or a fact to look up later, or to correct an entry. To change an entry, use its exact key as searchKnowledge shows it (the result's title): saving under an existing key replaces that entry's text, and the user sees the text being replaced before approving. A new key adds a new entry. Do not use it for notes about the user or how they want you to work, for passing information, or for anything the user did not ask you to save. The user approves the entry before it is saved.",
     modeSupport: ["chat"],
     surface: { category: "knowledge", user: { run: "model", hint: t("tools.saveKnowledgeEntry.hint") }, template: "selectable" },
-    inputSchema: saveKnowledgeEntryInputSchema,
+    inputSchema: saveKnowledgeEntryFields,
+    // The model never supplies the binding; the server looks up what the call would replace,
+    // so the approval shows that text and a change to it meanwhile is not overwritten.
+    modelInputSchema: jsonSchema<SaveKnowledgeEntryToolInput>(() => zodSchema(saveKnowledgeEntryModelFields).jsonSchema, { validate: async value => {
+      const parsed = saveKnowledgeEntryFields.safeParse(value);
+      return parsed.success ? { success: true, value: await bindEntryReplacement(parsed.data) } : { success: false, error: parsed.error };
+    } }),
+    bindForApproval: bindEntryReplacement,
     // An entry enters every later conversation it matches. The model may be acting on
     // text it read in a page, document or command output, so its request to save
     // something is shown to the user first. Saving by hand through the knowledge page
     // is not a model call and needs no approval.
     requiresApproval: true,
-    execute: async ({ input }) => saveKnowledgeEntry({ key: input.key, value: input.value, score: 0.9, onConflict: "keep-both" }),
+    execute: async ({ input, trigger }) => saveApprovedEntry(input, trigger),
   },
   searchKnowledge: {
     id: "searchKnowledge",
@@ -101,7 +103,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     modeSupport: ["chat"],
     surface: { category: "knowledge", user: { run: "model", hint: t("tools.searchKnowledge.hint") }, template: "selectable" },
     inputSchema: searchKnowledgeInputSchema,
-    execute: async ({ input, documentCollections, documentRetrievalPolicy, signal }) => searchKnowledge(input, { collections: documentCollections, policy: documentRetrievalPolicy, signal }),
+    execute: async ({ input, documentCollections, signal }) => searchKnowledge(input, { collections: documentCollections, signal }),
   },
   createTask: {
     id: "createTask",

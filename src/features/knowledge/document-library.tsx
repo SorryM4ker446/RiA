@@ -6,7 +6,7 @@ import { t, tf, formatNumber, formatRelativeTime, localizeMessage } from "@/lib/
 
 import { SelectField, SelectOption } from "@/components/ui/select";
 
-import { ChevronRight, FileText, Info, Loader2, MoreHorizontal, RotateCw, Search, Sparkles, Trash2, Upload } from "lucide-react";
+import { ChevronRight, FileText, Info, Loader2, MoreHorizontal, RotateCw, Search, Trash2, Upload } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { useAwaitingFirstLoad } from "@/lib/use-awaiting-first-load";
@@ -24,13 +24,13 @@ import { FileInput } from "@/components/ui/file-input";
 import { Input } from "@/components/ui/input";
 import { ToolbarSearch } from "@/components/layout/page-toolbar";
 import { DocumentSources } from "@/components/knowledge/document-sources";
-import { RetrievalDiagnostics } from "@/components/knowledge/retrieval-diagnostics";
 import { RetrievalEvaluation } from "./retrieval-evaluation";
 import { getApiErrorMessage } from "@/lib/api-error-message";
 import { DOCUMENT_LIMITS, type DocumentSource } from "@/lib/documents/types";
-import { documentRequest, type DocumentSummary, type DocumentPreview } from "./document-client";
+import { documentRequest, listDocuments, type DocumentIndexing, type DocumentSummary, type DocumentPreview } from "./document-client";
 import { maintainDocumentIndexes, type IndexProgress } from "./index-maintenance";
 import { IndexStatus } from "./index-status";
+import { documentReadiness } from "./document-status";
 import { animateRemoval, removalKey } from "@/lib/ui/removal";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 export { documentRequest } from "./document-client";
@@ -55,14 +55,22 @@ export function DocumentLibrary() {
   const [preview, setPreview] = useState<DocumentPreview | null>(null);
   const previewData = useRef<FormData | null>(null);
   const [progress, setProgress] = useState<IndexProgress[]>([]);
+  const [automaticIndexing, setAutomaticIndexing] = useState<DocumentIndexing>({ running: false, failed: null });
+  // Watches the automatic indexing only while it is running, and stops with this page.
+  const indexingRunning = automaticIndexing.running;
+  useEffect(() => {
+    if (!indexingRunning) return;
+    const timer = setInterval(() => { void listDocuments().then(({ documents: next, indexing }) => { setDocuments(next); setAutomaticIndexing(indexing); }).catch(() => {}); }, 3_000);
+    return () => clearInterval(timer);
+  }, [indexingRunning]);
   async function refresh(signal?: AbortSignal) {
-    const updated = await documentRequest<DocumentSummary[]>("/api/documents", { signal });
-    if (!signal?.aborted) setDocuments(updated);
+    const { documents: updated, indexing } = await listDocuments(signal);
+    if (!signal?.aborted) { setDocuments(updated); setAutomaticIndexing(indexing); }
   }
   useEffect(() => {
     const controller = new AbortController();
     initialRequest.current = controller;
-    documentRequest<DocumentSummary[]>("/api/documents", { signal: controller.signal }).then(value => { if (!controller.signal.aborted) setDocuments(value); }).catch(error => {
+    listDocuments(controller.signal).then(({ documents: value, indexing }) => { if (!controller.signal.aborted) { setDocuments(value); setAutomaticIndexing(indexing); } }).catch(error => {
       if (!controller.signal.aborted) setError(error.message);
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => { controller.abort(); operation.current?.abort(); operation.current = null; };
@@ -161,18 +169,16 @@ export function DocumentLibrary() {
     </form>
     {results?.length === 0 ? <p role="status" className="text-sm leading-6 text-muted-foreground">{t("documents.noMatches")}</p> : null}
     <DocumentSources sources={results ?? []} />
-    {results !== null ? <RetrievalDiagnostics value={diagnostics} /> : null}
     {awaitingFirstDocumentLoad ? <div className="flex flex-col gap-2" aria-label={t("documents.loading")}><Skeleton className="h-16 rounded-xl" /><Skeleton className="h-16 rounded-xl" /></div> : !documents.length ? <Empty className="py-6"><EmptyHeader><EmptyMedia><FileText /></EmptyMedia><EmptyTitle>{t("documents.empty")}</EmptyTitle><EmptyDescription>{t("ui.knowledge.document-library.importKnowledgeToSearchItHere")}</EmptyDescription></EmptyHeader></Empty> : <ul aria-label={t("documents.importedTitle")} className="item-list chat-list-scroll max-h-80 overflow-y-auto" style={{ "--cols": "20px minmax(0, 1fr) 7.5rem 5.5rem 4rem auto", "--cols-narrow": "minmax(0, 1fr) 5.5rem auto" } as React.CSSProperties}>
       {documents.map(document => <li className="item-row data-row knowledge-document-row min-w-0" key={document.id} {...removalKey(document.id)}>
         <span className="item-row-icon"><FileText aria-hidden="true" /></span>
         <div className="flex min-w-0 flex-col gap-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-2"><Link className="min-w-0 break-words text-sm font-medium hover:underline underline-offset-4 [overflow-wrap:anywhere]" href={`/knowledge/documents/${document.id}`}>{document.filename}</Link>{document.collection && <span className="min-w-0 truncate rounded bg-muted px-1.5 text-xs leading-5 text-muted-foreground">{document.collection}</span>}{document.semantic?.lexicalCurrent === false && <Status tone="warning">{t("ui.knowledge.document-library.localIndexNeedsUpdating")}</Status>}</div>
+          <div className="flex min-w-0 flex-wrap items-center gap-2"><Link className="min-w-0 break-words text-sm font-medium hover:underline underline-offset-4 [overflow-wrap:anywhere]" href={`/knowledge/documents/${document.id}`}>{document.filename}</Link>{document.collection && <span className="min-w-0 truncate rounded bg-muted px-1.5 text-xs leading-5 text-muted-foreground">{document.collection}</span>}</div>
         </div>
         <span className="col-meta col-optional">{document._count.chunks} {t("documents.chunkUnit")} · {formatNumber(document.characterCount)} {t("documents.characterUnit")}</span>
-        <span className="col-meta col-optional" title={document.semantic?.modelRef?.modelId}>{document.semantic?.modelRef ? tf("ui.knowledge.document-library.semanticIndex", { v0: document.semantic.indexed, v1: document.semantic.total }) : t("ui.knowledge.document-library.keywordSearch")}</span>
+        <span className="col-meta col-optional">{(readiness => readiness ? <Status tone={readiness.tone}>{readiness.label}</Status> : null)(documentReadiness(document, automaticIndexing.running))}</span>
         <time className="col-meta col-end" dateTime={document.indexedAt} title={new Date(document.indexedAt).toLocaleString(t("documents.dateLocale"))}>{formatRelativeTime(document.indexedAt)}</time>
         <div className="flex shrink-0 items-center justify-end gap-0.5">
-          <Button title={t("ui.knowledge.document-library.buildSemanticIndex")} aria-label={tf("ui.knowledge.document-library.buildSemanticIndexFor", { v0: document.filename })} disabled={busy || !document.semantic?.modelRef} size="icon-sm" variant="ghost" onClick={() => void buildSemanticIndexes([document])}><Sparkles /></Button>
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild><Button size="icon-sm" variant="ghost" aria-label={tf("ui.assistants.moreActionsFor", { v0: document.filename })} disabled={busy}><MoreHorizontal aria-hidden="true" /></Button></DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -186,8 +192,9 @@ export function DocumentLibrary() {
     </ul>}
     {/* Index upkeep and retrieval checks only mean something once there is a document. */}
     <Reveal>{documents.length > 0 ? <div className="flex flex-col">
-      <IndexStatus documents={documents} progress={progress} busy={busy} start={() => void buildSemanticIndexes(documents.filter(document => document.semantic?.modelRef && document.semantic.indexed < document.semantic.total))} cancel={() => operation.current?.abort()} />
-      <RetrievalEvaluation />
+      <IndexStatus documents={documents} progress={progress} busy={busy} automatic={automaticIndexing} start={() => void buildSemanticIndexes(documents.filter(document => document.semantic?.modelRef && document.semantic.indexed < document.semantic.total))} cancel={() => operation.current?.abort()} lastSearch={results !== null ? diagnostics : null}>
+        <RetrievalEvaluation />
+      </IndexStatus>
     </div> : null}</Reveal>
   </section>;
 }

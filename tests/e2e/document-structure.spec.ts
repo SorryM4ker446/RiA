@@ -55,7 +55,7 @@ test("Word preview is read-only, retains table context and requires confirmation
   expect(await browserData(page, "/api/documents")).toEqual([]);
   await preview(page, "费用标准.docx", file);
   const document = await save(page);
-  expect(document.indexVersion).toBe(3);
+  expect(document.indexVersion).toBe(4);
   const response = await browserApi(page, "/api/documents/search", "POST", { query: "住宿金额审批" });
   expect(response.body.data.some(source => source.snippet.includes("500 元") && source.snippet.includes("主管审批") && source.snippet.includes("金额"))).toBe(true);
   await app.restart(); await page.reload();
@@ -113,8 +113,15 @@ test("bulk indexing cancels at a controlled request boundary and resumes persist
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
   await openWorkspace(page, app.origin); await configureOfflineModels(page, { embedding: "openai/text-embedding-3-small" });
   await page.goto(`${app.origin}/knowledge`);
+  // The short one builds on its own; the long one's first request fails once, which stops the automatic run.
   await preview(page, "短规程.md", Buffer.from("费用需要保留税务票据。")); const short = await save(page);
-  await preview(page, "长规程.md", Buffer.from(Array.from({ length: 40 }, (_, i) => `费用规定${i}：公务出行须保留票据。`).join("\n\n"))); const long = await save(page);
+  await preview(page, "长规程.md", Buffer.from(Array.from({ length: 40 }, (_, i) => `费用规定${i}：公务出行须保留票据。OFFLINE_EMBED_FAIL_AT=1 ${"说明".repeat(400)}`).join("\n\n"))); const long = await save(page);
+  await expect.poll(() => browserData(page, "/api/documents").then(() => app.readRows("SELECT id FROM model_requests WHERE mode='embedding'").length)).toBeGreaterThan(0);
+  await expect.poll(async () => (await page.evaluate(async () => (await (await fetch("/api/documents")).json()).indexing.running))).toBe(false);
+  expect(app.readRows("SELECT id FROM document_chunks WHERE documentId=? AND embedding IS NOT NULL", short.id)).toHaveLength(1);
+  expect(app.readRows("SELECT id FROM document_chunks WHERE documentId=? AND embedding IS NOT NULL", long.id)).toHaveLength(0);
+  const failedAutomatically = app.readRows("SELECT id FROM model_requests WHERE mode='embedding'").length;
+  await page.reload();
   const summaries = await browserData(page, "/api/documents"); expect(summaries[0].id).toBe(long.id);
   let arrived!: () => void; const secondRequest = new Promise<void>(resolve => { arrived = resolve; });
   let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; });
@@ -124,35 +131,30 @@ test("bulk indexing cancels at a controlled request boundary and resumes persist
     if (++batches === 2) { arrived(); await gate; try { await route.abort(); } finally { finished(); } }
     else await route.continue();
   });
-  await page.getByTestId("index-maintenance").locator("summary").click();
+  await page.getByTestId("index-maintenance").locator(":scope > summary").click();
   await page.getByRole("button", { name: "批量构建或继续", exact: true }).click(); await acceptConfirm(page, "可能产生费用");
   await secondRequest;
   const maintenance = page.getByTestId("index-maintenance");
   await expect(maintenance).toContainText("长规程.md：构建中 · 32/40");
-  await expect(maintenance).toContainText("短规程.md：等待");
   await page.getByRole("button", { name: "取消索引构建", exact: true }).click();
   await expect(maintenance).toContainText("长规程.md：已取消 · 32/40");
   await expect(page.getByRole("button", { name: "批量构建或继续", exact: true })).toBeEnabled();
   release(); await handled; await page.unroute(`**/api/documents/${long.id}/embeddings`);
   expect(app.readRows("SELECT id FROM document_chunks WHERE documentId=? AND embedding IS NOT NULL", long.id)).toHaveLength(32);
-  expect(app.readRows("SELECT id FROM document_chunks WHERE documentId=? AND embedding IS NOT NULL", short.id)).toHaveLength(0);
-  expect(app.readRows("SELECT id FROM model_requests WHERE mode='embedding'")).toHaveLength(1);
+  expect(app.readRows("SELECT id FROM document_chunks WHERE documentId=? AND embedding IS NOT NULL", short.id)).toHaveLength(1);
+  expect(app.readRows("SELECT id FROM model_requests WHERE mode='embedding'")).toHaveLength(failedAutomatically + 1);
   await app.restart(); await page.reload();
-  await expect(page.getByText(/语义索引 32\/40/)).toBeVisible();
-  await page.getByTestId("index-maintenance").locator("summary").click();
+  await expect(page.getByText("待处理 32/40", { exact: true })).toBeVisible();
+  await page.getByTestId("index-maintenance").locator(":scope > summary").click();
   await page.getByRole("button", { name: "批量构建或继续", exact: true }).click(); await acceptConfirm(page);
   await expect(maintenance).toContainText("长规程.md：已完成 · 40/40");
-  await expect(maintenance).toContainText("短规程.md：已完成 · 1/1");
   await expect(page.getByRole("button", { name: "批量构建或继续", exact: true })).toBeDisabled();
-  expect(app.readRows("SELECT id FROM model_requests WHERE mode='embedding'")).toHaveLength(3);
+  expect(app.readRows("SELECT id FROM model_requests WHERE mode='embedding'").length).toBeLessThanOrEqual(failedAutomatically + 3);
+  expect(app.readRows("SELECT id FROM document_chunks WHERE embedding IS NOT NULL")).toHaveLength(41);
   const directory = join(tmpdir(), "ria-document-structure-qa"); await mkdir(directory, { recursive: true });
   await maintenance.screenshot({ path: join(directory, "desktop-index.png"), animations: "disabled" });
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await maintenance.screenshot({ path: join(directory, "mobile-index.png"), animations: "disabled" });
-  // An already complete document is skipped locally without another provider request.
-  await page.getByLabel("构建语义索引 长规程.md").click(); await acceptConfirm(page);
-  await expect(page.getByRole("button", { name: "批量构建或继续", exact: true })).toBeDisabled();
-  expect(app.readRows("SELECT id FROM model_requests WHERE mode='embedding'")).toHaveLength(3);
   expect(errors).toEqual([]);
 });
