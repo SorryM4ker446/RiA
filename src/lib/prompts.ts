@@ -66,6 +66,8 @@ function unavailableReason({ id, reason }: UnavailableTool): string {
  */
 export function unavailableToolLines(tools: (string | UnavailableTool)[]): string[] {
   const statuses = tools.map(tool => typeof tool === "string" ? { id: tool, reason: "unavailable" } : tool);
+  // Naming every tool says no more than this, and grows with each one installed.
+  if (statuses.length && statuses.every(tool => tool.reason === "modelUnsupported")) return ["Capability status (internal context): the selected model cannot call tools, so none are available this turn; to use them, select a tool-capable model."];
   const terminalListed = statuses.some(tool => tool.id === "runTerminalCommand");
   const groups = new Map<string, string[]>();
   for (const tool of statuses) {

@@ -38,6 +38,7 @@ for (const enabled of [false, true]) {
     const code = await new Promise((resolve, reject) => { child.once("error", reject); child.once("exit", resolve); });
     assert.equal(code, 0, diagnostics);
     assert.equal(calls.length, enabled ? 2 : 0);
-    if (enabled) assert.deepEqual(Object.keys(calls[0]).sort(), ["messages", "stream", "type"]);
+    // Each call also reports how many tools it offered, so a test can see a model was sent none.
+    if (enabled) { assert.deepEqual(Object.keys(calls[0]).sort(), ["messages", "stream", "toolCount", "type"]); assert.equal(calls[0].toolCount, 0); }
   });
 }

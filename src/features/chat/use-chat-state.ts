@@ -802,7 +802,20 @@ export function useChatState() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [pendingDelete, isDeleting, isPending, onStop]);
+  // A model that cannot call tools cannot carry on from an answer, so this records the
+  // rejection without a model call and leaves the conversation free for the next message.
+  const declineApprovals = useCallback(async (messageId: string) => {
+    if (!activeChatId) return;
+    const response = await fetch(`/api/conversations/${activeChatId}/messages/${encodeURIComponent(messageId)}/decline`, { method: "POST" });
+    if (!response.ok) throw new Error(readApiErrorMessage(await response.json().catch(() => null), t("chatState.requestFailed")));
+    const reason = t("chat.messages.approvalRejectedReason");
+    setMessages(current => current.map(message => message.id !== messageId ? message : { ...message, parts: message.parts.map(part =>
+      "state" in part && part.state === "approval-requested" && "approval" in part && part.approval
+        ? { ...part, state: "output-denied", approval: { ...part.approval, approved: false, reason } } as unknown as typeof part
+        : part) }));
+  }, [activeChatId, setMessages]);
   return {
+    declineApprovals,
     toggleEphemeral, isEphemeralSaving, isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
     setWorkspace, isWorkspaceSaving, loadChats,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages,

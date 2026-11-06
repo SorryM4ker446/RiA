@@ -10,7 +10,7 @@ import { TEST_ACCESS_TOKEN } from "./workspace-entry";
 import { createDesktopLogger, createDesktopLogSink } from "../../electron/logger";
 
 
-type ProviderCall = { stream: boolean; messages: Array<{ role: string; content: unknown }> };
+type ProviderCall = { stream: boolean; messages: Array<{ role: string; content: unknown }>; toolCount?: number };
 
 export async function startStandaloneServer(options: { modelFixture?: boolean; modelContextLength?: number; desktopScheduler?: boolean; serverEntry?: string; extensionFixtureOrigin?: string } = {}) {
   const parent = resolve(".desktop-data/test");

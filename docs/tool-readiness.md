@@ -67,5 +67,15 @@ A chat model without tool calling loses everything built on tools: knowledge sea
 search, the terminal, file reading and editing, tasks and extension tools. Before chatting
 with one, the chat page says so and asks the person to carry on or change the model. Leaving
 the model menu without changing it asks again. The answer holds for that model until the app
-closes. A model set by the assistant template can only be accepted here, a template with no
+closes. Choosing an assistant template that uses tools asks again for that template, and what
+follows is the same as for the model. A model set by the assistant template can only be accepted here, a template with no
 tools is not asked about, and image and video modes do not use tools.
+
+With such a model the composer offers what needs no model call, such as compacting the
+context, and explains in the slash menu why the rest is missing; a tool the model would have
+to call can be found but not chosen, and one chosen earlier is dropped. The workspace folder
+picker is hidden, since no tool would use it. A request already waiting for approval cannot
+be approved, because either answer continues the turn. Its card offers to change the model, after
+which it is answered as usual, or to give the request up: that records it as rejected without
+running it or calling the model, and the conversation goes on from the next message.
+The system prompt says once that no tools are available, rather than naming each tool.

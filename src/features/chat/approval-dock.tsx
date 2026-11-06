@@ -4,7 +4,7 @@ import { useLocale } from "@/lib/locale/client";
 import { t, tf, localizeMessage } from "@/lib/locale";
 
 import { useId, useRef, useState } from "react";
-import { Check, ChevronDown, Loader2, X } from "lucide-react";
+import { ArrowLeftRight, Check, ChevronDown, Loader2, X } from "lucide-react";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,22 +14,25 @@ import type { ChatState } from "./use-chat-state";
 import { CommandText } from "./command-text";
 import { DiffText } from "./diff-text";
 
-type Props = Pick<ChatState, "messages" | "isPending" | "addToolApprovalResponse"> & { onDetails: (messageId: string) => void };
+type Props = Pick<ChatState, "messages" | "isPending" | "addToolApprovalResponse" | "selectedModelInfo" | "declineApprovals" | "setIsModelMenuOpen"> & { onDetails: (messageId: string) => void };
 
-export function ApprovalDock({ messages, isPending, addToolApprovalResponse, onDetails }: Props) {
+export function ApprovalDock({ messages, isPending, addToolApprovalResponse, selectedModelInfo, declineApprovals, setIsModelMenuOpen, onDetails }: Props) {
   useLocale();
   const message = messages.at(-1);
   if (message?.role !== "assistant") return null;
   const tools = message.parts.filter(isToolPart);
   const pending = tools.filter(part => part.state === "approval-requested" && "approval" in part && !!part.approval);
-  return pending.length ? <ApprovalRequest key={`${message.id}:${pending[0].toolCallId}`} part={pending[0]} count={pending.length} disabled={isPending} respond={addToolApprovalResponse} onDetails={() => onDetails(message.id)} /> : null;
+  return pending.length ? <ApprovalRequest key={`${message.id}:${pending[0].toolCallId}`} part={pending[0]} count={pending.length} disabled={isPending} modelCannotContinue={selectedModelInfo?.supportsTools === false} respond={addToolApprovalResponse} decline={() => declineApprovals(message.id)} changeModel={() => setIsModelMenuOpen(true)} onDetails={() => onDetails(message.id)} /> : null;
 }
 
-function ApprovalRequest({ part, count, disabled, respond, onDetails }: {
-  part: ToolPart; count: number; disabled: boolean;
-  respond: ChatState["addToolApprovalResponse"]; onDetails: () => void;
+function ApprovalRequest({ part, count, disabled: busyElsewhere, modelCannotContinue, respond, decline, changeModel, onDetails }: {
+  part: ToolPart; count: number; disabled: boolean; modelCannotContinue: boolean;
+  respond: ChatState["addToolApprovalResponse"]; decline: () => Promise<void>; changeModel: () => void; onDetails: () => void;
 }) {
   useLocale();
+  // Either answer continues the turn, which a model that cannot call tools cannot do. It can
+  // still be given up without the model, or the model changed so the request can be answered.
+  const disabled = busyElsewhere;
   const terminal = part.type === "tool-runTerminalCommand";
   // A terminal command is what is being approved, so it is shown from the start.
   const [detailsState, setDetailsState] = useState<"unopened" | "open" | "closed">(terminal ? "open" : "unopened");
@@ -44,11 +47,14 @@ function ApprovalRequest({ part, count, disabled, respond, onDetails }: {
   const edit = part.type === "tool-editProjectFile" && typeof input?.binding?.diff === "string" ? input.binding as { path?: unknown; diff: string; added?: unknown; removed?: unknown; stale?: unknown } : null;
   const command = detailsState === "unopened" ? "" : terminal && typeof input?.command === "string" ? input.command : edit ? edit.diff : safeJson(input?.arguments ?? part.input);
   async function decide(approved: boolean) {
-    if (!approval || disabled || busy.current) return;
+    if (!approval || disabled || busy.current || (approved && modelCannotContinue)) return;
     busy.current = true;
     setSubmitting(true);
     setError(null);
-    try { await respond({ id: approval.id, approved, ...(!approved ? { reason: t("chat.messages.approvalRejectedReason") } : {}) }); }
+    try {
+      if (modelCannotContinue) await decline();
+      else await respond({ id: approval.id, approved, ...(!approved ? { reason: t("chat.messages.approvalRejectedReason") } : {}) });
+    }
     catch (cause) { setError(cause instanceof Error ? cause.message : t("ui.chat.approval-dock.approvalFailedPleaseTryAgain")); }
     finally { busy.current = false; setSubmitting(false); }
   }
@@ -61,10 +67,13 @@ function ApprovalRequest({ part, count, disabled, respond, onDetails }: {
         {edit ? <p className="truncate text-xs text-muted-foreground" title={String(edit.path ?? "")}>{t("ui.chat.approval-dock.file")}{String(edit.path ?? "")} {tf("ui.chat.approval-dock.changeCounts", { added: Number(edit.added ?? 0), removed: Number(edit.removed ?? 0) })}</p> : null}
         {edit?.stale ? <p role="alert" className="text-xs text-destructive">{t("ui.chat.approval-dock.staleEdit")}</p> : null}
       </div>
-      <div className="flex shrink-0 items-center gap-1">
+      {modelCannotContinue ? <div className="flex shrink-0 items-center gap-1">
+        <Button size="sm" disabled={submitting} onClick={changeModel}><ArrowLeftRight data-icon="inline-start" />{t("chat.approval.changeModel")}</Button>
+        <Button size="sm" variant="outline" disabled={disabled || submitting} onClick={event => { if (event.detail <= 1) void decide(false); }}>{submitting ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <X data-icon="inline-start" />}{t("chat.approval.decline")}</Button>
+      </div> : <div className="flex shrink-0 items-center gap-1">
         <Button size="sm" disabled={disabled || submitting} onClick={event => { if (event.detail <= 1) void decide(true); }}>{submitting ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Check data-icon="inline-start" />}{t("chat.messages.approve")}</Button>
         <Button size="sm" variant="outline" disabled={disabled || submitting} onClick={event => { if (event.detail <= 1) void decide(false); }}><X data-icon="inline-start" />{t("chat.messages.reject")}</Button>
-      </div>
+      </div>}
     </CardHeader>
     <div id={detailsId} className="approval-details" data-state={expanded ? "open" : "closed"} aria-hidden={!expanded} inert={!expanded}>
       <div className="min-h-0 overflow-hidden">
@@ -73,6 +82,7 @@ function ApprovalRequest({ part, count, disabled, respond, onDetails }: {
         </CardContent>
       </div>
     </div>
+    {modelCannotContinue ? <p role="status" className="px-3 pb-1 text-xs text-muted-foreground">{t("chat.approval.modelCannotContinue")}</p> : null}
     {error ? <p role="alert" className="px-3 pb-1 text-xs text-destructive">{localizeMessage(error)}</p> : null}
     <CardFooter className="flex-wrap gap-1 px-2 pb-1 pt-0">
       <Button size="sm" variant="ghost" aria-controls={detailsId} aria-expanded={expanded} onClick={() => setDetailsState(value => value === "open" ? "closed" : "open")}><ChevronDown data-icon="inline-start" className={cn("transition-transform duration-[--dur-fast] motion-reduce:transition-none", expanded && "rotate-180")} />{expanded ? t("ui.chat.approval-dock.collapseDetails") : t("media.viewDetails")}</Button>

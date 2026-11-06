@@ -6,7 +6,7 @@ import { createTestDatabase } from "../helpers/database";
 
 const cleanup = createTestDatabase();
 const { db } = await import("@/db");
-const { saveChatMessage, claimToolApproval } = await import("@/lib/chat/store");
+const { saveChatMessage, claimToolApproval, declineToolApprovals } = await import("@/lib/chat/store");
 const { encodePersistedAssistantToolMessage, decodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
 const digest = (text: string) => createHash("sha256").update(text).digest("hex");
 
@@ -114,4 +114,22 @@ test("a failed initial replacement rolls back the inserted message and history r
   const saved = await saveChatMessage({ chatId: chat.id, clientMessageId: "answer", role: "assistant", content: "Retry", updateExisting: true });
   assert.equal(saved.content, "Retry");
   assert.equal(await db.message.count({ where: { chatId: chat.id } }), 1);
+});
+
+test("giving up a pending approval records it as rejected without running it, once", async () => {
+  const chat = await db.chat.create({ data: { title: "Tool-less model" } });
+  const input = { command: "Get-Date" };
+  const content = encodePersistedAssistantToolMessage({ type: "assistant-tool-message", text: "Needs approval", tools: [
+    { toolName: "runTerminalCommand", toolCallId: "one", state: "approval-requested", input, approval: { id: "one-approval" } },
+    { toolName: "runTerminalCommand", toolCallId: "two", state: "approval-requested", input, approval: { id: "two-approval" } },
+  ] });
+  await saveChatMessage({ chatId: chat.id, role: "assistant", content, clientMessageId: "answer", updateExisting: true });
+  assert.deepEqual(await declineToolApprovals(chat.id, "answer", "Rejected by user"), ["one", "two"]);
+  const stored = decodePersistedAssistantToolMessage((await db.message.findFirstOrThrow({ where: { chatId: chat.id } })).content)!;
+  assert.deepEqual(stored.tools.map(tool => [tool.state, tool.approval?.approved, tool.approval?.reason]), [["output-denied", false, "Rejected by user"], ["output-denied", false, "Rejected by user"]]);
+  assert.equal(stored.tools.some(tool => "output" in tool && tool.output !== undefined), false, "nothing ran");
+  await assert.rejects(declineToolApprovals(chat.id, "answer", "Rejected by user"), { code: "CONFLICT" });
+  const approve: UIMessage = { id: "answer", role: "assistant", parts: [{ type: "tool-runTerminalCommand", toolCallId: "one", state: "approval-responded", input, approval: { id: "one-approval", approved: true } }] };
+  await assert.rejects(claimToolApproval(chat.id, approve), { code: "CONFLICT" }, "a given-up request cannot be approved afterwards");
+  await assert.rejects(declineToolApprovals(chat.id, "missing", "Rejected by user"), { code: "NOT_FOUND" });
 });

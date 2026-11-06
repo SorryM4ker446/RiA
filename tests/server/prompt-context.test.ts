@@ -135,3 +135,12 @@ test("with a current summary only the turns after it are read from storage", asy
   assert.match(prompt, /Routine question number 10\b/, "turns after the boundary are read from storage");
   assert.doesNotMatch(prompt, /BLUE-WHALE-42|Routine question number 5\b/, "turns inside the summary are not resent");
 });
+
+test("a model that cannot call tools is told so once, not tool by tool", async () => {
+  const { unavailableToolLines } = await import("@/lib/prompts");
+  const lines = unavailableToolLines([{ id: "webSearch", reason: "modelUnsupported" }, { id: "searchKnowledge", reason: "modelUnsupported" }, { id: "createTask", reason: "modelUnsupported" }]);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /cannot call tools/);
+  assert.doesNotMatch(lines[0], /webSearch|searchKnowledge|createTask/);
+  assert.match(unavailableToolLines([{ id: "webSearch", reason: "templateDisabled" }])[0], /webSearch/, "a template's choice still names the tool");
+});

@@ -66,6 +66,8 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
     data: [
       catalogRow("anthropic/claude-opus-4.6", "Claude Opus Offline", ["text", "image"], ["text"]),
       catalogRow("google/gemini-3-flash-preview", "Gemini Flash Offline", ["text", "image"], ["text"]),
+      // A model whose catalog row offers no tool calling.
+      catalogRow("offline/plain-text", "Plain Offline", ["text"], ["text"], { supported_parameters: [] }),
       // Two rows the normalizer must skip: one that repeats an id already
       // seen, one whose id is not a usable `author/name`. A live feed carries
       // these routinely, and they must not cost the page the rest of the
@@ -91,14 +93,14 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
     return body.model === "anthropic/claude-opus-4.6" && JSON.stringify(body.messages).includes("OFFLINE_PRIMARY_FAILURE");
   } }).reply(503, options => {
     const body = JSON.parse(String(options.body));
-    process.send({ type: "provider-call", stream: body.stream === true, messages: body.messages });
+    process.send({ type: "provider-call", stream: body.stream === true, messages: body.messages, toolCount: Array.isArray(body.tools) ? body.tools.length : 0 });
     return JSON.stringify({ error: { message: "Synthetic primary unavailable", code: 503 } });
   }, { headers: { "content-type": "application/json" } }).persist();
   for (const stream of [false, true]) {
     provider.intercept({ path: "/api/v1/chat/completions", method: "POST", body: (body) => (JSON.parse(String(body)).stream === true) === stream }).reply(200, (options) => {
       const body = JSON.parse(String(options.body));
       // Record synthetic prompts over IPC, never headers, credentials or disk logs.
-      process.send({ type: "provider-call", stream: body.stream === true, messages: body.messages });
+      process.send({ type: "provider-call", stream: body.stream === true, messages: body.messages, toolCount: Array.isArray(body.tools) ? body.tools.length : 0 });
       if (body.tools?.some(tool => tool.type === "openrouter:web_search")) {
         return JSON.stringify({ id: "offline-gateway-search", choices: [{ message: { role: "assistant", content: "官方发布说明中的更新。", annotations: [{ type: "url_citation", url_citation: { title: "Offline official release", url: "https://example.invalid/official-release", content: "Official search evidence from the gateway." } }] }, finish_reason: "stop" }], usage: { prompt_tokens: 12, completion_tokens: 8, cost: 0.002, server_tool_use: { web_search_requests: 1 } } });
       }

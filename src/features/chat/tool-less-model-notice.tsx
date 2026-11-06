@@ -9,7 +9,7 @@ import type { ChatState } from "./use-chat-state";
 
 const STORAGE_KEY = "chat:tool-less-acknowledged";
 
-/** Answered once for each model until the app closes: a choice to revisit, not a question for every visit. */
+/** Answered once for each model, and each tool-using template with it, until the app closes: a choice to revisit, not a question for every visit. */
 function readAcknowledged(): string[] {
   try {
     const stored: unknown = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "[]");
@@ -30,8 +30,10 @@ export function ToolLessModelNotice({ modelMode, selectedModelInfo, isLoadingPre
   const [acknowledged, setAcknowledged] = useState<string[] | null>(null);
   const [changing, setChanging] = useState(false);
   const accepting = useRef(false);
-  const key = selectedModelInfo ? modelRefKey(selectedModelInfo) : "";
   const templateTools = activeChat?.assistantConfig?.tools;
+  // Choosing a template that relies on tools is a new decision, even with a model already accepted.
+  const templateId = templateTools?.length ? activeChat?.assistantConfig?.templateId : undefined;
+  const key = selectedModelInfo ? `${modelRefKey(selectedModelInfo)}${templateId ? `#${templateId}` : ""}` : "";
   const fixedByTemplate = !!activeChat?.assistantConfig?.model;
   const applies = modelMode === "chat" && !isLoadingPreferences && selectedModelInfo?.supportsTools === false && templateTools?.length !== 0;
   const answered = applies && (acknowledged ?? readAcknowledged()).includes(key);
