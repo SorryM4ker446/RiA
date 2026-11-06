@@ -1,5 +1,7 @@
 # RiA
 
+**English** · [简体中文](README.zh-CN.md)
+
 **A local-first AI agent for your Windows desktop: it answers from your own documents, uses tools with your approval, and remembers what matters to you.**
 
 ![RiA answering a question from the user's own documents, with citations](docs/images/chat.png)
