@@ -6,9 +6,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
-  compareVersions, installationRoot, launchInstaller, reconcileUpdateDirectory, UpdateService, verifyManifest,
+  compareVersions, diskFullVolume, installationRoot, launchInstaller, reconcileUpdateDirectory, removeEmptyVersionFolders, updateSpaceNeeds, UpdateService, verifyManifest, volumeOf,
   type UpdateManifest, type UpdateState,
 } from "../../electron/updater";
+import type { DesktopLogger } from "../../electron/logger";
 
 const silent = { info: () => {}, warn: () => {}, error: () => {} };
 const keys = generateKeyPairSync("ed25519");
@@ -42,12 +43,14 @@ function streamed(bytes: Buffer, gate?: Promise<void>): Response {
   }));
 }
 
-function service(directory: string, options: { manifest?: unknown; installer?: () => Response; launch?: () => Promise<void>; status?: number } = {}) {
+function service(directory: string, options: { manifest?: unknown; installer?: () => Response; launch?: () => Promise<void>; status?: number; freeSpace?: (path: string) => Promise<number>; logger?: DesktopLogger } = {}) {
   const requests: string[] = [];
   const launched: unknown[] = [];
   const states: UpdateState[] = [];
   const updates = new UpdateService({
-    supported: true, currentVersion: "1.2.3", directory, publicKey, logger: silent,
+    supported: true, currentVersion: "1.2.3", directory, publicKey, logger: options.logger ?? silent,
+    installerCacheDirectory: join(directory, "..", "installer-cache"),
+    freeSpace: options.freeSpace ?? (async () => Number.MAX_SAFE_INTEGER),
     manifestUrl: "https://updates.invalid/manifest.json",
     installerUrl: manifest => `https://updates.invalid/${manifest.filename}`,
     fetch: async (url, init) => {
@@ -233,6 +236,63 @@ test("one request downloads and installs, and a cancelled download installs noth
   }
 });
 
+test("an update needs its download's size where it is saved and two package copies plus headroom on the system volume", () => {
+  const megabytes = (count: number) => count * 1024 * 1024;
+  const bytes = megabytes(223), headroom = megabytes(128);
+  // The default case: the download in %TEMP% and Windows Installer's copies both on C:.
+  assert.deepEqual([...updateSpaceNeeds({ downloadDirectory: "C:\\Users\\u\\AppData\\Local\\Temp\\RiA-updates", installerCacheDirectory: "C:\\Windows\\Installer", bytes, downloaded: false })],
+    [["C:", bytes * 3 + headroom]]);
+  assert.deepEqual([...updateSpaceNeeds({ downloadDirectory: "D:\\temp\\RiA-updates", installerCacheDirectory: "c:\\windows\\Installer", bytes, downloaded: false })],
+    [["D:", bytes], ["C:", bytes * 2 + headroom]]);
+  // A finished download already occupies its space.
+  assert.deepEqual([...updateSpaceNeeds({ downloadDirectory: "C:\\temp", installerCacheDirectory: "C:\\Windows\\Installer", bytes, downloaded: true })],
+    [["C:", bytes * 2 + headroom]]);
+  assert.equal(volumeOf("e:\\RiA\\app-0.1.18"), "E:");
+});
+
+test("an update the disk cannot take is refused before the download and again before the installer runs", async () => {
+  const folder = temporary("ria-update-space-");
+  try {
+    let free = 0;
+    const run = service(folder.root, { freeSpace: async () => free });
+    await run.updates.check();
+    const refused = await run.updates.apply();
+    assert.deepEqual([refused.phase, refused.failure, refused.shortfall?.volume, refused.shortfall?.available], ["available", "space", volumeOf(folder.root), 0]);
+    assert.ok(refused.shortfall!.required > installerBytes.length * 3);
+    assert.equal(run.requests.filter(url => url.endsWith(".msi")).length, 0, "nothing is downloaded");
+
+    // Space freed: the download goes ahead; space used up again before installing: the verified download is kept.
+    free = Number.MAX_SAFE_INTEGER;
+    assert.deepEqual([(await run.updates.startDownload()).phase, run.updates.getState().shortfall], ["ready", null]);
+    free = 1024;
+    const held = await run.updates.install();
+    assert.deepEqual([held.phase, held.failure, held.shortfall?.available, run.launched.length], ["ready", "space", 1024, 0]);
+    assert.deepEqual(readdirSync(folder.root), ["RiA-1.2.4-x64.msi"], "no install attempt is recorded");
+
+    free = Number.MAX_SAFE_INTEGER;
+    const installed = await run.updates.apply();
+    assert.deepEqual([installed.phase, installed.failure, installed.shortfall, run.launched.length], ["installing", null, null, 1]);
+    assert.equal(run.requests.filter(url => url.endsWith(".msi")).length, 1, "the retry reuses the download");
+
+    // Free space that cannot be read does not stand in the way.
+    rmSync(folder.root, { recursive: true, force: true });
+    const unknown = service(folder.root, { freeSpace: async () => { throw new Error("unavailable"); } });
+    await unknown.updates.check();
+    assert.equal((await unknown.updates.apply()).phase, "installing");
+  } finally {
+    folder.remove();
+  }
+});
+
+test("a Windows Installer log is read for the drive that ran out of space, in either of its encodings", () => {
+  const utf16 = (text: string) => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, "utf16le")]);
+  assert.equal(diskFullVolume(utf16("MSI (s) (24:00) [07:55:07:913]: Note: 1: 1601 2: C: 3: 218,345 4: 208,524 \r\n")), "C:");
+  assert.equal(diskFullVolume(utf16("MSI (s) (88:30) [08:10:45:426]: Note: 1: 1307 2: e:\\RiA\\app-0.1.18\\RiA.exe \r\n")), "E:");
+  assert.equal(diskFullVolume(Buffer.from("Note: 1: 1307 2: D:\\x.msi")), "D:");
+  // Other notes, and messages in the installer's language, are not read as a full disk.
+  assert.equal(diskFullVolume(utf16("Note: 1: 2205 2:  3: Error \r\nNote: 1: 1402 2: HKEY_LOCAL_MACHINE\\Software 3: 2 \r\n磁盘空间不足")), null);
+});
+
 test("the update folder is emptied at start-up and the outcome of the last install is reported", async () => {
   const folder = temporary("ria-update-reconcile-");
   try {
@@ -255,18 +315,87 @@ test("the update folder is emptied at start-up and the outcome of the last insta
     assert.equal(existsSync(directory), false);
 
     prepare({ "pending.json": '{"version":"1.2.4"}', "install-result.json": '{"exitCode":1603}', "install.log": "failure details" });
-    assert.deepEqual(await reconcile("1.2.3"), { outcome: "failed", version: "1.2.4", exitCode: 1603, logFile: join(logs, "update-install.log") });
+    assert.deepEqual(await reconcile("1.2.3"), { outcome: "failed", version: "1.2.4", exitCode: 1603, logFile: join(logs, "update-install.log"), diskFull: null });
     assert.equal(readFileSync(join(logs, "update-install.log"), "utf8"), "failure details");
     assert.equal(existsSync(directory), false);
 
+    // Windows Installer's own UTF-16 log says which drive ran out of space while it cached the package.
+    const msiLog = (text: string) => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, "utf16le")]);
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, "pending.json"), '{"version":"1.2.4"}');
+    writeFileSync(join(directory, "install-result.json"), '{"exitCode":1603}');
+    writeFileSync(join(directory, "install.log"), msiLog("MSI (s) (88:30) [08:10:45:426]: Note: 1: 1307 2: C:\\WINDOWS\\Installer\\215fe321.msi \r\n"));
+    assert.deepEqual(await reconcile("1.2.3"), { outcome: "failed", version: "1.2.4", exitCode: 1603, logFile: join(logs, "update-install.log"), diskFull: "C:" });
+
     // The installer step never ran.
     prepare({ "pending.json": '{"version":"1.2.4"}' });
-    assert.deepEqual(await reconcile("1.2.3"), { outcome: "failed", version: "1.2.4", exitCode: null, logFile: null });
+    assert.deepEqual(await reconcile("1.2.3"), { outcome: "failed", version: "1.2.4", exitCode: null, logFile: null, diskFull: null });
 
     prepare({ "RiA-1.2.4-x64.msi.partial": "half", "RiA-1.2.4-x64.msi": "never installed" });
     assert.equal(await reconcile("1.2.3"), null);
     assert.equal(existsSync(directory), false);
     assert.equal(await reconcile("1.2.3"), null, "a missing folder is the normal case");
+  } finally {
+    folder.remove();
+  }
+});
+
+test("empty folders of replaced versions are removed beside the running one, and nothing else", async () => {
+  const folder = temporary("ria-version-folders-");
+  try {
+    const root = folder.root;
+    const make = (path: string, file?: string) => { mkdirSync(join(root, path), { recursive: true }); if (file) writeFileSync(join(root, path, file), "kept"); };
+    make("app-1.2.3", "RiA.exe");        // the running version
+    make("app-1.2.2");                   // left empty by an upgrade
+    make("APP-1.2.1");                   // the same, in another case
+    make("app-1.2.0", "notes.txt");      // still holds something
+    make("app-1.1.9/resources");         // not empty either
+    make("backup");                      // not a version folder
+    const logged: unknown[][] = [];
+    const logger = { ...silent, info: (...args: unknown[]) => { logged.push(args); } };
+    const removed = await removeEmptyVersionFolders(join(root, "app-1.2.3", "RiA.exe"), logger);
+    assert.deepEqual(removed.map(path => path.slice(root.length + 1)).sort(), ["APP-1.2.1", "app-1.2.2"]);
+    assert.deepEqual(readdirSync(root).sort(), ["app-1.1.9", "app-1.2.0", "app-1.2.3", "backup"]);
+    assert.equal(logged.length, 1);
+    // Outside a versioned folder (a development run) nothing is looked at.
+    make("app-0.0.1");
+    assert.deepEqual(await removeEmptyVersionFolders(join(root, "RiA.exe"), logger), []);
+    assert.ok(existsSync(join(root, "app-0.0.1")));
+  } finally {
+    folder.remove();
+  }
+});
+
+test("every step of an update is written to the desktop log", async () => {
+  const folder = temporary("ria-update-log-");
+  try {
+    const messages: string[] = [];
+    const record = (level: string) => (message: string) => { messages.push(`${level} ${message}`); };
+    const logger = { info: record("info"), warn: record("warn"), error: record("error") };
+    const run = service(folder.root, { logger });
+    await run.updates.check();
+    await run.updates.apply();
+    assert.deepEqual(messages, [
+      "info Update available", "info Downloading update", "info Update downloaded and verified", "info Update handed to Windows Installer",
+    ]);
+
+    messages.length = 0;
+    rmSync(folder.root, { recursive: true, force: true });
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const cancelled = service(folder.root, { logger, installer: () => streamed(installerBytes, gate) });
+    await cancelled.updates.check();
+    const applying = cancelled.updates.apply();
+    await new Promise(resolve => setTimeout(resolve, 50));
+    cancelled.updates.cancelDownload();
+    release();
+    await applying;
+    assert.deepEqual(messages, ["info Update available", "info Downloading update", "info Update download cancelled"]);
+
+    messages.length = 0;
+    const current = service(folder.root, { logger, manifest: signed({ version: "1.2.3" }) });
+    await current.updates.check();
+    assert.deepEqual(messages, ["info Update check: up to date"]);
   } finally {
     folder.remove();
   }
@@ -287,10 +416,11 @@ test("the installer step, started as the application starts it, waits for the ap
     writeFileSync(installer, "installer");
     // Records the arguments it received as UTF-8, as Windows Installer receives them: as Unicode.
     const fakeInstaller = join(folder.root, "fake installer.cmd");
-    writeFileSync(join(folder.root, "record.js"), `require("node:fs").writeFileSync(require("node:path").join(__dirname, "arguments.json"), JSON.stringify(process.argv.slice(2))); process.exit(1603);`);
+    writeFileSync(join(folder.root, "record.js"), `const { writeFileSync } = require("node:fs"), { join } = require("node:path"); writeFileSync(join(__dirname, "arguments.json"), JSON.stringify(process.argv.slice(2))); writeFileSync(join(__dirname, "cwd.txt"), process.cwd()); process.exit(1603);`);
     writeFileSync(fakeInstaller, `@"${process.execPath}" "%~dp0record.js" %*\r\n@exit /b %ERRORLEVEL%\r\n`);
     const relaunch = join(root, "relaunch.cmd");
     writeFileSync(relaunch, `@echo relaunched> "%~dp0relaunched.txt"\r\n`);
+    const system = join(process.env.SystemRoot || "C:\\Windows", "System32");
     const application = spawn(process.execPath, ["-e", "setTimeout(() => {}, 1500)"], { stdio: "ignore", windowsHide: true });
     const exited = new Promise<number>(resolve => application.once("exit", () => resolve(Date.now())));
     // Detached through Windows Script Host, exactly as the application starts it:
@@ -298,7 +428,7 @@ test("the installer step, started as the application starts it, waits for the ap
     await launchInstaller({
       installer, installLog: join(folder.root, "install.log"), resultFile: join(folder.root, "install-result.json"),
       installRoot: root, relaunch, waitForPid: application.pid!,
-    }, { directory: folder.root, system: join(process.env.SystemRoot || "C:\\Windows", "System32"), installer: { program: fakeInstaller, window: 0 } });
+    }, { directory: folder.root, system, installer: { program: fakeInstaller, window: 0 } });
     // Starting the application again is the step's last action, so its effect is the signal
     // that everything before it has happened. The result file is not: the installer is
     // deleted after that file appears.
@@ -313,6 +443,8 @@ test("the installer step, started as the application starts it, waits for the ap
     assert.deepEqual(JSON.parse(readFileSync(argumentsFile, "utf8")),
       ["/i", installer, "/passive", "/norestart", "/L*V", join(folder.root, "install.log"), `APPLICATIONROOTDIRECTORY=${root}`]);
     assert.deepEqual(JSON.parse(readFileSync(join(folder.root, "install-result.json"), "utf8")), { exitCode: 1603 });
+    // Not the application's folder: a process's current directory cannot be removed, so an inherited one survived the upgrade.
+    assert.equal(readFileSync(join(folder.root, "cwd.txt"), "utf8").toLowerCase(), system.toLowerCase());
     assert.equal(existsSync(installer), false, "the installer was not deleted after the installation");
   } finally {
     folder.remove();

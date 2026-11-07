@@ -14,7 +14,7 @@ import { Status } from "@/components/ui/status";
 import { useToast } from "@/components/ui/toast";
 import { SettingsSection } from "@/features/settings/settings-section";
 import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
-import { updatePercent, useUpdate } from "@/features/updates/update-provider";
+import { updateFailureText, updatePercent, useUpdate } from "@/features/updates/update-provider";
 
 type Bridge = NonNullable<NonNullable<Window["riaDesktop"]>["updates"]>;
 
@@ -64,7 +64,7 @@ export function UpdateSettings() {
     }
   }
 
-  const failure = state?.failure ? t(`settings.updates.failure.${state.failure}`) : null;
+  const failure = state ? updateFailureText(state) : null;
   const percent = state ? updatePercent(state) : 0;
 
   return (
@@ -130,7 +130,9 @@ function PreviousInstallNote({ previous }: { previous: NonNullable<DesktopUpdate
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
       {/* No exit code means Windows Installer never ran, which an error code of "—" did not say. */}
-      <span>{previous.exitCode === null ? tf("settings.updates.notStarted", { version: previous.version }) : tf("settings.updates.failed", { version: previous.version, code: previous.exitCode })}</span>
+      <span>{previous.exitCode === null ? tf("settings.updates.notStarted", { version: previous.version })
+        : previous.diskFull ? tf("settings.updates.failedDiskFull", { version: previous.version, volume: previous.diskFull, code: previous.exitCode })
+        : tf("settings.updates.failed", { version: previous.version, code: previous.exitCode })}</span>
       {logFile ? <Button onClick={() => void window.riaDesktop?.revealPath(logFile)} size="sm" type="button" variant="ghost">{t("settings.updates.showLog")}</Button> : null}
     </div>
   );

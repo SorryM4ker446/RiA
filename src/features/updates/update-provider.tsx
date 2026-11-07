@@ -72,10 +72,20 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   </UpdateContext.Provider>;
 }
 
+/** Why the last update action failed, in words; a lack of space names the drive and the megabytes. */
+export function updateFailureText(state: DesktopUpdateState): string | null {
+  if (!state.failure) return null;
+  if (state.failure === "space" && state.shortfall) {
+    const megabytes = (bytes: number) => Math.ceil(bytes / 1024 / 1024);
+    return tf("settings.updates.failure.space", { volume: state.shortfall.volume, required: megabytes(state.shortfall.required), available: Math.floor(state.shortfall.available / 1024 / 1024) });
+  }
+  return t(`settings.updates.failure.${state.failure === "space" ? "install" : state.failure}`);
+}
+
 function UpdateDialog({ open, state, unavailable, onClose, onRetry }: { open: boolean; state: DesktopUpdateState; unavailable: boolean; onClose: () => void; onRetry: () => void }) {
   const version = state.availableVersion ?? "";
   const percent = updatePercent(state);
-  const failure = unavailable ? t("settings.updates.unavailable") : state.failure ? t(`settings.updates.failure.${state.failure}`) : null;
+  const failure = unavailable ? t("settings.updates.unavailable") : updateFailureText(state);
   // A failed install leaves the verified download in place ("ready"), so a failure outranks that phase.
   const failed = Boolean(failure) && state.phase !== "downloading" && state.phase !== "installing";
   const working = !failed && (state.phase === "downloading" || state.phase === "ready" || state.phase === "installing");

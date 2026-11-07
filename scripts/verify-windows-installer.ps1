@@ -60,4 +60,13 @@ $responseCache = @(Read-MsiTable 'Directory' | Where-Object { $_[2] -match '(^|\
 if ($responseCache.Count -ne 0) {
     throw 'Compiled MSI contains regenerable Next.js response caches'
 }
-Write-Output "Verified compiled MSI version, application identity, Chinese directory selection, per-machine scope, per-user installation refusal, default logging and uninstall actions: $artifact"
+# InstallExecuteSequence columns: Action, Condition, Sequence. Removing the earlier
+# version after InstallInitialize keeps it inside the upgrade transaction, so a
+# failed upgrade restores it instead of leaving nothing installed.
+$sequence = @{}
+Read-MsiTable 'InstallExecuteSequence' | ForEach-Object { $sequence[$_[0]] = [int]$_[2] }
+if (-not $sequence.ContainsKey('RemoveExistingProducts') -or -not $sequence.ContainsKey('InstallInitialize') -or -not $sequence.ContainsKey('InstallFiles') -or
+    $sequence.RemoveExistingProducts -le $sequence.InstallInitialize -or $sequence.RemoveExistingProducts -ge $sequence.InstallFiles) {
+    throw 'Compiled MSI removes the earlier version outside the upgrade transaction'
+}
+Write-Output "Verified compiled MSI version, application identity, Chinese directory selection, per-machine scope, per-user installation refusal, default logging, upgrade rollback and uninstall actions: $artifact"
