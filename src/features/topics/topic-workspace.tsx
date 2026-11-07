@@ -1,7 +1,7 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
 
-import { t, tf, localizeMessage } from "@/lib/locale";
+import { formatList, t, tf, localizeMessage } from "@/lib/locale";
 
 import { SelectField, SelectOption } from "@/components/ui/select";
 import { useEffect, useRef, useState } from "react";
@@ -104,7 +104,7 @@ export function TopicWorkspace({ topicId }: { topicId: string }) {
     <Reveal className="-mt-5">{notice ? <p role="status" className="mt-5 break-words rounded-lg p-3 text-sm shadow-hairline">{localizeMessage(notice)}</p> : null}</Reveal>
     {topic ? <>
       <Card className="topic-section"><CardHeader><CardTitle>{t("ui.topics.topic-workspace.knowledgeDefaults")}</CardTitle></CardHeader><CardContent className="space-y-3 text-sm">
-        <p className="break-words">{t("ui.topics.topic-workspace.collections")}{topic.config.collections.join("、")}</p><p>{t("ui.topics.topic-workspace.defaultAssistant")}{assistants.find(item => item.id === topic.config.assistantTemplateId)?.config.name ?? (topic.config.assistantTemplateId ? t("ui.topics.topic-workspace.originalTemplateUnavailableUpdateSettings") : t("ui.topics.topic-workspace.currentDefaultChatModel"))}</p>
+        <p className="break-words">{t("ui.topics.topic-workspace.collections")}{formatList(topic.config.collections)}</p><p>{t("ui.topics.topic-workspace.defaultAssistant")}{assistants.find(item => item.id === topic.config.assistantTemplateId)?.config.name ?? (topic.config.assistantTemplateId ? t("ui.topics.topic-workspace.originalTemplateUnavailableUpdateSettings") : t("ui.topics.topic-workspace.currentDefaultChatModel"))}</p>
         <Link className="inline-block text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground" href="/knowledge">{t("ui.topics.topic-workspace.manageDocumentsIndexes")}</Link>
         {editing ? <div className="surface-enter"><TopicEditor key={`${topic.id}:${topic.revision}`} initial={topic.config} assistants={assistants} collections={[...new Set(docs.flatMap(document => document.collection ? [document.collection] : []))]} busy={busy} save={save} cancel={() => setEditing(false)} /></div> : null}
         {!scoped.length ? <p>{t("ui.topics.topic-workspace.theseCollectionsHaveNoDocumentsImport")}</p> : <ul className="space-y-2">{scoped.map(document => <li key={document.id} className="break-words"><Link className="underline" href={`/knowledge/documents/${document.id}`}>{document.filename}</Link> · {document.collection}{(readiness => readiness ? ` · ${readiness.label}` : "")(documentReadiness(document, false))}</li>)}</ul>}
@@ -132,7 +132,7 @@ export function TopicWorkspace({ topicId }: { topicId: string }) {
       <Card className="topic-section"><CardHeader><CardTitle>{t("ui.topics.topic-workspace.artifactHistory")}</CardTitle></CardHeader><CardContent className="space-y-3">
         {!artifacts.length ? <p className="text-sm">{t("ui.topics.topic-workspace.noArtifactsYet")}</p> : <ul className="space-y-2">{artifacts.map(item => <li key={item.id} {...removalKey(item.id)}><button disabled={busy} className="break-words text-left text-sm underline" onClick={() => void openArtifact(item.id)}>{item.title} · {statuses()[item.status]}</button></li>)}</ul>}
         {selected ? <article className="min-w-0 space-y-3 rounded-lg border p-3"><h2 className="break-words font-semibold">{selected.title}</h2><p className="text-sm">{statuses()[selected.status]}{selected.errorCode ? ` · ${selected.errorCode}` : ""} {t("ui.topics.topic-workspace.topicVersion")}{selected.topicRevision}{selected.topicRevision !== topic.revision ? t("ui.topics.topic-workspace.usesPreviousTopicSettings") : ""}</p>
-          <p className="break-words text-xs text-muted-foreground">{t("ui.topics.topic-workspace.generationModel")}{selected.metadata.responseModelId ?? selected.metadata.model?.modelId ?? t("ui.topics.topic-workspace.notCalled")} {t("ui.topics.topic-workspace.collectionsAtGeneration")}{selected.metadata.topic.collections.join("、")}</p>
+          <p className="break-words text-xs text-muted-foreground">{t("ui.topics.topic-workspace.generationModel")}{selected.metadata.responseModelId ?? selected.metadata.model?.modelId ?? t("ui.topics.topic-workspace.notCalled")} {t("ui.topics.topic-workspace.collectionsAtGeneration")}{formatList(selected.metadata.topic.collections)}</p>
           {selected.status === "needs_review" ? <p role="alert" className="text-sm text-warning">{t("ui.topics.topic-workspace.theTextDidNotCiteSupplied")}</p> : null}
           {selected.content ? <><MarkdownMessage text={selected.content} /><p className="text-xs text-muted-foreground">{t("ui.topics.topic-workspace.aLinkDoesNotEstablishFactual")}</p><div className="flex flex-wrap gap-3 text-sm"><a className="underline" href={`${base}/artifacts/${selected.id}/export?format=markdown`}>{t("ui.topics.topic-workspace.exportMarkdown")}</a><a className="underline" href={`${base}/artifacts/${selected.id}/export?format=json`}>{t("ui.topics.topic-workspace.exportJSONWithCitationSnapshots")}</a></div></> : null}
           <DocumentSources sources={selected.metadata.sources} />

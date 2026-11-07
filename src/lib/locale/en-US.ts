@@ -495,7 +495,7 @@ export const enUS = {
   "documents.selectFirst": "Choose a document first.",
   "documents.tooLarge": "Documents must not exceed 8 MiB.",
   "documents.unchanged": "Content is unchanged. The existing index was preserved.",
-  "documents.countOpen": "(",
+  "documents.countOpen": " (",
   "documents.countClose": ")",
   "documents.libraryTitle": "Document library",
   "documents.libraryDescription": "Parses PDF, Markdown, TXT and Word .docx locally and searches them by keyword or meaning; up to 8 MiB and 100,000 characters each, 100 documents in total.",

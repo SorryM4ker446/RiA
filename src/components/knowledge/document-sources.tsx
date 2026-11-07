@@ -1,7 +1,7 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
 
-import { t, tf } from "@/lib/locale";
+import { formatList, t, tf } from "@/lib/locale";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -38,7 +38,7 @@ export function DocumentSources({ sources, compact = false }: { sources: Documen
       {sources.map(source => <li key={source.chunkId}>
         {source.citationStatus ? <p className="mb-1 font-medium">{source.citationStatus === "cited" ? t("ui.knowledge.document-sources.thisExcerptWasCitedInThe") : t("ui.knowledge.document-sources.retrievedReferenceNotCitedInThe")}</p> : null}
         <Link className="font-medium tracking-label underline underline-offset-4 hover:no-underline" href={documentSourceUrl(source)}>{source.filename} · {source.pageNumber ? `${t("documents.pageLabel")} ${source.pageNumber} ${t("documents.pageUnit")}` : `${t("documents.chunkLabel")} ${source.ordinal + 1}`}</Link>
-        <p className="mt-1 text-muted-foreground">{/* How it was found (keywords, meaning, both) is for the execution record, not the citation. */}{tf("ui.knowledge.document-sources.collection", { v0: source.retrieval === "neighbor" ? t("ui.retrieval.neighbor") : "", v1: source.collection ?? t("ui.retrieval.uncategorized"), v2: source.heading ? tf("ui.retrieval.heading", { v0: source.heading }) : "", v3: source.matchedTerms?.length ? tf("ui.retrieval.matchedTerms", { v0: source.matchedTerms.join("、") }) : "" })}</p>
+        <p className="mt-1 text-muted-foreground">{/* How it was found (keywords, meaning, both) is for the execution record, not the citation. */}{tf("ui.knowledge.document-sources.collection", { v0: source.retrieval === "neighbor" ? t("ui.retrieval.neighbor") : "", v1: source.collection ?? t("ui.retrieval.uncategorized"), v2: source.heading ? tf("ui.retrieval.heading", { v0: source.heading }) : "", v3: source.matchedTerms?.length ? tf("ui.retrieval.matchedTerms", { v0: formatList(source.matchedTerms) }) : "" })}</p>
         <p role="status" className="mt-1 text-muted-foreground">{!statuses ? t("ui.knowledge.document-sources.checkingCitationVersion") : statuses.failed ? t("ui.knowledge.document-sources.citationVersionCouldNotBeChecked") : ({ current: t("ui.knowledge.document-sources.citationVersionMatchesVerified"), changed: t("ui.knowledge.document-sources.sourceUpdatedTheExcerptBelowPreserves"), deleted: t("ui.knowledge.document-sources.sourceDeletedOnlyTheHistoricalExcerpt"), unverified: t("ui.knowledge.document-sources.thisOlderCitationLacksVersionInformation") })[statuses?.rows.find(row => row.chunkId === source.chunkId)?.status ?? "unverified"]}</p>
         <p className="mt-1 line-clamp-4 whitespace-pre-wrap break-words text-muted-foreground">{source.snippet}</p>
       </li>)}

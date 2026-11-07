@@ -1,7 +1,7 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
 
-import { t, tf, localizeMessage } from "@/lib/locale";
+import { formatList, t, tf, localizeMessage } from "@/lib/locale";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,7 +38,7 @@ export function TemplateDetails({ snapshot }: { snapshot: AssistantSnapshot }) {
           </div>
           <div className="col-span-2 flex min-w-0 flex-col gap-1.5">
             <dt className="text-xs text-muted-foreground">{t("ui.assistants.template-details.templateKnowledgeScope")}</dt>
-            <dd className="break-words">{snapshot.collections.length ? snapshot.collections.join("、") : t("ui.assistants.allKnowledgeCollections")}</dd>
+            <dd className="break-words">{snapshot.collections.length ? formatList(snapshot.collections) : t("ui.assistants.allKnowledgeCollections")}</dd>
           </div>
         </dl>
         <section className="flex flex-col gap-2">

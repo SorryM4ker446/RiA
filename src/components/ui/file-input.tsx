@@ -4,7 +4,7 @@ import { useLocale } from "@/lib/locale/client";
 import * as React from "react";
 import { Upload } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
-import { t } from "@/lib/locale";
+import { formatList, t } from "@/lib/locale";
 
 type FileInputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, "type" | "className"> & {
   className?: string;
@@ -51,7 +51,7 @@ export const FileInput = React.forwardRef<HTMLInputElement, FileInputProps>(
             {buttonLabel ?? t("common.chooseFile")}
           </span>
           <span className="min-w-0 flex-1 truncate text-left text-muted-foreground">
-            {names.length > 0 ? names.join("、") : (placeholder ?? t("common.noFileChosen"))}
+            {names.length > 0 ? formatList(names) : (placeholder ?? t("common.noFileChosen"))}
           </span>
         </label>
         <input

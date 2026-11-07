@@ -1,7 +1,7 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
 
-import { t, localizeMessage } from "@/lib/locale";
+import { formatList, t, localizeMessage } from "@/lib/locale";
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -39,7 +39,7 @@ export default function TopicsPage() {
       <span className="item-row-icon"><Layers aria-hidden="true" /></span>
       <div className="flex min-w-0 flex-col gap-0.5"><h3 className="text-sm font-medium"><Link className="item-row-open break-words" href={`/topics/${topic.id}`}>{topic.config.name}</Link></h3>
         {topic.config.description ? <p className="line-clamp-1 break-words text-xs text-muted-foreground">{topic.config.description}</p> : null}</div>
-      <span className="col-meta col-optional">{topic.config.collections.join("、")}</span>
+      <span className="col-meta col-optional">{formatList(topic.config.collections)}</span>
       <span className="col-meta col-end">{topic._count.chats}</span>
       <span className="col-meta col-end">{topic._count.artifacts}</span>
     </li>)}</ul>}
