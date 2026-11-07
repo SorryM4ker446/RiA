@@ -38,6 +38,10 @@ export function applyLocale(locale: Locale) {
 export function t(key: MessageKey, locale: Locale = getLocale()): string {
   return (locale === "en-US" ? enUS : zhCN)[key];
 }
+/** Items as one list in running text: "A、B、C" in Chinese, "A, B, C" in English. */
+export function formatList(items: readonly string[], locale: Locale = getLocale()): string {
+  return items.join(locale === "en-US" ? ", " : "、");
+}
 export function tf(key: MessageKey, vars: Record<string, string | number>, locale: Locale = getLocale()): string {
   return t(key, locale).replace(/\{(\w+)\}/g, (match, name: string) =>
     Object.hasOwn(vars, name) ? String(vars[name]) : match,

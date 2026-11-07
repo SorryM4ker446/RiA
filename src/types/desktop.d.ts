@@ -20,10 +20,12 @@ type DesktopUpdateState = {
   checkedAt: string | null;
   received: number;
   total: number;
-  failure: "network" | "verification" | "install" | null;
+  failure: "network" | "verification" | "install" | "space" | null;
+  /** Which volume lacked room, while the failure is "space". */
+  shortfall: { volume: string; required: number; available: number } | null;
   previousInstall:
     | { outcome: "installed" | "cancelled"; version: string }
-    | { outcome: "failed"; version: string; exitCode: number | null; logFile: string | null }
+    | { outcome: "failed"; version: string; exitCode: number | null; logFile: string | null; diskFull: string | null }
     | null;
 };
 

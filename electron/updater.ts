@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 import { createHash, createPublicKey, verify } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { copyFile, mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { copyFile, mkdir, open, readdir, readFile, rename, rm, rmdir, statfs, writeFile } from "node:fs/promises";
+import { basename, dirname, join, win32 } from "node:path";
 import type { DesktopLogger } from "./logger";
 
 export const UPDATE_REPOSITORY = "SorryM4ker446/RiA";
@@ -13,12 +13,14 @@ export const installerUrl = (manifest: UpdateManifest) =>
 export type UpdateManifest = { product: "RiA"; version: string; platform: "win32"; arch: "x64"; filename: string; bytes: number; sha256: string };
 
 export type UpdatePhase = "idle" | "checking" | "current" | "available" | "downloading" | "ready" | "installing";
-export type UpdateFailure = "network" | "verification" | "install";
+export type UpdateFailure = "network" | "verification" | "install" | "space";
+/** A volume without room for the update, in bytes. */
+export type SpaceShortfall = { volume: string; required: number; available: number };
 /** What became of the update the previous run handed to Windows Installer. */
 export type PreviousInstall =
   | { outcome: "installed"; version: string }
   | { outcome: "cancelled"; version: string }
-  | { outcome: "failed"; version: string; exitCode: number | null; logFile: string | null };
+  | { outcome: "failed"; version: string; exitCode: number | null; logFile: string | null; diskFull: string | null };
 
 export type UpdateState = {
   supported: boolean;
@@ -30,6 +32,8 @@ export type UpdateState = {
   total: number;
   /** The last action that failed, cleared when the next one starts. */
   failure: UpdateFailure | null;
+  /** Which volume lacked room, while the failure is "space". */
+  shortfall: SpaceShortfall | null;
   previousInstall: PreviousInstall | null;
 };
 
@@ -46,6 +50,9 @@ export type InstallPlan = {
 };
 
 class VerificationError extends Error {}
+class SpaceError extends Error {
+  constructor(readonly shortfall: SpaceShortfall) { super(`Not enough free space on ${shortfall.volume}`); }
+}
 
 const VERSION = /^(\d+)\.(\d+)\.(\d+)$/;
 const MAX_MANIFEST_BYTES = 64 * 1024;
@@ -56,6 +63,17 @@ const PENDING_FILE = "pending.json";
 const RESULT_FILE = "install-result.json";
 const INSTALL_LOG = "install.log";
 const LAUNCHER_FILE = "install.js";
+/*
+ * Windows Installer works from a copy of the package in %WINDIR%\Installer,
+ * made before it checks disk space, and registers the product by writing a
+ * second cached copy there at the very end, which that check never counted.
+ * Both are the size of the MSI. The headroom covers the verbose installer log
+ * (tens of megabytes), rollback scripts and registry hives growing.
+ */
+const INSTALLER_PACKAGE_COPIES = 2;
+const INSTALL_HEADROOM_BYTES = 128 * 1024 * 1024;
+/** Windows Installer's "out of disk space" (1601) and "not enough space to install a file" (1307), as its log records them in any language. */
+const DISK_FULL_NOTE = /Note: 1: (?:1601 2: ([A-Za-z]:)|1307 2: ([A-Za-z]:)\\)/;
 
 export function compareVersions(left: string, right: string): number {
   const a = VERSION.exec(left), b = VERSION.exec(right);
@@ -98,13 +116,79 @@ async function fileDigest(path: string): Promise<{ bytes: number; sha256: string
   return { bytes, sha256: hash.digest("hex") };
 }
 
+/** The volume a path is on, as Windows names it ("C:"). */
+export function volumeOf(path: string): string {
+  return win32.parse(win32.resolve(path)).root.replace(/[\\/]+$/, "").toUpperCase();
+}
+
+/**
+ * The free space an update needs on each volume, in bytes.
+ *
+ * The download needs its own size where it is saved; Windows Installer needs
+ * room for its two copies of the package on the system volume. Once the
+ * download is on disk it is already counted in what is free.
+ */
+export function updateSpaceNeeds(input: { downloadDirectory: string; installerCacheDirectory: string; bytes: number; downloaded: boolean }): Map<string, number> {
+  const needs = new Map<string, number>();
+  const add = (path: string, bytes: number) => { const volume = volumeOf(path); needs.set(volume, (needs.get(volume) ?? 0) + bytes); };
+  if (!input.downloaded) add(input.downloadDirectory, input.bytes);
+  add(input.installerCacheDirectory, input.bytes * INSTALLER_PACKAGE_COPIES + INSTALL_HEADROOM_BYTES);
+  return needs;
+}
+
+/** The volume an installer log says ran out of space, if it says so. Windows Installer writes its log as UTF-16. */
+export function diskFullVolume(log: Buffer): string | null {
+  const text = log[0] === 0xff && log[1] === 0xfe ? log.subarray(2).toString("utf16le") : log.toString("utf8");
+  const match = DISK_FULL_NOTE.exec(text);
+  return match ? (match[1] ?? match[2]).toUpperCase() : null;
+}
+
+async function volumeFreeSpace(path: string): Promise<number> {
+  const stats = await statfs(win32.parse(win32.resolve(path)).root);
+  return stats.bavail * stats.bsize;
+}
+
 /**
  * The installation root of a packaged copy: the installer places the executable
  * in an `app-<version>` folder beneath it, beside a launcher of the same name.
  */
 export function installationRoot(executable: string): string {
   const folder = dirname(executable);
-  return /^app-\d+\.\d+\.\d+$/i.test(basename(folder)) ? dirname(folder) : folder;
+  return VERSION_FOLDER.test(basename(folder)) ? dirname(folder) : folder;
+}
+
+const VERSION_FOLDER = /^app-\d+\.\d+\.\d+$/i;
+
+/**
+ * Removes the empty `app-<version>` folders earlier versions left in the installation root.
+ *
+ * Windows Installer deletes every file and subfolder of the version it replaces
+ * or uninstalls, but it cannot delete a folder that a process has as its current
+ * directory, and the launcher starts the application in its versioned folder.
+ * Installers started from versions up to 0.1.18 inherited that directory, so each
+ * upgrade left the old version's folder behind, empty. Only empty folders are
+ * removed, so nothing that is still there is touched.
+ */
+export async function removeEmptyVersionFolders(executable: string, logger: DesktopLogger): Promise<string[]> {
+  const own = basename(dirname(executable));
+  if (!VERSION_FOLDER.test(own)) return [];
+  const root = dirname(dirname(executable));
+  const removed: string[] = [];
+  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !VERSION_FOLDER.test(entry.name) || entry.name.toLowerCase() === own.toLowerCase()) continue;
+    const folder = join(root, entry.name);
+    try {
+      await rmdir(folder);
+      removed.push(folder);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      // A folder that still holds something is not this leftover; leave it.
+      if (code !== "ENOTEMPTY" && code !== "ENOENT") logger.warn("Could not remove an empty folder left by an earlier version", { folder, code });
+    }
+  }
+  if (removed.length) logger.info("Removed empty folders left by earlier versions", { removed });
+  return removed;
 }
 
 /** How Windows Installer is started and shown; tests pass a stand-in that runs unseen. */
@@ -148,11 +232,15 @@ export function installLauncher(plan: InstallPlan, installer: InstallerProgram =
  * window, and keeps running after the application quits. The script is written
  * as UTF-16 with a byte-order mark, which Windows Script Host reads as Unicode, so
  * paths outside the ANSI code page survive.
+ *
+ * It runs in the system folder, and so does the installer it starts. Inheriting
+ * this process's current directory, the application's own versioned folder,
+ * kept that folder in use, so Windows Installer could empty it but not remove it.
  */
 export async function launchInstaller(plan: InstallPlan, options: { directory: string; system: string; installer?: InstallerProgram }): Promise<void> {
   const launcher = join(options.directory, LAUNCHER_FILE);
   await writeFile(launcher, `\ufeff${installLauncher(plan, options.installer)}`, "utf16le");
-  const child = spawn(join(options.system, "wscript.exe"), ["//B", "//Nologo", "//E:jscript", launcher], { detached: true, stdio: "ignore", windowsHide: true });
+  const child = spawn(join(options.system, "wscript.exe"), ["//B", "//Nologo", "//E:jscript", launcher], { cwd: options.system, detached: true, stdio: "ignore", windowsHide: true });
   await new Promise<void>((resolve, reject) => {
     child.once("spawn", resolve);
     child.once("error", reject);
@@ -184,7 +272,8 @@ export async function reconcileUpdateDirectory(input: { directory: string; curre
       else {
         const kept = join(logsDirectory, "update-install.log");
         const logFile = await copyFile(join(directory, INSTALL_LOG), kept).then(() => kept, () => null);
-        previous = { outcome: "failed", version, exitCode, logFile };
+        const diskFull = logFile ? await readFile(logFile).then(diskFullVolume, () => null) : null;
+        previous = { outcome: "failed", version, exitCode, logFile, diskFull };
       }
     }
   } catch {
@@ -221,6 +310,10 @@ export class UpdateService {
     supported: boolean;
     currentVersion: string;
     directory: string;
+    /** Where Windows Installer keeps its copies of a package (%WINDIR%\Installer). */
+    installerCacheDirectory: string;
+    /** Free bytes on the volume holding a path; tests stand in for the disk. */
+    freeSpace?: (path: string) => Promise<number>;
     publicKey: string;
     fetch: Fetch;
     logger: DesktopLogger;
@@ -232,13 +325,15 @@ export class UpdateService {
   }) {
     this.state = {
       supported: options.supported, phase: "idle", currentVersion: options.currentVersion, availableVersion: null,
-      checkedAt: null, received: 0, total: 0, failure: null, previousInstall: options.previousInstall ?? null,
+      checkedAt: null, received: 0, total: 0, failure: null, shortfall: null, previousInstall: options.previousInstall ?? null,
     };
   }
 
   getState(): UpdateState { return { ...this.state }; }
 
   private update(change: Partial<UpdateState>) {
+    // The shortfall describes a "space" failure and goes with it.
+    if ("failure" in change && change.failure !== "space") change = { ...change, shortfall: null };
     this.state = { ...this.state, ...change };
     this.options.onChange(this.getState());
   }
@@ -262,6 +357,7 @@ export class UpdateService {
       // No published release, or one without a manifest, offers nothing.
       if (response.status === 404) {
         this.manifest = null;
+        this.options.logger.info("Update check: no release manifest is published");
         this.update({ phase: "current", availableVersion: null, checkedAt: new Date().toISOString() });
         return this.getState();
       }
@@ -273,6 +369,7 @@ export class UpdateService {
       const manifest = verifyManifest(document, this.options.publicKey);
       const newer = compareVersions(manifest.version, this.options.currentVersion) > 0;
       this.manifest = newer ? manifest : null;
+      this.options.logger.info(newer ? "Update available" : "Update check: up to date", { current: this.options.currentVersion, latest: manifest.version });
       this.update({ phase: newer ? "available" : "current", availableVersion: newer ? manifest.version : null, checkedAt: new Date().toISOString() });
     } catch (error) {
       const failure = error instanceof VerificationError ? "verification" : "network";
@@ -280,6 +377,27 @@ export class UpdateService {
       this.update({ phase: before === "checking" ? "idle" : before, failure });
     }
     return this.getState();
+  }
+
+  /**
+   * Refuses an update the disk cannot take before anything is written, rather
+   * than leaving Windows Installer to run out of space part-way. A volume whose
+   * free space cannot be read is not held against the update.
+   */
+  private async ensureSpace(bytes: number, downloaded: boolean): Promise<void> {
+    const { directory, installerCacheDirectory } = this.options;
+    const needs = updateSpaceNeeds({ downloadDirectory: directory, installerCacheDirectory, bytes, downloaded });
+    const freeSpace = this.options.freeSpace ?? volumeFreeSpace;
+    for (const [volume, required] of needs) {
+      const path = volume === volumeOf(installerCacheDirectory) ? installerCacheDirectory : directory;
+      let available: number;
+      try { available = await freeSpace(path); }
+      catch (error) {
+        this.options.logger.warn("Could not read free disk space", { volume, error: error instanceof Error ? error.message : error });
+        continue;
+      }
+      if (available < required) throw new SpaceError({ volume, required, available });
+    }
   }
 
   /** Starts the download of the offered update; the returned promise settles when it ends. */
@@ -298,7 +416,11 @@ export class UpdateService {
       stall.unref?.();
     };
     try {
+      await this.ensureSpace(manifest.bytes, false);
+      if (this.download !== controller) throw new Error("The download was superseded.");
       await mkdir(this.options.directory, { recursive: true });
+      const started = Date.now();
+      this.options.logger.info("Downloading update", { version: manifest.version, bytes: manifest.bytes, file: final });
       armStall();
       const response = await this.options.fetch((this.options.installerUrl ?? installerUrl)(manifest), { signal: controller.signal, redirect: "follow" });
       if (!response.ok || !response.body) throw new Error(`Installer request failed (${response.status})`);
@@ -325,6 +447,7 @@ export class UpdateService {
       if (this.download !== controller) throw new Error("The download was superseded.");
       await rename(partial, final);
       this.installer = final;
+      this.options.logger.info("Update downloaded and verified", { version: manifest.version, bytes: received, seconds: Math.round((Date.now() - started) / 1000) });
       this.update({ phase: "ready", received });
     } catch (error) {
       await rm(partial, { force: true }).catch(() => {});
@@ -332,7 +455,8 @@ export class UpdateService {
       if (this.download === controller) {
         const cancelled = controller.signal.aborted && controller.signal.reason === "cancelled";
         if (!cancelled) this.options.logger.warn("Update download failed", error instanceof Error ? error.message : error);
-        this.update({ phase: "available", received: 0, failure: cancelled ? null : error instanceof VerificationError ? "verification" : "network" });
+        if (error instanceof SpaceError) this.update({ phase: "available", received: 0, failure: "space", shortfall: error.shortfall });
+        else this.update({ phase: "available", received: 0, failure: cancelled ? null : error instanceof VerificationError ? "verification" : "network" });
       }
     } finally {
       clearTimeout(stall);
@@ -356,6 +480,7 @@ export class UpdateService {
     if (this.state.phase !== "downloading" || !controller) return this.getState();
     this.download = null;
     controller.abort("cancelled");
+    this.options.logger.info("Update download cancelled", { version: this.state.availableVersion, received: this.state.received });
     this.update({ phase: "available", received: 0, failure: null });
     return this.getState();
   }
@@ -374,17 +499,22 @@ export class UpdateService {
     try {
       const digest = await fileDigest(installer);
       if (digest.bytes !== manifest.bytes || digest.sha256 !== manifest.sha256) throw new VerificationError("The downloaded installer changed after it was verified.");
+      await this.ensureSpace(manifest.bytes, true);
       await writeFile(join(this.options.directory, PENDING_FILE), JSON.stringify({ version: manifest.version, startedAt: new Date().toISOString() }));
       await this.options.launch({ installer, installLog: join(this.options.directory, INSTALL_LOG), resultFile: join(this.options.directory, RESULT_FILE) });
+      this.options.logger.info("Update handed to Windows Installer", { version: manifest.version, installer, installLog: join(this.options.directory, INSTALL_LOG) });
     } catch (error) {
-      this.options.logger.error("Could not start the update installer", error instanceof Error ? error.message : error);
+      if (error instanceof SpaceError) this.options.logger.warn("Update installation needs more free space", error.shortfall);
+      else this.options.logger.error("Could not start the update installer", error instanceof Error ? error.message : error);
       await rm(join(this.options.directory, PENDING_FILE), { force: true }).catch(() => {});
       const tampered = error instanceof VerificationError;
       if (tampered) {
         await rm(installer, { force: true }).catch(() => {});
         this.installer = null;
       }
-      this.update({ phase: tampered ? "available" : "ready", received: 0, failure: tampered ? "verification" : "install" });
+      // Too little space keeps the verified download, so freeing some and retrying needs no new download.
+      if (error instanceof SpaceError) this.update({ phase: "ready", received: 0, failure: "space", shortfall: error.shortfall });
+      else this.update({ phase: tampered ? "available" : "ready", received: 0, failure: tampered ? "verification" : "install" });
     }
     return this.getState();
   }

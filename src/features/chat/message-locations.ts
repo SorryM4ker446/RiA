@@ -1,4 +1,4 @@
-import { getLocale, t, type Locale } from "@/lib/locale";
+import { formatList, getLocale, t, type Locale } from "@/lib/locale";
 import type { UIMessage } from "ai";
 
 export type MessageLocation = { id: string; title: string; response: string };
@@ -10,7 +10,7 @@ function excerpt(message: UIMessage, locale: Locale) {
     if (text.length >= 240) break;
   }
   return text.replace(/\s+/g, " ").trim()
-    || message.parts.flatMap(part => part.type === "file" ? [part.filename || t("chat.messages.attachmentFallback", locale)] : []).join(locale === "en-US" ? ", " : "、").slice(0, 240)
+    || formatList(message.parts.flatMap(part => part.type === "file" ? [part.filename || t("chat.messages.attachmentFallback", locale)] : []), locale).slice(0, 240)
     || (message.parts.some(part => part.type.startsWith("tool-")) ? t("ui.chat.message-locations.toolAction", locale) : "");
 }
 

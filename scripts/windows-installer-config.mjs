@@ -33,6 +33,20 @@ export const windowsInstallerConfig = {
       throw new Error("Review the changed MSI uninstall template before packaging");
     }
     creator.wixTemplate = creator.wixTemplate.replace(purge, "");
+    /*
+     * Remove the earlier version inside the upgrade's own transaction. The
+     * template's default removes it before the transaction starts and commits
+     * that removal on its own, so an upgrade that then failed (out of disk space
+     * while Windows Installer cached the package) rolled back the new version
+     * and left neither installed. Removed inside it, a failure restores the
+     * earlier version. Its files are set aside in Config.Msi on their own
+     * volume until the upgrade commits.
+     */
+    const upgrade = '<MajorUpgrade AllowSameVersionUpgrades="yes" ';
+    if (!creator.wixTemplate.includes(upgrade) || /<MajorUpgrade[^>]*Schedule=/.test(creator.wixTemplate)) {
+      throw new Error("Review the changed MSI upgrade template before packaging");
+    }
+    creator.wixTemplate = creator.wixTemplate.replace(upgrade, `${upgrade}Schedule="afterInstallInitialize" `);
     // Keep rollback enabled and record failures even when launched by double-click.
     const loggingAnchor = '<Property Id="REINSTALLMODE" Value="emus" />';
     if (!creator.wixTemplate.includes(loggingAnchor) || creator.wixTemplate.includes('Id="MsiLogging"')) {

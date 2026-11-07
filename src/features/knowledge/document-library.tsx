@@ -2,7 +2,7 @@
 import { useLocale } from "@/lib/locale/client";
 import { useRefreshOnReturn } from "@/lib/use-refresh-on-return";
 
-import { t, tf, formatNumber, formatRelativeTime, localizeMessage } from "@/lib/locale";
+import { formatList, t, tf, formatNumber, formatRelativeTime, localizeMessage } from "@/lib/locale";
 
 import { SelectField, SelectOption } from "@/components/ui/select";
 
@@ -125,7 +125,7 @@ export function DocumentLibrary() {
   async function buildSemanticIndexes(targets: DocumentSummary[]) {
     if (operation.current || !targets.length) return;
     const models = [...new Set(targets.flatMap(document => document.semantic?.modelRef ? [document.semantic.modelRef.modelId] : []))];
-    if (!models.length || !(await confirm({ title: t("ui.confirm.buildIndex"), description: tf("ui.knowledge.document-library.sendPendingChunksFromDocumentsTo", { v0: targets.length, v1: models.join("、") }) })) || operation.current) return;
+    if (!models.length || !(await confirm({ title: t("ui.confirm.buildIndex"), description: tf("ui.knowledge.document-library.sendPendingChunksFromDocumentsTo", { v0: targets.length, v1: formatList(models) }) })) || operation.current) return;
     await run(async signal => {
       const items = await maintainDocumentIndexes(targets, signal, items => { if (!signal.aborted || operation.current?.signal === signal) setProgress(items); });
       if (!signal.aborted) {
@@ -146,7 +146,7 @@ export function DocumentLibrary() {
     </header>
     <form onSubmit={event => void upload(event)} aria-label={t("ui.knowledge.document-library.importKnowledgeDocuments")}>
       <FieldGroup className="grid items-end gap-3 sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_auto]">
-        <Field className="min-w-0 gap-2"><FieldLabel className="text-xs" htmlFor="knowledge-document-file">{t("documents.fileLabel")}</FieldLabel><FileInput id="knowledge-document-file" accept=".pdf,.md,.txt,.docx" aria-label={t("documents.fileLabel")} buttonLabel={t("documents.fileButton")} placeholder="PDF、Word、Markdown、TXT" disabled={busy} name="file" onChange={() => { setPreview(null); previewData.current = null; }} required /></Field>
+        <Field className="min-w-0 gap-2"><FieldLabel className="text-xs" htmlFor="knowledge-document-file">{t("documents.fileLabel")}</FieldLabel><FileInput id="knowledge-document-file" accept=".pdf,.md,.txt,.docx" aria-label={t("documents.fileLabel")} buttonLabel={t("documents.fileButton")} placeholder={formatList(["PDF", "Word", "Markdown", "TXT"])} disabled={busy} name="file" onChange={() => { setPreview(null); previewData.current = null; }} required /></Field>
         <Field className="min-w-0 gap-2"><FieldLabel className="text-xs" htmlFor="knowledge-document-collection">{t("documents.collectionLabel")}</FieldLabel><Input id="knowledge-document-collection" aria-label={t("documents.collectionLabel")} disabled={busy} list="document-collections" name="collection" onChange={event => { setCollection(event.target.value); setPreview(null); previewData.current = null; }} placeholder={t("documents.collectionPlaceholder")} value={collection} /><datalist id="document-collections">{[...new Set(documents.map(document => document.collection).filter((value): value is string => Boolean(value)))].map(value => <option key={value} value={value} />)}</datalist></Field>
         <Button disabled={busy} type="submit">{importing ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Upload data-icon="inline-start" />}{t("documents.import")}</Button>
       </FieldGroup>

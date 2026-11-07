@@ -1,9 +1,28 @@
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 import { zhCN } from "@/lib/locale/zh-CN";
 import { enUS } from "@/lib/locale/en-US";
-import { applyLocale, formatDateTime, getLocale, localizeMessage, normalizeLocale, subscribeLocale, systemLocale, t, tf } from "@/lib/locale";
+import { applyLocale, formatDateTime, formatList, getLocale, localizeMessage, normalizeLocale, subscribeLocale, systemLocale, t, tf } from "@/lib/locale";
 import { ASSISTANT_BASE_PROMPT } from "@/lib/prompts";
+
+test("lists and counts take the interface language's punctuation", () => {
+  assert.equal(formatList(["PDF", "Word", "Markdown", "TXT"], "en-US"), "PDF, Word, Markdown, TXT");
+  assert.equal(formatList(["财务", "IT", "人事"], "zh-CN"), "财务、IT、人事");
+  assert.equal(formatList(["travel"], "en-US"), "travel");
+  assert.equal(formatList([], "zh-CN"), "");
+  const count = (locale: "zh-CN" | "en-US") => `${t("documents.sourcesTitle", locale)}${t("documents.countOpen", locale)}7${t("documents.countClose", locale)}`;
+  assert.equal(count("en-US"), "Document references (7)");
+  assert.equal(count("zh-CN"), "文档参考（7）");
+  // Full-width punctuation is outside the CJK range the catalog test checks, so English text could carry it unnoticed.
+  for (const [key, value] of Object.entries(enUS)) assert.doesNotMatch(value, /[、，。（）：；]/, `${key} has Chinese punctuation`);
+  // Interface code joins lists through formatList; a hard-coded Chinese separator shows "、" in English.
+  const files = (folder: string): string[] => readdirSync(folder, { withFileTypes: true })
+    .flatMap(entry => entry.isDirectory() ? files(join(folder, entry.name)) : /\.tsx?$/.test(entry.name) ? [join(folder, entry.name)] : []);
+  const hardCoded = files("src").filter(file => !file.replaceAll("\\", "/").startsWith("src/lib/locale/") && /\.join\(\s*["'`]、["'`]\s*\)/.test(readFileSync(file, "utf8")));
+  assert.deepEqual(hardCoded, []);
+});
 
 test("English covers the Chinese catalog and preserves all interpolation variables", () => {
   assert.deepEqual(Object.keys(enUS).sort(), Object.keys(zhCN).sort());

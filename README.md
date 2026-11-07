@@ -4,7 +4,7 @@
 
 **A local-first AI agent for your Windows desktop: it answers from your own documents, uses tools with your approval, and remembers what matters to you.**
 
-![RiA answering a question from the user's own documents, with citations](docs/images/chat.png)
+![RiA answering a question from the user's own documents, with citations](docs/images/en/chat.png)
 
 RiA keeps your conversations, knowledge base, memory and settings on your computer, in a local SQLite database. You bring the model: connect OpenRouter for hundreds of chat, image, video and embedding models, or DeepSeek directly. Only what an operation needs is sent to the service that performs it.
 
@@ -12,7 +12,7 @@ Current version: **0.1.18** · Windows x64 · Built with Electron, Next.js, the 
 
 ## Ask your own documents
 
-![The knowledge library: imported documents, their status and a search with cited passages](docs/images/knowledge.png)
+![The knowledge library: imported documents, their status and a search with cited passages](docs/images/en/knowledge.png)
 
 Import PDF, Word, Markdown or text files, check the extracted text, and save them under topics such as Finance or IT. RiA indexes them in the background as soon as an embedding model is chosen; each document simply shows **Ready**, **Processing** or **Pending**.
 
@@ -20,25 +20,25 @@ Search combines keyword matching (BM25) with search by meaning, so a question in
 
 ## Tools, one keystroke away
 
-![The slash menu listing tools and assistant templates](docs/images/slash-menu.png)
+![The slash menu listing tools and assistant templates](docs/images/en/slash-menu.png)
 
 Type `/` in the message box to pick a tool, a Skill or an assistant template. Only what you can actually use is listed; the model can also choose tools on its own. Built in: knowledge search, document reading and conversion to Markdown, TXT, HTML or Word, web search through your chat model's provider, tasks with reminders, a PowerShell terminal, and file reading and editing in folders you grant. [Tools](docs/tool-readiness.md) · [Assistant templates](docs/assistant-templates.md)
 
 ## Nothing happens behind your back
 
-![An approval card showing the knowledge entry text that will be replaced](docs/images/approval.png)
+![An approval card showing the knowledge entry text that will be replaced](docs/images/en/approval.png)
 
 Actions with consequences wait for you. Each terminal command, file edit, external tool call and knowledge-base change shows exactly what will happen before you approve or reject it: the command, the diff, or the entry text being replaced. **Execution records** keep every step, tool input and output, source and failure for each request. Folder access is granted per folder, and the terminal is enabled separately. [Execution records](docs/execution-history.md) · [Terminal](docs/terminal-tools.md)
 
 ## It remembers what matters
 
-![Long-term memory sorted into topics under Settings, Your RiA](docs/images/memory.png)
+![Long-term memory sorted into topics under Settings, Your RiA](docs/images/en/memory.png)
 
 With long-term memory on, the model notes durable things about you, such as your role, how you like answers and the projects you work on, in a plain **MEMORY.md**. It judges carefully: most turns write nothing, and it never writes when you tell it not to. The notes are sorted into topics you can browse, edit and delete under **Settings → Your RiA**. Long conversations stay usable: as the context fills up, older turns are summarized while the model can still look up the original messages. [Long-term memory](docs/long-term-memory.md) · [Context management](docs/context-management.md)
 
 ## Your models, your keys
 
-![My models: chat, image, video and embedding models from OpenRouter](docs/images/models.png)
+![My models: chat, image, video and embedding models from OpenRouter](docs/images/en/models.png)
 
 Add the models you want from the live OpenRouter catalog or DeepSeek, choose defaults for chat, images, video and embeddings, and pick an optional auxiliary model for background work such as summaries. Context window, tool support and pricing come from the provider. Usage is recorded per request, and the usage ring in the message box shows what the context currently holds. A model that cannot call tools still chats; RiA asks you to confirm first and explains which features it can't use. API keys are kept in the system-encrypted store. [Models and usage](docs/model-usage.md)
 
@@ -61,7 +61,7 @@ Installing a Skill never runs its scripts or grants file access. [Plugins](docs/
 | Desktop | Tray, global hotkey, command palette (**Ctrl+K**), light and dark themes, Chinese and English interface. [Desktop](docs/desktop.md) |
 | Your data | Backup and restore, storage cleanup, scheduled backups and workspace reviews. [Backups](docs/workspace-backups.md) · [Storage](docs/media-storage.md) |
 
-![The same conversation in the light theme](docs/images/chat-light.png)
+![The same conversation in the light theme](docs/images/en/chat-light.png)
 
 <sub>Screenshots are of RiA 0.1.18 running with demo documents and a test model.</sub>
 

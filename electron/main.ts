@@ -32,7 +32,7 @@ import { desktopServiceEnvironment, findAvailablePort, startNextServer, type Nex
 import { resolveDesktopPaths, toSqliteUrl, type DesktopPaths } from "./paths";
 import { configureDesktopSession, secureBrowserWindow } from "./security";
 import { DesktopSettingsStore, type DesktopSettingsInput } from "./settings";
-import { installationRoot, launchInstaller, reconcileUpdateDirectory, UpdateService, type InstallPlan, type UpdateState } from "./updater";
+import { installationRoot, launchInstaller, reconcileUpdateDirectory, removeEmptyVersionFolders, UpdateService, type InstallPlan, type UpdateState } from "./updater";
 import { DEVELOPMENT_APP_USER_MODEL_ID, INSTALLED_APP_USER_MODEL_ID } from "./app-identity";
 import { UPDATE_SIGNING_PUBLIC_KEY } from "./update-signing-key";
 import { createTaskNotificationDelivery, TaskReminderPoller, type TaskReminder } from "./task-reminders";
@@ -474,7 +474,9 @@ function registerIpcHandlers() {
   ipcMain.handle("desktop:update:apply", event => {
     const service = updates(event);
     void service.apply().then(state => {
-      if (state.phase === "installing") setTimeout(() => quitFromTray(), 1500);
+      if (state.phase !== "installing") return;
+      logger?.info("Quitting so the update can install", { version: state.availableVersion, installRoot: installationRoot(process.execPath) });
+      setTimeout(() => quitFromTray(), 1500);
     }, error => logger?.error("Update failed", error));
     return service.getState();
   });
@@ -1302,6 +1304,8 @@ async function bootstrap() {
     supported: updatesSupported,
     currentVersion: applicationVersion,
     directory: updateDirectory,
+    // Windows Installer copies each package it runs into %WINDIR%\Installer.
+    installerCacheDirectory: join(process.env.SystemRoot || "C:\\Windows", "Installer"),
     publicKey: UPDATE_SIGNING_PUBLIC_KEY,
     // Chromium's network stack, so the system proxy configuration applies.
     fetch: (url, init) => net.fetch(url, init),
@@ -1312,6 +1316,8 @@ async function bootstrap() {
       ? await reconcileUpdateDirectory({ directory: updateDirectory, currentVersion: applicationVersion, logsDirectory: desktopPaths.logsDirectory, logger })
       : null,
   });
+  // Upgrades by earlier versions left their replaced versioned folders behind, empty.
+  if (updatesSupported) void removeEmptyVersionFolders(process.execPath, logger);
   registerIpcHandlers();
 
   const settings = await settingsStore.getView();

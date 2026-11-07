@@ -28,7 +28,7 @@ async function updateBridge(page: Page, initial: Record<string, unknown> = {}) {
     let checks = 0;
     let state: Record<string, unknown> = {
       supported: true, phase: "idle", currentVersion: "0.1.15", availableVersion: null, checkedAt: null,
-      received: 0, total: 0, failure: null, previousInstall: null, ...initial,
+      received: 0, total: 0, failure: null, shortfall: null, previousInstall: null, ...initial,
     };
     const change = (next: Record<string, unknown>) => { state = { ...state, ...next }; listeners.forEach(listener => listener(state)); return state; };
     const settings = { hasOpenrouterApiKey: true, hasDeepseekApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "", windowBounds: null, autoCheckUpdates: true, locale: "zh-CN" };
@@ -116,8 +116,28 @@ test("cancelling stops the update, and a failure offers a retry", async ({ page,
   expect((await recorded(page)).calls).toEqual(["apply", "cancel", "apply", "apply"]);
 });
 
+test("too little disk space names the drive and the megabytes, and an install that ran out of space says so", async ({ page, app }) => {
+  await updateBridge(page, {
+    phase: "available", availableVersion: "0.1.16",
+    previousInstall: { outcome: "failed", version: "0.1.16", exitCode: 1603, logFile: "C:\\RiA\\logs\\update-install.log", diskFull: "C:" },
+  });
+  await openWorkspace(page, app.origin);
+  await page.getByRole("button", { name: /新版本 0\.1\.16/ }).click();
+  await set(page, { phase: "available", received: 0, failure: "space", shortfall: { volume: "C:", required: 600 * 1024 * 1024 + 1, available: 200.5 * 1024 * 1024 } });
+  const failed = page.getByRole("alertdialog", { name: "更新未完成" });
+  await expect(failed).toContainText("C: 盘空间不足：更新需要 601 MB 可用空间，目前只有 200 MB。清理后重试。");
+  await failed.getByRole("button", { name: "关闭", exact: true }).click();
+
+  await page.goto(`${app.origin}/chat?settings=application`);
+  const card = settingsDialog(page).locator("#updates");
+  await expect(card).toContainText("0.1.16 未能安装：C: 盘空间不足（错误代码 1603），安装包已删除。清理出空间后再更新。");
+  // The page was reloaded, so the bridge reports the shortage afresh.
+  await set(page, { failure: "space", shortfall: { volume: "C:", required: 600 * 1024 * 1024, available: 0 } });
+  await expect(card.getByRole("alert")).toContainText("C: 盘空间不足：更新需要 600 MB 可用空间，目前只有 0 MB。");
+});
+
 test("an installer that never ran is reported as not run, not as an error code", async ({ page, app }) => {
-  await updateBridge(page, { previousInstall: { outcome: "failed", version: "0.1.16", exitCode: null, logFile: null } });
+  await updateBridge(page, { previousInstall: { outcome: "failed", version: "0.1.16", exitCode: null, logFile: null, diskFull: null } });
   await openWorkspace(page, app.origin);
   await page.goto(`${app.origin}/chat?settings=application`);
   const card = settingsDialog(page).locator("#updates");
@@ -126,7 +146,7 @@ test("an installer that never ran is reported as not run, not as an error code",
 });
 
 test("the settings card checks, reports the last install and starts the same update", async ({ page, app }) => {
-  await updateBridge(page, { previousInstall: { outcome: "failed", version: "0.1.15", exitCode: 1603, logFile: "C:\\RiA\\logs\\update-install.log" } });
+  await updateBridge(page, { previousInstall: { outcome: "failed", version: "0.1.15", exitCode: 1603, logFile: "C:\\RiA\\logs\\update-install.log", diskFull: null } });
   await openWorkspace(page, app.origin);
   // Nothing is offered yet, so the sidebar says nothing.
   await expect(page.getByRole("button", { name: /新版本/ })).toHaveCount(0);
