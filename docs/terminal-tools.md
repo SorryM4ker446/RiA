@@ -6,21 +6,21 @@ and execution records as other chat tools. It is unavailable in the web runtime.
 
 ## Enable and use
 
-1. Open **Workspace permissions** to the left of **Execution records** above the chat composer (or
+1. Open the workspace picker above the chat composer and choose **Manage folders…** (or
    **Settings → Workspace permissions**), choose
    a working folder and explicitly grant access. Choosing a folder alone does
    not authorize it. These machine-local permissions apply across conversations.
    A granted folder is one the model may work in, terminal included: there is no
    separate step to enable the terminal. The page says, where the folder is added,
    that commands run as the current Windows user and the folder is not a sandbox.
-2. Select the conversation's workspace with the folder picker to the left of
-   **Workspace permissions**. See [Conversation workspace](#conversation-workspace).
-3. Beside it, the conversation's **approval rule** says what waits for you. See
+2. Select the conversation's workspace with the same picker, to the left of
+   **Execution records**. See [Conversation workspace](#conversation-workspace).
+3. In the composer, left of the context-usage ring, the conversation's **approval rule** says what waits for you. See
    [Approval rules](#approval-rules). Each call may contain a complete script;
    approval covers the whole call rather than individual script statements.
 4. In a conversation with a model that supports tools, ask for a command, for
    example: “Run `Get-ChildItem` in the workspace, list the files and explain the result.”
-5. When a command waits for approval, review the compact approval card above the **Workspace / Workspace permissions / Execution records** toolbar. Its default view shows the operation, canonical working directory and approve/reject controls. Choose **View details** to expand the exact command in a bounded scroll area, then **Collapse details** to collapse it. Expansion follows the shared motion tokens and respects reduced motion. **Execution details** opens the corresponding execution record; full commands, inputs, outputs, status, sources and diagnostics remain there. Execution records do not open automatically. Each call needs its own decision; queued approvals are presented one at a time and each new item starts collapsed. Under **Full access** execution starts automatically and the same execution records remain available.
+5. When a command waits for approval, review the compact approval card above the **Workspace / Execution records** toolbar. Its default view shows the operation, canonical working directory and approve/reject controls. Choose **View details** to expand the exact command in a bounded scroll area, then **Collapse details** to collapse it. Expansion follows the shared motion tokens and respects reduced motion. **Execution details** opens the corresponding execution record; full commands, inputs, outputs, status, sources and diagnostics remain there. Execution records do not open automatically. Each call needs its own decision; queued approvals are presented one at a time and each new item starts collapsed. Under **Full access** execution starts automatically and the same execution records remain available.
 6. Open **Execution details** to see live stdout, stderr and the exit code. Use
    **Stop command** to stop a long command. Stopping the chat request, cancelling its
    execution record or revoking the folder also stops the associated command.
@@ -39,8 +39,9 @@ approval rule, not by the folder:
 Creating a task and extension tools ask under every rule. Reading files and logs never asks.
 
 The rule belongs to the conversation, so two conversations in one folder can work
-under different rules. Choose it with the **Approval rule** picker beside the folder
-picker, which appears once the conversation has a folder; it applies from the next tool call, including in a tool set built before the
+under different rules. Choose it with the **Approval rule** picker in the composer, left of the
+context-usage ring. It is there whether or not a folder is chosen yet; before the
+conversation exists it names the default a new one starts with. It applies from the next tool call, including in a tool set built before the
 change, and is restated to the model with the workspace on every request.
 A new conversation starts from the default in **Settings → Workspace permissions →
 Approval rule for new conversations**, which is **Ask** until changed; changing the
