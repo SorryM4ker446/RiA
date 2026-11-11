@@ -1,4 +1,5 @@
 "use client";
+import { useConversationStore } from "@/features/chat/conversation-store";
 import { useLocale } from "@/lib/locale/client";
 
 import { t, localizeMessage } from "@/lib/locale";
@@ -83,10 +84,12 @@ export default function ConversationsPage() {
   // back into view, instead of offering a refresh button.
   useRefreshOnReturn(() => { if (!mutating.current) void load(); });
 
+  const { reload: reloadSidebar } = useConversationStore();
   async function act(action: () => Promise<void>) {
     if (mutating.current) return false;
     mutating.current = true; setBusy(true); setError("");
-    try { await action(); return true; }
+    // The sidebar lists the same conversations: it reads them again after each change here.
+    try { await action(); void reloadSidebar(); return true; }
     catch (cause) { setError(cause instanceof Error ? cause.message : t("conversations.error.act")); return false; }
     finally { mutating.current = false; setBusy(false); }
   }

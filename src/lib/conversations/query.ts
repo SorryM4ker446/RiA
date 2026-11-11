@@ -6,6 +6,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { ApiError } from "@/lib/server/api-error";
 import { readAssistantSnapshot } from "@/lib/assistants/schema";
+import { decodePersistedAssistantToolMessage } from "@/lib/ai/ui-message";
 import { taskModel } from "@/lib/scheduler/jobs";
 import { readApprovalRule } from "@/lib/approvals/rules";
 
@@ -38,12 +39,27 @@ function readConversationQuery(params: URLSearchParams) {
 export const conversationInclude = {
   tags: { orderBy: { label: "asc" } },
   _count: { select: { messages: true } },
-  scheduledJobs: { select: { id: true, modelProvider: true, modelId: true, workspaceGrantId: true, approvalRule: true, usesMemory: true }, take: 1 },
+  scheduledJobs: { select: { id: true, modelProvider: true, modelId: true, workspaceGrantId: true, approvalRule: true, usesMemory: true, lastStatus: true }, take: 1 },
 } as const;
 
-type TaskLink = { id: string; modelProvider: string | null; modelId: string | null; workspaceGrantId: string | null; approvalRule: string; usesMemory: boolean };
+type TaskLink = { id: string; modelProvider: string | null; modelId: string | null; workspaceGrantId: string | null; approvalRule: string; usesMemory: boolean; lastStatus: string | null };
 
-export function conversationSummary(chat: Chat & { tags: { label: string }[]; _count: { messages: number }; scheduledJobs: TaskLink[] }) {
+/**
+ * The conversations among `chatIds` whose latest answer waits for the user to
+ * approve a tool call: the list shows them as needing attention. Only each
+ * conversation's latest message is read.
+ */
+export async function awaitingApproval(chatIds: string[], client: Pick<typeof db, "$queryRaw"> = db): Promise<Set<string>> {
+  if (!chatIds.length) return new Set();
+  const latest = await client.$queryRaw<Array<{ chatId: string; content: string }>>(Prisma.sql`
+    SELECT m.chatId, m.content FROM messages m
+    WHERE m.chatId IN (${Prisma.join(chatIds)}) AND m.role = 'assistant'
+      AND m.id = (SELECT l.id FROM messages l WHERE l.chatId = m.chatId ORDER BY l.createdAt DESC, l.id DESC LIMIT 1)`);
+  return new Set(latest.filter(row => decodePersistedAssistantToolMessage(row.content)?.tools.some(tool => tool.state === "approval-requested")).map(row => row.chatId));
+}
+
+/** `waiting`: whether the conversation's latest answer waits for an approval, from `awaitingApproval`. */
+export function conversationSummary(chat: Chat & { tags: { label: string }[]; _count: { messages: number }; scheduledJobs: TaskLink[] }, waiting = false) {
   const task = chat.scheduledJobs[0] ?? null;
   return {
     // A task's conversation takes its memory switch and approval rule from the task.
@@ -56,7 +72,8 @@ export function conversationSummary(chat: Chat & { tags: { label: string }[]; _c
     tags: chat.tags.map(tag => tag.label), messageCount: chat._count.messages,
     // The task that owns this conversation: it writes here by itself, so an open
     // page looks for what it added, and it decides the model every turn uses.
-    task: task ? { id: task.id, model: taskModel(task) } : null,
+    task: task ? { id: task.id, model: taskModel(task), running: task.lastStatus === "running" } : null,
+    awaitingApproval: waiting,
   };
 }
 
@@ -88,7 +105,9 @@ export async function listConversations(params: URLSearchParams) {
   const rows = await tx.chat.findMany({ where: { id: { in: ids.map(row => row.id) } }, include: conversationInclude });
   const byId = new Map(rows.map(row => [row.id, row]));
   const ordered = ids.flatMap(row => { const chat = byId.get(row.id); return chat ? [chat] : []; });
-  const data = ordered.slice(0, options.limit).map(conversationSummary);
+  const page = ordered.slice(0, options.limit);
+  const waiting = await awaitingApproval(page.map(chat => chat.id), tx);
+  const data = page.map(chat => conversationSummary(chat, waiting.has(chat.id)));
   const last = data.at(-1);
   const nextCursor = ordered.length > options.limit && last ? Buffer.from(JSON.stringify({
     v: 2, scope: options.scope, pinned: last.pinned, date: last.lastMessageAt.toISOString(), id: last.id,

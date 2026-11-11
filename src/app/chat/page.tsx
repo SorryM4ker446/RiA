@@ -8,12 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ChatToolbar } from "@/features/chat/chat-toolbar";
 import { Composer } from "@/features/chat/composer";
-import { ConversationList } from "@/features/chat/conversation-list";
 import { DeleteDialog } from "@/features/chat/delete-dialog";
 import { MessageRenderer } from "@/features/chat/message-renderer";
 import { RunRecords } from "@/features/chat/run-records";
 import { ApprovalDock } from "@/features/chat/approval-dock";
-import { ApprovalRulePicker } from "@/features/chat/approval-rule-picker";
 import { DirectoryPermissions } from "@/features/chat/directory-permissions";
 import { ComposerNotice } from "@/features/chat/composer-notice";
 import { useChatState } from "@/features/chat/use-chat-state";
@@ -53,7 +51,7 @@ export default function ChatPage() {
       <ToolLessModelNotice {...chat} />
       <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Card className="chat-canvas relative flex h-full min-h-0 flex-col overflow-hidden rounded-none border-0 bg-transparent shadow-none">
-          <ChatToolbar {...chat} rowRef={toolbarRow} conversationControls={<ConversationList {...chat} />} />
+          <ChatToolbar {...chat} rowRef={toolbarRow} />
 
           <CardContent className="flex min-h-0 flex-1 flex-col gap-0 p-0">
             <MessageRenderer {...chat} onShowSources={showExecutionDetails} />
@@ -70,13 +68,6 @@ export default function ChatPage() {
                   onSelect={chat.setWorkspace}
                   // Withdrawing a folder clears it as a workspace on the server; reload so the picker says so.
                   onChange={() => { void chat.loadToolCatalog(); void chat.loadChats({ silent: true }); }}
-                /> : null}
-                {/* The rule decides what waits for the user in the folder, so it appears once there is one. */}
-                {chat.modelMode === "chat" && chat.selectedModelInfo?.supportsTools !== false && chat.activeChat?.workspaceGrantId ? <ApprovalRulePicker
-                  rule={chat.activeChat?.approvalRule ?? null}
-                  locked={chat.isPending}
-                  saving={chat.isApprovalSaving || chat.isLoadingChats}
-                  onSelect={chat.setApprovalRule}
                 /> : null}
                 {/* Records belong to a conversation known to exist, not one still being restored. */}
                 <RunRecords

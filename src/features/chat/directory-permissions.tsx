@@ -4,10 +4,10 @@ import { useLocale } from "@/lib/locale/client";
 import { t, tf } from "@/lib/locale";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, Folder, FolderLock } from "lucide-react";
+import { ChevronDown, Folder, FolderCog } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { DirectoryGrantSettings } from "@/features/settings/directory-grants";
 
@@ -24,12 +24,14 @@ export async function fetchGrants(): Promise<WorkspaceGrant[] | null> {
 }
 
 /**
- * The conversation's workspace and the permissions it is chosen from.
+ * The conversation's workspace, and the folders it is chosen from.
  *
- * Authorizing a folder (工作区权限) is a standing, machine-wide permission;
- * choosing one here says which single authorized folder this conversation works
- * in. The choice can change between turns but not while a reply is generating,
- * and the server restates it to the model on every request.
+ * Authorizing a folder (工作区权限) is a standing, machine-wide permission to
+ * read, write and run commands there; choosing one here says which single
+ * authorized folder this conversation works in, and the conversation's approval
+ * rule says what waits for the user. The choice can change between turns but
+ * not while a reply is generating, and the server restates it to the model on
+ * every request. The folders are managed from the same menu.
  */
 export function DirectoryPermissions({ workspaceGrantId, locked, saving, onSelect, onChange }: {
   workspaceGrantId: string | null;
@@ -41,6 +43,7 @@ export function DirectoryPermissions({ workspaceGrantId, locked, saving, onSelec
   useLocale();
   const toast = useToast();
   const [grants, setGrants] = useState<WorkspaceGrant[]>([]);
+  const [managing, setManaging] = useState(false);
   const loadRequest = useRef(0);
   // Only the latest read is shown; a failed one keeps the folders already listed.
   const load = useCallback(async () => {
@@ -76,7 +79,8 @@ export function DirectoryPermissions({ workspaceGrantId, locked, saving, onSelec
           <ChevronDown aria-hidden="true" className="opacity-60 max-sm:hidden" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-72 max-w-[calc(100vw-2rem)]">
+      {/* Opening the folders leaves focus to the panel rather than handing it back to this button. */}
+      <DropdownMenuContent align="start" className="w-72 max-w-[calc(100vw-2rem)]" onCloseAutoFocus={event => { if (managing) event.preventDefault(); }}>
         <DropdownMenuLabel>{t("ui.chat.workspace.menuTitle")}</DropdownMenuLabel>
         <DropdownMenuRadioGroup value={selected?.id ?? ""} onValueChange={value => void choose(value)}>
           {grants.map(grant => (
@@ -90,15 +94,13 @@ export function DirectoryPermissions({ workspaceGrantId, locked, saving, onSelec
           {grants.length ? <DropdownMenuSeparator /> : <p className="px-2.5 py-2 text-xs text-muted-foreground">{t("ui.chat.workspace.empty")}</p>}
           <DropdownMenuRadioItem value="">{t("ui.chat.workspace.none")}</DropdownMenuRadioItem>
         </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => setManaging(true)}><FolderCog aria-hidden="true" />{t("ui.chat.workspace.manage")}</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
-    <Sheet>
-      <SheetTrigger asChild>
-        <Button size="sm" variant="ghost" aria-label={t("ui.settings.filePermissions")} title={t("ui.chat.directory-permissions.manageFileAccessAndTerminalPermissions")}>
-          {/* On a phone the toolbar keeps one row: the label folds away and the button keeps its name. */}
-          <FolderLock aria-hidden="true" data-icon="inline-start" /><span className="max-sm:sr-only">{t("ui.settings.filePermissions")}</span></Button>
-      </SheetTrigger>
-      <SheetContent side="right" className="directory-permissions-sheet flex flex-col gap-5 p-5 sm:p-6" closeLabel={t("ui.chat.directory-permissions.closeFilePermissions")}>
+    <Sheet open={managing} onOpenChange={setManaging}>
+      <SheetContent side="right" className="directory-permissions-sheet flex flex-col gap-5 p-5 sm:p-6" closeLabel={t("ui.chat.directory-permissions.closeFilePermissions")}
+        onCloseAutoFocus={event => { event.preventDefault(); document.querySelector<HTMLElement>(".chat-workspace-picker")?.focus(); }}>
         <header className="flex flex-col gap-2 pr-7">
           <SheetTitle>{t("ui.settings.filePermissions")}</SheetTitle>
           <SheetDescription>{t("ui.chat.directory-permissions.manageLocalDirectoriesAvailableToAll")}</SheetDescription>

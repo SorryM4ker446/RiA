@@ -28,6 +28,7 @@ import type { ChatState } from "@/features/chat/use-chat-state";
 import { ModelMode } from "@/features/chat/page-utils";
 import type { ModelLibraryItem } from "@/lib/models/preferences-schema";
 import { ContextUsage } from "@/features/chat/context-usage";
+import { ApprovalRulePicker } from "@/features/chat/approval-rule-picker";
 import { COMPACT_CONTEXT_TOOL } from "@/lib/chat/compact-context";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type UIEvent } from "react";
 import { TASK_DEFAULT_MODEL } from "@/features/chat/types";
@@ -97,6 +98,9 @@ type Props = Pick<
   | "onModelSelect"
   | "modelLibrary"
   | "messages"
+  | "setApprovalRule"
+  | "isApprovalSaving"
+  | "isLoadingChats"
 >;
 export function Composer({
   onStop,
@@ -148,6 +152,9 @@ export function Composer({
   isModelMenuOpen,
   setIsModelMenuOpen,
   messages,
+  setApprovalRule,
+  isApprovalSaving,
+  isLoadingChats,
 }: Props) {
   useLocale();
   const isDocumentTool = modelMode === "chat" && DOCUMENT_TOOLS.has(choice.tool?.id ?? "");
@@ -401,7 +408,7 @@ export function Composer({
         ) : null}
 
         <div className="flex items-end justify-between gap-2 px-3 pb-3">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+          <div className="composer-controls flex min-w-0 flex-1 flex-wrap items-center">
             {/* The native control renders untranslated browser chrome inside an
               otherwise Chinese UI, so the label carries the visible copy and the
               input names itself. The selected filenames are announced from our
@@ -437,7 +444,7 @@ export function Composer({
                 aria-label={t("chat.toolbar.modeChat")}
                 variant="ghost"
                 size="sm"
-                className="w-auto"
+                className="composer-control w-auto"
               >
                 <SelectValue />
               </SelectTrigger>
@@ -471,7 +478,7 @@ export function Composer({
                 variant="ghost"
                 size="sm"
                 fluid
-                className="w-auto max-w-[200px] data-[placeholder]:text-foreground"
+                className="composer-control w-auto max-w-[200px]"
               >
                 <SelectValue className="truncate" placeholder={isLoadingPreferences ? rememberedModelLabel : t("chat.toolbar.modelNone")} />
               </SelectTrigger>
@@ -510,6 +517,14 @@ export function Composer({
             </Select>}
             {isDocumentTool ? <DocumentToolBar document={choice.document} onDocumentChange={setToolDocument} format={choice.format} onFormatChange={setToolFormat} showFormat={choice.tool?.id === "convertDocument"} hasAttachments={attachments.length > 0} scope={activeChat?.documentScope} disabled={isPending} /> : null}
 
+            {/* Choosing a folder already lets the assistant work there; the rule beside the
+              context ring says what waits for the user first. */}
+            {modelMode === "chat" && selectedModelInfo?.supportsTools !== false ? <ApprovalRulePicker
+              rule={activeChat?.approvalRule ?? null}
+              locked={isPending}
+              saving={isApprovalSaving || isLoadingChats}
+              onSelect={setApprovalRule}
+            /> : null}
             {modelMode === "chat" && !isConvertTool ? <ContextUsage messages={messages} freedTokens={freedByCompaction} /> : null}
 
             {/* Visible hint stays exactly as before; this second, hidden node

@@ -4,7 +4,7 @@ import { pruneTerminalLogs } from "@/lib/terminal/logs";
 import { activeTerminalSessionIds } from "@/lib/terminal/runtime";
 import { ApiError } from "@/lib/server/api-error";
 import { truncateTitle } from "@/lib/ai/ui-message";
-import { chatTagSchema, conversationInclude, conversationSummary } from "@/lib/conversations/query";
+import { awaitingApproval, chatTagSchema, conversationInclude, conversationSummary } from "@/lib/conversations/query";
 import { Prisma } from "@prisma/client";
 import { assistantIdSchema, readAssistantSnapshot } from "@/lib/assistants/schema";
 import { resolveAssistant } from "@/lib/assistants/store";
@@ -69,7 +69,7 @@ export async function updateConversation(id: string, input: z.infer<typeof updat
       ...(input.approvalRule !== undefined ? { approvalRule: input.approvalRule } : {}),
       ...(input.tags !== undefined ? { tags: { deleteMany: {}, create: input.tags.map(label => ({ label })) } } : {}),
     }, include: conversationInclude });
-    return conversationSummary(chat);
+    return conversationSummary(chat, (await awaitingApproval([chat.id], tx)).has(chat.id));
   });
 }
 

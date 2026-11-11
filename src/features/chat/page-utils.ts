@@ -28,7 +28,9 @@ export type ChatSummary = {
    * The task that owns this conversation. It adds to it on its own, and decides
    * the model (null: the default chat model) and folder every turn here uses.
    */
-  task?: { id: string; model: ModelRef | null } | null;
+  task?: { id: string; model: ModelRef | null; running?: boolean } | null;
+  /** The latest answer waits for the user to approve a tool call. */
+  awaitingApproval?: boolean;
 };
 
 /**

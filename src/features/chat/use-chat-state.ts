@@ -35,6 +35,7 @@ import { useRefreshOnReturn } from "@/lib/use-refresh-on-return";
 import { taskApi } from "@/features/tasks/task-client";
 import { parseModelRefValue } from "@/features/chat/preferences";
 import { TASK_DEFAULT_MODEL } from "@/features/chat/types";
+import { useConversationStore } from "@/features/chat/conversation-store";
 export function useChatState() {
   const [input, setInput] = useState("");
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
@@ -72,9 +73,8 @@ export function useChatState() {
     selectPreferredModel(value);
   }
   const {
-    chats, activeChat, isLoadingChats, isCreatingChat, editingChatId, editingTitle, setEditingTitle,
-    loadChats, createNewChat, startEditingChat,
-    cancelEditingChat, saveEditedTitle, performDeleteChat, ensureActiveChatId,
+    chats, activeChat, isLoadingChats, isCreatingChat,
+    loadChats, createNewChat, performDeleteChat, ensureActiveChatId,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, toggleEphemeral, isEphemeralSaving,
     isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
     setWorkspace, isWorkspaceSaving, setApprovalRule, isApprovalSaving, restoringChatId, isRestoringChat,
@@ -167,6 +167,11 @@ export function useChatState() {
     isLoadingOlderMessages ||
     isConverting;
   const isPending = isLoadingPreferences || isWorking;
+  // The sidebar's dot for this conversation: something is being answered or made in it.
+  const isAnswering = pendingSend !== null || status === "submitted" || status === "streaming" || isGeneratingImage || isGeneratingVideo || isConverting;
+  const { setWorkingId: publishWorking } = useConversationStore();
+  useEffect(() => { publishWorking(isAnswering ? activeChatId : null); }, [isAnswering, activeChatId, publishWorking]);
+  useEffect(() => () => publishWorking(null), [publishWorking]);
   // Until the list says which conversation to restore, and that conversation's
   // history has been asked for, the transcript has nothing true to show. Showing
   // the empty-conversation welcome then is what made chat open on the welcome,
@@ -880,8 +885,7 @@ export function useChatState() {
     toggleEphemeral, isEphemeralSaving, isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
     setWorkspace, isWorkspaceSaving, setApprovalRule, isApprovalSaving, loadChats,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages,
-    isLoadingChats, isCreatingChat, createNewChat, chats, activeChatId, editingChatId, setEditingTitle,
-    editingTitle, saveEditedTitle, cancelEditingChat, switchActiveChat, startEditingChat,
+    isLoadingChats, isCreatingChat, createNewChat, chats, activeChatId, switchActiveChat,
     requestDeleteConversation,
     compaction: compaction?.chatId === activeChatId ? compaction : null,
     freedByCompaction: freedByCompaction?.chatId === activeChatId && freedByCompaction.lastMessageId === messages.at(-1)?.id ? freedByCompaction.tokens : 0,

@@ -2,7 +2,7 @@
 import { useLocale } from "@/lib/locale/client";
 import { t, localizeMessage } from "@/lib/locale";
 import { SelectField, SelectOption } from "@/components/ui/select";
-import { useEffect, type ReactNode, type Ref } from "react";
+import { useEffect, type Ref } from "react";
 import Link from "next/link";
 import { Brain } from "lucide-react";
 import { useToast } from "@/components/ui/toast";
@@ -22,7 +22,7 @@ type Props = Pick<
   | "modelMode"
   | "toggleEphemeral"
   | "assistants" | "assistantsError" | "loadAssistants" | "applyAssistant"
-> & { conversationControls?: ReactNode; rowRef?: Ref<HTMLDivElement> };
+> & { rowRef?: Ref<HTMLDivElement> };
 export function ChatToolbar({
   activeChat,
   isPending,
@@ -31,7 +31,6 @@ export function ChatToolbar({
   modelMode,
   toggleEphemeral,
   assistants, assistantsError, loadAssistants, applyAssistant,
-  conversationControls,
   rowRef,
 }: Props) {
   useLocale();
@@ -55,7 +54,6 @@ export function ChatToolbar({
   return (
     <CardHeader className="chat-toolbar max-h-[30%] shrink-0 gap-3 overflow-y-auto border-b px-6 py-4">
       <div ref={rowRef} className="flex flex-wrap items-center justify-between gap-3">
-        {conversationControls}
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <CardTitle className="min-w-0 truncate">{activeChat?.title ?? (awaitingConversation ? null : t("chat.toolbar.newChat"))}</CardTitle>
           {isWorking ? <>

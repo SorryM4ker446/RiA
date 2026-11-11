@@ -6,7 +6,7 @@ import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/serve
 import { deleteChat } from "@/lib/chat/store";
 import { db } from "@/db";
 import { updateConversation, updateConversationSchema } from "@/lib/conversations/mutations";
-import { conversationInclude, conversationSummary } from "@/lib/conversations/query";
+import { awaitingApproval, conversationInclude, conversationSummary } from "@/lib/conversations/query";
 
 type Params = {
   params: Promise<{ id: string }>;
@@ -22,7 +22,7 @@ async function GETHandler(req: NextRequest, context: Params) {
       throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
     }
 
-    return Response.json({ data: conversationSummary(conversation) });
+    return Response.json({ data: conversationSummary(conversation, (await awaitingApproval([conversation.id])).has(conversation.id)) });
   } catch (error) {
     console.error("/api/conversations/[id] GET error", normalizeApiError(error).code);
     return createApiErrorResponse(error, "Failed to fetch conversation");

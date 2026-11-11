@@ -30,7 +30,11 @@ export function placeTooltip(anchor: Tip["anchor"], size: { width: number; heigh
   };
 }
 
-/** What a hovered or focused element would say: its title, or its full text when cut short. */
+/**
+ * What a hovered or focused element would say: its title, or its full text when
+ * cut short. `data-tip-reserve` is how many pixels at its end something else
+ * covers while it is pointed at (a row's menu button), which count as cut too.
+ */
 function tipFor(target: Element | null): { element: HTMLElement; text: string } | null {
   if (!(target instanceof Element)) return null;
   const titled = target.closest<HTMLElement>("[title]:not(iframe), [data-tip-title]");
@@ -39,7 +43,8 @@ function tipFor(target: Element | null): { element: HTMLElement; text: string } 
     if (text.trim()) return { element: titled, text };
   }
   const clipped = target.closest<HTMLElement>(".truncate, [class*='line-clamp']");
-  if (clipped && (clipped.scrollWidth > clipped.clientWidth + 1 || clipped.scrollHeight > clipped.clientHeight + 1)) {
+  const reserve = Number(clipped?.dataset.tipReserve) || 0;
+  if (clipped && (clipped.scrollWidth > clipped.clientWidth - reserve + 1 || clipped.scrollHeight > clipped.clientHeight + 1)) {
     const text = clipped.textContent?.trim() ?? "";
     if (text) return { element: clipped, text };
   }
