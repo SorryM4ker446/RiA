@@ -67,6 +67,11 @@ app.whenReady().then(async () => {
     await card.save({ closeBehaviour: "tray" });
     await card.save({ globalHotkey: "Ctrl+Shift+R" });
     await card.save({ autoCheckUpdates: false });
+    report.defaultTaskNotifications = { finished: card.showsTaskNotice("task-finished"), unknown: card.showsTaskNotice("from-a-later-version") };
+    await card.save({ taskNotifications: { "task-finished": false } });
+    // A second toggle keeps the first.
+    await card.save({ taskNotifications: { "task-failed": false, "not-an-event": false } });
+    report.mutedFinished = card.showsTaskNotice("task-finished");
     report.partialSave = await card.getView();
     const reopenedCard = new DesktopSettingsStore(join(root, "card.json"));
     report.savedLocale = (await reopenedCard.getView()).locale;
@@ -139,6 +144,10 @@ test("a settings card that sends one field does not wipe the fields beside it", 
     // Update checks are on until turned off, and turning them off is kept.
     assert.equal(report.defaultAutoCheckUpdates, true);
     assert.equal(report.partialSave.autoCheckUpdates, false);
+    // Task notifications are on until turned off, one event at a time.
+    assert.deepEqual(report.defaultTaskNotifications, { finished: true, unknown: true });
+    assert.equal(report.mutedFinished, false);
+    assert.deepEqual(report.partialSave.taskNotifications, { "task-finished": false, "task-failed": false, "task-needs-approval": true, "task-skipped": true, "task-missed": true });
     assert.equal(report.defaultLocale, "zh-CN");
     assert.equal(report.savedLocale, "en-US");
     assert.equal(report.partialSave.locale, "en-US");
@@ -182,6 +191,8 @@ test("a key save and a window-geometry save in flight together both survive", {
 type SettingsReport = {
   defaultLocale: string | null;
   defaultAutoCheckUpdates: boolean | null;
+  defaultTaskNotifications?: { finished: boolean; unknown: boolean };
+  mutedFinished?: boolean;
   savedLocale: string | null;
   invalidLocaleRejected: boolean;
   retiredSearchKeyDropped: boolean;

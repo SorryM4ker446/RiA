@@ -17,7 +17,6 @@ process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 const route = await import("@/app/api/chat/route");
 const { createGrant, revokeGrant } = await import("@/lib/local-files/grants");
-const { setTerminalPermission } = await import("@/lib/terminal/permissions");
 const { summarizeOlderTurns } = await import("@/lib/chat/summary");
 const { compactionsSettled } = await import("@/lib/chat/compaction");
 const { TASK_STATE_VERSION } = await import("@/lib/chat/task-summary");
@@ -28,12 +27,13 @@ const { CALIBRATION_SAMPLES, contextCalibration, recordContextCalibration } = aw
 const { getModelPreferences, saveModelPreferences } = await import("@/lib/models/preferences");
 const roots: string[] = [];
 // Folder tools act only in the conversation's chosen workspace.
-const workspaceChat = async (grantId: string) => (await db.chat.create({ data: { title: "Workspace", workspaceGrantId: grantId } })).id;
+// These conversations run their folder's commands without asking.
+const workspaceChat = async (grantId: string) => (await db.chat.create({ data: { title: "Workspace", workspaceGrantId: grantId, approvalRule: "full" } })).id;
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {}); t.mock.method(console, "info", () => {});
   resetProviderState(); globalThis.__riaRateLimitStore?.clear();
   process.env.APP_RUNTIME = "test"; process.env.OPENROUTER_API_KEY = "offline-fixture-placeholder";
-  await db.chat.deleteMany({}); await db.task.deleteMany({}); await db.modelContextCalibration.deleteMany({});
+  await db.chat.deleteMany({}); await db.scheduledJob.deleteMany({}); await db.modelContextCalibration.deleteMany({});
   await seedTestModelPreferences(db);
 });
 after(async () => {
@@ -68,7 +68,6 @@ test("a multi-file code task compacts real terminal failures and passes tests be
     "if(action==='fix') { fs.writeFileSync('math.cjs','exports.add = (a, b) => a + b;\\n'); console.log('Modified math.cjs; public API unchanged'); }",
   ].join("\n"));
   const grant = await createGrant({ path: root });
-  await setTerminalPermission(grant.id, true, grant.updatedAt, "full-access");
   const budget = await capacity(80_000);
   const summaryInputs: string[] = [], prompts: string[] = [];
   t.mock.method(languageModel, "doGenerate", async options => {
@@ -134,7 +133,7 @@ test("a multi-file code task compacts real terminal failures and passes tests be
 test("over-budget approval preflight leaves the stored decision pending and executes no side effects", async () => {
   await capacity(40_000);
   const chat = await db.chat.create({ data: { title: "Budget refusal" } });
-  const tool = { toolName: "createTask", toolCallId: "approval-tool", state: "approval-requested", input: { title: "Do not duplicate" }, approval: { id: "budget-approval" } };
+  const tool = { toolName: "createTask", toolCallId: "approval-tool", state: "approval-requested", input: { title: "Do not duplicate", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }, approval: { id: "budget-approval" } };
   await db.message.create({ data: { chatId: chat.id, role: "user", clientMessageId: "approval-user", content: "Create one task" } });
   const original = encodePersistedAssistantToolMessage({ type: "assistant-tool-message", text: "", reasoning: "0".repeat(60_000), tools: [tool] });
   await db.message.create({ data: { chatId: chat.id, role: "assistant", clientMessageId: "approval-answer", content: original } });
@@ -143,12 +142,12 @@ test("over-budget approval preflight leaves the stored decision pending and exec
   ] }];
   const rejected = await route.POST(request({ chatId: chat.id, messages }));
   assert.equal(rejected.status, 413); assert.equal((await rejected.json()).error.code, "CONTEXT_LIMIT");
-  assert.equal(await db.task.count(), 0);
+  assert.equal(await db.scheduledJob.count(), 0);
   assert.equal((await db.message.findFirstOrThrow({ where: { chatId: chat.id, role: "assistant" } })).content, original);
   await capacity(200_000);
   const retried = await route.POST(request({ chatId: chat.id, messages }));
   assert.equal(retried.status, 200); await wireText(retried);
-  assert.equal(await db.task.count({ where: { title: "Do not duplicate" } }), 1);
+  assert.equal(await db.scheduledJob.count({ where: { title: "Do not duplicate" } }), 1);
 });
 
 test("persisted task state folds only new evidence and an obsolete summarizer cannot overwrite newer coverage", async t => {
@@ -213,7 +212,6 @@ test("a command whose output would not fit reaches the model as an excerpt, runs
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ria-context-project-"))); roots.push(root);
   writeFileSync(join(root, "large.cjs"), "require('node:fs').appendFileSync('once.txt','once'); console.log('0'.repeat(45000)); console.log('Tests: 1 passed');\n");
   const grant = await createGrant({ path: root });
-  await setTerminalPermission(grant.id, true, grant.updatedAt, "full-access");
   await capacity(40_000);
   let calls = 0;
   t.mock.method(languageModel, "doStream", async () => {
@@ -254,7 +252,6 @@ async function calibrationRun(t: TestContext, contextLength: number, reportedFir
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ria-context-project-"))); roots.push(root);
   writeFileSync(join(root, "small.cjs"), "require('node:fs').appendFileSync('once.txt','once'); console.log('0'.repeat(4000)); console.log('Tests: 1 passed');\n");
   const grant = await createGrant({ path: root });
-  await setTerminalPermission(grant.id, true, grant.updatedAt, "full-access");
   const budget = await capacity(contextLength);
   let calls = 0;
   t.mock.method(languageModel, "doStream", async () => {
@@ -318,7 +315,6 @@ test("a request that uses up its compaction calls keeps labelled excerpts, compl
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ria-context-project-"))); roots.push(root);
   writeFileSync(join(root, "step.cjs"), "require('node:fs').appendFileSync('steps.txt','x'); console.log('0'.repeat(4000)); console.log('step done');\n");
   const grant = await createGrant({ path: root });
-  await setTerminalPermission(grant.id, true, grant.updatedAt, "full-access");
   await capacity(20_000);
   await saveModelPreferences({ ...await getModelPreferences(), callLimits: { ...(await getModelPreferences()).callLimits, compactionCallsPerTurn: 1 } });
   // The bulk is in the calls, which excerpts leave alone, so summaries are needed.
@@ -428,7 +424,7 @@ test("compacting context is listed for people and never offered to the model, wh
   const { createChatToolSet } = await import("@/tools/catalog");
   const { getToolDescriptor } = await import("@/tools/builtins");
   const restricted = await createChatToolSet({ modelRef: CHAT_MODEL_REF, toolIds: ["createTask"] });
-  assert.deepEqual(Object.keys(restricted), ["createTask", "extractMemory", "readConversationHistory"], "the model's own underlying tools come with any tool");
+  assert.deepEqual(Object.keys(restricted), ["createTask", "readWorkspaceActivity", "extractMemory", "readConversationHistory"], "the model's own underlying tools come with any tool");
   assert.ok(!("compactContext" in await createChatToolSet({ modelRef: CHAT_MODEL_REF })));
   assert.equal(getToolDescriptor("compactContext")?.surface.user?.run, "direct", "a person runs it from the slash menu, with no model answering");
 });

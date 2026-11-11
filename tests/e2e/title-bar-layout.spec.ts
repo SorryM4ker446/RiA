@@ -86,7 +86,7 @@ test("recent conversations open over the canvas without reserving a sidebar", { 
   await expect(trigger).toBeFocused();
   await page.getByRole("link", { name: "任务", exact: true }).click();
   await expect(page).toHaveURL(app.origin + "/tasks");
-  await expect(page.getByTestId("task-panel")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "任务", exact: true })).toBeVisible();
 });
 
 test("the brand stays clickable inside the drag row", { tag: "@integration" }, async ({ page, app }) => {

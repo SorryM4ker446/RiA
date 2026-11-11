@@ -43,7 +43,6 @@ const { createGrant } = await import("@/lib/local-files/grants");
 const { canFallback } = await import("@/lib/models/usage");
 const { retryDelay } = await import("@/lib/models/model-retry");
 const { describeTurnFailure } = await import("@/lib/chat/tool-failure");
-const { setTerminalPermission } = await import("@/lib/terminal/permissions");
 const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ria-history-")));
 after(async () => { globalThis.fetch = realFetch; await compactionsSettled(); await db.$disconnect(); rmSync(root, { recursive: true, force: true }); cleanup(); });
 
@@ -56,8 +55,7 @@ test("a later turn repeats byte for byte what the last step of the turn before i
   settings.chat = { model: FLASH, fallback: null };
   await db.workspacePreference.update({ where: { id: "local" }, data: { settings } });
   const grant = await createGrant({ path: root });
-  await setTerminalPermission(grant.id, true, grant.updatedAt, "full-access");
-  const chat = (await db.chat.create({ data: { title: "History", workspaceGrantId: grant.id } })).id;
+  const chat = (await db.chat.create({ data: { title: "History", workspaceGrantId: grant.id, approvalRule: "full" } })).id;
   let turn = 0;
   const send = async (text: string) => {
     globalThis.__riaRateLimitStore?.clear();

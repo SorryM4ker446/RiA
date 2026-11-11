@@ -21,13 +21,12 @@ test("model limits persist and source filters display real recorded chat calls w
   const save = page.getByRole("button", { name: "保存模型偏好", exact: true });
   const compaction = page.getByLabel("每次请求压缩调用上限", { exact: true });
   await expect(page.getByText("1–16 的整数", { exact: true })).toBeVisible();
-  await expect(page.getByText("0–1,000,000，留空表示不限制", { exact: true })).toHaveCount(2);
+  // The limits for tasks that run on their own are with the other task rules, not here.
+  await expect(page.getByLabel("每日自动运行次数", { exact: true })).toHaveCount(0);
   const puts: string[] = []; page.on("request", request => { if (new URL(request.url()).pathname === "/api/models" && request.method() === "PUT") puts.push(request.url()); });
   for (const [label, value, message] of [
     ["每次请求压缩调用上限", "1001", "请输入 1–1,000 之间的整数"],
     ["最大并发调用数", "", "请输入 1–16 之间的整数"],
-    ["后台每日调用次数", "1.5", "请输入 0–1,000 之间的整数"],
-    ["后台单次预估上限 USD", "-1", "请输入 0–1,000,000 之间的金额，或留空表示不限制"],
     ["预算时区", "Mars/Base", "无法识别的时区，请输入 IANA 时区名称，例如 Asia/Shanghai"],
   ]) {
     const input = page.getByLabel(label, { exact: true }); const before = await input.inputValue();
@@ -40,17 +39,16 @@ test("model limits persist and source filters display real recorded chat calls w
   }
   await expect(save).toBeEnabled(); expect(puts).toEqual([]);
   await compaction.fill("1000"); await expect(compaction).not.toHaveAttribute("aria-invalid", "true");
-  await page.getByLabel("后台每日调用次数").fill("3");
   await page.getByLabel("预算时区").fill("America/New_York");
   const saving = page.waitForResponse(response => new URL(response.url()).pathname === "/api/models" && response.request().method() === "PUT");
   await page.getByRole("button", { name: "保存模型偏好", exact: true }).click();
   const saved = await saving;
   expect(saved.status()).toBe(200);
-  expect((await saved.json()).data.callLimits.backgroundDailyCalls).toBe(3);
+  expect((await saved.json()).data.callLimits.compactionCallsPerTurn).toBe(1000);
   await expect(page.getByRole("button", { name: "保存模型偏好", exact: true })).toBeEnabled();
-  await page.reload(); await expect(page.getByLabel("后台每日调用次数")).toHaveValue("3");
+  await page.reload(); await expect(page.getByLabel("每次请求压缩调用上限")).toHaveValue("1000");
   await expect(page.getByLabel("预算时区")).toHaveValue("America/New_York");
-  await page.getByLabel("后台每日调用次数").fill("2");
+  await page.getByLabel("每次请求压缩调用上限").fill("999");
   // Usage is its own section; the unsaved limit waits in the models section meanwhile.
   await page.getByRole("tab", { name: "用量", exact: true }).click();
   await page.getByLabel("调用来源", { exact: true }).click(); await page.getByRole("option", { name: "历史摘要", exact: true }).click();
@@ -62,7 +60,7 @@ test("model limits persist and source filters display real recorded chat calls w
   await page.keyboard.press("Escape");
   await expect(drawer).toHaveCount(0);
   await page.getByRole("tab", { name: "模型", exact: true }).click();
-  await expect(page.getByLabel("后台每日调用次数")).toHaveValue("2");
+  await expect(page.getByLabel("每次请求压缩调用上限")).toHaveValue("999");
   await page.getByRole("tab", { name: "用量", exact: true }).click();
   await page.getByLabel("调用来源", { exact: true }).click(); await page.getByRole("option", { name: "聊天", exact: true }).click();
   await expect(page.getByRole("listbox")).toHaveCount(0);
@@ -73,7 +71,7 @@ test("model limits persist and source filters display real recorded chat calls w
   await page.keyboard.press("Escape");
   await expect(drawer).toHaveCount(0);
   await page.getByRole("tab", { name: "模型", exact: true }).click();
-  await expect(page.getByLabel("后台每日调用次数")).toHaveValue("2");
+  await expect(page.getByLabel("每次请求压缩调用上限")).toHaveValue("999");
   const directory = join(tmpdir(), "ria-model-call-qa"); await mkdir(directory, { recursive: true });
   await page.getByRole("group", { name: "模型调用限制" }).screenshot({ path: join(directory, "desktop.png") });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -87,7 +85,7 @@ test("offline local startup keeps tasks and stored conversations available", asy
   await page.goto(`${app.origin}/chat`);
   expect(await page.evaluate(task => fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(task) }).then(response => response.status), newTask("Offline task"))).toBe(201);
   await page.goto(`${app.origin}/tasks`);
-  await expect(page.getByTestId("task-panel").getByText("Offline task", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("task-item").filter({ hasText: "Offline task" })).toBeVisible();
   await app.restart(); await page.reload();
   const retained = await page.evaluate(() => fetch("/api/tasks").then(response => response.json()));
   expect(JSON.stringify(retained)).toContain("Offline task");

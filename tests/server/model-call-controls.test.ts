@@ -5,7 +5,7 @@ import { createTestDatabase } from "../helpers/database";
 import { seedTestModelPreferences, CHAT_MODEL_REF } from "../helpers/model-library";
 const cleanup = createTestDatabase();
 const { db } = await import("@/db");
-const { beginModelAttempt, budgetDay, recoverModelAttempts } = await import("@/lib/models/call-controls");
+const { admitBackgroundRun, beginModelAttempt, budgetDay, recoverModelAttempts } = await import("@/lib/models/call-controls");
 const { recordModelAttempt, usageSummary, usageCost } = await import("@/lib/models/usage");
 const { getModelPreferences, saveModelPreferences } = await import("@/lib/models/preferences");
 const { withModelCallSource } = await import("@/lib/models/call-context");
@@ -20,17 +20,28 @@ async function limits(patch: Partial<Awaited<ReturnType<typeof getModelPreferenc
 async function settle(id: string, error?: Error) { await recordModelAttempt({ attemptId: id, mode: "chat", modelId: CHAT_MODEL_REF.modelId, started: Date.now(), ...(error ? { error } : {}) }); }
 
 test("concurrent admission reserves one durable slot and cancellation frees only concurrency", async () => {
-  await limits({ maxConcurrent: 1, backgroundDailyCalls: 1 });
+  await limits({ maxConcurrent: 1 });
   const results = await Promise.allSettled([beginModelAttempt({ ...request, source: "scheduled" }), beginModelAttempt({ ...request, source: "scheduled" })]);
   assert.equal(results.filter(row => row.status === "fulfilled").length, 1);
   assert.equal(await db.modelRequest.count({ where: { status: "pending" } }), 1);
   const row = (await db.modelRequest.findMany())[0];
   await settle(row.id, new DOMException("cancelled", "AbortError"));
   assert.equal((await db.modelRequest.findUniqueOrThrow({ where: { id: row.id } })).status, "aborted");
-  await assert.rejects(beginModelAttempt({ ...request, source: "scheduled" }), /当日|本地日期/);
   const foreground = await beginModelAttempt({ ...request, source: "chat" });
   await settle(foreground.id);
   assert.equal((await usageSummary("scheduled")).totals.requests, 1);
+});
+
+test("the daily background allowance counts runs, however many calls each makes", async () => {
+  await limits({ backgroundDailyCalls: 2 });
+  const admitted = await Promise.all([admitBackgroundRun(), admitBackgroundRun(), admitBackgroundRun()]);
+  assert.deepEqual(admitted.map(result => result.admitted).sort(), [false, true, true], "two runs racing for the last place cannot both take it");
+  // Calls inside admitted runs take no further places.
+  for (let call = 0; call < 3; call += 1) await settle((await beginModelAttempt({ ...request, source: "scheduled" })).id);
+  assert.equal((await db.modelCallDay.findMany({ where: { day: { not: "lock" } } }))[0].calls, 2);
+  assert.equal((await admitBackgroundRun()).admitted, false);
+  await limits({ backgroundDailyCalls: 0 });
+  assert.deepEqual(await admitBackgroundRun(), { admitted: false, limit: 0 });
 });
 
 test("chat-driven summaries are attributed but never consume or wait on the background allowance", async () => {
@@ -69,7 +80,8 @@ test("restart interrupts pending records without replay or a late settlement ove
   const row = await db.modelRequest.findUniqueOrThrow({ where: { id: first.id } });
   assert.equal(row.status, "interrupted"); assert.equal(row.costSource, "unknown");
   assert.equal((await recoverModelAttempts()).count, 0);
-  assert.equal((await db.modelCallDay.findMany({ where: { day: { not: "lock" } } }))[0].calls, 1);
+  // The call is on the day's books; no run place was taken by it.
+  assert.equal((await db.modelCallDay.findMany({ where: { day: { not: "lock" } } }))[0].calls, 0);
 });
 
 test("pre-cancelled calls consume no allowance and dates use the configured zone across DST", async () => {

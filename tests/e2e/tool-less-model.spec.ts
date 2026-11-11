@@ -221,7 +221,7 @@ withTools("giving up a request leaves the conversation free, and the next messag
   const chatId = "pending-approval";
   expect((await browserApi(page, "/api/conversations", "POST", { id: chatId, title: "Pending" })).status).toBe(201);
   expect((await browserApi(page, `/api/conversations/${chatId}/messages`, "POST", { role: "user", content: "帮我建一个任务", clientMessageId: "ask" })).status).toBe(201);
-  const pending = "__ASSISTANT_TOOL_MESSAGE__:" + JSON.stringify({ type: "assistant-tool-message", text: "需要你确认", tools: [{ toolName: "createTask", toolCallId: "call-1", state: "approval-requested", input: { title: "周报" }, approval: { id: "approval-1" } }] });
+  const pending = "__ASSISTANT_TOOL_MESSAGE__:" + JSON.stringify({ type: "assistant-tool-message", text: "需要你确认", tools: [{ toolName: "createTask", toolCallId: "call-1", state: "approval-requested", input: { title: "周报", prompt: "提醒我交周报。", cron: "0 9 * * 5", timeZone: "UTC" }, approval: { id: "approval-1" } }] });
   expect((await browserApi(page, `/api/conversations/${chatId}/messages`, "POST", { role: "assistant", content: pending, clientMessageId: "reply" })).status).toBe(201);
 
   await page.goto(`${app.origin}/chat?conversationId=${chatId}`);
@@ -231,7 +231,7 @@ withTools("giving up a request leaves the conversation free, and the next messag
   await region.getByRole("button", { name: "放弃请求", exact: true }).click();
   await expect(region).toHaveCount(0);
   expect(app.providerCalls.length, "giving up asks the model for nothing").toBe(calls);
-  expect(app.readRows("SELECT id FROM tasks")).toHaveLength(0);
+  expect(app.readRows("SELECT id FROM scheduled_jobs")).toHaveLength(0);
   const stored = app.readRows("SELECT content FROM messages WHERE clientMessageId='reply'")[0] as { content: string };
   expect(stored.content).toContain('"state":"output-denied"');
 

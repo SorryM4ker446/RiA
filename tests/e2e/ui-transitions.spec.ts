@@ -343,13 +343,13 @@ test("the first model name the picker shows appears at its full width rather tha
   } finally { releaseSettings(); }
 });
 
-test("the tasks page keeps its reminder note still while a slow task list loads", async ({ page }) => {
+test("the tasks page keeps its header still while a slow task list loads", async ({ page }) => {
   // The list answers late, so its placeholder is painted before the empty state replaces it.
-  await page.route("**/api/tasks**", async route => { await new Promise(resolve => setTimeout(resolve, 600)); await route.fulfill({ json: { data: [] } }); });
+  await page.route("**/api/tasks**", async route => { await new Promise(resolve => setTimeout(resolve, 600)); await route.fulfill({ json: { data: [], automaticExecution: true } }); });
   await page.goto("/tasks");
-  const layout = await watchLayout(page, { panel: '[data-testid="task-panel"]' });
-  await expect(page.getByText("这个视图里还没有任务。", { exact: true })).toBeVisible();
-  await expect(page.getByText("关于任务提醒", { exact: true })).toBeVisible();
+  const layout = await watchLayout(page, { header: ".workspace-page-header" });
+  await expect(page.getByText(/^还没有任务。/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "新建任务", exact: true })).toBeVisible();
   // Nothing that was already on screen moved when the list arrived.
   expectNoUnexpectedShift(await layout.read());
 });

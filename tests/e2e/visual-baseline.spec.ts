@@ -36,7 +36,7 @@ async function seed(page: Page) {
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "季度复盘提纲" })).body.data;
   const lines = ["帮我整理本季度的复盘提纲。", "## 复盘提纲\n\n1. **目标回顾**：对照季度目标逐项核对。\n2. **关键数据**：收入、留存与成本三项。\n3. **问题与改进**：每个问题对应一个负责人。\n\n> 先给结论，再展开细节。"];
   for (const [index, content] of lines.entries()) await browserApi(page, `/api/conversations/${chat.id}/messages`, "POST", { role: index ? "assistant" : "user", content, status: "success" });
-  for (const title of ["复习泛型笔记", "整理周报"]) await browserApi(page, "/api/tasks", "POST", { title, priority: "medium", timeZone: "UTC", reminderEnabled: false, repeatRule: "none" });
+  for (const title of ["复习泛型笔记", "整理周报"]) await browserApi(page, "/api/tasks", "POST", { kind: "prompt", title, prompt: `${title}。`, cron: "0 9 * * *", timeZone: "UTC" });
   await browserApi(page, "/api/knowledge", "POST", { key: "回答风格", value: "先给结论，再列三点理由。" });
 }
 

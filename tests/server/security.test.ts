@@ -21,7 +21,7 @@ const { proxy, config: proxyConfig } = await import("@/proxy");
 const { readChatRequest } = await import("@/lib/chat/request");
 const routes: Record<string, any> = {};
 for (const name of ["backups", "backups/[id]", "backups/import", "backups/import/[id]", "models", "usage"]) routes[name] = await import(`@/app/api/${name}/route`);
-for (const name of ["chat", "image", "video", "tools/run", "tools", "memory", "retrieval", "knowledge", "knowledge/[id]", "tasks", "tasks/[id]", "tasks/reminders", "conversations", "conversations/bulk-delete", "conversations/[id]/export", "conversations/[id]", "conversations/[id]/messages", "conversations/[id]/messages/[messageId]", "media", "media/library", "media/[id]/details", "media/[id]/regenerate", "media/upload", "media/cleanup", "media/[id]", "local-access", "health"]) {
+for (const name of ["chat", "image", "video", "tools/run", "tools", "memory", "retrieval", "knowledge", "knowledge/[id]", "tasks", "tasks/[id]", "tasks/[id]/run", "tasks/[id]/stop", "tasks/runs", "tasks/notifications", "conversations", "conversations/bulk-delete", "conversations/[id]/export", "conversations/[id]", "conversations/[id]/messages", "conversations/[id]/messages/[messageId]", "media", "media/library", "media/[id]/details", "media/[id]/regenerate", "media/upload", "media/cleanup", "media/[id]", "local-access", "health"]) {
   routes[name] = await import(`@/app/api/${name}/route`);
 }
 let cookie;
@@ -55,7 +55,7 @@ beforeEach(async (t: TestContext) => {
   await db.message.deleteMany({});
   await db.chat.deleteMany({});
   await db.memory.deleteMany({});
-  await db.task.deleteMany({});
+  await db.scheduledJob.deleteMany({});
   await db.knowledgeDocument.deleteMany({});
   await db.mediaAsset.deleteMany({});
   await db.modelRequest.deleteMany({});
@@ -143,7 +143,7 @@ test("chat validates nested messages and options before writes or provider calls
     await expectError(await routes.chat.POST(request("chat", body)), 400, "VALIDATION_ERROR");
   }
   assert.equal(await db.chat.count(), 0);
-  assert.equal(await db.task.count(), 0);
+  assert.equal(await db.scheduledJob.count(), 0);
   assert.equal(languageModel.doStreamCalls.length, calls);
   // A request names a model by provider and id, but only a pair the user has
   // added to their library may be called — a well-formed reference is not enough.
@@ -207,8 +207,8 @@ test("automatic tool calls share the manual tool quota and never execute when li
   const tools = await createChatToolSet();
   // The SDK always passes the call options with a tool's input; the quota is
   // refused before the tool itself runs.
-  await assert.rejects(tools.createTask.execute({ title: "must not execute" }, { toolCallId: "call1", messages: [] }), (error: { code: string }) => error.code === "RATE_LIMITED");
-  assert.equal(await db.task.count(), 0);
+  await assert.rejects(tools.createTask.execute({ title: "must not execute", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }, { toolCallId: "call1", messages: [] }), (error: { code: string }) => error.code === "RATE_LIMITED");
+  assert.equal(await db.scheduledJob.count(), 0);
 });
 
 test("rate storage stays bounded without evicting active quotas", (t) => {

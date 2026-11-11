@@ -25,7 +25,7 @@ beforeEach(async (t: TestContext) => {
   // left spent by an earlier test would make these tests measure the rate limit
   // instead of the step record.
   resetLimits();
-  await db.task.deleteMany({});
+  await db.scheduledJob.deleteMany({});
   await db.agentStep.deleteMany({});
   await db.agentRun.deleteMany({});
 });
@@ -58,7 +58,7 @@ async function withLocalSearchServer(run) {
 test("a step whose tool ran is recorded as done and is not re-settled on the way out", async () => {
   const run = await startRun({ chatId: null, goal: "记录一次成功执行" });
   const tools = await createChatToolSet({ toolIds: ["createTask"], runId: run.id });
-  await tools.createTask.execute({ title: "买牛奶" }, { ...toolOptions, toolCallId: "recorded-task-call" });
+  await tools.createTask.execute({ title: "买牛奶", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }, { ...toolOptions, toolCallId: "recorded-task-call" });
 
   const steps = await stepsOf(run.id);
   assert.equal(steps.length, 1);
@@ -76,7 +76,7 @@ test("a step whose tool throws is recorded as failed and the error still propaga
 
   const run = await startRun({ chatId: null, goal: "记录一次失败执行" });
   const tools = await createChatToolSet({ toolIds: ["createTask"], runId: run.id });
-  await assert.rejects(tools.createTask.execute({ title: "会失败" }, toolOptions), /tool exploded/);
+  await assert.rejects(tools.createTask.execute({ title: "会失败", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }, toolOptions), /tool exploded/);
 
   const steps = await stepsOf(run.id);
   assert.equal(steps.length, 1);
@@ -130,13 +130,13 @@ test("a turn leaves no step still running once every exit has been taken", async
     // second set for the same run would restart it against the unique
     // (runId, position) index.
     const tools = await createChatToolSet({ modelRef: SEARCH_MODEL_REF, toolIds: ["createTask", "webSearch"], runId: run.id });
-    await tools.createTask.execute({ title: "成功的一步" }, toolOptions);
+    await tools.createTask.execute({ title: "成功的一步", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }, toolOptions);
 
     const descriptor = getToolDescriptor("createTask");
     const original = descriptor.execute;
     descriptor.execute = async () => { throw new Error("tool exploded"); };
     try {
-      await assert.rejects(tools.createTask.execute({ title: "失败的一步" }, toolOptions), /tool exploded/);
+      await assert.rejects(tools.createTask.execute({ title: "失败的一步", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }, toolOptions), /tool exploded/);
     } finally {
       descriptor.execute = original;
     }

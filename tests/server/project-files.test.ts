@@ -9,7 +9,6 @@ import { createTestDatabase } from "../helpers/database";
 const cleanup = createTestDatabase();
 const { db } = await import("@/db");
 const { createGrant, listGrants, revokeGrant } = await import("@/lib/local-files/grants");
-const { setTerminalPermission } = await import("@/lib/terminal/permissions");
 const { readProjectFile, bindProjectEdit, applyProjectEdit, editProjectFileInputSchema } = await import("@/lib/project-files/service");
 const { applyEdits, unifiedDiff } = await import("@/lib/project-files/edits");
 const { contentHash } = await import("@/lib/project-files/text");
@@ -20,10 +19,10 @@ const { claimToolApproval } = await import("@/lib/chat/store");
 const { encodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
 
 const roots: string[] = [];
-async function folder(mode: "approval" | "full-access" | null = "approval") {
+// A granted folder is one the model may read and edit; whether an edit asks is the conversation's rule.
+async function folder() {
   const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ria-project-files-"))); roots.push(root);
   const grant = await createGrant({ path: root });
-  if (mode) await setTerminalPermission(grant.id, true, grant.updatedAt, mode);
   return { root, grant: (await listGrants()).find(row => row.id === grant.id)! };
 }
 const hashOf = (file: string) => contentHash(readFileSync(file));
@@ -78,9 +77,12 @@ test("project paths allow configuration dot-files but refuse internals, credenti
   await assert.rejects(edit({ grantId: grant.id, path: ".env", content: "X=1\n" }), { reason: "sensitive" });
 });
 
-test("file tools require the folder's terminal permission", async () => {
-  const { root, grant } = await folder(null);
+test("file tools work in any granted folder and refuse one that was withdrawn", async () => {
+  const { root, grant } = await folder();
   writeFileSync(path.join(root, "a.txt"), "a\n");
+  // Adding the folder is all it takes; there is no separate permission to switch on.
+  assert.equal((await readProjectFile({ grantId: grant.id, path: "a.txt", startLine: 1, lineCount: 10 })).totalLines, 1);
+  await revokeGrant(grant.id);
   await assert.rejects(readProjectFile({ grantId: grant.id, path: "a.txt", startLine: 1, lineCount: 10 }), { code: "FORBIDDEN" });
   await assert.rejects(edit({ grantId: grant.id, path: "a.txt", content: "b\n" }), { code: "FORBIDDEN" });
 });
@@ -168,13 +170,12 @@ test("a preview supplied with the input is replaced by the diff computed from th
   assert.equal(forged.binding.stale, undefined);
 });
 
-test("permission changes after proposal invalidate the edit", async () => {
+test("re-granting the folder after a proposal invalidates the edit", async () => {
   const { root, grant } = await folder();
   const file = path.join(root, "a.txt");
   writeFileSync(file, "one\n");
   const proposed = await edit({ grantId: grant.id, path: "a.txt", expectedHash: hashOf(file), edits: [{ oldText: "one", newText: "two" }] });
-  const current = (await listGrants()).find(row => row.id === grant.id)!;
-  await setTerminalPermission(grant.id, true, current.updatedAt, "full-access");
+  await createGrant({ path: root });
   await assert.rejects(proposed.run(), /permission changed/);
   assert.equal(readFileSync(file, "utf8"), "one\n");
   // A resumed approval under the changed permission keeps what was approved, marked stale.
@@ -262,8 +263,8 @@ test("diff hunks follow the replaced regions, including joined lines and appends
   assert.match(truncated.diff, /diff truncated: \d+ more lines/);
 });
 
-test("edit tools come with terminal access, require approval only in approval mode, and feed summaries and history", async () => {
-  const { root, grant } = await folder("approval");
+test("edit tools come with a granted folder, ask only under the ask rule, and feed summaries and history", async () => {
+  const { root, grant } = await folder();
   const chat = await db.chat.create({ data: { title: "Workspace", workspaceGrantId: grant.id } });
   const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"], chatId: chat.id });
   assert.ok("readProjectFile" in tools && "editProjectFile" in tools);
@@ -273,8 +274,8 @@ test("edit tools come with terminal access, require approval only in approval mo
   writeFileSync(path.join(root, "a.txt"), "one\n");
   const input = { grantId: grant.id, path: "a.txt", expectedHash: hashOf(path.join(root, "a.txt")), edits: [{ oldText: "one", newText: "two" }] };
   assert.equal(await needsApproval({ ...input }), true);
-  const current = (await listGrants()).find(row => row.id === grant.id)!;
-  await setTerminalPermission(grant.id, true, current.updatedAt, "full-access");
+  // Accepting edits is enough for an edit, read at the call rather than when the tools were built.
+  await db.chat.update({ where: { id: chat.id }, data: { approvalRule: "acceptEdits" } });
   assert.equal(await needsApproval({ ...input }), false);
 
   const { run } = await edit(input);
@@ -287,7 +288,7 @@ test("edit tools come with terminal access, require approval only in approval mo
 });
 
 test("edit approvals revalidate to the identical input and cannot be altered or claimed twice", async () => {
-  const { root, grant } = await folder("approval");
+  const { root, grant } = await folder();
   writeFileSync(path.join(root, "a.txt"), "one\n");
   const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"] });
   const schema = asSchema(tools.editProjectFile.inputSchema);

@@ -95,7 +95,7 @@ test("template editing, copying and deletion preserve conversation snapshots acr
   await expect(page.getByLabel("助理模板", { exact: true })).toContainText("财务测试助理"); await expectSnapshotDetails(page, 2, 0);
   const restored = (await browserApi(page, `/api/conversations/${chat.id}`)).body.data; expect(restored.assistantConfig.instructions).toBe("ASSISTANT_SNAPSHOT_V2");
   expect(consoleErrors).toEqual([]);
-  const denied = await browserApi(page, "/api/tools/run", "POST", { chatId: chat.id, tool: "createTask", input: { title: "Denied by template" } }); expect(denied.status).toBe(400);
+  const denied = await browserApi(page, "/api/tools/run", "POST", { chatId: chat.id, tool: "createTask", input: { title: "Denied by template", prompt: "x", cron: "0 9 * * *", timeZone: "UTC" } }); expect(denied.status).toBe(400);
   await page.getByLabel("助理模板", { exact: true }).click(); await page.getByRole("option", { name: "通用助理", exact: true }).click(); await expect(page.getByLabel("选择模型")).toBeEnabled();
   await expect(page.getByRole("button", { name: "模板详情", exact: true })).toHaveCount(0);
   expect(errors).toEqual([]);

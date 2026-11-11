@@ -13,7 +13,6 @@ import { localAccessCookie } from "../helpers/local-access";
 const cleanup = createTestDatabase();
 const { db } = await import("@/db");
 const { createGrant, listGrants, revokeGrant } = await import("@/lib/local-files/grants");
-const { setTerminalPermission } = await import("@/lib/terminal/permissions");
 const { bindTerminalApproval, runTerminalCommand, getTerminalSession, stopTerminalSession, terminalEnvironment } = await import("@/lib/terminal/runtime");
 const { createChatToolSet } = await import("@/tools/catalog");
 const { startRun, cancelRun } = await import("@/lib/agent/runs");
@@ -29,10 +28,10 @@ const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
 const request = (url: string, method = "GET", body?: unknown, cookie = localAccessCookie()) => new NextRequest(`http://localhost${url}`, {
   method, headers: { cookie, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
 });
-async function folder(enabled = true) {
+// A granted folder is one the model may run commands in; there is no separate terminal switch.
+async function folder() {
   const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ria-terminal-"))); roots.push(root);
   const grant = await createGrant({ path: root });
-  if (enabled) await setTerminalPermission(grant.id, true, grant.updatedAt);
   return (await listGrants()).find(row => row.id === grant.id)!;
 }
 // Folder tools act only in the conversation's chosen workspace.
@@ -82,25 +81,21 @@ test("terminal commands remain usable in a long-running LLM turn", async () => {
   } finally { await revokeGrant(grant.id); }
 });
 
-test("file grants do not enable the terminal; web runtimes and missing approval bindings are refused", async () => {
-  const grant = await folder(false);
-  assert.equal(grant.terminalEnabled, false);
-  assert.equal((await createChatToolSet()).runTerminalCommand, undefined);
-  await assert.rejects(prepared(grant.id), /终端权限/);
+test("a granted folder can run commands in the desktop runtime only, and only with an approval binding", async () => {
+  const grant = await folder();
+  assert.equal(Object.hasOwn(grant, "terminalEnabled"), false, "a grant carries no terminal switch");
+  assert.ok((await createChatToolSet()).runTerminalCommand, "adding a folder is what offers the terminal");
+  assert.equal((await prepared(grant.id)).binding.grantId, grant.id);
   await assert.rejects(runTerminalCommand(terminalInputSchema.parse({ grantId: grant.id, command: echo })), /尚未确认/);
   process.env.APP_RUNTIME = "web";
-  await assert.rejects(setTerminalPermission(grant.id, true, grant.updatedAt), /桌面/);
+  await assert.rejects(prepared(grant.id), /桌面/);
   process.env.APP_RUNTIME = "test";
+  await revokeGrant(grant.id);
 });
 
-test("permission updates are authenticated, strict and versioned; a tool cannot invoke the terminal manually", async () => {
-  const grant = await folder(false);
-  const url = `/api/directory-grants/${grant.id}`;
-  assert.equal((await permissionRoute.PATCH(request(url, "PATCH", { terminalEnabled: true, revision: grant.updatedAt }, ""), ctx(grant.id))).status, 401);
-  assert.equal((await permissionRoute.PATCH(request(url, "PATCH", { terminalEnabled: true, revision: grant.updatedAt, extra: true }), ctx(grant.id))).status, 400);
-  assert.equal((await permissionRoute.PATCH(request(url, "PATCH", { terminalEnabled: true, terminalApprovalMode: "sometimes", revision: grant.updatedAt }), ctx(grant.id))).status, 400);
-  assert.equal((await permissionRoute.PATCH(request(url, "PATCH", { terminalEnabled: true, revision: grant.updatedAt }), ctx(grant.id))).status, 200);
-  assert.equal((await permissionRoute.PATCH(request(url, "PATCH", { terminalEnabled: false, revision: grant.updatedAt }), ctx(grant.id))).status, 409);
+test("there is no terminal permission to change on a folder, and a tool cannot invoke the terminal manually", async () => {
+  const grant = await folder();
+  assert.equal("PATCH" in permissionRoute, false, "the folder's terminal switch and mode are gone");
   assert.equal((await manualRoute.POST(request("/api/tools/run", "POST", { tool: "runTerminalCommand", input: { grantId: grant.id, command: echo } }))).status, 400);
   const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"], chatId: await workspaceChat(grant.id) });
   const schema = await asSchema(tools.runTerminalCommand.inputSchema).jsonSchema;
@@ -111,42 +106,30 @@ test("permission updates are authenticated, strict and versioned; a tool cannot 
   await revokeGrant(grant.id);
 });
 
-test("terminal approval follows each folder's current mode and changing modes invalidates bound commands", async () => {
-  const approval = await folder();
-  const full = await folder();
-  const old = await prepared(full.id);
-  const url = `/api/directory-grants/${full.id}`;
-  assert.equal((await permissionRoute.PATCH(request(url, "PATCH", { terminalEnabled: true, terminalApprovalMode: "full-access", revision: full.updatedAt }), ctx(full.id))).status, 200);
-  const chatId = await workspaceChat(approval.id);
+test("terminal approval follows the conversation's approval rule, or its task's, read at each call", async () => {
+  const grant = await folder();
+  const chatId = await workspaceChat(grant.id);
   const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"], chatId });
   const needsApproval = tools.runTerminalCommand.needsApproval;
-  assert.equal(typeof needsApproval, "function");
   if (typeof needsApproval !== "function") assert.fail("Missing approval decision");
-  const decision = async (input: unknown) => needsApproval(input, {} as never);
-  const first = { grantId: approval.id, command: echo };
-  assert.equal(await decision(first), true);
-  assert.equal(await decision({ grantId: approval.id, command: echo }), true);
-  // Switching the workspace between turns applies to a tool set built before it.
-  await db.chat.update({ where: { id: chatId }, data: { workspaceGrantId: full.id } });
-  const automatic = { grantId: full.id, command: echo };
-  assert.equal(await decision(automatic), false);
+  const decision = async () => needsApproval({ grantId: grant.id, command: echo }, {} as never);
+  // A new conversation asks, and accepting edits does not cover commands.
+  assert.equal(await decision(), true);
+  await db.chat.update({ where: { id: chatId }, data: { approvalRule: "acceptEdits" } });
+  assert.equal(await decision(), true);
+  // A tool set built before the change reads the rule as it is now.
+  await db.chat.update({ where: { id: chatId }, data: { approvalRule: "full" } });
+  const automatic = { grantId: grant.id, command: echo };
+  assert.equal(await needsApproval(automatic, {} as never), false);
   assert.ok("binding" in automatic);
   assert.equal((await tools.runTerminalCommand.execute!(automatic, {} as never) as { status: string }).status, "completed");
-  await assert.rejects(runTerminalCommand(old), /已变化/);
-  const pending = await prepared(full.id);
-  const current = (await listGrants()).find(row => row.id === full.id)!;
-  assert.equal(current.terminalApprovalMode, "full-access");
-  await setTerminalPermission(full.id, true, current.updatedAt, "approval");
-  assert.equal(await decision({ grantId: full.id, command: echo }), true, "an existing toolset must read the new mode");
-  await assert.rejects(runTerminalCommand(pending), /已变化/);
-  await assert.rejects(decision(pending), /已变化/);
-  const latest = (await listGrants()).find(row => row.id === full.id)!;
-  await setTerminalPermission(full.id, true, latest.updatedAt, "full-access");
-  await createGrant({ path: full.path });
-  const reset = (await listGrants()).find(row => row.id === full.id)!;
-  assert.equal(reset.terminalEnabled, false);
-  assert.equal(reset.terminalApprovalMode, "approval");
-  await assert.rejects(decision({ grantId: full.id, command: echo }), /终端权限/);
+  // A task's conversation follows the task's folder and rule, not its own.
+  await db.scheduledJob.create({ data: { kind: "prompt", title: "Folder task", prompt: "Run it.", timeZone: "UTC", nextRunAt: null, chatId, workspaceGrantId: grant.id, approvalRule: "ask" } });
+  assert.equal(await decision(), true);
+  await db.scheduledJob.updateMany({ where: { chatId }, data: { approvalRule: "full" } });
+  assert.equal(await decision(), false);
+  await db.scheduledJob.deleteMany({ where: { chatId } });
+  await revokeGrant(grant.id);
 });
 
 test("scripts exceeding the former input and Windows environment limits execute intact with Unicode", async () => {
@@ -218,20 +201,17 @@ test("successful commands cap output and report truncation", async () => {
   assert.equal(result.log?.stdoutBytes, 100_000);
 });
 
-test("permission changes and re-granting invalidate pending approvals", async () => {
+test("re-granting a folder invalidates commands approved before it", async () => {
   const grant = await folder();
   const input = await prepared(grant.id);
-  await setTerminalPermission(grant.id, false, grant.updatedAt);
-  await assert.rejects(runTerminalCommand(input), /终端权限/);
-  const disabled = (await listGrants()).find(row => row.id === grant.id)!;
-  await setTerminalPermission(grant.id, true, disabled.updatedAt);
-  const fresh = await prepared(grant.id);
   await createGrant({ path: grant.path });
-  await assert.rejects(runTerminalCommand(fresh), /终端权限/);
-  assert.equal((await listGrants()).find(row => row.id === grant.id)!.terminalEnabled, false);
+  await assert.rejects(runTerminalCommand(input), /已变化/);
+  // A withdrawn folder takes no new commands at all.
+  await revokeGrant(grant.id);
+  await assert.rejects(prepared(grant.id), /撤销/);
 });
 
-for (const action of ["stop", "abort", "revoke", "disable", "change-mode"] as const) {
+for (const action of ["stop", "abort", "revoke"] as const) {
   test(`${action} stops a running command and preserves partial output`, async () => {
     const grant = await folder();
     const input = await prepared(grant.id, long);
@@ -245,8 +225,7 @@ for (const action of ["stop", "abort", "revoke", "disable", "change-mode"] as co
         assert.equal((await sessionsRoute.POST(request(url, "POST", { command: "not accepted" }), ctx(input.binding.sessionId))).status, 400);
         assert.equal((await sessionsRoute.POST(request(url, "POST"), ctx(input.binding.sessionId))).status, 200);
       } else if (action === "abort") controller.abort();
-      else if (action === "revoke") await revokeGrant(grant.id);
-      else await setTerminalPermission(grant.id, action === "change-mode", grant.updatedAt, "full-access");
+      else await revokeGrant(grant.id);
       const result = await pending;
       assert.equal(result.status, "stopped"); assert.match(result.stdout, /ready/); assert.ok(result.finishedAt);
       assert.equal(stopTerminalSession(result.id).status, "stopped");

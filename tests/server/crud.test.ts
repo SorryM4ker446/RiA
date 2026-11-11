@@ -36,7 +36,7 @@ beforeEach(async (t: TestContext) => {
   cookie = localAccessCookie();
   await db.chat.deleteMany({});
   await db.memory.deleteMany({});
-  await db.task.deleteMany({});
+  await db.scheduledJob.deleteMany({});
   await db.knowledgeDocument.deleteMany({});
   await db.workspacePreference.deleteMany({});
   await seedTestModelPreferences(db);
@@ -68,39 +68,52 @@ test("conversation and message CRUD persists edits, deduplicates retries and sco
   await missing(await conversation.GET(request("/api/conversations"), context(sibling.id)));
 });
 
-test("task CRUD validates atomic updates, date normalization and filters", async () => {
-  const created = await data(await tasks.POST(request("/api/tasks", "POST", { title: "Task", dueDate: "2026-09-01T08:00:00+08:00", priority: "high", timeZone: "UTC", reminderEnabled: false, repeatRule: "none" })), 201);
+test("task CRUD validates atomic updates and schedules", async () => {
+  const created = await data(await tasks.POST(request("/api/tasks", "POST", { title: " Task ", prompt: "Say hello.", cron: "30 8 * * 1-5", timeZone: "Asia/Shanghai" })), 201);
   const id = created.id;
-  assert.equal((await data(await task.GET(request("/api/tasks"), context(id)))).dueDate, "2026-09-01T00:00:00.000Z");
-  const invalid = await task.PATCH(request("/api/tasks", "PATCH", { title: "Must not persist", dueDate: "invalid date" }), context(id));
+  assert.equal(created.title, "Task");
+  assert.equal(created.kind, "prompt");
+  // Off unless asked for, so a form that forgets the switch starts nothing.
+  assert.equal(created.enabled, false);
+  assert.ok(new Date(created.nextRunAt).getTime() > Date.now());
+  const invalid = await task.PATCH(request("/api/tasks", "PATCH", { title: "Must not persist", cron: "not a schedule" }), context(id));
   assert.equal(invalid.status, 400);
-  assert.equal((await db.task.findUnique({ where: { id } })).title, "Task");
-  for (const status of ["in_progress", "done", "todo"]) {
-    await data(await task.PATCH(request("/api/tasks", "PATCH", { status, details: " Updated ", dueDate: null }), context(id)));
-    const rows = await data(await tasks.GET(request(`/api/tasks?status=${status}&limit=1`)));
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0].status, status);
-    assert.equal(rows[0].details, "Updated");
-    assert.equal(rows[0].dueDate, null);
-  }
+  assert.equal((await db.scheduledJob.findUnique({ where: { id } })).title, "Task");
+  const updated = await data(await task.PATCH(request("/api/tasks", "PATCH", { prompt: "Say goodbye.", enabled: true }), context(id)));
+  assert.equal(updated.prompt, "Say goodbye.");
+  assert.equal(updated.enabled, true);
+  assert.equal(updated.cron, "30 8 * * 1-5");
+  assert.equal(updated.nextRunAt, created.nextRunAt, "a change that leaves the schedule alone does not move the next run");
+  assert.equal((await data(await tasks.GET(request("/api/tasks")))).some(row => row.id === id), true);
   assert.equal((await task.DELETE(request("/api/tasks", "DELETE"), context(id))).status, 200);
-  assert.equal(await db.task.count({ where: { id } }), 0);
-  await missing(await task.GET(request("/api/tasks"), context(id)));
+  assert.equal(await db.scheduledJob.count({ where: { id } }), 0);
+  await missing(await task.PATCH(request("/api/tasks", "PATCH", { title: "Gone" }), context(id)));
   await missing(await task.DELETE(request("/api/tasks", "DELETE"), context(id)));
 });
 
 test("a task created by the user or by the task tool is saved without leaving a memory suggestion", async () => {
-  const created = await data(await tasks.POST(request("/api/tasks", "POST", { title: " 复习泛型笔记 ", details: "", priority: "medium", timeZone: "UTC", reminderEnabled: false, repeatRule: "none" })), 201);
+  const future = new Date(Date.now() + 86_400_000).toISOString().slice(0, 16);
+  const created = await data(await tasks.POST(request("/api/tasks", "POST", { title: " 复习泛型笔记 ", prompt: "提醒我复习泛型笔记。", runAt: future, timeZone: "UTC" })), 201);
   assert.equal(created.title, "复习泛型笔记");
-  assert.equal(created.status, "todo");
-  assert.equal(created.details, null);
-  assert.equal((await data(await tasks.GET(request("/api/tasks")))).some(row => row.id === created.id), true);
-  for (const invalid of [{ title: "" }, { title: "提醒需要时间", reminderEnabled: true }, { title: "多余字段", extra: true }]) {
-    assert.equal((await tasks.POST(request("/api/tasks", "POST", invalid))).status, 400);
+  assert.equal(created.cron, null);
+  // Neither a repeat nor a time: a task that runs only when started by hand.
+  const manual = await data(await tasks.POST(request("/api/tasks", "POST", { title: "没有时间", prompt: "x", timeZone: "UTC" })), 201);
+  assert.deepEqual([manual.cron, manual.nextRunAt], [null, null]);
+  for (const invalid of [
+    { title: "", prompt: "x", cron: "0 9 * * *", timeZone: "UTC" },
+    { title: "两种时间", prompt: "x", cron: "0 9 * * *", runAt: future, timeZone: "UTC" },
+    { title: "没有内容", cron: "0 9 * * *", timeZone: "UTC" },
+    { title: "已经过去", prompt: "x", runAt: "2020-01-01T09:00", timeZone: "UTC" },
+    { title: "永远不到", prompt: "x", cron: "0 0 31 2 *", timeZone: "UTC" },
+    { title: "多余字段", prompt: "x", cron: "0 9 * * *", timeZone: "UTC", extra: true },
+  ]) {
+    assert.equal((await tasks.POST(request("/api/tasks", "POST", invalid))).status, 400, JSON.stringify(invalid));
   }
-  assert.equal(await db.task.count(), 1);
-  await executeRegisteredTool(getToolDescriptor("createTask")!, { title: "工具创建的任务" }, { trigger: "manual" });
-  assert.equal(await db.task.count(), 2);
+  assert.equal(await db.scheduledJob.count(), 2, "only the two valid tasks were saved");
+  const made = await executeRegisteredTool(getToolDescriptor("createTask")!, { title: "工具创建的任务", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }, { trigger: "manual" });
+  assert.equal(await db.scheduledJob.count(), 3);
+  // The user approved it as it stands, so it is created switched on.
+  assert.equal((made.output as { enabled: boolean }).enabled, true);
   // The task list is where tasks are kept; neither path writes to memory.
   assert.equal(await db.memory.count(), 0);
 });

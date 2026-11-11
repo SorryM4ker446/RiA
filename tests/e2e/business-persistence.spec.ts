@@ -1,6 +1,7 @@
 import { openExecutionDetails } from "../helpers/execution-records";
 import { openRecentConversations } from "../helpers/conversations";
 import { chooseMenuAction } from "../helpers/row-menu";
+import { acceptConfirm } from "../helpers/confirm";
 import { test as base, expect, type Page } from "@playwright/test";
 import { NO_CREDENTIAL_STATE, openWorkspace } from "../helpers/workspace-entry";
 import { randomUUID } from "node:crypto";
@@ -96,13 +97,12 @@ test("tasks and knowledge use real APIs, persist across restart and remain priva
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   expect((await browserApi(page, `${app.origin}/api/tasks`, "POST", newTask("浏览器持久化任务"))).status).toBe(201);
   await page.goto(`${app.origin}/tasks`);
-  const taskPanel = page.getByTestId("task-panel");
-  await expect(taskPanel.getByText("浏览器持久化任务", { exact: true })).toBeVisible();
+  const taskRow = page.getByTestId("task-item").filter({ hasText: "浏览器持久化任务" });
+  await expect(taskRow).toContainText("已暂停");
   const task = (await browserData(page, `${app.origin}/api/tasks`))[0];
-  await page.getByLabel("任务状态 浏览器持久化任务").click();
-  await page.getByRole("option", { name: "已完成", exact: true }).click();
-  await expect.poll(async () => (await browserData(page, `${app.origin}/api/tasks/${task.id}`)).status).toBe("done");
-  expect(app.readRows("SELECT title, status FROM tasks WHERE id = ?", task.id)).toEqual([{ title: "浏览器持久化任务", status: "done" }]);
+  await chooseMenuAction(page, "浏览器持久化任务", "启用");
+  await expect(taskRow).toContainText("已安排");
+  expect(app.readRows("SELECT title, enabled FROM scheduled_jobs WHERE id = ?", task.id)).toEqual([{ title: "浏览器持久化任务", enabled: 1 }]);
 
   await page.getByRole("link", { name: /知识库/ }).click();
   await page.getByRole("button", { name: "新增条目", exact: true }).click();
@@ -137,7 +137,7 @@ test("tasks and knowledge use real APIs, persist across restart and remain priva
   await openExecutionDetails(page);
   await expect(page.getByText(/工具详情：searchKnowledge/)).toBeVisible();
   await page.goto(`${app.origin}/tasks`);
-  await expect(taskPanel.getByText("已完成", { exact: true }).first()).toBeVisible();
+  await expect(taskRow).toContainText("已安排");
 
   const stranger = await browser.newContext({ storageState: NO_CREDENTIAL_STATE });
   try {
@@ -146,15 +146,16 @@ test("tasks and knowledge use real APIs, persist across restart and remain priva
     for (const path of ["tasks", "knowledge"]) {
       expect((await stranger.request.get(`${app.origin}/api/${path}`)).status()).toBe(401);
     }
-    expect((await stranger.request.patch(`${app.origin}/api/tasks/${task.id}`, { data: { status: "todo" } })).status()).toBe(401);
+    expect((await stranger.request.patch(`${app.origin}/api/tasks/${task.id}`, { data: { enabled: false } })).status()).toBe(401);
     expect((await stranger.request.delete(`${app.origin}/api/knowledge/${entry.id}`)).status()).toBe(401);
   } finally { await stranger.close(); }
   // The refused calls changed nothing.
-  expect(app.readRows("SELECT status FROM tasks WHERE id = ?", task.id)).toEqual([{ status: "done" }]);
+  expect(app.readRows("SELECT enabled FROM scheduled_jobs WHERE id = ?", task.id)).toEqual([{ enabled: 1 }]);
   expect(app.readRows("SELECT id FROM memories WHERE id = ?", entry.id)).toHaveLength(1);
   await page.goto(`${app.origin}/tasks`);
-  await page.getByLabel("删除任务 浏览器持久化任务").click();
-  await expect.poll(() => app.readRows("SELECT id FROM tasks WHERE id = ?", task.id).length).toBe(0);
+  await chooseMenuAction(page, "浏览器持久化任务", "删除");
+  await acceptConfirm(page, "删除这个任务？");
+  await expect.poll(() => app.readRows("SELECT id FROM scheduled_jobs WHERE id = ?", task.id).length).toBe(0);
   await page.getByRole("link", { name: /知识库/ }).click();
   await expect(page.getByText("月光档案更新后仍然只有一份。", { exact: true })).toBeVisible();
   await chooseMenuAction(page, "月光档案", "删除条目 月光档案");
@@ -169,5 +170,5 @@ test("tasks and knowledge use real APIs, persist across restart and remain priva
   await page.reload();
   await expect(page.getByRole("heading", { name: "真实业务记录", exact: true })).toHaveCount(0);
   await page.goto(`${app.origin}/tasks`);
-  await expect(taskPanel.getByText("浏览器持久化任务", { exact: true })).toHaveCount(0);
+  await expect(page.getByTestId("task-item").filter({ hasText: "浏览器持久化任务" })).toHaveCount(0);
 });

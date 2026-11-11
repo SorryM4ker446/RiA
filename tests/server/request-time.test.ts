@@ -78,8 +78,9 @@ test("the time is not saved with the message", async t => {
   assert.doesNotMatch(saved.content, /Current date and time/);
 });
 
-test("the task tool says what a due date must look like and where relative dates come from", async () => {
+test("the task tool says what a time to run must look like and where relative dates come from", async () => {
   const description = (await getToolDescriptor("createTask"))?.modelDescription ?? "";
-  assert.match(description, /ISO 8601/);
+  assert.match(description, /YYYY-MM-DDTHH:mm/);
+  assert.match(description, /five fields/);
   assert.match(description, /request context/);
 });

@@ -26,8 +26,9 @@ async function propose(page: Page, app: App) {
   await openWorkspace(page, app.origin);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   const grant = (await browserApi(page, "/api/directory-grants", "POST", { path: app.folder })).body.data;
-  expect((await browserApi(page, `/api/directory-grants/${grant.id}`, "PATCH", { terminalEnabled: true, terminalApprovalMode: "approval", revision: grant.updatedAt })).status).toBe(200);
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "文件编辑" })).body.data;
+  // A new conversation asks before each edit, so the edit waits for approval.
+  expect(chat.approvalRule).toBe("ask");
   // File edits act only in the folder chosen as this conversation's workspace.
   expect((await browserApi(page, `/api/conversations/${chat.id}`, "PATCH", { workspaceGrantId: grant.id })).status).toBe(200);
   await page.evaluate(id => localStorage.setItem("chat:last-active-id", id), chat.id);

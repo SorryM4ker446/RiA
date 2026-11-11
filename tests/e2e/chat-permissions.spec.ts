@@ -33,7 +33,7 @@ async function desktop(page: Page, app: App) {
   await openWorkspace(page, app.origin);
 }
 
-test("chat permissions choose and grant a directory without sending the draft, and synchronize terminal availability and settings", async ({ page, app }) => {
+test("chat permissions grant a directory without sending the draft, offer its terminal at once, and let the conversation choose its folder and approval rule", async ({ page, app }) => {
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
   let chatRequests = 0;
   page.on("request", request => { if (new URL(request.url()).pathname === "/api/chat" && request.method() === "POST") chatRequests++; });
@@ -64,17 +64,15 @@ test("chat permissions choose and grant a directory without sending the draft, a
   await sheet.getByRole("button", { name: "选择目录", exact: true }).click();
   await expect(sheet.getByLabel("目录路径", { exact: true })).toHaveValue(app.folder);
   expect(await browserData(page, "/api/directory-grants")).toHaveLength(0);
+  // Adding the folder is the whole permission: what runs there is said where it is added.
+  await expect(sheet.getByText(/工作目录不是文件访问沙箱/)).toBeVisible();
   await sheet.getByLabel("目录路径", { exact: true }).press("Enter");
-  await expect(sheet.getByRole("button", { name: "开启终端", exact: true })).toBeVisible();
+  await expect(sheet.getByRole("button", { name: "撤销", exact: true })).toBeVisible();
   const [grant] = await browserData(page, "/api/directory-grants");
-  expect(grant.terminalEnabled).toBe(false);
+  expect(Object.hasOwn(grant, "terminalEnabled")).toBe(false);
+  expect(await terminalAvailable()).toBe(true);
   expect(chatRequests).toBe(0);
-  await sheet.getByRole("button", { name: "开启终端", exact: true }).click();
-  const confirm = page.getByRole("dialog", { name: "开启终端权限", exact: true });
-  await expect(confirm.getByText(/工作目录不是文件访问沙箱/)).toBeVisible();
-  await confirm.getByRole("button", { name: "确认开启终端权限", exact: true }).click();
-  await expect(confirm).toBeHidden();
-  await expect(sheet.getByRole("button", { name: "关闭终端", exact: true })).toBeVisible();
+  await expect(sheet.getByRole("button", { name: "开启终端", exact: true })).toHaveCount(0);
   await page.screenshot({ path: join(tmpdir(), "ria-chat-permissions-desktop.png"), animations: "disabled" });
   await page.getByRole("button", { name: "关闭工作区权限", exact: true }).click();
   await expect(trigger).toBeFocused();
@@ -106,7 +104,14 @@ test("chat permissions choose and grant a directory without sending the draft, a
   await expect(toast).toHaveCSS("pointer-events", "none");
   expect((await browserData(page, `/api/conversations/${chat.id}`)).workspaceGrantId).toBe(grant.id);
   await expect(draft).toHaveValue("保留这段尚未发送的草稿");
-  expect(await terminalAvailable()).toBe(true);
+  // Beside the folder, the conversation's approval rule: ask, until changed here.
+  const rule = page.getByRole("button", { name: "审批规则：询问", exact: true });
+  await expect(rule).toBeVisible();
+  await rule.click();
+  await page.getByRole("menuitemradio").filter({ hasText: "完全访问" }).click();
+  await expect(page.getByRole("button", { name: "审批规则：完全访问", exact: true })).toBeVisible();
+  expect((await browserData(page, `/api/conversations/${chat.id}`)).approvalRule).toBe("full");
+  await expect(draft).toHaveValue("保留这段尚未发送的草稿");
   await page.setViewportSize({ width: 390, height: 844 });
   await trigger.click();
   await expect(sheet).toBeVisible();
@@ -120,13 +125,13 @@ test("chat permissions choose and grant a directory without sending the draft, a
   await expect(sheet).toHaveCSS("animation-name", "none");
   await page.keyboard.press("Escape");
   await expect(sheet).toBeHidden();
+  // Settings holds the rule new conversations start with; this conversation keeps its own.
   await page.goto(`${app.origin}/settings`);
   await page.getByRole("tab", { name: "工作区权限", exact: true }).click();
-  await expect(page.getByRole("button", { name: "关闭终端", exact: true })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "新对话的审批规则", exact: true })).toContainText("询问");
   await page.goto(`${app.origin}/chat`);
+  await expect(page.getByRole("button", { name: "审批规则：完全访问", exact: true })).toBeVisible();
   await trigger.click();
-  await sheet.getByRole("button", { name: "关闭终端", exact: true }).click();
-  await expect(sheet.getByRole("button", { name: "开启终端", exact: true })).toBeVisible();
   await page.emulateMedia({ reducedMotion: "no-preference" });
   // Follow the form below the list frame by frame while the last folder is withdrawn.
   const layout = await watchLayout(page, { form: sheet.locator("form").last() });
@@ -169,7 +174,7 @@ test("failed directory authorization retains the entered path and chat draft and
   expect(await browserData(page, "/api/directory-grants")).toHaveLength(0);
   await page.unroute("**/api/directory-grants");
   await sheet.getByRole("button", { name: "授权", exact: true }).click();
-  await expect(sheet.getByRole("button", { name: "开启终端", exact: true })).toBeVisible();
+  await expect(sheet.getByRole("button", { name: "撤销", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(draft).toHaveValue("授权失败也不要发送这段文字");
 });

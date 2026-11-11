@@ -30,7 +30,7 @@ beforeEach(async (t: TestContext) => {
   await db.documentChunk.deleteMany({});
   await db.agentStep.deleteMany({});
   await db.agentRun.deleteMany({});
-  await db.task.deleteMany({});
+  await db.scheduledJob.deleteMany({});
 });
 after(async () => { await db.$disconnect(); cleanup(); });
 
@@ -79,10 +79,10 @@ test("re-importing unchanged content into another collection actually moves it",
 test("a second tool set for one run does not collide on the step position", async () => {
   const run = await startRun({ chatId: null, goal: "two tool sets" });
   const first = await createChatToolSet({ toolIds: ["createTask"], runId: run.id });
-  await first.createTask.execute({ title: "from the first set" }, {} as never);
+  await first.createTask.execute({ title: "from the first set", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }, {} as never);
 
   const second = await createChatToolSet({ toolIds: ["createTask"], runId: run.id });
-  await second.createTask.execute({ title: "from the second set" }, {} as never);
+  await second.createTask.execute({ title: "from the second set", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }, {} as never);
 
   // Positions are unique per run. The second set used to restart its counter at
   // 1, and the write that collided was swallowed — so a run that did two

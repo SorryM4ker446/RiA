@@ -85,7 +85,7 @@ test("the step record carries no artifact column, in code or in the schema", asy
 
   // And a step still records and settles exactly the way the catalog settles it.
   const run = await startRun({ chatId: null, goal: "archive" });
-  const step = await recordStep({ runId: run.id, position: 1, kind: "tool", toolName: "createTask", input: { title: "整理" } });
+  const step = await recordStep({ runId: run.id, position: 1, kind: "tool", toolName: "createTask", input: { title: "整理", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" } });
   await updateStep(step.id, { state: "done", output: { taskId: "t1" } });
   await finishRun(run.id, "succeeded");
   const settled = await db.agentStep.findUniqueOrThrow({ where: { id: step.id } });

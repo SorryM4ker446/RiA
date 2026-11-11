@@ -61,7 +61,7 @@ for (const path of ["/chat", "/tasks", "/conversations", "/knowledge", "/media",
     await openWorkspace(page, app.origin);
     await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
     await browserApi(page, "/api/conversations", "POST", { title: "键盘检查" });
-    await browserApi(page, "/api/tasks", "POST", { title: "键盘任务", priority: "medium", timeZone: "UTC", reminderEnabled: false, repeatRule: "none" });
+    await browserApi(page, "/api/tasks", "POST", { kind: "prompt", title: "键盘任务", prompt: "提醒我。", cron: "0 9 * * *", timeZone: "UTC" });
     await page.goto(`${app.origin}${path}`);
     await expect(page.locator("main")).toBeVisible();
     await page.waitForTimeout(500);

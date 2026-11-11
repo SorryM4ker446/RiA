@@ -14,13 +14,14 @@ test("local review exposes real recorded changes, current sources and deleted-so
   await openWorkspace(page, app.origin);
   const file = app.readRows("PRAGMA database_list")[0] as { file: string };
   const fixture = new DatabaseSync(file.file);
-  const taskId = "review-task-fixture";
+  // A suggestion the user then accepts: accepting it is the recorded change.
+  const entryId = "review-entry-fixture";
   try {
     fixture.exec("PRAGMA busy_timeout=5000");
-    fixture.prepare("INSERT INTO tasks (id, title, updatedAt) VALUES (?, ?, ?)").run(taskId, "回顾来源任务", Date.now());
+    fixture.prepare("INSERT INTO memories (id, key, value, source, confirmed, updatedAt) VALUES (?, ?, ?, 'assistant', 0, ?)").run(entryId, "回顾来源条目", "回顾来源条目的内容", Date.now());
   } finally { fixture.close(); }
-  expect((await browserApi(page, `/api/tasks/${taskId}`, "PATCH", { status: "done" })).status).toBe(200);
-  expect((await browserApi(page, `/api/tasks/${taskId}`, "PATCH", { status: "done" })).status).toBe(200);
+  expect((await browserApi(page, `/api/knowledge/${entryId}`, "PATCH", { confirmed: true })).status).toBe(200);
+  expect((await browserApi(page, `/api/knowledge/${entryId}`, "PATCH", { confirmed: true })).status).toBe(200);
   expect(app.readRows("SELECT count(*) AS count FROM workspace_events")[0]).toMatchObject({ count: 1 });
   const sqlite = new DatabaseSync(file.file);
   // Only the recorded timestamp is shifted to yesterday to exercise the public
@@ -37,20 +38,20 @@ test("local review exposes real recorded changes, current sources and deleted-so
   const review = page.getByRole("region", { name: "本地事实回顾" });
   await review.getByRole("textbox", { name: "回顾时区" }).fill("UTC");
   await review.getByRole("button", { name: "查看事实回顾" }).click();
-  await expect(review.getByText("任务完成：1 次", { exact: true })).toBeVisible();
-  await expect(review.getByText("任务重新打开：0 次", { exact: true })).toBeVisible();
-  const source = review.getByRole("link", { name: "任务完成 · 回顾来源任务" });
+  await expect(review.getByText("知识条目确认：1 次", { exact: true })).toBeVisible();
+  await expect(review.getByText("任务完成：0 次", { exact: true })).toBeVisible();
+  const source = review.getByRole("link", { name: "知识条目确认 · 回顾来源条目" });
   await source.click();
   await expect(page.getByRole("heading", { name: "回顾事件来源" })).toBeVisible();
-  await expect(page.getByText("done", { exact: true })).toBeVisible();
-  await browserApi(page, `/api/tasks/${taskId}`, "DELETE");
+  await expect(page.getByText("回顾来源条目的内容", { exact: true })).toBeVisible();
+  await browserApi(page, `/api/knowledge/${entryId}`, "DELETE");
   await page.reload();
   await expect(page.getByText("原任务、资料或知识条目已删除，历史事件仍然保留。")).toBeVisible();
   await page.getByRole("link", { name: "返回设置与回顾" }).click();
   await page.getByRole("tab", { name: "自动化与通知", exact: true }).click();
   await review.getByRole("textbox", { name: "回顾时区" }).fill("UTC");
   await review.getByRole("button", { name: "查看事实回顾" }).click();
-  await expect(review.getByText("任务完成：1 次", { exact: true })).toBeVisible();
+  await expect(review.getByText("知识条目确认：1 次", { exact: true })).toBeVisible();
   expect(app.readRows("SELECT count(*) AS count FROM model_requests")[0]).toMatchObject({ count: 0 });
   const screenshots = join(tmpdir(), "ria-workspace-review-qa"); await mkdir(screenshots, { recursive: true });
   await review.screenshot({ path: join(screenshots, "desktop.png"), animations: "disabled" });

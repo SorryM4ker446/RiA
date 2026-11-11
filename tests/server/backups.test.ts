@@ -36,7 +36,7 @@ beforeEach(async (t: TestContext) => { t.mock.method(console,"error",()=>{}); gl
  await db.message.deleteMany({});
  await db.chat.deleteMany({});
  await db.memory.deleteMany({});
- await db.task.deleteMany({});
+ await db.scheduledJob.deleteMany({});
  await db.knowledgeDocument.deleteMany({});
  await db.mediaAsset.deleteMany({});
  await db.modelRequest.deleteMany({});
@@ -50,13 +50,13 @@ async function seed() {
   const output=await storage.createMediaAsset({ bytes:testPng,mediaType:"image/png",kind:"generated-image",sourceChatId:chat.id,generation:{version:1,type:"image",modelId:"google/gemini-2.5-flash-image",prompt:"Saved",inputImages:[{assetId:input.id,mediaType:"image/png"}]}});
   await saveChatMessage({chatId:chat.id,role:"assistant",content:encodeMediaMessage({type:"image-result",modelId:"google/gemini-2.5-flash-image",text:"Saved image",assetId:output.id})});
   await db.memory.create({data:{ key:"preference",value:"保存中文",embedding:[1,0,0]}});
-  await db.task.create({data:{ title:"Reminder",dueDate:new Date(Date.now()+60_000),reminderEnabled:true}});
+  await db.scheduledJob.create({data:{ kind:"prompt",title:"Reminder",prompt:"Do it.",enabled:true,cron:"0 9 * * *",timeZone:"UTC",nextRunAt:new Date(Date.now()+60_000)}});
   await indexDocument({filename:"backup.txt",format:"txt",byteSize:6,pages:[{pageNumber:null,text:"备份检索示例"}]});
   return {chat,input,output};
 }
 
 test("portable restore revokes terminal permission without transporting directory grants", async () => {
-  const grant = await db.directoryGrant.create({ data: { label: "Synthetic", path: "fixture/terminal", realPath: "fixture/terminal", terminalEnabled: true, terminalApprovalMode: "full-access" } });
+  const grant = await db.directoryGrant.create({ data: { label: "Synthetic", path: "fixture/terminal", realPath: "fixture/terminal" } });
   await seed();
   const backup = await exclusiveDataOperation(() => archive.createAccountBackup(false));
   await exclusiveDataOperation(() => restoreAccountBackup(backup.id));
@@ -237,7 +237,7 @@ test("account backups restore business rows, media dependencies and search witho
   assert.equal(output.sourceChatId,restored.id); assert.equal(output.references.length,1); assert.equal(output.inputs.length,1);
   assert.ok(restored.messages[0].content.includes(output.id)); assert.equal(restored.messages[0].content.includes(original.output.id),false);
   assert.deepEqual(await storage.readMediaAsset(output),testPng);
-  assert.equal((await db.task.findFirst({where:{}})).reminderEnabled,false);
+  assert.equal((await db.scheduledJob.findFirst({where:{}})).enabled,false);
   assert.equal(await db.documentTerm.count({where:{chunk:{document:{}}}})>0,true);
   await db.$disconnect(); assert.equal((await archive.inspectAccountBackup(backup.id)).counts.assets,2);
 });
@@ -267,7 +267,7 @@ test("new archives carry the RiA identifiers and archives exported before the re
   const result=await exclusiveDataOperation(()=>restoreAccountBackup(legacyId));
   assert.equal(result.restored,true);
   assert.equal(await db.chat.count(),1);
-  assert.equal((await db.task.findFirst({where:{}})).title,"Reminder");
+  assert.equal((await db.scheduledJob.findFirst({where:{}})).title,"Reminder");
   assert.equal(await db.knowledgeDocument.count(),1);
   assert.equal(await db.mediaAsset.count({where:{}}),2,"media after the legacy manifest is read at its original offsets");
 });

@@ -47,7 +47,7 @@ await db.memory.deleteMany({});
 await db.modelRequest.deleteMany({});
 await db.modelCatalogSnapshot.deleteMany({});
 await db.workspacePreference.deleteMany({});
-await db.task.deleteMany({});
+await db.scheduledJob.deleteMany({});
 await db.knowledgeDocument.deleteMany({});
 await db.mediaAsset.deleteMany({});
 process.env.OPENROUTER_API_KEY="offline-placeholder";resetProviderState();await seedTestModelPreferences(db);});

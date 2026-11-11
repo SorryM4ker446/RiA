@@ -42,7 +42,7 @@ beforeEach(async (t: TestContext) => {
   await db.message.deleteMany({});
   await db.chat.deleteMany({});
   await db.memory.deleteMany({});
-  await db.task.deleteMany({});
+  await db.scheduledJob.deleteMany({});
   await db.knowledgeDocument.deleteMany({});
   await db.mediaAsset.deleteMany({});
   await db.modelRequest.deleteMany({});
@@ -142,7 +142,7 @@ test("ordinary chat receives task-oriented agent instructions without empty retr
   assert.match(prompt, /RiA, a local-first desktop AI agent/);
   assert.match(prompt, /carry authorized work through/);
   // No folder is terminal-enabled here, so the terminal is named once as unavailable and its instructions stay out.
-  assert.doesNotMatch(prompt, /terminalApprovalMode decides whether calls wait for approval/);
+  assert.doesNotMatch(prompt, /approval rule, stated with the workspace, decides whether edits and commands wait for approval/);
   assert.equal(prompt.split("runTerminalCommand").length - 1, 1);
   assert.match(prompt, /say when evidence for a requested workspace fact is missing/);
   assert.doesNotMatch(prompt, /Knowledge evidence|Knowledge entries|Summary of earlier turns|Incomplete excerpts|\[Tooling Policy/);

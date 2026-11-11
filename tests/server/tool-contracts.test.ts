@@ -29,7 +29,7 @@ beforeEach(async (t: TestContext) => {
   globalThis.__riaRateLimitStore?.clear();
   await db.chat.deleteMany({});
   await db.agentRun.deleteMany({});
-  await db.task.deleteMany({});
+  await db.scheduledJob.deleteMany({});
   await db.memory.deleteMany({});
   await db.knowledgeDocument.deleteMany({});
   await seedTestModelPreferences(db);
@@ -49,9 +49,9 @@ test("with memory off the model cannot extract notes, while saving to the knowle
 test("parallel tool sets share one atomic step budget", async () => {
   const run = await startRun({ chatId: null, goal: "One task", budget: { maxSteps: 1 } });
   const [first, second] = await Promise.all([1, 2].map(() => createChatToolSet({ runId: run.id, toolIds: ["createTask"] })));
-  await Promise.all([first.createTask.execute!({ title: "First" }, options), second.createTask.execute!({ title: "Second" }, options)]);
+  await Promise.all([first.createTask.execute!({ title: "First", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }, options), second.createTask.execute!({ title: "Second", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }, options)]);
   assert.equal(await db.agentStep.count({ where: { runId: run.id } }), 1);
-  assert.equal(await db.task.count(), 1);
+  assert.equal(await db.scheduledJob.count(), 1);
 });
 
 test("a failed budget reservation cannot execute a task", async () => {
@@ -59,9 +59,9 @@ test("a failed budget reservation cannot execute a task", async () => {
   const tools = await createChatToolSet({ runId: run.id, toolIds: ["createTask"] });
   const transaction = db.$transaction;
   db.$transaction = async () => { throw new Error("Database reservation unavailable"); };
-  try { await tools.createTask.execute!({ title: "Must not exist" }, options); }
+  try { await tools.createTask.execute!({ title: "Must not exist", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }, options); }
   finally { db.$transaction = transaction; }
-  assert.equal(await db.task.count(), 0);
+  assert.equal(await db.scheduledJob.count(), 0);
   assert.equal(await db.agentStep.count({ where: { runId: run.id } }), 0);
 });
 

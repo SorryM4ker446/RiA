@@ -199,24 +199,18 @@ test("a refused local file tool is not listed as a file the turn used", async ()
   assert.deepEqual(uses, [{ grantLabel: "Docs", grantId: "g1", path: "notes.md", toolId: "readLocalFile" }]);
 });
 
-test("every schedule kind the runner implements can be created in the settings card", async () => {
-  const [card, jobs] = await Promise.all([
-    readFile("src/features/settings/schedules.tsx", "utf8"),
-    readFile("src/lib/scheduler/jobs.ts", "utf8")
-  ]);
-  const list = (source: string, name: string) => {
-    const start = source.indexOf(`${name} = [`);
-    assert.ok(start > 0, `${name} is expected to exist`);
-    return [...source.slice(start, source.indexOf("]", start)).matchAll(/"(\w+)"/g)].map((match) => match[1]);
-  };
-
-  const offered = list(card, "const KINDS");
-  const implemented = list(jobs, "export const ScheduledJobKind");
-  assert.deepEqual([...implemented].sort(), [...offered].sort(),
-    "a kind the runner and the schema accept but the card does not offer cannot be created at all");
-
+test("every task kind the runner implements can be started from a template, and every template has copy", async () => {
+  const { TASK_KINDS } = await import("@/lib/scheduler/jobs");
+  const { TASK_TEMPLATES, taskTemplate } = await import("@/features/tasks/task-templates");
   const { zhCN } = await import("@/lib/locale/zh-CN");
-  for (const kind of offered) {
-    assert.ok(`settings.schedules.kind.${kind}` in zhCN, `${kind} has no interface copy, so its option would render blank`);
+  const { enUS } = await import("@/lib/locale/en-US");
+  // A kind no template reaches cannot be created from the form at all.
+  assert.deepEqual([...new Set(TASK_TEMPLATES.map(id => taskTemplate(id).kind))].sort(), [...TASK_KINDS].sort());
+  for (const id of TASK_TEMPLATES) {
+    for (const copy of [zhCN, enUS] as Record<string, string>[]) assert.ok(copy[`tasks.template.${id}`]?.trim(), `${id} has no label`);
+    const template = taskTemplate(id);
+    // A prompt template other than the blank one says what to do; a built-in action takes no prompt.
+    if (template.kind === "prompt" && id !== "custom") assert.ok(template.prompt.trim() && template.title.trim(), `${id} fills in nothing`);
+    if (template.kind !== "prompt") assert.equal(template.prompt, "");
   }
 });

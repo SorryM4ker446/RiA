@@ -21,4 +21,4 @@ export async function chooseFromSlashMenu(page: Page, name: string) {
 export const chosenWords = (page: Page) => page.locator(".composer-choices .composer-choice");
 
 /** A task made directly, for tests that need one to exist rather than the way it was made. */
-export const newTask = (title: string, extra: Record<string, unknown> = {}) => ({ title, priority: "medium", timeZone: "UTC", reminderEnabled: false, repeatRule: "none", ...extra });
+export const newTask = (title: string, extra: Record<string, unknown> = {}) => ({ kind: "prompt", title, prompt: `${title}。`, cron: "0 9 * * *", timeZone: "UTC", ...extra });

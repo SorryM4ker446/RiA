@@ -9,8 +9,7 @@ import { localAccessCookie } from "../helpers/local-access";
 
 const cleanup = createTestDatabase();
 const { db } = await import("@/db");
-const { createGrant, listGrants } = await import("@/lib/local-files/grants");
-const { setTerminalPermission } = await import("@/lib/terminal/permissions");
+const { createGrant, listGrants, revokeGrant } = await import("@/lib/local-files/grants");
 const { bindTerminalApproval, runTerminalCommand, getTerminalSession } = await import("@/lib/terminal/runtime");
 const { captureFileSnapshot, compareFileSnapshots } = await import("@/lib/terminal/file-changes");
 const { collectEditedFiles } = await import("@/lib/terminal/file-change-summary");
@@ -21,7 +20,6 @@ const win = process.platform === "win32";
 async function folder() {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "ria-file-changes-"))); roots.push(root);
   const grant = await createGrant({ path: root });
-  await setTerminalPermission(grant.id, true, grant.updatedAt);
   return (await listGrants()).find(value => value.id === grant.id)!;
 }
 const run = async (grantId: string, command: string, signal?: AbortSignal) => runTerminalCommand(await bindTerminalApproval({ grantId, command, timeoutSeconds: 20 }), signal);
@@ -101,7 +99,8 @@ test("opening a reported file rechecks authentication, containment, current perm
   for (const name of ["../outside.txt", "C:/outside.txt", "file.tsx:stream", "file\0.tsx", "/absolute.txt"]) assert.equal((await resolveRoute.POST(request(name))).status, 400);
   assert.equal((await resolveRoute.POST(request("linked/outside.txt"))).status, 403);
   assert.equal((await resolveRoute.POST(request("deleted.ts"))).status, 404);
-  await setTerminalPermission(grant.id, false, grant.updatedAt);
+  // A withdrawn folder resolves nothing.
+  await revokeGrant(grant.id);
   assert.equal((await resolveRoute.POST(request("file.tsx"))).status, 403);
 });
 

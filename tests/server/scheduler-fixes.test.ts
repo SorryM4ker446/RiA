@@ -8,12 +8,12 @@ import { localAccessCookie } from "../helpers/local-access";
 
 const cleanup = createTestDatabase();
 const { db } = await import("@/db");
-const { createScheduledJob, listScheduledJobs } = await import("@/lib/scheduler/jobs");
-const { runDueScheduledJob } = await import("@/lib/scheduler/runner");
+const { createTask, listTasks } = await import("@/lib/scheduler/jobs");
+const { runDueTask } = await import("@/lib/scheduler/runner");
 const { raiseNotice, listNotices, unreadNoticeCount, NOTICE_LIMITS } = await import("@/lib/scheduler/notices");
 const { RATE_LIMIT_POLICIES } = await import("@/lib/server/rate-limit");
-const schedulesRoute = await import("@/app/api/schedules/route");
-const scheduleIdRoute = await import("@/app/api/schedules/[id]/route");
+const tasksRoute = await import("@/app/api/tasks/route");
+const taskIdRoute = await import("@/app/api/tasks/[id]/route");
 const noticesRoute = await import("@/app/api/notices/route");
 const noticeIdRoute = await import("@/app/api/notices/[id]/route");
 
@@ -43,14 +43,8 @@ after(async () => {
   cleanup();
 });
 
-const dueNow = async (input: { kind: string; interval?: "daily" | "weekly" }) => {
-  const job = await createScheduledJob({
-    kind: input.kind as "backupReminder",
-    enabled: true,
-    localTime: "09:00",
-    timeZone: "UTC",
-    interval: input.interval ?? "daily"
-  });
+const dueNow = async (input: { kind: "backupReminder" | "scheduledBackup" }) => {
+  const job = await createTask({ kind: input.kind, title: input.kind, enabled: true, cron: "0 9 * * *", timeZone: "UTC" });
   await db.scheduledJob.update({ where: { id: job.id }, data: { nextRunAt: new Date(Date.now() - HOUR) } });
   return job;
 };
@@ -90,30 +84,11 @@ test("two polls racing the same due job run it once", async () => {
   await dueNow({ kind: "backupReminder" });
   const now = new Date();
 
-  const [first, second] = await Promise.all([runDueScheduledJob(now), runDueScheduledJob(now)]);
+  const [first, second] = await Promise.all([runDueTask(now), runDueTask(now)]);
 
   assert.equal([first, second].filter(Boolean).length, 1, "exactly one of two concurrent polls executed the job");
-  const [job] = await listScheduledJobs();
+  const [job] = await listTasks();
   assert.notEqual(job.lastStatus, "running", "the claim was released when the run finished");
-});
-
-test("a review without a model retains local results and still owes its next occurrence", async () => {
-  // No chat model is configured; local facts must still be available.
-  const job = await dueNow({ kind: "dailyBrief" });
-
-  const result = await runDueScheduledJob(new Date());
-  assert.equal(result?.kind, "dailyBrief");
-  assert.equal(result?.outcome.ok, true);
-
-  const [row] = await listScheduledJobs();
-  assert.equal(row.id, job.id);
-  assert.equal(row.lastStatus, "done");
-  assert.ok(new Date(row.nextRunAt) > new Date(), "a failed run is not left claimable on every poll");
-
-  // And it is claimable again when it falls due, rather than being stuck either way.
-  await db.scheduledJob.update({ where: { id: job.id }, data: { nextRunAt: new Date(Date.now() - HOUR) } });
-  const again = await runDueScheduledJob(new Date());
-  assert.ok(again, "the next occurrence still runs");
 });
 
 // --- a scheduled backup only reports success for a backup that exists ---------
@@ -143,26 +118,26 @@ test("a scheduled backup that succeeded leaves a real archive and a recorded run
   const before = new Set((await listBackupFiles()).filter((file) => file.extension === "riab").map((file) => file.id));
   await dueNow({ kind: "scheduledBackup" });
 
-  const result = await runDueScheduledJob(new Date());
+  const result = await runDueTask(new Date());
   const after_ = (await listBackupFiles()).filter((file) => file.extension === "riab");
   assert.equal(after_.some((file) => !before.has(file.id)), true, "a real archive exists for the run that reported success");
-  assert.equal(result?.outcome.ok, true, `a successful run reports success: ${JSON.stringify(result?.outcome)}`);
-  const [job] = await listScheduledJobs();
+  assert.equal(result?.outcome.status, "succeeded", `a successful run reports success: ${JSON.stringify(result?.outcome)}`);
+  const [job] = await listTasks();
   assert.equal(job.lastStatus, "done");
   assert.ok(new Date(job.nextRunAt) > new Date());
 });
 
 // --- the schedule and notice mutation routes are metered ----------------------
 
-test("every schedule and notice mutation is rate limited", async () => {
+test("every task and notice mutation is rate limited", async () => {
   const notice = await raiseNotice({ kind: "backupReminder", title: "backup-due", href: "/backups", fingerprint: "backup-reminder" });
-  const schedule = await createScheduledJob({ kind: "backupReminder", enabled: false, localTime: "09:00", timeZone: "UTC", interval: "daily" });
+  const schedule = await createTask({ kind: "backupReminder", title: "Reminder", enabled: false, cron: "0 9 * * *", timeZone: "UTC" });
 
-  const body = { kind: "backupReminder", localTime: "09:00", timeZone: "UTC", interval: "daily" };
-  const calls: { call: () => Promise<Response>; policy: "backups" | "reminders" }[] = [
-    { call: () => schedulesRoute.POST(req("/api/schedules", "POST", body)), policy: "backups" },
-    { call: () => scheduleIdRoute.PATCH(req(`/api/schedules/${schedule.id}`, "PATCH", { enabled: true }), context(schedule.id)), policy: "backups" },
-    { call: () => scheduleIdRoute.DELETE(req(`/api/schedules/${schedule.id}`, "DELETE"), context(schedule.id)), policy: "backups" },
+  const body = { kind: "backupReminder", title: "Reminder", cron: "0 9 * * *", timeZone: "UTC" };
+  const calls: { call: () => Promise<Response>; policy: "tasks" | "reminders" }[] = [
+    { call: () => tasksRoute.POST(req("/api/tasks", "POST", body)), policy: "tasks" },
+    { call: () => taskIdRoute.PATCH(req(`/api/tasks/${schedule.id}`, "PATCH", { enabled: true }), context(schedule.id)), policy: "tasks" },
+    { call: () => taskIdRoute.DELETE(req(`/api/tasks/${schedule.id}`, "DELETE"), context(schedule.id)), policy: "tasks" },
     { call: () => noticesRoute.POST(req("/api/notices", "POST")), policy: "reminders" },
     { call: () => noticeIdRoute.PATCH(req(`/api/notices/${notice.id}`, "PATCH"), context(notice.id)), policy: "reminders" },
     { call: () => noticeIdRoute.DELETE(req(`/api/notices/${notice.id}`, "DELETE"), context(notice.id)), policy: "reminders" }

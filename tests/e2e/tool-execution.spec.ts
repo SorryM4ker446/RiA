@@ -50,8 +50,10 @@ test("a task-only response exposes approval, creates the task after approval and
   await expect(page.getByText("工具详情：createTask · 执行完成", { exact: true })).toBeVisible();
   await expect(approve).toHaveCount(0);
   expect(await browserData(page, "/api/tasks")).toHaveLength(1);
+  // Approved as it stood, so it is on and waiting for its time.
+  expect((await browserData(page, "/api/tasks"))[0]).toMatchObject({ title: "浏览器真实任务", cron: "0 9 * * *", timeZone: "Asia/Shanghai", enabled: true, chatId: null });
   await page.goto(`${app.origin}/tasks`);
-  await expect(page.getByTestId("task-panel").getByText("浏览器真实任务", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("task-item").filter({ hasText: "浏览器真实任务" })).toContainText("每天 09:00");
   await page.screenshot({ path: join(screenshots, "task-created.png"), fullPage: true, animations: "disabled" });
   expect(errors).toEqual([]);
 });

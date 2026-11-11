@@ -69,7 +69,7 @@ for (const width of [1440, 390]) {
     });
     const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
     await page.goto("/models");
-    await page.getByLabel("后台每日调用次数").fill("2");
+    await page.getByLabel("每次请求压缩调用上限").fill("2");
     // Usage is its own section of the settings; the unsaved limit waits in the models section.
     await page.getByRole("tab", { name: "用量", exact: true }).click();
     const trigger = page.getByRole("button", { name: "查看调用明细", exact: true });
@@ -101,7 +101,7 @@ for (const width of [1440, 390]) {
     await expect(trigger).toBeFocused();
     await expect(page.getByRole("combobox", { name: "调用来源", exact: true })).toContainText("聊天");
     await page.getByRole("tab", { name: "模型", exact: true }).click();
-    await expect(page.getByLabel("后台每日调用次数")).toHaveValue("2");
+    await expect(page.getByLabel("每次请求压缩调用上限")).toHaveValue("2");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(errors).toEqual([]);
   });

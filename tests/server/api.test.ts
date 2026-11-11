@@ -61,7 +61,7 @@ beforeEach(async (t: TestContext) => {
   await db.message.deleteMany({});
   await db.chat.deleteMany({});
   await db.memory.deleteMany({});
-  await db.task.deleteMany({});
+  await db.scheduledJob.deleteMany({});
   await db.knowledgeDocument.deleteMany({});
   await db.mediaAsset.deleteMany({});
   await db.workspacePreference.deleteMany({});
@@ -93,23 +93,23 @@ test("local workspace access is required before any business route responds", as
 const runCreateTask = (input: unknown) => executeRegisteredTool(getToolDescriptor("createTask")!, input, { trigger: "manual" });
 
 test("a task tool run persists data and emits one success log", async () => {
-  const { output } = await runCreateTask({ title: "Integration task" });
-  assert.ok(await db.task.findUnique({ where: { id: output.taskId } }));
+  const { output } = await runCreateTask({ title: "Integration task", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" });
+  assert.ok(await db.scheduledJob.findUnique({ where: { id: output.taskId } }));
   const logs = infoCalls().filter((call) => call.arguments[0] === "tool.execution");
   assert.deepEqual(logs.map((call) => call.arguments[1].state), ["output-available"]);
 });
 
 test("tools the conversation runs are not reachable through the direct route", async () => {
-  const response = await tools.POST(request("/api/tools/run", "POST", { tool: "createTask", input: { title: "Must not exist" } }, cookie));
+  const response = await tools.POST(request("/api/tools/run", "POST", { tool: "createTask", input: { title: "Must not exist", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" } }, cookie));
   assert.equal(response.status, 400);
-  assert.equal(await db.task.count({ where: { title: "Must not exist" } }), 0);
+  assert.equal(await db.scheduledJob.count({ where: { title: "Must not exist" } }), 0);
 });
 
 for (const code of ["TIMEOUT", "UPSTREAM_FAILED"] as const) {
   test(`a tool ${code} emits only one failure log`, async (t) => {
     t.mock.method(getToolDescriptor("createTask")!, "execute", async () => { throw new ApiError({ code, message: "Simulated failure" }); });
-    await assert.rejects(runCreateTask({ title: "Must not exist" }), { code });
-    assert.equal(await db.task.count({ where: {} }), 0);
+    await assert.rejects(runCreateTask({ title: "Must not exist", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }), { code });
+    assert.equal(await db.scheduledJob.count({ where: {} }), 0);
     const logs = infoCalls().filter((call) => call.arguments[0] === "tool.execution");
     assert.equal(logs.length, 1);
     assert.equal(logs[0].arguments[1].state, "output-error");
@@ -118,7 +118,7 @@ for (const code of ["TIMEOUT", "UPSTREAM_FAILED"] as const) {
 }
 
 test("invalid tool input never emits a success record", async () => {
-  await assert.rejects(runCreateTask({ title: "" }), { code: "VALIDATION_ERROR" });
+  await assert.rejects(runCreateTask({ title: "", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }), { code: "VALIDATION_ERROR" });
   const logs = infoCalls().filter((call) => call.arguments[0] === "tool.execution");
   assert.deepEqual(logs.map((call) => call.arguments[1].state), ["output-error"]);
 });
@@ -129,7 +129,7 @@ test("conversation, message, task and knowledge APIs enforce user ownership", as
   const savedMessage = await messages.POST(request("/api/messages", "POST", { role: "user", content: "Private text", clientMessageId: "client-1" }, cookie), context(ownedChat.id));
   assert.equal(savedMessage.status, 201);
   const row = (await savedMessage.json()).data;
-  const task = await db.task.create({ data: { title: "Private task" } });
+  const task = await db.scheduledJob.create({ data: { title: "Private task", kind: "prompt", prompt: "Do it.", timeZone: "UTC", nextRunAt: new Date(Date.now() + 86_400_000) } });
   const entry = await knowledge.POST(request("/api/knowledge", "POST", { key: "Private", value: "Private fact" }, cookie));
   const entryId = (await entry.json()).data.id;
   // The local workspace credential is the only access boundary left: a request
@@ -219,7 +219,7 @@ test("regeneration rejects concurrent edits without deleting any messages", asyn
 for (const approved of [true, false]) {
   test(`tool approval ${approved ? "acceptance" : "denial"} survives persistence and cannot be replayed`, async () => {
     const owned = await seedConversation();
-    const input = { title: "Approved task", priority: "medium" };
+    const input = { title: "Approved task", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" };
     const content = encodePersistedAssistantToolMessage({
       type: "assistant-tool-message", text: "Please approve",
       tools: [{ toolName: "createTask", toolCallId: "call-1", state: "approval-requested", input, approval: { id: "approval-1" } }],
@@ -234,7 +234,7 @@ for (const approved of [true, false]) {
     const response = await chat.POST(request("/api/chat", "POST", payload, cookie));
     assert.equal(response.status, 200);
     await response.text();
-    assert.equal(await db.task.count({ where: {} }), approved ? 1 : 0);
+    assert.equal(await db.scheduledJob.count({ where: {} }), approved ? 1 : 0);
     const rows = await db.message.findMany({ where: { chatId: owned.id } });
     assert.equal(rows.length, 3);
     assert.ok(rows.some((row) => row.content === "Original answer"));
@@ -243,16 +243,16 @@ for (const approved of [true, false]) {
     assert.equal(persisted.tools[0].approval.approved, approved);
     const replay = await chat.POST(request("/api/chat", "POST", payload, cookie));
     assert.equal(replay.status, 409);
-    assert.equal(await db.task.count({ where: {} }), approved ? 1 : 0);
+    assert.equal(await db.scheduledJob.count({ where: {} }), approved ? 1 : 0);
   });
 }
 
 test("approval rejects changed tool arguments without executing the task", async () => {
   const owned = await seedConversation();
-  const content = encodePersistedAssistantToolMessage({ type: "assistant-tool-message", text: "", tools: [{ toolName: "createTask", toolCallId: "call-1", state: "approval-requested", input: { title: "Original" }, approval: { id: "approval-1" } }] });
+  const content = encodePersistedAssistantToolMessage({ type: "assistant-tool-message", text: "", tools: [{ toolName: "createTask", toolCallId: "call-1", state: "approval-requested", input: { title: "Original", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }, approval: { id: "approval-1" } }] });
   await saveChatMessage({ chatId: owned.id, role: "assistant", content, clientMessageId: "pending-1" });
   process.env.OPENROUTER_API_KEY = "test-provider-placeholder";
   const response = await chat.POST(request("/api/chat", "POST", { chatId: owned.id, messages: [uiMessage("u1", "user", "Original question"), { id: "pending-1", role: "assistant", parts: [{ type: "tool-createTask", toolCallId: "call-1", state: "approval-responded", input: { title: "Tampered" }, approval: { id: "approval-1", approved: true } }] }] }, cookie));
   assert.equal(response.status, 400);
-  assert.equal(await db.task.count({ where: {} }), 0);
+  assert.equal(await db.scheduledJob.count({ where: {} }), 0);
 });

@@ -60,7 +60,7 @@ test("approval claimed but lost before tool execution is released for retry", as
     chatId: owned.id, role: "assistant",
     content: encodePersistedAssistantToolMessage({
       type: "assistant-tool-message", text: "waiting",
-      tools: [{ toolName: "createTask", toolCallId: "call-1", state: "approval-requested", input: { title: "Buy milk" }, approval }],
+      tools: [{ toolName: "createTask", toolCallId: "call-1", state: "approval-requested", input: { title: "Buy milk", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }, approval }],
     }),
     status: "success",
     clientMessageId: "assistant-1",
