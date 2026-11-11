@@ -1,17 +1,36 @@
 import type { Notification, NotificationConstructorOptions } from "electron";
 import type { DesktopLogger } from "./logger";
 
-export type TaskReminder = { id: string; title: string; dueDate: string; timeZone: string };
+/** Something a task wants the user to know: `title` names what happened, `detail` names the task. */
+export type TaskNotice = { id: string; title: string; detail: string | null; href: string | null };
 type NotificationConstructor = new (options: NotificationConstructorOptions) => Notification;
 
-export function createTaskNotificationDelivery(NativeNotification: NotificationConstructor, focus: () => void, logger: DesktopLogger, getLocale: () => "zh-CN" | "en-US" = () => "zh-CN", icon: () => { icon?: string } = () => ({})) {
+const TITLES: Record<string, { "zh-CN": string; "en-US": string }> = {
+  "task-finished": { "zh-CN": "任务已完成", "en-US": "Task finished" },
+  "task-failed": { "zh-CN": "任务运行失败", "en-US": "Task failed" },
+  "task-needs-approval": { "zh-CN": "任务在等你批准", "en-US": "A task needs your approval" },
+  "task-skipped": { "zh-CN": "任务已跳过", "en-US": "Task skipped" },
+  "task-missed": { "zh-CN": "任务错过了时间", "en-US": "A task missed its time" },
+};
+
+/**
+ * Where a notice may take the window: a path inside the app, never another
+ * origin, a protocol or a path that climbs out of it.
+ */
+export function inAppPath(href: string | null): string | null {
+  if (!href || !href.startsWith("/") || href.startsWith("//") || href.includes("\\") || href.length > 2000) return null;
+  try { return new URL(href, "http://app.invalid").origin === "http://app.invalid" ? href : null; } catch { return null; }
+}
+
+export function createTaskNotificationDelivery(NativeNotification: NotificationConstructor, open: (path: string | null) => void, logger: DesktopLogger, getLocale: () => "zh-CN" | "en-US" = () => "zh-CN", icon: () => { icon?: string } = () => ({})) {
   const active = new Set<Notification>();
-  return (task: TaskReminder) => {
+  return (notice: TaskNotice) => {
     const locale = getLocale();
-    const due = new Date(task.dueDate).toLocaleString(locale, { timeZone: task.timeZone });
-    const body = locale === "en-US" ? `Task due: ${due} (${task.timeZone})` : `任务已到期：${due}（${task.timeZone}）`;
-    const notification = new NativeNotification({ ...icon(), title: task.title, body, silent: false });
-    notification.once("click", focus);
+    // A kind this version does not know still says a task has something to show.
+    const title = TITLES[notice.title]?.[locale] ?? (locale === "en-US" ? "Task update" : "任务有新动态");
+    const notification = new NativeNotification({ ...icon(), title, body: notice.detail ?? "", silent: false });
+    // A click brings the window forward on the task's conversation.
+    notification.once("click", () => open(inAppPath(notice.href)));
     notification.once("close", () => active.delete(notification));
     notification.once("failed", () => {
       active.delete(notification);
@@ -28,16 +47,16 @@ export function createTaskNotificationDelivery(NativeNotification: NotificationC
   };
 }
 
-function parseReminders(payload: unknown): TaskReminder[] {
+function parseNotices(payload: unknown): TaskNotice[] {
   const data = (payload as { data?: unknown } | null)?.data;
-  if (!Array.isArray(data) || data.length > 10) throw new Error("Invalid task reminder response");
-  return data.map(task => {
-    if (!task || typeof task.id !== "string" || task.id.length > 100 || typeof task.title !== "string" || task.title.length > 120 ||
-        typeof task.dueDate !== "string" || !Number.isFinite(Date.parse(task.dueDate)) || typeof task.timeZone !== "string" || task.timeZone.length > 100) {
-      throw new Error("Invalid task reminder response");
+  if (!Array.isArray(data) || data.length > 10) throw new Error("Invalid task notification response");
+  return data.map(notice => {
+    const text = (value: unknown, limit: number) => value === null || (typeof value === "string" && value.length <= limit);
+    if (!notice || typeof notice.id !== "string" || notice.id.length > 100 || typeof notice.title !== "string" || notice.title.length > 200 ||
+        !text(notice.detail, 2000) || !text(notice.href, 2000)) {
+      throw new Error("Invalid task notification response");
     }
-    new Intl.DateTimeFormat("en", { timeZone: task.timeZone });
-    return { id: task.id, title: task.title, dueDate: task.dueDate, timeZone: task.timeZone };
+    return { id: notice.id, title: notice.title, detail: notice.detail, href: notice.href };
   });
 }
 
@@ -47,7 +66,7 @@ export class TaskReminderPoller {
   constructor(private readonly options: {
     connection: () => { origin: string; cookie: string } | null;
     supported: () => boolean;
-    deliver: (task: TaskReminder) => void;
+    deliver: (notice: TaskNotice) => void;
     logger: DesktopLogger;
   }) {}
 
@@ -65,18 +84,18 @@ export class TaskReminderPoller {
     if (!connection) return Promise.resolve();
     this.inFlight = (async () => {
       try {
-        const response = await fetch(`${connection.origin}/api/tasks/reminders`, {
+        const response = await fetch(`${connection.origin}/api/tasks/notifications`, {
           method: "POST", headers: { Cookie: connection.cookie }, redirect: "error", signal: AbortSignal.timeout(10_000),
         });
-        if (!response.ok) throw new Error("Task reminder check failed");
-        const tasks = parseReminders(await response.json());
-        for (const task of tasks) {
-          try { this.options.deliver(task); }
+        if (!response.ok) throw new Error("Task notification check failed");
+        const notices = parseNotices(await response.json());
+        for (const notice of notices) {
+          try { this.options.deliver(notice); }
           catch { this.options.logger.warn("Unable to display a task notification"); }
         }
       } catch {
         // No task titles, cookies, response bodies or credentials in logs.
-        this.options.logger.warn("Unable to check task reminders; will check again on the next interval");
+        this.options.logger.warn("Unable to check task notifications; will check again on the next interval");
       }
     })().finally(() => { this.inFlight = null; });
     return this.inFlight;

@@ -46,7 +46,9 @@ export function ChatToolbar({
   // Until the list first answers, no title is known: naming it a new conversation
   // then is a claim the restored conversation's title replaces a moment later.
   const awaitingConversation = useAwaitingFirstLoad(isLoadingChats, "conversations");
-  const snapshot = activeChat?.assistantConfig;
+  // A task's conversation is the task's own general-assistant conversation; no template applies to it.
+  const ownedByTask = Boolean(activeChat?.task);
+  const snapshot = ownedByTask ? null : activeChat?.assistantConfig;
   const currentTemplate = assistants.find(item => item.id === snapshot?.templateId);
   const hasTemplateUpdate = snapshot && currentTemplate && currentTemplate.revision !== snapshot.templateRevision;
 
@@ -66,7 +68,7 @@ export function ChatToolbar({
           hold back, then appear once in place instead of sliding aside as each arrives. */}
         <div className="chat-toolbar-actions flex max-w-full flex-wrap items-center gap-2" data-waiting={awaitingConversation || undefined}>
           <label className="sr-only" htmlFor="chat-assistant">{t("ui.assistants.assistantTemplates")}</label>
-          <SelectField id="chat-assistant" aria-label={t("ui.assistants.assistantTemplates")} variant="ghost" size="sm" fluid className="min-w-0 max-w-48" value={snapshot?.templateId ?? ""} disabled={isPending || isLoadingChats} onValueChange={value => void applyAssistant(value || null)}>
+          <SelectField id="chat-assistant" aria-label={t("ui.assistants.assistantTemplates")} variant="ghost" size="sm" fluid className="min-w-0 max-w-48" value={snapshot?.templateId ?? ""} disabled={isPending || isLoadingChats || ownedByTask} title={ownedByTask ? t("chat.toolbar.taskGeneralAssistant") : undefined} onValueChange={value => void applyAssistant(value || null)}>
             <SelectOption value="">{t("ui.chat.chat-toolbar.generalAssistant")}</SelectOption>
             {snapshot && !currentTemplate ? <SelectOption value={snapshot.templateId}>{snapshot.name}</SelectOption> : null}
             {assistants.map(item => <SelectOption key={item.id} value={item.id}>{item.builtin ? localizeMessage(item.config.name) : item.config.name}</SelectOption>)}

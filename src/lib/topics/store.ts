@@ -1,3 +1,4 @@
+import { defaultApprovalRule } from "@/lib/approvals/preferences";
 import { db } from "@/db";
 import { ApiError } from "@/lib/server/api-error";
 import { resolveAssistant } from "@/lib/assistants/store";
@@ -30,10 +31,11 @@ export async function saveTopic(input: TopicConfig, id?: string, revision?: numb
 export async function createTopicChat(id: string, revision: number, title: string) {
   const topic = await getTopic(id);
   const assistant = topic.config.assistantTemplateId ? await resolveAssistant(topic.config.assistantTemplateId) : null;
+  const approvalRule = await defaultApprovalRule();
   return db.$transaction(async tx => {
     const current = await tx.knowledgeTopic.findUnique({ where: { id } });
     if (!current || current.revision !== revision || topic.revision !== revision) throw new ApiError({ code: "CONFLICT", message: "专题已修改，请刷新后创建会话。" });
-    return tx.chat.create({ data: { title, topicId: id, documentScope: encodeDocumentScope(topic.config.collections), ephemeral: assistant ? !assistant.usesMemory : false,
+    return tx.chat.create({ data: { title, topicId: id, approvalRule, documentScope: encodeDocumentScope(topic.config.collections), ephemeral: assistant ? !assistant.usesMemory : false,
       ...(assistant ? { assistantConfig: { ...assistant, collections: topic.config.collections } } : {}) } });
   });
 }

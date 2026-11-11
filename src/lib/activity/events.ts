@@ -21,8 +21,8 @@ export async function recordWorkspaceEvent(tx: Prisma.TransactionClient, event: 
 export async function getEventSource(id: string) {
   const event = await db.workspaceEvent.findUnique({ where: { id } });
   if (!event) return null;
-  const entity = event.kind.startsWith("task.")
-    ? await db.task.findUnique({ where: { id: event.entityId }, select: { title: true, details: true, status: true } })
+  // To-dos are gone; an event recorded for one keeps its label and has nothing further to show.
+  const entity = event.kind.startsWith("task.") ? null
     : event.kind.startsWith("document.")
       ? await db.knowledgeDocument.findUnique({ where: { id: event.entityId }, select: { filename: true, collection: true } })
       : await db.memory.findUnique({ where: { id: event.entityId }, select: { key: true, value: true, confirmed: true } });

@@ -4,7 +4,8 @@ import { useLocale } from "@/lib/locale/client";
 import { t } from "@/lib/locale";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { openConversationFromHref } from "@/features/chat/open-conversation";
 import { useEffect, useRef, useState } from "react";
 import {
   BookOpen,
@@ -140,7 +141,14 @@ function SidebarBody({ pathname, action }: { pathname: string; action: React.Rea
 export function AppShell({ children }: { children: React.ReactNode }) {
   useLocale();
   const pathname = usePathname();
+  const router = useRouter();
   const { folded } = useRailLayout();
+  // A system notification that was clicked names a page inside the app: a
+  // conversation is remembered and switched to, and the window moves there.
+  useEffect(() => window.riaDesktop?.onNavigate?.(path => {
+    openConversationFromHref(path);
+    router.push(path);
+  }), [router]);
   // Opening a collapsed section (a <details> anywhere: a page, the settings, a
   // sheet) brings what it revealed into view instead of leaving it below the
   // fold. Only an opening the person asked for counts: a section rendered open

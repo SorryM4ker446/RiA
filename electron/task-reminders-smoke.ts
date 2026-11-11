@@ -2,10 +2,8 @@ import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
 /**
- * Seeds one overdue recurring task for the desktop smoke run.
- *
- * The workspace is single-user, so a task no longer carries an owner column and
- * the fixture only has to confirm that the conversation exists.
+ * Seeds one notice from a finished task for the desktop smoke run: unread, and
+ * not yet handed to the desktop, as the service leaves it when a task ends.
  */
 export function seedTaskReminderSmoke(databaseFile: string, conversationId: string): string {
   if (process.env.DESKTOP_SMOKE_TEST !== "1") throw new Error("Task fixture requires desktop smoke mode");
@@ -15,9 +13,8 @@ export function seedTaskReminderSmoke(databaseFile: string, conversationId: stri
     const chat = database.prepare("SELECT id FROM chats WHERE id=?").get(conversationId);
     if (!chat) throw new Error("Smoke conversation is missing");
     const id = randomUUID();
-    const due = Date.now() - 60_000;
-    database.prepare(`INSERT INTO tasks (id,title,dueDate,timeZone,reminderEnabled,repeatRule,repeatAnchor,updatedAt)
-      VALUES (?, 'Desktop task reminder smoke',?,'Asia/Shanghai',1,'daily',?,?)`).run(id, due, due, Date.now());
+    database.prepare(`INSERT INTO app_notices (id,kind,title,detail,href,fingerprint,updatedAt)
+      VALUES (?, 'taskRun', 'task-finished', 'Desktop task notification smoke', ?, ?, ?)`).run(id, `/chat?conversationId=${conversationId}`, `task:${id}`, Date.now());
     return id;
   } finally { database.close(); }
 }

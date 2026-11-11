@@ -13,6 +13,8 @@ export type ApiErrorCode =
   | "CONFLICT"
   | "PAYLOAD_TOO_LARGE"
   | "CONTEXT_LIMIT"
+  /** Work that started on its own reached a limit the user set for background tasks. */
+  | "BACKGROUND_LIMIT"
   | "VALIDATION_ERROR"
   | "CONFIGURATION_ERROR"
   | "INTERNAL_ERROR";
@@ -38,6 +40,7 @@ const DEFAULT_STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   CONFLICT: 409,
   PAYLOAD_TOO_LARGE: 413,
   CONTEXT_LIMIT: 413,
+  BACKGROUND_LIMIT: 429,
   VALIDATION_ERROR: 400,
   CONFIGURATION_ERROR: 503,
   INTERNAL_ERROR: 500,

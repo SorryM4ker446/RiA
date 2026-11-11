@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { SettingsSection } from "@/features/settings/settings-section";
 import { animateRemoval, removalKey } from "@/lib/ui/removal";
 import { SettingsLink } from "@/features/settings/settings-context";
+import { openConversationFromHref } from "@/features/chat/open-conversation";
 import { settingsSectionForHref } from "@/lib/settings/sections";
 type Notice = {
   id: string;
@@ -103,7 +104,11 @@ export function NoticeCenter({ onCountChange }: { onCountChange?: (unread: numbe
                       <Link
                         className="text-xs underline underline-offset-2"
                         href={notice.href}
-                        onClick={() => void send("PATCH", `/api/notices/${encodeURIComponent(notice.id)}`)}
+                        onClick={() => {
+                          // Chat may already be the page behind the settings; it switches to the conversation named.
+                          openConversationFromHref(notice.href);
+                          void send("PATCH", `/api/notices/${encodeURIComponent(notice.id)}`);
+                        }}
                       >
                         {t("notices.open")}
                       </Link>

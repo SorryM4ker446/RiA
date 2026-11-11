@@ -11,10 +11,10 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from 
 import { useToast } from "@/components/ui/toast";
 import { DirectoryGrantSettings } from "@/features/settings/directory-grants";
 
-type WorkspaceGrant = { id: string; label: string; realPath: string; terminalEnabled: boolean };
+export type WorkspaceGrant = { id: string; label: string; realPath: string };
 
 /** The authorized folders, or null when they could not be read; the server checks every choice anyway. */
-async function fetchGrants(): Promise<WorkspaceGrant[] | null> {
+export async function fetchGrants(): Promise<WorkspaceGrant[] | null> {
   try {
     const response = await fetch("/api/directory-grants", { cache: "no-store" });
     if (!response.ok) return null;
@@ -83,7 +83,7 @@ export function DirectoryPermissions({ workspaceGrantId, locked, saving, onSelec
             <DropdownMenuRadioItem key={grant.id} value={grant.id} title={grant.realPath}>
               <span className="flex min-w-0 flex-col">
                 <span className="truncate">{grant.label}</span>
-                <span className="truncate text-xs text-muted-foreground">{grant.terminalEnabled ? grant.realPath : `${t("ui.chat.workspace.terminalOff")} · ${grant.realPath}`}</span>
+                <span className="truncate text-xs text-muted-foreground">{grant.realPath}</span>
               </span>
             </DropdownMenuRadioItem>
           ))}

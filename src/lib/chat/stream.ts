@@ -1,4 +1,4 @@
-import { withModelCallSource } from "@/lib/models/call-context";
+import { withModelCallSource, type CallSource } from "@/lib/models/call-context";
 import { getChatModel } from "@/lib/ai/client";
 import { getModelProvider } from "@/lib/models/providers";
 import { getLatestUserMessage } from "@/lib/ai/ui-message";
@@ -82,7 +82,9 @@ type ChatAnswer = { input: ChatRequest; conversation: ChatPersistence; systemPro
   skillsPrompt?: string;
   /** The messages this request sent, and whether they and the summary leave nothing out. */
   foldHistory?: { messages: { id: string; role: string }[]; complete: () => boolean };
-  onModelFold?: () => void };
+  onModelFold?: () => void;
+  /** Whose calls these are: a turn the user is waiting on, or a task that started on its own and is held to the background limits. */
+  callSource?: CallSource };
 const LOOKUP_HINT = "The original messages and tool results stay saved: readConversationHistory finds them by toolCallId, messageId or text.";
 const streamError = (error: unknown) => JSON.stringify(apiErrorPayload(normalizeApiError(error, t("lib.chat.generateFailed"))));
 
@@ -228,7 +230,7 @@ async function openChatAnswer(params: ChatAnswer) {
   // it has taken over. Cost and calibration are recorded for it.
   let activeRef = modelRef;
   const toPrompt = async (stepMessages: ModelMessage[]): Promise<LanguageModelV3Prompt> => convertToLanguageModelPrompt({ prompt: await standardizePrompt({ system: systemPrompt, messages: stepMessages }), supportedUrls: await observed.supportedUrls, download: undefined });
-  const observed: ReturnType<typeof getChatModel> = withModelCallSource("chat", () => getChatModel(modelRef, {
+  const observed: ReturnType<typeof getChatModel> = withModelCallSource(params.callSource ?? "chat", () => getChatModel(modelRef, {
     reasoning: input.reasoning,
     // Whichever model answers takes the request as it stands — same tools, same
     // messages — and the rest of it is planned for that model's own window: the
@@ -261,7 +263,7 @@ async function openChatAnswer(params: ChatAnswer) {
       error instanceof ApiError && error.code === "CONTEXT_LIMIT" ? "context-limit" : "preflight-error");
     throw error;
   }
-  const result = withModelCallSource("chat", () => streamText({
+  const result = withModelCallSource(params.callSource ?? "chat", () => streamText({
     model,
     maxRetries: 0,
     system: systemPrompt,

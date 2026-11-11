@@ -31,6 +31,12 @@ contextBridge.exposeInMainWorld("riaDesktop", {
   // process. There is no renderer notification for it: a channel nothing in the
   // app listens to invites a handler nobody wrote, and the shortcut already works.
   setGlobalHotkey: (accelerator: string) => ipcRenderer.invoke("desktop:hotkey:set", accelerator) as Promise<{ ok: boolean; hotkey: string; reason?: "conflict" | "invalid" | "not-stored" }>,
+  // A click on a notification that names a page inside the app.
+  onNavigate: (listener: (path: string) => void) => {
+    const handler = (_event: unknown, path: unknown) => { if (typeof path === "string") listener(path); };
+    ipcRenderer.on("desktop:navigate", handler);
+    return () => ipcRenderer.removeListener("desktop:navigate", handler);
+  },
   // The main process owns the update; the page reads its state and asks for it.
   // Applying downloads, verifies and installs, which ends by quitting the app, so
   // its promise only reports the state at the start.

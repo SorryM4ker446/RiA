@@ -1,3 +1,5 @@
+import type { ApprovalRule } from "@/lib/approvals/rules";
+import { taskApi } from "@/features/tasks/task-client";
 import { t } from "@/lib/locale";
 import { ChatSummary } from "@/features/chat/page-utils";
 import type { Dispatch, SetStateAction } from "react";
@@ -6,6 +8,7 @@ import { chatApi } from "@/features/chat/api-client";
 import { getChatPrefsStorageKey, loadAccountChatDefaults } from "@/features/chat/preferences";
 import type { ChatScopedPreferences } from "@/features/chat/types";
 import { LAST_ACTIVE_CHAT_STORAGE_KEY } from "@/features/chat/types";
+import { takeRequestedConversation } from "@/features/chat/open-conversation";
 import type { AssistantTemplate } from "@/lib/assistants/schema";
 import { animateRemoval } from "@/lib/ui/removal";
 
@@ -40,6 +43,8 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   const [isDocumentScopeSaving, setIsDocumentScopeSaving] = useState(false);
   const [isWorkspaceSaving, setIsWorkspaceSaving] = useState(false);
   const workspaceSavingRef = useRef(false);
+  const [isApprovalSaving, setIsApprovalSaving] = useState(false);
+  const approvalSavingRef = useRef(false);
   const scopeSavingRef = useRef(false);
   const [assistants, setAssistants] = useState<AssistantTemplate[]>([]);
   const [assistantsError, setAssistantsError] = useState("");
@@ -255,6 +260,9 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     return chatId;
   }
   useEffect(() => {
+    // An address that names a conversation (a task, a notice) opens that one.
+    const requested = takeRequestedConversation();
+    if (requested) window.localStorage.setItem(LAST_ACTIVE_CHAT_STORAGE_KEY, requested);
     const remembered = window.localStorage.getItem(LAST_ACTIVE_CHAT_STORAGE_KEY);
     if (remembered && !activeIdRef.current) {
       restoringRef.current = remembered;
@@ -288,7 +296,9 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     // Shown at once; a refused save puts it back when the list is read again below.
     setChats((current) => current.map((item) => (item.id === chat.id ? { ...item, ephemeral: next } : item)));
     try {
-      await chatApi.setEphemeral(chat.id, next);
+      // A task's conversation follows the task's memory switch, so the choice is saved on the task.
+      if (chat.task) await taskApi.update(chat.task.id, { usesMemory: !next });
+      else await chatApi.setEphemeral(chat.id, next);
       await loadChats();
       return true;
     } catch {
@@ -297,6 +307,35 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     } finally {
       ephemeralSavingRef.current = false;
       setIsEphemeralSaving(false);
+    }
+  }
+
+  /**
+   * What the model may do in the workspace without asking, from the next tool
+   * call on. A task's conversation follows the task's rule, so the choice is
+   * saved on the task. Choosing one before the first message creates the
+   * conversation to hold it.
+   */
+  async function setApprovalRule(rule: ApprovalRule): Promise<boolean> {
+    if (isLoadingChats || approvalSavingRef.current) return false;
+    approvalSavingRef.current = true;
+    invalidateChatReads();
+    setIsApprovalSaving(true);
+    setPageError(null);
+    let failure: string | null = null;
+    try {
+      const task = activeChatId ? chats.find(item => item.id === activeChatId)?.task : null;
+      if (task) await taskApi.update(task.id, { approvalRule: rule });
+      else await chatApi.setApprovalRule(activeChatId ?? await ensureActiveChatId(t("chatState.defaultChatTitle")), rule);
+      return true;
+    } catch (cause) {
+      failure = cause instanceof Error ? cause.message : t("approval.saveFailed");
+      return false;
+    } finally {
+      await loadChats({ silent: true });
+      approvalSavingRef.current = false;
+      setIsApprovalSaving(false);
+      if (failure !== null) setPageError(failure);
     }
   }
 
@@ -313,6 +352,12 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     setPageError(null);
     let failure: string | null = null;
     try {
+      // A task's conversation works in the task's folder, so the choice is saved on the task.
+      const task = activeChatId ? chats.find(item => item.id === activeChatId)?.task : null;
+      if (task) {
+        await taskApi.update(task.id, { workspaceGrantId: grantId });
+        return true;
+      }
       const chatId = activeChatId ?? await ensureActiveChatId(t("chatState.defaultChatTitle"));
       const payload = await chatApi.setWorkspace(chatId, grantId);
       setChats(previous => previous.map(item => item.id === chatId ? payload.data : item));
@@ -357,7 +402,7 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   return {
     assistants, assistantsError, loadAssistants, applyAssistant,
     toggleEphemeral, isEphemeralSaving, isDocumentScopeSaving,
-    setWorkspace, isWorkspaceSaving, restoringChatId, isRestoringChat: (chatId: string) => restoringRef.current === chatId,
+    setWorkspace, isWorkspaceSaving, setApprovalRule, isApprovalSaving, restoringChatId, isRestoringChat: (chatId: string) => restoringRef.current === chatId,
     chats, activeChat, isLoadingChats, isCreatingChat, editingChatId, editingTitle, setEditingTitle,
     loadChats, createNewChat, startEditingChat,
     cancelEditingChat, saveEditedTitle, performDeleteChat, ensureActiveChatId,

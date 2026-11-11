@@ -35,7 +35,7 @@ import { DesktopSettingsStore, type DesktopSettingsInput } from "./settings";
 import { installationRoot, launchInstaller, reconcileUpdateDirectory, removeEmptyVersionFolders, UpdateService, type InstallPlan, type UpdateState } from "./updater";
 import { DEVELOPMENT_APP_USER_MODEL_ID, INSTALLED_APP_USER_MODEL_ID } from "./app-identity";
 import { UPDATE_SIGNING_PUBLIC_KEY } from "./update-signing-key";
-import { createTaskNotificationDelivery, TaskReminderPoller, type TaskReminder } from "./task-reminders";
+import { createTaskNotificationDelivery, TaskReminderPoller, type TaskNotice } from "./task-reminders";
 import { seedTaskReminderSmoke } from "./task-reminders-smoke";
 import { prepareConversationSmoke, verifyConversationSmoke } from "./conversations-smoke";
 import { seedMediaLibrarySmoke, verifyMediaLibrarySmoke } from "./media-library-smoke";
@@ -99,7 +99,7 @@ let tray: Tray | null = null;
  * regardless of the setting.
  */
 let closeBehaviour: "quit" | "tray" = "quit";
-const smokeReminders: TaskReminder[] = [];
+const smokeReminders: TaskNotice[] = [];
 
 /*
  * Updates replace an installed copy, so only an installed copy looks for them: a
@@ -113,6 +113,13 @@ let updateService: UpdateService | null = null;
 // One system notification per version per run; the settings card stays the record.
 let notifiedUpdateVersion: string | null = null;
 let updateNotification: Notification | null = null;
+
+/** Brings the window forward, on a page inside the app when the notice names one. */
+function openFromNotice(path: string | null) {
+  focusMainWindow();
+  // The page moves itself, so a draft and the rest of its state survive the move.
+  if (path && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("desktop:navigate", path);
+}
 
 function focusMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -1177,12 +1184,6 @@ async function runSmokeAssertion() {
   await reminderPoller?.poll();
   await reminderPoller?.poll();
   if (smokeReminders.filter(task => task.id === reminderId).length !== 1) throw new Error("Desktop task notification was missing or duplicated");
-  const completeReminder = () => fetch(`${nextServer!.origin}/api/tasks/${reminderId}`, {
-    method: "PATCH", headers: { Cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ status: "done" }),
-  });
-  const completed = await completeReminder();
-  const completion = await completed.json() as { nextTask?: { id: string; dueDate: string; reminderEnabled: boolean } };
-  if (!completed.ok || !completion.nextTask?.reminderEnabled || Date.parse(completion.nextTask.dueDate) <= Date.now()) throw new Error("Desktop recurring task did not create a future reminder");
 
   await prepareConversationSmoke(nextServer.origin, `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}`, conversationId);
   const libraryFixture = seedMediaLibrarySmoke(desktopPaths.databaseFile, desktopPaths.mediaDirectory, asset.assetId, conversationId);
@@ -1190,11 +1191,7 @@ async function runSmokeAssertion() {
   await restartLocalService();
   if (!nextServer) throw new Error("Desktop service did not restart.");
   await reminderPoller?.poll();
-  if (smokeReminders.filter(task => task.id === reminderId).length !== 1) throw new Error("Desktop reminder replayed after service restart");
-  const repeatedCompletion = await completeReminder();
-  if (!repeatedCompletion.ok || (await repeatedCompletion.json() as { nextTask?: unknown }).nextTask !== null) throw new Error("Desktop task completion replay created a duplicate");
-  const nextReminder = await fetch(`${nextServer.origin}/api/tasks/${completion.nextTask.id}`, { headers: { Cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}` } });
-  if (!nextReminder.ok) throw new Error("Desktop recurring task did not survive restart");
+  if (smokeReminders.filter(task => task.id === reminderId).length !== 1) throw new Error("Desktop task notification replayed after service restart");
   const persistedResponse = await fetch(`${nextServer.origin}/api/conversations`, {
     headers: { Cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}` },
   });
@@ -1327,10 +1324,13 @@ async function bootstrap() {
   const hasAnyProviderKey = settings.hasOpenrouterApiKey || settings.hasDeepseekApiKey;
   const initialPath = packagedRuntime && !hasAnyProviderKey ? "/chat?settings=services&welcome=1" : "/chat";
   mainWindow = await createMainWindow(initialPath, true);
+  const showTaskNotice = createTaskNotificationDelivery(Notification, openFromNotice, logger, () => settingsStore?.getLocale() ?? "zh-CN", notificationIcon);
+  // The notice stays in the app either way; the user chose which ones also appear on screen.
+  const announceTaskNotice = (notice: TaskNotice) => { if (settingsStore?.showsTaskNotice(notice.title) !== false) showTaskNotice(notice); };
   reminderPoller = new TaskReminderPoller({
     connection: () => nextServer ? { origin: nextServer.origin, cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}` } : null,
     supported: () => smokeTest || Notification.isSupported(),
-    deliver: smokeTest ? task => { smokeReminders.push(task); } : createTaskNotificationDelivery(Notification, focusMainWindow, logger, () => settingsStore?.getLocale() ?? "zh-CN", notificationIcon),
+    deliver: smokeTest ? task => { smokeReminders.push(task); } : announceTaskNotice,
     logger,
   });
   reminderPoller.start();

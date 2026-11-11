@@ -39,19 +39,22 @@ export async function beginModelAttempt(input: { mode: LibraryMode; ref: ModelRe
     }
     if (background) {
       if ((limits.backgroundMaxEstimatedUsd !== null || limits.backgroundDailyEstimatedUsd !== null) && estimate === null) {
-        throw new ApiError({ code: "CONFIGURATION_ERROR", message: "后台费用上限已启用，请先配置模型输入和输出价格。未知费用不能按零领取额度。" });
+        throw new ApiError({ code: "BACKGROUND_LIMIT", message: "后台费用上限已启用，请先配置模型输入和输出价格。未知费用不能按零领取额度。" });
       }
       if (limits.backgroundMaxEstimatedUsd !== null && estimate! > limits.backgroundMaxEstimatedUsd) {
-        throw new ApiError({ code: "CONFLICT", message: "后台调用预估费用超过单次上限。" });
+        throw new ApiError({ code: "BACKGROUND_LIMIT", message: "后台调用预估费用超过单次上限。" });
       }
+      // The daily count is of task runs, admitted once per run by
+      // `admitBackgroundRun`; a run may make several calls. Calls are held to the
+      // money ceilings here.
       const day = budgetDay(now, limits.timeZone);
       const counter = await tx.modelCallDay.upsert({ where: { day }, create: { day }, update: {} });
-      if (counter.calls >= limits.backgroundDailyCalls || limits.backgroundDailyEstimatedUsd !== null && counter.estimatedUsd + estimate! > limits.backgroundDailyEstimatedUsd) {
-        throw new ApiError({ code: "CONFLICT", message: "后台调用已达到本地日期的次数或预估费用上限。" });
+      if (limits.backgroundDailyEstimatedUsd !== null && counter.estimatedUsd + estimate! > limits.backgroundDailyEstimatedUsd) {
+        throw new ApiError({ code: "BACKGROUND_LIMIT", message: "后台任务已达到本地日期的预估费用上限。" });
       }
       // Submitted attempts consume the daily allowance even on failure/abort.
       // Unknown billing must not allow a cancel-and-retry budget bypass.
-      await tx.modelCallDay.update({ where: { day }, data: { calls: { increment: 1 }, estimatedUsd: { increment: estimate ?? 0 } } });
+      await tx.modelCallDay.update({ where: { day }, data: { estimatedUsd: { increment: estimate ?? 0 } } });
     }
     input.signal?.throwIfAborted();
     await tx.modelRequest.create({ data: { id, requestId: dataRequestContext()?.requestId ?? randomUUID(), source, mode: input.mode, modelId: input.ref.modelId, modelProvider: input.ref.providerId,
@@ -64,4 +67,28 @@ export async function beginModelAttempt(input: { mode: LibraryMode; ref: ModelRe
 /** Run once at service startup, before accepting requests. Never replay calls. */
 export async function recoverModelAttempts() {
   return db.modelRequest.updateMany({ where: { status: "pending" }, data: { status: "interrupted", errorCode: "PROCESS_INTERRUPTED", costUsd: null, costSource: "unknown" } });
+}
+
+/**
+ * Admit one run of a task that started on its own, counted against the day.
+ *
+ * A run is what the user schedules and can reason about; one run may make
+ * several model calls as it uses tools, so the daily allowance counts runs,
+ * and each call within it is still held to the money ceilings above. A run the
+ * user starts by hand is not background work and is not counted. The count is
+ * taken under the same writer lock as call admission, so two runs starting
+ * together cannot both take the last place.
+ */
+export async function admitBackgroundRun(now = new Date()): Promise<{ admitted: boolean; limit: number }> {
+  return db.$transaction(async tx => {
+    await tx.$executeRaw`INSERT OR IGNORE INTO model_call_days (day, calls, estimatedUsd) VALUES ('lock', 0, 0)`;
+    await tx.$executeRaw`UPDATE model_call_days SET calls = calls WHERE day = 'lock'`;
+    const stored = await tx.workspacePreference.findUnique({ where: { id: "local" } });
+    const limits = (stored ? upgradeModelPreferences(stored.settings) : defaultModelPreferences()).callLimits;
+    const day = budgetDay(now, limits.timeZone);
+    const counter = await tx.modelCallDay.upsert({ where: { day }, create: { day }, update: {} });
+    if (counter.calls >= limits.backgroundDailyCalls) return { admitted: false, limit: limits.backgroundDailyCalls };
+    await tx.modelCallDay.update({ where: { day }, data: { calls: { increment: 1 } } });
+    return { admitted: true, limit: limits.backgroundDailyCalls };
+  });
 }

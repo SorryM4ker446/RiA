@@ -6,7 +6,7 @@ import { ApiError, createApiErrorResponse, normalizeApiError } from "@/lib/serve
 import { deleteChat } from "@/lib/chat/store";
 import { db } from "@/db";
 import { updateConversation, updateConversationSchema } from "@/lib/conversations/mutations";
-import { conversationSummary } from "@/lib/conversations/query";
+import { conversationInclude, conversationSummary } from "@/lib/conversations/query";
 
 type Params = {
   params: Promise<{ id: string }>;
@@ -16,7 +16,7 @@ async function GETHandler(req: NextRequest, context: Params) {
   try {
     await requireLocalWorkspace(req);const { id } = await context.params;
 
-    const conversation = await db.chat.findFirst({ where: { id }, include: { tags: { orderBy: { label: "asc" } }, _count: { select: { messages: true } } } });
+    const conversation = await db.chat.findFirst({ where: { id }, include: conversationInclude });
 
     if (!conversation) {
       throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });

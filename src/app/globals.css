@@ -587,7 +587,7 @@ html[data-desktop-runtime="true"], html[data-desktop-runtime="true"] body { back
  */
 html[data-desktop-runtime="true"] .workspace-shell { border-radius: 14px; overflow: clip; }
 html[data-window-maximized="true"] .workspace-shell { border-radius: 0; }
-html[data-desktop-runtime="true"]:not([data-window-maximized="true"]) :is(.sheet-overlay, .alert-dialog-overlay, .dialog-overlay-enter, .desktop-startup, .settings-scrim),
+html[data-desktop-runtime="true"]:not([data-window-maximized="true"]) :is(.sheet-overlay, .alert-dialog-overlay, .dialog-overlay, .dialog-overlay-enter, .desktop-startup, .settings-scrim),
 html[data-desktop-runtime="true"]:not([data-window-maximized="true"]) dialog::backdrop { border-radius: 14px; }
 html[data-desktop-runtime="true"]:not([data-window-maximized="true"]) .sheet-content[data-side="right"] { border-radius: 0 14px 14px 0; }
 html[data-desktop-runtime="true"]:not([data-window-maximized="true"]) .sheet-content[data-side="left"] { border-radius: 14px 0 0 14px; }
@@ -713,7 +713,7 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
 /* Every other floating layer is placed at the end of the page too, and can reach the drag band: a long list
    opened upward, the command palette moved to the top, a dialog's backdrop. Each opts out as a whole, so none of
    its controls loses clicks to the window there. Tooltips take no clicks and need not. */
-[data-radix-popper-content-wrapper], .alert-dialog-overlay, .alert-dialog-content, .command-palette { -webkit-app-region: no-drag; }
+[data-radix-popper-content-wrapper], .alert-dialog-overlay, .alert-dialog-content, .dialog-overlay, .dialog-content, .command-palette { -webkit-app-region: no-drag; }
 .sheet-overlay { position: fixed; inset: 0; z-index: 50; background: hsl(var(--scrim) / .5); backdrop-filter: blur(8px); }
 .sheet-content { position: fixed; top: 0; bottom: 0; z-index: 50; width: min(19rem, 88vw); background: hsl(var(--background)); color: hsl(var(--foreground)); box-shadow: 0 12px 48px hsl(var(--shadow) / .15); outline: none; }
 .sheet-content[data-side="left"] { left: 0; border-right: 1px solid hsl(var(--border)); --sheet-offset: -100%; }
@@ -729,6 +729,19 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
 .alert-dialog-overlay[data-state="closed"] { animation: overlay-out var(--dur-fast) var(--ease-in-out); }
 .alert-dialog-content[data-state="open"] { animation: dialog-panel-in var(--dur-base) var(--ease-out); }
 .alert-dialog-content[data-state="closed"] { animation: pop-out var(--dur-fast) var(--ease-in-out); }
+/* A form dialog: centred like a confirmation, below one so a confirmation can open over it. */
+.dialog-overlay { position: fixed; inset: 0; z-index: 50; background: hsl(var(--scrim) / .5); backdrop-filter: blur(4px); }
+.dialog-content { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; gap: 16px; width: min(36rem, calc(100vw - 32px)); height: fit-content; max-height: calc(100vh - 32px); margin: auto; overflow-y: auto; scrollbar-gutter: stable; border-radius: 14px; padding: 20px; background: hsl(var(--card)); color: hsl(var(--card-foreground)); box-shadow: 0 0 0 1px hsl(var(--border)), 0 16px 48px -12px hsl(var(--shadow) / .35); outline: none; }
+.dialog-overlay[data-state="open"] { animation: overlay-in var(--dur-base) var(--ease-out); }
+.dialog-overlay[data-state="closed"] { animation: overlay-out var(--dur-fast) var(--ease-in-out); }
+.dialog-content[data-state="open"] { animation: dialog-panel-in var(--dur-base) var(--ease-out); }
+.dialog-content[data-state="closed"] { animation: pop-out var(--dur-fast) var(--ease-in-out); }
+/* Settings read as rows in a rounded group: the name on the left, its value on the right. */
+.form-rows { display: flex; flex-direction: column; border-radius: 12px; box-shadow: 0 0 0 1px hsl(var(--border)); padding: 0 14px; }
+.form-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; padding: 6px 0; font-size: 13px; }
+.form-row + .form-row { border-top: 1px solid hsl(var(--border) / .65); }
+.form-row > :first-child { flex-shrink: 0; font-weight: 500; }
+.form-row > :last-child { display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-width: 0; }
 .sheet-overlay[data-state="open"] { animation: overlay-in var(--dur-base) var(--ease-out); }
 .sheet-overlay[data-state="closed"] { animation: overlay-out var(--dur-fast) var(--ease-in-out); }
 .sheet-content[data-state="open"] { animation: sheet-in var(--dur-slow) var(--ease-out); }
@@ -1206,7 +1219,6 @@ body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; al
 .settings-list > li.directory-grant-row:first-child { padding-top: 4px; }
 @media (min-width: 640px) { .settings-list > li.directory-grant-row { align-items: center; } }
 .settings-help { border-top: 1px solid hsl(var(--border) / .65); padding-top: 4px; }
-.settings-create-sheet { width: min(100vw, 440px); }
 .settings-review-form { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .settings-review-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 8px; max-width: 30rem; flex: 1 1 20rem; }
 .settings-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; font-size: 13px; }

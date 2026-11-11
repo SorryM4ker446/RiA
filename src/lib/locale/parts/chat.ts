@@ -78,6 +78,8 @@ export const chatMessages = {
   "chat.modelHint.chooseAction": "选择模型",
   "chat.modelHint.addMenuItem": "添加模型…",
   "chat.toolbar.modelUnavailable": "当前模型不可用：{modelId}",
+  "chat.toolbar.taskDefaultModel": "默认（{name}）",
+  "chat.toolbar.taskGeneralAssistant": "任务的对话固定使用通用助理",
 
   // --- composer ----------------------------------------------------------
   "chat.composer.contextUsageLabel": "上下文已用约 {percent}%",
@@ -234,28 +236,8 @@ export const chatMessages = {
   "chat.role.system": "系统",
 
   // --- task panel --------------------------------------------------------
-  "chat.tasks.create": "新建任务",
-  "chat.tasks.complete": "完成任务 {title}",
-  "chat.tasks.reminderInfo": "关于任务提醒",
-  "chat.tasks.title": "任务",
-  "chat.tasks.subtitle": "到期提醒与重复任务",
-  "chat.tasks.desktopNotice": "系统通知仅在桌面应用运行时发送；关闭后下次启动补查。网页仅显示到期状态。",
-  "chat.tasks.listTitle": "任务列表",
-  "chat.tasks.matchCountUnit": "个匹配任务",
-  "chat.tasks.refresh": "刷新任务",
-  "chat.tasks.filterAll": "全部任务",
-  "chat.tasks.statusTodo": "待处理",
   "chat.tasks.statusInProgress": "进行中",
   "chat.tasks.statusDone": "已完成",
-  "chat.tasks.emptyFiltered": "这个视图里还没有任务。",
-  "chat.tasks.priorityLabel": "优先级：{priority}",
-  "chat.tasks.dueLabel": "截止时间：{value}（{timeZone}）",
-  "chat.tasks.overdue": "已逾期",
-  "chat.tasks.dueReminder": "到期提醒",
-  "chat.tasks.repeatNext": "完成后续建",
-  "chat.tasks.statusLabel": "任务状态",
-  "chat.tasks.deleteLabel": "删除任务",
-  "chat.tasks.collapse": "收起任务",
 
   // --- task schedule editor ---------------------------------------------
   "chat.schedule.openEditor": "设置时间与提醒",
@@ -290,6 +272,4 @@ export const chatMessages = {
   "chat.composer.attachmentsSelected": "已选择 {count} 个附件：{names}",
   "chat.conversations.collapseRail": "收起会话列表",
   "chat.conversations.expandRail": "展开会话列表",
-  "chat.tasks.collapseRail": "收起任务面板",
-  "chat.tasks.expandRail": "展开任务面板",
 } as const;

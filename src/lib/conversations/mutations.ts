@@ -4,12 +4,13 @@ import { pruneTerminalLogs } from "@/lib/terminal/logs";
 import { activeTerminalSessionIds } from "@/lib/terminal/runtime";
 import { ApiError } from "@/lib/server/api-error";
 import { truncateTitle } from "@/lib/ai/ui-message";
-import { chatTagSchema, conversationSummary } from "@/lib/conversations/query";
+import { chatTagSchema, conversationInclude, conversationSummary } from "@/lib/conversations/query";
 import { encodeDocumentScope } from "@/lib/documents/scope";
 import { Prisma } from "@prisma/client";
 import { assistantIdSchema, readAssistantSnapshot } from "@/lib/assistants/schema";
 import { resolveAssistant } from "@/lib/assistants/store";
 import { assertSelectableWorkspace } from "@/lib/local-files/workspace";
+import { approvalRuleSchema } from "@/lib/approvals/rules";
 
 export const updateConversationSchema = z.strictObject({
   title: z.string().trim().min(1).max(200).optional(),
@@ -18,6 +19,7 @@ export const updateConversationSchema = z.strictObject({
   ephemeral: z.boolean().optional(),
   // One granted folder, or null to work without one.
   workspaceGrantId: z.string().trim().min(1).max(200).nullable().optional(),
+  approvalRule: approvalRuleSchema.optional(),
   assistantTemplateId: assistantIdSchema.nullable().optional(),
   tags: z.array(chatTagSchema).max(8).transform(tags => [...new Set(tags)].sort()).optional(),
 }).refine(value => Object.keys(value).length > 0, "At least one field is required")
@@ -29,6 +31,16 @@ export const bulkDeleteSchema = z.strictObject({
 });
 
 export async function updateConversation(id: string, input: z.infer<typeof updateConversationSchema>) {
+  // A task's conversation belongs to the task: it stays a general-assistant
+  // conversation, and its folder, approval rule and memory switch are the
+  // task's, changed on the task.
+  const ownedByTask = input.assistantTemplateId || input.workspaceGrantId !== undefined || input.approvalRule !== undefined || input.ephemeral !== undefined;
+  if (ownedByTask && await db.scheduledJob.count({ where: { chatId: id } })) {
+    throw new ApiError({ code: "CONFLICT", message: input.assistantTemplateId
+      ? "A task's conversation always uses the general assistant; templates cannot be applied to it."
+      : input.workspaceGrantId !== undefined ? "A task's conversation works in the task's folder; change the folder on the task."
+      : "A task's conversation follows the task's settings; change them on the task." });
+  }
   const selectedAssistant = input.assistantTemplateId ? await resolveAssistant(input.assistantTemplateId) : null;
   if (input.workspaceGrantId !== undefined) await assertSelectableWorkspace(input.workspaceGrantId);
   return db.$transaction(async tx => {
@@ -56,8 +68,9 @@ export async function updateConversation(id: string, input: z.infer<typeof updat
       ...(input.archived !== undefined ? { archived: input.archived } : {}),
       ...(input.ephemeral !== undefined ? { ephemeral: input.ephemeral } : {}),
       ...(input.workspaceGrantId !== undefined ? { workspaceGrantId: input.workspaceGrantId } : {}),
+      ...(input.approvalRule !== undefined ? { approvalRule: input.approvalRule } : {}),
       ...(input.tags !== undefined ? { tags: { deleteMany: {}, create: input.tags.map(label => ({ label })) } } : {}),
-    }, include: { tags: { orderBy: { label: "asc" } }, _count: { select: { messages: true } } } });
+    }, include: conversationInclude });
     return conversationSummary(chat);
   });
 }

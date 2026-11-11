@@ -10,7 +10,10 @@ type DesktopSettingsView = {
   windowBounds: { x: number; y: number; width: number; height: number } | null;
   globalHotkey: string;
   autoCheckUpdates: boolean;
+  taskNotifications: Record<DesktopTaskNoticeEvent, boolean>;
 };
+
+type DesktopTaskNoticeEvent = "task-finished" | "task-failed" | "task-needs-approval" | "task-skipped" | "task-missed";
 
 type DesktopUpdateState = {
   supported: boolean;
@@ -52,6 +55,7 @@ type DesktopSettingsInput = {
   globalHotkey?: string;
   windowBounds?: { x: number; y: number; width: number; height: number };
   autoCheckUpdates?: boolean;
+  taskNotifications?: Partial<Record<DesktopTaskNoticeEvent, boolean>>;
 };
 
 interface Window {
@@ -70,6 +74,7 @@ interface Window {
     openFile: (target: string) => Promise<{ opened: boolean }>;
     quitToTray: () => Promise<{ quitting: boolean }>;
     showFromTray: () => Promise<{ shown: boolean }>;
+    onNavigate?: (listener: (path: string) => void) => () => void;
     globalHotkey: string;
     setGlobalHotkey: (
       accelerator: string,

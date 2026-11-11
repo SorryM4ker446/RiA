@@ -4,6 +4,7 @@ import { t } from "@/lib/locale";
 export function executionGuidance(code: string | null): string {
   switch (code) {
     case "CONTEXT_LIMIT": case "context-limit": return t("errors.contextLimit");
+    case "BACKGROUND_LIMIT": return t("tasks.error.backgroundLimit");
     case "output-limit": return t("chat.context.outputLimit");
     case "CONFIGURATION_ERROR": return "请在设置中配置模型和密钥，再发起新的执行。";
     case "FORBIDDEN": case "UNAUTHORIZED": return "请检查访问凭证或重新授权目录；文件写入仍需重新批准。";

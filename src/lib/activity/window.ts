@@ -1,4 +1,4 @@
-import { isTaskTimeZone } from "@/lib/tasks/schedule";
+import { isTimeZone } from "@/lib/scheduler/cron";
 type Day = { year: number; month: number; day: number };
 const ordinal = (day: Day) => Date.UTC(day.year, day.month - 1, day.day);
 function shift(day: Day, days: number): Day {
@@ -21,7 +21,7 @@ function boundary(day: Day, formatter: Intl.DateTimeFormat): Date {
   throw new Error("Cannot resolve local date boundary");
 }
 export function reviewWindow(period: "daily" | "weekly", timeZone: string, now = new Date()) {
-  if (!isTaskTimeZone(timeZone) || !Number.isFinite(now.getTime())) throw new Error("Invalid review period");
+  if (!isTimeZone(timeZone) || !Number.isFinite(now.getTime())) throw new Error("Invalid review period");
   const formatter = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
   const today = parts(formatter, now.getTime());
   const endDay = period === "daily" ? today : shift(today, -((new Date(ordinal(today)).getUTCDay() + 6) % 7));

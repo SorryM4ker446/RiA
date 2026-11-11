@@ -1,4 +1,6 @@
 import type { AssistantSnapshot } from "@/lib/assistants/schema";
+import type { ModelRef } from "@/lib/models/preferences-schema";
+import type { ApprovalRule } from "@/lib/approvals/rules";
 import {
   decodePersistedAssistantToolMessage,
   decodePersistedUserMessage,
@@ -18,8 +20,15 @@ export type ChatSummary = {
   ephemeral?: boolean;
   documentScope?: string;
   workspaceGrantId?: string | null;
+  /** What the model may do in the workspace without asking; a task's conversation shows the task's. */
+  approvalRule?: ApprovalRule;
   assistantConfig?: AssistantSnapshot | null;
   tags?: string[];
+  /**
+   * The task that owns this conversation. It adds to it on its own, and decides
+   * the model (null: the default chat model) and folder every turn here uses.
+   */
+  task?: { id: string; model: ModelRef | null } | null;
 };
 
 /**

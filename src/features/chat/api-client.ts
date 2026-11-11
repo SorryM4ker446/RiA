@@ -1,3 +1,4 @@
+import type { ApprovalRule } from "@/lib/approvals/rules";
 import { t } from "@/lib/locale";
 import { getApiErrorMessage } from "@/lib/api-error-message";
 import { attachmentValidationError } from "@/lib/media/limits";
@@ -6,7 +7,7 @@ import { DefaultChatTransport } from "ai";
 import type { ModelRef } from "@/lib/models/preferences-schema";
 import type { AssistantTemplate } from "@/lib/assistants/schema";
 import type { ChatSummary, MessageStatus, StoredMessage, UploadableFilePart } from "@/features/chat/page-utils";
-import type { ChatScopedPreferences, TaskItem, TaskScheduleInput, TaskStatusFilter, SkillCatalogItem, ToolCatalogItem } from "@/features/chat/types";
+import type { ChatScopedPreferences, SkillCatalogItem, ToolCatalogItem } from "@/features/chat/types";
 
 type Data<T> = { data: T };
 type Page<T> = Data<T[]> & { pageInfo?: { nextCursor: string | null; hasMore: boolean } };
@@ -48,6 +49,7 @@ export const chatApi = {
   renameConversation: (id: string, title: string) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatApi.renameConversationFailed"), jsonBody("PATCH", { title })),
   setWorkspace: (id: string, workspaceGrantId: string | null) => requestJson<Data<ChatSummary>>(conversationPath(id), t("ui.chat.workspace.failed"), jsonBody("PATCH", { workspaceGrantId })),
   setEphemeral: (id: string, ephemeral: boolean) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatApi.setEphemeralFailed"), jsonBody("PATCH", { ephemeral })),
+  setApprovalRule: (id: string, approvalRule: ApprovalRule) => requestJson<Data<ChatSummary>>(conversationPath(id), t("approval.saveFailed"), jsonBody("PATCH", { approvalRule })),
   deleteConversation: (id: string) => requestJson<unknown>(conversationPath(id), t("chatApi.deleteConversationFailed"), { method: "DELETE" }),
   listMessages: (id: string, cursor?: string) => requestJson<Page<StoredMessage>>(withCursor(`${conversationPath(id)}/messages`, cursor), t("chatApi.listMessagesFailed")),
   editMessage: (chatId: string, messageId: string, content: string) => requestJson<unknown>(messagePath(chatId, messageId), t("chatApi.saveEditFailed"), jsonBody("PATCH", { content })),
@@ -64,15 +66,6 @@ export const chatApi = {
     if (payload.data === undefined) throw new Error(failed);
     return payload;
   },
-  listTasks(status: TaskStatusFilter) {
-    const query = new URLSearchParams({ limit: "50" });
-    if (status !== "all") query.set("status", status);
-    return requestJson<Data<TaskItem[]>>(`/api/tasks?${query}`, t("chatApi.listTasksFailed"));
-  },
-  // The form's choices are checked by the server, which owns the task schema.
-  createTask: (input: { title: string; details?: string; priority: string; timeZone: string; reminderEnabled: boolean; repeatRule: string; dueDate?: string }) => requestJson<Data<TaskItem>>("/api/tasks", t("ui.tasks.creationFailedPleaseTryAgain"), jsonBody("POST", input)),
-  updateTask: (id: string, input: Partial<TaskScheduleInput> & { status?: TaskItem["status"] }) => requestJson<Data<TaskItem> & { nextTask?: TaskItem | null }>(`/api/tasks/${encodeURIComponent(id)}`, t("chatApi.updateTaskFailed"), jsonBody("PATCH", input)),
-  deleteTask: (id: string) => requestJson<unknown>(`/api/tasks/${encodeURIComponent(id)}`, t("chatApi.deleteTaskFailed"), { method: "DELETE" }),
   async generateMedia(kind: "image" | "video", prompt: string, model: ModelRef, files: UploadableFilePart[], chatId?: string) {
     const inputs = files.map(({ url, mediaType }) => ({ url, mediaType }));
     const fallback = kind === "image" ? t("chatApi.imageGenerateFailed") : t("chatApi.videoGenerateFailed");

@@ -4,7 +4,6 @@ import { LocalFileRefused, localGrantLabelSchema } from "@/lib/local-files/limit
 import { resolveGrant } from "@/lib/local-files/safe-path";
 import { activeTerminalSessionIds, stopTerminalCommandsForGrant } from "@/lib/terminal/runtime";
 import { removeTerminalLogsForGrant } from "@/lib/terminal/logs";
-import { terminalApprovalModeSchema, type TerminalApprovalMode } from "@/lib/terminal/schema";
 
 /**
  * Directories the user has opened to the assistant.
@@ -21,8 +20,6 @@ export type DirectoryGrantView = {
   path: string;
   /** Where the filesystem actually put it. Shown so the user can recognise a grant. */
   realPath: string;
-  terminalEnabled: boolean;
-  terminalApprovalMode: TerminalApprovalMode;
   updatedAt: string;
   createdAt: string;
   lastUsedAt: string | null;
@@ -34,8 +31,6 @@ const grantViewSelect = {
   label: true,
   path: true,
   realPath: true,
-  terminalEnabled: true,
-  terminalApprovalMode: true,
   updatedAt: true,
   createdAt: true,
   lastUsedAt: true,
@@ -47,8 +42,6 @@ function toView(row: {
   label: string;
   path: string;
   realPath: string;
-  terminalEnabled: boolean;
-  terminalApprovalMode: string;
   updatedAt: Date;
   createdAt: Date;
   lastUsedAt: Date | null;
@@ -59,8 +52,6 @@ function toView(row: {
     label: row.label,
     path: row.path,
     realPath: row.realPath,
-    terminalEnabled: row.terminalEnabled,
-    terminalApprovalMode: terminalApprovalModeSchema.catch("approval").parse(row.terminalApprovalMode),
     updatedAt: row.updatedAt.toISOString(),
     createdAt: row.createdAt.toISOString(),
     lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
@@ -130,7 +121,7 @@ async function findByRealPath(realPath: string): Promise<{ id: string } | null> 
 async function reviveGrant(id: string, label: string, resolvedPath: string): Promise<DirectoryGrantView> {
   const row = await db.directoryGrant.update({
     where: { id },
-    data: { label, path: resolvedPath, revokedAt: null, lastUsedAt: null, terminalEnabled: false, terminalApprovalMode: "approval" },
+    data: { label, path: resolvedPath, revokedAt: null, lastUsedAt: null },
     select: grantViewSelect
   });
   stopTerminalCommandsForGrant(id);

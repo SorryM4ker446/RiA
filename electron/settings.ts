@@ -16,6 +16,16 @@ export type DesktopCloseBehaviour = "quit" | "tray";
 
 export type DesktopWindowBounds = { x: number; y: number; width: number; height: number };
 
+/** The task events the desktop can announce with a system notification, by notice title. */
+export const TASK_NOTICE_EVENTS = ["task-finished", "task-failed", "task-needs-approval", "task-skipped", "task-missed"] as const;
+export type TaskNoticeEvent = (typeof TASK_NOTICE_EVENTS)[number];
+export type TaskNotificationPreferences = Record<TaskNoticeEvent, boolean>;
+
+/** Every event is announced unless the user turned it off: a missing entry means on. */
+function taskNotificationsOf(stored: Partial<TaskNotificationPreferences> | undefined): TaskNotificationPreferences {
+  return Object.fromEntries(TASK_NOTICE_EVENTS.map(event => [event, stored?.[event] !== false])) as TaskNotificationPreferences;
+}
+
 export type DesktopSettingsInput = {
   locale?: "zh-CN" | "en-US";
   openrouterApiKey?: string;
@@ -29,6 +39,8 @@ export type DesktopSettingsInput = {
   globalHotkey?: string;
   windowBounds?: DesktopWindowBounds;
   autoCheckUpdates?: boolean;
+  /** Changes only the events named; the others keep what they were. */
+  taskNotifications?: Partial<TaskNotificationPreferences>;
 };
 
 export type DesktopSettingsView = {
@@ -43,6 +55,7 @@ export type DesktopSettingsView = {
   globalHotkey: string;
   windowBounds: DesktopWindowBounds | null;
   autoCheckUpdates: boolean;
+  taskNotifications: TaskNotificationPreferences;
 };
 
 type StoredDesktopSettings = {
@@ -61,6 +74,7 @@ type StoredDesktopSettings = {
   globalHotkey?: string;
   // Absent means on: checking reads one small signed file and installs nothing.
   autoCheckUpdates?: boolean;
+  taskNotifications?: Partial<TaskNotificationPreferences>;
 };
 
 /**
@@ -163,6 +177,11 @@ export class DesktopSettingsStore {
     return this.readStored().closeBehaviour === "tray" ? "tray" : "quit";
   }
 
+  /** Whether a task notice with this title is shown as a system notification. Unknown titles are shown. */
+  showsTaskNotice(title: string): boolean {
+    return (TASK_NOTICE_EVENTS as readonly string[]).includes(title) ? taskNotificationsOf(this.readStored().taskNotifications)[title as TaskNoticeEvent] : true;
+  }
+
   async getGlobalHotkey(): Promise<string> {
     return normalizeHotkey(this.readStored().globalHotkey);
   }
@@ -220,6 +239,7 @@ export class DesktopSettingsStore {
       globalHotkey: normalizeHotkey(stored.globalHotkey),
       windowBounds: stored.windowBounds ?? null,
       autoCheckUpdates: stored.autoCheckUpdates !== false,
+      taskNotifications: taskNotificationsOf(stored.taskNotifications),
     };
   }
 
@@ -251,6 +271,12 @@ export class DesktopSettingsStore {
       ...(input.closeBehaviour === "tray" || input.closeBehaviour === "quit" ? { closeBehaviour: input.closeBehaviour } : {}),
       globalHotkey: input.globalHotkey === undefined ? current.globalHotkey : normalizeHotkey(input.globalHotkey),
       ...(typeof input.autoCheckUpdates === "boolean" ? { autoCheckUpdates: input.autoCheckUpdates } : {}),
+      ...(input.taskNotifications && typeof input.taskNotifications === "object" ? {
+        taskNotifications: {
+          ...current.taskNotifications,
+          ...Object.fromEntries(TASK_NOTICE_EVENTS.flatMap(event => typeof input.taskNotifications![event] === "boolean" ? [[event, input.taskNotifications![event]]] : [])),
+        },
+      } : {}),
       ...(input.windowBounds ? { windowBounds: input.windowBounds } : {})
     };
 
@@ -288,6 +314,8 @@ export class DesktopSettingsStore {
       OUTBOUND_PROXY_URL: stored.outboundProxyUrl || "",
       OPENROUTER_SITE_NAME: stored.openrouterSiteName || "RiA Desktop",
       OPENROUTER_HTTP_REFERER: stored.openrouterHttpReferer || "",
+      // Until the user chooses a language in the app, unattended work is worded in this one.
+      RIA_INTERFACE_LOCALE: this.resolveLocale(stored.locale),
     };
   }
 }

@@ -1,3 +1,4 @@
+import { conversationMemoryOff } from "@/lib/chat/conversation-model";
 import { z } from "zod";
 import { db } from "@/db";
 import { decodePersistedAssistantToolMessage, decodePersistedUserMessage } from "@/lib/ai/ui-message";
@@ -86,7 +87,8 @@ export async function scheduleMemoryExtraction(params: { chatId?: string | null;
   if (jobs.has(chatId)) return { status: "skipped", reason: "already-running" };
   const chat = await db.chat.findUnique({ where: { id: chatId }, select: { ephemeral: true, memoryExtractedAt: true } });
   if (!chat) return { status: "skipped", reason: "no-conversation" };
-  if (chat.ephemeral) return { status: "skipped", reason: "memory-off" };
+  // A task's conversation follows the task's memory switch.
+  if (await conversationMemoryOff(chatId)) return { status: "skipped", reason: "memory-off" };
   // Being asked is not the model's judgement running away. What is written still comes only from what the user wrote.
   if (!userAsked && chat.memoryExtractedAt && await db.message.count({ where: { chatId, role: "user", createdAt: { gt: chat.memoryExtractedAt } } }) < MIN_USER_MESSAGES_BETWEEN) return { status: "skipped", reason: "too-soon" };
   await db.chat.update({ where: { id: chatId }, data: { memoryExtractedAt: new Date() } });

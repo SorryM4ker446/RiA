@@ -30,6 +30,7 @@ import type { ModelLibraryItem } from "@/lib/models/preferences-schema";
 import { ContextUsage } from "@/features/chat/context-usage";
 import { COMPACT_CONTEXT_TOOL } from "@/lib/chat/compact-context";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type UIEvent } from "react";
+import { TASK_DEFAULT_MODEL } from "@/features/chat/types";
 
 /**
  * The model name last shown for a mode. Until the saved choice is read it
@@ -38,6 +39,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncEx
  */
 /** The model menu's last entry, which leads to adding a model rather than choosing one. */
 const ADD_MODEL = "__add_model";
+
 const modelLabelKey = (mode: ModelMode) => `chat:model-label:${mode}`;
 const noSubscription = () => () => {};
 function useRememberedModelLabel(mode: ModelMode) {
@@ -90,6 +92,7 @@ type Props = Pick<
   | "activeChat"
   | "selectedModel"
   | "selectedModelInfo"
+  | "defaultChatModel"
   | "onModeSelect"
   | "onModelSelect"
   | "modelLibrary"
@@ -138,6 +141,7 @@ export function Composer({
   activeChat,
   selectedModel,
   selectedModelInfo,
+  defaultChatModel,
   onModeSelect,
   onModelSelect,
   modelLibrary,
@@ -152,6 +156,9 @@ export function Composer({
   const isCompact = modelMode === "chat" && choice.tool?.id === COMPACT_CONTEXT_TOOL;
   const canSend = isCompact || (isDocumentTool ? attachments.length > 0 || Boolean(choice.document) : Boolean(input.trim()) || attachments.length > 0);
   const allowedToolIds = activeChat?.assistantConfig?.tools;
+  // A task's conversation that names no model follows the default chat model.
+  const followsDefault = modelMode === "chat" && Boolean(activeChat?.task) && !activeChat?.task?.model;
+  const defaultModelName = (defaultChatModel && modelLibrary.find(model => modelRefKey(model) === modelRefKey(defaultChatModel))?.name) ?? defaultChatModel?.modelId ?? t("chat.toolbar.modelNone");
   const modelCanCallTools = selectedModelInfo?.supportsTools !== false;
   const openSettings = useOpenSettings();
   // A tool the model would have to call goes with a model that cannot, as it does with a template that does not allow it.
@@ -455,7 +462,8 @@ export function Composer({
               // Until the saved choice is read, the last model shown stands in for
               // it, rather than "选择模型" claiming no model is chosen. With no
               // model the placeholder says so; it is not an item to tick.
-              value={selectedModel && !isLoadingPreferences ? modelRefKey(selectedModel) : ""}
+              // A task that follows the default chat model shows that choice, not the model it resolves to.
+              value={followsDefault ? TASK_DEFAULT_MODEL : selectedModel && !isLoadingPreferences ? modelRefKey(selectedModel) : ""}
             >
               {/* Sized to the name; a different name eases to its width instead of pushing the tools aside. */}
               <SelectTrigger
@@ -468,7 +476,11 @@ export function Composer({
                 <SelectValue className="truncate" placeholder={isLoadingPreferences ? rememberedModelLabel : t("chat.toolbar.modelNone")} />
               </SelectTrigger>
               <SelectContent>
-                {selectedModel &&
+                {activeChat?.task && modelMode === "chat" ? <>
+                  <SelectItem value={TASK_DEFAULT_MODEL}>{tf("chat.toolbar.taskDefaultModel", { name: defaultModelName })}</SelectItem>
+                  <SelectSeparator />
+                </> : null}
+                {!followsDefault && selectedModel &&
                 !modelLibrary.some(
                   (model) =>
                     modelRefKey(model) === modelRefKey(selectedModel) &&

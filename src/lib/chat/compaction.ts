@@ -1,11 +1,11 @@
 import type { UIMessage } from "ai";
 import { getTextFromUIMessage as readText } from "@/lib/ai/ui-message";
-import { readAssistantSnapshot } from "@/lib/assistants/schema";
+import { conversationModelOf } from "@/lib/chat/conversation-model";
 import { db } from "@/db";
 import { t } from "@/lib/locale";
 import { COMPACTED_TAIL, contextBudget, estimateContextTokens, estimateTextTokens } from "@/lib/models/context-budget";
 import { conversationCalibration } from "@/lib/models/context-calibration";
-import { getModelPreferences, modelInLibrary, preferredModel } from "@/lib/models/preferences";
+import { getModelPreferences, modelInLibrary } from "@/lib/models/preferences";
 import { modelRefKey, type ModelRef } from "@/lib/models/preferences-schema";
 import { ApiError, normalizeApiError } from "@/lib/server/api-error";
 import { runBackgroundDataOperation } from "@/lib/server/data-operations";
@@ -136,7 +136,7 @@ export function compactForRequest(params: { chatId: string; messages: UIMessage[
 export async function compactOnRequest(params: { chatId?: string | null; focus?: string }): Promise<{ status: "compacted" | "nothing"; freedTokens: number }> {
   const { chatId, focus } = params;
   if (!chatId) return { status: "nothing", freedTokens: 0 };
-  const chat = await db.chat.findUnique({ where: { id: chatId }, select: { assistantConfig: true } });
+  const chat = await db.chat.findUnique({ where: { id: chatId }, select: { id: true } });
   if (!chat) throw new ApiError({ code: "NOT_FOUND", message: "Conversation was not found" });
   // Waits out a running job, so what it wrote is what this one builds on.
   for (let running = jobs.get(chatId); running; running = jobs.get(chatId)) await running;
@@ -147,7 +147,8 @@ export async function compactOnRequest(params: { chatId?: string | null; focus?:
   const lastOlder = older.at(-1);
   const before = await storedSummary(chatId);
   if (!lastOlder || before?.coveredIds.includes(lastOlder.id)) return { status: "nothing", freedTokens: 0 };
-  const modelRef = await preferredModel("chat", readAssistantSnapshot(chat.assistantConfig)?.model);
+  // The model the conversation's turns use: the task's for a task's conversation, a template's, or the default.
+  const modelRef = await conversationModelOf(chatId);
   const allowance = await turnAllowance();
   const result = await startJob(chatId, () => runBackgroundDataOperation(() => summarizeOlderTurns({ chatId, messages: turnRecords(messages), keepRecent: messages.length - latestUser, force: true, modelRef, allowance, focus })));
   if (!result) throw new ApiError({ code: "UPSTREAM_FAILED", message: t("chat.compact.failed") });

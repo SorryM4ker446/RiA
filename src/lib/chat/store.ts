@@ -1,3 +1,4 @@
+import { defaultApprovalRule } from "@/lib/approvals/preferences";
 import { MessageRole, MessageStatus, type Message, type Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import type { UIMessage } from "ai";
@@ -51,7 +52,7 @@ export async function getChat(chatId: string) {
   return db.chat.findFirst({ where: { id: chatId } });
 }
 
-export async function createChat(params: { chatId?: string; title?: string; assistantTemplateId?: string }) {
+export async function createChat(params: { chatId?: string; title?: string; assistantTemplateId?: string; ephemeral?: boolean }) {
   const { chatId, title } = params;
 
   if (chatId) {
@@ -62,8 +63,11 @@ export async function createChat(params: { chatId?: string; title?: string; assi
   const assistant = params.assistantTemplateId ? await resolveAssistant(params.assistantTemplateId) : null;
   return db.chat.create({
     data: {
+      // A new conversation starts from the default approval rule; changing the default later leaves it as it is.
+      approvalRule: await defaultApprovalRule(),
       ...(assistant ? { assistantConfig: assistant, documentScope: encodeDocumentScope(assistant.collections), ephemeral: !assistant.usesMemory } : {}),
       ...(chatId ? { id: chatId } : {}),
+      ...(params.ephemeral === undefined ? {} : { ephemeral: params.ephemeral }),
       title: truncateTitle(title ?? assistant?.name ?? "New Chat"),
       lastMessageAt: new Date(),
     },

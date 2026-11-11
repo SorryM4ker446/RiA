@@ -73,7 +73,6 @@ export async function restoreAccountBackup(id: string) {
       await tx.memory.deleteMany({});
       await tx.memoryDocument.deleteMany({});
       if (manifest.memoryDocument) await tx.memoryDocument.create({ data: manifest.memoryDocument });
-      await tx.task.deleteMany({});
       await tx.knowledgeDocument.deleteMany({});
       await tx.modelRequest.deleteMany({});
       // `summaryUpToMessageId` names a message in this very chat, and every
@@ -103,7 +102,7 @@ export async function restoreAccountBackup(id: string) {
       const inputs = manifest.assets.flatMap(asset => asset.inputs.map(ref => ({ assetId: mapped(ref.assetId), inputAssetId: mapped(ref.inputAssetId) })));
       for (let i = 0; i < inputs.length; i += 500) await tx.mediaGenerationInput.createMany({ data: inputs.slice(i, i + 500) });
       for (let i = 0; i < manifest.memories.length; i += 250) await tx.memory.createMany({ data: manifest.memories.slice(i, i + 250).map(memory => ({ ...memory, id: mapped(memory.id), embedding: memory.embedding ?? Prisma.DbNull, embeddingModelId: memory.embeddingModelId ?? null, embeddingModelProvider: memory.embeddingModelProvider ?? null, source: memory.source ?? "manual", confirmed: memory.confirmed ?? true, lastUsedAt: memory.lastUsedAt ?? null })) });
-      for (let i = 0; i < manifest.tasks.length; i += 250) await tx.task.createMany({ data: manifest.tasks.slice(i, i + 250).map(task => ({ ...task, id: mapped(task.id), reminderEnabled: false })) });
+      // To-dos from an older archive are not brought back: the workspace no longer has them.
       await tx.knowledgeDocument.createMany({ data: manifest.documents.map(({ chunks: _chunks, ...document }) => ({ ...document, id: mapped(document.id) })) });
       const chunks = manifest.documents.flatMap(document => document.chunks.map(({ terms: _terms, ...chunk }) => ({ ...chunk, id: mapped(chunk.id), documentId: mapped(chunk.documentId) })));
       for (let i = 0; i < chunks.length; i += 250) await tx.documentChunk.createMany({ data: chunks.slice(i, i + 250) });

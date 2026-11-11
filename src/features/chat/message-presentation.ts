@@ -1,6 +1,6 @@
 import { UIMessage } from "ai";
 import { t } from "@/lib/locale";
-import type { SearchSourceItem, TaskItem } from "@/features/chat/types";
+import type { SearchSourceItem } from "@/features/chat/types";
 import { documentSourceSchema, markDocumentCitations, type DocumentSource } from "@/lib/documents/types";
 
 /**
@@ -77,20 +77,6 @@ export function resolveMessageSourceTag(params: {
     return { label: source("chatMsg.sourceTask"), variant: "success" };
   }
   return { label: source("chatMsg.sourceTool"), variant: "success" };
-}
-
-// These are the same three words the task panel filter and status select already
-// show, so one status can never be spelled two different ways in the UI.
-export function formatTaskStatus(status: TaskItem["status"]): string {
-  if (status === "todo") return t("chat.tasks.statusTodo");
-  if (status === "in_progress") return t("chat.tasks.statusInProgress");
-  return t("chat.tasks.statusDone");
-}
-
-export function formatTaskPriority(priority: TaskItem["priority"]): string {
-  if (priority === "high") return t("chatMsg.priorityHigh");
-  if (priority === "medium") return t("chatMsg.priorityMedium");
-  return t("chatMsg.priorityLow");
 }
 
 export function getWebSearchSources(

@@ -26,11 +26,15 @@ import { persistConversationMessage } from "@/features/chat/api-client";
 import { useChatPreferences } from "@/features/chat/use-chat-preferences";
 import { useConversations } from "@/features/chat/use-conversations";
 import { useMediaGeneration } from "@/features/chat/use-media-generation";
-import { useTasks } from "@/features/tasks/use-tasks";
 import { DOCUMENT_TOOLS, invocationOf, useTools, type ComposerChoice } from "@/features/chat/use-tools";
 import { useToast } from "@/components/ui/toast";
 import { COMPACT_CONTEXT_TOOL } from "@/lib/chat/compact-context";
 import { animateRemoval } from "@/lib/ui/removal";
+import { OPEN_CONVERSATION_EVENT } from "@/features/chat/open-conversation";
+import { useRefreshOnReturn } from "@/lib/use-refresh-on-return";
+import { taskApi } from "@/features/tasks/task-client";
+import { parseModelRefValue } from "@/features/chat/preferences";
+import { TASK_DEFAULT_MODEL } from "@/features/chat/types";
 export function useChatState() {
   const [input, setInput] = useState("");
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
@@ -51,7 +55,7 @@ export function useChatState() {
   const {
     modelMode, setModelMode, selectedChatModel: preferredChatModel, selectedImageModel, selectedVideoModel,
     applyChatPreferences, onModelSelect: selectPreferredModel,
-    isLoadingPreferences, preferencesError, modelLibrary, clearPreferencesError,
+    isLoadingPreferences, preferencesError, modelLibrary, clearPreferencesError, defaultChatModel,
   } = useChatPreferences(activeChatId);
   // A send with no model chosen is not an error: nothing was requested. It
   // turns the model hint on, and choosing a model or another mode turns it off.
@@ -63,6 +67,8 @@ export function useChatState() {
   function onModelSelect(value: string) {
     setSentWithoutModel(false);
     setInputNotice(null);
+    // In a task's conversation the model is the task's: choosing one changes the task.
+    if (activeChat?.task && modelMode === "chat") { void setTaskModel(activeChat.task.id, value); return; }
     selectPreferredModel(value);
   }
   const {
@@ -71,15 +77,29 @@ export function useChatState() {
     cancelEditingChat, saveEditedTitle, performDeleteChat, ensureActiveChatId,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, toggleEphemeral, isEphemeralSaving,
     isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
-    setWorkspace, isWorkspaceSaving, restoringChatId, isRestoringChat,
+    setWorkspace, isWorkspaceSaving, setApprovalRule, isApprovalSaving, restoringChatId, isRestoringChat,
   } = useConversations({ activeChatId, setActiveChatId, preferences: { modelMode, selectedChatModel: preferredChatModel, selectedImageModel, selectedVideoModel }, applyChatPreferences, resetConversation, persistCurrentStreamingAssistantIfNeeded, setPageError });
   // A remembered conversation the list has not confirmed yet is not one to send to,
   // and a send waits for a workspace switch so the turn uses the folder the picker shows.
-  const isConversationReady = !isLoadingPreferences && restoringChatId === null && !isWorkspaceSaving && (activeChatId !== null || !isLoadingChats);
+  const isConversationReady = !isLoadingPreferences && restoringChatId === null && !isWorkspaceSaving && !isApprovalSaving && (activeChatId !== null || !isLoadingChats);
   // The open conversation once it is known to exist: what history-bound panels may show.
   const confirmedChatId = restoringChatId === null ? activeChatId : null;
-  const selectedChatModel = activeChat?.assistantConfig?.model ?? preferredChatModel;
-  const transport = useMemo(() => createChatTransport(activeChatId, { selectedChatModel, modelMode }), [activeChatId, selectedChatModel, modelMode]);
+  // A task's conversation uses the task's model, or the default chat model while
+  // it names none; the server decides it for every turn there, so none is sent.
+  const taskOfChat = activeChat?.task ?? null;
+  const selectedChatModel = taskOfChat ? taskOfChat.model ?? defaultChatModel : activeChat?.assistantConfig?.model ?? preferredChatModel;
+  const sentChatModel = taskOfChat ? null : selectedChatModel;
+  const transport = useMemo(() => createChatTransport(activeChatId, { selectedChatModel: sentChatModel, modelMode }), [activeChatId, sentChatModel, modelMode]);
+  async function setTaskModel(taskId: string, value: string) {
+    if (!value) return;
+    setPageError(null);
+    try {
+      await taskApi.update(taskId, { model: value === TASK_DEFAULT_MODEL ? null : parseModelRefValue(value) });
+    } catch (cause) {
+      setPageError(cause instanceof Error ? cause.message : t("tasks.saveFailed"));
+    }
+    await loadChats({ silent: true });
+  }
   const toast = useToast();
   // The server is folding older turns before it can answer; only meaningful until the answer opens.
   const [isOrganizing, setIsOrganizing] = useState(false);
@@ -124,11 +144,6 @@ export function useChatState() {
   const [pendingSend, setPendingSend] = useState<PendingSend | null>(null);
   const claimedSendRef = useRef<PendingSend | null>(null);
   const inFlightSendsRef = useRef(new Map<string, PendingSend>());
-  const {
-    taskStatusFilter, isLoadingTasks, taskPanelError, isTaskListExpanded, filteredTasks,
-    visibleTasks, hasHiddenTasks, setTaskStatusFilter, setIsTaskListExpanded, loadTasks,
-    updateTaskStatus, deleteTask, saveTaskSchedule, updatingTaskIds,
-  } = useTasks();
   const {
     isGeneratingImage, isGeneratingVideo, isUploadingAttachments,
     imageByMessageId, setImageByMessageId, videoByMessageId, setVideoByMessageId, attachments,
@@ -530,6 +545,53 @@ export function useChatState() {
     setActiveChatId(nextChatId);
   }
 
+  /**
+   * Adds what was written to the open conversation since it was loaded: a
+   * task's run, another window. Only turns after the last one already shown are
+   * added, and nothing is touched while a turn of this page is in progress.
+   */
+  async function refreshActiveMessages() {
+    const chatId = confirmedChatId;
+    if (!chatId || isWorking || historyState?.chatId !== chatId || historyState.status !== "ready") return;
+    const payload = await chatApi.listMessages(chatId).catch(() => null);
+    if (!payload || latestChatRef.current !== chatId) return;
+    const mapped = mapStoredMessagesToUI(payload.data ?? []);
+    setMessages(current => {
+      const known = new Set(current.map(message => message.id));
+      let lastShared = -1;
+      mapped.uiMessages.forEach((message, index) => { if (known.has(message.id)) lastShared = index; });
+      // Without a turn in common the page and the store disagree on more than new turns; leave the page as it is.
+      if (lastShared < 0) return current;
+      const added = mapped.uiMessages.slice(lastShared + 1).filter(message => !known.has(message.id));
+      return added.length ? [...current, ...added] : current;
+    });
+    setImageByMessageId(current => ({ ...mapped.imageMap, ...current }));
+    setVideoByMessageId(current => ({ ...mapped.videoMap, ...current }));
+  }
+  const latestChatRef = useRef(confirmedChatId);
+  const refreshRef = useRef(refreshActiveMessages);
+  const switchRef = useRef(switchActiveChat);
+  useEffect(() => { latestChatRef.current = confirmedChatId; refreshRef.current = refreshActiveMessages; switchRef.current = switchActiveChat; });
+  useRefreshOnReturn(() => refreshRef.current());
+  // A conversation a task writes into is looked at while it is open, so a run
+  // that finishes while the user watches shows up without a reload.
+  const watchesTask = Boolean(activeChat?.task);
+  useEffect(() => {
+    if (!watchesTask) return;
+    const timer = setInterval(() => { if (document.visibilityState === "visible") void refreshRef.current(); }, 10_000);
+    return () => clearInterval(timer);
+  }, [watchesTask]);
+  // Another page, a notice or a system notification asked for a conversation.
+  useEffect(() => {
+    const open = (event: Event) => {
+      const id = (event as CustomEvent<string>).detail;
+      void switchRef.current(id).then(() => loadChats());
+    };
+    window.addEventListener(OPEN_CONVERSATION_EVENT, open);
+    return () => window.removeEventListener(OPEN_CONVERSATION_EVENT, open);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function startEditingMessage(message: UIMessage) {
     setEditingMessageId(message.id);
     setEditingMessageText(readText(message));
@@ -582,7 +644,7 @@ export function useChatState() {
       const failed = await new Promise<boolean>((resolve, reject) => setPendingSend({
         chatId,
         message: { id: crypto.randomUUID(), role: "user", metadata: { ...(invocation ? { invocation } : {}), createdAt: new Date().toISOString() }, parts: [{ type: "text", text }] },
-        options: { body: { chatId, ...(selectedChatModel ? { model: selectedChatModel } : {}), mode: "chat" } },
+        options: { body: { chatId, ...(sentChatModel ? { model: sentChatModel } : {}), mode: "chat" } },
         resolve, reject,
       }));
       if (failed) restore(); else await loadChats();
@@ -601,7 +663,7 @@ export function useChatState() {
       // current preferences must travel with the request itself.
       await regenerate({
         messageId,
-        body: { chatId: activeChatId, ...(selectedChatModel ? { model: selectedChatModel } : {}), mode: modelMode },
+        body: { chatId: activeChatId, ...(sentChatModel ? { model: sentChatModel } : {}), mode: modelMode },
       });
       await loadChats();
     } catch (regenerateError) {
@@ -711,7 +773,7 @@ export function useChatState() {
       const failed = await new Promise<boolean>((resolve, reject) => setPendingSend({
         chatId,
         message: { id: userMessageId, role: "user", metadata: { ...(invocation ? { invocation } : {}), createdAt: new Date().toISOString() }, parts: [...uploadParts, ...(hasContent ? [{ type: "text" as const, text: content }] : [])] },
-        options: { body: { chatId, ...(selectedChatModel ? { model: selectedChatModel } : {}), mode: "chat" } },
+        options: { body: { chatId, ...(sentChatModel ? { model: sentChatModel } : {}), mode: "chat" } },
         resolve, reject,
       }));
 
@@ -780,7 +842,6 @@ export function useChatState() {
   useEffect(() => {
     if (status === "ready") {
       void loadChats();
-      void loadTasks();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
@@ -817,17 +878,14 @@ export function useChatState() {
   return {
     declineApprovals,
     toggleEphemeral, isEphemeralSaving, isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
-    setWorkspace, isWorkspaceSaving, loadChats,
+    setWorkspace, isWorkspaceSaving, setApprovalRule, isApprovalSaving, loadChats,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages,
     isLoadingChats, isCreatingChat, createNewChat, chats, activeChatId, editingChatId, setEditingTitle,
     editingTitle, saveEditedTitle, cancelEditingChat, switchActiveChat, startEditingChat,
-    requestDeleteConversation, filteredTasks,
-    isLoadingTasks, loadTasks, setTaskStatusFilter, taskStatusFilter,
-    taskPanelError: withoutGlobalEcho(taskPanelError),
-    visibleTasks, updateTaskStatus, deleteTask, saveTaskSchedule, updatingTaskIds, hasHiddenTasks, setIsTaskListExpanded,
+    requestDeleteConversation,
     compaction: compaction?.chatId === activeChatId ? compaction : null,
     freedByCompaction: freedByCompaction?.chatId === activeChatId && freedByCompaction.lastMessageId === messages.at(-1)?.id ? freedByCompaction.tokens : 0,
-    isOrganizing, isCompacting: compactingChatId !== null && compactingChatId === activeChatId, isTaskListExpanded, activeChat, isPending, isWorking, isLoadingPreferences, isOpeningConversation, isConversationReady, isConverting, modelMode, selectedModel, selectedModelInfo, onModeSelect,
+    isOrganizing, isCompacting: compactingChatId !== null && compactingChatId === activeChatId, activeChat, isPending, isWorking, isLoadingPreferences, isOpeningConversation, isConversationReady, isConverting, modelMode, selectedModel, selectedModelInfo, defaultChatModel, onModeSelect,
     onModelSelect, modelHint, inputNotice, dismissInputNotice: () => setInputNotice(null), isModelMenuOpen, setIsModelMenuOpen, isHistoryReady: confirmedChatId !== null && historyState?.chatId === confirmedChatId && historyState.status === "ready", isLoadingHistory, confirmedChatId, messages, imageByMessageId, videoByMessageId,
     status, editingMessageId, startEditingMessage, regenerateMessage, requestDeleteMessage,
     setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage,

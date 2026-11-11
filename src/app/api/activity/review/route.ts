@@ -4,9 +4,9 @@ import { protectDataOperation } from "@/lib/server/data-operations";
 import { requireLocalWorkspace } from "@/lib/local/workspace";
 import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
-import { isTaskTimeZone } from "@/lib/tasks/schedule";
+import { isTimeZone } from "@/lib/scheduler/cron";
 import { previewWorkspaceReview } from "@/lib/activity/reviews";
-const query = z.strictObject({ period: z.enum(["daily", "weekly"]), timeZone: z.string().min(1).max(100).refine(isTaskTimeZone) });
+const query = z.strictObject({ period: z.enum(["daily", "weekly"]), timeZone: z.string().min(1).max(100).refine(isTimeZone) });
 export const GET = protectDataOperation(async (req: NextRequest) => {
   try {
     await requireLocalWorkspace(req);

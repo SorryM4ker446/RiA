@@ -114,7 +114,14 @@ export async function prepareChatPersistence(input: ChatRequest, options: { defe
 }
 export type ChatPersistence = Omit<Awaited<ReturnType<typeof prepareChatPersistence>>, "previousRunIds"> & { previousRunIds?: string[] };
 export async function claimChatApproval(chatId: string, message: UIMessage) {
-  try { return await claimToolApproval(chatId, message); }
+  try {
+    const runIds = await claimToolApproval(chatId, message);
+    // A task waiting on this approval is no longer waiting. Loaded here because
+    // the task runner reaches back into the chat modules.
+    // Bookkeeping: failing it must not refuse the approval the user just gave.
+    await import("@/lib/scheduler/runner").then(runner => runner.settleAnsweredApprovals(chatId)).catch(() => console.error("task.approval.settle_failed"));
+    return runIds;
+  }
   catch (error) {
     // Only a validation refusal before claiming may release a pending decision.
     // A concurrent winner's claim must never be handed back for replay.
