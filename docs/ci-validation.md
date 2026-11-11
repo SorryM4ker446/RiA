@@ -91,9 +91,9 @@ Task date checks wait for the calendar's exit animation to unmount its popover
 and return focus to the date trigger before filling the separate time field.
 Filling during that handoff can clear the old value and send the replacement
 text to the trigger instead, leaving native required-field validation to block
-submission. The scheduled-task regression slows the real exit animation and
-checks that time entry starts after the handoff, while preserving local-time,
-recurrence and restart assertions.
+submission. The one-off task regression slows the real exit animation and
+checks that time entry starts after the handoff, while preserving local-time
+and restart assertions.
 
 The evaluation-template failure check uploads its fixture document through the
 authenticated API context before first opening the knowledge page. It arms the

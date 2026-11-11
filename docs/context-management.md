@@ -338,8 +338,8 @@ marks an execution failed with `output-limit` rather than declaring it complete.
   failure or step ceiling. New tool runs and terminal commands still rely on
   manual cancellation, permissions and configured controls for those limits.
 - Terminal output beyond the capture is recoverable only while its log exists:
-  logs expire after seven days, are bounded in size and require the folder's
-  terminal access. See [terminal tools](terminal-tools.md).
+  logs expire after seven days, are bounded in size and are removed with the
+  folder's permission. See [terminal tools](terminal-tools.md).
 - Estimates are calibrated from provider-reported usage, which providers may omit;
   without it the first step relies on the character-class estimate alone.
 - Recovery from a provider's window refusal covers chat steps. Summary, tool

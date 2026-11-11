@@ -90,18 +90,17 @@ The known-cost total omits unknown costs and shows the number of unknown attempt
 
 ## Local API and configuration
 
-Daily and weekly [workspace reviews](workspace-reviews.md) count recorded events
-in the previous complete local calendar day or Monday–Sunday week. Local facts
-and their conversation are saved before any optional model request. New and
-upgraded schedules default to `useModel: false`. Explicitly enabling commentary
-allows one model attempt per retained period/time-zone snapshot, with no retries,
-a 60-second deadline; output is bounded only as the background cost rule below requires. Empty periods skip the
-model. Missing configuration or provider failure preserves the local report;
-actual attempts appear in usage history under the scheduled execution request ID.
-Only counts and period/coverage metadata are sent for commentary, not source
-names or document bodies. Repeated execution reuses the saved period and does
-not submit another model request, including after failure or interruption.
-Earlier generated conversations are retained unchanged.
+A prompt [task](tasks.md) makes the same model calls a message would, each time
+it runs, and those calls count against these limits like any other. Calls made by
+a run that started on its own are reported with the `scheduled` source and held
+to the [background task rules](tasks.md#background-task-rules), which count runs
+a day rather than calls and are edited under Settings → Automation & notifications;
+calls made by a run started by hand are reported as `chat`. A daily brief or weekly summary is such a
+task: the model reads the recorded [workspace activity](workspace-reviews.md)
+through a tool, including source labels, and writes its summary in the task's
+conversation. The review in the settings remains free of model calls. Earlier
+versions' optional review commentary, which sent only counts, no longer runs; the
+reviews and conversations it produced are retained unchanged.
 
 `GET /api/models/catalog?mode=chat|image|video|embedding` returns the normalized catalogs grouped by provider (`{ catalogs: { openrouter: { chat, image, video, embedding } } }`) together with `providers`, which reports each provider's display name and whether this instance holds its credentials. `POST /api/models/catalog` refreshes one category (`{ "mode": "image" }`) or everything (`{}`); both accept an optional `providerId`. `POST /api/models/library` accepts `{ "action": "add"|"remove", "model": { "providerId", "modelId" } }`. `GET /api/models` returns `{ data, availability, recentFailures }`, where `availability` is keyed by `provider:model`; `PUT /api/models` accepts a complete strict preference object within 128 KiB and returns `{ data }`. Selected models and fallbacks must be compatible library members, fallback must differ from primary, and prices must be finite nonnegative numbers (maximum 1,000,000) or null. At most 100 model rate entries are accepted. `GET /api/usage` returns `{ data: { recent, totals, days } }`; it cannot query outside the local workspace. Responses are private/no-store and follow the normal local access checks.
 

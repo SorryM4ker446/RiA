@@ -52,10 +52,9 @@ src/lib/            Shared infrastructure
   models/           Provider adapters, dynamic catalogs, my models, availability, preferences and usage
   plugins/          Plugin packages, the bundled catalog and the skills.sh marketplace
   project-files/    Reading and editing files inside an authorized workspace
-  scheduler/        Scheduled jobs, their runner and run history
+  scheduler/        Tasks: schedules (cron), claiming, the runner, run history and notices
   server/           Request boundary: security, quotas, body size, errors
   settings/         Settings overlay sections and their addresses
-  tasks/            Task storage and recurrence schedules
   terminal/         PowerShell runtime, permissions, logs and file-change tracking
   topics/           Knowledge topics and their generated artifacts
   ui/, utils/       Small client helpers (list removal without layout jumps, class-name merging)
@@ -74,7 +73,7 @@ Every business table belongs to **one workspace**; there is no `userId`:
 
 - `chats` / `messages` / `chat_tags`
 - `media_assets` / `message_media` / `media_generation_inputs`
-- `memories`, `tasks`, `knowledge_documents` / `document_chunks` / `document_terms`
+- `memories`, `scheduled_jobs` / `scheduled_runs` (tasks and their runs), `knowledge_documents` / `document_chunks` / `document_terms`
 - `model_requests` (usage), `account_preferences` (a single application preference, primary key fixed to `local`)
 
 Media and backup directories are still named `sha256(<workspace id>)`, so files already on disk do not have to be moved.

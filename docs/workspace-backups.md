@@ -19,7 +19,7 @@ include vectors. Memory embeddings retain their existing archive behavior.
 Archives exported with the new document index fields require this version or a
 newer version to restore; earlier builds reject those additional fields.
 
-An archive includes conversations/messages/tags, MEMORY.md, memories and embeddings (tagged with the provider and model that created each vector), tasks, extracted document text and indexes, private media files and references, generation recipes, model preferences and the **My models** library, retention settings, and up to 5,000 recorded model attempts. OpenRouter catalog snapshots are a refreshable cache and are not included. Older preference and memory records remain importable. Preference documents from before model references were provider-qualified are converted on read: the earliest format becomes explicit migration candidates that are not automatically enabled, and the bare-id format becomes OpenRouter references, because every model this application has called so far was reached through that provider. Original PDF/Word source files are not retained by document import and are not included.
+An archive includes conversations/messages/tags, MEMORY.md, memories and embeddings (tagged with the provider and model that created each vector), extracted document text and indexes, private media files and references, generation recipes, model preferences and the **My models** library, retention settings, and up to 5,000 recorded model attempts. OpenRouter catalog snapshots are a refreshable cache and are not included. Older preference and memory records remain importable. Preference documents from before model references were provider-qualified are converted on read: the earliest format becomes explicit migration candidates that are not automatically enabled, and the bare-id format becomes OpenRouter references, because every model this application has called so far was reached through that provider. Original PDF/Word source files are not retained by document import and are not included.
 
 The local access credential, desktop encrypted settings, provider API keys, proxy configuration, logs (including saved terminal command logs), per-model context calibration and other archives are excluded. Structured media paths and tool approval credentials are omitted. Conversation text, tool outputs, recipes and documents can themselves contain sensitive information that the user entered; this content is preserved. **Archives are not encrypted.** Protect exported files like the original data and only import trusted archives. Checksums detect corruption, not who authored the file.
 
@@ -29,15 +29,17 @@ Backups are private files under `backups/<workspace>/` beside the configured med
 
 ## Restore safety
 
-Scheduled execution history is local operational evidence, excluded from portable
-archives. Restore keeps it on this machine, clears links to replaced conversations
-and pauses schedules. See [execution history](execution-history.md).
+[Tasks](tasks.md) and their run history are machine-local, like folder grants: they
+are excluded from portable archives. Restore keeps them on this machine, clears run
+links to replaced conversations and switches every task off. See
+[execution history](execution-history.md). The archive's `tasks` field is kept for
+compatibility and is always empty; to-dos in an older archive are not restored.
 
 Stop generation and wait for other requests to finish first. Backup, import and restore operations use a single-process maintenance gate: an in-flight request returns HTTP 409 to a maintenance operation, and a business request during maintenance receives HTTP 503. Chat consumption and persistence retain the gate even after an HTTP reader disconnects. There are no forced cancellations or unlimited retries.
 
 Restore validates files, stages new immutable media paths, and creates a safety archive of the current workspace before changing business rows in one SQLite transaction. The safety backup and the transaction are serialized with model-settings mutations, so a concurrent model removal or settings save cannot interleave with the restored snapshot. The access credential is not part of a restore and stays as it is. Any database failure rolls back the business changes. IDs and internal media/document/source references are remapped, so the same archive can be imported repeatedly without collisions. A restore requires space for the archive, the safety archive and another copy of its media. Large restores remain subject to the existing SQLite transaction timeout; a timeout rolls back rather than extending it indefinitely.
 
-Pending messages become errors, historical pending tool approvals become denied, and restored task reminders are disabled. Re-enable reminders deliberately after checking their dates. Model preferences, backup retention settings and the **My models** library return to their archived values; the restore confirmation shows which models will be re-added or removed, by name and model id, so two providers offering the same id stay distinguishable. Refresh other open windows after restoring; local per-conversation controls in those windows are not a synchronized database snapshot.
+Pending messages become errors and historical pending tool approvals become denied. Model preferences, backup retention settings and the **My models** library return to their archived values; the restore confirmation shows which models will be re-added or removed, by name and model id, so two providers offering the same id stay distinguishable. Refresh other open windows after restoring; local per-conversation controls in those windows are not a synchronized database snapshot.
 
 Previous live media files and files staged by interrupted restores are left as managed orphans, eligible for the existing confirmed media cleanup after its grace period. Archive cleanup errors after a successful commit do not turn that restore into a failure; the response reports `cleanupFailed`. Disk failure, abrupt termination and operating-system interference cannot guarantee file durability. Keep a second copy on separate storage.
 
@@ -55,11 +57,11 @@ Explicit deletion is permanent and may delete the last archive after confirmatio
 
 ## Local API
 
-Scheduled work holds the same workspace operation gate as foreground requests,
-from claiming a job through usage accounting, persistence and completion. A
-restore cannot begin while a job is running. While a restore is active, polling
-leaves due jobs unclaimed; the next poll rechecks whether they are still enabled.
-A successful restore pauses schedules, so deferred jobs do not resume automatically.
+A task run holds the same workspace operation gate as foreground requests, from
+claiming it through usage accounting, persistence and completion. A restore cannot
+begin while a task is running. While a restore is active, polling leaves due tasks
+unclaimed; the next poll rechecks whether they are still on. A successful restore
+switches every task off, so deferred tasks do not resume automatically.
 
 Conversation collection scopes support the full normal input limit in archives:
 12 names of 40 characters, plus separators (491 characters). Existing shorter

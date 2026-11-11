@@ -1,80 +1,34 @@
 # Factual workspace reviews
 
-**Settings → Automation & notifications** has a separate **Local fact review** section and optional daily
-and weekly schedules. Use **Add schedule** to configure a schedule in the side panel;
-opening or cancelling the panel does not save or run a job. The review section
-provides its own period and time-zone controls, with statistics and source links. Counts come from persisted events, not current totals,
-`updatedAt`, or a model's reconstruction. A daily review covers the previous
-complete local calendar day; a weekly review covers the previous complete
-Monday–Sunday week. The schedule's IANA time zone determines the boundaries.
-Start is inclusive and end is exclusive; daylight saving can change elapsed hours.
-Missed polling generates the latest complete period once, without a backlog.
+RiA records certain changes in the workspace as events, so a review can say what actually happened rather than guess from current totals or a model's reconstruction.
+
+There are two ways to read them:
+
+- **Settings → Automation & notifications → Local fact review** shows a day or a week for a chosen IANA time zone, with counts and source links. It makes no model call.
+- The model reads the same facts with the `readWorkspaceActivity` tool. The daily brief and weekly summary are [task templates](tasks.md#templates): a task made from one asks the model to call it and summarise, answers in the task's conversation, and can be edited like any other. Nothing runs until you save such a task.
+
+A daily review covers the previous complete local calendar day; a weekly review covers the previous complete Monday–Sunday week. The time zone decides the boundaries. Start is inclusive and end is exclusive, and daylight saving can change how many hours a day has.
 
 ## Recorded changes and source evidence
 
-- Tasks: transitions into `done` record completion; transitions from `done` record
-  reopening. A task may contribute multiple distinct transitions. Repeating an
-  unchanged request contributes nothing. Recurrence and its event commit together.
-- Documents: first import records import; changed content or collection records
-  update. Identical import and index repair contribute nothing.
-- Memories: a new manually accepted memory or an unconfirmed memory explicitly
-  accepted by the user records confirmation. Assistant inference and edits to an
-  already confirmed memory contribute nothing.
+- Documents: first import records an import; changed content or collection records an update. An identical import and index repair record nothing.
+- Memories: a new manually accepted memory, or an unconfirmed memory the user then accepts, records a confirmation. Assistant inference and edits to an already confirmed memory record nothing.
+- To-dos: completing and reopening a to-do were recorded until to-dos were folded into tasks. Those events remain in their periods, labelled as they were, and their sources are shown as no longer available. No new ones are recorded.
 
-Each event and its business change share a transaction. A failed event write rolls
-back the change. Events preserve a short label and timestamp after source deletion,
-not a full historical source body. Source links open the current surviving task,
-document or memory and clearly identify deleted sources. A later rename, reopen,
-edit or deletion does not rewrite the recorded event or its historical count.
+Each event and its change share a transaction; a failed event write rolls back the change. An event keeps a short label and timestamp after its source is deleted, not a copy of the source. Source links open the current document or memory and say clearly when it has been deleted. A later rename, edit or deletion does not rewrite the recorded event or its count.
 
-Migration starts recording now; existing data is never backfilled as fabricated
-activity. The report states when complete coverage begins. A partially recorded
-period means “recorded changes,” not a claim that earlier activity was zero.
-Counts include all retained events in the period; only the first 100 source links
-are listed, with an explicit omitted count.
+Recording started when this feature was installed; existing data was never backfilled as activity. A review says when complete coverage begins, and a partially recorded period means "recorded changes", not a claim that earlier activity was zero. Counts include every retained event in the period; only the first 100 sources are listed, with the number left out.
 
-## Local facts and optional interpretation
+## What the model is given
 
-Preview is live, local and free of model calls. Scheduled execution atomically
-saves deterministic facts and a conversation before requesting optional commentary.
-New schedules and existing schedules upgraded by migration default to no model
-commentary. Enabling the checkbox authorizes one bounded model attempt for a new
-period snapshot; empty periods skip it. Missing model configuration and provider
-failure retain the local report and show a warning in execution history.
+`readWorkspaceActivity` returns the period, its time zone and boundaries, the counts, whether coverage is complete, and the listed sources with their labels. It writes nothing. It is offered to the model with `createTask`: a conversation with no template restrictions has it, and a template has it when it allows `createTask`. A person cannot pick it from the menu.
 
-Commentary is separately labelled as interpretation. It receives only period,
-coverage and event counts, without source names or bodies, and does not replace
-those counts. Each call has no retries and a 60-second deadline. Its output follows the
-general model output rule; when a background monetary ceiling is enabled and the
-model's output limit is unknown, the planning reservation bounds it so the call
-is not priced as a 128K-token answer. Actual calls use the existing model usage tracking. Provider charges may
-still apply to a failed or interrupted attempt.
-
-Period, canonical time zone and start boundary identify a saved review. Two
-schedules for the same period reuse it, and failure or interruption does not
-trigger another model call. Changing the model checkbox affects future new
-snapshots, not an existing snapshot. If its conversation is deleted, the retained
-snapshot can recreate it without calling a model. Preview can differ from a frozen
-report after late import or restore; a report remains the evidence recorded when
-it was first generated. Startup marks unfinished commentary as interrupted.
+What the model writes from it is interpretation, kept in the task's conversation. The counts in the local review remain the record.
 
 ## Retention, portability and upgrade
 
-Events retain at most 10,000 rows and 365 days. Event writes and preview/report
-reads perform cleanup and advance the complete-coverage boundary; older periods
-can therefore be partial. Review metadata retains at most 1,000 rows and 90 days;
-report creation cleans up completed metadata and preserves pending work. Saved
-conversations remain under the normal conversation deletion rules. Period reuse
-applies while its review metadata is retained; expired source links return 404.
+Events keep at most 10,000 rows and 365 days. Writes and reads clean up and advance the complete-coverage boundary, so older periods can be partial.
 
-Backups include events, coverage and review snapshots. Restore remaps current
-source IDs but preserves event links, performs no synthetic business mutations,
-and marks pending commentary interrupted. Older archives without these fields
-start a new recording boundary at restore. Scheduled execution history stays
-local. See [Workspace backups](workspace-backups.md) for older-reader limitations.
+Earlier versions saved a frozen review, and a conversation for it, each time a daily or weekly schedule ran. Those saved reviews and their conversations are kept and still travel with backups, but no new ones are made.
 
-The additive migration creates event, coverage and review tables and adds
-`useModel: false` to schedules. Restart the desktop service to apply it through
-normal backed-up migrations; browser deployments use the existing migration
-command. Keep a full data-directory copy and a compatible archive before rollback.
-No provider key, new dependency, background worker or CI service is required.
+Backups include events, coverage and saved reviews. Restore remaps source IDs while keeping event links, makes no synthetic changes, and starts a new recording boundary for older archives without these fields. See [Workspace backups](workspace-backups.md) for older-reader limitations.

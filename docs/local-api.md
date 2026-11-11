@@ -11,8 +11,8 @@ in [Extensions](extensions.md#local-management-api), including official Registry
 search and exact-version details under `/api/extensions/registry`. These endpoints use the same
 local authentication and restore gates; tool calls still require chat approval.
 
-Scheduled execution history, explicit retry and sanitized diagnostics are
-documented in [execution history and recovery](execution-history.md).
+Task runs, their history and sanitized diagnostics are documented in
+[Tasks](tasks.md#api) and [execution history and recovery](execution-history.md).
 
 These endpoints are supported for authenticated local integrations as well as the shared browser/Electron UI. They are not anonymous public services. All retain the Cookie, Host, Origin, ownership and error rules in [API security](api-security.md). A caller needs its own valid session; desktop automation must also use the current desktop session boundary. Never copy session secrets into scripts or documentation.
 
@@ -46,8 +46,6 @@ Chat submissions send at most the latest 100 loaded messages. The server reads t
 | `GET /api/conversations/:id/messages/:messageId` | Message by persisted or client message ID; returns `data` with role, content, status and timestamps; retains private-media migration |
 | `GET /api/conversations/:id/runs?runId=...` | Persisted assistant message associated with a server-issued run ID, or `null` when unavailable; verifies run ownership in this conversation and uses private/no-store caching |
 | `GET /api/conversations/:id/runs?limit=...` | Execution summaries with optional `messageId` (client message ID when available) for grouping approval continuations; steps include saved bounded `input`/`output` summaries |
-| `GET /api/tasks/:id` | Task detail, including title, details, due date, priority and status |
-| `PATCH /api/tasks/:id` | Task update, including deadline, time zone, reminder and recurrence; returns `data` plus `nextTask` when completion creates a successor |
 | `GET /api/memory?query=...&limit=5` | Relevant knowledge entries (the path keeps its older name); maximum 20, empty query returns an empty list |
 | `POST /api/memory` | Upsert a knowledge entry using `key` (1–120 characters), `value` (1–4000) and optional `score` (0–1); returns `201` with `data` |
 | `GET /api/memory/document` | MEMORY.md as `data` with `content`, `revision`, `updatedAt`, the notes sorted into `topics`, those not yet sorted in `unsorted`, and whether sorting is `settled` or `organizing` |
@@ -59,11 +57,15 @@ Chat submissions send at most the latest 100 loaded messages. The server reads t
 The memory and retrieval endpoints remain deliberate local integration contracts even though the UI uses the knowledge page and tools. Missing or foreign detail records return `404`; unauthenticated requests return `401`. Mutations use the same bounded JSON parsing and same-origin checks as UI requests. Embedding configuration is optional; keyword retrieval remains available without a provider key.
 
 File actions are offered through `runTerminalCommand`, `readProjectFile` and
-`editProjectFile` with separate folder terminal permission and the selected
-full-access or per-command approval mode. Completed replies can show observed
+`editProjectFile` in any granted folder. Whether an edit or command waits for
+approval is the conversation's approval rule (`approvalRule` on
+`PATCH /api/conversations/:id`: `ask`, `acceptEdits` or `full`); a task's
+conversation follows the task's. `GET`/`PUT /api/approval-preferences` reads and
+sets `{ defaultRule }`, the rule new conversations start with. There is no
+`PATCH /api/directory-grants/:id`: a folder has no terminal switch. Completed replies can show observed
 file changes from terminal results and exact edits.
 `POST /api/terminal/files/resolve` accepts `{ grantId, path }` and resolves an
-existing regular file inside a currently terminal-enabled grant; the desktop
+existing regular file inside a currently granted folder; the desktop
 bridge opens the returned canonical path after a user click. See [Terminal
 tools](terminal-tools.md) for observation scope and partial results.
 Retired `listLocalFiles`, `readLocalFile`
@@ -71,7 +73,7 @@ and `writeLocalFile` IDs are no longer executable catalog entries. Legacy templa
 selections normalize to the terminal without enabling folder permission. Old
 transcripts remain readable; old file-tool approvals cannot execute after upgrade.
 
-Task schedule formats, recurrence rules and the desktop-only reminder claim endpoint are documented in [Task reminders](task-reminders.md). Claiming is a mutation with delivery consequences, so integrations must not poll it as a task-list endpoint.
+Task endpoints, schedule formats and the desktop-only notification claim are documented in [Tasks](tasks.md#api). Claiming is a mutation with delivery consequences, so integrations must not poll it as a task-list endpoint.
 
 Media browsing uses `GET /api/media/library` with filtered cursor pagination and `GET /api/media/:id/details` for stored provenance and generation parameters. `POST /api/media/:id/regenerate` requires explicit confirmation, reuses the stored recipe and creates a new asset without replacing history. See [Media library](media-library.md) for contracts, quotas, legacy limitations and input-reference protection. `GET /api/media` continues to return storage statistics.
 
