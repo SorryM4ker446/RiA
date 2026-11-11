@@ -130,8 +130,8 @@ test("knowledge search respects conversation collections and ephemeral memory", 
   const a = await indexDocument({ filename: "发布A.txt", collection: "A|B", format: "txt", byteSize: 20, pages: [{ pageNumber: null, text: "发布回滚窗口为三十分钟。" }] });
   await indexDocument({ filename: "发布B.txt", collection: "B", format: "txt", byteSize: 20, pages: [{ pageNumber: null, text: "发布回滚窗口为六十分钟。" }] });
   await db.memory.create({ data: { key: "发布回滚窗口", value: "不得进入无记忆会话", confirmed: true } });
-  const { encodeDocumentScope } = await import("@/lib/documents/scope");
-  const conversation = await db.chat.create({ data: { title: "Scoped search", topic: { create: { config: {} } }, documentScope: encodeDocumentScope(["A|B"]), ephemeral: true } });
+  // A template narrows the search to one topic whose name holds the separator.
+  const conversation = await db.chat.create({ data: { title: "Scoped search", ephemeral: true, assistantConfig: { templateId: "scoped-template", templateRevision: 1, name: "Scoped", description: "", instructions: "Help.", model: null, tools: ["searchKnowledge"], collections: ["A|B"], usesMemory: false } } });
   selectedTool = "searchKnowledge";
   selectedInput = { query: "发布回滚窗口", topK: 4 };
   const response = await chatRoute.POST(request("/api/chat", { chatId: conversation.id, model: ref, messages: [{ id: "query-user", role: "user", parts: [{ type: "text", text: "检索发布回滚窗口" }] }] }));

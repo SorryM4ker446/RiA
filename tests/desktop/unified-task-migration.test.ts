@@ -99,7 +99,7 @@ test("to-dos and the four schedule kinds become tasks without anything starting 
       prepared.prepare("INSERT INTO scheduled_runs (id,jobId,kind,trigger,requestId,status,startedAt) VALUES ('run','brief','prompt','manual','request','succeeded',?)").run(Date.now());
     } finally { prepared.close(); }
     const jobsBefore = (() => { const view = new DatabaseSync(databaseFile, { readOnly: true }); try { return view.prepare("SELECT id, kind, title, cron, nextRunAt, chatId, workspaceGrantId FROM scheduled_jobs ORDER BY id").all().map(row => ({ ...row })); } finally { view.close(); } })();
-    assert.deepEqual(runDesktopMigrations(options).applied, ["20261114100000_approval_rules", "20261115100000_task_settings"]);
+    assert.deepEqual(runDesktopMigrations({ ...options, upToMigration: "20261115100000_task_settings" }).applied, ["20261114100000_approval_rules", "20261115100000_task_settings"]);
     const rebuilt = new DatabaseSync(databaseFile, { readOnly: true });
     try {
       assert.deepEqual(rebuilt.prepare("SELECT id, kind, title, cron, nextRunAt, chatId, workspaceGrantId FROM scheduled_jobs ORDER BY id").all().map(row => ({ ...row })), jobsBefore);

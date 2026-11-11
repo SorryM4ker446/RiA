@@ -662,8 +662,8 @@ test("a task's conversation has what a general-assistant conversation has, apart
   await makeDue(task.id);
   const run = await runDueTask(new Date());
   const taskChat = await db.chat.findUniqueOrThrow({ where: { id: run!.outcome.chatId! } });
-  // The same template (none), the same folder (none until the user picks one), the same collections.
-  assert.deepEqual([taskChat.assistantConfig, taskChat.workspaceGrantId, taskChat.documentScope], [general.assistantConfig, general.workspaceGrantId, general.documentScope]);
+  // The same template (none), so the same whole library, and the same folder (none until the user picks one).
+  assert.deepEqual([taskChat.assistantConfig, taskChat.workspaceGrantId], [general.assistantConfig, general.workspaceGrantId]);
   const [generalTools, taskTools] = offered;
   assert.ok(generalTools.includes("createTask") && generalTools.includes("extractMemory"));
   // Long-term memory is off in a task's conversation, so the tool that writes it is the one difference.

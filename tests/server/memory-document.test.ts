@@ -19,7 +19,6 @@ const { MEMORY_TOPICS_INSTRUCTIONS, memoryTopicsRunning, scheduleMemoryTopics } 
 const { withoutRetiredContext, formatKnowledgeScope } = await import("@/lib/chat/model-context");
 const { exportConversation } = await import("@/lib/conversations/export");
 const { getRetrievalDiagnostics } = await import("@/features/chat/message-presentation");
-const { saveTopic, createTopicChat } = await import("@/lib/topics/store");
 const { memoryExtractionsSettled, scheduleMemoryExtraction, MIN_USER_MESSAGES_BETWEEN } = await import("@/lib/memory/extraction");
 const { encodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
 const { compactionsSettled } = await import("@/lib/chat/compaction");
@@ -29,7 +28,6 @@ const { updateConversation } = await import("@/lib/conversations/mutations");
 const { mapStoredMessagesToUI } = await import("@/features/chat/page-utils");
 const { saveKnowledgeEntry } = await import("@/lib/knowledge/entries");
 const { searchKnowledge } = await import("@/tools/definitions/search-knowledge");
-const { encodeDocumentScope } = await import("@/lib/documents/scope");
 
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {}); t.mock.method(console, "info", () => {});
@@ -473,16 +471,15 @@ test("a conversation kept to chosen topics says so, and one that cannot search d
   assert.doesNotMatch(sent[2], /Knowledge scope/);
 });
 
-test("changing the template of a topic's conversation leaves it on the topic's selection", async () => {
+test("applying a template makes its topics what the conversation searches, and removing it searches the whole library", async () => {
   const { conversationCollections } = await import("@/lib/conversations/document-scope");
-  const topic = await saveTopic({ name: "财务专题", description: "", collections: ["财务"], assistantTemplateId: "builtin_knowledge" });
-  const chat = await createTopicChat(topic.id, topic.revision, "费用");
+  const { readAssistantSnapshot } = await import("@/lib/assistants/schema");
+  const chat = await db.chat.create({ data: { title: "费用" } });
   await updateConversation(chat.id, { assistantTemplateId: "builtin_research" });
   const row = await db.chat.findUniqueOrThrow({ where: { id: chat.id } });
-  assert.deepEqual(conversationCollections(row), ["财务"]);
-  const plain = await db.chat.create({ data: { title: "Plain" } });
-  await updateConversation(plain.id, { assistantTemplateId: "builtin_research" });
-  assert.deepEqual(conversationCollections(await db.chat.findUniqueOrThrow({ where: { id: plain.id } })), []);
+  assert.deepEqual(conversationCollections(row), readAssistantSnapshot(row.assistantConfig)!.collections);
+  await updateConversation(chat.id, { assistantTemplateId: null });
+  assert.deepEqual(conversationCollections(await db.chat.findUniqueOrThrow({ where: { id: chat.id } })), []);
 });
 
 test("an exported turn lists what its searches returned, and the details read the latest search", async () => {

@@ -26,7 +26,7 @@ test("assistant migration retains conversations, snapshots the old database and 
     try { assert.equal(backup.prepare("PRAGMA table_info(chats)").all().some(row => row.name === "assistantConfig"), false); } finally { backup.close(); }
     assert.deepEqual(runDesktopMigrations(options).applied, []);
     const reopened = new DatabaseSync(databaseFile);
-    try { const chat = reopened.prepare("SELECT * FROM chats WHERE id='old'").get(); assert.equal(chat.title, "Existing conversation"); assert.equal(chat.documentScope, "财务"); assert.equal(chat.ephemeral, 1); assert.equal(chat.assistantConfig, null); // The only templates are the defaults a later migration seeds; none is invented from the old conversation.
+    try { const chat = reopened.prepare("SELECT * FROM chats WHERE id='old'").get(); assert.equal(chat.title, "Existing conversation"); assert.equal(chat.documentScope, undefined, "a conversation has no scope of its own once knowledge topics are removed"); assert.equal(chat.ephemeral, 1); assert.equal(chat.assistantConfig, null); // The only templates are the defaults a later migration seeds; none is invented from the old conversation.
       assert.deepEqual(reopened.prepare("SELECT id FROM assistant_templates ORDER BY id").all().map(row => row.id), ["builtin_coding", "builtin_knowledge", "builtin_research", "builtin_writing"]); } finally { reopened.close(); }
   } finally {
     if (resolve(dirname(root)) !== resolve(tmpdir()) || !root.startsWith(join(tmpdir(), "ria-upgrade-"))) throw new Error("Unexpected test directory");

@@ -18,6 +18,7 @@ const { updateConversation } = await import("@/lib/conversations/mutations");
 const { createChatToolSet } = await import("@/tools/catalog");
 const { indexDocument } = await import("@/lib/documents/store");
 const { decodeDocumentScope } = await import("@/lib/documents/scope");
+const { conversationCollections } = await import("@/lib/conversations/document-scope");
 const { decodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
 const { createAccountBackup, readBackupManifest } = await import("@/lib/backups/archive");
 const { openBackup } = await import("@/lib/backups/files");
@@ -85,7 +86,7 @@ test("template APIs enforce local access, input bounds, supported tools and conf
 test("applying a template stores an immutable snapshot and atomically applies scope and memory policy", async () => {
   const saved = await saveAssistant(config());
   const chat = await createChat({ title: "财务", assistantTemplateId: saved.id });
-  assert.equal(chat.ephemeral, true); assert.deepEqual(decodeDocumentScope(chat.documentScope), ["财务"]);
+  assert.equal(chat.ephemeral, true); assert.deepEqual(conversationCollections(chat), ["财务"], "the template decides what it searches");
   await saveAssistant(config({ instructions: "New instructions", collections: ["医疗"], usesMemory: true }), saved.id, 1);
   assert.equal(readAssistantSnapshot((await db.chat.findUniqueOrThrow({ where: { id: chat.id } })).assistantConfig)?.templateRevision, 1);
   const updated = await updateConversation(chat.id, { assistantTemplateId: saved.id });

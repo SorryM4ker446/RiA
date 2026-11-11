@@ -71,15 +71,13 @@ test("knowledge tool results stay within the conversation collection and remain 
     }, { collection, label });
     expect(result).toBe(201);
   }
-  const topic = (await browserApi(page, "/api/topics", "POST", { name: "集合检索", description: "", collections: ["A|B"], assistantTemplateId: null })).body.data;
-  const chat = (await browserApi(page, `/api/topics/${topic.id}/conversations`, "POST", { revision: topic.revision, title: "集合检索验证" })).body.data;
+  // A template narrows the conversation to one topic whose name holds the separator.
+  const template = (await browserApi(page, "/api/assistants", "POST", { name: "集合检索", instructions: "只用选定主题的资料。", tools: ["searchKnowledge"], collections: ["A|B"] })).body.data;
+  const chat = (await browserApi(page, "/api/conversations", "POST", { title: "集合检索验证", assistantTemplateId: template.id })).body.data;
   await page.evaluate(id => localStorage.setItem("chat:last-active-id", id), chat.id);
   await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
   const composer = page.getByPlaceholder(/输入你的问题/);
   await composer.fill("OFFLINE_SEARCH_KNOWLEDGE 检索发布回滚窗口");
-  // The limit comes from the topic; the conversation offers no control for it.
-  await expect(page.getByRole("button", { name: "A|B", exact: true })).toHaveCount(0);
-  await expect(page.getByText("资料范围", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await openExecutionDetails(page);
   await page.getByText(/^文档参考/).click();

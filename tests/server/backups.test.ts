@@ -124,29 +124,28 @@ test("portable restore retains machine-local extensions but disables them and in
   }
 });
 
-test("the maximum accepted document scope survives backup and restore", async () => {
-  const { encodeDocumentScope } = await import("@/lib/documents/scope");
+const snapshot = (collections: string[]) => ({ templateId: "scoped-template", templateRevision: 1, name: "Scoped", description: "", instructions: "Help.", model: null, tools: ["searchKnowledge"], collections, usesMemory: true });
+
+test("a template's largest topic list survives backup and restore", async () => {
+  const { conversationCollections } = await import("@/lib/conversations/document-scope");
   const scope = Array.from({ length: 12 }, (_, index) => String(index).padEnd(40, "x"));
-  const chat = await db.chat.create({ data: { title: "Scoped conversation", documentScope: encodeDocumentScope(scope) } });
-  const original = await db.chat.findUniqueOrThrow({ where: { id: chat.id } });
-  assert.equal(original.documentScope.length, 491);
+  await db.chat.create({ data: { title: "Scoped conversation", assistantConfig: snapshot(scope) } });
   const backup = await exclusiveDataOperation(() => archive.createAccountBackup(false));
   await exclusiveDataOperation(() => restoreAccountBackup(backup.id));
-  const restored = await db.chat.findFirstOrThrow({ where: { title: original.title } });
-  assert.equal(restored.documentScope, original.documentScope);
+  assert.deepEqual(conversationCollections(await db.chat.findFirstOrThrow({ where: { title: "Scoped conversation" } })), scope);
 });
 
-test("escaped collection scopes and their documents survive backup and restore", async () => {
-  const { decodeDocumentScope, encodeDocumentScope } = await import("@/lib/documents/scope");
+test("topic names with separators and their documents survive backup and restore", async () => {
+  const { conversationCollections } = await import("@/lib/conversations/document-scope");
   const { searchDocuments } = await import("@/lib/documents/retrieval");
   const scope = Array.from({ length: 12 }, (_, index) => `${index}|`.padEnd(40, "x"));
-  const chat = await db.chat.create({ data: { title: "Escaped scopes", documentScope: encodeDocumentScope(scope) } });
+  await db.chat.create({ data: { title: "Escaped scopes", assistantConfig: snapshot(scope) } });
   await indexDocument({ filename: "scoped.txt", collection: scope[0], format: "txt", byteSize: 10, pages: [{ pageNumber: null, text: "scopebackupneedle" }] });
   const backup = await exclusiveDataOperation(() => archive.createAccountBackup(false));
   await exclusiveDataOperation(() => restoreAccountBackup(backup.id));
-  const restored = await db.chat.findFirstOrThrow({ where: { title: chat.title } });
-  assert.deepEqual(decodeDocumentScope(restored.documentScope), [...scope].sort());
-  assert.equal((await searchDocuments("scopebackupneedle", 4, decodeDocumentScope(restored.documentScope))).length, 1);
+  const restored = conversationCollections(await db.chat.findFirstOrThrow({ where: { title: "Escaped scopes" } }));
+  assert.deepEqual(restored, scope);
+  assert.equal((await searchDocuments("scopebackupneedle", 4, restored)).length, 1);
 });
 test("backup preview reports models that restore would add or remove",async()=>{
   const current=defaultModelPreferences();

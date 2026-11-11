@@ -40,7 +40,7 @@ for (const variant of variants) test.describe(`${variant.theme} theme, ${variant
     for (let index = 0; index < 30; index++) await browserApi(page, "/api/conversations", "POST", { title: `滚动会话 ${String(index).padStart(2, "0")}` });
     await page.goto(`${app.origin}/`);
     const layout = await watchLayout(page, { navigation: navigation(page), content: ".workspace-content" });
-    for (const link of ["聊天", "任务", "管理会话", "知识库", "媒体资源库", "助理模板", "知识专题", "首页"]) {
+    for (const link of ["聊天", "任务", "管理会话", "知识库", "媒体资源库", "助理模板", "首页"]) {
       await navigation(page).getByRole("link", { name: link, exact: true }).click();
       await expect(navigation(page).getByRole("link", { name: link, exact: true })).toHaveAttribute("aria-current", "page");
     }
