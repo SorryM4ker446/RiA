@@ -28,20 +28,17 @@ test("conversation and history controls fetch only requested pages and deduplica
   await expect(page.getByText("History old", { exact: true })).toBeVisible();
   await expect(page.getByText("History new", { exact: true })).toHaveCount(1);
   await expect(page.getByRole("button", { name: "加载更早消息", exact: true })).toHaveCount(0);
-  await openRecentConversations(page);
-  // Too short to scroll: a downward wheel at its end asks for the next page.
-  await expect(page.getByRole("button", { name: /^Conversation b/ })).toHaveCount(0);
-  await page.locator(".chat-list-scroll").hover();
-  await page.mouse.wheel(0, 400);
-  await expect(page.getByRole("button", { name: /^Conversation b/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /^Conversation a/ })).toHaveCount(1);
+  const sidebar = await openRecentConversations(page);
+  // A list this short already shows its end, so the next page is read, and the row both pages carry shows once.
+  await expect(sidebar.getByRole("button", { name: /^Conversation b/ })).toBeVisible();
+  await expect(sidebar.getByRole("button", { name: /^Conversation a/ })).toHaveCount(1);
 });
 
 test("recent conversations grow only as the list is scrolled down", async ({ page }) => {
   await panels(page);
   // Only requests for a further page count: the first page may be read again when the list refreshes.
   const nextPages: string[] = [];
-  const first = Array.from({ length: 14 }, (_, i) => summary(`p${String(i).padStart(2, "0")}`));
+  const first = Array.from({ length: 40 }, (_, i) => summary(`p${String(i).padStart(2, "0")}`));
   await page.route(/\/api\/conversations(?:\?.*)?$/, (route) => {
     const cursor = new URL(route.request().url()).searchParams.get("cursor");
     if (cursor) nextPages.push(cursor);
@@ -51,23 +48,17 @@ test("recent conversations grow only as the list is scrolled down", async ({ pag
   });
   await page.route(/\/api\/conversations\/[^/]+\/messages(?:\?.*)?$/, (route) => route.fulfill({ json: { data: [] } }));
   await page.goto("/chat");
-  await openRecentConversations(page);
-  const list = page.locator(".chat-list-scroll");
-  const rows = list.locator(".conversation-open");
-  // A first batch, and nothing more until the list is scrolled.
-  await expect(rows).toHaveCount(10);
-  await expect(list).toContainText("下滑加载更多会话");
+  const sidebar = await openRecentConversations(page);
+  const rows = sidebar.locator(".sidebar-chat-open");
+  // The first page, and nothing more while its end is out of sight.
+  await expect(rows).toHaveCount(40);
   await page.waitForTimeout(500);
   expect(nextPages).toEqual([]);
-  // Scrolled to its end, the rest of the loaded page appears…
-  await list.evaluate(node => { node.scrollTop = node.scrollHeight; });
-  await expect(rows).toHaveCount(14);
-  expect(nextPages).toEqual([]);
-  // …and only the next scroll to the end asks the service for more.
-  await list.evaluate(node => { node.scrollTop = node.scrollHeight; });
-  await expect(page.getByRole("button", { name: /^Conversation next/ })).toBeVisible();
+  // Scrolled to its end, the sidebar asks the service for the next page.
+  await sidebar.locator(".sidebar-chats-scroll").evaluate(node => { node.scrollTop = node.scrollHeight; });
+  await expect(sidebar.getByRole("button", { name: /^Conversation next/ })).toBeVisible();
   expect(nextPages).toEqual(["page-2"]);
-  await expect(list).not.toContainText("下滑加载更多会话");
+  await expect(rows).toHaveCount(41);
 });
 
 test("reload restores an active conversation outside the first list page", async ({ page }) => {

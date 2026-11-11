@@ -10,6 +10,7 @@ import { toasts } from "../helpers/toast";
 import { chooseTaskDateTime } from "../helpers/task-date-picker";
 import { chooseMenuAction } from "../helpers/row-menu";
 import { newTask as taskInput } from "../helpers/slash-menu";
+import { conversationList } from "../helpers/conversations";
 
 const test = base.extend<{
   app: Awaited<ReturnType<typeof startStandaloneServer>>;
@@ -110,11 +111,12 @@ test("workspace separates scheduled tasks and retains content during refresh", a
     await composer.fill("");
     expect(await surface.boundingBox()).toEqual(beforeTyping);
     if (size.width < 1280) {
-      await page.getByRole("button", { name: "会话列表", exact: true }).click();
-      await expect(
-        page.getByRole("button", { name: "创建会话", exact: true }),
-      ).toBeVisible();
-      await page.keyboard.press("Escape");
+      // Folded here: pointing at the sidebar button shows it, conversations included, over the page.
+      await page.getByRole("button", { name: "展开侧边栏", exact: true }).hover();
+      await expect(conversationList(page).getByRole("button", { name: "新会话", exact: true })).toBeVisible();
+      // Moving the pointer away puts it back.
+      await page.mouse.move(size.width - 8, size.height - 8);
+      await expect(page.locator(".rail-peek")).toHaveCount(0);
       await expect(task).not.toBeVisible();
     }
     await page.screenshot({
@@ -132,15 +134,9 @@ test("workspace separates scheduled tasks and retains content during refresh", a
   // Folding eases; measure the layout once it has settled, not in the middle of it.
   await expect(page.locator("html")).not.toHaveAttribute("data-rail-animating", "");
   await page.setViewportSize({ width: 1440, height: 960 });
-  const recent = page.getByRole("button", { name: "会话列表", exact: true });
-  const composerBeforeMenu = await page.locator(".composer-surface").boundingBox();
-  await recent.click();
-  await expect(page.getByRole("complementary", { name: "会话列表", exact: true })).toBeVisible();
-  expect(await page.locator(".composer-surface").boundingBox()).toEqual(composerBeforeMenu);
-  await page.keyboard.press("Escape");
-  await expect(recent).toBeFocused();
-  await page.reload();
-  await expect(recent).toHaveAttribute("aria-expanded", "false");
+  // A fold made on a narrow window lasts only while it is narrow: wide again, the
+  // sidebar is docked, its conversations beside the page.
+  await expect(conversationList(page)).toBeVisible();
   for (const route of [
     "/",
     "/tasks",

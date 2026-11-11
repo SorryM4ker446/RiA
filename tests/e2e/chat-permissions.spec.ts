@@ -46,7 +46,12 @@ test("chat permissions grant a directory without sending the draft, offer its te
   await draft.fill("保留这段尚未发送的草稿");
   const terminalAvailable = async () => (await browserData(page, "/api/tools?mode=chat")).find((tool: { id: string }) => tool.id === "runTerminalCommand").available;
   expect(await terminalAvailable()).toBe(false);
-  const trigger = page.getByRole("button", { name: "工作区权限", exact: true });
+  // The folders are managed from the workspace picker; the conversation's
+  // approval rule sits in the composer, beside the context ring.
+  const trigger = page.getByRole("button", { name: /选择工作区|工作区：/ }).first();
+  await expect(page.getByRole("button", { name: "工作区权限", exact: true })).toHaveCount(0);
+  const composerRule = page.locator(".composer-surface").getByRole("button", { name: "审批规则：询问", exact: true });
+  await expect(composerRule).toBeVisible();
   // The row eases in with the page, so the two are compared once it has settled.
   await expect.poll(async () => (await trigger.boundingBox())!.y === (await page.getByRole("button", { name: "执行记录", exact: true }).boundingBox())!.y).toBe(true);
   const records = await page.getByRole("button", { name: "执行记录", exact: true }).boundingBox();
@@ -54,6 +59,7 @@ test("chat permissions grant a directory without sending the draft, offer its te
   expect(records!.x).toBeGreaterThanOrEqual(permissions!.x + permissions!.width);
   await page.screenshot({ path: join(tmpdir(), "ria-chat-permissions-entry.png"), animations: "disabled" });
   await trigger.click();
+  await page.getByRole("menuitem", { name: "管理文件夹…", exact: true }).click();
   const sheet = page.getByRole("dialog", { name: "工作区权限", exact: true });
   await expect(sheet).toBeVisible();
   await expect(sheet).toHaveCSS("animation-name", "sheet-in");
@@ -80,7 +86,7 @@ test("chat permissions grant a directory without sending the draft, offer its te
   // Authorizing does not select: the conversation chooses its one workspace separately.
   const picker = page.getByRole("button", { name: "工作区：选择工作区", exact: true });
   const pickerBox = (await picker.boundingBox())!;
-  expect(pickerBox.x + pickerBox.width).toBeLessThanOrEqual((await trigger.boundingBox())!.x);
+  expect(pickerBox.x + pickerBox.width).toBeLessThanOrEqual((await page.getByRole("button", { name: "执行记录", exact: true }).boundingBox())!.x);
   expect((await browserData(page, `/api/conversations/${chat.id}`)).workspaceGrantId).toBeNull();
   // Until the switch has settled a send is refused, so the button says so rather than swallowing the click.
   let releaseList!: () => void;
@@ -105,6 +111,7 @@ test("chat permissions grant a directory without sending the draft, offer its te
   expect((await browserData(page, `/api/conversations/${chat.id}`)).workspaceGrantId).toBe(grant.id);
   await expect(draft).toHaveValue("保留这段尚未发送的草稿");
   // Beside the folder, the conversation's approval rule: ask, until changed here.
+  // It was there before a folder was chosen; choosing one leaves it as it was.
   const rule = page.getByRole("button", { name: "审批规则：询问", exact: true });
   await expect(rule).toBeVisible();
   await rule.click();
@@ -114,6 +121,7 @@ test("chat permissions grant a directory without sending the draft, offer its te
   await expect(draft).toHaveValue("保留这段尚未发送的草稿");
   await page.setViewportSize({ width: 390, height: 844 });
   await trigger.click();
+  await page.getByRole("menuitem", { name: "管理文件夹…", exact: true }).click();
   await expect(sheet).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(await sheet.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
@@ -122,6 +130,7 @@ test("chat permissions grant a directory without sending the draft, offer its te
   await expect(sheet).toBeHidden();
   await page.emulateMedia({ reducedMotion: "reduce" });
   await trigger.click();
+  await page.getByRole("menuitem", { name: "管理文件夹…", exact: true }).click();
   await expect(sheet).toHaveCSS("animation-name", "none");
   await page.keyboard.press("Escape");
   await expect(sheet).toBeHidden();
@@ -132,6 +141,7 @@ test("chat permissions grant a directory without sending the draft, offer its te
   await page.goto(`${app.origin}/chat`);
   await expect(page.getByRole("button", { name: "审批规则：完全访问", exact: true })).toBeVisible();
   await trigger.click();
+  await page.getByRole("menuitem", { name: "管理文件夹…", exact: true }).click();
   await page.emulateMedia({ reducedMotion: "no-preference" });
   // Follow the form below the list frame by frame while the last folder is withdrawn.
   const layout = await watchLayout(page, { form: sheet.locator("form").last() });
@@ -161,7 +171,8 @@ test("failed directory authorization retains the entered path and chat draft and
   await desktop(page, app);
   const draft = page.getByPlaceholder(/输入你的问题/);
   await draft.fill("授权失败也不要发送这段文字");
-  await page.getByRole("button", { name: "工作区权限", exact: true }).click();
+  await page.getByRole("button", { name: /选择工作区|工作区：/ }).first().click();
+  await page.getByRole("menuitem", { name: "管理文件夹…", exact: true }).click();
   const sheet = page.getByRole("dialog", { name: "工作区权限", exact: true });
   await page.route("**/api/directory-grants", async route => {
     if (route.request().method() !== "POST") return route.continue();

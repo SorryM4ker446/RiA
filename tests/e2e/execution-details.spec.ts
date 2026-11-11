@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
 import { openExecutionDetails } from "../helpers/execution-records";
+import { openRecentConversations } from "../helpers/conversations";
 
 const now = "2026-10-20T00:00:00Z";
 const budget = { maxSteps: null, maxFailures: null, deadlineMs: null };
@@ -239,8 +240,7 @@ test("late details from a closed conversation cannot replace another conversatio
     const aborted = page.waitForEvent("requestfailed", { predicate: request => request.url().includes("runId=old-run") });
     await page.keyboard.press("Escape");
     await aborted;
-    await page.getByRole("button", { name: "会话列表", exact: true }).click();
-    await page.locator('button[title="Other conversation"]').click();
+    await (await openRecentConversations(page)).getByRole("button", { name: /^Other conversation/ }).click();
     await trigger.click();
     await drawer.locator(".run-record-trigger").click();
     const call = drawer.locator('[data-call-id="shared-call"]');

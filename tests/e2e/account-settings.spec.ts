@@ -90,7 +90,7 @@ test("saved mode defaults apply to new conversations and model settings survive 
   await page.getByRole("button", { name: "保存模型偏好" }).click(); await expect(toasts(page)).toContainText("模型偏好已保存");
   await app.restart(); await page.reload(); await expect(page.getByLabel("新会话默认模式", { exact: true })).toContainText("图片生成");
   await closeSettings(page);
-  const createButton = page.getByRole("button", { name: "创建会话", exact: true });
+  const createButton = page.getByRole("button", { name: "新会话", exact: true });
   let releaseCreation!: () => void;
   const creationGate = new Promise<void>(resolve => { releaseCreation = resolve; });
   await page.route(`${app.origin}/api/conversations`, async route => {
@@ -161,7 +161,7 @@ test("configured chat fallback runs through the real provider adapter and persis
   // The fallback takes over a conversation with every tool attached: the general assistant.
   await page.goto(`${app.origin}/chat`);
   await expect(page.getByRole("checkbox", { name: "仅手动", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "创建会话", exact: true }).click();
+  await page.getByRole("button", { name: "新会话", exact: true }).click();
   await expect(page.getByRole("combobox", { name: "助理模板", exact: true })).toContainText("通用助理");
   await page.getByPlaceholder(/输入你的问题/).fill("OFFLINE_PRIMARY_FAILURE 测试备用模型"); await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByText("离线回答：OFFLINE_PRIMARY_FAILURE 测试备用模型", { exact: true })).toBeVisible();

@@ -129,7 +129,7 @@ test("tasks and knowledge use real APIs, persist across restart and remain priva
   await page.getByRole("button", { name: /^会话操作：/ }).first().click();
   await page.getByRole("menuitem", { name: "重命名", exact: true }).click();
   await page.getByRole("textbox", { name: "重命名", exact: true }).fill("真实业务记录");
-  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "真实业务记录", exact: true })).toBeVisible();
   await app.restart();
   await page.reload();

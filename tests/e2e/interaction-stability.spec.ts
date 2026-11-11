@@ -3,7 +3,7 @@ import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { browserApi } from "../helpers/browser-api";
-import { openRecentConversations } from "../helpers/conversations";
+import { conversationList, openRecentConversations } from "../helpers/conversations";
 import { settingsDialog } from "../helpers/settings";
 import { expectNoUnexpectedShift, expectSteady, watchLayout } from "../helpers/layout-watch";
 
@@ -17,6 +17,10 @@ const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>
 });
 
 const navigation = (page: Page) => page.getByRole("navigation", { name: "工作区导航" });
+// The management page is reached from the sidebar's conversations, below the navigation.
+const pageLink = (page: Page, name: string) => name === "管理全部会话"
+  ? conversationList(page).getByRole("link", { name, exact: true })
+  : navigation(page).getByRole("link", { name, exact: true });
 
 async function conversationWithMessages(page: Page, title: string, count: number) {
   const chat = (await browserApi(page, "/api/conversations", "POST", { title })).body.data;
@@ -40,23 +44,23 @@ for (const variant of variants) test.describe(`${variant.theme} theme, ${variant
     for (let index = 0; index < 30; index++) await browserApi(page, "/api/conversations", "POST", { title: `滚动会话 ${String(index).padStart(2, "0")}` });
     await page.goto(`${app.origin}/`);
     const layout = await watchLayout(page, { navigation: navigation(page), content: ".workspace-content" });
-    for (const link of ["聊天", "任务", "管理会话", "知识库", "媒体资源库", "助理模板", "首页"]) {
-      await navigation(page).getByRole("link", { name: link, exact: true }).click();
-      await expect(navigation(page).getByRole("link", { name: link, exact: true })).toHaveAttribute("aria-current", "page");
+    for (const link of ["聊天", "任务", "管理全部会话", "知识库", "媒体资源库", "助理模板", "首页"]) {
+      await pageLink(page, link).click();
+      await expect(pageLink(page, link)).toHaveAttribute("aria-current", "page");
     }
     const record = await layout.read();
     expectSteady(record, "navigation");
     expectSteady(record, "content");
 
     // A long list scrolled part way down is where it was after a trip to chat.
-    await navigation(page).getByRole("link", { name: "管理会话", exact: true }).click();
+    await pageLink(page, "管理全部会话").click();
     await expect(page.getByRole("article")).toHaveCount(30);
     const content = page.locator(".workspace-content");
     await content.evaluate(node => node.scrollTo({ top: 600, behavior: "instant" }));
     await expect.poll(() => content.evaluate(node => Math.round(node.scrollTop))).toBe(600);
     await navigation(page).getByRole("link", { name: "聊天", exact: true }).click();
     await expect(page.getByPlaceholder(/输入你的问题/)).toBeVisible();
-    await navigation(page).getByRole("link", { name: "管理会话", exact: true }).click();
+    await pageLink(page, "管理全部会话").click();
     await expect.poll(() => content.evaluate(node => Math.round(node.scrollTop))).toBe(600);
     // Another page starts at its own top rather than inheriting that position.
     await navigation(page).getByRole("link", { name: "任务", exact: true }).click();
@@ -97,11 +101,12 @@ for (const variant of variants) test.describe(`${variant.theme} theme, ${variant
       workspace: page.getByRole("button", { name: /选择工作区|工作区：/ }).first(),
       model: '.chat-workspace [aria-label="选择模型"]',
     }, { allowShiftsIn: ["[data-testid=message-list]", ".chat-toolbar h3"] });
-    await openRecentConversations(page);
-    await page.getByRole("complementary", { name: "会话列表", exact: true }).getByRole("button", { name: /^第一段对话/ }).click();
+    const row = (await openRecentConversations(page)).getByRole("button", { name: /^第一段对话/ });
+    await row.click();
     await expect(title).toHaveText("第一段对话");
     await expect(page.getByText("第一段对话 的第 4 条消息。", { exact: false }).first()).toBeVisible();
-    await expect(page.getByRole("complementary", { name: "会话列表", exact: true })).toHaveCount(0);
+    // The sidebar stays where it is and marks the conversation now open.
+    await expect(row).toHaveAttribute("aria-current", "true");
     const record = await layout.read();
     // The old conversation gives way to the new one directly: no welcome page in between.
     expect(await page.evaluate(() => (window as unknown as { switchSeen: { welcome: boolean } }).switchSeen.welcome)).toBe(false);
@@ -207,25 +212,6 @@ for (const variant of variants) test.describe(`${variant.theme} theme, ${variant
     expectSteady(record, "content");
     expectSteady(record, "title");
     expectNoUnexpectedShift(record);
-  });
-
-  test("the conversation list opens over the chat and closes back to its trigger without moving it", async ({ page, app }) => {
-    await openWorkspace(page, app.origin);
-    await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
-    await conversationWithMessages(page, "弹出列表", 2);
-    await page.goto(`${app.origin}/chat`);
-    await expect(page.locator(".chat-toolbar h3")).toHaveText("弹出列表");
-    const trigger = page.getByRole("button", { name: "会话列表", exact: true });
-    const layout = await watchLayout(page, { trigger, composer: ".chat-workspace textarea", transcript: "[data-testid=message-list]" });
-    await trigger.click();
-    await expect(page.getByRole("complementary", { name: "会话列表", exact: true })).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(page.getByRole("complementary", { name: "会话列表", exact: true })).toBeHidden();
-    await expect(trigger).toBeFocused();
-    const record = await layout.read();
-    expectSteady(record, "trigger");
-    expectSteady(record, "composer");
-    expectSteady(record, "transcript");
   });
 
   test("removing a model folds its row away and the next one eases up into its place", async ({ page, app }) => {

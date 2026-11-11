@@ -8,6 +8,7 @@ import { startStandaloneServer } from "../helpers/standalone-server";
 import { browserApi, browserData } from "../helpers/browser-api";
 import { chooseOption } from "../helpers/select";
 import { configureOfflineModels } from "../helpers/model-fixture";
+import { openRecentConversations } from "../helpers/conversations";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => {
@@ -127,7 +128,7 @@ test("conversation search, pinning, tags and archive restoration survive browser
   await browserApi(page, `/api/conversations/${id}/messages`, "POST", { role: "user", content: "早期月光旅行路线" });
   await create(page, "其他会话");
   await page.reload();
-  await page.getByRole("link", { name: "管理会话" }).click();
+  await (await openRecentConversations(page)).getByRole("link", { name: "管理全部会话", exact: true }).click();
   await page.getByLabel("搜索标题和消息正文").fill("月光");
   await filter(page);
   const row = page.getByRole("article", { name: "旅行记录", exact: true });
@@ -291,7 +292,7 @@ test("a message sent while a new conversation is still being created goes into i
   // Creating reads the saved defaults first; held back, as on a slow machine, the message is
   // sent before the conversation exists. It used to create a second one and be dropped.
   await page.route(url => url.pathname === "/api/models", async route => { await new Promise(resolve => setTimeout(resolve, 1500)); await route.continue(); });
-  const newChat = page.getByRole("button", { name: "创建会话", exact: true });
+  const newChat = page.getByRole("button", { name: "新会话", exact: true });
   await newChat.click();
   await composer.fill("新会话里的第一句话");
   await page.getByRole("button", { name: "发送", exact: true }).click();
