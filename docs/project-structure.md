@@ -32,7 +32,7 @@ src/components/     Shared interface pieces
 src/config/         Baseline for the legacy curated model list, used by scripts and tests
 src/db/             Prisma schema and SQLite migrations
 src/features/       Client modules grouped by feature: assistants, chat, commands, conversations,
-                    document-processor, extensions, knowledge, media, models, settings, tasks, topics
+                    document-processor, extensions, knowledge, media, models, settings, tasks
 src/lib/            Shared infrastructure
   activity/         Workspace events and local fact reviews
   agent/            Execution records: tool runs, their steps and stop state
@@ -56,7 +56,6 @@ src/lib/            Shared infrastructure
   server/           Request boundary: security, quotas, body size, errors
   settings/         Settings overlay sections and their addresses
   terminal/         PowerShell runtime, permissions, logs and file-change tracking
-  topics/           Knowledge topics and their generated artifacts
   ui/, utils/       Small client helpers (list removal without layout jumps, class-name merging)
   *.ts              Client hooks and helpers used across features (use-*.ts, clipboard, downloads)
 src/tools/          Built-in definitions, unified registry and shared execution pipeline

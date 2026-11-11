@@ -158,24 +158,3 @@ the enabled `skills`.
 
 Usage supports an optional `source` query (`chat`, `summary`, `scheduled`, `tool`, `embedding`, `media`, `unattributed`), rejecting invalid or duplicated parameters. Limits and current local-date allowance are returned with usage. A denied admission reports a conflict or configuration problem and submits no provider call; it does not fabricate a usage charge. See [Model settings and usage](model-usage.md).
 
-## Knowledge topics
-
-All topic routes require the same local workspace access, Host/Origin validation and data-operation gate as other workspace APIs. Bodies are bounded JSON and reject unknown fields. Query parameters are rejected except deletion confirmation parameters and the export's single `format` parameter. DELETE requests retain the workspace's empty-body contract.
-
-| Route | Behavior |
-| --- | --- |
-| `GET /api/topics` | List up to 50 topics, config revisions and conversation/artifact counts |
-| `POST /api/topics` | Create `{name, description?, collections, assistantTemplateId?}`; 1–12 unique nonempty collections |
-| `GET /api/topics/:id` | Read current topic configuration |
-| `PATCH /api/topics/:id` | Update configuration fields plus the current `revision`; reject stale changes |
-| `DELETE /api/topics/:id?confirm=true&revision=N` | Require the current revision; cascade artifacts, unlink conversations, retain documents |
-| `GET /api/topics/:id/conversations` | Latest 50 associated conversations |
-| `POST /api/topics/:id/conversations` | Create `{revision,title}` with scope and assistant snapshot |
-| `POST /api/topics/:id/search` | Retrieve `{revision,query}` using server-owned topic collections and the default retrieval policy |
-| `GET /api/topics/:id/artifacts` | List up to 50 saved artifact summaries; recover orphaned generating records as interrupted |
-| `POST /api/topics/:id/artifacts` | Generate `{confirm:true, requestId:UUID, revision, title, kind:"report"\|"plan"\|"summary", brief}` |
-| `GET /api/topics/:id/artifacts/:artifactId` | Body, state and saved provenance metadata |
-| `DELETE /api/topics/:id/artifacts/:artifactId?confirm=true` | Require explicit confirmation; active generation cannot be deleted |
-| `GET /api/topics/:id/artifacts/:artifactId/export?format=markdown\|json` | Download an existing body and source snapshots without generation |
-
-Artifact POST returns a saved record even when generation failed, was cancelled or needs review; inspect `status` and `errorCode`. Validation, authorization, revision or concurrency conflicts before claiming the request return normal API errors. Reusing a saved request ID with identical input reads the existing record; different input returns conflict. This is not a retry endpoint. See [Knowledge topics](knowledge-topics.md) for lifecycle and limits.

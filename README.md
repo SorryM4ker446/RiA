@@ -16,7 +16,7 @@ Current version: **0.1.18** · Windows x64 · Built with Electron, Next.js, the 
 
 Import PDF, Word, Markdown or text files, check the extracted text, and save them under topics such as Finance or IT. RiA indexes them in the background as soon as an embedding model is chosen; each document simply shows **Ready**, **Processing** or **Pending**.
 
-Search combines keyword matching (BM25) with search by meaning, so a question in your own words still finds the paragraph that uses different ones. In chat the model searches when a question depends on your material and cites the exact passage, with a link back to the version it read. Knowledge entries hold short facts you want kept, such as an address, a code or a definition. [Knowledge library](docs/document-knowledge.md) · [Knowledge topics](docs/knowledge-topics.md)
+Search combines keyword matching (BM25) with search by meaning, so a question in your own words still finds the paragraph that uses different ones. In chat the model searches when a question depends on your material and cites the exact passage, with a link back to the version it read. Knowledge entries hold short facts you want kept, such as an address, a code or a definition. [Knowledge library](docs/document-knowledge.md)
 
 ## Tools, one keystroke away
 
@@ -55,7 +55,6 @@ Installing a Skill never runs its scripts or grants file access. [Plugins](docs/
 | | |
 | --- | --- |
 | Chat | Streaming answers, reasoning shown while the model thinks and folded when it answers, image/PDF/Word attachments, message times, search, tags, archive and export. [Conversations](docs/conversation-management.md) |
-| Knowledge topics | Workspaces over chosen collections that turn sources into reports, plans or summaries with saved evidence. [Topics](docs/knowledge-topics.md) |
 | Media | Image and video generation through supported OpenRouter models, kept in a private media library. [Media library](docs/media-library.md) |
 | Tasks | Have RiA do something by itself, once or on a schedule, each task in its own conversation, with a notification when it is done. [Tasks](docs/tasks.md) |
 | Desktop | Tray, global hotkey, command palette (**Ctrl+K**), light and dark themes, Chinese and English interface. [Desktop](docs/desktop.md) |

@@ -1,8 +1,7 @@
 # Document knowledge
 
 An ordinary conversation searches the whole library, and the model decides through
-`searchKnowledge` what to look up. Only a topic conversation or a template with
-collections narrows that search; knowledge entries are included only when nothing does. Manual tool API
+`searchKnowledge` what to look up. Only a template with collections narrows that search; knowledge entries are included only when nothing does. Manual tool API
 requests may include `chatId` so the server can derive these settings from the
 stored conversation. A missing supplied conversation returns 404.
 
@@ -89,6 +88,15 @@ Multipart requests reject unknown/duplicate fields, require one file and reject 
 `tests/fixtures/document-retrieval.json` is the minimal fixed evaluation corpus: six source documents and eight Chinese/English questions, supplemented with forty newer distractors in the test. `npm run test:server` reports Recall@3 and MRR@3 and requires both to remain 1.0 for this small corpus. This is a regression baseline, not a claim about arbitrary document accuracy.
 
 PDF.js, Mammoth and JSZip are application dependencies, pinned in the lockfile. The worker uses native Node resolution because bundler module IDs are not filesystem paths. Next's output tracing explicitly includes these packages and their installed runtime dependencies, including PDF character maps/fonts and the optional platform canvas binding when present. Keep that tracing synchronized when upgrading parsers. Browser integration tests import actual generated PDF/DOCX files through the production standalone service; Electron smoke tests repeat binary imports and verify text/index retention after service restart. No paid provider is used by these checks.
+
+## Upgrading from knowledge topics
+
+Earlier versions had **Knowledge topics**: workspaces over chosen collections that generated reports, plans and summaries. They have been removed.
+
+- A conversation started from a topic stays as an ordinary conversation with all its messages. Like every conversation, it searches the whole library unless a template narrows it.
+- Each finished result became a conversation named `topic · title`, with its instructions as your message and the result as the answer. Source links in a result still open the cited passage. Results that had failed, were cancelled or never finished had no text and were not kept.
+
+The upgrade (`20261116100000_remove_knowledge_topics`) does this once; the desktop backs up the database first. A backup made before the upgrade restores the same way. Older builds cannot read the changed tables; rolling back means restoring the backup taken before the upgrade.
 
 ## Knowledge entries
 
