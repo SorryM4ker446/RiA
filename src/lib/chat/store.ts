@@ -9,7 +9,6 @@ import { migrateMessageMedia, prepareMessageMedia, replaceMessageMedia } from "@
 import { pageResult, type PageOptions } from "@/lib/server/pagination";
 import { deleteConversations, updateConversation } from "@/lib/conversations/mutations";
 import { resolveAssistant } from "@/lib/assistants/store";
-import { encodeDocumentScope } from "@/lib/documents/scope";
 
 const summaryInvalidation = {
   historyRevision: { increment: 1 }, summary: null, summaryUpToMessageId: null, summaryModelId: null, summaryRevision: null, summaryState: null,
@@ -65,7 +64,7 @@ export async function createChat(params: { chatId?: string; title?: string; assi
     data: {
       // A new conversation starts from the default approval rule; changing the default later leaves it as it is.
       approvalRule: await defaultApprovalRule(),
-      ...(assistant ? { assistantConfig: assistant, documentScope: encodeDocumentScope(assistant.collections), ephemeral: !assistant.usesMemory } : {}),
+      ...(assistant ? { assistantConfig: assistant, ephemeral: !assistant.usesMemory } : {}),
       ...(chatId ? { id: chatId } : {}),
       ...(params.ephemeral === undefined ? {} : { ephemeral: params.ephemeral }),
       title: truncateTitle(title ?? assistant?.name ?? "New Chat"),

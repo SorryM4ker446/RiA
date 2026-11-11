@@ -5,7 +5,6 @@ import { activeTerminalSessionIds } from "@/lib/terminal/runtime";
 import { ApiError } from "@/lib/server/api-error";
 import { truncateTitle } from "@/lib/ai/ui-message";
 import { chatTagSchema, conversationInclude, conversationSummary } from "@/lib/conversations/query";
-import { encodeDocumentScope } from "@/lib/documents/scope";
 import { Prisma } from "@prisma/client";
 import { assistantIdSchema, readAssistantSnapshot } from "@/lib/assistants/schema";
 import { resolveAssistant } from "@/lib/assistants/store";
@@ -44,7 +43,7 @@ export async function updateConversation(id: string, input: z.infer<typeof updat
   const selectedAssistant = input.assistantTemplateId ? await resolveAssistant(input.assistantTemplateId) : null;
   if (input.workspaceGrantId !== undefined) await assertSelectableWorkspace(input.workspaceGrantId);
   return db.$transaction(async tx => {
-    const current = await tx.chat.findFirst({ where: { id }, select: { title: true, assistantConfig: true, topicId: true, ephemeral: true } });
+    const current = await tx.chat.findFirst({ where: { id }, select: { title: true, assistantConfig: true, ephemeral: true } });
     if (!current) throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
     const assistant = selectedAssistant;
     // Only a placeholder or the previous template's default name follows the
@@ -59,8 +58,7 @@ export async function updateConversation(id: string, input: z.infer<typeof updat
       ...(current.ephemeral && !ephemeral ? { memoryResumedAt: new Date() } : {}),
       ...(input.assistantTemplateId !== undefined ? {
         assistantConfig: assistant ?? Prisma.DbNull,
-        // A topic's conversation stays on the topic's selection, whichever template it uses.
-        ...(assistant ? { ...(current.topicId ? {} : { documentScope: encodeDocumentScope(assistant.collections) }), ephemeral: !assistant.usesMemory } : {}),
+        ...(assistant ? { ephemeral: !assistant.usesMemory } : {}),
         historyRevision: { increment: 1 }, summary: null, summaryUpToMessageId: null, summaryModelId: null, summaryRevision: null, summaryState: null,
       } : {}),
       ...(title !== undefined ? { title: truncateTitle(title) } : {}),

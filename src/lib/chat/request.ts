@@ -27,7 +27,7 @@ export async function parseChatRequest(raw: unknown) {
   });
   const requestedChatId = body.chatId ?? body.conversationId ?? body.id;
   const existing = requestedChatId ? await db.chat.findUnique({ where: { id: requestedChatId }, select: {
-    id: true, topicId: true, documentScope: true, ...conversationModelSelect,
+    id: true, ...conversationModelSelect,
   } }) : null;
   // Read once here so the chat call and every auxiliary call in the same turn
   // reason the same way, instead of each reading it at a different moment.

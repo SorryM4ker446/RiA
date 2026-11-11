@@ -11,13 +11,15 @@ import { createAccountBackup, pruneAccountBackupsSafely, readBackupAsset, readBa
 import { PREFERENCE_ROW_ID, withModelSettingsLock } from "@/lib/models/preferences";
 import { upgradeModelPreferences } from "@/lib/models/preferences-schema";
 import { isDefaultAssistantId } from "@/lib/assistants/schema";
+import { defaultApprovalRule } from "@/lib/approvals/preferences";
+import { resultConversations } from "@/lib/backups/legacy-topics";
 
 export async function restoreAccountBackup(id: string) {
   const archive = await openBackup(id);
   try {
     const { manifest, offset: start } = await readBackupManifest(archive);
     const ids = new Map<string, string>();
-    const rows = [...manifest.topics, ...manifest.artifacts, ...manifest.assistantTemplates, ...manifest.chats, ...manifest.chats.flatMap(chat => chat.messages), ...manifest.memories, ...manifest.tasks, ...manifest.documents, ...manifest.documents.flatMap(document => document.chunks), ...manifest.usage];
+    const rows = [...manifest.assistantTemplates, ...manifest.chats, ...manifest.chats.flatMap(chat => chat.messages), ...manifest.memories, ...manifest.tasks, ...manifest.documents, ...manifest.documents.flatMap(document => document.chunks), ...manifest.usage];
     for (const row of rows) ids.set(row.id, randomUUID());
     // The default templates keep their ids: the templates are replaced as a
     // whole, so they cannot collide, and the id is what marks them as defaults.
@@ -37,7 +39,7 @@ export async function restoreAccountBackup(id: string) {
     function transform(value: unknown, field = ""): unknown {
       if (typeof value === "string") {
         if (field === "snippet") return value;
-        if (["id", "topicId", "assistantTemplateId", "templateId", "assetId", "inputAssetId", "chatId", "sourceChatId", "messageId", "documentId", "chunkId"].includes(field)) return mapped(value);
+        if (["id", "assistantTemplateId", "templateId", "assetId", "inputAssetId", "chatId", "sourceChatId", "messageId", "documentId", "chunkId"].includes(field)) return mapped(value);
         if (["url", "videoUrl"].includes(field)) return documentLinks(value.replace(/^\/api\/media\/([a-f0-9-]{36})$/, (_match, id) => `/api/media/${mapped(id)}`));
         return documentLinks(value);
       }
@@ -57,16 +59,17 @@ export async function restoreAccountBackup(id: string) {
       } catch { return text; }
     }
     const restoredPreferences = upgradeModelPreferences(manifest.preferences);
+    // An archive from while knowledge topics existed: each finished result
+    // comes back as a conversation of its own.
+    const results = resultConversations(manifest.topics, manifest.artifacts, await defaultApprovalRule(), documentLinks);
     const { safety, paused } = await withModelSettingsLock(async () => {
       const safety = await createAccountBackup(false);
       const paused = await db.$transaction(async tx => {
       // A restore replaces the workspace: conversations go first so their
       // messages, tags and asset references cascade away with them.
       await tx.chat.deleteMany({});
-      await tx.knowledgeTopic.deleteMany({});
       await tx.assistantTemplate.deleteMany({});
       await tx.assistantTemplate.createMany({ data: manifest.assistantTemplates.map(template => ({ ...template, id: mapped(template.id) })) });
-      await tx.knowledgeTopic.createMany({ data: manifest.topics.map(topic => ({ ...topic, id: mapped(topic.id), config: { ...topic.config, assistantTemplateId: topic.config.assistantTemplateId ? templateIds.get(topic.config.assistantTemplateId) ?? topic.config.assistantTemplateId : null } })) });
       await tx.workspaceReview.deleteMany({});
       await tx.workspaceEvent.deleteMany({});
       await tx.mediaAsset.deleteMany({});
@@ -80,10 +83,11 @@ export async function restoreAccountBackup(id: string) {
       // to a row that no longer exists: the coverage note would offer an id the
       // reader could never find, and the next summary would treat the restored
       // one as covering nothing.
-      const chats = manifest.chats.map(({ messages, tags: _tags, ...chat }) => {
+      // A conversation's link to a topic and its topic scope are from an older archive and are dropped.
+      const chats = manifest.chats.map(({ messages, tags: _tags, topicId: _topicId, documentScope: _scope, ...chat }) => {
         const validSummary = chat.summary && chat.summaryRevision != null && chat.summaryRevision === (chat.historyRevision ?? 0)
           && (!chat.summaryUpToMessageId ? Boolean(chat.summaryState) : messages.some(message => message.id === chat.summaryUpToMessageId));
-        return { ...chat, topicId: chat.topicId ? mapped(chat.topicId) : null, assistantConfig: chat.assistantConfig ? { ...chat.assistantConfig, templateId: templateIds.get(chat.assistantConfig.templateId) ?? chat.assistantConfig.templateId } : Prisma.DbNull, id: mapped(chat.id), historyRevision: chat.historyRevision ?? 0,
+        return { ...chat, assistantConfig: chat.assistantConfig ? { ...chat.assistantConfig, templateId: templateIds.get(chat.assistantConfig.templateId) ?? chat.assistantConfig.templateId } : Prisma.DbNull, id: mapped(chat.id), historyRevision: chat.historyRevision ?? 0,
           summary: validSummary ? chat.summary : null, summaryRevision: validSummary ? chat.summaryRevision : null,
           summaryModelId: validSummary ? chat.summaryModelId : null,
           summaryState: validSummary ? chat.summaryState : null,
@@ -91,6 +95,10 @@ export async function restoreAccountBackup(id: string) {
         };
       });
       for (let i = 0; i < chats.length; i += 250) await tx.chat.createMany({ data: chats.slice(i, i + 250) });
+      if (results.length) {
+        await tx.chat.createMany({ data: results.map(result => result.chat) });
+        await tx.message.createMany({ data: results.flatMap(result => result.messages) });
+      }
       const tags = manifest.chats.flatMap(chat => chat.tags.map(tag => ({ ...tag, chatId: mapped(tag.chatId) })));
       for (let i = 0; i < tags.length; i += 500) await tx.chatTag.createMany({ data: tags.slice(i, i + 500) });
       const messages = manifest.chats.flatMap(chat => chat.messages.map(message => ({ ...message, id: mapped(message.id), chatId: mapped(message.chatId), clientMessageId: null, content: content(message.content), status: message.status === "pending" ? "error" as const : message.status })));
@@ -108,15 +116,6 @@ export async function restoreAccountBackup(id: string) {
       for (let i = 0; i < chunks.length; i += 250) await tx.documentChunk.createMany({ data: chunks.slice(i, i + 250) });
       const terms = manifest.documents.flatMap(document => document.chunks.flatMap(chunk => chunk.terms.map(term => ({ ...term, chunkId: mapped(term.chunkId) }))));
       for (let i = 0; i < terms.length; i += 500) await tx.documentTerm.createMany({ data: terms.slice(i, i + 500) });
-      await tx.knowledgeArtifact.createMany({ data: manifest.artifacts.map(artifact => ({ ...artifact, id: mapped(artifact.id), topicId: mapped(artifact.topicId),
-        status: artifact.status === "generating" ? "interrupted" : artifact.status, errorCode: artifact.status === "generating" ? "PROCESS_INTERRUPTED" : artifact.errorCode,
-        content: artifact.content ? documentLinks(artifact.content) : null, metadata: {
-          ...artifact.metadata,
-          topic: { ...artifact.metadata.topic, assistantTemplateId: artifact.metadata.topic.assistantTemplateId ? templateIds.get(artifact.metadata.topic.assistantTemplateId) ?? artifact.metadata.topic.assistantTemplateId : null },
-          assistant: artifact.metadata.assistant ? { ...artifact.metadata.assistant, templateId: templateIds.get(artifact.metadata.assistant.templateId) ?? artifact.metadata.assistant.templateId } : null,
-          sources: artifact.metadata.sources.map(source => ({ ...source, documentId: mapped(source.documentId), chunkId: mapped(source.chunkId), ...(source.anchorChunkId ? { anchorChunkId: mapped(source.anchorChunkId) } : {}) })),
-          unknownCitations: artifact.metadata.unknownCitations.map(documentLinks),
-        } })) });
       for (let i = 0; i < manifest.usage.length; i += 250) await tx.modelRequest.createMany({ data: manifest.usage.slice(i, i + 250).map(row => ({ ...row, ...(row.status === "pending" ? { status: "interrupted", errorCode: "PROCESS_INTERRUPTED", costUsd: null, costSource: "unknown" } : {}), id: mapped(row.id) })) });
       for (let i = 0; i < manifest.events.length; i += 250) await tx.workspaceEvent.createMany({ data: manifest.events.slice(i, i + 250).map(event => ({ ...event, entityId: mapped(event.entityId) })) });
       const coverage = manifest.activityCoverage ?? { recordingStartedAt: new Date().toISOString(), completeSince: new Date().toISOString() };

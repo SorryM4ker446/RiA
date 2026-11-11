@@ -14,7 +14,6 @@ import {
   House,
   MessagesSquare,
   Settings,
-  Layers3,
   Images,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
@@ -45,7 +44,6 @@ const NAV_GROUPS = (): { label: string; items: NavItem[] }[] => ([
   { label: t("ui.layout.app-shell.knowledge"), items: [
   { href: "/conversations", label: t("nav.conversations"), icon: MessagesSquare },
   { href: "/knowledge", label: t("nav.knowledge"), icon: BookOpen },
-  { href: "/topics", label: t("ui.backups.knowledgeTopics"), icon: Layers3 },
   { href: "/media", label: t("nav.media"), icon: Images },
   ] },
 ]);

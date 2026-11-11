@@ -25,7 +25,6 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { DocumentLibrary } from "@/features/knowledge/document-library";
-import { TopicEntry } from "@/features/topics/topic-entry";
 import { KnowledgeEntryContent } from "@/features/knowledge/entry-content";
 import { presentToolMemory } from "@/features/knowledge/entry-presentation";
 import { animateRemoval, removalKey } from "@/lib/ui/removal";
@@ -244,7 +243,7 @@ export default function KnowledgePage() {
   useRefreshOnReturn(() => loadEntries());
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 md:px-6">
-      <PageHeader title={t("knowledge.title")} description={t("knowledge.description")} actions={<TopicEntry />} />
+      <PageHeader title={t("knowledge.title")} description={t("knowledge.description")} />
 
       <Reveal className="-mt-6">{error && !createOpen ? (
         <Alert variant="destructive" className="mt-6">

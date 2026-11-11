@@ -1,5 +1,12 @@
 # Database migrations
 
+`20261116100000_remove_knowledge_topics` removes knowledge topics and their results. Each finished
+result becomes a conversation (its brief as the user's message, the result as the answer); results
+without text are dropped. Topic conversations stay as ordinary conversations. `chats` is rebuilt
+without `topicId` and `documentScope`, keeping its indexes and search triggers, since only a
+template narrows a conversation's search now; the topic tables are dropped. Older builds cannot
+read the changed tables; rolling back means restoring the backup taken before the upgrade.
+
 `20261115100000_task_settings` adds a task's long-term memory switch, which outcomes become
 system notifications and how hard the model reasons, and lets a task have no next time (run only
 by hand). The task table is rebuilt to relax that column; rows and the runs pointing at them are

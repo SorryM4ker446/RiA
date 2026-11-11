@@ -4,10 +4,9 @@ import { z } from "zod";
 import { generationRecipeSchema } from "@/lib/media/generation-recipe";
 import { documentPagesSchema } from "@/lib/documents/types";
 import { CHAT_ATTACHMENT_TYPES } from "@/lib/media/limits";
-import { MAX_DOCUMENT_SCOPE_LENGTH, decodeDocumentScope } from "@/lib/documents/scope";
 import { legacyPreferencesSchema, preferencesSchema, providerAgnosticPreferencesSchema, providerIdSchema } from "@/lib/models/preferences-schema";
 import { eventSchema, factsSchema } from "@/lib/activity/types";
-import { topicConfigSchema, artifactMetadataSchema, artifactStatusSchema } from "@/lib/topics/schema";
+import { legacyChatFields, legacyResultsSchema, legacyTopicsConsistent, legacyTopicsSchema } from "@/lib/backups/legacy-topics";
 
 export const BACKUP_LIMITS = { bytes: 512 * 1024 * 1024, manifest: 32 * 1024 * 1024, chunk: 8 * 1024 * 1024, rows: 10_000, stagingAgeMs: 60 * 60_000 };
 export const backupId = z.string().uuid();
@@ -17,10 +16,7 @@ const count = z.number().int().nonnegative();
 const text = z.string().max(2 * 1024 * 1024);
 const timestamps = { createdAt: date, updatedAt: date };
 const message = z.strictObject({ id, chatId: id, clientMessageId: id.nullable(), role: z.enum(["user", "assistant", "system"]), content: text, requestContext: text.nullable().optional(), status: z.enum(["pending", "success", "error"]), createdAt: date });
-const storedScope = z.string().max(MAX_DOCUMENT_SCOPE_LENGTH).refine(value => {
-  try { decodeDocumentScope(value); return true; } catch { return false; }
-}, "Invalid document collection scope");
-const chat = z.strictObject({ id, title: z.string().max(4000), pinned: z.boolean(), archived: z.boolean(), topicId: id.nullable().default(null), ephemeral: z.boolean().optional(), approvalRule: approvalRuleSchema.default("ask"), documentScope: storedScope.optional(), assistantConfig: assistantSnapshotSchema.nullable().default(null), summary: z.string().nullable().optional(), memoryExtractedAt: date.nullable().optional(), memoryResumedAt: date.nullable().optional(), summaryUpToMessageId: z.string().nullable().optional(), summaryModelId: z.string().nullable().optional(), summaryState: z.string().nullable().optional(), historyRevision: count.optional(), summaryRevision: count.nullable().optional(), lastMessageAt: date, ...timestamps, tags: z.array(z.strictObject({ chatId: id, label: z.string().min(1).max(40) })).max(8), messages: z.array(message).max(BACKUP_LIMITS.rows) });
+const chat = z.strictObject({ id, title: z.string().max(4000), pinned: z.boolean(), archived: z.boolean(), ...legacyChatFields, ephemeral: z.boolean().optional(), approvalRule: approvalRuleSchema.default("ask"), assistantConfig: assistantSnapshotSchema.nullable().default(null), summary: z.string().nullable().optional(), memoryExtractedAt: date.nullable().optional(), memoryResumedAt: date.nullable().optional(), summaryUpToMessageId: z.string().nullable().optional(), summaryModelId: z.string().nullable().optional(), summaryState: z.string().nullable().optional(), historyRevision: count.optional(), summaryRevision: count.nullable().optional(), lastMessageAt: date, ...timestamps, tags: z.array(z.strictObject({ chatId: id, label: z.string().min(1).max(40) })).max(8), messages: z.array(message).max(BACKUP_LIMITS.rows) });
 // Provenance travels with the entry: restoring a memory the user never
 // accepted must not turn it into one they are treated as having accepted.
 const memory = z.strictObject({ id, key: z.string().max(2000), value: text, score: z.number().nullable(), source: z.enum(["manual", "assistant"]).optional(), confirmed: z.boolean().optional(), lastUsedAt: date.nullable().optional(), embedding: z.array(z.number()).max(16_384).nullable(), embeddingModelId: z.string().max(200).nullable().optional(), embeddingModelProvider: providerIdSchema.nullable().optional(), ...timestamps });
@@ -39,9 +35,9 @@ export const LEGACY_BACKUP_FORMAT = "private-ai-account-backup";
 export const backupManifestSchema = z.strictObject({
   format: z.enum([BACKUP_FORMAT, LEGACY_BACKUP_FORMAT]), version: z.literal(1), createdAt: date,
   assistantTemplates: z.array(z.strictObject({ id, config: assistantConfigSchema, revision: count.positive(), ...timestamps })).max(50).default([]),
-  topics: z.array(z.strictObject({ id, config: topicConfigSchema, revision: count.positive(), ...timestamps })).max(50).default([]),
-  artifacts: z.array(z.strictObject({ id, topicId: id, requestHash: z.string().regex(/^[a-f0-9]{64}$/), title: z.string().min(1).max(120), kind: z.enum(["report", "plan", "summary"]), topicRevision: count.positive(), status: artifactStatusSchema,
-    errorCode: z.string().max(60).nullable(), content: z.string().max(30_000).nullable(), metadata: artifactMetadataSchema, ...timestamps })).max(200).default([]),
+  // Always empty in new archives; read from older ones by the legacy topics module.
+  topics: legacyTopicsSchema,
+  artifacts: legacyResultsSchema,
   memoryDocument: z.strictObject({ id: z.literal("local"), content: text, revision: z.number().int().nonnegative(), deletedRevision: z.number().int().nonnegative(), topics: text.optional(), updatedAt: date }).nullable().optional(),
   chats: z.array(chat).max(BACKUP_LIMITS.rows), memories: z.array(memory).max(BACKUP_LIMITS.rows), tasks: z.array(task).max(BACKUP_LIMITS.rows), documents: z.array(document).max(100), assets: z.array(asset).max(BACKUP_LIMITS.rows), // Every shape the library has had, so an archive written before provider
   // qualified references still imports. Conversion happens on read; the archive
@@ -62,10 +58,8 @@ export const backupManifestSchema = z.strictObject({
   const distinct = (values: string[]) => { if (new Set(values).size !== values.length) error(); };
   const chats = unique(data.chats), messageIds = unique(messages), assetIds = unique(data.assets);
   unique(data.assistantTemplates); unique(data.memories); unique(data.tasks); unique(data.documents); unique(chunks); unique(data.usage);
-  const topicIds = unique(data.topics); unique(data.artifacts);
-  if (data.topics.some(topic => data.artifacts.filter(artifact => artifact.topicId === topic.id).length > 50)) error();
-  unique([...data.topics, ...data.artifacts, ...data.assistantTemplates, ...data.chats, ...messages, ...data.memories, ...data.tasks, ...data.documents, ...chunks, ...data.assets, ...data.usage, ...data.events, ...data.reviews]);
-  if (data.chats.some(chat => chat.topicId && !topicIds.has(chat.topicId)) || data.artifacts.some(artifact => !topicIds.has(artifact.topicId) || (["ready", "needs_review"].includes(artifact.status) && !artifact.content))) error();
+  if (!legacyTopicsConsistent(data.topics, data.artifacts, data.chats)) error();
+  unique([...data.assistantTemplates, ...data.chats, ...messages, ...data.memories, ...data.tasks, ...data.documents, ...chunks, ...data.assets, ...data.usage, ...data.events, ...data.reviews]);
   if (data.events.length && !data.activityCoverage) error();
   if (data.activityCoverage && Date.parse(data.activityCoverage.completeSince) < Date.parse(data.activityCoverage.recordingStartedAt)) error();
   distinct(data.reviews.map(review => `${review.period}:${review.timeZone}:${review.startAt}`));

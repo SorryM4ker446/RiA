@@ -35,7 +35,7 @@ async function POSTHandler(req: NextRequest) {
     const input = descriptor.inputSchema.safeParse(parsed.data.input);
     if (!input.success) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid tool input", details: input.error.flatten() });
     const conversation = parsed.data.chatId
-      ? await db.chat.findUnique({ where: { id: parsed.data.chatId }, select: { topicId: true, documentScope: true, assistantConfig: true } })
+      ? await db.chat.findUnique({ where: { id: parsed.data.chatId }, select: { assistantConfig: true } })
       : null;
     if (parsed.data.chatId && !conversation) throw new ApiError({ code: "NOT_FOUND", message: "Conversation was not found" });
     const assistant = readAssistantSnapshot(conversation?.assistantConfig);
