@@ -5,6 +5,7 @@ import { dataRequestContext } from "@/lib/server/data-operations";
 import { getModelPreferences } from "@/lib/models/preferences";
 import { modelRefKey, defaultModelPreferences, upgradeModelPreferences, type LibraryMode, type ModelRef } from "@/lib/models/preferences-schema";
 import { modelCallSource, type CallSource } from "./call-context";
+import { holdForAttempt, slotForCall } from "./call-slots";
 
 export function budgetDay(now: Date, timeZone: string) {
   const parts = new Intl.DateTimeFormat("en", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
@@ -20,13 +21,29 @@ export function estimatedCallCost(prompt: unknown, maxOutputTokens: number | und
 export async function beginModelAttempt(input: { mode: LibraryMode; ref: ModelRef; prompt?: unknown; maxOutputTokens?: number; fallback?: boolean; source?: CallSource; signal?: AbortSignal }) {
   input.signal?.throwIfAborted();
   const source = input.source ?? modelCallSource();
+  // A place for the call: the turn's own when it is part of one, otherwise one
+  // of its own, waited for when all are taken. Given back when the attempt is
+  // recorded (recordModelAttempt), or here when it is not admitted.
+  const slot = await slotForCall(source === "scheduled" || source === "embedding" ? "background" : "foreground", input.signal);
+  try {
+    const admitted = await admit(input, source);
+    holdForAttempt(admitted.id, slot.release);
+    return admitted;
+  } catch (error) {
+    slot.release();
+    throw error;
+  }
+}
+
+async function admit(input: { mode: LibraryMode; ref: ModelRef; prompt?: unknown; maxOutputTokens?: number; fallback?: boolean; signal?: AbortSignal }, source: CallSource) {
   // Summaries only run inside a chat request the user started and can stop, so
   // they are attributed separately but share that request's foreground controls.
   const background = source === "scheduled";
   const now = new Date(), id = randomUUID();
   return db.$transaction(async tx => {
-    // Acquire SQLite's writer before reading counters; concurrent admissions
-    // cannot both observe the same available slot, including across processes.
+    // Acquire SQLite's writer before reading counters, so concurrent admissions
+    // cannot both spend the same remaining background allowance. How many calls
+    // run at once is decided before this, by the places (call-slots).
     await tx.$executeRaw`INSERT OR IGNORE INTO model_call_days (day, calls, estimatedUsd) VALUES ('lock', 0, 0)`;
     await tx.$executeRaw`UPDATE model_call_days SET calls = calls WHERE day = 'lock'`;
     const stored = await tx.workspacePreference.findUnique({ where: { id: "local" } });
@@ -34,9 +51,6 @@ export async function beginModelAttempt(input: { mode: LibraryMode; ref: ModelRe
     const limits = preferences.callLimits;
     const rate = preferences.rates[modelRefKey(input.ref)];
     const estimate = input.mode === "image" || input.mode === "video" ? rate?.perRequest ?? null : estimatedCallCost(input.prompt, input.maxOutputTokens, rate);
-    if (await tx.modelRequest.count({ where: { status: "pending" } }) >= limits.maxConcurrent) {
-      throw new ApiError({ code: "CONFLICT", message: "模型并发调用已达上限，请等待当前调用结束。" });
-    }
     if (background) {
       if ((limits.backgroundMaxEstimatedUsd !== null || limits.backgroundDailyEstimatedUsd !== null) && estimate === null) {
         throw new ApiError({ code: "BACKGROUND_LIMIT", message: "后台费用上限已启用，请先配置模型输入和输出价格。未知费用不能按零领取额度。" });

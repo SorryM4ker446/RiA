@@ -1,3 +1,4 @@
+import type { TurnNotice } from "@/features/chat/page-utils";
 import { localizeMessage, t, tf } from "@/lib/locale";
 import {
   ChatSummary,
@@ -8,25 +9,24 @@ import {
   readText,
   UploadableFilePart
 } from "@/features/chat/page-utils";
-import { encodePersistedAssistantToolMessage, encodePersistedUserMessage } from "@/lib/ai/ui-message";
+import { encodePersistedUserMessage } from "@/lib/ai/ui-message";
 import { readMessageInvocation } from "@/lib/chat/invocation-schema";
 import { isDocumentAttachment } from "@/lib/media/limits";
 import { getApiErrorMessage as readApiErrorMessage } from "@/lib/api-error-message";
 import { usePanelVisibility } from "./use-panel-visibility";
 import { useChat } from "@ai-sdk/react";
 import { lastAssistantMessageIsCompleteWithApprovalResponses, UIMessage } from "ai";
-import { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { chatApi, createChatTransport, isNotFoundError } from "@/features/chat/api-client";
 import { clearChatDraft, readChatDraft, writeChatDraft } from "@/features/chat/draft";
 import type { DeleteTarget } from "@/features/chat/types";
 import type { ModelLibraryItem } from "@/lib/models/preferences-schema";
 import type { InputNotice } from "@/features/chat/composer-notice";
 
-import { persistConversationMessage } from "@/features/chat/api-client";
 import { useChatPreferences } from "@/features/chat/use-chat-preferences";
 import { useConversations } from "@/features/chat/use-conversations";
 import { useMediaGeneration } from "@/features/chat/use-media-generation";
-import { DOCUMENT_TOOLS, invocationOf, useTools, type ComposerChoice } from "@/features/chat/use-tools";
+import { DOCUMENT_TOOLS, EMPTY_CHOICE, invocationOf, useTools, type ComposerChoice } from "@/features/chat/use-tools";
 import { useToast } from "@/components/ui/toast";
 import { COMPACT_CONTEXT_TOOL } from "@/lib/chat/compact-context";
 import { animateRemoval } from "@/lib/ui/removal";
@@ -36,6 +36,30 @@ import { taskApi } from "@/features/tasks/task-client";
 import { parseModelRefValue } from "@/features/chat/preferences";
 import { TASK_DEFAULT_MODEL } from "@/features/chat/types";
 import { useConversationStore } from "@/features/chat/conversation-store";
+/** Whether the page is in view, kept current as it is hidden and shown. */
+function usePageVisible() {
+  return useSyncExternalStore(
+    onChange => { document.addEventListener("visibilitychange", onChange); return () => document.removeEventListener("visibilitychange", onChange); },
+    () => document.visibilityState === "visible",
+    () => true,
+  );
+}
+
+/** A message written while its conversation was answering, waiting to be sent. */
+export type QueuedMessage = { id: string; text: string; attachments: UploadableFilePart[] };
+const QUEUE_STORAGE_KEY = "ria.chat.queue";
+/** Enough to keep writing; the queue is not a place to park a backlog. */
+const MAX_QUEUED = 10;
+function readQueues(): Record<string, QueuedMessage[]> {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(QUEUE_STORAGE_KEY) ?? "{}") as Record<string, QueuedMessage[]>;
+    return value && typeof value === "object" ? value : {};
+  } catch { return {}; }
+}
+function writeQueues(queues: Record<string, QueuedMessage[]>) {
+  try { window.localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queues)); } catch { /* Kept for this visit only. */ }
+}
+
 export function useChatState() {
   const [input, setInput] = useState("");
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
@@ -78,7 +102,7 @@ export function useChatState() {
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, toggleEphemeral, isEphemeralSaving,
     isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
     setWorkspace, isWorkspaceSaving, setApprovalRule, isApprovalSaving, restoringChatId, isRestoringChat,
-  } = useConversations({ activeChatId, setActiveChatId, preferences: { modelMode, selectedChatModel: preferredChatModel, selectedImageModel, selectedVideoModel }, applyChatPreferences, resetConversation, persistCurrentStreamingAssistantIfNeeded, setPageError });
+  } = useConversations({ activeChatId, setActiveChatId, preferences: { modelMode, selectedChatModel: preferredChatModel, selectedImageModel, selectedVideoModel }, applyChatPreferences, resetConversation, detachFromAnswer, setPageError });
   // A remembered conversation the list has not confirmed yet is not one to send to,
   // and a send waits for a workspace switch so the turn uses the folder the picker shows.
   const isConversationReady = !isLoadingPreferences && restoringChatId === null && !isWorkspaceSaving && !isApprovalSaving && (activeChatId !== null || !isLoadingChats);
@@ -103,13 +127,23 @@ export function useChatState() {
   const toast = useToast();
   // The server is folding older turns before it can answer; only meaningful until the answer opens.
   const [isOrganizing, setIsOrganizing] = useState(false);
+  // Waiting for a place, or the provider being retried: said until the turn moves on.
+  const [turnNotice, setTurnNotice] = useState<TurnNotice | null>(null);
+  const noticeTimer = useRef(0);
+  const showTurnNotice = (notice: TurnNotice | { state: "running" }) => {
+    window.clearTimeout(noticeTimer.current);
+    if (notice.state === "running") { setTurnNotice(null); return; }
+    setTurnNotice(notice);
+    // A retry says how long it waits; after that the call is under way again.
+    if (notice.state === "retrying") noticeTimer.current = window.setTimeout(() => setTurnNotice(null), notice.seconds * 1000);
+  };
   // The conversation whose earlier turns the person asked to have folded.
   const [compactingChatId, setCompactingChatId] = useState<string | null>(null);
   const [compaction, setCompaction] = useState<{ chatId: string; summary: string; coveredIds: string[] } | null>(null);
   // Space freed by a fold since the latest request measured its input; the next one measures anew.
   const [freedByCompaction, setFreedByCompaction] = useState<{ chatId: string; lastMessageId?: string; tokens: number } | null>(null);
   const compactionRequest = useRef(0);
-  const { messages, setMessages, sendMessage, regenerate, addToolApprovalResponse, status, error, clearError, stop } = useChat({
+  const { messages, setMessages, sendMessage, regenerate, addToolApprovalResponse, status, error, clearError, stop, resumeStream } = useChat({
     id: activeChatId ?? "draft",
     transport,
     // A fast model sends far more deltas than a screen can show. Rendering at
@@ -117,7 +151,10 @@ export function useChatState() {
     // the trailing update still delivers the final text.
     experimental_throttle: 50,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
-    onData: part => { if (part.type === "data-context-status") setIsOrganizing((part.data as { organizing: boolean }).organizing); },
+    onData: part => {
+      if (part.type === "data-context-status") setIsOrganizing((part.data as { organizing: boolean }).organizing);
+      if (part.type === "data-turn-status") showTurnNotice(part.data as TurnNotice | { state: "running" });
+    },
     onFinish: ({ messages: finishedMessages, isError }) => {
       if (!isError) return;
       const latestUser = [...finishedMessages].reverse().find(message => message.role === "user");
@@ -126,6 +163,8 @@ export function useChatState() {
     },
   });
   useEffect(() => { if (status !== "submitted") setIsOrganizing(false); }, [status]);
+  useEffect(() => { if (status === "ready" || status === "error") showTurnNotice({ state: "running" }); }, [status]);
+  useEffect(() => () => window.clearTimeout(noticeTimer.current), []);
   const loadCompaction = useCallback(async (chatId: string | null) => {
     const request = ++compactionRequest.current;
     const found = chatId ? await chatApi.conversationSummary(chatId).catch(() => null) : null;
@@ -193,6 +232,59 @@ export function useChatState() {
   const { visibility: panelVisibility, toggle: togglePanel } = usePanelVisibility();
 
   const effectiveError = pageError ?? preferencesError ?? (error ? readApiErrorMessage(error.message, t("chatState.requestFailed")) : null);
+
+  /*
+   * Messages written while the conversation is still answering wait here, in
+   * order, and are sent one by one once it is free: not answering, here or
+   * elsewhere, and not waiting for an approval. Each conversation has its own
+   * queue, kept in this browser like the drafts, so leaving and coming back,
+   * or reloading, keeps it. A queued message carries its text and its
+   * already-uploaded attachments; a tool or skill choice is not queued.
+   */
+  const [queues, setQueues] = useState<Record<string, QueuedMessage[]>>({});
+  // Read after mount, so the server render and the first client render agree.
+  useEffect(() => { setQueues(readQueues()); }, []);
+  const updateQueue = useCallback((chatId: string, change: (queue: QueuedMessage[]) => QueuedMessage[]) => setQueues(current => {
+    const next = { ...current, [chatId]: change(current[chatId] ?? []) };
+    if (!next[chatId].length) delete next[chatId];
+    writeQueues(next);
+    return next;
+  }), []);
+  const queuedMessages = useMemo(() => (activeChatId ? queues[activeChatId] ?? [] : []), [activeChatId, queues]);
+  const conversationBusy = isAnswering || Boolean(activeChat?.answering);
+  const canQueue = Boolean(activeChatId) && isConversationReady && conversationBusy && modelMode === "chat" && !choice.tool && !choice.skills.length
+    && !isUploadingAttachments && (input.trim().length > 0 || attachments.length > 0) && queuedMessages.length < MAX_QUEUED;
+  function queueMessage() {
+    if (!canQueue || !activeChatId) return;
+    const item: QueuedMessage = { id: crypto.randomUUID(), text: input.trim(), attachments: [...attachments] };
+    updateQueue(activeChatId, queue => [...queue, item]);
+    setInput("");
+    clearAttachments();
+  }
+  function removeQueued(id: string) { if (activeChatId) updateQueue(activeChatId, queue => queue.filter(item => item.id !== id)); }
+  /** Back into the composer to change, out of the queue. Only into an empty composer, so nothing typed is lost. */
+  function editQueued(id: string) {
+    const item = queuedMessages.find(entry => entry.id === id);
+    if (!item || !activeChatId || input.trim() || attachments.length) return;
+    removeQueued(id);
+    setInput(item.text);
+    replaceAttachments(item.attachments);
+  }
+  // The next queued message goes once the conversation is free.
+  const sendNextQueued = useRef(onSubmit);
+  sendNextQueued.current = onSubmit;
+  const awaitingApprovalHere = Boolean(activeChat?.awaitingApproval);
+  const answeringHere = Boolean(activeChat?.answering);
+  const historyReadyForQueue = Boolean(confirmedChatId && historyState?.chatId === confirmedChatId && historyState.status === "ready");
+  useEffect(() => {
+    if (!activeChatId || !queuedMessages.length || isPending || answeringHere || awaitingApprovalHere || !isConversationReady || !historyReadyForQueue || modelMode !== "chat") return;
+    const [next] = queuedMessages;
+    // What sending would refuse stays queued, where it can be changed or removed,
+    // instead of leaving the queue and going nowhere.
+    if (!selectedModel || (next.attachments.some(part => part.mediaType.startsWith("image/")) && !selectedModelInfo?.supportsImageInput)) return;
+    updateQueue(activeChatId, queue => queue.filter(item => item.id !== next.id));
+    void sendNextQueued.current(undefined, next);
+  }, [activeChatId, queuedMessages, isPending, answeringHere, awaitingApprovalHere, isConversationReady, historyReadyForQueue, modelMode, updateQueue, selectedModel, selectedModelInfo]);
 
   // A draft belongs to one conversation. Switching away parks it and switching
   // back brings it back, so a half-written question survives navigating around.
@@ -321,9 +413,20 @@ export function useChatState() {
 
   const stopRef = useRef(stop);
   stopRef.current = stop;
+  const statusRef = useRef(status);
+  statusRef.current = status;
+  /**
+   * Stops the answer. The service holds the turn, so it is the service that is
+   * asked: it stops the model, saves what was written and ends the stream, which
+   * this page reads to its end like any other. Only when it holds nothing (the
+   * request had not reached it, or it already ended) does the page stop alone.
+   */
   const onStop = useCallback(() => {
     if (!isPending) return;
-    stopRef.current();
+    const chatId = activeChatIdRef.current;
+    if (chatId && (statusRef.current === "submitted" || statusRef.current === "streaming")) {
+      void chatApi.stopTurn(chatId).then(stopped => { if (!stopped) stopRef.current(); }).catch(() => stopRef.current());
+    } else stopRef.current();
     clearChatDraft(activeChatId);
     pendingSendDraftRef.current = null;
   }, [isPending, activeChatId]);
@@ -496,57 +599,20 @@ export function useChatState() {
     appendAttachments(pastedFiles);
   }
 
-  async function persistCurrentStreamingAssistantIfNeeded(chatId: string | null): Promise<void> {
-    if (!chatId) return;
-    if (status !== "streaming" && status !== "submitted") return;
-
-    const lastMessage = messages[messages.length - 1];
-    if (!lastMessage || lastMessage.role !== "assistant") return;
-
-    const text = readText(lastMessage).trim();
-    const toolParts = lastMessage.parts.filter(isToolPart);
-    const executionMetadata = lastMessage.metadata as { runId?: string; runIds?: string[]; modelLabel?: string } | undefined;
-    const fallbackText = t("chatState.streamInterrupted");
-    const content =
-      toolParts.length > 0
-        ? encodePersistedAssistantToolMessage({
-          type: "assistant-tool-message",
-          text: text || fallbackText,
-          ...(executionMetadata?.runId ? { runId: executionMetadata.runId } : {}),
-          ...(executionMetadata?.runIds ? { runIds: executionMetadata.runIds } : {}),
-          ...(executionMetadata?.modelLabel ? { modelLabel: executionMetadata.modelLabel } : {}),
-          tools: toolParts.map((toolPart) => ({
-            toolName: toolPart.type.replace(/^tool-/, ""),
-            ...(toolPart.title ? { title: toolPart.title } : {}),
-            toolCallId: toolPart.toolCallId,
-            state: toolPart.state,
-            ...(toolPart.input !== undefined ? { input: toolPart.input } : {}),
-            ...(toolPart.output !== undefined ? { output: toolPart.output } : {}),
-            ...(toolPart.errorText ? { errorText: toolPart.errorText } : {}),
-            ...(toolPart.approval ? { approval: toolPart.approval } : {}),
-          })),
-        })
-        : text;
-
-    if (!content.trim()) return;
-
-    try {
-      await persistConversationMessage({
-        chatId,
-        role: "assistant",
-        content,
-        clientMessageId: lastMessage.id,
-        status: "error",
-      });
-      await loadChats();
-    } catch {
-      // Best effort persistence; do not block chat switch.
-    }
+  /**
+   * Leaving a conversation while it answers leaves the answer to the service,
+   * which goes on writing and saving it; this page only stops reading it. Coming
+   * back reads it again from where the service has got to.
+   */
+  function detachFromAnswer() {
+    // Only an answer that has started: a send still waiting for the service must
+    // hear how it went, so a refusal can put the message back where it was written.
+    if (statusRef.current === "streaming") stopRef.current();
   }
 
   async function switchActiveChat(nextChatId: string) {
     if (nextChatId === activeChatId) return;
-    await persistCurrentStreamingAssistantIfNeeded(activeChatId);
+    detachFromAnswer();
     setActiveChatId(nextChatId);
   }
 
@@ -578,14 +644,36 @@ export function useChatState() {
   const switchRef = useRef(switchActiveChat);
   useEffect(() => { latestChatRef.current = confirmedChatId; refreshRef.current = refreshActiveMessages; switchRef.current = switchActiveChat; });
   useRefreshOnReturn(() => refreshRef.current());
-  // A conversation a task writes into is looked at while it is open, so a run
-  // that finishes while the user watches shows up without a reload.
-  const watchesTask = Boolean(activeChat?.task);
+  // An answer this page did not ask for (a task's run, another window, this
+  // page before it was reloaded) is read as it is written: once the history is
+  // shown, the page attaches to the turn the service is holding, from its start.
+  const historyReady = Boolean(confirmedChatId && historyState?.chatId === confirmedChatId && historyState.status === "ready");
+  const answeringElsewhere = Boolean(activeChat?.answering);
+  const attachedTo = useRef<string | null>(null);
   useEffect(() => {
-    if (!watchesTask) return;
-    const timer = setInterval(() => { if (document.visibilityState === "visible") void refreshRef.current(); }, 10_000);
-    return () => clearInterval(timer);
-  }, [watchesTask]);
+    if (!answeringElsewhere) { attachedTo.current = null; return; }
+    if (!historyReady || status !== "ready" || pendingSend || attachedTo.current === confirmedChatId) return;
+    attachedTo.current = confirmedChatId;
+    void resumeStream().catch(() => { /* Nothing to attach to: the turn ended; its answer is read below. */ });
+  }, [answeringElsewhere, historyReady, status, pendingSend, confirmedChatId, resumeStream]);
+  // A turn that ended without this page reading it (it attached too late, or not
+  // at all) has its answer read from what was saved.
+  const { onTurn } = useConversationStore();
+  useEffect(() => onTurn(notice => {
+    if (notice.type !== "turn-finished" || notice.chatId !== latestChatRef.current) return;
+    if (statusRef.current === "ready") void refreshRef.current();
+  }), [onTurn]);
+  // Open and in view, what arrived in it has been read.
+  const pageVisible = usePageVisible();
+  const markingRead = useRef<string | null>(null);
+  const { update: updateSummary } = useConversationStore();
+  useEffect(() => {
+    if (!historyReady || !confirmedChatId || !activeChat?.unread || !pageVisible || markingRead.current === confirmedChatId) return;
+    const chatId = confirmedChatId;
+    markingRead.current = chatId;
+    void chatApi.markRead(chatId).then(saved => updateSummary(saved.data)).catch(() => { /* Still unread; tried again on the next change. */ })
+      .finally(() => { if (markingRead.current === chatId) markingRead.current = null; });
+  }, [historyReady, confirmedChatId, activeChat?.unread, pageVisible, updateSummary]);
   // Another page, a notice or a system notification asked for a conversation.
   useEffect(() => {
     const open = (event: Event) => {
@@ -676,14 +764,21 @@ export function useChatState() {
     }
   }
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  /**
+   * Sends what the composer holds, or a message that waited in the queue
+   * (`queued`), which brings its own text and attachments and no tool choice and
+   * leaves the composer as it is.
+   */
+  async function onSubmit(event?: FormEvent<HTMLFormElement>, queued?: QueuedMessage) {
+    event?.preventDefault();
     if (isPending || isDocumentScopeSaving || !isConversationReady) return;
     setInputNotice(null);
-    const chosenTool = modelMode === "chat" ? choice.tool : null;
+    const typed = queued ? queued.text : input;
+    const files = queued ? queued.attachments : attachments;
+    const chosenTool = modelMode === "chat" && !queued ? choice.tool : null;
     const isDocumentTool = Boolean(chosenTool && DOCUMENT_TOOLS.has(chosenTool.id));
-    if (isDocumentTool && attachments.some(part => !isDocumentAttachment(part.mediaType))) { setInputNotice({ key: "chat.document.onlyDocuments" }); return; }
-    if (isDocumentTool && !attachments.length && !choice.document) { setInputNotice({ key: "ui.chat.use-chat-state.chooseAKnowledgeDocumentFirst" }); return; }
+    if (isDocumentTool && files.some(part => !isDocumentAttachment(part.mediaType))) { setInputNotice({ key: "chat.document.onlyDocuments" }); return; }
+    if (isDocumentTool && !files.length && !choice.document) { setInputNotice({ key: "ui.chat.use-chat-state.chooseAKnowledgeDocumentFirst" }); return; }
     // Whatever was typed says what to keep; no model answers this one.
     if (chosenTool?.id === COMPACT_CONTEXT_TOOL) {
       const focus = input.trim(), sent = choice;
@@ -716,41 +811,41 @@ export function useChatState() {
       }
       return;
     }
-    const content = input.trim() || (isDocumentTool && choice.document ? tf("chat.document.readRequest", { name: choice.document.filename }) : "");
-    const hasAttachments = attachments.length > 0;
+    const content = typed.trim() || (isDocumentTool && choice.document ? tf("chat.document.readRequest", { name: choice.document.filename }) : "");
+    const hasAttachments = files.length > 0;
     const hasContent = content.length > 0;
 
     if (!hasContent && !hasAttachments) return;
     if (!selectedModel) { setSentWithoutModel(true); return; }
-    if (modelMode === "video" && attachments.length > 1) { setInputNotice({ key: "mediaGen.videoReferenceLimit" }); return; }
+    if (modelMode === "video" && files.length > 1) { setInputNotice({ key: "mediaGen.videoReferenceLimit" }); return; }
 
     setPageError(null);
 
-    if (modelMode !== "chat" && attachments.some(part => !part.mediaType.startsWith("image/"))) {
+    if (modelMode !== "chat" && files.some(part => !part.mediaType.startsWith("image/"))) {
       setInputNotice({ key: "ui.chat.use-chat-state.pDFAndWordAttachmentsAreSupported" });
       return;
     }
-    if (modelMode === "chat" && attachments.some(part => part.mediaType.startsWith("image/")) && !selectedModelInfo?.supportsImageInput) {
+    if (modelMode === "chat" && files.some(part => part.mediaType.startsWith("image/")) && !selectedModelInfo?.supportsImageInput) {
       setInputNotice({ key: "chatState.imageInputUnsupported", values: { modelId: selectedChatModel?.modelId ?? "" } });
       return;
     }
 
-    setInput("");
+    if (!queued) setInput("");
     // Remembered until the turn produces an answer, so a failure can put the
     // text back instead of making the user retype it. The conversation id is
     // filled in once the first message has created one: a send that creates the
     // conversation switches the active id mid-flight, and the draft has to
     // follow it rather than be read back as empty.
     const userMessageId = crypto.randomUUID();
-    const invocation = modelMode === "chat" ? invocationOf(choice, localizeMessage) : null;
-    pendingSendDraftRef.current = { chatId: activeChatId ?? "", messageId: userMessageId, text: input.trim(), choice, pendingChat: activeChatId === null, afterIndex: messages.length };
-    clearChoice();
+    const invocation = modelMode === "chat" && !queued ? invocationOf(choice, localizeMessage) : null;
+    pendingSendDraftRef.current = { chatId: activeChatId ?? "", messageId: userMessageId, text: typed.trim(), choice: queued ? EMPTY_CHOICE : choice, pendingChat: activeChatId === null, afterIndex: messages.length };
+    if (!queued) clearChoice();
 
     // The attachments are already uploaded references, so a submission no
     // longer depends on reading a file that may no longer be in memory. This
     // also removes the window where a send could be started from a composer that
     // belonged to a conversation the user had already left.
-    const uploadParts: UploadableFilePart[] = attachments;
+    const uploadParts: UploadableFilePart[] = files;
 
     if (modelMode === "image") {
       await generateImage(content, uploadParts);
@@ -769,7 +864,7 @@ export function useChatState() {
       // the "conversation was just created" path would be erased by the very
       // save that runs after the input is cleared.
       draftChatIdRef.current = chatId;
-      writeChatDraft(chatId, { text: content, attachments });
+      if (!queued) writeChatDraft(chatId, { text: content, attachments });
       if (pendingSendDraftRef.current) {
         pendingSendDraftRef.current = { ...pendingSendDraftRef.current, chatId, pendingChat: false };
       }
@@ -783,7 +878,7 @@ export function useChatState() {
       }));
 
       if (failed) { restorePendingSendDraft(userMessageId); return; }
-      if (draftChatIdRef.current === chatId) clearAttachments();
+      if (!queued && draftChatIdRef.current === chatId) clearAttachments();
       await loadChats();
     } catch (submitError) {
       if (pendingSendDraftRef.current?.messageId !== userMessageId || !pendingCoversCurrentChat(pendingSendDraftRef.current)) return;
@@ -804,6 +899,7 @@ export function useChatState() {
       event.preventDefault();
       const hasAttachments = attachments.length > 0;
       const hasContent = input.trim().length > 0;
+      if (canQueue) { queueMessage(); return; }
       if (isPending || !isConversationReady) return;
       if (!hasContent && !hasAttachments && !choice.document) return;
       void onSubmit(event as unknown as FormEvent<HTMLFormElement>);
@@ -889,7 +985,8 @@ export function useChatState() {
     requestDeleteConversation,
     compaction: compaction?.chatId === activeChatId ? compaction : null,
     freedByCompaction: freedByCompaction?.chatId === activeChatId && freedByCompaction.lastMessageId === messages.at(-1)?.id ? freedByCompaction.tokens : 0,
-    isOrganizing, isCompacting: compactingChatId !== null && compactingChatId === activeChatId, activeChat, isPending, isWorking, isLoadingPreferences, isOpeningConversation, isConversationReady, isConverting, modelMode, selectedModel, selectedModelInfo, defaultChatModel, onModeSelect,
+    queuedMessages, canQueue, queueMessage, removeQueued, editQueued,
+    isOrganizing, turnNotice, isCompacting: compactingChatId !== null && compactingChatId === activeChatId, activeChat, isPending, isWorking, isLoadingPreferences, isOpeningConversation, isConversationReady, isConverting, modelMode, selectedModel, selectedModelInfo, defaultChatModel, onModeSelect,
     onModelSelect, modelHint, inputNotice, dismissInputNotice: () => setInputNotice(null), isModelMenuOpen, setIsModelMenuOpen, isHistoryReady: confirmedChatId !== null && historyState?.chatId === confirmedChatId && historyState.status === "ready", isLoadingHistory, confirmedChatId, messages, imageByMessageId, videoByMessageId,
     status, editingMessageId, startEditingMessage, regenerateMessage, requestDeleteMessage,
     setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage,

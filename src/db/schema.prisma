@@ -105,6 +105,9 @@ model Chat {
   memoryExtractedAt DateTime?
   // When long-term memory was last turned back on. Notes are read only from messages after it.
   memoryResumedAt DateTime?
+  // An answer arrived that the user has not opened yet: set when a turn ends
+  // here (other than one the user stopped), cleared when the conversation is opened.
+  unread          Boolean      @default(false)
   historyRevision Int          @default(0)
   summaryRevision Int?
 

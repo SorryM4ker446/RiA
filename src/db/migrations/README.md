@@ -1,5 +1,13 @@
 # Database migrations
 
+`20261118100000_call_limit_defaults` moves call limits still at the earlier defaults to the new
+ones: 8 model calls at once (was 4) and 1000 automatic task runs a day (was 20). Any other value
+is kept. Only the settings document changes, and older builds read the new values.
+
+`20261117100000_conversation_unread` adds whether a conversation has an answer the user has not
+opened yet, for the sidebar's unread dot. Existing conversations start as read. The column is
+additive and older builds ignore it.
+
 `20261116100000_remove_knowledge_topics` removes knowledge topics and their results. Each finished
 result becomes a conversation (its brief as the user's message, the result as the answer); results
 without text are dropped. Topic conversations stay as ordinary conversations. `chats` is rebuilt

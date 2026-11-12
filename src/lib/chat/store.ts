@@ -9,6 +9,7 @@ import { migrateMessageMedia, prepareMessageMedia, replaceMessageMedia } from "@
 import { pageResult, type PageOptions } from "@/lib/server/pagination";
 import { deleteConversations, updateConversation } from "@/lib/conversations/mutations";
 import { resolveAssistant } from "@/lib/assistants/store";
+import { announceConversationsChanged } from "@/lib/conversations/events";
 
 const summaryInvalidation = {
   historyRevision: { increment: 1 }, summary: null, summaryUpToMessageId: null, summaryModelId: null, summaryRevision: null, summaryState: null,
@@ -60,7 +61,7 @@ export async function createChat(params: { chatId?: string; title?: string; assi
   }
 
   const assistant = params.assistantTemplateId ? await resolveAssistant(params.assistantTemplateId) : null;
-  return db.chat.create({
+  const created = await db.chat.create({
     data: {
       // A new conversation starts from the default approval rule; changing the default later leaves it as it is.
       approvalRule: await defaultApprovalRule(),
@@ -71,6 +72,8 @@ export async function createChat(params: { chatId?: string; title?: string; assi
       lastMessageAt: new Date(),
     },
   });
+  announceConversationsChanged();
+  return created;
 }
 
 export async function deleteChat(chatId: string) {
@@ -154,16 +157,19 @@ export async function saveChatMessage(params: {
         : db.message.create({ data }),
       db.chat.update({ where: { id: chatId }, data: { lastMessageAt: new Date() } }),
     ])).at(-2) as Message | Message[];
+    announceConversationsChanged();
     return Array.isArray(saved) ? saved[0] : saved;
   }
 
-  return db.$transaction(async (tx) => {
+  const saved = await db.$transaction(async (tx) => {
     if (updateExisting && normalizedClientMessageId) for (const statement of rewriteStatements(tx, chatId, normalizedClientMessageId)) await statement;
     const message = await writeMessage(tx);
     if (message.content === prepared.content) await replaceMessageMedia(tx, message.id, prepared.assetIds);
     await tx.chat.update({ where: { id: chatId }, data: { lastMessageAt: new Date() } });
     return message;
   });
+  announceConversationsChanged();
+  return saved;
 }
 
 export async function getRegenerationSnapshot(chatId: string, messageId: string) {
@@ -282,7 +288,7 @@ export async function saveRegeneratedResponse(params: {
   clientMessageId: string;
 }) {
   const { snapshot } = params;
-  return db.$transaction(async (tx) => {
+  const saved = await db.$transaction(async (tx) => {
     const chat = await tx.chat.findFirst({ where: { id: snapshot.chatId } });
     if (!chat) throw new ApiError({ code: "NOT_FOUND", message: "Conversation was not found" });
     const current = await tx.message.findMany({
@@ -313,6 +319,8 @@ export async function saveRegeneratedResponse(params: {
     await tx.chat.update({ where: { id: snapshot.chatId }, data: { lastMessageAt: new Date() } });
     return message;
   });
+  announceConversationsChanged();
+  return saved;
 }
 
 /** Rewrite evidence invalidates compression in the same transaction. */

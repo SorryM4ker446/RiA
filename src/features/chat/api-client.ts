@@ -51,6 +51,10 @@ export const chatApi = {
   renameConversation: (id: string, title: string) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatApi.renameConversationFailed"), jsonBody("PATCH", { title })),
   setWorkspace: (id: string, workspaceGrantId: string | null) => requestJson<Data<ChatSummary>>(conversationPath(id), t("ui.chat.workspace.failed"), jsonBody("PATCH", { workspaceGrantId })),
   setEphemeral: (id: string, ephemeral: boolean) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatApi.setEphemeralFailed"), jsonBody("PATCH", { ephemeral })),
+  // Opened: what arrived in it has been seen.
+  markRead: (id: string) => requestJson<Data<ChatSummary>>(conversationPath(id), t("sidebar.failed"), jsonBody("PATCH", { unread: false })),
+  // Stops the turn the service is holding in this conversation; false when none was running.
+  stopTurn: async (id: string) => (await requestJson<Data<{ stopped: boolean }>>(`/api/chat/${encodeURIComponent(id)}/stream`, t("chatState.requestFailed"), { method: "DELETE" })).data.stopped,
   setApprovalRule: (id: string, approvalRule: ApprovalRule) => requestJson<Data<ChatSummary>>(conversationPath(id), t("approval.saveFailed"), jsonBody("PATCH", { approvalRule })),
   deleteConversation: (id: string) => requestJson<unknown>(conversationPath(id), t("chatApi.deleteConversationFailed"), { method: "DELETE" }),
   listMessages: (id: string, cursor?: string) => requestJson<Page<StoredMessage>>(withCursor(`${conversationPath(id)}/messages`, cursor), t("chatApi.listMessagesFailed")),

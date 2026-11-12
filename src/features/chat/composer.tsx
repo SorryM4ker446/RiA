@@ -18,7 +18,7 @@ import { SETTINGS_PARAM, type SettingsSectionId } from "@/lib/settings/sections"
 import { Textarea } from "@/components/ui/textarea";
 import { CHAT_ATTACHMENT_TYPES, DOCUMENT_ATTACHMENT_TYPES, IMAGE_MEDIA_TYPES, isDocumentAttachment } from "@/lib/media/limits";
 import { cn } from "@/lib/utils/cn";
-import { ArrowUp, Loader2, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, ListPlus, Loader2, Paperclip, PencilLine, Square, X } from "lucide-react";
 import { rememberSlashItem, recentSlashItems } from "@/features/chat/slash-recent";
 import { DocumentToolBar } from "@/features/chat/document-tool-bar";
 import { ComposerChoices, type ChoiceWord } from "@/features/chat/composer-choices";
@@ -101,6 +101,11 @@ type Props = Pick<
   | "setApprovalRule"
   | "isApprovalSaving"
   | "isLoadingChats"
+  | "queuedMessages"
+  | "canQueue"
+  | "queueMessage"
+  | "removeQueued"
+  | "editQueued"
 >;
 export function Composer({
   onStop,
@@ -155,6 +160,11 @@ export function Composer({
   setApprovalRule,
   isApprovalSaving,
   isLoadingChats,
+  queuedMessages,
+  canQueue,
+  queueMessage,
+  removeQueued,
+  editQueued,
 }: Props) {
   useLocale();
   const isDocumentTool = modelMode === "chat" && DOCUMENT_TOOLS.has(choice.tool?.id ?? "");
@@ -313,6 +323,19 @@ export function Composer({
       onDrop={onComposerDrop}
       onSubmit={onSubmit}
     >
+      {/* Written while the answer was still coming: sent in order once the conversation is free. */}
+      {queuedMessages.length ? (
+        <ol className="composer-queue" aria-label={t("chat.queue.label")}>
+          {queuedMessages.map(item => (
+            <li key={item.id} className="composer-queue-item">
+              <span className="composer-queue-text truncate">{item.text || item.attachments.map(file => file.filename ?? "").join(t("chat.composer.attachmentSeparator"))}</span>
+              <Button type="button" variant="ghost" size="icon-sm" className="composer-queue-action" aria-label={t("chat.queue.edit")} title={t("chat.queue.edit")} onClick={() => editQueued(item.id)}><PencilLine aria-hidden="true" /></Button>
+              <Button type="button" variant="ghost" size="icon-sm" className="composer-queue-action" aria-label={t("chat.queue.remove")} title={t("chat.queue.remove")} onClick={() => removeQueued(item.id)}><X aria-hidden="true" /></Button>
+            </li>
+          ))}
+          <li className="composer-queue-hint">{t("chat.queue.hint")}</li>
+        </ol>
+      ) : null}
       {modelMode === "chat" && toolCatalogError ? (
         <p className="text-[11px] text-warning">
           {tf("chat.composer.toolCatalogError", { detail: toolCatalogError })}
@@ -566,6 +589,12 @@ export function Composer({
           {/* Stopping replaces sending while a turn is running. The label says
             exactly that: the request to the provider is abandoned, not undone,
             and anything already produced stays on screen. */}
+          {/* While an answer is coming, what is written now can wait its turn (Enter does the same). */}
+          {isWorking && canQueue ? (
+            <Button type="button" size="icon" variant="ghost" className="rounded-full" aria-label={t("chat.queue.add")} title={t("chat.queue.add")} onClick={queueMessage}>
+              <ListPlus aria-hidden="true" />
+            </Button>
+          ) : null}
           {isConverting ? <Button size="icon" className="rounded-full" disabled aria-label={t("ui.chat.composer.runningTool")}><Loader2 data-icon="inline-start" className="animate-spin" /></Button> : isWorking ? (
             <Button
               aria-label={t("chat.composer.stop")}

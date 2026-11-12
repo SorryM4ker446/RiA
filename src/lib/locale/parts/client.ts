@@ -73,7 +73,6 @@ export const clientMessages = {
   // Saved as the assistant message body when a stream is cut off, so the text
   // is user-visible; it stays a plain sentence with no trailing punctuation of
   // its own.
-  "chatState.streamInterrupted": "（响应中断，已保存当前输出）",
   "chatState.regenerateFailed": "重新生成失败",
   // A model id is interpolated between the two halves, so neither half carries
   // the surrounding spaces.

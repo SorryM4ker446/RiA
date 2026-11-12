@@ -161,10 +161,10 @@ function Group({ label, hideLabel = false, folded = false, onToggle, children }:
   );
 }
 
-const STATE_LABEL: Record<Exclude<ConversationState, null>, string> = { working: "sidebar.state.working", task: "sidebar.state.task", approval: "sidebar.state.approval" };
+const STATE_LABEL: Record<Exclude<ConversationState, null>, string> = { queued: "sidebar.state.queued", working: "sidebar.state.working", task: "sidebar.state.task", approval: "sidebar.state.approval", unread: "sidebar.state.unread" };
 
 function Rows({ chats, activeId, workingId, onOpen }: { chats: ChatSummary[]; activeId: string | null; workingId: string | null; onOpen: (id: string) => void }) {
-  return <ul className="flex flex-col gap-px">{chats.map(chat => <Row key={chat.id} chat={chat} active={chat.id === activeId} state={conversationState(chat, workingId)} onOpen={onOpen} />)}</ul>;
+  return <ul className="flex flex-col gap-px">{chats.map(chat => <Row key={chat.id} chat={chat} active={chat.id === activeId} state={conversationState(chat, workingId, activeId)} onOpen={onOpen} />)}</ul>;
 }
 
 function Row({ chat, active, state, onOpen }: { chat: ChatSummary; active: boolean; state: ConversationState; onOpen: (id: string) => void }) {

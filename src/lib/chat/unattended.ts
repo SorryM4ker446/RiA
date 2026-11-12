@@ -4,7 +4,9 @@ import { decodePersistedAssistantToolMessage } from "@/lib/ai/ui-message";
 import { storedFromSummary } from "@/lib/chat/model-context";
 import { parseChatRequest } from "@/lib/chat/request";
 import { answerChatRequest } from "@/lib/chat/turn";
-import { normalizeApiError } from "@/lib/server/api-error";
+import { holdTurn, isTurnLive, waitForTurnEnd } from "@/lib/chat/live-turns";
+import { markTurnAnswered } from "@/lib/conversations/mutations";
+import { ApiError, normalizeApiError } from "@/lib/server/api-error";
 import type { CallSource } from "@/lib/models/call-context";
 
 /*
@@ -15,6 +17,12 @@ import type { CallSource } from "@/lib/models/call-context";
  * permissions that conversation has, and the answer is saved. The only
  * difference is the reader. With no page to show the stream to, it is read to
  * its end here, and what it said about how the turn went is the result.
+ *
+ * The service holds the turn like any other, so the conversation opened while
+ * it runs shows the answer as it is written.
+ *
+ * A run that falls due while the user is getting an answer in its
+ * conversation waits for that answer to end and then goes ahead.
  *
  * Nothing is approved on the user's behalf. A tool that asks first still asks:
  * the turn stops with the request saved in the conversation, where the user
@@ -74,13 +82,28 @@ async function readOutcome(response: Response, signal: AbortSignal): Promise<Una
 
 export async function runUnattendedTurn(params: { chatId: string; text: string; signal: AbortSignal; callSource?: CallSource; requestNote?: string }): Promise<UnattendedOutcome> {
   try {
-    const { messages } = await storedFromSummary(params.chatId);
-    const input = await parseChatRequest({
-      chatId: params.chatId,
-      trigger: "submit-message",
-      messages: [...messages.slice(-(SENT_MESSAGES - 1)), { id: generateId(), role: "user", parts: [{ type: "text", text: params.text }] }],
-    });
-    return await readOutcome(await answerChatRequest(input, params.signal, { callSource: params.callSource, requestNote: params.requestNote }), params.signal);
+    for (;;) {
+      // Someone is getting an answer here: the run waits for that turn to end
+      // rather than being refused, and then reads the conversation as it is.
+      await waitForTurnEnd(params.chatId, params.signal);
+      // That turn may have ended asking for an approval, which a new message would pass by.
+      if (await awaitsApproval(params.chatId)) return { status: "waiting_approval" };
+      const { messages } = await storedFromSummary(params.chatId);
+      const input = await parseChatRequest({
+        chatId: params.chatId,
+        trigger: "submit-message",
+        messages: [...messages.slice(-(SENT_MESSAGES - 1)), { id: generateId(), role: "user", parts: [{ type: "text", text: params.text }] }],
+      });
+      let response: Response;
+      try {
+        response = await holdTurn(params.chatId, signal => answerChatRequest(input, signal, { callSource: params.callSource, requestNote: params.requestNote }), { source: "task", outer: params.signal, settle: markTurnAnswered });
+      } catch (error) {
+        // Another turn began between the wait and the start: wait for that one too.
+        if (error instanceof ApiError && error.code === "CONFLICT" && isTurnLive(params.chatId)) continue;
+        throw error;
+      }
+      return await readOutcome(response, params.signal);
+    }
   } catch (error) {
     if (params.signal.aborted) return { status: "failed", errorCode: "ABORTED" };
     return { status: "failed", errorCode: normalizeApiError(error).code };

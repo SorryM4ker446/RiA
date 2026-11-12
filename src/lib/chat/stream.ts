@@ -7,7 +7,7 @@ import { ApiError, apiErrorPayload, normalizeApiError } from "@/lib/server/api-e
 import { createChatToolSet } from "@/tools/catalog";
 import type { ModelMessage } from "ai";
 import type { LanguageModelV3Prompt } from "@ai-sdk/provider";
-import { asSchema, createUIMessageStream, createUIMessageStreamResponse, generateId, smoothStream, stepCountIs, streamText, wrapLanguageModel, type UIMessageChunk, type UIMessageStreamWriter } from "ai";
+import { asSchema, createUIMessageStream, createUIMessageStreamResponse, generateId, smoothStream, stepCountIs, streamText, wrapLanguageModel, type TextStreamPart, type ToolSet, type UIMessageChunk, type UIMessageStreamWriter } from "ai";
 import { convertToLanguageModelPrompt, standardizePrompt } from "ai/internal";
 import { isContextOverflow } from "@/lib/models/context-overflow";
 import { claimChatApproval, persistChatResponse, type ChatPersistence } from "@/lib/chat/persistence";
@@ -136,6 +136,33 @@ export async function streamChatResponse(params: Omit<ChatAnswer, "modelMessages
       await relay(await openChatAnswer({ ...params, modelMessages }), writer);
     } finally { release(); }
   });
+}
+
+/**
+ * Ends the answer the moment the turn is stopped. The SDK notices a stop only
+ * when it reads more from the provider, and the smoothing above writes out what
+ * it already holds before it reads again: a provider that sent much of the
+ * answer at once would keep the stopped answer going until all of that was
+ * written. Here the stop ends it with the SDK's own abort, so the answer is
+ * saved as stopped, where it was, as it would be had the provider been slower.
+ */
+function endsWhenStopped(signal: AbortSignal) {
+  return () => {
+    let stop = () => {};
+    return new TransformStream<TextStreamPart<ToolSet>, TextStreamPart<ToolSet>>({
+      start(controller) {
+        stop = () => {
+          try {
+            controller.enqueue({ type: "abort", ...(signal.reason !== undefined ? { reason: String(signal.reason) } : {}) } as TextStreamPart<ToolSet>);
+            controller.terminate();
+          } catch { /* Already ended on its own. */ }
+        };
+        if (signal.aborted) stop(); else signal.addEventListener("abort", stop, { once: true });
+      },
+      transform(chunk, controller) { controller.enqueue(chunk); },
+      flush() { signal.removeEventListener("abort", stop); },
+    });
+  };
 }
 
 async function openChatAnswer(params: ChatAnswer) {
@@ -294,7 +321,10 @@ async function openChatAnswer(params: ChatAnswer) {
     // character or two in Chinese), a few milliseconds apart, the answer reads
     // as steady typing rather than jumps; faster than a model writes, so it
     // does not hold the answer back.
-    experimental_transform: smoothStream({ delayInMs: 6, chunking: new Intl.Segmenter(undefined, { granularity: "word" }) }),
+    experimental_transform: [
+      smoothStream({ delayInMs: 6, chunking: new Intl.Segmenter(undefined, { granularity: "word" }) }),
+      endsWhenStopped(signal),
+    ],
     ...(toolsEnabled
       ? {
         tools,
@@ -339,7 +369,8 @@ async function openChatAnswer(params: ChatAnswer) {
       let persistenceFailed = false;
       try {
         await persistChatResponse({
-          input, conversation, responseMessage, isAborted, generationFailed, skippedTool, thinking: thinkingClock.report(),
+          // Ended by a stop, whether or not the stream got as far as saying so.
+          input, conversation, responseMessage, isAborted: isAborted || signal.aborted, generationFailed, skippedTool, thinking: thinkingClock.report(),
           unavailableTools: params.unavailableTools,
           runId: params.runId,
           contextReport: contextReport(),

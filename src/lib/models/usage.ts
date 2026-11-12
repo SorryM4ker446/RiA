@@ -5,6 +5,7 @@ import { getModelPreferences } from "@/lib/models/preferences";
 import { dataRequestContext } from "@/lib/server/data-operations";
 import { budgetDay } from "./call-controls";
 import { modelCallSource, type CallSource } from "./call-context";
+import { releaseForAttempt } from "./call-slots";
 import type { ModelPreferences } from "@/lib/models/preferences-schema";
 
 type Mode = "chat" | "image" | "video" | "embedding";
@@ -48,6 +49,8 @@ export function usageCost(mode: Mode, usage: unknown, metadata: unknown, rate?: 
   return { inputTokens, outputTokens, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite, costUsd: cost, costSource: cost === null ? "unknown" : "configured" };
 }
 export async function recordModelAttempt(input: { attemptId?: string; source?: CallSource; requestId?: string; mode: Mode; modelId: string; modelProvider?: string; started: number; usage?: unknown; metadata?: unknown; error?: unknown; fallback?: boolean; rate?: ModelPreferences["rates"][string] }) {
+  // The attempt has ended: its place is free for the next, whatever is recorded.
+  releaseForAttempt(input.attemptId);
   const errorCode = input.error === undefined ? null : modelErrorCode(input.error);
   const measured = usageCost(input.mode, input.usage, input.metadata, input.rate);
   // A failed or interrupted request may still have been billed. Never present

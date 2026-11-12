@@ -12,6 +12,7 @@ import { modelInLibrary } from "@/lib/models/preferences";
 import { assertSelectableWorkspace } from "@/lib/local-files/workspace";
 import { approvalRuleSchema, readApprovalRule, type ApprovalRule } from "@/lib/approvals/rules";
 import { readTaskEffort, readTaskNotify, taskEffortSchema, taskNotifySchema, type TaskEffort, type TaskNotify } from "@/lib/scheduler/task-settings";
+import { announceConversationsChanged } from "@/lib/conversations/events";
 
 /*
  * Tasks: work the user asked to happen at a time, without being present.
@@ -240,6 +241,7 @@ export async function createTask(raw: TaskInput, now = new Date()): Promise<Task
     },
     select: taskSelect,
   });
+  announceConversationsChanged();
   return toView(row);
 }
 
@@ -290,12 +292,14 @@ export async function updateTask(id: string, patch: TaskPatch, now = new Date())
     },
     select: taskSelect,
   });
+  announceConversationsChanged();
   return toView(row);
 }
 
 export async function deleteTask(id: string): Promise<{ deleted: boolean }> {
   // The conversation is kept: what the task did there is the user's to read or delete.
   const removed = await db.scheduledJob.deleteMany({ where: { id, OR: [{ lastStatus: null }, { lastStatus: { not: "running" } }] } });
+  announceConversationsChanged();
   if (removed.count) return { deleted: true };
   if (await db.scheduledJob.findUnique({ where: { id }, select: { id: true } })) {
     throw new ApiError({ code: "CONFLICT", message: "The task is running; stop it first" });

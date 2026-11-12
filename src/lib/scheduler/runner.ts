@@ -13,6 +13,7 @@ import { admitBackgroundRun } from "@/lib/models/call-controls";
 import { getModelPreferences } from "@/lib/models/preferences";
 import { interfaceLocale, wordTask } from "@/lib/scheduler/task-wording";
 import { taskNotifies } from "@/lib/scheduler/task-settings";
+import { announceConversationsChanged } from "@/lib/conversations/events";
 
 /*
  * Carrying out a task that is due.
@@ -208,6 +209,7 @@ async function execute(claimed: ClaimedTask, now: Date): Promise<TaskOutcome> {
   }
   await completeTask(task.id, outcome, new Date(now.getTime() + Math.max(0, Date.now() - started)), task.runId)
     .catch(() => { console.error("scheduler.complete.failed"); });
+  announceConversationsChanged();
   if (holdsPlace) {
     shared.backgroundPrompts = Math.max(0, (shared.backgroundPrompts ?? 1) - 1);
     // A prompt that waited for this place should not also wait for the next poll.
@@ -229,6 +231,7 @@ function start(claim: () => Promise<ClaimedTask | null>, now: Date): Promise<Sta
     runBackgroundDataOperation(async () => {
       const task = await claim();
       if (!task) { resolve(null); return; }
+      announceConversationsChanged();
       const finished = execute(task, now);
       resolve({ task, finished });
       await finished;

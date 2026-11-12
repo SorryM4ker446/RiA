@@ -1,4 +1,5 @@
 import { conversationCollections } from "@/lib/conversations/document-scope";
+import { isTurnLive, isTurnQueued } from "@/lib/chat/live-turns";
 import { encodeDocumentScope } from "@/lib/documents/scope";
 import { createHash } from "node:crypto";
 import { Prisma, type Chat } from "@prisma/client";
@@ -74,6 +75,10 @@ export function conversationSummary(chat: Chat & { tags: { label: string }[]; _c
     // page looks for what it added, and it decides the model every turn uses.
     task: task ? { id: task.id, model: taskModel(task), running: task.lastStatus === "running" } : null,
     awaitingApproval: waiting,
+    // A turn the service is holding in it now, whoever started it, and an answer not opened yet.
+    answering: isTurnLive(chat.id),
+    queued: isTurnQueued(chat.id),
+    unread: chat.unread,
   };
 }
 

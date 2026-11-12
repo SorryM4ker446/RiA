@@ -1,10 +1,16 @@
 import { canFallback } from "./usage";
 
-/** Retries of one model after a transient failure, as the provider SDKs default to. */
-export const MODEL_RETRIES = 2;
+/**
+ * Retries of one model after a transient failure. With several conversations
+ * answering at once a provider's rate limit is met far more often than one at a
+ * time, so the waits grow to about half a minute before the call gives up.
+ */
+export const MODEL_RETRIES = 5;
+/** While another model could answer instead, a failing one gets only a quick second try. */
+export const QUICK_RETRIES = 2;
 /** A provider asking for a longer wait is treated as unavailable rather than held. */
 export const MAX_RETRY_DELAY_MS = 60_000;
-const BASE_RETRY_DELAY_MS = 500;
+const BASE_RETRY_DELAY_MS = 1000;
 
 function object(value: unknown): Record<string, unknown> { return value && typeof value === "object" ? value as Record<string, unknown> : {}; }
 
@@ -26,8 +32,8 @@ function retryAfterMs(error: unknown, now = Date.now()): number | null {
  * cancellation, timeouts, other client errors, a missing model and an account out of
  * balance, none of which waiting will change.
  */
-export function retryDelay(error: unknown, retries: number, signal?: AbortSignal): number | null {
-  if (retries >= MODEL_RETRIES || !canFallback(error, signal) || object(error).statusCode === 404 || object(error).statusCode === 402) return null;
+export function retryDelay(error: unknown, retries: number, signal?: AbortSignal, limit = MODEL_RETRIES): number | null {
+  if (retries >= limit || !canFallback(error, signal) || object(error).statusCode === 404 || object(error).statusCode === 402) return null;
   const requested = retryAfterMs(error);
   if (requested !== null) return requested <= MAX_RETRY_DELAY_MS ? requested : null;
   return BASE_RETRY_DELAY_MS * 2 ** retries;

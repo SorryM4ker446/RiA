@@ -13,6 +13,7 @@ import { upgradeModelPreferences } from "@/lib/models/preferences-schema";
 import { isDefaultAssistantId } from "@/lib/assistants/schema";
 import { defaultApprovalRule } from "@/lib/approvals/preferences";
 import { resultConversations } from "@/lib/backups/legacy-topics";
+import { announceConversationsChanged } from "@/lib/conversations/events";
 
 export async function restoreAccountBackup(id: string) {
   const archive = await openBackup(id);
@@ -156,6 +157,7 @@ export async function restoreAccountBackup(id: string) {
     const cleanup = await pruneAccountBackupsSafely(safety.id);
     // Restored runs replace the previous ones; their terminal logs go with them.
     await pruneTerminalLogs(activeTerminalSessionIds()).catch(() => console.error("terminal.log.prune.failed"));
+    announceConversationsChanged();
     return {
       safetyBackupId: safety.id,
       restored: true,

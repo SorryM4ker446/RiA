@@ -31,6 +31,12 @@ export type ChatSummary = {
   task?: { id: string; model: ModelRef | null; running?: boolean } | null;
   /** The latest answer waits for the user to approve a tool call. */
   awaitingApproval?: boolean;
+  /** A turn the service is holding in it now, whoever started it. */
+  answering?: boolean;
+  /** That turn is waiting for a place to run. */
+  queued?: boolean;
+  /** An answer arrived that has not been opened yet. */
+  unread?: boolean;
 };
 
 /**
@@ -298,3 +304,6 @@ export function getMessageRoleLabel(role: UIMessage["role"]): string {
   if (role === "assistant") return t("chat.role.assistant");
   return t("chat.role.system");
 }
+
+/** What a turn's stream says while it waits for a place, or while the provider is retried. */
+export type TurnNotice = { state: "queued"; ahead: number } | { state: "retrying"; attempt: number; seconds: number };

@@ -17,11 +17,17 @@ import { useRefreshOnReturn } from "@/lib/use-refresh-on-return";
  *
  * Besides the stored state, it carries what only this window knows: which
  * conversation the chat page has open, and which one is answering right now.
+ *
+ * It follows the service's account of what happens to the conversations
+ * (/api/conversations/events) rather than asking on a timer: when anything
+ * changes, anywhere, the list is read again, and when a turn starts or ends the
+ * chat page is told, so it can show an answer it did not ask for.
  */
 
-/** How often the list is read again while the window is in view; sooner while a task runs in one of them. */
-const REFRESH_MS = 30_000;
-const TASK_REFRESH_MS = 5_000;
+/** Changes arriving together are read once: a turn ending saves its answer and marks it unread at nearly the same moment. */
+const COALESCE_MS = 120;
+
+export type TurnNotice = { type: "turn-started" | "turn-finished"; chatId: string; source: "chat" | "task"; outcome?: string; title?: string | null };
 
 export type ReloadOutcome = { status: "read"; list: ChatSummary[] } | { status: "superseded" } | { status: "failed"; message: string };
 
@@ -58,6 +64,8 @@ type Store = {
   /** While the chat page creates a conversation, so a second click cannot ask for another. */
   isCreating: boolean;
   setCreating: (creating: boolean) => void;
+  /** Hears a turn start or end in any conversation, whoever started it. */
+  onTurn: (listener: (notice: TurnNotice) => void) => () => void;
 };
 
 const ConversationStoreContext = createContext<Store | null>(null);
@@ -80,6 +88,9 @@ export function ConversationStoreProvider({ children }: { children: ReactNode })
   const removedListeners = useRef(new Set<(id: string, remaining: ChatSummary[]) => void>());
   const chatsRef = useRef(chats);
   useEffect(() => { chatsRef.current = chats; }, [chats]);
+  const turnListeners = useRef(new Set<(notice: TurnNotice) => void>());
+  // A change heard while a read is under way is read after it, not dropped.
+  const readAgain = useRef(false);
 
   const invalidate = useCallback(() => { request.current += 1; }, []);
 
@@ -110,8 +121,14 @@ export function ConversationStoreProvider({ children }: { children: ReactNode })
       return { status: "failed", message: error instanceof Error ? error.message : t("chatApi.listConversationsFailed") };
     } finally {
       inFlight.current -= 1;
+      if (inFlight.current === 0 && readAgain.current) {
+        readAgain.current = false;
+        void reloadRef.current({ include: activeIdRef.current, background: true });
+      }
     }
   }, []);
+  const reloadRef = useRef(reload);
+  useEffect(() => { reloadRef.current = reload; }, [reload]);
 
   const loadMore = useCallback(async (): Promise<string | null> => {
     const cursor = cursorRef.current;
@@ -150,26 +167,50 @@ export function ConversationStoreProvider({ children }: { children: ReactNode })
     return () => { removedListeners.current.delete(listener); };
   }, []);
 
+  const onTurn = useCallback((listener: (notice: TurnNotice) => void) => {
+    turnListeners.current.add(listener);
+    return () => { turnListeners.current.delete(listener); };
+  }, []);
+
   // The list is read when the app opens, and again when the window comes back
-  // into view. A conversation can change without this window doing anything (a
-  // task runs in it, another window answers), so the list is also read again on
-  // a timer while the window is visible, sooner while a task is running.
-  // A page below that reads the list on mount (chat) has already asked by the
-  // time this runs; only a page that does not leaves the first read to the store.
+  // into view. A page below that reads the list on mount (chat) has already
+  // asked by the time this runs; only a page that does not leaves the first read to the store.
   useEffect(() => { if (request.current === 0) void reload({ background: true }); }, [reload]);
   useRefreshOnReturn(() => { void reload({ include: activeIdRef.current, background: true }); });
-  const taskRunning = chats.some(chat => chat.task?.running);
+  // Whatever changes the conversations elsewhere (a task, another window, the
+  // service finishing an answer) is heard here and read again. The browser
+  // reconnects a dropped connection by itself; `ready` on each connection reads
+  // the list again, so nothing said while it was away is missed.
   useEffect(() => {
-    const timer = setInterval(() => {
-      if (document.visibilityState === "visible") void reload({ include: activeIdRef.current, background: true });
-    }, taskRunning ? TASK_REFRESH_MS : REFRESH_MS);
-    return () => clearInterval(timer);
-  }, [reload, taskRunning]);
+    if (typeof EventSource === "undefined") return;
+    const source = new EventSource("/api/conversations/events");
+    let timer = 0;
+    const readSoon = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        if (inFlight.current > 0) { readAgain.current = true; return; }
+        void reloadRef.current({ include: activeIdRef.current, background: true });
+      }, COALESCE_MS);
+    };
+    // The first connection's `ready` comes while the page's own first read is under way.
+    let connected = false;
+    source.addEventListener("ready", () => { if (connected) readSoon(); connected = true; });
+    source.addEventListener("changed", readSoon);
+    source.addEventListener("turn", event => {
+      let notice: TurnNotice;
+      try { notice = JSON.parse((event as MessageEvent<string>).data); } catch { return; }
+      readSoon();
+      for (const listener of turnListeners.current) {
+        try { listener(notice); } catch { /* One listener failing does not keep the others from hearing it. */ }
+      }
+    });
+    return () => { window.clearTimeout(timer); source.close(); };
+  }, []);
 
   const value = useMemo<Store>(() => ({
     chats, setChats, isLoading, nextCursor, isLoadingMore, reload, readVersion, loadMore, invalidate, update, remove, onRemoved,
-    activeId, setActiveId, workingId, setWorkingId, isCreating, setCreating,
-  }), [chats, isLoading, nextCursor, isLoadingMore, reload, readVersion, loadMore, invalidate, update, remove, onRemoved, activeId, workingId, isCreating]);
+    activeId, setActiveId, workingId, setWorkingId, isCreating, setCreating, onTurn,
+  }), [chats, isLoading, nextCursor, isLoadingMore, reload, readVersion, loadMore, invalidate, update, remove, onRemoved, activeId, workingId, isCreating, onTurn]);
   return <ConversationStoreContext.Provider value={value}>{children}</ConversationStoreContext.Provider>;
 }
 
@@ -179,11 +220,19 @@ export function useConversationStore(): Store {
   return store;
 }
 
-/** What a conversation's dot says: answering in this window, a task running in it, or an approval waiting. */
-export type ConversationState = "working" | "task" | "approval" | null;
+/**
+ * What a conversation's dot says: an answer waiting for its turn, its task running, an answer being written in
+ * it (here, in another window or by a task), an approval waiting, or an answer
+ * not opened yet. The conversation open on the chat page is being read, so it
+ * is never unread.
+ */
+export type ConversationState = "queued" | "working" | "task" | "approval" | "unread" | null;
 
-export function conversationState(chat: ChatSummary, workingId: string | null): ConversationState {
-  if (chat.id === workingId) return "working";
+export function conversationState(chat: ChatSummary, workingId: string | null, activeId: string | null = null): ConversationState {
+  // Waiting for a place to answer: it starts by itself once one frees up.
+  if (chat.queued) return "queued";
   if (chat.task?.running) return "task";
-  return chat.awaitingApproval ? "approval" : null;
+  if (chat.id === workingId || chat.answering) return "working";
+  if (chat.awaitingApproval) return "approval";
+  return chat.unread && chat.id !== activeId ? "unread" : null;
 }

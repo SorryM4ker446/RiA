@@ -36,6 +36,7 @@ import { installationRoot, launchInstaller, reconcileUpdateDirectory, removeEmpt
 import { DEVELOPMENT_APP_USER_MODEL_ID, INSTALLED_APP_USER_MODEL_ID } from "./app-identity";
 import { UPDATE_SIGNING_PUBLIC_KEY } from "./update-signing-key";
 import { createTaskNotificationDelivery, TaskReminderPoller, type TaskNotice } from "./task-reminders";
+import { ConversationAlerts, createConversationNotificationDelivery } from "./conversation-alerts";
 import { seedTaskReminderSmoke } from "./task-reminders-smoke";
 import { prepareConversationSmoke, verifyConversationSmoke } from "./conversations-smoke";
 import { seedMediaLibrarySmoke, verifyMediaLibrarySmoke } from "./media-library-smoke";
@@ -80,6 +81,8 @@ let restartInProgress: Promise<void> | null = null;
  */
 let restartAbort: AbortController | null = null;
 let reminderPoller: TaskReminderPoller | null = null;
+// Notifications for answers that end while the window is not in front; started and stopped with the poller.
+let conversationAlerts: ConversationAlerts | null = null;
 
 /**
  * Present only when the user chose to keep the app running when the window
@@ -207,7 +210,7 @@ function handleUnexpectedServiceExit(exit: NextServerExit): void {
    * listening on, every thirty seconds, for as long as the window is open.
    */
   void (async () => {
-    await reminderPoller?.stop();
+    await reminderPoller?.stop(); await conversationAlerts?.stop();
     // The quit can land while the poller settles, and there is then nothing
     // left to tell anyone.
     if (isQuitting || !mainWindow || mainWindow.isDestroyed()) return;
@@ -260,7 +263,7 @@ async function restartLocalService(destination = "/chat?settings=services&saved=
   restartInProgress = (async () => {
     if (!logger) return;
     logger.info("Restarting local Next.js service");
-    await reminderPoller?.stop();
+    await reminderPoller?.stop(); await conversationAlerts?.stop();
     if (isQuitting) return;
     // Stop the old renderer's HMR reconnect and requests before restarting.
     // Otherwise its reload can abort the navigation to the restarted service.
@@ -313,6 +316,7 @@ async function restartLocalService(destination = "/chat?settings=services&saved=
       await mainWindow.loadURL(`${nextServer.origin}${destination}`);
     }
     reminderPoller?.start();
+    conversationAlerts?.start();
 
     // The tray and the close behaviour follow the stored setting, including
     // after a service restart and including a change made in the running app.
@@ -1214,7 +1218,7 @@ async function runSmokeAssertion() {
   await verifyDocumentProcessorSmoke(mainWindow!, nextServer.origin, `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}`, wordDocument.id, dirname(desktopPaths.databaseFile));
   await verifyConversationSmoke(mainWindow!, nextServer.origin, `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}`, conversationId, dirname(desktopPaths.databaseFile));
   await verifyMediaLibrarySmoke(mainWindow!, nextServer.origin, `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}`, libraryFixture, asset.assetId, mediaBytes, dirname(desktopPaths.databaseFile));
-  await reminderPoller?.stop();
+  await reminderPoller?.stop(); await conversationAlerts?.stop();
   await verifyAccountBackupSmoke(mainWindow!, nextServer.origin, `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}`, dirname(desktopPaths.databaseFile), async () => { await restartLocalService(); return nextServer!.origin; });
   const log = readFileSync(desktopPaths.logFile, "utf8");
   if (!log.includes("Next stdout") || log.includes(`desktop-smoke-key-${process.pid}`) || statSync(desktopPaths.logFile).size > DESKTOP_LOG_LIMITS.maxBytes) {
@@ -1334,6 +1338,14 @@ async function bootstrap() {
     logger,
   });
   reminderPoller.start();
+  conversationAlerts = new ConversationAlerts({
+    connection: () => nextServer ? { origin: nextServer.origin, cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}` } : null,
+    supported: () => !smokeTest && Notification.isSupported(),
+    inFront: () => Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && !mainWindow.isMinimized() && mainWindow.isFocused()),
+    deliver: createConversationNotificationDelivery(Notification, openFromNotice, logger, () => settingsStore?.getLocale() ?? "zh-CN", notificationIcon),
+    logger,
+  });
+  conversationAlerts.start();
   /*
    * The tray and the global shortcut have to be set up on a cold start, not only
    * after a settings change. They were once wired into the service-restart path
@@ -1376,6 +1388,7 @@ async function bootstrap() {
     await runSmokeAssertion();
     isQuitting = true;
     await reminderPoller.stop();
+    await conversationAlerts?.stop();
     await nextServer.stop();
     app.exit(0);
   }
@@ -1442,14 +1455,14 @@ app.on("before-quit", (event) => {
      */
     event.preventDefault();
     isQuitting = true;
-    void (async () => { await reminderPoller?.stop(); })().finally(() => app.exit(0));
+    void (async () => { await reminderPoller?.stop(); await conversationAlerts?.stop(); })().finally(() => app.exit(0));
     return;
   }
   event.preventDefault();
   isQuitting = true;
   restartAbort?.abort(new Error("The application is quitting."));
   void (async () => {
-    await reminderPoller?.stop();
+    await reminderPoller?.stop(); await conversationAlerts?.stop();
     await restartInProgress?.catch(() => {});
     await nextServer?.stop();
   })().finally(() => app.exit(0));
@@ -1461,6 +1474,6 @@ if (singleInstanceLock) {
     logger?.error("Desktop application failed to start", error);
     if (!smokeTest) dialog.showErrorBox(`${PRODUCT_NAME} failed to start`, `${message}\n\nSee the desktop log for details.`);
     isQuitting = true;
-    void (async () => { await reminderPoller?.stop(); await nextServer?.stop(); })().finally(() => app.exit(1));
+    void (async () => { await reminderPoller?.stop(); await conversationAlerts?.stop(); await nextServer?.stop(); })().finally(() => app.exit(1));
   });
 }
