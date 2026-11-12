@@ -5,6 +5,17 @@ import { onConversationsChanged } from "@/lib/conversations/events";
 import { createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { db } from "@/db";
 
+/** The name of a finished turn's conversation, read once however many windows are listening. */
+const titles = new WeakMap<TurnEvent, Promise<string | null>>();
+function titleOf(event: TurnEvent): Promise<string | null> {
+  let title = titles.get(event);
+  if (!title) {
+    title = db.chat.findUnique({ where: { id: event.chatId }, select: { title: true } }).then(chat => chat?.title ?? null, () => null);
+    titles.set(event, title);
+  }
+  return title;
+}
+
 /** A comment line every so often, so a connection nothing is said on is not taken for dead along the way. */
 const KEEPALIVE_MS = 25_000;
 
@@ -40,8 +51,7 @@ export async function GET(req: NextRequest) {
       const onTurn = async (event: TurnEvent) => {
         if (event.type !== "turn-finished") return send("turn", event);
         // Named for a notification; a conversation deleted meanwhile has no name to give.
-        const chat = await db.chat.findUnique({ where: { id: event.chatId }, select: { title: true } }).catch(() => null);
-        send("turn", { ...event, title: chat?.title ?? null });
+        send("turn", { ...event, title: await titleOf(event) });
       };
       const offTurn = onTurnEvent(event => { void onTurn(event); });
       const offChanged = onConversationsChanged(() => send("changed", {}));

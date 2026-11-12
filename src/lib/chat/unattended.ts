@@ -80,12 +80,22 @@ async function readOutcome(response: Response, signal: AbortSignal): Promise<Una
   return { status: asked ? "waiting_approval" : "succeeded" };
 }
 
-export async function runUnattendedTurn(params: { chatId: string; text: string; signal: AbortSignal; callSource?: CallSource; requestNote?: string }): Promise<UnattendedOutcome> {
+export async function runUnattendedTurn(params: {
+  chatId: string; text: string; signal: AbortSignal; callSource?: CallSource; requestNote?: string;
+  /** A place the run holds among background work: given back while it waits, taken again before it sends. */
+  place?: { give(): void; take(signal: AbortSignal): Promise<void> };
+}): Promise<UnattendedOutcome> {
   try {
     for (;;) {
       // Someone is getting an answer here: the run waits for that turn to end
       // rather than being refused, and then reads the conversation as it is.
-      await waitForTurnEnd(params.chatId, params.signal);
+      if (isTurnLive(params.chatId)) {
+        params.place?.give();
+        await waitForTurnEnd(params.chatId, params.signal);
+        await params.place?.take(params.signal);
+        // Another turn may have begun while it waited for its place.
+        if (isTurnLive(params.chatId)) continue;
+      }
       // That turn may have ended asking for an approval, which a new message would pass by.
       if (await awaitsApproval(params.chatId)) return { status: "waiting_approval" };
       const { messages } = await storedFromSummary(params.chatId);

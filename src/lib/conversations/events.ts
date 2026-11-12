@@ -10,10 +10,22 @@
 type Listener = () => void;
 const listeners: Set<Listener> = ((globalThis as { __riaConversationListeners?: Set<Listener> }).__riaConversationListeners ??= new Set());
 
+const state: { pending: boolean } = ((globalThis as { __riaConversationsAnnounce?: { pending: boolean } }).__riaConversationsAnnounce ??= { pending: false });
+
+/**
+ * Says it once for everything written in the same step: a save that touches a
+ * message, its conversation and its task announces three times, and listeners
+ * hear one.
+ */
 export function announceConversationsChanged() {
-  for (const listener of listeners) {
-    try { listener(); } catch { /* One listener failing does not keep the others from hearing it. */ }
-  }
+  if (state.pending) return;
+  state.pending = true;
+  queueMicrotask(() => {
+    state.pending = false;
+    for (const listener of listeners) {
+      try { listener(); } catch { /* One listener failing does not keep the others from hearing it. */ }
+    }
+  });
 }
 
 export function onConversationsChanged(listener: Listener): () => void {
