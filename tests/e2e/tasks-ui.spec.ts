@@ -111,6 +111,9 @@ test("running a task by hand answers in its one conversation, and every run cont
     await rowAction(page, "Water reminder", "Run now");
     await expect.poll(async () => (await browserData(page, `${app.origin}/api/tasks/runs`) as unknown[]).length, { timeout: 20_000 }).toBe(count);
     await expect.poll(async () => ((await browserData(page, `${app.origin}/api/tasks`)) as Task[])[0].lastStatus, { timeout: 20_000 }).toBe("done");
+    // The page hears the run end from the service and shows it, without being reloaded.
+    await expect(row(page, "Water reminder")).toContainText("Paused");
+    await expect(row(page, "Water reminder")).not.toContainText("Running");
   };
   await runOnce(1);
   const chatId = ((await browserData(page, `${app.origin}/api/tasks`)) as Task[])[0].chatId!;

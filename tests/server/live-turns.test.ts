@@ -206,6 +206,31 @@ test("the user's turns go before a task's waiting for the same place, and a turn
   capacity = 8;
 });
 
+test("a queued turn stopped just as its place comes free ends as stopped, not as an error", async () => {
+  capacity = 1;
+  const holding = scriptedTurn();
+  const holdingReading = readAll(await holdTurn("free-soon", holding.start, { source: "chat" }));
+  const events: { type: string; chatId: string; outcome?: string; errorCode?: string }[] = [];
+  const off = onTurnEvent(event => events.push(event));
+  // Starting reads the stop the moment it begins, as starting an answer does.
+  const response = await holdTurn("stopped-at-start", async signal => {
+    stopTurn("stopped-at-start");
+    signal.throwIfAborted();
+    return new Response("");
+  }, { source: "chat" });
+  const reading = readAll(response);
+  holding.end(); await holdingReading;
+  const text = await reading;
+  await settle();
+  assert.match(text, /"type":"abort"/);
+  assert.doesNotMatch(text, /"type":"error"/);
+  assert.deepEqual(events.filter(event => event.chatId === "stopped-at-start" && event.type === "turn-finished").map(event => [event.outcome, event.errorCode]), [["stopped", undefined]]);
+  assert.equal(isTurnLive("stopped-at-start"), false);
+  assert.equal(slotUsage().inUse, 0);
+  off();
+  capacity = 8;
+});
+
 test("a turn that cannot start after waiting says why on its stream", async () => {
   capacity = 1;
   const holding = scriptedTurn();
