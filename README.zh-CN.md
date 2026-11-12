@@ -8,7 +8,7 @@
 
 对话、知识库、记忆和设置都存在你自己电脑上的 SQLite 数据库里。模型由你自己选：接入 OpenRouter 可以使用数百种对话、图片、视频和嵌入模型，也可以直连 DeepSeek。每次操作只会把这次需要的内容发给对应的服务。
 
-当前版本：**0.1.18** · Windows x64 · 基于 Electron、Next.js、Vercel AI SDK、Prisma 和 SQLite。
+当前版本：**0.1.19** · Windows x64 · 基于 Electron、Next.js、Vercel AI SDK、Prisma 和 SQLite。
 
 ## 从你的资料里找答案
 

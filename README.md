@@ -8,7 +8,7 @@
 
 RiA keeps your conversations, knowledge base, memory and settings on your computer, in a local SQLite database. You bring the model: connect OpenRouter for hundreds of chat, image, video and embedding models, or DeepSeek directly. Only what an operation needs is sent to the service that performs it.
 
-Current version: **0.1.18** · Windows x64 · Built with Electron, Next.js, the Vercel AI SDK, Prisma and SQLite.
+Current version: **0.1.19** · Windows x64 · Built with Electron, Next.js, the Vercel AI SDK, Prisma and SQLite.
 
 ## Ask your own documents
 
