@@ -503,6 +503,36 @@ test("prompts falling due together queue for the background places instead of be
   } finally { release(); scheduler.stop(); providerState.streamGate = undefined; await callLimits({ maxConcurrent: 4 }); }
 });
 
+test("a run waiting for the user's answer gives its background place to other due tasks meanwhile", async () => {
+  const { holdTurn } = await import("@/lib/chat/live-turns");
+  await db.modelCallDay.deleteMany({});
+  // Two call places leave one for background prompts.
+  await callLimits({ maxConcurrent: 2 });
+  const waiting = await createTask(prompt({ title: "Waiting" }));
+  await (await startTaskNow(waiting.id)).finished;
+  const chatId = (await db.scheduledJob.findUniqueOrThrow({ where: { id: waiting.id } })).chatId!;
+  let end!: () => void, ended = false;
+  const yours = await holdTurn(chatId, async () => new Response(new ReadableStream({ start(controller) { end = () => { if (!ended) { ended = true; controller.close(); } }; } }), { headers: { "content-type": "text/event-stream" } }), { source: "chat" });
+  const reading = new Response(yours.body).text();
+  try {
+    await makeDue(waiting.id);
+    const started = await startDueTask(new Date(), { prompts: true });
+    assert.ok(started);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    // Another task falls due while the first waits: the place is free for it.
+    const other = await createTask(prompt({ title: "Other" }));
+    await makeDue(other.id);
+    const scheduler = startScheduler();
+    await scheduler.tick();
+    for (let attempt = 0; attempt < 300 && (await db.scheduledJob.findUniqueOrThrow({ where: { id: other.id } })).lastStatus !== "done"; attempt += 1) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal((await db.scheduledJob.findUniqueOrThrow({ where: { id: other.id } })).lastStatus, "done", "the other task ran while the first waited");
+    assert.equal((await db.scheduledJob.findUniqueOrThrow({ where: { id: waiting.id } })).lastStatus, "running", "the first is still waiting for the user's answer");
+    end();
+    await reading;
+    assert.equal((await started!.finished).status, "succeeded", "it took a place again and ran once the answer ended");
+  } finally { end(); await callLimits({ maxConcurrent: 4 }); }
+});
+
 // --- answered approvals, stale pages, missed times, wording ---------------------
 
 const chatRoute = await import("@/app/api/chat/route");

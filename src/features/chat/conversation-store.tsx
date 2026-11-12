@@ -56,6 +56,12 @@ type Store = {
   remove: (id: string) => Promise<void>;
   /** `remaining` is the list without it, for a page that has to open another. */
   onRemoved: (listener: (id: string, remaining: ChatSummary[]) => void) => () => void;
+  /**
+   * Hears that the service changed conversations or tasks (a run starting or
+   * ending, a task edited elsewhere), as the service says it, and again on
+   * reconnecting, when something may have been missed.
+   */
+  onChanged: (listener: () => void) => () => void;
   /** The conversation the chat page has open, and the one answering in this window. */
   activeId: string | null;
   setActiveId: (id: string | null) => void;
@@ -89,6 +95,7 @@ export function ConversationStoreProvider({ children }: { children: ReactNode })
   const chatsRef = useRef(chats);
   useEffect(() => { chatsRef.current = chats; }, [chats]);
   const turnListeners = useRef(new Set<(notice: TurnNotice) => void>());
+  const changedListeners = useRef(new Set<() => void>());
   // A change heard while a read is under way is read after it, not dropped.
   const readAgain = useRef(false);
 
@@ -167,6 +174,11 @@ export function ConversationStoreProvider({ children }: { children: ReactNode })
     return () => { removedListeners.current.delete(listener); };
   }, []);
 
+  const onChanged = useCallback((listener: () => void) => {
+    changedListeners.current.add(listener);
+    return () => { changedListeners.current.delete(listener); };
+  }, []);
+
   const onTurn = useCallback((listener: (notice: TurnNotice) => void) => {
     turnListeners.current.add(listener);
     return () => { turnListeners.current.delete(listener); };
@@ -194,8 +206,13 @@ export function ConversationStoreProvider({ children }: { children: ReactNode })
     };
     // The first connection's `ready` comes while the page's own first read is under way.
     let connected = false;
-    source.addEventListener("ready", () => { if (connected) readSoon(); connected = true; });
-    source.addEventListener("changed", readSoon);
+    const tellChanged = () => {
+      for (const listener of changedListeners.current) {
+        try { listener(); } catch { /* One listener failing does not keep the others from hearing it. */ }
+      }
+    };
+    source.addEventListener("ready", () => { if (connected) { readSoon(); tellChanged(); } connected = true; });
+    source.addEventListener("changed", () => { readSoon(); tellChanged(); });
     source.addEventListener("turn", event => {
       let notice: TurnNotice;
       try { notice = JSON.parse((event as MessageEvent<string>).data); } catch { return; }
@@ -208,9 +225,9 @@ export function ConversationStoreProvider({ children }: { children: ReactNode })
   }, []);
 
   const value = useMemo<Store>(() => ({
-    chats, setChats, isLoading, nextCursor, isLoadingMore, reload, readVersion, loadMore, invalidate, update, remove, onRemoved,
+    chats, setChats, isLoading, nextCursor, isLoadingMore, reload, readVersion, loadMore, invalidate, update, remove, onRemoved, onChanged,
     activeId, setActiveId, workingId, setWorkingId, isCreating, setCreating, onTurn,
-  }), [chats, isLoading, nextCursor, isLoadingMore, reload, readVersion, loadMore, invalidate, update, remove, onRemoved, activeId, workingId, isCreating, onTurn]);
+  }), [chats, isLoading, nextCursor, isLoadingMore, reload, readVersion, loadMore, invalidate, update, remove, onRemoved, onChanged, activeId, workingId, isCreating, onTurn]);
   return <ConversationStoreContext.Provider value={value}>{children}</ConversationStoreContext.Provider>;
 }
 

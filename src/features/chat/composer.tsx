@@ -102,6 +102,7 @@ type Props = Pick<
   | "isApprovalSaving"
   | "isLoadingChats"
   | "queuedMessages"
+  | "queueHeldBy"
   | "canQueue"
   | "queueMessage"
   | "removeQueued"
@@ -161,6 +162,7 @@ export function Composer({
   isApprovalSaving,
   isLoadingChats,
   queuedMessages,
+  queueHeldBy,
   canQueue,
   queueMessage,
   removeQueued,
@@ -333,7 +335,9 @@ export function Composer({
               <Button type="button" variant="ghost" size="icon-sm" className="composer-queue-action" aria-label={t("chat.queue.remove")} title={t("chat.queue.remove")} onClick={() => removeQueued(item.id)}><X aria-hidden="true" /></Button>
             </li>
           ))}
-          <li className="composer-queue-hint">{t("chat.queue.hint")}</li>
+          {queueHeldBy
+            ? <li className="composer-queue-hint composer-queue-held" role="status">{tf(queueHeldBy.key, queueHeldBy.values ?? {})}</li>
+            : <li className="composer-queue-hint">{t("chat.queue.hint")}</li>}
         </ol>
       ) : null}
       {modelMode === "chat" && toolCatalogError ? (

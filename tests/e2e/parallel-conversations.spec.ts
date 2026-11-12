@@ -191,3 +191,118 @@ test("a message written while the answer is coming waits in the queue and is sen
   expect((await messagesOf(page, app.origin, id)).some(message => message.content.includes("不要了的问题"))).toBe(false);
 });
 
+
+test("a queued message that cannot be sent yet stays queued and says why", async ({ page, app }) => {
+  await openWorkspace(page, app.origin);
+  await configureOfflineModels(page);
+  // No chat model chosen.
+  const settings = (await browserApi(page, `${app.origin}/api/models`)).body.data;
+  settings.chat = { model: null, fallback: null };
+  expect((await browserApi(page, `${app.origin}/api/models`, "PUT", settings)).status).toBe(200);
+  const id = await conversation(page, app.origin, "排队待发");
+  // Queued earlier, as a previous visit left it.
+  await page.evaluate(([chatId]) => window.localStorage.setItem("ria.chat.queue", JSON.stringify({
+    [chatId]: [{ id: "held", text: "还没发出的问题", attachments: [] }],
+  })), [id]);
+  await page.goto(`${app.origin}/chat?conversationId=${id}`);
+  await expect(title(page)).toHaveText("排队待发");
+  const queue = page.getByRole("list", { name: "排队中的消息", exact: true });
+  await expect(queue.getByText("还没发出的问题", { exact: true })).toBeVisible();
+  await expect(queue.getByRole("status")).toContainText("请先选择模型");
+  // Nothing went out, and it stays where it can be changed.
+  expect(await messagesOf(page, app.origin, id)).toEqual([]);
+  await queue.getByRole("listitem").filter({ hasText: "还没发出的问题" }).getByRole("button", { name: "移除这条排队的消息", exact: true }).click();
+  await expect(queue).toHaveCount(0);
+});
+
+test("after its own answer ends the page does not ask to follow it again", async ({ page, app }) => {
+  await openWorkspace(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  const id = await conversation(page, app.origin, "自己的回答");
+  await page.goto(`${app.origin}/chat?conversationId=${id}`);
+  await expect(title(page)).toHaveText("自己的回答");
+  const follows: string[] = [];
+  page.on("request", request => { if (request.method() === "GET" && request.url().includes(`/api/chat/${id}/stream`)) follows.push(request.url()); });
+  await send(page, "短问题");
+  await expect(transcript(page)).toContainText("离线回答：短问题");
+  await expect(page.getByRole("button", { name: "停止", exact: true })).toHaveCount(0);
+  // The sidebar has heard the end too.
+  await expect.poll(async () => (await summaryOf(page, app.origin, id)).answering).toBe(false);
+  const sidebar = await openRecentConversations(page);
+  await expect(row(sidebar, "自己的回答").locator(".sidebar-chat-dot")).not.toHaveAttribute("data-state", "working");
+  expect(follows).toEqual([]);
+});
+
+test("switching between conversations that are answering shows each where it has got to, still moving, without reading it again", async ({ page, app }) => {
+  await openWorkspace(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  const first = await conversation(page, app.origin, "甲");
+  const second = await conversation(page, app.origin, "乙");
+  await page.goto(`${app.origin}/chat?conversationId=${first}`);
+  await expect(title(page)).toHaveText("甲");
+  const sidebar = await openRecentConversations(page);
+  const followed: string[] = [];
+  page.on("request", request => { if (request.method() === "GET" && /\/api\/chat\/[^/]+\/stream/.test(request.url())) followed.push(request.url()); });
+  // Words of the answer on screen: the last message's.
+  const words = () => transcript(page).locator("[data-message-id]").last().innerText().then(text => (text.match(/\bw\d+\b/g) ?? []).length);
+
+  await send(page, LONG);
+  await expect(transcript(page)).toContainText("离线回答：w0");
+  await row(sidebar, "乙").click();
+  await expect(title(page)).toHaveText("乙");
+  await send(page, LONG);
+  await expect(transcript(page)).toContainText("离线回答：w0");
+
+  // Back to the first: there at once, further on than when it was left, and still going.
+  await row(sidebar, "甲").click();
+  await expect(title(page)).toHaveText("甲");
+  await expect(transcript(page)).toContainText("离线回答：w0", { timeout: 1_000 });
+  const shown = await words();
+  await expect.poll(words).toBeGreaterThan(shown);
+  await expect(page.getByRole("button", { name: "停止", exact: true })).toBeVisible();
+  // And again to the second, which went on meanwhile too.
+  await row(sidebar, "乙").click();
+  await expect(transcript(page)).toContainText("离线回答：w0", { timeout: 1_000 });
+  await expect.poll(words, { timeout: 30_000 }).toBe(300);
+  await row(sidebar, "甲").click();
+  await expect.poll(words, { timeout: 30_000 }).toBe(300);
+  expect(followed, "nothing was read again from the start").toEqual([]);
+  for (const id of [first, second]) {
+    await expect.poll(async () => (await messagesOf(page, app.origin, id)).map(message => message.role)).toEqual(["user", "assistant"]);
+  }
+  // Each answer whole and once, as saved.
+  for (const id of [first, second]) expect(((await messagesOf(page, app.origin, id))[1].content.match(/\bw\d+\b/g) ?? []).length).toBe(300);
+});
+
+test("a message sent before leaving its conversation does not come back into its message box", async ({ page, app }) => {
+  await openWorkspace(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  const first = await conversation(page, app.origin, "送出后离开");
+  await conversation(page, app.origin, "别处");
+  await page.goto(`${app.origin}/chat?conversationId=${first}`);
+  await expect(title(page)).toHaveText("送出后离开");
+  const sidebar = await openRecentConversations(page);
+  const box = page.getByPlaceholder(/输入你的问题/);
+  // Left at once, while its answer is still being written, and back.
+  await send(page, LONG);
+  await row(sidebar, "别处").click();
+  await expect(title(page)).toHaveText("别处");
+  await expect(box).toHaveValue("");
+  await row(sidebar, "送出后离开").click();
+  await expect(title(page)).toHaveText("送出后离开");
+  await expect(transcript(page)).toContainText("离线回答：w0");
+  await expect(box).toHaveValue("");
+  // Left again, and it ends while elsewhere: still nothing comes back.
+  await row(sidebar, "别处").click();
+  await expect.poll(async () => (await summaryOf(page, app.origin, first)).answering, { timeout: 30_000 }).toBe(false);
+  await row(sidebar, "送出后离开").click();
+  await expect(title(page)).toHaveText("送出后离开");
+  await expect(box).toHaveValue("");
+  // What was being written elsewhere stays there.
+  await row(sidebar, "别处").click();
+  await box.fill("还没写完");
+  await row(sidebar, "送出后离开").click();
+  await expect(box).toHaveValue("");
+  await row(sidebar, "别处").click();
+  await expect(box).toHaveValue("还没写完");
+});

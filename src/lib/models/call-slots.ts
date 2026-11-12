@@ -46,6 +46,8 @@ function tellPositions() {
 
 /** Gives free places to the work waiting longest at the highest priority. */
 async function grant() {
+  // Nobody waiting: nothing to give, and no need to read the setting.
+  if (!slots.queue.length) return;
   const capacity = Math.max(1, await slots.capacity().catch(() => FALLBACK_CAPACITY));
   let moved = false;
   while (slots.inUse < capacity && slots.queue.length) {
@@ -72,6 +74,12 @@ export async function acquireSlot(options: { priority: SlotPriority; signal?: Ab
     slots.inUse = Math.max(0, slots.inUse - 1);
     void grant();
   };
+  // With nothing running and nobody waiting a place is free whatever the limit
+  // (there is always at least one), so the setting is read only when it can matter.
+  if (slots.inUse === 0 && !slots.queue.length) {
+    slots.inUse++;
+    return release;
+  }
   const capacity = Math.max(1, await slots.capacity().catch(() => FALLBACK_CAPACITY));
   options.signal?.throwIfAborted();
   // Free, and nobody of the same or higher priority is waiting for it.

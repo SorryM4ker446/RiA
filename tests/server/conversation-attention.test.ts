@@ -7,7 +7,7 @@ const { db } = await import("@/db");
 const { listConversations } = await import("@/lib/conversations/query");
 const { updateConversation, markTurnAnswered } = await import("@/lib/conversations/mutations");
 const { holdTurn } = await import("@/lib/chat/live-turns");
-const { onConversationsChanged } = await import("@/lib/conversations/events");
+const { announceConversationsChanged, onConversationsChanged } = await import("@/lib/conversations/events");
 const { encodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
 
 beforeEach(async () => { await db.scheduledJob.deleteMany(); await db.chat.deleteMany(); });
@@ -61,5 +61,18 @@ test("a conversation says when it is answering, and an answer that ended unseen 
   assert.equal((await read()).unread, false);
   await markTurnAnswered(chat.id, "waiting_approval");
   assert.equal((await read()).unread, true);
+  off();
+});
+
+test("changes written in the same step are announced once", async () => {
+  let heard = 0;
+  const off = onConversationsChanged(() => { heard++; });
+  announceConversationsChanged(); announceConversationsChanged(); announceConversationsChanged();
+  assert.equal(heard, 0, "said after the step, not in the middle of it");
+  await Promise.resolve();
+  assert.equal(heard, 1);
+  announceConversationsChanged();
+  await Promise.resolve();
+  assert.equal(heard, 2, "a later change is announced again");
   off();
 });

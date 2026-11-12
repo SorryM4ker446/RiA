@@ -223,11 +223,14 @@ for (const reducedMotion of [false, true]) {
       // rather than after it answers.
       await expect.poll(() => historyRequests).toBe(historyBefore + 1);
 
-      // The list read again still names it; its history is not here yet: still the placeholder.
+      // The list read again still names it. This window kept the conversation as it
+      // was last seen, so it is shown as soon as it is known to exist, without waiting
+      // for its history, which is read meanwhile to check it against what is saved.
       release.settings();
       release.list();
       await expect(page.locator(".chat-toolbar h3")).toHaveText(chat.title);
-      await expect(skeleton).toBeAttached();
+      await expect(page.getByText("Returning message 3.", { exact: false }).first()).toBeVisible();
+      await expect(skeleton).toHaveCount(0);
       await expect(page.locator(".chat-welcome")).toHaveCount(0);
 
       release.history();

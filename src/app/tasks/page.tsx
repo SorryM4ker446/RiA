@@ -20,14 +20,16 @@ import { formatDateTime, localizeMessage, t, tf } from "@/lib/locale";
 import { useLocale } from "@/lib/locale/client";
 import { animateRemoval, removalKey } from "@/lib/ui/removal";
 import { useRefreshOnReturn } from "@/lib/use-refresh-on-return";
+import { useConversationStore } from "@/features/chat/conversation-store";
 
 const ICONS = { prompt: Sparkles, scheduledBackup: Archive, backupReminder: BellRing } as const;
 const TONES: Record<TaskState, "neutral" | "success" | "warning" | "danger"> = {
   running: "warning", waiting: "warning", failed: "danger", skipped: "warning", missed: "warning", paused: "neutral", finished: "neutral", scheduled: "success", manual: "neutral",
 };
 
-/** How often the list is read again while something is running, so its row changes when the run ends. */
-const RUNNING_REFRESH_MS = 3000;
+
+/** Changes said together (a run's claim, its conversation, its end) are read once. */
+const CHANGE_COALESCE_MS = 120;
 
 export default function TasksPage() {
   useLocale();
@@ -65,12 +67,14 @@ export default function TasksPage() {
 
   useEffect(() => { void load(); return () => reading.current?.abort(); }, [load]);
   useRefreshOnReturn(load);
-  const anyRunning = tasks.some(task => task.lastStatus === "running");
+  // The service says when a run starts or ends, or a task changes elsewhere; the
+  // list is read again then (one read for a burst of them), not on a timer.
+  const { onChanged } = useConversationStore();
   useEffect(() => {
-    if (!anyRunning) return;
-    const timer = setInterval(() => void load(), RUNNING_REFRESH_MS);
-    return () => clearInterval(timer);
-  }, [anyRunning, load]);
+    let timer = 0;
+    const off = onChanged(() => { window.clearTimeout(timer); timer = window.setTimeout(() => void load(), CHANGE_COALESCE_MS); });
+    return () => { off(); window.clearTimeout(timer); };
+  }, [onChanged, load]);
 
   /** Runs one change, says it worked, and reads the list again; a refusal is shown above the list. */
   async function act(change: () => Promise<unknown>, done: string) {

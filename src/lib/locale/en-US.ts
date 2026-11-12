@@ -275,6 +275,8 @@ export const enUS = {
   "chat.queue.edit": "Edit this queued message",
   "chat.queue.remove": "Remove this queued message",
   "chat.queue.hint": "Sent in order when the answer ends",
+  "chat.queue.heldNoModel": "Waiting: choose a model to send it",
+  "chat.queue.heldNoImages": "Waiting: {modelId} does not take images. Choose a vision model or edit the message",
   "chat.thinking.organizing": "Organizing context…",
   "chat.compact.done": "Earlier turns are organized",
   "chat.compact.nothing": "Nothing to organize yet",

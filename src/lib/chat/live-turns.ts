@@ -1,4 +1,5 @@
 import { ApiError, normalizeApiError } from "@/lib/server/api-error";
+import { compactBacklog } from "@/lib/chat/stream-backlog";
 import { acquireSlot, runHolding, type SlotHolder, type SlotNotice } from "@/lib/models/call-slots";
 
 /*
@@ -145,6 +146,14 @@ function follow(turn: LiveTurn): ReadableStream<Uint8Array> {
   let cancelled = false;
   let wake: (() => void) | null = null;
   return new ReadableStream<Uint8Array>({
+    // A reader that joins late gets what was said so far in one piece, merged,
+    // and then each piece as it comes.
+    start(controller) {
+      if (turn.chunks.length > 1) {
+        index = turn.chunks.length;
+        controller.enqueue(compactBacklog(turn.chunks.slice(0, index)));
+      }
+    },
     async pull(controller) {
       while (index >= turn.chunks.length && !turn.done && !cancelled) {
         await new Promise<void>(resolve => { wake = resolve; turn.waiting.add(resolve); });
@@ -323,6 +332,12 @@ export async function holdTurn(chatId: string, start: (signal: AbortSignal) => P
     let response: Response;
     try { response = await begin(); }
     catch (error) {
+      // Stopped as its place came free: a stop, as any other stop is, and not an error.
+      if (controller.signal.aborted) {
+        append(turn, sse({ type: "abort" }));
+        await finish({ outcome: "stopped" });
+        return;
+      }
       const { code, message } = normalizeApiError(error);
       append(turn, sse({ type: "error", errorText: JSON.stringify({ error: { code, message } }) }));
       outcome.push(sse({ type: "error", errorText: JSON.stringify({ error: { code } }) }));

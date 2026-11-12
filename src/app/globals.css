@@ -1540,4 +1540,5 @@ body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; al
 .composer-queue-action { width: 24px; height: 24px; color: hsl(var(--muted-foreground)); }
 .composer-queue-action svg { width: 13px; height: 13px; }
 .composer-queue-hint { padding: 0 10px; font-size: 11px; color: hsl(var(--muted-foreground)); }
+.composer-queue-held { color: hsl(var(--warning)); }
 
