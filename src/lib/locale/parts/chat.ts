@@ -207,6 +207,8 @@ export const chatMessages = {
   "chat.queue.edit": "改这条排队的消息",
   "chat.queue.remove": "移除这条排队的消息",
   "chat.queue.hint": "回答结束后按顺序自动发送",
+  "chat.queue.heldNoModel": "未发送：请先选择模型",
+  "chat.queue.heldNoImages": "未发送：{modelId} 不支持图片，请切换视觉模型或修改这条消息",
   "chat.thinking.organizing": "正在整理上下文…",
   "chat.compact.done": "前面的对话已经整理好了",
   "chat.compact.nothing": "前面的内容还不需要整理",

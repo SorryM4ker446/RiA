@@ -1,5 +1,6 @@
 import type { TurnNotice } from "@/features/chat/page-utils";
 import { localizeMessage, t, tf } from "@/lib/locale";
+import type { MessageKey } from "@/lib/locale/zh-CN";
 import {
   ChatSummary,
   hasLaterUserMessage,
@@ -14,7 +15,8 @@ import { readMessageInvocation } from "@/lib/chat/invocation-schema";
 import { isDocumentAttachment } from "@/lib/media/limits";
 import { getApiErrorMessage as readApiErrorMessage } from "@/lib/api-error-message";
 import { usePanelVisibility } from "./use-panel-visibility";
-import { useChat } from "@ai-sdk/react";
+import { Chat, useChat } from "@ai-sdk/react";
+import { chatFor, DRAFT_CHAT, forgetChat, isAnswering as chatIsAnswering, keepUnchanged, keptChat, openChat } from "@/features/chat/live-chats";
 import { lastAssistantMessageIsCompleteWithApprovalResponses, UIMessage } from "ai";
 import { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { chatApi, createChatTransport, isNotFoundError } from "@/features/chat/api-client";
@@ -102,7 +104,7 @@ export function useChatState() {
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, toggleEphemeral, isEphemeralSaving,
     isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
     setWorkspace, isWorkspaceSaving, setApprovalRule, isApprovalSaving, restoringChatId, isRestoringChat,
-  } = useConversations({ activeChatId, setActiveChatId, preferences: { modelMode, selectedChatModel: preferredChatModel, selectedImageModel, selectedVideoModel }, applyChatPreferences, resetConversation, detachFromAnswer, setPageError });
+  } = useConversations({ activeChatId, setActiveChatId, preferences: { modelMode, selectedChatModel: preferredChatModel, selectedImageModel, selectedVideoModel }, applyChatPreferences, resetConversation, setPageError });
   // A remembered conversation the list has not confirmed yet is not one to send to,
   // and a send waits for a workspace switch so the turn uses the folder the picker shows.
   const isConversationReady = !isLoadingPreferences && restoringChatId === null && !isWorkspaceSaving && !isApprovalSaving && (activeChatId !== null || !isLoadingChats);
@@ -128,14 +130,27 @@ export function useChatState() {
   // The server is folding older turns before it can answer; only meaningful until the answer opens.
   const [isOrganizing, setIsOrganizing] = useState(false);
   // Waiting for a place, or the provider being retried: said until the turn moves on.
+  // Each conversation keeps its own, heard while it was open or not, so coming
+  // back to one that is waiting says so at once.
   const [turnNotice, setTurnNotice] = useState<TurnNotice | null>(null);
+  const noticesRef = useRef(new Map<string, { notice: TurnNotice; until: number }>());
   const noticeTimer = useRef(0);
-  const showTurnNotice = (notice: TurnNotice | { state: "running" }) => {
+  const showNoticeOf = useCallback((key: string) => {
     window.clearTimeout(noticeTimer.current);
-    if (notice.state === "running") { setTurnNotice(null); return; }
-    setTurnNotice(notice);
+    const kept = noticesRef.current.get(key);
+    const left = kept ? kept.until - Date.now() : 0;
+    if (!kept || left <= 0) { noticesRef.current.delete(key); setTurnNotice(null); return; }
+    setTurnNotice(kept.notice);
     // A retry says how long it waits; after that the call is under way again.
-    if (notice.state === "retrying") noticeTimer.current = window.setTimeout(() => setTurnNotice(null), notice.seconds * 1000);
+    if (Number.isFinite(left)) noticeTimer.current = window.setTimeout(() => showNoticeOf(key), left);
+  }, []);
+  const chatKey = activeChatId ?? DRAFT_CHAT;
+  const chatKeyRef = useRef(chatKey);
+  chatKeyRef.current = chatKey;
+  const noteTurnNotice = (key: string, notice: TurnNotice | { state: "running" }) => {
+    if (notice.state === "running") noticesRef.current.delete(key);
+    else noticesRef.current.set(key, { notice, until: notice.state === "retrying" ? Date.now() + notice.seconds * 1000 : Infinity });
+    if (key === chatKeyRef.current) showNoticeOf(key);
   };
   // The conversation whose earlier turns the person asked to have folded.
   const [compactingChatId, setCompactingChatId] = useState<string | null>(null);
@@ -143,27 +158,51 @@ export function useChatState() {
   // Space freed by a fold since the latest request measured its input; the next one measures anew.
   const [freedByCompaction, setFreedByCompaction] = useState<{ chatId: string; lastMessageId?: string; tokens: number } | null>(null);
   const compactionRequest = useRef(0);
+  // What a conversation's client hears goes to the page only while it is the one open.
+  const heardRef = useRef({ noteTurnNotice, setIsOrganizing, sendDelivered: (key: string) => { void key; } });
+  heardRef.current = { noteTurnNotice, setIsOrganizing, sendDelivered: key => sendDeliveredRef.current(key) };
+  const sendDeliveredRef = useRef((key: string) => { void key; });
+  // One client per conversation, kept while this window has it open or reads its
+  // answer in the background (live-chats): coming back to it shows it as it is,
+  // still answering, with nothing to load or replay.
+  const { chat, reused: chatReused } = useMemo(() => {
+    const key = chatKey;
+    const made = chatFor(key, () => new Chat<UIMessage>({
+      id: key,
+      transport,
+      sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
+      onData: part => {
+        if (part.type === "data-turn-status") heardRef.current.noteTurnNotice(key, part.data as TurnNotice | { state: "running" });
+        if (part.type === "data-context-status" && key === chatKeyRef.current) heardRef.current.setIsOrganizing((part.data as { organizing: boolean }).organizing);
+      },
+      onFinish: ({ messages: finishedMessages, isError }) => {
+        heardRef.current.noteTurnNotice(key, { state: "running" });
+        if (!isError) heardRef.current.sendDelivered(key);
+        if (!isError) return;
+        const latestUser = [...finishedMessages].reverse().find(message => message.role === "user");
+        const pending = latestUser ? inFlightSendsRef.current.get(latestUser.id) : undefined;
+        if (pending) pending.failed = true;
+      },
+    }));
+    return made;
+    // The transport is the one current when the conversation's client is made, as before.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatKey]);
   const { messages, setMessages, sendMessage, regenerate, addToolApprovalResponse, status, error, clearError, stop, resumeStream } = useChat({
-    id: activeChatId ?? "draft",
-    transport,
+    chat,
     // A fast model sends far more deltas than a screen can show. Rendering at
     // most every 50ms keeps a long transcript from falling behind the stream;
     // the trailing update still delivers the final text.
     experimental_throttle: 50,
-    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
-    onData: part => {
-      if (part.type === "data-context-status") setIsOrganizing((part.data as { organizing: boolean }).organizing);
-      if (part.type === "data-turn-status") showTurnNotice(part.data as TurnNotice | { state: "running" });
-    },
-    onFinish: ({ messages: finishedMessages, isError }) => {
-      if (!isError) return;
-      const latestUser = [...finishedMessages].reverse().find(message => message.role === "user");
-      const pending = latestUser ? inFlightSendsRef.current.get(latestUser.id) : undefined;
-      if (pending) pending.failed = true;
-    },
   });
-  useEffect(() => { if (status !== "submitted") setIsOrganizing(false); }, [status]);
-  useEffect(() => { if (status === "ready" || status === "error") showTurnNotice({ state: "running" }); }, [status]);
+  // The open conversation's notice, and the others kept or let go as they now stand.
+  useEffect(() => { openChat(chatKey); showNoticeOf(chatKey); }, [chatKey, showNoticeOf]);
+  // Leaving the chat page leaves every answer to the background, within its bounds.
+  useEffect(() => () => openChat(null), []);
+  // A conversation deleted or archived anywhere is not kept.
+  const { onRemoved: onConversationRemoved } = useConversationStore();
+  useEffect(() => onConversationRemoved(id => forgetChat(id)), [onConversationRemoved]);
+  useEffect(() => { if (status !== "submitted") setIsOrganizing(false); }, [status, chatKey]);
   useEffect(() => () => window.clearTimeout(noticeTimer.current), []);
   const loadCompaction = useCallback(async (chatId: string | null) => {
     const request = ++compactionRequest.current;
@@ -215,7 +254,8 @@ export function useChatState() {
   // history has been asked for, the transcript has nothing true to show. Showing
   // the empty-conversation welcome then is what made chat open on the welcome,
   // swap to the placeholder and then to the messages each time it was returned to.
-  const isOpeningConversation = restoringChatId !== null || (activeChatId ? historyState?.chatId !== activeChatId : isLoadingChats);
+  // A conversation this window kept is open as soon as it is chosen: it shows what it showed.
+  const isOpeningConversation = restoringChatId !== null || (activeChatId ? historyState?.chatId !== activeChatId && !chatReused : isLoadingChats);
   const selectedModel =
     modelMode === "chat"
       ? selectedChatModel
@@ -276,15 +316,20 @@ export function useChatState() {
   const awaitingApprovalHere = Boolean(activeChat?.awaitingApproval);
   const answeringHere = Boolean(activeChat?.answering);
   const historyReadyForQueue = Boolean(confirmedChatId && historyState?.chatId === confirmedChatId && historyState.status === "ready");
+  // What sending would refuse keeps the next message queued, where it can be
+  // changed or removed, and the queue says why instead of seeming stuck.
+  const nextQueued = queuedMessages[0];
+  const queueHeldBy: { key: MessageKey; values?: Record<string, string> } | null = !nextQueued || modelMode !== "chat" ? null
+    : !selectedModel ? { key: "chat.queue.heldNoModel" }
+    : nextQueued.attachments.some(part => part.mediaType.startsWith("image/")) && !selectedModelInfo?.supportsImageInput
+      ? { key: "chat.queue.heldNoImages", values: { modelId: selectedChatModel?.modelId ?? "" } }
+      : null;
+  const queueHeld = queueHeldBy !== null;
   useEffect(() => {
-    if (!activeChatId || !queuedMessages.length || isPending || answeringHere || awaitingApprovalHere || !isConversationReady || !historyReadyForQueue || modelMode !== "chat") return;
-    const [next] = queuedMessages;
-    // What sending would refuse stays queued, where it can be changed or removed,
-    // instead of leaving the queue and going nowhere.
-    if (!selectedModel || (next.attachments.some(part => part.mediaType.startsWith("image/")) && !selectedModelInfo?.supportsImageInput)) return;
-    updateQueue(activeChatId, queue => queue.filter(item => item.id !== next.id));
-    void sendNextQueued.current(undefined, next);
-  }, [activeChatId, queuedMessages, isPending, answeringHere, awaitingApprovalHere, isConversationReady, historyReadyForQueue, modelMode, updateQueue, selectedModel, selectedModelInfo]);
+    if (!activeChatId || !nextQueued || queueHeld || isPending || isDocumentScopeSaving || answeringHere || awaitingApprovalHere || !isConversationReady || !historyReadyForQueue || modelMode !== "chat") return;
+    // It leaves the queue only once it is actually on its way (onSubmit takes it out).
+    void sendNextQueued.current(undefined, nextQueued);
+  }, [activeChatId, nextQueued, queueHeld, isPending, isDocumentScopeSaving, answeringHere, awaitingApprovalHere, isConversationReady, historyReadyForQueue, modelMode]);
 
   // A draft belongs to one conversation. Switching away parks it and switching
   // back brings it back, so a half-written question survives navigating around.
@@ -293,12 +338,29 @@ export function useChatState() {
   const draftAttachmentsRef = useRef<UploadableFilePart[]>(attachments);
   draftAttachmentsRef.current = attachments;
 
+  // A message sent and left before the service had taken it: its text is parked as
+  // that conversation's draft, so a send that then fails can be written again, and
+  // is let go once the service has it (its answer streaming, or ended well).
+  const parkedSendsRef = useRef(new Map<string, string>());
+  const letParkedGo = useCallback((chatId: string) => {
+    const parked = parkedSendsRef.current.get(chatId);
+    if (parked === undefined) return false;
+    parkedSendsRef.current.delete(chatId);
+    if (readChatDraft(chatId)?.text !== parked) return false;
+    clearChatDraft(chatId);
+    return true;
+  }, []);
+  sendDeliveredRef.current = letParkedGo;
+
   useEffect(() => {
     // Parking first: the current conversation keeps what was typed in it.
     const previousId = draftChatIdRef.current;
     if (previousId && previousId !== activeChatId) {
       const pending = pendingSendDraftRef.current;
-      writeChatDraft(previousId, { text: inputRef.current || (pending?.chatId === previousId ? pending.text : ""), attachments: draftAttachmentsRef.current });
+      // A message the service already has is in the conversation, not in its composer.
+      const sentThere = pending?.chatId === previousId && keptChat(previousId)?.status !== "streaming" ? pending.text : "";
+      if (!inputRef.current && sentThere) parkedSendsRef.current.set(previousId, sentThere);
+      writeChatDraft(previousId, { text: inputRef.current || sentThere, attachments: draftAttachmentsRef.current });
     }
     // Only on a conversation change: re-running this on every keystroke would
     // overwrite the draft that is about to be read back.
@@ -318,6 +380,7 @@ export function useChatState() {
     // park one conversation's draft and show the other's, even if the user is
     // mid-sentence in the first one.
     const typedBeforeActivation = previousId === null && inputRef.current.length > 0 && inputRef.current !== restoredInputRef.current;
+    if (activeChatId && keptChat(activeChatId)?.status === "streaming") letParkedGo(activeChatId);
     const draft = readChatDraft(activeChatId);
     // Text written before any conversation existed moves into the first one to
     // open that has no draft of its own, so it is neither lost nor left behind
@@ -343,7 +406,7 @@ export function useChatState() {
       setInput("");
       replaceAttachments([]);
     }
-  }, [activeChatId, replaceAttachments]);
+  }, [activeChatId, replaceAttachments, letParkedGo]);
 
   // Kept in a ref so the effect above sees the current text without depending
   // on it, which would re-run on every keystroke.
@@ -374,6 +437,8 @@ export function useChatState() {
     if (!answered) return;
     clearChatDraft(pending.chatId);
     pendingSendDraftRef.current = null;
+    // Brought back into the box from where it was parked, and now answered: it goes.
+    if (parkedSendsRef.current.delete(pending.chatId) && inputRef.current === pending.text && restoredInputRef.current === pending.text) setInput("");
   }, [messages, activeChatId]);
 
   /**
@@ -474,17 +539,30 @@ export function useChatState() {
     setIsLoadingOlderMessages(false);
     setIsLoadingHistory(false);
     setHistoryState(null);
-    setMessages([]);
+    // Only the new conversation's client is emptied: a kept one's is not this
+    // page's to clear, and the switch that comes with a reset gives another.
+    if (chat.id === DRAFT_CHAT) setMessages([]);
     setImageByMessageId({});
     setVideoByMessageId({});
     clearAttachments();
     setInputNotice(null);
   }
-  async function loadMessages(chatId: string) {
+  /**
+   * Reads a conversation's history. `quiet` is for a conversation shown at once
+   * from what this window kept: it stays shown and usable while the saved
+   * history is read, which then replaces it only if nothing has happened in it
+   * meanwhile and it is not answering (an answer being read is newer than
+   * anything saved).
+   */
+  async function loadMessages(chatId: string, options: { quiet?: boolean } = {}) {
     const requestId = latestHistoryRequestRef.current + 1;
     latestHistoryRequestRef.current = requestId;
-    setIsLoadingHistory(true);
-    setHistoryState({ chatId, status: "loading" });
+    const shown = chat;
+    const before = shown.messages;
+    if (!options.quiet) {
+      setIsLoadingHistory(true);
+      setHistoryState({ chatId, status: "loading" });
+    }
     olderRequestRef.current = false;
     setOlderMessagesCursor(null);
     setIsLoadingOlderMessages(false);
@@ -496,7 +574,12 @@ export function useChatState() {
         return;
       }
       const mapped = mapStoredMessagesToUI(payload.data ?? []);
-      setMessages(mapped.uiMessages);
+      if (!options.quiet) setMessages(mapped.uiMessages);
+      // What is unchanged stays the same object, so only what changed elsewhere is drawn again.
+      else if (shown.messages === before && !chatIsAnswering(shown)) {
+        const merged = keepUnchanged(before, mapped.uiMessages);
+        if (merged !== before) setMessages(merged);
+      }
       setImageByMessageId(mapped.imageMap);
       setVideoByMessageId(mapped.videoMap);
       setOlderMessagesCursor(payload.pageInfo?.nextCursor ?? null);
@@ -599,20 +682,13 @@ export function useChatState() {
     appendAttachments(pastedFiles);
   }
 
-  /**
+  /*
    * Leaving a conversation while it answers leaves the answer to the service,
-   * which goes on writing and saving it; this page only stops reading it. Coming
-   * back reads it again from where the service has got to.
+   * which goes on writing and saving it, and this window goes on reading it in
+   * the background (live-chats), so coming back shows it where it has got to.
    */
-  function detachFromAnswer() {
-    // Only an answer that has started: a send still waiting for the service must
-    // hear how it went, so a refusal can put the message back where it was written.
-    if (statusRef.current === "streaming") stopRef.current();
-  }
-
   async function switchActiveChat(nextChatId: string) {
     if (nextChatId === activeChatId) return;
-    detachFromAnswer();
     setActiveChatId(nextChatId);
   }
 
@@ -649,19 +725,25 @@ export function useChatState() {
   // shown, the page attaches to the turn the service is holding, from its start.
   const historyReady = Boolean(confirmedChatId && historyState?.chatId === confirmedChatId && historyState.status === "ready");
   const answeringElsewhere = Boolean(activeChat?.answering);
+  // The turn this page has read, its own or one it attached to: once it ends the
+  // list may say "answering" a moment longer, and that is not a new turn to attach to.
   const attachedTo = useRef<string | null>(null);
+  // A turn someone else started here, heard while this page was not reading one.
+  const [othersTurn, setOthersTurn] = useState(0);
   useEffect(() => {
+    if (status === "submitted" || status === "streaming") { attachedTo.current = confirmedChatId; return; }
     if (!answeringElsewhere) { attachedTo.current = null; return; }
     if (!historyReady || status !== "ready" || pendingSend || attachedTo.current === confirmedChatId) return;
     attachedTo.current = confirmedChatId;
     void resumeStream().catch(() => { /* Nothing to attach to: the turn ended; its answer is read below. */ });
-  }, [answeringElsewhere, historyReady, status, pendingSend, confirmedChatId, resumeStream]);
+  }, [answeringElsewhere, historyReady, status, pendingSend, confirmedChatId, resumeStream, othersTurn]);
   // A turn that ended without this page reading it (it attached too late, or not
   // at all) has its answer read from what was saved.
   const { onTurn } = useConversationStore();
   useEffect(() => onTurn(notice => {
-    if (notice.type !== "turn-finished" || notice.chatId !== latestChatRef.current) return;
-    if (statusRef.current === "ready") void refreshRef.current();
+    if (notice.chatId !== latestChatRef.current || statusRef.current !== "ready") return;
+    if (notice.type === "turn-started") { attachedTo.current = null; setOthersTurn(count => count + 1); return; }
+    if (notice.type === "turn-finished") void refreshRef.current();
   }), [onTurn]);
   // Open and in view, what arrived in it has been read.
   const pageVisible = usePageVisible();
@@ -830,7 +912,9 @@ export function useChatState() {
       return;
     }
 
-    if (!queued) setInput("");
+    // Past every refusal: what is typed leaves the composer, a queued message its queue.
+    if (queued) { if (activeChatId) updateQueue(activeChatId, queue => queue.filter(item => item.id !== queued.id)); }
+    else setInput("");
     // Remembered until the turn produces an answer, so a failure can put the
     // text back instead of making the user retype it. The conversation id is
     // filled in once the first message has created one: a send that creates the
@@ -936,7 +1020,12 @@ export function useChatState() {
       resetConversation();
       return;
     }
-    void loadMessages(activeChatId);
+    if (chatReused) {
+      // Kept by this window: shown as it is at once, and checked against what is saved.
+      setHistoryState({ chatId: activeChatId, status: "ready" });
+      setIsLoadingHistory(false);
+      void loadMessages(activeChatId, { quiet: true });
+    } else void loadMessages(activeChatId);
     return () => { latestHistoryRequestRef.current += 1; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeChatId]);
@@ -985,7 +1074,7 @@ export function useChatState() {
     requestDeleteConversation,
     compaction: compaction?.chatId === activeChatId ? compaction : null,
     freedByCompaction: freedByCompaction?.chatId === activeChatId && freedByCompaction.lastMessageId === messages.at(-1)?.id ? freedByCompaction.tokens : 0,
-    queuedMessages, canQueue, queueMessage, removeQueued, editQueued,
+    queuedMessages, queueHeldBy, canQueue, queueMessage, removeQueued, editQueued,
     isOrganizing, turnNotice, isCompacting: compactingChatId !== null && compactingChatId === activeChatId, activeChat, isPending, isWorking, isLoadingPreferences, isOpeningConversation, isConversationReady, isConverting, modelMode, selectedModel, selectedModelInfo, defaultChatModel, onModeSelect,
     onModelSelect, modelHint, inputNotice, dismissInputNotice: () => setInputNotice(null), isModelMenuOpen, setIsModelMenuOpen, isHistoryReady: confirmedChatId !== null && historyState?.chatId === confirmedChatId && historyState.status === "ready", isLoadingHistory, confirmedChatId, messages, imageByMessageId, videoByMessageId,
     status, editingMessageId, startEditingMessage, regenerateMessage, requestDeleteMessage,
