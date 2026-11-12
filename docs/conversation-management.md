@@ -89,13 +89,29 @@ On a window too short for everything, the navigation drops its small group names
 
 Each row is one line: its title, with a dot at its end when the conversation needs attention. Pointing at a row brings up its **⋯** menu in the dot's place, with rename (inline; Enter saves, Escape cancels), pin or unpin, archive and delete. Deleting asks for confirmation; archiving says where to restore it. When the conversation open in chat is archived or deleted, the next one opens.
 
-The dot means one of three things, also read out to screen readers:
+The dot means one of five things, also read out to screen readers:
 
-- **Answering** — the conversation is answering in this window.
 - **Task running** — its scheduled task is running now.
+- **Queued** — an answer waits for a place to run (a hollow ring).
+- **Answering** — an answer is being written in it: in this window, in another one, or one this window started and then left.
 - **Waiting for your approval** — its latest answer asks for an approval.
+- **New answer** — an answer ended there that has not been opened yet. Opening the conversation clears it; the conversation open in chat never shows it.
 
-Clicking a row on another page opens that conversation in chat. More rows are read as the list is scrolled to its end. The list is read again when the window comes back into view and every 30 seconds while it is visible, every 5 seconds while a task is running in one of the conversations, so a task's run shows up without a reload. The chat page and the sidebar share one list: a change made in either shows in both.
+Clicking a row on another page opens that conversation in chat. More rows are read as the list is scrolled to its end. The sidebar follows the service's account of what happens to the conversations as it happens (an answer starting or ending, a task running, a conversation renamed or deleted in another window) and reads the list again then; it also reads it again when the window comes back into view. There is no polling. The chat page and the sidebar share one list: a change made in either shows in both.
+
+## Several conversations at once
+
+An answer belongs to the service, not to the page that asked for it. Switching to another conversation, going to another page or reloading leaves the answer being written; several conversations can answer at once. Opening a conversation that is answering shows the answer from where it has got to and follows it to the end, with **stop** available. A conversation answers one turn at a time. What you write there while it answers can be queued (Enter, or **Queue to send** beside **stop**): queued messages show above the composer, where each can be edited or removed, and are sent in order once the answer ends and no approval is waiting. The queue belongs to the conversation and is kept in this browser, like drafts; a tool or skill choice is not queued.
+
+### When every place is taken
+
+How many answers (and other model calls) run at once is **Maximum concurrent calls** in Settings → Models, 8 unless changed. An answer past that is not refused: it waits, its conversation shows **Queued — n ahead** and a hollow dot in the sidebar, and it starts by itself when a place frees up. Your own conversations go before tasks waiting for a place. Your message is saved as soon as it is queued, so a reload still shows it; **stop** takes a queued answer out of the queue. Once an answer has started, everything it does (its steps, the summaries it writes, a search it makes) works within its place and is never refused part way.
+
+When the provider is busy or rate-limited, a call is retried with growing waits, or after the wait the provider asks for (up to a minute), about half a minute in all; the answer says **The service is busy — retrying in n s (attempt n)** meanwhile. With a fallback model configured, the failing model gets two quick retries and the fallback takes over.
+
+When an answer ends while its conversation is not open, the row gets the **New answer** dot. In the desktop app, when the RiA window is not in front, a system notification also says the answer is ready (or waits for approval, or could not be finished); clicking it opens the conversation. Tasks keep their own notification setting instead.
+
+The service keeps running answers only while it runs: an answer still being written when the application quits is lost, as before, and its run record says it was interrupted.
 
 ## Unsent drafts
 
@@ -109,7 +125,7 @@ Drafts and the conversation/task panel layout are kept in the browser's local st
 
 ## Stopping a turn
 
-While a turn is running, the send control is replaced by **stop**. Stopping abandons the request, not the question: whatever the model produced stays on screen and is stored as an interrupted answer. It does not mean the provider stopped billing.
+While a turn is running, the send control is replaced by **stop**. Stopping asks the service to stop the turn, wherever it was started: whatever the model produced stays on screen and is stored once, as an interrupted answer. Leaving the conversation does not stop it. Stopping does not mean the provider stopped billing for what it had already produced.
 
 ## Keyboard and copying
 
