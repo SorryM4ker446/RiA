@@ -95,4 +95,4 @@ Browser writes must be same-origin. Foreign/null Origin and cross-site or same-s
 
 Desktop always uses its generated Host and random desktop Cookie, independently of APP_ORIGIN. It binds to loopback and still applies origin checks. Changing the local service port refreshes that Cookie; renderer, proxy settings, health probes and media access continue through the existing desktop lifecycle.
 
-Task reminder claims are desktop-only and persist before native display to prevent replay. They cannot accept arbitrary notification content. Recurring-task completion and successor creation are transactional. See [Task reminders](task-reminders.md) for delivery limits and the read-only scheduling state.
+Task notification claims are desktop-only and persist before native display to prevent replay. They carry only a notice's fixed title code, the task's name and an in-app link. A task's run is the same turn a message would be, with the conversation's own tools and permissions, and it never approves a tool call on the user's behalf. See [Tasks](tasks.md) for delivery limits.

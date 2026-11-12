@@ -36,7 +36,6 @@ const { historicalToolText, shownExcerptCharacters, summaryRecordCharacters } = 
 const { taskStateInstructions } = await import("@/lib/chat/task-summary");
 const { encodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
 const { createGrant, revokeGrant } = await import("@/lib/local-files/grants");
-const { setTerminalPermission } = await import("@/lib/terminal/permissions");
 const { buildSystemPrompt, conversationWindow } = await import("@/lib/chat/model-context");
 const { createStepContext } = await import("@/lib/chat/step-context");
 const { contextBudget } = await import("@/lib/models/context-budget");
@@ -62,6 +61,7 @@ async function capacity(contextLength: number, maxOutputTokens = 2048) {
   settings.contextLimits = { [`openrouter:${CHAT_MODEL_REF.modelId}`]: { contextLength, maxOutputTokens } };
   await db.workspacePreference.update({ where: { id: "local" }, data: { settings } });
 }
+const { stopTurn } = await import("@/lib/chat/live-turns");
 const post = (body: unknown, signal?: AbortSignal) => chatRoute.POST(new NextRequest("http://localhost/api/chat", { method: "POST", signal, headers: { cookie: localAccessCookie(), "content-type": "application/json" }, body: JSON.stringify(body) }));
 const runTool = (body: unknown) => toolRoute.POST(new NextRequest("http://localhost/api/tools/run", { method: "POST", headers: { cookie: localAccessCookie(), "content-type": "application/json" }, body: JSON.stringify(body) }));
 const summaryAnswer = (text: string) => ({ content: [{ type: "text" as const, text }], finishReason: { unified: "stop" as const, raw: "stop" }, usage: { inputTokens: { total: 100, noCache: 100, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 20, text: 20, reasoning: 0 } }, warnings: [] });
@@ -145,12 +145,12 @@ test("stopping while context is being organized closes the run and the summary s
   await capacity(32_000);
   const { chat, history } = await longChat();
   const summary = gatedSummary(t), prompts = answers(t);
-  const controller = new AbortController();
-  const response = await post({ chatId: chat.id, messages: [...history, latest()] }, controller.signal);
+  const response = await post({ chatId: chat.id, messages: [...history, latest()] });
   const reader = response.body!.getReader();
   await firstChunk(reader);
   await summary.reached;
-  controller.abort();
+  // The service holds the turn; stopping it there is what ends it.
+  assert.equal(stopTurn(chat.id), true);
   await reader.cancel().catch(() => null);
   await t.waitFor(async () => assert.equal((await db.agentRun.findFirstOrThrow({ where: { chatId: chat.id } })).status, "cancelled"));
   assert.equal(prompts.length, 0, "a stopped turn asks the model nothing");
@@ -312,7 +312,7 @@ test("a later turn gets the real tool records in full, and a call that never fin
   await db.message.create({ data: { chatId: chat.id, role: "user", clientMessageId: "u1", content: "Read it", createdAt: new Date(1000) } });
   await db.message.create({ data: { chatId: chat.id, role: "assistant", clientMessageId: "a1", createdAt: new Date(2000), content: encodePersistedAssistantToolMessage({ type: "assistant-tool-message", text: "It says this.", reasoning: "PRIVATE-REASONING", tools: [
     { toolName: "searchKnowledge", toolCallId: "done", state: "output-available", input: { query: "q" }, output, approval: { id: "settled", approved: true } },
-    { toolName: "createTask", toolCallId: "never-finished", state: "input-available", input: { title: "x" } },
+    { toolName: "createTask", toolCallId: "never-finished", state: "input-available", input: { title: "x", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" } },
   ] }) } });
   const prompts = answers(t);
   await wireText(await post({ chatId: chat.id, messages: [...await loaded(chat.id), { id: "u2", role: "user", parts: [{ type: "text", text: "And then?" }] }] }));
@@ -387,7 +387,6 @@ test("after a fold the files in use come back as they are now, within bounds, an
     writeFileSync(join(root, "large.ts"), "const x = 1234567890;\n".repeat(2000));
     writeFileSync(join(root, "shown.ts"), "already in the conversation\n");
     const grant = await createGrant({ path: root });
-    await setTerminalPermission(grant.id, true, grant.updatedAt, "full-access");
     const state = foldIntoState(EMPTY_SUMMARY_STATE, { toolCalls: ["small.ts", "large.ts", "shown.ts", "deleted.ts"].map(path => ({ toolName: "readProjectFile", input: { grantId: grant.id, path } })).concat([{ toolName: "readProjectFile", input: { grantId: "another-folder", path: "other.ts" } }]) });
     const inputTokens = 181_000;
     const inUse = new Set(["shown.ts"]);
@@ -676,7 +675,6 @@ test("what was put back is read once and sent unchanged, and a later change is r
     writeFileSync(join(root, "newer.ts"), "newer\n");
     utimesSync(join(root, "old.ts"), new Date(2020, 0, 1), new Date(2020, 0, 1));
     const grant = await createGrant({ path: root });
-    await setTerminalPermission(grant.id, true, grant.updatedAt, "full-access");
     const state = foldIntoState(EMPTY_SUMMARY_STATE, { toolCalls: ["newer.ts", "old.ts"].map(path => ({ toolName: "readProjectFile", input: { grantId: grant.id, path }, output: { hash: "old" } })) });
     assert.deepEqual(state.files.map(file => file.hash), ["old", "old"]);
     const first = await restoredContext({ state, inUse: new Set(), workspaceId: grant.id, allowFiles: true, allowSkills: false, inputTokens: 181_000 });

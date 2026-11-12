@@ -171,7 +171,8 @@ async function recordChatReturn(page: Page) {
 for (const reducedMotion of [false, true]) {
   test(`returning to chat goes straight from the placeholder to the restored conversation${reducedMotion ? " with reduced motion" : ""}`, async ({ page }) => {
     await page.emulateMedia({ reducedMotion: reducedMotion ? "reduce" : "no-preference" });
-    const chat = { id: "returning-conversation", title: "Returning conversation", lastMessageAt: "2026-10-24T00:00:00Z", messageCount: 4 };
+    // As stored: every conversation carries its approval rule.
+    const chat = { id: "returning-conversation", title: "Returning conversation", lastMessageAt: "2026-10-24T00:00:00Z", messageCount: 4, approvalRule: "ask" };
     const history = Array.from({ length: 4 }, (_, index) => ({ id: `return-${index}`, clientMessageId: null, role: index % 2 ? "assistant" : "user", content: `Returning message ${index}. `.repeat(16), status: "success" }));
     const modelSettings = modelsRouteFixture([fixtureLibraryItem("anthropic/claude-opus-4.6", ["chat"])], { chat: "anthropic/claude-opus-4.6" });
     // Open gates on the first visit; the return visit holds each read so every
@@ -204,7 +205,8 @@ for (const reducedMotion of [false, true]) {
       // reading the saved settings is not presented as a running turn.
       const skeleton = page.getByTestId("message-skeleton");
       await expect(skeleton).toBeAttached();
-      await expect(page.locator(".chat-toolbar h3")).toHaveText("");
+      // The app already holds the list the sidebar shows, so the remembered conversation is named at once.
+      await expect(page.locator(".chat-toolbar h3")).toHaveText(chat.title);
       await expect(page.getByRole("button", { name: "发送", exact: true })).toBeDisabled();
       // A load that is quick enough never paints the placeholder; a slow one still does.
       const reveal = await skeleton.evaluate(node => ({ delay: getComputedStyle(node).animationDelay, animations: node.getAnimations().length }));
@@ -214,14 +216,14 @@ for (const reducedMotion of [false, true]) {
         await expect(skeleton).toHaveAttribute("data-late", "true");
         await expect(skeleton).toBeVisible();
       } else expect(reveal.delay).toBe("0.2s");
-      // Conversation controls wait for the conversation instead of appearing one by one.
-      await expect(page.locator(".chat-toolbar-actions")).toHaveCSS("visibility", "hidden");
+      // The conversation is known, so its controls are there with its title rather than appearing one by one.
+      await expect(page.locator(".chat-toolbar-actions")).toHaveCSS("visibility", "visible");
       await expect.poll(() => skeleton.evaluate(node => getComputedStyle(node).opacity)).toBe("1");
       // The remembered conversation's history is asked for while the list is still outstanding,
       // rather than after it answers.
       await expect.poll(() => historyRequests).toBe(historyBefore + 1);
 
-      // The conversation is known before its history is: still the placeholder.
+      // The list read again still names it; its history is not here yet: still the placeholder.
       release.settings();
       release.list();
       await expect(page.locator(".chat-toolbar h3")).toHaveText(chat.title);
@@ -343,13 +345,13 @@ test("the first model name the picker shows appears at its full width rather tha
   } finally { releaseSettings(); }
 });
 
-test("the tasks page keeps its reminder note still while a slow task list loads", async ({ page }) => {
+test("the tasks page keeps its header still while a slow task list loads", async ({ page }) => {
   // The list answers late, so its placeholder is painted before the empty state replaces it.
-  await page.route("**/api/tasks**", async route => { await new Promise(resolve => setTimeout(resolve, 600)); await route.fulfill({ json: { data: [] } }); });
+  await page.route("**/api/tasks**", async route => { await new Promise(resolve => setTimeout(resolve, 600)); await route.fulfill({ json: { data: [], automaticExecution: true } }); });
   await page.goto("/tasks");
-  const layout = await watchLayout(page, { panel: '[data-testid="task-panel"]' });
-  await expect(page.getByText("这个视图里还没有任务。", { exact: true })).toBeVisible();
-  await expect(page.getByText("关于任务提醒", { exact: true })).toBeVisible();
+  const layout = await watchLayout(page, { header: ".workspace-page-header" });
+  await expect(page.getByText(/^还没有任务。/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "新建任务", exact: true })).toBeVisible();
   // Nothing that was already on screen moved when the list arrived.
   expectNoUnexpectedShift(await layout.read());
 });

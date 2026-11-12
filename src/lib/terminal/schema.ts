@@ -8,14 +8,12 @@ export const terminalLogReferenceSchema = z.object({
   complete: z.boolean(), expiresAt: z.string(),
 });
 export type TerminalLogReference = z.infer<typeof terminalLogReferenceSchema>;
-export const terminalApprovalModeSchema = z.enum(["approval", "full-access"]);
-export type TerminalApprovalMode = z.infer<typeof terminalApprovalModeSchema>;
 export const terminalBindingSchema = z.strictObject({
   sessionId: z.uuid(), grantId: z.string().min(1).max(200), revision: z.string().min(1), cwd: z.string().min(1).max(4000),
 });
 export const terminalInputSchema = z.strictObject({
-  grantId: z.string().min(1).max(200).describe("ID of a folder explicitly enabled for terminal commands."),
-  command: z.string().trim().min(1).refine(value => !value.includes("\0"), "NUL is not allowed").describe("Complete Windows PowerShell command or script. Approval follows the folder's terminal approval mode. No interactive input is available."),
+  grantId: z.string().min(1).max(200).describe("grantId of the conversation's workspace folder."),
+  command: z.string().trim().min(1).refine(value => !value.includes("\0"), "NUL is not allowed").describe("Complete Windows PowerShell command or script. Approval follows the conversation's approval rule. No interactive input is available."),
   // Accepted only to restore old approval payloads; no longer enforced.
   timeoutSeconds: z.number().int().min(1).optional(),
   binding: terminalBindingSchema.optional(),

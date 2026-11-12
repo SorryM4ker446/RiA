@@ -31,6 +31,8 @@ export function WorkspaceReviewPreview() {
     return () => controller.abort();
   }, [query]);
   return <SettingsSection role="region" aria-label={t("ui.settings.workspace-review.workspaceFactualReview")} title={t("ui.settings.workspace-review.workspaceFactualReview")} description={t("ui.settings.workspace-review.viewRecordedTaskAndKnowledgeChanges")}><div className="flex flex-col gap-4">
+    {/* The result is last and arrives late, so nothing in the section sits below it to be pushed down. */}
+    <SettingsHelp title={t("ui.settings.workspace-review.statisticsScopeRecordRetention")}><p>{t("ui.settings.workspace-review.dailyStatisticsCoverThePreviousFull")}</p><p>{t("ui.settings.workspace-review.eventsAreRetainedFor365Days")}</p></SettingsHelp>
     <form className="settings-review-form" onSubmit={event => { event.preventDefault(); setLoading(true); setError(null); setResult(null); setQuery({ period, timeZone }); }}>
       <FieldGroup className="settings-review-fields"><Field><FieldLabel htmlFor="review-period" className="sr-only">{t("ui.settings.workspace-review.reviewPeriod")}</FieldLabel><SelectField id="review-period" aria-label={t("ui.settings.workspace-review.reviewPeriod")} value={period} onValueChange={value => setPeriod(value as "daily" | "weekly")}><SelectOption value="daily">{t("ui.settings.workspace-review.previousFullDay")}</SelectOption><SelectOption value="weekly">{t("ui.settings.workspace-review.previousFullWeek")}</SelectOption></SelectField></Field>
       <Field><FieldLabel htmlFor="review-zone" className="sr-only">{t("ui.settings.workspace-review.reviewTimeZone")}</FieldLabel><Input id="review-zone" aria-label={t("ui.settings.workspace-review.reviewTimeZone")} value={timeZone} onChange={event => setTimeZone(event.target.value)} /></Field></FieldGroup>
@@ -44,6 +46,5 @@ export function WorkspaceReviewPreview() {
       {result.facts.sources.length ? <ol className="flex flex-col gap-2 text-sm">{result.facts.sources.map(source => <li key={source.id}><Link className="underline break-words" href={`/activity/events/${encodeURIComponent(source.id)}`}>{eventLabel(source.kind)} · {source.label}</Link></li>)}</ol> : <p className="text-sm">{t("ui.settings.workspace-review.noRecordedChangesDuringThisPeriod")}</p>}
       {result.facts.omitted ? <p className="text-xs">{t("ui.settings.workspace-review.onlyTheFirst100SourcesAre")}{result.facts.omitted} {t("ui.settings.workspace-review.areIncludedInTheStatistics")}</p> : null}
     </> : null}
-    <SettingsHelp title={t("ui.settings.workspace-review.statisticsScopeRecordRetention")}><p>{t("ui.settings.workspace-review.dailyStatisticsCoverThePreviousFull")}</p><p>{t("ui.settings.workspace-review.eventsAreRetainedFor365Days")}</p></SettingsHelp>
   </div></SettingsSection>;
 }

@@ -19,7 +19,8 @@ const storage = await import("@/lib/media/storage");
 const { restoreAccountBackup } = await import("@/lib/backups/restore");
 const { exportBackupCopy, listBackupExports } = await import("@/lib/backups/exports");
 const { exclusiveDataOperation, protectDataOperation, retainDataOperation } = await import("@/lib/server/data-operations");
-const { createScheduledJob, runDueScheduledJob } = { createScheduledJob: (await import("@/lib/scheduler/jobs")).createScheduledJob, runDueScheduledJob: (await import("@/lib/scheduler/runner")).runDueScheduledJob };
+const { createTask } = await import("@/lib/scheduler/jobs");
+const { runDueTask } = await import("@/lib/scheduler/runner");
 const uploadRoute = await import("@/app/api/backups/import/[id]/route");
 const beginRoute = await import("@/lib/backups/imports");
 
@@ -43,7 +44,7 @@ beforeEach(async (t: TestContext) => {
   await db.chat.deleteMany({});
   await db.chatTag.deleteMany({});
   await db.memory.deleteMany({});
-  await db.task.deleteMany({});
+  await db.scheduledJob.deleteMany({});
   await db.knowledgeDocument.deleteMany({});
   await db.documentChunk.deleteMany({});
   await db.documentTerm.deleteMany({});
@@ -155,7 +156,7 @@ test("a restore that cannot pause its schedules leaves the live workspace alone"
   const original = await seed();
   const backup = await exclusiveDataOperation(() => archive.createAccountBackup());
   await db.chat.update({ where: { id: original.chat.id }, data: { title: "Edited since the backup" } });
-  await db.scheduledJob.create({ data: { kind: "scheduledBackup", enabled: true, localTime: "09:00", timeZone: "UTC", interval: "daily", dayOfWeek: null, nextRunAt: new Date(Date.now() + HOUR) } });
+  await db.scheduledJob.create({ data: { kind: "scheduledBackup", enabled: true, timeZone: "UTC", cron: "0 9 * * *", nextRunAt: new Date(Date.now() + HOUR) } });
 
   // The pause used to run after the rows it describes had already been replaced
   // and committed, so this failure left a restored workspace whose schedules
@@ -179,8 +180,8 @@ test("a restore that cannot pause its schedules leaves the live workspace alone"
 test("a completed restore pauses schedules and grants in the same commit and reports the counts", async () => {
   await seed();
   const backup = await exclusiveDataOperation(() => archive.createAccountBackup());
-  await db.scheduledJob.create({ data: { kind: "scheduledBackup", enabled: true, localTime: "09:00", timeZone: "UTC", interval: "daily", dayOfWeek: null, nextRunAt: new Date(Date.now() + HOUR) } });
-  await db.scheduledJob.create({ data: { kind: "dailyBrief", enabled: false, localTime: "09:00", timeZone: "UTC", interval: "daily", dayOfWeek: null, nextRunAt: new Date(Date.now() + HOUR) } });
+  await db.scheduledJob.create({ data: { kind: "scheduledBackup", enabled: true, timeZone: "UTC", cron: "0 9 * * *", nextRunAt: new Date(Date.now() + HOUR) } });
+  await db.scheduledJob.create({ data: { kind: "backupReminder", enabled: false, timeZone: "UTC", cron: "0 9 * * *", nextRunAt: new Date(Date.now() + HOUR) } });
   const grant = await db.directoryGrant.create({ data: { label: "Documents", path: "C:/Users/someone/Documents", realPath: "C:/Users/someone/Documents" } });
 
   const result = await exclusiveDataOperation(() => restoreAccountBackup(backup.id));
@@ -188,7 +189,7 @@ test("a completed restore pauses schedules and grants in the same commit and rep
   assert.equal(result.pausedSchedules, 1, "only the schedule that was running is reported as paused");
   assert.equal(result.revokedDirectoryGrants, 1);
   assert.equal((await db.scheduledJob.findFirstOrThrow({ where: { kind: "scheduledBackup" } })).enabled, false);
-  assert.equal((await db.scheduledJob.findFirstOrThrow({ where: { kind: "dailyBrief" } })).enabled, false, "an already-off schedule stays off");
+  assert.equal((await db.scheduledJob.findFirstOrThrow({ where: { kind: "backupReminder" } })).enabled, false, "an already-off schedule stays off");
   assert.equal(await db.directoryGrant.count({ where: { id: grant.id } }), 0, "a withdrawn grant is removed, not kept");
 });
 
@@ -238,18 +239,18 @@ test("a conversation in progress no longer costs the user the scheduled backup",
   );
   const response = await streaming(new NextRequest("http://localhost/api/chat", { headers: { cookie } }));
 
-  await createScheduledJob({ kind: "scheduledBackup", enabled: true, localTime: "09:00", timeZone: "UTC", interval: "daily" });
+  await createTask({ kind: "scheduledBackup", title: "Backup", enabled: true, cron: "0 9 * * *", timeZone: "UTC" });
   await db.scheduledJob.updateMany({ data: { nextRunAt: new Date(Date.now() - HOUR) } });
 
   // `protectDataOperation` holds the read for the whole turn, so the exclusive
   // lock the run used to ask for was refused here — and because a failed run is
   // marked done until its next turn, the day's backup was simply lost with a
   // "backup-failed" notice the user could not act on.
-  const run = await runDueScheduledJob(new Date());
+  const run = await runDueTask(new Date());
   open.close();
   await response.text();
 
-  assert.equal(run?.outcome.ok, true, `the backup ran: ${JSON.stringify(run?.outcome)}`);
+  assert.equal(run?.outcome.status, "succeeded", `the backup ran: ${JSON.stringify(run?.outcome)}`);
   assert.equal((await files.listBackupFiles()).filter((file) => file.extension === "riab").length, 1);
   assert.equal(await db.appNotice.count({ where: { title: "backup-failed" } }), 0);
   assert.equal((await db.scheduledJob.findFirstOrThrow({ where: { kind: "scheduledBackup" } })).lastStatus, "done");

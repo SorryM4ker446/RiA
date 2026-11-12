@@ -66,7 +66,9 @@ export async function startStandaloneServer(options: { modelFixture?: boolean; m
   async function start() {
     let launchError = false;
     const entry = options.serverEntry ?? ".desktop-runtime/server.js";
-    const args = options.desktopScheduler
+    // A desktop-scheduler server runs tasks by itself, so it needs the offline
+    // model too whenever a test asks for one; without it a run would reach the network.
+    const args = options.desktopScheduler && !options.modelFixture
       ? [entry]
       : ["--import", pathToFileURL(resolve("tests/helpers/offline-http.ts")).href, entry];
     server = spawn(process.execPath, args, { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe", "ipc"] });

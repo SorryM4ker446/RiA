@@ -17,7 +17,6 @@ process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 const route = await import("@/app/api/chat/route");
 const { createGrant, revokeGrant } = await import("@/lib/local-files/grants");
-const { setTerminalPermission } = await import("@/lib/terminal/permissions");
 const { decodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
 const { collectEditedFiles } = await import("@/lib/terminal/file-change-summary");
 const { contentHash } = await import("@/lib/project-files/text");
@@ -49,7 +48,6 @@ test("a model reads, fails an inexact edit, sees why, corrects it and the file c
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ria-edit-chat-"))); roots.push(root);
   writeFileSync(join(root, "math.ts"), "export function add(a: number, b: number) {\n  return a - b;\n}\n");
   const grant = await createGrant({ path: root });
-  await setTerminalPermission(grant.id, true, grant.updatedAt, "full-access");
   const hash = contentHash(readFileSync(join(root, "math.ts")));
   const prompts: string[] = [];
   const steps = [
@@ -69,7 +67,7 @@ test("a model reads, fails an inexact edit, sees why, corrects it and the file c
       controller.close();
     } }) };
   });
-  const response = await route.POST(request({ chatId: (await db.chat.create({ data: { title: "Workspace", workspaceGrantId: grant.id } })).id, messages: [ui("edit-user", "Fix add() in math.ts")] }));
+  const response = await route.POST(request({ chatId: (await db.chat.create({ data: { title: "Workspace", workspaceGrantId: grant.id, approvalRule: "full" } })).id, messages: [ui("edit-user", "Fix add() in math.ts")] }));
   assert.equal(response.status, 200);
   assert.match(await wireText(response), /Fixed add\(\)/);
   assert.equal(readFileSync(join(root, "math.ts"), "utf8"), "export function add(a: number, b: number) {\n  return a + b;\n}\n");
@@ -84,11 +82,10 @@ test("a model reads, fails an inexact edit, sees why, corrects it and the file c
   assert.deepEqual(summary.files.map(file => [file.path, file.kind]), [["math.ts", "modified"]]);
 });
 
-test("in approval mode the edit waits with its diff and nothing is written until approved", { timeout: 30_000 }, async t => {
+test("under the ask rule the edit waits with its diff and nothing is written until approved", { timeout: 30_000 }, async t => {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ria-edit-chat-"))); roots.push(root);
   writeFileSync(join(root, "README.md"), "# Old title\n");
   const grant = await createGrant({ path: root });
-  await setTerminalPermission(grant.id, true, grant.updatedAt, "approval");
   const hash = contentHash(readFileSync(join(root, "README.md")));
   t.mock.method(languageModel, "doStream", async () => ({ stream: new ReadableStream<LanguageModelV3StreamPart>({ start(controller) {
     controller.enqueue({ type: "stream-start", warnings: [] });
@@ -108,7 +105,6 @@ test("a template allowing the terminal describes its file tools truthfully and a
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ria-edit-chat-"))); roots.push(root);
   writeFileSync(join(root, "README.md"), "# Old title\n");
   const grant = await createGrant({ path: root });
-  await setTerminalPermission(grant.id, true, grant.updatedAt, "approval");
   const template = await saveAssistant(assistantConfigSchema.parse({ name: "Terminal only", instructions: "Work in the folder", tools: ["runTerminalCommand"] }));
   const chat = await createChat({ title: "Template workspace", assistantTemplateId: template.id });
   await db.chat.update({ where: { id: chat.id }, data: { workspaceGrantId: grant.id } });

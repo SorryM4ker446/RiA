@@ -266,7 +266,7 @@ test("a withdrawn folder is removed from every listing", async () => {
 
 // --- 7-2 and 7-3: the tools the assistant may run inside a grant -------------
 
-test("granting a folder does not restore retired tools or silently enable terminal execution", async () => {
+test("granting a folder offers the terminal, and does not restore retired tools", async () => {
   const { toolAvailability, listPublicToolCatalog, getToolDescriptor } = await import("@/tools/catalog");
   await createGrant({ path: temporaryDirectory("ria-grant-") });
   const catalog = await listPublicToolCatalog("chat");
@@ -275,7 +275,8 @@ test("granting a folder does not restore retired tools or silently enable termin
     assert.equal(catalog.some(tool => tool.id === id), false);
     assert.equal((await toolAvailability(id)).available, false);
   }
-  assert.equal((await toolAvailability("runTerminalCommand")).available, false);
+  // Commands still wait for approval under the default rule; adding the folder is what offers the tool.
+  assert.equal((await toolAvailability("runTerminalCommand")).available, true);
   assert.equal((await toolAvailability("createTask")).available, true);
 });
 

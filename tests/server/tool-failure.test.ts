@@ -54,14 +54,14 @@ const ask = async () => {
 };
 
 test("a call refused for bad input records why and what was sent, not an unavailable model", async t => {
-  const input = { title: "交周报", dueDate: "tomorrow 10:00" };
+  const input = { title: "交周报", prompt: "提醒我交周报。", runAt: "tomorrow 10:00", timeZone: "Asia/Shanghai" };
   const prompts = callOnce(t, "createTask", input);
   const { row, tool } = await ask();
   assert.equal(tool?.state, "output-error");
   assert.deepEqual(tool?.input, input, "the record shows what the model sent");
   const shown = readToolError(tool!.errorText!);
   assert.match(shown, /模型填写的工具参数不正确/);
-  assert.match(shown, /截止时间需要 ISO 日期/);
+  assert.match(shown, /runAt: .*YYYY-MM-DDTHH:mm/);
   assert.doesNotMatch(shown, /模型服务|Type validation failed/);
   // The model is still told, in full, so it can correct the call.
   assert.match(JSON.stringify(prompts[1]), /Invalid input for tool createTask/);

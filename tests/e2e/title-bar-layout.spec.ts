@@ -69,24 +69,19 @@ test("floating layers that can reach the window's drag band opt out of it", asyn
   expect(await region(".command-palette")).toBe("no-drag");
 });
 
-test("recent conversations open over the canvas without reserving a sidebar", { tag: "@integration" }, async ({ page, app }) => {
+test("the sidebar's conversations sit beside the canvas rather than over it", { tag: "@integration" }, async ({ page, app }) => {
   await open(page, app.origin, "/chat");
-  const trigger = page.getByRole("button", { name: "会话列表", exact: true });
   const list = page.getByRole("complementary", { name: "会话列表", exact: true });
-  await expect(list).toHaveCount(0);
-  const before = await page.locator(".chat-canvas").boundingBox();
-  await trigger.click();
   await expect(list).toBeVisible();
-  expect(await page.locator(".chat-canvas").boundingBox()).toEqual(before);
-  const box = await list.boundingBox();
-  expect(box!.y).toBeGreaterThanOrEqual(44);
-  expect(box!.y + box!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
-  await page.keyboard.press("Escape");
-  await expect(list).toHaveCount(0);
-  await expect(trigger).toBeFocused();
+  const canvas = (await page.locator(".chat-canvas").boundingBox())!;
+  const box = (await list.boundingBox())!;
+  expect(box.x + box.width).toBeLessThanOrEqual(canvas.x);
+  expect(box.y).toBeGreaterThanOrEqual(44);
   await page.getByRole("link", { name: "任务", exact: true }).click();
   await expect(page).toHaveURL(app.origin + "/tasks");
-  await expect(page.getByTestId("task-panel")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "任务", exact: true })).toBeVisible();
+  // Still there on another page.
+  await expect(list).toBeVisible();
 });
 
 test("the brand stays clickable inside the drag row", { tag: "@integration" }, async ({ page, app }) => {
@@ -117,7 +112,7 @@ for (const locale of ["zh-CN", "en-US"] as const) {
     page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
     await page.addInitScript(value => localStorage.setItem("ui:locale", value), locale);
     await openWorkspace(page, app.origin);
-    await page.goto(`${app.origin}/conversations`);
+    await page.goto(`${app.origin}/media`);
     await expect(page).toHaveTitle("RiA");
     await expect(page.getByRole("main")).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("lang", locale);
@@ -128,8 +123,8 @@ for (const locale of ["zh-CN", "en-US"] as const) {
       if (width < 1024) await page.getByRole("button", { name: english ? "Expand sidebar" : "展开侧边栏", exact: true }).click();
       const nav = page.getByRole("navigation", { name: english ? "Workspace navigation" : "工作区导航", exact: true });
       await expect(nav).toBeVisible();
-      const conversations = nav.getByRole("link", { name: english ? "Conversations" : "管理会话", exact: true });
-      await expect(conversations).toHaveAttribute("aria-current", "page");
+      const current = nav.getByRole("link", { name: english ? "Media library" : "媒体资源库", exact: true });
+      await expect(current).toHaveAttribute("aria-current", "page");
       const labels = await nav.locator(".workspace-nav-link span").evaluateAll(nodes => nodes.map(node => {
         const label = node as HTMLElement;
         const box = label.getBoundingClientRect();

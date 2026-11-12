@@ -5,6 +5,7 @@ import { dataRequestContext } from "@/lib/server/data-operations";
 import { getModelPreferences } from "@/lib/models/preferences";
 import { modelRefKey, defaultModelPreferences, upgradeModelPreferences, type LibraryMode, type ModelRef } from "@/lib/models/preferences-schema";
 import { modelCallSource, type CallSource } from "./call-context";
+import { holdForAttempt, slotForCall } from "./call-slots";
 
 export function budgetDay(now: Date, timeZone: string) {
   const parts = new Intl.DateTimeFormat("en", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
@@ -20,13 +21,29 @@ export function estimatedCallCost(prompt: unknown, maxOutputTokens: number | und
 export async function beginModelAttempt(input: { mode: LibraryMode; ref: ModelRef; prompt?: unknown; maxOutputTokens?: number; fallback?: boolean; source?: CallSource; signal?: AbortSignal }) {
   input.signal?.throwIfAborted();
   const source = input.source ?? modelCallSource();
+  // A place for the call: the turn's own when it is part of one, otherwise one
+  // of its own, waited for when all are taken. Given back when the attempt is
+  // recorded (recordModelAttempt), or here when it is not admitted.
+  const slot = await slotForCall(source === "scheduled" || source === "embedding" ? "background" : "foreground", input.signal);
+  try {
+    const admitted = await admit(input, source);
+    holdForAttempt(admitted.id, slot.release);
+    return admitted;
+  } catch (error) {
+    slot.release();
+    throw error;
+  }
+}
+
+async function admit(input: { mode: LibraryMode; ref: ModelRef; prompt?: unknown; maxOutputTokens?: number; fallback?: boolean; signal?: AbortSignal }, source: CallSource) {
   // Summaries only run inside a chat request the user started and can stop, so
   // they are attributed separately but share that request's foreground controls.
   const background = source === "scheduled";
   const now = new Date(), id = randomUUID();
   return db.$transaction(async tx => {
-    // Acquire SQLite's writer before reading counters; concurrent admissions
-    // cannot both observe the same available slot, including across processes.
+    // Acquire SQLite's writer before reading counters, so concurrent admissions
+    // cannot both spend the same remaining background allowance. How many calls
+    // run at once is decided before this, by the places (call-slots).
     await tx.$executeRaw`INSERT OR IGNORE INTO model_call_days (day, calls, estimatedUsd) VALUES ('lock', 0, 0)`;
     await tx.$executeRaw`UPDATE model_call_days SET calls = calls WHERE day = 'lock'`;
     const stored = await tx.workspacePreference.findUnique({ where: { id: "local" } });
@@ -34,24 +51,24 @@ export async function beginModelAttempt(input: { mode: LibraryMode; ref: ModelRe
     const limits = preferences.callLimits;
     const rate = preferences.rates[modelRefKey(input.ref)];
     const estimate = input.mode === "image" || input.mode === "video" ? rate?.perRequest ?? null : estimatedCallCost(input.prompt, input.maxOutputTokens, rate);
-    if (await tx.modelRequest.count({ where: { status: "pending" } }) >= limits.maxConcurrent) {
-      throw new ApiError({ code: "CONFLICT", message: "模型并发调用已达上限，请等待当前调用结束。" });
-    }
     if (background) {
       if ((limits.backgroundMaxEstimatedUsd !== null || limits.backgroundDailyEstimatedUsd !== null) && estimate === null) {
-        throw new ApiError({ code: "CONFIGURATION_ERROR", message: "后台费用上限已启用，请先配置模型输入和输出价格。未知费用不能按零领取额度。" });
+        throw new ApiError({ code: "BACKGROUND_LIMIT", message: "后台费用上限已启用，请先配置模型输入和输出价格。未知费用不能按零领取额度。" });
       }
       if (limits.backgroundMaxEstimatedUsd !== null && estimate! > limits.backgroundMaxEstimatedUsd) {
-        throw new ApiError({ code: "CONFLICT", message: "后台调用预估费用超过单次上限。" });
+        throw new ApiError({ code: "BACKGROUND_LIMIT", message: "后台调用预估费用超过单次上限。" });
       }
+      // The daily count is of task runs, admitted once per run by
+      // `admitBackgroundRun`; a run may make several calls. Calls are held to the
+      // money ceilings here.
       const day = budgetDay(now, limits.timeZone);
       const counter = await tx.modelCallDay.upsert({ where: { day }, create: { day }, update: {} });
-      if (counter.calls >= limits.backgroundDailyCalls || limits.backgroundDailyEstimatedUsd !== null && counter.estimatedUsd + estimate! > limits.backgroundDailyEstimatedUsd) {
-        throw new ApiError({ code: "CONFLICT", message: "后台调用已达到本地日期的次数或预估费用上限。" });
+      if (limits.backgroundDailyEstimatedUsd !== null && counter.estimatedUsd + estimate! > limits.backgroundDailyEstimatedUsd) {
+        throw new ApiError({ code: "BACKGROUND_LIMIT", message: "后台任务已达到本地日期的预估费用上限。" });
       }
       // Submitted attempts consume the daily allowance even on failure/abort.
       // Unknown billing must not allow a cancel-and-retry budget bypass.
-      await tx.modelCallDay.update({ where: { day }, data: { calls: { increment: 1 }, estimatedUsd: { increment: estimate ?? 0 } } });
+      await tx.modelCallDay.update({ where: { day }, data: { estimatedUsd: { increment: estimate ?? 0 } } });
     }
     input.signal?.throwIfAborted();
     await tx.modelRequest.create({ data: { id, requestId: dataRequestContext()?.requestId ?? randomUUID(), source, mode: input.mode, modelId: input.ref.modelId, modelProvider: input.ref.providerId,
@@ -64,4 +81,28 @@ export async function beginModelAttempt(input: { mode: LibraryMode; ref: ModelRe
 /** Run once at service startup, before accepting requests. Never replay calls. */
 export async function recoverModelAttempts() {
   return db.modelRequest.updateMany({ where: { status: "pending" }, data: { status: "interrupted", errorCode: "PROCESS_INTERRUPTED", costUsd: null, costSource: "unknown" } });
+}
+
+/**
+ * Admit one run of a task that started on its own, counted against the day.
+ *
+ * A run is what the user schedules and can reason about; one run may make
+ * several model calls as it uses tools, so the daily allowance counts runs,
+ * and each call within it is still held to the money ceilings above. A run the
+ * user starts by hand is not background work and is not counted. The count is
+ * taken under the same writer lock as call admission, so two runs starting
+ * together cannot both take the last place.
+ */
+export async function admitBackgroundRun(now = new Date()): Promise<{ admitted: boolean; limit: number }> {
+  return db.$transaction(async tx => {
+    await tx.$executeRaw`INSERT OR IGNORE INTO model_call_days (day, calls, estimatedUsd) VALUES ('lock', 0, 0)`;
+    await tx.$executeRaw`UPDATE model_call_days SET calls = calls WHERE day = 'lock'`;
+    const stored = await tx.workspacePreference.findUnique({ where: { id: "local" } });
+    const limits = (stored ? upgradeModelPreferences(stored.settings) : defaultModelPreferences()).callLimits;
+    const day = budgetDay(now, limits.timeZone);
+    const counter = await tx.modelCallDay.upsert({ where: { day }, create: { day }, update: {} });
+    if (counter.calls >= limits.backgroundDailyCalls) return { admitted: false, limit: limits.backgroundDailyCalls };
+    await tx.modelCallDay.update({ where: { day }, data: { calls: { increment: 1 } } });
+    return { admitted: true, limit: limits.backgroundDailyCalls };
+  });
 }

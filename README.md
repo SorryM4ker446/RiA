@@ -16,13 +16,13 @@ Current version: **0.1.18** · Windows x64 · Built with Electron, Next.js, the 
 
 Import PDF, Word, Markdown or text files, check the extracted text, and save them under topics such as Finance or IT. RiA indexes them in the background as soon as an embedding model is chosen; each document simply shows **Ready**, **Processing** or **Pending**.
 
-Search combines keyword matching (BM25) with search by meaning, so a question in your own words still finds the paragraph that uses different ones. In chat the model searches when a question depends on your material and cites the exact passage, with a link back to the version it read. Knowledge entries hold short facts you want kept, such as an address, a code or a definition. [Knowledge library](docs/document-knowledge.md) · [Knowledge topics](docs/knowledge-topics.md)
+Search combines keyword matching (BM25) with search by meaning, so a question in your own words still finds the paragraph that uses different ones. In chat the model searches when a question depends on your material and cites the exact passage, with a link back to the version it read. Knowledge entries hold short facts you want kept, such as an address, a code or a definition. [Knowledge library](docs/document-knowledge.md)
 
 ## Tools, one keystroke away
 
 ![The slash menu listing tools and assistant templates](docs/images/en/slash-menu.png)
 
-Type `/` in the message box to pick a tool, a Skill or an assistant template. Only what you can actually use is listed; the model can also choose tools on its own. Built in: knowledge search, document reading and conversion to Markdown, TXT, HTML or Word, web search through your chat model's provider, tasks with reminders, a PowerShell terminal, and file reading and editing in folders you grant. [Tools](docs/tool-readiness.md) · [Assistant templates](docs/assistant-templates.md)
+Type `/` in the message box to pick a tool, a Skill or an assistant template. Only what you can actually use is listed; the model can also choose tools on its own. Built in: knowledge search, document reading and conversion to Markdown, TXT, HTML or Word, web search through your chat model's provider, tasks that run on a schedule, a PowerShell terminal, and file reading and editing in folders you grant. [Tools](docs/tool-readiness.md) · [Assistant templates](docs/assistant-templates.md)
 
 ## Nothing happens behind your back
 
@@ -55,11 +55,10 @@ Installing a Skill never runs its scripts or grants file access. [Plugins](docs/
 | | |
 | --- | --- |
 | Chat | Streaming answers, reasoning shown while the model thinks and folded when it answers, image/PDF/Word attachments, message times, search, tags, archive and export. [Conversations](docs/conversation-management.md) |
-| Knowledge topics | Workspaces over chosen collections that turn sources into reports, plans or summaries with saved evidence. [Topics](docs/knowledge-topics.md) |
 | Media | Image and video generation through supported OpenRouter models, kept in a private media library. [Media library](docs/media-library.md) |
-| Tasks | Due dates, time zones, repeats and desktop reminders. [Reminders](docs/task-reminders.md) |
+| Tasks | Have RiA do something by itself, once or on a schedule, each task in its own conversation, with a notification when it is done. [Tasks](docs/tasks.md) |
 | Desktop | Tray, global hotkey, command palette (**Ctrl+K**), light and dark themes, Chinese and English interface. [Desktop](docs/desktop.md) |
-| Your data | Backup and restore, storage cleanup, scheduled backups and workspace reviews. [Backups](docs/workspace-backups.md) · [Storage](docs/media-storage.md) |
+| Your data | Backup and restore, storage cleanup, backups as a scheduled task, and workspace reviews. [Backups](docs/workspace-backups.md) · [Storage](docs/media-storage.md) |
 
 ![The same conversation in the light theme](docs/images/en/chat-light.png)
 
@@ -72,7 +71,7 @@ Installing a Skill never runs its scripts or grants file access. [Plugins](docs/
 3. In **Settings → Models**, add models to **My models** and choose a default chat model. Pick one that supports tool calling to use tools, Skills and knowledge search, and choose an embedding model to search by meaning.
 4. Start chatting. Import documents under **Knowledge**, type `/` for tools, and grant folders through **Workspace permissions** when you want RiA to work with files.
 
-History, local keyword search and manual tasks work without a model service. Reminders and scheduled work run while RiA is open, including in the tray.
+History, local keyword search and scheduled backups work without a model service. Tasks run while RiA is open, including in the tray.
 
 ## Privacy
 

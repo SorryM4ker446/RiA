@@ -71,7 +71,7 @@ test("approval continuations retain every server run link and display one reques
   const first = await db.agentRun.create({ data: { chatId: chat.id, goal: "Create task", status: "succeeded", finishedAt: new Date() } });
   const stored = await db.message.create({ data: { chatId: chat.id, role: "assistant", clientMessageId: "approval-message", content: encodePersistedAssistantToolMessage({
     type: "assistant-tool-message", text: "Review", runId: first.id,
-    tools: [{ toolName: "createTask", toolCallId: "task-call", state: "approval-requested", input: { title: "Reviewed task" }, approval: { id: "task-approval" } }],
+    tools: [{ toolName: "createTask", toolCallId: "task-call", state: "approval-requested", input: { title: "Reviewed task", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }, approval: { id: "task-approval" } }],
   }) } });
   const decision = mapStoredMessagesToUI([stored]).uiMessages[0];
   decision.metadata = { runId: "forged-run", runIds: ["forged-run"] };

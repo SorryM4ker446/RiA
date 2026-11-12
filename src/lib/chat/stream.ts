@@ -1,4 +1,4 @@
-import { withModelCallSource } from "@/lib/models/call-context";
+import { withModelCallSource, type CallSource } from "@/lib/models/call-context";
 import { getChatModel } from "@/lib/ai/client";
 import { getModelProvider } from "@/lib/models/providers";
 import { getLatestUserMessage } from "@/lib/ai/ui-message";
@@ -7,7 +7,7 @@ import { ApiError, apiErrorPayload, normalizeApiError } from "@/lib/server/api-e
 import { createChatToolSet } from "@/tools/catalog";
 import type { ModelMessage } from "ai";
 import type { LanguageModelV3Prompt } from "@ai-sdk/provider";
-import { asSchema, createUIMessageStream, createUIMessageStreamResponse, generateId, smoothStream, stepCountIs, streamText, wrapLanguageModel, type UIMessageChunk, type UIMessageStreamWriter } from "ai";
+import { asSchema, createUIMessageStream, createUIMessageStreamResponse, generateId, smoothStream, stepCountIs, streamText, wrapLanguageModel, type TextStreamPart, type ToolSet, type UIMessageChunk, type UIMessageStreamWriter } from "ai";
 import { convertToLanguageModelPrompt, standardizePrompt } from "ai/internal";
 import { isContextOverflow } from "@/lib/models/context-overflow";
 import { claimChatApproval, persistChatResponse, type ChatPersistence } from "@/lib/chat/persistence";
@@ -82,7 +82,9 @@ type ChatAnswer = { input: ChatRequest; conversation: ChatPersistence; systemPro
   skillsPrompt?: string;
   /** The messages this request sent, and whether they and the summary leave nothing out. */
   foldHistory?: { messages: { id: string; role: string }[]; complete: () => boolean };
-  onModelFold?: () => void };
+  onModelFold?: () => void;
+  /** Whose calls these are: a turn the user is waiting on, or a task that started on its own and is held to the background limits. */
+  callSource?: CallSource };
 const LOOKUP_HINT = "The original messages and tool results stay saved: readConversationHistory finds them by toolCallId, messageId or text.";
 const streamError = (error: unknown) => JSON.stringify(apiErrorPayload(normalizeApiError(error, t("lib.chat.generateFailed"))));
 
@@ -134,6 +136,33 @@ export async function streamChatResponse(params: Omit<ChatAnswer, "modelMessages
       await relay(await openChatAnswer({ ...params, modelMessages }), writer);
     } finally { release(); }
   });
+}
+
+/**
+ * Ends the answer the moment the turn is stopped. The SDK notices a stop only
+ * when it reads more from the provider, and the smoothing above writes out what
+ * it already holds before it reads again: a provider that sent much of the
+ * answer at once would keep the stopped answer going until all of that was
+ * written. Here the stop ends it with the SDK's own abort, so the answer is
+ * saved as stopped, where it was, as it would be had the provider been slower.
+ */
+function endsWhenStopped(signal: AbortSignal) {
+  return () => {
+    let stop = () => {};
+    return new TransformStream<TextStreamPart<ToolSet>, TextStreamPart<ToolSet>>({
+      start(controller) {
+        stop = () => {
+          try {
+            controller.enqueue({ type: "abort", ...(signal.reason !== undefined ? { reason: String(signal.reason) } : {}) } as TextStreamPart<ToolSet>);
+            controller.terminate();
+          } catch { /* Already ended on its own. */ }
+        };
+        if (signal.aborted) stop(); else signal.addEventListener("abort", stop, { once: true });
+      },
+      transform(chunk, controller) { controller.enqueue(chunk); },
+      flush() { signal.removeEventListener("abort", stop); },
+    });
+  };
 }
 
 async function openChatAnswer(params: ChatAnswer) {
@@ -228,7 +257,7 @@ async function openChatAnswer(params: ChatAnswer) {
   // it has taken over. Cost and calibration are recorded for it.
   let activeRef = modelRef;
   const toPrompt = async (stepMessages: ModelMessage[]): Promise<LanguageModelV3Prompt> => convertToLanguageModelPrompt({ prompt: await standardizePrompt({ system: systemPrompt, messages: stepMessages }), supportedUrls: await observed.supportedUrls, download: undefined });
-  const observed: ReturnType<typeof getChatModel> = withModelCallSource("chat", () => getChatModel(modelRef, {
+  const observed: ReturnType<typeof getChatModel> = withModelCallSource(params.callSource ?? "chat", () => getChatModel(modelRef, {
     reasoning: input.reasoning,
     // Whichever model answers takes the request as it stands — same tools, same
     // messages — and the rest of it is planned for that model's own window: the
@@ -261,7 +290,7 @@ async function openChatAnswer(params: ChatAnswer) {
       error instanceof ApiError && error.code === "CONTEXT_LIMIT" ? "context-limit" : "preflight-error");
     throw error;
   }
-  const result = withModelCallSource("chat", () => streamText({
+  const result = withModelCallSource(params.callSource ?? "chat", () => streamText({
     model,
     maxRetries: 0,
     system: systemPrompt,
@@ -292,7 +321,10 @@ async function openChatAnswer(params: ChatAnswer) {
     // character or two in Chinese), a few milliseconds apart, the answer reads
     // as steady typing rather than jumps; faster than a model writes, so it
     // does not hold the answer back.
-    experimental_transform: smoothStream({ delayInMs: 6, chunking: new Intl.Segmenter(undefined, { granularity: "word" }) }),
+    experimental_transform: [
+      smoothStream({ delayInMs: 6, chunking: new Intl.Segmenter(undefined, { granularity: "word" }) }),
+      endsWhenStopped(signal),
+    ],
     ...(toolsEnabled
       ? {
         tools,
@@ -337,7 +369,8 @@ async function openChatAnswer(params: ChatAnswer) {
       let persistenceFailed = false;
       try {
         await persistChatResponse({
-          input, conversation, responseMessage, isAborted, generationFailed, skippedTool, thinking: thinkingClock.report(),
+          // Ended by a stop, whether or not the stream got as far as saying so.
+          input, conversation, responseMessage, isAborted: isAborted || signal.aborted, generationFailed, skippedTool, thinking: thinkingClock.report(),
           unavailableTools: params.unavailableTools,
           runId: params.runId,
           contextReport: contextReport(),

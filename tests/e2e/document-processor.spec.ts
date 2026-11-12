@@ -168,9 +168,10 @@ test("a failed conversion keeps its choice to retry, needs no model, and scope c
     }
     return docs;
   });
+  // A conversation whose template narrows it to one topic.
   const topicChat = async (collection: string) => {
-    const topic = (await browserApi(page, "/api/topics", "POST", { name: collection, description: "", collections: [collection], assistantTemplateId: null })).body.data;
-    return (await browserApi(page, `/api/topics/${topic.id}/conversations`, "POST", { revision: topic.revision, title: "文档操作恢复" })).body.data;
+    const template = (await browserApi(page, "/api/assistants", "POST", { name: "限定主题", instructions: "只用选定主题的资料。", tools: ["convertDocument", "readDocument", "searchKnowledge"], collections: [collection] })).body.data;
+    return (await browserApi(page, "/api/conversations", "POST", { title: "文档操作恢复", assistantTemplateId: template.id })).body.data;
   };
   const chat = await topicChat("本次资料");
   await page.evaluate(id => localStorage.setItem("chat:last-active-id", id), chat.id);

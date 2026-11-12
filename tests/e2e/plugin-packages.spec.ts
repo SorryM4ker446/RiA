@@ -13,6 +13,7 @@ import { chooseRowAction, openRowMenu } from "../helpers/row-menu";
 import { toasts } from "../helpers/toast";
 import { trackChatStreams, waitForChatStream } from "../helpers/chat-stream";
 import { chosenWords, composerInput, slashOption } from "../helpers/slash-menu";
+import { watchNetwork } from "../helpers/network";
 
 type App = { runtime: Awaited<ReturnType<typeof startStandaloneServer>>; service: Awaited<ReturnType<typeof startExtensionService>> };
 const test = base.extend<{ app: App }>({ app: async ({}, provide) => {
@@ -41,6 +42,7 @@ function systemText(app: App) { return app.runtime.providerCalls.filter(call => 
 test("marketplace installs a skill package, applies it to real chat context and preserves enablement after restart", { tag: "@integration" }, async ({ page, app }) => {
   const errors: string[] = [], logs: string[] = [];
   page.on("pageerror", error => errors.push(error.message)); page.on("console", message => { if (message.type() === "error") logs.push(message.text()); });
+  const network = watchNetwork(page);
   await page.setViewportSize({ width: 1440, height: 960 }); await open(page, app);
   await page.getByRole("tab", { name: "插件市场", exact: true }).click();
   const market = page.getByRole("region", { name: "RiA 插件市场", exact: true });
@@ -66,7 +68,7 @@ test("marketplace installs a skill package, applies it to real chat context and 
   // The answer is saved before its stream closes; restarting in between would cut the open response.
   await waitForChatStream(page);
   // So are the reads the page makes once the answer is in (the list, the title): let them finish too.
-  await page.waitForLoadState("networkidle");
+  await network.settled();
   // Off the app first: an open page asking the stopped server for anything logs a refused connection.
   await page.goto("about:blank"); await app.runtime.restart(); await open(page, app);
   await expect(card.getByText("已启用", { exact: true })).toBeVisible();

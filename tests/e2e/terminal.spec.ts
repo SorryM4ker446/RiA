@@ -32,7 +32,12 @@ const test = base.extend<{ app: App }>({ app: async ({}, provide) => {
     rmSync(folder, { recursive: true, force: true });
   }
 } });
-async function setup(page: Page, app: App, ui = false, mode: "approval" | "full-access" = "approval") {
+/**
+ * Grants the test folder, which is all a folder needs for commands. `mode`
+ * is the approval rule conversations started afterwards begin with: "full"
+ * runs commands without asking, "ask" waits for each one.
+ */
+async function setup(page: Page, app: App, ui = false, mode: "ask" | "full" = "ask") {
   if (ui) await page.addInitScript(() => {
     Object.defineProperty(window, "riaDesktop", { value: {
       getSettings: async () => ({ hasOpenrouterApiKey: true, hasDeepseekApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "Control+Shift+Space", windowBounds: null }),
@@ -49,26 +54,21 @@ async function setup(page: Page, app: App, ui = false, mode: "approval" | "full-
   const response = await browserApi(page, "/api/directory-grants", "POST", { path: app.folder });
   expect(response.status).toBe(201);
   const grant = response.body.data;
-  expect(grant.terminalEnabled).toBe(false);
+  expect(Object.hasOwn(grant, "terminalEnabled")).toBe(false);
   if (ui) {
     await page.goto(`${app.origin}/settings`);
     await page.getByRole("tab", { name: "工作区权限", exact: true }).click();
-    await page.getByRole("button", { name: "开启终端", exact: true }).click();
-    const sheet = page.getByRole("dialog", { name: "开启终端权限", exact: true });
-    await expect(sheet).toBeVisible();
-    await expect(sheet).toHaveCSS("animation-name", "sheet-in");
-    await expect(sheet.getByText(/工作目录不是文件访问沙箱/)).toBeVisible();
-    await expect(sheet.getByRole("combobox", { name: "终端模式" })).toHaveText("审批");
-    if (mode === "full-access") {
-      await sheet.getByRole("combobox", { name: "终端模式" }).click();
-      await page.getByRole("option", { name: "完全访问", exact: true }).click();
-      await expect(sheet.getByText("LLM 的终端操作自动执行，无需逐条批准。", { exact: true })).toBeVisible();
+    // Where the folder is added, the page says commands there run as the Windows user.
+    await expect(page.getByText(/工作目录不是文件访问沙箱/)).toBeVisible();
+    const rule = page.getByRole("combobox", { name: "新对话的审批规则", exact: true });
+    await expect(rule).toContainText("询问");
+    if (mode === "full") {
+      await rule.click();
+      await page.getByRole("option", { name: /^完全访问/ }).click();
+      await expect(rule).toContainText("完全访问");
     }
-    await sheet.getByRole("button", { name: "确认开启终端权限", exact: true }).click();
-    await expect(sheet).toBeHidden();
-    await expect(page.getByRole("button", { name: "关闭终端", exact: true })).toBeVisible();
-  } else {
-    expect((await browserApi(page, `/api/directory-grants/${grant.id}`, "PATCH", { terminalEnabled: true, terminalApprovalMode: mode, revision: grant.updatedAt })).status).toBe(200);
+  } else if (mode === "full") {
+    expect((await browserApi(page, "/api/approval-preferences", "PUT", { defaultRule: "full" })).status).toBe(200);
   }
   return grant;
 }
@@ -225,9 +225,9 @@ test("full access executes without approval, keeps live output and stop controls
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
   const requestBytes = trackChatRequestBytes(page);
   await page.setViewportSize({ width: 1440, height: 960 });
-  const grant = await setup(page, app, true, "full-access");
-  await expect(page.getByRole("button", { name: "终端：完全访问", exact: true })).toBeVisible();
+  const grant = await setup(page, app, true, "full");
   const chat = (await browserApi(page, "/api/conversations", "POST", { title: "自动终端" })).body.data;
+  expect(chat.approvalRule).toBe("full");
   await browserApi(page, `/api/conversations/${chat.id}`, "PATCH", { workspaceGrantId: grant.id });
   await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
   await page.getByPlaceholder(/输入你的问题/).fill(`OFFLINE_TERMINAL_COMMAND GRANT_ID=${grant.id} TERMINAL_STOP TERMINAL_LONG`);
@@ -254,18 +254,16 @@ test("full access executes without approval, keeps live output and stop controls
   await app.restart();
   await page.goto(`${app.origin}/settings`);
   await page.getByRole("tab", { name: "工作区权限", exact: true }).click();
-  await page.getByRole("button", { name: "终端：完全访问", exact: true }).click();
-  const sheet = page.getByRole("dialog", { name: "终端权限", exact: true });
-  await expect(sheet.getByRole("combobox", { name: "终端模式" })).toHaveText("完全访问");
+  // The default rule survives a restart; changing it back makes the next conversation ask again.
+  const rule = page.getByRole("combobox", { name: "新对话的审批规则", exact: true });
+  await expect(rule).toContainText("完全访问");
   await page.screenshot({ path: join(tmpdir(), "ria-terminal-mode-desktop.png"), animations: "disabled" });
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: join(tmpdir(), "ria-terminal-mode-mobile.png"), animations: "disabled" });
-  await sheet.getByRole("combobox", { name: "终端模式" }).click();
-  await page.getByRole("option", { name: "审批", exact: true }).click();
-  await sheet.getByRole("button", { name: "保存终端权限", exact: true }).click();
-  await expect(sheet).toBeHidden();
-  await expect(page.getByRole("button", { name: "终端：审批", exact: true })).toBeVisible();
+  await rule.click();
+  await page.getByRole("option", { name: /^询问/ }).click();
+  await expect(rule).toContainText("询问");
   await ask(page, app, grant.id);
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
   await page.getByRole("button", { name: "拒绝", exact: true }).click();
@@ -371,7 +369,7 @@ test("the next approval stays disabled until the preceding continuation stream i
 test("completed replies show real file changes, persist them and open validated files through the desktop bridge", async ({ page, app }) => {
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
   await page.setViewportSize({ width: 1440, height: 1000 });
-  const grant = await setup(page, app, true, "full-access");
+  const grant = await setup(page, app, true, "full");
   mkdirSync(join(app.folder, "src"));
   writeFileSync(join(app.folder, "src", "theme.ts"), "export const theme = { radius: 4 };\n");
   writeFileSync(join(app.folder, "old-draft.txt"), "旧草稿\n");
@@ -417,10 +415,10 @@ test("completed replies show real file changes, persist them and open validated 
   unlinkSync(join(app.folder, "src", "components", "profile-card.tsx"));
   await component.click();
   await expect(files.getByRole("alert")).toContainText("文件已移动或删除");
-  const current = (await browserData(page, "/api/directory-grants")).find(row => row.id === grant.id);
-  expect((await browserApi(page, `/api/directory-grants/${grant.id}`, "PATCH", { terminalEnabled: false, revision: current.updatedAt })).status).toBe(200);
+  // A withdrawn folder opens nothing.
+  expect((await browserApi(page, `/api/directory-grants/${grant.id}`, "DELETE")).status).toBe(200);
   await files.getByRole("button", { name: "打开文件 README.md", exact: true }).click();
-  await expect(files.getByRole("alert")).toContainText("终端权限");
+  await expect(files.getByRole("alert")).toContainText("授权已撤销");
   expect(errors).toEqual([]);
 });
 

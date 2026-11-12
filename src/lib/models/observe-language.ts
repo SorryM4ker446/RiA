@@ -7,11 +7,12 @@ import { getModelProvider, type ReasoningPreference } from "@/lib/models/provide
 import { canFallback, recordModelAttempt } from "@/lib/models/usage";
 import { modelCallSource } from "./call-context";
 import { beginModelAttempt } from "./call-controls";
+import { heldSlot } from "./call-slots";
 import { type ModelPreferences, type ModelRef } from "@/lib/models/preferences-schema";
 import { modelRefKey } from "@/lib/models/preferences-schema";
 import { assertContextFits, contextBudget, estimateContextTokens, MIN_CALIBRATION, requestOutputCap, type ContextBudget } from "./context-budget";
 import { contextCalibration } from "./context-calibration";
-import { retryDelay, waitForRetry } from "./model-retry";
+import { MODEL_RETRIES, QUICK_RETRIES, retryDelay, waitForRetry } from "./model-retry";
 import { continueTruncated } from "./continuation";
 import { needsCacheBreakpoints, withCacheBreakpoints } from "./prompt-cache";
 
@@ -67,8 +68,15 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
   // of the request, or the selected one again if the fallback fails first.
   let current: ModelRef = modelRef;
   const callSource = modelCallSource();
-  // Unattended calls spend a daily allowance per submitted attempt and are not retried.
-  const retriable = callSource !== "scheduled";
+  // An unattended call under a money ceiling spends its allowance on every
+  // attempt, so it is not retried; without one it is, like any other.
+  const retriable = async () => {
+    if (callSource !== "scheduled") return true;
+    const limits = (await getModelPreferences()).callLimits;
+    return limits.backgroundMaxEstimatedUsd === null && limits.backgroundDailyEstimatedUsd === null;
+  };
+  /** The wait before trying again, said on the turn's stream so the page can show it. */
+  const announceRetry = (attempt: number, delay: number) => heldSlot()?.notify({ state: "retrying", attempt, seconds: Math.max(1, Math.round(delay / 1000)) });
   // A background call under a monetary ceiling is priced from its output cap. An
   // assumed default limit would price every unattended call as its maximum, so
   // with no known limit such a call is bounded by the planning reservation.
@@ -147,8 +155,9 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
           return result;
         } catch (error) {
           if (admission) await recordModelAttempt({ attemptId: admission.id, requestId: context?.requestId, mode: "chat", modelId: selected.modelId, modelProvider: selected.providerId, started, error, fallback: isFallback });
-          const delay = admission && retriable ? retryDelay(error, retries, params.abortSignal) : null;
-          if (delay !== null) { retries++; await waitForRetry(delay, params.abortSignal); continue; }
+          // The fallback, when there is one left to try, takes over quickly; the last model is waited for.
+          const delay = admission && await retriable() ? retryDelay(error, retries, params.abortSignal, attempt + 1 < candidates.length ? QUICK_RETRIES : MODEL_RETRIES) : null;
+          if (delay !== null) { retries++; announceRetry(retries, delay); await waitForRetry(delay, params.abortSignal); continue; }
           if (attempt + 1 >= candidates.length || !canFallback(error, params.abortSignal)) throw error;
           noteFallingBack(selected, candidates[attempt + 1]);
           attempt++; retries = 0;
@@ -234,8 +243,9 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
           try { await reader?.cancel(); } catch { /* Preserve the original provider failure. */ }
           reader?.releaseLock();
           await record(error);
-          const delay = admission && retriable ? retryDelay(error, retries, params.abortSignal) : null;
-          if (delay !== null) { retries++; await waitForRetry(delay, params.abortSignal); continue; }
+          // The fallback, when there is one left to try, takes over quickly; the last model is waited for.
+          const delay = admission && await retriable() ? retryDelay(error, retries, params.abortSignal, attempt + 1 < candidates.length ? QUICK_RETRIES : MODEL_RETRIES) : null;
+          if (delay !== null) { retries++; announceRetry(retries, delay); await waitForRetry(delay, params.abortSignal); continue; }
           if (attempt + 1 >= candidates.length || !canFallback(error, params.abortSignal)) throw error;
           noteFallingBack(selected, candidates[attempt + 1]);
           attempt++; retries = 0;

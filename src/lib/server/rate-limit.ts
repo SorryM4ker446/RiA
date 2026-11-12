@@ -11,6 +11,7 @@ export const RATE_LIMIT_POLICIES = {
   documentPreview: { limit: 6, windowMs: 60_000 },
   documentExport: { limit: 20, windowMs: 60_000 },
   reminders: { limit: 10, windowMs: 60_000 },
+  tasks: { limit: 30, windowMs: 60_000 },
   documentReferences: { limit: 120, windowMs: 60_000 },
   conversationSearch: { limit: 30, windowMs: 60_000 },
   mediaRegeneration: { limit: 6, windowMs: 60_000 },
@@ -20,8 +21,6 @@ export const RATE_LIMIT_POLICIES = {
   backupChunks: { limit: 120, windowMs: 60_000 },
   modelSettings: { limit: 20, windowMs: 60_000 },
   assistantTemplates: { limit: 30, windowMs: 60_000 },
-  topics: { limit: 30, windowMs: 60_000 },
-  topicGeneration: { limit: 4, windowMs: 60_000 },
   documentEvaluation: { limit: 2, windowMs: 60_000 },
   modelCatalog: { limit: 8, windowMs: 60_000 },
   // Each explicit request embeds at most 32 document chunks; a full document

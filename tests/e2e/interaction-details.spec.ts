@@ -38,7 +38,7 @@ test("text cut short with an ellipsis shows in full on hover", async ({ page, ap
   // The long-term memory switch explains itself in its label and carries no tooltip.
   await expect(page.getByRole("switch", { name: "长期记忆", exact: true })).not.toHaveAttribute("title", /.*/);
   // A plain title gets the same tooltip, and the browser's own one is held back while it shows.
-  const create = page.getByRole("button", { name: "创建会话", exact: true });
+  const create = page.getByRole("button", { name: /^审批规则：/ });
   const note = await create.getAttribute("title");
   await create.hover();
   await expect(page.getByRole("tooltip")).toHaveText(note!);

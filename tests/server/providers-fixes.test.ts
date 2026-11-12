@@ -11,8 +11,6 @@ const { deepseekProvider } = await import("@/lib/models/providers/deepseek");
 const { CatalogFetchError } = await import("@/lib/models/providers/types");
 const { defaultModelPreferences, modelRefKey, preferencesSchema, upgradeModelPreferences } = await import("@/lib/models/preferences-schema");
 const { db } = await import("@/db");
-const { createScheduledJob } = await import("@/lib/scheduler/jobs");
-const { runDueScheduledJob } = await import("@/lib/scheduler/runner");
 
 type FetchStub = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -176,30 +174,6 @@ beforeEach(async () => {
   await db.message.deleteMany({});
   await db.modelRequest.deleteMany({});
   await db.workspacePreference.deleteMany({});
-});
-
-test("the daily brief raises one notice for a day no matter how often the job runs", async (t) => {
-  // The fingerprint is the calendar day, not the instant, so a second run of
-  // the same day's brief refreshes the notice it already raised instead of
-  // adding another one. A fingerprint taken from the run's timestamp would make
-  // every poll of a due job leave a new row behind.
-  t.mock.method(globalThis, "fetch", (async () => chatCompletion()) as FetchStub);
-
-  await withBriefLibrary(async () => {
-    const job = await createScheduledJob({ kind: "dailyBrief", enabled: true, localTime: "09:00", timeZone: "UTC", interval: "daily" });
-    for (const run of [0, 1, 2]) {
-      await db.scheduledJob.update({ where: { id: job.id }, data: { nextRunAt: new Date(Date.now() - 60_000) } });
-      const result = await runDueScheduledJob(new Date());
-      assert.equal(result?.outcome.ok, true, `run ${run} wrote the brief: ${JSON.stringify(result?.outcome)}`);
-    }
-  });
-
-  const notices = await db.appNotice.findMany({ where: { kind: "dailyBrief" } });
-  assert.equal(notices.length, 1, "one day's brief is one notice, however many times the job ran");
-  const review = await db.workspaceReview.findFirstOrThrow();
-  assert.equal(notices[0].fingerprint, `review:${review.id}`);
-  assert.equal(await db.workspaceReview.count(), 1);
-  assert.equal(await db.chat.count(), 1);
 });
 
 after(async () => {

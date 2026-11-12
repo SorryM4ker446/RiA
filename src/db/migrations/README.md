@@ -1,5 +1,59 @@
 # Database migrations
 
+`20261118100000_call_limit_defaults` moves call limits still at the earlier defaults to the new
+ones: 8 model calls at once (was 4) and 1000 automatic task runs a day (was 20). Any other value
+is kept. Only the settings document changes, and older builds read the new values.
+
+`20261117100000_conversation_unread` adds whether a conversation has an answer the user has not
+opened yet, for the sidebar's unread dot. Existing conversations start as read. The column is
+additive and older builds ignore it.
+
+`20261116100000_remove_knowledge_topics` removes knowledge topics and their results. Each finished
+result becomes a conversation (its brief as the user's message, the result as the answer); results
+without text are dropped. Topic conversations stay as ordinary conversations. `chats` is rebuilt
+without `topicId` and `documentScope`, keeping its indexes and search triggers, since only a
+template narrows a conversation's search now; the topic tables are dropped. Older builds cannot
+read the changed tables; rolling back means restoring the backup taken before the upgrade.
+
+`20261115100000_task_settings` adds a task's long-term memory switch, which outcomes become
+system notifications and how hard the model reasons, and lets a task have no next time (run only
+by hand). The task table is rebuilt to relax that column; rows and the runs pointing at them are
+kept. A task whose conversation already had memory on keeps it on. Older builds cannot read a task
+without a next time; rolling back means restoring the backup taken before the upgrade.
+
+`20261114100000_approval_rules` moves "may this run without asking" from folders onto
+conversations and tasks (`ask`, `acceptEdits`, `full`) and adds a one-row table for the rule new
+conversations start with. Conversations and tasks in a folder that was set to full access get
+`full`; everything else asks. The folder's terminal switch and mode columns are dropped, so every
+granted folder can run commands, which still ask under `ask`. Older builds cannot read the changed
+grants table; rolling back means restoring the backup taken before the upgrade.
+
+`20261113100000_task_model_folder` gives a task its own model and working folder, which every
+turn in its conversation uses. A folder chosen in a task's conversation moves onto its task, and
+an assistant template applied to a task's conversation is taken off; other conversations are
+untouched. The columns are additive and older builds ignore them, but an older build reading a
+task's conversation afterwards finds it without the folder and template it had.
+
+`20261112100000_task_templates` lets a task remember the template it was made from, so a name
+or prompt it has not rewritten is worded from the template in the interface language each time,
+and adds a one-row table holding the interface language the user chose. Tasks still worded
+exactly as the brief or the summary are linked to it. Older builds read such a task with an empty
+name and no prompt; rolling back means restoring the backup taken before the upgrade.
+
+`20261111100000_task_missed_runs` adds a per-task choice of whether a missed time still runs once
+(on by default, which is what every task already did) and, on each run, when it was due and how
+many later times passed without a run of their own. It is additive, and older builds ignore it.
+
+`20261110100000_unified_tasks` folds to-dos and the fixed schedule kinds into one kind of
+task. Schedules gain a title, a prompt, a cron expression and the conversation every run
+continues; their daily or weekly time is rewritten as cron, and the old time columns and
+the model-commentary switch are dropped. The daily brief and weekly summary become prompt
+tasks that are switched off, since a run now makes model calls the old schedule never did. Unfinished to-dos become prompt tasks that are switched off; finished ones are not
+carried over, and the `tasks` table is dropped. Notices gain a column for when the desktop
+was handed them; existing notices count as already shown. Desktop startup takes the normal
+safety backup first, which still holds every to-do. Older builds cannot read the changed
+tables; rolling back means restoring that backup.
+
 `20261105160000_memory_resumed` adds an optional column on conversations for when long-term
 memory was last turned back on, so what was said while it was off is not read for notes.
 A missing value means memory was never turned back on. It is additive, and older builds

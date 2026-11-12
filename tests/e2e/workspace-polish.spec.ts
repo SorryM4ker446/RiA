@@ -3,6 +3,7 @@ import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture
 import { settingsDialog } from "../helpers/settings";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { openRecentConversations } from "../helpers/conversations";
 
 for (const pointer of ["mouse", "touch"] as const) {
   test.describe(`select trigger using ${pointer}`, () => {
@@ -142,14 +143,11 @@ test("shared menus finish their transitions without a position jump and toolbar 
     expect(await control.boundingBox()).toEqual(before);
     await page.keyboard.press("Escape");
   }
-  const recent = page.getByRole("button", { name: "会话列表", exact: true });
-  await recent.click();
-  await expectStableAnimationEnd(page.getByRole("dialog", { name: "最近会话", exact: true }));
-  await page.getByRole("button", { name: "会话操作：菜单定位", exact: true }).click();
+  const actions = (await openRecentConversations(page)).getByRole("button", { name: "会话操作：菜单定位", exact: true });
+  await actions.click();
   await expectStableAnimationEnd(page.getByRole("menu"));
   await page.keyboard.press("Escape");
-  await page.keyboard.press("Escape");
-  await expect(recent).toBeFocused();
+  await expect(actions).toBeFocused();
 });
 
 test("model browsing reveals batches only when scrolled and searches the entire cached catalog", async ({ page }) => {

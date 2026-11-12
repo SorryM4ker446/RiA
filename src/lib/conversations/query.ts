@@ -1,4 +1,5 @@
 import { conversationCollections } from "@/lib/conversations/document-scope";
+import { isTurnLive, isTurnQueued } from "@/lib/chat/live-turns";
 import { encodeDocumentScope } from "@/lib/documents/scope";
 import { createHash } from "node:crypto";
 import { Prisma, type Chat } from "@prisma/client";
@@ -6,6 +7,9 @@ import { z } from "zod";
 import { db } from "@/db";
 import { ApiError } from "@/lib/server/api-error";
 import { readAssistantSnapshot } from "@/lib/assistants/schema";
+import { decodePersistedAssistantToolMessage } from "@/lib/ai/ui-message";
+import { taskModel } from "@/lib/scheduler/jobs";
+import { readApprovalRule } from "@/lib/approvals/rules";
 
 export const chatTagSchema = z.string().trim().min(1).max(32)
   .transform(value => value.normalize("NFKC").trim().toLowerCase()).pipe(z.string().min(1).max(32).regex(/^[^,\u0000-\u001f\u007f]+$/));
@@ -32,13 +36,49 @@ function readConversationQuery(params: URLSearchParams) {
   return { ...input, scope, cursor };
 }
 
-export function conversationSummary(chat: Chat & { tags: { label: string }[]; _count: { messages: number } }) {
+/** What a conversation is read with: its tags, its size, and the task it belongs to, if any. */
+export const conversationInclude = {
+  tags: { orderBy: { label: "asc" } },
+  _count: { select: { messages: true } },
+  scheduledJobs: { select: { id: true, modelProvider: true, modelId: true, workspaceGrantId: true, approvalRule: true, usesMemory: true, lastStatus: true }, take: 1 },
+} as const;
+
+type TaskLink = { id: string; modelProvider: string | null; modelId: string | null; workspaceGrantId: string | null; approvalRule: string; usesMemory: boolean; lastStatus: string | null };
+
+/**
+ * The conversations among `chatIds` whose latest answer waits for the user to
+ * approve a tool call: the list shows them as needing attention. Only each
+ * conversation's latest message is read.
+ */
+export async function awaitingApproval(chatIds: string[], client: Pick<typeof db, "$queryRaw"> = db): Promise<Set<string>> {
+  if (!chatIds.length) return new Set();
+  const latest = await client.$queryRaw<Array<{ chatId: string; content: string }>>(Prisma.sql`
+    SELECT m.chatId, m.content FROM messages m
+    WHERE m.chatId IN (${Prisma.join(chatIds)}) AND m.role = 'assistant'
+      AND m.id = (SELECT l.id FROM messages l WHERE l.chatId = m.chatId ORDER BY l.createdAt DESC, l.id DESC LIMIT 1)`);
+  return new Set(latest.filter(row => decodePersistedAssistantToolMessage(row.content)?.tools.some(tool => tool.state === "approval-requested")).map(row => row.chatId));
+}
+
+/** `waiting`: whether the conversation's latest answer waits for an approval, from `awaitingApproval`. */
+export function conversationSummary(chat: Chat & { tags: { label: string }[]; _count: { messages: number }; scheduledJobs: TaskLink[] }, waiting = false) {
+  const task = chat.scheduledJobs[0] ?? null;
   return {
-    id: chat.id, title: chat.title, pinned: chat.pinned, archived: chat.archived, ephemeral: chat.ephemeral, documentScope: encodeDocumentScope(conversationCollections(chat)),
-    workspaceGrantId: chat.workspaceGrantId,
-    assistantConfig: readAssistantSnapshot(chat.assistantConfig),
+    // A task's conversation takes its memory switch and approval rule from the task.
+    id: chat.id, title: chat.title, pinned: chat.pinned, archived: chat.archived, ephemeral: task ? !task.usesMemory : chat.ephemeral,
+    approvalRule: readApprovalRule(task ? task.approvalRule : chat.approvalRule), documentScope: encodeDocumentScope(conversationCollections(chat)),
+    // A task's conversation works in the task's folder and takes no template.
+    workspaceGrantId: task ? task.workspaceGrantId : chat.workspaceGrantId,
+    assistantConfig: task ? null : readAssistantSnapshot(chat.assistantConfig),
     createdAt: chat.createdAt, updatedAt: chat.updatedAt, lastMessageAt: chat.lastMessageAt,
     tags: chat.tags.map(tag => tag.label), messageCount: chat._count.messages,
+    // The task that owns this conversation: it writes here by itself, so an open
+    // page looks for what it added, and it decides the model every turn uses.
+    task: task ? { id: task.id, model: taskModel(task), running: task.lastStatus === "running" } : null,
+    awaitingApproval: waiting,
+    // A turn the service is holding in it now, whoever started it, and an answer not opened yet.
+    answering: isTurnLive(chat.id),
+    queued: isTurnQueued(chat.id),
+    unread: chat.unread,
   };
 }
 
@@ -67,10 +107,12 @@ export async function listConversations(params: URLSearchParams) {
     SELECT c.id FROM chats c WHERE 1=1 ${state} ${tags} ${boundary}
     ${options.q ? searchCondition(options.q) : Prisma.empty}
     ORDER BY c.pinned DESC,c.lastMessageAt DESC,c.id DESC LIMIT ${options.limit + 1}`);
-  const rows = await tx.chat.findMany({ where: { id: { in: ids.map(row => row.id) } }, include: { tags: { orderBy: { label: "asc" } }, _count: { select: { messages: true } } } });
+  const rows = await tx.chat.findMany({ where: { id: { in: ids.map(row => row.id) } }, include: conversationInclude });
   const byId = new Map(rows.map(row => [row.id, row]));
   const ordered = ids.flatMap(row => { const chat = byId.get(row.id); return chat ? [chat] : []; });
-  const data = ordered.slice(0, options.limit).map(conversationSummary);
+  const page = ordered.slice(0, options.limit);
+  const waiting = await awaitingApproval(page.map(chat => chat.id), tx);
+  const data = page.map(chat => conversationSummary(chat, waiting.has(chat.id)));
   const last = data.at(-1);
   const nextCursor = ordered.length > options.limit && last ? Buffer.from(JSON.stringify({
     v: 2, scope: options.scope, pinned: last.pinned, date: last.lastMessageAt.toISOString(), id: last.id,

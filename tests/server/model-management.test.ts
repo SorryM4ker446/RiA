@@ -47,7 +47,7 @@ await db.memory.deleteMany({});
 await db.modelRequest.deleteMany({});
 await db.modelCatalogSnapshot.deleteMany({});
 await db.workspacePreference.deleteMany({});
-await db.task.deleteMany({});
+await db.scheduledJob.deleteMany({});
 await db.knowledgeDocument.deleteMany({});
 await db.mediaAsset.deleteMany({});
 process.env.OPENROUTER_API_KEY="offline-placeholder";resetProviderState();await seedTestModelPreferences(db);});
@@ -246,8 +246,9 @@ test("chat fallback is opt-in, records both attempts and only happens before out
   assert.equal((await languageCall()).backupCalls,0);
   const settings=await getModelPreferences();settings.chat.fallback=ref("google/gemini-3-flash-preview");await saveModelPreferences(settings);
   const result=await languageCall();assert.equal(result.backupCalls,1);await payload(result.response);
-  // Each primary failure is retried twice before the fallback: 3 attempts, then 3 more and the backup.
-  const summary=await usageSummary();assert.equal(summary.totals.requests,7);assert.equal(summary.recent.filter(row=>row.fallback).length,1);
+  // With no fallback the failing model is waited for: 1 + MODEL_RETRIES attempts. With one, it gets
+  // 1 + QUICK_RETRIES quick attempts and the backup takes over: 6, then 3 more and the backup.
+  const summary=await usageSummary();assert.equal(summary.totals.requests,10);assert.equal(summary.recent.filter(row=>row.fallback).length,1);
   const backupRow=summary.recent.find(row=>row.fallback);
   assert.equal(backupRow.inputTokens,10);
   // Usage is recorded against the provider-qualified pair, so the log says

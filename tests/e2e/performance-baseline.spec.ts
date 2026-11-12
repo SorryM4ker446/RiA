@@ -55,9 +55,9 @@ test("everyday interactions on long conversations @perf", async ({ page, app }, 
   results.openLongTasks = await longTasks();
 
   // Switching to the other long conversation.
-  await openRecentConversations(page);
+  const sidebar = await openRecentConversations(page);
   started = Date.now();
-  await page.getByRole("complementary", { name: "会话列表", exact: true }).getByRole("button", { name: /^长会话甲/ }).click();
+  await sidebar.getByRole("button", { name: /^长会话甲/ }).click();
   await expect(page.getByText("长会话甲 第 299 段", { exact: true })).toBeVisible({ timeout: 60_000 });
   results.switchLongConversationMs = Date.now() - started;
 

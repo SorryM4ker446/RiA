@@ -57,9 +57,6 @@ export const clientMessages = {
   "chatApi.saveEditFailed": "保存修改失败",
   "chatApi.deleteMessageFailed": "删除消息失败",
   "chatApi.listToolsFailed": "读取工具目录失败",
-  "chatApi.listTasksFailed": "读取任务失败",
-  "chatApi.updateTaskFailed": "更新任务失败",
-  "chatApi.deleteTaskFailed": "删除任务失败",
   "chatApi.imageGenerateFailed": "图片生成失败",
   "chatApi.videoGenerateFailed": "视频生成失败",
   "chatApi.readImageFailed": "读取图片失败，无法加入图片附件。",
@@ -76,7 +73,6 @@ export const clientMessages = {
   // Saved as the assistant message body when a stream is cut off, so the text
   // is user-visible; it stays a plain sentence with no trailing punctuation of
   // its own.
-  "chatState.streamInterrupted": "（响应中断，已保存当前输出）",
   "chatState.regenerateFailed": "重新生成失败",
   // A model id is interpolated between the two halves, so neither half carries
   // the surrounding spaces.
@@ -134,9 +130,6 @@ export const clientMessages = {
   "chatMsg.sourceKnowledge": "知识库工具 + 模型推理",
   "chatMsg.sourceTask": "任务工具结果",
   "chatMsg.sourceTool": "工具结果",
-  "chatMsg.priorityHigh": "高",
-  "chatMsg.priorityMedium": "中",
-  "chatMsg.priorityLow": "低",
 
   // --- media API client -----------------------------------------------------
   "mediaApi.actFailed": "媒体操作失败，请重试。",

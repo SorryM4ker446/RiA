@@ -5,7 +5,7 @@ import { createTestDatabase } from "../helpers/database";
 import { seedTestModelPreferences, CHAT_MODEL_REF } from "../helpers/model-library";
 const cleanup = createTestDatabase();
 const { db } = await import("@/db");
-const { beginModelAttempt, budgetDay, recoverModelAttempts } = await import("@/lib/models/call-controls");
+const { admitBackgroundRun, beginModelAttempt, budgetDay, recoverModelAttempts } = await import("@/lib/models/call-controls");
 const { recordModelAttempt, usageSummary, usageCost } = await import("@/lib/models/usage");
 const { getModelPreferences, saveModelPreferences } = await import("@/lib/models/preferences");
 const { withModelCallSource } = await import("@/lib/models/call-context");
@@ -19,18 +19,49 @@ async function limits(patch: Partial<Awaited<ReturnType<typeof getModelPreferenc
 }
 async function settle(id: string, error?: Error) { await recordModelAttempt({ attemptId: id, mode: "chat", modelId: CHAT_MODEL_REF.modelId, started: Date.now(), ...(error ? { error } : {}) }); }
 
-test("concurrent admission reserves one durable slot and cancellation frees only concurrency", async () => {
-  await limits({ maxConcurrent: 1, backgroundDailyCalls: 1 });
-  const results = await Promise.allSettled([beginModelAttempt({ ...request, source: "scheduled" }), beginModelAttempt({ ...request, source: "scheduled" })]);
-  assert.equal(results.filter(row => row.status === "fulfilled").length, 1);
+test("admission past the limit waits for a place instead of being refused, and an attempt that ends frees its place", async () => {
+  await limits({ maxConcurrent: 1 });
+  const first = await beginModelAttempt({ ...request, source: "scheduled" });
+  let admitted = false;
+  const second = beginModelAttempt({ ...request, source: "scheduled" }).then(value => { admitted = true; return value; });
+  await new Promise(resolve => setTimeout(resolve, 50));
+  assert.equal(admitted, false, "the second waits rather than being refused");
   assert.equal(await db.modelRequest.count({ where: { status: "pending" } }), 1);
-  const row = (await db.modelRequest.findMany())[0];
-  await settle(row.id, new DOMException("cancelled", "AbortError"));
-  assert.equal((await db.modelRequest.findUniqueOrThrow({ where: { id: row.id } })).status, "aborted");
-  await assert.rejects(beginModelAttempt({ ...request, source: "scheduled" }), /当日|本地日期/);
-  const foreground = await beginModelAttempt({ ...request, source: "chat" });
-  await settle(foreground.id);
-  assert.equal((await usageSummary("scheduled")).totals.requests, 1);
+  await settle(first.id, new DOMException("cancelled", "AbortError"));
+  assert.equal((await db.modelRequest.findUniqueOrThrow({ where: { id: first.id } })).status, "aborted");
+  const next = await second;
+  assert.equal(await db.modelRequest.count({ where: { status: "pending" } }), 1);
+  // What the user asked for goes before background work waiting for the same place.
+  const order: string[] = [];
+  const background = beginModelAttempt({ ...request, source: "scheduled" }).then(value => { order.push("background"); return value; });
+  const foreground = beginModelAttempt({ ...request, source: "chat" }).then(value => { order.push("foreground"); return value; });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  await settle(next.id);
+  await settle((await foreground).id);
+  await settle((await background).id);
+  assert.deepEqual(order, ["foreground", "background"]);
+  // A wait can be given up, and leaves the queue at once.
+  const holder = await beginModelAttempt({ ...request, source: "chat" });
+  const controller = new AbortController();
+  const given = beginModelAttempt({ ...request, source: "chat", signal: controller.signal });
+  controller.abort();
+  await assert.rejects(given);
+  await settle(holder.id);
+  const after = await beginModelAttempt({ ...request, source: "chat" });
+  await settle(after.id);
+  assert.equal((await usageSummary("scheduled")).totals.requests, 3);
+});
+
+test("the daily background allowance counts runs, however many calls each makes", async () => {
+  await limits({ backgroundDailyCalls: 2 });
+  const admitted = await Promise.all([admitBackgroundRun(), admitBackgroundRun(), admitBackgroundRun()]);
+  assert.deepEqual(admitted.map(result => result.admitted).sort(), [false, true, true], "two runs racing for the last place cannot both take it");
+  // Calls inside admitted runs take no further places.
+  for (let call = 0; call < 3; call += 1) await settle((await beginModelAttempt({ ...request, source: "scheduled" })).id);
+  assert.equal((await db.modelCallDay.findMany({ where: { day: { not: "lock" } } }))[0].calls, 2);
+  assert.equal((await admitBackgroundRun()).admitted, false);
+  await limits({ backgroundDailyCalls: 0 });
+  assert.deepEqual(await admitBackgroundRun(), { admitted: false, limit: 0 });
 });
 
 test("chat-driven summaries are attributed but never consume or wait on the background allowance", async () => {
@@ -42,8 +73,13 @@ test("chat-driven summaries are attributed but never consume or wait on the back
   assert.equal(await db.modelCallDay.count({ where: { day: { not: "lock" } } }), 0);
   await limits({ maxConcurrent: 1 });
   const held = await beginModelAttempt({ ...request, source: "chat" });
-  await assert.rejects(beginModelAttempt({ ...request, source: "summary" }), /并发/);
+  // Past the limit a summary waits for the place, like any other call.
+  let admitted = false;
+  const waiting = beginModelAttempt({ ...request, source: "summary" }).then(value => { admitted = true; return value; });
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.equal(admitted, false);
   await settle(held.id);
+  await settle((await waiting).id);
 });
 
 test("unknown pricing and per-call or daily estimates reject before admission; failures cannot reset budgets", async () => {
@@ -69,7 +105,8 @@ test("restart interrupts pending records without replay or a late settlement ove
   const row = await db.modelRequest.findUniqueOrThrow({ where: { id: first.id } });
   assert.equal(row.status, "interrupted"); assert.equal(row.costSource, "unknown");
   assert.equal((await recoverModelAttempts()).count, 0);
-  assert.equal((await db.modelCallDay.findMany({ where: { day: { not: "lock" } } }))[0].calls, 1);
+  // The call is on the day's books; no run place was taken by it.
+  assert.equal((await db.modelCallDay.findMany({ where: { day: { not: "lock" } } }))[0].calls, 0);
 });
 
 test("pre-cancelled calls consume no allowance and dates use the configured zone across DST", async () => {
@@ -251,7 +288,7 @@ test("a cut-off tool call is never continued and continuations are bounded", asy
   assert.equal(parts.at(-1)!.finishReason!.unified, "length", "a still-incomplete answer keeps its length finish");
 });
 
-test("transient failures are retried after Retry-After, other failures and unattended calls are not", async t => {
+test("transient failures are retried after Retry-After, other failures are not, and background calls only without a money ceiling", async t => {
   // The waits between attempts are what Retry-After decides, so those are what is
   // checked: the call's total time also covers recording each attempt, which a
   // busy machine can stretch past any fixed budget.
@@ -276,16 +313,30 @@ test("transient failures are retried after Retry-After, other failures and unatt
   await assert.rejects(async () => withModelCallSource("chat", () => observeLanguageModel(invalid, CHAT_MODEL_REF, () => invalid)).doGenerate({ prompt: userPrompt }));
   assert.equal(calls, 1);
 
+  // An unattended call is retried like any other, unless a money ceiling is set:
+  // then every attempt spends the allowance, and it is not.
+  calls = 0;
+  const busy = new MockLanguageModelV3({ doGenerate: async () => {
+    if (calls++ < 2) throw Object.assign(new Error("rate limited"), { statusCode: 429, responseHeaders: { "Retry-After": "0" } });
+    return { content: [{ type: "text", text: "ok" }], finishReason: { unified: "stop", raw: "stop" }, usage: usage(1, 1), warnings: [] };
+  } });
+  await withModelCallSource("scheduled", () => observeLanguageModel(busy, CHAT_MODEL_REF, () => busy)).doGenerate({ prompt: userPrompt });
+  assert.equal(calls, 3, "without a ceiling a background call is retried");
+  const preferences = await getModelPreferences();
+  await saveModelPreferences({ ...preferences, rates: { ["openrouter:" + CHAT_MODEL_REF.modelId]: { inputPerMillion: 1, outputPerMillion: 10, perRequest: null } } });
+  await limits({ backgroundMaxEstimatedUsd: 1 });
   calls = 0;
   const unavailable = new MockLanguageModelV3({ doGenerate: async () => { calls++; throw Object.assign(new Error("unavailable"), { statusCode: 503 }); } });
   await assert.rejects(async () => withModelCallSource("scheduled", () => observeLanguageModel(unavailable, CHAT_MODEL_REF, () => unavailable)).doGenerate({ prompt: userPrompt }));
-  assert.equal(calls, 1, "background attempts each spend the daily allowance");
+  assert.equal(calls, 1, "under a money ceiling each background attempt spends the allowance, so it is not retried");
 
-  const { retryDelay, MAX_RETRY_DELAY_MS } = await import("@/lib/models/model-retry");
-  assert.deepEqual([0, 1].map(retries => retryDelay(Object.assign(new Error("slow down"), { statusCode: 429 }), retries)), [500, 1000], "without Retry-After the backoff grows");
+  const { retryDelay, MAX_RETRY_DELAY_MS, MODEL_RETRIES, QUICK_RETRIES } = await import("@/lib/models/model-retry");
+  assert.deepEqual([0, 1, 2].map(retries => retryDelay(Object.assign(new Error("slow down"), { statusCode: 429 }), retries)), [1000, 2000, 4000], "without Retry-After the backoff grows");
   assert.equal(retryDelay(Object.assign(new Error("slow down"), { statusCode: 429, responseHeaders: { "retry-after": String(MAX_RETRY_DELAY_MS / 1000 + 1) } }), 0), null, "a longer requested wait is not held");
   assert.equal(retryDelay(Object.assign(new Error("missing"), { statusCode: 404 }), 0), null);
-  assert.equal(retryDelay(Object.assign(new Error("down"), { statusCode: 503 }), 2), null, "retries are bounded");
+  assert.equal(retryDelay(Object.assign(new Error("down"), { statusCode: 503 }), MODEL_RETRIES), null, "retries are bounded");
+  assert.notEqual(retryDelay(Object.assign(new Error("down"), { statusCode: 503 }), QUICK_RETRIES), null, "the last model is waited for longer");
+  assert.equal(retryDelay(Object.assign(new Error("down"), { statusCode: 503 }), QUICK_RETRIES, undefined, QUICK_RETRIES), null, "while a fallback could answer, the retries are quick");
 });
 
 test("a streamed call ends when the provider goes quiet, not after a fixed total", async () => {

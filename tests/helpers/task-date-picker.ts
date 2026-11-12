@@ -7,31 +7,20 @@ export async function chooseTaskDateTime(
   value: string,
 ) {
   const [date, time] = value.split("T");
-  await scope.getByLabel(label, { exact: true }).click();
+  // The button is named by its label and the date and time it holds.
+  await scope.getByRole("button", { name: new RegExp(`^${label}( |$)`) }).click();
   const dialog = page.getByRole("dialog", { name: label, exact: true });
   await expect(dialog).toBeVisible();
   for (let step = 0; step < 120; step++) {
     const day = dialog.locator(`button[data-day="${date}"]`);
     if (await day.count()) {
       await day.click();
-      // The compact picker keeps its time in the popover, which stays open
-      // until it is done; the full field closes it and has the time beside it.
+      // The time is chosen in the same popover, which stays open until it is done.
       const inPopover = dialog.locator("[data-time-input]");
-      if (await inPopover.count()) {
-        await inPopover.fill(time);
-        await expect(inPopover).toHaveValue(time);
-        await dialog.getByRole("button", { name: "完成", exact: true }).click();
-        await expect(dialog).toHaveCount(0);
-      } else {
-        // Closing the calendar restores focus after its exit animation. A fill
-        // during that handoff can clear the input and send text to the trigger.
-        await expect(dialog).toHaveCount(0);
-        await expect(scope.getByLabel(label, { exact: true })).toBeFocused();
-        const input = scope.locator("[data-time-input]");
-        await input.fill(time);
-        await input.blur();
-        await expect(input).toHaveValue(time);
-      }
+      await inPopover.fill(time);
+      await expect(inPopover).toHaveValue(time);
+      await dialog.getByRole("button", { name: /^(完成|Done)$/ }).click();
+      await expect(dialog).toHaveCount(0);
       return;
     }
     const middle = await dialog

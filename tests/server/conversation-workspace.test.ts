@@ -10,7 +10,6 @@ import { localAccessCookie } from "../helpers/local-access";
 const cleanup = createTestDatabase();
 const { db } = await import("@/db");
 const { createGrant, listGrants, revokeGrant } = await import("@/lib/local-files/grants");
-const { setTerminalPermission } = await import("@/lib/terminal/permissions");
 const { bindTerminalApproval } = await import("@/lib/terminal/runtime");
 const { createChatToolSet } = await import("@/tools/catalog");
 const { conversationWorkspace, formatWorkspaceContext } = await import("@/lib/local-files/workspace");
@@ -27,10 +26,9 @@ const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
 const patch = (id: string, body: unknown) => detail.PATCH(new NextRequest(`http://localhost/api/conversations/${id}`, {
   method: "PATCH", headers: { cookie: localAccessCookie(), "content-type": "application/json" }, body: JSON.stringify(body),
 }), ctx(id));
-async function folder(terminal = true) {
+async function folder() {
   const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ria-workspace-"))); roots.push(root);
   const grant = await createGrant({ path: root });
-  if (terminal) await setTerminalPermission(grant.id, true, grant.updatedAt, "approval");
   return (await listGrants()).find(row => row.id === grant.id)!;
 }
 type Approval = (input: unknown, options: never) => Promise<boolean>;
@@ -50,7 +48,7 @@ after(async () => {
 });
 
 test("a conversation chooses one authorized folder, can switch or clear it, and loses it when the grant is withdrawn", async () => {
-  const first = await folder(), second = await folder(false);
+  const first = await folder(), second = await folder();
   const chat = await db.chat.create({ data: { title: "Choose a workspace" } });
   const chosen = await patch(chat.id, { workspaceGrantId: first.id });
   assert.equal(chosen.status, 200);
@@ -59,7 +57,7 @@ test("a conversation chooses one authorized folder, can switch or clear it, and 
   assert.equal((await patch(chat.id, { workspaceGrantId: "not-a-grant" })).status, 409);
   assert.equal((await conversationWorkspace(chat.id))?.id, first.id);
   assert.equal((await patch(chat.id, { workspaceGrantId: second.id })).status, 200);
-  assert.deepEqual(await conversationWorkspace(chat.id), { id: second.id, label: second.label, path: second.realPath, terminalEnabled: false, terminalApprovalMode: "approval" });
+  assert.deepEqual(await conversationWorkspace(chat.id), { id: second.id, label: second.label, path: second.realPath, approvalRule: "ask" });
   assert.equal((await patch(chat.id, { workspaceGrantId: null })).status, 200);
   assert.equal(await conversationWorkspace(chat.id), null);
   await patch(chat.id, { workspaceGrantId: second.id });
@@ -102,16 +100,19 @@ test("folder tools see only the conversation's workspace and refuse other folder
 });
 
 test("the model is told the current workspace with each request, and that a switch makes earlier folders history", async () => {
-  const chosen = await folder(), plain = await folder(false);
+  const chosen = await folder(), plain = await folder();
   const chat = await db.chat.create({ data: { title: "Context", workspaceGrantId: chosen.id } });
   const block = buildRequestContext({ workspace: formatWorkspaceContext(await conversationWorkspace(chat.id), true) });
   assert.ok(block.includes(JSON.stringify(chosen.realPath)));
   assert.ok(block.includes(`"grantId":"${chosen.id}"`));
   assert.match(block, /switch workspaces between turns/);
+  assert.match(block, /Approval rule: ask/);
   await db.chat.update({ where: { id: chat.id }, data: { workspaceGrantId: plain.id } });
   const switched = formatWorkspaceContext(await conversationWorkspace(chat.id), true);
   assert.ok(switched.includes(plain.id) && !switched.includes(chosen.id));
-  assert.match(switched, /Terminal access is off/);
+  // The rule travels with the workspace, so a change between turns is what the model acts on next.
+  await db.chat.update({ where: { id: chat.id }, data: { approvalRule: "full" } });
+  assert.match(formatWorkspaceContext(await conversationWorkspace(chat.id), true), /Approval rule: full/);
   assert.match(formatWorkspaceContext(null, true), /none selected/);
   assert.equal(formatWorkspaceContext(null, false), "");
   assert.match(TERMINAL_INSTRUCTIONS.join(" "), /conversation's workspace/);

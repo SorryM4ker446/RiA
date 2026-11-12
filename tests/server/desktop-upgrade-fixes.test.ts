@@ -19,9 +19,9 @@ import {
 
 const cleanup = createTestDatabase();
 const { db } = await import("@/db");
-const { ScheduledJobKind, scheduleInputSchema } = await import("@/lib/scheduler/jobs");
+const { TASK_KINDS, taskInputSchema } = await import("@/lib/scheduler/jobs");
 const { zhCN } = await import("@/lib/locale/zh-CN");
-const schedulesRoute = await import("@/app/api/schedules/route");
+const tasksRoute = await import("@/app/api/tasks/route");
 
 const temporaryDirectories = [];
 let cookie: string;
@@ -82,41 +82,34 @@ const readAdoptionRows = (databaseFile: string) => {
 
 // --- the settings card can label every kind a workspace can hold -----------
 
-test("every schedule kind the app can store has interface copy", async () => {
-  // The card renders `settings.schedules.kind.<kind>` through a key that is
-  // cast, so a kind added to the scheduler without copy renders as an empty
-  // label rather than failing the build. `weeklySummary` is exactly that: a
-  // valid stored kind with a runner, and no translation key.
-  for (const kind of ScheduledJobKind) {
-    const copy = (zhCN as Record<string, string>)[`settings.schedules.kind.${kind}`];
-    assert.equal(typeof copy, "string", `no interface copy for schedule kind ${kind}`);
-    assert.ok(copy.trim().length > 0, `empty interface copy for schedule kind ${kind}`);
+test("every task kind the app can store has interface copy", async () => {
+  // The page renders `tasks.kind.<kind>` through a key that is built at run
+  // time, so a kind added without copy would render as an empty label rather
+  // than failing the build.
+  for (const kind of TASK_KINDS) {
+    const copy = (zhCN as Record<string, string>)[`tasks.kind.${kind}`];
+    assert.equal(typeof copy, "string", `no interface copy for task kind ${kind}`);
+    assert.ok(copy.trim().length > 0, `empty interface copy for task kind ${kind}`);
   }
 });
 
-test("a stored schedule of every kind is labelled, not blank", async (t) => {
+test("a stored task of every kind is labelled, not blank", async (t) => {
   t.mock.method(console, "info", () => {});
   await db.scheduledJob.deleteMany({});
 
-  for (const kind of ScheduledJobKind) {
-    const parsed = scheduleInputSchema.safeParse({ kind, localTime: "09:00", timeZone: "UTC", interval: "daily" });
-    assert.equal(parsed.success, true, `the API refuses kind ${kind}`);
-    const created = await schedulesRoute.POST(
-      req("/api/schedules", "POST", { kind, localTime: "09:00", timeZone: "UTC", interval: "daily" }),
-    );
-    assert.equal(created.status, 201, `creating a ${kind} schedule failed`);
+  for (const kind of TASK_KINDS) {
+    const input = { kind, title: kind, cron: "0 9 * * *", timeZone: "UTC", ...(kind === "prompt" ? { prompt: "Say hello." } : {}) };
+    assert.equal(taskInputSchema.safeParse(input).success, true, `the API refuses kind ${kind}`);
+    const created = await tasksRoute.POST(req("/api/tasks", "POST", input));
+    assert.equal(created.status, 201, `creating a ${kind} task failed`);
   }
 
-  const listed = await schedulesRoute.GET(req("/api/schedules"));
+  const listed = await tasksRoute.GET(req("/api/tasks"));
   const body = (await listed.json()) as { data: Array<{ kind: string }> };
-  assert.deepEqual(
-    body.data.map((job) => job.kind).sort(),
-    [...ScheduledJobKind].sort(),
-    "every storable kind is what the card is asked to label",
-  );
+  assert.deepEqual(body.data.map((job) => job.kind).sort(), [...TASK_KINDS].sort(), "every storable kind is what the page is asked to label");
   for (const job of body.data) {
-    const copy = (zhCN as Record<string, string>)[`settings.schedules.kind.${job.kind}`];
-    assert.ok(copy && copy.trim().length > 0, `a stored ${job.kind} schedule renders with no label`);
+    const copy = (zhCN as Record<string, string>)[`tasks.kind.${job.kind}`];
+    assert.ok(copy && copy.trim().length > 0, `a stored ${job.kind} task renders with no label`);
   }
 });
 

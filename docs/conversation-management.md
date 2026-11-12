@@ -1,6 +1,6 @@
 # Conversation management
 
-Open **Conversations** from the workspace navigation or the **Recent conversations** popover. Browser and Electron share the same page and authenticated APIs. No search service, model key or paid API call is needed.
+Open the management page with **Manage all conversations** below the conversations in the sidebar, or from the command palette. Browser and Electron share the same page and authenticated APIs. No search service, model key or paid API call is needed.
 
 The management page uses compact rows and an inline search/filter bar. Changing **Conversation status** immediately applies the visible filters and loads that status; text and tag searches can also be submitted with **Search**. Click a conversation title to open it; pinning remains beside the title. Each row's **More actions** menu contains archive/restore, tag editing and Markdown/JSON export. Selection, the 50-item bulk-delete limit and explicit deletion confirmation are unchanged. Menus retain keyboard dismissal and focus restoration; tag editing focuses its input.
 
@@ -9,7 +9,7 @@ The management page uses compact rows and an inline search/filter bar. Changing 
 - Search matches literal fragments in conversation titles and all stored message text, including older messages outside the loaded chat page. Enter 2–200 characters and submit **Search**. Search returns conversations, not individual message locations; use **Load earlier messages** to read older history after opening one.
 - Pinned conversations appear first, followed by last-message time and ID. Metadata edits do not change the last-message time.
 - Tags are normalized with Unicode NFKC, trimmed and lowercased. Each conversation supports eight tags of up to 32 characters. Commas/control characters are invalid; duplicate normalized tags collapse into one. Tag filtering matches a complete tag.
-- Archived conversations disappear from the default recent-conversation list and can be searched with **Archived** or **All**. **Restore and open** makes one active again. Archiving does not delete messages or revoke API access. It does not make a conversation read-only or stop its independent tasks/reminders.
+- Archived conversations disappear from the sidebar and the default list and can be searched with **Archived** or **All**. **Restore and open** makes one active again. Archiving does not delete messages or revoke API access. It does not make a conversation read-only or stop its independent tasks/reminders.
 - Select up to 50 loaded conversations to delete. The confirmation dialog lists exactly those titles. Changing filters or refreshing clears selection. Deletion is irreversible; an invalid, missing or foreign ID rejects the entire batch without deleting any conversation. Shared media references are retained, and unreferenced files still require the separate storage-cleanup confirmation.
 
 The manager loads 30 conversations at a time. Pinning, archiving and new messages can move rows between requests, so refresh to see concurrent changes. A loaded page is not a frozen snapshot; changes from another browser window are not pushed live.
@@ -75,9 +75,43 @@ FTS tables/triggers are intentionally managed by SQL migrations, outside the Pri
 
 Desktop startup backs up an existing database before applying pending migrations. Local Web migration commands do not create that backup automatically: back up an existing database before migration. Automatic tests use isolated databases, media and download directories. They verify legacy backfill, punctuation/Chinese search, archive restoration, atomic deletion, export boundaries, authenticated browser downloads and actual Electron downloads after a service restart. Installer upgrade/uninstall/reinstall acceptance remains a separate release check.
 
-## Recent conversations
+## Conversations in the sidebar
 
-The **Recent conversations** header popover groups the loaded conversations into pinned, today, yesterday, recent seven days and older sections. Each row shows its title, message count and time; its menu contains rename and delete, with deletion still requiring confirmation. The popover initially shows five conversations, keeps the existing expand and load-more controls, and links to the full management page. Its count describes loaded conversations rather than the total stored in the database.
+The sidebar lists the conversations on every page, below the navigation, under a **Conversations** label whose **+** starts a new one. **Manage all conversations** sits below the list; only the list itself scrolls, and its edges fade when there is more above or below. The list is grouped:
+
+- **Pinned** — pinned conversations. Can be folded.
+- **Scheduled tasks** — conversations a scheduled task writes into, marked with a calendar icon. Can be folded.
+- **Recent** — every other conversation. The name shows only when a group sits above it.
+
+Each group lists its conversations most recently active first, without dates. Folding eases a group shut and is remembered in this browser. A title cut short shows in full when pointed at.
+
+On a window too short for everything, the navigation drops its small group names and tightens, so the list keeps room; on a window narrower than 1024 px the sidebar folds and shows over the page when its button is pointed at, or stays when pinned.
+
+Each row is one line: its title, with a dot at its end when the conversation needs attention. Pointing at a row brings up its **⋯** menu in the dot's place, with rename (inline; Enter saves, Escape cancels), pin or unpin, archive and delete. Deleting asks for confirmation; archiving says where to restore it. When the conversation open in chat is archived or deleted, the next one opens.
+
+The dot means one of five things, also read out to screen readers:
+
+- **Task running** — its scheduled task is running now.
+- **Queued** — an answer waits for a place to run (a hollow ring).
+- **Answering** — an answer is being written in it: in this window, in another one, or one this window started and then left.
+- **Waiting for your approval** — its latest answer asks for an approval.
+- **New answer** — an answer ended there that has not been opened yet. Opening the conversation clears it; the conversation open in chat never shows it.
+
+Clicking a row on another page opens that conversation in chat. More rows are read as the list is scrolled to its end. The sidebar follows the service's account of what happens to the conversations as it happens (an answer starting or ending, a task running, a conversation renamed or deleted in another window) and reads the list again then; it also reads it again when the window comes back into view. There is no polling. The chat page and the sidebar share one list: a change made in either shows in both.
+
+## Several conversations at once
+
+An answer belongs to the service, not to the page that asked for it. Switching to another conversation, going to another page or reloading leaves the answer being written; several conversations can answer at once. Opening a conversation that is answering shows the answer from where it has got to and follows it to the end, with **stop** available. A conversation answers one turn at a time. What you write there while it answers can be queued (Enter, or **Queue to send** beside **stop**): queued messages show above the composer, where each can be edited or removed, and are sent in order once the answer ends and no approval is waiting. The queue belongs to the conversation and is kept in this browser, like drafts; a tool or skill choice is not queued.
+
+### When every place is taken
+
+How many answers (and other model calls) run at once is **Maximum concurrent calls** in Settings → Models, 8 unless changed. An answer past that is not refused: it waits, its conversation shows **Queued — n ahead** and a hollow dot in the sidebar, and it starts by itself when a place frees up. Your own conversations go before tasks waiting for a place. Your message is saved as soon as it is queued, so a reload still shows it; **stop** takes a queued answer out of the queue. Once an answer has started, everything it does (its steps, the summaries it writes, a search it makes) works within its place and is never refused part way.
+
+When the provider is busy or rate-limited, a call is retried with growing waits, or after the wait the provider asks for (up to a minute), about half a minute in all; the answer says **The service is busy — retrying in n s (attempt n)** meanwhile. With a fallback model configured, the failing model gets two quick retries and the fallback takes over.
+
+When an answer ends while its conversation is not open, the row gets the **New answer** dot. In the desktop app, when the RiA window is not in front, a system notification also says the answer is ready (or waits for approval, or could not be finished); clicking it opens the conversation. Tasks keep their own notification setting instead.
+
+The service keeps running answers only while it runs: an answer still being written when the application quits is lost, as before, and its run record says it was interrupted.
 
 ## Unsent drafts
 
@@ -91,7 +125,7 @@ Drafts and the conversation/task panel layout are kept in the browser's local st
 
 ## Stopping a turn
 
-While a turn is running, the send control is replaced by **stop**. Stopping abandons the request, not the question: whatever the model produced stays on screen and is stored as an interrupted answer. It does not mean the provider stopped billing.
+While a turn is running, the send control is replaced by **stop**. Stopping asks the service to stop the turn, wherever it was started: whatever the model produced stays on screen and is stored once, as an interrupted answer. Leaving the conversation does not stop it. Stopping does not mean the provider stopped billing for what it had already produced.
 
 ## Keyboard and copying
 
@@ -128,4 +162,4 @@ Versioned summaries survive portable restore with remapped message identities;
 legacy or inconsistent summary evidence is discarded and can be recomputed later.
 This is compression invalidation, not deletion of the conversation history.
 
-The popover starts closed, opens without resizing the transcript or composer, and supports Escape and outside-click dismissal with keyboard focus restoration. Selecting a conversation closes it. A nested row menu consumes Escape before the outer popover; cancelling a rename retains the list. Export actions on management cards use the same icon-and-button treatment as the other secondary actions.
+Row menus in the sidebar open from the keyboard and return focus to their button when dismissed; cancelling a rename keeps the title. Export actions on management cards use the same icon-and-button treatment as the other secondary actions.

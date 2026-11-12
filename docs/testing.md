@@ -323,7 +323,7 @@ The saved-defaults browser regression holds the real conversation-creation POST 
 
 Electron regression tests upgrade an old schema, verify its pre-migration backup, reopen stored preferences/usage and test cascades. Both desktop smoke modes now use the real backup/model pages and API, download an archive to isolated storage, confirm restore and restart again before checking media/defaults and disabled reminders. Existing CI commands/globs pick up these tests and migrations; no new workflow, dependency or secret is needed. Maximum-size archives, physical disk-full/power-loss behavior, live provider availability/billing and installer upgrade/uninstall/reinstall still require separate acceptance.
 
-Task reminder regressions include timezone/DST and month-end calculation, atomic recurrence and concurrent claims, old-database migration, manual-tool timezone conversion, overdue display, settings validation, the credential boundary, quotas and service restart. Electron smoke seeds only its isolated database, uses the real task API and main-process poller, and records notification dispatch without native toasts. Adapter tests check native options/click/failure behavior; actual installed Windows notification display and physical sleep/resume remain manual checks. See [Task reminders](task-reminders.md). Existing server/browser/desktop CI commands discover these tests without another service, package or job.
+Task regressions are listed under chat interaction regressions above. A desktop migration test converts to-dos and every old schedule kind into tasks and checks the pre-migration backup. Electron smoke seeds one finished task's notice in its isolated database, uses the real main-process poller, and records notification dispatch without native toasts, including across a service restart. Adapter tests check native options, click and failure behaviour; actual installed Windows notification display remains a manual release check.
 
 On Windows, the development-launcher regression runs the actual launch script against a minimal local Electron page with an isolated temporary userData directory. It briefly shows a small test window and asserts visibility after `show()`; hidden smoke tests cannot detect this startup regression. It does not start Next.js, touch development data or call a model provider. Other platforms skip this Windows-specific check.
 
@@ -343,7 +343,7 @@ The test-only `offline-http.ts` preload intercepts fetch in those child processe
 
 Run `npm run test:e2e -- --grep '@integration'` to select authenticated HTTP/SQLite flows, or add `--repeat-each=3` to check repeatability. Quote the tag in PowerShell to avoid splatting. This still builds and prepares the production runtime; do not run it alongside another browser run, desktop build or smoke using the same output. The full `test:e2e` command includes these tagged cases automatically.
 
-CRUD route tests cover message retries/client-ID scoping, edits/deletion/counts/cascades, task status filters and atomic rejection of invalid dates, and knowledge upserts/deletion while keeping internal tool memories isolated. Search HTTP tests exercise the DeepSeek independent search integration over real HTTP: the provider result ceiling, source normalization, upstream 403/500 conversion and cancellation of the actual transport. They check exactly one execution log and no successful memory on failure.
+CRUD route tests cover message retries/client-ID scoping, edits/deletion/counts/cascades, task creation and atomic rejection of invalid schedules, and knowledge upserts/deletion while keeping internal tool memories isolated. Search HTTP tests exercise the DeepSeek independent search integration over real HTTP: the provider result ceiling, source normalization, upstream 403/500 conversion and cancellation of the actual transport. They check exactly one execution log and no successful memory on failure.
 
 These cases are discovered by the existing CI `test:server`, `test:e2e` and desktop smoke commands; no additional CI job, dependency, browser download or deployment infrastructure is required for local validation. A local pass is not a GitHub Actions result.
 
@@ -413,12 +413,26 @@ These tests do not certify every real OpenRouter model, network outage behavior,
 
 ## Chat interaction regressions
 
-`tests/server/execution-history.test.ts` checks independent execution evidence,
-concurrent retry refusal, current permissions, scheduled execution exclusion,
-restart interruption, sensitive-field exclusion, retention and restore behavior.
-`tests/e2e/execution-history.spec.ts` exercises settings history, manual retry,
-diagnostic download, evidence after schedule deletion and desktop service restart.
-These tests use isolated SQLite data and no paid providers.
+`tests/server/tasks.test.ts` checks cron parsing and daylight saving, one-off
+times, claims that two polls cannot both take, catch-up after sleep, interruption,
+restore deferral, one conversation across every run of a task, a deleted
+conversation, provider failure, an approval that stops a run, stopping a run,
+notification claims and the route boundaries, using the mock model provider. It
+also checks that automatic runs are billed as background work, that the daily run
+limit skips a run without sending anything while a run by hand still goes, that
+prompts falling due together queue for their places, and that a task's
+conversation starts with memory off; `model-call-controls.test.ts` checks that the
+daily allowance counts runs, not calls. The task suite also covers late and
+missed runs, an approval that settles once answered, a message sent from a page
+that missed a run, and wording template tasks in the interface language;
+`tasks-ui.spec.ts` checks that a task's link opens its own conversation and that a
+task made from a template is shown in the interface language and keeps its template when saved unchanged; the server suite checks that it is worded in the chosen language each time it runs.
+`tests/e2e/execution-history.spec.ts` runs a due task through the real desktop
+startup scheduler against the offline model fixture, twice, and checks that both
+runs continue one conversation, are announced once each, and that diagnostics hold
+no task text; it also checks that a run left in progress is interrupted rather than
+replayed. `tests/e2e/tasks-ui.spec.ts` creates, edits, runs, pauses and deletes
+tasks through the page. These tests use isolated SQLite data and no paid providers.
 
 `tests/server/tool-contracts.test.ts` checks disabled-memory write refusal,
 atomic step reservations across concurrent tool sets, refusal after reservation
@@ -437,8 +451,8 @@ settings. Adapter tests also check complete tool-call events, interleaved argume
 fragments, and refusal to execute a truncated stream.
 
 `tests/e2e/tool-execution.spec.ts` verifies that a response containing only a task
-call displays approval controls immediately, creates exactly one task after
-approval, updates the task panel, and survives reload. It also imports real text
+call displays approval controls immediately, creates exactly one switched-on task
+after approval, shows it on the task page, and survives reload. It also imports real text
 documents and checks scoped tool results and citation links. Provider responses
 are deterministic HTTP fixtures; these are not live-provider certification.
 
@@ -454,13 +468,9 @@ are deterministic HTTP fixtures; these are not live-provider certification.
 
 ## Interface walkthrough
 
-`tests/server/scheduled-workspace.test.ts` uses the real model middleware with a
-deterministic provider adapter. It verifies restore deferral without consuming
-a due job, paused schedules, mutual exclusion during generation, exactly one
-usage record with configured token pricing, recorded-period prompts, and gate
-release on provider failure. Backup tests round-trip the maximum accepted
-collection scope; directory-grant tests reject an approval bound to a different
-folder. These tests run under the existing `test:server` CI command.
+Backup tests round-trip the maximum accepted collection scope; directory-grant
+tests reject an approval bound to a different folder. These tests run under the
+existing `test:server` CI command.
 
 `tests/e2e/interface-walkthrough.spec.ts` captures the build at the sizes the acceptance list names: 1440px and 390px widths, light and dark themes, 125% and 150% text scaling, keyboard focus, and scrolled to the top.
 
@@ -469,15 +479,14 @@ It also asserts what can be asserted without eyes: no horizontal overflow at eit
 ## Workspace review regressions
 
 `tests/server/workspace-review.test.ts` covers calendar windows across daylight
-saving transitions and skipped midnight, atomic event writes and rollback,
-no-op/concurrent mutations, historical counts after source changes or deletion,
-partial coverage, empty periods, model failure, period reuse, interrupted
-commentary, retention and new/legacy backup restoration. The model adapter is
-simulated; no paid provider is called.
+saving transitions and skipped midnight, atomic event writes, no-op mutations,
+historical counts after source changes or deletion, events kept from removed
+to-dos, partial coverage, the model's read-only `readWorkspaceActivity` tool,
+retention and new/legacy backup restoration. No model is called.
 
 `tests/e2e/workspace-review.spec.ts` runs the prepared production HTTP server
-against isolated SQLite without a configured model. It completes a seeded task
-through the real API, verifies repeated completion produces one event, then
+against isolated SQLite without a configured model. It accepts a seeded memory
+suggestion through the real API, verifies repeated acceptance produces one event, then
 places its timestamp in yesterday's window to test preview and source navigation.
 It checks deletion evidence, no model requests, desktop/mobile layout and weekly
 selection. Screenshots are supplementary visual evidence, not production
@@ -571,14 +580,14 @@ Next.js scoped response caches generated during smoke/browser tests are stripped
 
 The chat layout regression fills short text and forty-line drafts at desktop, compact and mobile widths, verifies unchanged textarea and composer bounds, and scrolls long drafts inside the fixed input. It also verifies that the chat workspace reaches the right viewport edge: the non-scrolling outer chat container must not reserve a scrollbar gutter. Scrollbar space remains reserved inside scrolling transcripts and ordinary workspace pages.
 
-`tests/e2e/workspace-layout.spec.ts` starts an isolated standalone service and checks initial task skeletons, retained task content on a delayed refresh, unchanged composer bounds, internal scrolling, compact-panel controls, and saved theme restoration. It captures chat at 1440, 900 and 390 pixels and other workspace pages under the temporary `ria-workspace-ui` directory. `chat-startup.spec.ts` verifies transcript follow behavior and keeping the reader's position during a streamed answer. These checks require rebuilding and preparing the standalone runtime after UI edits. `tests/desktop/window-appearance.test.ts` covers native Windows transparency options and opaque behavior on other platforms; it does not prove the compositor visually exposes desktop content.
+`tests/e2e/workspace-layout.spec.ts` starts an isolated standalone service and checks the task list's loading line, task rows kept on screen while the list is read again, unchanged composer bounds, internal scrolling, compact-panel controls, and saved theme restoration. It captures chat at 1440, 900 and 390 pixels and other workspace pages under the temporary `ria-workspace-ui` directory. `chat-startup.spec.ts` verifies transcript follow behavior and keeping the reader's position during a streamed answer. These checks require rebuilding and preparing the standalone runtime after UI edits. `tests/desktop/window-appearance.test.ts` covers native Windows transparency options and opaque behavior on other platforms; it does not prove the compositor visually exposes desktop content.
 
 
-The layout test also verifies navigation focus containment, recent-conversation popover bounds, dismissal and focus restoration, creating a task on the independent tasks page, immediate completion feedback and rollback after a rejected save. A renderer test simulates preload presence to check a translucent chat canvas, opaque controls, scrolling when home content exceeds the viewport, and an execution-records sheet that preserves composer bounds. Desktop smoke samples captured alpha values for opaque global navigation/composer and the translucent chat caption, canvas and dock, including after maximize/restore and resizing. Alpha capture briefly shows the isolated smoke window without activating it, waits for finite UI animations and painted frames, then restores its hidden state. Chromium can flatten a hidden backdrop-filter surface to opaque pixels, so hidden capture cannot establish visible-window transparency. Native appearance tests retain coverage of rounded-corner options, Windows host configuration and the shared Windows 10/11 configuration without native frosted material. `workspace-polish.spec.ts` checks scroll-triggered catalog batches, idle behavior, searching beyond 300 entries, independent run-record scrolling, retained drafts, focus restoration, equal-height transparent header controls and menu-animation endpoints without position jumps. Shared Select/Popover/Dropdown primitives resolve to the same Radix dismissal layer to preserve nested Escape handling. `ui-transitions.spec.ts` covers dark first launch, saved light theme, theme-aware wordmark, preload hydration, keyboard focus, sheet transitions and reduced motion. `settings-layout.spec.ts` verifies that default-model readiness follows the saved preference and leads to the models section, unknown status on read failure, field retention across tabs and compact layouts. `chat-lifecycle.spec.ts` exercises recent-conversation date groups, long titles, keyboard menus, rename and confirmed deletion at desktop and compact widths.
+The layout test also verifies navigation focus containment, the sidebar's conversations on a folded narrow window, creating a task on the tasks page, a refused change that keeps the row as it was and says why. A renderer test simulates preload presence to check a translucent chat canvas, opaque controls, scrolling when home content exceeds the viewport, and an execution-records sheet that preserves composer bounds. Desktop smoke samples captured alpha values for opaque global navigation/composer and the translucent chat caption, canvas and dock, including after maximize/restore and resizing. Alpha capture briefly shows the isolated smoke window without activating it, waits for finite UI animations and painted frames, then restores its hidden state. Chromium can flatten a hidden backdrop-filter surface to opaque pixels, so hidden capture cannot establish visible-window transparency. Native appearance tests retain coverage of rounded-corner options, Windows host configuration and the shared Windows 10/11 configuration without native frosted material. `workspace-polish.spec.ts` checks scroll-triggered catalog batches, idle behavior, searching beyond 300 entries, independent run-record scrolling, retained drafts, focus restoration, equal-height transparent header controls and menu-animation endpoints without position jumps. Shared Select/Popover/Dropdown primitives resolve to the same Radix dismissal layer to preserve nested Escape handling. `ui-transitions.spec.ts` covers dark first launch, saved light theme, theme-aware wordmark, preload hydration, keyboard focus, sheet transitions and reduced motion. `settings-layout.spec.ts` verifies that default-model readiness follows the saved preference and leads to the models section, unknown status on read failure, field retention across tabs and compact layouts. `chat-lifecycle.spec.ts` exercises the sidebar's order by activity, one-line titles with full titles on hover, keyboard menus, rename and confirmed deletion at desktop and compact widths. `sidebar-conversations.spec.ts` covers the sidebar's pinned, scheduled-task and other sections, the attention dots (answering, task running, waiting for approval), the + that starts a conversation, folding that eases shut and is remembered, opening a conversation from another page, and pinning and archiving the open conversation. `tests/server/conversation-attention.test.ts` checks the summary fields behind the dots, including `answering` and `unread`. `tests/server/live-turns.test.ts` also covers places: a turn past the limit waits and says so, keeps the message before answering, starts when a place frees, can be given up while queued, goes before a task's turn, uses its own place for the calls it makes, and reports a failure to start on its stream; `tests/server/model-call-controls.test.ts` covers calls waiting for a place in priority order and the retry policy, and `tests/desktop/call-limit-migration.test.ts` the move to the new default limits. `tests/server/live-turns.test.ts` covers turns the service holds: a reader leaving does not stop one, attaching replays it from the start, stopping ends it, a second turn in the same conversation is refused before it starts, and the outcomes it reports. `tests/desktop/conversation-alerts.test.ts` covers the desktop notifications for answers that end while the window is not in front. `parallel-conversations.spec.ts` runs the real service with the offline model: an answer keeps being written after leaving its conversation and shows live on return, an answer that ended unseen is unread until opened, stop saves what was written once, a reload picks the answer up again, a task's run streams into its open conversation, a conversation past the limit waits with a queued notice and dot and then answers, and a message written mid-answer is queued, can be removed, and is sent when the answer ends. The chat pages keep a server-sent event connection open, so Playwright's `networkidle` never arrives on them: tests wait with `watchNetwork(page).settled()` (`tests/helpers/network.ts`), which ignores that connection, and leave the page (`about:blank`) before restarting the service, as a reset connection logs a console error.
 
 Interactions that must not move what is already on screen use `tests/helpers/layout-watch.ts`. `watchLayout` follows named elements (selectors or locators) in every painted frame and records every layout shift Chromium reports, including those within 500 ms of input that the browser's own score ignores. `expectSteady` requires an element to keep its place or box, `expectNoUnexpectedShift` fails on shifts outside the interaction's own target, and `expectEased` requires a move to be spread over several frames, or made in one with reduced motion. The return-to-chat, model-picker width, folder withdrawal and backup removal checks use it. Indicators change by `transform` rather than size: the message navigator's current mark scales a full-length bar, so marking a position never shifts layout.
 
-`interaction-stability.spec.ts` walks the interaction inventory with that helper: moving between pages (navigation and content frame still, each page's scroll position restored on return), switching conversations (composer, transcript frame, workspace row and tool picker still; no welcome page in between), changing settings sections, opening and closing menus and the conversation list (trigger still, focus returned), switching theme and language (navigation and window frame still), and removing a model (the next row eases up). `interaction-details.spec.ts` covers empty states with one next action, full text on hover for truncated labels, optimistic pinning with rollback, the reading width of answers and the streaming caret. `command-palette.spec.ts` covers Ctrl+K navigation, settings sections, conversation search and the keyboard shortcuts. `tests/server/motion-tokens.test.ts` fails when any animation or transition timing is not a motion token (`node scripts/check-motion.mjs` lists them).
+`interaction-stability.spec.ts` walks the interaction inventory with that helper: moving between pages (navigation and content frame still, each page's scroll position restored on return), switching conversations (composer, transcript frame, workspace row and tool picker still; no welcome page in between), changing settings sections, opening and closing menus (trigger still, focus returned), the sidebar staying put and marking the conversation opened from it, switching theme and language (navigation and window frame still), and removing a model (the next row eases up). `interaction-details.spec.ts` covers empty states with one next action, full text on hover for truncated labels, optimistic pinning with rollback, the reading width of answers and the streaming caret. `command-palette.spec.ts` covers Ctrl+K navigation, settings sections, conversation search and the keyboard shortcuts. `tests/server/motion-tokens.test.ts` fails when any animation or transition timing is not a motion token (`node scripts/check-motion.mjs` lists them).
 
 `keyboard.spec.ts` tabs through the chat, tasks, conversations, knowledge, media and assistants pages and requires every stop to be on screen, outside any `aria-hidden` region, and to look different while focused (on itself or on the row or field around it). The interaction inventory runs twice: in the dark theme with full motion, and in the light theme with reduced motion.
 
@@ -611,28 +620,9 @@ The desktop cancellation regression waits for an actual live fixture worker whil
 
 Run-specific workspace and report paths prevent stale data or diagnostics from a previous browser run being reused. They do not isolate `.next` and `.desktop-runtime`: builds and full browser runs sharing one checkout must still run sequentially, as described above. An OS-selected port is checked again by Playwright's web-server startup; an intervening process taking it produces a startup failure, not a reused foreign service. Local report and test-workspace directories remain available for inspection; remove old runs when no longer needed. Desktop tracing, runtime preparation and package verification exclude/reject browser diagnostic directories so test reports cannot enter the shipped runtime.
 
-## Knowledge topic and artifact validation
+## Knowledge topic removal
 
-`tests/server/knowledge-topics.test.ts` verifies authenticated topic configuration, exact scoped retrieval, immutable conversation defaults, citation snapshots, idempotent paid request IDs, insufficient evidence, invalid citations, provider failure, cancellation/concurrent deletion, obsolete topic/document work, interruption recovery, export contracts and backup remapping/old archive defaults.
-
-`tests/e2e/knowledge-topics.spec.ts` exercises topic creation, index status, hybrid retrieval, a scoped conversation, confirmed artifact generation through the real SDK adapter against an offline HTTP fixture, downloads, topic updates, service restart, deletion and explicit load-failure recovery. Desktop and 390-pixel screenshots are saved outside the repository to the system temporary `ria-knowledge-topics-qa` directory. The Browser plugin is not available; validation uses the project's Playwright harness. Fixtures establish application transport/lifecycle behavior, not live-provider reasoning quality.
-
-Run database and desktop upgrade tests for the additive migration. Keep production builds/browser runs sequential with desktop runtime verification or smoke testing, because they share `.next` and `.desktop-runtime`.
-
-The shared-selector regressions exercise repeated trigger clicks and touch taps at desktop and compact widths, require dismissal without a value change or write, verify focus restoration and Enter/Escape handling, and confirm that keyboard selection still changes the value. The saved-model list regression verifies that descriptions are omitted from both lists but still match catalog searches. Catalog price checks cover USD per million tokens, free and missing prices, original non-token units, and desktop/compact layouts. `catalog-pricing.test.ts` verifies scale conversion, very small positive rates, malformed values and unknown billing units.
-
-Media price regressions in `media-catalog-pricing.test.ts` cover image units/providers/variants, cent conversion, video-token scaling, minimum charges, unknown and invalid units, bounded trusted-host endpoint discovery and cancellation. `model-management.test.ts` checks upgrading old media snapshots, persistence, model addition and preserving prior quotes after endpoint failure. `media-pricing.spec.ts` verifies all price details, popup dismissal/focus, mobile overflow and usage drawer batches/filtering at desktop and 390px widths. `model-call-usage.spec.ts` verifies the drawer against real locally recorded calls and keeps unsaved model limits intact. Browser plugin unavailable; these checks use the repository’s Playwright harness.
-
-`window-transitions.test.ts` checks deferred native actions, maximize coalescing, queued close priority, tray-compatible close guards, renderer failure/timeout and teardown cleanup. The caption-click acceptance check still exercises trusted native mouse input rather than synthetic DOM clicks. Native transition QA must also check minimize/restore, maximize/unmaximize, close-to-tray/reopen, quit and reduced motion in the real Electron window.
-
-Browser acceptance follows the current disclosure controls: open recent conversations before paging/selecting them, select “Automation & notifications” before checking scheduled history/reviews (including after reload), and open the model usage drawer before asserting recorded fallback charges. Conversation selectors distinguish the primary conversation button from its action menu; all persistence, ownership and billing assertions remain in place.
-
-Template regressions verify default-title changes after template switching, persistence after reload/restart and preservation of independently named titles. Clipboard tests read the actual copied instructions, simulate a refused write and distinguish copying instructions from creating an editable template copy. Template editing opens in a keyboard-accessible sheet with collapsed retrieval settings and reduced-motion support. Compact conversation tests exercise row menus, tag-input focus, pin/archive/export actions, dark/light themes and 390px layouts. Execution-record tests check two-line previews, the complete stored goal on expansion and unchanged composer bounds. Screenshots stay in the system temporary directory. Browser plugin unavailable; these checks use the repository's Playwright harness.
-
-Conversation status changes load immediately without a separate submit. Held-response browser tests verify that search/reset/status reads do not disable or repaint the search controls, and a delayed archived response cannot replace a newer all-conversations result. Archive/restore tests also switch statuses directly before and after service restart.
-
-Official MCP Registry discovery is covered by `extension-registry.test.ts` and `extension-discovery.spec.ts`. Metadata requests are bounded to the fixed official host and do not probe listed services. Tests exercise exact-version details, compatibility labels, credentials withheld until explicitly configured, pagination/cache limits, malformed/removed metadata, cancellation, timeouts and local access/quotas. The isolated offline HTTP fixture serves official-shaped responses while allowing only the explicitly configured loopback MCP test server; unmatched network requests remain blocked. Browser acceptance follows discovery → details → connection draft → save inactive → detect → select tools → enable → chat approval, and verifies that browsing/saving alone executes no tools. Result-panel checks cover independent bounded scrolling, keyboard scrolling, one request per page while pending, preserved rows and scroll position after failure/retry, and reset on a new search. Dark/light, 390px layouts, focus transfer and reduced-motion screenshots remain in the temporary `ria-registry-qa` directory. No CI workflow or dependency change is needed: existing test globs discover these files. DSH bridge compatibility findings and their operational limits are documented in `extensions.md`; third-party services and package installation are not added to the deterministic CI suite.
-
+`tests/desktop/topic-migration.test.ts` upgrades a database holding a topic, its conversation, a finished and a failed result, and a template conversation: every conversation stays without a topic link or scope column, the finished result becomes a searchable conversation with its brief and answer, the failed one is dropped, messages survive the table rebuild and no topic tables remain. `tests/server/topic-removal.test.ts` checks that a new archive holds nothing of topics, that an archive written while topics existed restores the same way, and that one whose topic data does not hang together is refused.
 
 ## Community Skill marketplace
 
@@ -688,15 +678,17 @@ Test globs already include the new files; no additional CI secret, service,
 dependency or schema migration is required. Live search quality and account
 access require separate real-service validation.
 
-Terminal mode coverage in `tests/server/terminal.test.ts` verifies per-folder
-approval decisions, repeated approval, changes within an existing toolset,
-stale bindings, mode-change cancellation, invalid modes, resets on re-grant and
-complete Unicode scripts exceeding Windows environment limits. Backup tests
-verify full-access grants reset to approval on restore. Desktop migration tests
-verify existing grants keep approval and repeated startup preserves user choices.
+Approval coverage in `tests/server/terminal.test.ts` and
+`tests/server/approval-rules.test.ts` verifies that a granted folder offers the
+terminal, that each rule decides edits and commands as named, that an existing
+tool set reads a changed rule, that a task's conversation follows the task's rule,
+the default rule for new conversations and its route, invalidation on re-grant,
+and complete Unicode scripts exceeding Windows environment limits. Desktop
+migration tests verify that conversations and tasks in a full-access folder keep
+running without asking and the grants table loses its terminal columns.
 `tests/e2e/terminal.spec.ts` uses the offline model with real PowerShell to verify
-automatic execution, live output and stop controls, mode persistence across a
-service restart, mode changes through settings, approval of consecutive calls,
+automatic execution, live output and stop controls, the default approval rule
+persisting across a service restart and changing through settings, approval of consecutive calls,
 long-script approval continuation and saved results without re-execution.
 Long-script fixtures exceed 2 MiB; browser tests measure the actual approval and
 follow-up request bodies and verify later history requests complete without

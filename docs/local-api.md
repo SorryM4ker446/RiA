@@ -11,8 +11,8 @@ in [Extensions](extensions.md#local-management-api), including official Registry
 search and exact-version details under `/api/extensions/registry`. These endpoints use the same
 local authentication and restore gates; tool calls still require chat approval.
 
-Scheduled execution history, explicit retry and sanitized diagnostics are
-documented in [execution history and recovery](execution-history.md).
+Task runs, their history and sanitized diagnostics are documented in
+[Tasks](tasks.md#api) and [execution history and recovery](execution-history.md).
 
 These endpoints are supported for authenticated local integrations as well as the shared browser/Electron UI. They are not anonymous public services. All retain the Cookie, Host, Origin, ownership and error rules in [API security](api-security.md). A caller needs its own valid session; desktop automation must also use the current desktop session boundary. Never copy session secrets into scripts or documentation.
 
@@ -31,11 +31,25 @@ For another page, send the returned `nextCursor` to the same endpoint. Append co
 
 Ordering uses timestamp plus ID, so equal timestamps are deterministic and deleting a cursor's original row does not break traversal. Conversation activity can move a row to the front between requests: refresh the first page to see new activity. This is a live list, not a frozen snapshot. Clients deduplicate IDs when merging pages.
 
-The recent-conversations list reveals further rows, and then requests the next page, only as it is scrolled to its end; the transcript offers “Load earlier messages”. Reloading restores the selected active conversation by its detail endpoint even when it is outside the first page; archived selections are not restored into the sidebar. Stale page responses are ignored after switching conversations. Conversation details count messages without loading their bodies or migrating media; media migration runs only for messages actually read.
+The sidebar's conversation list requests the next page only as it is scrolled to its end; the transcript offers “Load earlier messages”. Reloading restores the selected active conversation by its detail endpoint even when it is outside the first page; archived selections are not restored into the sidebar. Stale page responses are ignored after switching conversations. Conversation details count messages without loading their bodies or migrating media; media migration runs only for messages actually read.
 
 Conversation lists also accept `q`, `tag` and `state`. Cursors are scoped to those filters and use a new version: refresh old cursors after upgrading. See [Conversation management](conversation-management.md) for literal full-history search, organization, atomic confirmed bulk deletion and Markdown/JSON exports. Summary responses add `pinned`, `archived` and `tags`; default list reads exclude archived conversations.
 
 Chat submissions send at most the latest 100 loaded messages. The server reads the stored turns before them, so a conversation reopened with only its latest page loaded keeps its earlier context: from the last message the current summary covers, or from the start when there is none. The browser's messages remain authoritative for the turns it sends. The server context window, summary and excerpts then decide what reaches the model, independent of how many pages are loaded for display. Regeneration checks only the target user message and subsequent affected history, preserves earlier messages, and still rejects concurrent changes to the affected range. Regenerating near the beginning of a long conversation can therefore inspect a large affected range.
+
+## Running turns and conversation events
+
+`POST /api/chat` starts a turn that the service holds: the response streams the answer, and the caller may stop reading without ending it. The turn keeps running to its end and is saved by the service. A conversation answers one turn at a time; a second `POST /api/chat` for a conversation that is answering returns `409 CONFLICT` before anything is saved (the chat page queues such a message instead and sends it when the answer ends).
+
+When every place for model work is taken (**Maximum concurrent calls**), the turn waits rather than being refused: the response is returned at once, the user's message is saved, and the stream carries transient `data-turn-status` parts — `{ "state": "queued", "ahead": n }` while it waits, `{ "state": "running" }` when it starts — before the answer. The same part says `{ "state": "retrying", "attempt": n, "seconds": n }` while a busy provider is retried. A turn that cannot start after waiting ends its stream with an `error` part. `DELETE /api/chat/:id/stream` also takes a queued turn out of the queue.
+
+- `GET /api/chat/:id/stream` reads the turn running in a conversation from its start and follows it to its end, in the same UI message stream format as `POST /api/chat` (this is the URL the AI SDK reconnects to). It returns `204` when none is running.
+- `DELETE /api/chat/:id/stream` stops the running turn and returns `{ "data": { "stopped": true } }`, or `false` when none was running. What was written is saved once, as an interrupted answer, and the stream ends.
+- `GET /api/conversations/events` is a server-sent event stream for as long as it stays open: `ready` once on connecting (`{ "answering": [ids] }`), `turn` when a turn starts, leaves the queue or ends (`{ "type": "turn-started" | "turn-running" | "turn-finished", "chatId", "source": "chat" | "task", "queued"?, "outcome"?, "title"? }`, where `outcome` is `succeeded`, `failed`, `waiting_approval` or `stopped`), and `changed` whenever conversations, their messages or the tasks that own them change. `changed` does not say what changed: read the list again. A client that reconnects reads the list again on `ready`.
+
+Conversation summaries add `answering` (a turn is running in it now, or waiting for a place, whoever started it), `queued` (that turn is waiting for a place) and `unread` (an answer ended there that has not been opened). `PATCH /api/conversations/:id` with `{ "unread": false }` marks it read; only the service marks a conversation unread, when a turn ends there other than one stopped by the user.
+
+Running turns live as long as the service process. A turn still running when the service stops is lost, as before, and its run record says so on restart.
 
 ## Supported detail and memory endpoints
 
@@ -46,8 +60,6 @@ Chat submissions send at most the latest 100 loaded messages. The server reads t
 | `GET /api/conversations/:id/messages/:messageId` | Message by persisted or client message ID; returns `data` with role, content, status and timestamps; retains private-media migration |
 | `GET /api/conversations/:id/runs?runId=...` | Persisted assistant message associated with a server-issued run ID, or `null` when unavailable; verifies run ownership in this conversation and uses private/no-store caching |
 | `GET /api/conversations/:id/runs?limit=...` | Execution summaries with optional `messageId` (client message ID when available) for grouping approval continuations; steps include saved bounded `input`/`output` summaries |
-| `GET /api/tasks/:id` | Task detail, including title, details, due date, priority and status |
-| `PATCH /api/tasks/:id` | Task update, including deadline, time zone, reminder and recurrence; returns `data` plus `nextTask` when completion creates a successor |
 | `GET /api/memory?query=...&limit=5` | Relevant knowledge entries (the path keeps its older name); maximum 20, empty query returns an empty list |
 | `POST /api/memory` | Upsert a knowledge entry using `key` (1–120 characters), `value` (1–4000) and optional `score` (0–1); returns `201` with `data` |
 | `GET /api/memory/document` | MEMORY.md as `data` with `content`, `revision`, `updatedAt`, the notes sorted into `topics`, those not yet sorted in `unsorted`, and whether sorting is `settled` or `organizing` |
@@ -59,11 +71,15 @@ Chat submissions send at most the latest 100 loaded messages. The server reads t
 The memory and retrieval endpoints remain deliberate local integration contracts even though the UI uses the knowledge page and tools. Missing or foreign detail records return `404`; unauthenticated requests return `401`. Mutations use the same bounded JSON parsing and same-origin checks as UI requests. Embedding configuration is optional; keyword retrieval remains available without a provider key.
 
 File actions are offered through `runTerminalCommand`, `readProjectFile` and
-`editProjectFile` with separate folder terminal permission and the selected
-full-access or per-command approval mode. Completed replies can show observed
+`editProjectFile` in any granted folder. Whether an edit or command waits for
+approval is the conversation's approval rule (`approvalRule` on
+`PATCH /api/conversations/:id`: `ask`, `acceptEdits` or `full`); a task's
+conversation follows the task's. `GET`/`PUT /api/approval-preferences` reads and
+sets `{ defaultRule }`, the rule new conversations start with. There is no
+`PATCH /api/directory-grants/:id`: a folder has no terminal switch. Completed replies can show observed
 file changes from terminal results and exact edits.
 `POST /api/terminal/files/resolve` accepts `{ grantId, path }` and resolves an
-existing regular file inside a currently terminal-enabled grant; the desktop
+existing regular file inside a currently granted folder; the desktop
 bridge opens the returned canonical path after a user click. See [Terminal
 tools](terminal-tools.md) for observation scope and partial results.
 Retired `listLocalFiles`, `readLocalFile`
@@ -71,7 +87,7 @@ and `writeLocalFile` IDs are no longer executable catalog entries. Legacy templa
 selections normalize to the terminal without enabling folder permission. Old
 transcripts remain readable; old file-tool approvals cannot execute after upgrade.
 
-Task schedule formats, recurrence rules and the desktop-only reminder claim endpoint are documented in [Task reminders](task-reminders.md). Claiming is a mutation with delivery consequences, so integrations must not poll it as a task-list endpoint.
+Task endpoints, schedule formats and the desktop-only notification claim are documented in [Tasks](tasks.md#api). Claiming is a mutation with delivery consequences, so integrations must not poll it as a task-list endpoint.
 
 Media browsing uses `GET /api/media/library` with filtered cursor pagination and `GET /api/media/:id/details` for stored provenance and generation parameters. `POST /api/media/:id/regenerate` requires explicit confirmation, reuses the stored recipe and creates a new asset without replacing history. See [Media library](media-library.md) for contracts, quotas, legacy limitations and input-reference protection. `GET /api/media` continues to return storage statistics.
 
@@ -156,24 +172,3 @@ the enabled `skills`.
 
 Usage supports an optional `source` query (`chat`, `summary`, `scheduled`, `tool`, `embedding`, `media`, `unattributed`), rejecting invalid or duplicated parameters. Limits and current local-date allowance are returned with usage. A denied admission reports a conflict or configuration problem and submits no provider call; it does not fabricate a usage charge. See [Model settings and usage](model-usage.md).
 
-## Knowledge topics
-
-All topic routes require the same local workspace access, Host/Origin validation and data-operation gate as other workspace APIs. Bodies are bounded JSON and reject unknown fields. Query parameters are rejected except deletion confirmation parameters and the export's single `format` parameter. DELETE requests retain the workspace's empty-body contract.
-
-| Route | Behavior |
-| --- | --- |
-| `GET /api/topics` | List up to 50 topics, config revisions and conversation/artifact counts |
-| `POST /api/topics` | Create `{name, description?, collections, assistantTemplateId?}`; 1–12 unique nonempty collections |
-| `GET /api/topics/:id` | Read current topic configuration |
-| `PATCH /api/topics/:id` | Update configuration fields plus the current `revision`; reject stale changes |
-| `DELETE /api/topics/:id?confirm=true&revision=N` | Require the current revision; cascade artifacts, unlink conversations, retain documents |
-| `GET /api/topics/:id/conversations` | Latest 50 associated conversations |
-| `POST /api/topics/:id/conversations` | Create `{revision,title}` with scope and assistant snapshot |
-| `POST /api/topics/:id/search` | Retrieve `{revision,query}` using server-owned topic collections and the default retrieval policy |
-| `GET /api/topics/:id/artifacts` | List up to 50 saved artifact summaries; recover orphaned generating records as interrupted |
-| `POST /api/topics/:id/artifacts` | Generate `{confirm:true, requestId:UUID, revision, title, kind:"report"\|"plan"\|"summary", brief}` |
-| `GET /api/topics/:id/artifacts/:artifactId` | Body, state and saved provenance metadata |
-| `DELETE /api/topics/:id/artifacts/:artifactId?confirm=true` | Require explicit confirmation; active generation cannot be deleted |
-| `GET /api/topics/:id/artifacts/:artifactId/export?format=markdown\|json` | Download an existing body and source snapshots without generation |
-
-Artifact POST returns a saved record even when generation failed, was cancelled or needs review; inspect `status` and `errorCode`. Validation, authorization, revision or concurrency conflicts before claiming the request return normal API errors. Reusing a saved request ID with identical input reads the existing record; different input returns conflict. This is not a retry endpoint. See [Knowledge topics](knowledge-topics.md) for lifecycle and limits.

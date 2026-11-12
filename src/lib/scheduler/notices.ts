@@ -74,7 +74,10 @@ export async function raiseNotice(input: {
   detail?: string | null;
   href?: string | null;
   fingerprint: string;
+  /** False keeps the notice in the app but off the screen: it counts as already handed to the desktop. */
+  announce?: boolean;
 }, transaction?: Prisma.TransactionClient): Promise<AppNoticeView> {
+  const notifiedAt = input.announce === false ? new Date() : null;
   const write = async (tx: Prisma.TransactionClient) => {
     const raised = await tx.appNotice.upsert({
       where: { fingerprint: input.fingerprint },
@@ -83,14 +86,18 @@ export async function raiseNotice(input: {
         title: input.title.slice(0, 200),
         detail: (input.detail ?? null)?.slice(0, 2000) ?? null,
         href: input.href ?? null,
-        fingerprint: input.fingerprint.slice(0, 200)
+        fingerprint: input.fingerprint.slice(0, 200),
+        notifiedAt,
       },
       update: {
         title: input.title.slice(0, 200),
         detail: (input.detail ?? null)?.slice(0, 2000) ?? null,
         href: input.href ?? null,
         // Reopening is the point: the thing is still true, so it is still on the list.
-        readAt: null
+        readAt: null,
+        // And it is announced again, since what it says has happened again,
+        // unless whoever raised it asked for it to stay off the screen.
+        notifiedAt
       },
       select: noticeSelect
     });
@@ -124,6 +131,28 @@ export async function listNotices(options: { includeRead?: boolean } = {}): Prom
 
 export async function unreadNoticeCount(): Promise<number> {
   return db.appNotice.count({ where: { readAt: null } });
+}
+
+/** Notice kinds the desktop also shows as a system notification. */
+const ANNOUNCED_KINDS = ["taskRun"];
+
+/**
+ * Hand over the notices the desktop has not yet shown, once each.
+ *
+ * They are marked before the notification is requested, so two checks landing
+ * together or a restart cannot show one twice. That makes delivery at most
+ * once: a notification the system then refuses is not retried, and the notice
+ * itself stays in the app either way.
+ */
+export async function claimNoticesToAnnounce(now = new Date()): Promise<AppNoticeView[]> {
+  return db.$transaction(async tx => {
+    const rows = await tx.appNotice.findMany({
+      where: { kind: { in: ANNOUNCED_KINDS }, readAt: null, notifiedAt: null },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: 10, select: noticeSelect,
+    });
+    await tx.appNotice.updateMany({ where: { id: { in: rows.map(row => row.id) }, notifiedAt: null }, data: { notifiedAt: now } });
+    return rows.map(toView);
+  });
 }
 
 export async function markNoticeRead(id: string): Promise<{ read: boolean }> {

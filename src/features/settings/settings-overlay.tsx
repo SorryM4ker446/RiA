@@ -21,7 +21,8 @@ import { LanguageSettings } from "@/features/settings/language";
 import { CloseBehaviourSettings } from "@/features/settings/close-behaviour";
 import { HotkeySettings } from "@/features/settings/hotkey";
 import { UpdateSettings } from "@/features/settings/updates";
-import { ScheduleSettings } from "@/features/settings/schedules";
+import { WorkspaceReviewPreview } from "@/features/settings/workspace-review";
+import { BackgroundTaskRules, TaskNotificationSettings } from "@/features/settings/task-automation";
 import { NoticeCenter } from "@/features/settings/notice-center";
 import { DirectoryGrantSettings } from "@/features/settings/directory-grants";
 import { BackupSettings } from "@/features/settings/backup-settings";
@@ -97,7 +98,7 @@ function SectionContent({ id }: { id: SettingsSectionId }) {
     case "ria": return <><PageHeader level={2} title={t("settings.yourRia.title")} /><div className="settings-panel flex flex-col"><YourRia /></div></>;
     case "services": return <ServiceSettings />;
     case "application": return <><PageHeader level={2} title={t("ui.settings.application")} /><div className="settings-panel flex flex-col"><LanguageSettings /><CloseBehaviourSettings /><HotkeySettings /><UpdateSettings /></div></>;
-    case "automation": return <><PageHeader level={2} title={t("ui.settings.automationNotifications")} /><div className="settings-panel flex flex-col"><ScheduleSettings /><NoticeCenter /></div></>;
+    case "automation": return <><PageHeader level={2} title={t("ui.settings.automationNotifications")} /><div className="settings-panel flex flex-col"><TaskNotificationSettings /><BackgroundTaskRules /><NoticeCenter /><WorkspaceReviewPreview /></div></>;
     case "files": return <><PageHeader level={2} title={t("ui.settings.filePermissions")} /><div className="settings-panel"><DirectoryGrantSettings /></div></>;
     case "models": return <ModelSettings />;
     case "usage": return <UsageSettings />;

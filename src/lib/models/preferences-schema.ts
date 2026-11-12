@@ -85,6 +85,8 @@ export const modelLibraryItemSchema = z.strictObject({
 });
 export type ModelLibraryItem = z.infer<typeof modelLibraryItemSchema>;
 
+/** How many model calls may run at once unless the user chooses otherwise. */
+export const DEFAULT_MAX_CONCURRENT = 8;
 export const legacyModelCandidateSchema = z.strictObject({ mode: z.enum(libraryModes), ref: modelRefSchema });
 const preferencesShape = {
   contextLimits: z.record(id, z.strictObject({
@@ -92,14 +94,17 @@ const preferencesShape = {
     maxOutputTokens: z.number().int().min(1).max(1_000_000).nullable(),
   })).refine(value => Object.keys(value).length <= 100).default({}),
   callLimits: z.strictObject({
-    maxConcurrent: callCount(callLimitRanges.maxConcurrent).default(4),
-    backgroundDailyCalls: callCount(callLimitRanges.backgroundDailyCalls).default(20),
+    // Places for model work at once; work past them waits for one (see call-slots).
+    maxConcurrent: callCount(callLimitRanges.maxConcurrent).default(DEFAULT_MAX_CONCURRENT),
+    // Runs a day that tasks may start on their own. The top of the range by
+    // default: the money ceilings below are what bound spending, when set.
+    backgroundDailyCalls: callCount(callLimitRanges.backgroundDailyCalls).default(callLimitRanges.backgroundDailyCalls.max),
     // Summary calls one chat request may make while compacting its context.
     compactionCallsPerTurn: callCount(callLimitRanges.compactionCallsPerTurn).default(20),
     backgroundMaxEstimatedUsd: price.default(null),
     backgroundDailyEstimatedUsd: price.default(null),
     timeZone: z.string().min(1).max(100).refine(value => { try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; } catch { return false; } }).default("Asia/Shanghai"),
-  }).default({ maxConcurrent: 4, backgroundDailyCalls: 20, compactionCallsPerTurn: 20, backgroundMaxEstimatedUsd: null, backgroundDailyEstimatedUsd: null, timeZone: "Asia/Shanghai" }),
+  }).default({ maxConcurrent: DEFAULT_MAX_CONCURRENT, backgroundDailyCalls: callLimitRanges.backgroundDailyCalls.max, compactionCallsPerTurn: 20, backgroundMaxEstimatedUsd: null, backgroundDailyEstimatedUsd: null, timeZone: "Asia/Shanghai" }),
   version: z.literal(3),
   defaultMode: z.enum(modelModes),
   chat: modePreference,

@@ -19,7 +19,7 @@ const { mapStoredMessagesToUI } = await import("@/features/chat/page-utils");
 const { indexDocument } = await import("@/lib/documents/store");
 const ref = { providerId: "deepseek" as const, modelId: "deepseek-v4-pro" };
 let selectedTool = "createTask";
-let selectedInput: Record<string, unknown> = { title: "真实创建任务" };
+let selectedInput: Record<string, unknown> = { title: "真实创建任务", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" };
 
 const server = createServer(async (req, res) => {
   const bytes: Buffer[] = [];
@@ -56,7 +56,7 @@ beforeEach(async (t: TestContext) => {
   t.mock.method(console, "warn", () => {});
   globalThis.__riaRateLimitStore?.clear();
   await db.chat.deleteMany({});
-  await db.task.deleteMany({});
+  await db.scheduledJob.deleteMany({});
   await db.memory.deleteMany({});
   await db.knowledgeDocument.deleteMany({});
   const settings = defaultModelPreferences();
@@ -64,7 +64,7 @@ beforeEach(async (t: TestContext) => {
   settings.library = [{ ...ref, name: "DeepSeek fixture", description: "", modes: ["chat"], supportsImageInput: false, endpointImageInput: null, supportsTools: true, contextLength: null, pricing: {}, addedAt: new Date().toISOString(), lastSeenAt: new Date().toISOString() }];
   await db.workspacePreference.upsert({ where: { id: "local" }, create: { id: "local", settings }, update: { settings } });
   selectedTool = "createTask";
-  selectedInput = { title: "真实创建任务" };
+  selectedInput = { title: "真实创建任务", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" };
 });
 after(async () => { await new Promise<void>(resolve => server.close(() => resolve())); await db.$disconnect(); cleanup(); });
 
@@ -92,7 +92,7 @@ async function pendingTask() {
   const messages = await stored(conversation.id);
   const toolPart = findTool(messages.at(-1)!, "createTask");
   assert.equal(toolPart.state, "approval-requested");
-  assert.equal(await db.task.count(), 0);
+  assert.equal(await db.scheduledJob.count(), 0);
   return { conversation, messages, toolPart };
 }
 
@@ -104,15 +104,15 @@ test("a streamed DeepSeek task reaches approval, executes once after approval an
   const resumed = await chatRoute.POST(request("/api/chat", body));
   assert.equal(resumed.status, 200);
   assert.match(await resumed.text(), /真实创建任务/);
-  assert.equal(await db.task.count(), 1);
-  assert.equal((await db.task.findFirstOrThrow()).title, "真实创建任务");
+  assert.equal(await db.scheduledJob.count(), 1);
+  assert.equal((await db.scheduledJob.findFirstOrThrow()).title, "真实创建任务");
   const saved = (await stored(conversation.id)).at(-1)!;
   const completed = findTool<CreateTaskOutput>(saved, "createTask");
   assert.equal(completed.state, "output-available");
   assert.ok(completed.output.taskId);
   const duplicate = await chatRoute.POST(request("/api/chat", body));
   assert.equal(duplicate.status, 409);
-  assert.equal(await db.task.count(), 1);
+  assert.equal(await db.scheduledJob.count(), 1);
 });
 
 test("rejecting the streamed task leaves no task and persists denial", async () => {
@@ -122,7 +122,7 @@ test("rejecting the streamed task leaves no task and persists denial", async () 
   const resumed = await chatRoute.POST(request("/api/chat", { chatId: conversation.id, model: ref, messages }));
   assert.equal(resumed.status, 200);
   await resumed.text();
-  assert.equal(await db.task.count(), 0);
+  assert.equal(await db.scheduledJob.count(), 0);
   assert.equal(findTool((await stored(conversation.id)).at(-1)!, "createTask").state, "output-denied");
 });
 
@@ -130,8 +130,8 @@ test("knowledge search respects conversation collections and ephemeral memory", 
   const a = await indexDocument({ filename: "发布A.txt", collection: "A|B", format: "txt", byteSize: 20, pages: [{ pageNumber: null, text: "发布回滚窗口为三十分钟。" }] });
   await indexDocument({ filename: "发布B.txt", collection: "B", format: "txt", byteSize: 20, pages: [{ pageNumber: null, text: "发布回滚窗口为六十分钟。" }] });
   await db.memory.create({ data: { key: "发布回滚窗口", value: "不得进入无记忆会话", confirmed: true } });
-  const { encodeDocumentScope } = await import("@/lib/documents/scope");
-  const conversation = await db.chat.create({ data: { title: "Scoped search", topic: { create: { config: {} } }, documentScope: encodeDocumentScope(["A|B"]), ephemeral: true } });
+  // A template narrows the search to one topic whose name holds the separator.
+  const conversation = await db.chat.create({ data: { title: "Scoped search", ephemeral: true, assistantConfig: { templateId: "scoped-template", templateRevision: 1, name: "Scoped", description: "", instructions: "Help.", model: null, tools: ["searchKnowledge"], collections: ["A|B"], usesMemory: false } } });
   selectedTool = "searchKnowledge";
   selectedInput = { query: "发布回滚窗口", topK: 4 };
   const response = await chatRoute.POST(request("/api/chat", { chatId: conversation.id, model: ref, messages: [{ id: "query-user", role: "user", parts: [{ type: "text", text: "检索发布回滚窗口" }] }] }));

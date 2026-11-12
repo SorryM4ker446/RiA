@@ -25,30 +25,6 @@ export type ToolCatalogItem = {
 
 export type SkillCatalogItem = { packageId: string; skillId: string; name: string; description: string; plugin: string };
 
-export type TaskStatusFilter = "all" | "todo" | "in_progress" | "done";
-
-export type TaskScheduleInput = {
-  dueDate: string | null;
-  timeZone: string;
-  reminderEnabled: boolean;
-  repeatRule: "none" | "daily" | "weekly" | "monthly";
-};
-
-export type TaskItem = {
-  id: string;
-  title: string;
-  details: string | null;
-  dueDate: string | null;
-  timeZone?: string;
-  reminderEnabled?: boolean;
-  repeatRule?: TaskScheduleInput["repeatRule"];
-  repeatGenerated?: boolean;
-  priority: "low" | "medium" | "high";
-  status: "todo" | "in_progress" | "done";
-  createdAt: string;
-  updatedAt: string;
-};
-
 export type ChatScopedPreferences = {
   modelMode: ModelMode;
   selectedChatModel: ModelRef | null;
@@ -69,4 +45,6 @@ export type SearchSourceItem = {
 
 export const CHAT_PREFS_STORAGE_PREFIX = "chat:prefs:";
 export const LAST_ACTIVE_CHAT_STORAGE_KEY = "chat:last-active-id";
+/** The model picker's choice, in a task's conversation, to follow the default chat model. */
+export const TASK_DEFAULT_MODEL = "__task_default_model";
 export const COLLAPSED_TASK_LIMIT = 3;

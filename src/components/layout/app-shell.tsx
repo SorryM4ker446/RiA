@@ -4,7 +4,8 @@ import { useLocale } from "@/lib/locale/client";
 import { t } from "@/lib/locale";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { openConversationFromHref } from "@/features/chat/open-conversation";
 import { useEffect, useRef, useState } from "react";
 import {
   BookOpen,
@@ -13,7 +14,6 @@ import {
   House,
   MessagesSquare,
   Settings,
-  Layers3,
   Images,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
@@ -27,6 +27,8 @@ import { cn } from "@/lib/utils/cn";
 import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
 import { useOpenSettings } from "@/features/settings/settings-context";
 import { UpdateNotice } from "@/features/updates/update-notice";
+import { ConversationStoreProvider } from "@/features/chat/conversation-store";
+import { SidebarConversations } from "@/features/chat/sidebar-conversations";
 
 type NavItem = { href: string; label: string; icon: typeof BookOpen };
 
@@ -42,9 +44,7 @@ const NAV_GROUPS = (): { label: string; items: NavItem[] }[] => ([
   { href: "/tasks", label: t("tasks.title"), icon: CalendarClock },
   ] },
   { label: t("ui.layout.app-shell.knowledge"), items: [
-  { href: "/conversations", label: t("nav.conversations"), icon: MessagesSquare },
   { href: "/knowledge", label: t("nav.knowledge"), icon: BookOpen },
-  { href: "/topics", label: t("ui.backups.knowledgeTopics"), icon: Layers3 },
   { href: "/media", label: t("nav.media"), icon: Images },
   ] },
 ]);
@@ -54,8 +54,10 @@ const NAV_GROUPS = (): { label: string; items: NavItem[] }[] => ([
  * also says where you are instead of being an empty band. Matched longest-first
  * because the sections nest (`/knowledge/documents` under `/knowledge`).
  */
-const SECTION_LABELS = (): { prefix: string; label: string }[] =>
-  NAV_GROUPS().flatMap(group => group.items.map(item => ({ prefix: item.href, label: item.label })));
+const SECTION_LABELS = (): { prefix: string; label: string }[] => [
+  ...NAV_GROUPS().flatMap(group => group.items.map(item => ({ prefix: item.href, label: item.label }))),
+  { prefix: "/conversations", label: t("nav.conversations") },
+];
 
 function sectionLabel(pathname: string) {
   return SECTION_LABELS().filter(item => isActive(pathname, item.prefix))
@@ -112,6 +114,8 @@ function SidebarBody({ pathname, action }: { pathname: string; action: React.Rea
         {action}
       </div>
       <NavLinks pathname={pathname} />
+      {/* The conversations, on every page: the chat page works in one of them. */}
+      <SidebarConversations />
       {/* Everything that configures the app lives in one settings overlay, opened over the current page. */}
       <div className="mt-auto flex flex-col gap-1 border-t pt-3">
         <UpdateNotice />
@@ -140,7 +144,14 @@ function SidebarBody({ pathname, action }: { pathname: string; action: React.Rea
 export function AppShell({ children }: { children: React.ReactNode }) {
   useLocale();
   const pathname = usePathname();
+  const router = useRouter();
   const { folded } = useRailLayout();
+  // A system notification that was clicked names a page inside the app: a
+  // conversation is remembered and switched to, and the window moves there.
+  useEffect(() => window.riaDesktop?.onNavigate?.(path => {
+    openConversationFromHref(path);
+    router.push(path);
+  }), [router]);
   // Opening a collapsed section (a <details> anywhere: a page, the settings, a
   // sheet) brings what it revealed into view instead of leaving it below the
   // fold. Only an opening the person asked for counts: a section rendered open
@@ -252,8 +263,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       seam under it, and it wasted the space the brand and the section name now
       occupy.
     */
-    <>
-      <CommandPalette pages={NAV_GROUPS().flatMap(group => group.items)} />
+    <ConversationStoreProvider>
+      <CommandPalette pages={[...NAV_GROUPS().flatMap(group => group.items), { href: "/conversations", label: t("nav.conversations"), icon: MessagesSquare }]} />
       <AppTooltips />
     <div data-desktop={isDesktopRuntime} data-chat-page={pathname === "/chat"} className="workspace-shell relative flex h-dvh min-h-0 overflow-hidden">
       {/*
@@ -299,6 +310,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <RailResizer />
       <RailControls renderBody={action => <SidebarBody pathname={pathname} action={action} />} />
     </div>
-    </>
+    </ConversationStoreProvider>
   );
 }

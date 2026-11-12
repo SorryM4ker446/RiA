@@ -239,7 +239,7 @@ test("media and conversation refreshes keep their rows on screen", { tag: "@inte
   expect(media.after).toBe(media.before);
 
   await page.goto(`${app.origin}/conversations`);
-  await expect(page.getByText("静默刷新会话", { exact: true })).toBeVisible();
+  await expect(page.locator("main").getByText("静默刷新会话", { exact: true })).toBeVisible();
   // The conversation list has no refresh button: it re-reads when the window regains focus.
   const reread = page.waitForResponse(response => response.url().includes("/api/conversations?"));
   const conversations = await watchRefresh(page, "main", WINDOW_FOCUS);
@@ -249,7 +249,7 @@ test("media and conversation refreshes keep their rows on screen", { tag: "@inte
   expect(conversations.skeleton, "a skeleton replaced the conversation list during a refresh").toBe(false);
   expect(conversations.loadingText, "the conversation list was replaced by a loading sentence").toBe(false);
   expect(conversations.after).toBe(conversations.before);
-  await expect(page.getByText("静默刷新会话", { exact: true })).toBeVisible();
+  await expect(page.locator("main").getByText("静默刷新会话", { exact: true })).toBeVisible();
 });
 
 test("changing a filter still replaces the rows, so a silent refresh cannot hide a stale list", { tag: "@integration" }, async ({ page, app }) => {

@@ -110,7 +110,7 @@ test("English is applied to primary pages and built-in metadata", async ({ page,
   })).toBe(201);
   await page.goto(`${app.origin}/settings`);
   await chooseEnglish(page);
-  for (const route of ["/", "/assistants", "/topics", "/tasks", "/conversations", "/knowledge", "/models", "/media", "/backups", "/storage", "/extensions"]) {
+  for (const route of ["/", "/assistants", "/tasks", "/conversations", "/knowledge", "/models", "/media", "/backups", "/storage", "/extensions"]) {
     await page.goto(`${app.origin}${route}`);
     await expect(page.locator("html")).toHaveAttribute("lang", "en-US");
     // Settings open as an overlay over the home page; their copy is checked there instead of the page's.

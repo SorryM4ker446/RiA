@@ -58,7 +58,8 @@ test("Word preview is read-only, retains table context and requires confirmation
   expect(document.indexVersion).toBe(4);
   const response = await browserApi(page, "/api/documents/search", "POST", { query: "住宿金额审批" });
   expect(response.body.data.some(source => source.snippet.includes("500 元") && source.snippet.includes("主管审批") && source.snippet.includes("金额"))).toBe(true);
-  await app.restart(); await page.reload();
+  // Off the app while the service restarts: the page keeps a connection open to it, and a reset one logs an error.
+  { const here = page.url(); await page.goto("about:blank"); await app.restart(); await page.goto(here); }
   await expect(page.getByRole("link", { name: "费用标准.docx", exact: true })).toBeVisible();
   const stored = await browserData(page, `/api/documents/${document.id}`);
   expect(stored.chunks.some(chunk => chunk.text.includes("| 住宿 | 500 元 | 主管审批 |"))).toBe(true);
@@ -143,7 +144,7 @@ test("bulk indexing cancels at a controlled request boundary and resumes persist
   expect(app.readRows("SELECT id FROM document_chunks WHERE documentId=? AND embedding IS NOT NULL", long.id)).toHaveLength(32);
   expect(app.readRows("SELECT id FROM document_chunks WHERE documentId=? AND embedding IS NOT NULL", short.id)).toHaveLength(1);
   expect(app.readRows("SELECT id FROM model_requests WHERE mode='embedding'")).toHaveLength(failedAutomatically + 1);
-  await app.restart(); await page.reload();
+  { const here = page.url(); await page.goto("about:blank"); await app.restart(); await page.goto(here); }
   await expect(page.getByText("待处理 32/40", { exact: true })).toBeVisible();
   await page.getByTestId("index-maintenance").locator(":scope > summary").click();
   await page.getByRole("button", { name: "批量构建或继续", exact: true }).click(); await acceptConfirm(page);

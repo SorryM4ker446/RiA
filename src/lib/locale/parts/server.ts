@@ -141,13 +141,6 @@ export const serverMessages = {
   "lib.documents.corrupt": "文档损坏或格式不受支持。",
 
   // --- tasks ---------------------------------------------------------------
-  "lib.tasks.localTimeMissing": "该时区不存在这个本地时间，请避开夏令时跳转时刻。",
-  "lib.tasks.invalidTimeZone": "无效的 IANA 时区。",
-  "lib.tasks.dueDateFormat": "截止时间需要 ISO 日期或本地日期时间。",
-  "lib.tasks.invalidDueDate": "无效的截止时间。",
-  "lib.tasks.invalidOffset": "无效的时间偏移量。",
-  "lib.tasks.noNextDueDate": "无法计算下一次截止时间，请调整重复规则或日期。",
-  "lib.tasks.dueDateRequired": "提醒和重复任务必须设置截止时间。",
 
   // --- chat plumbing -------------------------------------------------------
   "lib.chat.saveFailed": "回答保存失败，请重新加载会话后重试。",

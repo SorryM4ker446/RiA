@@ -8,7 +8,9 @@ import { settingsDialog } from "../helpers/settings";
 import { browserApi } from "../helpers/browser-api";
 import { toasts } from "../helpers/toast";
 import { chooseTaskDateTime } from "../helpers/task-date-picker";
+import { chooseMenuAction } from "../helpers/row-menu";
 import { newTask as taskInput } from "../helpers/slash-menu";
+import { conversationList } from "../helpers/conversations";
 
 const test = base.extend<{
   app: Awaited<ReturnType<typeof startStandaloneServer>>;
@@ -41,45 +43,38 @@ test("workspace separates scheduled tasks and retains content during refresh", a
   const firstGate = new Promise<void>((resolve) => {
     finishInitial = resolve;
   });
-  await page.route("**/api/tasks**", async (route) => {
+  await page.route("**/api/tasks", async (route) => {
     await firstGate;
     await route.continue();
   });
   await page.goto(`${app.origin}/tasks`);
   try {
-    await expect(page.getByRole("status", { name: "加载任务" })).toBeVisible();
+    await expect(page.getByText("正在加载任务…", { exact: true })).toBeVisible();
   } finally {
     finishInitial();
   }
-  const task = page
-    .getByTestId("task-panel")
-    .getByText("保持可见的任务", { exact: true });
+  const task = page.getByTestId("task-item").filter({ hasText: "保持可见的任务" });
   await expect(task).toBeVisible();
-  await page.unroute("**/api/tasks**");
-  const createAction = page.getByRole("button", {
-    name: "新建任务",
-    exact: true,
-  });
+  await page.unroute("**/api/tasks");
+  const createAction = page.getByRole("button", { name: "新建任务", exact: true });
   const before = await createAction.boundingBox();
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  await page.route("**/api/tasks**", async (route) => {
-    await gate;
+  await page.route("**/api/tasks", async (route) => {
+    if (route.request().method() === "GET") await gate;
     await route.continue();
   });
-  const refresh = page.getByRole("button", { name: "刷新任务", exact: true });
-  await refresh.click();
-  await expect(refresh).toBeDisabled();
+  await chooseMenuAction(page, "保持可见的任务", "启用");
+  // Saved; the list is being read again behind the row, which stays where it is.
   await expect(task).toBeVisible();
-  await expect(
-    page.getByTestId("task-panel").locator('[role="status"]'),
-  ).toHaveCount(0);
+  await expect(page.getByText("正在加载任务…", { exact: true })).toHaveCount(0);
   expect(await createAction.boundingBox()).toEqual(before);
   release();
-  await expect(refresh).toBeEnabled();
+  await expect(task).toContainText("已安排");
   expect(await createAction.boundingBox()).toEqual(before);
+  await page.unroute("**/api/tasks");
   await page.goto(`${app.origin}/chat`);
   const composer = page.getByPlaceholder(/输入你的问题/);
   await expect(page.getByTestId("task-panel")).toHaveCount(0);
@@ -116,11 +111,12 @@ test("workspace separates scheduled tasks and retains content during refresh", a
     await composer.fill("");
     expect(await surface.boundingBox()).toEqual(beforeTyping);
     if (size.width < 1280) {
-      await page.getByRole("button", { name: "会话列表", exact: true }).click();
-      await expect(
-        page.getByRole("button", { name: "创建会话", exact: true }),
-      ).toBeVisible();
-      await page.keyboard.press("Escape");
+      // Folded here: pointing at the sidebar button shows it, conversations included, over the page.
+      await page.getByRole("button", { name: "展开侧边栏", exact: true }).hover();
+      await expect(conversationList(page).getByRole("button", { name: "新会话", exact: true })).toBeVisible();
+      // Moving the pointer away puts it back.
+      await page.mouse.move(size.width - 8, size.height - 8);
+      await expect(page.locator(".rail-peek")).toHaveCount(0);
       await expect(task).not.toBeVisible();
     }
     await page.screenshot({
@@ -138,15 +134,9 @@ test("workspace separates scheduled tasks and retains content during refresh", a
   // Folding eases; measure the layout once it has settled, not in the middle of it.
   await expect(page.locator("html")).not.toHaveAttribute("data-rail-animating", "");
   await page.setViewportSize({ width: 1440, height: 960 });
-  const recent = page.getByRole("button", { name: "会话列表", exact: true });
-  const composerBeforeMenu = await page.locator(".composer-surface").boundingBox();
-  await recent.click();
-  await expect(page.getByRole("complementary", { name: "会话列表", exact: true })).toBeVisible();
-  expect(await page.locator(".composer-surface").boundingBox()).toEqual(composerBeforeMenu);
-  await page.keyboard.press("Escape");
-  await expect(recent).toBeFocused();
-  await page.reload();
-  await expect(recent).toHaveAttribute("aria-expanded", "false");
+  // A fold made on a narrow window lasts only while it is narrow: wide again, the
+  // sidebar is docked, its conversations beside the page.
+  await expect(conversationList(page)).toBeVisible();
   for (const route of [
     "/",
     "/tasks",
@@ -181,21 +171,15 @@ test("workspace separates scheduled tasks and retains content during refresh", a
   await expect(page.locator("html")).not.toHaveClass(/dark/);
   await page.goto(`${app.origin}/tasks`);
   await page.getByRole("button", { name: "新建任务", exact: true }).click();
-  const taskComposer = page.getByRole("form", { name: "新建任务" });
-  await taskComposer
-    .getByLabel("任务名称", { exact: true })
-    .fill("从新任务入口创建的计划");
-  await taskComposer
-    .getByRole("button", { name: "创建任务", exact: true })
-    .click();
-  const newTask = page
-    .getByTestId("task-item")
-    .filter({ hasText: "从新任务入口创建的计划" });
-  await expect(newTask).toBeVisible();
-  const completion = newTask.getByRole("checkbox", {
-    name: "完成任务 从新任务入口创建的计划",
-    exact: true,
-  });
+  const sheet = page.getByRole("dialog", { name: "新建任务", exact: true });
+  await sheet.getByLabel("名称", { exact: true }).fill("从新任务入口创建的计划");
+  await sheet.getByLabel("要做什么", { exact: true }).fill("提醒我整理本周计划。");
+  await sheet.getByRole("button", { name: "创建", exact: true }).click();
+  await expect(sheet).toHaveCount(0);
+  const newTask = page.getByTestId("task-item").filter({ hasText: "从新任务入口创建的计划" });
+  await expect(newTask).toContainText("已安排");
+  await expect(newTask).toContainText("每天 09:00");
+  // A refused change says why and leaves the row as it was.
   let rejectUpdate!: () => void;
   const failedUpdate = new Promise<void>((resolve) => {
     rejectUpdate = resolve;
@@ -203,38 +187,22 @@ test("workspace separates scheduled tasks and retains content during refresh", a
   const rejectRoute = async (route: import("@playwright/test").Route) => {
     if (route.request().method() !== "PATCH") return route.continue();
     await failedUpdate;
-    await route.fulfill({
-      status: 500,
-      json: {
-        error: { code: "INTERNAL_ERROR", message: "Fixture rejected update" },
-      },
-    });
+    await route.fulfill({ status: 500, json: { error: { code: "INTERNAL_ERROR", message: "Fixture rejected update" } } });
   };
   await page.route("**/api/tasks/*", rejectRoute);
   try {
-    await completion.check();
-    await expect(completion).toBeDisabled();
-    await expect(completion).toBeChecked();
+    await chooseMenuAction(page, "从新任务入口创建的计划", "暂停");
   } finally {
     rejectUpdate();
   }
-  await expect(completion).not.toBeChecked();
-  await expect(completion).toBeEnabled();
-  await expect(page.getByTestId("task-panel").getByRole("alert")).toContainText(
-    "Fixture rejected update",
-  );
+  await expect(page.locator("main").getByRole("alert")).toContainText("Fixture rejected update");
+  await expect(newTask).toContainText("已安排");
   await page.unroute("**/api/tasks/*", rejectRoute);
-  await completion.check();
-  await expect(newTask.getByRole("combobox")).toContainText("已完成");
-  await page.getByRole("radio", { name: "已完成", exact: true }).click();
-  await expect(newTask).toBeVisible();
+  await chooseMenuAction(page, "从新任务入口创建的计划", "暂停");
+  await expect(newTask).toContainText("已暂停");
+  await expect(page.locator("main").getByRole("alert")).toHaveCount(0);
   await page.reload();
-  await expect(
-    page
-      .getByTestId("task-item")
-      .filter({ hasText: "从新任务入口创建的计划" })
-      .getByRole("checkbox"),
-  ).toBeChecked();
+  await expect(page.getByTestId("task-item").filter({ hasText: "从新任务入口创建的计划" })).toContainText("已暂停");
   expect(errors).toEqual([]);
 });
 
@@ -373,42 +341,40 @@ test("the memory confirmation states the result and its effect, then leaves on i
   expect(await page.evaluate(() => (window as unknown as { blinked: string[] }).blinked)).toEqual([]);
 });
 
-test("scheduled task creation validates time and persists without a model", async ({ page, app }) => {
+test("a one-off task checks its time in its own zone and persists without a model", async ({ page, app }) => {
   await openWorkspace(page, app.origin);
   await page.goto(`${app.origin}/tasks`);
   // Keep the real exit animation in progress long enough to expose typing
   // before the calendar has unmounted and returned focus to its trigger.
   await page.addStyleTag({ content: '.ui-popover-content[data-state="closed"] { animation-duration: 600ms; }' });
   await page.getByRole("button", { name: "新建任务", exact: true }).click();
-  const form = page.getByRole("form", { name: "新建任务" });
-  const time = form.locator("[data-time-input]");
-  await time.evaluate(input => input.addEventListener("focus", () => {
-    if (document.querySelector('.ui-popover-content[data-state="closed"]')) input.setAttribute("data-focused-during-calendar-exit", "");
-  }));
-  await form.getByLabel("任务名称", { exact: true }).fill("独立页面的每周提醒");
-  await form.getByLabel("到期提醒", { exact: true }).check();
-  await form.getByRole("button", { name: "创建任务", exact: true }).click();
-  await expect(form.getByRole("alert")).toContainText("需要设置时间");
-  expect(app.readRows("SELECT id FROM tasks")).toHaveLength(0);
-  await form.getByText("更多选项", { exact: true }).click();
+  const form = page.getByRole("dialog", { name: "新建任务", exact: true });
+  await form.getByRole("combobox", { name: "什么时候运行", exact: true }).click();
+  await page.getByRole("option", { name: "只运行一次", exact: true }).click();
+  await form.getByLabel("名称", { exact: true }).fill("独立页面的一次提醒");
+  await form.getByRole("button", { name: "创建", exact: true }).click();
+  await expect(form.getByRole("alert")).toContainText("请写下要做什么");
+  await expect(form.getByLabel("名称", { exact: true })).toHaveValue("独立页面的一次提醒");
+  await form.getByLabel("要做什么", { exact: true }).fill("提醒我交季度报告。");
+  await form.getByRole("button", { name: "高级", exact: true }).click();
   await form.getByLabel("时区", { exact: true }).fill("America/New_York");
-  await chooseTaskDateTime(page, form, "到期时间", "2026-03-08T02:30");
-  await form.getByRole("button", { name: "创建任务", exact: true }).click();
-  await expect(form.getByRole("alert")).toContainText("不存在这个本地时间");
-  expect(app.readRows("SELECT id FROM tasks")).toHaveLength(0);
+  // 02:30 does not happen in New York on the day the clocks go forward.
+  await chooseTaskDateTime(page, form, "日期", "2030-03-10T02:30");
+  await form.getByRole("button", { name: "创建", exact: true }).click();
+  await expect(form.getByRole("alert")).toContainText("在该时区存在的日期和时间");
+  expect(app.readRows("SELECT id FROM scheduled_jobs")).toHaveLength(0);
   await form.getByLabel("时区", { exact: true }).fill("Asia/Shanghai");
-  await chooseTaskDateTime(page, form, "到期时间", "2026-11-20T09:00");
-  await expect(time).not.toHaveAttribute("data-focused-during-calendar-exit", "");
-  await form.getByRole("combobox", { name: /^重复/ }).click(); await page.getByRole("option", { name: "每周", exact: true }).click();
+  await chooseTaskDateTime(page, form, "日期", "2030-11-20T09:00");
   await page.setViewportSize({ width: 390, height: 780 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: join(tmpdir(), "ria-workspace-ui", "tasks-create-mobile.png"), animations: "disabled" });
-  await form.getByRole("button", { name: "创建任务", exact: true }).click();
-  await expect(page.getByTestId("task-item").getByText("独立页面的每周提醒", { exact: true })).toBeVisible();
+  await form.getByRole("button", { name: "创建", exact: true }).click();
+  await expect(page.getByTestId("task-item").filter({ hasText: "独立页面的一次提醒" })).toBeVisible();
   const payload = await browserApi(page, "/api/tasks");
   expect(payload.body.data).toHaveLength(1);
-  expect(payload.body.data[0]).toMatchObject({ dueDate: "2026-11-20T01:00:00.000Z", timeZone: "Asia/Shanghai", reminderEnabled: true, repeatRule: "weekly" });
+  expect(payload.body.data[0]).toMatchObject({ nextRunAt: "2030-11-20T01:00:00.000Z", timeZone: "Asia/Shanghai", cron: null, enabled: true, kind: "prompt" });
   await app.restart(); await page.reload();
-  await expect(page.getByTestId("task-item").getByRole("img", { name: "到期提醒" })).toBeVisible();
+  await expect(page.getByTestId("task-item").filter({ hasText: "独立页面的一次提醒" })).toContainText("已安排");
   expect(app.providerCalls).toEqual([]);
+
 });

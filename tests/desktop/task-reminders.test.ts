@@ -4,8 +4,8 @@ import { createRequire } from "node:module";
 import { test } from "node:test";
 
 const require = createRequire(import.meta.url);
-const { TaskReminderPoller, createTaskNotificationDelivery } = require("../../electron-dist/task-reminders.js");
-const task = { id: "task", title: "Local task", dueDate: "2026-08-30T00:00:00Z", timeZone: "Asia/Shanghai" };
+const { TaskReminderPoller, createTaskNotificationDelivery, inAppPath } = require("../../electron-dist/task-reminders.js");
+const task = { id: "notice", title: "task-finished", detail: "Morning note", href: "/chat?conversationId=chat-1" };
 const connection = () => ({ origin: "http://127.0.0.1:12345", cookie: "desktop_session=test-placeholder" });
 
 test("desktop reminder polling uses authenticated loopback requests, coalesces wakeups and stops cleanly", async t => {
@@ -22,7 +22,7 @@ test("desktop reminder polling uses authenticated loopback requests, coalesces w
     const a = poller.poll(), b = poller.poll();
     assert.equal(a, b);
     assert.equal(requests.length, 1);
-    assert.equal(requests[0].url, "http://127.0.0.1:12345/api/tasks/reminders");
+    assert.equal(requests[0].url, "http://127.0.0.1:12345/api/tasks/notifications");
     assert.equal(requests[0].options.headers.Cookie, connection().cookie);
     assert.equal(requests[0].options.redirect, "error");
     const stopping = poller.stop();
@@ -35,7 +35,7 @@ test("desktop reminder polling uses authenticated loopback requests, coalesces w
   } finally { release?.(); await poller.stop(); }
 });
 
-test("unsupported notifications do not claim tasks and transient failures are retried on later checks", async t => {
+test("unsupported notifications claim nothing and transient failures are retried on later checks", async t => {
   let supported = false, fail = true, calls = 0;
   const delivered = [], warnings = [];
   t.mock.method(globalThis, "fetch", async () => {
@@ -62,7 +62,7 @@ test("unsupported notifications do not claim tasks and transient failures are re
   } finally { await poller.stop(); }
 });
 
-test("desktop reminder responses are bounded and notification failures do not expose task content", async t => {
+test("desktop notification responses are bounded and notification failures do not expose task content", async t => {
   let data = Array.from({ length: 11 }, () => task);
   const warnings = [], delivered = [];
   t.mock.method(globalThis, "fetch", async () => Response.json({ data }));
@@ -74,7 +74,7 @@ test("desktop reminder responses are bounded and notification failures do not ex
     poller.start();
     await poller.poll();
     assert.equal(delivered.length, 0);
-    data = [{ ...task, timeZone: "Invalid/Zone" }];
+    data = [{ ...task, detail: 42 as unknown as string }];
     await poller.poll();
     data = [{ ...task, id: "throw" }, task];
     await poller.poll();
@@ -84,9 +84,9 @@ test("desktop reminder responses are bounded and notification failures do not ex
   } finally { await poller.stop(); }
 });
 
-test("native notifications show zoned deadlines, focus on click and keep a bounded object history", () => {
+test("native notifications say what happened to which task, focus on click and keep a bounded object history", () => {
   const notifications = [], warnings = [];
-  let focused = 0;
+  const opened: Array<string | null> = [];
   class FakeNotification extends EventEmitter {
     options;
     shown;
@@ -96,19 +96,29 @@ test("native notifications show zoned deadlines, focus on click and keep a bound
     close() { this.closed = true; this.emit("close"); }
   }
   let locale = "zh-CN";
-  const deliver = createTaskNotificationDelivery(FakeNotification, () => focused++, { warn: message => warnings.push(message) }, () => locale);
+  const deliver = createTaskNotificationDelivery(FakeNotification, (path: string | null) => opened.push(path), { warn: message => warnings.push(message) }, () => locale);
   for (let i = 0; i < 31; i++) deliver(task);
   assert.equal(notifications[0].closed, true);
   assert.equal(notifications.at(-1).shown, true);
-  assert.equal(notifications.at(-1).options.title, "Local task");
-  assert.match(notifications.at(-1).options.body, /8:00:00.*Asia\/Shanghai/);
+  assert.equal(notifications.at(-1).options.title, "任务已完成");
+  assert.equal(notifications.at(-1).options.body, "Morning note");
   notifications.at(-1).emit("click");
-  assert.equal(focused, 1);
+  assert.deepEqual(opened, ["/chat?conversationId=chat-1"], "a click opens the task's conversation");
   notifications.at(-1).emit("failed", {}, "sensitive OS error");
   assert.equal(warnings.length, 1);
   assert.equal(warnings[0].includes("sensitive"), false);
   locale = "en-US";
-  deliver(task);
-  assert.equal(notifications.at(-1).options.title, "Local task");
-  assert.match(notifications.at(-1).options.body, /^Task due:.*Asia\/Shanghai/);
+  deliver({ ...task, title: "task-needs-approval" });
+  assert.equal(notifications.at(-1).options.title, "A task needs your approval");
+  deliver({ ...task, title: "from-a-later-version", detail: null });
+  assert.equal(notifications.at(-1).options.title, "Task update", "an unknown notice still says a task has news");
+  assert.equal(notifications.at(-1).options.body, "");
+});
+
+test("a notification only ever opens a page inside the app", () => {
+  assert.equal(inAppPath("/chat?conversationId=chat-1"), "/chat?conversationId=chat-1");
+  assert.equal(inAppPath("/tasks"), "/tasks");
+  for (const unsafe of [null, "", "https://example.invalid/", "//example.invalid/x", "javascript:alert(1)", "chat", "/\\example.invalid"]) {
+    assert.equal(inAppPath(unsafe), null, String(unsafe));
+  }
 });

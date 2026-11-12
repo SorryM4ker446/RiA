@@ -31,14 +31,14 @@ try {
     data: { key: `memory-${marker}`, value: "Local memory", score: 0.9, embedding: [0.1, 0.2, 0.3] },
   });
 
-  const task = await db.task.create({
+  const task = await db.scheduledJob.create({
     data: {
+      kind: "prompt",
       title: `Task ${marker}`,
-      priority: "high",
-      dueDate: new Date("2026-09-01T00:00:00Z"),
+      prompt: "Say hello.",
+      cron: "0 9 * * *",
       timeZone: "Asia/Shanghai",
-      reminderEnabled: true,
-      repeatRule: "daily",
+      nextRunAt: new Date("2026-09-01T01:00:00Z"),
     },
   });
 
@@ -49,10 +49,10 @@ try {
     !chat.archived ||
     memory.embedding === null ||
     task.timeZone !== "Asia/Shanghai" ||
-    task.reminderEnabled !== true ||
-    task.repeatRule !== "daily" ||
-    task.remindedAt !== null ||
-    task.repeatGenerated !== false
+    task.enabled !== false ||
+    task.cron !== "0 9 * * *" ||
+    task.chatId !== null ||
+    task.lastStatus !== null
   ) {
     throw new Error("Local database relations were not persisted as expected.");
   }
@@ -125,7 +125,7 @@ try {
   if (tags || Number(indexRemainder.count)) throw new Error("Conversation organization or search index did not cascade.");
 
   await db.memory.delete({ where: { id: memory.id } });
-  await db.task.delete({ where: { id: task.id } });
+  await db.scheduledJob.delete({ where: { id: task.id } });
   await db.knowledgeDocument.delete({ where: { id: document.id } });
   await db.mediaAsset.delete({ where: { id: generated.id } });
   await db.mediaAsset.delete({ where: { id: asset.id } });
@@ -135,7 +135,7 @@ try {
   const remaining = {
     chats: await db.chat.count({ where: { id: chat.id } }),
     memories: await db.memory.count({ where: { id: memory.id } }),
-    tasks: await db.task.count({ where: { id: task.id } }),
+    tasks: await db.scheduledJob.count({ where: { id: task.id } }),
     documents: await db.knowledgeDocument.count({ where: { id: document.id } }),
     chunks: await db.documentChunk.count({ where: { documentId: document.id } }),
     terms: await db.documentTerm.count({ where: { chunkId: document.chunks[0].id } }),

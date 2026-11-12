@@ -10,6 +10,7 @@ import { upgradeModelPreferences } from "@/lib/models/preferences-schema";
 import { openMediaAsset } from "@/lib/media/storage";
 import { decodeMediaMessage } from "@/lib/media/message-codec";
 import { BACKUP_FORMAT, BACKUP_LIMITS, backupManifestSchema, type BackupManifest } from "@/lib/backups/schema";
+import { isFinishedResult } from "@/lib/backups/legacy-topics";
 import { backupFile, isArchiveExtension, listBackupFiles, openBackup, removeBackupFile } from "@/lib/backups/files";
 
 // New archives start with the RiA magic; archives written before the rename
@@ -59,27 +60,23 @@ function portableContent(content: string) {
 }
 
 export async function createAccountBackup(prune = true) {
-  const counts = await Promise.all([db.chat.count(), db.message.count(), db.memory.count(), db.task.count(), db.mediaAsset.count(), db.assistantTemplate.count()]);
+  const counts = await Promise.all([db.chat.count(), db.message.count(), db.memory.count(), db.mediaAsset.count(), db.assistantTemplate.count()]);
   const [documentsCount, termsCount, eventCount, reviewCount] = await Promise.all([db.knowledgeDocument.count(), db.documentTerm.count(), db.workspaceEvent.count(), db.workspaceReview.count()]);
-  const [topicCount, artifactCount] = await Promise.all([db.knowledgeTopic.count(), db.knowledgeArtifact.count()]);
   const [volume] = await db.$queryRaw<{ bytes: number | bigint }[]>(Prisma.sql`SELECT
     (SELECT coalesce(sum(length(CAST(content AS BLOB))),0) FROM messages) +
     (SELECT coalesce(sum(length(CAST(title AS BLOB))+coalesce(length(CAST(assistantConfig AS BLOB)),0)),0) FROM chats) +
     (SELECT coalesce(sum(length(CAST(config AS BLOB))),0) FROM assistant_templates) +
-    (SELECT coalesce(sum(length(CAST(title AS BLOB))+coalesce(length(CAST(details AS BLOB)),0)),0) FROM tasks) +
     (SELECT coalesce(sum(length(CAST(key AS BLOB))+length(CAST(value AS BLOB))+coalesce(length(CAST(embedding AS BLOB)),0)),0) FROM memories) +
     (SELECT coalesce(sum(length(CAST(pages AS BLOB))),0) FROM knowledge_documents) +
     (SELECT coalesce(sum(length(CAST(text AS BLOB))),0) FROM document_chunks) +
     (SELECT coalesce(sum(coalesce(length(CAST(description AS BLOB)),0)+coalesce(length(CAST(generation AS BLOB)),0)),0) FROM media_assets) +
     (SELECT coalesce(sum(length(CAST(label AS BLOB))),0) FROM workspace_events) +
-    (SELECT coalesce(sum(length(CAST(facts AS BLOB))+coalesce(length(CAST(modelText AS BLOB)),0)),0) FROM workspace_reviews) +
-    (SELECT coalesce(sum(length(CAST(config AS BLOB))),0) FROM knowledge_topics) +
-    (SELECT coalesce(sum(length(CAST(metadata AS BLOB))+coalesce(length(CAST(content AS BLOB)),0)),0) FROM knowledge_artifacts) AS bytes`);
-  if (counts.some(count => count > BACKUP_LIMITS.rows) || counts[5] > 50 || topicCount > 50 || artifactCount > 200 || documentsCount > 100 || termsCount > 100_000 || eventCount > 10_000 || reviewCount > 1000 || Number(volume.bytes) > BACKUP_LIMITS.manifest) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.backups.workspaceTooLarge") });
+    (SELECT coalesce(sum(length(CAST(facts AS BLOB))+coalesce(length(CAST(modelText AS BLOB)),0)),0) FROM workspace_reviews) AS bytes`);
+  if (counts.some(count => count > BACKUP_LIMITS.rows) || counts[4] > 50 || documentsCount > 100 || termsCount > 100_000 || eventCount > 10_000 || reviewCount > 1000 || Number(volume.bytes) > BACKUP_LIMITS.manifest) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.backups.workspaceTooLarge") });
   const memoryDocument = await db.memoryDocument.findUnique({ where: { id: "local" } });
-  const [chats, memories, tasks, documents, assets, preferences, usage, events, activityState, reviews, assistantTemplates, topics, artifacts] = await Promise.all([
+  const [chats, memories, documents, assets, preferences, usage, events, activityState, reviews, assistantTemplates] = await Promise.all([
     db.chat.findMany({ include: { tags: true, messages: true } }),
-    db.memory.findMany(), db.task.findMany(),
+    db.memory.findMany(),
     db.knowledgeDocument.findMany({ include: { chunks: { select: { id: true, documentId: true, chunkKey: true, ordinal: true,
       pageNumber: true, text: true, heading: true, tokenCount: true, terms: true } } } }),
     db.mediaAsset.findMany({ where: { deletedAt: null }, include: { references: true, inputs: true } }),
@@ -88,7 +85,6 @@ export async function createAccountBackup(prune = true) {
     db.workspaceActivityState.findUnique({ where: { id: "local" } }),
     db.workspaceReview.findMany({ orderBy: [{ createdAt: "desc" }, { id: "desc" }] }),
     db.assistantTemplate.findMany(),
-    db.knowledgeTopic.findMany(), db.knowledgeArtifact.findMany(),
   ]);
   if (chats.some(chat => chat.messages.some(message => { const media = decodeMediaMessage(message.content); return media?.type === "video-result" && !media.assetId; }))) throw new ApiError({ code: "CONFLICT", message: t("lib.backups.legacyVideos") });
   if (assets.reduce((sum, asset) => sum + asset.byteSize, 0) > BACKUP_LIMITS.bytes) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.backups.overSizeLimit") });
@@ -103,8 +99,10 @@ export async function createAccountBackup(prune = true) {
   const activityCoverage = activityState ? { recordingStartedAt: activityState.recordingStartedAt, completeSince: activityState.completeSince } : null;
   // Semantic vectors are regenerable and can dwarf the portable text archive.
   // Restore retains lexical retrieval and asks for explicit semantic rebuilding.
-  const manifest = backupManifestSchema.parse(JSON.parse(JSON.stringify({ format: BACKUP_FORMAT, version: 1, createdAt: new Date().toISOString(), chats: chats.map(({ workspaceGrantId: _workspace, ...chat }) => ({ ...chat, messages: chat.messages.map(message => ({ ...message, content: portableContent(message.content) })) })), memories, tasks, documents, assets: media, preferences, usage, events, activityCoverage, reviews, assistantTemplates, topics, artifacts, memoryDocument })));
-  const json = Buffer.from(JSON.stringify(manifest));
+  const manifest = backupManifestSchema.parse(JSON.parse(JSON.stringify({ format: BACKUP_FORMAT, version: 1, createdAt: new Date().toISOString(), chats: chats.map(({ workspaceGrantId: _workspace, ...chat }) => ({ ...chat, messages: chat.messages.map(message => ({ ...message, content: portableContent(message.content) })) })), memories, tasks: [], documents, assets: media, preferences, usage, events, activityCoverage, reviews, assistantTemplates, memoryDocument })));
+  // The schema fills in the fields only older archives hold; a new archive leaves them out.
+  const { topics: _topics, artifacts: _results, ...written } = manifest;
+  const json = Buffer.from(JSON.stringify(written));
   if (json.length > BACKUP_LIMITS.manifest || 44 + json.length + assets.reduce((sum, asset) => sum + asset.byteSize, 0) > BACKUP_LIMITS.bytes) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.backups.contentTooLarge") });
   const id = randomUUID(), temporary = await backupFile(id, "partial");
   const target = await open(temporary, "wx", 0o600);
@@ -156,6 +154,6 @@ export async function inspectAccountBackup(id: string) {
       restored: [...archivedLibrary].filter(([key]) => !currentLibrary.has(key)).map(([, item]) => modelSummary(item)),
       removed: [...currentLibrary].filter(([key]) => !archivedLibrary.has(key)).map(([, item]) => modelSummary(item)),
     };
-    return { id, createdAt: manifest.createdAt, bytes: (await file.stat()).size, counts: { topics: manifest.topics.length, artifacts: manifest.artifacts.length, assistantTemplates: manifest.assistantTemplates.length, chats: manifest.chats.length, messages: manifest.chats.reduce((sum, chat) => sum + chat.messages.length, 0), tasks: manifest.tasks.length, memories: manifest.memories.length, documents: manifest.documents.length, assets: manifest.assets.length, usage: manifest.usage.length }, models };
+    return { id, createdAt: manifest.createdAt, bytes: (await file.stat()).size, counts: { results: manifest.artifacts.filter(isFinishedResult).length, assistantTemplates: manifest.assistantTemplates.length, chats: manifest.chats.length, messages: manifest.chats.reduce((sum, chat) => sum + chat.messages.length, 0), tasks: manifest.tasks.length, memories: manifest.memories.length, documents: manifest.documents.length, assets: manifest.assets.length, usage: manifest.usage.length }, models };
   } finally { await file.close(); }
 }

@@ -126,7 +126,8 @@ test("HTTP extension management, approved calls and encrypted credentials surviv
   await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes('"state":"output-available"'))).toBe(true);
   // The answer is saved before its stream closes; restarting in between would cut the open response.
   await waitForChatStream(page);
-  await app.runtime.restart(); await page.reload();
+  // Off the app while the service restarts: the page keeps a connection open to it, and a reset one logs an error.
+  { const here = page.url(); await page.goto("about:blank"); await app.runtime.restart(); await page.goto(here); }
   await openExecutionDetails(page);
   await expect(page.getByText("工具详情：HTTP echo · request · 执行完成", { exact: true })).toBeVisible();
   const config = await browserData(page, "/api/extensions");

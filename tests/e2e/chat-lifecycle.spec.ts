@@ -1,4 +1,4 @@
-import { openRecentConversations } from "../helpers/conversations";
+import { conversationList, openRecentConversations } from "../helpers/conversations";
 import { expect, test, type Page } from "@playwright/test";
 import { DEFAULT_IMAGE_MODEL, DEFAULT_MODEL, DEFAULT_VIDEO_MODEL } from "../../src/config/model";
 import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
@@ -90,24 +90,24 @@ test("conversation create, rename and confirmed deletion preserve the remaining 
   });
   await page.goto("/chat");
   await expect(page.getByText("Alpha answer", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "创建会话", exact: true }).click();
+  await page.getByRole("button", { name: "新会话", exact: true }).click();
   await openRecentConversations(page);
   const row = page.getByRole("button", { name: /^New Chat/ }).locator("..");
   await row.getByRole("button", { name: /^会话操作：/ }).click();
   await page.getByRole("menuitem", { name: "重命名", exact: true }).click();
-  const sidebar = page.getByRole("complementary", { name: "会话列表", exact: true });
+  const sidebar = conversationList(page);
   await expect(sidebar.getByRole("textbox")).toBeFocused();
   await sidebar.getByRole("textbox").fill("Renamed conversation");
-  await sidebar.getByRole("button", { name: "保存", exact: true }).click();
+  await page.keyboard.press("Enter");
   const renamed = page.getByRole("button", { name: /^Renamed conversation/ }).locator("..");
   await renamed.getByRole("button", { name: /^会话操作：/ }).click();
   await page.getByRole("menuitem", { name: "删除", exact: true }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "取消" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "取消" }).click();
   expect(deletes).toBe(0);
   await openRecentConversations(page);
   await renamed.getByRole("button", { name: /^会话操作：/ }).click();
   await page.getByRole("menuitem", { name: "删除", exact: true }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "确认删除", exact: true }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "确认删除", exact: true }).click();
   await expect(page.getByText("Alpha answer", { exact: true })).toBeVisible();
   await openRecentConversations(page);
   await expect(page.getByRole("button", { name: /^Renamed conversation/ })).toHaveCount(0);
@@ -149,7 +149,7 @@ test("video generation preserves the asset reference and renders it after reload
 });
 
 for (const narrow of [false, true]) {
-  test(`recent conversations keep date groups, long titles and keyboard menus usable ${narrow ? "in a narrow window" : "on desktop"}`, async ({ page }) => {
+  test(`sidebar conversations keep their order, one-line titles and keyboard menus usable ${narrow ? "in a narrow window" : "on desktop"}`, async ({ page }) => {
     await page.clock.setFixedTime(new Date("2026-10-16T19:00:00Z"));
     if (narrow) await page.setViewportSize({ width: 390, height: 780 });
     await emptyPanels(page);
@@ -165,15 +165,21 @@ for (const narrow of [false, true]) {
     await page.route("**/api/conversations", route => route.fulfill({ json: { data: chats } }));
     await page.route("**/api/conversations/*/messages", route => route.fulfill({ json: { data: [] } }));
     await page.goto("/chat");
-    await openRecentConversations(page);
-    const sidebar = page.getByRole("complementary", { name: "会话列表", exact: true });
-    for (const [group, title] of [["置顶", "本周工作计划"], ["今天", longTitle], ["昨天", "读书笔记"], ["近 7 天", "下周学习安排"], ["更早", "项目需求讨论"]]) {
-      await expect(sidebar.getByRole("region", { name: group, exact: true }).getByRole("button", { name: new RegExp(`^${title}`) })).toBeVisible();
-    }
-    // Six fit in the first batch: every one shows without an expand step.
-    await expect(sidebar.getByRole("button", { name: /^知识库文档总结/ })).toBeVisible();
-    await expect(sidebar.getByText("下滑加载更多会话")).toHaveCount(0);
-    await expect(sidebar.getByText("已加载 6 个会话", { exact: true })).toBeVisible();
+    const sidebar = await openRecentConversations(page);
+    await expect(sidebar.getByRole("region", { name: "置顶", exact: true }).locator(".sidebar-chat-open")).toHaveText(["本周工作计划"]);
+    // Every other conversation in one list, most recently active first, with no dates.
+    await expect(sidebar.locator(".sidebar-chat-label")).toHaveText(["置顶", "最近"]);
+    await expect(sidebar.getByRole("region", { name: "最近", exact: true }).locator(".sidebar-chat-open"))
+      .toHaveText([longTitle, "读书笔记", "下周学习安排", "项目需求讨论", "知识库文档总结"]);
+    // A long title stays on one line, cut short, with the whole of it on hover.
+    const long = sidebar.getByRole("button", { name: new RegExp(`^${longTitle}`) });
+    expect((await long.boundingBox())!.height).toBeLessThanOrEqual(33);
+    // Cut short, it shows in full when pointed at; a title that fits shows no tip.
+    await long.getByText(longTitle, { exact: true }).hover();
+    await expect(page.getByRole("tooltip")).toHaveText(longTitle);
+    await sidebar.getByText("读书笔记", { exact: true }).hover();
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
+    await page.mouse.move(0, 0);
     const action = sidebar.getByRole("button", { name: `会话操作：${longTitle}`, exact: true });
     await action.focus();
     await page.keyboard.press("Enter");
@@ -181,7 +187,6 @@ for (const narrow of [false, true]) {
     await page.keyboard.press("Escape");
     await expect(page.getByRole("menu")).toHaveCount(0);
     await expect(action).toBeFocused();
-    if (narrow) await expect(page.getByRole("button", { name: "会话列表", exact: true })).toHaveAttribute("aria-expanded", "true");
     await page.keyboard.press("Enter");
     await page.getByRole("menuitem", { name: "重命名", exact: true }).click();
     const editor = sidebar.getByRole("textbox", { name: "重命名", exact: true });
@@ -190,9 +195,5 @@ for (const narrow of [false, true]) {
     await page.keyboard.press("Escape");
     await expect(sidebar.getByRole("button", { name: new RegExp(`^${longTitle}`) })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    if (narrow) {
-      await page.keyboard.press("Escape");
-      await expect(page.getByRole("button", { name: "会话列表", exact: true })).toHaveAttribute("aria-expanded", "false");
-    }
   });
 }

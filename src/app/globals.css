@@ -587,7 +587,7 @@ html[data-desktop-runtime="true"], html[data-desktop-runtime="true"] body { back
  */
 html[data-desktop-runtime="true"] .workspace-shell { border-radius: 14px; overflow: clip; }
 html[data-window-maximized="true"] .workspace-shell { border-radius: 0; }
-html[data-desktop-runtime="true"]:not([data-window-maximized="true"]) :is(.sheet-overlay, .alert-dialog-overlay, .dialog-overlay-enter, .desktop-startup, .settings-scrim),
+html[data-desktop-runtime="true"]:not([data-window-maximized="true"]) :is(.sheet-overlay, .alert-dialog-overlay, .dialog-overlay, .dialog-overlay-enter, .desktop-startup, .settings-scrim),
 html[data-desktop-runtime="true"]:not([data-window-maximized="true"]) dialog::backdrop { border-radius: 14px; }
 html[data-desktop-runtime="true"]:not([data-window-maximized="true"]) .sheet-content[data-side="right"] { border-radius: 0 14px 14px 0; }
 html[data-desktop-runtime="true"]:not([data-window-maximized="true"]) .sheet-content[data-side="left"] { border-radius: 14px 0 0 14px; }
@@ -713,7 +713,7 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
 /* Every other floating layer is placed at the end of the page too, and can reach the drag band: a long list
    opened upward, the command palette moved to the top, a dialog's backdrop. Each opts out as a whole, so none of
    its controls loses clicks to the window there. Tooltips take no clicks and need not. */
-[data-radix-popper-content-wrapper], .alert-dialog-overlay, .alert-dialog-content, .command-palette { -webkit-app-region: no-drag; }
+[data-radix-popper-content-wrapper], .alert-dialog-overlay, .alert-dialog-content, .dialog-overlay, .dialog-content, .command-palette { -webkit-app-region: no-drag; }
 .sheet-overlay { position: fixed; inset: 0; z-index: 50; background: hsl(var(--scrim) / .5); backdrop-filter: blur(8px); }
 .sheet-content { position: fixed; top: 0; bottom: 0; z-index: 50; width: min(19rem, 88vw); background: hsl(var(--background)); color: hsl(var(--foreground)); box-shadow: 0 12px 48px hsl(var(--shadow) / .15); outline: none; }
 .sheet-content[data-side="left"] { left: 0; border-right: 1px solid hsl(var(--border)); --sheet-offset: -100%; }
@@ -729,6 +729,19 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
 .alert-dialog-overlay[data-state="closed"] { animation: overlay-out var(--dur-fast) var(--ease-in-out); }
 .alert-dialog-content[data-state="open"] { animation: dialog-panel-in var(--dur-base) var(--ease-out); }
 .alert-dialog-content[data-state="closed"] { animation: pop-out var(--dur-fast) var(--ease-in-out); }
+/* A form dialog: centred like a confirmation, below one so a confirmation can open over it. */
+.dialog-overlay { position: fixed; inset: 0; z-index: 50; background: hsl(var(--scrim) / .5); backdrop-filter: blur(4px); }
+.dialog-content { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; gap: 16px; width: min(36rem, calc(100vw - 32px)); height: fit-content; max-height: calc(100vh - 32px); margin: auto; overflow-y: auto; scrollbar-gutter: stable; border-radius: 14px; padding: 20px; background: hsl(var(--card)); color: hsl(var(--card-foreground)); box-shadow: 0 0 0 1px hsl(var(--border)), 0 16px 48px -12px hsl(var(--shadow) / .35); outline: none; }
+.dialog-overlay[data-state="open"] { animation: overlay-in var(--dur-base) var(--ease-out); }
+.dialog-overlay[data-state="closed"] { animation: overlay-out var(--dur-fast) var(--ease-in-out); }
+.dialog-content[data-state="open"] { animation: dialog-panel-in var(--dur-base) var(--ease-out); }
+.dialog-content[data-state="closed"] { animation: pop-out var(--dur-fast) var(--ease-in-out); }
+/* Settings read as rows in a rounded group: the name on the left, its value on the right. */
+.form-rows { display: flex; flex-direction: column; border-radius: 12px; box-shadow: 0 0 0 1px hsl(var(--border)); padding: 0 14px; }
+.form-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; padding: 6px 0; font-size: 13px; }
+.form-row + .form-row { border-top: 1px solid hsl(var(--border) / .65); }
+.form-row > :first-child { flex-shrink: 0; font-weight: 500; }
+.form-row > :last-child { display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-width: 0; }
 .sheet-overlay[data-state="open"] { animation: overlay-in var(--dur-base) var(--ease-out); }
 .sheet-overlay[data-state="closed"] { animation: overlay-out var(--dur-fast) var(--ease-in-out); }
 .sheet-content[data-state="open"] { animation: sheet-in var(--dur-slow) var(--ease-out); }
@@ -1206,7 +1219,6 @@ body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; al
 .settings-list > li.directory-grant-row:first-child { padding-top: 4px; }
 @media (min-width: 640px) { .settings-list > li.directory-grant-row { align-items: center; } }
 .settings-help { border-top: 1px solid hsl(var(--border) / .65); padding-top: 4px; }
-.settings-create-sheet { width: min(100vw, 440px); }
 .settings-review-form { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .settings-review-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 8px; max-width: 30rem; flex: 1 1 20rem; }
 .settings-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; font-size: 13px; }
@@ -1441,3 +1453,91 @@ body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; al
 .form-hint[data-side="top"]::before { bottom: -4px; transform: rotate(225deg); }
 @keyframes form-hint-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
 [data-form-invalid] { box-shadow: 0 0 0 1px hsl(var(--destructive) / .75); transition: box-shadow var(--dur-fast) var(--ease-out); }
+
+/* Conversations in the sidebar. Quiet like the navigation above it: a group
+   label with a + to start one, slim one-line rows that brighten when pointed at,
+   a dot at a row's end when it needs attention, giving way to its menu. */
+@property --sidebar-title-cut { syntax: "<length>"; inherits: true; initial-value: -16px; }
+.sidebar-chats { display: flex; flex: 1; min-height: 10rem; flex-direction: column; gap: 2px; margin-top: -.75rem; }
+@media (max-height: 800px) { .sidebar-chats { margin-top: 0; } }
+/* A short window gives the conversations the room: the navigation keeps its
+   links but drops its small group names (still read out) and sits tighter. */
+@media (max-height: 720px) {
+  .workspace-nav-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .workspace-navigation { gap: .5rem; }
+  .workspace-nav-link { min-height: 28px; padding-block: 3px; }
+  .sidebar-chats { min-height: 8rem; }
+}
+.sidebar-chats-header { display: flex; align-items: center; justify-content: space-between; padding: 0 2px 2px 12px; }
+.sidebar-chats-title { color: hsl(var(--muted-foreground)); font-size: 11px; font-weight: 500; letter-spacing: .04em; }
+.sidebar-chats-new { width: 24px; height: 24px; border-radius: var(--radius-inner); color: hsl(var(--muted-foreground)); transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.sidebar-chats-new svg { width: 14px; height: 14px; transition: transform var(--dur-base) var(--ease-spring); }
+.sidebar-chats-new:hover, .sidebar-chats-new:focus-visible { color: hsl(var(--foreground)); background: hsl(var(--accent)); }
+.sidebar-chats-new:hover svg { transform: rotate(90deg); }
+.sidebar-chats-new:active { transform: scale(.92); }
+.sidebar-chats-scroll { --sidebar-fade: 20px; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; margin-inline: -4px; padding: 2px 4px 8px; }
+.sidebar-chats-scroll::-webkit-scrollbar { display: none; }
+/* More above or below fades out rather than cutting a row in half. */
+.sidebar-chats-scroll[data-edges="top"] { mask-image: linear-gradient(to bottom, transparent, #000 var(--sidebar-fade)); }
+.sidebar-chats-scroll[data-edges="bottom"] { mask-image: linear-gradient(to top, transparent, #000 var(--sidebar-fade)); }
+.sidebar-chats-scroll[data-edges="top bottom"] { mask-image: linear-gradient(to bottom, transparent, #000 var(--sidebar-fade), #000 calc(100% - var(--sidebar-fade)), transparent); }
+.sidebar-chat-label { display: flex; width: 100%; height: 24px; align-items: center; gap: 4px; padding: 0 12px; border-radius: var(--radius-inner); font-size: 11px; text-align: left; color: hsl(var(--muted-foreground) / .72); transition: color var(--dur-fast) var(--ease-out); }
+.sidebar-chat-label[data-foldable]:hover, .sidebar-chat-label[data-foldable]:focus-visible { color: hsl(var(--foreground)); }
+.sidebar-chat-label > svg { opacity: 0; transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-base) var(--ease-out); }
+.sidebar-chat-label:hover > svg, .sidebar-chat-label:focus-visible > svg, .sidebar-chat-label[aria-expanded="false"] > svg { opacity: 1; }
+.sidebar-chat-label[aria-expanded="false"] > svg { transform: rotate(-90deg); }
+/* Folding eases the group shut by its own height, and open again. */
+.sidebar-chat-fold { display: grid; grid-template-rows: 1fr; opacity: 1; transition: grid-template-rows var(--dur-base) var(--ease-out), opacity var(--dur-fast) var(--ease-out); }
+.sidebar-chat-fold[data-folded] { grid-template-rows: 0fr; opacity: 0; }
+.sidebar-chat-row { position: relative; display: flex; align-items: center; border-radius: var(--radius-inner); color: hsl(var(--muted-foreground)); transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); animation: content-in var(--dur-base) var(--ease-out) both; }
+.sidebar-chat-row:hover, .sidebar-chat-row:focus-within, .sidebar-chat-row:has(.sidebar-chat-actions[data-state="open"]) { --sidebar-title-cut: 22px; background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+.sidebar-chat-row[data-active] { background: hsl(var(--card)); color: hsl(var(--foreground)); }
+.sidebar-chat-row:has(.sidebar-chat-open:focus-visible) { box-shadow: inset 0 0 0 1.5px hsl(var(--ring)); }
+.sidebar-chat-open { display: flex; min-width: 0; flex: 1; align-items: center; gap: 6px; height: 28px; padding: 0 12px; font-size: 13px; text-align: left; color: inherit; outline: none; }
+.sidebar-chat-row[data-attention] .sidebar-chat-open { padding-right: 26px; }
+.sidebar-chat-row[data-active] .sidebar-chat-open { font-weight: 500; }
+/* Pointed at, the title's end fades under the menu button instead of being covered. */
+.sidebar-chat-title { min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; mask-image: linear-gradient(to left, transparent var(--sidebar-title-cut), #000 calc(var(--sidebar-title-cut) + 16px)); transition: --sidebar-title-cut var(--dur-fast) var(--ease-out); }
+.sidebar-chat-task { order: -1; width: 12px; height: 12px; flex-shrink: 0; color: hsl(var(--muted-foreground)); }
+.sidebar-chat-dot { position: absolute; top: 50%; right: 12px; width: 6px; height: 6px; margin-top: -3px; border-radius: 999px; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.sidebar-chat-dot[data-state] { opacity: 1; }
+.sidebar-chat-dot[data-state="working"], .sidebar-chat-dot[data-state="task"] { background: hsl(var(--primary)); animation: sidebar-dot-pulse var(--dur-loop) var(--ease-out) infinite; }
+.sidebar-chat-dot[data-state="approval"] { background: hsl(var(--warning)); box-shadow: 0 0 0 3px hsl(var(--warning) / .16); }
+/* Queued: an empty ring, the answer has not begun. */
+.sidebar-chat-dot[data-state="queued"] { background: transparent; box-shadow: inset 0 0 0 1.5px hsl(var(--muted-foreground)); }
+/* Unread: still and quiet, the answer is there waiting. */
+.sidebar-chat-dot[data-state="unread"] { background: hsl(var(--primary)); }
+.sidebar-chat-row[data-attention="unread"] .sidebar-chat-title { color: hsl(var(--foreground)); font-weight: 500; }
+@keyframes sidebar-dot-pulse { 0% { box-shadow: 0 0 0 0 hsl(var(--primary) / .35); } 70%, 100% { box-shadow: 0 0 0 5px hsl(var(--primary) / 0); } }
+.sidebar-chat-row:hover .sidebar-chat-dot, .sidebar-chat-row:focus-within .sidebar-chat-dot, .sidebar-chat-row:has(.sidebar-chat-actions[data-state="open"]) .sidebar-chat-dot { opacity: 0; }
+.sidebar-chat-actions { position: absolute; top: 50%; right: 2px; width: 24px; height: 24px; translate: 0 -50%; border-radius: var(--radius-inner); color: hsl(var(--muted-foreground)); opacity: 0; transition: opacity var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
+.sidebar-chat-actions svg { width: 14px; height: 14px; }
+.sidebar-chat-actions:hover, .sidebar-chat-actions[data-state="open"] { color: hsl(var(--foreground)); background: hsl(var(--foreground) / .06); }
+.sidebar-chat-row:hover .sidebar-chat-actions, .sidebar-chat-row:focus-within .sidebar-chat-actions, .sidebar-chat-actions[data-state="open"] { opacity: 1; }
+.sidebar-chat-rename { width: 100%; height: 28px; padding: 0 11px; border-radius: var(--radius-inner); font-size: 13px; color: hsl(var(--foreground)); background: hsl(var(--card)); box-shadow: 0 0 0 1px hsl(var(--ring) / .55), 0 0 0 3px hsl(var(--ring) / .12); outline: none; animation: content-in var(--dur-fast) var(--ease-out) both; }
+.sidebar-chat-empty { padding: 2px 12px; font-size: 12px; color: hsl(var(--muted-foreground) / .8); }
+.sidebar-chat-more { display: flex; min-height: 4px; align-items: center; gap: 6px; padding: 0 12px; font-size: 11px; color: hsl(var(--muted-foreground)); }
+.sidebar-chat-manage { display: inline-flex; align-self: flex-start; align-items: center; gap: 4px; padding: 6px 12px; border-radius: var(--radius-inner); font-size: 12px; color: hsl(var(--muted-foreground)); transition: color var(--dur-fast) var(--ease-out); }
+.sidebar-chat-manage > svg { opacity: .55; transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-base) var(--ease-out); }
+.sidebar-chat-manage:hover, .sidebar-chat-manage:focus-visible { color: hsl(var(--foreground)); }
+.sidebar-chat-manage:hover > svg, .sidebar-chat-manage:focus-visible > svg { opacity: 1; transform: translateX(2px); }
+.sidebar-chat-manage[aria-current="page"] { color: hsl(var(--foreground)); font-weight: 500; }
+@media (hover: none) { .sidebar-chat-actions { opacity: 1; } .sidebar-chat-dot { opacity: 0; } .sidebar-chat-row .sidebar-chat-open { padding-right: 30px; } }
+
+/* The composer's own controls, in one quiet row: attach, mode, model, approval
+   rule and context ring sit close together, small and grey until pointed at. */
+.composer-controls { gap: 2px; }
+.composer-control { height: 28px; gap: 4px; padding-inline: 8px; border-radius: var(--radius-inner); font-size: 12px; font-weight: 400; color: hsl(var(--muted-foreground)); transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
+.composer-control:hover, .composer-control:focus-visible, .composer-control[data-state="open"] { color: hsl(var(--foreground)); background: hsl(var(--accent)); }
+.composer-control svg { width: 14px; height: 14px; }
+.composer-control > svg:last-child { width: 12px; height: 12px; margin-inline-start: -1px; opacity: .5; transition: opacity var(--dur-fast) var(--ease-out); }
+.composer-control:hover > svg:last-child, .composer-control[data-state="open"] > svg:last-child { opacity: .8; }
+
+/* Messages written while an answer is coming, waiting their turn above the composer. */
+.composer-queue { display: flex; flex-direction: column; gap: 2px; padding: 0 4px; }
+.composer-queue-item { display: flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 2px 0 10px; border-radius: var(--radius-inner); font-size: 12px; color: hsl(var(--foreground) / .85); background: hsl(var(--muted) / .6); animation: content-in var(--dur-base) var(--ease-out) both; }
+.composer-queue-text { min-width: 0; flex: 1; }
+.composer-queue-action { width: 24px; height: 24px; color: hsl(var(--muted-foreground)); }
+.composer-queue-action svg { width: 13px; height: 13px; }
+.composer-queue-hint { padding: 0 10px; font-size: 11px; color: hsl(var(--muted-foreground)); }
+

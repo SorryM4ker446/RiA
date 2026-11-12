@@ -20,7 +20,7 @@ const refuse = (message: string) => new ApiError({ code: "FORBIDDEN", message })
 export async function terminalGrant(grantId: string) {
   if (!terminalRuntimeAllowed()) throw refuse("终端工具仅在 Windows 桌面应用中可用。");
   const grant = await db.directoryGrant.findUnique({ where: { id: grantId } });
-  if (!grant || grant.revokedAt || !grant.terminalEnabled) throw refuse("此目录尚未开启终端权限，或权限已撤销。");
+  if (!grant || grant.revokedAt) throw refuse("此目录的授权已撤销。");
   const resolved = await resolveGrant({ label: grant.label, path: grant.path });
   if (resolved.isFile || resolved.realPath !== grant.realPath || !(await stat(resolved.realPath)).isDirectory()) throw refuse("终端工作目录已变化，请重新授权。");
   return grant;
@@ -196,7 +196,7 @@ export async function runTerminalCommand(raw: TerminalInput, signal?: AbortSigna
     view.status = stopping ?? (exitCode === 0 ? "completed" : "failed");
     try {
       const currentGrant = await db.directoryGrant.findUnique({ where: { id: input.grantId } });
-      view.fileChanges = currentGrant && !currentGrant.revokedAt && currentGrant.terminalEnabled && currentGrant.updatedAt.toISOString() === binding.revision
+      view.fileChanges = currentGrant && !currentGrant.revokedAt && currentGrant.updatedAt.toISOString() === binding.revision
         ? compareFileSnapshots(beforeFiles, await captureFileSnapshot(grant.realPath)) : { files: [], complete: false };
     } catch {
       // Missing change observations must not overwrite the command's actual result.

@@ -11,10 +11,10 @@ import { Reveal } from "@/components/ui/reveal";
 import { animateRemoval, removalKey } from "@/lib/ui/removal";
 import { SettingsSection } from "@/features/settings/settings-section";
 import { Input } from "@/components/ui/input";
-import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { TerminalApprovalMode } from "@/lib/terminal/schema";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { SelectField, SelectOption } from "@/components/ui/select";
+import { useToast } from "@/components/ui/toast";
+import { APPROVAL_RULES, readApprovalRule, type ApprovalRule } from "@/lib/approvals/rules";
 import { cn } from "@/lib/utils/cn";
 
 type GrantRow = {
@@ -22,8 +22,6 @@ type GrantRow = {
   label: string;
   path: string;
   realPath: string;
-  terminalEnabled: boolean;
-  terminalApprovalMode: TerminalApprovalMode;
   updatedAt: string;
   createdAt: string;
   lastUsedAt: string | null;
@@ -51,34 +49,18 @@ async function readError(response: Response): Promise<string> {
 export function DirectoryGrantSettings({ embedded = false, onChange }: { embedded?: boolean; onChange?: () => void }) {
   useLocale();
   const pathId = useId();
-  const modeId = useId();
+  const ruleId = useId();
+  const toast = useToast();
   const loadRequest = useRef(0);
   const [grants, setGrants] = useState<GrantRow[]>([]);
   const [path, setPath] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [terminalGrant, setTerminalGrant] = useState<GrantRow | null>(null);
-  const [terminalMode, setTerminalMode] = useState<TerminalApprovalMode>("approval");
-  const [permissionSaving, setPermissionSaving] = useState(false);
   const [choosing, setChoosing] = useState(false);
-  const busy = saving || permissionSaving || choosing;
-
-  async function changeTerminal(grant: GrantRow, enabled: boolean, mode: TerminalApprovalMode = "approval") {
-    setPermissionSaving(true);
-    setError(null);
-    try {
-      const response = await fetch(`/api/directory-grants/${encodeURIComponent(grant.id)}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ terminalEnabled: enabled, terminalApprovalMode: mode, revision: grant.updatedAt }),
-      });
-      if (!response.ok) throw new Error(await readError(response));
-      setTerminalGrant(null);
-      onChange?.();
-      await load();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : t("settings.grants.failed")); }
-    finally { setPermissionSaving(false); }
-  }
+  // The rule a new conversation starts with; null until it has been read.
+  const [defaultRule, setDefaultRule] = useState<ApprovalRule | null>(null);
+  const busy = saving || choosing;
 
   const load = useCallback(async () => {
     const request = ++loadRequest.current;
@@ -102,6 +84,30 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
     void load();
     return () => { ++requests.current; };
   }, [load]);
+
+  useEffect(() => {
+    if (embedded) return;
+    let active = true;
+    void fetch("/api/approval-preferences", { cache: "no-store" }).then(response => response.ok ? response.json() : null)
+      .then(payload => { if (active && payload) setDefaultRule(readApprovalRule(payload.data?.defaultRule)); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [embedded]);
+
+  /** Conversations started from now on begin with this rule; existing ones keep theirs. */
+  async function changeDefaultRule(value: string) {
+    const rule = readApprovalRule(value);
+    const previous = defaultRule;
+    setDefaultRule(rule);
+    try {
+      const response = await fetch("/api/approval-preferences", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ defaultRule: rule }) });
+      if (!response.ok) throw new Error(await readError(response));
+      toast(tf("approval.defaultSaved", { rule: t(`approval.rule.${rule}`) }));
+    } catch (cause) {
+      setDefaultRule(previous);
+      setError(cause instanceof Error ? cause.message : t("approval.saveFailed"));
+    }
+  }
 
   async function add(event: { preventDefault: () => void; stopPropagation: () => void }) {
     event.preventDefault();
@@ -191,13 +197,6 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
                   </p>
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-2">
-                  {typeof window !== "undefined" && window.riaDesktop ? <>
-                  <Button disabled={busy} onClick={() => { setTerminalMode(grant.terminalApprovalMode); setTerminalGrant(grant); }} size="sm" type="button" variant="ghost">
-                    <Terminal aria-hidden="true" data-icon="inline-start" />
-                    {grant.terminalEnabled ? tf("ui.settings.directory-grants.terminal", { v0: grant.terminalApprovalMode === "full-access" ? t("ui.settings.directory-grants.fullAccess") : t("ui.settings.directory-grants.approval") }) : t("ui.settings.directory-grants.enableTerminal")}
-                  </Button>
-                  {grant.terminalEnabled ? <Button disabled={busy} onClick={() => void changeTerminal(grant, false)} size="sm" type="button" variant="ghost">{t("ui.settings.directory-grants.disableTerminal")}</Button> : null}
-                  </> : null}
                   <Button disabled={busy} onClick={() => void revoke(grant.id)} size="sm" type="button" variant="ghost">
                     <ShieldOff aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
                     {t("settings.grants.revoke")}
@@ -234,45 +233,26 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
           </Button>
           </div>
         </form>
-        <p className="text-[11px] text-muted-foreground">{t("settings.grants.note")}</p>
+        <p className="text-[11px] text-muted-foreground">{t("settings.grants.note")} {t("approval.grantNote")}</p>
+        {/* Adding a folder is what lets commands run in it, so this is said where the folder is added. */}
+        {typeof window !== "undefined" && window.riaDesktop ? <Alert role="note">
+          <AlertTitle>{t("ui.settings.directory-grants.commandsRunAsTheCurrentWindows")}</AlertTitle>
+          <AlertDescription>{t("ui.settings.directory-grants.theWorkingDirectoryIsNotA")}</AlertDescription>
+        </Alert> : null}
+        {!embedded ? (
+          <Field className="gap-2">
+            <FieldLabel htmlFor={ruleId}>{t("approval.defaultTitle")}</FieldLabel>
+            <SelectField id={ruleId} className="w-full sm:w-72" value={defaultRule ?? ""} disabled={defaultRule === null} onValueChange={value => void changeDefaultRule(value)}>
+              {APPROVAL_RULES.map(rule => <SelectOption key={rule} value={rule}>{t(`approval.rule.${rule}`)} · {t(`approval.ruleHint.${rule}`)}</SelectOption>)}
+            </SelectField>
+            <FieldDescription>{t("approval.defaultHint")}</FieldDescription>
+          </Field>
+        ) : null}
       </div>
   );
   return <>
       {embedded ? content : <SettingsSection title={<><FolderOpen aria-hidden="true" className="size-4 text-muted-foreground" />{t("settings.grants.title")}</>} description={t("ui.settings.directory-grants.authorizeOnlyTheDirectoriesYouNeed")}>
         <div className="flex flex-col gap-4">{content}</div>
       </SettingsSection>}
-      <Sheet open={!!terminalGrant} onOpenChange={open => { if (!open && !permissionSaving) setTerminalGrant(null); }}>
-        <SheetContent side="right" className="directory-permissions-sheet flex flex-col gap-5 overflow-y-auto p-6">
-          <SheetTitle>{terminalGrant?.terminalEnabled ? t("ui.settings.directory-grants.terminalPermissions") : t("ui.settings.directory-grants.enableTerminalAccess")}</SheetTitle>
-          <SheetDescription>{t("ui.settings.directory-grants.allowRiAToReadSearchCreate")}</SheetDescription>
-          <p className="break-all font-mono text-xs">{terminalGrant?.realPath}</p>
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor={modeId}>{t("ui.settings.directory-grants.terminalMode")}</FieldLabel>
-              <Select value={terminalMode} disabled={permissionSaving} onValueChange={value => setTerminalMode(value as TerminalApprovalMode)}>
-                <SelectTrigger id={modeId} aria-describedby={`${modeId}-description`}><SelectValue /></SelectTrigger>
-                <SelectContent><SelectGroup>
-                  <SelectItem value="approval">{t("ui.settings.directory-grants.approval")}</SelectItem>
-                  <SelectItem value="full-access">{t("ui.settings.directory-grants.fullAccess")}</SelectItem>
-                </SelectGroup></SelectContent>
-              </Select>
-              <FieldDescription id={`${modeId}-description`}>{terminalMode === "full-access" ? t("ui.settings.directory-grants.lLMTerminalCommandsRunAutomaticallyWithout") : t("ui.settings.directory-grants.everyLLMTerminalCallRequiresYour")}</FieldDescription>
-            </Field>
-          </FieldGroup>
-          <Alert>
-            <Terminal aria-hidden="true" />
-            <AlertTitle>{t("ui.settings.directory-grants.commandsRunAsTheCurrentWindows")}</AlertTitle>
-            <AlertDescription>{t("ui.settings.directory-grants.theWorkingDirectoryIsNotA")}</AlertDescription>
-          </Alert>
-          {error ? <Alert variant="destructive"><AlertDescription>{localizeMessage(error)}</AlertDescription></Alert> : null}
-          <div className="mt-auto flex justify-end gap-2">
-            <Button disabled={permissionSaving} variant="ghost" onClick={() => setTerminalGrant(null)}>{t("knowledge.cancelEdit")}</Button>
-            <Button disabled={permissionSaving || !terminalGrant} onClick={() => terminalGrant && void changeTerminal(terminalGrant, true, terminalMode)}>
-              {permissionSaving ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Terminal data-icon="inline-start" />}
-              {terminalGrant?.terminalEnabled ? t("ui.settings.directory-grants.saveTerminalPermissions") : t("ui.settings.directory-grants.confirmTerminalAccess")}
-            </Button>
-          </div>
-        </SheetContent>
-      </Sheet>
   </>;
 }

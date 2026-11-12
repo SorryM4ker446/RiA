@@ -83,7 +83,7 @@ export async function verifyAccountBackupSmoke(window: BrowserWindow, origin: st
   if (!restored.safetyBackupId) throw new Error("Desktop restore omitted the safety backup");
   origin = await restart();
   if ((await data("/api/models")).backupRetentionDays !== 7 || (await data(`/api/backups/${id}`)).counts.assets !== original.counts.assets) throw new Error("Desktop restored data did not survive restart");
-  if ((await data("/api/tasks")).some((task: { reminderEnabled: boolean }) => task.reminderEnabled)) throw new Error("Desktop restore replayed task reminders");
+  if ((await data("/api/tasks")).some((task: { enabled: boolean }) => task.enabled)) throw new Error("Desktop restore left a task switched on");
   const media = await data("/api/media/library");
   for (const asset of media) {
     const response = await fetch(`${origin}${asset.url}`, { headers });

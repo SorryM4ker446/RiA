@@ -11,6 +11,7 @@ import { bindEntryReplacement, saveApprovedEntry, saveKnowledgeEntryFields, save
 import { auxiliaryModel, preferredModel, getModelPreferences } from "@/lib/models/preferences";
 import type { ModelRef } from "@/lib/models/preferences-schema";
 import { createTask, createTaskInputSchema } from "@/tools/definitions/create-task";
+import { isTimeZone } from "@/lib/scheduler/cron";
 import { searchKnowledge, searchKnowledgeInputSchema } from "@/tools/definitions/search-knowledge";
 import { searchConfigured, resolveSearchRoute, searchResultLimit } from "./definitions/provider-search";
 import { runWebSearch, webSearchInput } from "@/tools/definitions/web-search";
@@ -110,12 +111,29 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     displayName: t("tools.createTask.displayName"),
     description: t("tools.createTask.description"),
     modelDescription:
-      "Create a task for the current user. Supports a due date, an IANA timeZone (default UTC), reminderEnabled for desktop due reminders, and repeatRule (none/daily/weekly/monthly, where each repeat is created after the previous one completes). Both reminders and repeats require dueDate; a time without an offset is interpreted in timeZone. dueDate is an ISO 8601 date or local date-time such as 2030-01-31T09:30, so work out a relative date such as tomorrow from the current date and time in the request context, and use the time zone given there unless the user names another. Use it only when the user wants something tracked or scheduled. Do not use it to answer a question, and never create a task the user did not ask for.",
+      "Schedule something for you to do later, on your own, at a time the user names. The task runs in its own conversation, which starts without anything said here, so write prompt as a complete instruction with everything the run needs. A task that repeats takes cron, five fields read in timeZone (minute hour day-of-month month day-of-week), for example \"0 9 * * 1-5\" for 09:00 on weekdays; a task that runs once takes runAt, a local date and time written YYYY-MM-DDTHH:mm, such as 2030-01-31T09:30. Give exactly one of the two. Work out a relative time such as tomorrow from the current date and time in the request context, and use the time zone given there unless the user names another. A reminder is a task too: its prompt is to tell the user what they asked to be reminded of. Use it only when the user wants something done or said at a later time or on a schedule. Do not use it for something you can do now, and never create a task the user did not ask for.",
     modeSupport: ["chat"],
     requiresApproval: true,
     surface: { category: "tasks", user: { run: "model", hint: t("tools.createTask.hint") }, template: "selectable" },
     inputSchema: createTaskInputSchema,
     execute: async ({ input }) => createTask(input),
+  },
+  readWorkspaceActivity: {
+    id: "readWorkspaceActivity",
+    displayName: t("tools.readWorkspaceActivity.displayName"),
+    description: t("tools.readWorkspaceActivity.description"),
+    modelDescription: "Read what was recorded as changing in the user's workspace over the last complete day or the last complete week: counts of documents imported and updated and of memories confirmed, with the recorded items. Use it when asked to review or summarise recent activity. The result says whether the record covers the whole period; when it does not, say so rather than treating the counts as totals. It records only those kinds of change, not conversations.",
+    modeSupport: ["chat"],
+    surface: { category: "tasks", user: null, template: { follows: "createTask" }, underlying: "model" },
+    inputSchema: z.strictObject({
+      period: z.enum(["daily", "weekly"]).describe("daily for the last complete day, weekly for the last complete week."),
+      timeZone: z.string().max(100).refine(isTimeZone, "Invalid IANA time zone").describe("The IANA time zone that decides where days begin."),
+    }),
+    execute: async ({ input }) => {
+      // Loaded here because it reaches the activity records, which the tool list must stay free of.
+      const { previewWorkspaceReview } = await import("@/lib/activity/reviews");
+      return previewWorkspaceReview(input.period, input.timeZone);
+    },
   },
   [COMPACT_CONTEXT_TOOL]: {
     id: COMPACT_CONTEXT_TOOL,
@@ -207,8 +225,8 @@ export function listToolDescriptors(mode?: ToolMode): AnyToolDescriptor[] {
 
 export async function builtinToolAvailability(toolId: string, modelRef?: ModelRef): Promise<ToolAvailability> {
   if (toolId === "runTerminalCommand" || TERMINAL_COMPANION_TOOLS.has(toolId)) {
-    const enabled = terminalRuntimeAllowed() && await db.directoryGrant.count({ where: { revokedAt: null, terminalEnabled: true } });
-    // The terminal is switched on per granted folder.
+    // A granted folder is one the model may work in, terminal included.
+    const enabled = terminalRuntimeAllowed() && await db.directoryGrant.count({ where: { revokedAt: null } });
     return enabled ? { available: true, reason: null, configEntry: null } : { available: false, reason: "notConfigured", configEntry: settingsHref("files") };
   }
   if (toolId === "readPluginSkill") {

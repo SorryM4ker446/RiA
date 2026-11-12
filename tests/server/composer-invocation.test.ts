@@ -28,7 +28,7 @@ beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {}); t.mock.method(console, "info", () => {});
   resetProviderState(); globalThis.__riaRateLimitStore?.clear();
   process.env.APP_RUNTIME = "test"; process.env.OPENROUTER_API_KEY = "offline-fixture-placeholder";
-  await db.chat.deleteMany({}); await db.task.deleteMany({}); await db.pluginPackage.deleteMany({});
+  await db.chat.deleteMany({}); await db.scheduledJob.deleteMany({}); await db.pluginPackage.deleteMany({});
   await seedTestModelPreferences(db);
 });
 after(async () => { await db.$disconnect(); cleanup(); });

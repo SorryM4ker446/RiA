@@ -9,7 +9,6 @@ import { createTestDatabase } from "../helpers/database";
 const cleanup = createTestDatabase();
 const { db } = await import("@/db");
 const { createGrant, listGrants, revokeGrant } = await import("@/lib/local-files/grants");
-const { setTerminalPermission } = await import("@/lib/terminal/permissions");
 const { bindTerminalApproval, runTerminalCommand } = await import("@/lib/terminal/runtime");
 const { TERMINAL_LIMITS } = await import("@/lib/terminal/schema");
 const { TERMINAL_LOG_LIMITS, pruneTerminalLogs, readTerminalLog, terminalLogRoot } = await import("@/lib/terminal/logs");
@@ -25,7 +24,6 @@ const defaults = { ...TERMINAL_LOG_LIMITS };
 async function folder() {
   const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ria-terminal-log-"))); roots.push(root);
   const grant = await createGrant({ path: root });
-  await setTerminalPermission(grant.id, true, grant.updatedAt);
   return (await listGrants()).find(row => row.id === grant.id)!;
 }
 // 20,000 numbered lines with one diagnostic in the middle, then a final summary on stdout and a stderr line.
@@ -103,15 +101,13 @@ test("a log that reaches its size limit is marked incomplete without failing the
 test("logs are readable only with terminal access and are removed when access ends", { timeout: 60_000 }, async () => {
   const grant = await folder();
   const result = await run(grant.id, bigOutput);
-  const current = (await listGrants()).find(row => row.id === grant.id)!;
-  await setTerminalPermission(grant.id, false, current.updatedAt);
+  // Withdrawing the folder removes its saved logs.
+  await revokeGrant(grant.id);
   await assert.rejects(readTerminalLog({ logId: result.log!.id, stream: "stdout", startLine: 1, lineCount: 5 }, allow), { code: "NOT_FOUND" });
   assert.equal(existsSync(path.join(terminalLogRoot(), result.id)), false);
 
   const other = await folder();
   const kept = await run(other.id, bigOutput);
-  await db.directoryGrant.update({ where: { id: other.id }, data: { terminalEnabled: false } });
-  await assert.rejects(readTerminalLog({ logId: kept.log!.id, stream: "stdout", startLine: 1, lineCount: 5 }, allow), { code: "FORBIDDEN" });
   await revokeGrant(other.id);
   assert.equal(existsSync(path.join(terminalLogRoot(), kept.id)), false);
   await assert.rejects(readTerminalLog({ logId: crypto.randomUUID(), stream: "stdout", startLine: 1, lineCount: 5 }, allow), { code: "NOT_FOUND" });

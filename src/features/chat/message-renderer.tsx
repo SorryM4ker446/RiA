@@ -45,6 +45,7 @@ import Image from "next/image";
 import type { ChatState } from "@/features/chat/use-chat-state";
 import type { UIMessage } from "ai";
 import { removalKey } from "@/lib/ui/removal";
+import type { TurnNotice } from "./page-utils";
 
 // The query identity is the open conversation, not a constant. `switchActiveChat`
 // only sets the id; it does not clear `messages`, so the previous transcript
@@ -192,6 +193,8 @@ type MessageRowProps = {
   reuseImageActionLabel: string;
   tools: ChatState["tools"];
   alwaysReasons: boolean;
+  /** What the turn says while it waits or retries; only for the last row. */
+  notice?: TurnNotice | null;
   canShowSources: boolean;
   compactionSummary: string | null;
   /** Changes at midnight, so "today" and "yesterday" are worked out again. */
@@ -204,7 +207,7 @@ type MessageRowProps = {
  * delta; only a row whose message or place in the conversation changed does any work,
  * so a long, tool-heavy conversation streams at the cost of an empty one.
  */
-const MessageRow = memo(function MessageRow({ message, previousMetadata, isLast, status, isPending, isEditing, editingText, resendsEdited, copyState, imageUrl, videoUrl, attachingImageKey, reuseImageActionLabel, tools, alwaysReasons, canShowSources, compactionSummary, actions }: MessageRowProps) {
+const MessageRow = memo(function MessageRow({ message, previousMetadata, isLast, status, isPending, isEditing, editingText, resendsEdited, copyState, imageUrl, videoUrl, attachingImageKey, reuseImageActionLabel, tools, alwaysReasons, notice = null, canShowSources, compactionSummary, actions }: MessageRowProps) {
   useLocale();
   const toolName = (id: string) => {
     const tool = tools.find(item => item.id === id);
@@ -327,7 +330,7 @@ const MessageRow = memo(function MessageRow({ message, previousMetadata, isLast,
           live={isLive}
           reasoning={isReasoning}
           answering={answerStarted(message)} /> : null}
-        {isLive && !isReasoning && !text && !(thinking && thinking.kind !== "hidden") && !toolParts.some(part => part.state === "approval-requested") ? <ReplyPending reasoning={alwaysReasons} /> : null}
+        {isLive && !isReasoning && !text && !(thinking && thinking.kind !== "hidden") && !toolParts.some(part => part.state === "approval-requested") ? <ReplyPending reasoning={alwaysReasons} notice={notice} /> : null}
         {isUser && !isEditing && invocation ? <MessageChoices invocation={invocation} /> : null}
         {!isEditing && text ? <CollapsibleAnswer key={message.id} collapsible={!isUser && !isLast}><MarkdownMessage text={text} streaming={isLastAssistantStreaming} /></CollapsibleAnswer> : null}
         {skippedTool ? <p className="mt-2 text-xs text-muted-foreground">{tf("chat.slash.toolNotCalled", { name: skippedTool })}</p> : null}
@@ -436,8 +439,8 @@ const MessageRow = memo(function MessageRow({ message, previousMetadata, isLast,
   );
 });
 
-type Props = Pick<ChatState, "compaction" | "isOrganizing" | "isCompacting" | "tools" | "selectedModelInfo" | "modelMode" | "activeChatId" | "isLoadingHistory" | "isOpeningConversation" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId" | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText" | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel" | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages" | "selectedChatModel"> & { onShowSources?: (messageId: string) => void };
-export function MessageRenderer({ compaction, isOrganizing, isCompacting, tools, selectedModelInfo, onShowSources, modelMode, activeChatId, isLoadingHistory, isOpeningConversation, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages }: Props) {
+type Props = Pick<ChatState, "compaction" | "isOrganizing" | "turnNotice" | "isCompacting" | "tools" | "selectedModelInfo" | "modelMode" | "activeChatId" | "isLoadingHistory" | "isOpeningConversation" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId" | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText" | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel" | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages" | "selectedChatModel"> & { onShowSources?: (messageId: string) => void };
+export function MessageRenderer({ compaction, isOrganizing, turnNotice, isCompacting, tools, selectedModelInfo, onShowSources, modelMode, activeChatId, isLoadingHistory, isOpeningConversation, messages, imageByMessageId, videoByMessageId, status, editingMessageId, isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText, saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, olderMessagesCursor, isLoadingOlderMessages, loadOlderMessages }: Props) {
   useLocale();
   // Opening counts as loading: before it is known which conversation is open, or
   // in the render where one has just been chosen, the transcript is not empty yet.
@@ -635,11 +638,11 @@ export function MessageRenderer({ compaction, isOrganizing, isCompacting, tools,
           copyState={copiedMessageId === message.id ? "copied" : refusedMessageId === message.id ? "refused" : null}
           imageUrl={imageByMessageId[message.id]} videoUrl={videoByMessageId[message.id]}
           attachingImageKey={attachingImageKey} reuseImageActionLabel={reuseImageActionLabel}
-          tools={tools} alwaysReasons={alwaysReasons} canShowSources={!!onShowSources}
+          tools={tools} alwaysReasons={alwaysReasons} notice={isLast ? turnNotice : null} canShowSources={!!onShowSources}
           compactionSummary={compaction?.coveredIds.includes(message.id) ? compaction.summary : null}
           day={day} actions={rowActions} />;
       })}
-      {isCompacting || (status === "submitted" && modelMode === "chat" && messages.at(-1)?.role === "user") ? <ReplyPending reasoning={alwaysReasons} organizing={isCompacting || isOrganizing} /> : null}
+      {isCompacting || (status === "submitted" && modelMode === "chat" && messages.at(-1)?.role === "user") ? <ReplyPending reasoning={alwaysReasons} organizing={isCompacting || isOrganizing} notice={turnNotice} /> : null}
     </>)}
   </div>
   </div>

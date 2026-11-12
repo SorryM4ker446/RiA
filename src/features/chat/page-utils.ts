@@ -1,4 +1,6 @@
 import type { AssistantSnapshot } from "@/lib/assistants/schema";
+import type { ModelRef } from "@/lib/models/preferences-schema";
+import type { ApprovalRule } from "@/lib/approvals/rules";
 import {
   decodePersistedAssistantToolMessage,
   decodePersistedUserMessage,
@@ -18,8 +20,23 @@ export type ChatSummary = {
   ephemeral?: boolean;
   documentScope?: string;
   workspaceGrantId?: string | null;
+  /** What the model may do in the workspace without asking; a task's conversation shows the task's. */
+  approvalRule?: ApprovalRule;
   assistantConfig?: AssistantSnapshot | null;
   tags?: string[];
+  /**
+   * The task that owns this conversation. It adds to it on its own, and decides
+   * the model (null: the default chat model) and folder every turn here uses.
+   */
+  task?: { id: string; model: ModelRef | null; running?: boolean } | null;
+  /** The latest answer waits for the user to approve a tool call. */
+  awaitingApproval?: boolean;
+  /** A turn the service is holding in it now, whoever started it. */
+  answering?: boolean;
+  /** That turn is waiting for a place to run. */
+  queued?: boolean;
+  /** An answer arrived that has not been opened yet. */
+  unread?: boolean;
 };
 
 /**
@@ -287,3 +304,6 @@ export function getMessageRoleLabel(role: UIMessage["role"]): string {
   if (role === "assistant") return t("chat.role.assistant");
   return t("chat.role.system");
 }
+
+/** What a turn's stream says while it waits for a place, or while the provider is retried. */
+export type TurnNotice = { state: "queued"; ahead: number } | { state: "retrying"; attempt: number; seconds: number };

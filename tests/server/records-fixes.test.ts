@@ -46,10 +46,12 @@ after(async () => {
   cleanup();
 });
 
-test("retired file tools cannot bypass terminal permission or manual review", async () => {
+test("retired file tools stay retired, and the terminal comes and goes with the granted folders", async () => {
   const grant = await createGrant({ path: temporaryDirectory("ria-records-") });
   const tools = await createChatToolSet({ toolIds: ["listLocalFiles", "readLocalFile", "writeLocalFile", "runTerminalCommand"] });
-  for (const id of ["listLocalFiles", "readLocalFile", "writeLocalFile", "runTerminalCommand"]) assert.equal(tools[id], undefined);
+  for (const id of ["listLocalFiles", "readLocalFile", "writeLocalFile"]) assert.equal(tools[id], undefined);
+  // A granted folder is one the model may run commands in; whether each asks is the conversation's rule.
+  assert.ok(tools.runTerminalCommand);
   await revokeGrant(grant.id);
   assert.equal((await createChatToolSet({ toolIds: ["runTerminalCommand"] })).runTerminalCommand, undefined);
 });

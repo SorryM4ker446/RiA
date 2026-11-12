@@ -35,7 +35,8 @@ import { DesktopSettingsStore, type DesktopSettingsInput } from "./settings";
 import { installationRoot, launchInstaller, reconcileUpdateDirectory, removeEmptyVersionFolders, UpdateService, type InstallPlan, type UpdateState } from "./updater";
 import { DEVELOPMENT_APP_USER_MODEL_ID, INSTALLED_APP_USER_MODEL_ID } from "./app-identity";
 import { UPDATE_SIGNING_PUBLIC_KEY } from "./update-signing-key";
-import { createTaskNotificationDelivery, TaskReminderPoller, type TaskReminder } from "./task-reminders";
+import { createTaskNotificationDelivery, TaskReminderPoller, type TaskNotice } from "./task-reminders";
+import { ConversationAlerts, createConversationNotificationDelivery } from "./conversation-alerts";
 import { seedTaskReminderSmoke } from "./task-reminders-smoke";
 import { prepareConversationSmoke, verifyConversationSmoke } from "./conversations-smoke";
 import { seedMediaLibrarySmoke, verifyMediaLibrarySmoke } from "./media-library-smoke";
@@ -80,6 +81,8 @@ let restartInProgress: Promise<void> | null = null;
  */
 let restartAbort: AbortController | null = null;
 let reminderPoller: TaskReminderPoller | null = null;
+// Notifications for answers that end while the window is not in front; started and stopped with the poller.
+let conversationAlerts: ConversationAlerts | null = null;
 
 /**
  * Present only when the user chose to keep the app running when the window
@@ -99,7 +102,7 @@ let tray: Tray | null = null;
  * regardless of the setting.
  */
 let closeBehaviour: "quit" | "tray" = "quit";
-const smokeReminders: TaskReminder[] = [];
+const smokeReminders: TaskNotice[] = [];
 
 /*
  * Updates replace an installed copy, so only an installed copy looks for them: a
@@ -113,6 +116,13 @@ let updateService: UpdateService | null = null;
 // One system notification per version per run; the settings card stays the record.
 let notifiedUpdateVersion: string | null = null;
 let updateNotification: Notification | null = null;
+
+/** Brings the window forward, on a page inside the app when the notice names one. */
+function openFromNotice(path: string | null) {
+  focusMainWindow();
+  // The page moves itself, so a draft and the rest of its state survive the move.
+  if (path && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("desktop:navigate", path);
+}
 
 function focusMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -200,7 +210,7 @@ function handleUnexpectedServiceExit(exit: NextServerExit): void {
    * listening on, every thirty seconds, for as long as the window is open.
    */
   void (async () => {
-    await reminderPoller?.stop();
+    await reminderPoller?.stop(); await conversationAlerts?.stop();
     // The quit can land while the poller settles, and there is then nothing
     // left to tell anyone.
     if (isQuitting || !mainWindow || mainWindow.isDestroyed()) return;
@@ -253,7 +263,7 @@ async function restartLocalService(destination = "/chat?settings=services&saved=
   restartInProgress = (async () => {
     if (!logger) return;
     logger.info("Restarting local Next.js service");
-    await reminderPoller?.stop();
+    await reminderPoller?.stop(); await conversationAlerts?.stop();
     if (isQuitting) return;
     // Stop the old renderer's HMR reconnect and requests before restarting.
     // Otherwise its reload can abort the navigation to the restarted service.
@@ -306,6 +316,7 @@ async function restartLocalService(destination = "/chat?settings=services&saved=
       await mainWindow.loadURL(`${nextServer.origin}${destination}`);
     }
     reminderPoller?.start();
+    conversationAlerts?.start();
 
     // The tray and the close behaviour follow the stored setting, including
     // after a service restart and including a change made in the running app.
@@ -1177,12 +1188,6 @@ async function runSmokeAssertion() {
   await reminderPoller?.poll();
   await reminderPoller?.poll();
   if (smokeReminders.filter(task => task.id === reminderId).length !== 1) throw new Error("Desktop task notification was missing or duplicated");
-  const completeReminder = () => fetch(`${nextServer!.origin}/api/tasks/${reminderId}`, {
-    method: "PATCH", headers: { Cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ status: "done" }),
-  });
-  const completed = await completeReminder();
-  const completion = await completed.json() as { nextTask?: { id: string; dueDate: string; reminderEnabled: boolean } };
-  if (!completed.ok || !completion.nextTask?.reminderEnabled || Date.parse(completion.nextTask.dueDate) <= Date.now()) throw new Error("Desktop recurring task did not create a future reminder");
 
   await prepareConversationSmoke(nextServer.origin, `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}`, conversationId);
   const libraryFixture = seedMediaLibrarySmoke(desktopPaths.databaseFile, desktopPaths.mediaDirectory, asset.assetId, conversationId);
@@ -1190,11 +1195,7 @@ async function runSmokeAssertion() {
   await restartLocalService();
   if (!nextServer) throw new Error("Desktop service did not restart.");
   await reminderPoller?.poll();
-  if (smokeReminders.filter(task => task.id === reminderId).length !== 1) throw new Error("Desktop reminder replayed after service restart");
-  const repeatedCompletion = await completeReminder();
-  if (!repeatedCompletion.ok || (await repeatedCompletion.json() as { nextTask?: unknown }).nextTask !== null) throw new Error("Desktop task completion replay created a duplicate");
-  const nextReminder = await fetch(`${nextServer.origin}/api/tasks/${completion.nextTask.id}`, { headers: { Cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}` } });
-  if (!nextReminder.ok) throw new Error("Desktop recurring task did not survive restart");
+  if (smokeReminders.filter(task => task.id === reminderId).length !== 1) throw new Error("Desktop task notification replayed after service restart");
   const persistedResponse = await fetch(`${nextServer.origin}/api/conversations`, {
     headers: { Cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}` },
   });
@@ -1217,7 +1218,7 @@ async function runSmokeAssertion() {
   await verifyDocumentProcessorSmoke(mainWindow!, nextServer.origin, `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}`, wordDocument.id, dirname(desktopPaths.databaseFile));
   await verifyConversationSmoke(mainWindow!, nextServer.origin, `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}`, conversationId, dirname(desktopPaths.databaseFile));
   await verifyMediaLibrarySmoke(mainWindow!, nextServer.origin, `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}`, libraryFixture, asset.assetId, mediaBytes, dirname(desktopPaths.databaseFile));
-  await reminderPoller?.stop();
+  await reminderPoller?.stop(); await conversationAlerts?.stop();
   await verifyAccountBackupSmoke(mainWindow!, nextServer.origin, `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}`, dirname(desktopPaths.databaseFile), async () => { await restartLocalService(); return nextServer!.origin; });
   const log = readFileSync(desktopPaths.logFile, "utf8");
   if (!log.includes("Next stdout") || log.includes(`desktop-smoke-key-${process.pid}`) || statSync(desktopPaths.logFile).size > DESKTOP_LOG_LIMITS.maxBytes) {
@@ -1327,13 +1328,24 @@ async function bootstrap() {
   const hasAnyProviderKey = settings.hasOpenrouterApiKey || settings.hasDeepseekApiKey;
   const initialPath = packagedRuntime && !hasAnyProviderKey ? "/chat?settings=services&welcome=1" : "/chat";
   mainWindow = await createMainWindow(initialPath, true);
+  const showTaskNotice = createTaskNotificationDelivery(Notification, openFromNotice, logger, () => settingsStore?.getLocale() ?? "zh-CN", notificationIcon);
+  // The notice stays in the app either way; the user chose which ones also appear on screen.
+  const announceTaskNotice = (notice: TaskNotice) => { if (settingsStore?.showsTaskNotice(notice.title) !== false) showTaskNotice(notice); };
   reminderPoller = new TaskReminderPoller({
     connection: () => nextServer ? { origin: nextServer.origin, cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}` } : null,
     supported: () => smokeTest || Notification.isSupported(),
-    deliver: smokeTest ? task => { smokeReminders.push(task); } : createTaskNotificationDelivery(Notification, focusMainWindow, logger, () => settingsStore?.getLocale() ?? "zh-CN", notificationIcon),
+    deliver: smokeTest ? task => { smokeReminders.push(task); } : announceTaskNotice,
     logger,
   });
   reminderPoller.start();
+  conversationAlerts = new ConversationAlerts({
+    connection: () => nextServer ? { origin: nextServer.origin, cookie: `${DESKTOP_COOKIE_NAME}=${desktopSessionToken}` } : null,
+    supported: () => !smokeTest && Notification.isSupported(),
+    inFront: () => Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && !mainWindow.isMinimized() && mainWindow.isFocused()),
+    deliver: createConversationNotificationDelivery(Notification, openFromNotice, logger, () => settingsStore?.getLocale() ?? "zh-CN", notificationIcon),
+    logger,
+  });
+  conversationAlerts.start();
   /*
    * The tray and the global shortcut have to be set up on a cold start, not only
    * after a settings change. They were once wired into the service-restart path
@@ -1376,6 +1388,7 @@ async function bootstrap() {
     await runSmokeAssertion();
     isQuitting = true;
     await reminderPoller.stop();
+    await conversationAlerts?.stop();
     await nextServer.stop();
     app.exit(0);
   }
@@ -1442,14 +1455,14 @@ app.on("before-quit", (event) => {
      */
     event.preventDefault();
     isQuitting = true;
-    void (async () => { await reminderPoller?.stop(); })().finally(() => app.exit(0));
+    void (async () => { await reminderPoller?.stop(); await conversationAlerts?.stop(); })().finally(() => app.exit(0));
     return;
   }
   event.preventDefault();
   isQuitting = true;
   restartAbort?.abort(new Error("The application is quitting."));
   void (async () => {
-    await reminderPoller?.stop();
+    await reminderPoller?.stop(); await conversationAlerts?.stop();
     await restartInProgress?.catch(() => {});
     await nextServer?.stop();
   })().finally(() => app.exit(0));
@@ -1461,6 +1474,6 @@ if (singleInstanceLock) {
     logger?.error("Desktop application failed to start", error);
     if (!smokeTest) dialog.showErrorBox(`${PRODUCT_NAME} failed to start`, `${message}\n\nSee the desktop log for details.`);
     isQuitting = true;
-    void (async () => { await reminderPoller?.stop(); await nextServer?.stop(); })().finally(() => app.exit(1));
+    void (async () => { await reminderPoller?.stop(); await conversationAlerts?.stop(); await nextServer?.stop(); })().finally(() => app.exit(1));
   });
 }

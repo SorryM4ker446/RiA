@@ -18,7 +18,7 @@ import { SETTINGS_PARAM, type SettingsSectionId } from "@/lib/settings/sections"
 import { Textarea } from "@/components/ui/textarea";
 import { CHAT_ATTACHMENT_TYPES, DOCUMENT_ATTACHMENT_TYPES, IMAGE_MEDIA_TYPES, isDocumentAttachment } from "@/lib/media/limits";
 import { cn } from "@/lib/utils/cn";
-import { ArrowUp, Loader2, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, ListPlus, Loader2, Paperclip, PencilLine, Square, X } from "lucide-react";
 import { rememberSlashItem, recentSlashItems } from "@/features/chat/slash-recent";
 import { DocumentToolBar } from "@/features/chat/document-tool-bar";
 import { ComposerChoices, type ChoiceWord } from "@/features/chat/composer-choices";
@@ -28,8 +28,10 @@ import type { ChatState } from "@/features/chat/use-chat-state";
 import { ModelMode } from "@/features/chat/page-utils";
 import type { ModelLibraryItem } from "@/lib/models/preferences-schema";
 import { ContextUsage } from "@/features/chat/context-usage";
+import { ApprovalRulePicker } from "@/features/chat/approval-rule-picker";
 import { COMPACT_CONTEXT_TOOL } from "@/lib/chat/compact-context";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type UIEvent } from "react";
+import { TASK_DEFAULT_MODEL } from "@/features/chat/types";
 
 /**
  * The model name last shown for a mode. Until the saved choice is read it
@@ -38,6 +40,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncEx
  */
 /** The model menu's last entry, which leads to adding a model rather than choosing one. */
 const ADD_MODEL = "__add_model";
+
 const modelLabelKey = (mode: ModelMode) => `chat:model-label:${mode}`;
 const noSubscription = () => () => {};
 function useRememberedModelLabel(mode: ModelMode) {
@@ -90,10 +93,19 @@ type Props = Pick<
   | "activeChat"
   | "selectedModel"
   | "selectedModelInfo"
+  | "defaultChatModel"
   | "onModeSelect"
   | "onModelSelect"
   | "modelLibrary"
   | "messages"
+  | "setApprovalRule"
+  | "isApprovalSaving"
+  | "isLoadingChats"
+  | "queuedMessages"
+  | "canQueue"
+  | "queueMessage"
+  | "removeQueued"
+  | "editQueued"
 >;
 export function Composer({
   onStop,
@@ -138,12 +150,21 @@ export function Composer({
   activeChat,
   selectedModel,
   selectedModelInfo,
+  defaultChatModel,
   onModeSelect,
   onModelSelect,
   modelLibrary,
   isModelMenuOpen,
   setIsModelMenuOpen,
   messages,
+  setApprovalRule,
+  isApprovalSaving,
+  isLoadingChats,
+  queuedMessages,
+  canQueue,
+  queueMessage,
+  removeQueued,
+  editQueued,
 }: Props) {
   useLocale();
   const isDocumentTool = modelMode === "chat" && DOCUMENT_TOOLS.has(choice.tool?.id ?? "");
@@ -152,6 +173,9 @@ export function Composer({
   const isCompact = modelMode === "chat" && choice.tool?.id === COMPACT_CONTEXT_TOOL;
   const canSend = isCompact || (isDocumentTool ? attachments.length > 0 || Boolean(choice.document) : Boolean(input.trim()) || attachments.length > 0);
   const allowedToolIds = activeChat?.assistantConfig?.tools;
+  // A task's conversation that names no model follows the default chat model.
+  const followsDefault = modelMode === "chat" && Boolean(activeChat?.task) && !activeChat?.task?.model;
+  const defaultModelName = (defaultChatModel && modelLibrary.find(model => modelRefKey(model) === modelRefKey(defaultChatModel))?.name) ?? defaultChatModel?.modelId ?? t("chat.toolbar.modelNone");
   const modelCanCallTools = selectedModelInfo?.supportsTools !== false;
   const openSettings = useOpenSettings();
   // A tool the model would have to call goes with a model that cannot, as it does with a template that does not allow it.
@@ -299,6 +323,19 @@ export function Composer({
       onDrop={onComposerDrop}
       onSubmit={onSubmit}
     >
+      {/* Written while the answer was still coming: sent in order once the conversation is free. */}
+      {queuedMessages.length ? (
+        <ol className="composer-queue" aria-label={t("chat.queue.label")}>
+          {queuedMessages.map(item => (
+            <li key={item.id} className="composer-queue-item">
+              <span className="composer-queue-text truncate">{item.text || item.attachments.map(file => file.filename ?? "").join(t("chat.composer.attachmentSeparator"))}</span>
+              <Button type="button" variant="ghost" size="icon-sm" className="composer-queue-action" aria-label={t("chat.queue.edit")} title={t("chat.queue.edit")} onClick={() => editQueued(item.id)}><PencilLine aria-hidden="true" /></Button>
+              <Button type="button" variant="ghost" size="icon-sm" className="composer-queue-action" aria-label={t("chat.queue.remove")} title={t("chat.queue.remove")} onClick={() => removeQueued(item.id)}><X aria-hidden="true" /></Button>
+            </li>
+          ))}
+          <li className="composer-queue-hint">{t("chat.queue.hint")}</li>
+        </ol>
+      ) : null}
       {modelMode === "chat" && toolCatalogError ? (
         <p className="text-[11px] text-warning">
           {tf("chat.composer.toolCatalogError", { detail: toolCatalogError })}
@@ -394,7 +431,7 @@ export function Composer({
         ) : null}
 
         <div className="flex items-end justify-between gap-2 px-3 pb-3">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+          <div className="composer-controls flex min-w-0 flex-1 flex-wrap items-center">
             {/* The native control renders untranslated browser chrome inside an
               otherwise Chinese UI, so the label carries the visible copy and the
               input names itself. The selected filenames are announced from our
@@ -430,7 +467,7 @@ export function Composer({
                 aria-label={t("chat.toolbar.modeChat")}
                 variant="ghost"
                 size="sm"
-                className="w-auto"
+                className="composer-control w-auto"
               >
                 <SelectValue />
               </SelectTrigger>
@@ -455,7 +492,8 @@ export function Composer({
               // Until the saved choice is read, the last model shown stands in for
               // it, rather than "选择模型" claiming no model is chosen. With no
               // model the placeholder says so; it is not an item to tick.
-              value={selectedModel && !isLoadingPreferences ? modelRefKey(selectedModel) : ""}
+              // A task that follows the default chat model shows that choice, not the model it resolves to.
+              value={followsDefault ? TASK_DEFAULT_MODEL : selectedModel && !isLoadingPreferences ? modelRefKey(selectedModel) : ""}
             >
               {/* Sized to the name; a different name eases to its width instead of pushing the tools aside. */}
               <SelectTrigger
@@ -463,12 +501,16 @@ export function Composer({
                 variant="ghost"
                 size="sm"
                 fluid
-                className="w-auto max-w-[200px] data-[placeholder]:text-foreground"
+                className="composer-control w-auto max-w-[200px]"
               >
                 <SelectValue className="truncate" placeholder={isLoadingPreferences ? rememberedModelLabel : t("chat.toolbar.modelNone")} />
               </SelectTrigger>
               <SelectContent>
-                {selectedModel &&
+                {activeChat?.task && modelMode === "chat" ? <>
+                  <SelectItem value={TASK_DEFAULT_MODEL}>{tf("chat.toolbar.taskDefaultModel", { name: defaultModelName })}</SelectItem>
+                  <SelectSeparator />
+                </> : null}
+                {!followsDefault && selectedModel &&
                 !modelLibrary.some(
                   (model) =>
                     modelRefKey(model) === modelRefKey(selectedModel) &&
@@ -498,6 +540,14 @@ export function Composer({
             </Select>}
             {isDocumentTool ? <DocumentToolBar document={choice.document} onDocumentChange={setToolDocument} format={choice.format} onFormatChange={setToolFormat} showFormat={choice.tool?.id === "convertDocument"} hasAttachments={attachments.length > 0} scope={activeChat?.documentScope} disabled={isPending} /> : null}
 
+            {/* Choosing a folder already lets the assistant work there; the rule beside the
+              context ring says what waits for the user first. */}
+            {modelMode === "chat" && selectedModelInfo?.supportsTools !== false ? <ApprovalRulePicker
+              rule={activeChat?.approvalRule ?? null}
+              locked={isPending}
+              saving={isApprovalSaving || isLoadingChats}
+              onSelect={setApprovalRule}
+            /> : null}
             {modelMode === "chat" && !isConvertTool ? <ContextUsage messages={messages} freedTokens={freedByCompaction} /> : null}
 
             {/* Visible hint stays exactly as before; this second, hidden node
@@ -539,6 +589,12 @@ export function Composer({
           {/* Stopping replaces sending while a turn is running. The label says
             exactly that: the request to the provider is abandoned, not undone,
             and anything already produced stays on screen. */}
+          {/* While an answer is coming, what is written now can wait its turn (Enter does the same). */}
+          {isWorking && canQueue ? (
+            <Button type="button" size="icon" variant="ghost" className="rounded-full" aria-label={t("chat.queue.add")} title={t("chat.queue.add")} onClick={queueMessage}>
+              <ListPlus aria-hidden="true" />
+            </Button>
+          ) : null}
           {isConverting ? <Button size="icon" className="rounded-full" disabled aria-label={t("ui.chat.composer.runningTool")}><Loader2 data-icon="inline-start" className="animate-spin" /></Button> : isWorking ? (
             <Button
               aria-label={t("chat.composer.stop")}

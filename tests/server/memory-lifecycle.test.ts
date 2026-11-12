@@ -100,7 +100,7 @@ test("an execution record bounds the turn and can be stopped without undoing it"
   const run = await startRun({ chatId: chat.id, goal: "整理资料并建任务" });
   assert.equal(run.status, "running");
 
-  const step = await recordStep({ runId: run.id, position: 1, kind: "tool", toolName: "createTask", state: "done", input: { title: "整理" }, output: { taskId: "t1" } });
+  const step = await recordStep({ runId: run.id, position: 1, kind: "tool", toolName: "createTask", state: "done", input: { title: "整理", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }, output: { taskId: "t1" } });
   assert.equal(step.state, "done");
 
   const budgeted = await startRun({ chatId: chat.id, goal: "会超预算的一轮", budget: { maxSteps: 1 } });

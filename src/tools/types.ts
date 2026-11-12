@@ -113,7 +113,8 @@ export type ToolDescriptor<Input = unknown, Output = unknown> = {
   /** The connection this tool comes from, as people named it. */
   extensionName?: string;
   extensionRevision?: number;
-  requiresApproval?: boolean | ((input: unknown) => Promise<boolean>);
+  /** Whether a call waits for the user; a function decides per call, from its input and the conversation it is in. */
+  requiresApproval?: boolean | ((input: unknown, context: { chatId?: string | null }) => Promise<boolean>);
   /**
    * Attaches whatever an approval is bound to, on the tool call itself.
    *

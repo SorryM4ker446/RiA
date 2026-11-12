@@ -4,6 +4,7 @@ import { browserApi } from "../helpers/browser-api";
 import { chosenWords, composerInput, slashOption } from "../helpers/slash-menu";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
+import { watchNetwork } from "../helpers/network";
 
 const TOOL_LESS = "vendor/no-tools", SECOND_TOOL_LESS = "vendor/no-tools-2", CAPABLE = "vendor/with-tools";
 const IMAGE = "vendor/picture";
@@ -19,6 +20,7 @@ async function library(page: Page, chat = TOOL_LESS) {
 const notice = (page: Page) => page.getByRole("alertdialog", { name: "当前模型的部分功能受限" });
 
 test("a model that cannot call tools is confirmed before chatting, once for each model", async ({ page }) => {
+  const network = watchNetwork(page);
   const consoleErrors: string[] = [];
   page.on("pageerror", error => consoleErrors.push(error.message));
   await library(page);
@@ -35,7 +37,7 @@ test("a model that cannot call tools is confirmed before chatting, once for each
   // Coming back in the same run of the app does not ask again.
   await page.reload();
   await expect(page.getByPlaceholder(/输入你的问题/)).toBeVisible();
-  await page.waitForLoadState("networkidle");
+  await network.settled();
   await expect(notice(page)).toHaveCount(0);
 
   // Another model that cannot is its own decision.
@@ -67,10 +69,11 @@ test("declining opens the model menu, and leaving it without a change asks again
 });
 
 test("a capable model, a media mode and a template with no tools are not asked about", async ({ page }) => {
+  const network = watchNetwork(page);
   await library(page, CAPABLE);
   await page.goto("/chat");
   await expect(page.getByPlaceholder(/输入你的问题/)).toBeVisible();
-  await page.waitForLoadState("networkidle");
+  await network.settled();
   await expect(notice(page)).toHaveCount(0);
 
   // The image model cannot call tools either, but image mode has no use for them.
@@ -84,7 +87,7 @@ test("a capable model, a media mode and a template with no tools are not asked a
   await page.route("**/api/conversations/bound**", route => route.fulfill({ json: { data: [] } }));
   await page.goto("/chat?conversationId=bound");
   await expect(page.getByPlaceholder(/输入你的问题/)).toBeVisible();
-  await page.waitForLoadState("networkidle");
+  await network.settled();
   await expect(notice(page)).toHaveCount(0);
 });
 
@@ -179,6 +182,7 @@ test("a request waiting for approval offers to change the model or give the requ
 });
 
 withTools("choosing a template that uses tools asks again, and what follows is the same as for the model", async ({ page, app }) => {
+  const network = watchNetwork(page);
   await openWorkspace(page, app.origin);
   await library(page);
   await page.goto(`${app.origin}/chat`);
@@ -204,7 +208,7 @@ withTools("choosing a template that uses tools asks again, and what follows is t
   // The same model with the same template is not asked about again.
   await page.reload();
   await expect(page.getByPlaceholder(/输入你的问题/)).toBeVisible();
-  await page.waitForLoadState("networkidle");
+  await network.settled();
   await expect(notice(page)).toHaveCount(0);
 });
 
@@ -221,7 +225,7 @@ withTools("giving up a request leaves the conversation free, and the next messag
   const chatId = "pending-approval";
   expect((await browserApi(page, "/api/conversations", "POST", { id: chatId, title: "Pending" })).status).toBe(201);
   expect((await browserApi(page, `/api/conversations/${chatId}/messages`, "POST", { role: "user", content: "帮我建一个任务", clientMessageId: "ask" })).status).toBe(201);
-  const pending = "__ASSISTANT_TOOL_MESSAGE__:" + JSON.stringify({ type: "assistant-tool-message", text: "需要你确认", tools: [{ toolName: "createTask", toolCallId: "call-1", state: "approval-requested", input: { title: "周报" }, approval: { id: "approval-1" } }] });
+  const pending = "__ASSISTANT_TOOL_MESSAGE__:" + JSON.stringify({ type: "assistant-tool-message", text: "需要你确认", tools: [{ toolName: "createTask", toolCallId: "call-1", state: "approval-requested", input: { title: "周报", prompt: "提醒我交周报。", cron: "0 9 * * 5", timeZone: "UTC" }, approval: { id: "approval-1" } }] });
   expect((await browserApi(page, `/api/conversations/${chatId}/messages`, "POST", { role: "assistant", content: pending, clientMessageId: "reply" })).status).toBe(201);
 
   await page.goto(`${app.origin}/chat?conversationId=${chatId}`);
@@ -231,7 +235,7 @@ withTools("giving up a request leaves the conversation free, and the next messag
   await region.getByRole("button", { name: "放弃请求", exact: true }).click();
   await expect(region).toHaveCount(0);
   expect(app.providerCalls.length, "giving up asks the model for nothing").toBe(calls);
-  expect(app.readRows("SELECT id FROM tasks")).toHaveLength(0);
+  expect(app.readRows("SELECT id FROM scheduled_jobs")).toHaveLength(0);
   const stored = app.readRows("SELECT content FROM messages WHERE clientMessageId='reply'")[0] as { content: string };
   expect(stored.content).toContain('"state":"output-denied"');
 

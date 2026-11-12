@@ -6,31 +6,56 @@ and execution records as other chat tools. It is unavailable in the web runtime.
 
 ## Enable and use
 
-1. Open **Workspace permissions** to the left of **Execution records** above the chat composer (or
+1. Open the workspace picker above the chat composer and choose **Manage folders…** (or
    **Settings → Workspace permissions**), choose
    a working folder and explicitly grant access. Choosing a folder alone does
    not authorize it. These machine-local permissions apply across conversations.
-2. Choose **Enable terminal** for that folder, choose **Approval** or **Full access**, and
-   confirm the separate terminal permission. **Approval** (the default) requires an
-   approve/reject decision for every terminal tool call. **Full access** runs LLM
-   terminal commands without per-call approval. Each call may contain a complete
-   script; approval covers the whole call rather than individual script statements.
-3. Select the conversation's workspace with the folder picker to the left of
-   **Workspace permissions**. See [Conversation workspace](#conversation-workspace).
+   A granted folder is one the model may work in, terminal included: there is no
+   separate step to enable the terminal. The page says, where the folder is added,
+   that commands run as the current Windows user and the folder is not a sandbox.
+2. Select the conversation's workspace with the same picker, to the left of
+   **Execution records**. See [Conversation workspace](#conversation-workspace).
+3. In the composer, left of the context-usage ring, the conversation's **approval rule** says what waits for you. See
+   [Approval rules](#approval-rules). Each call may contain a complete script;
+   approval covers the whole call rather than individual script statements.
 4. In a conversation with a model that supports tools, ask for a command, for
    example: “Run `Get-ChildItem` in the workspace, list the files and explain the result.”
-5. In **Approval** mode, review the compact approval card above the **Workspace / Workspace permissions / Execution records** toolbar. Its default view shows the operation, canonical working directory and approve/reject controls. Choose **View details** to expand the exact command in a bounded scroll area, then **Collapse details** to collapse it. Expansion follows the shared motion tokens and respects reduced motion. **Execution details** opens the corresponding execution record; full commands, inputs, outputs, status, sources and diagnostics remain there. Execution records do not open automatically. Each call needs its own decision; queued approvals are presented one at a time and each new item starts collapsed. In **Full access** mode execution starts automatically and the same execution records remain available.
+5. When a command waits for approval, review the compact approval card above the **Workspace / Execution records** toolbar. Its default view shows the operation, canonical working directory and approve/reject controls. Choose **View details** to expand the exact command in a bounded scroll area, then **Collapse details** to collapse it. Expansion follows the shared motion tokens and respects reduced motion. **Execution details** opens the corresponding execution record; full commands, inputs, outputs, status, sources and diagnostics remain there. Execution records do not open automatically. Each call needs its own decision; queued approvals are presented one at a time and each new item starts collapsed. Under **Full access** execution starts automatically and the same execution records remain available.
 6. Open **Execution details** to see live stdout, stderr and the exit code. Use
    **Stop command** to stop a long command. Stopping the chat request, cancelling its
-   execution record, changing terminal mode, disabling permission or revoking the folder also
-   stops the associated command.
+   execution record or revoking the folder also stops the associated command.
 
-Choose **Terminal: Approval** or **Terminal: Full access** beside a folder to change its mode.
-Mode changes invalidate pending commands as well as stopping running ones, so a
-command proposed under an older permission must be requested again. The mode is
-machine-local, applies across conversations, and survives app restart. Existing
-terminal grants retain **Approval** after upgrading; full access is never enabled by
-the migration. Disabling, re-granting or restoring resets the mode to **Approval**.
+## Approval rules
+
+Whether an action in the workspace waits for you is decided by the conversation's
+approval rule, not by the folder:
+
+| Rule | File edits (`editProjectFile`) | Terminal commands (`runTerminalCommand`) |
+| --- | --- | --- |
+| **Ask** (default) | Wait for approval of the shown diff | Wait for approval of the exact command |
+| **Accept edits** | Written directly | Wait for approval |
+| **Full access** | Written directly | Run without asking |
+
+Creating a task and extension tools ask under every rule. Reading files and logs never asks.
+
+The rule belongs to the conversation, so two conversations in one folder can work
+under different rules. Choose it with the **Approval rule** picker in the composer, left of the
+context-usage ring. It is there whether or not a folder is chosen yet; before the
+conversation exists it names the default a new one starts with. It applies from the next tool call, including in a tool set built before the
+change, and is restated to the model with the workspace on every request.
+A new conversation starts from the default in **Settings → Workspace permissions →
+Approval rule for new conversations**, which is **Ask** until changed; changing the
+default leaves existing conversations as they are. A task's conversation uses the
+task's own rule, set in the task form ([Tasks](tasks.md#what-a-task-decides)).
+
+Re-granting or revoking a folder still invalidates commands approved before it, so
+a command proposed earlier must be requested again.
+
+Upgrading moves approval off the folders (`20261114100000_approval_rules`): a
+conversation or task working in a folder that was set to full access gets **Full
+access**; everything else asks. Folders whose terminal was off become usable for
+commands, which still ask under **Ask**. Older builds cannot read the changed grants
+table; rolling back means restoring the backup taken before the upgrade.
 
 Approval continuations retain their server-issued run identities in the saved assistant message and appear as one request in execution records. Existing messages with one `runId` remain supported. Legacy rows without a link are joined only when one user-message window contains exactly one run and one saved assistant reply; ambiguous histories are not matched by title. Missing full details are labeled explicitly and existing step summaries remain expandable. No database migration or replay of old commands is needed.
 
@@ -49,15 +74,14 @@ creation time remain stable on replacement; media cleanup and summary changes
 remain in the same atomic transaction.
 
 Conversations created from templates retain their tool allowlist. Add
-**Run terminal command** to a custom template if needed. Legacy file-tool selections normalize to this tool, but no folder gains terminal permission automatically. Old approvals for retired file tools cannot execute; send a fresh request and review its terminal command.
+**Run terminal command** to a custom template if needed. Legacy file-tool selections normalize to this tool. Old approvals for retired file tools cannot execute; send a fresh request and review its terminal command.
 
 ## Conversation workspace
 
 Authorizing a folder and selecting it are separate. Authorization (**Workspace permissions**)
 is a machine-wide standing permission; each conversation then selects at most
 one authorized folder as its workspace in the picker above the composer. The
-picker lists only active grants, marks those without terminal access and offers
-**No workspace**. Choosing before the first message creates the conversation that
+picker lists only active grants and offers **No workspace**. Choosing before the first message creates the conversation that
 holds the choice. The choice is stored with the conversation
 (`PATCH /api/conversations/:id` with `workspaceGrantId`) and applies from the
 next message. It cannot change while a reply is generating, and sending waits
@@ -80,9 +104,9 @@ without a workspace until one is selected.
 
 ## Authority and limits
 
-Terminal permission is separate from choosing a folder and defaults to off,
-including for folders granted before upgrading. Commands run as the current
-Windows user. The working directory is **not a filesystem or network sandbox**;
+Granting a folder is what lets commands run in it; choosing it as a conversation's
+workspace is what lets that conversation use it, and the conversation's approval
+rule decides what waits for you. Commands run as the current Windows user. The working directory is **not a filesystem or network sandbox**;
 a command can access files outside it or start programs. There is no file-extension or fixed-operation allowlist for PowerShell. Do not put credentials into commands.
 The child receives an allowlist of OS environment variables, excluding RiA's
 API keys, database configuration and local service credentials. This does not
@@ -127,8 +151,8 @@ records and summaries keep the reference, so later steps and requests can read
 the omitted middle. Logs are bounded to 64 MiB per command and 512 MiB in total;
 beyond either, or on a write failure such as a full disk, a log is marked
 incomplete and the command result is unaffected. Reading requires the folder to
-still have terminal access. A folder's logs are deleted when its access is
-revoked, re-granted or turned off; logs are also removed with their conversation,
+still be granted. A folder's logs are deleted when its permission is
+revoked or re-granted; logs are also removed with their conversation,
 after a workspace restore, after seven days, and oldest first beyond the total
 size. Logs of commands still running are not removed for space. Logs are not part
 of workspace backups.
@@ -156,7 +180,7 @@ terminal execution in non-Windows production builds.
 ## Project file tools
 
 Wherever `runTerminalCommand` is offered, two file tools come with it, under the
-same folder terminal permission and approval mode; they add no permission of
+same granted folder and the conversation's approval rule; they add no permission of
 their own and appear in template tool lists through the terminal tool.
 
 - `readProjectFile` reads a UTF-8 text file by 1-based line range (default 400,

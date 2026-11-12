@@ -29,7 +29,7 @@ beforeEach(async (t: TestContext) => {
   globalThis.__riaRateLimitStore?.clear();
   await db.chat.deleteMany({});
   await db.agentRun.deleteMany({});
-  await db.task.deleteMany({});
+  await db.scheduledJob.deleteMany({});
   await db.memory.deleteMany({});
   await db.knowledgeDocument.deleteMany({});
   await seedTestModelPreferences(db);
@@ -49,9 +49,9 @@ test("with memory off the model cannot extract notes, while saving to the knowle
 test("parallel tool sets share one atomic step budget", async () => {
   const run = await startRun({ chatId: null, goal: "One task", budget: { maxSteps: 1 } });
   const [first, second] = await Promise.all([1, 2].map(() => createChatToolSet({ runId: run.id, toolIds: ["createTask"] })));
-  await Promise.all([first.createTask.execute!({ title: "First" }, options), second.createTask.execute!({ title: "Second" }, options)]);
+  await Promise.all([first.createTask.execute!({ title: "First", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }, options), second.createTask.execute!({ title: "Second", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }, options)]);
   assert.equal(await db.agentStep.count({ where: { runId: run.id } }), 1);
-  assert.equal(await db.task.count(), 1);
+  assert.equal(await db.scheduledJob.count(), 1);
 });
 
 test("a failed budget reservation cannot execute a task", async () => {
@@ -59,28 +59,29 @@ test("a failed budget reservation cannot execute a task", async () => {
   const tools = await createChatToolSet({ runId: run.id, toolIds: ["createTask"] });
   const transaction = db.$transaction;
   db.$transaction = async () => { throw new Error("Database reservation unavailable"); };
-  try { await tools.createTask.execute!({ title: "Must not exist" }, options); }
+  try { await tools.createTask.execute!({ title: "Must not exist", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }, options); }
   finally { db.$transaction = transaction; }
-  assert.equal(await db.task.count(), 0);
+  assert.equal(await db.scheduledJob.count(), 0);
   assert.equal(await db.agentStep.count({ where: { runId: run.id } }), 0);
 });
 
-test("only a topic or a template limits what a conversation searches", async () => {
+test("only a template narrows what a conversation searches", async () => {
   const { conversationCollections } = await import("@/lib/conversations/document-scope");
   const { updateConversationSchema } = await import("@/lib/conversations/mutations");
-  const stored = encodeDocumentScope(["财务"]);
-  assert.deepEqual(conversationCollections({ topicId: "topic", assistantConfig: null, documentScope: stored }), ["财务"]);
-  assert.deepEqual(conversationCollections({ topicId: null, assistantConfig: null, documentScope: stored }), [], "a value left by an earlier version or a deleted topic");
-  assert.equal(updateConversationSchema.safeParse({ documentScope: ["财务"] }).success, false, "a conversation cannot be narrowed by hand");
+  const template = { templateId: "t", templateRevision: 1, name: "Scoped", description: "", instructions: "Help.", model: null, tools: ["searchKnowledge"], collections: ["医疗"], usesMemory: true };
+  assert.deepEqual(conversationCollections({ assistantConfig: template }), ["医疗"]);
+  assert.deepEqual(conversationCollections({ assistantConfig: null }), [], "without a template, the whole library");
+  for (const documentScope of [["财务"], "财务", ""]) {
+    assert.equal(updateConversationSchema.safeParse({ documentScope }).success, false, "a conversation has no scope of its own to set");
+  }
 });
 
 test("collection names with separators remain exact across scope encoding and retrieval", async () => {
   await indexDocument({ filename: "exact.txt", collection: "A|B", format: "txt", byteSize: 10, pages: [{ pageNumber: null, text: "scopedneedle" }] });
   await indexDocument({ filename: "outside.txt", collection: "A", format: "txt", byteSize: 10, pages: [{ pageNumber: null, text: "scopedneedle" }] });
-  const chat = await db.chat.create({ data: { title: "Exact collection", documentScope: encodeDocumentScope(["A|B"]) } });
-  const saved = await db.chat.findUniqueOrThrow({ where: { id: chat.id } });
-  assert.deepEqual(decodeDocumentScope(saved.documentScope), ["A|B"]);
-  assert.deepEqual((await searchDocuments("scopedneedle", 4, decodeDocumentScope(saved.documentScope))).map(item => item.filename), ["exact.txt"]);
+  const stored = encodeDocumentScope(["A|B"]);
+  assert.deepEqual(decodeDocumentScope(stored), ["A|B"]);
+  assert.deepEqual((await searchDocuments("scopedneedle", 4, decodeDocumentScope(stored))).map(item => item.filename), ["exact.txt"]);
   assert.deepEqual(decodeDocumentScope("A|B"), ["A", "B"]);
   assert.deepEqual(decodeDocumentScope(encodeDocumentScope(["|scope:v1|", 'quote"\\name', "中文|资料"])), ['quote"\\name', "|scope:v1|", "中文|资料"].sort());
   assert.deepEqual(decodeDocumentScope(encodeDocumentScope([])), []);

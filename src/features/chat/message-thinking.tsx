@@ -4,6 +4,7 @@ import { ChevronRight } from "lucide-react";
 import { useLocale } from "@/lib/locale/client";
 import { t, tf } from "@/lib/locale";
 import type { readThinking } from "@/lib/chat/thinking";
+import type { TurnNotice } from "./page-utils";
 
 type Thinking = NonNullable<ReturnType<typeof readThinking>>;
 
@@ -138,8 +139,11 @@ export function MessageThinking({ thinking, live, reasoning, answering, toolName
   </details>;
 }
 
-/** Between sending and the first thing the model returns. */
-export function ReplyPending({ reasoning, organizing = false }: { reasoning: boolean; organizing?: boolean }) {
+/** Between sending and the first thing the model returns: waiting for a place, a retry, or the model itself. */
+export function ReplyPending({ reasoning, organizing = false, notice = null }: { reasoning: boolean; organizing?: boolean; notice?: TurnNotice | null }) {
   useLocale();
-  return <p className="reply-pending" role="status"><span className="thinking-live">{organizing ? t("chat.thinking.organizing") : reasoning ? t("chat.messages.reasoningLive") : t("chat.thinking.replying")}</span></p>;
+  const text = notice?.state === "queued" ? (notice.ahead > 0 ? tf("chat.thinking.queued", { ahead: notice.ahead }) : t("chat.thinking.queuedNext"))
+    : notice?.state === "retrying" ? tf("chat.thinking.retrying", { seconds: notice.seconds, attempt: notice.attempt })
+    : organizing ? t("chat.thinking.organizing") : reasoning ? t("chat.messages.reasoningLive") : t("chat.thinking.replying");
+  return <p className="reply-pending" role="status"><span className="thinking-live">{text}</span></p>;
 }

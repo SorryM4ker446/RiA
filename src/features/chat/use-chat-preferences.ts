@@ -15,6 +15,8 @@ export function useChatPreferences(activeChatId: string | null) {
   const [hydratedChatId, setHydratedChatId] = useState<string | null>(null);
   const [defaultsLoaded, setDefaultsLoaded] = useState(false), [preferencesError, setPreferencesError] = useState<string | null>(null);
   const accountDefaults = useRef(getDefaultChatPreferences());
+  // The account's default chat model, which a task without a model of its own follows.
+  const [defaultChatModel, setDefaultChatModel] = useState<ModelRef | null>(null);
   const defaultsErrorRef = useRef<string | null>(null);
   // Bumped whenever the settings window changes the model library or defaults,
   // so the chat offers what was just added without a reload. A reload after the
@@ -23,7 +25,7 @@ export function useChatPreferences(activeChatId: string | null) {
   useEffect(() => onModelPreferencesChanged(() => setDefaultsVersion(version => version + 1)), []);
   useEffect(() => {
     let active = true;
-    void loadAccountChatDefaults().then(value => { if (active) { accountDefaults.current = value.preferences; defaultsErrorRef.current = null; setModelLibrary(value.library); } })
+    void loadAccountChatDefaults().then(value => { if (active) { accountDefaults.current = value.preferences; defaultsErrorRef.current = null; setDefaultChatModel(value.preferences.selectedChatModel); setModelLibrary(value.library); } })
       .catch(error => { if (active) { const message = error instanceof Error ? error.message : t("chatPrefs.defaultsLoadFailed"); defaultsErrorRef.current = message; setPreferencesError(message); } })
       .finally(() => { if (active) setDefaultsLoaded(true); });
     return () => { active = false; };
@@ -95,6 +97,7 @@ export function useChatPreferences(activeChatId: string | null) {
     modelMode, setModelMode, selectedChatModel, selectedImageModel,
     selectedVideoModel, applyChatPreferences, onModelSelect,
     isLoadingPreferences: !defaultsLoaded, preferencesError, modelLibrary,
+    defaultChatModel,
     clearPreferencesError() { defaultsErrorRef.current = null; setPreferencesError(null); },
   };
 }

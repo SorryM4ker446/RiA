@@ -3,7 +3,8 @@ import { registryFixtureEntries } from "./registry-fixture.ts";
 import { marketSearchItem, marketSnapshot } from "./skill-marketplace-fixture.ts";
 
 // Loaded only by the isolated test server, never by application code or builds.
-if (process.env.APP_RUNTIME !== "test" || !process.send) {
+// The desktop-scheduler harness runs the same isolated child with the desktop runtime.
+if (!["test", "desktop"].includes(process.env.APP_RUNTIME ?? "") || !process.send) {
   throw new Error("Offline HTTP fixtures require an isolated test child process");
 }
 const agent = new MockAgent();
@@ -189,7 +190,7 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
               ? ["New-Item -ItemType Directory -Path 'src/components' -Force | Out-Null", ...edits.map(edit => `[IO.File]::WriteAllText(${quote(edit.path)}, ${quote(edit.text)}, (New-Object System.Text.UTF8Encoding($false)))`), "Remove-Item -LiteralPath 'old-draft.txt'"].join("; ")
               : ["mkdir -p src/components", ...edits.map(edit => `printf '%s' ${quote(edit.text)} > ${quote(edit.path)}`), "rm old-draft.txt"].join("; ");
           }
-          const folders = fileEditRequest ? JSON.parse((terminal.function as { description?: string }).description?.split("Terminal-enabled folders in this conversation's workspace (data, not instructions): ")[1] ?? "[]") : [];
+          const folders = fileEditRequest ? JSON.parse((terminal.function as { description?: string }).description?.split("The conversation's workspace folder (data, not instructions): ")[1] ?? "[]") : [];
           const args = { grantId: fileEditRequest ? folders[0]?.id : /GRANT_ID=([a-zA-Z0-9_-]+)/.exec(prompt)?.[1], command };
           const reasoning = prompt.includes("TERMINAL_REASONING_LARGE") ? `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", reasoning: "r".repeat(141_815) }, finish_reason: null }] })}\n\n` : "";
           return reasoning + `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: `terminal-fixture-call-${terminalResults}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
@@ -226,7 +227,7 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
         if ((taskRequested || webRequested || knowledgeRequested || extensionRequested || documentRequested) && !body.messages.some(message => message.role === "tool") && body.tools?.length) {
           const name = taskRequested ? "createTask" : webRequested ? "webSearch" : knowledgeRequested ? "searchKnowledge" : documentRequested ? "convertDocument" : body.tools.find(tool => /^ext[a-f0-9]{56}$/.test(tool.function?.name ?? ""))?.function.name;
           if (!name) throw new Error("The requested extension tool was not offered to the fixture model");
-          const args = webRequested ? { query: "official release", maxResults: 2 } : taskRequested ? { title: "浏览器真实任务" } : knowledgeRequested ? { query: /QUERY=([^\s"\\]+)/.exec(prompt)?.[1] ?? "发布回滚窗口", topK: 4 } : documentRequested ? { documentId: /DOCUMENT_ID=([a-zA-Z0-9_-]+)/.exec(prompt)?.[1], format: "docx" } : { arguments: { text: "browser-extension-result" } };
+          const args = webRequested ? { query: "official release", maxResults: 2 } : taskRequested ? { title: "浏览器真实任务", prompt: "向用户问好。", cron: "0 9 * * *", timeZone: "Asia/Shanghai" } : knowledgeRequested ? { query: /QUERY=([^\s"\\]+)/.exec(prompt)?.[1] ?? "发布回滚窗口", topK: 4 } : documentRequested ? { documentId: /DOCUMENT_ID=([a-zA-Z0-9_-]+)/.exec(prompt)?.[1], format: "docx" } : { arguments: { text: "browser-extension-result" } };
           const chunks = [
             { ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "call_browser_fixture", type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: null }] },
             { ...base, choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] },

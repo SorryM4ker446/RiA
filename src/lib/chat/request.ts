@@ -8,30 +8,39 @@ import { readJsonBody } from "@/lib/server/request-body";
 import { chatRequestSchema } from "@/lib/server/request-schemas";
 import { preferredModel, modelInLibrary, getModelPreferences } from "@/lib/models/preferences";
 import { validateUIMessages, type UIMessage } from "ai";
-import { readAssistantSnapshot } from "@/lib/assistants/schema";
 import { externalInputSchema, externalToolIdPattern } from "@/lib/extensions/schema";
 import { resolveToolDescriptor, toolAvailability } from "@/tools/registry";
 import { templateAllowsTool } from "@/tools/template-access";
+import { conversationModel, conversationModelSelect } from "@/lib/chat/conversation-model";
 
 export async function readChatRequest(req: Request) {
   // Terminal scripts are echoed in approvals and later history. Read them in
   // full rather than imposing a per-request limit on their input length.
-  const body = chatRequestSchema.parse(await readJsonBody(req, null));
+  return parseChatRequest(await readJsonBody(req, null));
+}
+
+/** A chat request from its body, wherever that came from: the page, or a task running on its own. */
+export async function parseChatRequest(raw: unknown) {
+  const body = chatRequestSchema.parse(raw);
   const messages = await validateUIMessages<UIMessage>({ messages: body.messages }).catch(() => {
     throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid message parts or tool state" });
   });
   const requestedChatId = body.chatId ?? body.conversationId ?? body.id;
-  const existing = requestedChatId ? await db.chat.findUnique({ where: { id: requestedChatId }, select: { id: true, topicId: true, assistantConfig: true, documentScope: true, ephemeral: true } }) : null;
-  const assistant = readAssistantSnapshot(existing?.assistantConfig);
-  if (assistant?.model && body.model && (body.model.providerId !== assistant.model.providerId || body.model.modelId !== assistant.model.modelId)) {
-    throw new ApiError({ code: "VALIDATION_ERROR", message: "会话使用模板绑定的模型，请移除模板后切换模型。" });
-  }
-  const modelRef = await preferredModel("chat", assistant?.model ?? body.model);
-  const model = await modelInLibrary("chat", modelRef);
+  const existing = requestedChatId ? await db.chat.findUnique({ where: { id: requestedChatId }, select: {
+    id: true, ...conversationModelSelect,
+  } }) : null;
   // Read once here so the chat call and every auxiliary call in the same turn
   // reason the same way, instead of each reading it at a different moment.
   const settings = await getModelPreferences();
-  const reasoning = settings.thinking;
+  // A task's conversation takes its model, memory switch and reasoning from the
+  // task; another, its model from a template that names one.
+  const { task, assistant, bound, memoryOff, thinking } = await conversationModel(existing, settings.thinking);
+  if (bound && body.model && (body.model.providerId !== bound.providerId || body.model.modelId !== bound.modelId)) {
+    throw new ApiError({ code: "VALIDATION_ERROR", message: task ? "This conversation belongs to a task and uses the task's model; change the model on the task." : "会话使用模板绑定的模型，请移除模板后切换模型。" });
+  }
+  const modelRef = await preferredModel("chat", bound ?? body.model);
+  const model = await modelInLibrary("chat", modelRef);
+  const reasoning = thinking ?? settings.thinking;
   const latestUserMessage = getLatestUserMessage(messages);
   const isApprovalResume = isToolApprovalContinuation(messages);
   if (isApprovalResume) {
@@ -73,6 +82,8 @@ export async function readChatRequest(req: Request) {
     });
   }
 
-  return { body, messages, modelRef, model, reasoning, latestUserMessage, isApprovalResume, requestedChatId, assistant, conversationPolicy: existing };
+  // The memory switch the turn honours is the task's for a task's conversation.
+  const conversationPolicy = existing ? { ...existing, ephemeral: memoryOff ?? existing.ephemeral } : null;
+  return { body, messages, modelRef, model, reasoning, latestUserMessage, isApprovalResume, requestedChatId, assistant, conversationPolicy };
 }
-export type ChatRequest = Awaited<ReturnType<typeof readChatRequest>>;
+export type ChatRequest = Awaited<ReturnType<typeof parseChatRequest>>;

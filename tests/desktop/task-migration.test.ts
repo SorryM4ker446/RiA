@@ -9,12 +9,14 @@ import { test } from "node:test";
 const require = createRequire(import.meta.url);
 const { runDesktopMigrations } = require("../../electron-dist/migrations.js");
 const migrationsDirectory = resolve("src/db/migrations");
+/** The last version that still kept to-dos; the one after it folds them into tasks. */
+const LAST_TODO_MIGRATION = "20261105160000_memory_resumed";
 
 test("task reminder migration retains legacy dates and defaults to no notifications or recurrence", () => {
   const root = mkdtempSync(join(tmpdir(), "ria-task-upgrade-"));
   const databaseFile = join(root, "app.db");
   const migration = "20260831090000_task_reminders";
-  const options = { databaseFile, migrationsDirectory, backupsDirectory: join(root, "backups"), logger: { info() {}, warn() {}, error() {} } };
+  const options = { databaseFile, migrationsDirectory, backupsDirectory: join(root, "backups"), logger: { info() {}, warn() {}, error() {} }, upToMigration: LAST_TODO_MIGRATION };
   try {
     const before = new DatabaseSync(databaseFile);
     try {
@@ -27,7 +29,7 @@ test("task reminder migration retains legacy dates and defaults to no notificati
       before.prepare("INSERT INTO tasks (id,userId,title,dueDate,updatedAt) VALUES ('task','owner','Legacy task',?,CURRENT_TIMESTAMP)").run(1788048000000);
     } finally { before.close(); }
     const applied = runDesktopMigrations(options);
-    assert.deepEqual(applied.applied, readdirSync(migrationsDirectory, { withFileTypes: true }).filter(entry => entry.isDirectory() && entry.name >= migration).map(entry => entry.name).sort());
+    assert.deepEqual(applied.applied, readdirSync(migrationsDirectory, { withFileTypes: true }).filter(entry => entry.isDirectory() && entry.name >= migration && entry.name <= LAST_TODO_MIGRATION).map(entry => entry.name).sort());
     assert.ok(applied.backupFile);
     const backup = new DatabaseSync(applied.backupFile, { readOnly: true });
     try {

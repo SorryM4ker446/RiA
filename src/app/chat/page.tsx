@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ChatToolbar } from "@/features/chat/chat-toolbar";
 import { Composer } from "@/features/chat/composer";
-import { ConversationList } from "@/features/chat/conversation-list";
 import { DeleteDialog } from "@/features/chat/delete-dialog";
 import { MessageRenderer } from "@/features/chat/message-renderer";
 import { RunRecords } from "@/features/chat/run-records";
@@ -52,7 +51,7 @@ export default function ChatPage() {
       <ToolLessModelNotice {...chat} />
       <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Card className="chat-canvas relative flex h-full min-h-0 flex-col overflow-hidden rounded-none border-0 bg-transparent shadow-none">
-          <ChatToolbar {...chat} rowRef={toolbarRow} conversationControls={<ConversationList {...chat} />} />
+          <ChatToolbar {...chat} rowRef={toolbarRow} />
 
           <CardContent className="flex min-h-0 flex-1 flex-col gap-0 p-0">
             <MessageRenderer {...chat} onShowSources={showExecutionDetails} />

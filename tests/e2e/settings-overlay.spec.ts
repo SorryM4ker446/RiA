@@ -102,18 +102,53 @@ test("saving model preferences keeps a default chat model changed elsewhere mean
   await openWorkspace(page, app.origin);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   await page.goto(`${app.origin}/chat?settings=models`);
-  await page.getByLabel("后台每日调用次数", { exact: true }).fill("3");
+  await page.getByLabel("每次请求压缩调用上限", { exact: true }).fill("30");
   // Another section clears the default chat model while this one still shows it.
   const current = await browserData(page, "/api/models");
   expect((await browserApi(page, "/api/models", "PUT", { ...current, chat: { ...current.chat, model: null } })).status).toBe(200);
   await page.getByRole("button", { name: "保存模型偏好", exact: true }).click();
   await expect(toasts(page)).toContainText("模型偏好已保存");
   const saved = await browserData(page, "/api/models");
-  expect(saved.callLimits.backgroundDailyCalls).toBe(3);
+  expect(saved.callLimits.compactionCallsPerTurn).toBe(30);
   expect(saved.chat.model).toBeNull();
   // The section now shows what was stored, so closing has nothing to discard.
   await page.keyboard.press("Escape");
   await expect(settingsDialog(page)).toBeHidden();
+});
+
+test("background task rules are checked where they are typed and save only what they show", async ({ page, app }) => {
+  await openWorkspace(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  await page.goto(`${app.origin}/chat?settings=automation`);
+  const rules = page.getByRole("region", { name: "后台任务规则", exact: true });
+  const runs = rules.getByLabel("每日自动运行次数", { exact: true });
+  // The top of the range by default: the money limits are what bound spending, when set.
+  await expect(runs).toHaveValue("1000");
+  const save = rules.getByRole("button", { name: "保存", exact: true });
+  await expect(save).toBeDisabled();
+  for (const [label, value, message] of [
+    ["每日自动运行次数", "1.5", "请输入 0–1,000 之间的整数"],
+    ["单次调用预估上限 USD", "-1", "请输入 0–1,000,000 之间的金额，或留空表示不限制"],
+  ]) {
+    const input = rules.getByLabel(label, { exact: true }); const before = await input.inputValue();
+    await input.fill(value);
+    await expect(input).toHaveAttribute("aria-invalid", "true");
+    await expect(rules.getByRole("alert").filter({ hasText: message })).toBeVisible();
+    await expect(save).toBeDisabled();
+    await input.fill(before);
+  }
+  await runs.fill("3");
+  await rules.getByLabel("每日预估上限 USD", { exact: true }).fill("0.5");
+  // A model choice saved elsewhere meanwhile is kept.
+  const current = await browserData(page, "/api/models");
+  expect((await browserApi(page, "/api/models", "PUT", { ...current, chat: { ...current.chat, model: null } })).status).toBe(200);
+  await save.click();
+  await expect(toasts(page)).toContainText("后台任务规则已保存");
+  const saved = await browserData(page, "/api/models");
+  expect(saved.callLimits).toMatchObject({ backgroundDailyCalls: 3, backgroundDailyEstimatedUsd: 0.5, backgroundMaxEstimatedUsd: null, maxConcurrent: current.callLimits.maxConcurrent });
+  expect(saved.chat.model).toBeNull();
+  await page.reload();
+  await expect(page.getByRole("region", { name: "后台任务规则", exact: true }).getByLabel("每日自动运行次数", { exact: true })).toHaveValue("3");
 });
 
 test("expanding a section brings it into view without shifting the content sideways", async ({ page, app }) => {

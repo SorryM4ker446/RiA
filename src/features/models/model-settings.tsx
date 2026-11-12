@@ -36,18 +36,16 @@ const modeNames = (): Record<LibraryMode, string> => ({ chat: t("models.mode.cha
 // with one either.
 const UNSET = "__unset__";
 const toSelectValue = (ref: ModelRef | null) => (ref ? modelRefKey(ref) : UNSET);
-type CallLimitKey = keyof typeof callLimitRanges;
+// The background limits are edited with the other rules for tasks, under Automation & notifications.
+type CallLimitKey = "maxConcurrent" | "compactionCallsPerTurn";
 const callLimitFields = (): [CallLimitKey, string][] => [
   ["maxConcurrent", t("ui.models.maximumConcurrentCalls")],
   ["compactionCallsPerTurn", t("ui.models.compactionCallsPerTurn")],
-  ["backgroundDailyCalls", t("ui.models.dailyBackgroundCalls")],
-  ["backgroundMaxEstimatedUsd", t("ui.models.estimatedLimitPerBackgroundCallUSD")],
-  ["backgroundDailyEstimatedUsd", t("ui.models.estimatedDailyBackgroundLimitUSD")],
 ];
 /** The call limits the server would refuse, found before saving so each can be pointed out where it is typed. */
 function callLimitProblems(limits: ModelPreferences["callLimits"]) {
   const problems = new Set<CallLimitKey | "timeZone">();
-  for (const key of Object.keys(callLimitRanges) as CallLimitKey[]) {
+  for (const key of ["maxConcurrent", "compactionCallsPerTurn"] as CallLimitKey[]) {
     const range = callLimitRanges[key], value = limits[key];
     if (value === null && !range.integer) continue;
     if (value === null || !Number.isFinite(value) || value < range.min || value > range.max || (range.integer && !Number.isInteger(value))) problems.add(key);

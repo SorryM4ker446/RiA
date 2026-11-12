@@ -4,12 +4,13 @@ import { pruneTerminalLogs } from "@/lib/terminal/logs";
 import { activeTerminalSessionIds } from "@/lib/terminal/runtime";
 import { ApiError } from "@/lib/server/api-error";
 import { truncateTitle } from "@/lib/ai/ui-message";
-import { chatTagSchema, conversationSummary } from "@/lib/conversations/query";
-import { encodeDocumentScope } from "@/lib/documents/scope";
+import { awaitingApproval, chatTagSchema, conversationInclude, conversationSummary } from "@/lib/conversations/query";
 import { Prisma } from "@prisma/client";
 import { assistantIdSchema, readAssistantSnapshot } from "@/lib/assistants/schema";
 import { resolveAssistant } from "@/lib/assistants/store";
 import { assertSelectableWorkspace } from "@/lib/local-files/workspace";
+import { approvalRuleSchema } from "@/lib/approvals/rules";
+import { announceConversationsChanged } from "@/lib/conversations/events";
 
 export const updateConversationSchema = z.strictObject({
   title: z.string().trim().min(1).max(200).optional(),
@@ -18,8 +19,11 @@ export const updateConversationSchema = z.strictObject({
   ephemeral: z.boolean().optional(),
   // One granted folder, or null to work without one.
   workspaceGrantId: z.string().trim().min(1).max(200).nullable().optional(),
+  approvalRule: approvalRuleSchema.optional(),
   assistantTemplateId: assistantIdSchema.nullable().optional(),
   tags: z.array(chatTagSchema).max(8).transform(tags => [...new Set(tags)].sort()).optional(),
+  // Opening a conversation reads what arrived in it; only the service marks it unread.
+  unread: z.literal(false).optional(),
 }).refine(value => Object.keys(value).length > 0, "At least one field is required")
   .refine(value => value.assistantTemplateId === undefined || value.ephemeral === undefined, "Apply a template separately from memory overrides");
 
@@ -29,10 +33,20 @@ export const bulkDeleteSchema = z.strictObject({
 });
 
 export async function updateConversation(id: string, input: z.infer<typeof updateConversationSchema>) {
+  // A task's conversation belongs to the task: it stays a general-assistant
+  // conversation, and its folder, approval rule and memory switch are the
+  // task's, changed on the task.
+  const ownedByTask = input.assistantTemplateId || input.workspaceGrantId !== undefined || input.approvalRule !== undefined || input.ephemeral !== undefined;
+  if (ownedByTask && await db.scheduledJob.count({ where: { chatId: id } })) {
+    throw new ApiError({ code: "CONFLICT", message: input.assistantTemplateId
+      ? "A task's conversation always uses the general assistant; templates cannot be applied to it."
+      : input.workspaceGrantId !== undefined ? "A task's conversation works in the task's folder; change the folder on the task."
+      : "A task's conversation follows the task's settings; change them on the task." });
+  }
   const selectedAssistant = input.assistantTemplateId ? await resolveAssistant(input.assistantTemplateId) : null;
   if (input.workspaceGrantId !== undefined) await assertSelectableWorkspace(input.workspaceGrantId);
-  return db.$transaction(async tx => {
-    const current = await tx.chat.findFirst({ where: { id }, select: { title: true, assistantConfig: true, topicId: true, ephemeral: true } });
+  const updated = await db.$transaction(async tx => {
+    const current = await tx.chat.findFirst({ where: { id }, select: { title: true, assistantConfig: true, ephemeral: true } });
     if (!current) throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
     const assistant = selectedAssistant;
     // Only a placeholder or the previous template's default name follows the
@@ -47,8 +61,7 @@ export async function updateConversation(id: string, input: z.infer<typeof updat
       ...(current.ephemeral && !ephemeral ? { memoryResumedAt: new Date() } : {}),
       ...(input.assistantTemplateId !== undefined ? {
         assistantConfig: assistant ?? Prisma.DbNull,
-        // A topic's conversation stays on the topic's selection, whichever template it uses.
-        ...(assistant ? { ...(current.topicId ? {} : { documentScope: encodeDocumentScope(assistant.collections) }), ephemeral: !assistant.usesMemory } : {}),
+        ...(assistant ? { ephemeral: !assistant.usesMemory } : {}),
         historyRevision: { increment: 1 }, summary: null, summaryUpToMessageId: null, summaryModelId: null, summaryRevision: null, summaryState: null,
       } : {}),
       ...(title !== undefined ? { title: truncateTitle(title) } : {}),
@@ -56,10 +69,24 @@ export async function updateConversation(id: string, input: z.infer<typeof updat
       ...(input.archived !== undefined ? { archived: input.archived } : {}),
       ...(input.ephemeral !== undefined ? { ephemeral: input.ephemeral } : {}),
       ...(input.workspaceGrantId !== undefined ? { workspaceGrantId: input.workspaceGrantId } : {}),
+      ...(input.approvalRule !== undefined ? { approvalRule: input.approvalRule } : {}),
+      ...(input.unread !== undefined ? { unread: false } : {}),
       ...(input.tags !== undefined ? { tags: { deleteMany: {}, create: input.tags.map(label => ({ label })) } } : {}),
-    }, include: { tags: { orderBy: { label: "asc" } }, _count: { select: { messages: true } } } });
-    return conversationSummary(chat);
+    }, include: conversationInclude });
+    return conversationSummary(chat, (await awaitingApproval([chat.id], tx)).has(chat.id));
   });
+  announceConversationsChanged();
+  return updated;
+}
+
+/**
+ * A turn ended in a conversation: what it said is there to read, unless the
+ * user stopped it there themselves. Gone by now (deleted mid-turn), nothing changes.
+ */
+export async function markTurnAnswered(chatId: string, outcome: string) {
+  if (outcome === "stopped") return;
+  await db.chat.updateMany({ where: { id: chatId }, data: { unread: true } });
+  announceConversationsChanged();
 }
 
 export async function deleteConversations(ids: string[]) {
@@ -72,5 +99,6 @@ export async function deleteConversations(ids: string[]) {
   });
   // Runs cascade with their conversations; remove the terminal logs they owned.
   await pruneTerminalLogs(activeTerminalSessionIds()).catch(() => console.error("terminal.log.prune.failed"));
+  announceConversationsChanged();
   return deleted;
 }

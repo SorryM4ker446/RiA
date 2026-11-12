@@ -55,25 +55,43 @@ const fromOn = (row: StoredPosition) => ({ OR: [{ createdAt: { gt: row.createdAt
  * messages stay authoritative; only what precedes them is filled in.
  *
  * A summary written for an earlier revision of the history is not an anchor.
+ *
+ * A new message can also be sent from a page that loaded the conversation
+ * before something else wrote to it: a task's run, another window. With
+ * `fillNewer`, the stored turns after the last one the page had are put before
+ * the new message too, so the model answers the conversation as it is rather
+ * than as the page last saw it.
  */
-async function storedConversation(chatId: string | undefined, messages: UIMessage[]): Promise<{ messages: UIMessage[]; anchor: string[] }> {
+async function storedConversation(chatId: string | undefined, messages: UIMessage[], fillNewer = false): Promise<{ messages: UIMessage[]; anchor: string[] }> {
   if (!chatId) return { messages, anchor: [] };
   const covered = await coveredMessage(chatId);
   const anchor = idsOf(covered);
-  const first = messages[0];
-  const firstStored = first
-    ? await db.message.findFirst({ where: { chatId, OR: [{ id: first.id }, { clientMessageId: first.id }] }, select: { id: true, createdAt: true } })
-    : null;
-  if (!firstStored) return { messages, anchor };
-  const older = await db.message.findMany({
-    where: { chatId, AND: [before(firstStored), ...(covered ? [fromOn(covered)] : [])] },
-    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    select: { id: true, clientMessageId: true, role: true, content: true },
-  });
-  if (!older.length) return { messages, anchor };
+  const select = { id: true, clientMessageId: true, role: true, content: true, createdAt: true } as const;
   const sent = new Set(messages.map(message => message.id));
-  const filled = mapStoredMessagesToUI(older).uiMessages.filter(message => !sent.has(message.id));
-  return { messages: [...filled, ...messages], anchor };
+  const sentIds = [...sent];
+  const storedSent = sentIds.length
+    ? await db.message.findMany({ where: { chatId, OR: [{ id: { in: sentIds } }, { clientMessageId: { in: sentIds } }] }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { id: true, createdAt: true, clientMessageId: true } })
+    : [];
+  const first = messages[0];
+  const firstStored = first ? storedSent.find(row => row.id === first.id || row.clientMessageId === first.id) ?? null : null;
+  const older = firstStored ? await db.message.findMany({
+    where: { chatId, AND: [before(firstStored), ...(covered ? [fromOn(covered)] : [])] },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }], select,
+  }) : [];
+  let filledNewer: typeof older = [];
+  const latest = messages.at(-1);
+  if (fillNewer && latest?.role === "user" && !storedSent.some(row => row.id === latest.id || row.clientMessageId === latest.id)) {
+    const lastStored = storedSent.at(-1);
+    // Nothing the page sent is stored: everything the summary does not stand in for comes first.
+    filledNewer = await db.message.findMany({
+      where: { chatId, AND: [lastStored ? { OR: [{ createdAt: { gt: lastStored.createdAt } }, { createdAt: lastStored.createdAt, id: { gt: lastStored.id } }] } : {}, ...(!lastStored && covered ? [fromOn(covered)] : [])] },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }], select,
+    });
+  }
+  if (!older.length && !filledNewer.length) return { messages, anchor };
+  const toUI = (rows: typeof older) => mapStoredMessagesToUI(rows).uiMessages.filter(message => !sent.has(message.id));
+  const newer = toUI(filledNewer);
+  return { messages: [...toUI(older), ...(newer.length ? [...messages.slice(0, -1), ...newer, latest!] : messages)], anchor };
 }
 
 /** The last message the current summary covers; a summary of an earlier history covers nothing. */
@@ -196,7 +214,7 @@ export async function keepRequestContext(chatId: string, messageId: string | und
 
 export async function prepareModelContext(input: ChatRequest, signal?: AbortSignal) {
   const { model } = input;
-  const { messages, anchor } = await storedConversation(input.requestedChatId, input.messages);
+  const { messages, anchor } = await storedConversation(input.requestedChatId, input.messages, input.body.trigger !== "regenerate-message" && !input.isApprovalResume);
   const effectiveMessages = model?.supportsImageInput
     ? messages
     : stripFilePartsForTextOnlyModel(messages);

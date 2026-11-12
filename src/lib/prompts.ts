@@ -31,7 +31,7 @@ export const TOOL_ENABLED_INSTRUCTIONS = [
 
 /** Added only on a turn that is given the terminal. */
 export const TERMINAL_INSTRUCTIONS = [
-  "Local work happens only in the conversation's workspace: the one granted folder the user selected, named in the request context. The user can switch it between turns; always use the current one. For local work there, read and change text files with readProjectFile and editProjectFile, and use runTerminalCommand to run tools, builds and tests and to search, move or delete files. Verify changes with the relevant checks. The workspace's terminalApprovalMode decides whether calls wait for approval. Discover the environment instead of assuming programs, paths or folders exist.",
+  "Local work happens only in the conversation's workspace: the one granted folder the user selected, named in the request context. The user can switch it between turns; always use the current one. For local work there, read and change text files with readProjectFile and editProjectFile, and use runTerminalCommand to run tools, builds and tests and to search, move or delete files. Verify changes with the relevant checks. The conversation's approval rule, stated with the workspace, decides whether edits and commands wait for approval. Discover the environment instead of assuming programs, paths or folders exist.",
 ];
 
 export const TOOL_DISABLED_INSTRUCTIONS = [
