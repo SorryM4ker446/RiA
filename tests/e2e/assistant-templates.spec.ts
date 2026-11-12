@@ -80,7 +80,8 @@ test("template editing, copying and deletion preserve conversation snapshots acr
   await page.goto(`${app.origin}/chat`); await expectSnapshotDetails(page, 1, 0);
   await expect(page.getByRole("button", { name: "更新为最新模板", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "更新为最新模板" }).click(); await expectSnapshotDetails(page, 2, 0);
-  await app.restart(); await page.reload(); await expectSnapshotDetails(page, 2, 0);
+  // Off the app while the service restarts: the page keeps a connection open to it, and a reset one logs an error.
+  { const here = page.url(); await page.goto("about:blank"); await app.restart(); await page.goto(here); } await expectSnapshotDetails(page, 2, 0);
   await page.goto(`${app.origin}/assistants`); await card.getByRole("button", { name: /更多操作/ }).click(); await page.getByRole("menuitem", { name: "创建副本", exact: true }).click();
   await expect(page.getByLabel("模板名称", { exact: true })).toHaveValue("财务测试助理 副本");
   await page.getByRole("button", { name: "保存模板", exact: true }).click(); await expect(toasts(page)).toContainText("模板已保存");
@@ -190,7 +191,7 @@ test("switching templates refreshes the default title immediately and persists i
   await select.click(); await page.getByRole("option", { name: "代码助理", exact: true }).click();
   await expect(select).toContainText("代码助理");
   await expect(title).toHaveText("自定义工作记录");
-  await app.restart(); await page.reload(); await expect(title).toHaveText("自定义工作记录");
+  { const here = page.url(); await page.goto("about:blank"); await app.restart(); await page.goto(here); } await expect(title).toHaveText("自定义工作记录");
   expect(app.providerCalls).toHaveLength(0);
 });
 

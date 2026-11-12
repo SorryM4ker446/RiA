@@ -6,7 +6,7 @@ import { openRecentConversations } from "../helpers/conversations";
 // The conversations in the sidebar, against a mocked service: their sections,
 // what their dots say, and what their menu changes, on the chat page and off it.
 
-type Summary = { id: string; title: string; lastMessageAt: string; messageCount: number; pinned?: boolean; archived?: boolean; awaitingApproval?: boolean; task?: { id: string; model: null; running: boolean } | null };
+type Summary = { id: string; title: string; lastMessageAt: string; messageCount: number; pinned?: boolean; archived?: boolean; awaitingApproval?: boolean; answering?: boolean; unread?: boolean; task?: { id: string; model: null; running: boolean } | null };
 const now = new Date().toISOString();
 const summary = (id: string, title: string, extra: Partial<Summary> = {}): Summary => ({ id, title, lastMessageAt: now, messageCount: 1, ...extra });
 
@@ -38,12 +38,14 @@ async function service(page: Page, chats: Summary[]) {
 
 test("conversations sort into pinned, scheduled tasks and the rest, and say which need attention", async ({ page }) => {
   await panels(page);
-  await service(page, [
+  const patches = await service(page, [
     summary("pinned", "置顶的会话", { pinned: true }),
     summary("brief", "每日简报", { task: { id: "t1", model: null, running: true } }),
     summary("weekly", "周报", { task: { id: "t2", model: null, running: false }, lastMessageAt: new Date(Date.now() - 86_400_000).toISOString() }),
     summary("waiting", "等着批准的会话", { awaitingApproval: true }),
     summary("plain", "普通会话"),
+    summary("elsewhere", "别处在回答", { answering: true, lastMessageAt: new Date(Date.now() - 2 * 60_000).toISOString() }),
+    summary("unseen", "没看过的回答", { unread: true, lastMessageAt: new Date(Date.now() - 3 * 60_000).toISOString() }),
     // Last in what the service returns (a conversation kept from beyond its first page), yet the latest.
     summary("latest", "刚刚回答的会话", { lastMessageAt: new Date(Date.now() + 60_000).toISOString() }),
   ]);
@@ -53,7 +55,7 @@ test("conversations sort into pinned, scheduled tasks and the rest, and say whic
   await expect(section("置顶").locator(".sidebar-chat-open")).toHaveText(["置顶的会话"]);
   await expect(section("定时任务").locator(".sidebar-chat-open")).toHaveText([/^每日简报/, /^周报/]);
   // The rest in one list, most recently active first.
-  await expect(section("最近").locator(".sidebar-chat-open")).toHaveText([/^刚刚回答的会话/, /^等着批准的会话/, /^普通会话/]);
+  await expect(section("最近").locator(".sidebar-chat-open")).toHaveText([/^刚刚回答的会话/, /^等着批准的会话/, /^普通会话/, /^别处在回答/, /^没看过的回答/]);
   // A task's conversation carries its marker; the others do not.
   await expect(section("定时任务").getByRole("img", { name: "定时任务的会话", exact: true })).toHaveCount(2);
   await expect(section("最近").getByRole("img", { name: "定时任务的会话", exact: true })).toHaveCount(0);
@@ -67,6 +69,16 @@ test("conversations sort into pinned, scheduled tasks and the rest, and say whic
   await expect(row("等着批准的会话")).toHaveAccessibleName(/等你批准/);
   await expect(row("等着批准的会话").locator(".sidebar-chat-dot")).toHaveAttribute("data-state", "approval");
   await expect(row("周报").locator(".sidebar-chat-dot")).not.toHaveAttribute("data-state", /.+/);
+  // Answering in another window or by the service, and an answer not opened yet.
+  await expect(row("别处在回答")).toHaveAccessibleName(/正在回答/);
+  await expect(row("别处在回答").locator(".sidebar-chat-dot")).toHaveAttribute("data-state", "working");
+  await expect(row("没看过的回答")).toHaveAccessibleName(/有新回答/);
+  await expect(row("没看过的回答").locator(".sidebar-chat-dot")).toHaveAttribute("data-state", "unread");
+  // Opened, it is read: the dot goes, and the service is told.
+  await row("没看过的回答").click();
+  await expect(page.locator(".chat-toolbar h3")).toHaveText("没看过的回答");
+  await expect(row("没看过的回答").locator(".sidebar-chat-dot")).not.toHaveAttribute("data-state", /.+/);
+  await expect.poll(() => patches.some(patch => patch.id === "unseen" && patch.body.unread === false)).toBe(true);
   await expect(row("普通会话").locator(".sidebar-chat-dot")).not.toHaveAttribute("data-state", /.+/);
 
   // A section folds away, and stays folded the next time the app opens.

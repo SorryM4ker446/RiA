@@ -353,6 +353,28 @@ test("a task can be run now whether or not it is on, and stopped while it runs",
   await assert.rejects(startTaskNow(task.id), (error: { code?: string }) => error.code === "NOT_FOUND");
 });
 
+test("a run due while the user is getting an answer in its conversation waits for that answer, then runs", async () => {
+  const { holdTurn, isTurnLive } = await import("@/lib/chat/live-turns");
+  const task = await createTask(prompt());
+  await (await startTaskNow(task.id)).finished;
+  const chatId = (await db.scheduledJob.findUniqueOrThrow({ where: { id: task.id } })).chatId!;
+  // The user's turn in that conversation, held open by the test.
+  let end!: () => void;
+  const yours = await holdTurn(chatId, async () => new Response(new ReadableStream({ start(controller) { end = () => controller.close(); } }), { headers: { "content-type": "text/event-stream" } }), { source: "chat" });
+  const reading = new Response(yours.body).text();
+  await makeDue(task.id);
+  const started = await startDueTask(new Date());
+  assert.ok(started);
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal((await db.message.count({ where: { chatId, role: "assistant" } })), 1, "the run has not answered while the user's turn runs");
+  assert.equal(isTurnLive(chatId), true);
+  end();
+  await reading;
+  const outcome = await started!.finished;
+  assert.equal(outcome.status, "succeeded", "it ran once the conversation was free, rather than failing");
+  assert.equal(await db.message.count({ where: { chatId, role: "assistant" } }), 2);
+});
+
 // --- telling the user ----------------------------------------------------------
 
 test("a notice is handed to the desktop once, and again only after the task runs again", async () => {

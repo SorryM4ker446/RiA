@@ -122,7 +122,8 @@ test("background task rules are checked where they are typed and save only what 
   await page.goto(`${app.origin}/chat?settings=automation`);
   const rules = page.getByRole("region", { name: "后台任务规则", exact: true });
   const runs = rules.getByLabel("每日自动运行次数", { exact: true });
-  await expect(runs).toHaveValue("20");
+  // The top of the range by default: the money limits are what bound spending, when set.
+  await expect(runs).toHaveValue("1000");
   const save = rules.getByRole("button", { name: "保存", exact: true });
   await expect(save).toBeDisabled();
   for (const [label, value, message] of [

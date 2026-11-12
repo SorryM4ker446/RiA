@@ -25,6 +25,7 @@ const { saveChatMessage } = await import("@/lib/chat/store");
 const { readChatRequest } = await import("@/lib/chat/request");
 const { prepareChatPersistence, persistChatResponse } = await import("@/lib/chat/persistence");
 const chat = await import("@/app/api/chat/route");
+const { stopTurn, isTurnLive } = await import("@/lib/chat/live-turns");
 const { indexDocument, deleteDocument } = await import("@/lib/documents/store");
 const { decodePersistedAssistantToolMessage, encodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
 const { mapStoredMessagesToUI } = await import("@/features/chat/page-utils");
@@ -197,14 +198,13 @@ test("citations stored by an earlier answer stay readable, and survive deleting 
 });
 
 for (const regenerate of [false, true]) {
-  test(`aborting ${regenerate ? "regeneration preserves the original answer" : "a chat stream never records partial output as successful"}`, { timeout: 15_000 }, async () => {
+  test(`stopping ${regenerate ? "regeneration preserves the original answer" : "a chat stream never records partial output as successful"}`, { timeout: 15_000 }, async () => {
     const owned = await db.chat.create({ data: { title: "Abort" } });
     await saveChatMessage({ chatId: owned.id, role: "user", content: "Question", clientMessageId: "user-1" });
     if (regenerate) await saveChatMessage({ chatId: owned.id, role: "assistant", content: "Original answer", clientMessageId: "answer-1" });
     let release;
     providerState.streamGate = new Promise((resolve) => { release = resolve; });
-    const controller = new AbortController();
-    const response = await chat.POST(request({ chatId: owned.id, ...(regenerate ? { trigger: "regenerate-message" } : {}), messages: [ui("user-1", "user", "Question")] }, controller.signal));
+    const response = await chat.POST(request({ chatId: owned.id, ...(regenerate ? { trigger: "regenerate-message" } : {}), messages: [ui("user-1", "user", "Question")] }));
     const reader = response.body.getReader();
     let wire = "";
     try {
@@ -213,7 +213,8 @@ for (const regenerate of [false, true]) {
         assert.equal(chunk.done, false);
         wire += new TextDecoder().decode(chunk.value);
       }
-      controller.abort();
+      // The service holds the turn; stopping it there is what ends it.
+      assert.equal(stopTurn(owned.id), true);
       release();
       while (!(await reader.read()).done) { /* Drain persistence callbacks before touching SQLite. */ }
     } finally { release(); reader.releaseLock(); }
@@ -227,15 +228,20 @@ for (const regenerate of [false, true]) {
   });
 }
 
-test("disconnecting the HTTP stream keeps restore blocked until background persistence settles", {timeout:15000}, async()=>{
+test("leaving the HTTP stream leaves the turn running to its end, and restore blocked until it is saved", {timeout:15000}, async()=>{
   let release;providerState.streamGate=new Promise(resolve=>{release=resolve;});
-  const response=await chat.POST(request({messages:[ui("disconnect","user","Question")]}));
+  const owned=await db.chat.create({data:{title:"Left"}});
+  const response=await chat.POST(request({chatId:owned.id,messages:[ui("disconnect","user","Question")]}));
   const reader=response.body.getReader();let wire="";
   try {
     while(!wire.includes("text-delta")){const item=await reader.read();assert.equal(item.done,false);wire+=new TextDecoder().decode(item.value);}
-    await reader.cancel();await assert.rejects(exclusiveDataOperation(async()=>{}),/仍有请求/);
+    await reader.cancel();assert.equal(isTurnLive(owned.id),true,"the reader leaving does not end the turn");await assert.rejects(exclusiveDataOperation(async()=>{}),/仍有请求/);
   } finally {release();reader.releaseLock();}
   const deadline=Date.now()+5000;let settled=false;
   while(Date.now()<deadline){try{await exclusiveDataOperation(async()=>{});settled=true;break;}catch{await new Promise(resolve=>setTimeout(resolve,10));}}
-  assert.equal(settled,true);assert.equal(await db.message.count({where:{chat:{},role:"assistant"}}),1);
+  assert.equal(settled,true);
+  // Answered in full, not cut short where the reader left.
+  const saved=await db.message.findMany({where:{chatId:owned.id,role:"assistant"}});
+  assert.equal(saved.length,1);assert.equal(saved[0].status,"success");
+  assert.equal(isTurnLive(owned.id),false);
 });

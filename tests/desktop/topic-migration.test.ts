@@ -57,7 +57,10 @@ test("removing knowledge topics leaves ordinary conversations behind and turns f
       chat.run("template-chat", "模板对话", null, "医疗", JSON.stringify({ templateId: "t" }), at);
       before.prepare("INSERT INTO messages (id,chatId,role,content) VALUES ('kept-message','topic-chat','user','保留')").run();
     } finally { before.close(); }
-    assert.deepEqual(runDesktopMigrations(options).applied, ["20261116100000_remove_knowledge_topics"]);
+    // Upgrading from there applies what came after, the topics' removal first.
+    const later = readdirSync(migrationsDirectory, { withFileTypes: true }).filter(entry => entry.isDirectory() && entry.name > LAST_WITH_TOPICS).map(entry => entry.name).sort();
+    assert.equal(later[0], "20261116100000_remove_knowledge_topics");
+    assert.deepEqual(runDesktopMigrations(options).applied, later);
     const after = new DatabaseSync(databaseFile, { readOnly: true });
     try {
       // Every conversation stays, with nothing of the topic left on it: no link and no scope of its own.

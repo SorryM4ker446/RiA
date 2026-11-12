@@ -5,7 +5,9 @@ import { createTestDatabase } from "../helpers/database";
 const cleanup = createTestDatabase();
 const { db } = await import("@/db");
 const { listConversations } = await import("@/lib/conversations/query");
-const { updateConversation } = await import("@/lib/conversations/mutations");
+const { updateConversation, markTurnAnswered } = await import("@/lib/conversations/mutations");
+const { holdTurn } = await import("@/lib/chat/live-turns");
+const { onConversationsChanged } = await import("@/lib/conversations/events");
 const { encodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
 
 beforeEach(async () => { await db.scheduledJob.deleteMany(); await db.chat.deleteMany(); });
@@ -33,4 +35,31 @@ test("a conversation in the list says when its latest answer waits for an approv
   await db.scheduledJob.updateMany({ data: { lastStatus: "done" } });
   assert.equal((await updateConversation(finished.id, { title: "Done" })).task, null);
   assert.equal((await listConversations(new URLSearchParams())).data.find(chat => chat.title === "Tasked")?.task?.running, false);
+});
+
+test("a conversation says when it is answering, and an answer that ended unseen stays unread until opened", async () => {
+  const chat = await db.chat.create({ data: { title: "Elsewhere" } });
+  const changes: number[] = [];
+  const off = onConversationsChanged(() => changes.push(Date.now()));
+  const read = async () => (await listConversations(new URLSearchParams())).data.find(item => item.id === chat.id)!;
+  assert.deepEqual([(await read()).answering, (await read()).unread], [false, false]);
+
+  // Held by the service: answering, whoever reads the list.
+  let finish!: () => void;
+  const response = await holdTurn(chat.id, async () => new Response(new ReadableStream({ start(controller) { finish = () => controller.close(); } }), { headers: { "content-type": "text/event-stream" } }), { source: "chat", settle: markTurnAnswered });
+  assert.equal((await read()).answering, true);
+  finish();
+  await new Response(response.body).arrayBuffer();
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.deepEqual([(await read()).answering, (await read()).unread], [false, true]);
+  assert.ok(changes.length > 0, "the sidebar was told");
+
+  // Opening it reads it; only clearing comes from outside.
+  assert.equal((await updateConversation(chat.id, { unread: false })).unread, false);
+  // A turn the user stopped there leaves nothing unread.
+  await markTurnAnswered(chat.id, "stopped");
+  assert.equal((await read()).unread, false);
+  await markTurnAnswered(chat.id, "waiting_approval");
+  assert.equal((await read()).unread, true);
+  off();
 });
