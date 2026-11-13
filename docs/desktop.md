@@ -198,22 +198,7 @@ Before distribution, run `npm run desktop:acceptance -- --init` to create an unv
 
 ## Validation and CI
 
-`npm run test:desktop` checks path isolation, fresh-database migration, idempotent migration, persistence, duplicate-memory preservation, and migration backups without downloading a separate testing package.
-
-`npm run test:server` adds real route-handler and SQLite regression checks, including authentication, tool execution logging, memory upserts, chat context, regeneration, and approval replay protection. The external AI provider is simulated; these tests do not incur API charges. See [Test coverage and local validation](testing.md).
-
-`npm run test:desktop:smoke` boots Electron against the prepared standalone runtime and verifies:
-
-- the renderer and preload bridge load;
-- API-key data is encrypted on disk;
-- authenticated desktop API requests succeed;
-- requests without the desktop cookie are rejected;
-- a conversation remains after the local service restarts;
-- conversation search, pinning and tags survive restart; Markdown/JSON downloads from the actual management UI preserve text and private media references;
-- media source/recipe metadata survives restart; the actual library UI downloads an authenticated PNG and deleting its unused result preserves the reference image;
-- saved model defaults survive restart; the backup UI creates and downloads a private archive, unconfirmed restore is rejected, and confirmed restore retains media/settings across another service restart without replaying reminders;
-- a finished task's notification is dispatched once to a recording test sink and is not replayed after a service restart, without invoking a model or displaying OS notifications;
-- the application exits without retaining its child service.
+`npm run test:desktop` covers the main process's parts, migrations and packaging boundaries; `npm run test:desktop:smoke` drives the real window against the prepared runtime (`-- --maximized` starts it maximised). What every suite covers, and how to run it, is in [Testing](testing.md).
 
 After `desktop:package`, `npm run test:desktop:package` repeats the smoke test against the actual packaged executable. `npm run desktop:verify` checks runtime resources, Prisma's native engine, migrations, EXE presence, and absence of `.env` or key-shaped values.
 

@@ -97,7 +97,11 @@ test("answers read at a comfortable line length and a streaming answer marks whe
   // A finished answer has no caret; one still streaming does.
   expect(widths.caret).toBe("none");
   await answer.evaluate(node => node.setAttribute("data-streaming", "true"));
-  expect(await paragraph.evaluate(node => getComputedStyle(node, "::after").content)).toBe('""');
+  const mark = await paragraph.evaluate(node => { const style = getComputedStyle(node, "::after"); return { content: style.content, mask: style.maskImage, advance: parseFloat(style.width) + parseFloat(style.marginLeft) + parseFloat(style.marginRight) }; });
+  expect(mark.content).toBe('""');
+  // RiA's star, drawn in the text's colour, and taking no width from the line.
+  expect(mark.mask).toContain("data:image/svg+xml");
+  expect(Math.abs(mark.advance)).toBeLessThanOrEqual(0.5);
 });
 
 test("an answer lists its sources as small cards, and a long earlier answer folds until opened", async ({ page, app }) => {

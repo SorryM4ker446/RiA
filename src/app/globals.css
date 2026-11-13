@@ -258,21 +258,34 @@ input:-webkit-autofill:focus {
     max-width: 68ch;
   }
 
-  /* While an answer streams, a soft caret marks where the next words arrive. */
-  .markdown-message[data-streaming] > p:last-child::after,
-  .markdown-message[data-streaming] > :is(ul, ol):last-child > li:last-child::after {
+  /* While an answer streams, RiA's four-pointed star, small and faint, twinkles
+     where the next words arrive: after the last word of the last paragraph, list
+     item, heading or quote; on a line of its own below a code block or table
+     that ends the answer so far. It takes the text's colour, softened, so it
+     marks the place without drawing the eye. */
+  .markdown-message[data-streaming] > :is(p, h1, h2, h3, h4):last-child::after,
+  .markdown-message[data-streaming] > blockquote:last-child > p:last-child::after,
+  .markdown-message[data-streaming] > :is(ul, ol):last-child > li:last-child:not(:has(> p))::after,
+  .markdown-message[data-streaming] > :is(ul, ol):last-child > li:last-child > p:last-child::after,
+  .markdown-message[data-streaming]:not(:has(> :is(p, h1, h2, h3, h4, blockquote, ul, ol):last-child))::after {
     content: "";
-    /* Out of the flow at the end of the text: it never wraps a line, so the
-       answer does not change height when it disappears. */
-    position: absolute;
+    /* Its margins take back its width, so it never wraps a line, and it is
+       shorter than a line, so the answer does not change height when it goes.
+       Centred on the middle of the lowercase letters. */
     display: inline-block;
-    width: 2px;
-    height: 1.05em;
-    margin-left: 2px;
-    vertical-align: -0.15em;
-    border-radius: 1px;
-    background: hsl(var(--foreground) / .7);
-    animation: caret-pulse calc(var(--dur-slow) * 3) var(--ease-in-out) infinite alternate;
+    width: 0.6em;
+    height: 0.84em;
+    margin-left: 0.3em;
+    margin-right: -0.9em;
+    vertical-align: middle;
+    background: hsl(var(--foreground) / .6);
+    mask: var(--ria-star) center / contain no-repeat;
+    animation: stream-star-twinkle var(--dur-loop) var(--ease-in-out) infinite alternate;
+  }
+  /* Below a block that cannot take it inline, it starts the next line. */
+  .markdown-message[data-streaming]:not(:has(> :is(p, h1, h2, h3, h4, blockquote, ul, ol):last-child))::after {
+    display: block;
+    margin: 0.7em 0 0.3em 0.1em;
   }
 
   .markdown-message strong {
@@ -455,6 +468,8 @@ input:-webkit-autofill:focus {
   /* Corners in four sizes, smallest inside largest: an item in a menu or card,
      a control, a card or menu, a window. The composer keeps its own softer
      18px corner as the one deliberate exception. */
+  /* RiA's four-pointed star, as in its icon: taller than wide, with fine points. */
+  --ria-star: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 28'%3E%3Cpath d='M10 0C10.6 9.2 12.6 12.9 20 14C12.6 15.1 10.6 18.8 10 28C9.4 18.8 7.4 15.1 0 14C7.4 12.9 9.4 9.2 10 0Z'/%3E%3C/svg%3E");
   --radius-inner: 6px;
   --radius-control: 10px;
   --radius-card: 12px;
@@ -1229,7 +1244,19 @@ body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; al
 .models-section-nav a:hover, .models-section-nav a:focus-visible { color: hsl(var(--foreground)); }
 
 @keyframes content-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes caret-pulse { from { opacity: 1; } to { opacity: .15; } }
+@keyframes stream-star-twinkle {
+  from { opacity: .3; transform: scale(.62) rotate(-8deg); }
+  to { opacity: .85; transform: scale(1) rotate(8deg); }
+}
+/* Without motion the star stays still, half seen. */
+@media (prefers-reduced-motion: reduce) {
+  .markdown-message[data-streaming] > :is(p, h1, h2, h3, h4):last-child::after,
+  .markdown-message[data-streaming] > blockquote:last-child > p:last-child::after,
+  .markdown-message[data-streaming] > :is(ul, ol):last-child > li:last-child:not(:has(> p))::after,
+  .markdown-message[data-streaming] > :is(ul, ol):last-child > li:last-child > p:last-child::after,
+  .markdown-message[data-streaming]:not(:has(> :is(p, h1, h2, h3, h4, blockquote, ul, ol):last-child))::after { animation: none; opacity: .5; transform: none; }
+}
+
 
 /* A long earlier answer shows its opening (28rem) and fades out; the toggle unfolds it. */
 .answer-fold[data-folded] > .answer-fold-body { max-height: 28rem; overflow: hidden; }

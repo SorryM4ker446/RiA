@@ -33,6 +33,9 @@ src/config/         Baseline for the legacy curated model list, used by scripts 
 src/db/             Prisma schema and SQLite migrations
 src/features/       Client modules grouped by feature: assistants, chat, commands, conversations,
                     document-processor, extensions, knowledge, media, models, settings, tasks
+  chat/             The chat page. Each conversation is a session (conversation-session.ts: its messages, message box,
+                    queue, notices and history); use-chat-state.ts composes the page from use-active-session,
+                    use-composer and use-message-actions; composer.tsx and message-renderer.tsx draw it
 src/lib/            Shared infrastructure
   activity/         Workspace events and local fact reviews
   agent/            Execution records: tool runs, their steps and stop state
@@ -61,6 +64,14 @@ src/lib/            Shared infrastructure
 src/tools/          Built-in definitions, unified registry and shared execution pipeline
 src/types/          Ambient type declarations (the desktop bridge)
 electron/           Desktop main process: window, service lifecycle, encrypted settings, migrations
+  main.ts           Start-up and the application's own events
+  runtime-state.ts  What the main process's parts share while it runs (the window, the service, the logger, the tray)
+  local-service.ts  Launching, supervising and restarting the local Next.js service
+  main-window.ts    The application window: where it opens, how it closes, what it reports
+  desktop-presence.ts  The tray, the global shortcut and bringing the window forward
+  desktop-updates.ts   Looking for, announcing and installing updates
+  ipc-handlers.ts   What the page may ask of the shell, each request checked to come from the app's page
+  smoke-run.ts      The checks a desktop smoke run makes against the real window and service
 scripts/            Local database, build, packaging and verification scripts
 tests/              Browser (e2e), server, desktop and harness regression tests, with shared helpers and fixtures
 docs/               Feature, operations and testing documentation; docs/examples holds importable plugin examples

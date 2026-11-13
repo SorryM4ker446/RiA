@@ -55,7 +55,7 @@ Legacy `.doc`, encrypted documents and PDFs without searchable text are unsuppor
 - Asset lookups resolve managed files before reading them. Managed paths are checked against server-generated names, and symlinks/junctions at the media root, owner directory, or file are rejected.
 - Responses use private/no-store caching, `nosniff`, and a restrictive content security policy. Video range requests return 206 or 416 as appropriate.
 
-Single-process quotas and browser Origin checks are active; see [API security](api-security.md). Public Web deployment still needs a separate shared-state, storage and operational security design. This file-backed service targets a single local application instance.
+Single-process quotas and browser Origin checks are active; see [API security](api-security.md). This file-backed service targets the single local instance the desktop application runs; RiA is a desktop application only and has no web deployment.
 
 ## Existing messages
 
