@@ -238,21 +238,4 @@ and inherited application authentication are not used.
 
 ## Validation
 
-The existing CI globs discover `tests/server/extensions.test.ts`,
-`tests/server/extension-registry.test.ts`, `tests/e2e/extensions.spec.ts` and
-`tests/e2e/extension-discovery.spec.ts`. Registry tests cover fixed-host requests,
-secret/header handling, invalid/removed entries, exact-version identity, cache
-expiry/eviction, failures, response limits, timeouts, cancellation, query validation
-and local access/quotas. Browser tests consume official-shaped Registry responses
-through the real server adapter using the isolated offline HTTP fixture. They cover
-search, paging, details, unsupported transports, drafts, required credentials and
-the full add/detect/enable/approve flow against an actual loopback MCP server.
-Screenshots are saved outside the repository under the temporary `ria-registry-qa`
-directory. The Browser plugin is unavailable; these checks use Playwright.
-Server tests also use actual isolated HTTP/MCP services
-and a local stdio program, including cancellation, definition changes, credential
-handling, process cleanup, bounded responses and a real operation deadline.
-Browser tests cover configuration, tool selection, approval/rejection, restart,
-uninstallation, narrow layouts, draft validation and failed-detection recovery.
-Model replies are deterministic offline fixtures; this does not establish tool
-selection quality with live models or compatibility with every third-party server.
+Extensions are covered by `extensions` and `extension-registry` (server) and `extensions` and `extension-discovery` (browser), against real loopback HTTP and MCP services and a local stdio program; see [Testing](testing.md). Model replies in these tests are offline fixtures, so they do not show how well a live model chooses tools, nor compatibility with every third-party server.
