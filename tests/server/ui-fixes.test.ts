@@ -117,12 +117,12 @@ test("the settings screen renders every control it imports", async () => {
 });
 
 test("a shortcut this app already holds is not asked for again", async () => {
-  const main = await readFile("electron/main.ts", "utf8");
-  const start = main.indexOf("function registerGlobalHotkey");
+  const presence = await readFile("electron/desktop-presence.ts", "utf8");
+  const start = presence.indexOf("function registerGlobalHotkey");
   assert.ok(start > 0, "registerGlobalHotkey is expected to exist");
-  const body = main.slice(start, main.indexOf("async function applyDesktopPresence", start));
+  const body = presence.slice(start, presence.indexOf("async function applyDesktopPresence", start));
 
-  const held = body.indexOf("activeAccelerator === wanted");
+  const held = body.indexOf("runtime.activeAccelerator === wanted");
   const requested = body.indexOf("globalShortcut.register(wanted");
 
   assert.ok(held >= 0, "the combination already in force must be recognised before the system is asked for it");
