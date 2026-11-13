@@ -5,9 +5,10 @@ import { attachmentValidationError, MEDIA_LIMITS } from "@/lib/media/limits";
 import type { UIMessage } from "ai";
 import type { ModelRef } from "@/lib/models/preferences-schema";
 import type { Dispatch, RefObject, SetStateAction } from "react";
-import { type ChangeEvent, useCallback, useLayoutEffect, useRef, useState } from "react";
+import { type ChangeEvent, useCallback, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { chatApi, filesToUploadParts, persistConversationMessage } from "@/features/chat/api-client";
 import { attachmentLabel } from "@/features/chat/draft";
+import type { ConversationSession } from "@/features/chat/conversation-session";
 
 type MediaView = {
   chatId: string | null;
@@ -16,6 +17,8 @@ type MediaView = {
   reloadMessages: (chatId: string) => Promise<void>;
 };
 type Options = {
+  /** The conversation on screen, whose draft holds the attachments. */
+  session: ConversationSession;
   activeChatId: string | null;
   isConversationReady: boolean;
   isHistoryReady: boolean;
@@ -209,62 +212,59 @@ export function remainingAttachments(current: UploadableFilePart[], sent: Upload
   return current.filter((part) => !sentUrls.has(part.url));
 }
 
-export function useMediaGeneration({ activeChatId, isConversationReady, isHistoryReady, setMessages, reloadMessages, ensureActiveChatId, loadChats, setPageError, modelMode, selectedImageModel, selectedVideoModel, textareaRef }: Options) {
+export function useMediaGeneration({ session, activeChatId, isConversationReady, isHistoryReady, setMessages, reloadMessages, ensureActiveChatId, loadChats, setPageError, modelMode, selectedImageModel, selectedVideoModel, textareaRef }: Options) {
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
-  const [imageByMessageId, setImageByMessageId] = useState<Record<string, string>>({});
-  const [videoByMessageId, setVideoByMessageId] = useState<Record<string, string>>({});
-  // Attachments are stored as the reference the upload returned rather than as
-  // the chosen file: a file cannot be recovered after a reload, a reference can.
-  const [attachments, setAttachments] = useState<UploadableFilePart[]>([]);
+  // Attachments are part of the conversation's draft: stored as the reference the
+  // upload returned rather than as the chosen file, since a file cannot be recovered
+  // after a reload and a reference can.
+  const attachments = useSyncExternalStore(session.subscribe, () => session.getSnapshot().draft.attachments, () => session.getSnapshot().draft.attachments);
   const [attachingImageKey, setAttachingImageKey] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const viewRef = useRef<MediaView>({ chatId: activeChatId, ready: isHistoryReady, setMessages, reloadMessages });
+  const viewRef = useRef<MediaView & { session: ConversationSession }>({ chatId: activeChatId, ready: isHistoryReady, setMessages, reloadMessages, session });
   const viewVersionRef = useRef(0);
   const uploadLockRef = useRef(createUploadLock());
   const modeRef = useRef(modelMode);
   useLayoutEffect(() => {
     modeRef.current = modelMode;
     if (viewRef.current.chatId !== activeChatId) viewVersionRef.current += 1;
-    viewRef.current = { chatId: activeChatId, ready: isHistoryReady, setMessages, reloadMessages };
+    viewRef.current = { chatId: activeChatId, ready: isHistoryReady, setMessages, reloadMessages, session };
   });
   const attachmentNames = attachments.map(attachmentLabel);
-  // Exposed so a restored draft can be applied without the composer remounting.
-  const replaceAttachments = useCallback((next: UploadableFilePart[]) => setAttachments(next), []);
+  const setAttachmentsOf = (target: ConversationSession, change: (current: UploadableFilePart[]) => UploadableFilePart[]) =>
+    target.setDraft(draft => ({ ...draft, attachments: change(draft.attachments) }));
+  const replaceAttachments = useCallback((next: UploadableFilePart[]) => setAttachmentsOf(viewRef.current.session, () => next), []);
   const reuseImageActionLabel = modelMode === "image" ? t("mediaGen.reuseEdit") : modelMode === "chat" ? t("mediaGen.reuseAsk") : t("mediaGen.reuseVideoRef");
   function clearAttachments() {
-    setAttachments([]);
+    setAttachmentsOf(session, () => []);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
-  /** The composer is emptied of what a finished turn sent, and of nothing else. */
-  function clearSentAttachments(sent: UploadableFilePart[]) {
-    setAttachments((current) => remainingAttachments(current, sent));
-    if (fileInputRef.current) fileInputRef.current.value = "";
+  function removeAttachmentAt(index: number) {
+    setAttachmentsOf(session, current => current.filter((_, position) => position !== index));
   }
+
   /**
    * Uploads as soon as the file is chosen, so the draft only has to remember a
    * reference. A file that fails to upload is reported here rather than at send
-   * time, when the rest of the message is already written.
+   * time, when the rest of the message is already written. What finishes after
+   * the user moved to another conversation is kept in the one it was added to.
    */
-  function removeAttachmentAt(index: number) {
-    setAttachments((current) => current.filter((_, position) => position !== index));
-  }
-
   async function appendAttachments(nextFiles: File[]) {
     if (!nextFiles.length) return;
     if (uploadLockRef.current.busy) { setPageError(t("ui.chat.use-media-generation.attachmentsAreProcessingWaitBeforeAdding")); return; }
+    const origin = session;
     await runAttachmentUpload({
       files: nextFiles,
       isReady: () => isConversationReady,
       modelMode,
       existingNames: attachments.map((part) => part.filename ?? ""),
       upload: filesToUploadParts,
-      setPageError,
+      setPageError: (error) => { if (viewRef.current.session === origin) setPageError(error); },
       getVersion: () => viewVersionRef.current,
-      getConversationId: () => viewRef.current.chatId,
+      getConversationId: () => origin.id,
       getModelMode: () => modeRef.current,
-      commit: (uploaded) => setAttachments((current) => [...current, ...uploaded]),
+      commit: (uploaded) => setAttachmentsOf(origin, current => [...current, ...uploaded]),
       setUploading: setIsUploadingAttachments,
       lock: uploadLockRef.current
     });
@@ -293,17 +293,20 @@ export function useMediaGeneration({ activeChatId, isConversationReady, isHistor
 
   function generate(kind: "image" | "video", content: string, uploadParts: UploadableFilePart[]) {
     const version = viewVersionRef.current;
+    const origin = session;
     return runMediaGeneration({
       kind, content, uploadParts, model: kind === "image" ? selectedImageModel : selectedVideoModel,
       getView: () => viewRef.current, isOriginView: () => version === viewVersionRef.current,
-      ensureActiveChatId, loadChats, setPageError, clearAttachments: () => clearSentAttachments(uploadParts),
+      ensureActiveChatId, loadChats, setPageError,
+      // Only what was sent leaves the draft it came from.
+      clearAttachments: () => { setAttachmentsOf(origin, current => remainingAttachments(current, uploadParts)); if (fileInputRef.current) fileInputRef.current.value = ""; },
       setGenerating: kind === "image" ? setIsGeneratingImage : setIsGeneratingVideo,
-      setAsset: (id, url) => (kind === "image" ? setImageByMessageId : setVideoByMessageId)((current) => ({ ...current, [id]: url })),
+      setAsset: (id, url) => viewRef.current.session.setAsset(kind, id, url),
     });
   }
   return {
     isGeneratingImage, isGeneratingVideo, isUploadingAttachments,
-    imageByMessageId, setImageByMessageId, videoByMessageId, setVideoByMessageId, attachments, replaceAttachments,
+    attachments, replaceAttachments,
     attachingImageKey, fileInputRef, attachmentNames, reuseImageActionLabel, clearAttachments, removeAttachmentAt,
     appendAttachments, onReuseImageForEditing, onAttachmentInputChange,
     generateImage: (content: string, uploadParts: UploadableFilePart[]) => generate("image", content, uploadParts),
