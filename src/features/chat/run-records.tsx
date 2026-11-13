@@ -1,4 +1,5 @@
 "use client";
+import { RunningOrbit } from "@/components/ui/running-orbit";
 import { useLocale } from "@/lib/locale/client";
 
 import { t, localizeMessage } from "@/lib/locale";
@@ -197,7 +198,7 @@ export function RunRecords({ activeChatId, refreshKey, messages, open, onOpenCha
             <History data-icon="inline-start" aria-hidden="true" />
             {t("runs.title")}<Badge variant="secondary">{entries.length}</Badge>
             {error && <span className="text-destructive">{t("backups.error.load")}</span>}
-            {hasActiveRun && <span className="flex items-center gap-1 text-muted-foreground"><Loader2 className="animate-spin" aria-hidden="true" />{t("ui.chat.run-records.running")}</span>}
+            {hasActiveRun && <span className="flex items-center gap-1.5 text-muted-foreground"><RunningOrbit />{t("ui.chat.run-records.running")}</span>}
           </Button>
         </SheetTrigger>
       </div>
@@ -280,10 +281,7 @@ function StatusIcon({ status }: { status: RunView["status"] }) {
   useLocale();
   if (status === "running")
     return (
-      <Loader2
-        aria-hidden="true"
-        className="size-3.5 shrink-0 animate-spin"
-      />
+      <RunningOrbit />
     );
   if (status === "succeeded")
     return (
