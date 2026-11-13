@@ -20,6 +20,7 @@
     "test:visual": "node scripts/on-demand.mjs visual",
     "test:visual:update": "node scripts/on-demand.mjs visual --update-snapshots",
     "test:perf": "node scripts/on-demand.mjs perf",
+    "test:real": "node scripts/on-demand.mjs real",
     "test:e2e:diagnostics": "npm run desktop:compile && node --import ./tests/helpers/register-typescript.ts --test tests/harness/*.test.ts",
     "test:server": "node --import ./tests/helpers/register-typescript.ts --test tests/server/*.test.ts",
     "test:db": "npm run desktop:compile && node scripts/test-local-db.mjs",

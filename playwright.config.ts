@@ -9,17 +9,19 @@ export default (async () => {
   const run = await getE2ERun();
   // The runner exits after the web server has stopped, so the database is closed by then.
   if (ownsRun) process.once("exit", () => removeE2EWorkspace(run.directory));
-  // Two suites run only on demand, never in an ordinary or CI run: the
+  // Three suites run only on demand, never in an ordinary or CI run: the
   // screenshot baseline (`npm run test:visual`), whose pixels depend on the
   // machine's fonts and graphics and so stay in a local, git-ignored folder;
-  // and the performance baseline (`npm run test:perf`), which measures rather
-  // than passes or fails on a shared runner's timing.
+  // the performance baseline (`npm run test:perf`), which measures rather
+  // than passes or fails on a shared runner's timing; and the real-model
+  // scenarios (`npm run test:real`), which call a provider and cost money.
   const onDemand = process.env.RIA_ON_DEMAND;
   return defineConfig({
     testDir: "./tests/e2e",
     ...(onDemand === "visual" ? { grep: /@visual/, snapshotPathTemplate: "{testDir}/../../.visual-baseline/{arg}{ext}" }
       : onDemand === "perf" ? { grep: /@perf/ }
-      : { grepInvert: /@visual|@perf/ }),
+      : onDemand === "real" ? { grep: /@real/ }
+      : { grepInvert: /@visual|@perf|@real/ }),
     outputDir: resolve(run.resultsDirectory, "artifacts"),
     reporter: [
       ["list"],
