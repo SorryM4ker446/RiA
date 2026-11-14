@@ -99,10 +99,10 @@ test("chat permissions grant a directory without sending the draft, offer its te
   // Released, the route passes every later request straight through.
   releaseList();
   await expect(page.getByRole("button", { name: "发送", exact: true })).toBeEnabled();
-  // The confirmation appears centred in line with the toolbar's first row, not over the conversation, and takes no clicks.
+  // The confirmation appears centred on the band at the top of the conversation, below the window's top row, and takes no clicks.
   const toast = page.getByRole("region", { name: "通知", exact: true }).locator(".toast").last();
   await expect(toast).toContainText("已切换到工作区");
-  const row = (await page.locator(".chat-toolbar > div").first().boundingBox())!;
+  const row = (await page.locator(".chat-toast-anchor").boundingBox())!;
   await expect.poll(async () => {
     const box = (await toast.boundingBox())!;
     return Math.abs(box.y + box.height / 2 - (row.y + row.height / 2)) <= 1 && Math.abs(box.x + box.width / 2 - (row.x + row.width / 2)) <= 1;

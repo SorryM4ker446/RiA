@@ -1,15 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Reveal } from "@/components/ui/reveal";
 import { useToast } from "@/components/ui/toast";
 import { jsonRequest, settingsRequest } from "@/features/settings/api-client";
 import { SettingsLink } from "@/features/settings/settings-context";
+import { Gauge, BellRing } from "lucide-react";
 import { SettingsHelp, SettingsSection } from "@/features/settings/settings-section";
 import { localizeMessage, t, tf } from "@/lib/locale";
 import { useLocale } from "@/lib/locale/client";
@@ -90,7 +91,7 @@ export function BackgroundTaskRules() {
   }
 
   return (
-    <SettingsSection role="region" aria-label={t("tasks.rules.title")} title={t("tasks.rules.title")} description={t("tasks.rules.description")}>
+    <SettingsSection role="region" aria-label={t("tasks.rules.title")} icon={Gauge} title={t("tasks.rules.title")} description={t("tasks.rules.description")}>
       <div className="flex flex-col gap-4">
         <Reveal>{error ? <p role="alert" className="text-sm text-destructive">{localizeMessage(error)}</p> : null}</Reveal>
         {/* The rows are there while the values load, so nothing below moves when they arrive. */}
@@ -125,7 +126,7 @@ export function BackgroundTaskRules() {
         <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border/55 pt-4">
           <p className="text-xs text-muted-foreground">{problems.size ? t("tasks.rules.fixBeforeSaving") : t("tasks.rules.note")}</p>
           <Button size="sm" disabled={!dirty || busy || problems.size > 0} onClick={() => void save()}>
-            {busy ? <Loader2 data-icon="inline-start" className="animate-spin" aria-hidden="true" /> : null}
+            {busy ? <Spinner data-icon="inline-start" aria-hidden="true" /> : null}
             {t("chat.common.save")}
           </Button>
         </footer>
@@ -171,14 +172,14 @@ export function TaskNotificationSettings() {
   }
 
   return (
-    <SettingsSection role="region" aria-label={t("tasks.notify.title")} title={t("tasks.notify.title")} description={t("tasks.notify.description")}>
+    <SettingsSection role="region" aria-label={t("tasks.notify.title")} icon={BellRing} title={t("tasks.notify.title")} description={t("tasks.notify.description")}>
       <div className="flex flex-col gap-3">
         <Reveal>{error ? <p role="alert" className="text-sm text-destructive">{localizeMessage(error)}</p> : null}</Reveal>
         <div className="flex flex-col gap-2.5" aria-busy={!choices || undefined}>
           {EVENTS.map(event => (
-            <label key={event} className="flex items-center gap-2.5 text-sm">
-              <Checkbox checked={choices?.[event] ?? false} disabled={!choices} onCheckedChange={value => void toggle(event, value === true)} aria-label={t(`tasks.notify.${event}`)} />
+            <label key={event} className="flex min-h-7 items-center justify-between gap-3 text-sm">
               {t(`tasks.notify.${event}`)}
+              <Switch checked={choices?.[event] ?? false} disabled={!choices} onCheckedChange={value => void toggle(event, value)} aria-label={t(`tasks.notify.${event}`)} />
             </label>
           ))}
         </div>

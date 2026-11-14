@@ -1,4 +1,5 @@
 "use client";
+import { TopbarSlotContext } from "@/components/layout/topbar-slot";
 import { useLocale } from "@/lib/locale/client";
 
 import { t } from "@/lib/locale";
@@ -236,6 +237,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // title is on screen and fades in once it scrolls away. Pages render their header late at times
   // (after a load), so the heading being watched is looked up again whenever the content changes.
   const [titleInView, setTitleInView] = useState(false);
+  // Set by the slot's own ref, so the page below learns it once the row is in the document.
+  const [topbarSlot, setTopbarSlot] = useState<HTMLElement | null>(null);
   useEffect(() => {
     const content = document.querySelector<HTMLElement>(".workspace-content");
     if (!content) return;
@@ -292,16 +295,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           className={cn("workspace-topbar desktop-titlebar-drag relative z-30 flex h-11 shrink-0 items-center gap-2 border-b pl-5", !isDesktopRuntime && "desktop-titlebar-plain")}
           onDoubleClick={() => window.riaDesktop?.windowControls?.toggleMaximize()}
         >
-          {/* A span, not a heading: every page owns its own <h1>, and two
-              headings per page would break the document outline. */}
-          <span className="workspace-section-title min-w-0 flex-1 truncate text-sm font-semibold tracking-label" data-concealed={titleInView || undefined} aria-hidden={titleInView || undefined}>
-            {sectionLabel(pathname)}
-          </span>
+          {/* The chat page puts its conversation's title and menu here; other pages show their section's name.
+              A span, not a heading: every page owns its own <h1>, and two headings would break the outline. */}
+          {pathname === "/chat" ? <div ref={setTopbarSlot} className="workspace-topbar-slot min-w-0 flex-1" /> : (
+            <span className="workspace-section-title min-w-0 flex-1 truncate text-sm font-semibold tracking-label" data-concealed={titleInView || undefined} aria-hidden={titleInView || undefined}>
+              {sectionLabel(pathname)}
+            </span>
+          )}
           {pathname === "/chat" && <CommandSearchButton />}
           <WindowControls />
         </div>
         <div className={cn("workspace-content min-h-0 min-w-0 flex-1", pathname === "/chat" ? "overflow-hidden" : "overflow-y-auto overscroll-contain")}>
-          {children}
+          <TopbarSlotContext.Provider value={pathname === "/chat" ? topbarSlot : null}>{children}</TopbarSlotContext.Provider>
         </div>
       </div>
       {/* Last on purpose. The desktop window reads drag regions in document

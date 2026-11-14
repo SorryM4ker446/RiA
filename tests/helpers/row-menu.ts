@@ -1,9 +1,12 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
+/** The menu that is open now. A menu that was just closed shrinks away for a moment and no longer counts. */
+export const openMenu = (page: Page) => page.locator('[role="menu"][data-state="open"]');
+
 /** Opens a list row's "more actions" menu and returns it. */
 export async function openRowMenu(page: Page, row: Locator) {
   await row.getByRole("button", { name: /^更多操作 / }).click();
-  const menu = page.getByRole("menu");
+  const menu = openMenu(page);
   await expect(menu).toBeVisible();
   return menu;
 }
@@ -11,7 +14,7 @@ export async function openRowMenu(page: Page, row: Locator) {
 /** Opens the "more actions" menu named after `owner` and chooses `action` (a menu item's accessible name). */
 export async function chooseMenuAction(page: Page, owner: string, action: string) {
   await page.getByRole("button", { name: `更多操作 ${owner}`, exact: true }).click();
-  const menu = page.getByRole("menu");
+  const menu = openMenu(page);
   await expect(menu).toBeVisible();
   await menu.getByRole("menuitem", { name: action, exact: true }).click();
   await expect(menu).toBeHidden();

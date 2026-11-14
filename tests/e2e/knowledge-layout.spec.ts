@@ -1,4 +1,5 @@
 import { expect, test as base } from "@playwright/test";
+import { expectImportClosed, openDocumentImport, previewImportButton } from "../helpers/knowledge";
 import { chooseMenuAction } from "../helpers/row-menu";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -17,6 +18,7 @@ test("compact knowledge layout imports and searches documents, expands long entr
   await page.setViewportSize({ width: 1440, height: 960 }); await page.goto(`${app.origin}/knowledge`);
   const library = page.getByRole("region", { name: "文档知识库", exact: true });
   await expect(library.getByRole("heading", { name: "文档知识库", exact: true })).toBeVisible();
+  await openDocumentImport(page);
   await expect(library.locator("details").filter({ has: page.getByText("导入说明与隐私", { exact: true }) })).not.toHaveAttribute("open", "");
   // With no document there is nothing to maintain or evaluate yet.
   await expect(page.getByTestId("index-maintenance")).toHaveCount(0);
@@ -27,15 +29,18 @@ test("compact knowledge layout imports and searches documents, expands long entr
   const filename = "产品操作说明与售后服务政策-".repeat(4) + ".md";
   await page.getByLabel("选择知识文档", { exact: true }).setInputFiles({ name: filename, mimeType: "text/markdown", buffer: Buffer.from("# 产品政策\n\n星河补给每周三送达。售后保障三十天。") });
   await page.getByLabel("所属主题（可选）", { exact: true }).fill("产品政策");
-  await page.getByRole("button", { name: "导入文档", exact: true }).click();
+  await previewImportButton(page).click();
   await expect(page.getByRole("region", { name: "文档导入预览", exact: true })).toContainText("星河补给");
   await page.getByRole("button", { name: "确认保存文档", exact: true }).click();
   await expect(page.getByRole("link", { name: filename, exact: true })).toBeVisible();
+  await expectImportClosed(page);
+  await page.getByRole("button", { name: /^全部 1 份$/ }).click();
   await expect(page.getByTestId("index-maintenance")).toBeVisible();
   await expect(page.getByTestId("index-maintenance")).not.toHaveAttribute("open", "");
   await page.getByRole("textbox", { name: "检索文档", exact: true }).fill("星河补给");
-  await page.getByRole("button", { name: "检索文档", exact: true }).click();
-  await expect(library.getByText("星河补给每周三送达。售后保障三十天。", { exact: false })).toBeVisible();
+  await page.getByRole("textbox", { name: "检索文档", exact: true }).press("Enter");
+  await expect(library.locator("details").filter({ hasText: "文档参考" }).getByText("星河补给每周三送达。售后保障三十天。", { exact: false })).toBeVisible();
+  await page.getByRole("navigation", { name: "所在位置", exact: true }).getByRole("button", { name: "知识库", exact: true }).click();
   await page.getByRole("button", { name: "新增条目", exact: true }).click();
   const sheet = page.getByRole("dialog", { name: "新增条目", exact: true });
   await expect(sheet).toHaveCSS("animation-name", "sheet-in");
@@ -56,6 +61,7 @@ test("compact knowledge layout imports and searches documents, expands long entr
   // Lists are read again when the window comes back into view.
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect(page.getByRole("link", { name: filename, exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /^全部 1 份$/ }).click();
   await page.getByTestId("index-maintenance").locator(":scope > summary").click();
   await expect(page.getByRole("button", { name: "批量构建或继续", exact: true })).toBeVisible();
   await page.getByTestId("index-maintenance").locator(":scope > summary").click();
@@ -67,6 +73,7 @@ test("compact knowledge layout imports and searches documents, expands long entr
   await page.setViewportSize({ width: 390, height: 844 }); await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "light" });
   await page.evaluate(() => document.documentElement.classList.remove("dark"));
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.getByRole("navigation", { name: "所在位置", exact: true }).getByRole("button", { name: "知识库", exact: true }).click();
   await page.getByRole("button", { name: "新增条目", exact: true }).click();
   await expect(sheet.getByRole("button", { name: "新增条目", exact: true })).toBeInViewport();
   await expect(sheet).toHaveCSS("animation-name", "none");
@@ -115,9 +122,11 @@ test("tool knowledge entries show readable summaries, preserve raw editing and k
   const manual = entries.getByRole("article").filter({ has: page.getByRole("heading", { name: "评价资料整理", exact: true }) });
   await manual.getByText("展开全文", { exact: true }).click(); await expect(manual.locator("details > p")).toHaveText(note); await expect(manual.locator("details > p")).toBeVisible();
   await manual.getByText("收起全文", { exact: true }).click();
+  await page.getByRole("button", { name: "全部", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "知识条目", exact: true })).toBeVisible();
   await entries.getByRole("textbox", { name: "搜索条目", exact: true }).fill("ce9cf191");
-  await entries.getByRole("button", { name: "搜索", exact: true }).click(); await expect(entries.getByRole("article")).toHaveCount(1); await expect(row).toBeVisible();
-  await entries.getByRole("textbox", { name: "搜索条目", exact: true }).fill(""); await entries.getByRole("button", { name: "搜索", exact: true }).click();
+  await expect(entries.getByRole("article")).toHaveCount(1); await expect(row).toBeVisible();
+  await entries.getByRole("textbox", { name: "搜索条目", exact: true }).fill("");
   await expect(entries.getByRole("article")).toHaveCount(3);
   await expect.poll(() => row.evaluate(element => element.getBoundingClientRect().height)).toBeLessThan(190);
   await mkdir(shots, { recursive: true }); await entries.screenshot({ path: join(shots, "entries-desktop-dark.png"), animations: "disabled" });
@@ -127,4 +136,40 @@ test("tool knowledge entries show readable summaries, preserve raw editing and k
   await row.getByText("收起内容", { exact: true }).click();
   await entries.screenshot({ path: join(shots, "entries-mobile-light.png"), animations: "disabled" });
   expect(errors).toEqual([]); expect(trackedImages).toEqual([]);
+});
+
+test("the overview lists the latest few, its search filters entries as you type and searches documents only when asked", { tag: "@integration" }, async ({ page, app }) => {
+  await page.goto(`${app.origin}/knowledge`);
+  for (let i = 1; i <= 7; i++) await browserApi(page, "/api/knowledge", "POST", { key: `备忘 ${i}`, value: `第 ${i} 条备忘。` });
+  await browserApi(page, "/api/knowledge", "POST", { key: "回答风格", value: "先给结论，再列三点理由。" });
+  await page.evaluate(async () => {
+    const form = new FormData(); form.set("file", new File(["# 差旅标准\n\n住宿上限为 500 元。"], "差旅标准.md"));
+    await fetch("/api/documents", { method: "POST", body: form });
+  });
+  await page.reload();
+  const library = page.getByRole("region", { name: "文档知识库", exact: true });
+  const entries = page.getByRole("region", { name: "知识条目", exact: true });
+  // Five of eight entries, and the way to all of them.
+  await expect(entries.getByRole("article")).toHaveCount(5);
+  await expect(entries.getByRole("button", { name: "全部", exact: true })).toBeVisible();
+  await expect(library.getByRole("button", { name: "全部 1 份", exact: true })).toBeVisible();
+
+  const documentSearches: string[] = [];
+  page.on("request", request => { if (request.url().endsWith("/api/documents/search")) documentSearches.push(request.url()); });
+  const search = page.getByRole("textbox", { name: "搜索知识库", exact: true });
+  await search.fill("回答风格");
+  const results = page.getByRole("region", { name: "搜索知识库", exact: true });
+  await expect(results.getByRole("article")).toHaveCount(1);
+  await expect(results.locator("mark")).toHaveText("回答风格");
+  // While searching, the lists step aside rather than sit under the results.
+  await expect(library).toBeHidden();
+  await expect(entries).toBeHidden();
+  // Typing never searches the documents: that may call the embedding model.
+  expect(documentSearches).toEqual([]);
+  await search.press("Enter");
+  await expect.poll(() => documentSearches.length).toBe(1);
+  await search.press("Escape");
+  await expect(search).toHaveValue("");
+  await expect(library).toBeVisible();
+  await expect(entries.getByRole("article")).toHaveCount(5);
 });

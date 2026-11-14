@@ -4,7 +4,8 @@ import { useLocale } from "@/lib/locale/client";
 import { formatList, t, tf, formatDateTime, localizeMessage } from "@/lib/locale";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowRight, ExternalLink, Loader2, Puzzle, Search } from "lucide-react";
+import { ArrowRight, ExternalLink, Puzzle, Search } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -96,7 +97,7 @@ export function ExtensionDiscovery({ canAdd, connectedUrls, onAdd }: Props) {
       </article>)}
       {!loading && !error && result && !result.page.items.length ? <Empty><EmptyHeader><EmptyMedia><Search /></EmptyMedia><EmptyTitle>{t("ui.extensions.extension-discovery.noMatchingExtensions")}</EmptyTitle><EmptyDescription>{t("ui.extensions.extension-discovery.tryAServiceNameOrEnglish")}</EmptyDescription></EmptyHeader></Empty> : null}
       <div className="flex min-h-14 shrink-0 items-center justify-center py-3" aria-live="polite">
-        {loading && result ? <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3 animate-spin" aria-hidden="true" />{failedCursor ? t("ui.extensions.extension-discovery.loadingMoreExtensions") : t("ui.extensions.extension-discovery.updatingCatalog")}</p> : result?.page.nextCursor && !error ? <Button variant="ghost" size="sm" disabled={detailsOpen} onClick={() => { if (!request.current) void load(query, result.page.nextCursor!); }}>{t("ui.extensions.extension-discovery.scrollToLoadMore")}</Button> : !error && result?.page.items.length && !result.page.nextCursor ? <p className="text-xs text-muted-foreground">{t("ui.extensions.extension-discovery.allMatchingExtensionsShown")}</p> : null}
+        {loading && result ? <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground"><Spinner className="size-3" aria-hidden="true" />{failedCursor ? t("ui.extensions.extension-discovery.loadingMoreExtensions") : t("ui.extensions.extension-discovery.updatingCatalog")}</p> : result?.page.nextCursor && !error ? <Button variant="ghost" size="sm" disabled={detailsOpen} onClick={() => { if (!request.current) void load(query, result.page.nextCursor!); }}>{t("ui.extensions.extension-discovery.scrollToLoadMore")}</Button> : !error && result?.page.items.length && !result.page.nextCursor ? <p className="text-xs text-muted-foreground">{t("ui.extensions.extension-discovery.allMatchingExtensionsShown")}</p> : null}
       </div>
     </div>
     {result && <p className="text-xs text-muted-foreground" aria-live="polite">{t("ui.extensions.extension-discovery.showing")}{result.page.items.length} {t("ui.extensions.extension-discovery.extensions")}{result.page.skipped ? tf("ui.extensions.extension-discovery.skippedUnavailableOrDuplicateEntries", { v0: result.page.skipped }) : ""}</p>}

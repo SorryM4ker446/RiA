@@ -1,4 +1,5 @@
 import { test as base, expect } from "@playwright/test";
+import { chatTitle } from "../helpers/chat-header";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { configureOfflineModels } from "../helpers/model-fixture";
@@ -49,7 +50,7 @@ test("Ctrl+K reaches pages, settings sections and conversations from anywhere", 
   await expect(found).toBeVisible();
   await found.click();
   await expect(page).toHaveURL(/\/chat$/);
-  await expect(page.locator(".chat-toolbar h3")).toHaveText("季度复盘提纲");
+  await expect(chatTitle(page)).toHaveText("季度复盘提纲");
   // Moving the selection with the arrow keys and Escape closes without acting.
   await page.keyboard.press("Control+K");
   await page.keyboard.press("ArrowDown");
@@ -176,9 +177,9 @@ test("keyboard shortcuts start a conversation, focus the message box and list th
   await page.keyboard.press("Control+Shift+O");
   await expect(page).toHaveURL(/\/chat$/);
   await expect.poll(async () => (await browserData(page, "/api/conversations")).length).toBe(2);
-  await expect(page.locator(".chat-toolbar h3")).toHaveText("New Chat");
+  await expect(chatTitle(page)).toHaveText("New Chat");
 
-  await page.locator(".chat-toolbar h3").click();
+  await page.getByTestId("message-list").click({ position: { x: 8, y: 8 } });
   await page.keyboard.press("Shift+Escape");
   await expect(page.getByPlaceholder(/输入你的问题/)).toBeFocused();
 

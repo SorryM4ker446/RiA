@@ -15,7 +15,8 @@ import { useOpenSettings } from "@/features/settings/settings-context";
 import { Textarea } from "@/components/ui/textarea";
 import { CHAT_ATTACHMENT_TYPES, DOCUMENT_ATTACHMENT_TYPES, IMAGE_MEDIA_TYPES } from "@/lib/media/limits";
 import { cn } from "@/lib/utils/cn";
-import { ArrowUp, ListPlus, Loader2, Paperclip, Square } from "lucide-react";
+import { ArrowUp, ListPlus, Paperclip, Square } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import { DocumentToolBar } from "@/features/chat/document-tool-bar";
 import { ComposerChoices, type ChoiceWord } from "@/features/chat/composer-choices";
 import { SKILL_ICON, SlashMenu, toolIcon } from "@/features/chat/slash-menu";
@@ -241,7 +242,7 @@ export function Composer({
         // Only lit while a real file drag is over the composer, so a drag of
         // selected text does not look like an invitation to drop a file.
         isDraggingFiles &&
-          "ring-2 ring-ring ring-offset-2 ring-offset-background",
+          "outline outline-2 outline-offset-2 outline-ring",
       )}
       noValidate
       onDragLeave={onComposerDragLeave}
@@ -477,7 +478,7 @@ export function Composer({
           ) : null}
           {isConverting ? (
             <Button size="icon" className="rounded-full" disabled aria-label={t("ui.chat.composer.runningTool")}>
-              <Loader2 data-icon="inline-start" className="animate-spin" />
+              <Spinner data-icon="inline-start" />
             </Button>
           ) : isWorking ? (
             <Button

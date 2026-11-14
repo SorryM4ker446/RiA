@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import { chatTitle } from "../helpers/chat-header";
 import { test, expect, type RealModel } from "../helpers/real-model";
 import { browserApi, browserData } from "../helpers/browser-api";
 import { openRecentConversations } from "../helpers/conversations";
@@ -13,7 +14,7 @@ import { openRecentConversations } from "../helpers/conversations";
 test.describe.configure({ timeout: 300_000 });
 
 const ask = (topic: string) => `Write about 400 words on ${topic}, in plain paragraphs, no headings, no lists, no tools.`;
-const title = (page: Page) => page.locator(".chat-toolbar h3");
+const title = (page: Page) => chatTitle(page);
 const box = (page: Page) => page.getByPlaceholder(/输入你的问题/);
 const lastAnswer = (page: Page) => page.getByTestId("message-list").locator('[data-message-role="assistant"]').last();
 // The answer's own text, not its reasoning, which folds away once the text begins.

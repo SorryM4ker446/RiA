@@ -4,9 +4,9 @@ import { Button } from "@/components/ui/button";
 import { readText } from "@/features/chat/page-utils";
 import { t, tf } from "@/lib/locale";
 import {
-  Loader2,
-  Trash2
+  Trash2,
 } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import type { ChatState } from "@/features/chat/use-chat-state";
 
 type Props = Pick<ChatState, "pendingDelete" | "isDeleting" | "closeDeleteDialog" | "confirmDelete">;
@@ -58,7 +58,7 @@ export function DeleteDialog({ pendingDelete, isDeleting, closeDeleteDialog, con
           >
             {isDeleting ? (
               <>
-                <Loader2 aria-hidden="true" className="mr-1 h-3.5 w-3.5 animate-spin" />
+                <Spinner aria-hidden="true" className="mr-1 h-3.5 w-3.5" />
                 {t("chat.delete.deleting")}
               </>
             ) : (

@@ -3,7 +3,8 @@
 Long-term memory is **MEMORY.md**: what the model has noted on its own, one line per note,
 under four sections for who the user is, preferences and corrections, ongoing work and
 decisions, and where to find things. It works only while a conversation's long-term memory
-switch is on. It travels with backups. **Settings → Your RiA** has two entries: **Memory**,
+switch is on; the switch is in the menu on the conversation's title, and while it is off a
+**No memory** tag beside the title says so and opens that menu on the switch. It travels with backups. **Settings → Your RiA** has two entries: **Memory**,
 the notes sorted by the model into topics, and **MEMORY.md**, the text itself.
 
 Knowledge entries are a different thing: part of the [knowledge base](document-knowledge.md),

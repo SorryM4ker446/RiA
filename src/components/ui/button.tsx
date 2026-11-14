@@ -47,7 +47,9 @@ export function Button({
       className={cn(
         "inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium tracking-label [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
         "transition-[color,background-color,box-shadow,opacity,transform] duration-[--dur-fast] ease-[--ease-out]",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        // An outline set off by a gap of nothing, not a ring with a band painted in the background colour: the band
+        // would show as a solid stripe on the conversation's see-through background.
+        "outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
         "disabled:pointer-events-none disabled:opacity-45 [&:not(:disabled):not([aria-haspopup])]:active:scale-[0.97]",
         variantStyles[variant],
         sizeStyles[size],

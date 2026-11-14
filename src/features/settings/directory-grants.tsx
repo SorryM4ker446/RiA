@@ -4,7 +4,8 @@ import { useLocale } from "@/lib/locale/client";
 import { t, tf, formatDateTime, localizeMessage } from "@/lib/locale";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { FolderOpen, Loader2, ShieldOff, Terminal } from "lucide-react";
+import { FolderOpen, ShieldOff, Terminal } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Reveal } from "@/components/ui/reveal";
@@ -179,7 +180,7 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
 
         {loading ? (
           <p className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />
+            <Spinner aria-hidden="true" className="h-3 w-3" />
             {t("settings.grants.loading")}
           </p>
         ) : (
@@ -228,7 +229,7 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
             {embedded ? t("ui.settings.directory-grants.chooseDirectory") : t("settings.grants.browse")}
           </Button>
           <Button disabled={busy || !path.trim()} type="submit">
-            {saving ? <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {saving ? <Spinner aria-hidden="true" className="mr-2 h-4 w-4" /> : null}
             {t("settings.grants.add")}
           </Button>
           </div>
@@ -251,7 +252,7 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
       </div>
   );
   return <>
-      {embedded ? content : <SettingsSection title={<><FolderOpen aria-hidden="true" className="size-4 text-muted-foreground" />{t("settings.grants.title")}</>} description={t("ui.settings.directory-grants.authorizeOnlyTheDirectoriesYouNeed")}>
+      {embedded ? content : <SettingsSection icon={FolderOpen} title={t("settings.grants.title")} description={t("ui.settings.directory-grants.authorizeOnlyTheDirectoriesYouNeed")}>
         <div className="flex flex-col gap-4">{content}</div>
       </SettingsSection>}
   </>;

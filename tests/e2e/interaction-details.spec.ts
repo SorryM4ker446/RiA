@@ -1,4 +1,5 @@
 import { test as base, expect } from "@playwright/test";
+import { chatTitle, openChatMenu, closeChatMenu, memorySwitch } from "../helpers/chat-header";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { configureOfflineModels } from "../helpers/model-fixture";
@@ -24,7 +25,7 @@ test("text cut short with an ellipsis shows in full on hover", async ({ page, ap
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   const title = (await browserApi(page, "/api/conversations", "POST", { title: "一个很长很长的会话标题，".repeat(8) + "结尾" })).body.data.title as string;
   await page.goto(`${app.origin}/chat`);
-  const heading = page.locator(".chat-toolbar h3");
+  const heading = chatTitle(page);
   await expect(heading).toHaveText(title);
   expect(await heading.evaluate(node => node.scrollWidth > node.clientWidth)).toBe(true);
   await heading.hover();
@@ -36,7 +37,9 @@ test("text cut short with an ellipsis shows in full on hover", async ({ page, ap
   await expect(tip).toHaveCount(0);
 
   // The long-term memory switch explains itself in its label and carries no tooltip.
-  await expect(page.getByRole("switch", { name: "长期记忆", exact: true })).not.toHaveAttribute("title", /.*/);
+  await openChatMenu(page);
+  await expect(memorySwitch(page)).not.toHaveAttribute("title", /.*/);
+  await closeChatMenu(page);
   // A plain title gets the same tooltip, and the browser's own one is held back while it shows.
   const create = page.getByRole("button", { name: /^审批规则：/ });
   const note = await create.getAttribute("title");

@@ -1,10 +1,13 @@
 import { test as base, expect, type Page } from "@playwright/test";
+import { chatTitle } from "../helpers/chat-header";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { browserApi } from "../helpers/browser-api";
 import { conversationList, openRecentConversations } from "../helpers/conversations";
 import { settingsDialog } from "../helpers/settings";
+import { chooseRowAction, openMenu } from "../helpers/row-menu";
+import { chooseOption } from "../helpers/select";
 import { expectNoUnexpectedShift, expectSteady, watchLayout } from "../helpers/layout-watch";
 
 /**
@@ -80,7 +83,7 @@ for (const variant of variants) test.describe(`${variant.theme} theme, ${variant
       await session.send("Emulation.setCPUThrottlingRate", { rate: cpuRate });
     }
     await page.goto(`${app.origin}/chat`);
-    const title = page.locator(".chat-toolbar h3");
+    const title = chatTitle(page);
     await expect(title).toHaveText("第二段对话");
     await expect(page.getByText("第二段对话 的第 6 条消息。", { exact: false }).first()).toBeVisible();
     const model = page.getByRole("combobox", { name: "选择模型", exact: true });
@@ -100,7 +103,7 @@ for (const variant of variants) test.describe(`${variant.theme} theme, ${variant
       transcript: "[data-testid=message-list]",
       workspace: page.getByRole("button", { name: /选择工作区|工作区：/ }).first(),
       model: '.chat-workspace [aria-label="选择模型"]',
-    }, { allowShiftsIn: ["[data-testid=message-list]", ".chat-toolbar h3"] });
+    }, { allowShiftsIn: ["[data-testid=message-list]", ".chat-title-text"] });
     const row = (await openRecentConversations(page)).getByRole("button", { name: /^第一段对话/ });
     await row.click();
     await expect(title).toHaveText("第一段对话");
@@ -157,13 +160,73 @@ for (const variant of variants) test.describe(`${variant.theme} theme, ${variant
     expectNoUnexpectedShift(record);
   });
 
+  test("a menu opened while another is still shrinking away stays open and keeps focus", async ({ page, app }) => {
+    await openWorkspace(page, app.origin);
+    for (const title of ["甲会话", "乙会话"]) await browserApi(page, "/api/conversations", "POST", { title });
+    await page.goto(`${app.origin}/conversations`);
+    const first = page.getByRole("button", { name: "更多操作 甲会话", exact: true });
+    const second = page.getByRole("button", { name: "更多操作 乙会话", exact: true });
+    await first.click();
+    await expect(openMenu(page)).toBeVisible();
+    // Closing hands focus back to the trigger only once the menu has gone; the next menu opens before that.
+    await page.keyboard.press("Escape");
+    await second.click();
+    await page.waitForTimeout(400);
+    await expect(openMenu(page)).toBeVisible();
+    await expect(second).toHaveAttribute("aria-expanded", "true");
+    await expect(first).toHaveAttribute("aria-expanded", "false");
+    await expect(page.locator(".ui-dropdown-content")).toHaveCount(1);
+    expect(await page.evaluate(() => Boolean(document.activeElement?.closest('[role="menu"]')))).toBe(true);
+    // Its own trigger pressed again while it shrinks away opens it again.
+    await page.keyboard.press("Escape");
+    await second.click();
+    await page.waitForTimeout(400);
+    await expect(openMenu(page)).toBeVisible();
+    await expect(page.locator(".ui-dropdown-content")).toHaveCount(1);
+    // Leaving it with nowhere else to go, focus returns to its own trigger.
+    await page.keyboard.press("Escape");
+    await expect(openMenu(page)).toHaveCount(0);
+    await expect(second).toBeFocused();
+  });
+
+  test("a field focused while a list of options shrinks away keeps the focus and the keys typed into it", async ({ page, app }) => {
+    await openWorkspace(page, app.origin);
+    await page.goto(`${app.origin}/conversations`);
+    const status = page.getByLabel("会话状态");
+    const search = page.getByLabel("搜索标题和消息正文");
+    // Chosen with nothing else to go to, focus returns to the select.
+    await chooseOption(status, "全部");
+    await expect(page.getByRole("listbox")).toHaveCount(0);
+    await expect(status).toBeFocused();
+    // Chosen and straight on to the search field: the list hands focus back only once it has shrunk away, and by
+    // then focus is in the field, where it stays.
+    await chooseOption(status, "已归档");
+    await search.focus();
+    await expect(page.getByRole("listbox")).toHaveCount(0);
+    await page.waitForTimeout(300);
+    await expect(search).toBeFocused();
+    await page.keyboard.type("批量");
+    await expect(search).toHaveValue("批量");
+  });
+
   test("menus open and close without moving their trigger, and give focus back to it", async ({ page, app }) => {
     await openWorkspace(page, app.origin);
     await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
     await conversationWithMessages(page, "菜单测试", 2);
     await page.goto(`${app.origin}/chat`);
-    await expect(page.locator(".chat-toolbar h3")).toHaveText("菜单测试");
-    for (const name of ["选择模型", "聊天模式", "助理模板"]) {
+    await expect(chatTitle(page)).toHaveText("菜单测试");
+    // The title's menu: it opens below the title without moving it, and gives focus back on Escape.
+    const title = page.locator(".chat-title");
+    const titleLayout = await watchLayout(page, { title, composer: ".chat-workspace textarea" });
+    await title.click();
+    await expect(page.getByRole("menu")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await expect(title).toBeFocused();
+    const titleRecord = await titleLayout.read();
+    expectSteady(titleRecord, "title");
+    expectSteady(titleRecord, "composer");
+    for (const name of ["选择模型", "聊天模式"]) {
       const trigger = page.getByRole("combobox", { name, exact: true });
       await expect(trigger).toBeEnabled();
       const layout = await watchLayout(page, { trigger, composer: ".chat-workspace textarea" });
@@ -229,7 +292,7 @@ for (const variant of variants) test.describe(`${variant.theme} theme, ${variant
     expect(index).toBeLessThan(count - 1);
     const removed = (await target.boundingBox())!;
     const layout = await watchLayout(page, { following: rows.nth(index + 1) });
-    await target.getByRole("button", { name: "移除", exact: true }).click();
+    await chooseRowAction(page, target, "移除");
     await expect(rows).toHaveCount(count - 1);
     await page.waitForTimeout(300);
     const tops = (await layout.read()).frames.following.map(box => box.top);

@@ -4,7 +4,8 @@ import { useLocale } from "@/lib/locale/client";
 import { t, localizeMessage } from "@/lib/locale";
 
 import { useEffect, useState } from "react";
-import { Loader2, Square, Terminal } from "lucide-react";
+import { Square, Terminal } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -65,7 +66,7 @@ export function TerminalResult({ input, output, active }: { input: unknown; outp
       <span className="text-muted-foreground">PowerShell</span>
       {result ? <Badge variant="outline">{terminalStatusLabels()[result.status]}</Badge> : null}
       {result?.status === "running" ? <Button size="sm" variant="outline" disabled={stopping} onClick={() => void stop()}>
-        {stopping ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Square data-icon="inline-start" />}{t("ui.chat.terminal-result.stopCommand")}</Button> : null}
+        {stopping ? <Spinner data-icon="inline-start" /> : <Square data-icon="inline-start" />}{t("ui.chat.terminal-result.stopCommand")}</Button> : null}
     </div>
     <p className="break-all text-muted-foreground">{t("ui.chat.approval-dock.workingDirectory")}{proposal?.binding?.cwd ?? t("ui.chat.approval-dock.waitingForDirectoryValidation")}</p>
     <pre aria-label={t("ui.chat.approval-dock.powerShellCommand")} className="chat-list-scroll max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-background p-3 font-mono text-xs"><CommandText command={proposal?.command} /></pre>

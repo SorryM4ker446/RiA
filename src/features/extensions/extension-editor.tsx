@@ -4,7 +4,8 @@ import { useLocale } from "@/lib/locale/client";
 import { t, tf, localizeMessage } from "@/lib/locale";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -96,7 +97,7 @@ export function ExtensionEditor({ row, draft, open, returnFocus, encryptionAvail
           </FieldGroup>
         </FieldGroup></fieldset>
       </div>
-      <footer className="flex shrink-0 items-center justify-end gap-2 px-6 py-4"><Button type="button" variant="ghost" disabled={busy} onClick={onClose}>{t("knowledge.cancelEdit")}</Button><Button type="submit" disabled={busy || (!encryptionAvailable && credentials.some(item => item.required || item.value))}>{busy && <Loader2 data-icon="inline-start" className="animate-spin" />}{t("ui.extensions.extension-editor.saveConfiguration")}</Button></footer>
+      <footer className="flex shrink-0 items-center justify-end gap-2 px-6 py-4"><Button type="button" variant="ghost" disabled={busy} onClick={onClose}>{t("knowledge.cancelEdit")}</Button><Button type="submit" disabled={busy || (!encryptionAvailable && credentials.some(item => item.required || item.value))}>{busy && <Spinner data-icon="inline-start" />}{t("ui.extensions.extension-editor.saveConfiguration")}</Button></footer>
     </form>
   </SheetContent></Sheet>;
 }

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useId, useState, type ReactNode } from "react";
-import { ChevronDown, Loader2 } from "lucide-react";
+import { ChevronDown } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -314,7 +315,7 @@ export function TaskEditor({ task, template = "custom", onSave, onCancel }: {
       <div className="flex justify-end gap-2">
         <Button type="button" variant="ghost" disabled={saving} onClick={onCancel}>{t("chat.common.cancel")}</Button>
         <Button type="submit" disabled={saving}>
-          {saving ? <Loader2 data-icon="inline-start" className="animate-spin" aria-hidden="true" /> : null}
+          {saving ? <Spinner data-icon="inline-start" aria-hidden="true" /> : null}
           {task ? t("chat.common.save") : t("tasks.createAction")}
         </Button>
       </div>

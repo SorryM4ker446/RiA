@@ -1,4 +1,5 @@
 import { test as base, expect, type Page } from "@playwright/test";
+import { chatTitle } from "../helpers/chat-header";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { browserApi, browserData } from "../helpers/browser-api";
@@ -29,7 +30,7 @@ async function conversation(page: Page, origin: string, title: string): Promise<
 const messagesOf = async (page: Page, origin: string, id: string) => (await browserData(page, `${origin}/api/conversations/${id}/messages`)) as Message[];
 const summaryOf = async (page: Page, origin: string, id: string) => (await browserData(page, `${origin}/api/conversations/${id}`)) as { answering: boolean; unread: boolean };
 const transcript = (page: Page) => page.getByTestId("message-list");
-const title = (page: Page) => page.locator(".chat-toolbar h3");
+const title = (page: Page) => chatTitle(page);
 async function send(page: Page, text: string) {
   await page.getByPlaceholder(/输入你的问题/).fill(text);
   await page.getByRole("button", { name: "发送", exact: true }).click();

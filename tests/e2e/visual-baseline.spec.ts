@@ -62,6 +62,8 @@ for (const size of windows) for (const locale of ["zh-CN", "en-US"] as const) {
       await desktopBridge(page, locale);
       await page.addInitScript(([locale, theme]) => { localStorage.setItem("ui:locale", locale); localStorage.setItem("ui:theme", theme); }, [locale, theme] as const);
       await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
+      // A fixed afternoon, so what follows the clock (the home page greets by the hour) is the same in every run.
+      await page.clock.setFixedTime(new Date("2026-11-14T15:00:00Z"));
       await openWorkspace(page, app.origin);
       await seed(page);
       for (const entry of pages) {

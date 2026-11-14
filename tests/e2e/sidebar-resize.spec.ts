@@ -55,7 +55,8 @@ test("the sidebar follows its dragged edge, gives below its minimum and folds aw
   await expect(pin(page)).toBeVisible();
   await expect(handle(page)).toBeHidden();
   const button = (await pin(page).boundingBox())!;
-  const title = (await page.locator(".workspace-section-title").boundingBox())!;
+  // On chat the top row starts with the conversation's title; elsewhere with the section's name.
+  const title = (await page.locator(".workspace-topbar").locator(".workspace-section-title, .chat-title").first().boundingBox())!;
   expect(title.x).toBeGreaterThan(button.x + button.width);
   await page.reload();
   expect(await width(page)).toBe(0);

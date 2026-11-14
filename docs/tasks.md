@@ -30,7 +30,7 @@ A run is a turn the service holds, like any other ([several conversations at onc
 
 The conversation starts with nothing from the conversation the task was created in, so a prompt must say everything the run needs.
 
-A task's conversation belongs to the task. It is always a **General assistant** conversation: every tool a conversation can use and no assistant template. The template menu in its toolbar stays on General assistant, and the service refuses a request to apply a template to it.
+A task's conversation belongs to the task. It is always a **General assistant** conversation: every tool a conversation can use and no assistant template. The template choice in its title menu stays on General assistant, and the service refuses a request to apply a template to it.
 
 ## What a task decides
 

@@ -1,4 +1,4 @@
-import { test as base, expect, type Page } from "@playwright/test";
+import { test as base, expect, type Locator, type Page } from "@playwright/test";
 import { NO_CREDENTIAL_STATE, localHostOrigin, openWorkspace } from "../helpers/workspace-entry";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -6,6 +6,7 @@ import { startStandaloneServer } from "../helpers/standalone-server";
 import { browserApi, browserData } from "../helpers/browser-api";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { chooseOption } from "../helpers/select";
+import { openMenu } from "../helpers/row-menu";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => { const app = await startStandaloneServer({ modelFixture: true }); try { await runTest(app); } finally { await app.close(); } },
@@ -34,6 +35,11 @@ async function inspect(page: Page, id: string) {
   await expect(detail).toContainText(id);
   return detail;
 }
+/** Regenerating and deleting sit in the detail's "more actions" menu, beside the download. */
+async function detailAction(page: Page, detail: Locator, action: string) {
+  await detail.getByRole("button", { name: "更多操作 媒体详情", exact: true }).click();
+  await openMenu(page).getByRole("menuitem", { name: action, exact: true }).click();
+}
 
 test("media library shows real generation provenance, confirms regeneration and downloads private images", { tag: "@integration" }, async ({ page, app }, info) => {
   await register(page, app.origin);
@@ -54,12 +60,12 @@ test("media library shows real generation provenance, confirms regeneration and 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("media-library-narrow.png"), fullPage: true });
   await page.setViewportSize(viewport);
-  await detail.getByRole("button", { name: "重新生成", exact: true }).click();
+  await detailAction(page, detail, "重新生成");
   const dialog = page.getByRole("dialog", { name: "按原参数重新生成？" });
   await expect(dialog).toContainText("可能产生费用");
   await expect(dialog.getByRole("button", { name: "取消操作" })).toBeFocused();
   await page.keyboard.press("Escape"); expect(app.providerCalls).toHaveLength(1);
-  await detail.getByRole("button", { name: "重新生成", exact: true }).click();
+  await detailAction(page, detail, "重新生成");
   const response = page.waitForResponse(response => response.url().endsWith(`/api/media/${id}/regenerate`));
   await dialog.getByRole("button", { name: "确认重新生成" }).click();
   const regenerated = await response; expect(regenerated.status()).toBe(201);
@@ -119,14 +125,17 @@ test("media pagination and confirmed deletion preserve referenced inputs and upd
   await page.getByRole("button", { name: "加载更多资源" }).click();
   await expect(page.getByRole("article")).toHaveCount(29);
   let detail = await inspect(page, inputs[0].assetId);
-  await expect(detail.getByRole("button", { name: "删除资源", exact: true })).toBeDisabled();
-  await expect(detail.getByRole("button", { name: "重新生成", exact: true })).toBeDisabled();
+  // A referenced input can be neither regenerated nor deleted; its menu says so by disabling both.
+  await detail.getByRole("button", { name: "更多操作 媒体详情", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "删除资源", exact: true })).toBeDisabled();
+  await expect(page.getByRole("menuitem", { name: "重新生成", exact: true })).toBeDisabled();
+  await page.keyboard.press("Escape");
   await detail.getByRole("button", { name: "关闭详情" }).click();
   detail = await inspect(page, generated.assetId);
-  await detail.getByRole("button", { name: "删除资源", exact: true }).click();
+  await detailAction(page, detail, "删除资源");
   await page.getByRole("dialog", { name: "永久删除这个资源？" }).getByRole("button", { name: "取消操作" }).click();
   expect(app.readRows("SELECT id FROM media_assets")).toHaveLength(29);
-  await detail.getByRole("button", { name: "删除资源", exact: true }).click();
+  await detailAction(page, detail, "删除资源");
   await page.getByRole("dialog", { name: "永久删除这个资源？" }).getByRole("button", { name: "确认永久删除" }).click();
   await expect(page.getByText("资源已删除，文件无法恢复。")).toBeVisible();
   expect((await browserData(page, `/api/media/${inputs[0].assetId}/details`)).generationReferenceCount).toBe(0);

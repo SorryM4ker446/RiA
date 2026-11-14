@@ -2,7 +2,8 @@
 import { useLocale } from "@/lib/locale/client";
 
 import { useState } from "react";
-import { FolderOpen, Loader2 } from "lucide-react";
+import { FolderOpen } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import { t, tf, localizeMessage } from "@/lib/locale";
 import { cn } from "@/lib/utils/cn";
@@ -72,7 +73,7 @@ export function LocalFileUses({ uses, modelLabel, compact = false }: { uses: Loc
             {typeof window !== "undefined" && window.riaDesktop?.revealPath ? (
               <Button disabled={busy === use.path} onClick={() => void reveal(use)} size="sm" type="button" variant="ghost">
                 {busy === use.path
-                  ? <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />
+                  ? <Spinner aria-hidden="true" className="h-3 w-3" />
                   : <FolderOpen aria-hidden="true" className="h-3 w-3" />}
                 {t("localFiles.reveal")}
               </Button>

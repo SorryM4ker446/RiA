@@ -8,12 +8,15 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import type { AssistantSnapshot } from "@/lib/assistants/schema";
 
-export function TemplateDetails({ snapshot }: { snapshot: AssistantSnapshot }) {
+/** The template a conversation runs on. Opens from its own button, or from elsewhere when `open` is given. */
+export function TemplateDetails({ snapshot, open, onOpenChange, returnFocus }: { snapshot: AssistantSnapshot; open?: boolean; onOpenChange?: (open: boolean) => void; returnFocus?: () => void }) {
   useLocale();
+  const controlled = open !== undefined;
   return (
-    <Sheet>
-      <SheetTrigger asChild><Button size="sm" variant="ghost">{t("ui.assistants.template-details.templateDetails")}</Button></SheetTrigger>
-      <SheetContent side="right" className="template-details-sheet flex flex-col gap-5 overflow-y-auto p-5 sm:p-6">
+    <Sheet {...(controlled ? { open, onOpenChange } : {})}>
+      {controlled ? null : <SheetTrigger asChild><Button size="sm" variant="ghost">{t("ui.assistants.template-details.templateDetails")}</Button></SheetTrigger>}
+      {/* Opened from elsewhere there is no trigger to go back to, so the opener says where the keyboard returns. */}
+      <SheetContent side="right" className="template-details-sheet flex flex-col gap-5 overflow-y-auto p-5 sm:p-6" onCloseAutoFocus={returnFocus ? event => { event.preventDefault(); returnFocus(); } : undefined}>
         <header className="flex flex-col gap-2 pr-8">
           <SheetTitle className="break-words text-lg font-semibold">{tf("ui.assistants.template-details.templateDetails2", { name: snapshot.templateId.startsWith("builtin_") ? localizeMessage(snapshot.name) : snapshot.name })}</SheetTitle>
           <SheetDescription>{t("ui.assistants.template-details.templateConfigurationUsedByThisConversation")}</SheetDescription>

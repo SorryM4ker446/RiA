@@ -13,7 +13,9 @@ export type ChatCommand =
   | { type: "open-conversation"; id: string }
   | { type: "focus-composer" }
   | { type: "toggle-records" }
-  | { type: "select-model"; model: string };
+  | { type: "select-model"; model: string }
+  /** Starts a new conversation and sends this as its first message. */
+  | { type: "ask"; text: string };
 
 const EVENT = "ria:chat-command";
 const PENDING = "ria:pending-chat-command";

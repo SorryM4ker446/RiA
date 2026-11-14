@@ -1,4 +1,5 @@
 import { test as base, expect, type Page } from "@playwright/test";
+import { closeChatMenu, openChatMenu } from "../helpers/chat-header";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { startStandaloneServer } from "../helpers/standalone-server";
@@ -7,6 +8,7 @@ import { browserApi, browserData } from "../helpers/browser-api";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { chooseOption } from "../helpers/select";
 import { chooseTaskDateTime } from "../helpers/task-date-picker";
+import { openMenu } from "../helpers/row-menu";
 
 const test = base.extend<{
   app: Awaited<ReturnType<typeof startStandaloneServer>>;
@@ -26,7 +28,7 @@ type Task = { id: string; title: string; cron: string | null; timeZone: string; 
 const row = (page: Page, title: string) => page.getByTestId("task-item").filter({ hasText: title });
 async function rowAction(page: Page, title: string, action: string) {
   await page.getByRole("button", { name: `More actions for ${title}`, exact: true }).click();
-  const menu = page.getByRole("menu");
+  const menu = openMenu(page);
   await expect(menu).toBeVisible();
   await menu.getByRole("menuitem", { name: action, exact: true }).click();
   await expect(menu).toBeHidden();
@@ -287,10 +289,13 @@ test("a task's conversation keeps the general assistant, and its model picker ch
   await page.reload();
   await row(page, "Morning note").getByRole("link", { name: "Morning note", exact: true }).click();
   await expect(page.getByText("Write the morning note.", { exact: true })).toBeVisible();
-  // No template can be applied here: the menu stays on the general assistant.
-  const template = page.getByRole("combobox", { name: "Assistant templates", exact: true });
-  await expect(template).toBeDisabled();
-  await expect(template).toContainText("General assistant");
+  // No template can be applied here: the title menu stays on the general assistant, and says why.
+  const menu = await openChatMenu(page);
+  const general = menu.getByRole("menuitemradio", { name: "General assistant", exact: true });
+  await expect(general).toHaveAttribute("aria-checked", "true");
+  await expect(general).toBeDisabled();
+  await expect(menu.getByRole("menuitemradio", { name: "Writing assistant", exact: true })).toBeDisabled();
+  await closeChatMenu(page);
   // The picker shows the task's model, and choosing Default hands the task back to the default chat model.
   const picker = page.getByRole("combobox", { name: "Choose model", exact: true });
   await expect(picker).toContainText("Gemini Flash Offline");

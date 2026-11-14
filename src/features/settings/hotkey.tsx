@@ -4,9 +4,10 @@ import { useLocale } from "@/lib/locale/client";
 import { t } from "@/lib/locale";
 
 import { useEffect, useState } from "react";
-import { Keyboard } from "lucide-react";
+
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Keyboard } from "lucide-react";
 import { SettingsSection } from "@/features/settings/settings-section";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
@@ -66,8 +67,7 @@ export function HotkeySettings() {
   }
 
   return (
-    <SettingsSection title={<><Keyboard aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
-          {t("settings.hotkey.title")}</>} description={t("ui.settings.hotkey.bringRiAToTheFrontFrom")}>
+    <SettingsSection icon={Keyboard} title={t("settings.hotkey.title")} description={t("ui.settings.hotkey.bringRiAToTheFrontFrom")}>
         <div className="flex flex-col gap-4">
         {problem ? (
           <Alert variant="destructive">

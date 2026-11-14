@@ -1,4 +1,5 @@
 import { test as base, expect, type Page } from "@playwright/test";
+import { expectImportClosed, openDocumentImport, previewImportButton, searchDocumentContent } from "../helpers/knowledge";
 import { chooseMenuAction } from "../helpers/row-menu";
 import { NO_CREDENTIAL_STATE, localHostOrigin, openWorkspace } from "../helpers/workspace-entry";
 import { randomUUID } from "node:crypto";
@@ -20,13 +21,14 @@ async function register(page: Page, origin: string) {
   await openWorkspace(page, origin);
 }
 async function importFile(page: Page, name: string, buffer: Buffer) {
+  await openDocumentImport(page);
   await page.getByLabel("选择知识文档").setInputFiles({ name, mimeType: "application/octet-stream", buffer });
   const response = page.waitForResponse(response => response.url().endsWith("/api/documents") && response.request().method() === "POST");
-  await page.getByRole("button", { name: "导入文档", exact: true }).click();
+  await previewImportButton(page).click();
   await page.getByRole("button", { name: "确认保存文档", exact: true }).click();
   const result = await response;
   expect(result.ok(), await result.text()).toBe(true);
-  await expect(page.getByRole("button", { name: "导入文档", exact: true })).toBeEnabled();
+  await expectImportClosed(page);
   return (await result.json()).data;
 }
 
@@ -41,8 +43,7 @@ test("document imports, local retrieval and chat citations persist across reload
   await expect(page.getByRole("link", { name: "support.pdf", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "发布.docx", exact: true })).toBeVisible();
   expect(app.providerCalls).toHaveLength(0);
-  await page.getByLabel("检索文档", { exact: true }).fill("星河补给回滚窗口");
-  await page.getByRole("button", { name: "检索文档", exact: true }).click();
+  await searchDocumentContent(page, "星河补给回滚窗口");
   await expect(page.getByText(/星河补给每周三送达/)).toBeVisible();
   const old = await browserData(page, `${localHostOrigin(app.origin)}/api/documents/${documentId}`);
   const updated = await importFile(page, "星河运行手册.md", Buffer.from("# 星河运行手册\n\n星河补给每周四送达，回滚窗口为三十分钟。\n\n备用线路每月巡检。"));
@@ -108,8 +109,9 @@ test("document imports, local retrieval and chat citations persist across reload
 test("document validation, Origin boundary and ingestion throttling work over authenticated HTTP", { tag: "@integration" }, async ({ page, app }) => {
   await register(page, app.origin);
   await page.getByRole("link", { name: /知识库/ }).click();
+  await openDocumentImport(page);
   await page.getByLabel("选择知识文档").setInputFiles({ name: "invalid.pdf", mimeType: "application/pdf", buffer: Buffer.from("not a PDF") });
-  await page.getByRole("button", { name: "导入文档", exact: true }).click();
+  await previewImportButton(page).click();
   await expect(page.locator("main").getByRole("alert")).toContainText("文件内容与扩展名不符");
   expect(await browserData(page, `${localHostOrigin(app.origin)}/api/documents`)).toEqual([]);
   const cookies = await page.context().cookies();

@@ -1,4 +1,5 @@
 import { test as base, expect, type Page } from "@playwright/test";
+import { openDocumentImport, previewImportButton } from "../helpers/knowledge";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { browserApi } from "../helpers/browser-api";
@@ -102,10 +103,11 @@ test("knowledge entry refresh keeps the list on screen and never shows a placeho
 test("document library refresh keeps imported documents on screen", { tag: "@integration" }, async ({ page, app }) => {
   await register(page, app.origin);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
-  await page.goto(`${app.origin}/knowledge`);
+  await page.goto(`${app.origin}/knowledge?view=documents`);
+  await openDocumentImport(page);
   await page.getByLabel("选择知识文档").setInputFiles({ name: "静默刷新.md", mimeType: "text/markdown", buffer: Buffer.from("# 静默刷新\n\n刷新时文档列表不应消失。") });
   const uploaded = page.waitForResponse(response => response.url().endsWith("/api/documents") && response.request().method() === "POST");
-  await page.getByRole("button", { name: "导入文档", exact: true }).click();
+  await previewImportButton(page).click();
   await page.getByRole("button", { name: "确认保存文档", exact: true }).click();
   expect((await uploaded).ok()).toBe(true);
   await expect(page.getByRole("link", { name: "静默刷新.md", exact: true })).toBeVisible();
@@ -122,13 +124,14 @@ test("document library refresh keeps imported documents on screen", { tag: "@int
 test("a refresh never resizes the import button or the page around it", { tag: "@integration" }, async ({ page, app }) => {
   await register(page, app.origin);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
-  await page.goto(`${app.origin}/knowledge`);
+  await page.goto(`${app.origin}/knowledge?view=documents`);
   // A real document, so the library is in its normal state rather than an
   // empty one. The import button used to borrow the busy flag, so any refresh
   // swapped its label for a longer "importing" sentence and resized it.
+  await openDocumentImport(page);
   await page.getByLabel("选择知识文档").setInputFiles({ name: "按钮宽度.md", mimeType: "text/markdown", buffer: Buffer.from("# 按钮宽度\n\n刷新不应改变按钮宽度。") });
   const uploaded = page.waitForResponse(response => response.url().endsWith("/api/documents") && response.request().method() === "POST");
-  await page.getByRole("button", { name: "导入文档", exact: true }).click();
+  await previewImportButton(page).click();
   await page.getByRole("button", { name: "确认保存文档", exact: true }).click();
   expect((await uploaded).ok()).toBe(true);
   await expect(page.getByRole("link", { name: "按钮宽度.md", exact: true })).toBeVisible();

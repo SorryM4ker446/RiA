@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openDocumentImport, previewImportButton } from "../helpers/knowledge";
 
 const hint = (page: Page) => page.locator(".form-hint");
 
@@ -31,7 +32,8 @@ async function formHintsReady(page: Page) {
 
 test("a refused form explains itself in the app's own style and language, at the field", async ({ page }) => {
   await page.goto("/knowledge");
-  const submit = page.getByRole("button", { name: "导入文档", exact: true });
+  await openDocumentImport(page);
+  const submit = previewImportButton(page);
   await expect(submit).toBeVisible();
   await formHintsReady(page);
   await watchInvalid(page);

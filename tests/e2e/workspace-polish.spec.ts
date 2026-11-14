@@ -1,9 +1,11 @@
 import { expect, test } from "@playwright/test";
+import { memorySwitch } from "../helpers/chat-header";
 import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
 import { settingsDialog } from "../helpers/settings";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openRecentConversations } from "../helpers/conversations";
+import { openRowMenu } from "../helpers/row-menu";
 
 for (const pointer of ["mouse", "touch"] as const) {
   test.describe(`select trigger using ${pointer}`, () => {
@@ -19,7 +21,7 @@ for (const pointer of ["mouse", "touch"] as const) {
         page.on("request", request => { if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) writes++; });
         await page.goto("/chat");
         const click = async (locator: import("@playwright/test").Locator) => pointer === "touch" ? locator.tap() : locator.click();
-        for (const name of ["助理模板", "聊天模式", "选择模型"]) {
+        for (const name of ["聊天模式", "选择模型"]) {
           const trigger = page.getByRole("combobox", { name, exact: true, includeHidden: true });
           await expect(trigger).toBeEnabled();
           const selected = await trigger.textContent();
@@ -64,9 +66,13 @@ test("model lists omit introductions while catalog search still matches descript
   await page.goto("/models");
   const library = page.getByRole("region", { name: "我的模型", exact: true });
   await expect(library.getByRole("listitem")).toHaveCount(1);
-  for (const text of ["紧凑模型", model.modelId, "OpenRouter", "可用"]) await expect(library).toContainText(text);
+  for (const text of ["紧凑模型", model.modelId, "OpenRouter"]) await expect(library).toContainText(text);
   await expect(library).not.toContainText(description);
-  await expect(library.getByRole("button", { name: "移除", exact: true })).toBeEnabled();
+  // A usable model carries no status, and removing it is in the row's menu.
+  await expect(library).not.toContainText("可用");
+  const menu = await openRowMenu(page, library.getByRole("listitem"));
+  await expect(menu.getByRole("menuitem", { name: "移除", exact: true })).toBeEnabled();
+  await page.keyboard.press("Escape");
   const catalog = page.getByRole("region", { name: "模型目录结果", exact: true });
   await expect(catalog).not.toContainText(description.slice(0, 20));
   await page.getByRole("textbox", { name: "搜索模型目录", exact: true }).fill(description.slice(0, 20));
@@ -126,17 +132,17 @@ test("shared menus finish their transitions without a position jump and toolbar 
   // Hold each animation at its last frame, then compare against its resting position.
   await page.goto("/chat");
   await page.addStyleTag({ content: ":root { --dur-fast: 300ms; }" });
-  const assistant = page.getByRole("combobox", { name: "助理模板", exact: true, includeHidden: true });
-  await expect(assistant).toBeEnabled();
-  const manage = page.getByRole("link", { name: "管理模板", exact: true });
-  for (const control of [assistant, manage]) {
-    await expect(control).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-    expect((await control.boundingBox())!.height).toBe(32);
-  }
-  const memory = page.getByRole("switch", { name: "长期记忆", exact: true });
-  await expect(memory).toHaveAttribute("aria-checked", "true");
-  expect((await memory.boundingBox())!.y).toBe((await assistant.boundingBox())!.y);
-  for (const control of [assistant, page.getByRole("combobox", { name: "聊天模式", exact: true, includeHidden: true }), page.getByRole("combobox", { name: "选择模型", exact: true, includeHidden: true })])  {
+  // The title is quiet at rest, and its menu settles below it without moving it.
+  const title = page.locator(".chat-title");
+  await expect(title).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  const resting = await title.boundingBox();
+  await title.click();
+  await expectStableAnimationEnd(page.getByRole("menu"));
+  await expect(memorySwitch(page)).toHaveAttribute("aria-checked", "true");
+  expect(await title.boundingBox()).toEqual(resting);
+  await page.keyboard.press("Escape");
+  await expect(title).toBeFocused();
+  for (const control of [page.getByRole("combobox", { name: "聊天模式", exact: true, includeHidden: true }), page.getByRole("combobox", { name: "选择模型", exact: true, includeHidden: true })])  {
     const before = await control.boundingBox();
     await control.click();
     await expectStableAnimationEnd(page.getByRole("listbox"));

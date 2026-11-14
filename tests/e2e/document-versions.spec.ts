@@ -1,4 +1,5 @@
 import { test as base, expect, type Page } from "@playwright/test";
+import { expectImportClosed, openDocumentImport, previewImportButton } from "../helpers/knowledge";
 import { chooseMenuAction } from "../helpers/row-menu";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -12,28 +13,31 @@ const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>
   app: async ({}, runTest) => { const app = await startStandaloneServer({ modelFixture: true }); try { await runTest(app); } finally { await app.close(); } },
 });
 async function upload(page: Page, filename: string, text: string) {
+  await openDocumentImport(page);
   await page.getByLabel("选择知识文档").setInputFiles({ name: filename, mimeType: "text/plain", buffer: Buffer.from(text) });
   const response = page.waitForResponse(response => response.url().endsWith("/api/documents") && response.request().method() === "POST");
-  await page.getByRole("button", { name: "导入文档", exact: true }).click();
+  await previewImportButton(page).click();
   await page.getByRole("button", { name: "确认保存文档", exact: true }).click();
   const result = await response; expect(result.ok(), await result.text()).toBe(true);
-  await expect(page.getByRole("button", { name: "导入文档", exact: true })).toBeEnabled();
+  await expectImportClosed(page);
   return (await result.json()).data.document;
 }
 test("local search explains scope and old chat citations distinguish changed and deleted sources", async ({ page, app }) => {
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
   await openWorkspace(page, app.origin);
-  await page.goto(`${app.origin}/knowledge`);
+  await page.goto(`${app.origin}/knowledge?view=documents`);
+  await openDocumentImport(page);
   await page.getByLabel("所属主题（可选）").fill("Manual|操作");
   const original = await upload(page, "星河手册.txt", "星河回滚窗口为三十分钟。\n\n备用线路每月巡检。");
+  await openDocumentImport(page);
   await page.getByLabel("所属主题（可选）").fill("Support");
   await upload(page, "客服说明.txt", "客服团队每天上午九点到下午六点值班。");
   await page.getByLabel("检索的主题").click(); await page.getByRole("option", { name: "Support", exact: true }).click();
   await page.getByLabel("检索文档", { exact: true }).fill("星河回滚窗口");
-  await page.getByRole("button", { name: "检索文档", exact: true }).click();
+  await page.getByRole("textbox", { name: "检索文档", exact: true }).press("Enter");
   await expect(page.getByText("当前没有找到支持这个问题的资料。可以换一种说法、调整主题，或补充资料。", { exact: true })).toBeVisible();
   await page.getByLabel("检索的主题").click(); await page.getByRole("option", { name: "Manual|操作", exact: true }).click();
-  await page.getByRole("button", { name: "检索文档", exact: true }).click();
+  await page.getByRole("textbox", { name: "检索文档", exact: true }).press("Enter");
   // Both paragraphs are one chunk now: a section's short paragraphs are read together.
   await expect(page.getByText(/^主题：Manual/)).toHaveCount(1);
   await expect(page.getByText("引用版本一致（已核对）", { exact: true })).toHaveCount(1);
@@ -48,7 +52,8 @@ test("local search explains scope and old chat citations distinguish changed and
   await expect(source).toBeVisible();
   await expect(source.locator("..").getByText("引用版本一致（已核对）", { exact: true })).toBeVisible();
   const chatUrl = page.url();
-  await page.goto(`${app.origin}/knowledge`);
+  await page.goto(`${app.origin}/knowledge?view=documents`);
+  await openDocumentImport(page);
   await page.getByLabel("所属主题（可选）").fill("Manual|操作");
   const changed = await upload(page, "星河手册.txt", "星河回滚窗口为三十分钟。\n\n备用线路每天巡检。");
   expect(changed.id).toBe(original.id);

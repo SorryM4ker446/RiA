@@ -10,9 +10,9 @@ import {
   CheckCircle2,
   ChevronRight,
   History,
-  Loader2,
   Square,
 } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger, SheetDescription } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
@@ -215,7 +215,7 @@ export function RunRecords({ activeChatId, refreshKey, messages, open, onOpenCha
           {hasActiveRun ? (
             <div className="flex justify-end pb-2">
               <Button disabled={isStopping} onClick={() => void stop()} size="sm" type="button" variant="outline">
-                {isStopping ? <Loader2 data-icon="inline-start" className="animate-spin" aria-hidden="true" /> : <Square data-icon="inline-start" className="fill-current" aria-hidden="true" />}
+                {isStopping ? <Spinner data-icon="inline-start" aria-hidden="true" /> : <Square data-icon="inline-start" className="fill-current" aria-hidden="true" />}
                 {t("chat.run.stop")}
               </Button>
             </div>

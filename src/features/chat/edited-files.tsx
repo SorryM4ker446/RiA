@@ -4,7 +4,8 @@ import { useLocale } from "@/lib/locale/client";
 import { t, tf, localizeMessage } from "@/lib/locale";
 
 import { useRef, useState } from "react";
-import { ChevronDown, ChevronUp, ExternalLink, FileCode2, FileText, Files, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, FileCode2, FileText, Files } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -68,7 +69,7 @@ export function EditedFiles({ parts }: { parts: readonly unknown[] }) {
                 <span className="flex w-full min-w-0 items-center gap-2"><span className="truncate font-medium">{filename}</span><Badge variant={file.kind === "created" ? "success" : file.kind === "deleted" ? "danger" : "outline"}>{labels()[file.kind]}</Badge></span>
                 <span className="max-w-full truncate text-xs font-normal text-muted-foreground">{directory ? `${directory} · ` : ""}{describe(file)}</span>
               </span>
-              {busy === `${file.grantId}:${file.path}` ? <Loader2 data-icon="inline-end" className="animate-spin" /> : file.after && canOpen ? <ExternalLink data-icon="inline-end" /> : null}
+              {busy === `${file.grantId}:${file.path}` ? <Spinner data-icon="inline-end" /> : file.after && canOpen ? <ExternalLink data-icon="inline-end" /> : null}
             </Button>
           </li>;
         })}

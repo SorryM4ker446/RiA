@@ -1,5 +1,6 @@
 "use client";
-import { Loader2, PencilLine, X } from "lucide-react";
+import { PencilLine, X } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import { t, tf } from "@/lib/locale";
 import { useLocale } from "@/lib/locale/client";
 import { Button } from "@/components/ui/button";
@@ -80,7 +81,7 @@ export function ComposerAttachments({ attachments, removeAttachmentAt, isUploadi
       ) : null}
       {isUploadingAttachments ? (
         <p className="flex items-center gap-1.5 px-3 pt-2 text-[11px] text-muted-foreground" role="status">
-          <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />
+          <Spinner aria-hidden="true" className="h-3 w-3" />
           {t("chat.composer.uploadingAttachment")}
         </p>
       ) : null}

@@ -5,6 +5,7 @@ import * as SelectPrimitive from "@radix-ui/react-select";
 import { Check, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { useFluidWidth } from "@/lib/use-fluid-width";
+import { keepMovedFocus } from "./focus-return";
 
 const SelectInteractionContext = React.createContext<{
   open: boolean;
@@ -66,8 +67,8 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     className={cn(
       "group flex w-full items-center justify-between gap-2 rounded-lg text-sm text-foreground [&_svg]:size-4 [&_svg]:shrink-0",
-      variant === "default" ? "border border-border bg-transparent px-3 hover:border-input hover:bg-muted/40" : variant === "chip" ? "ui-filter-chip w-auto border border-dashed border-input bg-transparent px-2.5 text-[13px] hover:bg-accent/60" : "border border-transparent bg-transparent px-2 hover:bg-accent",
-      size === "sm" ? "h-8 text-xs" : "min-h-9 py-1.5",
+      variant === "default" ? "border border-border bg-transparent px-3 hover:border-input hover:bg-muted/40" : variant === "chip" ? "ui-filter-chip w-auto px-2.5 text-[13px]" : "border border-transparent bg-transparent px-2 hover:bg-accent",
+      size === "sm" ? "h-8 text-xs" : variant === "chip" ? "" : "min-h-9 py-1.5",
       "transition-[box-shadow,background-color,border-color,opacity] duration-[--dur-fast] ease-[--ease-out]",
       "focus:outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20",
       "disabled:cursor-not-allowed disabled:opacity-50",
@@ -108,7 +109,7 @@ SelectTrigger.displayName = SelectPrimitive.Trigger.displayName;
 const SelectContent = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
->(({ className, children, position = "popper", onPointerDownOutside, ...props }, ref) => {
+>(({ className, children, position = "popper", onPointerDownOutside, onCloseAutoFocus, ...props }, ref) => {
   const interaction = React.useContext(SelectInteractionContext);
   return (
   <SelectPrimitive.Portal>
@@ -122,6 +123,8 @@ const SelectContent = React.forwardRef<
       sideOffset={6}
       ref={ref}
       {...props}
+      // Focus that has moved on while the list shrinks away (say, to the field typed in next) stays where it went.
+      onCloseAutoFocus={keepMovedFocus(onCloseAutoFocus)}
       onPointerDownOutside={event => {
         onPointerDownOutside?.(event);
         // The trigger owns this click; outside dismissal must not close and reopen it.

@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { Archive, CalendarClock, ChevronDown, ChevronRight, Loader2, MoreHorizontal, PencilLine, Pin, PinOff, Plus, Trash2 } from "lucide-react";
+import { Archive, CalendarClock, ChevronDown, ChevronRight, MoreHorizontal, PencilLine, Pin, PinOff, Plus, Trash2 } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -120,7 +121,7 @@ export function SidebarConversations() {
       <div className="sidebar-chats-header">
         <span className="sidebar-chats-title">{t("sidebar.conversations")}</span>
         <Button type="button" variant="ghost" size="icon-sm" className="sidebar-chats-new" aria-label={t("sidebar.newChat")} title={t("sidebar.newChat")} disabled={isCreating} onClick={newChat}>
-          {isCreating ? <Loader2 aria-hidden="true" className="animate-spin" /> : <Plus aria-hidden="true" />}
+          {isCreating ? <Spinner aria-hidden="true" /> : <Plus aria-hidden="true" />}
         </Button>
       </div>
       <div ref={scroller} className="sidebar-chats-scroll" data-edges={edges || undefined}>
@@ -131,7 +132,7 @@ export function SidebarConversations() {
           {others.length ? <Group label={t("sidebar.recent")} hideLabel={!pinned.length && !tasks.length}>{rows(others)}</Group> : null}
           {!chats.length && !isLoading ? <p className="sidebar-chat-empty">{t("sidebar.empty")}</p> : null}
           {nextCursor ? <div ref={end} className="sidebar-chat-more" aria-live="polite">
-            {isLoadingMore ? <><Loader2 aria-hidden="true" className="size-3 animate-spin" />{t("chat.conversations.loadingMore")}</> : null}
+            {isLoadingMore ? <><Spinner aria-hidden="true" className="size-3" />{t("chat.conversations.loadingMore")}</> : null}
           </div> : null}
         </div>
       </div>
