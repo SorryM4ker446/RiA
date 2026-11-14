@@ -4,14 +4,15 @@ import { useLocale } from "@/lib/locale/client";
 import { formatDateTime, t, tf } from "@/lib/locale";
 
 import { useEffect, useId, useState } from "react";
-import { RefreshCw } from "lucide-react";
+
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Reveal } from "@/components/ui/reveal";
 import { Status } from "@/components/ui/status";
 import { useToast } from "@/components/ui/toast";
+import { RefreshCw } from "lucide-react";
 import { SettingsSection } from "@/features/settings/settings-section";
 import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
 import { updateFailureText, updatePercent, useUpdate } from "@/features/updates/update-provider";
@@ -70,7 +71,7 @@ export function UpdateSettings() {
   return (
     <SettingsSection
       id="updates"
-      title={<><RefreshCw aria-hidden="true" className="h-4 w-4 text-muted-foreground" />{t("settings.updates.title")}</>}
+      icon={RefreshCw} title={t("settings.updates.title")}
       description={state ? tf("settings.updates.current", { version: state.currentVersion }) : null}
       action={state?.supported ? <UpdateAction state={state} check={check} start={start} show={show} /> : null}
     >
@@ -85,9 +86,9 @@ export function UpdateSettings() {
         <Reveal className="-mt-3">{problem || failure ? <Alert className="mt-3" variant="destructive"><AlertDescription>{problem ?? failure}</AlertDescription></Alert> : null}</Reveal>
         {state?.previousInstall ? <PreviousInstallNote previous={state.previousInstall} /> : null}
         {state?.supported ? (
-          <Field orientation="horizontal">
-            <Checkbox checked={automatic ?? false} disabled={automatic === null} id={`${id}-automatic`} onCheckedChange={value => void toggleAutomatic(value === true)} />
+          <Field orientation="horizontal" className="justify-between">
             <FieldLabel htmlFor={`${id}-automatic`}>{t("settings.updates.automatic")}</FieldLabel>
+            <Switch checked={automatic ?? false} disabled={automatic === null} id={`${id}-automatic`} onCheckedChange={value => void toggleAutomatic(value)} />
           </Field>
         ) : null}
         <p className="text-[11px] text-muted-foreground">{t(state && !state.supported ? "settings.updates.unsupported" : "settings.updates.note")}</p>

@@ -1,4 +1,5 @@
 import { test as base, expect, type Page } from "@playwright/test";
+import { expectImportClosed, openDocumentImport, previewImportButton } from "../helpers/knowledge";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,13 +17,14 @@ const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>
   },
 });
 async function upload(page: Page, filename: string, text: string, collection: string) {
+  await openDocumentImport(page);
   await page.getByLabel("所属主题（可选）").fill(collection);
   await page.getByLabel("选择知识文档").setInputFiles({ name: filename, mimeType: "text/markdown", buffer: Buffer.from(text) });
   const response = page.waitForResponse(response => response.url().endsWith("/api/documents") && response.request().method() === "POST");
-  await page.getByRole("button", { name: "导入文档", exact: true }).click();
+  await previewImportButton(page).click();
   await page.getByRole("button", { name: "确认保存文档", exact: true }).click();
   const result = await response; expect(result.ok(), await result.text()).toBe(true);
-  await expect(page.getByRole("button", { name: "导入文档", exact: true })).toBeEnabled();
+  await expectImportClosed(page);
   return (await result.json()).data.document;
 }
 const embedded = (app: { readRows: (sql: string, ...args: unknown[]) => unknown[] }, documentId: string) => (app.readRows("SELECT count(*) AS count FROM document_chunks WHERE documentId=? AND embedding IS NOT NULL", documentId)[0] as { count: number }).count;
@@ -41,7 +43,7 @@ test("semantic indexing delivers evidence to chat, marks actual citations and su
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
   await openWorkspace(page, app.origin);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6", embedding: "openai/text-embedding-3-small" });
-  await page.goto(`${app.origin}/knowledge`);
+  await page.goto(`${app.origin}/knowledge?view=documents`);
   const finance = await upload(page, "差旅规程.md", "# 差旅规程\n\n公务出行的开支需要保留税务票据，回程后的十个工作日内提交费用核销申请。\n\n## 逾期\n\n超过期限需要主管提供书面说明。\n\n## 遗失票据\n\n遗失票据必须提供替代证明，不能直接申报。", "财务");
   await upload(page, "医疗服务.md", "医院接诊需要预约，非急诊的医疗服务开放时间为八点至十七点。", "医疗");
   // Choosing the model was the consent: the index builds after import, with nothing to click.
@@ -59,7 +61,7 @@ test("semantic indexing delivers evidence to chat, marks actual citations and su
   expect(app.readRows("SELECT id FROM model_requests WHERE mode='embedding'")).toHaveLength(charged);
   await page.getByLabel("检索文档", { exact: true }).fill("出门办事的钱怎样领回来");
   await page.getByLabel("检索的主题").click(); await page.getByRole("option", { name: "财务", exact: true }).click();
-  await page.getByRole("button", { name: "检索文档", exact: true }).click();
+  await page.getByRole("textbox", { name: "检索文档", exact: true }).press("Enter");
   const evidence = page.locator("details").filter({ hasText: "文档参考" }).last();
   await expect(evidence).toContainText("十个工作日"); await expect(evidence).toContainText("书面说明");
   await expect(evidence).not.toContainText("医疗服务.md");
@@ -102,7 +104,7 @@ test("semantic indexing delivers evidence to chat, marks actual citations and su
 test("a failed later indexing batch exposes saved progress and resumes without charging completed chunks", { tag: "@integration" }, async ({ page, app }) => {
   await openWorkspace(page, app.origin);
   await configureOfflineModels(page, { embedding: "openai/text-embedding-3-small" });
-  await page.goto(`${app.origin}/knowledge`);
+  await page.goto(`${app.origin}/knowledge?view=documents`);
   // Each clause is long enough to be a chunk of its own, and the second batch fails once.
   const doc = await upload(page, "费用规程.md", Array.from({ length: 40 }, (_, i) => `费用核销条款 ${i}：公务出行须保留票据。OFFLINE_EMBED_FAIL_AT=2 ${"说明".repeat(400)}`).join("\n\n"), "财务");
   await expect.poll(() => embedded(app, doc.id)).toBe(32);

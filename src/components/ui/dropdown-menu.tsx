@@ -4,16 +4,38 @@ import * as React from "react";
 import * as DropdownPrimitive from "@radix-ui/react-dropdown-menu";
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
+import { keepMovedFocus } from "./focus-return";
 
-export const DropdownMenu = DropdownPrimitive.Root;
+/** Counts the menu's openings; each one renders a fresh menu (see DropdownMenu). */
+const Opening = React.createContext(0);
+
+/**
+ * A closing menu shrinks away for a moment. Pressing its trigger again in that moment must open a menu,
+ * so each opening renders a new one, cutting the old one's exit short. Reviving the closing menu instead
+ * would let it take that same press as a click outside itself and close again at once.
+ */
+export function DropdownMenu({ open, defaultOpen, onOpenChange, children, ...props }: React.ComponentPropsWithoutRef<typeof DropdownPrimitive.Root>) {
+  const [opening, setOpening] = React.useState(0);
+  const [wasOpen, setWasOpen] = React.useState(open);
+  // A menu its owner opens by changing `open` counts as well.
+  if (open !== wasOpen) { setWasOpen(open); if (open) setOpening(count => count + 1); }
+  return (
+    <DropdownPrimitive.Root open={open} defaultOpen={defaultOpen} {...props}
+      onOpenChange={next => { if (next && open === undefined) setOpening(count => count + 1); onOpenChange?.(next); }}>
+      <Opening.Provider value={opening}>{children}</Opening.Provider>
+    </DropdownPrimitive.Root>
+  );
+}
 export const DropdownMenuTrigger = DropdownPrimitive.Trigger;
 export const DropdownMenuGroup = DropdownPrimitive.Group;
 export const DropdownMenuRadioGroup = DropdownPrimitive.RadioGroup;
 
-export function DropdownMenuContent({ className, sideOffset = 6, ...props }: React.ComponentPropsWithoutRef<typeof DropdownPrimitive.Content>) {
+export function DropdownMenuContent({ className, sideOffset = 6, onCloseAutoFocus, ...props }: React.ComponentPropsWithoutRef<typeof DropdownPrimitive.Content>) {
+  const opening = React.useContext(Opening);
   return (
     <DropdownPrimitive.Portal>
-      <DropdownPrimitive.Content sideOffset={sideOffset} className={cn("ui-dropdown-content", className)} {...props} />
+      <DropdownPrimitive.Content key={opening} sideOffset={sideOffset} className={cn("ui-dropdown-content", className)}
+        onCloseAutoFocus={keepMovedFocus(onCloseAutoFocus)} {...props} />
     </DropdownPrimitive.Portal>
   );
 }
@@ -28,6 +50,11 @@ export function DropdownMenuRadioItem({ className, children, ...props }: React.C
     {children}
     <DropdownPrimitive.ItemIndicator className="ml-auto flex"><Check aria-hidden="true" /></DropdownPrimitive.ItemIndicator>
   </DropdownPrimitive.RadioItem>;
+}
+
+/** On or off from a menu; the item stays a menu item to assistive technology, whatever it is drawn as. */
+export function DropdownMenuCheckboxItem({ className, ...props }: React.ComponentProps<typeof DropdownPrimitive.CheckboxItem>) {
+  return <DropdownPrimitive.CheckboxItem className={cn("ui-dropdown-item", className)} {...props} />;
 }
 
 export function DropdownMenuLabel({ className, ...props }: React.ComponentPropsWithoutRef<typeof DropdownPrimitive.Label>) {

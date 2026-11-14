@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Languages } from "lucide-react";
+
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { SelectField, SelectOption } from "@/components/ui/select";
+import { Languages } from "lucide-react";
 import { SettingsSection } from "./settings-section";
 import { t, type Locale } from "@/lib/locale";
 import { saveLocale, useLocale } from "@/lib/locale/client";
@@ -21,7 +22,7 @@ export function LanguageSettings() {
     finally { setSaving(false); }
   }
   return <SettingsSection
-    title={<><Languages aria-hidden="true" className="size-4" />{t("settings.language.title")}</>}
+    icon={Languages} title={t("settings.language.title")}
     action={<SelectField id="interface-language" aria-label={t("settings.language.label")} aria-describedby="interface-language-description" size="sm" value={locale} disabled={saving} onValueChange={value => void choose(value)}>
       <SelectOption value="zh-CN">简体中文</SelectOption>
       <SelectOption value="en-US">English</SelectOption>

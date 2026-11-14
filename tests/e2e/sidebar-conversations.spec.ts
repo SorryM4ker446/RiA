@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { chatTitle } from "../helpers/chat-header";
 import { DEFAULT_MODEL } from "../../src/config/model";
 import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
 import { openRecentConversations } from "../helpers/conversations";
@@ -76,7 +77,7 @@ test("conversations sort into pinned, scheduled tasks and the rest, and say whic
   await expect(row("没看过的回答").locator(".sidebar-chat-dot")).toHaveAttribute("data-state", "unread");
   // Opened, it is read: the dot goes, and the service is told.
   await row("没看过的回答").click();
-  await expect(page.locator(".chat-toolbar h3")).toHaveText("没看过的回答");
+  await expect(chatTitle(page)).toHaveText("没看过的回答");
   await expect(row("没看过的回答").locator(".sidebar-chat-dot")).not.toHaveAttribute("data-state", /.+/);
   await expect.poll(() => patches.some(patch => patch.id === "unseen" && patch.body.unread === false)).toBe(true);
   await expect(row("普通会话").locator(".sidebar-chat-dot")).not.toHaveAttribute("data-state", /.+/);
@@ -106,7 +107,7 @@ test("a conversation opens from any page, and its menu pins and archives it", as
   const row = (title: string) => sidebar.getByRole("button", { name: new RegExp(`^${title}`) });
   await row("Beta").click();
   await expect(page).toHaveURL(/\/chat$/);
-  await expect(page.locator(".chat-toolbar h3")).toHaveText("Beta");
+  await expect(chatTitle(page)).toHaveText("Beta");
   await expect(row("Beta")).toHaveAttribute("aria-current", "true");
 
   // Pinned, it moves up into its own section.
@@ -120,7 +121,7 @@ test("a conversation opens from any page, and its menu pins and archives it", as
   await page.getByRole("menuitem", { name: "归档", exact: true }).click();
   await expect(row("Beta")).toHaveCount(0);
   await expect(page.getByText("已归档", { exact: true })).toBeVisible();
-  await expect(page.locator(".chat-toolbar h3")).toHaveText("Alpha");
+  await expect(chatTitle(page)).toHaveText("Alpha");
   await expect(row("Alpha")).toHaveAttribute("aria-current", "true");
   expect(patches.at(-1)).toEqual({ id: "beta", body: { archived: true } });
 });
@@ -143,7 +144,7 @@ test("the conversation answering in this window shows it, and stops when the ans
   await page.goto("/chat");
   const sidebar = await openRecentConversations(page);
   const row = sidebar.getByRole("button", { name: /^Talk/ });
-  await expect(page.locator(".chat-toolbar h3")).toHaveText("Talk");
+  await expect(chatTitle(page)).toHaveText("Talk");
   await page.getByPlaceholder(/输入你的问题/).fill("Hello");
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(row).toHaveAccessibleName(/正在回答/);

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { chatTitle } from "../helpers/chat-header";
 import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
 import { expectEased, expectNoUnexpectedShift, expectSteady, watchLayout } from "../helpers/layout-watch";
 
@@ -131,8 +132,8 @@ async function recordChatReturn(page: Page) {
     composer: ".chat-workspace textarea",
     transcript: "[data-testid=message-list]",
     model: '.chat-workspace [aria-label="选择模型"]',
-    // Conversation controls count only once painted: hidden, they may still settle.
-    assistant: "#chat-assistant",
+    // The conversation's title control counts only once painted: hidden, it may still settle.
+    title: ".chat-title",
   }, { allowShiftsIn: ["[data-testid=message-list]"] });
   await page.evaluate(() => {
     const seen = { welcome: false, stop: false, generating: false, newChatTitle: false, modelPlaceholder: false, earlySkeleton: false };
@@ -141,9 +142,9 @@ async function recordChatReturn(page: Page) {
     const check = () => {
       if (document.querySelector(".chat-welcome")) seen.welcome = true;
       if (document.querySelector('.chat-workspace button[aria-label="停止"]')) seen.stop = true;
-      const toolbar = document.querySelector(".chat-toolbar");
-      if (toolbar?.textContent?.includes("生成中")) seen.generating = true;
-      if (toolbar?.querySelector("h3")?.textContent === "新会话") seen.newChatTitle = true;
+      const header = document.querySelector(".chat-header");
+      if (header?.textContent?.includes("生成中")) seen.generating = true;
+      if (header?.querySelector(".chat-title-text")?.textContent === "新会话") seen.newChatTitle = true;
       // The model is already chosen; "选择模型" in its place would be a claim that it is not.
       if (document.querySelector('.chat-workspace [aria-label="选择模型"]')?.textContent?.includes("选择模型")) seen.modelPlaceholder = true;
       // The placeholder's age counts from when it was inserted. Counted from the first frame
@@ -206,7 +207,7 @@ for (const reducedMotion of [false, true]) {
       const skeleton = page.getByTestId("message-skeleton");
       await expect(skeleton).toBeAttached();
       // The app already holds the list the sidebar shows, so the remembered conversation is named at once.
-      await expect(page.locator(".chat-toolbar h3")).toHaveText(chat.title);
+      await expect(chatTitle(page)).toHaveText(chat.title);
       await expect(page.getByRole("button", { name: "发送", exact: true })).toBeDisabled();
       // A load that is quick enough never paints the placeholder; a slow one still does.
       const reveal = await skeleton.evaluate(node => ({ delay: getComputedStyle(node).animationDelay, animations: node.getAnimations().length }));
@@ -217,7 +218,7 @@ for (const reducedMotion of [false, true]) {
         await expect(skeleton).toBeVisible();
       } else expect(reveal.delay).toBe("0.2s");
       // The conversation is known, so its controls are there with its title rather than appearing one by one.
-      await expect(page.locator(".chat-toolbar-actions")).toHaveCSS("visibility", "visible");
+      await expect(page.locator(".chat-header")).not.toHaveAttribute("data-waiting", /.*/);
       await expect.poll(() => skeleton.evaluate(node => getComputedStyle(node).opacity)).toBe("1");
       // The remembered conversation's history is asked for while the list is still outstanding,
       // rather than after it answers.
@@ -228,7 +229,7 @@ for (const reducedMotion of [false, true]) {
       // for its history, which is read meanwhile to check it against what is saved.
       release.settings();
       release.list();
-      await expect(page.locator(".chat-toolbar h3")).toHaveText(chat.title);
+      await expect(chatTitle(page)).toHaveText(chat.title);
       await expect(page.getByText("Returning message 3.", { exact: false }).first()).toBeVisible();
       await expect(skeleton).toHaveCount(0);
       await expect(page.locator(".chat-welcome")).toHaveCount(0);
@@ -237,7 +238,7 @@ for (const reducedMotion of [false, true]) {
       await expect(page.getByText("Returning message 3.", { exact: false }).first()).toBeVisible();
       await expect(skeleton).toHaveCount(0);
       await expect.poll(() => page.getByTestId("message-list").evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThanOrEqual(2);
-      await expect(page.getByRole("switch", { name: "长期记忆", exact: true })).toBeVisible();
+      await expect(page.locator(".chat-header")).not.toHaveAttribute("data-waiting", /.*/);
 
       const { layout, ...seen } = await read();
       expect(seen).toMatchObject({ welcome: false, stop: false, generating: false, newChatTitle: false, modelPlaceholder: false, earlySkeleton: false });
@@ -246,7 +247,7 @@ for (const reducedMotion of [false, true]) {
       expectSteady(layout, "transcript");
       // The model name arriving does not push the tool picker, and the toolbar controls appear in place.
       expectSteady(layout, "model", "left");
-      expectSteady(layout, "assistant", "left");
+      expectSteady(layout, "title", "left");
       expectNoUnexpectedShift(layout);
     } finally { release.settings(); release.list(); release.history(); }
   });
@@ -287,7 +288,7 @@ for (const stale of ["deleted", "archived"] as const) {
     await expect(page.getByRole("button", { name: "发送", exact: true })).toBeDisabled();
     releaseList();
     await expect(page.getByText("Kept message 1.", { exact: true })).toBeVisible();
-    await expect(page.locator(".chat-toolbar h3")).toHaveText(kept.title);
+    await expect(chatTitle(page)).toHaveText(kept.title);
     expect(await page.evaluate(() => (window as unknown as { staleRestore: { error: boolean; gone: boolean } }).staleRestore)).toEqual({ error: false, gone: false });
     expect(await page.evaluate(() => localStorage.getItem("chat:last-active-id"))).toBe(kept.id);
   });

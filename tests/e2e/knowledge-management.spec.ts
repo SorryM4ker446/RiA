@@ -32,7 +32,7 @@ const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>
 
 test.beforeEach(async ({ page, app }) => {
   await openWorkspace(page, app.origin);
-  await page.goto(`${app.origin}/knowledge`);
+  await page.goto(`${app.origin}/knowledge?view=entries`);
   await expect(page.getByRole("heading", { name: "记忆 126", exact: true })).toBeVisible();
 });
 
@@ -53,7 +53,7 @@ test("knowledge pagination reaches older entries and local search combines confi
   await pagination.getByRole("button", { name: "上一页" }).click();
   await expect(pagination.getByText("第 5 页", { exact: true })).toBeVisible();
   await page.getByRole("textbox", { name: "搜索条目" }).fill("底部关键词");
-  await page.getByRole("button", { name: "搜索", exact: true }).click();
+  await page.getByRole("textbox", { name: "搜索条目" }).press("Enter");
   await expect(page.locator("article")).toHaveCount(3);
   await expect(pagination.getByText("第 1 页", { exact: true })).toBeVisible();
   await page.getByRole("combobox", { name: "知识确认状态" }).click(); await page.getByRole("option", { name: "待确认", exact: true }).click();
@@ -65,7 +65,7 @@ test("knowledge pagination reaches older entries and local search combines confi
   await expect(page.locator("article")).toHaveCount(2);
   await expect(page.getByRole("heading", { name: "记忆 001", exact: true })).toBeVisible();
   expect(app.readRows("SELECT confirmed FROM memories WHERE id='fixture-001'")[0]).toEqual({ confirmed: 1 });
-  await expect(page).toHaveURL(`${app.origin}/knowledge`);
+  await expect(page).toHaveURL(`${app.origin}/knowledge?view=entries`);
   await expect(page).toHaveTitle(/RiA/);
   await expect(page.locator("nextjs-portal")).toHaveCount(0);
   const screenshots = join(tmpdir(), `ria-knowledge-qa-${info.testId.replace(/[^a-zA-Z0-9-]/g, "")}`);
@@ -142,19 +142,19 @@ test("a superseded knowledge search cannot replace newer results, and failed sea
   try {
     const search = page.getByRole("textbox", { name: "搜索条目" });
     await search.fill("慢请求");
-    await page.getByRole("button", { name: "搜索", exact: true }).click();
+    await page.getByRole("textbox", { name: "搜索条目" }).press("Enter");
     await received;
     await search.fill("底部关键词");
-    await page.getByRole("button", { name: "搜索", exact: true }).click();
+    await page.getByRole("textbox", { name: "搜索条目" }).press("Enter");
     await expect(page.locator("article")).toHaveCount(3);
     release();
     await search.fill("失败");
-    await page.getByRole("button", { name: "搜索", exact: true }).click();
+    await page.getByRole("textbox", { name: "搜索条目" }).press("Enter");
     await expect(page.getByText("模拟读取失败", { exact: true })).toBeVisible();
     await expect(page.locator("article")).toHaveCount(3);
     await expect(page.getByText("当前搜索： 底部关键词", { exact: true })).toBeVisible();
     await search.fill("没有结果");
-    await page.getByRole("button", { name: "搜索", exact: true }).click();
+    await page.getByRole("textbox", { name: "搜索条目" }).press("Enter");
     await expect(page.locator("article")).toHaveCount(0);
     await expect(page.getByText("当前搜索： 没有结果", { exact: true })).toBeVisible();
   } finally { release(); }

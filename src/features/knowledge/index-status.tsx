@@ -5,7 +5,8 @@ import type { DocumentIndexing, DocumentSummary } from "./document-client";
 import type { IndexProgress } from "./index-maintenance";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ChevronRight, Loader2, Settings2 } from "lucide-react";
+import { ChevronRight, Settings2 } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import type { ReactNode } from "react";
 import { RetrievalDiagnostics } from "@/components/knowledge/retrieval-diagnostics";
 
@@ -19,11 +20,11 @@ export function IndexStatus({ documents, progress, busy, automatic, start, cance
   const old = documents.filter(document => document.semantic?.lexicalCurrent === false);
   const indexing = busy && progress.some(item => item.status === "indexing");
   return <details className="settings-disclosure knowledge-disclosure group" data-testid="index-maintenance">
-    <summary className="settings-disclosure-trigger flex flex-wrap gap-2 py-2"><Settings2 className="size-4 text-muted-foreground" aria-hidden="true" /><span>{t("ui.knowledge.index-status.indexMaintenance")}</span>{pending.length > 0 && <Badge variant="secondary">{t("ui.knowledge.index-status.pendingBuild")}{pending.length}</Badge>}{old.length > 0 && <Badge variant="warning">{t("ui.knowledge.index-status.needsUpdating")}{old.length}</Badge>}{indexing && <Badge variant="secondary"><Loader2 className="size-3 animate-spin" aria-hidden="true" />{t("ui.knowledge.index-status.building")}</Badge>}<ChevronRight className="ml-auto size-3.5 text-muted-foreground transition-transform duration-[--dur-fast] group-open:rotate-90" aria-hidden="true" /></summary>
+    <summary className="settings-disclosure-trigger flex flex-wrap gap-2 py-2"><Settings2 className="size-4 text-muted-foreground" aria-hidden="true" /><span>{t("ui.knowledge.index-status.indexMaintenance")}</span>{pending.length > 0 && <Badge variant="secondary">{t("ui.knowledge.index-status.pendingBuild")}{pending.length}</Badge>}{old.length > 0 && <Badge variant="warning">{t("ui.knowledge.index-status.needsUpdating")}{old.length}</Badge>}{indexing && <Badge variant="secondary"><Spinner className="size-3" aria-hidden="true" />{t("ui.knowledge.index-status.building")}</Badge>}<ChevronRight className="ml-auto size-3.5 text-muted-foreground transition-transform duration-[--dur-fast] group-open:rotate-90" aria-hidden="true" /></summary>
     <div className="flex flex-col gap-5 py-3">
     <section aria-label={t("ui.knowledge.index-status.indexSection")} className="flex flex-col gap-3">
     <h3 className="text-xs font-medium tracking-label">{t("ui.knowledge.index-status.indexSection")}</h3>
-    {automatic.running ? <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 aria-hidden="true" className="size-3.5 animate-spin" />{t("ui.knowledge.index-status.buildingAutomatically")}</p>
+    {automatic.running ? <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground"><Spinner aria-hidden="true" className="size-3.5" />{t("ui.knowledge.index-status.buildingAutomatically")}</p>
       : automatic.failed ? <p role="status" className="text-xs text-muted-foreground">{t("ui.knowledge.index-status.automaticFailed")}</p> : null}
     <div className="flex flex-wrap gap-2"><Badge variant="outline">{t("ui.knowledge.index-status.pendingBuild")}{pending.length} {t("ui.knowledge.index-status.documents")}</Badge><Badge variant="outline">{t("ui.knowledge.document-library.localIndexNeedsUpdating")}{old.length} {t("conversations.counts.loadedUnit")}</Badge><Badge variant="outline">{t("ui.knowledge.index-status.staleVectors")}{documents.reduce((sum, document) => sum + (document.semantic?.stale ?? 0), 0)}</Badge><Badge variant="outline">{t("ui.knowledge.index-status.modelMismatch")}{documents.reduce((sum, document) => sum + (document.semantic?.differentModel ?? 0), 0)}</Badge><Badge variant="outline">{t("ui.knowledge.index-status.invalidVectors")}{documents.reduce((sum, document) => sum + (document.semantic?.invalid ?? 0), 0)}</Badge></div>
     <p className="max-w-3xl text-xs leading-6 text-muted-foreground">{t("ui.knowledge.index-status.selectAnEmbeddingModelInModels")}</p>

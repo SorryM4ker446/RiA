@@ -1,4 +1,5 @@
 import { test as base, expect } from "@playwright/test";
+import { openChatMenu, closeChatMenu, memorySwitch } from "../helpers/chat-header";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -257,19 +258,27 @@ test("desktop chat stays translucent and execution history opens without moving 
   );
   await expect(page.locator(".composer-surface")).toHaveCSS("background-color", /rgb\(/);
   expect((await page.locator(".composer-surface").boundingBox())!.width).toBeLessThanOrEqual(672);
-  // The switch says what the conversation does, and its state is in its text.
-  const memory = page.getByRole("switch", { name: "长期记忆", exact: true });
+  // Memory lives in the title's menu; with it on, nothing beside the title mentions it.
+  const memory = memorySwitch(page);
+  const offTag = page.locator(".chat-memory-off");
+  await openChatMenu(page);
   await expect(memory).toBeChecked();
-  await expect(memory).toHaveText("长期记忆：开");
+  await expect(offTag).toHaveCount(0);
+  // Switching keeps the menu open, so the switch is seen to move.
   await memory.click();
   await expect(memory).not.toBeChecked();
-  await expect(memory).toHaveText("长期记忆：关");
+  await expect(offTag).toHaveText("不记忆");
   await expect(toasts(page)).toContainText("这个会话不再读取或写入长期记忆");
   await expect.poll(async () => (await browserApi(page, "/api/conversations/" + conversation.id)).body.data.ephemeral).toBe(true);
   await page.reload();
+  // The tag opens the menu with the keyboard on the switch.
+  await offTag.click();
+  await expect(memory).toBeFocused();
   await expect(memory).not.toBeChecked();
   await memory.click();
   await expect(memory).toBeChecked();
+  await expect(offTag).toHaveCount(0);
+  await closeChatMenu(page);
   await expect(toasts(page)).toContainText("这个会话会使用长期记忆");
   await expect.poll(async () => (await browserApi(page, "/api/conversations/" + conversation.id)).body.data.ephemeral).toBe(false);
   const records = page.locator(".run-records");
@@ -297,8 +306,10 @@ test("desktop chat stays translucent and execution history opens without moving 
       /rgb\(/,
     );
   }
+  // A page longer than a small window scrolls inside the workspace. (Home is laid out to fit one screen.)
   await page.setViewportSize({ width: 390, height: 430 });
-  await page.goto(`${app.origin}/`);
+  await page.goto(`${app.origin}/knowledge`);
+  await expect(page.getByRole("heading", { level: 1, name: "知识库", exact: true })).toBeVisible();
   const content = page.locator(".workspace-content");
   expect(
     await content.evaluate(
@@ -316,14 +327,14 @@ test("the memory confirmation states the result and its effect, then leaves on i
   await openWorkspace(page, app.origin);
   await browserApi(page, "/api/conversations", "POST", { title: "记忆提示" });
   await page.goto(`${app.origin}/chat`);
-  const memory = page.getByRole("switch", { name: "长期记忆", exact: true });
+  const memory = memorySwitch(page);
   const notice = toasts(page).locator(".toast").last();
   // Saving and reading the list again must not blink the controls around it.
   await expect(page.locator(".chat-workspace-picker")).toBeEnabled();
   await page.evaluate(() => {
     const blinked: string[] = [];
     (window as unknown as { blinked: string[] }).blinked = blinked;
-    const watched = [".chat-workspace-picker", ".chat-memory-toggle", "#chat-assistant"];
+    const watched = [".chat-workspace-picker", ".chat-memory-item", ".chat-title"];
     new MutationObserver(records => {
       for (const record of records) {
         const node = record.target as Element;
@@ -332,6 +343,7 @@ test("the memory confirmation states the result and its effect, then leaves on i
       }
     }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ["disabled", "data-disabled"] });
   });
+  await openChatMenu(page);
   await memory.click();
   await expect(notice.locator(".toast-title")).toHaveText("长期记忆已关闭");
   await expect(notice.locator(".toast-description")).toHaveText("这个会话不再读取或写入长期记忆");

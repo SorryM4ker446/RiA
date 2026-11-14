@@ -198,12 +198,6 @@ export function registerIpcHandlers() {
     return { settings, restarting: true };
   });
 
-  ipcMain.handle("desktop:tray:quit", async (event) => {
-    assertTrustedIpcSender(event);
-    quitFromTray();
-    return { quitting: true };
-  });
-
   ipcMain.handle("desktop:tray:show", async (event) => {
     assertTrustedIpcSender(event);
     showMainWindow();

@@ -91,6 +91,7 @@ export const libraryMessages = {
   "documents.countOpen": "（",
   "documents.countClose": "）",
   "documents.libraryTitle": "文档知识库",
+  "documents.previewImport": "预览导入",
   "documents.libraryDescription": "本地解析 PDF、Markdown、TXT、Word .docx，可按关键词或意思搜索；每份最多 8 MiB、十万字符，最多保存 100 份。",
   "documents.textOnlyNote": "仅保存提取文本，不保留原文件及排版。同名文件会更新原文档并复用未变化的片段。聊天时，命中的片段会随问题发送给你配置的模型。导入在本机完成；在模型设置里选了嵌入模型后，片段会自动发给它，用来按意思查找，可能产生少量费用。扫描 PDF 请先 OCR，旧版 .doc 请先转换为 .docx。",
   "documents.fileLabel": "选择知识文档",

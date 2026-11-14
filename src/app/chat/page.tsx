@@ -6,7 +6,7 @@ import { useToastAnchor } from "@/components/ui/toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ChatToolbar } from "@/features/chat/chat-toolbar";
+import { ChatHeader } from "@/features/chat/chat-toolbar";
 import { Composer } from "@/features/chat/composer";
 import { DeleteDialog } from "@/features/chat/delete-dialog";
 import { MessageRenderer } from "@/features/chat/message-renderer";
@@ -23,14 +23,14 @@ import { localizeMessage, t } from "@/lib/locale";
 export default function ChatPage() {
   useLocale();
   const chat = useChatState();
-  // Confirmations appear just above the composer's controls, centred on them.
-  // Confirmations appear in line with the toolbar's first row, not over the conversation.
-  const toolbarRow = useRef<HTMLDivElement>(null);
-  useToastAnchor(toolbarRow);
+  // Confirmations appear centred near the top of the conversation, just below the window's top row.
+  const toastAnchor = useRef<HTMLDivElement>(null);
+  useToastAnchor(toastAnchor);
   const [executionPanel, setExecutionPanel] = useState<{ chatId: string; messageId?: string } | null>(null);
   // Commands from the palette and keyboard shortcuts; one sent from another page runs once chat is ready.
   useChatCommands(command => {
     if (command.type === "new-conversation") void chat.createNewChat();
+    else if (command.type === "ask") void chat.askInNewChat(command.text);
     else if (command.type === "open-conversation") void chat.switchActiveChat(command.id);
     else if (command.type === "focus-composer") chat.textareaRef.current?.focus();
     else if (command.type === "select-model") { if (chat.modelMode !== "chat") chat.onModeSelect("chat"); chat.onModelSelect(command.model); }
@@ -51,7 +51,7 @@ export default function ChatPage() {
       <ToolLessModelNotice {...chat} />
       <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Card className="chat-canvas relative flex h-full min-h-0 flex-col overflow-hidden rounded-none border-0 bg-transparent shadow-none">
-          <ChatToolbar {...chat} rowRef={toolbarRow} />
+          <ChatHeader {...chat} toastAnchorRef={toastAnchor} />
 
           <CardContent className="flex min-h-0 flex-1 flex-col gap-0 p-0">
             <MessageRenderer {...chat} onShowSources={showExecutionDetails} />

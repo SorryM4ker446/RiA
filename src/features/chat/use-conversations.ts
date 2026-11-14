@@ -125,9 +125,10 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     if (failure) setPageError(failure);
   }
 
-  async function createNewChat() {
+  /** Creates and opens a conversation; resolves to its id, or null when it could not be created. */
+  async function createNewChat(): Promise<string | null> {
     // A second click while one is being created asks for the same conversation.
-    if (creatingChatRef.current) return;
+    if (creatingChatRef.current) return null;
     setIsCreatingChat(true);
     setPageError(null);
     const creation = (async () => {
@@ -147,10 +148,12 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     })();
     creatingChatRef.current = creation.catch(() => null);
     try {
-      await creation;
+      const id = await creation;
       await loadChats();
+      return id;
     } catch (createError) {
       setPageError(createError instanceof Error ? createError.message : t("chatApi.createConversationFailed"));
+      return null;
     } finally {
       creatingChatRef.current = null;
       setIsCreatingChat(false);

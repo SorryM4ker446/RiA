@@ -95,7 +95,7 @@ export function settingsSections(): { id: SettingsSectionId; label: string }[] {
 function SectionContent({ id }: { id: SettingsSectionId }) {
   useLocale();
   switch (id) {
-    case "ria": return <><PageHeader level={2} title={t("settings.yourRia.title")} /><div className="settings-panel flex flex-col"><YourRia /></div></>;
+    case "ria": return <YourRia />;
     case "services": return <ServiceSettings />;
     case "application": return <><PageHeader level={2} title={t("ui.settings.application")} /><div className="settings-panel flex flex-col"><LanguageSettings /><CloseBehaviourSettings /><HotkeySettings /><UpdateSettings /></div></>;
     case "automation": return <><PageHeader level={2} title={t("ui.settings.automationNotifications")} /><div className="settings-panel flex flex-col"><TaskNotificationSettings /><BackgroundTaskRules /><NoticeCenter /><WorkspaceReviewPreview /></div></>;

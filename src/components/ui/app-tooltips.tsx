@@ -9,7 +9,8 @@ const GAP = 6;
 /** The nearest a tooltip comes to the window's edges. */
 const MARGIN = 8;
 
-type Tip = { text: string; anchor: { top: number; bottom: number; left: number; right: number } };
+/** A tip on screen; `leaving` while it fades out, after which it is removed. */
+type Tip = { text: string; anchor: { top: number; bottom: number; left: number; right: number }; leaving?: boolean };
 
 /**
  * Where a tooltip of this size goes: above its element when it fits there, below
@@ -66,6 +67,7 @@ export function AppTooltips() {
   useLayoutEffect(() => {
     const element = node.current;
     if (!tip || !element) return;
+    if (tip.leaving) return;
     const place = placeTooltip(tip.anchor, { width: element.offsetWidth, height: element.offsetHeight }, { width: window.innerWidth, height: window.innerHeight });
     element.style.left = `${place.left}px`;
     element.style.top = `${place.top}px`;
@@ -80,7 +82,12 @@ export function AppTooltips() {
       current?.removeAttribute("aria-describedby");
       current = null;
     };
-    const hide = () => { clearTimeout(timer); restore(); setTip(null); };
+    // Leaving, a tip fades out and is removed when that ends; with reduced motion nothing fades, so it goes at once.
+    const hide = () => {
+      clearTimeout(timer); restore();
+      const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      setTip(current => !current || still ? null : current.leaving ? current : { ...current, leaving: true });
+    };
     const show = (target: EventTarget | null) => {
       const found = tipFor(target as Element | null);
       if (!found) { hide(); return; }
@@ -99,20 +106,29 @@ export function AppTooltips() {
     };
     const onOver = (event: PointerEvent) => show(event.target);
     const onOut = (event: PointerEvent) => { if (current && !current.contains(event.relatedTarget as Node | null)) hide(); };
-    const onFocus = (event: FocusEvent) => { if ((event.target as Element | null)?.matches?.(":focus-visible")) show(event.target); };
+    // Focus moving elsewhere (a closing menu handing it back to its trigger) neither takes nor clears the tip of
+    // what the pointer rests on. A key press has already cleared it, so focus moved from the keyboard shows its own.
+    const pointedAt = (target: EventTarget | null) => Boolean(current?.matches(":hover") && !current.contains(target as Node | null));
+    const onFocus = (event: FocusEvent) => {
+      if (pointedAt(event.target)) return;
+      if ((event.target as Element | null)?.matches?.(":focus-visible")) show(event.target);
+    };
+    const onBlur = (event: FocusEvent) => { if (!pointedAt(event.target)) hide(); };
     window.addEventListener("pointerover", onOver, true);
     window.addEventListener("pointerout", onOut, true);
     window.addEventListener("focusin", onFocus, true);
-    window.addEventListener("focusout", hide, true);
+    window.addEventListener("focusout", onBlur, true);
     window.addEventListener("pointerdown", hide, true);
     window.addEventListener("keydown", hide, true);
     window.addEventListener("scroll", hide, true);
     return () => {
       hide();
-      for (const [name, listener] of [["pointerover", onOver], ["pointerout", onOut], ["focusin", onFocus], ["focusout", hide], ["pointerdown", hide], ["keydown", hide], ["scroll", hide]] as const) window.removeEventListener(name, listener as EventListener, true);
+      for (const [name, listener] of [["pointerover", onOver], ["pointerout", onOut], ["focusin", onFocus], ["focusout", onBlur], ["pointerdown", hide], ["keydown", hide], ["scroll", hide]] as const) window.removeEventListener(name, listener as EventListener, true);
     };
   }, [id]);
   if (!tip) return null;
-  return createPortal(<div ref={node} id={id} role="tooltip" className="ui-tooltip-content app-tooltip"
+  return createPortal(<div ref={node} id={tip.leaving ? undefined : id} role={tip.leaving ? undefined : "tooltip"} aria-hidden={tip.leaving || undefined}
+    data-state={tip.leaving ? "closed" : "open"} className="ui-tooltip-content app-tooltip"
+    onAnimationEnd={() => { if (tip.leaving) setTip(current => current?.leaving ? null : current); }}
     style={{ left: 0, top: 0, visibility: "hidden" }}>{tip.text}</div>, document.body);
 }

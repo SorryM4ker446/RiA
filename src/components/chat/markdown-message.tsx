@@ -2,7 +2,7 @@
 import { useLocale } from "@/lib/locale/client";
 
 import { AlertCircle, Check, Copy } from "lucide-react";
-import { memo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils/cn";
 import { t } from "@/lib/locale";
 import { writeToClipboard } from "@/lib/clipboard";
 import { splitMarkdownBlocks } from "./markdown-blocks";
+import { rehypeStreamWords } from "./stream-words";
 
 type MarkdownMessageProps = {
   text: string;
@@ -93,9 +94,25 @@ const rehypePlugins = [rehypeSanitize];
 const remarkPlugins = [remarkGfm];
 const imageElements = ["img"];
 
-const MarkdownBlock = memo(function MarkdownBlock({ text, allowImages }: Required<MarkdownMessageProps>) {
+/**
+ * One top-level block. While it is the one being written, its words fade in one by one (see stream-words); it keeps
+ * their spans until its own last fade has finished, then renders as plain text again, exactly as when loaded. So
+ * only text written in the last moment carries spans, and nothing snaps when a block or the answer is finished.
+ */
+const MarkdownBlock = memo(function MarkdownBlock({ text, allowImages, index, writing, container }: Required<MarkdownMessageProps> & { index: number; writing: boolean; container: RefObject<HTMLDivElement | null> }) {
+  const [words, setWords] = useState(writing);
+  if (writing && !words) setWords(true);
+  useEffect(() => {
+    if (writing || !words) return;
+    const fading = (container.current?.getAnimations({ subtree: true }) ?? []).filter(animation =>
+      (animation as CSSAnimation).animationName === "stream-word-in" && ((animation.effect as KeyframeEffect | null)?.target as HTMLElement | null)?.dataset.block === String(index));
+    let current = true;
+    void Promise.allSettled(fading.map(animation => animation.finished)).then(() => { if (current) setWords(false); });
+    return () => { current = false; };
+  }, [writing, words, index, container]);
+  const plugins = useMemo(() => words ? [rehypeSanitize, [rehypeStreamWords, { block: index }] as [typeof rehypeStreamWords, { block: number }]] : rehypePlugins, [words, index]);
   return (
-    <ReactMarkdown components={markdownComponents} rehypePlugins={rehypePlugins} remarkPlugins={remarkPlugins} disallowedElements={allowImages ? undefined : imageElements}>
+    <ReactMarkdown components={markdownComponents} rehypePlugins={plugins} remarkPlugins={remarkPlugins} disallowedElements={allowImages ? undefined : imageElements}>
       {text}
     </ReactMarkdown>
   );
@@ -109,9 +126,11 @@ const MarkdownBlock = memo(function MarkdownBlock({ text, allowImages }: Require
  */
 export const MarkdownMessage = memo(function MarkdownMessage({ text, allowImages = true, streaming = false }: MarkdownMessageProps & { streaming?: boolean }) {
   useLocale();
+  const container = useRef<HTMLDivElement>(null);
+  const blocks = splitMarkdownBlocks(text);
   return (
-    <div className="markdown-message" data-streaming={streaming || undefined}>
-      {splitMarkdownBlocks(text).map((block, index) => <MarkdownBlock key={index} text={block} allowImages={allowImages} />)}
+    <div ref={container} className="markdown-message" data-streaming={streaming || undefined}>
+      {blocks.map((block, index) => <MarkdownBlock key={index} text={block} allowImages={allowImages} index={index} writing={streaming && index === blocks.length - 1} container={container} />)}
     </div>
   );
 });

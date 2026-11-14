@@ -108,6 +108,9 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+/* Light text on a dark ground reads heavier than the same weight in dark ink on white, so in the dark theme
+   running text steps down a little (both fonts are variable). Bold and headings keep their weights. */
+.dark body { font-weight: 360; }
 
 /* One checkbox everywhere, native or not: a rounded square that fills and ticks with a small spring.
    The input stays a real checkbox, so labels, keyboard and form state keep working. */
@@ -281,6 +284,14 @@ input:-webkit-autofill:focus {
     background: hsl(var(--foreground) / .6);
     mask: var(--ria-star) center / contain no-repeat;
     animation: stream-star-twinkle var(--dur-loop) var(--ease-in-out) infinite alternate;
+  }
+  /* While an answer is written, each new word fades in on its own, a little slower than the words arrive, so
+     the text gathers behind the star like ink settling rather than appearing in bursts. What is not running
+     text (a code block, a table, a rule) rises in as a whole. Nothing stays applied once a word or block has
+     arrived, and an answer that is loaded, not written, appears at once. */
+  @media (prefers-reduced-motion: no-preference) {
+    .stream-word { animation: stream-word-in var(--dur-word) var(--ease-out) backwards; }
+    .markdown-message[data-streaming] > :is(div, table, hr) { animation: stream-block-in var(--dur-slow) var(--ease-out) backwards; }
   }
   /* Below a block that cannot take it inline, it starts the next line. */
   .markdown-message[data-streaming]:not(:has(> :is(p, h1, h2, h3, h4, blockquote, ul, ol):last-child))::after {
@@ -458,12 +469,17 @@ input:-webkit-autofill:focus {
   --dur-fast: 160ms;
   --dur-base: 240ms;
   --dur-slow: 360ms;
+  /* A word written into a streaming answer fades in over this long: slower than words arrive, so several are
+     settling at once and the text flows in rather than flickering. */
+  --dur-word: 500ms;
   /* Rows of a list arrive one step after another, not all at once. */
   --stagger-step: 30ms;
   /* A placeholder for something still loading appears only after this long. */
   --delay-placeholder: 200ms;
   /* A loading shimmer sweeps steadily, once every loop. */
   --dur-loop: 1.6s;
+  /* One turn of a spinner: steady, quick enough to read as busy, not frantic. */
+  --dur-spin: 800ms;
   --ease-linear: linear;
   /* Corners in four sizes, smallest inside largest: an item in a menu or card,
      a control, a card or menu, a window. The composer keeps its own softer
@@ -632,7 +648,7 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .workspace-shell[data-desktop="true"][data-chat-page="true"] .workspace-main { background: hsl(var(--background) / .88); }
 .workspace-shell[data-desktop="true"] .chat-canvas { background: transparent; }
 .workspace-topbar { border-color: hsl(var(--border)); }
-.workspace-shell .workspace-topbar, .workspace-shell .workspace-rail, .workspace-shell .chat-rail, .workspace-shell .chat-toolbar { border-color: transparent; }
+.workspace-shell .workspace-topbar, .workspace-shell .workspace-rail, .workspace-shell .chat-rail { border-color: transparent; }
 .workspace-rail > div > .border-t, .conversation-rail-body > footer { border-color: transparent; }
 .workspace-rail { background: hsl(var(--surface)); border-color: hsl(var(--border)); }
 /* Sidebar. The docked rail and its content share `--rail-width`; folding takes the rail to nothing while the
@@ -645,6 +661,7 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 html[data-rail-animating] .workspace-rail-docked { transition: width var(--dur-base) var(--ease-out); }
 html[data-rail-animating] .workspace-rail-inner { transition: opacity var(--dur-base) var(--ease-out), translate var(--dur-base) var(--ease-out); }
 html[data-rail-animating] .workspace-main > .workspace-topbar { transition: padding-left var(--dur-base) var(--ease-out); }
+html[data-rail-animating] .chat-title { transition: margin-left var(--dur-base) var(--ease-out); }
 /* Shown at once, so it can take focus at once; hidden only after it has faded. */
 html[data-rail-animating] .rail-toggle { transition: opacity var(--dur-base) var(--ease-out), visibility 0s; }
 html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !important; user-select: none; }
@@ -673,6 +690,8 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
   html[data-rail-collapsed="true"] .workspace-rail-docked > .workspace-rail-inner { opacity: 0; translate: -16px 0; }
   html[data-rail-collapsed="true"]:not([data-rail-dragging]) .rail-resizer { display: none; }
   html[data-rail-collapsed="true"] .workspace-main > .workspace-topbar { padding-left: 52px; }
+  /* Folded, the title's hover pill keeps a little clear of the sidebar button instead of touching it. */
+  html[data-rail-collapsed="true"] .chat-title { margin-left: -4px; }
   html:not([data-rail-collapsed="true"]) .rail-toggle { opacity: 0; visibility: hidden; pointer-events: none; }
   html[data-rail-animating]:not([data-rail-collapsed="true"]) .rail-toggle { transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast) allow-discrete; }
 }
@@ -681,6 +700,7 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
   html:not([data-rail-pinned="true"]) .workspace-rail-docked > .workspace-rail-inner { opacity: 0; translate: -16px 0; }
   html:not([data-rail-pinned="true"]):not([data-rail-dragging]) .rail-resizer { display: none; }
   html:not([data-rail-pinned="true"]) .workspace-main > .workspace-topbar { padding-left: 52px; }
+  html:not([data-rail-pinned="true"]) .chat-title { margin-left: -4px; }
   html[data-rail-pinned="true"] .rail-toggle { opacity: 0; visibility: hidden; pointer-events: none; }
   html[data-rail-animating][data-rail-pinned="true"] .rail-toggle { transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast) allow-discrete; }
 }
@@ -696,7 +716,7 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
 .rail-peek[data-state="pinning"] { box-shadow: 0 0 0 1px transparent, 16px 0 40px -18px transparent; }
 @keyframes rail-peek-in { from { translate: -100% 0; } }
 @keyframes rail-peek-out { to { translate: -100% 0; } }
-@media (prefers-reduced-motion: reduce) { html[data-rail-animating] :is(.workspace-rail-docked, .workspace-rail-inner, .workspace-main > .workspace-topbar, .rail-toggle) { transition: none; } .rail-peek, .rail-peek[data-state] { transition: none; animation-duration: 0s; } }
+@media (prefers-reduced-motion: reduce) { html[data-rail-animating] :is(.workspace-rail-docked, .workspace-rail-inner, .workspace-main > .workspace-topbar, .rail-toggle, .chat-title) { transition: none; } .rail-peek, .rail-peek[data-state] { transition: none; animation-duration: 0s; } }
 .workspace-content { background: hsl(var(--surface)); scrollbar-gutter: stable; scroll-behavior: smooth; }
 .workspace-content > main:not(.chat-workspace) { width: 100%; padding: clamp(1.5rem, 3vw, 3rem); }
 /* Workspace pages share one measure: wide enough for a list with a few columns, narrow enough that
@@ -705,14 +725,75 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
 .workspace-content > main.wide-page { max-width: 72rem; }
 .workspace-content h1 { letter-spacing: -.035em; text-wrap: balance; }
 .workspace-content > main:not(.chat-workspace) > :is(header, div:first-child):has(h1) { padding-bottom: 1rem; }
+/* Home: the greeting and the question box at the centre; the rest of the day is said in passing.
+   Everything quiet is a tint of the text colour, so the page stays calm in both themes. */
+.home { display: flex; min-height: 100%; flex-direction: column; }
+.workspace-content > main.home:not(.chat-workspace) { padding: 0 24px; }
+.home-center { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding-bottom: 8vh; }
+.workspace-content > main.home:not(.chat-workspace) > .home-center > header.home-hello:has(h1) { padding-bottom: 0; }
+.home-hello { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.home-star { width: 22px; height: 30px; background: hsl(var(--foreground)); -webkit-mask: var(--ria-star) center / contain no-repeat; mask: var(--ria-star) center / contain no-repeat; opacity: .9; }
+.home-hello h1 { font-size: 30px; font-weight: 600; line-height: 1.2; letter-spacing: -0.02em; }
+.home-summary { display: flex; min-height: 24px; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 6px; font-size: 14px; color: hsl(var(--muted-foreground)); }
+.home-waiting { display: inline-flex; align-items: center; gap: 6px; margin: -2px -6px; padding: 2px 6px; border-radius: var(--radius-inner); font-weight: 500; color: hsl(var(--foreground)); outline: none; transition: background-color var(--dur-fast) var(--ease-out); }
+.home-waiting:hover, .home-waiting[data-state="open"] { background: hsl(var(--foreground) / .06); }
+.home-waiting:focus-visible { box-shadow: 0 0 0 2px hsl(var(--ring)); }
+.home-waiting-dot { width: 6px; height: 6px; border-radius: 999px; background: hsl(var(--warning)); }
+/* It opens over the page's text, so it is solid enough not to be read through, unlike the frosted menus. */
+.ui-popover-content.home-waiting-list { width: 20rem; padding: 6px; background: hsl(var(--popover) / .97); }
+.home-waiting-list ul { display: flex; flex-direction: column; gap: 1px; }
+.home-waiting-list button { display: flex; width: 100%; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: var(--radius-inner); text-align: left; outline: none; transition: background-color var(--dur-fast) var(--ease-out); }
+.home-waiting-list button:hover, .home-waiting-list button:focus-visible { background: hsl(var(--accent)); }
+.home-item-title { font-size: 13px; font-weight: 500; }
+.home-item-note { font-size: 12px; color: hsl(var(--muted-foreground)); }
+.home-item-note[data-tone="danger"] { color: hsl(var(--destructive)); }
+/* The question box: the page's one large thing, shaped like the chat's message box. */
+.home-ask { display: flex; width: min(40rem, 100%); align-items: center; gap: 10px; padding: 10px 10px 10px 20px; border: 1px solid hsl(var(--input)); border-radius: 20px; background: hsl(var(--card)); box-shadow: 0 1px 2px hsl(var(--shadow) / .04), 0 12px 40px -12px hsl(var(--shadow) / .14); transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-base) var(--ease-out); }
+.home-ask:focus-within { border-color: hsl(var(--ring) / .6); box-shadow: 0 0 0 3px hsl(var(--ring) / .08), 0 12px 40px -12px hsl(var(--shadow) / .18); }
+.home-ask input { min-width: 0; flex: 1; height: 44px; border: 0; background: transparent; font-size: 15px; color: hsl(var(--foreground)); outline: none; }
+.home-ask input::placeholder { color: hsl(var(--muted-foreground)); }
+.home-ask [data-slot="button"] { border-radius: 999px; }
+.home-setup { display: flex; width: min(40rem, 100%); flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 14px 14px 14px 20px; border-radius: 20px; font-size: 14px; background: hsl(var(--foreground) / .04); box-shadow: inset 0 0 0 1px hsl(var(--foreground) / .07); }
+.home-recent { display: flex; width: min(40rem, 100%); flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
+.home-pill { display: inline-flex; max-width: 14rem; height: 32px; align-items: center; gap: 6px; padding: 0 12px; border-radius: 999px; font-size: 13px; color: hsl(var(--muted-foreground)); background: hsl(var(--foreground) / .045); box-shadow: inset 0 0 0 1px hsl(var(--foreground) / .06); outline: none; transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.home-pill svg { width: 14px; height: 14px; flex-shrink: 0; }
+.home-pill:hover { color: hsl(var(--foreground)); background: hsl(var(--foreground) / .08); }
+.home-pill:focus-visible { box-shadow: 0 0 0 2px hsl(var(--ring)); }
+.home-pill[data-state] { color: hsl(var(--foreground)); }
+.home-pill-dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: 999px; background: hsl(var(--success)); }
+.home-pill[data-state="approval"] .home-pill-dot { background: hsl(var(--warning)); }
+/* Today's tasks: one quiet line at the foot of the page. */
+.home-day { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 12px; padding: 0 0 28px; font-size: 12.5px; color: hsl(var(--muted-foreground)); }
+.home-day-item { display: inline-flex; max-width: 14rem; align-items: center; gap: 6px; margin: -2px -6px; padding: 2px 6px; border-radius: var(--radius-inner); outline: none; transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.home-day-item:hover { color: hsl(var(--foreground)); background: hsl(var(--foreground) / .05); }
+.home-day-item:focus-visible { box-shadow: 0 0 0 2px hsl(var(--ring)); }
+.home-day-item time { flex-shrink: 0; font-variant-numeric: tabular-nums; opacity: .75; }
+.home-day-item svg { width: 14px; height: 14px; flex-shrink: 0; }
+.home-day-done { color: hsl(var(--success)); }
+.home-day-failed { color: hsl(var(--destructive)); }
+.home-day-note { flex-shrink: 0; opacity: .8; }
+.home-day-sep { width: 3px; height: 3px; flex-shrink: 0; border-radius: 999px; background: currentColor; opacity: .35; }
 .workspace-page-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; }
 .workspace-page-header :is(h1, h2) { font-size: 20px; line-height: 1.35; font-weight: 600; letter-spacing: -0.015em; }
 .workspace-page-header p { max-width: 42rem; font-size: 13px; line-height: 1.7; }
+/* The way back, as a line of small print above the title: the title stays the one large thing on the page,
+   and each step is a quiet button separated by a faint slash. */
+.page-header-trail { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; row-gap: 6px; }
+.page-trail { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; }
+.page-trail-step { display: inline-flex; align-items: center; color: hsl(var(--muted-foreground)); }
+.page-trail-step + .page-trail-step::before { content: "/"; margin: 0 8px; font-size: 13px; color: hsl(var(--muted-foreground) / .45); }
+.page-trail-step button { margin-inline: -6px; padding: 2px 6px; border-radius: var(--radius-inner); font-size: 13px; line-height: 20px; outline: none; transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
+.page-trail-step button:hover { color: hsl(var(--foreground)); background: hsl(var(--accent) / .6); }
+.page-trail-step button:focus-visible { box-shadow: 0 0 0 2px hsl(var(--ring)); }
 /* A bar that only exists while something is selected; it slides in above the list it acts on. */
 .selection-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 36px; }
 .workspace-nav-label { color: hsl(var(--muted-foreground)); font-size: 11px; font-weight: 500; letter-spacing: .04em; }
 .workspace-nav-link { position: relative; display: flex; min-height: 36px; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--radius-control); font-size: 13px; color: hsl(var(--muted-foreground)); transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), min-height var(--dur-slow) var(--ease-out), padding var(--dur-slow) var(--ease-out); }
 .workspace-nav-link:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+/* Lists: pointing at a row shows its highlight at once, leaving lets it fade, so moving down a list never leaves a trail.
+   Only the highlight's colours; a row's other motion keeps its own timing. */
+:is(.workspace-nav-link, .sidebar-chat-row, .item-row, .conversation-row, .home-pill, .home-day-item, .see-all-link):hover,
+.ui-dropdown-item[data-highlighted], .ui-select-content [role="option"][data-highlighted] { transition-duration: 0s; }
 .workspace-nav-link[aria-current="page"] { background: hsl(var(--card)); color: hsl(var(--foreground)); font-weight: 600; }
 .workspace-nav-link:active { transform: scale(.98); }
 .workspace-nav-link:focus-visible, .workspace-brand:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
@@ -773,6 +854,37 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
 .ui-tabs-content { min-width: 0; outline: none; }
 .ui-tabs-content[hidden] { display: none; }
 .ui-tabs-content[data-state="active"] { animation: content-in var(--dur-base) var(--ease-out); }
+
+/* Segmented control: equal segments on a filled track; the chosen one is a raised fill that slides by index. */
+.ui-segmented { position: relative; isolation: isolate; display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; width: fit-content; max-width: 100%; padding: 2px; border-radius: var(--radius-control); background: hsl(var(--field)); }
+.ui-segmented-thumb { position: absolute; z-index: -1; top: 2px; bottom: 2px; left: 2px; width: calc((100% - 4px) / var(--segment-count)); border-radius: calc(var(--radius-control) - 2px); background: hsl(var(--background)); box-shadow: 0 0 0 1px hsl(var(--border)), 0 1px 2px hsl(var(--shadow) / .08); transform: translateX(calc(100% * var(--segment-index))); transition: transform var(--dur-base) var(--ease-out), opacity var(--dur-fast) var(--ease-out); }
+.dark .ui-segmented-thumb { background: hsl(var(--foreground) / .1); box-shadow: inset 0 0 0 1px hsl(var(--foreground) / .07), 0 1px 2px hsl(var(--shadow) / .3); }
+.ui-segmented-thumb[data-hidden] { opacity: 0; }
+.ui-segmented-item { display: inline-flex; min-width: 0; height: 30px; align-items: center; justify-content: center; gap: 6px; padding: 0 14px; border-radius: calc(var(--radius-control) - 2px); font-size: 13px; font-weight: 500; white-space: nowrap; color: hsl(var(--muted-foreground)); outline: none; }
+.ui-segmented[data-size="sm"] .ui-segmented-item { height: 26px; padding: 0 10px; font-size: 12px; }
+.ui-segmented-item:hover, .ui-segmented-item[data-state="on"] { color: hsl(var(--foreground)); }
+.ui-segmented-item:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 0; }
+.ui-segmented-item:disabled { cursor: default; opacity: .45; }
+.ui-segmented[aria-busy] .ui-segmented-item { cursor: progress; }
+
+/* Switch: a pill track and a round thumb that springs across. Filled in the primary colour when on. */
+.ui-switch { position: relative; display: inline-flex; flex-shrink: 0; width: 32px; height: 18px; padding: 2px; border-radius: 999px; background: hsl(var(--foreground) / .16); cursor: pointer; outline: none; transition: background-color var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out); }
+.ui-switch:hover:not(:disabled) { background: hsl(var(--foreground) / .24); }
+.ui-switch[data-state="checked"], .ui-switch[data-state="checked"]:hover:not(:disabled) { background: hsl(var(--primary)); }
+.ui-switch-thumb { width: 14px; height: 14px; border-radius: 999px; background: hsl(var(--background)); box-shadow: 0 1px 2px hsl(var(--shadow) / .22); transform-origin: left center; transition: translate var(--dur-base) var(--ease-spring), scale var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
+.dark .ui-switch-thumb { background: hsl(var(--foreground) / .9); }
+.ui-switch[data-state="checked"] .ui-switch-thumb { translate: 14px 0; transform-origin: right center; background: hsl(var(--primary-foreground)); }
+.ui-switch:active:not(:disabled) .ui-switch-thumb { scale: 1.14 1; }
+.ui-switch:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+.ui-switch:disabled { cursor: default; opacity: .45; }
+
+/* Spinner: turns at one steady speed; with reduced motion it rests. */
+.ui-spinner { flex-shrink: 0; animation: spinner-turn var(--dur-spin) var(--ease-linear) infinite; }
+@keyframes spinner-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .ui-segmented-thumb, .ui-switch, .ui-switch-thumb { transition: none; }
+  .ui-spinner { animation: none; }
+}
 .ui-select-content { transform-origin: var(--radix-select-content-transform-origin); }
 .ui-select-content[data-state="open"] { animation: pop-in var(--dur-fast) var(--ease-out); }
 .ui-select-content[data-state="closed"] { animation: pop-out var(--dur-instant) var(--ease-in-out); }
@@ -789,6 +901,8 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
 .conversation-more { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 4px 0 2px; font-size: 12px; color: hsl(var(--muted-foreground)); }
 .ui-dropdown-content { z-index: 50; min-width: 10rem; max-height: var(--radix-dropdown-menu-content-available-height); overflow-y: auto; border-radius: var(--radius-card); padding: 4px; color: hsl(var(--popover-foreground)); transform-origin: var(--radix-dropdown-menu-content-transform-origin); }
 .ui-dropdown-content[data-state="open"] { animation: pop-in var(--dur-fast) var(--ease-out); }
+/* Closing, a menu shrinks back toward its trigger, quicker than it opened. */
+.ui-dropdown-content[data-state="closed"] { animation: pop-out var(--dur-instant) var(--ease-in-out); }
 .ui-dropdown-item { display: flex; min-height: 36px; cursor: pointer; align-items: center; gap: 10px; border-radius: var(--radius-inner); padding: 8px 10px; font-size: 13px; outline: none; transition: background-color var(--dur-fast) var(--ease-out); }
 .ui-dropdown-item svg { width: 16px; height: 16px; flex-shrink: 0; }
 .ui-dropdown-item[data-highlighted] { background: hsl(var(--accent)); }
@@ -810,9 +924,30 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
 .conversation-row:hover .conversation-actions, .conversation-row:focus-within .conversation-actions, .conversation-row[data-active="true"] .conversation-actions, .conversation-actions[data-state="open"] { opacity: 1; }
 .conversation-editor { animation: content-in var(--dur-fast) var(--ease-out); }
 .chat-canvas { background: hsl(var(--background)); }
-.chat-toolbar { border-color: hsl(var(--border)); }
 /* Held back, not removed: hidden controls cannot be reached, and nothing moves when they appear. */
-.chat-toolbar-actions[data-waiting] { visibility: hidden; opacity: 0; }
+.chat-header[data-waiting] > :not(.chat-title) { visibility: hidden; opacity: 0; }
+/* The conversation's heading in the window's top row. The title is the menu's trigger; beside it only what
+   differs from the default. Fills are tints of the text colour, so they read on the translucent chat page. */
+.chat-header { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.chat-title { display: inline-flex; min-width: 0; max-width: min(28rem, 100%); align-items: center; gap: 4px; margin-left: -8px; padding: 4px 6px 4px 8px; border-radius: var(--radius-control); font-size: 13px; font-weight: 600; letter-spacing: -0.006em; color: hsl(var(--foreground)); outline: none; }
+.chat-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-title svg { width: 14px; height: 14px; flex-shrink: 0; color: hsl(var(--muted-foreground)); transition: rotate var(--dur-base) var(--ease-out); }
+.chat-title:hover, .chat-title[data-state="open"] { background: hsl(var(--foreground) / .06); }
+.chat-title[data-state="open"] svg { rotate: 180deg; }
+.chat-title:focus-visible, .chat-memory-off:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 1px; }
+.chat-header-meta { min-width: 0; max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: hsl(var(--muted-foreground)); }
+/* Memory off: a small tag, readable at a glance; clicking it opens the menu on the memory switch. */
+.chat-memory-off { display: inline-flex; height: 20px; flex-shrink: 0; align-items: center; gap: 4px; padding: 0 7px 0 6px; border-radius: 999px; font-size: 11px; font-weight: 500; color: hsl(var(--muted-foreground)); background: hsl(var(--foreground) / .06); box-shadow: inset 0 0 0 1px hsl(var(--foreground) / .06); transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.chat-memory-off svg { width: 12px; height: 12px; }
+.chat-memory-off:hover { color: hsl(var(--foreground)); background: hsl(var(--foreground) / .1); }
+.chat-header-menu { width: 16rem; }
+.chat-header-menu-note { padding: 2px 10px 6px; font-size: 11px; line-height: 16px; color: hsl(var(--muted-foreground)); }
+.chat-header-menu-trailing { margin-left: auto; color: hsl(var(--muted-foreground)); }
+.chat-memory-item-text { display: flex; min-width: 0; flex: 1; flex-direction: column; line-height: 18px; }
+.chat-memory-item-text small { font-size: 11px; line-height: 16px; color: hsl(var(--muted-foreground)); }
+.chat-memory-item .ui-switch { pointer-events: none; }
+/* Confirmations centre on this band at the top of the conversation, where the toolbar row used to be. */
+.chat-toast-anchor { position: absolute; inset: 0 0 auto; height: 56px; pointer-events: none; }
 .chat-transcript { scrollbar-gutter: stable both-edges; overflow-anchor: none; }
 .chat-transcript-content > :not(.chat-welcome) { width: 100%; max-width: 42rem; margin-inline: auto; }
 .message-reasoning { margin-bottom: 10px; }
@@ -849,15 +984,22 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
 .message-navigator { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); display: flex; width: 28px; max-height: min(14rem, calc(100% - 24px)); flex-direction: column; align-items: center; gap: 2px; }
 .message-navigator > button { color: hsl(var(--muted-foreground)); }
 .message-nav-control { width: 28px; height: 28px; }
-.message-nav-control:hover, .message-nav-mark:hover { background: transparent; }
+/* The rail draws no hover plate: the marks themselves answer the pointer. Scoped to the rail so it outranks the
+   ghost button's own hover background. */
+.message-navigator :is(.message-nav-control, .message-nav-mark):hover { background: transparent; }
 .message-nav-track { display: flex; min-height: 0; flex-direction: column; align-items: center; gap: 2px; }
 .message-nav-marks { display: flex; min-height: 0; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
 .message-nav-marks::-webkit-scrollbar { display: none; }
 .message-nav-mark { width: 28px; height: 14px; }
 /* Marks grow by scaling a full-length bar, so marking the current place never moves layout. */
 .message-nav-mark > span { display: block; width: 24px; height: 2px; border-radius: 999px; background: hsl(var(--muted-foreground) / .4); transform: scaleX(.5833); transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
-.message-nav-mark:hover > span, .message-nav-mark:focus-visible > span { transform: scaleX(.75); background: hsl(var(--foreground)); }
-.message-nav-mark[aria-current="location"] > span { transform: none; background: hsl(var(--foreground)); }
+/* Pointing at the rail brings all its marks up a little; the mark pointed at reaches full length and its
+   neighbours lean out after it, like a magnifier passing over a ruler. At rest the rail keeps its short marks. */
+.message-nav-marks:hover > .message-nav-mark > span { background: hsl(var(--muted-foreground) / .6); }
+.message-nav-mark:is(:hover, :focus-visible) + .message-nav-mark > span,
+.message-nav-mark:has(+ .message-nav-mark:is(:hover, :focus-visible)) > span { transform: scaleX(.75); }
+.message-nav-marks > .message-nav-mark:is(:hover, :focus-visible) > span { transform: none; background: hsl(var(--foreground)); }
+.message-nav-marks > .message-nav-mark[aria-current="location"] > span { transform: none; background: hsl(var(--foreground)); }
 /* Frosted glass, the one material for everything that floats over content (menus, pickers, popovers,
    tooltips, previews, notices): what is beneath shows through as colour, blurred enough that its text
    cannot compete. Solid backgrounds are kept for real panels: the settings window, the rail, sheets. */
@@ -878,9 +1020,7 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
   .message-nav-mark > span { transition: none; }
   .message-nav-preview, .message-nav-preview[data-state="closed"] { animation: none; }
 }
-.chat-memory-toggle { color: hsl(var(--muted-foreground)); }
 /* Off is the exception a conversation is put into, so it is the state that stands out. */
-.chat-memory-toggle[aria-checked="false"] { color: hsl(var(--foreground)); background: hsl(var(--foreground) / .08); }
 /* Title and line sit a little above the middle of the space, where the eye expects the centre. */
 .chat-welcome { padding: 1.5rem 0 4.5rem; }
 .chat-welcome-title { max-width: 35rem; font-size: clamp(1.5rem, 2.5vw, 2rem); font-weight: 600; line-height: 1.5; letter-spacing: -.035em; text-wrap: balance; }
@@ -971,6 +1111,28 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
 .registry-details-sheet { width: min(34rem, 100vw); }
 .plugin-package-sheet { width: min(36rem, 100vw); }
 .knowledge-entry-sheet { width: min(32rem, 100vw); }
+/* Knowledge overview: a section names itself, then what needs a decision and the way to all of it. */
+.knowledge-section-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.see-all-link { display: inline-flex; align-items: center; gap: 2px; margin-right: -6px; padding: 4px 6px; border-radius: var(--radius-inner); font-size: 13px; color: hsl(var(--muted-foreground)); outline: none; }
+.see-all-link svg { width: 14px; height: 14px; transition: translate var(--dur-fast) var(--ease-out); }
+.see-all-link:hover { color: hsl(var(--foreground)); background: hsl(var(--accent) / .6); }
+.see-all-link:hover svg { translate: 2px 0; }
+.see-all-link:focus-visible, .knowledge-pending:focus-visible, .knowledge-search-action:focus-visible { box-shadow: 0 0 0 2px hsl(var(--ring)); }
+.knowledge-pending { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 12px; color: hsl(var(--warning)); background: hsl(var(--warning) / .1); outline: none; }
+.knowledge-pending::before { content: ""; width: 6px; height: 6px; border-radius: 999px; background: currentColor; }
+.knowledge-pending:hover { background: hsl(var(--warning) / .16); }
+/* Importing opens as a quiet card at the top of the documents, from the page's own action. */
+.knowledge-import-card { display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: var(--radius-card); background: hsl(var(--field) / .6); box-shadow: inset 0 0 0 1px hsl(var(--border) / .8); }
+/* The overview's search: matching entries, then searching the documents themselves as a row of its own. */
+.knowledge-search-results { display: flex; min-width: 0; flex-direction: column; gap: 12px; animation: content-in var(--dur-base) var(--ease-out); }
+.knowledge-search-group { margin-top: 4px; font-size: 12px; color: hsl(var(--muted-foreground)); }
+.knowledge-search-action { display: flex; width: 100%; align-items: center; gap: 10px; padding: 12px; border-radius: var(--radius-card); font-size: 14px; text-align: left; background: hsl(var(--field) / .55); box-shadow: inset 0 0 0 1px hsl(var(--border)); outline: none; transition: background-color var(--dur-fast) var(--ease-out); }
+.knowledge-search-action:hover:not(:disabled) { background: hsl(var(--field)); }
+.knowledge-search-action:disabled { cursor: progress; }
+.knowledge-search-action > svg { width: 16px; height: 16px; flex-shrink: 0; color: hsl(var(--muted-foreground)); }
+.knowledge-search-action > span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.knowledge-search-action kbd { flex-shrink: 0; padding: 1px 6px; border-radius: 5px; font: 12px var(--font-mono); color: hsl(var(--muted-foreground)); box-shadow: inset 0 0 0 1px hsl(var(--border)); }
+.knowledge-match { border-radius: 2px; padding: 0 1px; color: inherit; background: hsl(var(--warning) / .22); }
 .knowledge-disclosure > summary { list-style: none; }
 .knowledge-disclosure > summary::-webkit-details-marker { display: none; }
 .knowledge-document-row, .knowledge-entry-row, .knowledge-preview { animation: content-in var(--dur-base) var(--ease-out); }
@@ -1117,10 +1279,6 @@ body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; al
 .catalog-row:hover { background: hsl(var(--muted)); }
 .catalog-scroll-hint { padding: 16px; text-align: center; font-size: 12px; color: hsl(var(--muted-foreground)); }
 
-.home-shortcut { transition: transform var(--dur-base) var(--ease-out), border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-base) var(--ease-out); }
-.home-shortcut:hover { transform: translateY(-3px); border-color: hsl(var(--input)); box-shadow: 0 8px 24px hsl(var(--shadow) / .05); }
-.home-shortcut:hover .shortcut-arrow { transform: translateX(3px); }
-.shortcut-arrow { transition: transform var(--dur-fast) var(--ease-out); }
 .models-section { scroll-margin-top: 1.5rem; }
 /* Page sections sit apart by space and one hairline, not inside boxes. */
 .page-section + .page-section { border-top: 1px solid hsl(var(--border) / .55); padding-top: 28px; }
@@ -1145,9 +1303,15 @@ body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; al
 .toolbar-search input { min-width: 0; flex: 1; height: 100%; border: 0; background: transparent; font-size: 13px; color: hsl(var(--foreground)); outline: none; }
 .toolbar-search input::placeholder { color: hsl(var(--muted-foreground)); }
 .toolbar-search input::-webkit-search-cancel-button { display: none; }
-.ui-filter-chip { height: 32px; gap: 6px; }
-.toolbar-chip-input { height: 32px; width: 7.5rem; border: 1px dashed hsl(var(--input)); border-radius: var(--radius-control); background: transparent; padding: 0 10px; font-size: 13px; color: hsl(var(--foreground)); outline: none; transition: border-color var(--dur-fast) var(--ease-out), width var(--dur-base) var(--ease-out); }
-.toolbar-chip-input:focus, .toolbar-chip-input:not(:placeholder-shown) { width: 10rem; border-style: solid; border-color: hsl(var(--ring)); }
+/* Filters beside the search take its filled look and its height, so the toolbar reads as one row of fields. */
+.ui-filter-chip { height: 34px; gap: 6px; border-radius: var(--radius-control); background: hsl(var(--field)); transition: background-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.ui-filter-chip:hover:not(:disabled) { background: hsl(var(--field) / .7); box-shadow: inset 0 0 0 1px hsl(var(--border)); }
+.ui-filter-chip[data-state="open"], .ui-filter-chip:focus-visible { outline: none; background: transparent; box-shadow: inset 0 0 0 1px hsl(var(--ring)); }
+.toolbar-chip-input { height: 34px; width: 7.5rem; border: 0; border-radius: var(--radius-control); background: hsl(var(--field)); padding: 0 10px; font-size: 13px; color: hsl(var(--foreground)); outline: none; transition: background-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), width var(--dur-base) var(--ease-out); }
+.toolbar-chip-input::placeholder { color: hsl(var(--muted-foreground)); }
+.toolbar-chip-input:hover { background: hsl(var(--field) / .7); box-shadow: inset 0 0 0 1px hsl(var(--border)); }
+.toolbar-chip-input:focus, .toolbar-chip-input:not(:placeholder-shown) { width: 10rem; }
+.toolbar-chip-input:focus { background: transparent; box-shadow: inset 0 0 0 1px hsl(var(--ring)); }
 .toolbar-chip-input::placeholder { color: hsl(var(--muted-foreground)); }
 /* An entry in a side index: the settings overlay lists its sections with these. */
 .side-nav-item { display: flex; min-height: 34px; align-items: center; justify-content: flex-start; gap: 10px; border-radius: var(--radius-control); padding: 6px 10px; font-size: 13px; font-weight: 400; color: hsl(var(--muted-foreground)); text-align: left; transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
@@ -1218,6 +1382,16 @@ body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; al
 .settings-section + .settings-section { border-top: 1px solid hsl(var(--border) / .55); }
 .settings-section [data-slot="card-description"] { max-width: 44rem; font-size: 13px; line-height: 1.7; }
 .settings-panel > .settings-section:first-child { padding-top: 0; }
+/* Section icons are nodes in the left margin, outside the text column, so titles and content keep one edge.
+   Two or more on a page are joined by a hairline rail that fades out below the last section. The node of the
+   section being pointed at or edited comes forward a little. */
+.settings-section-title { position: relative; }
+.settings-section-node { position: absolute; left: -34px; top: 50%; translate: 0 -50%; display: grid; width: 24px; height: 24px; place-items: center; border-radius: 999px; color: hsl(var(--muted-foreground)); background: hsl(var(--background)); box-shadow: 0 0 0 1px hsl(var(--border)); transition: color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.settings-section-node svg { width: 13px; height: 13px; }
+.settings-section:is(:hover, :focus-within) .settings-section-node { color: hsl(var(--foreground)); box-shadow: 0 0 0 1px hsl(var(--foreground) / .28); }
+.settings-panel:has(.settings-section[data-node] ~ .settings-section[data-node]) { position: relative; }
+.settings-panel:has(.settings-section[data-node] ~ .settings-section[data-node])::before { content: ""; position: absolute; left: -22px; top: 12px; bottom: 0; width: 1px; background: linear-gradient(hsl(var(--border)), hsl(var(--border)) 85%, transparent); pointer-events: none; }
+@media (max-width: 720px) { .settings-section-node, .settings-panel:has(.settings-section[data-node] ~ .settings-section[data-node])::before { display: none; } }
 .settings-fields > .settings-field { padding: 16px 0; }
 .settings-fields > .settings-field:first-child { padding-top: 0; }
 .settings-fields > .settings-field + .settings-field { border-top: 1px solid hsl(var(--border) / .65); }
@@ -1244,6 +1418,13 @@ body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; al
 .models-section-nav a:hover, .models-section-nav a:focus-visible { color: hsl(var(--foreground)); }
 
 @keyframes content-in { from { opacity: 0; } to { opacity: 1; } }
+/* What you send rises into place from the message box below. */
+@keyframes message-rise { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: no-preference) {
+  [data-arriving] > .chat-user-bubble { transform-origin: bottom right; animation: message-rise var(--dur-base) var(--ease-out) backwards; }
+}
+@keyframes stream-word-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes stream-block-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @keyframes stream-star-twinkle {
   from { opacity: .3; transform: scale(.62) rotate(-8deg); }
   to { opacity: .85; transform: scale(1) rotate(8deg); }
@@ -1274,6 +1455,8 @@ body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; al
 .ui-tooltip-content:not(.message-nav-preview) { padding: 4px 8px; border: 0; border-radius: 6px; font-size: 12px; line-height: 1.4; color: hsl(var(--popover-foreground)); background: hsl(var(--popover)); box-shadow: 0 0 0 1px hsl(var(--border) / .7), 0 2px 8px -2px hsl(var(--shadow) / .14); }
 /* The app-wide tooltip: centred over (or under) what it describes, never catching the pointer. */
 .app-tooltip { position: fixed; z-index: 100; max-width: min(22rem, calc(100vw - 24px)); pointer-events: none; overflow-wrap: anywhere; animation: content-in var(--dur-fast) var(--ease-out); }
+/* Leaving, it fades out quicker than it came. */
+.app-tooltip[data-state="closed"] { animation: content-out var(--dur-instant) var(--ease-in-out) forwards; }
 
 /* The sources an answer drew on: a quiet row of small cards under it. */
 .answer-sources { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
@@ -1316,6 +1499,7 @@ body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; al
 @keyframes overlay-out { from { opacity: 1; } to { opacity: 0; } }
 @keyframes sheet-in { from { opacity: .7; transform: translateX(var(--sheet-offset)); } to { opacity: 1; transform: translateX(0); } }
 @keyframes sheet-out { from { opacity: 1; transform: translateX(0); } to { opacity: .7; transform: translateX(var(--sheet-offset)); } }
+@keyframes content-out { from { opacity: 1; } to { opacity: 0; } }
 @keyframes pop-out { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(.97); } }
 @media (prefers-reduced-motion: no-preference) {
   .approval-card { animation: content-in var(--dur-base) var(--ease-out); }
@@ -1336,7 +1520,7 @@ body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; al
      usually has the history within a few frames, and a placeholder painted for those frames and
      then replaced reads as a flicker. It keeps its space throughout, so nothing moves either way. */
   .chat-transcript-skeleton { animation: content-in var(--dur-base) var(--ease-out) var(--delay-placeholder) both; }
-  .chat-toolbar-actions { transition: opacity var(--dur-base) var(--ease-out); }
+  .chat-header > :not(.chat-title) { transition: opacity var(--dur-base) var(--ease-out); }
   .chat-welcome > * { animation: panel-in-up var(--dur-slow) var(--ease-out) both; }
   .chat-welcome > :nth-child(2) { animation-delay: calc(var(--stagger-step) * 1.5); }
   dialog { transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-base) var(--ease-out); opacity: 0; transform: translateY(8px) scale(.99); }
@@ -1354,7 +1538,6 @@ body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; al
   .settings-field { flex-direction: column; align-items: stretch; }
   .settings-field > [data-slot="field-content"], .settings-field > [data-slot="field-label"] { flex-basis: auto; }
   .workspace-content > main:not(.chat-workspace) { padding: 1.5rem 1rem; }
-  .chat-toolbar { padding: .75rem 1rem; }
   .chat-dock { max-height: 55%; padding: .5rem .75rem .75rem; }
   .chat-welcome-description { font-size: 13px; }
   .chat-welcome [data-slot="empty-content"] { margin-top: .5rem; }
@@ -1384,7 +1567,7 @@ body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; al
   .sheet-overlay, .sheet-content, .ui-select-content, .ui-tabs-content, .run-records > :not(summary) { animation: none; }
   /* Without its delayed fade, the transcript placeholder still waits out a quick load, then appears at once. */
   .chat-transcript-skeleton:not([data-late]) { visibility: hidden; }
-  .home-shortcut:hover, .home-shortcut:hover .shortcut-arrow, .workspace-nav-link:active { transform: none; }
+  .workspace-nav-link:active { transform: none; }
 }
 
 :root dialog::backdrop, .dialog-overlay-enter { background-color: hsl(var(--scrim) / .5); }
@@ -1422,16 +1605,6 @@ body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; al
 @keyframes ria-forward { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
 @keyframes ria-back { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: none; } }
 .ria-entry-title { font-weight: 500; }
-.ria-back { display: inline-flex; align-items: center; gap: 6px; margin: -4px 0 16px -6px; border-radius: var(--radius-control); padding: 4px 8px 4px 6px; font-size: 13px; line-height: 20px; color: hsl(var(--muted-foreground)); outline: none; transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
-.ria-back svg { width: 14px; height: 14px; transition: transform var(--dur-fast) var(--ease-out); }
-.ria-back:hover { color: hsl(var(--foreground)); background: hsl(var(--accent) / .6); }
-.ria-back:hover svg { transform: translateX(-2px); }
-.ria-back:focus-visible { box-shadow: 0 0 0 2px hsl(var(--ring)); }
-.ria-heading { display: flex; flex-direction: column; gap: 4px; padding-bottom: 20px; }
-.ria-heading h3 { font-size: 15px; font-weight: 600; line-height: 22px; overflow-wrap: anywhere; }
-.ria-heading p { max-width: 44rem; font-size: 13px; line-height: 1.7; color: hsl(var(--muted-foreground)); }
-.ria-heading-row { flex-direction: row; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.ria-heading-row > div { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
 .memory-group-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 28px; padding-bottom: 4px; font-size: 12px; font-weight: 500; line-height: 20px; color: hsl(var(--muted-foreground)); }
 .memory-organizing { display: inline-flex; align-items: center; gap: 6px; font-weight: 400; animation: content-in var(--dur-base) var(--ease-out) both; }
 .memory-organizing svg { width: 12px; height: 12px; }
@@ -1519,6 +1692,8 @@ body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; al
 .sidebar-chat-row { position: relative; display: flex; align-items: center; border-radius: var(--radius-inner); color: hsl(var(--muted-foreground)); transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); animation: content-in var(--dur-base) var(--ease-out) both; }
 .sidebar-chat-row:hover, .sidebar-chat-row:focus-within, .sidebar-chat-row:has(.sidebar-chat-actions[data-state="open"]) { --sidebar-title-cut: 22px; background: hsl(var(--accent)); color: hsl(var(--foreground)); }
 .sidebar-chat-row[data-active] { background: hsl(var(--card)); color: hsl(var(--foreground)); }
+/* White on the nearly white rail needs an edge to read as chosen; the dark rail has the contrast already. */
+html:not(.dark) :is(.workspace-nav-link[aria-current="page"], .sidebar-chat-row[data-active]) { box-shadow: 0 0 0 1px hsl(var(--border)), 0 1px 2px hsl(var(--shadow) / .05); }
 .sidebar-chat-row:has(.sidebar-chat-open:focus-visible) { box-shadow: inset 0 0 0 1.5px hsl(var(--ring)); }
 .sidebar-chat-open { display: flex; min-width: 0; flex: 1; align-items: center; gap: 6px; height: 28px; padding: 0 12px; font-size: 13px; text-align: left; color: inherit; outline: none; }
 .sidebar-chat-row[data-attention] .sidebar-chat-open { padding-right: 26px; }

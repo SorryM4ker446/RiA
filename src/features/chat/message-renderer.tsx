@@ -239,6 +239,9 @@ export function MessageRenderer({
 
   const showNavigation = !awaitingFirstHistoryLoad && messages.length > 1 && messages.some(message => message.role === "user");
 
+  // The latest message sent: while its turn is live it is the one arriving.
+  let lastUserIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index--) if (messages[index].role === "user") { lastUserIndex = index; break; }
   return (<div className="chat-transcript-frame relative flex min-h-0 flex-1" data-navigation={showNavigation}>
   <div ref={scrollRef} className="chat-transcript relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-6 sm:px-7" data-testid="message-list">
   {/* The control stays inside the transcript and never overlaps the composer. It sits
@@ -281,9 +284,11 @@ export function MessageRenderer({
     ) : (<>
       {messages.map((message, index) => {
         const isLast = index === messages.length - 1;
+        // The message just sent arrives with motion; history that is loaded appears at once.
+        const arriving = (status === "submitted" || status === "streaming") && message.role === "user" && index === lastUserIndex;
         const isEditing = editingMessageId === message.id;
         return <MessageRow key={message.id} message={message} previousMetadata={messages[index - 1]?.metadata}
-          isLast={isLast} status={isLast ? status : null} isPending={isPending}
+          isLast={isLast} arriving={arriving} status={isLast ? status : null} isPending={isPending}
           isEditing={isEditing} editingText={isEditing ? editingMessageText : ""} resendsEdited={isEditing && hasLaterUserMessage(messages, message.id)}
           copyState={copiedMessageId === message.id ? "copied" : refusedMessageId === message.id ? "refused" : null}
           imageUrl={imageByMessageId[message.id]} videoUrl={videoByMessageId[message.id]}

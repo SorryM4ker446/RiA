@@ -87,7 +87,9 @@ async function prepare(page: Page) {
 const markdown = (page: Page, id: string) => page.locator(`[data-message-id="${id}"] .markdown-message`);
 // Screenshots with animations disabled leave an empty, inert style attribute on
 // animated elements anywhere on the page, including ones not being captured.
-const markup = (locator: Locator) => locator.evaluate(node => node.innerHTML.replace(/ style=""/g, "").replace(/>\s+</g, "><").trim());
+// While an answer is written its words sit in spans that only fade them in; they
+// are presentation, not structure, so they are unwrapped before comparing.
+const markup = (locator: Locator) => locator.evaluate(node => node.innerHTML.replace(/ style=""/g, "").replace(/<span class="stream-word" data-block="\d+">([^<]*)<\/span>/g, "$1").replace(/>\s+</g, "><").trim());
 // Overlays that sit above the transcript depend on scroll position, not on the message.
 // The streaming caret is a marker on top of the text, not part of how blocks render.
 const hideOverlays = ".chat-transcript-content > .sticky, .message-navigator, .markdown-message[data-streaming] *::after { visibility: hidden !important; } .answer-fold-body { max-height: none !important; mask-image: none !important; } .answer-fold-toggle { display: none !important; }";
@@ -122,7 +124,11 @@ async function expectSameRendering(page: Page, streamed: Locator, reference: Loc
   await expect.poll(() => streamed.innerText(), { message: `${moment}: streamed text settles` }).toBe(await reference.innerText());
   expect(await markup(streamed), `${moment}: markup`).toBe(await markup(reference));
   await page.mouse.move(0, 0);
-  const options = { animations: "disabled", caret: "hide", style: hideOverlays } as const;
+  // The block still being written has its words in spans, which place glyphs a fraction of a pixel differently
+  // until it settles. Its markup is compared above; its pixels are left out here, in both captures alike.
+  const writing = await streamed.evaluate(node => [...node.children].flatMap((child, index) => child.querySelector(".stream-word") ? [index + 1] : []));
+  const leftOut = writing.map(index => `.markdown-message > :nth-child(${index}) { visibility: hidden !important; }`).join(" ");
+  const options = { animations: "disabled", caret: "hide", style: `${hideOverlays} ${leftOut}` } as const;
   const [split, joined] = [await streamed.screenshot(options), await reference.screenshot(options)];
   await test.info().attach(`${moment}-split.png`, { body: split, contentType: "image/png" });
   await test.info().attach(`${moment}-whole.png`, { body: joined, contentType: "image/png" });
@@ -147,10 +153,20 @@ for (const { width, theme } of [{ width: 1440, theme: "dark" }, { width: 390, th
     await page.getByPlaceholder(/输入你的问题/).fill("go");
     await page.getByRole("button", { name: "发送", exact: true }).click();
     await page.waitForFunction(() => (window as unknown as { streamPaused?: boolean }).streamPaused === true);
+    // Words being written fade in one by one; code is not split. Finished blocks drop their spans once their
+    // words have faded in, and render as plain text again.
+    const streamed = markdown(page, "streamed");
+    await expect(streamed.locator(":scope > :last-child .stream-word").first()).toBeAttached();
+    await expect(streamed.locator("pre .stream-word, code .stream-word")).toHaveCount(0);
+    // Only the block being written still carries spans (a block may render several elements, such as lists).
+    await expect.poll(() => streamed.locator(".stream-word").evaluateAll(words => [...new Set(words.map(word => (word as HTMLElement).dataset.block))])).toHaveLength(1);
     await expectSameRendering(page, markdown(page, "streamed"), markdown(page, "whole-part"), `${width}-${theme}-mid-stream`);
     await page.evaluate(() => (window as unknown as { releaseStream: () => void }).releaseStream());
     await page.waitForFunction(() => (window as unknown as { streamClosed?: boolean }).streamClosed === true);
     await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
+    // Once the last word has faded in, the finished answer carries no spans: it is what a reload would render,
+    // and it is compared whole, every pixel.
+    await expect(markdown(page, "streamed").locator(".stream-word")).toHaveCount(0);
     await expectSameRendering(page, markdown(page, "streamed"), markdown(page, "whole-full"), `${width}-${theme}-complete`);
   });
 }

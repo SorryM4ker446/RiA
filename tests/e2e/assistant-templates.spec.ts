@@ -1,5 +1,7 @@
 import { openExecutionDetails } from "../helpers/execution-records";
 import { test as base, expect, type Page } from "@playwright/test";
+import { chatTitle, openChatMenu, closeChatMenu, chooseTemplate } from "../helpers/chat-header";
+import { openDocumentImport, previewImportButton } from "../helpers/knowledge";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,9 +18,9 @@ const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>
 });
 
 async function expectSnapshotDetails(page: Page, revision: number, toolCount: number) {
-  await expect(page.locator(".chat-toolbar").getByText(/快照|个工具/)).toHaveCount(0);
-  const trigger = page.getByRole("button", { name: "模板详情", exact: true });
-  await trigger.click();
+  await expect(page.locator(".chat-header").getByText(/快照|个工具/)).toHaveCount(0);
+  const trigger = page.locator(".chat-title");
+  await (await openChatMenu(page)).getByRole("menuitem", { name: "模板详情", exact: true }).click();
   const details = page.getByRole("dialog", { name: /^模板详情/ });
   await expect(details.locator("dl > div").filter({ has: page.getByText("快照版本", { exact: true }) })).toContainText(`v${revision}`);
   await expect(details.getByText(`${toolCount} 个工具`, { exact: true })).toBeVisible();
@@ -65,7 +67,7 @@ test("template editing, copying and deletion preserve conversation snapshots acr
   const saved = (await browserData(page, "/api/assistants")).find(item => item.config.name === "财务测试助理");
   const card = page.getByTestId(`assistant-template-${saved.id}`);
   await card.getByRole("button", { name: "使用模板新建会话" }).click();
-  await expect(page.getByLabel("助理模板", { exact: true })).toContainText("财务测试助理");
+  await expect(page.locator(".chat-header-meta")).toHaveText("财务测试助理");
   await expectSnapshotDetails(page, 1, 0);
   await expect(page.getByLabel("选择模型")).toBeDisabled();
   const chat = (await browserData(page, "/api/conversations"))[0]; expect(chat.ephemeral).toBe(true); expect(chat.documentScope).toBe("财务");
@@ -93,12 +95,13 @@ test("template editing, copying and deletion preserve conversation snapshots acr
   await card.getByRole("button", { name: /更多操作/ }).click();
   await page.getByRole("menuitem", { name: "删除", exact: true }).click(); await acceptConfirm(page);
   await expect(toasts(page)).toContainText("模板已删除"); await page.goto(`${app.origin}/chat`);
-  await expect(page.getByLabel("助理模板", { exact: true })).toContainText("财务测试助理"); await expectSnapshotDetails(page, 2, 0);
+  await expect(page.locator(".chat-header-meta")).toHaveText("财务测试助理"); await expectSnapshotDetails(page, 2, 0);
   const restored = (await browserApi(page, `/api/conversations/${chat.id}`)).body.data; expect(restored.assistantConfig.instructions).toBe("ASSISTANT_SNAPSHOT_V2");
   expect(consoleErrors).toEqual([]);
   const denied = await browserApi(page, "/api/tools/run", "POST", { chatId: chat.id, tool: "createTask", input: { title: "Denied by template", prompt: "x", cron: "0 9 * * *", timeZone: "UTC" } }); expect(denied.status).toBe(400);
-  await page.getByLabel("助理模板", { exact: true }).click(); await page.getByRole("option", { name: "通用助理", exact: true }).click(); await expect(page.getByLabel("选择模型")).toBeEnabled();
-  await expect(page.getByRole("button", { name: "模板详情", exact: true })).toHaveCount(0);
+  await chooseTemplate(page, "通用助理"); await expect(page.getByLabel("选择模型")).toBeEnabled();
+  await expect((await openChatMenu(page)).getByRole("menuitem", { name: "模板详情", exact: true })).toHaveCount(0);
+  await closeChatMenu(page);
   expect(errors).toEqual([]);
 });
 
@@ -108,12 +111,13 @@ test("template details keep snapshot metadata out of the chat header and use acc
   const created = await browserApi(page, "/api/conversations", "POST", { title: "模板详情样式", assistantTemplateId: "builtin_research" });
   expect(created.status).toBe(201);
   await page.goto(`${app.origin}/chat?conversationId=${created.body.data.id}`);
-  await expect(page.locator(".chat-toolbar").getByText(/快照|个工具/)).toHaveCount(0);
+  await expect(page.locator(".chat-header").getByText(/快照|个工具/)).toHaveCount(0);
   await expect(page.getByRole("button", { name: "更新为最新模板", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "管理模板", exact: true })).toBeVisible();
-  const trigger = page.getByRole("button", { name: "模板详情", exact: true });
+  const menu = await openChatMenu(page);
+  await expect(menu.getByRole("menuitem", { name: "管理模板", exact: true })).toHaveAttribute("href", "/assistants");
+  const trigger = page.locator(".chat-title");
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  await trigger.click();
+  await menu.getByRole("menuitem", { name: "模板详情", exact: true }).click();
   const details = page.getByRole("dialog", { name: "模板详情 · 资料研究助理", exact: true });
   await expect(details).toBeVisible();
   await expect(details.getByText("6 个工具", { exact: true })).toBeVisible();
@@ -125,7 +129,7 @@ test("template details keep snapshot metadata out of the chat header and use acc
   await page.getByRole("button", { name: "切换主题", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await trigger.click();
+  await (await openChatMenu(page)).getByRole("menuitem", { name: "模板详情", exact: true }).click();
   await expect(details).toBeVisible(); await expect(details).toHaveCSS("animation-name", "none");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: join(dir, "mobile-light.png"), animations: "disabled" });
@@ -179,17 +183,16 @@ test("switching templates refreshes the default title immediately and persists i
   await openWorkspace(page, app.origin);
   await page.goto(`${app.origin}/assistants`);
   await page.getByTestId("assistant-template-builtin_knowledge").getByRole("button", { name: "使用模板新建会话" }).click();
-  const title = page.locator(".chat-toolbar h3");
+  const title = chatTitle(page);
   await expect(title).toHaveText("知识问答助理");
-  const select = page.getByRole("combobox", { name: "助理模板", exact: true });
-  await select.click(); await page.getByRole("option", { name: "写作助理", exact: true }).click();
+  await chooseTemplate(page, "写作助理");
   await expect(title).toHaveText("写作助理");
   await page.reload(); await expect(title).toHaveText("写作助理");
   const chat = (await browserData(page, "/api/conversations"))[0];
   await browserApi(page, `/api/conversations/${chat.id}`, "PATCH", { title: "自定义工作记录" });
   await page.reload(); await expect(title).toHaveText("自定义工作记录");
-  await select.click(); await page.getByRole("option", { name: "代码助理", exact: true }).click();
-  await expect(select).toContainText("代码助理");
+  await chooseTemplate(page, "代码助理");
+  await expect(page.locator(".chat-header-meta")).toHaveText("代码助理");
   await expect(title).toHaveText("自定义工作记录");
   { const here = page.url(); await page.goto("about:blank"); await app.restart(); await page.goto(here); } await expect(title).toHaveText("自定义工作记录");
   expect(app.providerCalls).toHaveLength(0);
@@ -199,10 +202,11 @@ test("knowledge evaluation exposes real adapter results, citations and an export
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
   const consoleErrors: string[] = []; page.on("console", message => { if (message.type() === "error") consoleErrors.push(message.text()); });
   await openWorkspace(page, app.origin); await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6", embedding: "openai/text-embedding-3-small" });
-  await page.goto(`${app.origin}/knowledge`);
+  await page.goto(`${app.origin}/knowledge?view=documents`);
+  await openDocumentImport(page);
   await page.getByLabel("所属主题（可选）").fill("财务");
   await page.getByLabel("选择知识文档").setInputFiles({ name: "差旅规程.md", mimeType: "text/markdown", buffer: Buffer.from("# 差旅规程\n\n公务出行的开支需要保留税务票据，回程后的十个工作日内提交费用核销申请。\n\n超过期限需要主管提供书面说明。") });
-  await page.getByRole("button", { name: "导入文档", exact: true }).click(); await expect(page.getByRole("button", { name: "导入文档", exact: true })).toBeEnabled();
+  await previewImportButton(page).click(); await expect(page.getByRole("button", { name: "确认保存文档", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "确认保存文档", exact: true }).click();
   await expect.poll(async () => (await browserData(page, "/api/documents"))[0]?.semantic?.indexed).toBeGreaterThan(0);
   await page.getByTestId("index-maintenance").locator(":scope > summary").click();
@@ -255,9 +259,9 @@ test("evaluation template loading failures are visible and recover through expli
   expect(upload.status()).toBe(201);
   await page.route("**/api/assistants", route => route.fulfill({ status: 200, contentType: "application/json", body: "null" }), { times: 1 });
   const failedTemplates = page.waitForResponse(response => response.url() === `${app.origin}/api/assistants`);
-  await page.goto(`${app.origin}/knowledge`); await page.getByTestId("index-maintenance").locator(":scope > summary").click(); await page.getByText("检索质量评测", { exact: true }).click();
+  await page.goto(`${app.origin}/knowledge?view=documents`); await page.getByTestId("index-maintenance").locator(":scope > summary").click(); await page.getByText("检索质量评测", { exact: true }).click();
   const failure = await failedTemplates;
-  expect(failure.request().headers().referer).toBe(`${app.origin}/knowledge`);
+  expect(failure.request().headers().referer).toBe(`${app.origin}/knowledge?view=documents`);
   expect(await failure.json()).toBeNull();
   await expect(page.getByRole("alert").filter({ hasText: "无法加载助理模板" })).toBeVisible();
   await page.getByRole("button", { name: "重试加载模板", exact: true }).click();

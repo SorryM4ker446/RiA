@@ -38,12 +38,12 @@ test("a Chinese system defaults to Chinese, switches without losing edits, persi
 
   const other = await context.newPage();
   await other.goto(`${app.origin}/`);
-  await expect(other.getByRole("heading", { name: "Turn ideas into next steps.", exact: true })).toBeVisible();
+  await expect(other.getByRole("heading", { level: 1, name: /^Good (morning|afternoon|evening)$/ })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("combobox", { name: "Interface language", exact: true })).toContainText("English");
   await page.getByRole("combobox", { name: "Interface language", exact: true }).click();
   await page.getByRole("option", { name: "简体中文", exact: true }).click();
-  await expect(other.getByRole("heading", { name: "把想法，变成下一步。", exact: true })).toBeVisible();
+  await expect(other.getByRole("heading", { level: 1, name: /^(早上好|中午好|下午好|晚上好)$/ })).toBeVisible();
   await other.close();
   expect(errors).toEqual([]);
 });
@@ -110,7 +110,7 @@ test("English is applied to primary pages and built-in metadata", async ({ page,
   })).toBe(201);
   await page.goto(`${app.origin}/settings`);
   await chooseEnglish(page);
-  for (const route of ["/", "/assistants", "/tasks", "/conversations", "/knowledge", "/models", "/media", "/backups", "/storage", "/extensions"]) {
+  for (const route of ["/", "/assistants", "/tasks", "/conversations", "/knowledge", "/knowledge?view=documents", "/models", "/media", "/backups", "/storage", "/extensions"]) {
     await page.goto(`${app.origin}${route}`);
     await expect(page.locator("html")).toHaveAttribute("lang", "en-US");
     // Settings open as an overlay over the home page; their copy is checked there instead of the page's.
@@ -119,11 +119,10 @@ test("English is applied to primary pages and built-in metadata", async ({ page,
     await expect(scope).toBeVisible();
     if (route === "/assistants") await expect(page.getByRole("heading", { name: "Knowledge assistant", exact: true })).toBeVisible();
     if (route === "/") {
-      await expect(page.getByText("Your local-first AI agent.", { exact: false })).toBeVisible();
-      await expect(page.getByRole("link", { name: "Open knowledge", exact: true })).toHaveCount(0);
+      await expect(page.getByRole("heading", { level: 1, name: /^Good (morning|afternoon|evening)$/ })).toBeVisible();
     }
     if (route === "/extensions") await page.locator("summary").filter({ hasText: "Built-in tools" }).click();
-    if (route === "/knowledge") await expect(page.locator("#knowledge-evaluation-cases")).toHaveValue(/How can I get reimbursed for work travel/);
+    if (route === "/knowledge?view=documents") await expect(page.locator("#knowledge-evaluation-cases")).toHaveValue(/How can I get reimbursed for work travel/);
     // Controlled textareas retain their initial text node after their displayed
     // value changes. Check editable values separately from interface copy.
     const copy = await scope.evaluate(element => {

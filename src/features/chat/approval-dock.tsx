@@ -4,7 +4,8 @@ import { useLocale } from "@/lib/locale/client";
 import { t, tf, localizeMessage } from "@/lib/locale";
 
 import { useId, useRef, useState } from "react";
-import { ArrowLeftRight, Check, ChevronDown, Loader2, X } from "lucide-react";
+import { ArrowLeftRight, Check, ChevronDown, X } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -77,9 +78,9 @@ function ApprovalRequest({ part, count, disabled: busyElsewhere, modelCannotCont
       </div>
       {modelCannotContinue ? <div className="flex shrink-0 items-center gap-1">
         <Button size="sm" disabled={submitting} onClick={changeModel}><ArrowLeftRight data-icon="inline-start" />{t("chat.approval.changeModel")}</Button>
-        <Button size="sm" variant="outline" disabled={disabled || submitting} onClick={event => { if (event.detail <= 1) void decide(false); }}>{submitting ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <X data-icon="inline-start" />}{t("chat.approval.decline")}</Button>
+        <Button size="sm" variant="outline" disabled={disabled || submitting} onClick={event => { if (event.detail <= 1) void decide(false); }}>{submitting ? <Spinner data-icon="inline-start" /> : <X data-icon="inline-start" />}{t("chat.approval.decline")}</Button>
       </div> : <div className="flex shrink-0 items-center gap-1">
-        <Button size="sm" disabled={disabled || submitting} onClick={event => { if (event.detail <= 1) void decide(true); }}>{submitting ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Check data-icon="inline-start" />}{t("chat.messages.approve")}</Button>
+        <Button size="sm" disabled={disabled || submitting} onClick={event => { if (event.detail <= 1) void decide(true); }}>{submitting ? <Spinner data-icon="inline-start" /> : <Check data-icon="inline-start" />}{t("chat.messages.approve")}</Button>
         <Button size="sm" variant="outline" disabled={disabled || submitting} onClick={event => { if (event.detail <= 1) void decide(false); }}><X data-icon="inline-start" />{t("chat.messages.reject")}</Button>
       </div>}
     </CardHeader>

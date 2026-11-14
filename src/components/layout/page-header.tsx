@@ -7,11 +7,13 @@ import type { ReactNode } from "react";
  * button, so the eye lands on the title first. A section of the settings
  * overlay uses the same header one level down, under the overlay's own title.
  */
-export function PageHeader({ title, description, actions, level = 1 }: { title: ReactNode; description?: ReactNode; actions?: ReactNode; level?: 1 | 2 }) {
+export function PageHeader({ title, description, actions, level = 1, trail }: { title: ReactNode; description?: ReactNode; actions?: ReactNode; level?: 1 | 2; trail?: ReactNode }) {
   const Heading = level === 1 ? "h1" : "h2";
+  const heading = <Heading className="flex items-center gap-2 break-words">{title}</Heading>;
   return <header className="workspace-page-header">
     <div className="flex min-w-0 flex-col gap-2">
-      <Heading className="flex items-center gap-2 break-words">{title}</Heading>
+      {/* A page reached from another names the way back in small print above its own title. */}
+      {trail ? <div className="page-header-trail">{trail}{heading}</div> : heading}
       {description && <p className="text-sm text-muted-foreground">{description}</p>}
     </div>
     {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}

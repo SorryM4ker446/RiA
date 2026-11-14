@@ -1,4 +1,5 @@
 import { test as base, expect, type Page } from "@playwright/test";
+import { chatTitle } from "../helpers/chat-header";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { browserApi, browserData } from "../helpers/browser-api";
@@ -29,7 +30,10 @@ async function conversation(page: Page, origin: string, title: string): Promise<
 const messagesOf = async (page: Page, origin: string, id: string) => (await browserData(page, `${origin}/api/conversations/${id}/messages`)) as Message[];
 const summaryOf = async (page: Page, origin: string, id: string) => (await browserData(page, `${origin}/api/conversations/${id}`)) as { answering: boolean; unread: boolean };
 const transcript = (page: Page) => page.getByTestId("message-list");
-const title = (page: Page) => page.locator(".chat-toolbar h3");
+/* The latest answer. Its last word is also the last word of the long question, so waiting for the answer to
+   end has to look at the answer, not at the whole transcript, which shows the question at once. */
+const answer = (page: Page) => transcript(page).locator('[data-message-role="assistant"]').last();
+const title = (page: Page) => chatTitle(page);
 async function send(page: Page, text: string) {
   await page.getByPlaceholder(/输入你的问题/).fill(text);
   await page.getByRole("button", { name: "发送", exact: true }).click();
@@ -47,6 +51,10 @@ test("an answer keeps being written after leaving its conversation, shows live o
 
   await send(page, LONG);
   await expect(transcript(page)).toContainText("离线回答：w0");
+  // The question already shows the last word while the answer is still being written, which is why waiting
+  // for the answer to end looks at the answer.
+  await expect(transcript(page)).toContainText(LAST_WORD);
+  expect(await answer(page).textContent()).not.toContain(LAST_WORD);
   // Away to the other conversation mid-answer: the first goes on answering.
   await row(sidebar, "第二段").click();
   await expect(title(page)).toHaveText("第二段");
@@ -58,7 +66,7 @@ test("an answer keeps being written after leaving its conversation, shows live o
   await expect(title(page)).toHaveText("第一段");
   await expect(transcript(page)).toContainText("离线回答：w0");
   await expect(page.getByRole("button", { name: "停止", exact: true })).toBeVisible();
-  await expect(transcript(page)).toContainText(LAST_WORD, { timeout: 30_000 });
+  await expect(answer(page)).toContainText(LAST_WORD, { timeout: 30_000 });
   await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
   // Saved once, whole, by the service.
   await expect.poll(async () => (await messagesOf(page, app.origin, first)).map(message => message.role)).toEqual(["user", "assistant"]);
@@ -73,7 +81,7 @@ test("an answer keeps being written after leaving its conversation, shows live o
   await expect(row(sidebar, "第一段").locator(".sidebar-chat-dot")).toHaveAttribute("data-state", "unread", { timeout: 30_000 });
   await expect(row(sidebar, "第一段")).toHaveAccessibleName(/有新回答/);
   await row(sidebar, "第一段").click();
-  await expect(transcript(page)).toContainText(LAST_WORD);
+  await expect(answer(page)).toContainText(LAST_WORD);
   await expect(row(sidebar, "第一段").locator(".sidebar-chat-dot")).not.toHaveAttribute("data-state", /.+/);
   await expect.poll(async () => (await summaryOf(page, app.origin, first)).unread).toBe(false);
   expect((await messagesOf(page, app.origin, first)).filter(message => message.role === "assistant")).toHaveLength(2);
@@ -111,7 +119,7 @@ test("a reload mid-answer picks the answer up again, without writing it twice", 
   await page.reload();
   await expect(title(page)).toHaveText("重新载入");
   await expect(transcript(page)).toContainText("离线回答：w0");
-  await expect(transcript(page)).toContainText(LAST_WORD, { timeout: 30_000 });
+  await expect(answer(page)).toContainText(LAST_WORD, { timeout: 30_000 });
   await expect.poll(async () => (await messagesOf(page, app.origin, id)).map(message => message.role)).toEqual(["user", "assistant"]);
   await expect(transcript(page).getByText(/离线回答：w0/)).toHaveCount(1);
 });
@@ -133,7 +141,7 @@ test("a task's run shows in its open conversation as it is written", async ({ pa
   // Shown while it is still being written, not only once it is done.
   await expect(transcript(page)).toContainText("离线回答：w0", { timeout: 20_000 });
   expect(await transcript(page).textContent()).not.toContain(LAST_WORD);
-  await expect(transcript(page)).toContainText(LAST_WORD, { timeout: 30_000 });
+  await expect(answer(page)).toContainText(LAST_WORD, { timeout: 30_000 });
   await expect.poll(async () => ((await browserData(page, `${app.origin}/api/tasks`)) as { lastStatus: string | null }[])[0].lastStatus, { timeout: 20_000 }).toBe("done");
   await expect(transcript(page).getByText(/离线回答：w0/)).toHaveCount(1);
 });

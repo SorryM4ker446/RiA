@@ -461,12 +461,32 @@ export function useChatState() {
   const setInput = useCallback((text: string | ((current: string) => string)) =>
     sessionRef.current.setDraft(current => ({ ...current, text: typeof text === "function" ? text(current.text) : text })), []);
 
+  // A question asked on another page (the home page's quick ask) starts a new conversation. Once that
+  // conversation is open and ready, the question joins its queue, which sends it as soon as it is free
+  // and says why when something holds it back (no model, for one). Nothing is queued if creating failed.
+  // The conversation is usually open and ready before creating it has finished, so recording the
+  // question also asks for the check again rather than waiting for the conversation to change.
+  const pendingAsk = useRef<{ text: string; chatId: string } | null>(null);
+  const [askRecorded, setAskRecorded] = useState(0);
+  async function askInNewChat(text: string) {
+    const chatId = await createNewChat();
+    if (!chatId) return;
+    pendingAsk.current = { text, chatId };
+    setAskRecorded(count => count + 1);
+  }
+  useEffect(() => {
+    const ask = pendingAsk.current;
+    if (!ask || activeChatId !== ask.chatId || session.id !== ask.chatId || !isConversationReady) return;
+    pendingAsk.current = null;
+    session.setQueue(current => [...current, { id: crypto.randomUUID(), text: ask.text, attachments: [] }]);
+  }, [activeChatId, isConversationReady, session, askRecorded]);
+
   return {
     declineApprovals,
     toggleEphemeral, isEphemeralSaving, isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
     setWorkspace, isWorkspaceSaving, setApprovalRule, isApprovalSaving, loadChats,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, olderMessagesCursor: state.olderCursor, isLoadingOlderMessages: state.loadingOlder, loadOlderMessages,
-    isLoadingChats, isCreatingChat, createNewChat, chats, activeChatId, switchActiveChat,
+    isLoadingChats, isCreatingChat, createNewChat, askInNewChat, chats, activeChatId, switchActiveChat,
     requestDeleteConversation: actions.requestDeleteConversation,
     compaction: compaction?.chatId === activeChatId ? compaction : null,
     freedByCompaction: freedByCompaction?.chatId === activeChatId && freedByCompaction.lastMessageId === messages.at(-1)?.id ? freedByCompaction.tokens : 0,

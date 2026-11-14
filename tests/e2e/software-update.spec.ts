@@ -178,7 +178,7 @@ test("the settings card checks, reports the last install and starts the same upd
   await expect(dialog).toBeHidden();
   await expect(card).toBeVisible();
 
-  const automatic = card.getByRole("checkbox", { name: "自动检查更新", exact: true });
+  const automatic = card.getByRole("switch", { name: "自动检查更新", exact: true });
   await expect(automatic).toBeChecked();
   await automatic.click();
   await expect(automatic).not.toBeChecked();

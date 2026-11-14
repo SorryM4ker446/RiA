@@ -4,9 +4,9 @@ import { useLocale } from "@/lib/locale/client";
 import { t, localizeMessage } from "@/lib/locale";
 
 import { useEffect, useState } from "react";
-import { Power } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { SegmentedControl } from "@/components/ui/segmented-control";
+import { Power } from "lucide-react";
 import { SettingsSection } from "@/features/settings/settings-section";
 import { useDesktopRuntime } from "@/lib/use-desktop-runtime";
 
@@ -24,6 +24,8 @@ export function CloseBehaviourSettings() {
   const isDesktopRuntime = useDesktopRuntime();
   const [behaviour, setBehaviour] = useState<"quit" | "tray" | null>(null);
   const [saving, setSaving] = useState(false);
+  // The choice being saved shows at once; a save that fails puts the saved one back.
+  const [pending, setPending] = useState<"quit" | "tray" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -43,8 +45,9 @@ export function CloseBehaviourSettings() {
   }
 
   async function choose(next: "quit" | "tray") {
-    if (saving) return;
+    if (saving || next === behaviour) return;
     setSaving(true);
+    setPending(next);
     setError(null);
     try {
       const result = await window.riaDesktop!.saveSettings({ closeBehaviour: next });
@@ -57,13 +60,13 @@ export function CloseBehaviourSettings() {
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : t("settings.close.failed"));
     } finally {
+      setPending(null);
       setSaving(false);
     }
   }
 
   return (
-    <SettingsSection title={<><Power aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
-          {t("settings.close.title")}</>} description={t("ui.settings.close-behaviour.chooseWhetherClosingTheWindowQuits")}>
+    <SettingsSection icon={Power} title={t("settings.close.title")} description={t("ui.settings.close-behaviour.chooseWhetherClosingTheWindowQuits")}>
         <div className="flex flex-col gap-4">
         {error ? (
           <Alert variant="destructive">
@@ -71,34 +74,15 @@ export function CloseBehaviourSettings() {
             <AlertDescription>{localizeMessage(error)}</AlertDescription>
           </Alert>
         ) : null}
-        <div className="flex flex-wrap gap-2">
-          <Button
-            disabled={saving || behaviour === "quit"}
-            onClick={() => void choose("quit")}
-            type="button"
-            variant={behaviour === "quit" ? "default" : "outline"}
-          >
-            {t("settings.close.quit")}
-          </Button>
-          <Button
-            disabled={saving || behaviour === "tray"}
-            onClick={() => void choose("tray")}
-            type="button"
-            variant={behaviour === "tray" ? "default" : "outline"}
-          >
-            {t("settings.close.tray")}
-          </Button>
-        </div>
-        {behaviour === "tray" ? (
-          <div className="flex flex-col gap-2 rounded-md border border-border px-3 py-2 text-xs text-muted-foreground">
-            <p>{t("settings.close.trayNote")}</p>
-            <Button disabled={saving} onClick={() => void window.riaDesktop?.quitToTray()} size="sm" type="button" variant="ghost">
-              {t("settings.close.quitNow")}
-            </Button>
-          </div>
-        ) : (
-          <p className="text-[11px] text-muted-foreground">{t("settings.close.quitNote")}</p>
-        )}
+        <SegmentedControl
+          aria-label={t("settings.close.title")}
+          value={pending ?? behaviour}
+          busy={saving}
+          options={[{ value: "quit", label: t("settings.close.quit") }, { value: "tray", label: t("settings.close.tray") }]}
+          onValueChange={next => void choose(next)}
+        />
+        {/* Quitting is the one outcome worth a word: the tray choice explains itself, and the tray icon carries its own Quit. */}
+        {behaviour === "quit" ? <p className="text-[11px] text-muted-foreground">{t("settings.close.quitNote")}</p> : null}
       </div>
     </SettingsSection>
   );

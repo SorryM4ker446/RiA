@@ -2,10 +2,11 @@
 import { useLocale } from "@/lib/locale/client";
 
 import { useState } from "react";
-import { X } from "lucide-react";
+import { Download, MoreHorizontal, RefreshCw, Trash2, X } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { assetKind, formatBytes, type AssetDetail, type SourceChat } from "@/features/media/api-client";
-import { formatDateTime, t } from "@/lib/locale";
+import { formatDateTime, t, tf } from "@/lib/locale";
 
 export function AssetDetailPanel({ asset, busy, close, download, remove, regenerate, openChat, inspect }: {
   asset: AssetDetail; busy: boolean; close: () => void; download: () => void; remove: () => void; regenerate: () => void;
@@ -17,9 +18,16 @@ export function AssetDetailPanel({ asset, busy, close, download, remove, regener
   const chats = [...new Map([...(asset.sourceChat ? [asset.sourceChat] : []), ...asset.references.map(ref => ref.chat)].map(chat => [chat.id, chat])).values()];
   return <section aria-label={t("asset.detailTitle")} className="media-detail space-y-5">
     <div className="flex flex-wrap items-center gap-2"><h2 className="mr-auto text-base font-semibold tracking-title">{t("asset.detailTitle")}</h2>
-      <Button size="sm" variant="ghost" disabled={busy} onClick={download}>{t("asset.download")}</Button>
-      <Button size="sm" variant="ghost" disabled={busy || Boolean(asset.regenerationUnavailable)} onClick={regenerate}>{t("asset.regenerate")}</Button>
-      <Button size="sm" variant="ghost" className="text-destructive hover:bg-destructive/10" disabled={busy || asset.messageReferenceCount + asset.generationReferenceCount > 0} onClick={remove}>{t("asset.delete")}</Button>
+      {/* One action in view; the rest wait in the menu, the permanent one last. */}
+      <Button size="sm" variant="outline" disabled={busy} onClick={download}><Download data-icon="inline-start" aria-hidden="true" />{t("asset.download")}</Button>
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild><Button size="icon-sm" variant="ghost" disabled={busy} aria-label={tf("ui.assistants.moreActionsFor", { v0: t("asset.detailTitle") })}><MoreHorizontal aria-hidden="true" /></Button></DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem disabled={Boolean(asset.regenerationUnavailable)} onSelect={regenerate}><RefreshCw aria-hidden="true" />{t("asset.regenerate")}</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem variant="destructive" disabled={asset.messageReferenceCount + asset.generationReferenceCount > 0} onSelect={remove}><Trash2 aria-hidden="true" />{t("asset.delete")}</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
       <Button size="icon-sm" variant="ghost" aria-label={t("asset.closeDetail")} title={t("asset.closeDetail")} disabled={busy} onClick={close}><X aria-hidden="true" /></Button></div>
     {(asset.regenerationUnavailable || asset.messageReferenceCount + asset.generationReferenceCount > 0) && <p className="-mt-3 text-xs text-muted-foreground">{asset.regenerationUnavailable}{asset.regenerationUnavailable && asset.messageReferenceCount + asset.generationReferenceCount > 0 ? " " : ""}{asset.messageReferenceCount + asset.generationReferenceCount > 0 ? t("asset.stillReferenced") : ""}</p>}
     {failed ? <p role="alert">{t("asset.previewFailed")}</p> : asset.mediaType.startsWith("video/")

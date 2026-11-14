@@ -19,7 +19,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { getFileParts, getMessageRoleLabel, isToolPart, readText } from "@/features/chat/page-utils";
 import { cn } from "@/lib/utils/cn";
-import { AlertCircle, Check, Copy, Loader2, PencilLine, RefreshCw, Trash2, X } from "lucide-react";
+import { AlertCircle, Check, Copy, PencilLine, RefreshCw, Trash2, X } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import { memo, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import Image from "next/image";
 import type { ChatState } from "@/features/chat/use-chat-state";
@@ -120,6 +121,8 @@ type MessageRowProps = {
   /** The metadata of the message before it, which says whether this answer skipped a chosen tool. */
   previousMetadata: unknown;
   isLast: boolean;
+  /** The message just sent, while its turn is live: it arrives with motion. */
+  arriving?: boolean;
   /** The chat status, for the last message only: no other row changes with it. */
   status: ChatState["status"] | null;
   isPending: boolean;
@@ -148,7 +151,7 @@ type MessageRowProps = {
  * so a long, tool-heavy conversation streams at the cost of an empty one.
  */
 export const MessageRow = memo(function MessageRow({
-  message, previousMetadata, isLast, status, isPending, isEditing, editingText, resendsEdited, copyState, imageUrl, videoUrl,
+  message, previousMetadata, isLast, arriving = false, status, isPending, isEditing, editingText, resendsEdited, copyState, imageUrl, videoUrl,
   attachingImageKey, reuseImageActionLabel, tools, alwaysReasons, notice = null, canShowSources, compactionSummary, actions,
 }: MessageRowProps) {
   useLocale();
@@ -174,7 +177,7 @@ export const MessageRow = memo(function MessageRow({
   const savedAt = isLive || isEditing ? null : readMessageTime(message.metadata);
 
   return (
-    <><div className={cn("flex w-full", isUser ? "justify-end pb-4" : "justify-start")} {...removalKey(message.id)} data-message-id={message.id} data-message-role={message.role}>
+    <><div className={cn("flex w-full", isUser ? "justify-end pb-4" : "justify-start")} {...removalKey(message.id)} data-message-id={message.id} data-message-role={message.role} data-arriving={arriving || undefined}>
       <article
         className={cn(
           "group min-w-0 rounded-xl px-4 py-3 text-sm",
@@ -190,7 +193,7 @@ export const MessageRow = memo(function MessageRow({
           <div className="flex shrink-0 items-center gap-1">
             {isLastAssistantStreaming ? (
               <span className="label-mono inline-flex items-center">
-                <Loader2 aria-hidden="true" className="mr-1 h-3 w-3 animate-spin" />
+                <Spinner aria-hidden="true" className="mr-1 h-3 w-3" />
                 {t("chat.toolbar.statusGenerating")}
               </span>
             ) : null}

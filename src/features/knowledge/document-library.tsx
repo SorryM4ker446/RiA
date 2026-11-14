@@ -6,7 +6,8 @@ import { formatList, t, tf, formatNumber, formatRelativeTime, localizeMessage } 
 
 import { SelectField, SelectOption } from "@/components/ui/select";
 
-import { ChevronRight, FileText, Info, Loader2, MoreHorizontal, RotateCw, Search, Trash2, Upload } from "lucide-react";
+import { ChevronRight, FileText, Info, MoreHorizontal, RotateCw, Trash2, Upload } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { useAwaitingFirstLoad } from "@/lib/use-awaiting-first-load";
@@ -27,7 +28,7 @@ import { DocumentSources } from "@/components/knowledge/document-sources";
 import { RetrievalEvaluation } from "./retrieval-evaluation";
 import { getApiErrorMessage } from "@/lib/api-error-message";
 import { DOCUMENT_LIMITS, type DocumentSource } from "@/lib/documents/types";
-import { documentRequest, listDocuments, type DocumentIndexing, type DocumentSummary, type DocumentPreview } from "./document-client";
+import { documentRequest, listDocuments, searchDocumentContent, type DocumentIndexing, type DocumentSummary, type DocumentPreview } from "./document-client";
 import { maintainDocumentIndexes, type IndexProgress } from "./index-maintenance";
 import { IndexStatus } from "./index-status";
 import { documentReadiness } from "./document-status";
@@ -35,7 +36,21 @@ import { animateRemoval, removalKey } from "@/lib/ui/removal";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 export { documentRequest } from "./document-client";
 
-export function DocumentLibrary() {
+/** How many documents the knowledge overview lists before "All" leads to the full view. */
+export const OVERVIEW_DOCUMENTS = 5;
+
+/**
+ * The imported documents. In the overview it is a short list of the latest few with a way to all of them;
+ * in its own view it is the whole library with topic filter, content search and index upkeep. Importing
+ * opens as a card at the top of the list from the page's own action, and folds away once a document is saved.
+ */
+export function DocumentLibrary({ mode, importOpen, onImportClose, onShowAll, hidden = false }: {
+  mode: "overview" | "full";
+  importOpen: boolean;
+  onImportClose: () => void;
+  onShowAll: () => void;
+  hidden?: boolean;
+}) {
   useLocale();
   const confirm = useConfirm();
   const toast = useToast();
@@ -106,7 +121,7 @@ export function DocumentLibrary() {
     await run(async signal => {
       const result = await documentRequest<{ change: string; added: number; retained: number; removed: number }>("/api/documents", { method: "POST", body: data, signal });
       if (signal.aborted) return;
-      setPreview(null); previewData.current = null; setResults(null); setDiagnostics(null);
+      setPreview(null); previewData.current = null; setResults(null); setDiagnostics(null); setCollection(""); onImportClose();
       toast(result.change === "unchanged" ? t("documents.unchanged") : tf("documents.savedSummary", { added: result.added, retained: result.retained, removed: result.removed }));
       try { await refresh(signal); } catch { if (!signal.aborted) setError(t("ui.knowledge.document-library.documentSavedButRefreshingTheList")); }
     });
@@ -115,10 +130,8 @@ export function DocumentLibrary() {
     event.preventDefault();
     setResults(null); setDiagnostics(null);
     await run(async signal => {
-      const response = await fetch("/api/documents/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, collections: searchCollection ? [searchCollection] : [] }), signal });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(getApiErrorMessage(payload, t("documents.requestFailed")));
-      setResults(payload.data); setDiagnostics(payload.diagnostics);
+      const found = await searchDocumentContent(query, searchCollection ? [searchCollection] : [], signal);
+      setResults(found.sources); setDiagnostics(found.diagnostics);
     });
   }
 
@@ -140,37 +153,59 @@ export function DocumentLibrary() {
 
   // Read again when the window comes back into view, instead of a refresh button.
   useRefreshOnReturn(() => refresh());
-  return <section aria-label={t("documents.libraryTitle")} className="flex min-w-0 flex-col gap-4">
-    <header className="flex flex-wrap items-center justify-between gap-3">
+
+  // The card opens with the keyboard on its first field, and closing it drops whatever it was holding.
+  const importCard = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (importOpen) importCard.current?.querySelector<HTMLElement>("button, input")?.focus({ preventScroll: true });
+  }, [importOpen]);
+  function closeImport() {
+    if (importing) operation.current?.abort();
+    setPreview(null); previewData.current = null; setError("");
+    onImportClose();
+  }
+  const listed = mode === "overview" ? documents.slice(0, OVERVIEW_DOCUMENTS) : documents;
+  // `hidden` alone loses to the flex layout class, so the class that hides it travels with the attribute.
+  return <section aria-label={t("documents.libraryTitle")} className={hidden ? "hidden" : "flex min-w-0 flex-col gap-4"} hidden={hidden}>
+    {mode === "overview" ? <header className="knowledge-section-head justify-between">
       <div className="flex items-baseline gap-2"><h2 className="text-base font-semibold tracking-title">{t("documents.libraryTitle")}</h2><span className="text-xs text-muted-foreground">{documents.length} {t("ui.knowledge.document-library.documents")}</span></div>
-    </header>
-    <form onSubmit={event => void upload(event)} aria-label={t("ui.knowledge.document-library.importKnowledgeDocuments")}>
-      <FieldGroup className="grid items-end gap-3 sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_auto]">
-        <Field className="min-w-0 gap-2"><FieldLabel className="text-xs" htmlFor="knowledge-document-file">{t("documents.fileLabel")}</FieldLabel><FileInput id="knowledge-document-file" accept=".pdf,.md,.txt,.docx" aria-label={t("documents.fileLabel")} buttonLabel={t("documents.fileButton")} placeholder={formatList(["PDF", "Word", "Markdown", "TXT"])} disabled={busy} name="file" onChange={() => { setPreview(null); previewData.current = null; }} required /></Field>
-        <Field className="min-w-0 gap-2"><FieldLabel className="text-xs" htmlFor="knowledge-document-collection">{t("documents.collectionLabel")}</FieldLabel><Input id="knowledge-document-collection" aria-label={t("documents.collectionLabel")} disabled={busy} list="document-collections" name="collection" onChange={event => { setCollection(event.target.value); setPreview(null); previewData.current = null; }} placeholder={t("documents.collectionPlaceholder")} value={collection} /><datalist id="document-collections">{[...new Set(documents.map(document => document.collection).filter((value): value is string => Boolean(value)))].map(value => <option key={value} value={value} />)}</datalist></Field>
-        <Button disabled={busy} type="submit">{importing ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Upload data-icon="inline-start" />}{t("documents.import")}</Button>
-      </FieldGroup>
-    </form>
-    <details className="settings-disclosure knowledge-disclosure group"><summary className="settings-disclosure-trigger py-1 text-xs text-muted-foreground"><Info className="size-3.5" aria-hidden="true" />{t("ui.knowledge.document-library.importPrivacyInformation")}<ChevronRight className="size-3 transition-transform duration-[--dur-fast] group-open:rotate-90" aria-hidden="true" /></summary><div className="flex max-w-3xl flex-col gap-2 py-3 text-xs leading-6 text-muted-foreground"><p>{t("documents.libraryDescription")}</p><p>{t("documents.textOnlyNote")}</p><p>{t("ui.knowledge.document-library.importShowsAnExtractionPreviewFirst")}</p></div></details>
+      {documents.length ? <button type="button" className="see-all-link" onClick={onShowAll}>{tf("knowledge.showAllCount", { count: documents.length })}<ChevronRight aria-hidden="true" /></button> : null}
+    </header> : null}
+    {/* Closed, it gives back the gap above it, so it takes no room until it opens. */}
+    <Reveal className="-mt-4">{importOpen ? <div ref={importCard} className="knowledge-import-card mt-4">
+      <form onSubmit={event => void upload(event)} aria-label={t("ui.knowledge.document-library.importKnowledgeDocuments")}>
+        <FieldGroup className="grid items-end gap-3 sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_auto]">
+          <Field className="min-w-0 gap-2"><FieldLabel className="text-xs" htmlFor="knowledge-document-file">{t("documents.fileLabel")}</FieldLabel><FileInput id="knowledge-document-file" accept=".pdf,.md,.txt,.docx" aria-label={t("documents.fileLabel")} buttonLabel={t("documents.fileButton")} placeholder={formatList(["PDF", "Word", "Markdown", "TXT"])} disabled={busy} name="file" onChange={() => { setPreview(null); previewData.current = null; }} required /></Field>
+          <Field className="min-w-0 gap-2"><FieldLabel className="text-xs" htmlFor="knowledge-document-collection">{t("documents.collectionLabel")}</FieldLabel><Input id="knowledge-document-collection" aria-label={t("documents.collectionLabel")} disabled={busy} list="document-collections" name="collection" onChange={event => { setCollection(event.target.value); setPreview(null); previewData.current = null; }} placeholder={t("documents.collectionPlaceholder")} value={collection} /><datalist id="document-collections">{[...new Set(documents.map(document => document.collection).filter((value): value is string => Boolean(value)))].map(value => <option key={value} value={value} />)}</datalist></Field>
+          <div className="flex items-center gap-1">
+            <Button disabled={busy} type="submit">{importing ? <Spinner data-icon="inline-start" /> : <Upload data-icon="inline-start" />}{t("documents.previewImport")}</Button>
+            <Button type="button" variant="ghost" onClick={closeImport}>{t("knowledge.cancelEdit")}</Button>
+          </div>
+        </FieldGroup>
+      </form>
+      <details className="settings-disclosure knowledge-disclosure group"><summary className="settings-disclosure-trigger py-1 text-xs text-muted-foreground"><Info className="size-3.5" aria-hidden="true" />{t("ui.knowledge.document-library.importPrivacyInformation")}<ChevronRight className="size-3 transition-transform duration-[--dur-fast] group-open:rotate-90" aria-hidden="true" /></summary><div className="flex max-w-3xl flex-col gap-2 py-3 text-xs leading-6 text-muted-foreground"><p>{t("documents.libraryDescription")}</p><p>{t("documents.textOnlyNote")}</p><p>{t("ui.knowledge.document-library.importShowsAnExtractionPreviewFirst")}</p></div></details>
+      {preview ? <section className="knowledge-preview surface-enter flex flex-col gap-3 rounded-xl bg-muted/40 p-4" aria-label={t("ui.knowledge.document-library.documentImportPreview")}>
+        <h3 className="break-words text-sm font-medium">{t("ui.knowledge.document-library.preview")}{preview.filename} · {preview.chunks.length} {t("ui.knowledge.document-library.chunks")}{preview.characterCount} {t("documents.characterUnit")}</h3>
+        {preview.notes.map(note => <p className="text-xs leading-6 text-muted-foreground" key={note}>{note}</p>)}
+        {preview.base ? <p className="text-xs leading-6">{t("ui.knowledge.document-library.confirmingUpdatesTheDocumentWithThe")}</p> : null}
+        <div className="chat-list-scroll flex max-h-64 flex-col gap-3 overflow-y-auto">{preview.chunks.map(chunk => <div key={chunk.ordinal} className="flex flex-col gap-1"><p className="text-xs text-muted-foreground">{t("documents.chunkLabel")}{chunk.ordinal + 1}{chunk.heading ? ` · ${chunk.heading}` : ""}{chunk.pageNumber ? tf("ui.knowledge.document-library.page", { v0: chunk.pageNumber }) : ""}</p><pre className="whitespace-pre-wrap break-words text-xs leading-6 [overflow-wrap:anywhere]">{chunk.text}</pre></div>)}</div>
+        <div className="flex flex-wrap gap-2"><Button size="sm" disabled={busy} onClick={() => void savePreview()}>{t("ui.knowledge.document-library.confirmDocumentSave")}</Button><Button size="sm" disabled={busy} variant="ghost" onClick={() => { setPreview(null); previewData.current = null; }}>{t("ui.knowledge.document-library.discardPreview")}</Button></div>
+      </section> : null}
+    </div> : null}</Reveal>
     <Reveal className="-mt-4">{error ? <Alert variant="destructive" className="mt-4"><AlertTitle>{t("ui.knowledge.document-library.documentOperationIncomplete")}</AlertTitle><AlertDescription><span>{localizeMessage(error)}</span><Button size="sm" variant="ghost" className="ml-2 h-auto px-2 py-0.5 align-baseline" onClick={() => void run(refresh)}>{t("ui.chat.chat-toolbar.retry")}</Button></AlertDescription></Alert> : null}</Reveal>
-    {preview ? <section className="knowledge-preview surface-enter flex flex-col gap-3 rounded-xl bg-muted/40 p-4" aria-label={t("ui.knowledge.document-library.documentImportPreview")}>
-      <h3 className="break-words text-sm font-medium">{t("ui.knowledge.document-library.preview")}{preview.filename} · {preview.chunks.length} {t("ui.knowledge.document-library.chunks")}{preview.characterCount} {t("documents.characterUnit")}</h3>
-      {preview.notes.map(note => <p className="text-xs leading-6 text-muted-foreground" key={note}>{note}</p>)}
-      {preview.base ? <p className="text-xs leading-6">{t("ui.knowledge.document-library.confirmingUpdatesTheDocumentWithThe")}</p> : null}
-      <div className="chat-list-scroll flex max-h-64 flex-col gap-3 overflow-y-auto">{preview.chunks.map(chunk => <div key={chunk.ordinal} className="flex flex-col gap-1"><p className="text-xs text-muted-foreground">{t("documents.chunkLabel")}{chunk.ordinal + 1}{chunk.heading ? ` · ${chunk.heading}` : ""}{chunk.pageNumber ? tf("ui.knowledge.document-library.page", { v0: chunk.pageNumber }) : ""}</p><pre className="whitespace-pre-wrap break-words text-xs leading-6 [overflow-wrap:anywhere]">{chunk.text}</pre></div>)}</div>
-      <div className="flex flex-wrap gap-2"><Button size="sm" disabled={busy} onClick={() => void savePreview()}>{t("ui.knowledge.document-library.confirmDocumentSave")}</Button><Button size="sm" disabled={busy} variant="ghost" onClick={() => { setPreview(null); previewData.current = null; }}>{t("ui.knowledge.document-library.discardPreview")}</Button></div>
-    </section> : null}
-    <form aria-label={t("ui.knowledge.document-library.searchDocumentKnowledge")} onSubmit={event => void search(event)}>
-      <FieldGroup className="flex flex-row flex-wrap items-center gap-2">
-        <Field className="w-auto"><FieldLabel className="sr-only" htmlFor="knowledge-document-scope">{t("ui.knowledge.document-library.searchKnowledgeCollections")}</FieldLabel><SelectField id="knowledge-document-scope" aria-label={t("ui.knowledge.document-library.searchKnowledgeCollections")} disabled={busy} value={searchCollection} onValueChange={value => { setSearchCollection(value); setResults(null); }}><SelectOption value="">{t("ui.knowledge.document-library.allCollections")}</SelectOption>{[...new Set([...documents.flatMap(document => document.collection ? [document.collection] : []), ...(searchCollection ? [searchCollection] : [])])].sort().map(name => <SelectOption key={name} value={name}>{name}{documents.some(document => document.collection === name) ? "" : t("ui.knowledge.document-library.noKnowledgeYet")}</SelectOption>)}</SelectField></Field>
-        <Field className="min-w-0 flex-1 basis-48"><FieldLabel htmlFor="knowledge-document-query" className="sr-only">{t("documents.searchLabel")}</FieldLabel><ToolbarSearch id="knowledge-document-query" aria-label={t("documents.searchLabel")} disabled={busy} maxLength={2000} onChange={event => setQuery(event.target.value)} placeholder={t("documents.searchPlaceholder")} required value={query} /></Field>
-        <Button disabled={busy || !query.trim()} type="submit" variant="ghost"><Search data-icon="inline-start" />{t("documents.search")}</Button>
-      </FieldGroup>
-    </form>
-    {results?.length === 0 ? <p role="status" className="text-sm leading-6 text-muted-foreground">{t("documents.noMatches")}</p> : null}
-    <DocumentSources sources={results ?? []} />
-    {awaitingFirstDocumentLoad ? <div className="flex flex-col gap-2" aria-label={t("documents.loading")}><Skeleton className="h-16 rounded-xl" /><Skeleton className="h-16 rounded-xl" /></div> : !documents.length ? <Empty className="py-6"><EmptyHeader><EmptyMedia><FileText /></EmptyMedia><EmptyTitle>{t("documents.empty")}</EmptyTitle><EmptyDescription>{t("ui.knowledge.document-library.importKnowledgeToSearchItHere")}</EmptyDescription></EmptyHeader></Empty> : <ul aria-label={t("documents.importedTitle")} className="item-list chat-list-scroll max-h-80 overflow-y-auto" style={{ "--cols": "20px minmax(0, 1fr) 7.5rem 5.5rem 4rem auto", "--cols-narrow": "minmax(0, 1fr) 5.5rem auto" } as React.CSSProperties}>
-      {documents.map(document => <li className="item-row data-row knowledge-document-row min-w-0" key={document.id} {...removalKey(document.id)}>
+    {mode === "full" ? <>
+      {/* Searching the content may embed the query, so it runs on Enter rather than as you type. */}
+      <form aria-label={t("ui.knowledge.document-library.searchDocumentKnowledge")} onSubmit={event => void search(event)}>
+        <FieldGroup className="flex flex-row flex-wrap items-center gap-2">
+          <Field className="w-auto"><FieldLabel className="sr-only" htmlFor="knowledge-document-scope">{t("ui.knowledge.document-library.searchKnowledgeCollections")}</FieldLabel><SelectField id="knowledge-document-scope" aria-label={t("ui.knowledge.document-library.searchKnowledgeCollections")} disabled={busy} value={searchCollection} onValueChange={value => { setSearchCollection(value); setResults(null); }}><SelectOption value="">{t("ui.knowledge.document-library.allCollections")}</SelectOption>{[...new Set([...documents.flatMap(document => document.collection ? [document.collection] : []), ...(searchCollection ? [searchCollection] : [])])].sort().map(name => <SelectOption key={name} value={name}>{name}{documents.some(document => document.collection === name) ? "" : t("ui.knowledge.document-library.noKnowledgeYet")}</SelectOption>)}</SelectField></Field>
+          <Field className="min-w-0 flex-1 basis-48"><FieldLabel htmlFor="knowledge-document-query" className="sr-only">{t("documents.searchLabel")}</FieldLabel><ToolbarSearch id="knowledge-document-query" aria-label={t("documents.searchLabel")} disabled={busy} maxLength={2000} onChange={event => setQuery(event.target.value)} placeholder={t("documents.searchPlaceholder")} required value={query} /></Field>
+        </FieldGroup>
+      </form>
+      {results?.length === 0 ? <p role="status" className="text-sm leading-6 text-muted-foreground">{t("documents.noMatches")}</p> : null}
+      <DocumentSources sources={results ?? []} />
+    </> : null}
+    {awaitingFirstDocumentLoad ? <div className="flex flex-col gap-2" aria-label={t("documents.loading")}><Skeleton className="h-16 rounded-xl" /><Skeleton className="h-16 rounded-xl" /></div> : !documents.length ? <Empty className="py-6"><EmptyHeader><EmptyMedia><FileText /></EmptyMedia><EmptyTitle>{t("documents.empty")}</EmptyTitle><EmptyDescription>{t("ui.knowledge.document-library.importKnowledgeToSearchItHere")}</EmptyDescription></EmptyHeader></Empty> : <ul aria-label={t("documents.importedTitle")} className="item-list" style={{ "--cols": "20px minmax(0, 1fr) 7.5rem 5.5rem 4rem auto", "--cols-narrow": "minmax(0, 1fr) 5.5rem auto" } as React.CSSProperties}>
+      {listed.map(document => <li className="item-row data-row knowledge-document-row min-w-0" key={document.id} {...removalKey(document.id)}>
         <span className="item-row-icon"><FileText aria-hidden="true" /></span>
         <div className="flex min-w-0 flex-col gap-1">
           <div className="flex min-w-0 flex-wrap items-center gap-2"><Link className="min-w-0 break-words text-sm font-medium hover:underline underline-offset-4 [overflow-wrap:anywhere]" href={`/knowledge/documents/${document.id}`}>{document.filename}</Link>{document.collection && <span className="min-w-0 truncate rounded bg-muted px-1.5 text-xs leading-5 text-muted-foreground">{document.collection}</span>}</div>
@@ -190,11 +225,13 @@ export function DocumentLibrary() {
         </div>
       </li>)}
     </ul>}
-    {/* Index upkeep and retrieval checks only mean something once there is a document. */}
-    <Reveal>{documents.length > 0 ? <div className="flex flex-col">
-      <IndexStatus documents={documents} progress={progress} busy={busy} automatic={automaticIndexing} start={() => void buildSemanticIndexes(documents.filter(document => document.semantic?.modelRef && document.semantic.indexed < document.semantic.total))} cancel={() => operation.current?.abort()} lastSearch={results !== null ? diagnostics : null}>
-        <RetrievalEvaluation />
-      </IndexStatus>
-    </div> : null}</Reveal>
+    {mode === "full" ? <>
+      {/* Index upkeep and retrieval checks only mean something once there is a document. */}
+      <Reveal>{documents.length > 0 ? <div className="flex flex-col">
+        <IndexStatus documents={documents} progress={progress} busy={busy} automatic={automaticIndexing} start={() => void buildSemanticIndexes(documents.filter(document => document.semantic?.modelRef && document.semantic.indexed < document.semantic.total))} cancel={() => operation.current?.abort()} lastSearch={results !== null ? diagnostics : null}>
+          <RetrievalEvaluation />
+        </IndexStatus>
+      </div> : null}</Reveal>
+    </> : null}
   </section>;
 }

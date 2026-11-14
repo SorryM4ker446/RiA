@@ -4,7 +4,8 @@ import { useLocale } from "@/lib/locale/client";
 import { t, tf } from "@/lib/locale";
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { ArrowUp, List, Loader2 } from "lucide-react";
+import { ArrowUp, List } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import type { UIMessage } from "ai";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -111,7 +112,7 @@ export function MessageNavigator({ messages, scrollRef, onNavigate, hasOlder, lo
   }
 
   const loadEarlier = <Button variant="ghost" size="icon-sm" className="message-nav-control" aria-label={t("ui.chat.message-navigator.loadEarlierLocations")} title={t("ui.chat.message-navigator.loadEarlierMessages")} disabled={disabled || loadingOlder} onClick={onLoadOlder}>
-    {loadingOlder ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <ArrowUp data-icon="inline-start" />}
+    {loadingOlder ? <Spinner data-icon="inline-start" /> : <ArrowUp data-icon="inline-start" />}
   </Button>;
 
   return <nav className="message-navigator" aria-label={t("ui.chat.message-navigator.conversationLocations")}>

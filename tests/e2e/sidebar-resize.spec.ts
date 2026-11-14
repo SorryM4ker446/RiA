@@ -55,7 +55,8 @@ test("the sidebar follows its dragged edge, gives below its minimum and folds aw
   await expect(pin(page)).toBeVisible();
   await expect(handle(page)).toBeHidden();
   const button = (await pin(page).boundingBox())!;
-  const title = (await page.locator(".workspace-section-title").boundingBox())!;
+  // On chat the top row starts with the conversation's title; elsewhere with the section's name.
+  const title = (await page.locator(".workspace-topbar").locator(".workspace-section-title, .chat-title").first().boundingBox())!;
   expect(title.x).toBeGreaterThan(button.x + button.width);
   await page.reload();
   expect(await width(page)).toBe(0);
@@ -108,11 +109,26 @@ test("folded, the sidebar shows over the page on hover and pins in place without
   await expect(peek(page)).toHaveAttribute("data-state", "open");
   await settled(page);
   const pinAt = (await peekPin(page).boundingBox())!;
+  // Every frame of the pinning phase is sampled: it can be over before a separate check could measure it.
+  await page.evaluate(() => {
+    const frames: Array<{ state: string; x: number; y: number; width: number; height: number }> = [];
+    (window as unknown as { peekFrames: typeof frames }).peekFrames = frames;
+    const sample = () => {
+      const overlay = document.querySelector<HTMLElement>(".rail-peek");
+      if (!overlay) return;
+      const box = overlay.getBoundingClientRect();
+      frames.push({ state: overlay.dataset.state ?? "", x: box.x, y: box.y, width: box.width, height: box.height });
+      requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
   await peekPin(page).click();
-  await expect(peek(page)).toHaveAttribute("data-state", "pinning");
-  expect(await peek(page).boundingBox()).toEqual(over);
   // Removed outright, no slide: the docked sidebar is already in its place.
   await expect(peek(page)).toHaveCount(0);
+  const pinning = (await page.evaluate(() => (window as unknown as { peekFrames: Array<{ state: string; x: number; y: number; width: number; height: number }> }).peekFrames))
+    .filter(frame => frame.state === "pinning").map(({ state: _state, ...box }) => box);
+  expect(pinning.length).toBeGreaterThan(0);
+  for (const box of pinning) expect(box).toEqual(over);
   await settled(page);
   expect(await width(page)).toBe(240);
   // The docked sidebar's button is where the pin button was: the swap shows nothing.

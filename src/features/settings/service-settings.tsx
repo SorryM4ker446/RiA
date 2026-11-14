@@ -4,7 +4,8 @@ import { useLocale } from "@/lib/locale/client";
 import { t, localizeMessage } from "@/lib/locale";
 
 import { FormEvent, useEffect, useState } from "react";
-import { CheckCircle2, ChevronDown, Loader2, ShieldCheck } from "lucide-react";
+import { CheckCircle2, ChevronDown, ShieldCheck, KeyRound } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { PageHeader } from "@/components/layout/page-header";
 import { Reveal } from "@/components/ui/reveal";
@@ -155,8 +156,8 @@ export function ServiceSettings() {
               })}
             </ol>
           )}
-          <SettingsSection id="service-keys" title={t("settings.serviceTitle")} description={t("ui.settings.configureModelServiceKeysKeysAre")}>
-              {isLoading && !settings ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 aria-hidden="true" className="size-4 animate-spin" />{t("settings.loading")}</p> : (
+          <SettingsSection id="service-keys" icon={KeyRound} title={t("settings.serviceTitle")} description={t("ui.settings.configureModelServiceKeysKeysAre")}>
+              {isLoading && !settings ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Spinner aria-hidden="true" className="size-4" />{t("settings.loading")}</p> : (
                 <form className="flex flex-col gap-5" onSubmit={onSubmit}>
                   <FieldGroup className="settings-fields gap-0">
                     {[
@@ -183,7 +184,7 @@ export function ServiceSettings() {
                     </FieldGroup>
                   </details>
                   {!settings?.encryptionAvailable && <Alert variant="destructive"><AlertTitle>{t("settings.encryptionUnavailableTitle")}</AlertTitle><AlertDescription>{t("settings.encryptionUnavailableBody")}</AlertDescription></Alert>}
-                  <div className="flex justify-end"><Button disabled={isSaving || !settings?.encryptionAvailable} type="submit" size="sm">{isSaving && <Loader2 data-icon="inline-start" aria-hidden="true" className="animate-spin" />}{t("settings.saveAndRestart")}</Button></div>
+                  <div className="flex justify-end"><Button disabled={isSaving || !settings?.encryptionAvailable} type="submit" size="sm">{isSaving && <Spinner data-icon="inline-start" aria-hidden="true" />}{t("settings.saveAndRestart")}</Button></div>
                 </form>
               )}
           </SettingsSection>

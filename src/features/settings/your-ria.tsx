@@ -1,7 +1,9 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { ArrowLeft, Loader2, Pencil, Trash2, X } from "lucide-react";
+import { Pencil, Trash2, X } from "lucide-react";
+import { PageHeader } from "@/components/layout/page-header";
+import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -56,7 +58,7 @@ export function YourRia() {
   const [busy, setBusy] = useState(false);
   const [screen, setScreen] = useState<Screen>({ name: "home" });
   const [direction, setDirection] = useState<"forward" | "back">("forward");
-  const root = useRef<HTMLElement>(null);
+  const root = useRef<HTMLDivElement>(null);
   const changing = useRef(false);
   const lastRead = useRef(0);
   const askedToSort = useRef(false);
@@ -155,10 +157,20 @@ export function YourRia() {
 
   const failed = <div className="memory-load-failed"><p>{t("settings.yourRia.memory.loadFailed")}</p><Button type="button" size="sm" variant="ghost" onClick={() => void load()}>{t("settings.yourRia.memory.retry")}</Button></div>;
   const loading = <div className="memory-loading"><Skeleton className="h-4 w-24" /><Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-2/3" /></div>;
-  const backTo = (label: string, next: Screen) => <button type="button" className="ria-back" data-ria-focus="" onClick={() => go(next, "back")}><ArrowLeft aria-hidden="true" />{label}</button>;
+  // The way back, a line of small print above the screen's title: each step returns to that screen,
+  // and the nearest one takes the keyboard on arrival, as the back button did.
+  const trail = (...steps: { label: string; to: Screen }[]) => <nav className="page-trail" aria-label={t("settings.yourRia.path")}>
+    {steps.map((step, index) => <span key={step.label} className="page-trail-step">
+      <button type="button" data-ria-focus={index === steps.length - 1 ? "" : undefined} onClick={() => go(step.to, "back")}>{step.label}</button>
+    </span>)}
+  </nav>;
+  const home = { label: t("settings.yourRia.title"), to: { name: "home" } as Screen };
+  const memory = { label: t("settings.yourRia.memory.title"), to: { name: "memory" } as Screen };
 
+  let header: ReactNode;
   let content: ReactNode;
   if (shown.name === "home") {
+    header = <PageHeader level={2} title={t("settings.yourRia.title")} />;
     const memoryHint = !view ? (loadFailed ? t("settings.yourRia.memory.loadFailed") : "") : !noteCount ? t("settings.yourRia.memory.empty")
       : view.topics.length ? tf("settings.yourRia.memory.count", { topics: view.topics.length, notes: noteCount }) : tf("settings.yourRia.memory.countUnsorted", { notes: noteCount });
     content = <>
@@ -175,13 +187,12 @@ export function YourRia() {
       </div>
     </>;
   } else if (shown.name === "memory") {
+    header = <PageHeader level={2} trail={trail(home)} title={t("settings.yourRia.memory.title")} description={t("settings.yourRia.memory.description")} />;
     content = <>
-      {backTo(t("settings.yourRia.title"), { name: "home" })}
-      <header className="ria-heading"><h3>{t("settings.yourRia.memory.title")}</h3><p>{t("settings.yourRia.memory.description")}</p></header>
       {!view ? (loadFailed ? failed : loading) : noteCount ? <section aria-label={t("settings.yourRia.memory.topics")}>
         <div className="memory-group-title">
           <span>{t("settings.yourRia.memory.topics")}</span>
-          {view.organizing ? <span className="memory-organizing" role="status"><Loader2 aria-hidden="true" className="animate-spin" />{t("settings.yourRia.memory.organizing")}</span>
+          {view.organizing ? <span className="memory-organizing" role="status"><Spinner aria-hidden="true" />{t("settings.yourRia.memory.organizing")}</span>
             : !view.settled ? <Button type="button" size="sm" variant="ghost" className="memory-organize" disabled={busy} onClick={() => void sort(false)}>{t("settings.yourRia.memory.organize")}</Button> : null}
         </div>
         <ul className="item-list">
@@ -205,13 +216,10 @@ export function YourRia() {
     </>;
   } else if (shown.name === "topic") {
     const topic = openTopic;
+    header = <PageHeader level={2} trail={trail(home, memory)} title={topic?.title ?? t("settings.yourRia.memory.title")}
+      actions={topic && topic.id !== UNSORTED ? <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={() => void deleteTopic(topic)}>{t("settings.yourRia.memory.delete")}</Button> : null} />;
     content = <>
-      {backTo(t("settings.yourRia.memory.title"), { name: "memory" })}
       {!view ? (loadFailed ? failed : loading) : topic ? <>
-        <header className="ria-heading ria-heading-row">
-          <h3>{topic.title}</h3>
-          {topic.id !== UNSORTED ? <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={() => void deleteTopic(topic)}>{t("settings.yourRia.memory.delete")}</Button> : null}
-        </header>
         <dl className="memory-facts">
           {topic.updatedAt ? <div><dt>{t("settings.yourRia.memory.lastUpdated")}</dt><dd>{fullDate(topic.updatedAt)}</dd></div> : null}
           {topic.summary ? <div><dt>{t("settings.yourRia.memory.summary")}</dt><dd>{topic.summary}</dd></div> : null}
@@ -224,21 +232,24 @@ export function YourRia() {
       </> : null}
     </>;
   } else {
+    header = <PageHeader level={2} trail={trail(home)} title="MEMORY.md" description={t("settings.yourRia.source.description")}
+      actions={view?.content ? <Button type="button" size="sm" variant="ghost" className="memory-clear" disabled={busy} onClick={() => void deleteAll()}>{t("settings.yourRia.memory.deleteAll")}</Button> : null} />;
     content = <>
-      {backTo(t("settings.yourRia.title"), { name: "home" })}
-      <header className="ria-heading ria-heading-row">
-        <div><h3>MEMORY.md</h3><p>{t("settings.yourRia.source.description")}</p></div>
-        {view?.content ? <Button type="button" size="sm" variant="ghost" className="memory-clear" disabled={busy} onClick={() => void deleteAll()}>{t("settings.yourRia.memory.deleteAll")}</Button> : null}
-      </header>
       {!view ? (loadFailed ? failed : loading) : view.content ? <pre className="memory-source" tabIndex={0} {...removalKey(WHOLE_DOCUMENT)}>
         {view.content.trimEnd().split("\n").map((line, index) => <span key={index} data-heading={line.startsWith("#") || undefined}>{line}{"\n"}</span>)}
       </pre> : <p className="empty-state memory-empty">{t("settings.yourRia.memory.empty")}</p>}
     </>;
   }
 
-  return <section ref={root} className="settings-section ria-panel">
-    <div key={shownKey} className="ria-screen" data-direction={direction}>{content}</div>
-  </section>;
+  // The header and the screen below it arrive together, from the side the reader is heading.
+  return <div ref={root} className="contents">
+    <div key={`${shownKey}:header`} className="ria-screen" data-direction={direction}>{header}</div>
+    <div className="settings-panel flex flex-col">
+      <section className="settings-section ria-panel">
+        <div key={shownKey} className="ria-screen" data-direction={direction}>{content}</div>
+      </section>
+    </div>
+  </div>;
 }
 
 /** One memory in a topic. A person can reword it or delete it; either goes to MEMORY.md itself. */

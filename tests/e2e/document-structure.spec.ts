@@ -1,4 +1,5 @@
 import { test as base, expect, type Page } from "@playwright/test";
+import { expectImportClosed, openDocumentImport, previewImportButton } from "../helpers/knowledge";
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,15 +17,16 @@ const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>
   },
 });
 async function preview(page: Page, name: string, buffer: Buffer) {
+  await openDocumentImport(page);
   await page.getByLabel("选择知识文档").setInputFiles({ name, mimeType: "application/octet-stream", buffer });
-  await page.getByRole("button", { name: "导入文档", exact: true }).click();
+  await previewImportButton(page).click();
   await expect(page.getByRole("region", { name: "文档导入预览" })).toBeVisible();
 }
 async function save(page: Page) {
   const response = page.waitForResponse(response => response.url().endsWith("/api/documents") && response.request().method() === "POST");
   await page.getByRole("button", { name: "确认保存文档", exact: true }).click();
   const result = await response; expect(result.ok(), await result.text()).toBe(true);
-  await expect(page.getByRole("button", { name: "导入文档", exact: true })).toBeEnabled();
+  await expectImportClosed(page);
   return (await result.json()).data.document;
 }
 
@@ -33,8 +35,8 @@ test("Word preview is read-only, retains table context and requires confirmation
   page.on("pageerror", error => errors.push(error.message));
   page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
   await openWorkspace(page, app.origin);
-  await page.goto(`${app.origin}/knowledge`);
-  await expect(page).toHaveURL(/\/knowledge$/);
+  await page.goto(`${app.origin}/knowledge?view=documents`);
+  await expect(page).toHaveURL(/\/knowledge\?view=documents$/);
   expect(await page.title()).toBeTruthy();
   const file = await wordTableDocument([["项目", "金额", "条件"], ["住宿", "500 元", "主管审批"], ["交通", "200 元", "保留票据"], ["`样例", "100 元", "特殊标记"]]);
   await preview(page, "费用标准.docx", file);
@@ -69,7 +71,7 @@ test("Word preview is read-only, retains table context and requires confirmation
 });
 
 test("confirmation refuses a concurrently updated document and preserves the newer version", { tag: "@integration" }, async ({ page, app }) => {
-  await openWorkspace(page, app.origin); await page.goto(`${app.origin}/knowledge`);
+  await openWorkspace(page, app.origin); await page.goto(`${app.origin}/knowledge?view=documents`);
   await preview(page, "限额.txt", Buffer.from("旧版住宿限额为 300 元。")); const doc = await save(page);
   await preview(page, "限额.txt", Buffer.from("准备导入的住宿限额为 500 元。"));
   await expect(page.getByRole("region", { name: "文档导入预览" })).toContainText("确认保存将更新同名文档");
@@ -88,7 +90,7 @@ test("confirmation refuses a concurrently updated document and preserves the new
 });
 
 test("Markdown examples and compact escaped paths retain real sections and table headers through preview and retrieval", { tag: "@integration" }, async ({ page, app }) => {
-  await openWorkspace(page, app.origin); await page.goto(`${app.origin}/knowledge`);
+  await openWorkspace(page, app.origin); await page.goto(`${app.origin}/knowledge?view=documents`);
   const path = String.raw`C:\\`;
   const text = "# 实际费用章节\n\n```md\n# 示例中的其他章节\n示例代码不是实际章节。\n```\n\n| 项目 | 条件 | 路径 |\n| --- | --- | --- |\n" + Array.from({ length: 80 }, (_, i) => `| 住宿${i} | 保留票据并审批 | ${path}|`).join("\n");
   const response = page.waitForResponse(response => response.url().endsWith("/api/documents/preview"));
@@ -104,7 +106,7 @@ test("Markdown examples and compact escaped paths retain real sections and table
   expect(stored.filter(row => String(row.text).includes("| 住宿")).every(row => row.heading === "实际费用章节")).toBe(true);
   const searchResponse = page.waitForResponse(response => response.url().endsWith("/api/documents/search"));
   await page.getByLabel("检索文档", { exact: true }).fill("住宿票据审批");
-  await page.getByRole("button", { name: "检索文档", exact: true }).click();
+  await page.getByRole("textbox", { name: "检索文档", exact: true }).press("Enter");
   const sources = (await (await searchResponse).json()).data.filter(source => source.snippet.includes("| 住宿"));
   expect(sources.length).toBeGreaterThan(0); expect(sources.every(source => source.heading === "实际费用章节")).toBe(true);
   expect(app.providerCalls).toHaveLength(0);
@@ -113,7 +115,7 @@ test("Markdown examples and compact escaped paths retain real sections and table
 test("bulk indexing cancels at a controlled request boundary and resumes persisted batches after restart", { tag: "@integration" }, async ({ page, app }) => {
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
   await openWorkspace(page, app.origin); await configureOfflineModels(page, { embedding: "openai/text-embedding-3-small" });
-  await page.goto(`${app.origin}/knowledge`);
+  await page.goto(`${app.origin}/knowledge?view=documents`);
   // The short one builds on its own; the long one's first request fails once, which stops the automatic run.
   await preview(page, "短规程.md", Buffer.from("费用需要保留税务票据。")); const short = await save(page);
   await preview(page, "长规程.md", Buffer.from(Array.from({ length: 40 }, (_, i) => `费用规定${i}：公务出行须保留票据。OFFLINE_EMBED_FAIL_AT=1 ${"说明".repeat(400)}`).join("\n\n"))); const long = await save(page);

@@ -6,6 +6,7 @@ import { t, tf, formatDateTime, localizeMessage } from "@/lib/locale";
 import { SelectField, SelectOption } from "@/components/ui/select";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { ScanSearch } from "lucide-react";
 import { SettingsHelp, SettingsSection } from "@/features/settings/settings-section";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
@@ -30,7 +31,7 @@ export function WorkspaceReviewPreview() {
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [query]);
-  return <SettingsSection role="region" aria-label={t("ui.settings.workspace-review.workspaceFactualReview")} title={t("ui.settings.workspace-review.workspaceFactualReview")} description={t("ui.settings.workspace-review.viewRecordedTaskAndKnowledgeChanges")}><div className="flex flex-col gap-4">
+  return <SettingsSection role="region" aria-label={t("ui.settings.workspace-review.workspaceFactualReview")} icon={ScanSearch} title={t("ui.settings.workspace-review.workspaceFactualReview")} description={t("ui.settings.workspace-review.viewRecordedTaskAndKnowledgeChanges")}><div className="flex flex-col gap-4">
     {/* The result is last and arrives late, so nothing in the section sits below it to be pushed down. */}
     <SettingsHelp title={t("ui.settings.workspace-review.statisticsScopeRecordRetention")}><p>{t("ui.settings.workspace-review.dailyStatisticsCoverThePreviousFull")}</p><p>{t("ui.settings.workspace-review.eventsAreRetainedFor365Days")}</p></SettingsHelp>
     <form className="settings-review-form" onSubmit={event => { event.preventDefault(); setLoading(true); setError(null); setResult(null); setQuery({ period, timeZone }); }}>

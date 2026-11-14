@@ -91,3 +91,72 @@ test("everyday interactions on long conversations @perf", async ({ page, app }, 
   // Only a gross regression fails; the numbers are for comparison.
   expect(results.openLongConversationMs as number).toBeLessThan(30_000);
 });
+
+/** Answers each chat request with `text`, `size` characters every `everyMs`, the way a model streams at a steady pace. */
+async function scriptedStream(page: Page, text: string, size: number, everyMs: number) {
+  await page.addInitScript(({ text, size, everyMs }) => {
+    const original = window.fetch.bind(window);
+    window.fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (!new URL(url, location.href).pathname.endsWith("/api/chat")) return original(input, init);
+      const encoder = new TextEncoder();
+      const send = (chunk: object) => encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`);
+      return new Response(new ReadableStream({
+        async start(controller) {
+          controller.enqueue(send({ type: "start", messageId: `streamed-${Date.now()}` }));
+          controller.enqueue(send({ type: "text-start", id: "answer" }));
+          for (let offset = 0; offset < text.length; offset += size) {
+            controller.enqueue(send({ type: "text-delta", id: "answer", delta: text.slice(offset, offset + size) }));
+            await new Promise(resolve => setTimeout(resolve, everyMs));
+          }
+          controller.enqueue(send({ type: "text-end", id: "answer" }));
+          controller.enqueue(send({ type: "finish", finishReason: "stop" }));
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+      }), { headers: { "content-type": "text/event-stream", "x-vercel-ai-ui-message-stream": "v1" } });
+    };
+  }, { text, size, everyMs });
+}
+
+test("a long answer streams with its words fading in, on a slowed processor @perf", async ({ page, app }, info) => {
+  test.setTimeout(600_000);
+  const paragraph = (index: number) => `第 ${index + 1} 段：先把最要紧的放在前面，再按截止时间排好顺序。Keep the **main action** easy to find, and let details unfold on demand. 每一项都写了预计用时，方便安排日程。`;
+  const answer = ["## 计划", ...Array.from({ length: 24 }, (_, index) => index % 6 === 5 ? `- 要点一：${paragraph(index)}\n- 要点二：保持层级清楚。` : paragraph(index))].join("\n\n");
+  await scriptedStream(page, answer, 4, 16);
+  await openWorkspace(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  const cdp = await page.context().newCDPSession(page);
+  const results: Record<string, unknown> = { characters: answer.length };
+  for (const motion of ["fading", "reduced"] as const) {
+    await page.emulateMedia({ reducedMotion: motion === "reduced" ? "reduce" : "no-preference" });
+    await browserApi(page, "/api/conversations", "POST", { title: `流式 ${motion}` });
+    await page.goto(`${app.origin}/chat`);
+    const composer = page.getByPlaceholder(/输入你的问题/);
+    await composer.fill("给我一份计划");
+    await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
+    const longTasks = await watchLongTasks(page);
+    // Frames: the gaps between painted frames while the answer is written.
+    await page.evaluate(() => {
+      const state = { frames: 0, over50: 0, longest: 0, running: true };
+      (window as unknown as { frameGaps: typeof state }).frameGaps = state;
+      let last = performance.now();
+      const tick = (now: number) => { const gap = now - last; last = now; state.frames++; if (gap > 50) state.over50++; state.longest = Math.max(state.longest, gap); if (state.running) requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+    });
+    const started = Date.now();
+    await composer.press("Enter");
+    await expect(page.getByText(/第 24 段：/)).toBeVisible({ timeout: 120_000 });
+    await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible({ timeout: 120_000 });
+    const elapsedMs = Date.now() - started;
+    const frames = await page.evaluate(() => { const state = (window as unknown as { frameGaps: { frames: number; over50: number; longest: number; running: boolean } }).frameGaps; state.running = false; return { frames: state.frames, over50: state.over50, longest: Math.round(state.longest) }; });
+    results[motion] = { elapsedMs, frames, longTasks: await longTasks() };
+    await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
+    // The finished answer drops its word spans once the last word has faded in.
+    await expect(page.locator(".stream-word")).toHaveCount(0);
+  }
+  console.log(`Streaming baseline: ${JSON.stringify(results, null, 2)}`);
+  await info.attach("streaming.json", { body: JSON.stringify(results, null, 2), contentType: "application/json" });
+  // Only a gross regression fails: no single frame may freeze the page for a second.
+  for (const motion of ["fading", "reduced"]) expect((results[motion] as { frames: { longest: number } }).frames.longest).toBeLessThan(1000);
+});

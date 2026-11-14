@@ -1,5 +1,6 @@
 import { getApiErrorMessage } from "@/lib/api-error-message";
 import { t } from "@/lib/locale";
+import type { DocumentSource } from "@/lib/documents/types";
 
 export type DocumentSummary = { id: string; filename: string; contentHash: string; collection?: string | null; characterCount: number; indexedAt: string; indexVersion?: number; _count: { chunks: number };
   semantic?: { indexed: number; total: number; lexicalCurrent?: boolean; stale?: number; differentModel?: number; invalid?: number; modelRef: { providerId: string; modelId: string } | null } };
@@ -23,4 +24,15 @@ export async function documentRequest<T>(url: string, init?: RequestInit): Promi
   const payload = await response.json();
   if (!response.ok) throw new DocumentRequestError(getApiErrorMessage(payload, t("documents.requestFailed")), response.status, response.headers.get("Retry-After"));
   return payload.data as T;
+}
+
+/**
+ * Searches the content of the imported documents. Retrieval may embed the query with the configured
+ * model, so callers run it on an explicit request (Enter or a click), never on every keystroke.
+ */
+export async function searchDocumentContent(query: string, collections: string[], signal?: AbortSignal): Promise<{ sources: DocumentSource[]; diagnostics: unknown }> {
+  const response = await fetch("/api/documents/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, collections }), signal });
+  const payload = await response.json();
+  if (!response.ok) throw new DocumentRequestError(getApiErrorMessage(payload, t("documents.requestFailed")), response.status, response.headers.get("Retry-After"));
+  return { sources: payload.data, diagnostics: payload.diagnostics };
 }

@@ -1,5 +1,6 @@
 import { openRecentConversations } from "../helpers/conversations";
 import { test as base, expect, type Page } from "@playwright/test";
+import { expectTemplate } from "../helpers/chat-header";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { chooseRowAction } from "../helpers/row-menu";
 import { toasts } from "../helpers/toast";
@@ -152,17 +153,20 @@ test("configured chat fallback runs through the real provider adapter and persis
   const rateKey = "openrouter:google/gemini-3-flash-preview";
   await page.getByLabel(`${rateKey} 输入 / 百万 Token`, { exact: true }).fill("2"); await page.getByLabel(`${rateKey} 输出 / 百万 Token`, { exact: true }).fill("4");
   await page.getByRole("button", { name: "保存模型偏好" }).click(); await expect(toasts(page)).toContainText("已保存");
-  // Each library entry is annotated with what the catalogs currently say about
-  // it, keyed by provider and model rather than by model id alone.
+  // Each library entry is checked against what the catalogs currently say about
+  // it, keyed by provider and model rather than by model id alone. An entry the
+  // catalogs know carries no status; only one that cannot be used says why.
   const library = page.locator('section[aria-label="我的模型"]');
   for (const modelId of ["anthropic/claude-opus-4.6", "google/gemini-3-flash-preview"]) {
-    await expect(library.locator("li").filter({ hasText: modelId })).toContainText("可用");
+    const row = library.locator("li").filter({ hasText: modelId });
+    await expect(row).toBeVisible();
+    for (const label of ["可用", "未配置密钥", "目录暂不可用", "尚未获取目录", "官方目录已不再提供"]) await expect(row).not.toContainText(label);
   }
   // The fallback takes over a conversation with every tool attached: the general assistant.
   await page.goto(`${app.origin}/chat`);
   await expect(page.getByRole("checkbox", { name: "仅手动", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "新会话", exact: true }).click();
-  await expect(page.getByRole("combobox", { name: "助理模板", exact: true })).toContainText("通用助理");
+  await expectTemplate(page, "通用助理");
   await page.getByPlaceholder(/输入你的问题/).fill("OFFLINE_PRIMARY_FAILURE 测试备用模型"); await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByText("离线回答：OFFLINE_PRIMARY_FAILURE 测试备用模型", { exact: true })).toBeVisible();
   await expect.poll(async () => (await browserData(page, "/api/usage")).recent.filter((row: { fallback: boolean }) => row.fallback).length).toBe(1);
