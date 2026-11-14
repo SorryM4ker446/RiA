@@ -15,11 +15,13 @@ const config: Config = {
       transitionDuration: { DEFAULT: "var(--dur-fast)" },
       transitionTimingFunction: { DEFAULT: "var(--ease-out)" },
       fontFamily: {
-        // Geist carries the Latin voice; the interface is Chinese, so the CJK
-        // faces must follow it explicitly or the browser picks them per glyph
-        // and the two halves of a line end up with different weights.
+        // Geist carries the Latin voice and the bundled MiSans the Chinese one:
+        // a variable face (weights 150 to 700), so a line that mixes the two keeps
+        // one weight (system CJK faces such as Microsoft YaHei only have regular
+        // and bold). The system faces remain as a fallback.
         sans: [
           "var(--font-sans)",
+          "MiSans VF",
           "PingFang SC",
           "Hiragino Sans GB",
           "Microsoft YaHei",

@@ -170,6 +170,12 @@ The runtime's regenerable Next.js image and scoped response caches are excluded 
 
 This project does not configure Windows code signing. Windows may display an unknown-publisher warning, including during in-app updates, until a signing certificate is added in a separate release process.
 
+### Bundled fonts
+
+The interface ships its fonts instead of relying on what the machine has installed: Geist for Latin text (through `next/font`) and MiSans by Xiaomi for Chinese (the `misans` package, its subsetted variable face only). The build copies just the referenced `.woff2` subsets, about 4.5 MB, into the static output. MiSans is free for commercial use under the [MiSans font licence](https://hyperos.mi.com/font-download/MiSans%E5%AD%97%E4%BD%93%E7%9F%A5%E8%AF%86%E4%BA%A7%E6%9D%83%E8%AE%B8%E5%8F%AF%E5%8D%8F%E8%AE%AE.pdf): the font files must not be modified, and they may only be distributed as part of the app, never on their own.
+
+Font weights. Both faces are variable, and running text in the dark theme steps down from 400 to 360, because light text on a dark ground reads heavier. A known limitation remains in the desktop window. The window is transparent, so text on the see-through chat surface is drawn with greyscale rather than sub-pixel anti-aliasing. At the same weight MiSans is drawn heavier than Geist there, and Chinese looks a step bolder than Latin on the same line. CSS cannot give one family a different weight from another in the same text. Chromium ignores `font-variation-settings` inside `@font-face`. The available remedy is to declare MiSans a second time with clamped weight ranges, for example `150 340` for running text and `400 700` for everything heavier, and to set running text just below 400 so that Chinese renders lighter while Geist stays near regular. That means maintaining a generated copy of the package's roughly 80 KB of `@font-face` rules, and it has not been adopted.
+
 ## In-app updates
 
 Installed copies check for a newer published release and install it on request. Development builds and smoke runs never check.

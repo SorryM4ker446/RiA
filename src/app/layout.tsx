@@ -2,6 +2,9 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AppShell } from "@/components/layout/app-shell";
 import { DesktopStartup } from "@/components/layout/desktop-startup";
+// Chinese text: MiSans (Xiaomi), shipped with the app as one variable face, so every weight Geist uses
+// exists in Chinese too and the interface looks the same on every machine.
+import "misans/lib/Normal/MiSansVF.min.css";
 import "./globals.css";
 import { LocaleProvider } from "@/lib/locale/client";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
