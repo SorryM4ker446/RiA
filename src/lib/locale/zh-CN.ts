@@ -35,8 +35,6 @@ const base = {
   "nav.resizeSidebar": "调整侧边栏宽度",
   "nav.resizeSidebarHint": "拖动调整宽度，拖到最窄以下可收起，双击恢复默认",
 
-  // --- theme -------------------------------------------------------------
-  "theme.toggle": "切换主题",
   "window.minimize": "最小化",
   "window.maximize": "最大化",
   "window.restore": "向下还原",

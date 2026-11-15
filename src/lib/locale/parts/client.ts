@@ -2,7 +2,7 @@
  * Copy for the client-side feature hooks and the two components the first sweep
  * missed: the conversation management row, the feature API clients, the chat
  * state hook, the manual-tool plumbing, media generation, task loading, chat
- * preferences, message presentation, and the theme toggle.
+ * preferences and message presentation.
  *
  * The orchestrator spreads this into `zh-CN` alongside the other parts, so the
  * key prefixes here (`conversationRow`, `conversationsApi`, `chatApi`,

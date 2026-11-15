@@ -18,6 +18,7 @@ import { SettingsContext, SettingsSectionContext, useSettingsContext } from "@/f
 import { ServiceSettings } from "@/features/settings/service-settings";
 import { YourRia } from "@/features/settings/your-ria";
 import { LanguageSettings } from "@/features/settings/language";
+import { ThemeSettings } from "@/features/settings/theme";
 import { CloseBehaviourSettings } from "@/features/settings/close-behaviour";
 import { HotkeySettings } from "@/features/settings/hotkey";
 import { UpdateSettings } from "@/features/settings/updates";
@@ -97,7 +98,7 @@ function SectionContent({ id }: { id: SettingsSectionId }) {
   switch (id) {
     case "ria": return <YourRia />;
     case "services": return <ServiceSettings />;
-    case "application": return <><PageHeader level={2} title={t("ui.settings.application")} /><div className="settings-panel flex flex-col"><LanguageSettings /><CloseBehaviourSettings /><HotkeySettings /><UpdateSettings /></div></>;
+    case "application": return <><PageHeader level={2} title={t("ui.settings.application")} /><div className="settings-panel flex flex-col"><LanguageSettings /><ThemeSettings /><CloseBehaviourSettings /><HotkeySettings /><UpdateSettings /></div></>;
     case "automation": return <><PageHeader level={2} title={t("ui.settings.automationNotifications")} /><div className="settings-panel flex flex-col"><TaskNotificationSettings /><BackgroundTaskRules /><NoticeCenter /><WorkspaceReviewPreview /></div></>;
     case "files": return <><PageHeader level={2} title={t("ui.settings.filePermissions")} /><div className="settings-panel"><DirectoryGrantSettings /></div></>;
     case "models": return <ModelSettings />;
