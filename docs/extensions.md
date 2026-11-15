@@ -37,7 +37,7 @@ discovery. Descriptions render as plain text and external links are restricted t
 HTTP(S) URLs without embedded credentials. Browsing never probes a listed endpoint.
 
 For a supported static Streamable HTTP address, **Add connection** opens the existing
-configuration sheet with its name, endpoint and supported request-header fields
+configuration dialog with its name, endpoint and supported request-header fields
 prefilled. Secret values and unresolved header placeholders are left empty; fill
 the complete required header value (including an authentication prefix if needed).
 Optional empty header fields are omitted. Review and save the draft, then detect
