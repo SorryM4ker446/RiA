@@ -11,10 +11,13 @@ import { useAwaitingFirstLoad } from "@/lib/use-awaiting-first-load";
 import { getFileParts, hasLaterUserMessage, isToolPart, readText } from "@/features/chat/page-utils";
 import { writeToClipboard } from "@/lib/clipboard";
 import { ArrowDown } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChatState } from "@/features/chat/use-chat-state";
 import type { UIMessage } from "ai";
 import { MessageRow, TranscriptSkeleton, type RowActions } from "./message-row";
+
+/** The row a question asked on the home page is shown in before its message exists, and the key that message then keeps. */
+const ARRIVING_ROW = "arriving-question";
 
 // The query identity is the open conversation, not a constant. `switchActiveChat`
 // only sets the id; it does not clear `messages`, so the previous transcript
@@ -72,14 +75,14 @@ export function shouldOpenOnLayout({
 
 type Props = Pick<ChatState,
   | "compaction" | "isOrganizing" | "turnNotice" | "isCompacting" | "tools" | "selectedModelInfo" | "modelMode" | "activeChatId"
-  | "isLoadingHistory" | "isOpeningConversation" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId"
+  | "isLoadingHistory" | "isOpeningConversation" | "arrivingQuestion" | "messages" | "imageByMessageId" | "videoByMessageId" | "status" | "editingMessageId"
   | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText"
   | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel"
   | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages" | "selectedChatModel"
 > & { onShowSources?: (messageId: string) => void };
 export function MessageRenderer({
   compaction, isOrganizing, turnNotice, isCompacting, tools, selectedModelInfo, onShowSources, modelMode, activeChatId,
-  isLoadingHistory, isOpeningConversation, messages, imageByMessageId, videoByMessageId, status, editingMessageId,
+  isLoadingHistory, isOpeningConversation, arrivingQuestion, messages, imageByMessageId, videoByMessageId, status, editingMessageId,
   isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText,
   saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, olderMessagesCursor,
   isLoadingOlderMessages, loadOlderMessages,
@@ -237,6 +240,22 @@ export function MessageRenderer({
     void loadOlderMessages();
   }
 
+  // A question asked on the home page is shown at once, before its conversation exists, as the message
+  // it is about to be: the transcript lists it as its only message. When the real message arrives it
+  // takes over the same row: that message keeps the row's key, so the question stays where it is
+  // instead of leaving and coming back in.
+  const showsArriving = arrivingQuestion !== null && messages.length === 0;
+  const [wasArriving, setWasArriving] = useState(showsArriving);
+  const [arrivedAs, setArrivedAs] = useState<string | null>(null);
+  if (showsArriving !== wasArriving) {
+    setWasArriving(showsArriving);
+    if (!showsArriving && messages[0]?.role === "user") setArrivedAs(messages[0].id);
+  }
+  const arrivingMessage = useMemo<UIMessage | null>(() => arrivingQuestion === null ? null
+    : { id: ARRIVING_ROW, role: "user", parts: [{ type: "text", text: arrivingQuestion }] }, [arrivingQuestion]);
+  const shown = showsArriving && arrivingMessage ? [arrivingMessage] : messages;
+  const shownStatus: typeof status = showsArriving ? "submitted" : status;
+
   const showNavigation = !awaitingFirstHistoryLoad && messages.length > 1 && messages.some(message => message.role === "user");
 
   // The latest message sent: while its turn is live it is the one arriving.
@@ -272,7 +291,7 @@ export function MessageRenderer({
       a flicker even though nothing moved on its own. The bars below use the
       bubble's own metrics, so the swap changes content and not geometry.
     */}
-    {awaitingFirstHistoryLoad ? <TranscriptSkeleton /> : messages.length === 0 ? (
+    {!showsArriving && awaitingFirstHistoryLoad ? <TranscriptSkeleton /> : shown.length === 0 ? (
       <div className="chat-welcome flex min-h-40 flex-1 flex-col items-center justify-center gap-2 text-center">
         <h1 className="chat-welcome-title">
           {modelMode === "image" ? t("ui.chat.message-renderer.bringYourImaginationIntoView")
@@ -282,13 +301,14 @@ export function MessageRenderer({
         <p className="chat-welcome-description">{t("chat.messages.empty")}</p>
       </div>
     ) : (<>
-      {messages.map((message, index) => {
-        const isLast = index === messages.length - 1;
+      {shown.map((message, index) => {
+        const isLast = index === shown.length - 1;
         // The message just sent arrives with motion; history that is loaded appears at once.
-        const arriving = (status === "submitted" || status === "streaming") && message.role === "user" && index === lastUserIndex;
+        const arriving = showsArriving || ((status === "submitted" || status === "streaming") && message.role === "user" && index === lastUserIndex);
         const isEditing = editingMessageId === message.id;
-        return <MessageRow key={message.id} message={message} previousMetadata={messages[index - 1]?.metadata}
-          isLast={isLast} arriving={arriving} status={isLast ? status : null} isPending={isPending}
+        const key = showsArriving || message.id === arrivedAs ? ARRIVING_ROW : message.id;
+        return <MessageRow key={key} message={message} previousMetadata={shown[index - 1]?.metadata}
+          isLast={isLast} arriving={arriving} status={isLast ? shownStatus : null} isPending={isPending || showsArriving}
           isEditing={isEditing} editingText={isEditing ? editingMessageText : ""} resendsEdited={isEditing && hasLaterUserMessage(messages, message.id)}
           copyState={copiedMessageId === message.id ? "copied" : refusedMessageId === message.id ? "refused" : null}
           imageUrl={imageByMessageId[message.id]} videoUrl={videoByMessageId[message.id]}
@@ -297,7 +317,7 @@ export function MessageRenderer({
           compactionSummary={compaction?.coveredIds.includes(message.id) ? compaction.summary : null}
           day={day} actions={rowActions} />;
       })}
-      {isCompacting || (status === "submitted" && modelMode === "chat" && messages.at(-1)?.role === "user")
+      {isCompacting || (shownStatus === "submitted" && modelMode === "chat" && shown.at(-1)?.role === "user")
         ? <ReplyPending reasoning={alwaysReasons} organizing={isCompacting || isOrganizing} notice={turnNotice} />
         : null}
     </>)}

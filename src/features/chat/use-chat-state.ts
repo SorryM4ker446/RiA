@@ -15,6 +15,7 @@ import { DOCUMENT_TOOLS, EMPTY_CHOICE, invocationOf, useTools } from "@/features
 import { useToast } from "@/components/ui/toast";
 import { COMPACT_CONTEXT_TOOL } from "@/lib/chat/compact-context";
 import { OPEN_CONVERSATION_EVENT } from "@/features/chat/open-conversation";
+import { waitingChatCommand } from "@/features/commands/chat-commands";
 import { useRefreshOnReturn } from "@/lib/use-refresh-on-return";
 import { taskApi } from "@/features/tasks/task-client";
 import { parseModelRefValue } from "@/features/chat/preferences";
@@ -196,7 +197,17 @@ export function useChatState() {
   // the empty-conversation welcome then is what made chat open on the welcome,
   // swap to the placeholder and then to the messages each time it was returned to.
   // A conversation this window kept is open as soon as it is chosen: it shows what it showed.
-  const isOpeningConversation = restoringChatId !== null || (activeChatId ? state.history === "idle" : isLoadingChats);
+  // A question asked on another page is on its way into a conversation that is still being made.
+  // Until it is there the transcript is still opening, as above: neither the conversation last open
+  // nor the empty welcome of the new one is shown in between. The transcript shows the question
+  // itself meanwhile, where its message will be.
+  const [arrivingQuestion, setArrivingQuestion] = useState<string | null>(() => { const waiting = waitingChatCommand(); return waiting?.type === "ask" ? waiting.text : null; });
+  // It belongs to the conversation made for it. Once that one is known, another conversation opened
+  // meanwhile shows nothing of the question, and coming back to its own shows it again until it is sent.
+  const [askChatId, setAskChatId] = useState<string | null>(null);
+  const askArriving = arrivingQuestion !== null && (askChatId === null || activeChatId === askChatId);
+  // Only until its message is there: from then on the transcript has that message to show.
+  const isOpeningConversation = (askArriving && messages.length === 0) || restoringChatId !== null || (activeChatId ? state.history === "idle" : isLoadingChats);
   const selectedModel = modelMode === "chat" ? selectedChatModel : modelMode === "image" ? selectedImageModel : selectedVideoModel;
   const selectedModelInfo: ModelLibraryItem | undefined = selectedModel
     ? modelLibrary.find(model => model.providerId === selectedModel.providerId && model.modelId === selectedModel.modelId && model.modes.includes(modelMode))
@@ -470,7 +481,8 @@ export function useChatState() {
   const [askRecorded, setAskRecorded] = useState(0);
   async function askInNewChat(text: string) {
     const chatId = await createNewChat();
-    if (!chatId) return;
+    if (!chatId) { setArrivingQuestion(null); return; }
+    setAskChatId(chatId);
     pendingAsk.current = { text, chatId };
     setAskRecorded(count => count + 1);
   }
@@ -480,6 +492,12 @@ export function useChatState() {
     pendingAsk.current = null;
     session.setQueue(current => [...current, { id: crypto.randomUUID(), text: ask.text, attachments: [] }]);
   }, [activeChatId, isConversationReady, session, askRecorded]);
+  // The question has arrived once it shows as a message, or once the queue says why it is held back
+  // (no model, a mode that sends nothing), which the empty conversation has to be there to say.
+  const askShown = messages.length > 0 || composer.queueHeldBy !== null || (composer.queuedMessages.length > 0 && modelMode !== "chat");
+  useEffect(() => {
+    if (arrivingQuestion !== null && !pendingAsk.current && askRecorded > 0 && askShown) setArrivingQuestion(null);
+  }, [arrivingQuestion, askRecorded, askShown]);
 
   return {
     declineApprovals,
@@ -491,7 +509,7 @@ export function useChatState() {
     compaction: compaction?.chatId === activeChatId ? compaction : null,
     freedByCompaction: freedByCompaction?.chatId === activeChatId && freedByCompaction.lastMessageId === messages.at(-1)?.id ? freedByCompaction.tokens : 0,
     queuedMessages: composer.queuedMessages, queueHeldBy: composer.queueHeldBy, canQueue: composer.canQueue, queueMessage: composer.queueMessage, removeQueued: composer.removeQueued, editQueued: composer.editQueued,
-    isOrganizing, turnNotice, isCompacting: compactingChatId !== null && compactingChatId === activeChatId, activeChat, isPending, isWorking, isLoadingPreferences, isOpeningConversation, isConversationReady, isConverting, modelMode, selectedModel, selectedModelInfo, defaultChatModel, onModeSelect,
+    isOrganizing, turnNotice, isCompacting: compactingChatId !== null && compactingChatId === activeChatId, activeChat, isPending, isWorking, isLoadingPreferences, isOpeningConversation, arrivingQuestion: askArriving ? arrivingQuestion : null, isConversationReady, isConverting, modelMode, selectedModel, selectedModelInfo, defaultChatModel, onModeSelect,
     onModelSelect, modelHint, inputNotice, dismissInputNotice: () => setInputNotice(null), isModelMenuOpen, setIsModelMenuOpen, isHistoryReady: historyShown, isLoadingHistory, confirmedChatId, messages, imageByMessageId: state.images, videoByMessageId: state.videos,
     status, editingMessageId: actions.editingMessageId, startEditingMessage: actions.startEditingMessage, regenerateMessage: actions.regenerateMessage, requestDeleteMessage: actions.requestDeleteMessage,
     setEditingMessageText: actions.setEditingMessageText, editingMessageText: actions.editingMessageText, saveEditedMessage: actions.saveEditedMessage, cancelEditingMessage: actions.cancelEditingMessage,

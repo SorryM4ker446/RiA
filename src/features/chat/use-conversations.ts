@@ -11,6 +11,7 @@ import { LAST_ACTIVE_CHAT_STORAGE_KEY } from "@/features/chat/types";
 import { takeRequestedConversation } from "@/features/chat/open-conversation";
 import type { AssistantTemplate } from "@/lib/assistants/schema";
 import { useConversationStore } from "@/features/chat/conversation-store";
+import { waitingChatCommand } from "@/features/commands/chat-commands";
 
 type Options = {
   activeChatId: string | null;
@@ -56,6 +57,10 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   // sent to until the list confirms it still exists and is not archived.
   const [restoringChatId, setRestoringChatId] = useState<string | null>(null);
   const restoringRef = useRef<string | null>(null);
+  // The page was opened to start a new conversation (a question asked on the home page, "new
+  // conversation" from the palette). Until that conversation exists no other one is opened in its
+  // place: reopening the last one first is what showed its messages for a moment before the new one.
+  const startingFreshRef = useRef(false);
   const activeIdRef = useRef(activeChatId);
   useEffect(() => { activeIdRef.current = activeChatId; }, [activeChatId]);
   // The sidebar marks the conversation this page has open.
@@ -94,7 +99,7 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
       activeIdRef.current = null;
       setActiveChatId(null);
     }
-    if (!activeIdRef.current) {
+    if (!activeIdRef.current && !startingFreshRef.current) {
       const lastActiveId = window.localStorage.getItem(LAST_ACTIVE_CHAT_STORAGE_KEY);
       const preferred = lastActiveId ? list.find((chat) => chat.id === lastActiveId)?.id : null;
       const nextActiveId = preferred ?? list[0]?.id ?? null;
@@ -142,6 +147,7 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
       window.localStorage.setItem(getChatPrefsStorageKey(chat.id), JSON.stringify(seededPreferences));
       applyChatPreferences(seededPreferences);
 
+      startingFreshRef.current = false;
       setActiveChatId(chat.id);
       resetConversation();
       return chat.id;
@@ -153,6 +159,8 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
       return id;
     } catch (createError) {
       setPageError(createError instanceof Error ? createError.message : t("chatApi.createConversationFailed"));
+      // Nothing new to open after all: the next read of the list chooses a conversation as usual.
+      if (startingFreshRef.current) { startingFreshRef.current = false; void loadChats({ silent: true }); }
       return null;
     } finally {
       creatingChatRef.current = null;
@@ -226,7 +234,9 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     const requested = takeRequestedConversation();
     if (requested) window.localStorage.setItem(LAST_ACTIVE_CHAT_STORAGE_KEY, requested);
     const remembered = window.localStorage.getItem(LAST_ACTIVE_CHAT_STORAGE_KEY);
-    if (remembered && !activeIdRef.current) {
+    const waiting = requested ? null : waitingChatCommand();
+    startingFreshRef.current = waiting?.type === "ask" || waiting?.type === "new-conversation";
+    if (remembered && !activeIdRef.current && !startingFreshRef.current) {
       restoringRef.current = remembered;
       activeIdRef.current = remembered;
       // Read once from storage on mount; reopening it now rather than after the
