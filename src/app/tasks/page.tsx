@@ -6,9 +6,10 @@ import { Archive, BellRing, MessageSquareText, MoreHorizontal, Pause, PencilLine
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useConfirmDiscard } from "@/components/ui/discard-guard";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Reveal } from "@/components/ui/reveal";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader } from "@/components/ui/dialog";
 import { Status } from "@/components/ui/status";
 import { useToast } from "@/components/ui/toast";
 import { describeSchedule, isManualTask, taskApi, taskState, taskTitle, type ScheduledRunView, type TaskDraft, type TaskState, type TaskView } from "@/features/tasks/task-client";
@@ -35,6 +36,11 @@ export default function TasksPage() {
   useLocale();
   const toast = useToast();
   const confirm = useConfirm();
+  // Leaving the task form without saving asks first when something in it was changed.
+  const mayDiscard = useConfirmDiscard();
+  const formChanged = useRef(false);
+  const noteFormChanged = useCallback((changed: boolean) => { formChanged.current = changed; }, []);
+  async function closeEditor() { if (await mayDiscard(formChanged.current)) setEditing(null); }
   const [tasks, setTasks] = useState<TaskView[]>([]);
   const [runs, setRuns] = useState<ScheduledRunView[]>([]);
   const [automatic, setAutomatic] = useState(true);
@@ -45,6 +51,11 @@ export default function TasksPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   // The task in the editor: null for a new one. `enable` switches it on with the save.
   const [editing, setEditing] = useState<{ task: TaskView | null; enable?: boolean; template?: TaskTemplateId } | null>(null);
+  // What the dialog shows stays while it closes: taking the form out at once left the dialog to
+  // shrink to its title and fade as a small box of its own.
+  const [shown, setShown] = useState(editing);
+  const [opening, setOpening] = useState(0);
+  if (editing && editing !== shown) { setShown(editing); setOpening(count => count + 1); }
   const reading = useRef<AbortController | null>(null);
 
   const load = useCallback(async () => {
@@ -201,14 +212,11 @@ export default function TasksPage() {
         </details>
       ) : null}
 
-      <Dialog open={editing !== null} onOpenChange={open => { if (!open) setEditing(null); }}>
+      <Dialog open={editing !== null} onOpenChange={open => { if (!open) void closeEditor(); }}>
         <DialogContent>
-          <div className="flex flex-col gap-1 pr-8">
-            <DialogTitle className="text-base font-semibold">{editing?.task ? t("tasks.editTitle") : t("tasks.create")}</DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">{t("tasks.editorDescription")}</DialogDescription>
-          </div>
-          {/* Keyed by what is being edited, so opening another task starts from that task's values. */}
-          {editing ? <TaskEditor key={editing.task?.id ?? `new-${editing.template ?? "custom"}`} task={editing.task} template={editing.template} onSave={save} onCancel={() => setEditing(null)} /> : null}
+          <DialogHeader title={shown?.task ? t("tasks.editTitle") : t("tasks.create")} description={t("tasks.editorDescription")} />
+          {/* Keyed by the opening, so each one starts from the values of what it edits, a second opening of the same task included. */}
+          {shown ? <TaskEditor key={opening} task={shown.task} template={shown.template} onSave={save} onCancel={() => void closeEditor()} onChanged={noteFormChanged} /> : null}
         </DialogContent>
       </Dialog>
     </main>

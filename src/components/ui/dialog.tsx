@@ -14,11 +14,15 @@ import { useLocale } from "@/lib/locale/client";
  */
 
 export const Dialog = DialogPrimitive.Root;
+export const DialogTrigger = DialogPrimitive.Trigger;
 export const DialogTitle = DialogPrimitive.Title;
 export const DialogDescription = DialogPrimitive.Description;
 export const DialogClose = DialogPrimitive.Close;
 
-export function DialogContent({ className, children, ...props }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>) {
+export function DialogContent({ className, children, closeLabel, ...props }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
+  /** What the close button is called, when "Close" alone would not say what closes. */
+  closeLabel?: string;
+}) {
   useLocale();
   return (
     <DialogPrimitive.Portal>
@@ -26,11 +30,33 @@ export function DialogContent({ className, children, ...props }: React.Component
       <DialogPrimitive.Content className={cn("dialog-content", className)} {...props}>
         {children}
         <DialogPrimitive.Close asChild>
-          <Button className="absolute right-3 top-3" variant="ghost" size="icon-sm" aria-label={t("window.close")}>
+          <Button className="absolute right-3 top-3" variant="ghost" size="icon-sm" aria-label={closeLabel ?? t("window.close")}>
             <X aria-hidden="true" />
           </Button>
         </DialogPrimitive.Close>
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>
   );
+}
+
+/*
+ * The parts every such dialog is made of, so they all read alike: a title with
+ * one quiet line under it, a body that scrolls when the form is taller than
+ * the window, and the actions at the bottom right, cancel before the main one.
+ */
+export function DialogHeader({ title, description }: { title: React.ReactNode; description?: React.ReactNode }) {
+  return (
+    <header className="dialog-header">
+      <DialogPrimitive.Title className="dialog-title">{title}</DialogPrimitive.Title>
+      {description ? <DialogPrimitive.Description className="dialog-description">{description}</DialogPrimitive.Description> : null}
+    </header>
+  );
+}
+
+export function DialogBody({ className, ...props }: React.ComponentPropsWithoutRef<"div">) {
+  return <div className={cn("dialog-body", className)} {...props} />;
+}
+
+export function DialogFooter({ className, ...props }: React.ComponentPropsWithoutRef<"footer">) {
+  return <footer className={cn("dialog-footer", className)} {...props} />;
 }
