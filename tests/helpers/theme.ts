@@ -1,14 +1,18 @@
 import type { Page } from "@playwright/test";
 
 /**
- * Switch to the light theme where the theme toggle is out of reach. The
- * settings overlay has no toggle of its own and covers the sidebar's one, so
- * screens inside it are switched the way the toggle stores the preference.
+ * Put the page in a theme without going through Settings → Application, where
+ * the theme is chosen: the same class and stored preference that choice sets.
+ * For tests about something else that only need to be looked at in a theme;
+ * the control itself is covered where the settings are.
  */
-export async function useLightTheme(page: Page) {
-  await page.evaluate(() => {
-    localStorage.setItem("ui:theme", "light");
-    document.documentElement.classList.remove("dark");
-    document.documentElement.style.colorScheme = "light";
-  });
+async function useTheme(page: Page, theme: "light" | "dark") {
+  await page.evaluate(next => {
+    localStorage.setItem("ui:theme", next);
+    document.documentElement.classList.toggle("dark", next === "dark");
+    document.documentElement.style.colorScheme = next;
+  }, theme);
 }
+
+export const useLightTheme = (page: Page) => useTheme(page, "light");
+export const useDarkTheme = (page: Page) => useTheme(page, "dark");

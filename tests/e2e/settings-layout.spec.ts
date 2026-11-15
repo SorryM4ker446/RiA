@@ -1,4 +1,5 @@
 import { test as base, expect, type Page } from "@playwright/test";
+import { useLightTheme } from "../helpers/theme";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { browserApi, browserData } from "../helpers/browser-api";
@@ -95,8 +96,7 @@ for (const theme of ["dark", "light"] as const) {
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
     await openWorkspace(page, app.origin);
-    // The theme switch is in the sidebar, which sits behind the settings once they are open.
-    if (theme === "light") await page.getByRole("button", { name: "切换主题", exact: true }).click();
+    if (theme === "light") await useLightTheme(page);
     await page.goto(`${app.origin}/settings`);
     await page.getByRole("tab", { name: "自动化与通知", exact: true }).click();
     // Tasks are made and kept on their own page; this tab holds the review and the reminders.

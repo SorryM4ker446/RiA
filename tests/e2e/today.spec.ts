@@ -41,6 +41,40 @@ test("the quick ask starts a new conversation and sends the question there", asy
   expect(errors).toEqual([]);
 });
 
+test("a question asked on the home page arrives as a message at once, without showing the last conversation or an empty one on the way", async ({ page, app }) => {
+  await openWorkspace(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  // A conversation with an answer in it, and the one chat would return to.
+  await page.goto(`${app.origin}/chat`);
+  await page.locator(".composer-input").fill("旧问题");
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  const transcript = page.getByTestId("message-list");
+  await expect(transcript.getByText("离线回答：旧问题", { exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "首页", exact: true }).click();
+  const ask = page.getByRole("textbox", { name: "快速提问", exact: true });
+  await ask.fill("新问题");
+  // Everything the transcript shows from here on is recorded as it changes, not only where it ends up.
+  await page.evaluate(() => {
+    const seen = { earlier: false, welcome: false, questionRows: 0, questionBeforeAnswer: false };
+    const rows = new Set<Element>();
+    (window as unknown as { transcriptSeen: typeof seen }).transcriptSeen = seen;
+    new MutationObserver(() => {
+      const list = document.querySelector('[data-testid="message-list"]');
+      if (list?.textContent?.includes("离线回答：旧问题")) seen.earlier = true;
+      if (document.querySelector(".chat-welcome")) seen.welcome = true;
+      // The question is one row from the moment the page opens: the message that arrives takes that row over.
+      const row = [...list?.querySelectorAll('[data-message-role="user"]') ?? []].find(element => element.textContent?.includes("新问题"));
+      if (row) { rows.add(row); seen.questionRows = rows.size; if (!list?.textContent?.includes("离线回答：新问题")) seen.questionBeforeAnswer = true; }
+    }).observe(document.body, { childList: true, subtree: true, characterData: true });
+  });
+  await ask.press("Enter");
+  await expect(page).toHaveURL(/\/chat/);
+  await expect(transcript.getByText("离线回答：新问题", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { transcriptSeen: unknown }).transcriptSeen)).toEqual({ earlier: false, welcome: false, questionRows: 1, questionBeforeAnswer: true });
+  // The earlier conversation is still there to go back to.
+  expect(await browserData(page, "/api/conversations")).toHaveLength(2);
+});
+
 test("home says in one line what waits on you and what the tasks still do, shows recent conversations and the day's tasks, each leading to its place", async ({ page, app }) => {
   await openWorkspace(page, app.origin);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
@@ -85,6 +119,11 @@ test("home says in one line what waits on you and what the tasks still do, shows
 
   const recent = page.getByRole("navigation", { name: "最近的会话", exact: true });
   await expect(recent.locator(".home-pill")).toHaveCount(3);
+  // The question box sits at the page's centre, whatever the lines above and below it hold.
+  const middle = async (selector: string) => { const box = (await page.locator(selector).boundingBox())!; return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; };
+  const [boxMiddle, pageMiddle] = [await middle(".home-ask"), await middle("main.home")];
+  expect(Math.abs(boxMiddle.x - pageMiddle.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(boxMiddle.y - pageMiddle.y)).toBeLessThanOrEqual(1);
   // A failed task leads to its conversation.
   await waiting.click();
   await list.getByRole("button", { name: /同步日程/ }).click();

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { settingsDialog } from "../helpers/settings";
+import { useLightTheme } from "../helpers/theme";
 import { browserApi } from "../helpers/browser-api";
 import { toasts } from "../helpers/toast";
 import { chooseTaskDateTime } from "../helpers/task-date-picker";
@@ -166,7 +167,7 @@ test("workspace separates scheduled tasks and retains content during refresh", a
   }
   await page.keyboard.press("Escape");
   await expect(settingsDialog(page)).toBeHidden();
-  await page.getByRole("button", { name: /主题/ }).click();
+  await useLightTheme(page);
   await expect(page.locator("html")).not.toHaveClass(/dark/);
   await page.reload();
   await expect(page.locator("html")).not.toHaveClass(/dark/);

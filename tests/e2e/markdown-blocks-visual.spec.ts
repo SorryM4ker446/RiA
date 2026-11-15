@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { useLightTheme } from "../helpers/theme";
 import { splitMarkdownBlocks } from "../../src/components/chat/markdown-blocks";
 import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
 
@@ -145,8 +146,7 @@ for (const { width, theme } of [{ width: 1440, theme: "dark" }, { width: 390, th
     await page.setViewportSize({ width: 1440, height: 900 });
     await prepare(page);
     await page.goto("/chat");
-    // The theme control is in the desktop sidebar.
-    if (theme === "light") await page.getByRole("button", { name: "切换主题", exact: true }).click();
+    if (theme === "light") await useLightTheme(page);
     // Everything fits without scrolling, so following the stream cannot move an element mid-capture.
     await page.setViewportSize({ width, height: 12_000 });
     await expect(markdown(page, "whole-part")).toBeVisible();

@@ -1,4 +1,5 @@
 import { test as base, expect, type Page } from "@playwright/test";
+import { useLightTheme } from "../helpers/theme";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -132,7 +133,7 @@ test("mixed chat attachments survive draft reload and restart, send document tex
   await expect.poll(() => app.providerCalls.filter(call => call.stream).length).toBe(2);
   expect(JSON.stringify(app.providerCalls.filter(call => call.stream).at(-1)!.messages)).toContain("附件发布的回滚窗口为三十分钟。");
   await expect(page.getByRole("button", { name: "停止", exact: true })).toBeHidden();
-  await page.getByRole("button", { name: "切换主题", exact: true }).click();
+  await useLightTheme(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await expect(page.locator(".chat-document-attachment").first()).toHaveCSS("animation-name", "none");
   await page.screenshot({ path: join(screenshots, "desktop-history-light.png"), animations: "disabled" });

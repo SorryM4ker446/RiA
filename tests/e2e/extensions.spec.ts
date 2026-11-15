@@ -83,7 +83,7 @@ test("long extension names stay inside narrow cards and tool sheets without cove
   await detect.click();
   const sheet = page.getByRole("dialog", { name: `${name} · 工具`, exact: true });
   await expect(sheet).toBeVisible();
-  await expect(sheet).toHaveCSS("animation-name", "sheet-in");
+  await expect(sheet).toHaveCSS("animation-name", "dialog-panel-in");
   await sheet.evaluate(node => Promise.all(node.getAnimations().map(animation => animation.finished)));
   const heading = sheet.getByRole("heading", { name: `${name} · 工具`, exact: true });
   const right = await heading.evaluate(node => { const range = document.createRange(); range.selectNodeContents(node); return Math.max(...Array.from(range.getClientRects(), rect => rect.right)); });
@@ -192,7 +192,15 @@ test("extension sheets remain usable in a narrow window, restore focus, validate
   await expect(page.getByLabel("扩展名称", { exact: true })).toHaveValue("Draft");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await mkdir(shots, { recursive: true }); await page.screenshot({ path: join(shots, "mobile-editor.png"), fullPage: false, animations: "disabled" });
-  await page.keyboard.press("Escape"); await expect(sheet).toHaveCount(0); await expect(add).toBeFocused();
+  // The draft was changed, so leaving asks first: keeping the form keeps the draft.
+  await page.keyboard.press("Escape");
+  const discard = page.getByRole("alertdialog", { name: "放弃未保存的更改？", exact: true });
+  await discard.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(discard).toBeHidden();
+  await expect(page.getByLabel("扩展名称", { exact: true })).toHaveValue("Draft");
+  await page.keyboard.press("Escape");
+  await discard.getByRole("button", { name: "放弃更改", exact: true }).click();
+  await expect(sheet).toHaveCount(0); await expect(add).toBeFocused();
   const row = await create(page, app, "Recoverable API", "http");
   app.service.state.fail = true;
   await page.getByTestId(`extension-${row.id}`).getByRole("button", { name: "检测连接", exact: true }).click();

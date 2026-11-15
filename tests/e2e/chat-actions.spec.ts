@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { useLightTheme } from "../helpers/theme";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
@@ -75,7 +76,7 @@ test(`compact terminal approval expands above the permission toolbar in ${theme}
     }) },
   ]);
   await page.goto("/chat");
-  if (theme === "light") await page.getByRole("button", { name: "切换主题", exact: true }).click();
+  if (theme === "light") await useLightTheme(page);
   const card = page.getByRole("region", { name: "操作审批", exact: true });
   await expect(card).toBeVisible();
   await expect(card).toContainText("D:\\Projects\\ria-demo");

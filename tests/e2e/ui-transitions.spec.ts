@@ -11,8 +11,16 @@ test("the first launch is dark and the wordmark stays readable across saved them
   await expect(wordmark).toHaveText("RiA");
   await expect(page.locator(".workspace-brand img")).toHaveCount(0);
   const darkColor = await wordmark.evaluate(node => getComputedStyle(node).color);
-  await page.getByRole("button", { name: "切换主题", exact: true }).click();
+  // The theme is chosen in the application settings; the sidebar has no control of its own for it.
+  await expect(page.getByRole("button", { name: "切换主题", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("tab", { name: "应用偏好", exact: true }).click();
+  const themes = page.getByRole("radiogroup", { name: "主题", exact: true });
+  await expect(themes.getByRole("radio", { name: "深色", exact: true })).toBeChecked();
+  await themes.getByRole("radio", { name: "浅色", exact: true }).click();
+  await expect(themes.getByRole("radio", { name: "浅色", exact: true })).toBeChecked();
   await expect(page.locator("html")).not.toHaveClass(/dark/);
+  await page.keyboard.press("Escape");
   await expect(wordmark).toHaveCSS("color", "rgb(24, 24, 27)");
   expect(darkColor).not.toBe("rgb(24, 24, 27)");
   await page.reload();

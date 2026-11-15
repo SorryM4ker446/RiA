@@ -161,7 +161,10 @@ test("plugin preview handles malformed input, narrow layouts, focus and reduced 
   await expect(drawer.getByRole("button", { name: "安装插件", exact: true })).toBeInViewport();
   await mkdir(shots, { recursive: true }); await page.screenshot({ path: join(shots, "import-mobile.png"), animations: "disabled" });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.keyboard.press("Escape"); await expect(drawer).toBeHidden(); await expect(trigger).toBeFocused();
+  // A package was pasted, so leaving the import asks first.
+  await page.keyboard.press("Escape");
+  await page.getByRole("alertdialog", { name: "放弃未保存的更改？", exact: true }).getByRole("button", { name: "放弃更改", exact: true }).click();
+  await expect(drawer).toBeHidden(); await expect(trigger).toBeFocused();
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.getByRole("tab", { name: "插件市场", exact: true }).click();
   const market = page.getByRole("region", { name: "RiA 插件市场", exact: true });
@@ -195,6 +198,7 @@ test("editing or closing an import cancels its preview and stale data cannot bec
     await expect(drawer.getByLabel("插件包 JSON", { exact: true })).toHaveValue(/New draft/);
     await expect(drawer.getByRole("button", { name: "安装插件", exact: true })).toHaveCount(0);
     await page.keyboard.press("Escape");
+    await page.getByRole("alertdialog", { name: "放弃未保存的更改？", exact: true }).getByRole("button", { name: "放弃更改", exact: true }).click();
     await page.getByRole("button", { name: "导入插件", exact: true }).click();
     await expect(drawer.getByLabel("插件包 JSON", { exact: true })).toHaveValue("");
     await expect(drawer.getByRole("button", { name: "安装插件", exact: true })).toHaveCount(0);

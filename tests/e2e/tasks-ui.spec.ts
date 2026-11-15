@@ -49,13 +49,27 @@ test("a repeating task is made in the form, keeps what was typed when refused, a
   await expect(page.getByText(/^No tasks yet\./)).toBeVisible();
   const sheet = await openEditor(page);
   // What each run works with is folded away until asked for.
-  await expect(sheet.getByLabel("Time zone", { exact: true })).toHaveCount(0);
+  await expect(sheet.getByLabel("Time zone", { exact: true })).toBeHidden();
+  // Folded away it takes no room either: in a window just tall enough for the form, nothing scrolls.
+  await page.setViewportSize({ width: 1280, height: 610 });
+  const fits = () => sheet.evaluate(dialog => [dialog, dialog.querySelector(".dialog-body")!].map(box => ({ down: box.scrollHeight <= box.clientHeight + 1, across: box.scrollWidth <= box.clientWidth })));
+  expect(await fits()).toEqual([{ down: true, across: true }, { down: true, across: true }]);
   await sheet.getByRole("button", { name: "Advanced", exact: true }).click();
+  // Unfolded, the form scrolls under its actions, which stay where they were, and what opened is brought into view.
+  await expect(sheet.getByRole("combobox", { name: "Model", exact: true })).toBeInViewport();
+  await expect(sheet.getByRole("button", { name: "Create", exact: true })).toBeInViewport();
+  // Only the form's body scrolls, and only downwards: nothing is wider than the dialog.
+  expect(await fits()).toEqual([{ down: true, across: true }, { down: false, across: true }]);
+  await page.setViewportSize({ width: 1280, height: 720 });
   // The zone a schedule is read in starts as the device's own; a new task follows the default model and has no folder.
   await expect(sheet.getByLabel("Time zone", { exact: true })).toHaveValue("America/New_York");
   await expect(sheet.getByRole("combobox", { name: "Model", exact: true })).toContainText("Follow the default chat model");
   await expect(sheet.getByRole("combobox", { name: "Working folder", exact: true })).toContainText("No folder");
   await sheet.getByLabel("Name", { exact: true }).fill("Weekly review");
+  // Something was changed, so leaving asks first, and keeping the form keeps it.
+  await page.keyboard.press("Escape");
+  await page.getByRole("alertdialog", { name: "Discard unsaved changes?", exact: true }).getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(sheet.getByLabel("Name", { exact: true })).toHaveValue("Weekly review");
   await sheet.getByRole("button", { name: "Create", exact: true }).click();
   await expect(sheet.getByRole("alert")).toContainText("Say what the task should do");
   await expect(sheet.getByLabel("Name", { exact: true })).toHaveValue("Weekly review");
@@ -338,4 +352,44 @@ test("a task can run only by hand, and decides its approval rule, memory, effort
   await expect(editor.getByRole("combobox", { name: "Approval rule", exact: true })).toContainText("Accept edits");
   await expect(editor.getByRole("checkbox", { name: "Long-term memory", exact: true })).toBeChecked();
   expect(app.providerCalls).toEqual([]);
+});
+
+/** What is on screen in each animation frame while something happens: the form dialog's height and the question's opacity. */
+async function framesWhile(page: Page, action: () => Promise<void>) {
+  await page.evaluate(() => {
+    const frames: { form: number | null; question: number | null }[] = [];
+    (window as unknown as { dialogFrames: typeof frames }).dialogFrames = frames;
+    const started = performance.now();
+    const tick = () => {
+      const form = document.querySelector(".dialog-content"), question = document.querySelector(".alert-dialog-content");
+      frames.push({ form: form ? Math.round(form.getBoundingClientRect().height) : null, question: question ? Number(getComputedStyle(question).opacity) : null });
+      if (performance.now() - started < 900) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+  await action();
+  await expect.poll(() => page.evaluate(() => document.querySelector(".dialog-content, .alert-dialog-content") === null)).toBe(true);
+  return page.evaluate(() => (window as unknown as { dialogFrames: { form: number | null; question: number | null }[] }).dialogFrames);
+}
+
+test("the task form stays whole while its dialog closes, and a discarded form goes at once behind the question asked about it", async ({ page, app }) => {
+  await openWorkspace(page, app.origin);
+  await page.goto(`${app.origin}/tasks`);
+  let sheet = await openEditor(page);
+  await sheet.evaluate(dialog => Promise.all(dialog.getAnimations().map(animation => animation.finished)));
+  // Closing fades the dialog as it was: the form is not taken out first, which left a small box of the title to fade alone.
+  const closing = (await framesWhile(page, () => sheet.getByRole("button", { name: "Cancel", exact: true }).click())).flatMap(frame => frame.form ?? []);
+  expect(closing.length).toBeGreaterThan(1);
+  expect(Math.min(...closing), closing.join(",")).toBeGreaterThan(closing[0] * 0.9);
+
+  sheet = await openEditor(page);
+  await sheet.getByLabel("Name", { exact: true }).fill("Changed");
+  await sheet.getByRole("button", { name: "Cancel", exact: true }).click();
+  const question = page.getByRole("alertdialog", { name: "Discard unsaved changes?", exact: true });
+  await question.evaluate(dialog => Promise.all(dialog.getAnimations().map(animation => animation.finished)));
+  // Discarding takes the form away with the answer: nothing of it shows through while the question fades.
+  const discarding = await framesWhile(page, () => question.getByRole("button", { name: "Discard changes", exact: true }).click());
+  const fading = discarding.filter(frame => frame.question !== null && frame.question < 1);
+  expect(fading.length).toBeGreaterThan(0);
+  expect(fading.filter(frame => frame.form !== null)).toEqual([]);
 });
