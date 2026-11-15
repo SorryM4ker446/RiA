@@ -3,7 +3,7 @@ import { useLocale } from "@/lib/locale/client";
 
 import { localizeMessage, t, tf } from "@/lib/locale";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowRight, Check, Download, MoreHorizontal, Package, Power, Search, Sparkles, Trash2, Upload } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -16,6 +16,8 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui
 import { FileInput } from "@/components/ui/file-input";
 import { Input } from "@/components/ui/input";
 import { ToolbarSearch } from "@/components/layout/page-toolbar";
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
+import { useConfirmDiscard } from "@/components/ui/discard-guard";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
@@ -40,6 +42,8 @@ export function PluginPackages({ mode, plugins, catalog, connections, busy, load
   useLocale();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
+  // Looking at a plugin (an installed one, or one from the marketplace) opens beside the page; importing one is a form, and opens as a dialog.
+  const [viewing, setViewing] = useState(false);
   const [installed, setInstalled] = useState<PluginView | null>(null);
   const [source, setSource] = useState("");
   const [preview, setPreview] = useState<PluginPreview | null>(null);
@@ -62,7 +66,13 @@ export function PluginPackages({ mode, plugins, catalog, connections, busy, load
   function show(trigger: HTMLElement, item?: PluginPreview, plugin?: PluginView) {
     pending.current?.abort(); pending.current = null; draftVersion.current++;
     opener.current = trigger; handoff.current = false;
-    setInstalled(plugin ?? null); setSource(""); setPreview(item ?? null); setPreviewing(false); setError(""); setAllowLocal(false); setOpen(true);
+    setViewing(Boolean(item || plugin)); setInstalled(plugin ?? null); setSource(""); setPreview(item ?? null); setPreviewing(false); setError(""); setAllowLocal(false); setOpen(true);
+  }
+  // Leaving an import without installing asks first when a package was chosen or pasted.
+  const mayDiscard = useConfirmDiscard();
+  async function closePanel() {
+    if (busy || !(await mayDiscard(!viewing && source.trim().length > 0))) return;
+    pending.current?.abort(); draftVersion.current++; setOpen(false);
   }
   function changeSource(value: string) {
     pending.current?.abort(); pending.current = null; draftVersion.current++;
@@ -100,13 +110,14 @@ export function PluginPackages({ mode, plugins, catalog, connections, busy, load
       const rows = connections.filter(row => row.pluginId === plugin.id);
       return <PluginRow key={plugin.id} plugin={plugin} name={catalog.some(item => item.digest === plugin.digest) ? localizeMessage(plugin.manifest.name) : plugin.manifest.name} incomplete={rows.length !== plugin.connections.length || rows.some(row => !ready(row))} busy={busy} onOpen={trigger => show(trigger, undefined, plugin)} onToggle={() => onToggle(plugin)} onUninstall={() => onUninstall(plugin)} />;
     })}</ul> : <Empty><EmptyHeader><EmptyMedia><Package /></EmptyMedia><EmptyTitle>{t("ui.extensions.plugin-packages.noPluginsInstalled")}</EmptyTitle><EmptyDescription>{t("ui.extensions.plugin-packages.chooseSkillsInPluginMarketplaceOr")}</EmptyDescription></EmptyHeader></Empty>}
-    <Sheet open={open} onOpenChange={value => { if (!busy && !value) { pending.current?.abort(); draftVersion.current++; setOpen(false); } }}><SheetContent side="right" className="plugin-package-sheet flex flex-col gap-5 p-5 sm:p-6" closeLabel={t("ui.extensions.plugin-packages.closePluginDetails")} onCloseAutoFocus={event => { event.preventDefault(); if (!handoff.current) (opener.current?.isConnected ? opener.current : document.getElementById("plugin-import"))?.focus(); }}>
-      <header className="flex shrink-0 flex-col gap-2 pr-8"><SheetTitle className="break-words text-lg font-semibold [overflow-wrap:anywhere]">{(manifest ? previewText(manifest.name) : undefined) ?? t("ui.extensions.plugin-packages.importPlugin")}</SheetTitle><SheetDescription className="break-words text-xs [overflow-wrap:anywhere]">{manifest ? manifest.marketplace ? tf("ui.extensions.plugin-packages.skillsShSnapshot", { v0: manifest.marketplace.repository }) : `${manifest.author} · v${manifest.version} · ${manifest.id}` : t("ui.extensions.plugin-packages.chooseARiaPluginJsonFile")}</SheetDescription></header>
-      <div className="chat-list-scroll flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain pr-1">
+    <PluginPanel drawer={viewing} open={open} onOpenChange={value => { if (!value) void closePanel(); }} closeLabel={t("ui.extensions.plugin-packages.closePluginDetails")} onCloseAutoFocus={event => { event.preventDefault(); if (!handoff.current) (opener.current?.isConnected ? opener.current : document.getElementById("plugin-import"))?.focus(); }}
+      title={(manifest ? previewText(manifest.name) : undefined) ?? t("ui.extensions.plugin-packages.importPlugin")}
+      description={manifest ? manifest.marketplace ? tf("ui.extensions.plugin-packages.skillsShSnapshot", { v0: manifest.marketplace.repository }) : `${manifest.author} · v${manifest.version} · ${manifest.id}` : t("ui.extensions.plugin-packages.chooseARiaPluginJsonFile")}
+      footer={<><Button variant="ghost" disabled={busy} onClick={() => void closePanel()}>{t("window.close")}</Button>{current ? <Button disabled={busy || (!current.enabled && needsSetup)} onClick={() => onToggle(current)}><Power data-icon="inline-start" />{current.enabled ? t("ui.extensions.plugin-packages.disablePlugin") : t("ui.extensions.plugin-packages.enablePlugin")}</Button> : preview && <Button disabled={busy || previewing || (needsLocal && !allowLocal) || plugins.some(plugin => plugin.packageId === preview.manifest.id)} onClick={() => onInstall(preview, allowLocal, () => setOpen(false))}>{busy ? <Spinner data-icon="inline-start" /> : <Download data-icon="inline-start" />}{t("ui.extensions.plugin-packages.installPlugin")}</Button>}</>}>
         {(error || actionError) && <Alert variant="destructive"><AlertTitle>{t("ui.extensions.extension-manager.operationIncomplete")}</AlertTitle><AlertDescription>{error || actionError}</AlertDescription></Alert>}
         {!current && !preview ? <FieldGroup><Field><FieldLabel htmlFor="plugin-file">{t("ui.extensions.plugin-packages.pluginPackageFile")}</FieldLabel><FileInput id="plugin-file" accept=".json,application/json" disabled={busy || previewing} onChange={event => void readFile(event.target.files?.[0])} buttonLabel={t("ui.extensions.plugin-packages.choosePluginPackage")} placeholder={t("ui.extensions.plugin-packages.riaPluginJsonUpTo2")} /></Field><Field><FieldLabel htmlFor="plugin-source">{t("ui.extensions.plugin-packages.pluginPackageJSON")}</FieldLabel><Textarea id="plugin-source" rows={8} value={source} disabled={busy} onChange={event => changeSource(event.target.value)} placeholder={'{"format":"ria-plugin","schemaVersion":1,…}'} /><FieldDescription>{t("ui.extensions.plugin-packages.onlyDeclarativeSkillsAndConnectionsAre")}</FieldDescription></Field><Button variant="secondary" disabled={busy || previewing || !source.trim()} className="self-start" onClick={() => void inspect()}>{previewing && <Spinner data-icon="inline-start" />}{t("ui.extensions.plugin-packages.previewPlugin")}</Button></FieldGroup> : null}
         {!current && preview && source && <Button size="sm" variant="ghost" disabled={busy} className="self-start" onClick={() => { setPreview(null); setAllowLocal(false); }}>{t("ui.extensions.plugin-packages.editPackageContent")}</Button>}
-        {manifest && <div className="plugin-preview flex flex-col gap-5"><p className="text-sm leading-7 text-muted-foreground">{previewText(manifest.description)}</p><PluginContents manifest={manifest} />{manifest.marketplace && <SkillFiles key={current?.id ?? preview?.digest} snapshot={manifest.marketplace} />}<section aria-label={t("ui.extensions.plugin-packages.pluginSkills")} className="flex flex-col gap-3"><h3 className="text-sm font-medium">{t("ui.extensions.plugin-packages.skills2")}</h3>{manifest.skills.length ? manifest.skills.map(skill => <details key={skill.id} className="settings-disclosure rounded-lg bg-muted/40 p-3"><summary className="settings-disclosure-trigger"><Sparkles className="size-4" aria-hidden="true" />{previewText(skill.name)}</summary><p className="py-2 text-xs leading-6 text-muted-foreground">{previewText(skill.description)}</p><pre className="whitespace-pre-wrap break-words text-sm leading-7 [overflow-wrap:anywhere]">{skill.instructions}</pre></details>) : <p className="text-xs text-muted-foreground">{t("ui.extensions.plugin-packages.thisPluginOnlyProvidesToolConnections")}</p>}</section>
+        {manifest && <div className="plugin-preview flex flex-col gap-5"><p className="text-sm leading-7 text-muted-foreground">{previewText(manifest.description)}</p><PluginContents manifest={manifest} />{manifest.marketplace && <SkillFiles key={current?.id ?? preview?.digest} snapshot={manifest.marketplace} />}<section aria-label={t("ui.extensions.plugin-packages.pluginSkills")} className="flex flex-col gap-3"><h3 className="text-sm font-medium">{t("ui.extensions.plugin-packages.skills2")}</h3>{manifest.skills.length ? manifest.skills.map(skill => <details key={skill.id} className="settings-disclosure rounded-lg bg-muted/40 p-3"><summary className="settings-disclosure-trigger"><Sparkles className="size-4" aria-hidden="true" />{previewText(skill.name)}</summary><p className="py-2 text-xs leading-6 text-muted-foreground">{previewText(skill.description)}</p><pre className="whitespace-pre-wrap break-words font-sans text-sm leading-7 [overflow-wrap:anywhere]">{skill.instructions}</pre></details>) : <p className="text-xs text-muted-foreground">{t("ui.extensions.plugin-packages.thisPluginOnlyProvidesToolConnections")}</p>}</section>
           <section aria-label={t("ui.extensions.plugin-packages.pluginConnections")} className="flex flex-col gap-3"><h3 className="text-sm font-medium">{t("ui.extensions.plugin-packages.connectionsConfiguration")}</h3>{!manifest.connections.length && <p className="text-xs text-muted-foreground">{t("ui.extensions.plugin-packages.noServiceConnectionRequiredEnableThe")}</p>}{manifest.connections.map(connection => {
             const row = owned.find(item => item.id === current?.connections.find(item => item.key === connection.id)?.id);
             const config = row?.config ?? connection.config;
@@ -115,9 +126,7 @@ export function PluginPackages({ mode, plugins, catalog, connections, busy, load
           {!current && <p className="text-xs leading-6 text-muted-foreground">{t("ui.extensions.plugin-packages.disabledByDefaultAfterInstallationPlugins")}</p>}
           {!current && needsLocal && <><p className="text-xs text-muted-foreground">{localProcessesAllowed ? t("ui.extensions.plugin-packages.localProgramsRunWithCurrentUser") : t("ui.extensions.plugin-packages.pluginsWithLocalProgramsMustBe")}</p><Field orientation="horizontal"><input id="plugin-process-consent" type="checkbox" checked={allowLocal} onChange={event => setAllowLocal(event.target.checked)} disabled={busy || !localProcessesAllowed} /><FieldLabel htmlFor="plugin-process-consent">{t("ui.extensions.plugin-packages.iConfirmTheDeclaredLocalProgram")}</FieldLabel></Field></>}
         </div>}
-      </div>
-      <footer className="flex shrink-0 items-center justify-end gap-2"><Button variant="ghost" disabled={busy} onClick={() => { pending.current?.abort(); draftVersion.current++; setOpen(false); }}>{t("window.close")}</Button>{current ? <Button disabled={busy || (!current.enabled && needsSetup)} onClick={() => onToggle(current)}><Power data-icon="inline-start" />{current.enabled ? t("ui.extensions.plugin-packages.disablePlugin") : t("ui.extensions.plugin-packages.enablePlugin")}</Button> : preview && <Button disabled={busy || previewing || (needsLocal && !allowLocal) || plugins.some(plugin => plugin.packageId === preview.manifest.id)} onClick={() => onInstall(preview, allowLocal, () => setOpen(false))}>{busy ? <Spinner data-icon="inline-start" /> : <Download data-icon="inline-start" />}{t("ui.extensions.plugin-packages.installPlugin")}</Button>}</footer>
-    </SheetContent></Sheet>
+    </PluginPanel>
   </section>;
 }
 
@@ -149,4 +158,24 @@ function PluginRow({ plugin, name, incomplete, busy, onOpen, onToggle, onUninsta
 function PluginContents({ manifest }: { manifest: PluginManifest }) {
   useLocale();
   return <div className="flex flex-wrap gap-2"><Badge variant="secondary">{manifest.skills.length} {t("ui.extensions.plugin-packages.skills3")}</Badge><Badge variant="outline">{manifest.connections.length ? tf("ui.extensions.plugin-packages.toolConnections", { v0: manifest.connections.length }) : t("ui.extensions.plugin-packages.noExternalConnectionsRequired")}</Badge></div>;
+}
+
+/**
+ * Where a plugin is shown. Reading about one opens a panel beside the page, like other details; importing
+ * one is a form, and opens as the dialog every form uses. The content is the same in both.
+ */
+function PluginPanel({ drawer, open, onOpenChange, closeLabel, onCloseAutoFocus, title, description, footer, children }: {
+  drawer: boolean; open: boolean; onOpenChange: (open: boolean) => void; closeLabel: string; onCloseAutoFocus: (event: Event) => void;
+  title: ReactNode; description: ReactNode; footer: ReactNode; children: ReactNode;
+}) {
+  if (drawer) return <Sheet open={open} onOpenChange={onOpenChange}><SheetContent side="right" className="plugin-package-sheet flex flex-col gap-5 p-5 sm:p-6" closeLabel={closeLabel} onCloseAutoFocus={onCloseAutoFocus}>
+    <header className="flex shrink-0 flex-col gap-2 pr-8"><SheetTitle className="break-words text-lg font-semibold [overflow-wrap:anywhere]">{title}</SheetTitle><SheetDescription className="break-words text-xs [overflow-wrap:anywhere]">{description}</SheetDescription></header>
+    <div className="chat-list-scroll flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain pr-1">{children}</div>
+    <footer className="flex shrink-0 items-center justify-end gap-2">{footer}</footer>
+  </SheetContent></Sheet>;
+  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent closeLabel={closeLabel} onCloseAutoFocus={onCloseAutoFocus}>
+    <DialogHeader title={title} description={description} />
+    <DialogBody>{children}</DialogBody>
+    <DialogFooter>{footer}</DialogFooter>
+  </DialogContent></Dialog>;
 }

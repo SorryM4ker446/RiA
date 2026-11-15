@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { useDarkTheme } from "../helpers/theme";
 import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
 
 // Captures the current build at the sizes and settings the acceptance list
@@ -33,7 +34,7 @@ test("interface walkthrough at the acceptance sizes", async ({ page }, info) => 
   await shot("02-keyboard-focus");
 
   await page.getByTestId("message-list").evaluate(element => element.scrollTo({ top: 0 }));
-  await page.getByRole("button", { name: "切换主题" }).click();
+  await useDarkTheme(page);
   await expect(page.locator("html")).toHaveClass(/dark/);
   await shot("03-dark-scrolled-up");
 

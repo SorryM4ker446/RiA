@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { DialogBody, DialogFooter } from "@/components/ui/dialog";
+import { useFormChanged } from "@/components/ui/discard-guard";
 import { Input } from "@/components/ui/input";
 import { Reveal } from "@/components/ui/reveal";
 import { SelectField, SelectOption } from "@/components/ui/select";
@@ -81,12 +83,14 @@ function useTurnChoices() {
  * each run works with: its model and folder, what happens to a missed time and
  * the time zone the schedule is read in.
  */
-export function TaskEditor({ task, template = "custom", onSave, onCancel }: {
+export function TaskEditor({ task, template = "custom", onSave, onCancel, onChanged }: {
   task: TaskView | null;
   /** The template a new task starts from. */
   template?: TaskTemplateId;
   onSave: (draft: TaskDraft) => Promise<void>;
   onCancel: () => void;
+  /** Told whether the form differs from how it opened, for whoever closes it to ask before discarding that. */
+  onChanged?: (changed: boolean) => void;
 }) {
   useLocale();
   const id = useId();
@@ -117,6 +121,8 @@ export function TaskEditor({ task, template = "custom", onSave, onCancel }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const choices = useTurnChoices();
+  const changed = useFormChanged([templateId, kind, title, prompt, timeZone, repeat, time, minute, dayOfWeek, dayOfMonth, cron, runAt, catchUp, model, folder, approvalRule, usesMemory, notify, effort]);
+  useEffect(() => { onChanged?.(changed); }, [changed, onChanged]);
   const defaultModelName = choices.defaultModel ? choices.models.find(item => modelRefKey(item) === modelRefKey(choices.defaultModel!))?.name ?? choices.defaultModel.modelId : null;
 
   /** Starting from another template replaces what it fills in; the time zone, model and folder stay. */
@@ -183,11 +189,28 @@ export function TaskEditor({ task, template = "custom", onSave, onCancel }: {
 
   const timed = repeat === "daily" || repeat === "weekdays" || repeat === "weekly" || repeat === "monthly";
   const field = (name: string) => `${id}-${name}`;
+  // Unfolding the advanced settings in a form already as tall as the window would open them below the
+  // edge. As they grow the form scrolls with them, just far enough to show them and never so far that
+  // the heading that was clicked leaves the top.
+  const advancedSection = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const section = advancedSection.current, scroller = section?.closest(".dialog-body");
+    if (!advanced || !section || !scroller) return;
+    const follow = () => {
+      const area = scroller.getBoundingClientRect(), opened = section.getBoundingClientRect();
+      const distance = Math.min(opened.bottom - area.bottom, opened.top - area.top);
+      if (distance > 0) scroller.scrollBy({ top: distance, behavior: "instant" });
+    };
+    const observer = new ResizeObserver(follow);
+    observer.observe(section);
+    return () => observer.disconnect();
+  }, [advanced]);
   // A stored choice the lists no longer offer is still shown, as what it is, until it is changed.
   const missingModel = model !== DEFAULT_MODEL && choices.models.length > 0 && !choices.models.some(item => modelRefKey(item) === model);
   const missingFolder = folder !== NO_FOLDER && !choices.grants.some(grant => grant.id === folder);
   return (
-    <form className="flex flex-col gap-4" onSubmit={event => { event.preventDefault(); void submit(); }}>
+    <form className="dialog-form" onSubmit={event => { event.preventDefault(); void submit(); }}>
+      <DialogBody>
       <div className="flex flex-col gap-2">
         <label className="sr-only" htmlFor={field("title")}>{t("tasks.field.title")}</label>
         <Input id={field("title")} value={title} maxLength={120} placeholder={t("tasks.field.title")} onChange={event => setTitle(event.target.value)} autoFocus />
@@ -250,13 +273,16 @@ export function TaskEditor({ task, template = "custom", onSave, onCancel }: {
       </div>
       {repeat === "custom" ? <p className="-mt-2 text-xs text-muted-foreground">{t("tasks.field.cronHint")}</p> : null}
 
-      <div className="flex flex-col gap-3">
+      <div ref={advancedSection} className="flex flex-col gap-3">
         <button type="button" className="settings-disclosure-trigger flex w-fit items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground" aria-expanded={advanced} aria-controls={field("advanced")} onClick={() => setAdvanced(open => !open)}>
           {t("tasks.field.advanced")}
           <ChevronDown aria-hidden="true" className={cn("size-4 transition-transform", advanced && "rotate-180")} />
         </button>
-        {advanced ? (
-          <div id={field("advanced")} className="flex flex-col gap-2">
+        {/* Folded, it keeps its place in the form and closes to nothing, so opening and closing both glide; while folded nothing in it can be reached.
+            The box that clips it reaches into the room the form leaves for focus rings, and no further: any wider and the form scrolls sideways. */}
+        <div className="reveal -mt-3" data-state={advanced ? "open" : "closed"} aria-hidden={!advanced || undefined} inert={!advanced}>
+          <div className="-mx-[3px] min-h-0 overflow-hidden px-[3px] pb-[3px]">
+          <div id={field("advanced")} className="mt-3 flex flex-col gap-2">
             <div className="form-rows">
               {kind === "prompt" ? <>
                 <Row label={t("tasks.field.model")} htmlFor={field("model")}>
@@ -308,17 +334,20 @@ export function TaskEditor({ task, template = "custom", onSave, onCancel }: {
             {kind === "prompt" ? <p className="text-xs text-muted-foreground">{t(`approval.ruleHint.${approvalRule}`)} {t("tasks.field.approvalHint")}</p> : null}
             {repeat !== "manual" ? <p className="text-xs text-muted-foreground">{t("tasks.field.missedHint")}</p> : null}
           </div>
-        ) : null}
+          </div>
+        </div>
       </div>
 
-      <Reveal>{error ? <Alert variant="destructive"><AlertDescription>{localizeMessage(error)}</AlertDescription></Alert> : null}</Reveal>
-      <div className="flex justify-end gap-2">
+      </DialogBody>
+      {/* Outside what scrolls, so a refusal is read wherever the form was scrolled to. */}
+      <Reveal className="-mt-4">{error ? <Alert variant="destructive" className="mt-4"><AlertDescription>{localizeMessage(error)}</AlertDescription></Alert> : null}</Reveal>
+      <DialogFooter>
         <Button type="button" variant="ghost" disabled={saving} onClick={onCancel}>{t("chat.common.cancel")}</Button>
         <Button type="submit" disabled={saving}>
           {saving ? <Spinner data-icon="inline-start" aria-hidden="true" /> : null}
           {task ? t("chat.common.save") : t("tasks.createAction")}
         </Button>
-      </div>
+      </DialogFooter>
     </form>
   );
 }

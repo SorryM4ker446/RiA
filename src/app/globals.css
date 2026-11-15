@@ -729,7 +729,14 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
    Everything quiet is a tint of the text colour, so the page stays calm in both themes. */
 .home { display: flex; min-height: 100%; flex-direction: column; }
 .workspace-content > main.home:not(.chat-workspace) { padding: 0 24px; }
-.home-center { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding-bottom: 8vh; }
+/* The question box is the middle row between two equal halves, so it sits at the page's centre whatever
+   the greeting above it or the lines below it hold. */
+.home-center { display: grid; flex: 1; grid-template-rows: 1fr auto 1fr; justify-items: center; row-gap: 22px; }
+.home-center > .home-hello { align-self: end; }
+.home-below { display: flex; width: 100%; flex-direction: column; align-items: center; gap: 22px; }
+.home-below > .home-day { margin-top: auto; }
+/* The space pages leave under their heading would push the question box off the centre here. */
+.workspace-content > main.home:not(.chat-workspace) > .home-center:has(h1),
 .workspace-content > main.home:not(.chat-workspace) > .home-center > header.home-hello:has(h1) { padding-bottom: 0; }
 .home-hello { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
 .home-star { width: 22px; height: 30px; background: hsl(var(--foreground)); -webkit-mask: var(--ria-star) center / contain no-repeat; mask: var(--ria-star) center / contain no-repeat; opacity: .9; }
@@ -814,10 +821,10 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
 .sheet-content { position: fixed; top: 0; bottom: 0; z-index: 50; width: min(19rem, 88vw); background: hsl(var(--background)); color: hsl(var(--foreground)); box-shadow: 0 12px 48px hsl(var(--shadow) / .15); outline: none; }
 .sheet-content[data-side="left"] { left: 0; border-right: 1px solid hsl(var(--border)); --sheet-offset: -100%; }
 .sheet-content[data-side="right"] { right: 0; border-left: 1px solid hsl(var(--border)); --sheet-offset: 100%; }
-.sheet-content.extension-editor { width: min(36rem, 100vw); }
 /* The room for a scrollbar is kept whether or not one is showing, so a sheet's content does not shift sideways when something in it expands. */
 .sheet-content .overflow-y-auto { scrollbar-gutter: stable; }
 .sheet-content.directory-permissions-sheet { width: min(32rem, 100vw); }
+.plugin-package-sheet { width: min(36rem, 100vw); }
 /* Confirmation dialogs sit above sheets and menus, and are centred without a transform so their own animation can use one. */
 .alert-dialog-overlay { position: fixed; inset: 0; z-index: 80; background: hsl(var(--scrim) / .5); backdrop-filter: blur(4px); }
 .alert-dialog-content { position: fixed; inset: 0; z-index: 80; display: flex; flex-direction: column; gap: 16px; width: min(28rem, calc(100vw - 32px)); height: fit-content; max-height: calc(100vh - 32px); margin: auto; overflow-y: auto; border-radius: 12px; padding: 20px; background: hsl(var(--card)); color: hsl(var(--card-foreground)); box-shadow: 0 0 0 1px hsl(var(--border)), 0 16px 48px -12px hsl(var(--shadow) / .35); outline: none; }
@@ -828,10 +835,28 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
 /* A form dialog: centred like a confirmation, below one so a confirmation can open over it. */
 .dialog-overlay { position: fixed; inset: 0; z-index: 50; background: hsl(var(--scrim) / .5); backdrop-filter: blur(4px); }
 .dialog-content { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; gap: 16px; width: min(36rem, calc(100vw - 32px)); height: fit-content; max-height: calc(100vh - 32px); margin: auto; overflow-y: auto; scrollbar-gutter: stable; border-radius: 14px; padding: 20px; background: hsl(var(--card)); color: hsl(var(--card-foreground)); box-shadow: 0 0 0 1px hsl(var(--border)), 0 16px 48px -12px hsl(var(--shadow) / .35); outline: none; }
+/* The parts of a form dialog. The form between the header and the footer takes the height that is left,
+   and its body scrolls inside it, so the title and the actions stay in view however long the form is. */
+.dialog-header { display: flex; flex-shrink: 0; flex-direction: column; gap: 4px; padding-right: 32px; }
+.dialog-title { font-size: 16px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.dialog-description { font-size: 12px; line-height: 1.6; color: hsl(var(--muted-foreground)); overflow-wrap: anywhere; }
+/* The form adds no box of its own: its body and footer take their places in the dialog directly, so the body
+   is what gives way, and scrolls, when the dialog reaches the height of the window. */
+.dialog-form { display: contents; }
+/* The margin and padding cancel out: they leave room for a focus ring at the body's edge, which scrolling would clip. */
+.dialog-body { position: relative; display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 16px; margin: -3px; padding: 3px; overflow: hidden auto; overscroll-behavior: contain; }
+/* The body gives way by scrolling, never by squeezing what is in it. */
+.dialog-body > * { flex-shrink: 0; }
+.dialog-footer { display: flex; flex-shrink: 0; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+/* For a form with long text to write, such as a template's instructions. */
+.dialog-content.dialog-wide { width: min(46rem, calc(100vw - 32px)); }
 .dialog-overlay[data-state="open"] { animation: overlay-in var(--dur-base) var(--ease-out); }
 .dialog-overlay[data-state="closed"] { animation: overlay-out var(--dur-fast) var(--ease-in-out); }
 .dialog-content[data-state="open"] { animation: dialog-panel-in var(--dur-base) var(--ease-out); }
 .dialog-content[data-state="closed"] { animation: pop-out var(--dur-fast) var(--ease-in-out); }
+/* A form that is discarded goes at once, behind the question that was asked about it. Left to fade, it
+   showed through as that question faded, and read as one more dialog opening on the way out. */
+body:has(.alert-dialog-content) :is(.dialog-overlay, .dialog-content)[data-state="closed"] { animation: none; }
 /* Settings read as rows in a rounded group: the name on the left, its value on the right. */
 .form-rows { display: flex; flex-direction: column; border-radius: 12px; box-shadow: 0 0 0 1px hsl(var(--border)); padding: 0 14px; }
 .form-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; padding: 6px 0; font-size: 13px; }
@@ -1078,7 +1103,6 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
 .chat-list-scroll::-webkit-scrollbar { width: 7px; height: 7px; }
 .chat-list-scroll::-webkit-scrollbar-thumb { border-width: 2px; }
 .run-records-sheet { width: min(30rem, 100vw); }
-.template-editor-sheet { width: min(34rem, 100vw); }
 /* A template's tools: names to switch on, gathered by what they let it do. */
 .template-tools { display: flex; flex-direction: column; gap: 14px; }
 .template-tools-head { display: flex; align-items: baseline; gap: 8px; }
@@ -1109,8 +1133,6 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
 .template-tools-hint { overflow: hidden; margin-top: -4px; font-size: 12px; line-height: 18px; color: hsl(var(--muted-foreground)); text-overflow: ellipsis; white-space: nowrap; }
 .template-details-sheet { width: min(30rem, 100vw); }
 .registry-details-sheet { width: min(34rem, 100vw); }
-.plugin-package-sheet { width: min(36rem, 100vw); }
-.knowledge-entry-sheet { width: min(32rem, 100vw); }
 /* Knowledge overview: a section names itself, then what needs a decision and the way to all of it. */
 .knowledge-section-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
 .see-all-link { display: inline-flex; align-items: center; gap: 2px; margin-right: -6px; padding: 4px 6px; border-radius: var(--radius-inner); font-size: 13px; color: hsl(var(--muted-foreground)); outline: none; }
@@ -1260,6 +1282,10 @@ body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; al
 .run-record-trigger:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: -2px; }
 .reveal { display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden; transition: grid-template-rows var(--dur-base) var(--ease-out), opacity var(--dur-fast) var(--ease-out), visibility var(--dur-base) var(--ease-out); }
 .reveal[data-state="open"] { grid-template-rows: 1fr; opacity: 1; visibility: visible; }
+/* What is folded away is clipped by this box. A control inside it that is positioned out of the flow (the
+   native select a styled one keeps for forms) would otherwise answer to a box further out, escape the clip
+   and leave the page or dialog scrolling over space nothing occupies. */
+.reveal > * { position: relative; }
 /* A closed notice in the chat dock gives back the dock's gap too, so it takes no room until it opens. */
 .chat-dock > .chat-dock-notice { transition: grid-template-rows var(--dur-base) var(--ease-out), opacity var(--dur-fast) var(--ease-out), visibility var(--dur-base) var(--ease-out), margin-top var(--dur-base) var(--ease-out); }
 .chat-dock > .chat-dock-notice[data-state="closed"] { margin-top: -0.75rem; }
@@ -1564,7 +1590,7 @@ body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; al
   .approval-details, .reveal { transition: none; }
   .workspace-sidebar-body, .workspace-sidebar-header, .workspace-navigation, .workspace-nav-link { transition: none; }
   .workspace-content { scroll-behavior: auto; }
-  .sheet-overlay, .sheet-content, .ui-select-content, .ui-tabs-content, .run-records > :not(summary) { animation: none; }
+  .sheet-overlay, .sheet-content, .dialog-overlay, .dialog-content, .ui-select-content, .ui-tabs-content, .run-records > :not(summary) { animation: none; }
   /* Without its delayed fade, the transcript placeholder still waits out a quick load, then appears at once. */
   .chat-transcript-skeleton:not([data-late]) { visibility: hidden; }
   .workspace-nav-link:active { transform: none; }
@@ -1599,12 +1625,17 @@ body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; al
 /* Long-term memory in Your RiA: notes grouped by what they are about, each deleted on its own. */
 /* Your RiA: an entry for the memory and its source, each opening a screen in place. Going
    deeper comes in from the right and coming back from the left, so the two read as one path. */
-.ria-panel { overflow: clip; overflow-clip-margin: 24px; }
+.ria-panel { overflow: clip; overflow-clip-margin: 36px; }
 .ria-screen { min-width: 0; animation: ria-forward var(--dur-base) var(--ease-out) both; }
 .ria-screen[data-direction="back"] { animation-name: ria-back; }
 @keyframes ria-forward { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
 @keyframes ria-back { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: none; } }
-.ria-entry-title { font-weight: 500; }
+/* The entries of Your RiA are sections like those of the other settings pages, inside the one that slides
+   between its screens: the first starts at the top, as a page's first section does, and only the section
+   under the pointer or the keyboard lights its icon, not both because the one around them is hovered. */
+.ria-screen > .settings-section:first-child { padding-top: 0; }
+.ria-screen > .settings-section:last-child { padding-bottom: 0; }
+.ria-panel:is(:hover, :focus-within) .settings-section:not(:hover, :focus-within) .settings-section-node { color: hsl(var(--muted-foreground)); box-shadow: 0 0 0 1px hsl(var(--border)); }
 .memory-group-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 28px; padding-bottom: 4px; font-size: 12px; font-weight: 500; line-height: 20px; color: hsl(var(--muted-foreground)); }
 .memory-organizing { display: inline-flex; align-items: center; gap: 6px; font-weight: 400; animation: content-in var(--dur-base) var(--ease-out) both; }
 .memory-organizing svg { width: 12px; height: 12px; }

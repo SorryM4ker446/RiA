@@ -263,12 +263,18 @@ for (const variant of variants) test.describe(`${variant.theme} theme, ${variant
     await openWorkspace(page, app.origin);
     await page.goto(`${app.origin}/tasks`);
     await expect(page.getByRole("heading", { name: "任务", exact: true })).toBeVisible();
-    const layout = await watchLayout(page, { navigation: navigation(page), content: ".workspace-content", title: page.getByRole("heading", { name: "任务", exact: true }) });
-    const toggle = page.locator(".workspace-shell").getByRole("button", { name: /主题|切换/ }).first();
+    // The theme is chosen in the settings, which open over the page; the page underneath is what must hold still.
+    await page.getByRole("button", { name: "设置", exact: true }).click();
+    await page.getByRole("tab", { name: "应用偏好", exact: true }).click();
+    const themes = page.getByRole("radiogroup", { name: "主题", exact: true });
+    const [current, other] = variant.theme === "dark" ? ["深色", "浅色"] : ["浅色", "深色"];
+    await expect(themes.getByRole("radio", { name: current, exact: true })).toBeChecked();
+    // Behind the open settings the page is out of reach by role, so its parts are named by selector.
+    const layout = await watchLayout(page, { navigation: "nav.workspace-navigation", content: ".workspace-content", title: ".workspace-content h1" });
     const before = await page.locator("html").getAttribute("class");
-    await toggle.click();
+    await themes.getByRole("radio", { name: other, exact: true }).click();
     await expect.poll(() => page.locator("html").getAttribute("class")).not.toBe(before);
-    await toggle.click();
+    await themes.getByRole("radio", { name: current, exact: true }).click();
     await expect.poll(() => page.locator("html").getAttribute("class")).toBe(before);
     const record = await layout.read();
     expectSteady(record, "navigation");

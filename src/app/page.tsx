@@ -147,6 +147,8 @@ export default function HomePage() {
           </form>
         )}
 
+        {/* Everything under the question box shares the lower half, so the box itself stays at the page's centre. */}
+        <div className="home-below">
         {recent.length ? (
           <nav className="home-recent" aria-label={t("home.today.recent")}>
             {recent.map(({ chat, state }) => (
@@ -158,7 +160,6 @@ export default function HomePage() {
             <button type="button" className="see-all-link" onClick={() => router.push("/conversations")}>{t("home.today.allConversations")}<ChevronRight aria-hidden="true" /></button>
           </nav>
         ) : null}
-      </div>
 
       {timeline.length ? (
         <section className="home-day" aria-label={t("home.today.today")}>
@@ -175,6 +176,8 @@ export default function HomePage() {
           {timeline.length > TIMELINE_ITEMS ? <button type="button" className="see-all-link" onClick={() => router.push("/tasks")}>{tf("home.today.more", { count: timeline.length - TIMELINE_ITEMS })}<ChevronRight aria-hidden="true" /></button> : null}
         </section>
       ) : null}
+        </div>
+      </div>
     </main>
   );
 }

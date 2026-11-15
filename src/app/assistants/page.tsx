@@ -12,7 +12,7 @@ import { Reveal } from "@/components/ui/reveal";
 import { useToast } from "@/components/ui/toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { Dialog, DialogContent, DialogHeader } from "@/components/ui/dialog";
 import { TemplateEditor } from "@/features/assistants/template-editor";
 import { getApiErrorMessage } from "@/lib/api-error-message";
 import { writeToClipboard } from "@/lib/clipboard";
@@ -23,6 +23,7 @@ import { chatApi } from "@/features/chat/api-client";
 import { LAST_ACTIVE_CHAT_STORAGE_KEY, type ToolCatalogItem } from "@/features/chat/types";
 import { animateRemoval, removalKey } from "@/lib/ui/removal";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useConfirmDiscard } from "@/components/ui/discard-guard";
 
 const initialConfig: AssistantConfig = { name: "", description: "", instructions: "", model: null, tools: [], collections: [], usesMemory: true };
 
@@ -36,6 +37,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export default function AssistantsPage() {
   useLocale();
   const confirm = useConfirm();
+  const mayDiscard = useConfirmDiscard();
   const toast = useToast();
   const router = useRouter();
   const [templates, setTemplates] = useState<AssistantTemplate[]>([]);
@@ -75,9 +77,19 @@ export default function AssistantsPage() {
   }
   function select(template: AssistantTemplate | null, copy = false) {
     setEditing(copy ? null : template);
-    setConfig(template ? { ...template.config, name: copy ? tf("ui.assistants.copy", { v0: template.config.name.slice(0, 54) }) : template.config.name } : initialConfig);
-    setCollections(template?.config.collections.join("\n") ?? "");
+    const nextConfig = template ? { ...template.config, name: copy ? tf("ui.assistants.copy", { v0: template.config.name.slice(0, 54) }) : template.config.name } : initialConfig;
+    setConfig(nextConfig);
+    const nextCollections = template?.config.collections.join("\n") ?? "";
+    setCollections(nextCollections);
+    opened.current = JSON.stringify([nextConfig, nextCollections]);
     setError(""); setEditorOpen(true);
+  }
+  // Closing the editor by any way other than saving asks first when the form is not as it was opened:
+  // a click beside it or Escape must not lose a long instruction.
+  const opened = useRef("");
+  async function closeEditor() {
+    if (busy) return;
+    if (await mayDiscard(JSON.stringify([config, collections]) !== opened.current)) setEditorOpen(false);
   }
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -139,12 +151,12 @@ export default function AssistantsPage() {
         </article>; })}</div>
       </section>;
     })}
-    <Sheet open={editorOpen} onOpenChange={setEditorOpen}>
-      <SheetContent side="right" className="template-editor-sheet flex flex-col gap-5 p-5 sm:p-6" onCloseAutoFocus={event => { event.preventDefault(); const target = editorTrigger.current; (target?.isConnected ? target : document.getElementById("new-template"))?.focus(); }}>
-        <header className="flex flex-col gap-2 pr-8"><SheetTitle className="break-words text-lg font-semibold">{editing ? tf("ui.assistants.edit", { v0: editing.config.name }) : t("ui.assistants.newCustomTemplate")}</SheetTitle><SheetDescription className="text-sm text-muted-foreground">{t("ui.assistants.savedIndependentlyWhenAppliedToA")}</SheetDescription></header>
-        <Reveal className="-mt-5">{error ? <p role="alert" className="mt-5 rounded-lg bg-destructive/5 p-3 text-sm text-destructive shadow-hairline">{localizeMessage(error)}</p> : null}</Reveal>
-        <TemplateEditor config={config} setConfig={setConfig} collections={collections} setCollections={setCollections} models={models} tools={tools} disabled={busy || loading} busy={busy} onSubmit={save} />
-      </SheetContent>
-    </Sheet>
+    <Dialog open={editorOpen} onOpenChange={open => { if (!open) void closeEditor(); }}>
+      <DialogContent className="dialog-wide" onCloseAutoFocus={event => { event.preventDefault(); const target = editorTrigger.current; (target?.isConnected ? target : document.getElementById("new-template"))?.focus(); }}>
+        <DialogHeader title={editing ? tf("ui.assistants.edit", { v0: editing.config.name }) : t("ui.assistants.newCustomTemplate")} description={t("ui.assistants.savedIndependentlyWhenAppliedToA")} />
+        <Reveal className="-mt-4">{error ? <p role="alert" className="mt-4 rounded-lg bg-destructive/5 p-3 text-sm text-destructive shadow-hairline">{localizeMessage(error)}</p> : null}</Reveal>
+        <TemplateEditor config={config} setConfig={setConfig} collections={collections} setCollections={setCollections} models={models} tools={tools} disabled={busy || loading} busy={busy} onSubmit={save} onCancel={() => void closeEditor()} />
+      </DialogContent>
+    </Dialog>
   </main>;
 }

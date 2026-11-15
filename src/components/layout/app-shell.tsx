@@ -17,7 +17,6 @@ import {
   Settings,
   Images,
 } from "lucide-react";
-import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { WindowControls } from "@/components/layout/window-controls";
 import { CommandPalette, CommandSearchButton } from "@/features/commands/command-palette";
 import { RailResizer } from "@/components/layout/rail-resizer";
@@ -120,18 +119,15 @@ function SidebarBody({ pathname, action }: { pathname: string; action: React.Rea
       {/* Everything that configures the app lives in one settings overlay, opened over the current page. */}
       <div className="mt-auto flex flex-col gap-1 border-t pt-3">
         <UpdateNotice />
-        <div className="flex items-center gap-1 pr-2">
-          <button
-            type="button"
-            aria-haspopup="dialog"
-            className="workspace-nav-link min-w-0 flex-1"
-            onClick={() => openSettings()}
-          >
-            <Settings aria-hidden="true" className="size-4 shrink-0" />
-            {t("nav.settings")}
-          </button>
-          <ThemeToggle />
-        </div>
+        <button
+          type="button"
+          aria-haspopup="dialog"
+          className="workspace-nav-link"
+          onClick={() => openSettings()}
+        >
+          <Settings aria-hidden="true" className="size-4 shrink-0" />
+          {t("nav.settings")}
+        </button>
       </div>
     </div>
   );

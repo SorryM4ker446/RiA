@@ -1,12 +1,13 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { Pencil, Trash2, X } from "lucide-react";
+import { FileText, Pencil, Sparkles, Trash2, X } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SettingsSection } from "@/features/settings/settings-section";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { getApiErrorMessage } from "@/lib/api-error-message";
@@ -174,17 +175,16 @@ export function YourRia() {
     const memoryHint = !view ? (loadFailed ? t("settings.yourRia.memory.loadFailed") : "") : !noteCount ? t("settings.yourRia.memory.empty")
       : view.topics.length ? tf("settings.yourRia.memory.count", { topics: view.topics.length, notes: noteCount }) : tf("settings.yourRia.memory.countUnsorted", { notes: noteCount });
     content = <>
-      <div className="setting-rows">
-        <div className="setting-row">
-          <span className="setting-row-label"><span className="ria-entry-title">{t("settings.yourRia.memory.title")}</span><span className="setting-row-hint">{memoryHint || <Skeleton className="h-4 w-32" />}</span></span>
-          {view ? <Button type="button" size="sm" variant="secondary" data-ria-focus="" onClick={() => go({ name: "memory" }, "forward")}>{t("settings.yourRia.memory.manage")}</Button>
-            : loadFailed ? <Button type="button" size="sm" variant="ghost" onClick={() => void load()}>{t("settings.yourRia.memory.retry")}</Button> : null}
-        </div>
-        <div className="setting-row">
-          <span className="setting-row-label"><span className="ria-entry-title">MEMORY.md</span><span className="setting-row-hint">{t("settings.yourRia.source.description")}</span></span>
-          {view ? <Button type="button" size="sm" variant="secondary" onClick={() => go({ name: "source" }, "forward")}>{t("settings.yourRia.source.view")}</Button> : null}
-        </div>
-      </div>
+      {/* Two sections like those of the other settings pages: an icon on the rail, a title, a line about it, and its one action. The memory carries the page's own icon. */}
+      <SettingsSection icon={Sparkles} title={t("settings.yourRia.memory.title")}
+        action={view ? <Button type="button" size="sm" variant="secondary" data-ria-focus="" onClick={() => go({ name: "memory" }, "forward")}>{t("settings.yourRia.memory.manage")}</Button>
+          : loadFailed ? <Button type="button" size="sm" variant="ghost" onClick={() => void load()}>{t("settings.yourRia.memory.retry")}</Button> : null}>
+        <div className="text-xs leading-relaxed text-muted-foreground">{memoryHint || <Skeleton className="h-4 w-32" />}</div>
+      </SettingsSection>
+      <SettingsSection icon={FileText} title="MEMORY.md"
+        action={view ? <Button type="button" size="sm" variant="secondary" onClick={() => go({ name: "source" }, "forward")}>{t("settings.yourRia.source.view")}</Button> : null}>
+        <p className="text-xs leading-relaxed text-muted-foreground">{t("settings.yourRia.source.description")}</p>
+      </SettingsSection>
     </>;
   } else if (shown.name === "memory") {
     header = <PageHeader level={2} trail={trail(home)} title={t("settings.yourRia.memory.title")} description={t("settings.yourRia.memory.description")} />;

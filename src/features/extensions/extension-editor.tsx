@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { SelectField, SelectOption } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
+import { useConfirmDiscard, useFormChanged } from "@/components/ui/discard-guard";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getApiErrorMessage } from "@/lib/api-error-message";
 import type { ExtensionView } from "@/lib/extensions/store";
@@ -41,6 +42,10 @@ export function ExtensionEditor({ row, draft, open, returnFocus, encryptionAvail
   const [invalid, setInvalid] = useState("");
   const pending = useRef<AbortController | null>(null);
   useEffect(() => () => pending.current?.abort(), []);
+  // Leaving without saving asks first when the configuration was changed since it opened.
+  const changed = useFormChanged([name, kind, url, command, cwd, args, permission, method, description, schema, credentials, clearCredentials]);
+  const mayDiscard = useConfirmDiscard();
+  async function requestClose() { if (!busy && await mayDiscard(changed)) onClose(); }
 
   async function save(event: FormEvent) {
     event.preventDefault(); if (pending.current) return;
@@ -69,10 +74,10 @@ export function ExtensionEditor({ row, draft, open, returnFocus, encryptionAvail
     finally { pending.current = null; setBusy(false); }
   }
   // The form owns the request. Closing while idle discards only this draft.
-  return <Sheet open={open} onOpenChange={next => { if (!next && !busy) onClose(); }}><SheetContent side="right" className="extension-editor flex flex-col" closeLabel={t("ui.extensions.extension-editor.closeExtensionConfiguration")} onCloseAutoFocus={event => { event.preventDefault(); setCredentials([{ key: "", value: "" }]); returnFocus(); }}>
-    <header className="flex shrink-0 flex-col gap-2 px-6 pb-4 pt-7 pr-14"><SheetTitle>{row ? t("ui.extensions.extension-editor.editExtension") : t("ui.extensions.extension-editor.addExtension")}</SheetTitle><SheetDescription className="break-words [overflow-wrap:anywhere]">{draft ? tf("ui.extensions.extension-editor.fromTheOfficialMCPRegistryV", { v0: draft.source.name, v1: draft.source.version }) : t("ui.extensions.extension-editor.configureTheConnectionThenTestAnd")}</SheetDescription></header>
-    <form onSubmit={event => void save(event)} className="flex min-h-0 flex-1 flex-col">
-      <div className="chat-list-scroll flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-6 pb-6">
+  return <Dialog open={open} onOpenChange={next => { if (!next) void requestClose(); }}><DialogContent closeLabel={t("ui.extensions.extension-editor.closeExtensionConfiguration")} onCloseAutoFocus={event => { event.preventDefault(); setCredentials([{ key: "", value: "" }]); returnFocus(); }}>
+    <DialogHeader title={row ? t("ui.extensions.extension-editor.editExtension") : t("ui.extensions.extension-editor.addExtension")} description={draft ? tf("ui.extensions.extension-editor.fromTheOfficialMCPRegistryV", { v0: draft.source.name, v1: draft.source.version }) : t("ui.extensions.extension-editor.configureTheConnectionThenTestAnd")} />
+    <form onSubmit={event => void save(event)} className="dialog-form">
+      <DialogBody>
         {error && <Alert variant="destructive"><AlertTitle>{t("ui.extensions.extension-editor.unsaved")}</AlertTitle><AlertDescription>{localizeMessage(error)}</AlertDescription></Alert>}
         <fieldset disabled={busy} className="min-w-0"><FieldGroup className="gap-5">
           <Field><FieldLabel htmlFor="extension-name">{t("ui.extensions.extension-editor.extensionName")}</FieldLabel><Input id="extension-name" required maxLength={80} value={name} onChange={event => setName(event.target.value)} placeholder={t("ui.extensions.extension-editor.forExampleMyKnowledgeService")} /></Field>
@@ -96,8 +101,8 @@ export function ExtensionEditor({ row, draft, open, returnFocus, encryptionAvail
             {row?.hasCredentials && <Field orientation="horizontal"><input id="extension-clear" type="checkbox" checked={clearCredentials} onChange={event => setClearCredentials(event.target.checked)} /><FieldLabel htmlFor="extension-clear">{t("ui.extensions.extension-editor.clearSavedCredentials")}</FieldLabel></Field>}
           </FieldGroup>
         </FieldGroup></fieldset>
-      </div>
-      <footer className="flex shrink-0 items-center justify-end gap-2 px-6 py-4"><Button type="button" variant="ghost" disabled={busy} onClick={onClose}>{t("knowledge.cancelEdit")}</Button><Button type="submit" disabled={busy || (!encryptionAvailable && credentials.some(item => item.required || item.value))}>{busy && <Spinner data-icon="inline-start" />}{t("ui.extensions.extension-editor.saveConfiguration")}</Button></footer>
+      </DialogBody>
+      <DialogFooter><Button type="button" variant="ghost" disabled={busy} onClick={() => void requestClose()}>{t("knowledge.cancelEdit")}</Button><Button type="submit" disabled={busy || (!encryptionAvailable && credentials.some(item => item.required || item.value))}>{busy && <Spinner data-icon="inline-start" />}{t("ui.extensions.extension-editor.saveConfiguration")}</Button></DialogFooter>
     </form>
-  </SheetContent></Sheet>;
+  </DialogContent></Dialog>;
 }

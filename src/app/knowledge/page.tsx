@@ -22,7 +22,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTrigger } from "@/components/ui/dialog";
+import { useConfirmDiscard } from "@/components/ui/discard-guard";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
@@ -101,6 +102,7 @@ function KnowledgeWorkspace() {
   const [search, setSearch] = useState("");
   const entryRequest = useRef<AbortController | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const mayDiscard = useConfirmDiscard();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   // How many entries wait to be confirmed: a short page of them is enough to say "some, or many".
@@ -345,20 +347,26 @@ function KnowledgeWorkspace() {
   </nav>;
   const importAction = <Button size="sm" aria-expanded={importOpen} onClick={() => setImportOpen(open => !open)}><Upload data-icon="inline-start" />{t("documents.import")}</Button>;
 
+  // Leaving the new entry without saving asks first when something was written, and then drops it.
+  async function closeCreator() {
+    if (isSaving || !(await mayDiscard(Boolean(key.trim() || value.trim())))) return;
+    // A refusal of the entry just dropped has nothing left to refer to.
+    setKey(""); setValue(""); setError(null); setCreateOpen(false);
+  }
   const entryCreator = (trigger: ReactNode) => (
-    <Sheet open={createOpen} onOpenChange={open => { if (!isSaving) { setCreateOpen(open); if (open) setError(null); } }}>
-      <SheetTrigger asChild>{trigger}</SheetTrigger>
-      <SheetContent side="right" className="knowledge-entry-sheet flex flex-col gap-5 p-5 sm:p-6" closeLabel={t("ui.knowledge.closeNewKnowledgeEntry")}>
-        <header className="flex flex-col gap-2 pr-8"><SheetTitle>{t("knowledge.createTitle")}</SheetTitle><SheetDescription>{t("knowledge.createDescription")}</SheetDescription></header>
-        <form className="flex min-h-0 flex-1 flex-col gap-5" onSubmit={onSubmit}>
-          <div className="chat-list-scroll flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
+    <Dialog open={createOpen} onOpenChange={open => { if (!open) void closeCreator(); else if (!isSaving) { setCreateOpen(true); setError(null); } }}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent closeLabel={t("ui.knowledge.closeNewKnowledgeEntry")}>
+        <DialogHeader title={t("knowledge.createTitle")} description={t("knowledge.createDescription")} />
+        <form className="dialog-form" onSubmit={onSubmit}>
+          <DialogBody>
             <Reveal>{error ? <Alert variant="destructive"><AlertTitle>{t("knowledge.error.title")}</AlertTitle><AlertDescription>{localizeMessage(error)}</AlertDescription></Alert> : null}</Reveal>
             <FieldGroup><Field><FieldLabel htmlFor="knowledge-entry-key">{t("knowledge.keyPlaceholder")}</FieldLabel><Input id="knowledge-entry-key" disabled={isSaving} onChange={event => setKey(event.target.value)} placeholder={t("knowledge.keyPlaceholder")} value={key} /></Field><Field><FieldLabel htmlFor="knowledge-entry-value">{t("knowledge.valuePlaceholder")}</FieldLabel><Textarea id="knowledge-entry-value" disabled={isSaving} rows={8} onChange={event => setValue(event.target.value)} placeholder={t("knowledge.valuePlaceholder")} value={value} /></Field></FieldGroup>
-          </div>
-          <footer className="flex shrink-0 justify-end gap-2"><Button type="button" variant="ghost" disabled={isSaving} onClick={() => setCreateOpen(false)}>{t("knowledge.cancelEdit")}</Button><Button disabled={isSaving || isLoading} type="submit">{isSaving ? <Spinner data-icon="inline-start" /> : <Plus data-icon="inline-start" />}{t("knowledge.create")}</Button></footer>
+          </DialogBody>
+          <DialogFooter><Button type="button" variant="ghost" disabled={isSaving} onClick={() => void closeCreator()}>{t("knowledge.cancelEdit")}</Button><Button disabled={isSaving || isLoading} type="submit">{isSaving ? <Spinner data-icon="inline-start" /> : <Plus data-icon="inline-start" />}{t("knowledge.create")}</Button></DialogFooter>
         </form>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 
   const entryRows = (items: KnowledgeEntry[], highlight = "") => (

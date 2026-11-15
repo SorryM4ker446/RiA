@@ -1,4 +1,5 @@
 import { test as base, expect, type Page } from "@playwright/test";
+import { useLightTheme } from "../helpers/theme";
 import { mkdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -78,7 +79,7 @@ test("document details integrate compact copy editing and export while legacy li
   await mkdir(screenshots, { recursive: true });
   await page.screenshot({ path: join(screenshots, "mobile-layout.png"), animations: "disabled" });
   await page.setViewportSize({ width: 1440, height: 960 });
-  await page.getByRole("button", { name: "切换主题", exact: true }).click();
+  await useLightTheme(page);
   await page.getByRole("tab", { name: "版式预览", exact: true }).click();
   await expect(page.frameLocator('iframe[title="文档版式预览"]').getByRole("heading", { name: "整理后的副本", exact: true })).toBeVisible();
   await page.screenshot({ path: join(screenshots, "desktop-light.png"), animations: "disabled" });

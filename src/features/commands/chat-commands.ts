@@ -26,6 +26,19 @@ export function sendChatCommand(command: ChatCommand, { onChatPage, navigate }: 
   navigate("/chat");
 }
 
+/**
+ * The command another page left for the chat page, read without taking it. The page uses it to know,
+ * before it draws anything, that it is being opened to start a new conversation rather than to return
+ * to the last one.
+ */
+export function waitingChatCommand(): ChatCommand | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const pending = sessionStorage.getItem(PENDING);
+    return pending ? JSON.parse(pending) as ChatCommand : null;
+  } catch { return null; }
+}
+
 /** Runs chat commands on the chat page; one left by another page runs once the page is ready. */
 export function useChatCommands(run: (command: ChatCommand) => void, ready: boolean) {
   const handler = useRef(run);

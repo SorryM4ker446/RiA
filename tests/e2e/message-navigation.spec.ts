@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { useLightTheme } from "../helpers/theme";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -108,7 +109,7 @@ test("desktop markers preview and locate messages with mouse and keyboard while 
   await expect(preview).toBeVisible();
   await page.screenshot({ path: join(screenshots, "desktop-dark.png"), animations: "disabled" });
   await page.mouse.move(300, 100);
-  await page.getByRole("button", { name: "切换主题", exact: true }).click();
+  await useLightTheme(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await mark(page, "a-4").click(); await expectLocated(page, "a-4");
   await page.mouse.move(800, 100); await expect(preview).toHaveCount(0);

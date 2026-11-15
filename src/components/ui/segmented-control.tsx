@@ -12,6 +12,7 @@ type SegmentedControlProps<T extends string> = {
   onValueChange: (value: T) => void;
   "aria-label"?: string;
   "aria-labelledby"?: string;
+  "aria-describedby"?: string;
   /** While a choice is being saved: the control stays as it is and ignores further choices. */
   busy?: boolean;
   size?: "default" | "sm";

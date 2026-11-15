@@ -43,7 +43,7 @@ test("compact knowledge layout imports and searches documents, expands long entr
   await page.getByRole("navigation", { name: "所在位置", exact: true }).getByRole("button", { name: "知识库", exact: true }).click();
   await page.getByRole("button", { name: "新增条目", exact: true }).click();
   const sheet = page.getByRole("dialog", { name: "新增条目", exact: true });
-  await expect(sheet).toHaveCSS("animation-name", "sheet-in");
+  await expect(sheet).toHaveCSS("animation-name", "dialog-panel-in");
   const content = "保留完整知识内容。".repeat(40) + "FULL_KNOWLEDGE_END";
   await sheet.getByLabel("条目名称", { exact: true }).fill("售后政策");
   await sheet.getByLabel("条目内容", { exact: true }).fill(content);
@@ -79,9 +79,17 @@ test("compact knowledge layout imports and searches documents, expands long entr
   await expect(sheet).toHaveCSS("animation-name", "none");
   await sheet.getByLabel("条目名称", { exact: true }).fill("保留草稿");
   await page.screenshot({ path: join(shots, "mobile-create-light.png"), animations: "disabled" });
-  await page.keyboard.press("Escape"); await expect(sheet).toBeHidden();
+  // Something was written, so leaving asks first: keeping the form keeps it, discarding drops it.
+  await page.keyboard.press("Escape");
+  const discard = page.getByRole("alertdialog", { name: "放弃未保存的更改？", exact: true });
+  await discard.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(sheet.getByLabel("条目名称", { exact: true })).toHaveValue("保留草稿");
+  await sheet.getByRole("button", { name: "取消", exact: true }).click();
+  await discard.getByRole("button", { name: "放弃更改", exact: true }).click();
+  await expect(sheet).toBeHidden();
   await expect(page.getByRole("button", { name: "新增条目", exact: true })).toBeFocused();
-  await page.getByRole("button", { name: "新增条目", exact: true }).click(); await expect(sheet.getByLabel("条目名称", { exact: true })).toHaveValue("保留草稿");
+  await page.getByRole("button", { name: "新增条目", exact: true }).click(); await expect(sheet.getByLabel("条目名称", { exact: true })).toHaveValue("");
+  // With nothing written it closes at once.
   await page.keyboard.press("Escape"); await expect(sheet).toBeHidden();
   await page.getByRole("link", { name: filename, exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: join(shots, "mobile-library-light.png"), animations: "disabled" });

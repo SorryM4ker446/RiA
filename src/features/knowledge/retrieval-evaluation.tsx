@@ -87,7 +87,7 @@ export function RetrievalEvaluation() {
         {item.unexpectedEvidence ? <p className="max-w-3xl text-xs leading-6 text-muted-foreground">{t("ui.knowledge.retrieval-evaluation.materialWasRetrievedForAnExpected")}</p> : null}
         {!item.answerable && item.answer ? <p className="text-xs">{t("ui.knowledge.retrieval-evaluation.thisQuestionIsExpectedToBe")}</p> : null}
         <QualityAssessment value={item.quality} /><RetrievalDiagnostics value={item.diagnostics} />
-        {item.answer ? <pre className="whitespace-pre-wrap break-words rounded bg-muted p-3 text-xs">{item.answer}</pre> : null}
+        {item.answer ? <pre className="whitespace-pre-wrap break-words rounded bg-muted p-3 font-sans text-xs">{item.answer}</pre> : null}
         <DocumentSources sources={item.sources} />
       </article>)}
     </div> : null}

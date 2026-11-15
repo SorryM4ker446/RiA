@@ -1,4 +1,5 @@
 import { openExecutionDetails } from "../helpers/execution-records";
+import { useLightTheme } from "../helpers/theme";
 import { test as base, expect, type Page } from "@playwright/test";
 import { chatTitle, openChatMenu, closeChatMenu, chooseTemplate } from "../helpers/chat-header";
 import { openDocumentImport, previewImportButton } from "../helpers/knowledge";
@@ -126,7 +127,7 @@ test("template details keep snapshot metadata out of the chat header and use acc
   const dir = join(tmpdir(), "ria-template-details-qa"); await mkdir(dir, { recursive: true });
   await page.screenshot({ path: join(dir, "desktop-dark.png"), animations: "disabled" });
   await page.keyboard.press("Escape"); await expect(details).toBeHidden(); await expect(trigger).toBeFocused();
-  await page.getByRole("button", { name: "切换主题", exact: true }).click();
+  await useLightTheme(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await (await openChatMenu(page)).getByRole("menuitem", { name: "模板详情", exact: true }).click();
@@ -159,6 +160,12 @@ test("template instructions copy to the clipboard while creating a copy opens an
   await expect(drawer).toBeVisible();
   await expect(drawer.getByLabel("模板名称", { exact: true })).toHaveValue("代码助理 副本");
   await expect(drawer.getByLabel("助理指令", { exact: true })).toHaveValue(original.config.instructions);
+  // The form is taller than the window: it scrolls inside the dialog, and the actions stay under it rather than over it.
+  expect(await drawer.evaluate(dialog => {
+    const body = dialog.querySelector(".dialog-body")!.getBoundingClientRect(), footer = dialog.querySelector(".dialog-footer")!.getBoundingClientRect();
+    const scroller = dialog.querySelector(".dialog-body")!;
+    return { scrolls: scroller.scrollHeight > scroller.clientHeight, clear: body.bottom <= footer.top, inside: footer.bottom <= dialog.getBoundingClientRect().bottom };
+  })).toEqual({ scrolls: true, clear: true, inside: true });
   // Every search uses one default; a template has no retrieval settings of its own.
   await expect(drawer.getByText("检索策略", { exact: true })).toHaveCount(0);
   await page.keyboard.press("Escape"); await expect(drawer).toBeHidden(); await expect(more).toBeFocused();
@@ -171,7 +178,14 @@ test("template instructions copy to the clipboard while creating a copy opens an
   await drawer.getByLabel("助理指令", { exact: true }).fill("移动窗口中保留的指令");
   const dir = join(tmpdir(), "ria-assistant-qa"); await mkdir(dir, { recursive: true });
   await page.screenshot({ path: join(dir, "editor-mobile.png"), animations: "disabled" });
+  // Once something was written, closing asks first; keeping the form keeps what was written.
   await page.keyboard.press("Escape");
+  const discard = page.getByRole("alertdialog", { name: "放弃未保存的更改？", exact: true });
+  await discard.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(drawer.getByLabel("助理指令", { exact: true })).toHaveValue("移动窗口中保留的指令");
+  await drawer.getByRole("button", { name: "取消", exact: true }).click();
+  await discard.getByRole("button", { name: "放弃更改", exact: true }).click();
+  await expect(drawer).toBeHidden();
   await expect(page.getByRole("button", { name: "新建模板", exact: true })).toBeFocused();
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.getByRole("button", { name: "新建模板", exact: true }).click();

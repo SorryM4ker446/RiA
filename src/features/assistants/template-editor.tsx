@@ -5,6 +5,7 @@ import { t } from "@/lib/locale";
 
 import type { Dispatch, FormEvent, SetStateAction } from "react";
 import { Button } from "@/components/ui/button";
+import { DialogBody, DialogFooter } from "@/components/ui/dialog";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { SelectField, SelectOption } from "@/components/ui/select";
@@ -24,16 +25,17 @@ type Props = {
   disabled: boolean;
   busy: boolean;
   onSubmit: (event: FormEvent) => void;
+  onCancel: () => void;
 };
 
-export function TemplateEditor({ config, setConfig, collections, setCollections, models, tools, disabled, busy, onSubmit }: Props) {
+export function TemplateEditor({ config, setConfig, collections, setCollections, models, tools, disabled, busy, onSubmit, onCancel }: Props) {
   useLocale();
-  return <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col gap-4">
-    <fieldset disabled={disabled} className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain pr-1">
+  return <form onSubmit={onSubmit} className="dialog-form">
+    <DialogBody><fieldset disabled={disabled} className="flex min-w-0 flex-col gap-5">
       <FieldGroup className="gap-4">
         <Field className="gap-2"><FieldLabel htmlFor="template-name">{t("ui.assistants.template-editor.templateName")}</FieldLabel><Input id="template-name" required maxLength={60} value={config.name} onChange={event => setConfig({ ...config, name: event.target.value })} /></Field>
         <Field className="gap-2"><FieldLabel htmlFor="template-description">{t("ui.assistants.template-editor.description")}</FieldLabel><Input id="template-description" maxLength={300} value={config.description} onChange={event => setConfig({ ...config, description: event.target.value })} /></Field>
-        <Field className="gap-2"><FieldLabel htmlFor="template-instructions">{t("ui.assistants.template-details.assistantInstructions")}</FieldLabel><Textarea id="template-instructions" required maxLength={6000} className="min-h-32" value={config.instructions} onChange={event => setConfig({ ...config, instructions: event.target.value })} /></Field>
+        <Field className="gap-2"><FieldLabel htmlFor="template-instructions">{t("ui.assistants.template-details.assistantInstructions")}</FieldLabel><Textarea id="template-instructions" required maxLength={6000} className="min-h-56" value={config.instructions} onChange={event => setConfig({ ...config, instructions: event.target.value })} /></Field>
         <Field className="gap-2"><FieldLabel htmlFor="template-model">{t("ui.assistants.template-editor.assignedChatModel")}</FieldLabel><SelectField id="template-model" value={config.model ? modelRefKey(config.model) : ""} onValueChange={value => { const item = models.find(model => modelRefKey(model) === value); setConfig({ ...config, model: item ? { providerId: item.providerId, modelId: item.modelId } : null }); }}>
           <SelectOption value="">{t("ui.assistants.template-details.followConversationSetting")}</SelectOption>
           {config.model && !models.some(model => modelRefKey(model) === modelRefKey(config.model!)) ? <SelectOption value={modelRefKey(config.model)}>{t("ui.assistants.template-editor.removed")}{config.model.modelId}</SelectOption> : null}
@@ -43,7 +45,7 @@ export function TemplateEditor({ config, setConfig, collections, setCollections,
         <Field className="gap-2"><FieldLabel htmlFor="template-collections">{t("ui.assistants.template-editor.knowledgeCollectionsOnePerLineBlank")}</FieldLabel><Textarea id="template-collections" rows={2} maxLength={600} value={collections} onChange={event => setCollections(event.target.value)} />{collections.trim() && !config.tools.includes("searchKnowledge") ? <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"><FieldDescription>{t("ui.assistants.template-editor.collectionsNeedSearch")}</FieldDescription><Button type="button" size="sm" variant="secondary" onClick={() => setConfig({ ...config, tools: [...config.tools, "searchKnowledge"] })}>{t("ui.assistants.template-editor.enableSearch")}</Button></div> : null}</Field>
         <Field orientation="horizontal" className="gap-2"><input id="template-memory" type="checkbox" className="size-3.5 accent-foreground" checked={config.usesMemory} onChange={event => setConfig({ ...config, usesMemory: event.target.checked })} /><FieldLabel htmlFor="template-memory">{t("ui.assistants.template-editor.useLongTermMemory")}</FieldLabel></Field>
       </FieldGroup>
-    </fieldset>
-    <div className="flex shrink-0 justify-end"><Button type="submit" disabled={disabled}>{busy ? t("ui.assistants.template-editor.saving") : t("ui.assistants.template-editor.saveTemplate")}</Button></div>
+    </fieldset></DialogBody>
+    <DialogFooter><Button type="button" variant="ghost" disabled={busy} onClick={onCancel}>{t("chat.common.cancel")}</Button><Button type="submit" disabled={disabled}>{busy ? t("ui.assistants.template-editor.saving") : t("ui.assistants.template-editor.saveTemplate")}</Button></DialogFooter>
   </form>;
 }
