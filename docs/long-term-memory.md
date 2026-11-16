@@ -14,10 +14,16 @@ saved on request and found by matching. The switch does not touch them.
 
 Judging and extracting are separate, so neither can stand in for the other.
 
-**Judging.** The chat model decides, by calling the `extractMemory` tool. Its description
-says most turns do not qualify and spells out what does: something that will matter in a
-future, unrelated conversation and that MEMORY.md does not already say. It leaves out this
-task's progress, what a document or history records, small talk and guesses. The tool is
+**Judging.** The chat model decides, by calling the `extractMemory` tool. There is no list
+of trigger words: the tool's description and a line in the system prompt give one test,
+whether a later conversation would go better for knowing this and whether the user would
+expect it to be remembered. The usual cases are who the user is, how they want the model to
+work (answer length, format, language, tone, a correction) and lasting facts no file
+records, including ones mentioned in passing while asking for something else. It leaves out
+this task's progress and details, what a document or history records, small talk, guesses,
+and anything a page, file or tool result says rather than the user. Worked examples of both
+come with the tool's description (a teacher's subject mentioned while asking for a quiz is
+noted; a draft's working title is not). The tool is
 offered only while memory is on, in any template that allows a tool, and stops if the user
 says in the conversation not to use it, like every tool only the model calls.
 

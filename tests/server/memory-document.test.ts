@@ -160,9 +160,11 @@ test("the model is offered the tool only while long-term memory is on, and a per
   const tool = getToolDescriptor("extractMemory")!;
   assert.equal(tool.surface.user, null);
   assert.equal(tool.surface.underlying, "model");
-  // It says when to note (who they are, standing preferences) and still keeps small talk and others' words out.
-  assert.match(tool.modelDescription, /standing preference/);
-  assert.match(tool.modelDescription, /small talk or passing remarks/);
+  // When to note is the model's judgement, by one test, with who they are and how they want it to work as the usual cases;
+  // small talk and others' words stay out.
+  assert.match(tool.modelDescription, /would a later conversation go better if you knew this/);
+  assert.match(tool.modelDescription, /how they want you to work/);
+  assert.match(tool.modelDescription, /small talk or a passing remark/);
   assert.match(tool.modelDescription, /web page, file or tool result/);
   assert.match(tool.modelDescription, /never tell the user you have noted or will remember something unless you called it/);
   // The same rule is in the system prompt, only while memory is on and the tool is offered.

@@ -31,7 +31,7 @@ export const TOOL_ENABLED_INSTRUCTIONS = [
 
 /** Added only while long-term memory is on and its tool is offered. */
 export const MEMORY_INSTRUCTIONS = [
-  "Long-term memory (MEMORY.md) changes only when you call extractMemory. When the user tells you who they are or how they want you to work from now on (for example \"I'm a backend engineer; always reply in English\"), call extractMemory in that same turn, alongside your reply: following it in this conversation alone does not keep it for the next one. Do not say you have remembered, noted or recorded something (记住、记下、记录) unless you called extractMemory this turn; acknowledge a passing remark without those words.",
+  "Long-term memory (MEMORY.md) changes only when you call extractMemory, and when to call it is your judgement. The test: would a later conversation go better if you knew this, and would the user expect you to still know it then? When something the user shares passes it, call extractMemory in that same turn alongside your reply, even when it is mentioned in passing while they ask for something else (their job or field, how they want answers); following it in this conversation alone does not carry it over. Small talk and this task's details do not pass. Never say you have remembered, noted or recorded something (记住、记下、记录) unless you called extractMemory this turn.",
 ];
 
 /** Added only on a turn that is given the terminal. */
