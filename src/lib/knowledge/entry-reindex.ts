@@ -32,7 +32,7 @@ export async function staleEmbeddingSummary() {
   return { total: rows.length, stale: stale.length, embedding: ref ? modelRefKey(ref) : null };
 }
 
-export async function reindexStaleEmbeddings(): Promise<{ reindexed: number; remaining: number; embedding: string | null }> {
+export async function reindexStaleEmbeddings(): Promise<{ reindexed: number; remaining: number; embedding: string | null; error?: unknown }> {
   const ref = await currentEmbeddingRef();
   const summary = await staleEmbeddingSummary();
   if (!ref) return { reindexed: 0, remaining: summary.stale, embedding: null };
@@ -58,9 +58,12 @@ export async function reindexStaleEmbeddings(): Promise<{ reindexed: number; rem
   });
 
   let reindexed = 0;
+  // The first refusal, kept so the run that stops on it can say why.
+  let failure: unknown;
   for (let index = 0; index < targets.length; index += BATCH_SIZE) {
     const batch = targets.slice(index, index + BATCH_SIZE);
-    const { embeddings, modelRef } = await embedTextsWithModel(batch.map(row => `${row.key} ${row.value}`));
+    const { embeddings, modelRef, error } = await embedTextsWithModel(batch.map(row => `${row.key} ${row.value}`));
+    if (error !== undefined && failure === undefined) failure = error;
     await db.$transaction(batch.map((row, offset) => {
       const embedding = embeddings[offset];
       // A failed batch leaves the row without a vector rather than storing one
@@ -73,5 +76,5 @@ export async function reindexStaleEmbeddings(): Promise<{ reindexed: number; rem
     }));
   }
 
-  return { reindexed, remaining: (await staleEmbeddingSummary()).stale, embedding: modelRefKey(ref) };
+  return { reindexed, remaining: (await staleEmbeddingSummary()).stale, embedding: modelRefKey(ref), ...(failure !== undefined ? { error: failure } : {}) };
 }

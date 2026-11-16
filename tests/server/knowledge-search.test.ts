@@ -187,6 +187,27 @@ test("knowledge entries get their vectors in the same run, and a refusal stops i
   assert.equal((await staleEmbeddingSummary()).stale, 0, "a model change rebuilds them too");
 });
 
+test("indexing stopped by a rejected key says so and where to fix it, and a plain outage stays general", async () => {
+  const { APICallError } = await import("ai");
+  await saveKnowledgeEntry({ key: "报销时限", value: "十个工作日内提交。" });
+  await useEmbedding();
+  providerState.embeddingFunction = () => { throw new APICallError({ message: "No auth credentials found", url: "https://openrouter.ai/api/v1/embeddings", requestBodyValues: {}, statusCode: 401, isRetryable: false }); };
+  scheduleDocumentIndexing(); await documentIndexingSettled();
+  const rejected = documentIndexingStatus();
+  assert.equal(rejected.failed, "CONFIGURATION_ERROR");
+  assert.equal(rejected.failure?.fix, "apiKeys");
+  assert.match(rejected.failure?.message ?? "", /OpenRouter 拒绝了 API 密钥/);
+  providerState.embeddingFunction = undefined;
+  providerState.embeddingError = true;
+  scheduleDocumentIndexing(); await documentIndexingSettled();
+  const outage = documentIndexingStatus();
+  assert.ok(outage.failed);
+  assert.equal(outage.failure?.fix, undefined, "nothing in the settings fixes an outage");
+  providerState.embeddingError = false;
+  scheduleDocumentIndexing(); await documentIndexingSettled();
+  assert.deepEqual(documentIndexingStatus(), { running: false, failed: null }, "a later success clears it");
+});
+
 test("an entry holds a place by meaning only when it is as close as the documents that made the list", async () => {
   await useEmbedding();
   // On this model's scale passages about rules sit at 0.8. An unrelated entry at 0.5 would

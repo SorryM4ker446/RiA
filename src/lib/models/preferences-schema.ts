@@ -27,7 +27,7 @@ const price = z.number().min(0).max(PRICE_MAX).nullable();
  * The estimated USD limits may also be empty, meaning no limit.
  */
 export const callLimitRanges = {
-  maxConcurrent: { min: 1, max: 16, integer: true },
+  maxConcurrent: { min: 1, max: 32, integer: true },
   compactionCallsPerTurn: { min: 1, max: 1000, integer: true },
   backgroundDailyCalls: { min: 0, max: 1000, integer: true },
   backgroundMaxEstimatedUsd: { min: 0, max: PRICE_MAX, integer: false },
@@ -85,6 +85,11 @@ export const modelLibraryItemSchema = z.strictObject({
 });
 export type ModelLibraryItem = z.infer<typeof modelLibraryItemSchema>;
 
+/** This computer's time zone, or UTC when the runtime cannot tell. */
+export function systemTimeZone(): string {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { return "UTC"; }
+}
+
 /** How many model calls may run at once unless the user chooses otherwise. */
 export const DEFAULT_MAX_CONCURRENT = 8;
 export const legacyModelCandidateSchema = z.strictObject({ mode: z.enum(libraryModes), ref: modelRefSchema });
@@ -103,8 +108,9 @@ const preferencesShape = {
     compactionCallsPerTurn: callCount(callLimitRanges.compactionCallsPerTurn).default(20),
     backgroundMaxEstimatedUsd: price.default(null),
     backgroundDailyEstimatedUsd: price.default(null),
-    timeZone: z.string().min(1).max(100).refine(value => { try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; } catch { return false; } }).default("Asia/Shanghai"),
-  }).default({ maxConcurrent: DEFAULT_MAX_CONCURRENT, backgroundDailyCalls: callLimitRanges.backgroundDailyCalls.max, compactionCallsPerTurn: 20, backgroundMaxEstimatedUsd: null, backgroundDailyEstimatedUsd: null, timeZone: "Asia/Shanghai" }),
+    // The day the daily allowance counts is the person's: the service runs on their computer, so its zone is theirs.
+    timeZone: z.string().min(1).max(100).refine(value => { try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; } catch { return false; } }).default(systemTimeZone),
+  }).default(() => ({ maxConcurrent: DEFAULT_MAX_CONCURRENT, backgroundDailyCalls: callLimitRanges.backgroundDailyCalls.max, compactionCallsPerTurn: 20, backgroundMaxEstimatedUsd: null, backgroundDailyEstimatedUsd: null, timeZone: systemTimeZone() })),
   version: z.literal(3),
   defaultMode: z.enum(modelModes),
   chat: modePreference,

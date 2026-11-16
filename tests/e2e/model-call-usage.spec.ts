@@ -20,13 +20,13 @@ test("model limits persist and source filters display real recorded chat calls w
   // Each limit states its range, and a value outside it is pointed out where it is typed and cannot be saved.
   const save = page.getByRole("button", { name: "保存模型偏好", exact: true });
   const compaction = page.getByLabel("每次请求压缩调用上限", { exact: true });
-  await expect(page.getByText("1–16 的整数", { exact: true })).toBeVisible();
+  await expect(page.getByText("1–32 的整数", { exact: true })).toBeVisible();
   // The limits for tasks that run on their own are with the other task rules, not here.
   await expect(page.getByLabel("每日自动运行次数", { exact: true })).toHaveCount(0);
   const puts: string[] = []; page.on("request", request => { if (new URL(request.url()).pathname === "/api/models" && request.method() === "PUT") puts.push(request.url()); });
   for (const [label, value, message] of [
     ["每次请求压缩调用上限", "1001", "请输入 1–1,000 之间的整数"],
-    ["最大并发调用数", "", "请输入 1–16 之间的整数"],
+    ["最大并发调用数", "", "请输入 1–32 之间的整数"],
     ["预算时区", "Mars/Base", "无法识别的时区，请输入 IANA 时区名称，例如 Asia/Shanghai"],
   ]) {
     const input = page.getByLabel(label, { exact: true }); const before = await input.inputValue();

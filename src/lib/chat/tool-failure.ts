@@ -1,6 +1,9 @@
 import { InvalidToolInputError, NoSuchToolError } from "ai";
 import { t, tf } from "@/lib/locale";
 import { ApiError } from "@/lib/server/api-error";
+import { describeProviderStatus, providerStatusOf } from "@/lib/models/provider-errors";
+
+export { describeProviderStatus };
 
 /**
  * A tool that failed for a reason of its own. The original message is kept because
@@ -42,9 +45,7 @@ export function describeTurnFailure(error: unknown, providerName?: string): ApiE
   }
   if (NoSuchToolError.isInstance(error)) return new ApiError({ code: "VALIDATION_ERROR", message: tf("chat.toolFailure.noSuchTool", { name: error.toolName }) });
   if (error instanceof ToolRunError) return new ApiError({ code: "INTERNAL_ERROR", message: t("chatState.toolRunFailed") });
-  // Payment required is what DeepSeek and OpenRouter both answer when an account has run out.
-  if ((error as { statusCode?: unknown } | null)?.statusCode === 402) return new ApiError({ code: "UPSTREAM_FAILED", message: providerName ? tf("lib.chat.providerOutOfBalanceNamed", { provider: providerName }) : t("lib.chat.providerOutOfBalance") });
-  return new ApiError({ code: "UPSTREAM_FAILED", message: t("lib.chat.providerUnavailable") });
+  return describeProviderStatus(providerStatusOf(error), providerName);
 }
 
 /**

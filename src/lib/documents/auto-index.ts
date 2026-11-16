@@ -4,7 +4,9 @@ import { indexDocumentEmbeddings, selectedDocumentEmbeddingModel, semanticCovera
 import { reindexDocument } from "@/lib/documents/store";
 import { reindexStaleEmbeddings } from "@/lib/knowledge/entry-reindex";
 import { ApiError, normalizeApiError } from "@/lib/server/api-error";
+import { t } from "@/lib/locale";
 import { runBackgroundDataOperation } from "@/lib/server/data-operations";
+import { describeProviderFailure, providerNameOf } from "@/lib/models/provider-errors";
 
 /**
  * Keeps the knowledge base searchable by meaning without anyone having to ask. While an
@@ -16,8 +18,10 @@ import { runBackgroundDataOperation } from "@/lib/server/data-operations";
  * next one carries on. A failure stops the run rather than trying every document against
  * a provider that is refusing, and does not retry on its own until something asks again.
  */
-const state = globalThis as typeof globalThis & { documentIndexing?: { running: Promise<void> | null; again: boolean; failed: string | null } };
-const work = state.documentIndexing ??= { running: null, again: false, failed: null };
+/** Why the last run stopped, as the person should read it, and where they can fix it when that is a setting. */
+type IndexingFailure = { message: string; fix?: "apiKeys" | "models" };
+const state = globalThis as typeof globalThis & { documentIndexing?: { running: Promise<void> | null; again: boolean; failed: string | null; failure?: IndexingFailure | null } };
+const work = state.documentIndexing ??= { running: null, again: false, failed: null, failure: null };
 
 /** Moved or re-imported meanwhile, or built by hand at the same moment: that document's turn, not a failure. */
 const skippable = (error: unknown) => error instanceof ApiError && (error.code === "CONFLICT" || error.code === "NOT_FOUND");
@@ -51,7 +55,7 @@ async function indexPending() {
     if (current?.providerId !== modelRef.providerId || current.modelId !== modelRef.modelId) { work.again = true; return; }
     const entries = await runBackgroundDataOperation(() => reindexStaleEmbeddings());
     if (!entries.remaining) break;
-    if (!entries.reindexed) throw new ApiError({ code: "UPSTREAM_FAILED", message: "Knowledge entries could not be embedded" });
+    if (!entries.reindexed) throw entries.error !== undefined ? describeProviderFailure(entries.error, providerNameOf(modelRef.providerId)) : new ApiError({ code: "UPSTREAM_FAILED", message: t("lib.documents.entriesNotEmbedded") });
   }
 }
 
@@ -59,11 +63,16 @@ async function indexPending() {
 export function scheduleDocumentIndexing() {
   if (work.running) { work.again = true; return; }
   work.failed = null;
+  work.failure = null;
   work.running = (async () => {
     try {
       do { work.again = false; await indexPending(); } while (work.again);
     } catch (error) {
-      work.failed = normalizeApiError(error).code;
+      // A rejected key or a model the provider dropped is a setting to fix, and says which.
+      const described = normalizeApiError(describeProviderFailure(error, providerNameOf((await selectedDocumentEmbeddingModel().catch(() => null))?.providerId)));
+      const fix = (described.details as { fix?: unknown } | undefined)?.fix;
+      work.failed = described.code;
+      work.failure = { message: described.message, ...(fix === "apiKeys" || fix === "models" ? { fix } : {}) };
       try { console.error("documents.auto-index.failed", work.failed); } catch { /* already harmless */ }
     } finally { work.running = null; }
   })();
@@ -74,5 +83,5 @@ export function resumeDocumentIndexing(pending: boolean) {
   if (pending && !work.running && !work.failed) scheduleDocumentIndexing();
 }
 
-export const documentIndexingStatus = () => ({ running: Boolean(work.running), failed: work.failed });
+export const documentIndexingStatus = () => ({ running: Boolean(work.running), failed: work.failed, ...(work.failure ? { failure: work.failure } : {}) });
 export const documentIndexingSettled = () => work.running ?? Promise.resolve();

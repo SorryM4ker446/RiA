@@ -8,6 +8,7 @@ import type { CatalogState } from "@/lib/models/catalog";
 import type { CatalogFailureReason } from "@/lib/models/providers";
 import type { ModelRef } from "@/lib/models/preferences-schema";
 import { createTestDatabase } from "../helpers/database";
+import { skipRetryWaits } from "../helpers/retry-waits";
 import { localAccessCookie } from "../helpers/local-access";
 import { CHAT_MODEL_REF, IMAGE_MODEL_REF, VIDEO_MODEL_REF, seedTestModelPreferences } from "../helpers/model-library";
 const cleanup=createTestDatabase(); process.env.RIA_TEST_PROVIDER="1";
@@ -242,13 +243,14 @@ async function languageCall(chunks?:StreamPartFixture[],{tools,abort,status=503}
   });
   const response=await endpoint(req("/api/chat","POST",{}));return {response,backupCalls};
 }
-test("chat fallback is opt-in, records both attempts and only happens before output",async()=>{
+test("chat fallback is opt-in, records both attempts and only happens before output",async t=>{
+  skipRetryWaits(t);
   assert.equal((await languageCall()).backupCalls,0);
   const settings=await getModelPreferences();settings.chat.fallback=ref("google/gemini-3-flash-preview");await saveModelPreferences(settings);
   const result=await languageCall();assert.equal(result.backupCalls,1);await payload(result.response);
   // With no fallback the failing model is waited for: 1 + MODEL_RETRIES attempts. With one, it gets
-  // 1 + QUICK_RETRIES quick attempts and the backup takes over: 6, then 3 more and the backup.
-  const summary=await usageSummary();assert.equal(summary.totals.requests,10);assert.equal(summary.recent.filter(row=>row.fallback).length,1);
+  // 1 + QUICK_RETRIES quick attempts and the backup takes over: 11, then 4 more and the backup.
+  const summary=await usageSummary();assert.equal(summary.totals.requests,16);assert.equal(summary.recent.filter(row=>row.fallback).length,1);
   const backupRow=summary.recent.find(row=>row.fallback);
   assert.equal(backupRow.inputTokens,10);
   // Usage is recorded against the provider-qualified pair, so the log says
@@ -259,12 +261,14 @@ test("chat fallback is opt-in, records both attempts and only happens before out
   const partial=await languageCall([{type:"text-start",id:"p"},{type:"text-delta",id:"p",delta:"Already shown"},{type:"error",error:new Error("Failure after text")}]);
   assert.equal(partial.backupCalls,0);
 });
-test("chat fallback refuses cancellation and provider credential failures",async()=>{
+test("chat fallback refuses cancellation and provider credential failures",async t=>{
+  skipRetryWaits(t);
   const settings=await getModelPreferences();settings.chat.fallback=ref("google/gemini-3-flash-preview");await saveModelPreferences(settings);
   for(const options of [{abort:true},{status:401},{status:403},{status:400}]) assert.equal((await languageCall(undefined,options)).backupCalls,0);
 });
 
-test("chat fallback takes over a call with tools when it can call them, and not when it cannot",async()=>{
+test("chat fallback takes over a call with tools when it can call them, and not when it cannot",async t=>{
+  skipRetryWaits(t);
   const settings=await getModelPreferences();settings.chat.fallback=ref("google/gemini-3-flash-preview");await saveModelPreferences(settings);
   assert.equal((await languageCall(undefined,{tools:true})).backupCalls,1);
   // The library is not written through preference saves, so the stored entry is changed directly.
@@ -290,29 +294,33 @@ async function inRequest<T>(work:()=>Promise<T>){
 }
 const streamOnce=async(model:ReturnType<typeof observeLanguageModel>)=>{const result=await model.doStream({prompt:[{role:"user",content:[{type:"text",text:"Hello"}]}]});for await(const _part of result.stream);};
 
-test("one-shot calls such as summaries and reviews fall back like streamed chat",async()=>{
+const quickAttempts = async () => 1 + (await import("@/lib/models/model-retry")).QUICK_RETRIES;
+
+test("one-shot calls such as summaries and reviews fall back like streamed chat",async t=>{
+  skipRetryWaits(t);const attempts=await quickAttempts();
   const settings=await getModelPreferences();settings.chat.fallback=ref("google/gemini-3-flash-preview");await saveModelPreferences(settings);
   const primary={calls:0},backup={calls:0};
   const result=await inRequest(async()=>observeLanguageModel(failing(primary),chatModelRef,()=>answering(backup)).doGenerate({prompt:[{role:"user",content:[{type:"text",text:"Summarize"}]}]}));
   assert.deepEqual(result.content,[{type:"text",text:"Answer"}]);
-  assert.equal(primary.calls,3);assert.equal(backup.calls,1);
+  assert.equal(primary.calls,attempts);assert.equal(backup.calls,1);
   const recorded=await usageSummary();assert.equal(recorded.recent.filter(row=>row.fallback).length,1);
 });
 
 test("a failed model stays degraded across requests until its window ends or it answers again",async t=>{
+  skipRetryWaits(t);const attempts=await quickAttempts();
   const settings=await getModelPreferences();settings.chat.fallback=ref("google/gemini-3-flash-preview");await saveModelPreferences(settings);
   const primary={calls:0},backup={calls:0};
   await inRequest(()=>streamOnce(observeLanguageModel(failing(primary),chatModelRef,()=>answering(backup))));
-  assert.deepEqual([primary.calls,backup.calls],[3,1]);
+  assert.deepEqual([primary.calls,backup.calls],[attempts,1]);
   // The next request goes to the fallback first and does not wait on the failed model.
   const switched:unknown[]=[];
   await inRequest(()=>streamOnce(observeLanguageModel(failing(primary),chatModelRef,()=>answering(backup),{onSwitch:async to=>{switched.push(to);return undefined;}})));
-  assert.deepEqual([primary.calls,backup.calls],[3,2]);
+  assert.deepEqual([primary.calls,backup.calls],[attempts,2]);
   assert.deepEqual(switched,[ref("google/gemini-3-flash-preview")]);
   // If the fallback fails during the window, the selected model is still tried, and the caller re-plans back to it.
   const healthy={calls:0},broken={calls:0};const back:unknown[]=[];
   await inRequest(()=>streamOnce(observeLanguageModel(answering(healthy),chatModelRef,()=>failing(broken),{onSwitch:async to=>{back.push(to);return undefined;}})));
-  assert.equal(broken.calls,3);assert.equal(healthy.calls,1);
+  assert.equal(broken.calls,attempts);assert.equal(healthy.calls,1);
   assert.deepEqual(back,[ref("google/gemini-3-flash-preview"),chatModelRef]);
   // It answered, so the degradation is over: the next request tries it first.
   await inRequest(()=>streamOnce(observeLanguageModel(answering(healthy),chatModelRef,()=>answering(backup))));
@@ -325,7 +333,8 @@ test("a failed model stays degraded across requests until its window ends or it 
   assert.equal(healthy.calls,3);assert.equal(backup.calls,3);
 });
 
-test("once the fallback takes over, the rest of the request stays on it and the step is re-planned for it",async()=>{
+test("once the fallback takes over, the rest of the request stays on it and the step is re-planned for it",async t=>{
+  skipRetryWaits(t);const attempts=await quickAttempts();
   const settings=await getModelPreferences();settings.chat.fallback=ref("google/gemini-3-flash-preview");await saveModelPreferences(settings);
   let primaryCalls=0;const backupPrompts:unknown[]=[];const switched:unknown[]=[];
   const answer=()=>({stream:new ReadableStream({start(controller){for(const part of [{type:"stream-start",warnings:[]},{type:"text-start",id:"b"},{type:"text-delta",id:"b",delta:"Backup"},{type:"text-end",id:"b"},finish]) controller.enqueue(part as LanguageModelV3StreamPart);controller.close();}})});
@@ -344,7 +353,7 @@ test("once the fallback takes over, the rest of the request stays on it and the 
   });
   assert.equal((await endpoint(req("/api/chat","POST",{}))).status,200);
   // The primary was tried, with its retries, for the first step only.
-  assert.equal(primaryCalls,3);
+  assert.equal(primaryCalls,attempts);
   assert.deepEqual(switched,[ref("google/gemini-3-flash-preview")]);
   // The step it took over was sent as re-planned; the next went to it directly as prepared.
   assert.deepEqual(backupPrompts[0],refitted);

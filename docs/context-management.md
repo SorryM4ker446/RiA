@@ -54,13 +54,13 @@ the cap sent to the provider. Each call is capped by the known output limit — 
 configured value, else the catalog value, never above the catalog — reduced only
 as far as that call's estimated input requires to stay within the window, and
 never below the reservation. When neither a configured nor a catalog output
-limit is known, a default of 131,072 tokens (128K, the per-call maximum of
-current frontier models) is used the same way, for any provider and model. A
-model whose real output limit is lower must have it configured, or the provider
-rejects the call. An internal call that asks for a smaller cap keeps it. The one
+limit is known, no cap is sent, for any provider and model, so the provider's
+own default applies: an assumed figure would be a guess, and one above a
+model's real limit makes the provider refuse the call. An internal call that
+asks for a cap keeps it, within the room a known window leaves. The one
 exception is a scheduled background call while a background monetary ceiling is
-enabled: with no known limit, it is bounded by the reservation so it is not
-priced as a 128K-token answer.
+enabled: with no known limit, it is capped at the reservation so it can be
+priced.
 
 Counting uses a character-class estimate with request framing, covering system
 instructions, tool JSON schemas, messages, summaries, retrieval evidence and

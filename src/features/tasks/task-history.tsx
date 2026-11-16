@@ -36,6 +36,8 @@ export function TaskHistory({ runs }: { runs: ScheduledRunView[] }) {
             </p>
           </div>
           {run.chatId ? <Link className="shrink-0 text-xs text-muted-foreground underline-offset-4 hover:underline" href={conversationHref(run.chatId)}>{t("tasks.action.openConversation")}</Link> : null}
+          {/* A key or a model to fix: the way there, beside the conversation that says which. */}
+          {run.errorCode === "CONFIGURATION_ERROR" ? <SettingsLink className="shrink-0 text-xs text-muted-foreground underline-offset-4 hover:underline" section="services">{t("execution.guidance.openSettings")}</SettingsLink> : null}
           {run.backupId ? <SettingsLink className="shrink-0 text-xs text-muted-foreground underline-offset-4 hover:underline" section="backups">{t("tasks.history.viewBackup")}</SettingsLink> : null}
           <Status tone={TONES[run.status as keyof typeof TONES] ?? "neutral"}>{statusLabel(run.status)}</Status>
         </li>

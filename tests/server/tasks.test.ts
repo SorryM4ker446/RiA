@@ -336,7 +336,7 @@ test("a task can be run now whether or not it is on, and stopped while it runs",
     assert.equal(started.status, 202);
     assert.equal((await listTasks())[0].lastStatus, "running");
     assert.equal((await runRoute.POST(req(`/api/tasks/${task.id}/run`, "POST"), context(task.id))).status, 409, "it is already running");
-    await assert.rejects(deleteTask(task.id), /running/);
+    await assert.rejects(deleteTask(task.id), /正在运行/);
     assert.equal((await stopRoute.POST(req(`/api/tasks/${task.id}/stop`, "POST"), context(task.id))).status, 202);
   } finally { release(); }
   for (let attempt = 0; attempt < 300 && (await listTasks())[0].lastStatus === "running"; attempt += 1) await new Promise(resolve => setTimeout(resolve, 10));
@@ -479,10 +479,11 @@ test("a task's conversation starts with long-term memory off", async () => {
   assert.equal((await db.chat.findUniqueOrThrow({ where: { id: run!.outcome.chatId! } })).ephemeral, true);
 });
 
-test("prompts falling due together queue for the background places instead of being refused", async () => {
+test("prompts falling due together all start at once, with no limit on runs of their own", async () => {
   await db.modelCallDay.deleteMany({});
-  // Two call places leave one for background prompts.
-  await callLimits({ maxConcurrent: 2 });
+  // Even with one call place, both runs start: only their model calls take places
+  // (sharing them is covered in live-turns.test.ts).
+  await callLimits({ maxConcurrent: 1 });
   const first = await createTask(prompt({ title: "First" }));
   const second = await createTask(prompt({ title: "Second" }));
   await makeDue(first.id); await makeDue(second.id);
@@ -492,21 +493,20 @@ test("prompts falling due together queue for the background places instead of be
   scheduler.start();
   try {
     const states = async () => Object.fromEntries((await listTasks()).map(task => [task.title, task.lastStatus]));
-    for (let attempt = 0; attempt < 200 && (await states()).First !== "running" && (await states()).Second !== "running"; attempt += 1) await new Promise(resolve => setTimeout(resolve, 10));
-    await new Promise(resolve => setTimeout(resolve, 100));
-    assert.deepEqual(Object.values(await states()).sort(), ["running", null].sort() as never, "only one prompt started");
-    assert.equal(await claimDueTask(new Date(), { prompts: false }), null, "a due prompt is not taken when prompts are held back");
+    for (let attempt = 0; attempt < 200 && Object.values(await states()).some(status => status !== "running"); attempt += 1) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.deepEqual(Object.values(await states()), ["running", "running"], "no run waits for another to start");
     release();
     for (let attempt = 0; attempt < 400 && Object.values(await states()).some(status => status !== "done"); attempt += 1) await new Promise(resolve => setTimeout(resolve, 10));
-    assert.deepEqual(Object.values(await states()), ["done", "done"], "the waiting one started when the place freed up, without waiting for the next poll");
+    assert.deepEqual(Object.values(await states()), ["done", "done"]);
     assert.equal(await db.modelRequest.count({ where: { errorCode: "CONFLICT" } }), 0);
   } finally { release(); scheduler.stop(); providerState.streamGate = undefined; await callLimits({ maxConcurrent: 4 }); }
 });
 
-test("a run waiting for the user's answer gives its background place to other due tasks meanwhile", async () => {
+test("a run waiting for the user's answer does not hold up other due tasks meanwhile", async () => {
   const { holdTurn } = await import("@/lib/chat/live-turns");
   await db.modelCallDay.deleteMany({});
-  // Two call places leave one for background prompts.
+  // Two call places: the user's turn holds one, and a run waiting for the user's
+  // answer holds none while it waits, so another due task runs meanwhile.
   await callLimits({ maxConcurrent: 2 });
   const waiting = await createTask(prompt({ title: "Waiting" }));
   await (await startTaskNow(waiting.id)).finished;

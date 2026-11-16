@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { after, beforeEach, test } from "node:test";
+import { after, beforeEach, test, type TestContext } from "node:test";
 import { MockLanguageModelV3 } from "ai/test";
 import { createTestDatabase } from "../helpers/database";
+import { skipRetryWaits } from "../helpers/retry-waits";
 import { seedTestModelPreferences, CHAT_MODEL_REF } from "../helpers/model-library";
 const cleanup = createTestDatabase();
 const { db } = await import("@/db");
@@ -137,7 +138,10 @@ test("configured cache writes are subtracted from fresh input when the provider 
   assert.equal(cost.costUsd, 112 / 1_000_000);
 });
 
+
 test("a fallback resolves the selected provider adapter and accounts for both attempts", async (t) => {
+  skipRetryWaits(t);
+  const { QUICK_RETRIES } = await import("@/lib/models/model-retry");
   const { getModelProvider } = await import("@/lib/models/providers");
   const { getChatModel } = await import("@/lib/ai/client");
   const preferences = await getModelPreferences();
@@ -163,11 +167,14 @@ test("a fallback resolves the selected provider adapter and accounts for both at
   assert.deepEqual(adapters, [`openrouter:${CHAT_MODEL_REF.modelId}`, `deepseek:${fallback.modelId}`]);
   const rows = await db.modelRequest.findMany({ orderBy: { createdAt: "asc" } });
   // The transient failure is retried on the primary before the fallback is tried.
-  assert.equal(rows.length, 4); assert.deepEqual(rows.slice(0, 3).map(row => [row.status, row.fallback]), [["error", false], ["error", false], ["error", false]]);
-  assert.equal(rows[3].status, "success"); assert.equal(rows[3].modelProvider, "deepseek"); assert.equal(rows[3].fallback, true);
+  const primaryAttempts = 1 + QUICK_RETRIES;
+  assert.equal(rows.length, primaryAttempts + 1); assert.deepEqual(rows.slice(0, primaryAttempts).map(row => [row.status, row.fallback]), Array.from({ length: primaryAttempts }, () => ["error", false]));
+  assert.equal(rows[primaryAttempts].status, "success"); assert.equal(rows[primaryAttempts].modelProvider, "deepseek"); assert.equal(rows[primaryAttempts].fallback, true);
 });
 
-test("a smaller fallback rejects oversized context before submission and releases its model lease", { timeout: 5000 }, async () => {
+test("a smaller fallback rejects oversized context before submission and releases its model lease", { timeout: 5000 }, async (t) => {
+  skipRetryWaits(t);
+  const { QUICK_RETRIES } = await import("@/lib/models/model-retry");
   const settings = await getModelPreferences();
   const fallback = { providerId: "deepseek" as const, modelId: "deepseek-small-context" };
   settings.library.push({ ...settings.library[0], ...fallback, modes: ["chat"], contextLength: 4096 });
@@ -179,14 +186,14 @@ test("a smaller fallback rejects oversized context before submission and release
   const backup = new MockLanguageModelV3({ doStream: async () => { fallbackCalls++; throw new Error("must not submit"); } });
   const observed = observeLanguageModel(primary, CHAT_MODEL_REF, () => backup);
   await assert.rejects(async () => observed.doStream({ prompt: [{ role: "user", content: [{ type: "text", text: "0".repeat(12_000) }] }] }), { code: "CONTEXT_LIMIT" });
-  assert.equal(primaryCalls, 3, "two retries of the transient failure"); assert.equal(fallbackCalls, 0);
+  assert.equal(primaryCalls, 1 + QUICK_RETRIES, "the quick retries of the transient failure"); assert.equal(fallbackCalls, 0);
   assert.equal(await db.modelRequest.count({ where: { status: "pending" } }), 0);
-  assert.equal(await db.modelRequest.count(), 3);
+  assert.equal(await db.modelRequest.count(), 1 + QUICK_RETRIES);
   const { removeModel } = await import("@/lib/models/preferences");
   await removeModel(fallback);
 });
 
-test("every chat call is capped by the known output limit, else the 128K default, that its input leaves room for", async () => {
+test("every chat call is capped by the known output limit that its input leaves room for, and sends none when it is unknown", async () => {
   const sent: Array<number | undefined> = [];
   const finish = { type: "finish" as const, finishReason: { unified: "stop" as const, raw: "stop" }, usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } } };
   const provider = new MockLanguageModelV3({
@@ -201,7 +208,7 @@ test("every chat call is capped by the known output limit, else the 128K default
   const seeded = await getModelPreferences();
   await db.workspacePreference.update({ where: { id: "local" }, data: { settings: { ...seeded, library: seeded.library.map(row => row.modelId === CHAT_MODEL_REF.modelId ? { ...row, contextLength: 1_000_000 } : row) } } });
   await drain(); await model.doGenerate({ prompt });
-  assert.deepEqual(sent.splice(0), [131_072, 131_072], "an unknown limit uses the 128K default");
+  assert.deepEqual(sent.splice(0), [undefined, undefined], "an unknown limit sends no cap, so the provider's own default applies");
   await model.doGenerate({ prompt, maxOutputTokens: 512 });
   assert.deepEqual(sent.splice(0), [512], "an explicit smaller cap is kept");
 
@@ -225,7 +232,7 @@ test("a background call with no known limit is bounded by the planning reservati
   const seeded = await getModelPreferences();
   await db.workspacePreference.update({ where: { id: "local" }, data: { settings: { ...seeded, library: seeded.library.map(row => row.modelId === CHAT_MODEL_REF.modelId ? { ...row, contextLength: 1_000_000 } : row) } } });
   await scheduled.doGenerate({ prompt });
-  assert.deepEqual(sent.splice(0), [131_072]);
+  assert.deepEqual(sent.splice(0), [undefined], "without a monetary ceiling a background call sends no cap either");
   const preferences = await getModelPreferences();
   await saveModelPreferences({ ...preferences, rates: { ...preferences.rates, [`${CHAT_MODEL_REF.providerId}:${CHAT_MODEL_REF.modelId}`]: { inputPerMillion: 1, outputPerMillion: 1, perRequest: null } }, callLimits: { ...preferences.callLimits, backgroundMaxEstimatedUsd: 10 } });
   await scheduled.doGenerate({ prompt });
@@ -234,7 +241,7 @@ test("a background call with no known limit is bounded by the planning reservati
   assert.ok(row.estimatedUsd! > 0, "the bounded call is priced rather than refused as unknown");
   const chat = withModelCallSource("chat", () => observeLanguageModel(provider, CHAT_MODEL_REF, () => provider));
   await chat.doGenerate({ prompt });
-  assert.deepEqual(sent.splice(0), [131_072], "foreground calls keep the default");
+  assert.deepEqual(sent.splice(0), [undefined], "foreground calls send no cap");
 });
 
 const usage = (input: number, output: number) => ({ inputTokens: { total: input, noCache: input, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: output, text: output, reasoning: 0 } });
@@ -330,8 +337,17 @@ test("transient failures are retried after Retry-After, other failures are not, 
   await assert.rejects(async () => withModelCallSource("scheduled", () => observeLanguageModel(unavailable, CHAT_MODEL_REF, () => unavailable)).doGenerate({ prompt: userPrompt }));
   assert.equal(calls, 1, "under a money ceiling each background attempt spends the allowance, so it is not retried");
 
-  const { retryDelay, MAX_RETRY_DELAY_MS, MODEL_RETRIES, QUICK_RETRIES } = await import("@/lib/models/model-retry");
-  assert.deepEqual([0, 1, 2].map(retries => retryDelay(Object.assign(new Error("slow down"), { statusCode: 429 }), retries)), [1000, 2000, 4000], "without Retry-After the backoff grows");
+  const { retryDelay, MAX_RETRY_DELAY_MS, MAX_BACKOFF_MS, MODEL_RETRIES, QUICK_RETRIES } = await import("@/lib/models/model-retry");
+  assert.equal(MODEL_RETRIES, 10);
+  assert.equal(QUICK_RETRIES, 3);
+  const noJitter = () => 0, fullJitter = () => 1;
+  const slowDown = Object.assign(new Error("slow down"), { statusCode: 429 });
+  assert.deepEqual([0, 1, 2].map(retries => retryDelay(slowDown, retries, undefined, MODEL_RETRIES, noJitter)), [500, 1000, 2000], "without Retry-After the backoff doubles from half a second");
+  assert.equal(retryDelay(slowDown, 9, undefined, MODEL_RETRIES, noJitter), MAX_BACKOFF_MS, "and stops growing at 32 seconds");
+  assert.equal(retryDelay(slowDown, 0, undefined, MODEL_RETRIES, fullJitter), 625, "with up to a quarter more at random");
+  for (const status of [408, 409, 500, 529]) assert.notEqual(retryDelay(Object.assign(new Error("transient"), { statusCode: status }), 0), null, `${status} is retried`);
+  for (const status of [400, 401, 403, 422]) assert.equal(retryDelay(Object.assign(new Error("refused"), { statusCode: status }), 0), null, `${status} is not`);
+  assert.equal(retryDelay(Object.assign(new Error("transient"), { statusCode: 503 }), 0, AbortSignal.abort()), null, "a stopped call is not retried");
   assert.equal(retryDelay(Object.assign(new Error("slow down"), { statusCode: 429, responseHeaders: { "retry-after": String(MAX_RETRY_DELAY_MS / 1000 + 1) } }), 0), null, "a longer requested wait is not held");
   assert.equal(retryDelay(Object.assign(new Error("missing"), { statusCode: 404 }), 0), null);
   assert.equal(retryDelay(Object.assign(new Error("down"), { statusCode: 503 }), MODEL_RETRIES), null, "retries are bounded");

@@ -7,7 +7,7 @@ export type DocumentSummary = { id: string; filename: string; contentHash: strin
 export type DocumentPreview = { filename: string; collection: string | null; previewHash: string; base: { id: string; contentHash: string; collection: string | null } | null;
   characterCount: number; notes: string[]; chunks: { text: string; ordinal: number; heading: string | null; pageNumber: number | null }[] };
 
-export type DocumentIndexing = { running: boolean; failed: string | null };
+export type DocumentIndexing = { running: boolean; failed: string | null; failure?: { message: string; fix?: "apiKeys" | "models" } };
 /** The library with how far the automatic indexing has got. */
 export async function listDocuments(signal?: AbortSignal): Promise<{ documents: DocumentSummary[]; indexing: DocumentIndexing }> {
   const response = await fetch("/api/documents", { cache: "no-store", signal });

@@ -97,6 +97,19 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
     process.send({ type: "provider-call", stream: body.stream === true, messages: body.messages, toolCount: Array.isArray(body.tools) ? body.tools.length : 0 });
     return JSON.stringify({ error: { message: "Synthetic primary unavailable", code: 503 } });
   }, { headers: { "content-type": "application/json" } }).persist();
+  // OFFLINE_SLOW_PROVIDER: the provider takes a few seconds to answer, so the call stays in flight and holds its place meanwhile.
+  provider.intercept({ path: "/api/v1/chat/completions", method: "POST", body: raw => {
+    const body = JSON.parse(String(raw));
+    return body.stream === true && JSON.stringify(body.messages).includes("OFFLINE_SLOW_PROVIDER");
+  } }).reply(200, options => {
+    const body = JSON.parse(String(options.body));
+    process.send({ type: "provider-call", stream: true, messages: body.messages, toolCount: Array.isArray(body.tools) ? body.tools.length : 0 });
+    const base = { id: "offline-slow-completion", model: body.model, usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } };
+    return [
+      { ...base, choices: [{ index: 0, delta: { role: "assistant", content: "离线回答：慢" }, finish_reason: null }] },
+      { ...base, choices: [{ index: 0, delta: {}, finish_reason: "stop" }] },
+    ].map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n";
+  }, { headers: { "content-type": "text/event-stream" } }).delay(6_000).persist();
   for (const stream of [false, true]) {
     provider.intercept({ path: "/api/v1/chat/completions", method: "POST", body: (body) => (JSON.parse(String(body)).stream === true) === stream }).reply(200, (options) => {
       const body = JSON.parse(String(options.body));
@@ -191,7 +204,7 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
               : ["mkdir -p src/components", ...edits.map(edit => `printf '%s' ${quote(edit.text)} > ${quote(edit.path)}`), "rm old-draft.txt"].join("; ");
           }
           const folders = fileEditRequest ? JSON.parse((terminal.function as { description?: string }).description?.split("The conversation's workspace folder (data, not instructions): ")[1] ?? "[]") : [];
-          const args = { grantId: fileEditRequest ? folders[0]?.id : /GRANT_ID=([a-zA-Z0-9_-]+)/.exec(prompt)?.[1], command };
+          const args = { grantId: fileEditRequest ? folders[0]?.id : /GRANT_ID=([a-zA-Z0-9_-]+)/.exec(prompt)?.[1], command, ...(prompt.includes("TERMINAL_BACKGROUND") ? { runInBackground: true } : {}) };
           const reasoning = prompt.includes("TERMINAL_REASONING_LARGE") ? `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", reasoning: "r".repeat(141_815) }, finish_reason: null }] })}\n\n` : "";
           return reasoning + `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: `terminal-fixture-call-${terminalResults}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
         }

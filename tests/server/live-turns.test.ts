@@ -132,120 +132,99 @@ async function readUntil(reader: ReadableStreamDefaultReader<Uint8Array>, until:
   return sofar;
 }
 
-test("with every place taken a turn waits and says so, keeps the message first, and starts when a place frees", async () => {
+/** A turn whose model call is made after it has started, as an answer's steps are, and held until released. */
+function turnWithCall(priority: "foreground" | "background", options: { signal?: AbortSignal } = {}) {
+  const turn = scriptedTurn();
+  let release: (() => void) | null = null, granted = false, failed: unknown = null;
+  const start = async (given: AbortSignal) => {
+    const response = await turn.start(given);
+    // Started inside the turn, so the call tells the turn while it waits.
+    void slotForCall(priority, options.signal ?? given).then(slot => { release = slot.release; granted = true; }, error => { failed = error; });
+    return response;
+  };
+  return { ...turn, start, granted: () => granted, failed: () => failed, release: () => { release?.(); release = null; } };
+}
+
+test("a turn holds no place while it is not calling a model, so another turn starts at once beside it", async () => {
   capacity = 1;
-  const events: { type: string; chatId: string; queued?: boolean }[] = [];
+  const busy = scriptedTurn(), other = scriptedTurn();
+  const busyReading = readAll(await holdTurn("tools-running", busy.start, { source: "task" }));
+  let started = false;
+  const otherReading = readAll(await holdTurn("beside-it", async signal => { started = true; return other.start(signal); }, { source: "chat" }));
+  assert.equal(started, true, "nothing waits for the first turn's tools");
+  assert.equal(isTurnQueued("beside-it"), false);
+  assert.equal(slotUsage().inUse, 0, "neither turn holds a place of its own");
+  busy.end(); other.end(); await busyReading; await otherReading;
+  capacity = 8;
+});
+
+test("a call waits for a place another call holds; its turn says it is queued, then running, and gives the place back", async () => {
+  capacity = 1;
+  const events: { type: string; chatId: string }[] = [];
   const off = onTurnEvent(event => events.push(event));
-  const first = scriptedTurn();
-  const firstReading = readAll(await holdTurn("first", first.start, { source: "chat" }));
-  let started = false, kept = false;
-  const second = scriptedTurn();
-  const response = await holdTurn("second", async signal => { started = true; return second.start(signal); }, { source: "chat", beforeQueue: async () => { kept = true; } });
-  assert.equal(started, false, "nothing of it runs while it waits");
-  assert.equal(kept, true, "the message was kept before the response came back");
-  assert.equal(isTurnQueued("second"), true);
+  const inFlight = await slotForCall("background");
+  const turn = turnWithCall("foreground");
+  const response = await holdTurn("waiting-call", turn.start, { source: "chat" });
   const reader = response.body!.getReader();
   const waiting = await readUntil(reader, "data-turn-status");
   assert.match(waiting, /"state":"queued","ahead":0/);
-  // The first ends: the second takes its place, says it is running, and answers.
-  first.end();
-  await firstReading;
+  assert.equal(isTurnQueued("waiting-call"), true);
+  assert.equal(turn.granted(), false);
+  // The other call ends: this one runs, and the turn says so.
+  inFlight.release();
   await settle();
-  assert.equal(started, true);
-  assert.equal(isTurnQueued("second"), false);
-  second.push({ type: "text-delta", id: "t", delta: "answer" });
-  second.end();
+  assert.equal(turn.granted(), true);
+  assert.equal(isTurnQueued("waiting-call"), false);
+  turn.push({ type: "text-delta", id: "t", delta: "answer" });
+  turn.release();
+  turn.end();
   const rest = await readUntil(reader, "answer", waiting);
   assert.match(rest, /"state":"running"[\s\S]*"delta":"answer"/);
   await settle();
-  assert.deepEqual(events.filter(event => event.chatId === "second").map(event => event.type), ["turn-started", "turn-running", "turn-finished"]);
-  assert.equal(events.find(event => event.chatId === "second")?.queued, true);
+  assert.deepEqual(events.filter(event => event.chatId === "waiting-call").map(event => event.type), ["turn-started", "turn-queued", "turn-running", "turn-finished"]);
   assert.equal(slotUsage().inUse, 0, "every place is given back");
   off();
   capacity = 8;
 });
 
-test("a queued turn can be given up before it starts: nothing runs and its stream ends", async () => {
+test("the user's calls go before a task's waiting for the same place", async () => {
   capacity = 1;
-  const holding = scriptedTurn();
-  const holdingReading = readAll(await holdTurn("holding", holding.start, { source: "chat" }));
-  let started = false;
-  const response = await holdTurn("given-up", async () => { started = true; return new Response(""); }, { source: "chat" });
-  const ended = readAll(response);
-  assert.equal(stopTurn("given-up"), true);
-  assert.match(await ended, /"type":"abort"/);
-  assert.equal(started, false);
-  assert.equal(isTurnLive("given-up"), false);
-  holding.end();
-  await holdingReading;
+  const inFlight = await slotForCall("foreground");
+  const task = turnWithCall("background"), chat = turnWithCall("foreground");
+  const taskReading = readAll(await holdTurn("task-call", task.start, { source: "task" }));
   await settle();
-  assert.equal(slotUsage().inUse, 0);
-  assert.equal(slotUsage().waiting, 0);
-  capacity = 8;
-});
-
-test("the user's turns go before a task's waiting for the same place, and a turn's own calls use its place", async () => {
-  capacity = 1;
-  const order: string[] = [];
-  const holding = scriptedTurn();
-  const holdingReading = readAll(await holdTurn("holder", async signal => {
-    // Inside the turn: its calls take no further place, even with none free.
-    const slot = await slotForCall("foreground");
-    assert.equal(slot.own, false);
-    return holding.start(signal);
-  }, { source: "chat" }));
-  const task = scriptedTurn(), chat = scriptedTurn();
-  const taskReading = readAll(await holdTurn("task-turn", async signal => { order.push("task"); return task.start(signal); }, { source: "task" }));
-  const chatReading = readAll(await holdTurn("chat-turn", async signal => { order.push("chat"); return chat.start(signal); }, { source: "chat" }));
-  holding.end(); await holdingReading; await settle();
-  assert.deepEqual(order, ["chat"], "the user's turn went first though it asked second");
-  chat.end(); await chatReading; await settle();
-  assert.deepEqual(order, ["chat", "task"]);
-  task.end(); await taskReading; await settle();
+  const chatReading = readAll(await holdTurn("chat-call", chat.start, { source: "chat" }));
+  await settle();
+  assert.equal(slotUsage().waiting, 2);
+  inFlight.release(); await settle();
+  assert.deepEqual([chat.granted(), task.granted()], [true, false], "the user's call went first though it asked second");
+  chat.release(); await settle();
+  assert.equal(task.granted(), true);
+  task.release();
+  task.end(); chat.end(); await taskReading; await chatReading; await settle();
   assert.equal(slotUsage().inUse, 0);
   capacity = 8;
 });
 
-test("a queued turn stopped just as its place comes free ends as stopped, not as an error", async () => {
+test("stopping a turn whose call waits takes the call out of the queue, and the turn ends as stopped", async () => {
   capacity = 1;
-  const holding = scriptedTurn();
-  const holdingReading = readAll(await holdTurn("free-soon", holding.start, { source: "chat" }));
-  const events: { type: string; chatId: string; outcome?: string; errorCode?: string }[] = [];
+  const inFlight = await slotForCall("foreground");
+  const events: { type: string; chatId: string; outcome?: string }[] = [];
   const off = onTurnEvent(event => events.push(event));
-  // Starting reads the stop the moment it begins, as starting an answer does.
-  const response = await holdTurn("stopped-at-start", async signal => {
-    stopTurn("stopped-at-start");
-    signal.throwIfAborted();
-    return new Response("");
-  }, { source: "chat" });
-  const reading = readAll(response);
-  holding.end(); await holdingReading;
-  const text = await reading;
+  const turn = turnWithCall("foreground");
+  const reading = readAll(await holdTurn("stopped-waiting", turn.start, { source: "chat" }));
   await settle();
-  assert.match(text, /"type":"abort"/);
-  assert.doesNotMatch(text, /"type":"error"/);
-  assert.deepEqual(events.filter(event => event.chatId === "stopped-at-start" && event.type === "turn-finished").map(event => [event.outcome, event.errorCode]), [["stopped", undefined]]);
-  assert.equal(isTurnLive("stopped-at-start"), false);
+  assert.equal(slotUsage().waiting, 1);
+  assert.equal(stopTurn("stopped-waiting"), true);
+  assert.match(await reading, /"type":"abort"/);
+  await settle();
+  assert.equal(slotUsage().waiting, 0, "the waiting call left the queue");
+  assert.equal(turn.granted(), false);
+  assert.ok(turn.failed(), "the call was given up, not granted later");
+  assert.deepEqual(events.filter(event => event.chatId === "stopped-waiting" && event.type === "turn-finished").map(event => event.outcome), ["stopped"]);
+  inFlight.release();
+  await settle();
   assert.equal(slotUsage().inUse, 0);
   off();
   capacity = 8;
 });
-
-test("a turn that cannot start after waiting says why on its stream", async () => {
-  capacity = 1;
-  const holding = scriptedTurn();
-  const holdingReading = readAll(await holdTurn("busy-holder", holding.start, { source: "chat" }));
-  const events: { type: string; chatId: string; outcome?: string; errorCode?: string }[] = [];
-  const off = onTurnEvent(event => events.push(event));
-  const response = await holdTurn("cannot-start", async () => { const { ApiError } = await import("@/lib/server/api-error"); throw new ApiError({ code: "CONFIGURATION_ERROR", message: "No key" }); }, { source: "chat" });
-  const reading = readAll(response);
-  holding.end(); await holdingReading;
-  const text = await reading;
-  await settle();
-  assert.match(text, /"type":"error"[\s\S]*CONFIGURATION_ERROR[\s\S]*No key/);
-  assert.deepEqual(events.filter(event => event.chatId === "cannot-start" && event.type === "turn-finished").map(event => [event.outcome, event.errorCode]), [["failed", "CONFIGURATION_ERROR"]]);
-  assert.equal(slotUsage().inUse, 0);
-  off();
-  capacity = 8;
-});
-

@@ -92,7 +92,7 @@ Each row is one line: its title, with a dot at its end when the conversation nee
 The dot means one of five things, also read out to screen readers:
 
 - **Task running** — its scheduled task is running now.
-- **Queued** — an answer waits for a place to run (a hollow ring).
+- **Queued** — the answer's next model call waits for a place (a hollow ring).
 - **Answering** — an answer is being written in it: in this window, in another one, or one this window started and then left.
 - **Waiting for your approval** — its latest answer asks for an approval.
 - **New answer** — an answer ended there that has not been opened yet. Opening the conversation clears it; the conversation open in chat never shows it.
@@ -105,7 +105,7 @@ An answer belongs to the service, not to the page that asked for it. Switching t
 
 ### When every place is taken
 
-How many answers (and other model calls) run at once is **Maximum concurrent calls** in Settings → Models, 8 unless changed. An answer past that is not refused: it waits, its conversation shows **Queued — n ahead** and a hollow dot in the sidebar, and it starts by itself when a place frees up. Your own conversations go before tasks waiting for a place. Your message is saved as soon as it is queued, so a reload still shows it; **stop** takes a queued answer out of the queue. Once an answer has started, everything it does (its steps, the summaries it writes, a search it makes) works within its place and is never refused part way.
+How many model calls are in flight at once is **Maximum concurrent calls** in Settings → Models, 8 unless changed. A place is taken by a call only while it is in flight: an answer that is running its tools, a command or a build holds none, so any number of conversations and tasks can be answering at once. A call past the limit is not refused: it waits, its conversation shows **Queued — n ahead** and a hollow dot in the sidebar, and it goes on by itself when a place frees up. Your own conversations' calls go before tasks' calls. An answer starts, and your message is saved, at once; **stop** takes a waiting call out of the queue.
 
 When the provider is busy or rate-limited, a call is retried with growing waits, or after the wait the provider asks for (up to a minute), about half a minute in all; the answer says **The service is busy — retrying in n s (attempt n)** meanwhile. With a fallback model configured, the failing model gets two quick retries and the fallback takes over.
 

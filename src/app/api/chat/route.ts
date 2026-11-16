@@ -3,7 +3,6 @@ import { requireLocalWorkspace } from "@/lib/local/workspace";
 import { readChatRequest } from "@/lib/chat/request";
 import { answerChatRequest } from "@/lib/chat/turn";
 import { holdTurn } from "@/lib/chat/live-turns";
-import { prepareChatPersistence } from "@/lib/chat/persistence";
 import { markTurnAnswered } from "@/lib/conversations/mutations";
 import { createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
@@ -26,9 +25,6 @@ async function POSTHandler(req: NextRequest) {
     return await holdTurn(input.requestedChatId ?? crypto.randomUUID(), signal => answerChatRequest(input, signal), {
       source: "chat",
       settle: markTurnAnswered,
-      // Waiting for a place: the message is kept now, so it is there to see while it waits.
-      // One that invokes a tool is checked before it is kept, so it is kept when the turn starts.
-      beforeQueue: async () => { if (!input.latestUserMessage?.invocation) await prepareChatPersistence(input, { deferApproval: true }); },
     });
   } catch (error) {
     console.error("/api/chat error", normalizeApiError(error).code);
