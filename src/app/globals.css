@@ -1263,6 +1263,35 @@ html[data-toast-anchored] .toast-stack { top: var(--toast-top); bottom: auto; al
 body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; align-items: end; translate: none; }
 .toast { grid-area: 1 / 1; display: flex; flex-direction: column; gap: 2px; width: max-content; max-width: min(24rem, calc(100vw - 32px)); border-radius: 14px; padding: 10px 18px; background: hsl(var(--popover) / .86); color: hsl(var(--popover-foreground)); box-shadow: 0 0 0 1px hsl(var(--foreground) / .06), 0 1px 2px hsl(var(--shadow) / .04), 0 6px 16px -4px hsl(var(--shadow) / .08), 0 20px 40px -16px hsl(var(--shadow) / .18); -webkit-backdrop-filter: blur(20px) saturate(1.4); backdrop-filter: blur(20px) saturate(1.4); font-size: 13px; line-height: 20px; text-align: center; animation: toast-in var(--dur-base) var(--ease-out); }
 .dark .toast { background: hsl(var(--popover) / .84); box-shadow: 0 0 0 1px hsl(var(--foreground) / .09), inset 0 1px 0 hsl(var(--foreground) / .04), 0 6px 16px -4px hsl(var(--shadow) / .4), 0 20px 40px -16px hsl(var(--shadow) / .6); }
+/* Code in an answer: a quiet shell with the language and a copy control on top; diagrams share it. */
+.markdown-message :is(.code-block, .mermaid-block) { margin-block: 14px; overflow: hidden; border-radius: 10px; background: hsl(var(--muted)); box-shadow: inset 0 0 0 1px hsl(var(--border)); }
+.markdown-message .code-block pre, .markdown-message .mermaid-block pre { margin: 0; border: 0; border-radius: 0; background: transparent; padding: 10px 14px 12px; }
+.code-block-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 30px; padding: 0 6px 0 12px; border-bottom: 1px solid hsl(var(--border)); }
+.code-block-lang { font: 500 11px/1 var(--font-mono, ui-monospace, monospace); color: hsl(var(--muted-foreground)); text-transform: lowercase; }
+.code-block-action { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px; border-radius: 6px; font-size: 11.5px; color: hsl(var(--muted-foreground)); transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
+.code-block-action:hover { color: hsl(var(--foreground)); background: hsl(var(--foreground) / .06); }
+.code-block-action:focus-visible { outline: none; box-shadow: 0 0 0 2px hsl(var(--ring) / .35); }
+.code-block-action svg { width: 13px; height: 13px; }
+.mermaid-diagram { display: flex; justify-content: center; padding: 14px; overflow-x: auto; }
+.mermaid-diagram svg { max-width: 100%; height: auto; }
+.mermaid-loading, .mermaid-error { margin: 0; padding: 10px 14px 0; font-size: 12px; color: hsl(var(--muted-foreground)); }
+.mermaid-error span { display: block; margin-top: 2px; font-family: var(--font-mono, ui-monospace, monospace); font-size: 11.5px; color: hsl(var(--destructive)); overflow-wrap: anywhere; }
+/* Formulas: a wide one scrolls on its own instead of widening the answer. */
+.markdown-message .katex { font-size: 1.05em; }
+.markdown-message .katex-display { margin: 12px 0; padding: 2px 0; overflow-x: auto; overflow-y: hidden; }
+/* Highlighted code: a calm palette for each theme, drawn from the same hues. */
+:root { --code-keyword: 280 60% 45%; --code-string: 140 45% 32%; --code-number: 25 80% 42%; --code-title: 215 70% 45%; --code-attr: 195 70% 32%; --code-comment: 220 10% 52%; --code-type: 35 75% 38%; --code-deleted: 0 65% 45%; }
+.dark { --code-keyword: 285 70% 75%; --code-string: 140 45% 65%; --code-number: 30 85% 68%; --code-title: 215 85% 72%; --code-attr: 190 70% 66%; --code-comment: 220 10% 55%; --code-type: 40 80% 68%; --code-deleted: 0 75% 70%; }
+.hljs-keyword, .hljs-selector-tag, .hljs-doctag, .hljs-meta .hljs-keyword { color: hsl(var(--code-keyword)); }
+.hljs-string, .hljs-regexp, .hljs-addition, .hljs-meta .hljs-string { color: hsl(var(--code-string)); }
+.hljs-number, .hljs-literal, .hljs-symbol, .hljs-bullet { color: hsl(var(--code-number)); }
+.hljs-title, .hljs-title.function_, .hljs-section, .hljs-name { color: hsl(var(--code-title)); }
+.hljs-attr, .hljs-attribute, .hljs-property, .hljs-variable, .hljs-template-variable, .hljs-selector-class, .hljs-selector-id { color: hsl(var(--code-attr)); }
+.hljs-type, .hljs-built_in, .hljs-class .hljs-title, .hljs-title.class_ { color: hsl(var(--code-type)); }
+.hljs-comment, .hljs-quote, .hljs-meta { color: hsl(var(--code-comment)); font-style: italic; }
+.hljs-deletion { color: hsl(var(--code-deleted)); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 600; }
 /* The task checklist in an answer: a quiet card, its rows one line each. */
 .task-plan { margin: 12px 0 14px; border-radius: 14px; padding: 4px 6px 6px; background: hsl(var(--foreground) / .025); box-shadow: 0 0 0 1px hsl(var(--foreground) / .07); }
 .task-plan-head { display: flex; width: 100%; align-items: center; gap: 8px; padding: 6px 8px 4px; border-radius: 10px; text-align: left; }
