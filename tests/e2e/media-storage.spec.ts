@@ -47,7 +47,9 @@ test("multipart uploads above the Proxy default retain the existing attachment l
     expect(assets).toHaveLength(2);
     for (const asset of assets) {
       expect(asset.byteSize).toBe(paddedPng.length);
-      expect(Number((await request.head(asset.url)).headers()["content-length"])).toBe(paddedPng.length);
+      // The stored file is whole: compared by its bytes, since Next.js (from 16.4.5) drops a route's Content-Length.
+      expect((await request.head(asset.url)).ok()).toBe(true);
+      expect(Buffer.compare(await (await request.get(asset.url)).body(), paddedPng)).toBe(0);
     }
   } finally {
     for (const asset of assets) await request.delete(asset.url);
