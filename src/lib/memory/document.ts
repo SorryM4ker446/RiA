@@ -53,12 +53,23 @@ export function renderMemoryDocument(sections: { key: MemorySectionKey; lines: {
  * anything over the limits stays out: older memories are not pushed out by newer ones.
  */
 export function applyMemoryChanges(content: string, changes: MemoryChange[]) {
+  return applyMemoryChangesCounted(content, changes).content;
+}
+
+/** What a set of changes did: the document after them, and how many notes each kind of change touched. `dropped` were new notes left out because the document is full. */
+export type MemoryChangeCounts = { content: string; added: number; updated: number; removed: number; dropped: number };
+
+export function applyMemoryChangesCounted(content: string, changes: MemoryChange[]): MemoryChangeCounts {
   const sections = parseMemoryDocument(content).map(section => ({ key: section.key, lines: section.lines.map(item => ({ ...item, text: item.text as string | null })) }));
   const all = () => sections.flatMap(section => section.lines);
+  let added = 0, updated = 0, removed = 0, dropped = 0;
   for (const change of changes) {
     if (change.op === "add") continue;
     const target = all().find(item => item.line === change.line);
-    if (target) target.text = change.op === "remove" ? null : clean(change.text) || target.text;
+    if (!target || target.text === null) continue;
+    if (change.op === "remove") { target.text = null; removed++; continue; }
+    const text = clean(change.text);
+    if (text && text !== target.text) { target.text = text; updated++; }
   }
   const kept = sections.map(section => ({ key: section.key, lines: section.lines.filter(item => item.text !== null).map(item => ({ text: item.text! })) }));
   let total = kept.flatMap(section => section.lines).length;
@@ -67,11 +78,21 @@ export function applyMemoryChanges(content: string, changes: MemoryChange[]) {
     const text = clean(change.text);
     if (!text || kept.some(section => section.lines.some(item => item.text === text))) continue;
     const section = kept.find(item => item.key === change.section);
-    if (!section || total >= MAX_MEMORY_LINES || renderMemoryDocument(kept).length + text.length + 3 > MAX_MEMORY_CHARACTERS) continue;
+    if (!section) continue;
+    if (total >= MAX_MEMORY_LINES || renderMemoryDocument(kept).length + text.length + 3 > MAX_MEMORY_CHARACTERS) { dropped++; continue; }
     section.lines.push({ text });
-    total++;
+    total++; added++;
   }
-  return renderMemoryDocument(kept);
+  return { content: renderMemoryDocument(kept), added, updated, removed, dropped };
+}
+
+/**
+ * How full the document is. Full means a new note of ordinary length no longer
+ * fits, by count or by size, so nothing more is noted until some are deleted.
+ */
+export function memoryCapacity(content: string) {
+  const notes = memoryNotes(content).length;
+  return { notes, maxNotes: MAX_MEMORY_LINES, full: notes >= MAX_MEMORY_LINES || content.length + 120 > MAX_MEMORY_CHARACTERS };
 }
 
 /** Every note, numbered through the document. */

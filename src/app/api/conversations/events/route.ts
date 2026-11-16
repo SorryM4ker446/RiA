@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireLocalWorkspace } from "@/lib/local/workspace";
 import { liveTurnIds, onTurnEvent, type TurnEvent } from "@/lib/chat/live-turns";
-import { onConversationsChanged } from "@/lib/conversations/events";
+import { onConversationsChanged, onMemoryWrite } from "@/lib/conversations/events";
 import { createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { db } from "@/db";
 
@@ -55,6 +55,7 @@ export async function GET(req: NextRequest) {
       };
       const offTurn = onTurnEvent(event => { void onTurn(event); });
       const offChanged = onConversationsChanged(() => send("changed", {}));
+      const offMemory = onMemoryWrite(event => send("memory", event));
       const keepalive = setInterval(() => {
         if (!open) return;
         try { controller.enqueue(encoder.encode(": keepalive\n\n")); } catch { close(); }
@@ -62,7 +63,7 @@ export async function GET(req: NextRequest) {
       close = () => {
         if (!open) return;
         open = false;
-        offTurn(); offChanged(); clearInterval(keepalive);
+        offTurn(); offChanged(); offMemory(); clearInterval(keepalive);
         try { controller.close(); } catch { /* Already closed by the reader. */ }
       };
       req.signal.addEventListener("abort", () => close(), { once: true });

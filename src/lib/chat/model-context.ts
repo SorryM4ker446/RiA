@@ -6,6 +6,7 @@ import {
   TOOL_ENABLED_INSTRUCTIONS,
   unavailableToolLines,
   TERMINAL_INSTRUCTIONS,
+  MEMORY_INSTRUCTIONS,
   type UnavailableTool,
 } from "@/lib/prompts";
 import { convertToModelMessages, type ModelMessage, type UIMessage } from "ai";
@@ -257,10 +258,11 @@ export function buildSystemPrompt(
   toolsEnabled: boolean,
   unavailableTools: (string | UnavailableTool)[] = [],
   persona?: { name?: string; language?: string; answerStyle?: string; notes?: string } | null,
+  options: { memory?: boolean } = {},
 ): string {
   // The terminal paragraph only when the terminal is actually offered this turn.
   const terminalOffered = toolsEnabled && !unavailableTools.some(tool => (typeof tool === "string" ? tool : tool.id) === "runTerminalCommand");
-  const toolInstruction = toolsEnabled ? [...TOOL_ENABLED_INSTRUCTIONS, ...(terminalOffered ? TERMINAL_INSTRUCTIONS : [])] : TOOL_DISABLED_INSTRUCTIONS;
+  const toolInstruction = toolsEnabled ? [...TOOL_ENABLED_INSTRUCTIONS, ...(options.memory ? MEMORY_INSTRUCTIONS : []), ...(terminalOffered ? TERMINAL_INSTRUCTIONS : [])] : TOOL_DISABLED_INSTRUCTIONS;
   const personaText = formatPersona(persona);
 
   return [
@@ -296,10 +298,11 @@ export function formatCurrentTime(now = new Date(), timeZone = Intl.DateTimeForm
 }
 
 /** This turn's reference data, as one labelled block; empty when there is none. */
-export function buildRequestContext(parts: { currentTime?: string; workspace?: string; historyExcerpt?: string; fileChanges?: string; memoryDocument?: string }): string {
+export function buildRequestContext(parts: { currentTime?: string; workspace?: string; backgroundCommands?: string; historyExcerpt?: string; fileChanges?: string; memoryDocument?: string }): string {
   const sections = [
     parts.currentTime?.trim() ?? "",
     parts.workspace?.trim() ?? "",
+    parts.backgroundCommands?.trim() ?? "",
     parts.historyExcerpt?.trim() ?? "",
     parts.fileChanges?.trim() ?? "",
     parts.memoryDocument?.trim() ?? "",

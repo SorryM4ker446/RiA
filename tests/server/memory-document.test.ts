@@ -13,7 +13,7 @@ const { db } = await import("@/db");
 const chatRoute = await import("@/app/api/chat/route");
 const documentRoute = await import("@/app/api/memory/document/route");
 const toolRoute = await import("@/app/api/tools/run/route");
-const { applyMemoryChanges, clearMemoryDocument, deleteMemoryLines, memoryForRequest, memoryContextSection, memoryNotes, parseMemoryDocument, readMemoryDocument, renderMemoryDocument, withoutWithheldMemory, writeMemoryDocument, MAX_MEMORY_LINES } = await import("@/lib/memory/document");
+const { applyMemoryChanges, applyMemoryChangesCounted, memoryCapacity, clearMemoryDocument, deleteMemoryLines, memoryForRequest, memoryContextSection, memoryNotes, parseMemoryDocument, readMemoryDocument, renderMemoryDocument, withoutWithheldMemory, writeMemoryDocument, MAX_MEMORY_LINES } = await import("@/lib/memory/document");
 const { pruneStoredTopics, readStoredTopics, renameStoredNote, topicsFromReply, viewTopics } = await import("@/lib/memory/topic-view");
 const { MEMORY_TOPICS_INSTRUCTIONS, memoryTopicsRunning, scheduleMemoryTopics } = await import("@/lib/memory/topics");
 const { withoutRetiredContext, formatKnowledgeScope } = await import("@/lib/chat/model-context");
@@ -116,6 +116,43 @@ test("the document stays within its limits, and older notes are not pushed out",
   assert.equal(parseMemoryDocument(applyMemoryChanges("", [{ op: "add", section: "user", text: "x".repeat(2_000) }]))[0].lines[0].text.length, 500);
 });
 
+test("changes say what they did, and a note left out because the document is full is counted, not silently lost", () => {
+  const start = notes("One.", "Two.", "Three.");
+  const counted = applyMemoryChangesCounted(start, [{ op: "replace", line: 1, text: "One, revised." }, { op: "remove", line: 2 }, { op: "add", section: "user", text: "Four." }, { op: "replace", line: 3, text: "Three." }]);
+  assert.deepEqual({ added: counted.added, updated: counted.updated, removed: counted.removed, dropped: counted.dropped }, { added: 1, updated: 1, removed: 1, dropped: 0 }, "an unchanged replacement is not an update");
+  const full = applyMemoryChanges("", Array.from({ length: MAX_MEMORY_LINES }, (_, index) => ({ op: "add" as const, section: "project" as const, text: `Note number ${index}.` })));
+  assert.equal(memoryCapacity(full).full, true);
+  assert.equal(memoryCapacity(start).full, false);
+  const overflow = applyMemoryChangesCounted(full, [{ op: "add", section: "user", text: "One more." }]);
+  assert.equal(overflow.content, full);
+  assert.equal(overflow.dropped, 1);
+});
+
+test("a background note-taking run says what it did to the conversation that asked", async t => {
+  const { onMemoryWrite } = await import("@/lib/conversations/events");
+  const heard: { chatId: string; outcome: string; added: number; dropped: number }[] = [];
+  const off = onMemoryWrite(event => heard.push(event));
+  try {
+    const first = await chatWith("I work night shifts.");
+    replies(t, () => changes({ op: "add", section: "user", text: "Works night shifts." }), () => sorted());
+    await scheduleMemoryExtraction({ chatId: first.id, modelRef: CHAT_MODEL_REF, hint: "x" });
+    await memoryExtractionsSettled();
+    assert.deepEqual(heard.map(({ chatId, outcome, added }) => ({ chatId, outcome, added })), [{ chatId: first.id, outcome: "updated", added: 1 }]);
+    t.mock.restoreAll();
+    const second = await chatWith("Nice weather today.");
+    replies(t, () => changes(), () => sorted());
+    await scheduleMemoryExtraction({ chatId: second.id, modelRef: CHAT_MODEL_REF, hint: "x" });
+    await memoryExtractionsSettled();
+    assert.deepEqual(heard.at(-1), { chatId: second.id, outcome: "unchanged", added: 0, updated: 0, removed: 0, dropped: 0 }, "the model's judgement that something was worth keeping gets an answer even when nothing was");
+    t.mock.restoreAll();
+    const third = await chatWith("Remember this.");
+    t.mock.method(languageModel, "doGenerate", async () => { throw new Error("model down"); });
+    await scheduleMemoryExtraction({ chatId: third.id, modelRef: CHAT_MODEL_REF, hint: "x" });
+    await memoryExtractionsSettled();
+    assert.equal(heard.at(-1)?.outcome, "failed");
+  } finally { off(); }
+});
+
 test("the model is offered the tool only while long-term memory is on, and a person cannot run or choose it", async () => {
   assert.ok("extractMemory" in await createChatToolSet({ modelRef: CHAT_MODEL_REF }));
   assert.ok(!("extractMemory" in await createChatToolSet({ modelRef: CHAT_MODEL_REF, usesMemory: false })), "memory off: not offered");
@@ -123,8 +160,16 @@ test("the model is offered the tool only while long-term memory is on, and a per
   const tool = getToolDescriptor("extractMemory")!;
   assert.equal(tool.surface.user, null);
   assert.equal(tool.surface.underlying, "model");
-  assert.match(tool.modelDescription, /Most turns do not qualify/);
+  // It says when to note (who they are, standing preferences) and still keeps small talk and others' words out.
+  assert.match(tool.modelDescription, /standing preference/);
+  assert.match(tool.modelDescription, /small talk or passing remarks/);
   assert.match(tool.modelDescription, /web page, file or tool result/);
+  assert.match(tool.modelDescription, /never tell the user you have noted or will remember something unless you called it/);
+  // The same rule is in the system prompt, only while memory is on and the tool is offered.
+  const { buildSystemPrompt } = await import("@/lib/chat/model-context");
+  assert.match(buildSystemPrompt(true, [], null, { memory: true }), /changes only when you call extractMemory/);
+  assert.doesNotMatch(buildSystemPrompt(true, [], null, { memory: false }), /extractMemory/);
+  assert.doesNotMatch(buildSystemPrompt(false, [], null, { memory: true }), /extractMemory/, "no tools, no rule about one");
   const chat = await chatWith("hello");
   assert.equal((await toolRoute.POST(request("/api/tools/run", "POST", { tool: "extractMemory", input: { worthKeeping: "x" }, chatId: chat.id }))).status, 400);
 });

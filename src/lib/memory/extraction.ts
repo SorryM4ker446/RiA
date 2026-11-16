@@ -5,8 +5,9 @@ import { decodePersistedAssistantToolMessage, decodePersistedUserMessage } from 
 import type { ModelRef } from "@/lib/models/preferences-schema";
 import { runBackgroundDataOperation } from "@/lib/server/data-operations";
 import { normalizeApiError } from "@/lib/server/api-error";
-import { applyMemoryChanges, MAX_MEMORY_LINES, parseMemoryDocument, readMemoryDocument, writeMemoryDocument, type MemoryChange } from "./document";
-import { askMemoryModel, readJsonReply } from "./model-call";
+import { applyMemoryChangesCounted, MAX_MEMORY_LINES, parseMemoryDocument, readMemoryDocument, writeMemoryDocument, type MemoryChange } from "./document";
+import { announceMemoryWrite, type MemoryWriteEvent } from "@/lib/conversations/events";
+import { askAuxiliaryModel, readJsonReply } from "./model-call";
 import { memoryTopicsRunning, memoryTopicsSettled, scheduleMemoryTopics } from "./topics";
 
 /**
@@ -59,19 +60,25 @@ async function evidence(chatId: string) {
 /** Another extraction moving the document costs one more try. A person's change is not written over: what they deleted may be what this would write. */
 const RETRIES_AFTER_CONFLICT = 1;
 
-async function extract(chatId: string, main: ModelRef, hint: string, retries = RETRIES_AFTER_CONFLICT): Promise<void> {
+type ExtractionResult = Omit<MemoryWriteEvent, "chatId">;
+const NOTHING: ExtractionResult = { outcome: "unchanged", added: 0, updated: 0, removed: 0, dropped: 0 };
+
+async function extract(chatId: string, main: ModelRef, hint: string, retries = RETRIES_AFTER_CONFLICT): Promise<ExtractionResult> {
   // Based on the revision it read, so a person's deletion during the call is not undone.
   const document = await readMemoryDocument();
   const prompt = `Today is ${new Date().toISOString().slice(0, 10)}.\n\nCurrent MEMORY.md:\n${numbered(document.content)}\n\nHint from the assistant (not evidence): ${JSON.stringify(hint.slice(0, 500))}\n\nConversation:\n${await evidence(chatId)}`;
-  const changes: MemoryChange[] = await askMemoryModel(main, { system: MEMORY_EXTRACTION_INSTRUCTIONS, prompt, read: text => changesSchema.parse(readJsonReply(text)).changes });
-  if (!changes.length) return;
-  const next = applyMemoryChanges(document.content, changes);
+  const changes: MemoryChange[] = await askAuxiliaryModel(main, { system: MEMORY_EXTRACTION_INSTRUCTIONS, prompt, read: text => changesSchema.parse(readJsonReply(text)).changes });
+  if (!changes.length) return NOTHING;
+  const { content: next, added, updated, removed, dropped } = applyMemoryChangesCounted(document.content, changes);
+  // A note that would have been kept but did not fit is the one thing worth saying even when nothing changed.
+  const counts = { added, updated, removed, dropped };
   // Written from the numbers as they were read; if the document moved, these may not fit it.
-  if (next === document.content) return;
-  if (await writeMemoryDocument(next, document.revision)) { scheduleMemoryTopics(main); return; }
+  if (next === document.content) return { outcome: dropped ? "full" : "unchanged", ...counts };
+  if (await writeMemoryDocument(next, document.revision)) { scheduleMemoryTopics(main); return { outcome: dropped ? "full" : "updated", ...counts }; }
   const moved = await readMemoryDocument();
   if (retries > 0 && moved.deletedRevision === document.deletedRevision) return extract(chatId, main, hint, retries - 1);
   console.error("memory.extraction.conflict");
+  return { ...NOTHING, outcome: "failed" };
 }
 
 export type ExtractionOutcome = { status: "scheduled" } | { status: "skipped"; reason: "memory-off" | "too-soon" | "already-running" | "no-conversation" };
@@ -93,12 +100,16 @@ export async function scheduleMemoryExtraction(params: { chatId?: string | null;
   if (!userAsked && chat.memoryExtractedAt && await db.message.count({ where: { chatId, role: "user", createdAt: { gt: chat.memoryExtractedAt } } }) < MIN_USER_MESSAGES_BETWEEN) return { status: "skipped", reason: "too-soon" };
   await db.chat.update({ where: { id: chatId }, data: { memoryExtractedAt: new Date() } });
   const job = (async () => {
-    try { await runBackgroundDataOperation(() => extract(chatId, modelRef, hint)); }
+    let result: ExtractionResult = { ...NOTHING, outcome: "failed" };
+    try { result = await runBackgroundDataOperation(() => extract(chatId, modelRef, hint)); }
     catch (error) {
       // Nothing awaits this, so a failed log line must not become an unhandled rejection.
       try { console.error("memory.extraction.failed", normalizeApiError(error).code); } catch { /* already harmless */ }
     }
-    finally { jobs.delete(chatId); }
+    finally {
+      jobs.delete(chatId);
+      announceMemoryWrite({ chatId, ...result });
+    }
   })();
   jobs.set(chatId, job);
   return { status: "scheduled" };

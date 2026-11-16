@@ -7,6 +7,7 @@ import { createApiErrorResponse, normalizeApiError } from "@/lib/server/api-erro
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { getRelevantEntries, saveKnowledgeEntry } from "@/lib/knowledge/entries";
 
+import { t } from "@/lib/locale";
 const saveEntrySchema = z.strictObject({
   key: z.string().trim().min(1).max(120),
   value: z.string().trim().min(1).max(4000),
@@ -40,7 +41,7 @@ async function GETHandler(req: NextRequest) {
     const { query, limit } = querySchema.parse({ query: req.nextUrl.searchParams.get("query") ?? undefined, limit: req.nextUrl.searchParams.get("limit") ?? undefined });
 
     if (!query) {
-      return Response.json({ data: [], message: "query is empty" });
+      return Response.json({ data: [], message: t("server.memory.emptyQuery") });
     }
 
     const memories = await getRelevantEntries({

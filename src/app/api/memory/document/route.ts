@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { requireLocalWorkspace } from "@/lib/local/workspace";
-import { clearMemoryDocument, deleteMemoryLines, memoryNotes, MAX_LINE_CHARACTERS, readMemoryDocument, replaceMemoryLine } from "@/lib/memory/document";
+import { clearMemoryDocument, deleteMemoryLines, memoryCapacity, memoryNotes, MAX_LINE_CHARACTERS, readMemoryDocument, replaceMemoryLine } from "@/lib/memory/document";
 import { readStoredTopics, viewTopics } from "@/lib/memory/topic-view";
 import { memoryTopicsRunning, scheduleMemoryTopics } from "@/lib/memory/topics";
 import { readJsonBody } from "@/lib/server/request-body";
@@ -19,7 +19,7 @@ type MemoryDocumentRow = Awaited<ReturnType<typeof readMemoryDocument>>;
 
 function view(document: MemoryDocumentRow) {
   const { topics, unsorted, settled } = viewTopics(memoryNotes(document.content), readStoredTopics(document.topics));
-  return { content: document.content, revision: document.revision, updatedAt: document.updatedAt, topics, unsorted, settled, organizing: memoryTopicsRunning() };
+  return { content: document.content, revision: document.revision, updatedAt: document.updatedAt, topics, unsorted, settled, organizing: memoryTopicsRunning(), capacity: memoryCapacity(document.content) };
 }
 
 /** After a person's change: what they deleted is already gone, and this writes the summaries that spoke of it. */

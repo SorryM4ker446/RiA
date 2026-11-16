@@ -32,3 +32,23 @@ export function onConversationsChanged(listener: Listener): () => void {
   listeners.add(listener);
   return () => { listeners.delete(listener); };
 }
+
+/**
+ * What a background note-taking run did, said to the open windows so the
+ * conversation that asked for it can say so: the model's "I'll remember that"
+ * is only a request, and this is the answer.
+ */
+export type MemoryWriteEvent = { chatId: string; outcome: "updated" | "unchanged" | "full" | "failed"; added: number; updated: number; removed: number; dropped: number };
+type MemoryListener = (event: MemoryWriteEvent) => void;
+const memoryListeners: Set<MemoryListener> = ((globalThis as { __riaMemoryWriteListeners?: Set<MemoryListener> }).__riaMemoryWriteListeners ??= new Set());
+
+export function announceMemoryWrite(event: MemoryWriteEvent) {
+  for (const listener of memoryListeners) {
+    try { listener(event); } catch { /* One listener failing does not keep the others from hearing it. */ }
+  }
+}
+
+export function onMemoryWrite(listener: MemoryListener): () => void {
+  memoryListeners.add(listener);
+  return () => { memoryListeners.delete(listener); };
+}
