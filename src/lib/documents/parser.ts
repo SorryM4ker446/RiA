@@ -38,7 +38,7 @@ export async function parseDocument(bytes: Uint8Array, format: DocumentFormat, s
       // PDF.js imports canvas even for text extraction. Its native font scan
       // runs at module load, before useSystemFonts: false can take effect.
       eval: true, execArgv: [], env: { DISABLE_SYSTEM_FONTS_LOAD: "1" }, stdout: true, stderr: true,
-      resourceLimits: { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 16 },
+      resourceLimits: { maxOldGenerationSizeMb: 256, maxYoungGenerationSizeMb: 32 },
       workerData: { bytes, format, escapeMarkdown: options?.escapeMarkdown ?? false, limits: DOCUMENT_LIMITS, messages: documentParserMessages(),
         pdfPath: runtimeRequire.resolve("pdfjs-dist/legacy/build/pdf.mjs"),
         pdfWorkerPath: runtimeRequire.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs"),

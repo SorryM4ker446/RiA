@@ -45,24 +45,24 @@ Raw ORM/provider diagnostics are not logged or returned because they can contain
 
 The common reader counts actual bytes, including requests without Content-Length, and cancels oversized streams on endpoints with a byte limit. JSON bodies default to 2 MiB and JSON nesting to 32 levels. `POST /api/chat` reads the complete body without a byte limit so terminal scripts, approvals and history are not restricted by request size. It bypasses Next.js Proxy body cloning; the route authenticates through `protectDataOperation` and `requireLocalWorkspace` before reading the body. Content type, JSON shape, nesting, origin and local credential checks still apply. Cleanup and DELETE accept no body or an empty JSON object (at most 16 KiB).
 
-Existing media limits remain: four attachments per message, PNG/JPEG/WebP/GIF only, at most 8 MiB each and 20 MiB combined, with a 21 MiB multipart envelope. Signatures, ownership and stored sizes are checked before use. Next.js Proxy buffering is capped at 22 MiB so valid uploads over its default 10 MiB buffer are not truncated and handlers have room to detect overflow before truncation; the accepted multipart limit remains 21 MiB. Actual chunked HTTP overflow is covered by a browser-suite regression. Generated image/video storage limits remain 20/100 MiB. See [Media storage](media-storage.md).
+Existing media limits remain: four attachments per message, PNG/JPEG/WebP/GIF only, at most 8 MiB each and 20 MiB combined, with a 21 MiB multipart envelope. Signatures, ownership and stored sizes are checked before use. Next.js Proxy buffering is capped 1 MiB above the larger of the media (21 MiB) and knowledge-document (33 MiB) envelopes, so valid uploads over its default 10 MiB buffer are not truncated and handlers have room to detect overflow before truncation; the accepted media multipart limit remains 21 MiB. Actual chunked HTTP overflow is covered by a browser-suite regression. Generated image/video storage limits remain 20/100 MiB. See [Media storage](media-storage.md).
 
 ## Single-process quotas
 
-Quotas belong to the local instance, not to a caller. Every request from this installation shares one bucket per operation, so opening extra windows or clearing cookies cannot raise a limit. Each bucket uses a fixed window:
+Quotas stop a runaway loop rather than ration what the person asks for: importing a folder, attaching a handful of files or indexing a large library fits well inside them, while calls that spend money (images, video, evaluation runs) stay tighter. Quotas belong to the local instance, not to a caller. Every request from this installation shares one bucket per operation, so opening extra windows or clearing cookies cannot raise a limit. Each bucket uses a fixed window:
 
 | Operation | Fixed window |
 | --- | --- |
 | Chat | 30 requests / minute |
-| Tool execution, shared by manual and automatic calls | 30 attempts / minute |
+| Manual tool execution (calls the model makes during a turn are not counted) | 30 attempts / minute |
 | Extension configuration, activation, deletion and detection, shared | 30 attempts / minute |
 | Document export and layout preview, shared | 20 attempts / minute |
 | Image generation | 6 requests / minute |
 | Video generation | 3 requests / minute |
 | Media library regeneration attempts; valid recipes also consume the image/video quota above | 6 attempts / minute |
-| Attachment upload | 20 requests / minute |
-| Document import/reindex, shared between both operations | 6 attempts / minute |
-| Explicit document semantic indexing | 12 requests / minute; at most 32 chunks per request, no automatic retry |
+| Attachment upload | 120 requests / minute |
+| Document import/reindex, shared between both operations | 60 attempts / minute; a batch import waits out the limit as `Retry-After` says |
+| Explicit document semantic indexing | 60 requests / minute; at most 32 chunks per request, no automatic retry |
 | Desktop task reminder claims | 10 checks / minute; at most 10 due tasks per check |
 | Conversation text search | 30 requests / minute |
 | Conversation export | 6 requests / minute |
@@ -73,7 +73,7 @@ Quotas belong to the local instance, not to a caller. Every request from this in
 | Model catalog reads and manual refreshes | 8 attempts / minute |
 | Memory embedding rebuild runs | 2 runs / minute; one run re-embeds a bounded batch and spends one provider request per memory |
 
-Document-only search shares the tool request quota. Document uploads reuse the limited stream reader with a narrower 9 MiB body/8 MiB file allowance. Extraction has worker, timeout, expanded-size and per-workspace document limits; see [Document knowledge](document-knowledge.md). The existing attachment/Proxy limits are not increased.
+Document-only search shares the tool request quota. Document uploads reuse the limited stream reader with a 33 MiB body/32 MiB file allowance, and Proxy buffering is sized to the larger of the media and document envelopes. Extraction has worker, timeout, expanded-size and per-workspace document limits; see [Document knowledge](document-knowledge.md). The existing attachment/Proxy limits are not increased.
 
 Bulk conversation deletion accepts at most 50 unique IDs and explicit confirmation within 16 KiB. Exports have message/source/output caps, preserve private media authorization, and omit raw tool arguments/settings. See [Conversation management](conversation-management.md). Archive state never replaces the credential check.
 

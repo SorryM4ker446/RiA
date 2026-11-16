@@ -119,8 +119,9 @@ test("document validation, Origin boundary and ingestion throttling work over au
   const denied = await fetch(`${localHostOrigin(app.origin)}/api/documents`, { method: "POST", headers: { cookie, origin: "https://outside.invalid", "content-type": "application/json" }, body: "{}" });
   expect(denied.status).toBe(403);
   const result = await importFile(page, "valid.txt", Buffer.from("本地文档限流回归。"));
-  // Invalid preview uses its separate read-only quota; saving plus five reindexes fills the mutation quota.
-  for (let count = 0; count < 5; count++) expect((await browserApi(page, `${localHostOrigin(app.origin)}/api/documents/${result.document.id}`, "POST")).status).toBe(200);
+  // Invalid preview uses its separate read-only quota; saving plus the rest of the
+  // mutation quota in reindexes fills it. A folder imported as a batch fits well inside it.
+  for (let count = 0; count < 59; count++) expect((await browserApi(page, `${localHostOrigin(app.origin)}/api/documents/${result.document.id}`, "POST")).status).toBe(200);
   expect((await browserApi(page, `${localHostOrigin(app.origin)}/api/documents/${result.document.id}`, "POST")).status).toBe(429);
   // Dropping the credential makes the workspace unreachable again.
   await page.context().clearCookies();

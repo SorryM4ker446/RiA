@@ -1,14 +1,25 @@
 import { t } from "@/lib/locale";
 import { ApiError } from "@/lib/server/api-error";
 
+/*
+ * Per-minute quotas for the local service. It serves one person on their own
+ * computer, so a quota is there to stop a runaway loop, not to ration what the
+ * person asks for: importing a folder, attaching a handful of files or indexing
+ * a large library must fit well inside them. Calls that spend money (images,
+ * video, evaluation runs) stay tighter.
+ */
 export const RATE_LIMIT_POLICIES = {
   chat: { limit: 30, windowMs: 60_000 },
   tools: { limit: 30, windowMs: 60_000 },
+  fileUndo: { limit: 30, windowMs: 60_000 },
+  // Read by every card of changed files as it appears, so it allows far more.
+  fileUndoStatus: { limit: 600, windowMs: 60_000 },
   image: { limit: 6, windowMs: 60_000 },
   video: { limit: 3, windowMs: 60_000 },
-  upload: { limit: 20, windowMs: 60_000 },
-  documents: { limit: 6, windowMs: 60_000 },
-  documentPreview: { limit: 6, windowMs: 60_000 },
+  upload: { limit: 120, windowMs: 60_000 },
+  // A folder imported as a batch sends one request per document.
+  documents: { limit: 60, windowMs: 60_000 },
+  documentPreview: { limit: 30, windowMs: 60_000 },
   documentExport: { limit: 20, windowMs: 60_000 },
   reminders: { limit: 10, windowMs: 60_000 },
   tasks: { limit: 30, windowMs: 60_000 },
@@ -23,9 +34,9 @@ export const RATE_LIMIT_POLICIES = {
   assistantTemplates: { limit: 30, windowMs: 60_000 },
   documentEvaluation: { limit: 2, windowMs: 60_000 },
   modelCatalog: { limit: 8, windowMs: 60_000 },
-  // Each explicit request embeds at most 32 document chunks; a full document
-  // (256 chunks) can complete in eight batches without automatic retries.
-  documentEmbeddings: { limit: 12, windowMs: 60_000 },
+  // Each explicit request embeds at most 32 document chunks, so indexing a
+  // library by hand is many requests; the provider's own limits still apply.
+  documentEmbeddings: { limit: 60, windowMs: 60_000 },
   // Every memory search embeds the query, so it is a metered model call like
   // any other. The routes that reach one had no quota at all while the heavier
   // reindex next to them did, which is the wrong way round.

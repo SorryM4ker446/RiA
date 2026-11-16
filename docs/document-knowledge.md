@@ -7,6 +7,8 @@ stored conversation. A missing supplied conversation returns 404.
 
 Open **Knowledge** and choose **Import document** (top right) to select a PDF, UTF-8 Markdown (`.md`), UTF-8 text (`.txt`) or Word `.docx` file and, optionally, a topic. **Preview import** first shows a local, read-only extraction preview: inspect headings, rows, amounts, conditions and missing content, then click **Confirm document save**; the import card then closes. **Discard preview** writes nothing. The original file is not retained: SQLite stores the extracted text, filename, PDF page numbers and a local search index. Keep the original separately if you need its formatting or binary contents.
 
+To import several documents at once, choose more than one file, use **Folder** to take every PDF, Markdown, text and Word file in a folder and its subfolders, or drop files on the import card. They are imported one at a time under the topic given, without the preview step, and each row shows how it went: **Added**, **Updated** (a document with the same filename), **Unchanged**, **Failed** with the reason, or **Skipped** for a file the library cannot read or one over 32 MiB. A document already saved stays saved when a later one fails or the batch is stopped; **Retry unfinished** imports what is left. When the service is busy the batch waits as long as it asks and carries on. Check each document's extracted text in the library afterwards. A single file still goes through the preview.
+
 Confirmation extracts the file again and verifies that the preview text and same-filename document identity, content hash and collection still match. A concurrent import, deletion/recreation or collection move returns conflict instead of overwriting newer data; preview again before saving. Preview data lives only on the open page. There is no server preview cache, durable upload or model call. If a first-save response is lost, refresh and preview again to see the saved document before repeating confirmation.
 
 Importing a file with the same exact filename updates the document. Identical extracted text and collection leave the index unchanged; changed paragraphs add/remove chunks while chunks in unaffected sections keep their IDs. **Reindex** rebuilds local terms, frequencies, section paths and table chunks from saved text. It does not call an embedding model or rerun file extraction. Index version 4 lets short paragraphs of one section share a chunk of up to 800 characters, so a condition and its exceptions stay together; a heading, a table or a fenced code block always starts its own chunk. Version 3 retained table headers with each complete group of rows. Old local indices are marked **Local index needs updating** and, while an embedding model is chosen, are rebuilt automatically before their vectors. Index replacement is transactional, so validation failures and failed writes preserve the working version.
@@ -28,7 +30,7 @@ The document panel supports keyword search without a model key, and hybrid searc
 2. Import documents. Anything without a current vector for that model is then built in the background, one batch of 32 chunks at a time: new imports, documents from before the model was chosen, and everything after the model changes. Knowledge entries follow the documents in the same run. Document rows show **Processing**, **Waiting** or **Ready**; **Search settings and diagnostics** has the counts.
 3. Ask a paraphrased question in the library or chat. In chat the model writes its own search query.
 
-Saved vectors are the record of progress, so an interrupted run loses nothing and the next carries on, including after a service restart: opening the library resumes it. A failure stops the run instead of trying every document against a provider that is refusing, and it is not retried until something asks again (an import, a model change, or **Build or resume in bulk**). An unchanged completed index makes no new provider call. **Build or resume in bulk** remains for building what is pending by hand: each explicit request processes at most 32 pending chunks with a 30-second provider deadline, and one page operation makes at most 12 sequential requests.
+Saved vectors are the record of progress, so an interrupted run loses nothing and the next carries on, including after a service restart: opening the library resumes it. A failure stops the run instead of trying every document against a provider that is refusing, and it is not retried until something asks again (an import, a model change, or **Build or resume in bulk**). An unchanged completed index makes no new provider call. **Build or resume in bulk** remains for building what is pending by hand: each explicit request processes at most 32 pending chunks with a 30-second provider deadline, and one page operation makes at most 48 sequential requests, under the 60-per-minute quota.
 
 **Search settings and diagnostics** derives completed, stale, malformed and different-model vector counts from stored data, checking the actual vector and contextual hash rather than counting non-null fields. It also identifies old local indices. The per-document progress list describes this page's latest manual operation. Saved vectors are the source for continuation. These status checks do not prove semantic quality or compatibility with a provider whose output dimensions change without a model-ID change; retrieval diagnoses incompatible dimensions separately.
 
@@ -52,17 +54,17 @@ Document data lives in the existing SQLite database, not `public/` or a new file
 
 | Boundary | Limit |
 | --- | --- |
-| Upload | One file, 8 MiB; 9 MiB multipart request, counted from the actual stream |
+| Upload | One file, 32 MiB; 33 MiB multipart request, counted from the actual stream. What it holds once extracted is bounded separately below, since every chunk is a vector each search reads |
 | Stored text | 100,000 UTF-16 code units per document |
 | PDF pages | 200 |
 | Chunks | 256 per document; at most 1,000 code units with 100-character overlap within long paragraphs; tables repeat headers with complete rows |
 | Table row | Header + divider + any single row must fit within 1,000 code units; split wider tables or long cells before importing |
 | Documents | 100 per user |
-| Import and reindex | Shared local instance quota of 6 attempts/minute |
-| Import preview | Separate local instance quota of 6 attempts/minute; no database write or model call |
+| Import and reindex | Shared local instance quota of 60 attempts/minute |
+| Import preview | Separate local instance quota of 30 attempts/minute; no database write or model call |
 | Semantic indexing | 12 batch requests/minute; at most 32 chunks/request |
-| Parsing | At most two workers per service; 30-second deadline; 128 MiB old-generation JS heap per worker |
-| Word archive | 500 non-directory entries; at most 12 MiB of actual decompressed data |
+| Parsing | At most two workers per service; 90-second deadline; 256 MiB old-generation JS heap per worker |
+| Word archive | 500 non-directory entries; at most 64 MiB of actual decompressed data |
 
 Workers receive no inherited environment variables, use buffer input and have `fetch` disabled. PDF JavaScript evaluation and image rendering are disabled; Word import serializes its parsed structure as text, discards the HTML conversion tree and does not enable external-file access or embedded style maps. Word structures are bounded to 64 nesting levels, 100,000 visited nodes and tables of at most 2,000 rows and 64 columns. The heap limit does not cap all native allocations; these controls bound common local resource abuse and are not an OS sandbox for hostile public uploads. Existing media and Proxy body limits are unchanged.
 
@@ -182,7 +184,7 @@ requested model; `responseModelId` and usage records identify actual responses.
 The endpoint allows two runs/minute, caps the request at thirty minutes and each
 answer/judge call at five minutes, and propagates cancellation. Answer and judge
 output follow the general model output rule: the known output limit, or the
-128K default when none is known, so reasoning models are not cut short.
+provider's own default when none is known, so reasoning models are not cut short.
 Long batches with reasoning models can still exceed the overall deadline; use
 smaller batches rather than expecting every maximum-sized run to finish. Already-sent calls may
 still be charged. A cancelled run yields no completed report. Reports are kept in

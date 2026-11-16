@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import { MEDIA_LIMITS } from "./src/lib/media/limits-constants";
+import { DOCUMENT_UPLOAD_LIMITS } from "./src/lib/documents/limits-constants";
 import { LEGACY_SETTINGS_PATHS, settingsHref } from "./src/lib/settings/sections";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
@@ -89,7 +90,7 @@ const nextConfig: NextConfig = {
   },
   // Leave room for handlers to detect overflow before Proxy truncates a network chunk.
   experimental: {
-    proxyClientMaxBodySize: MEDIA_LIMITS.uploadBodyBytes + 1024 * 1024,
+    proxyClientMaxBodySize: Math.max(MEDIA_LIMITS.uploadBodyBytes, DOCUMENT_UPLOAD_LIMITS.bodyBytes) + 1024 * 1024,
     // The desktop service runs from a per-machine installation directory that
     // standard users cannot write and that uninstall must leave empty. Keep the
     // response cache in memory; prerendered pages are still read from the build.

@@ -16,7 +16,7 @@ const { tableCells } = await import("@/lib/documents/table-blocks");
 const { indexDocument, reindexDocument } = await import("@/lib/documents/store");
 const { searchDocuments } = await import("@/lib/documents/retrieval");
 const { semanticCoverage, indexDocumentEmbeddings } = await import("@/lib/documents/semantic");
-const { maintainDocumentIndexes } = await import("@/features/knowledge/index-maintenance");
+const { maintainDocumentIndexes, PAGE_REQUESTS } = await import("@/features/knowledge/index-maintenance");
 const { DocumentRequestError } = await import("@/features/knowledge/document-client");
 const { serializeWordDocument } = await import("@/lib/documents/word-structure");
 const preview = await import("@/app/api/documents/preview/route"); const routes = await import("@/app/api/documents/route");
@@ -201,9 +201,11 @@ test("maintenance cancellation and quota pauses stop further work and preserve s
 test("maintenance isolates document failures, stops stale work and enforces its request ceiling", async () => {
   const doc = await document("索引测试。"); const summary = { ...doc, indexedAt: doc.indexedAt.toISOString(), semantic: { indexed: 0, total: 1, modelRef, lexicalCurrent: true } };
   let calls = 0;
-  const targets = Array.from({ length: 16 }, (_, index) => ({ ...summary, id: `document-${index}` }));
+  // The ceiling stays under the service's quota for these requests, so a run pauses rather than being refused.
+  assert.ok(PAGE_REQUESTS > 12 && PAGE_REQUESTS < 60);
+  const targets = Array.from({ length: PAGE_REQUESTS + 4 }, (_, index) => ({ ...summary, id: `document-${index}` }));
   const result = await maintainDocumentIndexes(targets, new AbortController().signal, () => {}, async <T>() => { calls++; if (calls === 1) throw new Error("上游不可用"); return { indexed: 1, total: 1, remaining: 0 } as T; });
-  assert.equal(calls, 12); assert.equal(result[0].status, "failed"); assert.equal(result[11].status, "complete"); assert.equal(result[12].status, "paused");
+  assert.equal(calls, PAGE_REQUESTS); assert.equal(result[0].status, "failed"); assert.equal(result[PAGE_REQUESTS - 1].status, "complete"); assert.equal(result[PAGE_REQUESTS].status, "paused");
   calls = 0;
   const stale = await maintainDocumentIndexes(targets, new AbortController().signal, () => {}, async () => { calls++; throw new DocumentRequestError("文档已改变。", 409, null); });
   assert.equal(calls, 1); assert.equal(stale[0].status, "failed"); assert.equal(stale[1].status, "waiting");

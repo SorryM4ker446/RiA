@@ -1,15 +1,21 @@
 import { z } from "zod";
+import { DOCUMENT_UPLOAD_LIMITS } from "./limits-constants";
 
 export const DOCUMENT_LIMITS = {
-  fileBytes: 8 * 1024 * 1024,
-  bodyBytes: 9 * 1024 * 1024,
+  ...DOCUMENT_UPLOAD_LIMITS,
+  // What a document holds once extracted stays bounded: every chunk is a vector
+  // that each search by meaning reads, so these grow with a vector index, not
+  // with the file size.
   characters: 100_000,
-  pages: 200,
+  // Pages cost nothing at search time; a long, mostly visual PDF fits as long as its text does.
+  pages: 1000,
   chunks: 256,
+  /** Decompressed data a Word archive may hold: images and styles included, so well above its text. */
+  expandedBytes: 64 * 1024 * 1024,
   documentsPerUser: 100,
   // PDF.js can take several seconds to cold-start on a constrained CI or
-  // Windows machine before it begins reading the document.
-  parseTimeoutMs: 30_000,
+  // Windows machine before it begins reading a document, and a large one takes longer.
+  parseTimeoutMs: 90_000,
   /** How long worker cleanup may block the response before it is abandoned. */
   terminateGraceMs: 2_000,
 } as const;

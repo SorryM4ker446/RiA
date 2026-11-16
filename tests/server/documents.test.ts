@@ -9,6 +9,7 @@ import type { DocumentPage } from "@/lib/documents/types";
 
 const cleanup = createTestDatabase();
 const { db } = await import("@/db");
+const { RATE_LIMIT_POLICIES } = await import("@/lib/server/rate-limit");
 
 const collection = await import("@/app/api/documents/route");
 const detail = await import("@/app/api/documents/[id]/route");
@@ -102,8 +103,8 @@ test("invalid content, size, compressed expansion and unexpected requests cannot
   assert.equal((await upload("guide.pdf", "%PDF-broken")).status, 400);
   assert.equal((await upload("old.doc", "old word")).status, 415);
   assert.equal((await upload("binary.txt", Buffer.from([255, 0]))).status, 400);
-  assert.equal((await upload("large.txt", Buffer.alloc(8 * 1024 * 1024 + 1))).status, 413);
-  const bomb = await wordDocument("hello", { "word/extra.xml": "a".repeat(13 * 1024 * 1024) });
+  assert.equal((await upload("large.txt", Buffer.alloc(DOCUMENT_LIMITS.fileBytes + 1))).status, 413);
+  const bomb = await wordDocument("hello", { "word/extra.xml": "a".repeat(DOCUMENT_LIMITS.expandedBytes + 1024 * 1024) });
   assert.equal((await upload("expanded.docx", bomb)).status, 413);
   assert.match((await data(await detail.GET(request(), context(document.id)))).chunks[0].text, /Preserve/);
   const freshCookie = cookie;
@@ -118,7 +119,9 @@ test("invalid content, size, compressed expansion and unexpected requests cannot
 });
 
 test("ingestion rate limits return Retry-After without modifying documents", async () => {
-  for (let i = 0; i < 6; i++) await data(await upload("same.txt", "Limited import"), i ? 200 : 201);
+  // A folder of documents fits well inside the quota; only a runaway loop meets it.
+  assert.ok(RATE_LIMIT_POLICIES.documents.limit >= 50);
+  for (let i = 0; i < RATE_LIMIT_POLICIES.documents.limit; i++) await data(await upload("same.txt", "Limited import"), i ? 200 : 201);
   const response = await upload("new.txt", "Not stored");
   assert.equal(response.status, 429);
   assert.ok(Number(response.headers.get("retry-after")) > 0);

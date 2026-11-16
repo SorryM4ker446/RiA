@@ -84,7 +84,7 @@ async function parse() {
         const stream = file.nodeStream();
         stream.on('data', chunk => {
           expandedBytes += chunk.length;
-          if (expandedBytes > 12 * 1024 * 1024) {
+          if (expandedBytes > limits.expandedBytes) {
             stream.pause();
             stream.destroy();
             reject(Object.assign(new Error(messages.expandedTooLarge), { code: 'PAYLOAD_TOO_LARGE' }));
