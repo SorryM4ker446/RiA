@@ -11,6 +11,7 @@ import { deleteConversations, updateConversation } from "@/lib/conversations/mut
 import { resolveAssistant } from "@/lib/assistants/store";
 import { announceConversationsChanged } from "@/lib/conversations/events";
 
+import { t } from "@/lib/locale";
 const summaryInvalidation = {
   historyRevision: { increment: 1 }, summary: null, summaryUpToMessageId: null, summaryModelId: null, summaryRevision: null, summaryState: null,
 };
@@ -118,7 +119,7 @@ export async function saveChatMessage(params: {
   const { chatId, role, content, status = "success", clientMessageId, updateExisting = false } = params;
   const normalizedClientMessageId = clientMessageId?.trim() ? clientMessageId.trim() : undefined;
   const chat = await db.chat.findUnique({ where: { id: chatId }, select: { id: true } });
-  if (!chat) throw new ApiError({ code: "NOT_FOUND", message: "Conversation was not found" });
+  if (!chat) throw new ApiError({ code: "NOT_FOUND", message: t("server.conversation.notFound") });
   const prepared = await prepareMessageMedia(content);
   const data = {
     chatId, role, content: prepared.content, status,
@@ -177,7 +178,7 @@ export async function getRegenerationSnapshot(chatId: string, messageId: string)
     chatId, role: "user", OR: [{ id: messageId }, { clientMessageId: messageId }],
   } });
   if (!target) {
-    throw new ApiError({ code: "NOT_FOUND", message: "Message to regenerate was not found" });
+    throw new ApiError({ code: "NOT_FOUND", message: t("server.chat.regenerateMissing") });
   }
   const from = { createdAt: target.createdAt, id: target.id };
   const rows = await db.message.findMany({
@@ -200,20 +201,20 @@ export async function claimToolApproval(chatId: string, message: UIMessage) {
   } });
   const persisted = existing ? decodePersistedAssistantToolMessage(existing.content) : null;
   if (!existing || !persisted) {
-    throw new ApiError({ code: "NOT_FOUND", message: "Pending tool approval was not found" });
+    throw new ApiError({ code: "NOT_FOUND", message: t("server.approval.notFound") });
   }
   const decisions = message.parts.filter((part) => "state" in part && part.state === "approval-responded");
-  if (decisions.length === 0) throw new ApiError({ code: "VALIDATION_ERROR", message: "Approval decision is required" });
+  if (decisions.length === 0) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.approval.decisionRequired") });
   for (const part of decisions) {
     if (!("toolCallId" in part) || !("approval" in part) || !part.approval || typeof part.approval.approved !== "boolean") {
-      throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid approval decision" });
+      throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.approval.invalidDecision") });
     }
     const stored = persisted.tools.find((tool) => tool.toolCallId === part.toolCallId);
     if (!stored || stored.state !== "approval-requested" || stored.approval?.id !== part.approval.id) {
-      throw new ApiError({ code: "CONFLICT", message: "This approval is no longer pending; refresh the conversation" });
+      throw new ApiError({ code: "CONFLICT", message: t("server.approval.noLongerPending") });
     }
     if (part.type !== `tool-${stored.toolName}` || JSON.stringify(part.input) !== JSON.stringify(stored.input)) {
-      throw new ApiError({ code: "VALIDATION_ERROR", message: "Tool approval input does not match the pending request" });
+      throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.approval.inputMismatch") });
     }
     stored.state = "approval-responded";
     stored.approval = part.approval;
@@ -223,7 +224,7 @@ export async function claimToolApproval(chatId: string, message: UIMessage) {
     data: { content: encodePersistedAssistantToolMessage(persisted) },
   });
   if (claimed.count !== 1) {
-    throw new ApiError({ code: "CONFLICT", message: "This approval has already been processed" });
+    throw new ApiError({ code: "CONFLICT", message: t("server.approval.alreadyProcessed") });
   }
   return [...new Set([...(persisted.runIds ?? []), ...(persisted.runId ? [persisted.runId] : [])])];
 }
@@ -239,9 +240,9 @@ export async function declineToolApprovals(chatId: string, messageId: string, re
     OR: [{ id: messageId }, { clientMessageId: messageId }],
   } });
   const persisted = existing ? decodePersistedAssistantToolMessage(existing.content) : null;
-  if (!existing || !persisted) throw new ApiError({ code: "NOT_FOUND", message: "Pending tool approval was not found" });
+  if (!existing || !persisted) throw new ApiError({ code: "NOT_FOUND", message: t("server.approval.notFound") });
   const pending = persisted.tools.filter(tool => tool.state === "approval-requested" && tool.approval?.id);
-  if (!pending.length) throw new ApiError({ code: "CONFLICT", message: "This approval is no longer pending; refresh the conversation" });
+  if (!pending.length) throw new ApiError({ code: "CONFLICT", message: t("server.approval.noLongerPending") });
   for (const tool of pending) {
     tool.state = "output-denied";
     tool.approval = { ...tool.approval!, approved: false, reason };
@@ -251,7 +252,7 @@ export async function declineToolApprovals(chatId: string, messageId: string, re
     where: { id: existing.id, content: existing.content },
     data: { content: encodePersistedAssistantToolMessage(persisted) },
   });
-  if (declined.count !== 1) throw new ApiError({ code: "CONFLICT", message: "This approval has already been processed" });
+  if (declined.count !== 1) throw new ApiError({ code: "CONFLICT", message: t("server.approval.alreadyProcessed") });
   return pending.map(tool => tool.toolCallId);
 }
 
@@ -290,7 +291,7 @@ export async function saveRegeneratedResponse(params: {
   const { snapshot } = params;
   const saved = await db.$transaction(async (tx) => {
     const chat = await tx.chat.findFirst({ where: { id: snapshot.chatId } });
-    if (!chat) throw new ApiError({ code: "NOT_FOUND", message: "Conversation was not found" });
+    if (!chat) throw new ApiError({ code: "NOT_FOUND", message: t("server.conversation.notFound") });
     const current = await tx.message.findMany({
       where: { chatId: snapshot.chatId, ...fromMessage(snapshot.from) },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -299,12 +300,12 @@ export async function saveRegeneratedResponse(params: {
     // What a request was sent with is written as the request starts, and changes nothing a person wrote.
     const compared = (messages: typeof current) => JSON.stringify(messages.map(({ requestContext: _sentWith, ...message }) => message));
     if (compared(current) !== compared(snapshot.messages)) {
-      throw new ApiError({ code: "CONFLICT", message: "Conversation changed while regenerating; original messages were preserved" });
+      throw new ApiError({ code: "CONFLICT", message: t("server.chat.changedWhileRegenerating") });
     }
     const index = current.findIndex((message) =>
       message.role === "user" && (message.id === params.userMessageId || message.clientMessageId === params.userMessageId),
     );
-    if (index < 0) throw new ApiError({ code: "NOT_FOUND", message: "Message to regenerate was not found" });
+    if (index < 0) throw new ApiError({ code: "NOT_FOUND", message: t("server.chat.regenerateMissing") });
     const removedIds = current.slice(index + 1).map((message) => message.id);
     await tx.mediaAsset.updateMany({ where: { references: { some: { messageId: { in: removedIds } } } }, data: { lastUsedAt: new Date() } });
     await invalidateChatSummary(tx, snapshot.chatId);

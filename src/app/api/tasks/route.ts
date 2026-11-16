@@ -7,6 +7,7 @@ import { readJsonBody } from "@/lib/server/request-body";
 import { createTask, listTasks, taskInputSchema } from "@/lib/scheduler/jobs";
 import { settleAnsweredApprovals } from "@/lib/scheduler/runner";
 
+import { t } from "@/lib/locale";
 export const GET = protectDataOperation(async (req: NextRequest) => {
   try {
     await requireLocalWorkspace(req);
@@ -24,7 +25,7 @@ export const POST = protectDataOperation(async (req: NextRequest) => {
     await requireLocalWorkspace(req);
     enforceRateLimit("tasks");
     const parsed = taskInputSchema.safeParse(await readJsonBody(req));
-    if (!parsed.success) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid task", details: parsed.error.flatten() });
+    if (!parsed.success) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.tasks.invalid"), details: parsed.error.flatten() });
     return Response.json({ data: await createTask(parsed.data) }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return createApiErrorResponse(error, "Failed to create task");

@@ -1,5 +1,6 @@
 import { ZodError } from "zod";
 
+import { t } from "@/lib/locale";
 export type ApiErrorCode =
   | "RATE_LIMITED"
   | "TIMEOUT"
@@ -71,14 +72,14 @@ export function normalizeApiError(error: unknown, fallbackMessage = "Request fai
   if (error instanceof ApiError) return error;
   if (error instanceof ZodError) {
     // Do not echo submitted values (which can contain credentials) in errors.
-    return new ApiError({ code: "VALIDATION_ERROR", message: "Invalid request body", details: error.flatten() });
+    return new ApiError({ code: "VALIDATION_ERROR", message: t("server.request.invalidBody"), details: error.flatten() });
   }
   if (error instanceof Error && error.name === "PrismaClientKnownRequestError" && "code" in error) {
-    if (error.code === "P2002") return new ApiError({ code: "CONFLICT", message: "A record with this identifier already exists" });
-    if (error.code === "P2025") return new ApiError({ code: "NOT_FOUND", message: "Record was not found" });
-    if (["P1008", "P2024"].includes(String(error.code))) return new ApiError({ code: "SERVICE_UNAVAILABLE", message: "Database is busy. Please try again later." });
+    if (error.code === "P2002") return new ApiError({ code: "CONFLICT", message: t("server.record.duplicate") });
+    if (error.code === "P2025") return new ApiError({ code: "NOT_FOUND", message: t("server.record.notFound") });
+    if (["P1008", "P2024"].includes(String(error.code))) return new ApiError({ code: "SERVICE_UNAVAILABLE", message: t("server.database.busy") });
   }
-  if (error instanceof Error && error.name === "TimeoutError") return new ApiError({ code: "TIMEOUT", message: "Request timed out. Please try again later." });
+  if (error instanceof Error && error.name === "TimeoutError") return new ApiError({ code: "TIMEOUT", message: t("server.request.timeout") });
   return new ApiError({ code: "INTERNAL_ERROR", message: fallbackMessage });
 }
 
@@ -97,6 +98,6 @@ export async function callUpstream<T>(operation: () => Promise<T>): Promise<T> {
   try { return await operation(); }
   catch (error) {
     if (error instanceof ApiError || (error instanceof Error && error.name === "TimeoutError")) throw error;
-    throw new ApiError({ code: "UPSTREAM_FAILED", message: "Model service failed. Please try again later." });
+    throw new ApiError({ code: "UPSTREAM_FAILED", message: t("server.model.failed") });
   }
 }

@@ -12,6 +12,7 @@ import { identifierSchema } from "@/lib/server/request-schemas";
 import { conversationCollections } from "@/lib/conversations/document-scope";
 import { readAssistantSnapshot } from "@/lib/assistants/schema";
 
+import { t, tf } from "@/lib/locale";
 const runToolSchema = z.strictObject({
   tool: z.string().trim().min(1).max(100),
   input: z.json(),
@@ -28,18 +29,18 @@ async function POSTHandler(req: NextRequest) {
     await requireLocalWorkspace(req);
     enforceRateLimit("tools");
     const parsed = runToolSchema.safeParse(await readJsonBody(req));
-    if (!parsed.success) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid tool request", details: parsed.error.flatten() });
+    if (!parsed.success) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.tools.invalidRequest"), details: parsed.error.flatten() });
     const toolId = parsed.data.tool;
     const descriptor = await resolveToolDescriptor(toolId);
-    if (descriptor?.surface.user?.run !== "direct") throw new ApiError({ code: "VALIDATION_ERROR", message: `Tool ${toolId} cannot run without the conversation` });
+    if (descriptor?.surface.user?.run !== "direct") throw new ApiError({ code: "VALIDATION_ERROR", message: tf("server.tools.needsConversation", { tool: toolId }) });
     const input = descriptor.inputSchema.safeParse(parsed.data.input);
-    if (!input.success) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid tool input", details: input.error.flatten() });
+    if (!input.success) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.tools.invalidInput"), details: input.error.flatten() });
     const conversation = parsed.data.chatId
       ? await db.chat.findUnique({ where: { id: parsed.data.chatId }, select: { assistantConfig: true } })
       : null;
-    if (parsed.data.chatId && !conversation) throw new ApiError({ code: "NOT_FOUND", message: "Conversation was not found" });
+    if (parsed.data.chatId && !conversation) throw new ApiError({ code: "NOT_FOUND", message: t("server.conversation.notFound") });
     const assistant = readAssistantSnapshot(conversation?.assistantConfig);
-    if (assistant && !templateAllowsTool(assistant.tools, toolId)) throw new ApiError({ code: "VALIDATION_ERROR", message: "当前助理模板不允许执行此工具。" });
+    if (assistant && !templateAllowsTool(assistant.tools, toolId)) throw new ApiError({ code: "VALIDATION_ERROR", message: t("errors.theCurrentAssistantTemplateDoesNotAllowThis") });
     const { output } = await executeRegisteredTool(descriptor, input.data, {
       trigger: "manual", signal: req.signal, chatId: parsed.data.chatId,
       documentCollections: conversation ? conversationCollections(conversation) : [],

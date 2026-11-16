@@ -7,13 +7,14 @@ import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { readJsonBody } from "@/lib/server/request-body";
 import { setPluginState, uninstallPlugin } from "@/lib/plugins/store";
 
+import { t } from "@/lib/locale";
 type Context = { params: Promise<{ id: string }> };
 export const PATCH = protectDataOperation(async (req: NextRequest, context: Context) => {
   try {
     await requireLocalWorkspace(req); enforceRateLimit("extensions");
     const id = z.string().uuid().parse((await context.params).id);
     return Response.json({ data: await setPluginState(id, await readJsonBody(req, 4096)) });
-  } catch (error) { return createApiErrorResponse(error, "插件状态未更新。"); }
+  } catch (error) { return createApiErrorResponse(error, t("server.fallback.pluginState")); }
 });
 export const DELETE = protectDataOperation(async (req: NextRequest, context: Context) => {
   try {
@@ -22,5 +23,5 @@ export const DELETE = protectDataOperation(async (req: NextRequest, context: Con
     const revision = z.coerce.number().int().positive().parse(req.nextUrl.searchParams.get("revision"));
     await uninstallPlugin(id, revision);
     return Response.json({ data: { deleted: true } });
-  } catch (error) { return createApiErrorResponse(error, "插件未卸载。"); }
+  } catch (error) { return createApiErrorResponse(error, t("server.fallback.pluginUninstall")); }
 });

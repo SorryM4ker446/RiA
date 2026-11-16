@@ -43,7 +43,7 @@ beforeEach(async (t: TestContext) => {
   t.mock.method(console, "info", () => {});
   t.mock.method(console, "error", () => {});
   t.mock.method(console, "warn", () => {});
-  globalThis.__riaRateLimitStore.clear();
+  globalThis.__riaRateLimitStore?.clear();
   await db.agentStep.deleteMany({});
   await db.agentRun.deleteMany({});
   await db.memory.deleteMany({});
@@ -84,7 +84,7 @@ test("a claim that lost the race leaves the winner's approval claimed", async ()
     modelRef: CHAT_MODEL_REF,
   } as unknown as ChatRequest;
 
-  await assert.rejects(() => prepareChatPersistence(request), /no longer pending/);
+  await assert.rejects(() => prepareChatPersistence(request), /不再等待处理/);
 
   const row = await db.message.findFirst({ where: { chatId: chat.id } });
   const persisted = decodePersistedAssistantToolMessage(row.content);

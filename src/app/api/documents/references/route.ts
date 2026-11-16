@@ -7,6 +7,7 @@ import { createApiErrorResponse } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { documentSourceSchema } from "@/lib/documents/types";
 import { checkDocumentReferences } from "@/lib/documents/references";
+import { t } from "@/lib/locale";
 const input = z.strictObject({ sources: z.array(documentSourceSchema).min(1).max(8) });
 export const POST = protectDataOperation(async (req: NextRequest) => {
   try {
@@ -14,5 +15,5 @@ export const POST = protectDataOperation(async (req: NextRequest) => {
     enforceRateLimit("documentReferences");
     const { sources } = input.parse(await readJsonBody(req, 24 * 1024));
     return Response.json({ data: await checkDocumentReferences(sources) }, { headers: { "Cache-Control": "private, no-store" } });
-  } catch (error) { return createApiErrorResponse(error, "无法核对引用版本。"); }
+  } catch (error) { return createApiErrorResponse(error, t("server.fallback.references")); }
 });

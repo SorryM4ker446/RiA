@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { retrievalPolicySchema } from "@/lib/assistants/schema";
 
+import { t, tf } from "@/lib/locale";
 export const documentDiagnosticsSchema = z.strictObject({
   outcome: z.enum(["empty-query", "empty-library", "no-hits", "hits"]),
   semantic: z.enum(["not-run", "not-configured", "unindexed", "ready", "failed"]),
@@ -21,8 +22,8 @@ export const documentDiagnosticsSchema = z.strictObject({
 });
 export type DocumentDiagnostics = z.infer<typeof documentDiagnosticsSchema>;
 export function describeDocumentDiagnostics(value: DocumentDiagnostics) {
-  const outcome = { "empty-query": "查询为空", "empty-library": "所选范围没有资料", "no-hits": "未找到支持此问题的片段", hits: `已取得 ${value.selectedSources} 个证据片段` }[value.outcome];
-  const semantic = { "not-run": "本次未执行语义检索", "not-configured": "未配置语义模型，使用关键词检索", unindexed: "当前模型尚无兼容向量，使用关键词检索", ready: "混合检索已运行", failed: "语义模型调用失败，已回退关键词检索" }[value.semantic];
-  const withheld = value.withheldSources ? `另有 ${value.withheldSources} 个弱匹配片段未自动加入，助手可按需检索。` : "";
-  return `${outcome}；${semantic}。证据 ${value.contextChars} 字符，耗时 ${Math.round(value.durationMs)} ms。${withheld}`;
+  const outcome = { "empty-query": t("server.diagnostics.emptyQuery"), "empty-library": t("server.diagnostics.emptyLibrary"), "no-hits": t("server.diagnostics.noHits"), hits: tf("server.diagnostics.hits", { count: value.selectedSources }) }[value.outcome];
+  const semantic = { "not-run": t("server.diagnostics.notRun"), "not-configured": t("server.diagnostics.notConfigured"), unindexed: t("server.diagnostics.unindexed"), ready: t("server.diagnostics.ready"), failed: t("server.diagnostics.failed") }[value.semantic];
+  const withheld = value.withheldSources ? tf("server.diagnostics.withheld", { count: value.withheldSources }) : "";
+  return tf("server.diagnostics.summary", { outcome, semantic, characters: value.contextChars, ms: Math.round(value.durationMs), withheld }).trim();
 }

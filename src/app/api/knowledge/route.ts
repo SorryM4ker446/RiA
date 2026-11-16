@@ -10,6 +10,7 @@ import { requireLocalWorkspace } from "@/lib/local/workspace";
 import { saveKnowledgeEntry } from "@/lib/knowledge/entries";
 import { pageResult, readPageOptions } from "@/lib/server/pagination";
 
+import { t } from "@/lib/locale";
 const createKnowledgeSchema = z.strictObject({
   key: z.string().trim().min(1).max(120),
   value: z.string().trim().min(1).max(4000),
@@ -61,7 +62,7 @@ async function GETHandler(req: NextRequest) {
     const params = req.nextUrl.searchParams;
     for (const key of new Set(params.keys())) {
       if (params.getAll(key).length !== 1) {
-        throw new ApiError({ code: "VALIDATION_ERROR", message: "Duplicate knowledge query parameter" });
+        throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.knowledge.duplicateQuery") });
       }
     }
     const parsed = knowledgeListQuerySchema.safeParse(Object.fromEntries(params));
@@ -69,7 +70,7 @@ async function GETHandler(req: NextRequest) {
     if (!parsed.success) {
       throw new ApiError({
         code: "VALIDATION_ERROR",
-        message: "Invalid knowledge query",
+        message: t("server.knowledge.invalidQuery"),
         details: parsed.error.flatten(),
       });
     }
@@ -115,7 +116,7 @@ async function POSTHandler(req: NextRequest) {
     if (!parsed.success) {
       throw new ApiError({
         code: "VALIDATION_ERROR",
-        message: "Invalid knowledge entry",
+        message: t("server.knowledge.invalidEntry"),
         details: parsed.error.flatten(),
       });
     }

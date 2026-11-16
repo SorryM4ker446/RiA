@@ -15,3 +15,14 @@ export function getApiErrorMessage(payload: unknown, fallback = t("lib.error.fal
   if ("code" in error && error.code === "CONFLICT") return `${localizeMessage(error.message)}${t("lib.error.conflictHint")}`;
   return localizeMessage(error.message);
 }
+
+/** Where the person can fix a failure, when the service named a place in the error's `details.fix`. */
+export type ApiErrorFix = "apiKeys" | "models";
+
+export function getApiErrorFix(payload: unknown): ApiErrorFix | null {
+  if (typeof payload === "string") {
+    try { return getApiErrorFix(JSON.parse(payload)); } catch { return null; }
+  }
+  const fix = (payload as { error?: { details?: { fix?: unknown } } } | null)?.error?.details?.fix;
+  return fix === "apiKeys" || fix === "models" ? fix : null;
+}

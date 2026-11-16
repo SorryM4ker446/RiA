@@ -4,6 +4,7 @@ import { stopTerminalCommandsForRun } from "@/lib/terminal/runtime";
 import type { Prisma } from "@prisma/client";
 import { ApiError } from "@/lib/server/api-error";
 
+import { t } from "@/lib/locale";
 /**
  * Execution records.
  *
@@ -183,7 +184,7 @@ export async function addRunCost(runId: string, costUsd: number | null) {  if (c
 /** Stops a run and marks its unfinished steps, so nothing appears to be in flight. */
 export async function cancelRun(runId: string, reason: string) {
   const run = await db.agentRun.findUnique({ where: { id: runId } });
-  if (!run) throw new ApiError({ code: "NOT_FOUND", message: "Run not found" });
+  if (!run) throw new ApiError({ code: "NOT_FOUND", message: t("server.run.notFound") });
   if (run.status !== "running" && run.status !== "waiting_approval") return run;
   await db.agentStep.updateMany({
     where: { runId, state: { in: ["running", "waiting_approval"] } },

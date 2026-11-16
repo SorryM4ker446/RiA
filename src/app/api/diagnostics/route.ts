@@ -5,6 +5,7 @@ import { createApiErrorResponse } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { exportExecutionDiagnostics } from "@/lib/scheduler/history";
 
+import { t } from "@/lib/locale";
 export const GET = protectDataOperation(async (req: NextRequest) => {
   try {
     await requireLocalWorkspace(req);
@@ -14,5 +15,5 @@ export const GET = protectDataOperation(async (req: NextRequest) => {
       "Content-Disposition": 'attachment; filename="ria-execution-diagnostics.json"',
       "X-Content-Type-Options": "nosniff",
     } });
-  } catch (error) { return createApiErrorResponse(error, "无法导出诊断信息。"); }
+  } catch (error) { return createApiErrorResponse(error, t("server.fallback.diagnostics")); }
 });

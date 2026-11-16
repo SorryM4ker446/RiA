@@ -206,6 +206,7 @@ export const chatMessages = {
   "chat.thinking.queued": "排队中，前面还有 {ahead} 个",
   "chat.thinking.queuedNext": "排队中，马上开始",
   "chat.thinking.retrying": "服务繁忙，{seconds} 秒后重试（第 {attempt} 次）",
+  "chat.thinking.reviewing": "正在按你的要求审核这一步操作…",
   "chat.queue.label": "排队中的消息",
   "chat.queue.add": "排队发送",
   "chat.queue.edit": "改这条排队的消息",

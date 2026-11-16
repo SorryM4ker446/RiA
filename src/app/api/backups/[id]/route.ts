@@ -15,7 +15,7 @@ export const GET = protectDataOperation(async (req: NextRequest, context: Contex
   try {
     await requireLocalWorkspace(req);
     const { id } = await context.params;
-    if (req.nextUrl.searchParams.getAll("download").length > 1) throw new ApiError({ code: "VALIDATION_ERROR", message: "Duplicate query parameter" });
+    if (req.nextUrl.searchParams.getAll("download").length > 1) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.request.duplicateQuery") });
     z.strictObject({ download: z.literal("1").optional() }).parse(Object.fromEntries(req.nextUrl.searchParams));
     if (!req.nextUrl.searchParams.has("download")) return Response.json({ data: await inspectAccountBackup(id) }, { headers: { "Cache-Control": "private, no-store" } });
     // A download keeps the archive's own extension, so a pre-rename archive

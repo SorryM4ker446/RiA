@@ -8,6 +8,7 @@ import { db } from "@/db";
 import { updateConversation, updateConversationSchema } from "@/lib/conversations/mutations";
 import { awaitingApproval, conversationInclude, conversationSummary } from "@/lib/conversations/query";
 
+import { t } from "@/lib/locale";
 type Params = {
   params: Promise<{ id: string }>;
 };
@@ -19,7 +20,7 @@ async function GETHandler(req: NextRequest, context: Params) {
     const conversation = await db.chat.findFirst({ where: { id }, include: conversationInclude });
 
     if (!conversation) {
-      throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
+      throw new ApiError({ code: "NOT_FOUND", message: t("server.conversation.notFound") });
     }
 
     return Response.json({ data: conversationSummary(conversation, (await awaitingApproval([conversation.id])).has(conversation.id)) });
@@ -53,7 +54,7 @@ async function DELETEHandler(req: NextRequest, context: Params) {
 
     const deleted = await deleteChat(id);
     if (!deleted) {
-      throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
+      throw new ApiError({ code: "NOT_FOUND", message: t("server.conversation.notFound") });
     }
 
     return Response.json({ success: true });

@@ -28,7 +28,7 @@ export async function indexDocument(input: DocumentInput, expected?: { id: strin
       throw new ApiError({ code: "CONFLICT", message: t("lib.documents.modifiedOrDeleted") });
     }
     if (importBase !== undefined && (importBase === null ? Boolean(existing) : !existing || existing.id !== importBase.id || existing.contentHash !== importBase.contentHash || existing.collection !== importBase.collection)) {
-      throw new ApiError({ code: "CONFLICT", message: "同名文档在预览后已改变，请重新预览再确认保存。" });
+      throw new ApiError({ code: "CONFLICT", message: t("errors.theDocumentWithThisNameChangedAfterPreview") });
     }
     if (!existing && await tx.knowledgeDocument.count({ where: {} }) >= DOCUMENT_LIMITS.documentsPerUser) {
       throw new ApiError({ code: "CONFLICT", message: t("lib.documents.tooManyDocuments") });

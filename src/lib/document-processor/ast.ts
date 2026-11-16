@@ -5,6 +5,7 @@ import type { Root, RootContent, PhrasingContent, Definition } from "mdast";
 import { ApiError } from "@/lib/server/api-error";
 import type { ContentSyntax } from "./schema";
 
+import { t } from "@/lib/locale";
 export type DocumentNode = Root | RootContent | PhrasingContent;
 export type DocumentTree = { root: Root; definitions: Map<string, Definition> };
 export const escapeMarkup = (value: string) => value.replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
@@ -12,7 +13,7 @@ export function parseContent(content: string, syntax: ContentSyntax): DocumentTr
   const root: Root = syntax === "markdown" ? fromMarkdown(content, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] }) : { type: "root", children: [{ type: "paragraph", children: [{ type: "text", value: content }] }] };
   let count = 0; const definitions = new Map<string, Definition>();
   function visit(node: DocumentNode, depth = 0) {
-    if (++count > 20_000 || depth > 32 || (node.type === "table" && (node.children.length > 2000 || node.children.some(row => row.children.length > 64)))) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: "文档结构过于复杂，请拆分后再导出。" });
+    if (++count > 20_000 || depth > 32 || (node.type === "table" && (node.children.length > 2000 || node.children.some(row => row.children.length > 64)))) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("errors.documentStructureIsTooComplexSplitItBefore") });
     if (node.type === "definition" && !definitions.has(node.identifier)) definitions.set(node.identifier, node);
     if ("children" in node) for (const child of node.children) visit(child, depth + 1);
   }

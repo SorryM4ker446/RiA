@@ -8,11 +8,12 @@ import { activationSchema, EXTENSION_LIMITS, extensionConfigSchema, extensionToo
 import { canonical, connectionCredentials, probeConnection, publicExtensionError, sameDefinition, validateProcessConfig } from "./transport";
 import { pluginManifestSchema } from "@/lib/plugins/schema";
 
+import { t } from "@/lib/locale";
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
-const conflict = () => new ApiError({ code: "CONFLICT", message: "扩展配置已变化，请刷新后重试。" });
+const conflict = () => new ApiError({ code: "CONFLICT", message: t("errors.extensionConfigurationChangedRefreshAndTryAgain") });
 export async function requireExtension(id: string) {
   const extension = await db.extension.findUnique({ where: { id }, include: { plugin: true } });
-  if (!extension) throw new ApiError({ code: "NOT_FOUND", message: "扩展不存在或已删除。" });
+  if (!extension) throw new ApiError({ code: "NOT_FOUND", message: t("errors.extensionDoesNotExistOrWasDeleted") });
   return extension;
 }
 export function extensionView(row: Extension & { plugin?: { manifest: unknown } | null }) {
@@ -34,7 +35,7 @@ export async function saveExtension(raw: SaveExtension, id?: string) {
   if (id && !input.revision) throw conflict();
   const row = await db.$transaction(async tx => {
     if (!id) {
-      if (await tx.extension.count() >= EXTENSION_LIMITS.connections) throw new ApiError({ code: "VALIDATION_ERROR", message: "最多配置 20 个扩展。" });
+      if (await tx.extension.count() >= EXTENSION_LIMITS.connections) throw new ApiError({ code: "VALIDATION_ERROR", message: t("errors.upTo20ExtensionsCanBeConfigured") });
       return tx.extension.create({ data: { id: extensionId, name: input.name, kind: input.config.type, config: json(input.config), tools: [], credentials: encryptCredentials(extensionId, input.credentials ?? {}) } });
     }
     const current = await tx.extension.findUnique({ where: { id } });
@@ -59,7 +60,7 @@ export async function testExtension(id: string, revision: number, signal?: Abort
     const config = extensionConfigSchema.parse(current.config);
     const credentials = decryptCredentials(id, current.credentials);
     const matchingKey = (key: string) => config.type === "mcp-stdio" && process.platform !== "win32" ? key : key.toLowerCase();
-    if (extensionView(current).credentialFields.some(field => field.required && !Object.entries(credentials).some(([key, value]) => matchingKey(key) === matchingKey(field.key) && value))) throw new ApiError({ code: "CONFIGURATION_ERROR", message: "请先在连接配置中填写插件要求的凭据。" });
+    if (extensionView(current).credentialFields.some(field => field.required && !Object.entries(credentials).some(([key, value]) => matchingKey(key) === matchingKey(field.key) && value))) throw new ApiError({ code: "CONFIGURATION_ERROR", message: t("errors.enterThePluginSRequiredCredentialsInConnection") });
     const tools = await probeConnection(config, credentials, operation.signal);
     operation.signal.throwIfAborted();
     const previous = extensionToolsSchema.parse(current.tools);
@@ -81,14 +82,14 @@ export async function activateExtension(id: string, raw: unknown) {
   const saved = await db.$transaction(async tx => {
     const row = await tx.extension.findUnique({ where: { id } });
     if (!row || row.revision !== input.revision) throw conflict();
-    if (input.enabled && row.testedRevision !== row.revision) throw new ApiError({ code: "VALIDATION_ERROR", message: "请先成功检测连接和工具，再启用扩展。" });
+    if (input.enabled && row.testedRevision !== row.revision) throw new ApiError({ code: "VALIDATION_ERROR", message: t("errors.successfullyTestTheConnectionAndToolsBeforeEnabling") });
     const tools = extensionToolsSchema.parse(row.tools);
     const selected = new Set(input.tools);
-    if (selected.size !== input.tools.length || input.tools.some(name => !tools.some(tool => tool.name === name))) throw new ApiError({ code: "VALIDATION_ERROR", message: "工具选择无效，请重新检测。" });
-    if (input.enabled && !selected.size) throw new ApiError({ code: "VALIDATION_ERROR", message: "请至少选择一个工具。" });
+    if (selected.size !== input.tools.length || input.tools.some(name => !tools.some(tool => tool.name === name))) throw new ApiError({ code: "VALIDATION_ERROR", message: t("errors.invalidToolSelectionTestTheConnectionAgain") });
+    if (input.enabled && !selected.size) throw new ApiError({ code: "VALIDATION_ERROR", message: t("errors.selectAtLeastOneTool") });
     const others = await tx.extension.findMany({ where: { enabled: true, id: { not: id } }, select: { tools: true } });
     const total = others.reduce((sum, item) => sum + extensionToolsSchema.parse(item.tools).filter(tool => tool.enabled).length, 0) + (input.enabled ? selected.size : 0);
-    if (total > EXTENSION_LIMITS.enabledTools) throw new ApiError({ code: "VALIDATION_ERROR", message: "最多同时启用 32 个外部工具，请缩小选择范围。" });
+    if (total > EXTENSION_LIMITS.enabledTools) throw new ApiError({ code: "VALIDATION_ERROR", message: t("errors.upTo32ExternalToolsCanBeEnabled") });
     const revision = row.revision + 1;
     return tx.extension.update({ where: { id, revision: input.revision }, data: { enabled: input.enabled, tools: json(tools.map(tool => ({ ...tool, enabled: selected.has(tool.name) }))), revision, testedRevision: row.testedRevision === row.revision ? revision : null, testId: null } });
   });
@@ -97,7 +98,7 @@ export async function activateExtension(id: string, raw: unknown) {
 }
 
 export async function deleteExtension(id: string, revision: number) {
-  if ((await requireExtension(id)).pluginId) throw new ApiError({ code: "CONFLICT", message: "此连接由插件管理，请通过卸载插件移除。" });
+  if ((await requireExtension(id)).pluginId) throw new ApiError({ code: "CONFLICT", message: t("errors.thisConnectionIsManagedByAPluginUninstall") });
   const removed = await db.extension.deleteMany({ where: { id, revision } });
   if (!removed.count) throw conflict();
   cancelExtensionOperations(id);

@@ -10,6 +10,7 @@ import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { requireLocalWorkspace } from "@/lib/local/workspace";
 import { recordWorkspaceEvent } from "@/lib/activity/events";
 
+import { t } from "@/lib/locale";
 type Params = {
   params: Promise<{ id: string }>;
 };
@@ -60,11 +61,11 @@ async function PATCHHandler(req: NextRequest, context: Params) {
     const { id } = await context.params;
     const existing = await getScopedKnowledgeEntry(id);
     if (!existing) {
-      throw new ApiError({ code: "NOT_FOUND", message: "Knowledge entry not found" });
+      throw new ApiError({ code: "NOT_FOUND", message: t("server.knowledge.notFound") });
     }
     const parsed = updateSchema.safeParse(await readJsonBody(req, 16 * 1024));
     if (!parsed.success || (parsed.data.value === undefined && parsed.data.confirmed === undefined)) {
-      throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid knowledge update", details: parsed.success ? undefined : parsed.error.flatten() });
+      throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.knowledge.invalidUpdate"), details: parsed.success ? undefined : parsed.error.flatten() });
     }
 
     const nextValue = parsed.data.value ?? existing.value;
@@ -74,8 +75,8 @@ async function PATCHHandler(req: NextRequest, context: Params) {
 
     const updated = await db.$transaction(async tx => {
     const current = await tx.memory.findUnique({ where: { id } });
-    if (!current) throw new ApiError({ code: "NOT_FOUND", message: "Knowledge entry not found" });
-    if (parsed.data.value !== undefined && current.value !== existing.value) throw new ApiError({ code: "CONFLICT", message: "Knowledge entry changed during editing" });
+    if (!current) throw new ApiError({ code: "NOT_FOUND", message: t("server.knowledge.notFound") });
+    if (parsed.data.value !== undefined && current.value !== existing.value) throw new ApiError({ code: "CONFLICT", message: t("server.knowledge.changedWhileEditing") });
     const result = await tx.memory.update({
       where: { id },
       data: {
@@ -109,7 +110,7 @@ async function DELETEHandler(req: NextRequest, context: Params) {
     if (!existing) {
       throw new ApiError({
         code: "NOT_FOUND",
-        message: "Knowledge entry not found",
+        message: t("server.knowledge.notFound"),
       });
     }
 

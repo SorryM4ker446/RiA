@@ -9,9 +9,10 @@ import { htmlDocument, parseContent, plainText, exportCsp } from "./ast";
 import { wordDocument } from "./docx";
 import { conversionNotes, contentTypes, exportFilename, exportRequestSchema, processorTextSchema, type ProcessedDocument } from "./schema";
 
+import { t } from "@/lib/locale";
 function processed(filename: string, format: string, pages: DocumentPage[]): ProcessedDocument {
   const content = processorTextSchema.parse(pages.map(page => page.text).join("\n\n"));
-  return { filename, format, pages, content, syntax: ["md", "docx"].includes(format) ? "markdown" : "plain", characterCount: content.length, contentHash: hashDocumentContent(JSON.stringify(pages)), notes: conversionNotes };
+  return { filename, format, pages, content, syntax: ["md", "docx"].includes(format) ? "markdown" : "plain", characterCount: content.length, contentHash: hashDocumentContent(JSON.stringify(pages)), notes: conversionNotes() };
 }
 export async function processUpload(input: { filename: string; format: DocumentFormat; file: File }, signal?: AbortSignal) {
   const pages = await parseDocument(new Uint8Array(await input.file.arrayBuffer()), input.format, signal, { escapeMarkdown: true });
@@ -19,14 +20,14 @@ export async function processUpload(input: { filename: string; format: DocumentF
 }
 export async function loadProcessorDocument(id: string, options: { collections?: string[]; version?: string } = {}) {
   const row = await db.knowledgeDocument.findUnique({ where: { id }, select: { id: true, filename: true, format: true, pages: true, contentHash: true, collection: true } });
-  if (!row || (options.collections?.length && !options.collections.includes(row.collection ?? ""))) throw new ApiError({ code: "NOT_FOUND", message: "文档不存在，或不在这个对话可用的主题中。" });
-  if (options.version && row.contentHash !== options.version) throw new ApiError({ code: "CONFLICT", message: "文档已更新，请重新转换后下载。" });
+  if (!row || (options.collections?.length && !options.collections.includes(row.collection ?? ""))) throw new ApiError({ code: "NOT_FOUND", message: t("errors.documentIsMissingOrOutsideTheCurrentAssistant") });
+  if (options.version && row.contentHash !== options.version) throw new ApiError({ code: "CONFLICT", message: t("errors.documentUpdatedConvertItAgainBeforeDownloading") });
   return { ...processed(row.filename, row.format, documentPagesSchema.parse(row.pages)), source: { id: row.id, contentHash: row.contentHash } };
 }
 /** A document attached to a conversation, read the way an uploaded document is. */
 export async function loadAttachmentDocument(id: string, signal?: AbortSignal) {
   const asset = await getMediaAsset(id);
-  if (asset.kind !== "attachment" || !isDocumentAttachment(asset.mediaType)) throw new ApiError({ code: "VALIDATION_ERROR", message: "只能转换 PDF 或 Word 附件。" });
+  if (asset.kind !== "attachment" || !isDocumentAttachment(asset.mediaType)) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.documentProcessor.pdfOrWordOnly") });
   const format: DocumentFormat = asset.mediaType === DOCUMENT_ATTACHMENT_TYPES[0] ? "pdf" : "docx";
   const pages = await parseDocument(new Uint8Array(await readMediaAsset(asset)), format, signal, { escapeMarkdown: true });
   signal?.throwIfAborted();
@@ -41,7 +42,7 @@ export async function exportDocument(raw: unknown, signal?: AbortSignal) {
     : input.format === "html" ? htmlDocument(tree, input.filename, input.syntax) : null;
   const bytes = text === null ? await wordDocument(tree, signal) : new TextEncoder().encode(text);
   signal?.throwIfAborted();
-  if (bytes.byteLength > 8 * 1024 * 1024) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: "导出结果超过 8 MiB，请拆分文档。" });
+  if (bytes.byteLength > 8 * 1024 * 1024) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("errors.exportExceeds8MiBSplitTheDocument") });
   return { bytes, filename: exportFilename(input.filename, input.format), contentType: contentTypes[input.format], format: input.format };
 }
 export function exportResponse(result: Awaited<ReturnType<typeof exportDocument>>) {

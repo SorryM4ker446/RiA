@@ -8,6 +8,7 @@ import { legacyPreferencesSchema, preferencesSchema, providerAgnosticPreferences
 import { eventSchema, factsSchema } from "@/lib/activity/types";
 import { legacyChatFields, legacyResultsSchema, legacyTopicsConsistent, legacyTopicsSchema } from "@/lib/backups/legacy-topics";
 
+import { t } from "@/lib/locale";
 export const BACKUP_LIMITS = { bytes: 512 * 1024 * 1024, manifest: 32 * 1024 * 1024, chunk: 8 * 1024 * 1024, rows: 10_000, stagingAgeMs: 60 * 60_000 };
 export const backupId = z.string().uuid();
 const id = z.string().regex(/^[a-zA-Z0-9_-]{1,200}$/);
@@ -50,7 +51,7 @@ export const backupManifestSchema = z.strictObject({
     modelError: z.string().max(60).nullable(), modelText: z.string().max(100_000).nullable(), createdAt: date,
   })).max(1000).default([]),
 }).superRefine((data, context) => {
-  const error = () => context.addIssue({ code: "custom", message: "Backup contains duplicate, inconsistent or excessive relationships" });
+  const error = () => context.addIssue({ code: "custom", message: t("server.backup.inconsistent") });
   const messages = data.chats.flatMap(chat => chat.messages);
   const chunks = data.documents.flatMap(document => document.chunks);
   if (messages.length > BACKUP_LIMITS.rows || chunks.flatMap(chunk => chunk.terms).length > 100_000) error();

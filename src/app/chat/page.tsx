@@ -19,10 +19,12 @@ import { useChatCommands } from "@/features/commands/chat-commands";
 import { TriangleAlert } from "lucide-react";
 import { ToolLessModelNotice } from "@/features/chat/tool-less-model-notice";
 import { localizeMessage, t } from "@/lib/locale";
+import { useOpenSettings } from "@/features/settings/settings-context";
 
 export default function ChatPage() {
   useLocale();
   const chat = useChatState();
+  const openSettings = useOpenSettings();
   // Confirmations appear centred near the top of the conversation, just below the window's top row.
   const toastAnchor = useRef<HTMLDivElement>(null);
   useToastAnchor(toastAnchor);
@@ -41,7 +43,7 @@ export default function ChatPage() {
   };
   const {
     effectiveError,
-    keyError,
+    errorFix,
     setPageError,
     clearError,
     clearPreferencesError,
@@ -92,11 +94,13 @@ export default function ChatPage() {
                   <AlertDescription>
                     {/* Translated where it is shown, so an application message follows a language switch. */}
                     <p>{localizeMessage(effectiveError)}</p>
-                    {keyError ? (
-                      <p className="mt-1">{t("chatPage.keyErrorHint")}</p>
-                    ) : null}
                   </AlertDescription>
-                  <div className="mt-2">
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {errorFix ? (
+                      <Button size="sm" type="button" onClick={() => openSettings(errorFix === "apiKeys" ? "services" : "models")}>
+                        {t(errorFix === "apiKeys" ? "chatPage.openApiKeys" : "chatPage.openModels")}
+                      </Button>
+                    ) : null}
                     <Button
                       onClick={() => {
                         setPageError(null);

@@ -8,6 +8,7 @@ import { readDocumentUpload } from "@/lib/documents/upload";
 import { parseDocument } from "@/lib/documents/parser";
 import { buildDocumentChunks, hashDocumentContent, DOCUMENT_INDEX_VERSION } from "@/lib/documents/chunks";
 
+import { t } from "@/lib/locale";
 async function POSTHandler(req: NextRequest) {
   try {
     await requireLocalWorkspace(req); enforceRateLimit("documentPreview");
@@ -19,8 +20,8 @@ async function POSTHandler(req: NextRequest) {
     return Response.json({ data: { filename: input.filename, format: input.format, collection: input.collection, byteSize: input.file.size,
       previewHash: hashDocumentContent(JSON.stringify(pages)), base, indexVersion: DOCUMENT_INDEX_VERSION,
       characterCount: pages.reduce((sum, page) => sum + page.text.length, 0), chunks,
-      notes: ["预览只在本机提取文本，尚未保存或调用模型。", input.format === "pdf" ? "PDF 保留页码和提取顺序；复杂版面及表格需人工核对，扫描页需先 OCR。" : "表格以文本表示行列，长表分块重复表头；请核对合并单元格和缺失内容。"],
+      notes: [t("server.preview.local"), input.format === "pdf" ? t("server.preview.pdf") : t("server.preview.table")],
     } }, { headers: { "Cache-Control": "no-store" } });
-  } catch (error) { return createApiErrorResponse(error, "文档预览失败或已取消。"); }
+  } catch (error) { return createApiErrorResponse(error, t("server.fallback.preview")); }
 }
 export const POST = protectDataOperation(POSTHandler);

@@ -5,6 +5,7 @@ import { decodePersistedAssistantToolMessage, decodePersistedUserMessage, ASSIST
 import { documentSourceSchema } from "@/lib/documents/types";
 import { decodeMediaMessage, IMAGE_MESSAGE_PREFIX, VIDEO_MESSAGE_PREFIX, mediaUrl } from "@/lib/media/message-codec";
 
+import { t } from "@/lib/locale";
 const CONVERSATION_EXPORT_LIMITS = { messages: 5000, sourceBytes: 32 * 1024 * 1024, outputBytes: 16 * 1024 * 1024 } as const;
 
 /** What a turn cited from: recorded on the message by an earlier version, or returned by its searches. */
@@ -53,11 +54,11 @@ function heading(value: string) {
 export async function exportConversation(id: string, format: "json" | "markdown") {
   const snapshot = await db.$transaction(async tx => {
     const chat = await tx.chat.findFirst({ where: { id }, include: { tags: { orderBy: { label: "asc" } } } });
-    if (!chat) throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
+    if (!chat) throw new ApiError({ code: "NOT_FOUND", message: t("server.conversation.notFound") });
     const [size] = await tx.$queryRaw<Array<{ count: bigint; bytes: bigint }>>`
       SELECT count(*) AS count,coalesce(sum(length(cast(content AS blob))),0) AS bytes FROM messages WHERE chatId=${id}`;
     if (Number(size.count) > CONVERSATION_EXPORT_LIMITS.messages || Number(size.bytes) > CONVERSATION_EXPORT_LIMITS.sourceBytes) {
-      throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: "Conversation export exceeds 5,000 messages or 32 MiB of stored content; no partial export was created" });
+      throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("server.export.conversationTooLarge") });
     }
     const messages = await tx.message.findMany({
       where: { chatId: id }, orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -91,7 +92,7 @@ export async function exportConversation(id: string, format: "json" | "markdown"
     ].join("\n\n")),
   ].join("\n\n");
   if (Buffer.byteLength(`${text}\n`, "utf8") > CONVERSATION_EXPORT_LIMITS.outputBytes) {
-    throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: "Export exceeds 16 MiB; no partial export was created" });
+    throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("server.export.tooLarge") });
   }
   const filename = `conversation-${createHash("sha256").update(id).digest("hex").slice(0, 12)}.${format === "json" ? "json" : "md"}`;
   return { text: `${text}\n`, filename };

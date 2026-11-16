@@ -53,7 +53,7 @@ export function buildDocumentChunks(pages: DocumentPage[]) {
         flush();
         let texts: string[];
         try { texts = tableChunks(trimmed); }
-        catch (error) { throw new ApiError({ code: "VALIDATION_ERROR", message: error instanceof Error ? error.message : "表格无法分块。" }); }
+        catch (error) { throw new ApiError({ code: "VALIDATION_ERROR", message: error instanceof Error ? error.message : t("server.documents.tableUnsplittable") }); }
         for (const text of texts) {
           const hash = hashDocumentContent(`${page.pageNumber ?? ""}:${text}`); const occurrence = occurrences.get(hash) ?? 0;
           occurrences.set(hash, occurrence + 1);

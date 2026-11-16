@@ -2,7 +2,7 @@ import type { TurnNotice } from "@/features/chat/page-utils";
 import { localizeMessage, t, tf } from "@/lib/locale";
 import type { ModelMode, UploadableFilePart } from "@/features/chat/page-utils";
 import { isDocumentAttachment } from "@/lib/media/limits";
-import { getApiErrorMessage as readApiErrorMessage } from "@/lib/api-error-message";
+import { getApiErrorFix, getApiErrorMessage as readApiErrorMessage } from "@/lib/api-error-message";
 import { usePanelVisibility } from "./use-panel-visibility";
 import { FormEvent, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { chatApi, createChatTransport, isNotFoundError } from "@/features/chat/api-client";
@@ -20,7 +20,7 @@ import { useRefreshOnReturn } from "@/lib/use-refresh-on-return";
 import { taskApi } from "@/features/tasks/task-client";
 import { parseModelRefValue } from "@/features/chat/preferences";
 import { TASK_DEFAULT_MODEL } from "@/features/chat/types";
-import { useConversationStore } from "@/features/chat/conversation-store";
+import { useConversationStore, type MemoryNotice } from "@/features/chat/conversation-store";
 import {
   ConversationSession, DRAFT_CHAT, forgetSession, HistoryUnavailableError, isAnswering as chatIsAnswering, keptSession, sessionFor,
   type ComposerDraft, type QueuedMessage,
@@ -230,10 +230,9 @@ export function useChatState() {
    * is exact.
    */
   const withoutGlobalEcho = (message: string | null) => message && message === effectiveError ? null : message;
-  const keyError =
-    effectiveError?.includes("OPENROUTER_API_KEY") ||
-    effectiveError?.includes("Invalid API key") ||
-    effectiveError?.includes("No auth credentials found");
+  // Where the failure can be fixed, when the service named it: a key to add or
+  // replace, or a model to choose. Read from the error's details, never its wording.
+  const errorFix = !pageError && !preferencesError && error ? getApiErrorFix(error.message) : null;
 
   // --- stopping ---------------------------------------------------------------------------------
 
@@ -398,13 +397,24 @@ export function useChatState() {
   useRefreshOnReturn(addNewTurns);
   // A turn that ended without this page reading it (it attached too late, or not
   // at all) has its answer read from what was saved.
-  const { onTurn } = useConversationStore();
+  const { onTurn, onMemory } = useConversationStore();
   useEffect(() => onTurn(notice => {
     const current = sessionRef.current;
     if (notice.chatId !== confirmedRef.current || notice.chatId !== current.id || chatIsAnswering(current.chat)) return;
     if (notice.type === "turn-started") { current.othersTurnStarted(); setOthersTurn(count => count + 1); return; }
     if (notice.type === "turn-finished") addNewTurns();
   }), [onTurn, addNewTurns]);
+  // The model's "I'll remember that" only asks for a note; what was actually kept is said
+  // under the answer that asked, in a line of small print once that answer has ended.
+  const [memoryNoteByMessageId, setMemoryNoteByMessageId] = useState<Record<string, MemoryNotice>>({});
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  useEffect(() => onMemory(notice => {
+    if (notice.chatId !== confirmedRef.current) return;
+    const answers = messagesRef.current.filter(message => message.role === "assistant");
+    const asked = [...answers].reverse().find(message => message.parts.some(part => part.type === "tool-extractMemory")) ?? answers.at(-1);
+    if (asked) setMemoryNoteByMessageId(current => ({ ...current, [asked.id]: notice }));
+  }), [onMemory]);
   // Open and in view, what arrived in it has been read.
   const pageVisible = usePageVisible();
   const markingRead = useRef<string | null>(null);
@@ -520,7 +530,7 @@ export function useChatState() {
     textareaRef, input: draft.text, onAttachmentInputChange, fileInputRef, attachments,
     clearAttachments, attachmentNames, selectedImageModel, selectedVideoModel,
     selectedChatModel, pendingDelete: actions.pendingDelete, isDeleting: actions.isDeleting, closeDeleteDialog: actions.closeDeleteDialog, confirmDelete: actions.confirmDelete,
-    effectiveError, keyError, setPageError, clearError, clearPreferencesError, modelLibrary,
+    effectiveError, errorFix, memoryNoteByMessageId, setPageError, clearError, clearPreferencesError, modelLibrary,
     panelVisibility, togglePanel,
   };
 }

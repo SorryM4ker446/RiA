@@ -7,6 +7,7 @@ import { identifierSchema } from "@/lib/server/request-schemas";
 import { readJsonBody } from "@/lib/server/request-body";
 import { deleteTask, taskPatchSchema, updateTask } from "@/lib/scheduler/jobs";
 
+import { t } from "@/lib/locale";
 type Params = { params: Promise<{ id: string }> };
 
 export const PATCH = protectDataOperation(async (req: NextRequest, context: Params) => {
@@ -14,11 +15,11 @@ export const PATCH = protectDataOperation(async (req: NextRequest, context: Para
     await requireLocalWorkspace(req);
     enforceRateLimit("tasks");
     const identifier = identifierSchema.safeParse((await context.params).id);
-    if (!identifier.success) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid id" });
+    if (!identifier.success) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.request.invalidId") });
     const parsed = taskPatchSchema.safeParse(await readJsonBody(req));
-    if (!parsed.success) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid task", details: parsed.error.flatten() });
+    if (!parsed.success) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.tasks.invalid"), details: parsed.error.flatten() });
     const data = await updateTask(identifier.data, parsed.data);
-    if (!data) throw new ApiError({ code: "NOT_FOUND", message: "Task not found" });
+    if (!data) throw new ApiError({ code: "NOT_FOUND", message: t("server.tasks.notFound") });
     return Response.json({ data }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return createApiErrorResponse(error, "Failed to update task");
@@ -30,11 +31,11 @@ export const DELETE = protectDataOperation(async (req: NextRequest, context: Par
     await requireLocalWorkspace(req);
     enforceRateLimit("tasks");
     const identifier = identifierSchema.safeParse((await context.params).id);
-    if (!identifier.success) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid id" });
+    if (!identifier.success) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.request.invalidId") });
     const result = await deleteTask(identifier.data);
     // Reporting a delete of a row that is not there as a success would let the
     // interface show the entry going away and then find it again on the next load.
-    if (!result.deleted) throw new ApiError({ code: "NOT_FOUND", message: "Task not found" });
+    if (!result.deleted) throw new ApiError({ code: "NOT_FOUND", message: t("server.tasks.notFound") });
     return Response.json({ data: result }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return createApiErrorResponse(error, "Failed to delete task");

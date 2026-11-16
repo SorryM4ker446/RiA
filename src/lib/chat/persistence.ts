@@ -34,7 +34,7 @@ async function getOrCreateChat(params: {
     });
 
     if (alreadyExists) {
-      throw new ApiError({ code: "NOT_FOUND", message: "Conversation was not found" });
+      throw new ApiError({ code: "NOT_FOUND", message: t("server.conversation.notFound") });
     }
 
     return createChat({

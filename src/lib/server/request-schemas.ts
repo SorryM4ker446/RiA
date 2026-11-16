@@ -5,6 +5,7 @@ import { getToolDescriptor, listToolDescriptors } from "@/tools/builtins";
 import { currentToolId, legacyToolIds } from "@/tools/legacy-names";
 import { externalToolIdPattern, externalInputSchema } from "@/lib/extensions/schema";
 
+import { t } from "@/lib/locale";
 export const identifierSchema = z.string().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/);
 // A client names a model by provider as well as id. Validating the pair here
 // only fixes the shape; membership of "我的模型" is checked server-side before
@@ -78,10 +79,10 @@ const messageSchema = z.strictObject({
 }).superRefine((message, ctx) => {
   // Assistant messages grow with the tool loop; user/system inputs retain the
   // existing part-count bound as well as their role and attachment checks.
-  if (message.role !== "assistant" && message.parts.length > 100) ctx.addIssue({ code: "custom", path: ["parts"], message: "Too many message parts" });
-  if (message.parts.filter((part) => part.type === "file").length > MEDIA_LIMITS.attachmentCount) ctx.addIssue({ code: "custom", message: "Too many attachments" });
-  if (message.role !== "assistant" && message.parts.some((part) => part.type !== "text" && !(message.role === "user" && part.type === "file"))) ctx.addIssue({ code: "custom", message: "Parts are not allowed for this role" });
-  if (message.role === "user" && !message.parts.some((part) => part.type === "file" || (part.type === "text" && part.text.trim()))) ctx.addIssue({ code: "custom", message: "User message must contain text or an attachment" });
+  if (message.role !== "assistant" && message.parts.length > 100) ctx.addIssue({ code: "custom", path: ["parts"], message: t("server.chat.tooManyParts") });
+  if (message.parts.filter((part) => part.type === "file").length > MEDIA_LIMITS.attachmentCount) ctx.addIssue({ code: "custom", message: t("server.attachment.tooMany") });
+  if (message.role !== "assistant" && message.parts.some((part) => part.type !== "text" && !(message.role === "user" && part.type === "file"))) ctx.addIssue({ code: "custom", message: t("server.chat.partsNotAllowed") });
+  if (message.role === "user" && !message.parts.some((part) => part.type === "file" || (part.type === "text" && part.text.trim()))) ctx.addIssue({ code: "custom", message: t("server.chat.emptyUserMessage") });
 });
 
 export const chatRequestSchema = z.strictObject({

@@ -9,7 +9,6 @@ import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { readJsonBody } from "@/lib/server/request-body";
 import { t } from "@/lib/locale";
-
 const revealSchema = z.strictObject({
   grantId: z.string().min(1).max(200),
   path: z.string().min(1).max(2000)
@@ -30,7 +29,7 @@ async function POSTHandler(req: NextRequest) {
     await requireLocalWorkspace(req);
     enforceRateLimit("directoryGrants");
     const parsed = revealSchema.safeParse(await readJsonBody(req));
-    if (!parsed.success) throw new ApiError({ code: "VALIDATION_ERROR", message: "grantId and path are required" });
+    if (!parsed.success) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.grants.grantAndPathRequired") });
     const grant = await requireActiveGrant(parsed.data.grantId);
     const target = await resolveWithinGrant(grant, parsed.data.path, "read");
     return Response.json(

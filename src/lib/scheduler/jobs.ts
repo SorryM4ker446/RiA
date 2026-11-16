@@ -14,6 +14,7 @@ import { approvalRuleSchema, readApprovalRule, type ApprovalRule } from "@/lib/a
 import { readTaskEffort, readTaskNotify, taskEffortSchema, taskNotifySchema, type TaskEffort, type TaskNotify } from "@/lib/scheduler/task-settings";
 import { announceConversationsChanged } from "@/lib/conversations/events";
 
+import { t } from "@/lib/locale";
 /*
  * Tasks: work the user asked to happen at a time, without being present.
  *
@@ -226,7 +227,7 @@ export async function createTask(raw: TaskInput, now = new Date()): Promise<Task
   if (input.kind !== "prompt" && input.prompt) throw invalid("A built-in action takes no prompt");
   if (!input.title && !template) throw invalid("A task needs a name");
   if (input.cron && input.runAt) throw invalid("Give either a repeating schedule or a time to run once");
-  if (await db.scheduledJob.count() >= TASK_LIMITS.tasks) throw new ApiError({ code: "VALIDATION_ERROR", message: "There are too many tasks; delete one you no longer need" });
+  if (await db.scheduledJob.count() >= TASK_LIMITS.tasks) throw new ApiError({ code: "VALIDATION_ERROR", message: t("tasks.error.tooMany") });
   // With neither a repeat nor a time, the task runs only when started by hand.
   const manual = !input.cron && !input.runAt;
   const nextRunAt = manual ? null : firstRun({ cron: input.cron ?? null, runAt: input.runAt, timeZone: input.timeZone }, now);
@@ -302,7 +303,7 @@ export async function deleteTask(id: string): Promise<{ deleted: boolean }> {
   announceConversationsChanged();
   if (removed.count) return { deleted: true };
   if (await db.scheduledJob.findUnique({ where: { id }, select: { id: true } })) {
-    throw new ApiError({ code: "CONFLICT", message: "The task is running; stop it first" });
+    throw new ApiError({ code: "CONFLICT", message: t("tasks.error.running") });
   }
   return { deleted: false };
 }
@@ -389,9 +390,9 @@ export async function claimDueTask(now = new Date(), options: { prompts?: boolea
 export async function claimTaskNow(id: string, now = new Date()): Promise<ClaimedTask> {
   return db.$transaction(async tx => {
     const task = await tx.scheduledJob.findUnique({ where: { id }, select: claimSelect });
-    if (!task) throw new ApiError({ code: "NOT_FOUND", message: "Task not found" });
+    if (!task) throw new ApiError({ code: "NOT_FOUND", message: t("server.tasks.notFound") });
     const claimed = await tx.scheduledJob.updateMany({ where: { id, ...notRunning }, data: { lastStatus: "running", lastRunAt: now, lastError: null } });
-    if (claimed.count !== 1) throw new ApiError({ code: "CONFLICT", message: "The task is already running" });
+    if (claimed.count !== 1) throw new ApiError({ code: "CONFLICT", message: t("tasks.error.alreadyRunning") });
     return openRun(tx, task, "manual", now);
   });
 }

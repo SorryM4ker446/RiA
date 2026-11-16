@@ -5,9 +5,10 @@ import { createApiErrorResponse } from "@/lib/server/api-error";
 import { documentIdSchema } from "@/lib/documents/types";
 import { loadProcessorDocument } from "@/lib/document-processor/service";
 
+import { t } from "@/lib/locale";
 export const GET = protectDataOperation(async (req: NextRequest, context: { params: Promise<{ id: string }> }) => {
   try {
     await requireLocalWorkspace(req);
     return Response.json({ data: await loadProcessorDocument(documentIdSchema.parse((await context.params).id)) }, { headers: { "Cache-Control": "no-store" } });
-  } catch (error) { return createApiErrorResponse(error, "无法读取知识库文档。"); }
+  } catch (error) { return createApiErrorResponse(error, t("server.fallback.processorSource")); }
 });

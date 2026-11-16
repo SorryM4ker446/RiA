@@ -11,6 +11,7 @@ import { decodePersistedAssistantToolMessage } from "@/lib/ai/ui-message";
 import { taskModel } from "@/lib/scheduler/jobs";
 import { readApprovalRule } from "@/lib/approvals/rules";
 
+import { t } from "@/lib/locale";
 export const chatTagSchema = z.string().trim().min(1).max(32)
   .transform(value => value.normalize("NFKC").trim().toLowerCase()).pipe(z.string().min(1).max(32).regex(/^[^,\u0000-\u001f\u007f]+$/));
 const cursorSchema = z.strictObject({ v: z.literal(2), scope: z.string(), pinned: z.boolean(), date: z.iso.datetime(), id: z.string().min(1).max(200) });
@@ -23,7 +24,7 @@ const querySchema = z.strictObject({
 });
 
 function readConversationQuery(params: URLSearchParams) {
-  for (const key of new Set(params.keys())) if (params.getAll(key).length !== 1) throw new ApiError({ code: "VALIDATION_ERROR", message: "Duplicate query parameter" });
+  for (const key of new Set(params.keys())) if (params.getAll(key).length !== 1) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.request.duplicateQuery") });
   const input = querySchema.parse(Object.fromEntries(params));
   const scope = createHash("sha256").update(JSON.stringify([input.q, input.tag ?? "", input.state])).digest("hex");
   let cursor: z.infer<typeof cursorSchema> | undefined;
@@ -31,7 +32,7 @@ function readConversationQuery(params: URLSearchParams) {
     try {
       cursor = cursorSchema.parse(JSON.parse(Buffer.from(input.cursor, "base64url").toString("utf8")));
       if (cursor.scope !== scope) throw new Error("Cursor scope mismatch");
-    } catch { throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid conversation cursor; refresh the list" }); }
+    } catch { throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.conversation.invalidCursor") }); }
   }
   return { ...input, scope, cursor };
 }

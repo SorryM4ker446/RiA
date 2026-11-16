@@ -17,7 +17,7 @@ import { staleEmbeddingSummary } from "@/lib/knowledge/entry-reindex";
 async function GETHandler(req: NextRequest) {
   try {
     await requireLocalWorkspace(req);
-    if (req.nextUrl.searchParams.size) throw new ApiError({ code: "VALIDATION_ERROR", message: "Unexpected query parameter" });
+    if (req.nextUrl.searchParams.size) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.request.unexpectedQuery") });
     const data = await db.knowledgeDocument.findMany({ where: {}, orderBy: [{ updatedAt: "desc" }, { id: "desc" }], take: DOCUMENT_LIMITS.documentsPerUser, select: documentSummarySelect });
     const coverage = await semanticCoverage(data.map(document => document.id));
     resumeDocumentIndexing(Boolean(coverage.modelRef) && (data.some(document => (coverage.counts.get(document.id) ?? 0) < document._count.chunks || document.indexVersion !== DOCUMENT_INDEX_VERSION) || (await staleEmbeddingSummary()).stale > 0));
@@ -35,7 +35,7 @@ async function POSTHandler(req: NextRequest) {
     const { file, filename, format, collection, previewHash, base } = await readDocumentUpload(req);
     const pages = await parseDocument(new Uint8Array(await file.arrayBuffer()), format, req.signal);
     if (req.signal.aborted) throw new ApiError({ code: "VALIDATION_ERROR", message: t("api.documents.importCancelled") });
-    if (previewHash && previewHash !== hashDocumentContent(JSON.stringify(pages))) throw new ApiError({ code: "CONFLICT", message: "文件与预览内容不同，请重新预览。" });
+    if (previewHash && previewHash !== hashDocumentContent(JSON.stringify(pages))) throw new ApiError({ code: "CONFLICT", message: t("errors.fileDiffersFromThePreviewPreviewAgain") });
     const data = await indexDocument({ filename, collection, format, byteSize: file.size, pages }, undefined, base);
     scheduleDocumentIndexing();
     return Response.json({ data }, { status: data.change === "created" ? 201 : 200, headers: { "Cache-Control": "no-store" } });

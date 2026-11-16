@@ -7,6 +7,7 @@ import { identifierSchema } from "@/lib/server/request-schemas";
 import { readEmptyBody } from "@/lib/server/request-body";
 import { startTaskNow } from "@/lib/scheduler/runner";
 
+import { t } from "@/lib/locale";
 /** Starts the task now and answers once it has started; the run carries on by itself. */
 export const POST = protectDataOperation(async (req: NextRequest, context: { params: Promise<{ id: string }> }) => {
   try {
@@ -14,7 +15,7 @@ export const POST = protectDataOperation(async (req: NextRequest, context: { par
     enforceRateLimit("tasks");
     await readEmptyBody(req);
     const identifier = identifierSchema.safeParse((await context.params).id);
-    if (!identifier.success) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid id" });
+    if (!identifier.success) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.request.invalidId") });
     const { task } = await startTaskNow(identifier.data);
     return Response.json({ data: { runId: task.runId } }, { status: 202, headers: { "Cache-Control": "no-store" } });
   } catch (error) {

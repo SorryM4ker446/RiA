@@ -6,7 +6,6 @@ import { identifierSchema } from "@/lib/server/request-schemas";
 import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { t } from "@/lib/locale";
-
 type Params = { params: Promise<{ id: string }> };
 
 export const PATCH = protectDataOperation(async (req: NextRequest, context: Params) => {
@@ -16,7 +15,7 @@ export const PATCH = protectDataOperation(async (req: NextRequest, context: Para
     // routes, so one client cannot rewrite notice state in a tight loop.
     enforceRateLimit("reminders");
     const { id } = await context.params;
-    if (!identifierSchema.safeParse(id).success) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid id" });
+    if (!identifierSchema.safeParse(id).success) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.request.invalidId") });
     return Response.json({ data: await markNoticeRead(id) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return createApiErrorResponse(error, t("api.notices.updateFailed"));
@@ -28,7 +27,7 @@ export const DELETE = protectDataOperation(async (req: NextRequest, context: Par
     await requireLocalWorkspace(req);
     enforceRateLimit("reminders");
     const { id } = await context.params;
-    if (!identifierSchema.safeParse(id).success) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid id" });
+    if (!identifierSchema.safeParse(id).success) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.request.invalidId") });
     return Response.json({ data: await deleteNotice(id) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return createApiErrorResponse(error, t("api.notices.updateFailed"));

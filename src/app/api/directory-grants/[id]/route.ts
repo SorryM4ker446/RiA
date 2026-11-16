@@ -6,7 +6,6 @@ import { identifierSchema } from "@/lib/server/request-schemas";
 import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { t } from "@/lib/locale";
-
 type Params = {
   params: Promise<{ id: string }>;
 };
@@ -24,8 +23,8 @@ async function DELETEHandler(req: NextRequest, context: Params) {
     enforceRateLimit("directoryGrants");
     const { id } = await context.params;
     const parsed = identifierSchema.safeParse(id);
-    if (!parsed.success) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid id" });
-    if (req.nextUrl.searchParams.size) throw new ApiError({ code: "VALIDATION_ERROR", message: "Unexpected query parameter" });
+    if (!parsed.success) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.request.invalidId") });
+    if (req.nextUrl.searchParams.size) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.request.unexpectedQuery") });
     const data = await revokeGrant(parsed.data);
     return Response.json({ data }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

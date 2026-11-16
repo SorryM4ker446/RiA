@@ -7,7 +7,6 @@ import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { readJsonBody } from "@/lib/server/request-body";
 import { t } from "@/lib/locale";
-
 const exportSchema = z.strictObject({
   id: z.string().min(1).max(200),
   destination: z.string().min(1).max(4096)
@@ -34,7 +33,7 @@ export const POST = protectDataOperation(async (req: NextRequest) => {
     await requireLocalWorkspace(req);
     enforceRateLimit("backups");
     const parsed = exportSchema.safeParse(await readJsonBody(req));
-    if (!parsed.success) throw new ApiError({ code: "VALIDATION_ERROR", message: "id and destination are required" });
+    if (!parsed.success) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.backup.exportFieldsRequired") });
     const data = await exportBackupCopy(parsed.data.id, parsed.data.destination);
     return Response.json({ data }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {

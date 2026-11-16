@@ -7,6 +7,7 @@ import { modelRefKey, defaultModelPreferences, upgradeModelPreferences, type Lib
 import { modelCallSource, type CallSource } from "./call-context";
 import { holdForAttempt, slotForCall } from "./call-slots";
 
+import { t } from "@/lib/locale";
 export function budgetDay(now: Date, timeZone: string) {
   const parts = new Intl.DateTimeFormat("en", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
   const part = (name: string) => parts.find(value => value.type === name)!.value;
@@ -53,10 +54,10 @@ async function admit(input: { mode: LibraryMode; ref: ModelRef; prompt?: unknown
     const estimate = input.mode === "image" || input.mode === "video" ? rate?.perRequest ?? null : estimatedCallCost(input.prompt, input.maxOutputTokens, rate);
     if (background) {
       if ((limits.backgroundMaxEstimatedUsd !== null || limits.backgroundDailyEstimatedUsd !== null) && estimate === null) {
-        throw new ApiError({ code: "BACKGROUND_LIMIT", message: "后台费用上限已启用，请先配置模型输入和输出价格。未知费用不能按零领取额度。" });
+        throw new ApiError({ code: "BACKGROUND_LIMIT", message: t("errors.backgroundCostLimitsAreEnabledConfigureModelInput") });
       }
       if (limits.backgroundMaxEstimatedUsd !== null && estimate! > limits.backgroundMaxEstimatedUsd) {
-        throw new ApiError({ code: "BACKGROUND_LIMIT", message: "后台调用预估费用超过单次上限。" });
+        throw new ApiError({ code: "BACKGROUND_LIMIT", message: t("errors.estimatedBackgroundCallCostExceedsThePerCall") });
       }
       // The daily count is of task runs, admitted once per run by
       // `admitBackgroundRun`; a run may make several calls. Calls are held to the
@@ -64,7 +65,7 @@ async function admit(input: { mode: LibraryMode; ref: ModelRef; prompt?: unknown
       const day = budgetDay(now, limits.timeZone);
       const counter = await tx.modelCallDay.upsert({ where: { day }, create: { day }, update: {} });
       if (limits.backgroundDailyEstimatedUsd !== null && counter.estimatedUsd + estimate! > limits.backgroundDailyEstimatedUsd) {
-        throw new ApiError({ code: "BACKGROUND_LIMIT", message: "后台任务已达到本地日期的预估费用上限。" });
+        throw new ApiError({ code: "BACKGROUND_LIMIT", message: t("server.background.dailyLimit") });
       }
       // Submitted attempts consume the daily allowance even on failure/abort.
       // Unknown billing must not allow a cancel-and-retry budget bypass.

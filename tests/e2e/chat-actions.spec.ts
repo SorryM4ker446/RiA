@@ -339,6 +339,35 @@ for (const code of ["RATE_LIMITED", "CONFLICT"]) {
   });
 }
 
+for (const [fix, button, section, during] of [["apiKeys", "打开 API 密钥", "services", true], ["apiKeys", "打开 API 密钥", "services", false], ["models", "打开模型设置", "models", true]] as const) {
+  test(`a failure the user can fix (${fix}, ${during ? "during the answer" : "before it"}) offers the way there`, async ({ page }) => {
+    await mockHistory(page, [userMessage, assistantMessage]);
+    const payload = { error: { code: "CONFIGURATION_ERROR", message: "OpenRouter 拒绝了 API 密钥，请到“设置 → API 密钥”检查或更换。", details: { fix } } };
+    await page.route("**/api/chat", (route) => during
+      ? route.fulfill({ contentType: "text/event-stream", headers: { "x-vercel-ai-ui-message-stream": "v1" }, body: streamBody([{ type: "error", errorText: JSON.stringify(payload) }]) })
+      : route.fulfill({ status: 400, json: payload }));
+    await page.goto("/chat");
+    await page.getByPlaceholder(/输入你的问题/).fill("Follow-up");
+    await page.getByRole("button", { name: "发送", exact: true }).click();
+    const alert = page.getByRole("alert").filter({ hasText: "请求失败" });
+    await expect(alert).toContainText("拒绝了 API 密钥");
+    await expect(alert).not.toContainText(".env");
+    await alert.getByRole("button", { name: button }).click();
+    await expect(page).toHaveURL(new RegExp(`[?&]settings=${section}`));
+  });
+}
+
+test("a failure with nowhere to fix it offers no settings button", async ({ page }) => {
+  await mockHistory(page, [userMessage, assistantMessage]);
+  await page.route("**/api/chat", route => route.fulfill({ status: 500, json: { error: { code: "UPSTREAM_FAILED", message: "模型服务暂时不可用，请稍后重试。", details: {} } } }));
+  await page.goto("/chat");
+  await page.getByPlaceholder(/输入你的问题/).fill("Follow-up");
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  const alert = page.getByRole("alert").filter({ hasText: "请求失败" });
+  await expect(alert).toContainText("暂时不可用");
+  await expect(alert.getByRole("button", { name: /打开/ })).toHaveCount(0);
+});
+
 for (const approved of [true, false]) {
   test(`reloaded tool approval ${approved ? "acceptance" : "denial"} sends one continuation`, async ({ page }) => {
     await mockHistory(page, [userMessage, pendingMessage]);

@@ -3,6 +3,7 @@ import { ApiError } from "@/lib/server/api-error";
 import { activeSkillPackages } from "@/lib/plugins/store";
 import type { AnyToolDescriptor } from "../types";
 
+import { t } from "@/lib/locale";
 export const readPluginSkill: AnyToolDescriptor = {
   id: "readPluginSkill", displayName: "读取插件技能", description: "用到时才加载已启用技能的说明。",
   modelDescription: "Load an enabled plugin skill listed in the skill index. Omit path to get the package's skill instructions and, for marketplace skills, its bundled files; then read SKILL.md and relevant references by path. A file response contains at most 12000 characters; continue at nextOffset until null. This tool cannot access local files, network or execute scripts. Do not use for user documents or inactive/uninstalled skills.",
@@ -12,7 +13,7 @@ export const readPluginSkill: AnyToolDescriptor = {
   execute: async ({ input, signal }) => {
     signal?.throwIfAborted();
     const active = (await activeSkillPackages()).find(item => item.row.packageId === input.packageId);
-    if (!active) throw new ApiError({ code: "NOT_FOUND", message: "技能已停用、卸载或连接未就绪，请重新选择已启用技能。" });
+    if (!active) throw new ApiError({ code: "NOT_FOUND", message: t("server.skills.notReady") });
     const { row, manifest } = active;
     const snapshot = manifest.marketplace;
     signal?.throwIfAborted();
@@ -22,9 +23,9 @@ export const readPluginSkill: AnyToolDescriptor = {
       ...(snapshot ? { hash: snapshot.hash, files: snapshot.files.map(file => ({ path: file.path, characters: file.contents.length })) } : {}),
       scriptsExecutable: false,
     };
-    if (!snapshot) throw new ApiError({ code: "NOT_FOUND", message: "此插件没有 Skill 参考文件。" });
+    if (!snapshot) throw new ApiError({ code: "NOT_FOUND", message: t("server.skills.noReferenceFiles") });
     const file = snapshot.files.find(item => item.path === input.path);
-    if (!file) throw new ApiError({ code: "NOT_FOUND", message: "技能中没有此文件，请先查看文件目录。" });
+    if (!file) throw new ApiError({ code: "NOT_FOUND", message: t("server.skills.fileMissing") });
     const end = Math.min(file.contents.length, input.offset + 12_000);
     return { packageId: row.packageId, hash: snapshot.hash, path: file.path, contents: file.contents.slice(input.offset, end), nextOffset: end < file.contents.length ? end : null, scriptsExecutable: false };
   },

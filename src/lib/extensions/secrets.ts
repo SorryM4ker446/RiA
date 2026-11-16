@@ -1,12 +1,13 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { ApiError } from "@/lib/server/api-error";
 
+import { t } from "@/lib/locale";
 export function credentialEncryptionAvailable() {
   return /^[A-Za-z0-9+/]{43}=$/.test(process.env.RIA_EXTENSION_KEY ?? "");
 }
 
 function key() {
-  if (!credentialEncryptionAvailable()) throw new ApiError({ code: "CONFIGURATION_ERROR", message: "扩展凭据加密不可用。请使用桌面应用，或为本地服务配置 RIA_EXTENSION_KEY。" });
+  if (!credentialEncryptionAvailable()) throw new ApiError({ code: "CONFIGURATION_ERROR", message: t("errors.extensionCredentialEncryptionIsUnavailableUseTheDesktop") });
   return Buffer.from(process.env.RIA_EXTENSION_KEY!, "base64");
 }
 
@@ -27,6 +28,6 @@ export function decryptCredentials(id: string, encrypted: string | null): Record
     decipher.setAAD(Buffer.from(id)); decipher.setAuthTag(Buffer.from(tag, "base64"));
     return JSON.parse(Buffer.concat([decipher.update(Buffer.from(data, "base64")), decipher.final()]).toString("utf8"));
   } catch {
-    throw new ApiError({ code: "CONFIGURATION_ERROR", message: "无法解密扩展凭据，请重新配置。" });
+    throw new ApiError({ code: "CONFIGURATION_ERROR", message: t("errors.couldNotDecryptExtensionCredentialsConfigureThemAgain") });
   }
 }

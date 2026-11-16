@@ -89,7 +89,7 @@ test("snapshots reject unsafe paths, duplicate files, missing entrypoint, invali
   assert.equal(await db.pluginPackage.count(), 0);
   data = marketSnapshot(); const good = await getSkill(identity, signal());
   const changed = structuredClone(good.manifest); changed.marketplace.files[0].contents += "tampered";
-  assert.throws(() => parsePlugin(changed), /content hash/);
+  assert.throws(() => parsePlugin(changed), /内容校验不一致/);
   const altered = structuredClone(good); altered.manifest.description = "changed after preview";
   await assert.rejects(() => installPlugin(altered), /预览/);
 });
