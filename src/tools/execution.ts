@@ -10,12 +10,13 @@ import { listAvailableRegisteredTools, toolAvailability, unavailabilityError, sk
 import { TERMINAL_FOLDER_TOOLS } from "./terminal-companions";
 import { templateAllowsTool } from "./template-access";
 import { conversationApprovalRule, conversationWorkspace, requireConversationWorkspace } from "@/lib/local-files/workspace";
-import { isReadOnlyCommand, reviewAction } from "@/lib/approvals/auto-review";
+import { isReadOnlyCommand, reviewAction, userWords } from "@/lib/approvals/auto-review";
+import { approvalReasonFor } from "@/tools/definitions/ask-user";
 import { autoReviewSchema } from "@/lib/approvals/auto-review-schema";
 import { currentTurn } from "@/lib/models/call-slots";
 import { db } from "@/db";
 
-type ExecutionOptions = { modelRef?: ModelRef; chatId?: string | null; runId?: string | null; toolCallId?: string; usesMemory?: boolean; documentCollections?: string[]; signal?: AbortSignal; trigger: ToolTriggerType; resultBudgetUsed?: Map<string, number>; unattended?: boolean };
+type ExecutionOptions = { modelRef?: ModelRef; chatId?: string | null; runId?: string | null; toolCallId?: string; usesMemory?: boolean; documentCollections?: string[]; signal?: AbortSignal; trigger: ToolTriggerType; resultBudgetUsed?: Map<string, number>; unattended?: boolean; userText?: readonly string[]; approvalReason?: string };
 
 function skipReasonForRunRefusal(reason: string): ToolSkipReason {
   if (reason === "run-budget-unreadable") return "run-budget-unreadable";
@@ -268,6 +269,9 @@ export async function executeRegisteredTool(tool: AnyToolDescriptor, input: unkn
         documentCollections: options.documentCollections,
         usesMemory: options.usesMemory,
         unattended: options.unattended,
+        // A tool run by hand was given its input by the user.
+        userText: trigger === "manual" ? [JSON.stringify(preparedParsedInput.data)] : options.userText ?? [],
+        approvalReason: options.approvalReason,
       });
     } catch (error) {
       if (trigger === "manual") throw error;
@@ -337,7 +341,8 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; chatId?
   // report a search that never happened.
   // Assistant tool restrictions still apply to every action a skill suggests.
   const descriptors = (await listAvailableRegisteredTools("chat", options?.modelRef)).filter((tool) =>
-    tool.surface.underlying !== "application" && (options?.toolIds === undefined || templateAllowsTool(options.toolIds, tool.id)) && !(tool.id === "extractMemory" && options?.usesMemory === false));
+    tool.surface.underlying !== "application" && (options?.toolIds === undefined || templateAllowsTool(options.toolIds, tool.id)) && !(tool.id === "extractMemory" && options?.usesMemory === false)
+    && !(tool.id === "askUser" && options?.unattended));
 
   // Folder tools are told about the conversation's one workspace, never every
   // granted folder, so the model cannot pick a folder the user did not choose.
@@ -373,8 +378,9 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; chatId?
       Object.assign(input as object, { autoReview: review });
       return review.decision !== "allow";
     } } : {}),
-    execute: async (input: unknown, callOptions?: { abortSignal?: AbortSignal; toolCallId?: string }) => {
-      try { return (await executeRegisteredTool(tool, input, { ...options, trigger: "auto", signal: callOptions?.abortSignal, toolCallId: callOptions?.toolCallId, resultBudgetUsed })).output; }
+    execute: async (input: unknown, callOptions?: { abortSignal?: AbortSignal; toolCallId?: string; messages?: ModelMessage[] }) => {
+      try { return (await executeRegisteredTool(tool, input, { ...options, trigger: "auto", signal: callOptions?.abortSignal, toolCallId: callOptions?.toolCallId, resultBudgetUsed, userText: userWords(callOptions?.messages ?? []),
+        approvalReason: tool.requiresApproval ? approvalReasonFor(callOptions?.messages ?? [], callOptions?.toolCallId) : undefined })).output; }
       catch (error) {
         if (error instanceof ApiError || (error as Error | null)?.name === "AbortError") throw error;
         throw new ToolRunError(error);

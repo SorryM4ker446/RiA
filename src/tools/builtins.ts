@@ -15,6 +15,9 @@ import { isTimeZone } from "@/lib/scheduler/cron";
 import { searchKnowledge, searchKnowledgeInputSchema } from "@/tools/definitions/search-knowledge";
 import { searchConfigured, resolveSearchRoute, searchResultLimit } from "./definitions/provider-search";
 import { runWebSearch, webSearchInput } from "@/tools/definitions/web-search";
+import { READ_WEB_PAGE_DESCRIPTION, readWebPageInput, runReadWebPage } from "@/tools/definitions/read-web-page";
+import { UPDATE_PLAN_DESCRIPTION, planProgress, updatePlanInput } from "@/tools/definitions/update-plan";
+import { ASK_USER_DESCRIPTION, askUserInput, readAnswer } from "@/tools/definitions/ask-user";
 import { documentProcessorTools } from "@/tools/definitions/document-processor";
 import { readPluginSkill } from "@/tools/definitions/plugin-skill";
 import { activeSkillPackages } from "@/lib/plugins/store";
@@ -211,6 +214,44 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       return { query, results: [], skipped: reason };
     },
     execute: async ({ input, signal, modelRef }) => runWebSearch(input, signal, modelRef),
+  },
+  updatePlan: {
+    id: "updatePlan",
+    displayName: t("tools.updatePlan.displayName"),
+    description: t("tools.updatePlan.description"),
+    modelDescription: UPDATE_PLAN_DESCRIPTION,
+    modeSupport: ["chat"],
+    // The model's own way of showing its plan: allowed with any tool, chosen by no one.
+    surface: { category: "context", user: null, template: "with-any", underlying: "model" },
+    inputSchema: updatePlanInput,
+    execute: async ({ input }) => planProgress(input),
+  },
+  askUser: {
+    id: "askUser",
+    displayName: t("tools.askUser.displayName"),
+    description: t("tools.askUser.description"),
+    modelDescription: ASK_USER_DESCRIPTION,
+    modeSupport: ["chat"],
+    surface: { category: "context", user: null, template: "with-any", underlying: "model" },
+    inputSchema: askUserInput,
+    // Waits for the user under every rule: the answer is theirs to give.
+    requiresApproval: true,
+    execute: async ({ input, approvalReason }) => {
+      const answer = readAnswer(input, approvalReason);
+      // The answer was checked when it was submitted; one that does not fit here was not given through the question.
+      if (!answer) throw new ApiError({ code: "VALIDATION_ERROR", message: "The user's answer could not be read; ask again or decide yourself." });
+      return answer;
+    },
+  },
+  readWebPage: {
+    id: "readWebPage",
+    displayName: t("tools.readWebPage.displayName"),
+    description: t("tools.readWebPage.description"),
+    modelDescription: READ_WEB_PAGE_DESCRIPTION,
+    modeSupport: ["chat"],
+    surface: { category: "web", user: { run: "model", hint: t("tools.readWebPage.hint") }, template: "selectable" },
+    inputSchema: readWebPageInput,
+    execute: async ({ input, signal, userText }) => runReadWebPage(input, { userText: userText ?? [], signal }),
   },
 
 };

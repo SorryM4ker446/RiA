@@ -718,13 +718,15 @@ test("a task's conversation has what a general-assistant conversation has, apart
   assert.deepEqual([taskChat.assistantConfig, taskChat.workspaceGrantId], [general.assistantConfig, general.workspaceGrantId]);
   const [generalTools, taskTools] = offered;
   assert.ok(generalTools.includes("createTask") && generalTools.includes("extractMemory"));
-  // Long-term memory is off in a task's conversation, so the tool that writes it is the one difference.
-  assert.deepEqual(taskTools, generalTools.filter(name => name !== "extractMemory"));
-  // Turning memory on for the task gives its conversation everything a general conversation has.
+  // Long-term memory is off in a task's conversation, so the tool that writes it differs; and no one is
+  // there to answer a question, so a task is never offered one.
+  assert.ok(generalTools.includes("askUser"));
+  assert.deepEqual(taskTools, generalTools.filter(name => name !== "extractMemory" && name !== "askUser"));
+  // Turning memory on for the task gives its conversation everything a general conversation has but the question.
   await updateTask(task.id, { usesMemory: true });
   await makeDue(task.id);
   await runDueTask(new Date());
-  assert.deepEqual(offered[2], generalTools);
+  assert.deepEqual(offered[2], generalTools.filter(name => name !== "askUser"));
 });
 
 // --- what a task decides for its conversation ---------------------------------

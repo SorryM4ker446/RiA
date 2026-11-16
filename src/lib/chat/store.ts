@@ -11,6 +11,7 @@ import { deleteConversations, updateConversation } from "@/lib/conversations/mut
 import { resolveAssistant } from "@/lib/assistants/store";
 import { announceConversationsChanged } from "@/lib/conversations/events";
 
+import { readAnswer } from "@/tools/definitions/ask-user";
 import { t } from "@/lib/locale";
 const summaryInvalidation = {
   historyRevision: { increment: 1 }, summary: null, summaryUpToMessageId: null, summaryModelId: null, summaryRevision: null, summaryState: null,
@@ -215,6 +216,9 @@ export async function claimToolApproval(chatId: string, message: UIMessage) {
     }
     if (part.type !== `tool-${stored.toolName}` || JSON.stringify(part.input) !== JSON.stringify(stored.input)) {
       throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.approval.inputMismatch") });
+    }
+    if (stored.toolName === "askUser" && part.approval.approved && !readAnswer(stored.input, part.approval.reason)) {
+      throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.ask.invalidAnswer") });
     }
     stored.state = "approval-responded";
     stored.approval = part.approval;

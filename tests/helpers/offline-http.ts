@@ -97,6 +97,16 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
     process.send({ type: "provider-call", stream: body.stream === true, messages: body.messages, toolCount: Array.isArray(body.tools) ? body.tools.length : 0 });
     return JSON.stringify({ error: { message: "Synthetic primary unavailable", code: 503 } });
   }, { headers: { "content-type": "application/json" } }).persist();
+  // OFFLINE_PLAN_SLOW: as OFFLINE_PLAN, but the call after the first checklist takes a few seconds, so the checklist can be seen mid-turn.
+  provider.intercept({ path: "/api/v1/chat/completions", method: "POST", body: raw => {
+    const body = JSON.parse(String(raw));
+    return body.stream === true && JSON.stringify(body.messages).includes("OFFLINE_PLAN_SLOW") && body.messages.filter((message: { role: string }) => message.role === "tool").length === 1;
+  } }).reply(200, options => {
+    const body = JSON.parse(String(options.body));
+    const base = { id: "offline-plan-slow", model: body.model, usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } };
+    const items = [{ content: "读取现有配置", status: "completed" }, { content: "修改主题颜色", status: "in_progress" }, { content: "运行测试", status: "pending" }];
+    return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "plan-call-1", type: "function", function: { name: "updatePlan", arguments: JSON.stringify({ items }) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
+  }, { headers: { "content-type": "text/event-stream" } }).delay(4_000).persist();
   // OFFLINE_SLOW_PROVIDER: the provider takes a few seconds to answer, so the call stays in flight and holds its place meanwhile.
   provider.intercept({ path: "/api/v1/chat/completions", method: "POST", body: raw => {
     const body = JSON.parse(String(raw));
@@ -176,6 +186,27 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
             ? { grantId, path: "README.md", expectedHash: hash, edits: [{ oldText: "# 旧标题", newText: "# 新标题" }] }
             : { grantId, path: "README.md" };
           return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: `project-edit-call-${editResults.length}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
+        }
+        // OFFLINE_PLAN: a checklist written, worked through step by step, then an answer.
+        const toolTurns = body.messages.filter(message => message.role === "tool").length;
+        if (prompt.includes("OFFLINE_PLAN") && toolTurns < 3) {
+          if (!body.tools?.some(tool => tool.function?.name === "updatePlan")) throw new Error("updatePlan was not offered to the fixture model");
+          const steps = ["读取现有配置", "修改主题颜色", "运行测试"];
+          const items = steps.map((content, index) => ({ content, status: index < toolTurns ? "completed" : index === toolTurns ? "in_progress" : "pending" }));
+          if (toolTurns === 2) items[2].status = "completed";
+          return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: `plan-call-${toolTurns}`, type: "function", function: { name: "updatePlan", arguments: JSON.stringify({ items }) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
+        }
+        if (prompt.includes("OFFLINE_PLAN")) content = "三个步骤都完成了。";
+        // OFFLINE_ASK: one question with one choice; OFFLINE_ASK_TWO: two questions, the second with several. The answer is echoed.
+        if (prompt.includes("OFFLINE_ASK") && toolTurns === 0) {
+          if (!body.tools?.some(tool => tool.function?.name === "askUser")) throw new Error("askUser was not offered to the fixture model");
+          const questions: { question: string; header: string; options: { label: string; description?: string }[]; multiSelect?: boolean }[] = [{ question: "报告用哪种格式？", header: "格式", options: [{ label: "Markdown", description: "推荐：在 RiA 里直接看" }, { label: "Word" }, { label: "PDF" }] }];
+          if (prompt.includes("OFFLINE_ASK_TWO")) questions.push({ question: "要包含哪些部分？", header: "范围", options: [{ label: "摘要" }, { label: "图表" }, { label: "附录" }], multiSelect: true });
+          return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "ask-call", type: "function", function: { name: "askUser", arguments: JSON.stringify({ questions }) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
+        }
+        if (prompt.includes("OFFLINE_ASK")) {
+          const result = JSON.stringify(body.messages.filter(message => message.role === "tool").at(-1)?.content ?? "");
+          content = /execution-denied|skipped the question/i.test(result) ? "离线回答：你跳过了，我按 Markdown 处理。" : `离线回答：收到 ${result.match(/Markdown|Word|PDF|摘要|图表|附录|用我自己的话[^"\\]*/g)?.join("、") ?? "（空）"}`;
         }
         // Save one knowledge entry: OFFLINE_SAVE_ENTRY KEY=<key> VALUE=<value>, both up to the next space.
         if (prompt.includes("OFFLINE_SAVE_ENTRY") && !body.messages.some(message => message.role === "tool")) {

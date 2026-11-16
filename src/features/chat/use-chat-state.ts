@@ -27,6 +27,7 @@ import {
 } from "@/features/chat/conversation-session";
 import { useActiveSession } from "@/features/chat/use-active-session";
 import { useComposer } from "@/features/chat/use-composer";
+import { pendingQuestion, typedAnswer } from "@/features/chat/question-card";
 import { useMessageActions } from "@/features/chat/use-message-actions";
 
 export type { QueuedMessage } from "@/features/chat/conversation-session";
@@ -270,6 +271,15 @@ export function useChatState() {
     const files = queued ? queued.attachments : draft.attachments;
     const chosenTool = modelMode === "chat" && !queued ? choice.tool : null;
     const isDocumentTool = Boolean(chosenTool && DOCUMENT_TOOLS.has(chosenTool.id));
+    // With a question waiting, words typed here are the answer, in the user's own words.
+    const question = !queued && !chosenTool && !files.length && typed.trim() ? pendingQuestion(messages) : null;
+    if (question) {
+      try {
+        await addToolApprovalResponse({ id: question.approvalId, approved: true, reason: typedAnswer(question.input, typed.trim()) });
+        source.setDraft(current => ({ ...current, text: "" }), { typed: false });
+      } catch (answerError) { setPageError(answerError instanceof Error ? answerError.message : t("chat.ask.failed")); }
+      return;
+    }
     if (isDocumentTool && files.some(part => !isDocumentAttachment(part.mediaType))) { setInputNotice({ key: "chat.document.onlyDocuments" }); return; }
     if (isDocumentTool && !files.length && !choice.document) { setInputNotice({ key: "ui.chat.use-chat-state.chooseAKnowledgeDocumentFirst" }); return; }
     // Whatever was typed says what to keep; no model answers this one.

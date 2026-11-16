@@ -19,6 +19,10 @@ type ToolExecutionContext<Input> = {
   usesMemory?: boolean;
   /** The turn belongs to a run nobody is watching (a scheduled task), so nobody can stop what a tool starts. */
   unattended?: boolean;
+  /** The user's own words in the conversation (or, for a tool the user ran by hand, its input): what the user asked for, as opposed to what a tool returned. */
+  userText?: readonly string[];
+  /** The reason the user's approval of this call carried: for a question, the answer. */
+  approvalReason?: string;
 };
 
 type ToolBudgetExceededContext = {

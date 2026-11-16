@@ -75,7 +75,10 @@ File actions are offered through `runTerminalCommand`, `readProjectFile` and
 approval is the conversation's approval rule (`approvalRule` on
 `PATCH /api/conversations/:id`: `ask`, `acceptEdits`, `auto` or `full`); a task's
 conversation follows the task's. `GET`/`PUT /api/approval-preferences` reads and
-sets `{ defaultRule }`, the rule new conversations start with. There is no
+sets `{ defaultRule }`, the rule new conversations start with. An approval reply's `reason`
+may be up to 8,000 characters: for a model's question (`askUser`) it carries the answer,
+`{ "answers": [{ "selected": [labels], "other"?: text }] }`, checked against the question
+([Checklists and questions](plans-and-questions.md)). There is no
 `PATCH /api/directory-grants/:id`: a folder has no terminal switch. Completed replies can show observed
 file changes from terminal results and exact edits, and
 `POST /api/conversations/:id/undo` reads, previews, undoes or redoes them, all or chosen files,

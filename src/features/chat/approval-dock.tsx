@@ -15,6 +15,7 @@ import type { ChatState } from "./use-chat-state";
 import { CommandText } from "./command-text";
 import { terminalLimitLabel } from "./terminal-result";
 import { DiffText } from "./diff-text";
+import { QuestionCard, pendingQuestion } from "./question-card";
 
 type Props = Pick<ChatState, "messages" | "isPending" | "addToolApprovalResponse" | "selectedModelInfo" | "declineApprovals" | "setIsModelMenuOpen"> & { onDetails: (messageId: string) => void };
 
@@ -24,6 +25,9 @@ export function ApprovalDock({ messages, isPending, addToolApprovalResponse, sel
   if (message?.role !== "assistant") return null;
   const tools = message.parts.filter(isToolPart);
   const pending = tools.filter(part => part.state === "approval-requested" && "approval" in part && !!part.approval);
+  // A question asks for an answer, not a yes or no.
+  const question = pendingQuestion(messages);
+  if (question) return <QuestionCard key={`${message.id}:${question.part.toolCallId}`} {...question} count={pending.length} disabled={isPending} respond={addToolApprovalResponse} />;
   return pending.length ? <ApprovalRequest key={`${message.id}:${pending[0].toolCallId}`} part={pending[0]} count={pending.length} disabled={isPending} modelCannotContinue={selectedModelInfo?.supportsTools === false} respond={addToolApprovalResponse} decline={() => declineApprovals(message.id)} changeModel={() => setIsModelMenuOpen(true)} onDetails={() => onDetails(message.id)} /> : null;
 }
 

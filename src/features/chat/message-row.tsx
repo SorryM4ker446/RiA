@@ -6,6 +6,9 @@ import { AnswerSources } from "@/features/chat/answer-sources";
 import { DocumentAttachment } from "@/components/chat/document-attachment";
 import { DocumentDownload } from "@/features/document-processor/document-download";
 import { EditedFiles } from "./edited-files";
+import { TaskPlan, shownPlan } from "./task-plan";
+import { Reveal } from "@/components/ui/reveal";
+import { QuestionRecords } from "./question-card";
 import { MessageThinking, ReplyPending } from "./message-thinking";
 import { CompactionMarker } from "./compaction-marker";
 import { formatMessageTime, fullMessageTime, readMessageTime } from "./message-time";
@@ -168,6 +171,8 @@ export const MessageRow = memo(function MessageRow({
 }: MessageRowProps) {
   useLocale();
   const toolName = (id: string) => {
+    // The checklist and questions show as themselves, not as tools the answer used.
+    if (id === "updatePlan" || id === "askUser") return null;
     const tool = tools.find(item => item.id === id);
     return tool ? (tool.extensionId ? toolLabel(tool) : localizeMessage(tool.displayName)) : null;
   };
@@ -182,6 +187,7 @@ export const MessageRow = memo(function MessageRow({
     ? readMessageInvocation(previousMetadata)?.tool?.label ?? null : null;
   const isLastAssistantStreaming = status === "streaming" && message.role === "assistant";
   const isLive = !isUser && isLast && (status === "streaming" || status === "submitted" || toolParts.some(part => part.state === "approval-requested"));
+  const plan = isUser ? null : shownPlan(message, isLive);
   const isReasoning = isLastAssistantStreaming && message.parts.some(part => part.type === "reasoning" && part.state === "streaming");
   const isEditable = isUser && fileParts.length === 0 && !isEditing && !isPending;
   const isRegenerable = message.role === "assistant" && isLast;
@@ -295,10 +301,14 @@ export const MessageRow = memo(function MessageRow({
           live={isLive}
           reasoning={isReasoning}
           answering={answerStarted(message)} /> : null}
-        {isLive && (notice?.state === "reviewing" || (!isReasoning && !text && !(thinking && thinking.kind !== "hidden"))) && !toolParts.some(part => part.state === "approval-requested")
+        {/* With a checklist on show, the plain "replying" line says nothing it does not; a queue, retry or review still shows. */}
+        {isLive && (notice?.state === "reviewing" || (!isReasoning && !text && !(thinking && thinking.kind !== "hidden"))) && !toolParts.some(part => part.state === "approval-requested") && (!plan || notice)
           ? <ReplyPending reasoning={alwaysReasons} notice={notice} />
           : null}
         {isUser && !isEditing && invocation ? <MessageChoices invocation={invocation} /> : null}
+        {/* Leaves with a fold, not a jump, once the final answer starts. */}
+        <Reveal>{plan ? <TaskPlan messageId={message.id} items={plan} /> : null}</Reveal>
+        {!isUser ? <QuestionRecords parts={toolParts} /> : null}
         {!isEditing && text ? <CollapsibleAnswer key={message.id} collapsible={!isUser && !isLast}><MarkdownMessage text={text} streaming={isLastAssistantStreaming} /></CollapsibleAnswer> : null}
         {skippedTool ? <p className="mt-2 text-xs text-muted-foreground">{tf("chat.slash.toolNotCalled", { name: skippedTool })}</p> : null}
         {memoryNote && !isUser && !pendingHere ? <p className="answer-memory-note mt-2 text-xs text-muted-foreground" data-outcome={memoryNote.outcome}>

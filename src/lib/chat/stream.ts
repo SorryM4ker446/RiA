@@ -31,6 +31,7 @@ import { externalToolIdPattern } from "@/lib/extensions/schema";
 import { templateAllowsTool } from "@/tools/template-access";
 import { contextCalibration, conversationCalibration, recordContextCalibration } from "@/lib/models/context-calibration";
 import { compactAfterTurn } from "./compaction";
+import { planReminder } from "@/tools/definitions/update-plan";
 import { createTurnFailureReader } from "./tool-failure";
 /** OpenRouter passes along reasoning it cannot show as encrypted details. */
 function hasEncryptedReasoning(metadata: unknown) {
@@ -303,7 +304,10 @@ async function openChatAnswer(params: ChatAnswer) {
     prepareStep: async ({ messages: stepMessages, stepNumber }) => {
       const prepared = await stepContext.prepare(stepMessages);
       thinkingClock.stepStarted();
-      return { ...prepared, ...(stepNumber === 0 && params.chosenTool ? { activeTools: [params.chosenTool] } : {}) };
+      // A reminder about the checklist rides on this step only, after everything else, so the prompt before it stays as it was.
+      const reminder = tools && "updatePlan" in tools ? planReminder(stepMessages) : null;
+      const messages = reminder ? [...prepared.messages, { role: "user" as const, content: [{ type: "text" as const, text: reminder }] }] : prepared.messages;
+      return { ...prepared, messages, ...(stepNumber === 0 && params.chosenTool ? { activeTools: [params.chosenTool] } : {}) };
     },
     onStepFinish: ({ usage, toolCalls, stepNumber, reasoning, providerMetadata, text }) => {
       stepContext.observeUsage(usage.inputTokens);

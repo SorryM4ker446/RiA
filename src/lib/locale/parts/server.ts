@@ -231,6 +231,7 @@ export const serverMessages = {
   "server.conversation.stillAnswering": "这个会话还在回答，请等它结束或先停止。",
   "server.undo.invalid": "撤销请求无效。",
   "server.undo.busy": "这些修改正在撤销。",
+  "server.ask.invalidAnswer": "回答和问题对不上，请重新选择。",
   "server.checkpoints.invalidLimit": "撤销存储上限无效。",
   "server.chat.invalidParts": "消息内容或工具状态无效。",
   "server.chat.regenerateMissing": "找不到要重新生成的消息。",

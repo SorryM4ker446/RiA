@@ -48,7 +48,8 @@ const toolPart = z.strictObject({
   state: z.enum(["input-streaming", "input-available", "approval-requested", "approval-responded", "output-available", "output-error", "output-denied"]),
   input: z.json().optional(), output: z.json().optional(), rawInput: z.json().optional(),
   errorText: z.string().max(16_000).optional(),
-  approval: z.strictObject({ id: identifierSchema, approved: z.boolean().optional(), reason: z.string().max(2000).optional() }).optional(),
+  // An answer to a question travels as the reason, so it has room for three answered questions.
+  approval: z.strictObject({ id: identifierSchema, approved: z.boolean().optional(), reason: z.string().max(8000).optional() }).optional(),
   providerExecuted: z.boolean().optional(), preliminary: z.boolean().optional(),
   callProviderMetadata: providerMetadata, resultProviderMetadata: providerMetadata,
   title: z.string().max(500).optional(),

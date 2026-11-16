@@ -19,6 +19,7 @@ import { useChatCommands } from "@/features/commands/chat-commands";
 import { TriangleAlert } from "lucide-react";
 import { ToolLessModelNotice } from "@/features/chat/tool-less-model-notice";
 import { localizeMessage, t } from "@/lib/locale";
+import { PlanStrip } from "@/features/chat/task-plan";
 import { useOpenSettings } from "@/features/settings/settings-context";
 
 export default function ChatPage() {
@@ -62,6 +63,7 @@ export default function ChatPage() {
                 when an answer mentions a task or a search they did not see. */}
             <div className="chat-dock flex max-h-[50%] shrink-0 flex-col gap-3 overflow-y-auto px-4 pb-5 pt-2 sm:px-7">
               {chat.isHistoryReady ? <ApprovalDock key={chat.activeChatId} {...chat} onDetails={showExecutionDetails} /> : null}
+              {chat.isHistoryReady ? <PlanStrip messages={chat.messages} isPending={chat.isPending} /> : null}
               <div className="mx-auto flex w-full max-w-[42rem] flex-wrap items-center gap-1">
                 {chat.modelMode === "chat" && chat.selectedModelInfo?.supportsTools !== false ? <DirectoryPermissions
                   workspaceGrantId={chat.activeChat?.workspaceGrantId ?? null}

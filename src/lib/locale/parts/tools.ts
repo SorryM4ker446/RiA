@@ -49,6 +49,13 @@ export const toolsMessages = {
   // --- webSearch ---------------------------------------------------------
   "tools.webSearch.displayName": "联网搜索",
   "tools.webSearch.description": "上网查最新的信息和资料。",
+  "tools.askUser.displayName": "向你提问",
+  "tools.askUser.description": "需要你做决定时，给出几个选项请你选。",
+  "tools.updatePlan.displayName": "任务清单",
+  "tools.updatePlan.description": "把多步任务列成清单，边做边勾选。",
+  "tools.readWebPage.displayName": "读取网页",
+  "tools.readWebPage.description": "读出网页正文，长页面分段读。",
+  "tools.readWebPage.hint": "想读哪个网址？",
   "tools.webSearch.resultCountLabel": "结果数（可空）",
   // --- saveKnowledgeEntry ---------------------------------------------------------
   "tools.saveKnowledgeEntry.displayName": "保存知识条目",
