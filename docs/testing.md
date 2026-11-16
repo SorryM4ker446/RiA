@@ -72,7 +72,7 @@ Run shards 1 to 3 for the whole suite; one shard is not a full pass. Browser job
 | Extensions, plugins, skills | `extension*`, `plugin-packages`, `skill-marketplace` | `extension*`, `plugin-packages`, `skill-marketplace` | `extension-migration`, `plugin-migration` |
 | Backups and upgrades | `backups`, `backup-fixes`, `local-workspace-*` | `account-settings` | `*-migration`, `updater`, `windows-installer`, `release-*` |
 | Security and access | `security`, `access-fixes`, `local-entry`, `directory-grants` | `auth-security`, `server-diagnostics` | `bundle-boundary`, `service-environment` |
-| Interface, motion, language | `motion-tokens`, `locale`, `tooltip-placement` | `ui-transitions`, `settings-*`, `title-bar-layout`, `sidebar-*`, `i18n`, `keyboard` | `window-*`, `startup-*`, `workspace-transparency` |
+| Interface, motion, language | `motion-tokens`, `locale`, `locale-messages` (no hard-coded error sentence on the server), `tooltip-placement` | `ui-transitions`, `settings-*`, `title-bar-layout`, `sidebar-*`, `i18n`, `keyboard` | `window-*`, `startup-*`, `workspace-transparency` |
 
 ## Real model scenarios
 
@@ -83,6 +83,12 @@ npm run test:real -- --provider deepseek --model deepseek-flash --max-usd 0.05
 ```
 
 Each scenario starts its own service with a temporary database, the key in that service's environment only, and the model added to its library and chosen for chat (`tests/helpers/real-model.ts`). What a scenario spent is read from the application's usage records, printed and attached to the report; once the run passes `--max-usd` (default $0.05), the remaining scenarios are skipped. Timings are printed, not judged. `real-conversations.spec.ts` switches between four conversations answering at once, then reloads and stops an answer mid-way and asks a follow-up.
+
+`real-eval.spec.ts` (`@eval`) is a scored baseline of how the model behaves in RiA, run a few times per scenario (`RIA_EVAL_REPEATS`, default 3) because one answer says little about a model's habits: a question about an imported document is searched and cited while general knowledge is not; a lasting fact about the user is noted while small talk is not; a request for a file that is not there is reported rather than retried over and over; a long command is run in the background and its output read back. Each run is judged on observable facts (the tools in the execution record, the text of the saved answer), never on another model's opinion, and is written as one JSON line to `RIA_EVAL_OUT` (default `.desktop-data/eval/latest.jsonl`). `node scripts/eval-report.mjs <file>` turns the lines into a table of passes, checks, calls and cost; compare the tables of two runs before and after a change to prompts, tools or models.
+
+```bash
+npm run test:real -- --provider openrouter --model deepseek/deepseek-v4.1-flash --max-usd 0.20 tests/e2e/real-eval.spec.ts
+```
 
 ## What tests do not cover
 
