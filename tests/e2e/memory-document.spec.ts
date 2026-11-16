@@ -25,6 +25,8 @@ test("Your RiA leads to the sorted memory and to MEMORY.md, and is gone from the
   await expect(page.getByRole("heading", { name: "长期记忆" })).toHaveCount(0);
 
   const settings = await openRia(page);
+  // The tabs are read once the dialog has drawn them, not while it is still opening.
+  await expect(settings.getByRole("tab", { name: "你的 RiA" })).toBeVisible();
   const tabs = await settings.getByRole("tab").allTextContents();
   expect(tabs.indexOf("你的 RiA"), "it follows the application preferences").toBe(tabs.indexOf("应用偏好") + 1);
   await expect(settings).toContainText("2 个主题 · 3 条内容");

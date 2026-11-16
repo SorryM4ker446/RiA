@@ -118,6 +118,7 @@ model Chat {
   tags            ChatTag[]
   generatedMedia  MediaAsset[]
   agentRuns       AgentRun[]
+  fileCheckpoints FileCheckpoint[]
   scheduledRuns   ScheduledRun[]
   scheduledJobs   ScheduledJob[]
   workspaceReview WorkspaceReview?
@@ -172,6 +173,7 @@ model AgentRun {
   finishedAt   DateTime?
   updatedAt    DateTime @updatedAt
   steps        AgentStep[]
+  fileCheckpoints FileCheckpoint[]
 
   @@index([chatId, startedAt])
   @@index([status, startedAt])
@@ -645,4 +647,50 @@ model InterfacePreference {
   locale    String
   updatedAt DateTime @updatedAt
   @@map("interface_preferences")
+}
+
+// What a turn changed in a workspace file, kept so the change can be undone.
+// The content before (and after) lives in a content-addressed store beside the
+// database (`checkpoints/blobs/<sha256>`); a row only names the hashes. A null
+// kind says whether the turn created, modified or deleted the file.
+model FileCheckpoint {
+  id          String    @id @default(cuid())
+  chatId      String
+  chat        Chat      @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  runId       String?
+  run         AgentRun? @relation(fields: [runId], references: [id], onDelete: Cascade)
+  grantId     String
+  // The folder's real path when the change was made; undo refuses once the grant points elsewhere.
+  root        String
+  path        String
+  // "edit" (editProjectFile) or "terminal" (a command's observed changes).
+  source      String
+  // "created", "modified" or "deleted".
+  kind        String
+  // Full SHA-256 of the content; null when there was none (created / deleted) or it was not read.
+  beforeHash  String?
+  afterHash   String?
+  beforeBytes Int?
+  afterBytes  Int?
+  // Set when the content before is the file's blob in the workspace's git repository,
+  // restored from there rather than from a copy.
+  beforeGitOid String?
+  // False when the content before could not be kept (too large, not read in time); reason says which.
+  restorable  Boolean   @default(true)
+  reason      String?
+  createdAt   DateTime  @default(now())
+  undoneAt    DateTime?
+
+  @@index([chatId, runId])
+  @@index([grantId])
+  @@index([createdAt])
+  @@map("file_checkpoints")
+}
+
+// How much the undo store may hold, in MiB.
+model CheckpointPreference {
+  id        String   @id @default("local")
+  limitMb   Int      @default(2048)
+  updatedAt DateTime @updatedAt
+  @@map("checkpoint_preferences")
 }

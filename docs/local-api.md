@@ -73,11 +73,14 @@ The memory and retrieval endpoints remain deliberate local integration contracts
 File actions are offered through `runTerminalCommand`, `readProjectFile` and
 `editProjectFile` in any granted folder. Whether an edit or command waits for
 approval is the conversation's approval rule (`approvalRule` on
-`PATCH /api/conversations/:id`: `ask`, `acceptEdits` or `full`); a task's
+`PATCH /api/conversations/:id`: `ask`, `acceptEdits`, `auto` or `full`); a task's
 conversation follows the task's. `GET`/`PUT /api/approval-preferences` reads and
 sets `{ defaultRule }`, the rule new conversations start with. There is no
 `PATCH /api/directory-grants/:id`: a folder has no terminal switch. Completed replies can show observed
-file changes from terminal results and exact edits.
+file changes from terminal results and exact edits, and
+`POST /api/conversations/:id/undo` reads, previews, undoes or redoes them, all or chosen files,
+and `GET`/`PUT /api/checkpoint-preferences` reads and sets the undo storage limit
+([Undoing a reply's file changes](terminal-tools.md#undoing-a-replys-file-changes)).
 `POST /api/terminal/files/resolve` accepts `{ grantId, path }` and resolves an
 existing regular file inside a currently granted folder; the desktop
 bridge opens the returned canonical path after a user click. See [Terminal

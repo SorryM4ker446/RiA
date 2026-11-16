@@ -12,7 +12,7 @@ const { db } = await import("@/db");
 const { startRun } = await import("@/lib/agent/runs");
 const { createChatToolSet, getToolDescriptor } = await import("@/tools/catalog");
 
-function resetLimits() { globalThis.__riaRateLimitStore.clear(); }
+function resetLimits() { globalThis.__riaRateLimitStore?.clear(); }
 
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "info", () => {});
@@ -21,9 +21,8 @@ beforeEach(async (t: TestContext) => {
   process.env.OPENROUTER_API_KEY = "offline-fixture-placeholder";
   process.env.DEEPSEEK_API_KEY = "";
   process.env.DEEPSEEK_BASE_URL = "";
-  // The wrapper checks the tool quota before it does anything else, so a quota
-  // left spent by an earlier test would make these tests measure the rate limit
-  // instead of the step record.
+  // Model tool calls are not held to the tool quota; clearing it keeps a manual
+  // call in one test from being refused by another's.
   resetLimits();
   await db.scheduledJob.deleteMany({});
   await db.agentStep.deleteMany({});

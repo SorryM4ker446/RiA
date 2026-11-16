@@ -28,6 +28,8 @@ import type { UIMessage } from "ai";
 import { removalKey } from "@/lib/ui/removal";
 import type { TurnNotice } from "./page-utils";
 
+import type { MemoryNotice } from "./conversation-store";
+import { SettingsLink } from "@/features/settings/settings-context";
 /*
  * One message of the transcript, and what it is drawn with: the fold of a long
  * earlier answer and the placeholder shown while a history loads.
@@ -107,6 +109,12 @@ export function TranscriptSkeleton() {
   </div>;
 }
 
+const readRunIds = (metadata: unknown) => {
+  const value = metadata as { runId?: unknown; runIds?: unknown } | undefined;
+  const ids = [...(Array.isArray(value?.runIds) ? value.runIds : []), ...(value?.runId ? [value.runId] : [])].filter((id): id is string => typeof id === "string");
+  return [...new Set(ids)];
+};
+
 /** What a row does when acted on; read when used, as the chat's handlers are new on every render. */
 export type RowActions = Pick<ChatState,
   | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText"
@@ -138,8 +146,12 @@ type MessageRowProps = {
   alwaysReasons: boolean;
   /** What the turn says while it waits or retries; only for the last row. */
   notice?: TurnNotice | null;
+  /** What a note-taking run this answer asked for kept, shown once the answer has ended. */
+  memoryNote?: MemoryNotice;
   canShowSources: boolean;
   compactionSummary: string | null;
+  /** The conversation the row belongs to, for undoing its file changes. */
+  chatId: string | null;
   /** Changes at midnight, so "today" and "yesterday" are worked out again. */
   day: number;
   actions: RefObject<RowActions | null>;
@@ -152,7 +164,7 @@ type MessageRowProps = {
  */
 export const MessageRow = memo(function MessageRow({
   message, previousMetadata, isLast, arriving = false, status, isPending, isEditing, editingText, resendsEdited, copyState, imageUrl, videoUrl,
-  attachingImageKey, reuseImageActionLabel, tools, alwaysReasons, notice = null, canShowSources, compactionSummary, actions,
+  attachingImageKey, reuseImageActionLabel, tools, alwaysReasons, notice = null, canShowSources, compactionSummary, actions, memoryNote, chatId,
 }: MessageRowProps) {
   useLocale();
   const toolName = (id: string) => {
@@ -283,12 +295,18 @@ export const MessageRow = memo(function MessageRow({
           live={isLive}
           reasoning={isReasoning}
           answering={answerStarted(message)} /> : null}
-        {isLive && !isReasoning && !text && !(thinking && thinking.kind !== "hidden") && !toolParts.some(part => part.state === "approval-requested")
+        {isLive && (notice?.state === "reviewing" || (!isReasoning && !text && !(thinking && thinking.kind !== "hidden"))) && !toolParts.some(part => part.state === "approval-requested")
           ? <ReplyPending reasoning={alwaysReasons} notice={notice} />
           : null}
         {isUser && !isEditing && invocation ? <MessageChoices invocation={invocation} /> : null}
         {!isEditing && text ? <CollapsibleAnswer key={message.id} collapsible={!isUser && !isLast}><MarkdownMessage text={text} streaming={isLastAssistantStreaming} /></CollapsibleAnswer> : null}
         {skippedTool ? <p className="mt-2 text-xs text-muted-foreground">{tf("chat.slash.toolNotCalled", { name: skippedTool })}</p> : null}
+        {memoryNote && !isUser && !pendingHere ? <p className="answer-memory-note mt-2 text-xs text-muted-foreground" data-outcome={memoryNote.outcome}>
+          {memoryNote.outcome === "updated" ? tf("chat.memoryNote.updated", { added: memoryNote.added, updated: memoryNote.updated, removed: memoryNote.removed })
+            : memoryNote.outcome === "full" ? tf("chat.memoryNote.full", { dropped: memoryNote.dropped })
+            : t(memoryNote.outcome === "unchanged" ? "chat.memoryNote.unchanged" : "chat.memoryNote.failed")}
+          {memoryNote.outcome === "full" ? <> · <SettingsLink section="ria" className="underline-offset-4 hover:underline">{t("chat.memoryNote.manage")}</SettingsLink></> : null}
+        </p> : null}
         {!isUser && !isLastAssistantStreaming && canShowSources ? <AnswerSources message={message} onShowAll={() => actions.current?.onShowSources?.(message.id)} /> : null}
         {toolParts.map(part => part.type === "tool-convertDocument" && part.state === "output-available" ? <DocumentDownload key={`download-${part.toolCallId}`} output={part.output} /> : null)}
         {imageUrl ? (
@@ -388,7 +406,7 @@ export const MessageRow = memo(function MessageRow({
             </a>
           );
         })}
-        {!isUser && !pendingHere && !toolParts.some(part => part.state === "approval-requested") ? <EditedFiles parts={toolParts} /> : null}
+        {!isUser && !pendingHere && !toolParts.some(part => part.state === "approval-requested") ? <EditedFiles parts={toolParts} chatId={chatId} runIds={readRunIds(message.metadata)} /> : null}
       </article>
     </div>{compactionSummary !== null ? <CompactionMarker summary={compactionSummary} /> : null}</>
   );

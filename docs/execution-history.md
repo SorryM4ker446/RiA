@@ -1,7 +1,14 @@
 # Execution history and recovery
 
 New chat executions have no aggregate time, tool-step count or failure-count
-ceiling. Individual terminal commands have no automatic time limit either.
+ceiling. Terminal commands have no time limit in a conversation unless the model
+names one; in a scheduled task an unnamed limit is one hour (see
+[Terminal tools](terminal-tools.md)).
+
+Whether to retry a failed tool call is the model's decision, guided by the
+system prompt (adapt rather than repeat a rejected or failed operation); the
+user can stop a turn at any time. Tool calls the model makes are not held to the
+manual tool quota.
 Manual cancellation, directory permissions, approval rules and configured model
 call controls still apply. Historical executions retain their original budgets
 and stop reasons. The execution details display unlimited counts and no total

@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import type { FlexibleSchema } from "ai";
 import type { ModelRef } from "@/lib/models/preferences-schema";
+import type { ReviewedAction } from "@/lib/approvals/auto-review";
 
 export type ToolMode = "chat" | "image" | "video";
 export type ToolTriggerType = "manual" | "auto";
@@ -16,6 +17,8 @@ type ToolExecutionContext<Input> = {
   runId?: string | null;
   documentCollections?: string[];
   usesMemory?: boolean;
+  /** The turn belongs to a run nobody is watching (a scheduled task), so nobody can stop what a tool starts. */
+  unattended?: boolean;
 };
 
 type ToolBudgetExceededContext = {
@@ -125,6 +128,12 @@ export type ToolDescriptor<Input = unknown, Output = unknown> = {
    * through the reference it is handed.
    */
   bindForApproval?: (input: unknown) => Promise<unknown>;
+  /**
+   * What a call does, as the Auto rule's review is shown it. A tool that has
+   * this is reviewed under auto instead of waiting for the user; one without it
+   * waits under auto as under ask.
+   */
+  reviewAction?: (input: Input) => ReviewedAction;
   prepareInput?: (context: ToolPrepareInputContext<Input>) => Promise<Input> | Input;
   buildBudgetExceededOutput?: (context: ToolBudgetExceededContext) => Output;
   /**

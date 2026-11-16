@@ -1263,6 +1263,24 @@ html[data-toast-anchored] .toast-stack { top: var(--toast-top); bottom: auto; al
 body:has(.settings-window) .toast-stack { left: 50%; top: auto; bottom: 24px; align-items: end; translate: none; }
 .toast { grid-area: 1 / 1; display: flex; flex-direction: column; gap: 2px; width: max-content; max-width: min(24rem, calc(100vw - 32px)); border-radius: 14px; padding: 10px 18px; background: hsl(var(--popover) / .86); color: hsl(var(--popover-foreground)); box-shadow: 0 0 0 1px hsl(var(--foreground) / .06), 0 1px 2px hsl(var(--shadow) / .04), 0 6px 16px -4px hsl(var(--shadow) / .08), 0 20px 40px -16px hsl(var(--shadow) / .18); -webkit-backdrop-filter: blur(20px) saturate(1.4); backdrop-filter: blur(20px) saturate(1.4); font-size: 13px; line-height: 20px; text-align: center; animation: toast-in var(--dur-base) var(--ease-out); }
 .dark .toast { background: hsl(var(--popover) / .84); box-shadow: 0 0 0 1px hsl(var(--foreground) / .09), inset 0 1px 0 hsl(var(--foreground) / .04), 0 6px 16px -4px hsl(var(--shadow) / .4), 0 20px 40px -16px hsl(var(--shadow) / .6); }
+/* Changed files under an answer: a row per file, its ⋯ quiet until the row is pointed at. */
+.edited-files-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0 4px; min-width: 0; }
+.edited-files-row > .reveal { flex-basis: 100%; }
+.edited-files-more { opacity: .55; transition: opacity var(--dur-fast) var(--ease-out); }
+.edited-files-row:hover .edited-files-more, .edited-files-more:focus-visible, .edited-files-more[data-state="open"] { opacity: 1; }
+@media (hover: none) { .edited-files-more { opacity: 1; } }
+.edited-files-row[data-undone] [data-icon="inline-start"] { opacity: .55; }
+.edited-files-dialog { max-width: min(30rem, calc(100vw - 32px)); }
+.edited-files-choices { display: flex; flex-direction: column; gap: 2px; max-height: 16rem; overflow-y: auto; margin: 0 -8px; }
+.edited-files-choice { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 6px 8px; border-radius: 10px; transition: background-color var(--dur-fast) var(--ease-out); }
+.edited-files-choice:hover:not([data-blocked]) { background: hsl(var(--foreground) / .04); }
+.edited-files-choice[data-blocked] { opacity: .6; }
+.toast-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* One with an action reads left to right: what happened, then the way back. */
+.toast[data-action] { flex-direction: row; align-items: center; gap: 14px; padding: 8px 8px 8px 16px; text-align: left; pointer-events: auto; }
+.toast-action { flex: none; height: 28px; padding: 0 12px; border-radius: 9px; font-size: 12px; font-weight: 500; color: hsl(var(--popover-foreground)); background: hsl(var(--foreground) / .07); transition: background-color var(--dur-fast) var(--ease-out); }
+.toast-action:hover { background: hsl(var(--foreground) / .12); }
+.toast-action:focus-visible { outline: none; box-shadow: 0 0 0 2px hsl(var(--ring) / .35); }
 .toast-title { font-weight: 500; letter-spacing: -.006em; text-wrap: balance; }
 .toast-description { font-size: 12px; line-height: 18px; color: hsl(var(--muted-foreground)); text-wrap: balance; }
 .toast[data-leaving] { animation: toast-out var(--dur-fast) var(--ease-in-out) forwards; }

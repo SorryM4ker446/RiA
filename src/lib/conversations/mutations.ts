@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { db } from "@/db";
 import { pruneTerminalLogs } from "@/lib/terminal/logs";
-import { activeTerminalSessionIds } from "@/lib/terminal/runtime";
+import { activeTerminalSessionIds, stopTerminalCommandsForChat } from "@/lib/terminal/runtime";
 import { ApiError } from "@/lib/server/api-error";
 import { truncateTitle } from "@/lib/ai/ui-message";
 import { awaitingApproval, chatTagSchema, conversationInclude, conversationSummary } from "@/lib/conversations/query";
@@ -12,6 +12,9 @@ import { assertSelectableWorkspace } from "@/lib/local-files/workspace";
 import { approvalRuleSchema } from "@/lib/approvals/rules";
 import { announceConversationsChanged } from "@/lib/conversations/events";
 
+import { warmFileSnapshot } from "@/lib/terminal/file-changes";
+import { terminalRuntimeAllowed } from "@/lib/terminal/schema";
+import { t } from "@/lib/locale";
 export const updateConversationSchema = z.strictObject({
   title: z.string().trim().min(1).max(200).optional(),
   pinned: z.boolean().optional(),
@@ -47,7 +50,7 @@ export async function updateConversation(id: string, input: z.infer<typeof updat
   if (input.workspaceGrantId !== undefined) await assertSelectableWorkspace(input.workspaceGrantId);
   const updated = await db.$transaction(async tx => {
     const current = await tx.chat.findFirst({ where: { id }, select: { title: true, assistantConfig: true, ephemeral: true } });
-    if (!current) throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
+    if (!current) throw new ApiError({ code: "NOT_FOUND", message: t("server.conversation.notFound") });
     const assistant = selectedAssistant;
     // Only a placeholder or the previous template's default name follows the
     // template. A conversation renamed by the user keeps its own title.
@@ -76,6 +79,11 @@ export async function updateConversation(id: string, input: z.infer<typeof updat
     return conversationSummary(chat, (await awaitingApproval([chat.id], tx)).has(chat.id));
   });
   announceConversationsChanged();
+  // Read the folder now, so its first command does not wait on a full read and its changes can be undone.
+  if (input.workspaceGrantId && terminalRuntimeAllowed()) {
+    const grant = await db.directoryGrant.findUnique({ where: { id: input.workspaceGrantId }, select: { realPath: true, revokedAt: true } });
+    if (grant && !grant.revokedAt) warmFileSnapshot(grant.realPath);
+  }
   return updated;
 }
 
@@ -92,11 +100,13 @@ export async function markTurnAnswered(chatId: string, outcome: string) {
 export async function deleteConversations(ids: string[]) {
   const deleted = await db.$transaction(async tx => {
     const count = await tx.chat.count({ where: { id: { in: ids } } });
-    if (count !== ids.length) throw new ApiError({ code: "NOT_FOUND", message: "One or more conversations are unavailable; no conversations were deleted" });
+    if (count !== ids.length) throw new ApiError({ code: "NOT_FOUND", message: t("server.conversation.someUnavailable") });
     // Preserve shared assets and give newly unreferenced files the normal cleanup grace period.
     await tx.mediaAsset.updateMany({ where: { references: { some: { message: { chatId: { in: ids } } } } }, data: { lastUsedAt: new Date() } });
     return (await tx.chat.deleteMany({ where: { id: { in: ids } } })).count;
   });
+  // Nothing keeps running for a conversation that is gone, background commands included.
+  for (const id of ids) stopTerminalCommandsForChat(id);
   // Runs cascade with their conversations; remove the terminal logs they owned.
   await pruneTerminalLogs(activeTerminalSessionIds()).catch(() => console.error("terminal.log.prune.failed"));
   announceConversationsChanged();

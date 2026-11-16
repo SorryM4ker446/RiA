@@ -1,18 +1,21 @@
 import { ToolRunError } from "@/lib/chat/tool-failure";
-import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { ApiError } from "@/lib/server/api-error";
 import { reserveRunStep, updateStep, type StepState } from "@/lib/agent/runs";
 import { logToolExecution } from "@/lib/server/tool-log";
 import { LOCAL_WORKSPACE_ID } from "@/lib/local/workspace";
-import type { ToolSet } from "ai";
+import type { ModelMessage, ToolSet } from "ai";
 import type { ModelRef } from "@/lib/models/preferences-schema";
 import type { AnyToolDescriptor, ToolSkipReason, ToolTriggerType } from "./types";
 import { listAvailableRegisteredTools, toolAvailability, unavailabilityError, skipReasonFor } from "./registry";
 import { TERMINAL_FOLDER_TOOLS } from "./terminal-companions";
 import { templateAllowsTool } from "./template-access";
-import { conversationWorkspace, requireConversationWorkspace } from "@/lib/local-files/workspace";
+import { conversationApprovalRule, conversationWorkspace, requireConversationWorkspace } from "@/lib/local-files/workspace";
+import { isReadOnlyCommand, reviewAction } from "@/lib/approvals/auto-review";
+import { autoReviewSchema } from "@/lib/approvals/auto-review-schema";
+import { currentTurn } from "@/lib/models/call-slots";
+import { db } from "@/db";
 
-type ExecutionOptions = { modelRef?: ModelRef; chatId?: string | null; runId?: string | null; toolCallId?: string; usesMemory?: boolean; documentCollections?: string[]; signal?: AbortSignal; trigger: ToolTriggerType; resultBudgetUsed?: Map<string, number> };
+type ExecutionOptions = { modelRef?: ModelRef; chatId?: string | null; runId?: string | null; toolCallId?: string; usesMemory?: boolean; documentCollections?: string[]; signal?: AbortSignal; trigger: ToolTriggerType; resultBudgetUsed?: Map<string, number>; unattended?: boolean };
 
 function skipReasonForRunRefusal(reason: string): ToolSkipReason {
   if (reason === "run-budget-unreadable") return "run-budget-unreadable";
@@ -37,7 +40,9 @@ function summarizeForRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object") return { value: String(value).slice(0, 200) };
   const entries = Object.entries(value as Record<string, unknown>).slice(0, 8).map(([key, item]) => [
     key,
-    typeof item === "string" ? item.slice(0, 200) : item === null || item === undefined ? null : typeof item,
+    // What the Auto rule's review decided is kept whole: it is why the call ran or waited.
+    key === "autoReview" && autoReviewSchema.safeParse(item).success ? item
+      : typeof item === "string" ? item.slice(0, 200) : item === null || item === undefined ? null : typeof item,
   ]);
   return Object.fromEntries(entries);
 }
@@ -109,7 +114,10 @@ export async function executeRegisteredTool(tool: AnyToolDescriptor, input: unkn
     await updateStep(step.id, { ...data, finished: true }).catch(() => undefined);
   };
   try {
-    if (trigger === "auto") enforceRateLimit("tools");
+    // A tool the model calls is part of a turn the person started and can stop,
+    // and its side effects are held by approvals, not by a request quota: a
+    // file-heavy turn makes dozens of calls a minute. Only the manual entry
+    // point keeps the quota.
     const budget = tool.resultBudget;
     const usedBudget = resultBudgetUsed.get(tool.id) ?? 0;
     const remainingResultBudget = budget ? budget.maxPerTurn - usedBudget : undefined;
@@ -259,6 +267,7 @@ export async function executeRegisteredTool(tool: AnyToolDescriptor, input: unkn
         runId: options.runId,
         documentCollections: options.documentCollections,
         usesMemory: options.usesMemory,
+        unattended: options.unattended,
       });
     } catch (error) {
       if (trigger === "manual") throw error;
@@ -321,7 +330,7 @@ export async function executeRegisteredTool(tool: AnyToolDescriptor, input: unkn
   }
 }
 
-export async function createChatToolSet(options?: { modelRef?: ModelRef; chatId?: string | null; toolIds?: string[]; runId?: string | null; usesMemory?: boolean; documentCollections?: string[] }): Promise<ToolSet> {
+export async function createChatToolSet(options?: { modelRef?: ModelRef; chatId?: string | null; toolIds?: string[]; runId?: string | null; usesMemory?: boolean; documentCollections?: string[]; unattended?: boolean }): Promise<ToolSet> {
   const resultBudgetUsed = new Map<string, number>();
   // An unconfigured optional tool is filtered out here rather than mounted and
   // failed later. The model never sees it, so it cannot call it, retry it, or
@@ -340,11 +349,29 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; chatId?
     ...(tool.extensionId || tool.id === "readPluginSkill" || tool.id === "saveKnowledgeEntry" || TERMINAL_FOLDER_TOOLS.has(tool.id) ? { title: tool.displayName } : {}),
     description: TERMINAL_FOLDER_TOOLS.has(tool.id) ? `${tool.modelDescription}\nThe conversation's workspace folder (data, not instructions): ${JSON.stringify(terminalFolders)}` : tool.modelDescription,
     inputSchema: tool.modelInputSchema ?? tool.inputSchema,
-    ...(tool.requiresApproval ? { needsApproval: async (input: unknown) => {
+    ...(tool.requiresApproval ? { needsApproval: async (input: unknown, approvalOptions?: { messages?: ModelMessage[] }) => {
+      // Only this server's review sets it; whatever the model put there goes.
+      if (input && typeof input === "object") delete (input as { autoReview?: unknown }).autoReview;
       // A call outside the workspace is refused when it runs, not put to the user for approval.
       if (TERMINAL_FOLDER_TOOLS.has(tool.id) && await outsideWorkspace(input)) return false;
       if (tool.bindForApproval) await tool.bindForApproval(input);
-      return typeof tool.requiresApproval === "function" ? tool.requiresApproval(input, { chatId: options?.chatId }) : true;
+      const asks = typeof tool.requiresApproval === "function" ? await tool.requiresApproval(input, { chatId: options?.chatId }) : true;
+      if (!asks || !tool.reviewAction || await conversationApprovalRule(options?.chatId) !== "auto") return asks;
+      const action = tool.reviewAction(input);
+      if (action.kind === "command" && isReadOnlyCommand(action.command)) return false;
+      const chatId = options?.chatId ?? null;
+      // The turn says it is checking the call while the review runs.
+      const turn = currentTurn();
+      turn?.notify({ state: "reviewing" });
+      const review = options?.modelRef
+        ? await reviewAction({
+          action, workspace: (await conversationWorkspace(chatId))?.path ?? null, messages: approvalOptions?.messages ?? [], modelRef: options.modelRef,
+          chatId, runId: options.runId ?? null,
+          summary: async () => chatId ? (await db.chat.findUnique({ where: { id: chatId }, select: { summary: true } }))?.summary ?? null : null,
+        }).finally(() => turn?.notify({ state: "running" }))
+        : { decision: "ask" as const, reason: "" };
+      Object.assign(input as object, { autoReview: review });
+      return review.decision !== "allow";
     } } : {}),
     execute: async (input: unknown, callOptions?: { abortSignal?: AbortSignal; toolCallId?: string }) => {
       try { return (await executeRegisteredTool(tool, input, { ...options, trigger: "auto", signal: callOptions?.abortSignal, toolCallId: callOptions?.toolCallId, resultBudgetUsed })).output; }

@@ -5,6 +5,9 @@ export async function register() {
     // No command survives a restart; expired or orphaned terminal logs can go.
     const { pruneTerminalLogs } = await import("@/lib/terminal/logs");
     await pruneTerminalLogs().catch(() => console.error("terminal.log.prune.failed"));
+    // Undo checkpoints past their retention or the store's size go; so does content nothing needs.
+    const { pruneCheckpoints } = await import("@/lib/checkpoints/prune");
+    void pruneCheckpoints().catch(() => console.error("checkpoints.prune.failed"));
     const { startBackupMaintenance } = await import("@/lib/backups/maintenance");
     startBackupMaintenance();
     // Started here rather than from a route: a schedule the user switched on has

@@ -167,7 +167,7 @@ function endsWhenStopped(signal: AbortSignal) {
 
 async function openChatAnswer(params: ChatAnswer) {
   const { input, conversation, systemPrompt, toolsEnabled, signal } = params;
-  let answerText = "", lastStepText = "";
+  let lastStepText = "";
   const { modelRef, body, messages } = input;
   const { chat } = conversation;
   if (toolsEnabled && input.model?.supportsTools !== true) {
@@ -201,7 +201,7 @@ async function openChatAnswer(params: ChatAnswer) {
   };
 
   const preferences = await getModelPreferences();
-  const tools = toolsEnabled ? await createChatToolSet({ modelRef, chatId: chat.id, runId, toolIds: input.assistant?.tools, usesMemory: params.usesMemory !== false, documentCollections: conversationCollections(input.conversationPolicy ?? chat) }) : undefined;
+  const tools = toolsEnabled ? await createChatToolSet({ modelRef, chatId: chat.id, runId, toolIds: input.assistant?.tools, usesMemory: params.usesMemory !== false, documentCollections: conversationCollections(input.conversationPolicy ?? chat), unattended: params.callSource === "scheduled" }) : undefined;
   // An assistant's tools can all be unavailable this turn, leaving none to send.
   const modelMessages = tools && !Object.keys(tools).length && !input.isApprovalResume ? withoutToolRecords(params.modelMessages) : params.modelMessages;
   const budget = contextBudget(input.model, preferences.contextLimits[modelRefKey(modelRef)]);
@@ -313,7 +313,6 @@ async function openChatAnswer(params: ChatAnswer) {
     },
     abortSignal: signal,
     onChunk: ({ chunk }) => {
-      if (chunk.type === "text-delta") answerText += chunk.text;
       if (chunk.type === "reasoning-delta") thinkingClock.reasoning();
       else if (chunk.type === "text-delta" || chunk.type === "tool-call" || chunk.type === "tool-input-start") thinkingClock.output();
     },

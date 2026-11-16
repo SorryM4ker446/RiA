@@ -3,6 +3,8 @@ import { Ajv } from "ajv";
 import { z } from "zod";
 import { ApiError } from "@/lib/server/api-error";
 
+import { autoReviewSchema } from "@/lib/approvals/auto-review-schema";
+import { t } from "@/lib/locale";
 export const EXTENSION_LIMITS = { connections: 20, tools: 64, enabledTools: 32, schemaBytes: 16_384, responseBytes: 524_288, outputBytes: 32_768, timeoutMs: 20_000 } as const;
 export const externalToolIdPattern = /^ext[a-f0-9]{56}$/;
 export const extensionIdSchema = z.string().uuid();
@@ -25,12 +27,12 @@ export function validateToolSchema(value: unknown) {
     ajv.removeSchema(value);
     return validate;
   } catch {
-    throw new ApiError({ code: "VALIDATION_ERROR", message: "工具参数必须是有效的 JSON Schema 对象（最多 16 KiB，不支持引用或正则规则）。" });
+    throw new ApiError({ code: "VALIDATION_ERROR", message: t("errors.toolParametersRequireAValidJSONSchemaObject") });
   }
 }
 
 export const inputSchemaSchema = z.record(z.string(), z.json()).superRefine((value, ctx) => {
-  try { validateToolSchema(value); } catch { ctx.addIssue({ code: "custom", message: "Invalid or unsupported tool JSON Schema" }); }
+  try { validateToolSchema(value); } catch { ctx.addIssue({ code: "custom", message: t("server.extension.unsupportedToolSchema") }); }
 });
 const endpoint = z.string().trim().max(2048).refine(value => {
   try { const url = new URL(value); return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password && !url.hash && !url.search; } catch { return false; }
@@ -49,7 +51,7 @@ export const extensionToolsSchema = z.array(extensionToolSchema).max(EXTENSION_L
 export type ExtensionTool = z.infer<typeof extensionToolSchema>;
 export const activationSchema = z.strictObject({ revision: z.number().int().positive(), enabled: z.boolean(), tools: z.array(z.string().min(1).max(200)).max(EXTENSION_LIMITS.tools) });
 export const bindingSchema = z.strictObject({ extensionId: extensionIdSchema, revision: z.number().int().positive() });
-export const externalInputSchema = z.strictObject({ arguments: z.record(z.string(), z.json()), binding: bindingSchema.optional() });
+export const externalInputSchema = z.strictObject({ arguments: z.record(z.string(), z.json()), binding: bindingSchema.optional(), autoReview: autoReviewSchema.optional() });
 export type ExternalInput = z.infer<typeof externalInputSchema>;
 // Provider function names stay below 64 characters. The connection identity is
 // reversible so resolving one tool never loads every connection's schemas.

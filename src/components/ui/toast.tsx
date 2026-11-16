@@ -4,22 +4,29 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { useLocale } from "@/lib/locale/client";
 import { t } from "@/lib/locale";
 
-/** A line of text, or a result with a quieter line on what it means. */
-export type ToastInput = string | { title: string; description?: string };
-type Toast = { id: number; title: string; description?: string; leaving: boolean };
+/**
+ * A line of text, or a result with a quieter line on what it means, and
+ * optionally one action that takes it back (such as Redo after an undo). The
+ * action must name what it acts on when it is created, never act on whatever
+ * is open by the time it is clicked.
+ */
+export type ToastAction = { label: string; run: () => void };
+export type ToastInput = string | { title: string; description?: string; action?: ToastAction };
+type Toast = { id: number; title: string; description?: string; action?: ToastAction; leaving: boolean };
 type Show = (toast: ToastInput) => void;
 
 const ToastContext = createContext<Show | null>(null);
-/** Long enough to read once, never long enough to linger. */
-const duration = (toast: Toast) => Math.min(3500, 1800 + (toast.title.length + (toast.description?.length ?? 0)) * 20);
+/** Long enough to read once, never long enough to linger; one with an action stays long enough to reach it. */
+const duration = (toast: Toast) => toast.action ? 6000 : Math.min(3500, 1800 + (toast.title.length + (toast.description?.length ?? 0)) * 20);
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /**
  * Short confirmations of something that just happened (saved, enabled,
  * deleted), shown one at a time and gone on their own. A new one fades in over
- * the last as that fades out, in the same place, so nothing moves. They take
- * no clicks, so they never stand between the user and a control. A failure the
- * user has to act on stays next to the action instead of passing by here.
+ * the last as that fades out, in the same place, so nothing moves. Only one
+ * with an action takes clicks, and it waits while pointed at or focused; the
+ * others never stand between the user and a control. A failure the user has
+ * to act on stays next to the action instead of passing by here.
  */
 export function ToastProvider({ children }: { children: ReactNode }) {
   useLocale();
@@ -51,15 +58,25 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 }
 
 function ToastItem({ toast, onDismiss, onRemove }: { toast: Toast; onDismiss: (id: number) => void; onRemove: (id: number) => void }) {
+  // Pointed at or focused, an actionable toast waits; its time starts again when left.
+  const [held, setHeld] = useState(false);
   useEffect(() => {
-    if (toast.leaving) return;
+    if (toast.leaving || held) return;
     const timer = window.setTimeout(() => onDismiss(toast.id), duration(toast));
     return () => window.clearTimeout(timer);
-  }, [toast, onDismiss]);
+  }, [toast, onDismiss, held]);
+  const hold = toast.action ? {
+    onPointerEnter: () => setHeld(true), onPointerLeave: () => setHeld(false),
+    onFocus: () => setHeld(true), onBlur: () => setHeld(false),
+  } : {};
   return (
-    <div className="toast" data-leaving={toast.leaving || undefined} onAnimationEnd={event => { if (toast.leaving && event.target === event.currentTarget) onRemove(toast.id); }}>
-      <p className="toast-title">{toast.title}</p>
-      {toast.description ? <p className="toast-description">{toast.description}</p> : null}
+    <div className="toast" data-leaving={toast.leaving || undefined} data-action={toast.action ? "" : undefined} {...hold}
+      onAnimationEnd={event => { if (toast.leaving && event.target === event.currentTarget) onRemove(toast.id); }}>
+      <div className="toast-text">
+        <p className="toast-title">{toast.title}</p>
+        {toast.description ? <p className="toast-description">{toast.description}</p> : null}
+      </div>
+      {toast.action ? <button type="button" className="toast-action" onClick={() => { const action = toast.action!; onDismiss(toast.id); action.run(); }}>{toast.action.label}</button> : null}
     </div>
   );
 }

@@ -27,10 +27,11 @@ beforeEach(async (t: TestContext) => {
 });
 after(async () => { await db.$disconnect(); cleanup(); });
 
-test("each rule decides edits and commands as named: ask asks for both, accepting edits covers edits only, full covers both", () => {
+test("each rule decides edits and commands as named: ask asks for both, accepting edits and auto cover edits only (auto reviews commands), full covers both", () => {
   assert.deepEqual(APPROVAL_RULES.map(rule => [rule, runsWithoutAsking(rule, "edit"), runsWithoutAsking(rule, "command")]), [
     ["ask", false, false],
     ["acceptEdits", true, false],
+    ["auto", true, false],
     ["full", true, true],
   ]);
 });

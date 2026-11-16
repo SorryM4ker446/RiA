@@ -26,7 +26,7 @@ The first run of a prompt task creates a conversation named after the task. Ever
 
 The row's name opens the conversation, and so does **Open conversation** in its ⋯ menu, a run in the run history, the task's notice in the reminder center and a click on its system notification. Each opens that conversation even when chat last had another one open. If you delete the conversation, the next run starts a new one. Deleting the task keeps its conversation and its run history.
 
-A run is a turn the service holds, like any other ([several conversations at once](conversation-management.md#several-conversations-at-once)). A conversation that is open while its task runs shows the answer as it is written, and **stop** there stops the run. A conversation answers one turn at a time: a run that falls due while you are getting an answer in its conversation waits for that answer to end and then goes ahead, reading the conversation as it is by then; while it waits it gives its background place to other tasks that fall due, and takes one again (waiting for it if need be) before it sends (if that answer ended asking for an approval, the run records **Needs approval** instead). A message sent from a page that had not caught up is still answered with the task's latest turn in view, because the service fills in turns the page did not have.
+A run is a turn the service holds, like any other ([several conversations at once](conversation-management.md#several-conversations-at-once)). A conversation that is open while its task runs shows the answer as it is written, and **stop** there stops the run. A conversation answers one turn at a time: a run that falls due while you are getting an answer in its conversation waits for that answer to end and then goes ahead, reading the conversation as it is by then; other tasks that fall due meanwhile are not held up by it (if that answer ended asking for an approval, the run records **Needs approval** instead). A message sent from a page that had not caught up is still answered with the task's latest turn in view, because the service fills in turns the page did not have.
 
 The conversation starts with nothing from the conversation the task was created in, so a prompt must say everything the run needs.
 
@@ -69,14 +69,14 @@ A machine that was asleep or closed catches up **once**: a task that was due dur
 
 ### Missed times
 
-A run that starts more than 10 minutes after its time is **late**: RiA was not running, the task was still busy with its previous run, or it was waiting for a background place. What happens is chosen per task under **If its time is missed**:
+A run that starts more than 10 minutes after its time is **late**: RiA was not running, or the task was still busy with its previous run. What happens is chosen per task under **If its time is missed**:
 
 - **Run once when possible** (the default) runs it, and tells the model, with the request's reference data, when the run was due, how late it is and how many later times passed. A brief written three hours late can then say so and cover the gap.
 - **Skip it and wait for the next time** records the run as **Missed**, sends nothing, notifies you and waits for the next time. A one-off task whose time was missed this way is used up.
 
 Each run in the history shows the time it was due when it ran late, and how many later times of the task passed without a run of their own, whether before it could start or while it was still running. A run started by hand is never late.
 
-Each task runs at most once at a time. Prompt tasks that start on their own take at most half of the model call places (the **Maximum concurrent calls** in Settings → Models, rounded down, at least one), so several falling due together queue behind each other instead of being refused, and your own conversation still has room: your answers also go before a task's when both wait for a place. A waiting one starts as soon as a place frees up. A background call the provider refuses for being busy is retried like any other, unless a money limit below is set, since each attempt then spends that allowance. Built-in actions do not wait for those places, but the two backup actions wait for each other, so two backups never read the workspace at once. While a restore holds the workspace, due tasks wait unclaimed and run once it ends; a restore switches every task off.
+Each task runs at most once at a time. Prompt tasks falling due together all start at once; there is no separate limit on how many run. Only their model calls take places (the **Maximum concurrent calls** in Settings → Models, up to 32), each for as long as that call is in flight, and a call past them waits rather than being refused. Your calls go before a task's when both wait, and a task running a long command or build holds no place meanwhile, so your next message waits at most for a call already in flight. A background call the provider refuses for being busy is retried like any other, unless a money limit below is set, since each attempt then spends that allowance. Built-in actions do not wait for those places, but the two backup actions wait for each other, so two backups never read the workspace at once. While a restore holds the workspace, due tasks wait unclaimed and run once it ends; a restore switches every task off.
 
 A run that was in progress when the app quit or crashed is recorded as **Interrupted** at the next start. It is not replayed. A repeating task resumes at its next time, and a one-off task stays off.
 
@@ -164,7 +164,7 @@ Creation fields:
 | `enabled` | Defaults to `false`, so a client that forgets it creates a task that does nothing. |
 | `model` | `{ providerId, modelId }` of a model added for chat, or `null` (default) to follow the default chat model. Prompt tasks only. |
 | `workspaceGrantId` | A granted folder, or `null` (default) for none. Prompt tasks only. |
-| `approvalRule` | `ask` (default), `acceptEdits` or `full`. Prompt tasks only. |
+| `approvalRule` | `ask` (default), `acceptEdits`, `auto` or `full`. Prompt tasks only. |
 | `usesMemory` | `false` (default) or `true`. Prompt tasks only. |
 | `notify` | `all` (default), `important` or `off`. Prompt tasks only. |
 | `reasoningEffort` | `null` (default, follow Settings → Models), `off`, `low`, `high` or `max`. Prompt tasks only. |

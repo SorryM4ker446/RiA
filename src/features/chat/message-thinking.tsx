@@ -144,6 +144,7 @@ export function ReplyPending({ reasoning, organizing = false, notice = null }: {
   useLocale();
   const text = notice?.state === "queued" ? (notice.ahead > 0 ? tf("chat.thinking.queued", { ahead: notice.ahead }) : t("chat.thinking.queuedNext"))
     : notice?.state === "retrying" ? tf("chat.thinking.retrying", { seconds: notice.seconds, attempt: notice.attempt })
+    : notice?.state === "reviewing" ? t("chat.thinking.reviewing")
     : organizing ? t("chat.thinking.organizing") : reasoning ? t("chat.messages.reasoningLive") : t("chat.thinking.replying");
   return <p className="reply-pending" role="status"><span className="thinking-live">{text}</span></p>;
 }

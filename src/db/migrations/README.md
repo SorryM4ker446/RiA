@@ -1,5 +1,9 @@
 # Database migrations
 
+`20261119100000_file_checkpoints` adds what each turn changed in a workspace file, so the change can
+be undone. Only hashes are stored; the content before and after is kept by hash in `checkpoints/`
+beside the database. `checkpoint_preferences` holds the store's size limit. Both tables are additive and older builds ignore them.
+
 `20261118100000_call_limit_defaults` moves call limits still at the earlier defaults to the new
 ones: 8 model calls at once (was 4) and 1000 automatic task runs a day (was 20). Any other value
 is kept. Only the settings document changes, and older builds read the new values.

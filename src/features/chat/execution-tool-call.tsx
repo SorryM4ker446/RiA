@@ -25,20 +25,27 @@ export function ExecutionToolCall({ call, isLatest, waiting, onReviewApproval }:
   const pendingApproval = part?.state === "approval-requested" && "approval" in part && part.approval;
   const executing = part?.state === "input-available" || (part?.state === "approval-responded" && "approval" in part && !!part.approval?.approved);
   const stoppedStep = step && ["cancelled", "failed", "denied"].includes(step.state) && part?.state !== "output-available";
+  // A command started in the background returned while it kept running; its card follows it live.
+  const startedInBackground = terminal && part?.state === "output-available" && !!part.output && typeof part.output === "object"
+    && (part.output as { background?: unknown; status?: unknown }).background === true && (part.output as { status?: unknown }).status === "running";
   // A call opens while it awaits approval or runs, and closes again once it settles.
-  const defaultExpanded = !!pendingApproval || !!(isLatest && executing && !stoppedStep);
+  const defaultExpanded = !!pendingApproval || !!(isLatest && (executing || startedInBackground) && !stoppedStep);
   // Saved summaries can arrive before full details. Only an explicit user
   // choice should override the default when those details become available.
   const [expanded, setExpanded] = useState<boolean>();
   // A command that ran but did not succeed says how it ended, so a folded call
   // reads "stopped" rather than "finished" (the call itself did return).
   const terminalStatus = terminal && part?.state === "output-available" && part.output && typeof part.output === "object" && "status" in part.output ? String(part.output.status) : "";
-  const state = ["stopped", "failed", "timed-out"].includes(terminalStatus) ? terminalStatusLabels()[terminalStatus as "stopped" | "failed" | "timed-out"]
+  const state = startedInBackground ? t("ui.chat.terminal-result.startedInBackground")
+    : ["stopped", "failed", "timed-out"].includes(terminalStatus) ? terminalStatusLabels()[terminalStatus as "stopped" | "failed" | "timed-out"]
     : part && !stoppedStep
     ? (part.state === "output-available" && part.output && typeof part.output === "object" && "skipped" in part.output && part.output.skipped
       ? t("runs.step.skipped") : formatToolState(part.state).label)
     : step?.state === "done" ? formatToolState("output-available").label : step ? t(`runs.step.${step.state}`) : "";
   const toolName = part?.type.replace(/^tool-/, "") ?? step?.toolName ?? step?.kind ?? "";
+  // What the Auto rule's review decided, when the call went through one.
+  const reviewed = (part?.input as { autoReview?: { decision?: unknown; reason?: unknown } } | undefined)?.autoReview;
+  const autoReview = reviewed && (reviewed.decision === "allow" || reviewed.decision === "ask") ? { decision: reviewed.decision, reason: typeof reviewed.reason === "string" ? reviewed.reason.trim() : "" } : null;
   const name = localizeMessage(part?.title ?? (toolName === "runTerminalCommand" ? t("ui.chat.approval-dock.runTerminalCommand") : toolName));
 
   return <details className="execution-disclosure text-xs" data-call-id={part?.toolCallId ?? step?.toolCallId ?? step?.id}
@@ -49,6 +56,9 @@ export function ExecutionToolCall({ call, isLatest, waiting, onReviewApproval }:
     }}><ChevronRight aria-hidden="true" /><span className="min-w-0 truncate">{tf("chat.messages.toolDetails", { name, state, extra: "" })}</span></summary>
     <div className="flex min-w-0 flex-col gap-2 py-2">
       {part ? <>
+        {autoReview ? <p className="text-[11px] text-muted-foreground">{autoReview.decision === "allow"
+          ? tf("ui.chat.execution-tool-call.autoReviewAllowed", { reason: autoReview.reason })
+          : autoReview.reason ? tf("ui.chat.approval-dock.autoReviewAsked", { reason: autoReview.reason }) : t("ui.chat.approval-dock.autoReviewFailed")}</p> : null}
         {terminal ? <TerminalResult input={part.input} output={part.state === "output-available" ? part.output : undefined} active={!!executing} /> : null}
         {edit ? <div className="flex min-w-0 flex-col gap-1">
           <p className="text-[11px] text-muted-foreground">{t("ui.chat.approval-dock.file")}{edit.path}</p>
@@ -56,7 +66,7 @@ export function ExecutionToolCall({ call, isLatest, waiting, onReviewApproval }:
         </div> : null}
         {!terminal && !edit && part.input !== undefined ? <div className="flex min-w-0 flex-col gap-1">
           <p className="text-[11px] text-muted-foreground">{t("ui.chat.execution-turn-details.inputParameters")}</p>
-          <pre className="execution-code chat-list-scroll">{safeJson(part.input && typeof part.input === "object" && "arguments" in part.input && "binding" in part.input ? part.input.arguments : part.input)}</pre>
+          <pre className="execution-code chat-list-scroll">{safeJson(part.input && typeof part.input === "object" && "arguments" in part.input && ("binding" in part.input || "autoReview" in part.input) ? part.input.arguments : part.input)}</pre>
         </div> : null}
         {pendingApproval ? <Button disabled={!isLatest || !!stoppedStep} onClick={onReviewApproval} size="sm" type="button" variant="outline" className="w-fit">{t("ui.chat.execution-turn-details.returnToChatToApprove")}</Button> : null}
         {!terminal && !edit && part.state === "output-available" && part.output !== undefined ? <div className="flex min-w-0 flex-col gap-1">

@@ -34,9 +34,75 @@ approval rule, not by the folder:
 | --- | --- | --- |
 | **Ask** (default) | Wait for approval of the shown diff | Wait for approval of the exact command |
 | **Accept edits** | Written directly | Wait for approval |
+| **Auto** | Written directly | Reviewed first; run without asking when the review allows it, otherwise wait for approval |
 | **Full access** | Written directly | Run without asking |
 
-Creating a task and extension tools ask under every rule. Reading files and logs never asks.
+Creating a task and saving a knowledge entry ask under every rule. Extension (MCP)
+tool calls ask under every rule but **Auto**, where they are reviewed like commands.
+Reading files and logs never asks.
+
+### Auto
+
+Under **Auto** a command, or an extension tool call, that would otherwise wait is
+first put to a separate model call: the auxiliary model when one is chosen in
+model settings, otherwise the conversation's model (used again if the auxiliary
+one fails). That call starts from a fresh context and sees only:
+
+- the user's own messages in the request (the first and the latest three; how many
+  were left out between them is stated, with the conversation's stored summary, up
+  to 1,500 characters, standing in for them), without the reference data RiA sends
+  with them. The summary is model-written and may restate material the assistant
+  read; the review is told to use it only for context and never as permission;
+- the workspace folder's path;
+- the names of the tools whose results the assistant has read, and how often, never
+  what they returned;
+- the calls already made since the user's latest message (the last 20, with how many
+  earlier ones were left out), each with its tool, its input without RiA's own
+  bindings, whether it ran, failed or was denied, and its review decision. This list
+  is written by RiA from the call records, never by a model, and holds no output. A
+  review judges each action together with the others of its step and with these, so
+  steps that are harmless one by one but add up (copying credentials into the
+  workspace, then pushing) are caught;
+- the command, its working directory and whether it runs in the background, or the
+  extension, tool and arguments.
+
+Text from a web page, file, command output or tool result therefore cannot argue
+for its own action. The review answers **allow** only for work that plainly serves
+the user's request and stays within reading or the workspace: building, testing,
+the project's own scripts and dependencies, file changes the task calls for, local
+git without pushing or rewriting history. It asks the user for anything that sends
+data off the computer, deletes outside the workspace or most of it, changes the
+system, reads credentials, downloads and runs code, is obfuscated, does not follow
+from the user's messages, or cannot be told. A reply that is not one of those two
+answers, or a failed call, waits for the user; Auto can only save an approval,
+never remove one.
+
+Commands that only read skip the review: every step of the command (split at `;`,
+`|` and line breaks) starts with a reading cmdlet such as `Get-ChildItem`,
+`Get-Content`, `Select-String`, `Test-Path` or `Get-Command`, or with `git status`,
+`log`, `diff`, `show`, `rev-parse`, `ls-files`, `blame`, `shortlog` or `describe`,
+and the command has no script block, subexpression, variable, call operator,
+redirection or encoded command.
+
+Reviews are kept few and short. The calls the model makes in one step are reviewed
+together in one model call, with a verdict for each. A turn has at most one review
+in flight; calls made meanwhile wait and go together in the next one. An **allow**
+is reused for the same action in the same conversation while the user's request is
+the same (the first and the latest of their messages) and nothing else was done in
+the turn since, for up to 30 minutes: a repeated `npm test` is reviewed once, but the
+same command after other steps is reviewed again with them. An **ask** is never
+reused. The fixed review
+rules lead the prompt, so providers with prompt caching bill them at cache rates.
+Each review is billed and recorded like the conversation's other calls. A review
+has 60 seconds, both models included; while it runs the reply shows "Checking this
+step against your request…", and once the time is up the call waits for you.
+
+When a review waits for the user, the approval card says why ("Auto review: ..."),
+or that the review gave no answer. Execution details show the review's decision
+and reason for each reviewed call, and the execution record keeps them with the
+call's input. In a scheduled task a call the review does not allow waits for
+approval, as under **Ask**. Older builds and older backups do not know the `auto`
+rule: restoring a backup that uses it needs this version.
 
 The rule belongs to the conversation, so two conversations in one folder can work
 under different rules. Choose it with the **Approval rule** picker in the composer, left of the
@@ -131,11 +197,38 @@ including approval continuations and later messages carrying terminal history.
 It bypasses Proxy's bounded body clone and authenticates in the route before
 reading the body. Other endpoints retain their existing request limits. Model
 context/output capacity and available machine memory still apply. The
-terminal command has no automatic time limit. New execution stages also have no
-step-count, failure-count or aggregate duration cap. A command ends when its
-process exits, the user stops it, the request is cancelled or permission is
-revoked. Old `timeoutSeconds` approval fields remain readable but are ignored.
-At most two commands run concurrently.
+terminal command has no time limit unless one is named. The model may give a
+command `timeoutSeconds` (up to 24 hours), meant for servers, watchers and calls
+that may hang; at that limit the command and its ordinary child processes are
+stopped and the result says `timed-out`, with the output so far. The limit is
+part of what is approved and is shown next to "PowerShell" on the approval card
+and the result. In a conversation a command without one runs until it exits or
+the user stops it. In a scheduled task, where nobody can stop it, a command
+without one is stopped after an hour. A command also ends when the request is
+cancelled or permission is revoked. New execution stages have no step-count,
+failure-count or aggregate duration cap (see [Execution history](execution-history.md)
+for retries). There is no cap on how many commands run at once, background ones
+included.
+
+### Background commands
+
+A command started with `runInBackground` returns as soon as it is under way,
+with its id, while it keeps running: a dev server, a watcher, or a long build or
+test run the model works beside. Approval is the same as for any command, and
+the approval card and result say "In the background". Stopping the answer does
+not stop it; its card stays live, with its own **Stop command**, and the call's
+summary reads "Started in the background". The model follows it with
+`checkTerminalCommand`, which returns the status and only the output printed
+since the last check (`omittedBytes` counts what was dropped between checks,
+readable through `readTerminalLog` when the result has a log reference) and can
+wait up to 10 minutes for the command to end, and ends it with
+`stopTerminalCommand`, which needs no approval. Both reach only the
+conversation's own commands. When a background command ends before the model
+has checked it, the next request's context says how it ended; commands still
+running are listed there on every request. A background command ends when it
+exits, is stopped, reaches its `timeoutSeconds` (in a scheduled task, the
+one-hour default), its folder is revoked, its conversation is deleted, or the
+app exits.
 Captured output is limited to 64 KiB: the beginning of the command's output plus
 the latest 8 KiB of each of stdout and stderr, so a build or test summary at the
 end is kept. An explicit marker states how many bytes in between were omitted.
@@ -226,23 +319,98 @@ Approval pauses and active generation do not display a completed change card.
 
 Each terminal command compares working-directory snapshots before and after
 execution, including failed commands and stopped commands that wrote files.
-Reads and unchanged small files are omitted. Small-file contents are hashed and
-UTF-8 line counts are retained, without retaining file text. Large files use
-size and modification metadata. A rename appears as deletion plus creation.
+Reads and unchanged files are omitted. File contents are hashed (files up to 8 MiB
+also get a UTF-8 line count) without keeping file text in memory. Each folder's
+last walk is remembered for the four folders most recently used, so a later walk
+reads only files whose size or times changed; choosing a folder as a
+conversation's workspace reads it in the background, so its first command does not
+wait for a full read. A rename appears as deletion plus creation.
 Results are part of the existing tool output, so they survive chat reload,
 service restart and backup without a separate store or database migration.
 Older results without observations remain readable without inventing file lists.
 
 Observation is limited to the working directory and skips junctions/symlinks,
 `.git`, `node_modules`, `.next`, `.venv` and `__pycache__`. Each walk considers up
-to 10,000 entries for up to 1.5 seconds; small-file hashing reads up to 8 MiB in
-total and 256 KiB per file. At most 100 change rows are retained per command.
+to 100,000 entries for up to 10 seconds and reads up to 1 GiB of changed files. At
+most 100 change rows are shown per command.
 These are observation budgets, not command input or execution restrictions.
 Interrupted, unreadable or truncated observations are explicitly labeled as
 partial. Partial walks do not treat an unobserved file as proof of absence.
 Concurrent external edits may be observed during the same window; the card is
 not a forensic audit of every file touched. Changes outside the working directory
 are not claimed. Revoking permission prevents a new post-command observation.
+
+### Undoing a reply's file changes
+
+Undo puts a file the reply changed back as it was before the reply: earlier content
+restored, a file the reply created deleted, a file it deleted written again. Every
+undo can be redone, so none of it asks for confirmation beyond choosing the files:
+
+- **Undo changes** at the top of the card opens a list of the reply's files, checked
+  against the files as they are now. Every file that can be undone is ticked; untick
+  the ones to keep. The button says how many files it will undo. With only one file
+  to undo, it is undone at once.
+- **Undo this file** in a row's ⋯ menu undoes that file alone, at once.
+- The result is a short notice with **Redo**, which takes that undo back for exactly
+  those files. An undone row reads "Undone" and "Back as it was before this answer";
+  its ⋯ menu then offers **Redo this file**, and the top of the card **Redo changes**
+  once nothing is left to undo. The card shows how many files are undone, and keeps
+  showing it after a reload.
+
+A rename shows as a deleted and a created file; the two are marked as one rename and
+are undone and redone together, since one alone would leave both names or neither. A
+file that changed again since the reply (by you, another program or a later reply) is
+left alone, and its row says so; so is one whose earlier content was not kept, with
+the reason. Redo likewise leaves a file that changed after the undo. Before an undo
+replaces or deletes a file it keeps what the file held (up to 64 MiB), which is what
+redo writes back; a larger file can be undone but not redone. Undoing an answer that
+ran in several requests (approvals) covers all of them. The next reply is told which
+files you undid or redid, so the model reads them again rather than building on an
+old view. Undo and redo are refused while the conversation is still answering.
+
+What makes this possible is a checkpoint per changed file, recorded for edits made
+with `editProjectFile` and for changes a command made in a conversation. The content
+before the change is kept by its SHA-256 in `checkpoints/blobs/` beside the database,
+once however many files or replies share it; the `file_checkpoints` table
+(`20261119100000_file_checkpoints`) names the hashes, the folder and the run. For
+commands the content comes from the walk before the command, which makes each file
+recoverable as it was first seen and again whenever it changes:
+
+- **Git.** In a git repository (the workspace or a folder inside one), a file whose
+  bytes are exactly its blob in the index needs no copy, whatever its size: undo
+  takes it back from git (`git cat-file`) and checks it against the recorded SHA-256.
+  Git is used only if it is installed; a blob git no longer has falls back to a copy,
+  if there is one.
+- **Copies.** Other files up to 64 MiB are copied, gzip-compressed when a sample shows
+  that saves space (media and archives are stored as they are).
+- **Not copied.** Files git ignores and larger than 1 MiB (build output, caches; a
+  small ignored file such as `.env` is still copied), files over 64 MiB that git does
+  not hold, files the walk did not reach in time, and new files once the store is
+  full. Their changes are listed as not undoable, with the reason.
+
+Checkpoints are kept for 14 days. The store holds up to 2 GiB unless changed in
+**Settings → Workspace permissions → Undo storage limit** (1, 2, 5, 10 or 20 GB),
+which also shows how much it holds. When the store is full, new files are not
+copied: each is noted once and not read again until room opens up, so a full store
+does not keep reading, copying and dropping. Content an undo needs is always written.
+Past the limit, copies kept only in case a file changes later go first, then the
+content needed by the oldest changes, which become not undoable. A lower limit is
+applied at once. Content that no checkpoint or remembered folder needs is removed at
+start-up and shortly after new checkpoints. Revoking a folder removes its
+checkpoints. Deleting a conversation removes its checkpoints with it. Checkpoints
+are not part of backups. The new tables (`file_checkpoints`, `checkpoint_preferences`)
+are additive; older builds ignore them. The store lives beside the database, in the
+data directory.
+
+`POST /api/conversations/:id/undo` takes `{ runIds, action, files? }`. `action` is
+`status` (each file's state from the records alone, without reading any file: what
+the card shows), `preview` or `redo-preview` (what would happen to each file, checked
+against the files now, changing nothing), `undo` or `redo`. Each returns `files[]`
+with `path`, `action`, `status`, `undone`, `redoable` and, for half of a rename,
+`pairedWith`. `files` (`[{ grantId, path }]`) limits any of them to those files.
+`status` has its own, higher request limit, since every card reads it as it comes
+into view. `GET`/`PUT /api/checkpoint-preferences` reads `{ limitMb, usedBytes,
+choicesMb }` and sets `{ limitMb }`.
 
 In the desktop app, clicking an existing file opens its default system
 application. `POST /api/terminal/files/resolve` accepts the grant ID and relative
