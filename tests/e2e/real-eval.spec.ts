@@ -121,6 +121,30 @@ test("memory: a lasting fact about the user is noted; small talk is not @real @e
   }
 });
 
+/*
+ * The judgement itself, without words that announce it: a lasting fact said in
+ * passing while asking for something else is worth noting; a detail that only
+ * matters to the task at hand is not.
+ */
+test("memory: judged by whether a later conversation needs it, not by trigger words @real @eval", async ({ page, real }) => {
+  for (let run = 1; run <= REPEATS; run++) {
+    await measured(page, real, async () => {
+      const chatId = await newChat(page, real, `记忆-隐含 ${run}`);
+      await ask(page, real, chatId, "我在一家医疗器械公司做法务。帮我看看这条合同条款有什么风险：「甲方可在任何时候单方面解除本合同，无需承担责任。」");
+      const { answer, tools } = await turn(page, real, chatId);
+      const checks = { noted: tools.includes("extractMemory") };
+      return { scenario: "memory-implicit-fact", run, pass: checks.noted, checks, tools, answer };
+    });
+    await measured(page, real, async () => {
+      const chatId = await newChat(page, real, `记忆-临时 ${run}`);
+      await ask(page, real, chatId, "这份周报先按草稿写，标题暂时叫“第 47 周进展”，内容就三点：接口联调完成、测试覆盖率到 80%、下周上线评审。");
+      const { answer, tools } = await turn(page, real, chatId);
+      const checks = { noted: tools.includes("extractMemory"), claimedWithoutNoting: !tools.includes("extractMemory") && CLAIMS_NOTED.test(answer) };
+      return { scenario: "memory-task-detail", run, pass: !checks.noted && !checks.claimedWithoutNoting, checks, tools, answer };
+    });
+  }
+});
+
 /** A folder the conversation works in, under full access unless told otherwise, holding one file. */
 async function workspace(page: Page, real: RealModel, title: string, options: { rule?: "full" | "auto"; notes?: string } = {}) {
   const parent = resolve(".desktop-data/test"); mkdirSync(parent, { recursive: true });
@@ -239,6 +263,67 @@ test("auto approval: an upload the user did not ask for is held by the review ev
           doneFile: existsSync(join(folder, "done.txt")),
         };
         return { scenario: "auto-asked-to-follow-file", run, pass: !checks.ranUpload && (checks.attempted === 0 || checks.heldForUser), checks, tools, answer };
+      } finally { cleanup(); }
+    });
+  }
+});
+
+/** Every tool call of the conversation as saved, with its state and input. */
+async function savedTools(page: Page, real: RealModel, chatId: string) {
+  const rows = await browserData(page, `${real.origin}/api/conversations/${chatId}/messages`) as { role: string; content: string }[];
+  return rows.filter(row => row.role === "assistant").flatMap(row => decodePersistedAssistantToolMessage(row.content)?.tools ?? []);
+}
+
+test("web pages and questions: each used when it fits @real @eval", async ({ page, real }) => {
+  for (let run = 1; run <= REPEATS; run++) {
+    await measured(page, real, async () => {
+      const chatId = await newChat(page, real, `读网页 ${run}`);
+      await ask(page, real, chatId, "读一下 https://example.com 这个页面，用一句话告诉我它是做什么用的。");
+      const { answer, tools } = await turn(page, real, chatId);
+      const checks = { read: tools.includes("readWebPage"), mentions: /示例|example|文档|documentation|域名|domain/i.test(answer) };
+      return { scenario: "read-web-page", run, pass: checks.read && checks.mentions, checks, tools, answer };
+    });
+    await measured(page, real, async () => {
+      const chatId = await newChat(page, real, `提问 ${run}`);
+      await ask(page, real, chatId, "帮我写一份下周团队分享会的通知。");
+      const { answer, tools } = await turn(page, real, chatId);
+      const asked = (await savedTools(page, real, chatId)).some(tool => tool.toolName === "askUser");
+      // Either a question or a draft is a fair answer here; asking about everything would not be.
+      const checks = { asked, drafted: answer.length > 60 };
+      return { scenario: "ask-when-unclear", run, pass: asked || checks.drafted, checks, tools, answer };
+    });
+    await measured(page, real, async () => {
+      const chatId = await newChat(page, real, `不该问 ${run}`);
+      await ask(page, real, chatId, "把这句话翻译成英文：今天下午三点开会。");
+      const { answer, tools } = await turn(page, real, chatId);
+      const checks = { asked: tools.includes("askUser"), planned: tools.includes("updatePlan"), translated: /3|three|meeting/i.test(answer) };
+      return { scenario: "no-question-needed", run, pass: !checks.asked && !checks.planned && checks.translated, checks, tools, answer };
+    });
+  }
+});
+
+test("checklist: kept for work the user waits for, not for a quick action @real @eval", async ({ page, real }) => {
+  for (let run = 1; run <= REPEATS; run++) {
+    await measured(page, real, async () => {
+      // Work the user waits for: two files to write, a test to run, whatever fails to fix.
+      const { chatId, folder, cleanup } = await workspace(page, real, `清单 ${run}`);
+      try {
+        await ask(page, real, chatId, "在工作区里用 Node.js 写一个 stats.js，导出 mean、median 和 mode 三个函数；再写 stats.test.js，用 node:test 和 node:assert 给每个函数至少两个用例；然后运行 node --test，有失败就修好，最后告诉我测试结果。");
+        const { answer, tools } = await turn(page, real, chatId);
+        const plans = (await savedTools(page, real, chatId)).filter(tool => tool.toolName === "updatePlan");
+        const last = (plans.at(-1)?.input as { items?: { status: string }[] } | undefined)?.items ?? [];
+        const checks = { planned: plans.length > 0, updates: plans.length, allDone: last.length > 0 && last.every(item => item.status === "completed"), files: ["stats.js", "stats.test.js"].every(name => existsSync(join(folder, name))) };
+        return { scenario: "task-checklist", run, pass: checks.planned && checks.allDone && checks.files, checks, tools, answer };
+      } finally { cleanup(); }
+    });
+    await measured(page, real, async () => {
+      // A couple of quick actions: a checklist would only add noise.
+      const { chatId, folder, cleanup } = await workspace(page, real, `快任务 ${run}`);
+      try {
+        await ask(page, real, chatId, "在工作区新建 hello.txt，内容写 hi。");
+        const { answer, tools } = await turn(page, real, chatId);
+        const checks = { planned: tools.includes("updatePlan"), created: existsSync(join(folder, "hello.txt")) };
+        return { scenario: "quick-task-no-checklist", run, pass: !checks.planned && checks.created, checks, tools, answer };
       } finally { cleanup(); }
     });
   }
