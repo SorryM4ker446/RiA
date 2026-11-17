@@ -235,7 +235,7 @@ end is kept. An explicit marker states how many bytes in between were omitted.
 Output and command text are saved with the chat and sent to its model.
 
 When output exceeds the capture, its complete stdout and stderr are also saved as
-a terminal log beside the local database (`terminal-logs/<command id>`), and the
+a terminal log in the cache folder (`terminal-logs/<command id>`, beside the local database unless a cache folder was chosen; see [Data and cache location](data-location.md)), and the
 result carries a `log` reference with byte counts and `complete`. The
 `readTerminalLog` tool, available wherever `runTerminalCommand` is, reads a log
 by 1-based line range (up to 400 lines and 48 KiB per call, continuing at
@@ -370,7 +370,7 @@ old view. Undo and redo are refused while the conversation is still answering.
 
 What makes this possible is a checkpoint per changed file, recorded for edits made
 with `editProjectFile` and for changes a command made in a conversation. The content
-before the change is kept by its SHA-256 in `checkpoints/blobs/` beside the database,
+before the change is kept by its SHA-256 in `checkpoints/blobs/` in the cache folder (beside the database unless one was chosen),
 once however many files or replies share it; the `file_checkpoints` table
 (`20261119100000_file_checkpoints`) names the hashes, the folder and the run. For
 commands the content comes from the walk before the command, which makes each file
