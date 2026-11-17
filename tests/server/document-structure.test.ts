@@ -13,6 +13,7 @@ const { db } = await import("@/db");
 const { parseDocument } = await import("@/lib/documents/parser");
 const { buildDocumentChunks } = await import("@/lib/documents/chunks");
 const { tableCells } = await import("@/lib/documents/table-blocks");
+const { documentIndexingSettled } = await import("@/lib/documents/auto-index");
 const { indexDocument, reindexDocument } = await import("@/lib/documents/store");
 const { searchDocuments } = await import("@/lib/documents/retrieval");
 const { semanticCoverage, indexDocumentEmbeddings } = await import("@/lib/documents/semantic");
@@ -23,6 +24,8 @@ const preview = await import("@/app/api/documents/preview/route"); const routes 
 let cookie: string; const modelRef = { providerId: "openrouter", modelId: "openai/text-embedding-3-small" } as const;
 beforeEach(async () => {
   cookie = localAccessCookie(); resetProviderState(); globalThis.__riaRateLimitStore?.clear();
+  // An import through the route starts background indexing; it must not reach the next test's documents.
+  await documentIndexingSettled();
   await db.knowledgeDocument.deleteMany({}); await db.workspacePreference.deleteMany({});
   const prefs = await seedTestModelPreferences(db); prefs.embedding = modelRef;
   prefs.library = [...prefs.library, { ...fixtureLibraryItem(modelRef.modelId, ["embedding"]), providerId: "openrouter" }];
