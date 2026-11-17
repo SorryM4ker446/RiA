@@ -4,10 +4,16 @@ import { db } from "@/db";
 import { pruneTerminalLogs } from "@/lib/terminal/logs";
 import { activeTerminalSessionIds } from "@/lib/terminal/runtime";
 import { t } from "@/lib/locale";
+import { ApiError } from "@/lib/server/api-error";
 import { stageMediaFile } from "@/lib/media/storage";
 import { ASSISTANT_TOOL_MESSAGE_PREFIX } from "@/lib/ai/ui-message";
 import { openBackup } from "@/lib/backups/files";
-import { createAccountBackup, pruneAccountBackupsSafely, readBackupAsset, readBackupManifest } from "@/lib/backups/archive";
+import { createAccountBackup, pruneAccountBackupsSafely, readBackupAsset, readBackupManifest, verifyBackupBlock } from "@/lib/backups/archive";
+import { unpackDocumentContent } from "@/lib/backups/documents";
+import { hasDocumentContent } from "@/lib/backups/schema";
+import { hashDocumentContent } from "@/lib/documents/chunks";
+import { documentEmbeddingText, documentSearchText, documentTerms } from "@/lib/documents/lexical";
+import { decodeDocumentVector } from "@/lib/documents/vectors";
 import { PREFERENCE_ROW_ID, withModelSettingsLock } from "@/lib/models/preferences";
 import { upgradeModelPreferences } from "@/lib/models/preferences-schema";
 import { isDefaultAssistantId } from "@/lib/assistants/schema";
@@ -20,7 +26,7 @@ export async function restoreAccountBackup(id: string) {
   try {
     const { manifest, offset: start } = await readBackupManifest(archive);
     const ids = new Map<string, string>();
-    const rows = [...manifest.assistantTemplates, ...manifest.chats, ...manifest.chats.flatMap(chat => chat.messages), ...manifest.memories, ...manifest.tasks, ...manifest.documents, ...manifest.documents.flatMap(document => document.chunks), ...manifest.usage];
+    const rows = [...manifest.assistantTemplates, ...manifest.chats, ...manifest.chats.flatMap(chat => chat.messages), ...manifest.memories, ...manifest.tasks, ...manifest.documents, ...manifest.documents.flatMap(document => "chunks" in document ? document.chunks : []), ...manifest.usage];
     for (const row of rows) ids.set(row.id, randomUUID());
     // The default templates keep their ids: the templates are replaced as a
     // whole, so they cannot collide, and the id is what marks them as defaults.
@@ -33,6 +39,13 @@ export async function restoreAccountBackup(id: string) {
     for (const asset of manifest.assets) {
       const file = await stageMediaFile({ bytes: await readBackupAsset(archive, asset, offset), kind: asset.kind, mediaType: asset.mediaType });
       ids.set(asset.id, file.id); staged.push(file); offset += asset.byteSize;
+    }
+    // Each document's block is checked before anything is replaced; it is unpacked one at a time later.
+    const documentOffsets: number[] = [];
+    for (const document of manifest.documents) {
+      if (!hasDocumentContent(document)) { documentOffsets.push(-1); continue; }
+      await verifyBackupBlock(archive, document.content, offset);
+      documentOffsets.push(offset); offset += document.content.byteSize;
     }
     const mapped = (id: string) => ids.get(id) ?? id;
     const documentLinks = (text: string) => text.replace(/(?<![a-zA-Z0-9:/])\/knowledge\/documents\/([a-zA-Z0-9_-]+)(\?version=[a-f0-9]{64})?(?:#([a-zA-Z0-9_-]+))?/g,
@@ -65,6 +78,8 @@ export async function restoreAccountBackup(id: string) {
     const results = resultConversations(manifest.topics, manifest.artifacts, await defaultApprovalRule(), documentLinks);
     const { safety, paused } = await withModelSettingsLock(async () => {
       const safety = await createAccountBackup(false);
+      // A restore replaces the whole workspace while nothing else may change it, and a large
+      // knowledge base takes minutes to write back, so it is given that long.
       const paused = await db.$transaction(async tx => {
       // A restore replaces the workspace: conversations go first so their
       // messages, tags and asset references cascade away with them.
@@ -112,11 +127,32 @@ export async function restoreAccountBackup(id: string) {
       for (let i = 0; i < inputs.length; i += 500) await tx.mediaGenerationInput.createMany({ data: inputs.slice(i, i + 500) });
       for (let i = 0; i < manifest.memories.length; i += 250) await tx.memory.createMany({ data: manifest.memories.slice(i, i + 250).map(memory => ({ ...memory, id: mapped(memory.id), embedding: memory.embedding ?? Prisma.DbNull, embeddingModelId: memory.embeddingModelId ?? null, embeddingModelProvider: memory.embeddingModelProvider ?? null, source: memory.source ?? "manual", confirmed: memory.confirmed ?? true, lastUsedAt: memory.lastUsedAt ?? null })) });
       // To-dos from an older archive are not brought back: the workspace no longer has them.
-      await tx.knowledgeDocument.createMany({ data: manifest.documents.map(({ chunks: _chunks, ...document }) => ({ ...document, id: mapped(document.id) })) });
-      const chunks = manifest.documents.flatMap(document => document.chunks.map(({ terms: _terms, ...chunk }) => ({ ...chunk, id: mapped(chunk.id), documentId: mapped(chunk.documentId) })));
-      for (let i = 0; i < chunks.length; i += 250) await tx.documentChunk.createMany({ data: chunks.slice(i, i + 250) });
-      const terms = manifest.documents.flatMap(document => document.chunks.flatMap(chunk => chunk.terms.map(term => ({ ...term, chunkId: mapped(term.chunkId) }))));
-      for (let i = 0; i < terms.length; i += 500) await tx.documentTerm.createMany({ data: terms.slice(i, i + 500) });
+      for (const [index, document] of manifest.documents.entries()) {
+        const documentId = mapped(document.id);
+        const context = { filename: document.filename, collection: document.collection ?? null };
+        let chunks: Array<{ id: string; chunkKey: string; ordinal: number; pageNumber?: number | null; text: string; heading?: string | null; tokenCount: number; vector: { providerId: string; modelId: string; contextHash: string; bytes: Uint8Array } | null }>;
+        if (hasDocumentContent(document)) {
+          let content: Awaited<ReturnType<typeof unpackDocumentContent>>;
+          try { content = await unpackDocumentContent(await readBackupAsset(archive, document.content, documentOffsets[index])); }
+          catch { throw new ApiError({ code: "VALIDATION_ERROR", message: t("lib.backups.invalidArchive") }); }
+          const { content: _content, chunkCount: _count, ...fields } = document;
+          await tx.knowledgeDocument.create({ data: { ...fields, collection: context.collection, id: documentId, pages: content.pages } });
+          chunks = content.chunks.map(({ vector, ...chunk }) => ({ ...chunk, vector: vector ? { ...vector, bytes: content.vectors.subarray(vector.offset, vector.offset + vector.length) } : null }));
+        } else {
+          // An archive from before format 2: no vectors, and its keyword terms are rebuilt from the text.
+          const { chunks: archived, ...fields } = document;
+          await tx.knowledgeDocument.create({ data: { ...fields, collection: context.collection, id: documentId } });
+          chunks = archived.map(({ terms: _terms, documentId: _document, ...chunk }) => ({ ...chunk, id: mapped(chunk.id), vector: null }));
+        }
+        const rows = chunks.map(({ vector, ...chunk }) => {
+          // A vector comes back only when it still describes its chunk as written now.
+          const current = vector && decodeDocumentVector(vector.bytes) && vector.contextHash === hashDocumentContent(documentEmbeddingText(chunk, context));
+          return { ...chunk, documentId, ...(current ? { vector: Buffer.from(vector.bytes), embeddingModelProvider: vector.providerId, embeddingModelId: vector.modelId, embeddingContextHash: vector.contextHash } : {}) };
+        });
+        for (let i = 0; i < rows.length; i += 250) await tx.documentChunk.createMany({ data: rows.slice(i, i + 250) });
+        const search = chunks.map(chunk => ({ chunkId: chunk.id, terms: documentSearchText(documentTerms(documentEmbeddingText(chunk, context)).terms) }));
+        for (let i = 0; i < search.length; i += 500) await tx.documentChunkSearch.createMany({ data: search.slice(i, i + 500) });
+      }
       for (let i = 0; i < manifest.usage.length; i += 250) await tx.modelRequest.createMany({ data: manifest.usage.slice(i, i + 250).map(row => ({ ...row, ...(row.status === "pending" ? { status: "interrupted", errorCode: "PROCESS_INTERRUPTED", costUsd: null, costSource: "unknown" } : {}), id: mapped(row.id) })) });
       for (let i = 0; i < manifest.events.length; i += 250) await tx.workspaceEvent.createMany({ data: manifest.events.slice(i, i + 250).map(event => ({ ...event, entityId: mapped(event.entityId) })) });
       const coverage = manifest.activityCoverage ?? { recordingStartedAt: new Date().toISOString(), completeSince: new Date().toISOString() };
@@ -151,7 +187,7 @@ export async function restoreAccountBackup(id: string) {
       await tx.extension.updateMany({ data: { enabled: false, revision: { increment: 1 }, testedRevision: null, testId: null } });
       await tx.pluginPackage.updateMany({ data: { enabled: false, revision: { increment: 1 } } });
       return { pausedSchedules: pausedSchedules.count, revokedDirectoryGrants: revokedGrants.count };
-      });
+      }, { timeout: 30 * 60_000 });
       return { safety, paused };
     });
     const cleanup = await pruneAccountBackupsSafely(safety.id);

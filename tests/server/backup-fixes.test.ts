@@ -47,7 +47,7 @@ beforeEach(async (t: TestContext) => {
   await db.scheduledJob.deleteMany({});
   await db.knowledgeDocument.deleteMany({});
   await db.documentChunk.deleteMany({});
-  await db.documentTerm.deleteMany({});
+  await db.documentChunkSearch.deleteMany({});
   await db.mediaAsset.deleteMany({});
   await db.messageMedia.deleteMany({});
   await db.mediaGenerationInput.deleteMany({});

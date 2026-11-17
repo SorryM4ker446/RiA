@@ -27,7 +27,7 @@ async function upload(page: Page, filename: string, text: string, collection: st
   await expectImportClosed(page);
   return (await result.json()).data.document;
 }
-const embedded = (app: { readRows: (sql: string, ...args: unknown[]) => unknown[] }, documentId: string) => (app.readRows("SELECT count(*) AS count FROM document_chunks WHERE documentId=? AND embedding IS NOT NULL", documentId)[0] as { count: number }).count;
+const embedded = (app: { readRows: (sql: string, ...args: unknown[]) => unknown[] }, documentId: string) => (app.readRows("SELECT count(*) AS count FROM document_chunks WHERE documentId=? AND vector IS NOT NULL", documentId)[0] as { count: number }).count;
 // Building by hand lives in the library's search settings, for what is still pending.
 async function build(page: Page) {
   const response = page.waitForResponse(response => response.url().endsWith("/embeddings"));
@@ -50,7 +50,7 @@ test("semantic indexing delivers evidence to chat, marks actual citations and su
   await expect.poll(() => embedded(app, finance.id)).toBe(finance._count.chunks);
   expect(app.readRows("SELECT id FROM model_requests WHERE mode='embedding'").length).toBeGreaterThan(0);
   const progress = { total: finance._count.chunks };
-  expect(app.readRows("SELECT embeddingModelId,embeddingContextHash FROM document_chunks WHERE documentId=? AND embedding IS NOT NULL", finance.id)).toHaveLength(progress.total);
+  expect(app.readRows("SELECT embeddingModelId,embeddingContextHash FROM document_chunks WHERE documentId=? AND vector IS NOT NULL", finance.id)).toHaveLength(progress.total);
   await page.reload();
   const charged = app.readRows("SELECT id FROM model_requests WHERE mode='embedding'").length;
   // The row says it in plain words; with nothing pending there is nothing to build by hand.

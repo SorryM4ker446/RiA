@@ -94,11 +94,14 @@ try {
       pages: [{ pageNumber: null, text: "Local document" }],
       characterCount: 14,
       indexVersion: 1,
-      chunks: { create: { chunkKey: marker, ordinal: 0, text: "Local document", terms: { create: [{ term: "local" }, { term: "document" }] } } },
+      // The keyword index stores each term as hexadecimal UTF-8 (src/lib/documents/lexical.ts).
+      chunks: { create: { chunkKey: marker, ordinal: 0, text: "Local document", search: { create: { terms: ["local", "document"].map(term => Buffer.from(term).toString("hex")).join(" ") } } } },
     },
-    include: { chunks: { include: { terms: true } } },
+    include: { chunks: { include: { search: true } } },
   });
-  if (document.chunks.length !== 1 || document.chunks[0].terms.length !== 2) throw new Error("Document index relations were not persisted.");
+  if (document.chunks.length !== 1 || !document.chunks[0].search) throw new Error("Document index relations were not persisted.");
+  const [matched] = await db.$queryRaw`SELECT count(*) AS count FROM document_chunk_search_index WHERE document_chunk_search_index MATCH ${`"${Buffer.from("local").toString("hex")}"`}`;
+  if (Number(matched.count) !== 1) throw new Error("Document keyword index was not persisted.");
 
   const [indexed] = await db.$queryRaw`SELECT count(*) AS count FROM message_text_search WHERE message_text_search MATCH '"Local database verification"' AND id=${chat.messages[0].id}`;
   if (Number(indexed.count) !== 1) throw new Error("Conversation search index was not persisted.");
@@ -138,7 +141,7 @@ try {
     tasks: await db.scheduledJob.count({ where: { id: task.id } }),
     documents: await db.knowledgeDocument.count({ where: { id: document.id } }),
     chunks: await db.documentChunk.count({ where: { documentId: document.id } }),
-    terms: await db.documentTerm.count({ where: { chunkId: document.chunks[0].id } }),
+    terms: await db.documentChunkSearch.count({ where: { chunkId: document.chunks[0].id } }),
     assets: await db.mediaAsset.count({ where: { id: { in: [asset.id, generated.id] } } }),
     references: await db.messageMedia.count({ where: { assetId: asset.id } }),
     generationInputs: await db.mediaGenerationInput.count({ where: { assetId: generated.id } }),

@@ -104,10 +104,10 @@ test("fenced heading examples cannot change the section attributed to later evid
   // Reproduce an already saved index from before the heading correction.
   await db.documentChunk.update({ where: { id: table.id }, data: { heading: "示例中的其他章节" } });
   await indexDocumentEmbeddings(saved.id, saved.contentHash, modelRef);
-  assert.ok((await db.documentChunk.findUnique({ where: { id: table.id } })).embedding);
+  assert.ok((await db.documentChunk.findUnique({ where: { id: table.id } })).vector);
   await reindexDocument(saved.id);
   const repaired = await db.documentChunk.findUnique({ where: { id: table.id } });
-  assert.equal(repaired.heading, "真实费用章节"); assert.equal(repaired.embedding, null);
+  assert.equal(repaired.heading, "真实费用章节"); assert.equal(repaired.vector, null);
   assert.equal((await db.knowledgeDocument.findUnique({ where: { id: saved.id } })).contentHash, saved.contentHash);
 });
 
@@ -159,7 +159,8 @@ test("index summaries derive fresh, stale, malformed and different-model vectors
   await indexDocumentEmbeddings(doc.id, doc.contentHash, modelRef);
   const rows = await db.documentChunk.findMany({ where: { documentId: doc.id }, orderBy: { ordinal: "asc" } });
   await db.documentChunk.update({ where: { id: rows[0].id }, data: { embeddingContextHash: "stale" } });
-  await db.documentChunk.update({ where: { id: rows[1].id }, data: { embedding: [0, 0, 0] } });
+  // An all-zero vector: stored, but no direction to compare.
+  await db.documentChunk.update({ where: { id: rows[1].id }, data: { vector: new Uint8Array(12) } });
   await db.documentChunk.update({ where: { id: rows[2].id }, data: { embeddingModelId: "old/model" } });
   const stats = await semanticCoverage([doc.id]); assert.equal(stats.counts.get(doc.id), 1);
   assert.deepEqual(stats.details.get(doc.id), { stale: 1, invalid: 1, differentModel: 1 });

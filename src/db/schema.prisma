@@ -328,6 +328,8 @@ model KnowledgeDocument {
   characterCount Int
   indexVersion   Int
   indexedAt      DateTime @default(now())
+  /// Bumped by triggers whenever the chunks or their vectors change; the search index reloads by it.
+  vectorRevision Int      @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   chunks         DocumentChunk[]
@@ -347,12 +349,15 @@ model DocumentChunk {
   text       String
   heading    String?
   tokenCount Int @default(0)
+  /// Vectors written before they were stored as binary; emptied by the migration and kept so older builds still read the table.
   embedding  Json?
+  /// The vector as normalised little-endian Float32. Cleared by triggers when the text, section, file name or collection changes.
+  vector     Bytes?
   embeddingModelId String?
   embeddingModelProvider String?
   embeddingContextHash String?
   document   KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  terms      DocumentTerm[]
+  search     DocumentChunkSearch?
 
   @@unique([documentId, chunkKey])
   @@index([documentId, ordinal])
@@ -360,15 +365,17 @@ model DocumentChunk {
   @@map("document_chunks")
 }
 
-model DocumentTerm {
-  chunkId String
-  term    String
-  frequency Int @default(1)
+/// A chunk's keyword terms for the full-text index `document_chunk_search_index`
+/// (an FTS5 table kept in step by triggers, created in its migration). Each term
+/// is its UTF-8 bytes in hexadecimal, repeated by its frequency, so the index's
+/// tokenizer never splits a term and BM25 sees the chunk's term frequencies.
+model DocumentChunkSearch {
+  id      Int           @id @default(autoincrement())
+  chunkId String        @unique
+  terms   String
   chunk   DocumentChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
 
-  @@id([chunkId, term])
-  @@index([term, chunkId])
-  @@map("document_terms")
+  @@map("document_chunk_search")
 }
 
 // A directory the user explicitly opened to the assistant. This is a permission

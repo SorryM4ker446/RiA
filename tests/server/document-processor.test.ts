@@ -99,7 +99,7 @@ test("authentication, Origin, payload limits and unsupported fields protect proc
 });
 
 test("empty, invalid Unicode and excessive document structures cannot produce corrupt files", async () => {
-  for (const content of [" ", "x\u0000", "\ud800", "x".repeat(100_001)]) await assert.rejects(() => output("docx", content));
+  for (const content of [" ", "x\u0000", "\ud800", "x".repeat(DOCUMENT_LIMITS.characters + 1)]) await assert.rejects(() => output("docx", content));
   await assert.rejects(() => output("docx", "*a* ".repeat(10_000)), /结构过于复杂/);
   const controller = new AbortController(); controller.abort();
   await assert.rejects(() => exportDocument({ filename: "x", content: "Cancelled", syntax: "plain", format: "docx" }, controller.signal));

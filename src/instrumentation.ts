@@ -21,6 +21,11 @@ export async function register() {
     if (process.env.APP_RUNTIME === "desktop") {
       const { startScheduler } = await import("@/lib/scheduler/runner");
       startScheduler().start();
+      // The knowledge base's vectors are loaded in the background shortly after start, so the
+      // first search does not wait for them. Delayed so the window and the first page come first.
+      const { warmDocumentSearch } = await import("@/lib/documents/semantic");
+      const warm = setTimeout(() => { void warmDocumentSearch().catch(() => console.error("documents.index.warm.failed")); }, 5_000);
+      warm.unref();
     }
   }
 }

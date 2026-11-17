@@ -3,16 +3,24 @@ import { DOCUMENT_UPLOAD_LIMITS } from "./limits-constants";
 
 export const DOCUMENT_LIMITS = {
   ...DOCUMENT_UPLOAD_LIMITS,
-  // What a document holds once extracted stays bounded: every chunk is a vector
-  // that each search by meaning reads, so these grow with a vector index, not
-  // with the file size.
-  characters: 100_000,
+  /*
+   * What one document may hold once extracted, set from measurements rather than
+   * guessed (tests/benchmarks/knowledge-benchmark.ts). Its chunks are written in one
+   * transaction, which holds SQLite's only writer: 10,000 chunks take about three
+   * seconds, so these keep one import short enough not to stall the rest of the app.
+   */
+  characters: 4_000_000,
   // Pages cost nothing at search time; a long, mostly visual PDF fits as long as its text does.
   pages: 1000,
-  chunks: 256,
+  chunks: 10_000,
+  /**
+   * Chunks in the whole library. Every one with a vector is held in memory as int8
+   * for search by meaning: 100,000 of 1,024 dimensions take about 100 MB.
+   */
+  libraryChunks: 100_000,
   /** Decompressed data a Word archive may hold: images and styles included, so well above its text. */
   expandedBytes: 64 * 1024 * 1024,
-  documentsPerUser: 100,
+  documentsPerUser: 2_000,
   // PDF.js can take several seconds to cold-start on a constrained CI or
   // Windows machine before it begins reading a document, and a large one takes longer.
   parseTimeoutMs: 90_000,

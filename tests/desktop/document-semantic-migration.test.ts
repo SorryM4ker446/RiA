@@ -39,9 +39,10 @@ test("semantic document migration preserves old evidence and terms with a pre-up
     try {
       const chunk = reopened.prepare("SELECT * FROM document_chunks WHERE id='chunk'").get();
       assert.equal(chunk.text, "hello"); assert.equal(chunk.heading, null); assert.equal(chunk.tokenCount, 0); assert.equal(chunk.embedding, null);
-      assert.equal(reopened.prepare("SELECT frequency FROM document_terms WHERE chunkId='chunk'").get().frequency, 1);
+      // The terms moved into the full-text index, hexadecimal and repeated by frequency.
+      assert.equal(reopened.prepare("SELECT terms FROM document_chunk_search WHERE chunkId='chunk'").get().terms, Buffer.from("hello").toString("hex"));
       reopened.exec("PRAGMA foreign_keys=ON; DELETE FROM knowledge_documents WHERE id='doc'");
-      for (const table of ["document_chunks", "document_terms"]) assert.equal(reopened.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count, 0);
+      for (const table of ["document_chunks", "document_chunk_search"]) assert.equal(reopened.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count, 0);
     } finally { reopened.close(); }
   } finally {
     if (resolve(dirname(root)) !== resolve(tmpdir()) || !root.startsWith(join(tmpdir(), "ria-semantic-upgrade-"))) throw new Error("Unexpected test directory");

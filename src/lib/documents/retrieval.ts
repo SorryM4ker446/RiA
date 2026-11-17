@@ -1,10 +1,12 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/db";
 import { tokenizeQuery } from "@/lib/knowledge/entry-retrieval";
-import { cosineSimilarity, embedTextWithModel } from "@/lib/ai/embedding";
-import { documentEmbeddingText } from "@/lib/documents/lexical";
+import { embedTextWithModel } from "@/lib/ai/embedding";
+import { documentEmbeddingText, searchToken } from "@/lib/documents/lexical";
 import { hashDocumentContent } from "@/lib/documents/chunks";
-import { selectedDocumentEmbeddingModel, validDocumentVector } from "@/lib/documents/semantic";
+import { selectedDocumentEmbeddingModel } from "@/lib/documents/semantic";
+import { normalizeVector } from "@/lib/documents/vectors";
+import { searchDocumentVectors } from "@/lib/documents/vector-index";
 import { documentSourceUrl, type DocumentSource } from "@/lib/documents/types";
 import { defaultRetrievalPolicy, retrievalPolicySchema, type RetrievalPolicy } from "@/lib/assistants/schema";
 import type { DocumentDiagnostics } from "./diagnostics";
@@ -26,8 +28,9 @@ function scaled(list: Array<{ id: string; score: number }>) {
 }
 const documentFields = { filename: true, contentHash: true, collection: true } as const;
 
-/** Chat, tools and preview share scoped hybrid retrieval. Exact vector ranking
- * scans the whole scoped corpus in bounded batches without a recency cutoff. */
+/** Chat, tools and preview share scoped hybrid retrieval. The ranking by meaning
+ * covers the whole scoped corpus without a recency cutoff, and is exact: an
+ * int8 copy in memory only picks which stored vectors are scored. */
 export async function searchDocuments(query: string, limit = 6, collections: string[] = [], signal?: AbortSignal, policy?: RetrievalPolicy): Promise<(DocumentSource & { score: number })[]> {
   return (await retrieveDocuments(query, limit, collections, signal, policy)).sources;
 }
@@ -60,60 +63,47 @@ export async function retrieveDocuments(query: string, limit = 8, collections: s
   const scope = collections.map(value => value.trim()).filter(Boolean);
   const where = { document: scope.length ? { collection: { in: scope } } : {} };
   const scopeSql = scope.length ? Prisma.sql`AND d.collection IN (${Prisma.join(scope)})` : Prisma.empty;
-  const stats = await db.documentChunk.aggregate({ where, _count: { _all: true }, _avg: { tokenCount: true } });
-  diagnostics.corpusChunks = stats._count._all;
-  diagnostics.outcome = stats._count._all ? "no-hits" : "empty-library";
-  if (!stats._count._all) return finish([]);
-  const frequencies = await db.documentTerm.groupBy({ by: ["term"], where: { term: { in: tokens }, chunk: where }, _count: { _all: true } });
-  const idf = new Map(frequencies.map(row => [row.term, Math.log(1 + (stats._count._all - row._count._all + 0.5) / (row._count._all + 0.5))]));
-  const weights = frequencies.length ? Prisma.sql`CASE t.term ${Prisma.join(frequencies.map(row => Prisma.sql`WHEN ${row.term} THEN ${idf.get(row.term)!}`), " ")} ELSE 0 END` : Prisma.sql`0`;
-  // BM25 (k1 1.2, b 0.75) is scored in full where the candidates are chosen. Choosing them
-  // by word rarity alone and scoring afterwards could leave the best passages of a large
-  // library outside the candidates whenever many passages share the rare words.
-  const averageLength = stats._avg.tokenCount || 100;
-  const length = Prisma.sql`(CASE WHEN c.tokenCount > 0 THEN c.tokenCount ELSE ${averageLength} END)`;
-  const lexical = frequencies.length ? (await db.$queryRaw<Array<{ id: string; score: number }>>(Prisma.sql`
-    SELECT c.id AS id, SUM(${weights} * t.frequency * 2.2 / (t.frequency + 1.2 * (0.25 + 0.75 * ${length} / ${averageLength}))) AS score
-    FROM document_terms t JOIN document_chunks c ON c.id=t.chunkId
-    JOIN knowledge_documents d ON d.id=c.documentId WHERE t.term IN (${Prisma.join(tokens)}) ${scopeSql}
-    GROUP BY c.id ORDER BY score DESC,c.ordinal ASC,c.id ASC LIMIT 200`))
-    .map(row => ({ id: row.id, score: Number(row.score) })).filter(row => row.score > 0) : [];
+  const corpus = await db.documentChunk.count({ where });
+  diagnostics.corpusChunks = corpus;
+  diagnostics.outcome = corpus ? "no-hits" : "empty-library";
+  if (!corpus) return finish([]);
+  // BM25 (k1 1.2, b 0.75) from SQLite's full-text index, scored in full over every
+  // passage that shares a term before the 200 candidates are taken, so the best
+  // passages of a large library are never left outside them. The terms are the same
+  // ones as before, stored whole (see searchToken), so the term frequencies and passage
+  // lengths are too; corpus rarity is counted over the whole library.
+  const match = tokens.map(token => `"${searchToken(token)}"`).join(" OR ");
+  const lexical = (await db.$queryRaw<Array<{ id: string; score: number }>>(Prisma.sql`
+    SELECT s."chunkId" AS id, -bm25("document_chunk_search_index") AS score
+    FROM "document_chunk_search_index" f
+    JOIN "document_chunk_search" s ON s.id = f.rowid
+    JOIN "document_chunks" c ON c.id = s."chunkId"
+    JOIN "knowledge_documents" d ON d.id = c."documentId"
+    WHERE "document_chunk_search_index" MATCH ${match} ${scopeSql}
+    ORDER BY score DESC, c.ordinal ASC, c.id ASC LIMIT 200`))
+    .map(row => ({ id: row.id, score: Number(row.score) })).filter(row => row.score > 0);
 
   let semantic: Array<{ id: string; score: number }> = [];
-  let queryVector: number[] | null = null;
   const modelRef = await selectedDocumentEmbeddingModel();
-  const vectorWhere = modelRef ? { ...where, embeddingModelProvider: modelRef.providerId, embeddingModelId: modelRef.modelId, embedding: { not: Prisma.AnyNull } } : null;
   diagnostics.lexicalCandidates = lexical.length;
   diagnostics.semantic = modelRef ? "unindexed" : "not-configured";
-  diagnostics.compatibleVectors = vectorWhere ? await db.documentChunk.count({ where: vectorWhere }) : 0;
-  if (vectorWhere && diagnostics.compatibleVectors) {
+  diagnostics.compatibleVectors = modelRef ? await db.documentChunk.count({ where: { ...where, vector: { not: null }, embeddingModelProvider: modelRef.providerId, embeddingModelId: modelRef.modelId } }) : 0;
+  if (modelRef && diagnostics.compatibleVectors) {
     diagnostics.semantic = "failed";
     const timeout = AbortSignal.timeout(12_000);
     const result = embedQuery ? await embedQuery() : await embedTextWithModel(documentEmbeddingQuery(query), signal ? AbortSignal.any([signal, timeout]) : timeout);
     signal?.throwIfAborted();
-    const vector = validDocumentVector(result.embedding);
-    if (vector && result.modelRef?.providerId === modelRef!.providerId && result.modelRef.modelId === modelRef!.modelId) {
+    const vector = normalizeVector(result.embedding);
+    if (vector && result.modelRef?.providerId === modelRef.providerId && result.modelRef.modelId === modelRef.modelId) {
       diagnostics.semantic = "ready";
-      queryVector = vector;
-      let after: string | undefined;
-      while (true) {
-        signal?.throwIfAborted();
-        const batch = await db.documentChunk.findMany({ where: { ...vectorWhere, ...(after ? { id: { gt: after } } : {}) },
-          orderBy: { id: "asc" }, take: 64, include: { document: { select: documentFields } } });
-        for (const chunk of batch) {
-          diagnostics.scannedVectors++;
-          if (chunk.embeddingContextHash !== hashDocumentContent(documentEmbeddingText(chunk, chunk.document))) { diagnostics.staleVectors++; continue; }
-          const storedVector = validDocumentVector(chunk.embedding);
-          if (!storedVector || storedVector.length !== vector.length) { diagnostics.invalidVectors++; continue; }
-          // No fixed similarity threshold: every model has its own scale, and even within one the
-          // scores of right and wrong passages overlap. The closest passages are ranked and fused.
-          const score = cosineSimilarity(vector, storedVector);
-          if (Number.isFinite(score) && score > 0) semantic.push({ id: chunk.id, score });
-        }
-        semantic = semantic.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id)).slice(0, 64);
-        if (batch.length < 64) break;
-        after = batch.at(-1)!.id;
-      }
+      // No fixed similarity threshold: every model has its own scale, and even within one the
+      // scores of right and wrong passages overlap. The closest passages are ranked and fused.
+      const found = await searchDocumentVectors({ model: modelRef, query: vector, collections: scope, signal });
+      semantic = found.results;
+      diagnostics.compatibleVectors = found.compatible;
+      diagnostics.scannedVectors = found.scanned;
+      diagnostics.staleVectors = found.stale;
+      diagnostics.invalidVectors = found.invalid;
     }
   }
   diagnostics.semanticCandidates = semantic.length;
@@ -128,15 +118,14 @@ export async function retrieveDocuments(query: string, limit = 8, collections: s
   if (!fused.size) return finish([]);
   // Re-read current rows and scope after provider work, rather than returning
   // old text or moving evidence into another collection during an update.
-  const rows = await db.documentChunk.findMany({ where: { ...where, id: { in: [...fused.keys()] } }, include: { document: { select: documentFields } } });
+  const rows = await db.documentChunk.findMany({ where: { ...where, id: { in: [...fused.keys()] } }, omit: { vector: true, embedding: true }, include: { document: { select: documentFields } } });
   const hits = rows.flatMap(chunk => {
     const hit = { ...fused.get(chunk.id)! };
     const currentText = documentEmbeddingText(chunk, chunk.document);
     if (!tokens.some(token => currentText.normalize("NFKC").toLowerCase().includes(token))) hit.lexical = 0;
+    // A vector cleared or rebuilt for another model since it was scored no longer counts.
     const sameSpace = chunk.embeddingModelId === modelRef?.modelId && chunk.embeddingModelProvider === modelRef?.providerId;
-    const currentSimilarity = sameSpace && chunk.embeddingContextHash === hashDocumentContent(currentText)
-      ? cosineSimilarity(queryVector, validDocumentVector(chunk.embedding)) : 0;
-    if (!(currentSimilarity > 0)) hit.semantic = 0;
+    if (!sameSpace || chunk.embeddingContextHash !== hashDocumentContent(currentText)) hit.semantic = 0;
     if (!hit.lexical && !hit.semantic) return [];
     hit.fusion = fusion(hit);
     if (/^(?:#{1,6}\s+[^\n]+\s*)+$/u.test(chunk.text)) return [];
@@ -166,7 +155,7 @@ export async function retrieveDocuments(query: string, limit = 8, collections: s
   if (sources.length < count && anchors.length) {
     const neighbors = await db.documentChunk.findMany({ where: { ...where, OR: anchors.map(({ chunk }) => ({ documentId: chunk.documentId,
       heading: chunk.heading, ordinal: { gte: Math.max(0, chunk.ordinal - 1), lte: chunk.ordinal + 1 } })) },
-      orderBy: [{ documentId: "asc" }, { ordinal: "asc" }], include: { document: { select: documentFields } } });
+      orderBy: [{ documentId: "asc" }, { ordinal: "asc" }], omit: { vector: true, embedding: true }, include: { document: { select: documentFields } } });
     for (const chunk of neighbors) {
       if (sources.length === count) break;
       if (sources.some(source => source.chunkId === chunk.id)) continue;

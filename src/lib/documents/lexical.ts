@@ -13,6 +13,18 @@ export function documentTerms(text: string) {
   return { tokenCount, terms: [...frequencies].map(([term, frequency]) => ({ term, frequency })) };
 }
 
+/**
+ * A term as the full-text index stores and matches it: its UTF-8 bytes in
+ * hexadecimal. The index's ASCII tokenizer keeps that whole, so a term with an
+ * underscore, apostrophe or dot is never split, and nothing is case-folded twice.
+ */
+export const searchToken = (term: string) => Buffer.from(term, "utf8").toString("hex");
+
+/** A chunk's row in the full-text index: each term repeated by its frequency, so BM25 sees the same counts. */
+export function documentSearchText(terms: Array<{ term: string; frequency: number }>) {
+  return terms.flatMap(({ term, frequency }) => Array.from({ length: Math.max(1, frequency) }, () => searchToken(term))).join(" ");
+}
+
 export function documentEmbeddingText(chunk: { text: string; heading?: string | null }, document: { filename: string; collection?: string | null }) {
   return [document.filename, document.collection, chunk.heading, chunk.text].filter(Boolean).join("\n");
 }

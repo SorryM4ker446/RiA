@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { DesktopLogger } from "./logger";
+import { migrationDataSteps } from "./migration-steps";
 
 type MigrationRecord = { name: string };
 
@@ -58,6 +59,8 @@ function applyMigrationSql(database: DatabaseSync, sql: string, migrationName: s
   try {
     const before = totalChanges();
     database.exec(sql);
+    // Data SQL cannot convert, in the same transaction as the migration's SQL.
+    migrationDataSteps[migrationName]?.(database);
     rowsChanged = totalChanges() - before;
     // The ledger row is part of the same transaction, so a failure can never
     // mark an incomplete migration as applied.

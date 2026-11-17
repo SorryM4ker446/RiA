@@ -1,4 +1,5 @@
 "use client";
+import { DOCUMENT_LIMITS } from "@/lib/documents/types";
 import { useLocale } from "@/lib/locale/client";
 
 import { t, localizeMessage } from "@/lib/locale";
@@ -129,7 +130,7 @@ export function DocumentViewer({ id, version }: { id: string; version?: string }
         <TabsList><TabsTrigger value="edit" disabled={!!busy}>{t("ui.knowledge.document-viewer.editContent")}</TabsTrigger><TabsTrigger value="preview" disabled={!ready}>{t("ui.knowledge.document-viewer.layoutPreview")}</TabsTrigger></TabsList>
         <TabsContent value="edit" className="pt-3"><Field>
           <FieldLabel htmlFor="document-copy-content" className="sr-only">{t("ui.knowledge.document-viewer.documentContent")}</FieldLabel>
-          <Textarea id="document-copy-content" value={draft.content} disabled={!!busy} maxLength={100_000} rows={16} className="chat-list-scroll min-h-64 resize-y font-mono leading-7 sm:min-h-96" onChange={event => updateDraft({ content: event.target.value })} />
+          <Textarea id="document-copy-content" value={draft.content} disabled={!!busy} maxLength={DOCUMENT_LIMITS.characters} rows={16} className="chat-list-scroll min-h-64 resize-y font-mono leading-7 sm:min-h-96" onChange={event => updateDraft({ content: event.target.value })} />
           <FieldDescription>{t("ui.knowledge.document-viewer.thisCopyIsForPreviewAnd")}</FieldDescription>
         </Field></TabsContent>
         <TabsContent value="preview" className="pt-3">{html ? <iframe title={t("ui.knowledge.document-viewer.documentLayoutPreview")} sandbox="" srcDoc={html} className="h-[28rem] w-full rounded-lg bg-background" /> : <div role="status" className="flex min-h-64 items-center justify-center gap-2 text-sm text-muted-foreground">{busy ? <><Spinner className="size-4" />{t("ui.knowledge.document-viewer.generatingPreview")}</> : <Button variant="outline" size="sm" onClick={() => changeView("preview")}>{t("ui.knowledge.document-viewer.regeneratePreview")}</Button>}</div>}</TabsContent>
@@ -142,7 +143,7 @@ export function DocumentViewer({ id, version }: { id: string; version?: string }
         </FieldGroup>
         <p className="mt-3 text-xs text-muted-foreground">{t("ui.knowledge.document-viewer.conversionUsesExtractedTextStructureOriginal")}</p>
       </details>
-    </section> : document?.chunks.map(chunk => <section className="scroll-mt-6 rounded-lg bg-card p-4 shadow-hairline target:ring-2 target:ring-ring/70" id={chunk.id} key={chunk.id}>
+    </section> : document?.chunks.map(chunk => <section className="scroll-mt-6 rounded-lg bg-card p-4 shadow-hairline target:ring-2 target:ring-ring/70 [contain-intrinsic-size:auto_9rem] [content-visibility:auto]" id={chunk.id} key={chunk.id}>
       <h2 className="label-mono mb-2">{t("documents.chunkLabel")} {chunk.ordinal + 1}{chunk.pageNumber ? ` · ${t("documents.pageLabel")} ${chunk.pageNumber} ${t("documents.pageUnit")}` : ""}</h2>
       <p className="whitespace-pre-wrap break-words text-sm leading-6">{chunk.text}</p>
     </section>)}

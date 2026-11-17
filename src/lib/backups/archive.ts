@@ -1,5 +1,5 @@
 import { randomUUID, createHash } from "node:crypto";
-import { open, rename } from "node:fs/promises";
+import { open, rename, rm } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import { db } from "@/db";
 import { Prisma } from "@prisma/client";
@@ -9,7 +9,9 @@ import { getModelPreferences } from "@/lib/models/preferences";
 import { upgradeModelPreferences } from "@/lib/models/preferences-schema";
 import { openMediaAsset } from "@/lib/media/storage";
 import { decodeMediaMessage } from "@/lib/media/message-codec";
-import { BACKUP_FORMAT, BACKUP_LIMITS, backupManifestSchema, type BackupManifest } from "@/lib/backups/schema";
+import { BACKUP_FORMAT, BACKUP_LIMITS, backupManifestSchema, hasDocumentContent, type BackupManifest } from "@/lib/backups/schema";
+import { contentDigest, packDocumentContent } from "@/lib/backups/documents";
+import { DOCUMENT_LIMITS } from "@/lib/documents/types";
 import { isFinishedResult } from "@/lib/backups/legacy-topics";
 import { backupFile, isArchiveExtension, listBackupFiles, openBackup, removeBackupFile } from "@/lib/backups/files";
 
@@ -37,14 +39,25 @@ export async function readBackupManifest(handle: FileHandle) {
     manifest = backupManifestSchema.parse(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(json)));
   }
   catch { throw invalid(); }
-  const end = 44 + length + manifest.assets.reduce((sum, asset) => sum + asset.byteSize, 0);
+  const end = 44 + length + manifest.assets.reduce((sum, asset) => sum + asset.byteSize, 0)
+    + manifest.documents.reduce((sum, document) => sum + (hasDocumentContent(document) ? document.content.byteSize : 0), 0);
   if (end > BACKUP_LIMITS.bytes || (await handle.stat()).size !== end) throw invalid();
   return { manifest, offset: 44 + length };
 }
-export async function readBackupAsset(handle: FileHandle, asset: BackupManifest["assets"][number], offset: number) {
+export async function readBackupAsset(handle: FileHandle, asset: { byteSize: number; sha256: string }, offset: number) {
   const bytes = await readExact(handle, asset.byteSize, offset);
   if (createHash("sha256").update(bytes).digest("hex") !== asset.sha256) throw invalid();
   return bytes;
+}
+/** Checks a block's SHA-256 without holding it in memory, to refuse a damaged archive before anything is replaced. */
+export async function verifyBackupBlock(handle: FileHandle, block: { byteSize: number; sha256: string }, offset: number) {
+  const buffer = Buffer.alloc(1024 * 1024), hash = createHash("sha256");
+  for (let done = 0; done < block.byteSize;) {
+    const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, block.byteSize - done), offset + done);
+    if (!bytesRead) throw invalid();
+    hash.update(buffer.subarray(0, bytesRead)); done += bytesRead;
+  }
+  if (hash.digest("hex") !== block.sha256) throw invalid();
 }
 async function copyAndHash(source: FileHandle, target?: FileHandle) {
   const buffer = Buffer.alloc(256 * 1024);
@@ -61,24 +74,23 @@ function portableContent(content: string) {
 
 export async function createAccountBackup(prune = true) {
   const counts = await Promise.all([db.chat.count(), db.message.count(), db.memory.count(), db.mediaAsset.count(), db.assistantTemplate.count()]);
-  const [documentsCount, termsCount, eventCount, reviewCount] = await Promise.all([db.knowledgeDocument.count(), db.documentTerm.count(), db.workspaceEvent.count(), db.workspaceReview.count()]);
+  const [documentsCount, eventCount, reviewCount] = await Promise.all([db.knowledgeDocument.count(), db.workspaceEvent.count(), db.workspaceReview.count()]);
   const [volume] = await db.$queryRaw<{ bytes: number | bigint }[]>(Prisma.sql`SELECT
     (SELECT coalesce(sum(length(CAST(content AS BLOB))),0) FROM messages) +
     (SELECT coalesce(sum(length(CAST(title AS BLOB))+coalesce(length(CAST(assistantConfig AS BLOB)),0)),0) FROM chats) +
     (SELECT coalesce(sum(length(CAST(config AS BLOB))),0) FROM assistant_templates) +
     (SELECT coalesce(sum(length(CAST(key AS BLOB))+length(CAST(value AS BLOB))+coalesce(length(CAST(embedding AS BLOB)),0)),0) FROM memories) +
-    (SELECT coalesce(sum(length(CAST(pages AS BLOB))),0) FROM knowledge_documents) +
-    (SELECT coalesce(sum(length(CAST(text AS BLOB))),0) FROM document_chunks) +
     (SELECT coalesce(sum(coalesce(length(CAST(description AS BLOB)),0)+coalesce(length(CAST(generation AS BLOB)),0)),0) FROM media_assets) +
     (SELECT coalesce(sum(length(CAST(label AS BLOB))),0) FROM workspace_events) +
     (SELECT coalesce(sum(length(CAST(facts AS BLOB))+coalesce(length(CAST(modelText AS BLOB)),0)),0) FROM workspace_reviews) AS bytes`);
-  if (counts.some(count => count > BACKUP_LIMITS.rows) || counts[4] > 50 || documentsCount > 100 || termsCount > 100_000 || eventCount > 10_000 || reviewCount > 1000 || Number(volume.bytes) > BACKUP_LIMITS.manifest) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.backups.workspaceTooLarge") });
+  if (counts.some(count => count > BACKUP_LIMITS.rows) || counts[4] > 50 || documentsCount > DOCUMENT_LIMITS.documentsPerUser || eventCount > 10_000 || reviewCount > 1000 || Number(volume.bytes) > BACKUP_LIMITS.manifest) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.backups.workspaceTooLarge") });
   const memoryDocument = await db.memoryDocument.findUnique({ where: { id: "local" } });
   const [chats, memories, documents, assets, preferences, usage, events, activityState, reviews, assistantTemplates] = await Promise.all([
     db.chat.findMany({ include: { tags: true, messages: true } }),
     db.memory.findMany(),
-    db.knowledgeDocument.findMany({ include: { chunks: { select: { id: true, documentId: true, chunkKey: true, ordinal: true,
-      pageNumber: true, text: true, heading: true, tokenCount: true, terms: true } } } }),
+    // Described here; pages, chunks and vectors go into a block per document below. The vector
+    // revision only tells the search index what to reload and is not workspace content.
+    db.knowledgeDocument.findMany({ omit: { vectorRevision: true, pages: true }, include: { _count: { select: { chunks: true } } }, orderBy: { id: "asc" } }),
     db.mediaAsset.findMany({ where: { deletedAt: null }, include: { references: true, inputs: true } }),
     getModelPreferences(), db.modelRequest.findMany({ orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 5000 }),
     db.workspaceEvent.findMany({ orderBy: [{ occurredAt: "asc" }, { id: "asc" }] }),
@@ -97,28 +109,52 @@ export async function createAccountBackup(prune = true) {
     } finally { await file.close(); }
   }
   const activityCoverage = activityState ? { recordingStartedAt: activityState.recordingStartedAt, completeSince: activityState.completeSince } : null;
-  // Semantic vectors are regenerable and can dwarf the portable text archive.
-  // Restore retains lexical retrieval and asks for explicit semantic rebuilding.
-  const manifest = backupManifestSchema.parse(JSON.parse(JSON.stringify({ format: BACKUP_FORMAT, version: 1, createdAt: new Date().toISOString(), chats: chats.map(({ workspaceGrantId: _workspace, ...chat }) => ({ ...chat, messages: chat.messages.map(message => ({ ...message, content: portableContent(message.content) })) })), memories, tasks: [], documents, assets: media, preferences, usage, events, activityCoverage, reviews, assistantTemplates, memoryDocument })));
-  // The schema fills in the fields only older archives hold; a new archive leaves them out.
-  const { topics: _topics, artifacts: _results, ...written } = manifest;
-  const json = Buffer.from(JSON.stringify(written));
-  if (json.length > BACKUP_LIMITS.manifest || 44 + json.length + assets.reduce((sum, asset) => sum + asset.byteSize, 0) > BACKUP_LIMITS.bytes) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.backups.contentTooLarge") });
   const id = randomUUID(), temporary = await backupFile(id, "partial");
-  const target = await open(temporary, "wx", 0o600);
+  // Each document's block is packed once, kept on disk beside the archive until the archive is
+  // assembled, and removed whatever happens: the manifest needs every block's size and hash first.
+  const blocks: Array<{ path: string; byteSize: number; sha256: string }> = [];
+  let createdAt = "", bytes = 0;
   try {
-    const header = Buffer.alloc(44); MAGIC.copy(header); header.writeUInt32BE(json.length, 8); createHash("sha256").update(json).digest().copy(header, 12);
-    await target.writeFile(header); await target.writeFile(json);
-    for (let i = 0; i < assets.length; i++) {
-      const source = await openMediaAsset(assets[i]);
-      try { if (await copyAndHash(source, target) !== manifest.assets[i].sha256) throw invalid(); }
-      finally { await source.close(); }
+    for (const document of documents) {
+      const bytes = await packDocumentContent(document.id);
+      const path = `${temporary}.document-${blocks.length}`;
+      const handle = await open(path, "wx", 0o600);
+      try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); }
+      blocks.push({ path, byteSize: bytes.byteLength, sha256: contentDigest(bytes) });
     }
-    await target.sync();
-  } finally { await target.close(); }
-  await rename(temporary, await backupFile(id));
+    const archivedDocuments = documents.map(({ _count, ...document }, index) => ({ ...document, chunkCount: _count.chunks, content: { byteSize: blocks[index].byteSize, sha256: blocks[index].sha256 } }));
+    const manifest = backupManifestSchema.parse(JSON.parse(JSON.stringify({ format: BACKUP_FORMAT, version: 2, createdAt: new Date().toISOString(), chats: chats.map(({ workspaceGrantId: _workspace, ...chat }) => ({ ...chat, messages: chat.messages.map(message => ({ ...message, content: portableContent(message.content) })) })), memories, tasks: [], documents: archivedDocuments, assets: media, preferences, usage, events, activityCoverage, reviews, assistantTemplates, memoryDocument })));
+    // The schema fills in the fields only older archives hold; a new archive leaves them out.
+    const { topics: _topics, artifacts: _results, ...written } = manifest;
+    const json = Buffer.from(JSON.stringify(written));
+    const total = 44 + json.length + assets.reduce((sum, asset) => sum + asset.byteSize, 0) + blocks.reduce((sum, block) => sum + block.byteSize, 0);
+    if (json.length > BACKUP_LIMITS.manifest || total > BACKUP_LIMITS.bytes) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.backups.contentTooLarge") });
+    const target = await open(temporary, "wx", 0o600);
+    try {
+      const header = Buffer.alloc(44); MAGIC.copy(header); header.writeUInt32BE(json.length, 8); createHash("sha256").update(json).digest().copy(header, 12);
+      await target.writeFile(header); await target.writeFile(json);
+      for (let i = 0; i < assets.length; i++) {
+        const source = await openMediaAsset(assets[i]);
+        try { if (await copyAndHash(source, target) !== manifest.assets[i].sha256) throw invalid(); }
+        finally { await source.close(); }
+      }
+      for (const block of blocks) {
+        const source = await open(block.path, "r");
+        try { if (await copyAndHash(source, target) !== block.sha256) throw invalid(); }
+        finally { await source.close(); }
+      }
+      await target.sync();
+    } finally { await target.close(); }
+    await rename(temporary, await backupFile(id));
+    createdAt = manifest.createdAt; bytes = total;
+  } catch (error) {
+    await rm(temporary, { force: true }).catch(() => {});
+    throw error;
+  } finally {
+    for (const block of blocks) await rm(block.path, { force: true }).catch(() => {});
+  }
   const cleanup = prune ? await pruneAccountBackupsSafely(id) : undefined;
-  return { id, createdAt: manifest.createdAt, bytes: 44 + json.length + assets.reduce((sum, asset) => sum + asset.byteSize, 0), cleanupFailed: !!cleanup?.failed };
+  return { id, createdAt, bytes, cleanupFailed: !!cleanup?.failed };
 }
 export async function pruneAccountBackupsSafely(preserveId?: string) {
   // Cleanup cannot turn an already committed backup or restore into a failure.

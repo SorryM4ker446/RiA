@@ -59,7 +59,8 @@ test("restoration remaps source identities and markdown links while preserving v
   ] });
   const backup = await createAccountBackup(); await restoreAccountBackup(backup.id);
   const rows = await db.message.findMany(); const encoded = rows.map(row => decodePersistedAssistantToolMessage(row.content)).find(Boolean)!;
-  const restored = encoded.documentSources![0]; assert.notEqual(restored.documentId, source.documentId); assert.notEqual(restored.chunkId, source.chunkId);
+  // Documents get new identities; chunks keep theirs, since a restore replaces every document and a citation names its chunk.
+  const restored = encoded.documentSources![0]; assert.notEqual(restored.documentId, source.documentId); assert.equal(restored.chunkId, source.chunkId);
   assert.equal(restored.contentHash, source.contentHash); assert.equal(restored.snippet, source.snippet);
   assert.equal((await checkDocumentReferences([restored]))[0].status, "current");
   assert.ok(rows.every(row => row.content.includes(documentSourceUrl(restored))));
