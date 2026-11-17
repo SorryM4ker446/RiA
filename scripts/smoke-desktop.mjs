@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveInstalledElectron } from "./resolve-installed-electron.mjs";
 import { printDesktopSmokeDiagnostics } from "./smoke-desktop-diagnostics.mjs";
-import { textPdf, wordTableDocument } from "../tests/helpers/document-fixtures.ts";
+import { scannedPdf, textPdf, wordTableDocument } from "../tests/helpers/document-fixtures.ts";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packageVersion = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")).version;
@@ -32,6 +32,8 @@ const expectedParent = resolve(repositoryRoot, ".desktop-data", "test");
 const documentFixtures = JSON.stringify([
   { filename: "support.pdf", data: textPdf().toString("base64"), expected: "Aurora support hours", pageNumber: 1 },
   { filename: "release.docx", data: (await wordTableDocument()).toString("base64"), expected: "| 住宿 | 500 元 | 主管审批 |", pageNumber: null },
+  // A scan: its page is read by OCR in the background, in the packaged runtime's own files.
+  { filename: "scan.pdf", data: (await scannedPdf([["Aurora warehouse opens on Thursdays."]])).toString("base64"), expected: "Thursdays", pageNumber: 1 },
 ]);
 
 if (!existsSync(join(repositoryRoot, ".desktop-runtime", "server.js"))) {

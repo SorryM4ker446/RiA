@@ -27,7 +27,11 @@ const { parentPort, workerData } = require('node:worker_threads');
 const { pathToFileURL } = require('node:url');
 const { dirname, join } = require('node:path');
 globalThis.fetch = async () => { throw new Error('Network access is disabled during document import'); };
-const { bytes, format, escapeMarkdown, limits, messages, pdfPath, pdfWorkerPath, mammothPath, zipPath } = workerData;
+const { bytes, format, escapeMarkdown, allowTextless, limits, messages, pdfPath, pdfWorkerPath, mammothPath, zipPath } = workerData;
+// A page with less text than this is read by OCR after the import: a scan, or text drawn as
+// outlines. Pages are not checked for images: building their operator lists decodes every
+// image and took twenty times as long as reading the text.
+const OCR_TEXT_BELOW = 20;
 const report = phase => parentPort.postMessage({ phase });
 report('ready');
 const fail = (message, code = 'VALIDATION_ERROR') => { throw Object.assign(new Error(message), { code }); };
@@ -35,7 +39,7 @@ const tooLarge = () => fail(messages.expandedTooLarge, 'PAYLOAD_TOO_LARGE');
 const normalize = text => text.replace(/\r\n?/g, '\n').replace(/\u0000/g, '').trim();
 const serializeWordDocument = ${serializeWordDocument.toString()};
 async function parse() {
-  let pages;
+  let pages, ocrPages = [];
   if (format === 'pdf') {
     report('pdf-import');
     const pdf = await import(pathToFileURL(pdfPath).href);
@@ -67,7 +71,9 @@ async function parse() {
             text += part;
           }
         }
-        pages.push({ pageNumber: number, text: normalize(text) });
+        const pageText = normalize(text);
+        if (pageText.length < OCR_TEXT_BELOW) ocrPages.push(number);
+        pages.push({ pageNumber: number, text: pageText });
         page.cleanup();
       }
     } finally { report('pdf-cleanup'); await task.destroy(); }
@@ -111,10 +117,11 @@ async function parse() {
     pages = [{ pageNumber: null, text: normalize(text) }];
   }
   if (pages.reduce((sum, page) => sum + page.text.length, 0) > limits.characters) tooLarge();
-  if (!pages.some(page => page.text.trim())) fail(messages.noSearchableText);
-  return pages;
+  // A scanned PDF has no text yet; an import keeps it and reads its pages by OCR afterwards.
+  if (!pages.some(page => page.text.trim()) && !(allowTextless && ocrPages.length)) fail(messages.noSearchableText);
+  return { pages, ocrPages };
 }
-parse().then(pages => parentPort.postMessage({ pages }), error => parentPort.postMessage({
+parse().then(result => parentPort.postMessage(result), error => parentPort.postMessage({
   code: ['PAYLOAD_TOO_LARGE', 'VALIDATION_ERROR'].includes(error.code) ? error.code : 'VALIDATION_ERROR',
   message: ['PAYLOAD_TOO_LARGE', 'VALIDATION_ERROR'].includes(error.code) ? error.message :
     error.name === 'PasswordException' ? messages.encryptedPdf : messages.corrupt

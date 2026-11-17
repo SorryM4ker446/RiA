@@ -6,7 +6,7 @@ import { formatList, t, tf, formatNumber, formatRelativeTime, localizeMessage } 
 
 import { SelectField, SelectOption } from "@/components/ui/select";
 
-import { ChevronRight, FileText, FolderOpen, Info, MoreHorizontal, RotateCw, Trash2, Upload } from "lucide-react";
+import { ScanText, ChevronRight, FileText, FolderOpen, Info, MoreHorizontal, RotateCw, Trash2, Upload } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
@@ -77,7 +77,8 @@ export function DocumentLibrary({ mode, importOpen, onImportClose, onShowAll, hi
   const [progress, setProgress] = useState<IndexProgress[]>([]);
   const [automaticIndexing, setAutomaticIndexing] = useState<DocumentIndexing>({ running: false, failed: null });
   // Watches the automatic indexing only while it is running, and stops with this page.
-  const indexingRunning = automaticIndexing.running;
+  // Scanned pages being read are watched the same way, so the row counts the pages as they are read.
+  const indexingRunning = automaticIndexing.running || documents.some(document => document.ocr && document.ocr.status !== "done" && document.ocr.status !== "failed");
   useEffect(() => {
     if (!indexingRunning) return;
     const timer = setInterval(() => { void listDocuments().then(({ documents: next, indexing }) => { setDocuments(next); setAutomaticIndexing(indexing); }).catch(() => {}); }, 3_000);
@@ -247,12 +248,13 @@ export function DocumentLibrary({ mode, importOpen, onImportClose, onShowAll, hi
           <div className="flex min-w-0 flex-wrap items-center gap-2"><Link className="min-w-0 break-words text-sm font-medium hover:underline underline-offset-4 [overflow-wrap:anywhere]" href={`/knowledge/documents/${document.id}`}>{document.filename}</Link>{document.collection && <span className="min-w-0 truncate rounded bg-muted px-1.5 text-xs leading-5 text-muted-foreground">{document.collection}</span>}</div>
         </div>
         <span className="col-meta col-optional">{document._count.chunks} {t("documents.chunkUnit")} · {formatNumber(document.characterCount)} {t("documents.characterUnit")}</span>
-        <span className="col-meta col-optional">{(readiness => readiness ? <Status tone={readiness.tone}>{readiness.label}</Status> : null)(documentReadiness(document, automaticIndexing.running))}</span>
+        <span className="col-meta col-optional">{(readiness => readiness ? <Status tone={readiness.tone} title={readiness.detail}>{readiness.label}</Status> : null)(documentReadiness(document, automaticIndexing.running))}</span>
         <time className="col-meta col-end" dateTime={document.indexedAt} title={new Date(document.indexedAt).toLocaleString(t("documents.dateLocale"))}>{formatRelativeTime(document.indexedAt)}</time>
         <div className="flex shrink-0 items-center justify-end gap-0.5">
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild><Button size="icon-sm" variant="ghost" aria-label={tf("ui.assistants.moreActionsFor", { v0: document.filename })} disabled={busy}><MoreHorizontal aria-hidden="true" /></Button></DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              {document.ocr?.status === "failed" ? <DropdownMenuItem aria-label={`${t("documents.ocrRetry")} ${document.filename}`} title={document.ocr.error ?? undefined} onSelect={() => void run(async () => { await documentRequest(`/api/documents/${document.id}/ocr`, { method: "POST" }); await refresh(); toast(t("documents.ocrRetrying")); })}><ScanText aria-hidden="true" />{t("documents.ocrRetry")}</DropdownMenuItem> : null}
               <DropdownMenuItem aria-label={`${t("documents.reindex")} ${document.filename}`} onSelect={() => void run(async () => { await documentRequest(`/api/documents/${document.id}`, { method: "POST" }); await refresh(); setResults(null); toast(t("documents.reindexed")); })}><RotateCw aria-hidden="true" />{t("documents.reindex")}</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" aria-label={`${t("documents.deleteLabel")} ${document.filename}`} onSelect={async () => { if (await confirm({ title: t("ui.confirm.deleteDocument"), description: `${t("documents.deleteConfirmPrefix")}${document.filename}${t("documents.deleteConfirmSuffix")}`, action: t("ui.confirm.delete"), destructive: true })) void run(async () => { await documentRequest(`/api/documents/${document.id}`, { method: "DELETE" }); await animateRemoval(document.id, refresh); setResults(null); toast(t("documents.deleted")); }); }}><Trash2 aria-hidden="true" />{t("documents.delete")}</DropdownMenuItem>

@@ -16,11 +16,12 @@ export const documentSummarySelect = {
 } as const;
 
 type DocumentInput = { filename: string; collection?: string | null; format: string; byteSize: number; pages: DocumentPage[] };
-export async function indexDocument(input: DocumentInput, expected?: { id: string; contentHash: string }, importBase?: DocumentRevision | null) {
+/** `textPending`: some pages' text is still to come from OCR, so the document may have no chunks yet. */
+export async function indexDocument(input: DocumentInput, expected?: { id: string; contentHash: string }, importBase?: DocumentRevision | null, options: { textPending?: boolean } = {}) {
   const pages = documentPagesSchema.parse(input.pages);
   const characterCount = pages.reduce((sum, page) => sum + page.text.length, 0);
   if (characterCount > DOCUMENT_LIMITS.characters) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.documents.charLimit") });
-  const prepared = buildDocumentChunks(pages).map(chunk => ({ ...chunk, ...documentTerms(documentEmbeddingText(chunk, input)) }));
+  const prepared = buildDocumentChunks(pages, { allowEmpty: options.textPending }).map(chunk => ({ ...chunk, ...documentTerms(documentEmbeddingText(chunk, input)) }));
   const contentHash = hashDocumentContent(JSON.stringify(pages));
   return db.$transaction(async tx => {
     // Vectors are not needed to compare chunks, and a large document holds many.
@@ -93,9 +94,11 @@ export async function getDocument(id: string) {
 }
 
 export async function reindexDocument(id: string) {
-  const document = await db.knowledgeDocument.findFirst({ where: { id } });
+  const document = await db.knowledgeDocument.findFirst({ where: { id }, include: { ocr: { select: { status: true } } } });
   if (!document) throw new ApiError({ code: "NOT_FOUND", message: t("lib.documents.notFound") });
-  return indexDocument({ ...document, pages: documentPagesSchema.parse(document.pages) }, { id, contentHash: document.contentHash });
+  // A scan still being read may have no text to index yet.
+  const textPending = Boolean(document.ocr && document.ocr.status !== "done");
+  return indexDocument({ ...document, pages: documentPagesSchema.parse(document.pages) }, { id, contentHash: document.contentHash }, undefined, { textPending });
 }
 
 export async function deleteDocument(id: string) {

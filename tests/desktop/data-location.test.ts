@@ -37,6 +37,8 @@ function seedCache(folder: string) {
   mkdirSync(join(folder, "checkpoints", "blobs", "ab"), { recursive: true });
   mkdirSync(join(folder, "terminal-logs", "run-1"), { recursive: true });
   mkdirSync(join(folder, "chromium-cache"), { recursive: true });
+  mkdirSync(join(folder, "ocr"), { recursive: true });
+  writeFileSync(join(folder, "ocr", "document-1.pdf"), "scan waiting for OCR");
   writeFileSync(join(folder, "checkpoints", "blobs", "ab", "abcdef"), "undo copy");
   writeFileSync(join(folder, "terminal-logs", "run-1", "stdout.log"), "output");
   writeFileSync(join(folder, "chromium-cache", "index"), "web cache");
@@ -352,7 +354,7 @@ test("a damaged record is set aside and the start goes on; a newer one stops it"
   } finally { space.remove(); }
 });
 
-test("the cache moves to its own folder and back, carrying undo copies and terminal output but not the web cache", async () => {
+test("the cache moves to its own folder and back, carrying undo copies, terminal output and scans waiting for OCR but not the web cache", async () => {
   const space = workspace();
   try {
     seedData(space.dataRoot);
@@ -368,6 +370,8 @@ test("the cache moves to its own folder and back, carrying undo copies and termi
     assert.equal(result?.outcome, "moved");
     assert.equal(readFileSync(join(cache, "checkpoints", "blobs", "ab", "abcdef"), "utf8"), "undo copy");
     assert.equal(readFileSync(join(cache, "terminal-logs", "run-1", "stdout.log"), "utf8"), "output");
+    assert.equal(readFileSync(join(cache, "ocr", "document-1.pdf"), "utf8"), "scan waiting for OCR");
+    assert.equal(existsSync(join(space.dataRoot, "ocr")), false, "the old scans go once the new copies are in place");
     assert.ok(existsSync(join(cache, CACHE_MARKER_FILE)));
     assert.equal(existsSync(join(space.dataRoot, "checkpoints")), false, "the old undo copies are removed once the new ones are in place");
     assert.ok(existsSync(join(space.dataRoot, "chromium-cache")), "the web cache Chromium is using this run is left until the next start");

@@ -26,6 +26,10 @@ export async function register() {
       const { warmDocumentSearch } = await import("@/lib/documents/semantic");
       const warm = setTimeout(() => { void warmDocumentSearch().catch(() => console.error("documents.index.warm.failed")); }, 5_000);
       warm.unref();
+      // Scanned pages a restart left unread carry on, after the window and the first page.
+      const { resumeDocumentOcr } = await import("@/lib/documents/ocr/runner");
+      const ocr = setTimeout(() => { void resumeDocumentOcr().catch(() => console.error("documents.ocr.resume.failed")); }, 8_000);
+      ocr.unref();
     }
   }
 }

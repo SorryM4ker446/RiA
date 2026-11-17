@@ -43,8 +43,8 @@ export const DATA_MARKER_FILE = ".ria-data.json";
 export const CACHE_MARKER_FILE = ".ria-cache.json";
 /** Present while a copy is unfinished; only a folder carrying it is ever cleaned up. */
 export const INCOMPLETE_MARKER_FILE = ".ria-move-incomplete";
-/** The cache's parts that are worth carrying to a new cache folder. */
-export const CACHE_ENTRIES = ["checkpoints", "terminal-logs"] as const;
+/** The cache's parts that are worth carrying to a new cache folder: undo copies, terminal output, scanned PDFs waiting for OCR. */
+export const CACHE_ENTRIES = ["checkpoints", "terminal-logs", "ocr"] as const;
 /** Chromium's HTTP cache: rebuilt on its own, so it is never copied, only left behind and removed. */
 export const WEB_CACHE_ENTRY = "chromium-cache";
 /** Room left over on the target beyond the copy itself, for the database and logs to keep growing. */
@@ -910,7 +910,7 @@ export async function requestCacheMove(input: { dataRoot: string; target: string
 }
 
 /**
- * Carries the undo copies and terminal output to the new cache folder, checking
+ * Carries the undo copies, terminal output and scanned PDFs waiting for OCR to the new cache folder, checking
  * each file, then switches and removes the old ones. A crash before the switch
  * leaves the old cache in use (the files already copied are reused next time);
  * one after it leaves old files that the next start removes.

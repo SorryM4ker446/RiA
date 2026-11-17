@@ -9,7 +9,8 @@ export const DOCUMENT_INDEX_VERSION = 4;
 const MERGED_CHUNK_CHARACTERS = 800;
 export const hashDocumentContent = (text: string) => createHash("sha256").update(text).digest("hex");
 
-export function buildDocumentChunks(pages: DocumentPage[]) {
+/** `allowEmpty`: a scanned document whose text is still to come from OCR may have no chunks yet. */
+export function buildDocumentChunks(pages: DocumentPage[], options: { allowEmpty?: boolean } = {}) {
   const chunks: { chunkKey: string; ordinal: number; pageNumber: number | null; text: string; heading: string | null }[] = [];
   const occurrences = new Map<string, number>();
   const headings: string[] = [];
@@ -73,6 +74,6 @@ export function buildDocumentChunks(pages: DocumentPage[]) {
     }
   }
   flush();
-  if (!chunks.length) throw new ApiError({ code: "VALIDATION_ERROR", message: t("lib.documents.noSearchableText") });
+  if (!chunks.length && !options.allowEmpty) throw new ApiError({ code: "VALIDATION_ERROR", message: t("lib.documents.noSearchableText") });
   return chunks;
 }

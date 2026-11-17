@@ -28,6 +28,7 @@ export const apiMessages = {
   "api.documents.deleteFailed": "删除文档失败。",
   "api.documents.importFailed": "文档导入失败，原有内容保持不变。",
   "api.documents.reindexFailed": "重新处理失败，原有内容保持不变。",
+  "api.documents.ocrRetryFailed": "无法重新开始识别文字，请稍后再试。",
   "api.documents.searchFailed": "检索文档失败。",
   "api.documents.invalidUpload": "无效的文档上传请求。",
   "api.documents.singleFileField": "每次只能上传一个 file 文件字段。",

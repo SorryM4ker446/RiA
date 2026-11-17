@@ -265,7 +265,7 @@ export async function runSmokeAssertion() {
   if ((await fetch(`${runtime.nextServer.origin}${asset.url}`)).status !== 403) throw new Error("Desktop media allowed unauthenticated access");
 
   const documentFixtures = JSON.parse(process.env.DESKTOP_SMOKE_DOCUMENTS || "[]") as Array<{ filename: string; data: string; expected: string; pageNumber: number | null }>;
-  if (documentFixtures.length !== 2) throw new Error("Desktop document smoke fixtures are missing");
+  if (documentFixtures.length !== 3) throw new Error("Desktop document smoke fixtures are missing");
   const importedDocuments: { id: string; expected: string; pageNumber: number | null }[] = [];
   for (const fixture of documentFixtures) {
     const documentForm = new FormData();
@@ -300,6 +300,16 @@ export async function runSmokeAssertion() {
   }
   const persistedMedia = await fetch(`${runtime.nextServer.origin}${asset.url}`, { headers: { Cookie: `${DESKTOP_COOKIE_NAME}=${runtime.desktopSessionToken}` } });
   if (!persistedMedia.ok || !Buffer.from(await persistedMedia.arrayBuffer()).equals(mediaBytes)) throw new Error("Desktop media did not survive a service restart");
+  // The scanned fixture's page is read in the background; the list resumes it after the restart.
+  for (const deadline = Date.now() + 90_000; ;) {
+    const listed = await fetch(`${runtime.nextServer.origin}/api/documents`, { headers: { Cookie: `${DESKTOP_COOKIE_NAME}=${runtime.desktopSessionToken}` } });
+    const rows = (await listed.json() as { data?: Array<{ id: string; ocr?: { status: string; error: string | null } }> }).data ?? [];
+    const reading = rows.filter(row => importedDocuments.some(document => document.id === row.id) && row.ocr);
+    if (reading.some(row => row.ocr!.status === "failed")) throw new Error(`Desktop OCR failed: ${reading.map(row => row.ocr!.error).join("; ")}`);
+    if (!reading.length) break;
+    if (Date.now() > deadline) throw new Error("Desktop OCR did not finish");
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
   for (const document of importedDocuments) {
     const retained = await fetch(`${runtime.nextServer.origin}/api/documents/${document.id}`, { headers: { Cookie: `${DESKTOP_COOKIE_NAME}=${runtime.desktopSessionToken}` } });
     const payload = await retained.json() as { data?: { chunks?: Array<{ text: string; pageNumber: number | null }> } };

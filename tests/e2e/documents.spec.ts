@@ -5,7 +5,9 @@ import { NO_CREDENTIAL_STATE, localHostOrigin, openWorkspace } from "../helpers/
 import { randomUUID } from "node:crypto";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { browserApi, browserData } from "../helpers/browser-api";
-import { textPdf, wordDocument } from "../helpers/document-fixtures";
+import { scannedPdf, textPdf, wordDocument } from "../helpers/document-fixtures";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { openDocumentReferences } from "../helpers/execution-records";
 import { acceptConfirm } from "../helpers/confirm";
@@ -104,6 +106,53 @@ test("document imports, local retrieval and chat citations persist across reload
   await expect(source).toBeVisible();
   await source.click();
   await expect(page.locator("main").getByRole("alert")).toContainText("文档不存在或已删除");
+});
+
+test("scanned PDF pages are read after the import, and a reading that fails can be retried from the row", { tag: "@integration" }, async ({ page, app }) => {
+  test.setTimeout(120_000);
+  await register(page, app.origin);
+  await page.getByRole("link", { name: /知识库/ }).click();
+  // Enough scanned pages to keep the reader busy while a second scan is imported behind it.
+  const filler = Array.from({ length: 9 }, (_, index) => [`Aisle ${index + 1} is restocked every morning.`]);
+  const first = await scannedPdf([{ text: "Policy overview for the warehouse team." }, ["Aurora warehouse opens on Thursdays."], ...filler]);
+  await openDocumentImport(page);
+  await page.getByLabel("选择知识文档").setInputFiles({ name: "warehouse.pdf", mimeType: "application/octet-stream", buffer: first });
+  await previewImportButton(page).click();
+  await expect(page.getByText("有 10 页是扫描图片，保存后会在后台识别文字。", { exact: true })).toBeVisible();
+  const saved = page.waitForResponse(response => response.url().endsWith("/api/documents") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "确认保存文档", exact: true }).click();
+  const savedResponse = await saved;
+  expect(savedResponse.ok()).toBe(true);
+  const warehouse = (await savedResponse.json()).data.document;
+  await expectImportClosed(page);
+  // The row counts the pages as they are read.
+  await expect(page.getByText(/^正在识别文字 \d\/10 页$/)).toBeVisible();
+
+  // A second scan waits behind the first; its kept copy goes missing before its turn comes.
+  const second = await scannedPdf([["Night shift starts at ten."]]);
+  const { document } = await importFile(page, "night.pdf", second);
+  const [{ file: database }] = app.readRows("PRAGMA database_list") as Array<{ file: string }>;
+  const kept = join(dirname(database), "ocr", `${document.id}.pdf`);
+  expect(existsSync(kept)).toBe(true);
+  rmSync(kept);
+  // The first scan is still being read, so the second has not been opened yet.
+  expect(app.readRows("SELECT status FROM document_ocr WHERE documentId = ?", warehouse.id)).toEqual([{ status: "running" }]);
+  await expect(page.getByText("文字识别失败", { exact: true })).toBeVisible({ timeout: 90_000 });
+  await expect(page.getByText(/^正在识别文字/)).toHaveCount(0);
+  await searchDocumentContent(page, "Aurora warehouse Thursdays");
+  await expect(page.getByText(/Aurora warehouse opens on Thursdays/).first()).toBeVisible();
+
+  writeFileSync(kept, second);
+  await page.reload();
+  await chooseMenuAction(page, "night.pdf", "重新识别文字 night.pdf");
+  await expect(page.getByText("已重新开始识别文字", { exact: true })).toBeVisible();
+  // The row is read again and gains the page's text as a chunk.
+  await expect(page.getByRole("listitem").filter({ hasText: "night.pdf" })).toContainText("1 个片段", { timeout: 60_000 });
+  await expect(page.getByText("文字识别失败", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/^正在识别文字/)).toHaveCount(0);
+  await searchDocumentContent(page, "night shift starts");
+  await expect(page.getByText(/Night shift starts at ten/).first()).toBeVisible();
+  expect(existsSync(kept), "the kept copy goes once its page is read").toBe(false);
 });
 
 test("document validation, Origin boundary and ingestion throttling work over authenticated HTTP", { tag: "@integration" }, async ({ page, app }) => {

@@ -7,7 +7,7 @@ RiA keeps everything it stores on the computer it runs on. By default that is `%
 | Part | Contents | Moves with |
 | --- | --- | --- |
 | Data | `app.db` (conversations, tasks, knowledge, usage), `media/`, `backups/` (workspace archives, pre-migration `.bak` files, workspace-upgrade snapshots), `config/settings.json` (encrypted keys), `logs/` | **Data location** |
-| Cache | `checkpoints/` (undo copies), `terminal-logs/` (full terminal output), `chromium-cache/` (the window's web cache) | The data, unless a cache folder is chosen |
+| Cache | `checkpoints/` (undo copies), `terminal-logs/` (full terminal output), `ocr/` (scanned PDFs waiting for their text to be read), `chromium-cache/` (the window's web cache) | The data, unless a cache folder is chosen |
 | Profile | `%APPDATA%\RiA` itself: Chromium's encryption key, drafts and screen state (Local Storage), the data location record `data.location.json` | Never moves; it is small |
 
 ## How the data is found
@@ -53,7 +53,7 @@ The same question is asked when a move could neither finish nor put the old fold
 
 ## The cache
 
-The cache follows the data by default, at the same paths as before. **Change cache location…** moves undo copies and terminal output to a folder of their own at the next start, each file checked, and then removes the old ones; the web cache is rebuilt there. **Follow the data again** brings them back.
+The cache follows the data by default, at the same paths as before. **Change cache location…** moves undo copies, terminal output and scanned PDFs waiting for OCR to a folder of their own at the next start, each file checked, and then removes the old ones; the web cache is rebuilt there. **Follow the data again** brings them back.
 
 A chosen cache folder that cannot be found does not stop the start: losing the cache loses no workspace content. RiA keeps the cache in the data folder for that run and says so in **Settings › Storage**; once the drive is back, a restart returns to it. Moving the cache again from there carries what was written in the meantime. The data cannot be moved into the cache folder, or the cache into the data folder.
 

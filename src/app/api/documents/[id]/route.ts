@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { currentWorkspaceId, requireLocalWorkspace } from "@/lib/local/workspace";
 import { deleteDocument, getDocument, reindexDocument } from "@/lib/documents/store";
 import { scheduleDocumentIndexing } from "@/lib/documents/auto-index";
+import { clearDocumentOcr } from "@/lib/documents/ocr/runner";
 import { documentIdSchema } from "@/lib/documents/types";
 import { createApiErrorResponse } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
@@ -31,6 +32,7 @@ async function DELETEHandler(req: NextRequest, context: Context) {
     await requireLocalWorkspace(req);const id = documentIdSchema.parse((await context.params).id);
     await readEmptyBody(req);
     await deleteDocument(id);
+    await clearDocumentOcr(id);
     return Response.json({ data: { id } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return createApiErrorResponse(error, t("api.documents.deleteFailed")); }
 }

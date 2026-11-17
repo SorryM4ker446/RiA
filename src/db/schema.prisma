@@ -333,6 +333,7 @@ model KnowledgeDocument {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   chunks         DocumentChunk[]
+  ocr            DocumentOcr?
 
   @@unique([filename])
   @@index([updatedAt, id])
@@ -363,6 +364,31 @@ model DocumentChunk {
   @@index([documentId, ordinal])
   @@index([embeddingModelProvider, embeddingModelId, id])
   @@map("document_chunks")
+}
+
+/// Text recognition for a scanned PDF's pages without a text layer. The PDF waits in
+/// the cache folder (ocr/<documentId>.pdf) until every page is read and the text is in
+/// the document. `sourceHash` is the PDF's SHA-256, so the same file imported again
+/// reuses the text instead of reading it twice; `contentHash` is the document version
+/// the job belongs to, and a job whose document has moved on is dropped.
+model DocumentOcr {
+  id          String            @id @default(cuid())
+  documentId  String            @unique
+  sourceHash  String
+  contentHash String
+  /// Page numbers still to be read, in order.
+  pages       Json
+  /// The text read so far, by page number.
+  results     Json
+  /// pending, running, failed or done.
+  status      String            @default("pending")
+  error       String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  document    KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@map("document_ocr")
 }
 
 /// A chunk's keyword terms for the full-text index `document_chunk_search_index`

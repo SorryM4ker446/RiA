@@ -58,6 +58,12 @@ function verifyRuntime(directory, { enforceWindowsPathBudget = false } = {}) {
   for (const entry of ["pdfjs-dist/legacy/build/pdf.mjs", "pdfjs-dist/legacy/build/pdf.worker.mjs", "mammoth/lib/index.js", "jszip/lib/index.js"]) {
     requireFile(join(directory, "node_modules", entry), "Document parser dependency");
   }
+  // Reading scanned PDFs: page rendering, the OCR engine, the cores its Node worker loads and the bundled languages.
+  for (const entry of ["@napi-rs/canvas/package.json", "tesseract.js/src/index.js", "tesseract.js/src/worker-script/node/index.js",
+    ...["tesseract-core-relaxedsimd", "tesseract-core-simd", "tesseract-core"].flatMap(core => [`tesseract.js-core/${core}.js`, `tesseract.js-core/${core}.wasm`]),
+    "@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz", "@tesseract.js-data/chi_sim/4.0.0_best_int/chi_sim.traineddata.gz"]) {
+    requireFile(join(directory, "node_modules", entry), "Document OCR dependency");
+  }
 
   const files = walk(directory);
   if (!files.some((path) => path.endsWith("migration.sql"))) {
@@ -65,6 +71,9 @@ function verifyRuntime(directory, { enforceWindowsPathBudget = false } = {}) {
   }
   if (!files.some((path) => path.endsWith(".node") && path.toLowerCase().includes("query_engine"))) {
     throw new Error("Prisma's native query engine is missing from the desktop runtime.");
+  }
+  if (!files.some((path) => path.endsWith(".node") && /[\\/]@napi-rs[\\/]canvas-/.test(path))) {
+    throw new Error("The native canvas binding that renders scanned PDF pages is missing from the desktop runtime.");
   }
   const forbiddenEnvironmentFile = files.find((path) => /^\.env(?:\.|$)/i.test(relative(directory, path).split(/[\\/]/).pop() || ""));
   if (forbiddenEnvironmentFile) {
