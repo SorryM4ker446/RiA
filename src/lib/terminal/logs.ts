@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { z } from "zod";
 import { db } from "@/db";
-import { localDataDirectory } from "@/lib/local/data-directory";
+import { localCacheDirectory } from "@/lib/local/data-directory";
 import { ApiError } from "@/lib/server/api-error";
 import { terminalLogReferenceSchema, type TerminalLogReference } from "./schema";
 
@@ -29,7 +29,7 @@ const metaSchema = terminalLogReferenceSchema.extend({ grantId: z.string(), runI
 type Meta = z.infer<typeof metaSchema>;
 type Stream = "stdout" | "stderr";
 
-export const terminalLogRoot = () => join(localDataDirectory("Terminal logs"), "terminal-logs");
+export const terminalLogRoot = () => join(localCacheDirectory("Terminal logs"), "terminal-logs");
 const logDirectory = (id: string) => join(terminalLogRoot(), id);
 const notFound = () => new ApiError({ code: "NOT_FOUND", message: t("server.terminal.logGone") });
 

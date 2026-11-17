@@ -26,6 +26,7 @@ export async function launchNextServer(signal?: AbortSignal): Promise<RunningNex
     nodeExecutable,
     databaseUrl: toSqliteUrl(runtime.desktopPaths.databaseFile),
     mediaDirectory: runtime.desktopPaths.mediaDirectory,
+    cacheDirectory: runtime.desktopPaths.cacheDirectory,
     desktopSessionToken: runtime.desktopSessionToken,
     port: runtime.serverPort,
     environment: await resolveServerEnvironment(),

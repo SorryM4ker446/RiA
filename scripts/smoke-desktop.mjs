@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmdirSync, rmSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveInstalledElectron } from "./resolve-installed-electron.mjs";
@@ -12,6 +13,12 @@ const development = process.argv.includes("--development");
 const installed = process.argv.includes("--installed");
 const packaged = installed || process.argv.includes("--packaged");
 const forceStandalone = !development && !packaged;
+/*
+ * Records a data folder move before the launch, so the application has to run it
+ * at start-up, before its workspace upgrade and migrations, and then pass the
+ * whole smoke run on the moved data through the junction left at the fixed path.
+ */
+const dataMove = process.argv.includes("--data-move");
 if (installed && !process.env.DESKTOP_INSTALL_DIR) {
   throw new Error("Set DESKTOP_INSTALL_DIR to the directory chosen in the MSI installer");
 }
@@ -50,6 +57,29 @@ function runtimeCacheWrites() {
   };
   if (!development) for (const cache of [join(".next", "server", "route-cache"), join(".next", "cache")]) visit(join(runtimeDirectory, cache));
   return written;
+}
+
+// Every mode opens its data at <user data>/data, which is testRoot/data here.
+const dataRoot = join(testRoot, "data");
+const movedData = join(testRoot, "moved-data");
+if (dataMove) {
+  const compiled = createRequire(import.meta.url);
+  const { runDesktopMigrations } = compiled(join(repositoryRoot, "electron-dist", "migrations.js"));
+  const { requestDataMove } = compiled(join(repositoryRoot, "electron-dist", "data-location.js"));
+  mkdirSync(join(dataRoot, "backups"), { recursive: true });
+  const silent = { info() {}, warn() {}, error() {} };
+  runDesktopMigrations({ databaseFile: join(dataRoot, "app.db"), migrationsDirectory: join(repositoryRoot, "src", "db", "migrations"), backupsDirectory: join(dataRoot, "backups"), logger: silent });
+  await requestDataMove({ dataRoot, target: movedData, databaseFileName: "app.db" });
+}
+
+function verifyDataMove() {
+  if (!lstatSync(dataRoot).isSymbolicLink()) throw new Error("The data folder was not replaced by a junction");
+  const state = JSON.parse(readFileSync(`${dataRoot}.location.json`, "utf8"));
+  if (state.pending !== null || state.lastResult?.outcome !== "moved") throw new Error(`The data folder move did not finish: ${JSON.stringify(state.lastResult)}`);
+  for (const path of [join(movedData, "app.db"), join(movedData, "logs", "desktop.log"), join(movedData, ".ria-data.json")]) {
+    if (!existsSync(path)) throw new Error(`The moved data folder is missing ${path}`);
+  }
+  if (!state.previousCopies.some(copy => existsSync(join(copy.path, "app.db")))) throw new Error("The folder the data moved from was not kept");
 }
 
 const child = spawn(
@@ -95,9 +125,18 @@ child.on("exit", (code, signal) => {
     console.error(`The service wrote ${cacheWrites.length} cache file(s) into its runtime directory, e.g. ${cacheWrites[0]}`);
     process.exitCode = 1;
   } else if (code === 0 && !timedOut) {
+    if (dataMove) {
+      try { verifyDataMove(); } catch (error) {
+        console.error(`${error instanceof Error ? error.message : String(error)}. Diagnostics: ${testRoot}`);
+        process.exitCode = 1;
+        return;
+      }
+    }
     if (resolve(dirname(testRoot)) !== expectedParent) {
       throw new Error(`Refusing to clean unexpected smoke-test directory: ${testRoot}`);
     }
+    // The junction goes on its own first, so removing the folder never walks through it.
+    if (dataMove && existsSync(dataRoot) && lstatSync(dataRoot).isSymbolicLink()) rmdirSync(dataRoot);
     rmSync(testRoot, { recursive: true, force: true });
     console.log("Electron desktop smoke test passed.");
     process.exitCode = 0;

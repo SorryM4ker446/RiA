@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { gunzip, gzip } from "node:zlib";
 import { db } from "@/db";
-import { localDataDirectory } from "@/lib/local/data-directory";
+import { localCacheDirectory } from "@/lib/local/data-directory";
 
 /*
  * Content kept so a turn's file changes can be undone: one file per distinct
@@ -26,7 +26,7 @@ export const CHECKPOINT_LIMITS = {
 /** The limits the user can choose from, in MiB. */
 export const CHECKPOINT_LIMIT_CHOICES_MB = [1024, 2048, 5120, 10240, 20480] as const;
 
-export const checkpointRoot = () => join(localDataDirectory("File checkpoints"), "checkpoints");
+export const checkpointRoot = () => join(localCacheDirectory("File checkpoints"), "checkpoints");
 const blobRoot = () => join(checkpointRoot(), "blobs");
 const blobPath = (hash: string, compressed: boolean) => join(blobRoot(), hash.slice(0, 2), compressed ? `${hash}.gz` : hash);
 const isHash = (value: string) => /^[a-f0-9]{64}$/.test(value);

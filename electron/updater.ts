@@ -322,6 +322,8 @@ export class UpdateService {
     previousInstall?: PreviousInstall | null;
     manifestUrl?: string;
     installerUrl?: (manifest: UpdateManifest) => string;
+    /** True while something else owns the next start-up (a data folder move); no download or install begins then. */
+    blocked?: () => boolean;
   }) {
     this.state = {
       supported: options.supported, phase: "idle", currentVersion: options.currentVersion, availableVersion: null,
@@ -403,7 +405,7 @@ export class UpdateService {
   /** Starts the download of the offered update; the returned promise settles when it ends. */
   async startDownload(): Promise<UpdateState> {
     const manifest = this.manifest;
-    if (this.state.phase !== "available" || !manifest) return this.getState();
+    if (this.state.phase !== "available" || !manifest || this.options.blocked?.()) return this.getState();
     const controller = new AbortController();
     this.download = controller;
     const final = join(this.options.directory, manifest.filename);
@@ -494,7 +496,7 @@ export class UpdateService {
    */
   async install(): Promise<UpdateState> {
     const manifest = this.manifest, installer = this.installer;
-    if (this.state.phase !== "ready" || !manifest || !installer) return this.getState();
+    if (this.state.phase !== "ready" || !manifest || !installer || this.options.blocked?.()) return this.getState();
     this.update({ phase: "installing", failure: null });
     try {
       const digest = await fileDigest(installer);

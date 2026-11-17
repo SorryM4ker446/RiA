@@ -9,3 +9,17 @@ export function localDataDirectory(purpose: string): string {
   if (!isAbsolute(databaseFile)) throw new ApiError({ code: "CONFIGURATION_ERROR", message: `${purpose} requires an absolute local SQLite path` });
   return dirname(databaseFile);
 }
+
+/**
+ * The folder for application-owned files that can be lost without losing
+ * workspace content (undo copies, terminal output). The desktop app passes the
+ * cache folder the person chose; otherwise it is the data folder itself.
+ */
+export function localCacheDirectory(purpose: string): string {
+  const configured = process.env.RIA_CACHE_DIRECTORY?.trim();
+  if (configured) {
+    if (!isAbsolute(configured)) throw new ApiError({ code: "CONFIGURATION_ERROR", message: `${purpose} requires an absolute cache path` });
+    return configured;
+  }
+  return localDataDirectory(purpose);
+}

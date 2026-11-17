@@ -22,6 +22,8 @@ export type NextServerOptions = {
   nodeExecutable: string;
   databaseUrl: string;
   mediaDirectory: string;
+  /** Where undo copies and terminal output go; the data folder unless the person chose another. */
+  cacheDirectory?: string;
   desktopSessionToken: string;
   port: number;
   environment: Record<string, string>;
@@ -193,6 +195,7 @@ export async function startNextServer(options: NextServerOptions): Promise<Runni
     APP_RUNTIME: "desktop",
     DATABASE_URL: options.databaseUrl,
     MEDIA_DIRECTORY: options.mediaDirectory,
+    ...(options.cacheDirectory ? { RIA_CACHE_DIRECTORY: options.cacheDirectory } : {}),
     DESKTOP_SESSION_TOKEN: options.desktopSessionToken,
     DESKTOP_SERVER_HOST: host,
     HOSTNAME: "127.0.0.1",

@@ -43,7 +43,7 @@ function streamed(bytes: Buffer, gate?: Promise<void>): Response {
   }));
 }
 
-function service(directory: string, options: { manifest?: unknown; installer?: () => Response; launch?: () => Promise<void>; status?: number; freeSpace?: (path: string) => Promise<number>; logger?: DesktopLogger } = {}) {
+function service(directory: string, options: { manifest?: unknown; installer?: () => Response; launch?: () => Promise<void>; status?: number; freeSpace?: (path: string) => Promise<number>; logger?: DesktopLogger; blocked?: () => boolean } = {}) {
   const requests: string[] = [];
   const launched: unknown[] = [];
   const states: UpdateState[] = [];
@@ -63,6 +63,7 @@ function service(directory: string, options: { manifest?: unknown; installer?: (
     },
     launch: async plan => { launched.push(plan); await options.launch?.(); },
     onChange: state => states.push(state),
+    blocked: options.blocked,
   });
   return { updates, requests, launched, states };
 }
@@ -112,6 +113,24 @@ test("a check offers only a newer verified release and shares one request", asyn
 
     const offline = service(folder.root, { status: 503 });
     assert.equal((await offline.updates.check()).failure, "network");
+  } finally {
+    folder.remove();
+  }
+});
+
+test("no download or install starts while a data folder move owns the next start", async () => {
+  const folder = temporary("ria-update-blocked-");
+  try {
+    let moving = true;
+    const blocked = service(folder.root, { blocked: () => moving });
+    await blocked.updates.check();
+    assert.equal((await blocked.updates.startDownload()).phase, "available");
+    assert.deepEqual(readdirSync(folder.root), [], "nothing is downloaded");
+    moving = false;
+    assert.equal((await blocked.updates.startDownload()).phase, "ready");
+    moving = true;
+    assert.equal((await blocked.updates.install()).phase, "ready");
+    assert.equal(blocked.launched.length, 0, "the installer is not started");
   } finally {
     folder.remove();
   }
