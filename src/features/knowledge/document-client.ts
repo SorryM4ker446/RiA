@@ -5,7 +5,9 @@ import type { DocumentSource } from "@/lib/documents/types";
 export type DocumentSummary = { id: string; filename: string; contentHash: string; collection?: string | null; characterCount: number; indexedAt: string; indexVersion?: number; _count: { chunks: number };
   semantic?: { indexed: number; total: number; lexicalCurrent?: boolean; stale?: number; differentModel?: number; invalid?: number; modelRef: { providerId: string; modelId: string } | null };
   /** Scanned pages still being read by OCR; absent once every page is read. */
-  ocr?: { status: "pending" | "running" | "failed" | "done"; done: number; total: number; error: string | null } };
+  ocr?: { status: "pending" | "running" | "failed" | "done"; done: number; total: number; error: string | null };
+  /** The synced folder this document comes from; it changes and goes with its file there. */
+  folder?: { id: string; label: string } };
 export type DocumentPreview = { filename: string; collection: string | null; previewHash: string; base: { id: string; contentHash: string; collection: string | null } | null;
   characterCount: number; notes: string[]; chunks: { text: string; ordinal: number; heading: string | null; pageNumber: number | null }[] };
 

@@ -334,6 +334,7 @@ model KnowledgeDocument {
   updatedAt      DateTime @updatedAt
   chunks         DocumentChunk[]
   ocr            DocumentOcr?
+  folderFiles    KnowledgeFolderFile[]
 
   @@unique([filename])
   @@index([updatedAt, id])
@@ -726,4 +727,49 @@ model CheckpointPreference {
   limitMb   Int      @default(2048)
   updatedAt DateTime @updatedAt
   @@map("checkpoint_preferences")
+}
+
+/// A folder the knowledge base keeps in step with. Only read: adding one grants the assistant nothing.
+model KnowledgeFolder {
+  id           String                @id @default(cuid())
+  /// The folder's name as shown, and the first part of its documents' names; unique among folders.
+  label        String                @unique
+  /// The path the user chose, verbatim.
+  path         String
+  /// The resolved real path when it was added; the boundary of every scan.
+  realPath     String                @unique
+  /// The topic its documents are filed under.
+  collection   String?
+  /// pending, synced, missing or failed; whether a sync is running is known only to the running service.
+  status       String                @default("pending")
+  error        String?
+  lastSyncedAt DateTime?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  files        KnowledgeFolderFile[]
+
+  @@map("knowledge_folders")
+}
+
+/// One supported file in a synced folder, as last seen, and the document it became.
+model KnowledgeFolderFile {
+  id           String             @id @default(cuid())
+  folderId     String
+  /// Inside the folder, with forward slashes.
+  relativePath String
+  documentId   String?
+  byteSize     Int
+  /// The file's modification time in whole milliseconds.
+  modifiedAt   Float
+  /// synced, failed or skipped.
+  status       String
+  error        String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  folder       KnowledgeFolder    @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  document     KnowledgeDocument? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@unique([folderId, relativePath])
+  @@index([documentId])
+  @@map("knowledge_folder_files")
 }

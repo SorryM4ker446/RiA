@@ -20,6 +20,8 @@ export const RATE_LIMIT_POLICIES = {
   // A folder imported as a batch sends one request per document.
   documents: { limit: 60, windowMs: 60_000 },
   documentPreview: { limit: 30, windowMs: 60_000 },
+  // Adding, removing or scanning a synced folder; the scans themselves are not counted.
+  knowledgeFolders: { limit: 30, windowMs: 60_000 },
   documentExport: { limit: 20, windowMs: 60_000 },
   reminders: { limit: 10, windowMs: 60_000 },
   tasks: { limit: 30, windowMs: 60_000 },

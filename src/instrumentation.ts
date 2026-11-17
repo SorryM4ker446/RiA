@@ -30,6 +30,10 @@ export async function register() {
       const { resumeDocumentOcr } = await import("@/lib/documents/ocr/runner");
       const ocr = setTimeout(() => { void resumeDocumentOcr().catch(() => console.error("documents.ocr.resume.failed")); }, 8_000);
       ocr.unref();
+      // Synced folders are watched from now on, and each is scanned once for what changed while RiA was closed.
+      const { startKnowledgeFolderWatching } = await import("@/lib/documents/folders/sync");
+      const folders = setTimeout(() => { void startKnowledgeFolderWatching().catch(() => console.error("documents.folders.start.failed")); }, 10_000);
+      folders.unref();
     }
   }
 }

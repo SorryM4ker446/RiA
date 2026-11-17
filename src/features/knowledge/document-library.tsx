@@ -6,7 +6,7 @@ import { formatList, t, tf, formatNumber, formatRelativeTime, localizeMessage } 
 
 import { SelectField, SelectOption } from "@/components/ui/select";
 
-import { ScanText, ChevronRight, FileText, FolderOpen, Info, MoreHorizontal, RotateCw, Trash2, Upload } from "lucide-react";
+import { ScanText, ChevronRight, FileText, FolderOpen, FolderSync, Info, MoreHorizontal, RotateCw, Trash2, Upload } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
@@ -33,6 +33,7 @@ import { maintainDocumentIndexes, type IndexProgress } from "./index-maintenance
 import { IndexStatus } from "./index-status";
 import { batchItems, DOCUMENT_EXTENSIONS, importBatch, isDocumentFile, type BatchItem, type BatchStatus } from "./document-batch";
 import { documentReadiness } from "./document-status";
+import { KnowledgeFolders } from "./knowledge-folders";
 import { animateRemoval, removalKey } from "@/lib/ui/removal";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 export { documentRequest } from "./document-client";
@@ -231,6 +232,7 @@ export function DocumentLibrary({ mode, importOpen, onImportClose, onShowAll, hi
     </div> : null}</Reveal>
     <Reveal className="-mt-4">{error ? <Alert variant="destructive" className="mt-4"><AlertTitle>{t("ui.knowledge.document-library.documentOperationIncomplete")}</AlertTitle><AlertDescription><span>{localizeMessage(error)}</span><Button size="sm" variant="ghost" className="ml-2 h-auto px-2 py-0.5 align-baseline" onClick={() => void run(refresh)}>{t("ui.chat.chat-toolbar.retry")}</Button></AlertDescription></Alert> : null}</Reveal>
     {mode === "full" ? <>
+      <KnowledgeFolders collections={[...new Set(documents.map(document => document.collection).filter((value): value is string => Boolean(value)))]} onChanged={() => { void refresh().catch(() => {}); setResults(null); }} />
       {/* Searching the content may embed the query, so it runs on Enter rather than as you type. */}
       <form aria-label={t("ui.knowledge.document-library.searchDocumentKnowledge")} onSubmit={event => void search(event)}>
         <FieldGroup className="flex flex-row flex-wrap items-center gap-2">
@@ -243,7 +245,7 @@ export function DocumentLibrary({ mode, importOpen, onImportClose, onShowAll, hi
     </> : null}
     {awaitingFirstDocumentLoad ? <div className="flex flex-col gap-2" aria-label={t("documents.loading")}><Skeleton className="h-16 rounded-xl" /><Skeleton className="h-16 rounded-xl" /></div> : !documents.length ? <Empty className="py-6"><EmptyHeader><EmptyMedia><FileText /></EmptyMedia><EmptyTitle>{t("documents.empty")}</EmptyTitle><EmptyDescription>{t("ui.knowledge.document-library.importKnowledgeToSearchItHere")}</EmptyDescription></EmptyHeader></Empty> : <ul aria-label={t("documents.importedTitle")} className="item-list" style={{ "--cols": "20px minmax(0, 1fr) 7.5rem 5.5rem 4rem auto", "--cols-narrow": "minmax(0, 1fr) 5.5rem auto" } as React.CSSProperties}>
       {listed.map(document => <li className="item-row data-row knowledge-document-row min-w-0" key={document.id} {...removalKey(document.id)}>
-        <span className="item-row-icon"><FileText aria-hidden="true" /></span>
+        <span className="item-row-icon" title={document.folder ? tf("knowledgeFolders.fromFolder", { folder: document.folder.label }) : undefined}>{document.folder ? <FolderSync aria-hidden="true" /> : <FileText aria-hidden="true" />}</span>
         <div className="flex min-w-0 flex-col gap-1">
           <div className="flex min-w-0 flex-wrap items-center gap-2"><Link className="min-w-0 break-words text-sm font-medium hover:underline underline-offset-4 [overflow-wrap:anywhere]" href={`/knowledge/documents/${document.id}`}>{document.filename}</Link>{document.collection && <span className="min-w-0 truncate rounded bg-muted px-1.5 text-xs leading-5 text-muted-foreground">{document.collection}</span>}</div>
         </div>
@@ -256,8 +258,8 @@ export function DocumentLibrary({ mode, importOpen, onImportClose, onShowAll, hi
             <DropdownMenuContent align="end">
               {document.ocr?.status === "failed" ? <DropdownMenuItem aria-label={`${t("documents.ocrRetry")} ${document.filename}`} title={document.ocr.error ?? undefined} onSelect={() => void run(async () => { await documentRequest(`/api/documents/${document.id}/ocr`, { method: "POST" }); await refresh(); toast(t("documents.ocrRetrying")); })}><ScanText aria-hidden="true" />{t("documents.ocrRetry")}</DropdownMenuItem> : null}
               <DropdownMenuItem aria-label={`${t("documents.reindex")} ${document.filename}`} onSelect={() => void run(async () => { await documentRequest(`/api/documents/${document.id}`, { method: "POST" }); await refresh(); setResults(null); toast(t("documents.reindexed")); })}><RotateCw aria-hidden="true" />{t("documents.reindex")}</DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" aria-label={`${t("documents.deleteLabel")} ${document.filename}`} onSelect={async () => { if (await confirm({ title: t("ui.confirm.deleteDocument"), description: `${t("documents.deleteConfirmPrefix")}${document.filename}${t("documents.deleteConfirmSuffix")}`, action: t("ui.confirm.delete"), destructive: true })) void run(async () => { await documentRequest(`/api/documents/${document.id}`, { method: "DELETE" }); await animateRemoval(document.id, refresh); setResults(null); toast(t("documents.deleted")); }); }}><Trash2 aria-hidden="true" />{t("documents.delete")}</DropdownMenuItem>
+              {document.folder ? null : <><DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" aria-label={`${t("documents.deleteLabel")} ${document.filename}`} onSelect={async () => { if (await confirm({ title: t("ui.confirm.deleteDocument"), description: `${t("documents.deleteConfirmPrefix")}${document.filename}${t("documents.deleteConfirmSuffix")}`, action: t("ui.confirm.delete"), destructive: true })) void run(async () => { await documentRequest(`/api/documents/${document.id}`, { method: "DELETE" }); await animateRemoval(document.id, refresh); setResults(null); toast(t("documents.deleted")); }); }}><Trash2 aria-hidden="true" />{t("documents.delete")}</DropdownMenuItem></>}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
