@@ -2,13 +2,34 @@
 import { openLocalFile } from "./open-local-file";
 import { type WindowAction } from "./window-transitions";
 import { dirname, isAbsolute } from "node:path";
-import { BrowserWindow, dialog, ipcMain, Notification, shell, type IpcMainInvokeEvent } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Notification, shell, type IpcMainInvokeEvent } from "electron";
 import { type DesktopSettingsInput } from "./settings";
 import { installationRoot } from "./updater";
 import { runtime, PRODUCT_NAME, packagedRuntime, smokeTest, applicationVersion, windowTransitions, startupPresentations } from "./runtime-state";
 import { quitFromTray, registerGlobalHotkey, showMainWindow, updateTrayMenu, applyDesktopPresence } from "./desktop-presence";
 import { restartLocalService } from "./local-service";
 import { runAutomaticUpdateCheck } from "./desktop-updates";
+import {
+  acknowledge, checkLocation, chooseLocationFolder, dataLocationSizes, dataLocationView, deleteCopy, dismissLowSpace, forgetCopy,
+  moveLocation, openListedFolder, type LocationKind,
+} from "./desktop-data-location";
+
+const locationKind = (value: unknown): LocationKind => {
+  if (value !== "data" && value !== "cache") throw new Error("Unknown location kind.");
+  return value;
+};
+/** A folder path from the page: absolute and bounded, or null where the request allows it. */
+function folderPath(value: unknown): string;
+function folderPath(value: unknown, nullable: true): string | null;
+function folderPath(value: unknown, nullable = false): string | null {
+  if (value === null && nullable) return null;
+  if (typeof value !== "string" || !value || value.length > 1024 || !isAbsolute(value)) throw new Error("Invalid folder path.");
+  return value;
+}
+const settledLocation = () => {
+  if (!runtime.dataLocation) throw new Error("The data location is not settled.");
+  return runtime.dataLocation;
+};
 
 export function assertTrustedIpcSender(event: IpcMainInvokeEvent | Electron.IpcMainEvent) {
   if (!runtime.nextServer) throw new Error("Desktop service is not ready.");
@@ -202,6 +223,70 @@ export function registerIpcHandlers() {
     assertTrustedIpcSender(event);
     showMainWindow();
     return { shown: true };
+  });
+
+  /*
+   * Where the data and the cache are, and moving them. A move is only recorded
+   * here; it runs at the next start, before anything opens the data, so the
+   * reply comes first and the application then restarts into it.
+   */
+  ipcMain.handle("desktop:data-location:view", async event => {
+    assertTrustedIpcSender(event);
+    const location = settledLocation();
+    return dataLocationView(location.dataRoot, { path: location.cacheDirectory, unavailable: location.cacheUnavailable });
+  });
+  ipcMain.handle("desktop:data-location:sizes", async event => {
+    assertTrustedIpcSender(event);
+    const location = settledLocation();
+    return dataLocationSizes(location.dataRoot, location.cacheDirectory);
+  });
+  ipcMain.handle("desktop:data-location:choose", async (event, kind: unknown) => {
+    assertTrustedIpcSender(event);
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    return parent ? chooseLocationFolder(parent, locationKind(kind)) : null;
+  });
+  ipcMain.handle("desktop:data-location:check", async (event, input: { kind?: unknown; target?: unknown } | undefined) => {
+    assertTrustedIpcSender(event);
+    const kind = locationKind(input?.kind);
+    const target = kind === "cache" ? folderPath(input?.target, true) : folderPath(input?.target);
+    return checkLocation(settledLocation().dataRoot, kind, target, runtime.updateService?.getState().phase ?? null);
+  });
+  ipcMain.handle("desktop:data-location:move", async (event, input: { kind?: unknown; target?: unknown } | undefined) => {
+    assertTrustedIpcSender(event);
+    const kind = locationKind(input?.kind);
+    const target = kind === "cache" ? folderPath(input?.target, true) : folderPath(input?.target);
+    return moveLocation({
+      dataRoot: settledLocation().dataRoot, kind, target,
+      updatePhase: runtime.updateService?.getState().phase ?? null,
+      restart: () => {
+        runtime.logger?.info("Restarting to move the data or cache folder", { kind });
+        app.relaunch();
+        quitFromTray();
+      },
+    });
+  });
+  ipcMain.handle("desktop:data-location:delete-copy", async (event, path: unknown) => {
+    assertTrustedIpcSender(event);
+    const result = await deleteCopy(settledLocation().dataRoot, folderPath(path));
+    runtime.logger?.info("Deleted a data copy", { path, ok: result.ok });
+    return result;
+  });
+  ipcMain.handle("desktop:data-location:forget-copy", async (event, path: unknown) => {
+    assertTrustedIpcSender(event);
+    return forgetCopy(settledLocation().dataRoot, folderPath(path));
+  });
+  ipcMain.handle("desktop:data-location:acknowledge", async (event, id: unknown) => {
+    assertTrustedIpcSender(event);
+    if (typeof id === "string" && id.length <= 64) acknowledge(settledLocation().dataRoot, id);
+  });
+  ipcMain.handle("desktop:data-location:dismiss-low-space", async event => {
+    assertTrustedIpcSender(event);
+    dismissLowSpace(settledLocation().dataRoot);
+  });
+  ipcMain.handle("desktop:data-location:open", async (event, path: unknown) => {
+    assertTrustedIpcSender(event);
+    const location = settledLocation();
+    return openListedFolder(location.dataRoot, location.cacheDirectory, folderPath(path));
   });
 
   ipcMain.handle("desktop:hotkey:set", async (event, accelerator: unknown) => {

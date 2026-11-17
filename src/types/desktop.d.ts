@@ -32,6 +32,33 @@ type DesktopUpdateState = {
     | null;
 };
 
+type DesktopLocationKind = "data" | "cache";
+type DesktopMoveResult = {
+  id: string;
+  kind: DesktopLocationKind;
+  outcome: "moved" | "failed" | "interrupted" | "cancelled";
+  target: string | null;
+  at: string;
+  code?: string;
+  message?: string;
+  seen?: boolean;
+};
+type DesktopDataLocationView = {
+  /** RiA's own data path; a link to the real folder once the data has moved. */
+  defaultPath: string;
+  data: { path: string; moved: boolean };
+  cache: { path: string; custom: boolean; unavailable: string | null };
+  copies: Array<{ path: string; at: string; exists: boolean; reason?: "moved" | "left" | "interrupted" }>;
+  pending: boolean;
+  result: DesktopMoveResult | null;
+  lowSpace: { freeBytes: number } | null;
+};
+type DesktopDataLocationSizes = { dataBytes: number | null; cacheBytes: number | null; freeBytes: number | null; copies: Record<string, number | null> };
+type DesktopLocationRefusal = { ok: false; code: string; details?: Record<string, unknown> };
+type DesktopLocationCheck =
+  | { ok: true; kind: DesktopLocationKind; target: string | null; mode: "copy" | "adopt"; copyBytes: number; requiredBytes: number; availableBytes: number | null }
+  | DesktopLocationRefusal;
+
 type DesktopRuntimeInfo = {
   appVersion: string;
   packaged: boolean;
@@ -78,6 +105,18 @@ interface Window {
     setGlobalHotkey: (
       accelerator: string,
     ) => Promise<{ ok: boolean; hotkey: string; reason?: "conflict" | "invalid" | "not-stored" }>;
+    dataLocation?: {
+      view: () => Promise<DesktopDataLocationView>;
+      sizes: () => Promise<DesktopDataLocationSizes>;
+      choose: (kind: DesktopLocationKind) => Promise<string | null>;
+      check: (kind: DesktopLocationKind, target: string | null) => Promise<DesktopLocationCheck>;
+      move: (kind: DesktopLocationKind, target: string | null) => Promise<{ ok: true } | DesktopLocationRefusal>;
+      deleteCopy: (path: string) => Promise<{ ok: true } | DesktopLocationRefusal>;
+      forgetCopy: (path: string) => Promise<{ ok: true } | DesktopLocationRefusal>;
+      acknowledge: (id: string) => Promise<void>;
+      dismissLowSpace: () => Promise<void>;
+      open: (path: string) => Promise<{ opened: boolean }>;
+    };
     updates?: {
       state: () => Promise<DesktopUpdateState>;
       check: () => Promise<DesktopUpdateState>;

@@ -17,6 +17,7 @@ import { serverMessages } from "./parts/server";
 import { interfaceMessages } from "./parts/interface";
 
 import { errorMessages } from "./parts/errors";
+import { locationMessages } from "./parts/locations";
 
 const base = {
   // --- shell -------------------------------------------------------------
@@ -85,6 +86,6 @@ const base = {
  * one stays owned by a single area; spreading duplicates silently, so the parts
  * must keep disjoint key prefixes.
  */
-export const zhCN = { ...base, ...errorMessages, ...interfaceMessages, ...pageMessages, ...chatMessages, ...libraryMessages, ...serverMessages, ...apiMessages, ...clientMessages, ...toolsMessages };
+export const zhCN = { ...base, ...errorMessages, ...interfaceMessages, ...pageMessages, ...chatMessages, ...libraryMessages, ...serverMessages, ...apiMessages, ...clientMessages, ...toolsMessages, ...locationMessages };
 
 export type MessageKey = keyof typeof zhCN;

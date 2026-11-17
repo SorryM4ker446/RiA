@@ -31,6 +31,7 @@ import { ModelSettings } from "@/features/models/model-settings";
 import { UsageSettings } from "@/features/models/usage-settings";
 import { ExtensionManager } from "@/features/extensions/extension-manager";
 import { StoragePanel } from "@/features/media/storage-panel";
+import { DataLocationSettings } from "@/features/settings/data-location";
 
 /**
  * Settings open over the page in use instead of replacing it: closing them
@@ -105,7 +106,14 @@ function SectionContent({ id }: { id: SettingsSectionId }) {
     case "usage": return <UsageSettings />;
     case "extensions": return <ExtensionManager />;
     case "backups": return <BackupSettings />;
-    case "storage": return <><PageHeader level={2} title={t("ui.settingsOverlay.storage")} description={t("mediaStorage.description")} /><StoragePanel embedded /></>;
+    case "storage": return <>
+      <PageHeader level={2} title={t("ui.settingsOverlay.storage")} description={t("storage.description")} />
+      <DataLocationSettings />
+      <section aria-label={t("storage.mediaTitle")} className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1"><h2 className="text-sm font-medium">{t("storage.mediaTitle")}</h2><p className="max-w-2xl text-xs leading-5 text-muted-foreground">{t("mediaStorage.description")}</p></div>
+        <StoragePanel embedded />
+      </section>
+    </>;
   }
 }
 

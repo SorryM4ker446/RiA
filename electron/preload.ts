@@ -56,6 +56,20 @@ contextBridge.exposeInMainWorld("riaDesktop", {
       return () => ipcRenderer.removeListener("desktop:update:open", handler);
     },
   },
+  // Where the data and the cache live. A move is recorded here and runs at the
+  // next start, so `move` is followed by the application restarting.
+  dataLocation: {
+    view: () => ipcRenderer.invoke("desktop:data-location:view"),
+    sizes: () => ipcRenderer.invoke("desktop:data-location:sizes"),
+    choose: (kind: "data" | "cache") => ipcRenderer.invoke("desktop:data-location:choose", kind),
+    check: (kind: "data" | "cache", target: string | null) => ipcRenderer.invoke("desktop:data-location:check", { kind, target }),
+    move: (kind: "data" | "cache", target: string | null) => ipcRenderer.invoke("desktop:data-location:move", { kind, target }),
+    deleteCopy: (path: string) => ipcRenderer.invoke("desktop:data-location:delete-copy", path),
+    forgetCopy: (path: string) => ipcRenderer.invoke("desktop:data-location:forget-copy", path),
+    acknowledge: (id: string) => ipcRenderer.invoke("desktop:data-location:acknowledge", id),
+    dismissLowSpace: () => ipcRenderer.invoke("desktop:data-location:dismiss-low-space"),
+    open: (path: string) => ipcRenderer.invoke("desktop:data-location:open", path),
+  },
   // The page draws the caption, so it needs the verbs and the current state.
   // Absent entirely where the platform keeps its own caption.
   ...(drawsOwnCaption
