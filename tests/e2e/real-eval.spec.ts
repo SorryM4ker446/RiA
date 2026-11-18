@@ -455,3 +455,41 @@ test("sub-agents: independent pieces of long work are handed off; a quick questi
     });
   }
 });
+
+/*
+ * Checklist and sub-agents together, as their descriptions tell the model: the
+ * checklist stays its own, the handed-off step is in progress before the
+ * hand-off and updated once the reports are back, work sent to several
+ * sub-agents at once is one step, and the answer says what they found.
+ */
+test("checklist with sub-agents: kept by the main assistant around the hand-off, and the findings reach the user @real @eval", async ({ page, real }) => {
+  type Plan = { items: { content: string; status: string }[] };
+  // Each run is long work by design (three sub-agents, then a summary), so each gets the time one test has.
+  test.setTimeout(REPEATS * 600_000);
+  for (let run = 1; run <= REPEATS; run++) {
+    await measured(page, real, async () => {
+      const { chatId, folder, cleanup } = await workspace(page, real, `清单与子代理 ${run}`);
+      try {
+        const codes = serviceLogs(folder);
+        await ask(page, real, chatId, "这件事要花点时间，我想看到进度：svc-auth、svc-billing、svc-search 三个服务的日志目录彼此独立，请交给子代理并行去查每个服务最严重的那条错误（错误码和原因），最后给我一份汇总。");
+        const { answer, tools } = await turn(page, real, chatId);
+        // The main answer's own calls, in order; a sub-agent's are recorded under its call and are not here.
+        const saved = await savedTools(page, real, chatId);
+        const order = saved.map(tool => tool.toolName);
+        const plans = saved.flatMap((tool, index) => tool.toolName === "updatePlan" ? [{ index, plan: tool.input as Plan }] : []);
+        const first = order.indexOf("runSubagent"), last = order.lastIndexOf("runSubagent");
+        const checks = {
+          subagents: order.filter(name => name === "runSubagent").length,
+          plans: plans.length,
+          inProgressBefore: first >= 0 && plans.some(({ index, plan }) => index < first && plan.items.some(item => item.status === "in_progress")),
+          updatedAfter: last >= 0 && plans.some(({ index }) => index > last),
+          finished: plans.at(-1)?.plan.items.every(item => item.status === "completed") ?? false,
+          atMostOneInProgress: plans.every(({ plan }) => plan.items.filter(item => item.status === "in_progress").length <= 1),
+          relayed: codes.filter(code => answer.includes(code)).length,
+        };
+        const pass = checks.subagents > 0 && checks.inProgressBefore && checks.updatedAfter && checks.relayed === codes.length;
+        return { scenario: "checklist-with-subagents", run, pass, checks, tools, answer };
+      } finally { cleanup(); }
+    });
+  }
+});
