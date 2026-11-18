@@ -8,7 +8,7 @@ import { activationSchema, EXTENSION_LIMITS, extensionConfigSchema, extensionToo
 import { canonical, connectionCredentials, probeConnection, publicExtensionError, sameDefinition, validateProcessConfig } from "./transport";
 import { pluginManifestSchema } from "@/lib/plugins/schema";
 
-import { t } from "@/lib/locale";
+import { t, tf } from "@/lib/locale";
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const conflict = () => new ApiError({ code: "CONFLICT", message: t("errors.extensionConfigurationChangedRefreshAndTryAgain") });
 export async function requireExtension(id: string) {
@@ -89,14 +89,22 @@ export async function activateExtension(id: string, raw: unknown) {
     if (input.enabled && !selected.size) throw new ApiError({ code: "VALIDATION_ERROR", message: t("errors.selectAtLeastOneTool") });
     const others = await tx.extension.findMany({ where: { enabled: true, id: { not: id } }, select: { tools: true } });
     const total = others.reduce((sum, item) => sum + extensionToolsSchema.parse(item.tools).filter(tool => tool.enabled).length, 0) + (input.enabled ? selected.size : 0);
-    if (total > EXTENSION_LIMITS.enabledTools) throw new ApiError({ code: "VALIDATION_ERROR", message: t("errors.upTo32ExternalToolsCanBeEnabled") });
+    if (total > EXTENSION_LIMITS.enabledTools) throw new ApiError({ code: "VALIDATION_ERROR", message: tf("errors.tooManyEnabledExtensionTools", { max: EXTENSION_LIMITS.enabledTools }) });
     const always = input.alwaysLoad ? new Set(input.alwaysLoad) : null;
     if (always && [...always].some(name => !tools.some(tool => tool.name === name))) throw new ApiError({ code: "VALIDATION_ERROR", message: t("errors.invalidToolSelectionTestTheConnectionAgain") });
+    if (input.enabled) await withinAlwaysLoadLimit(tx, id, tools.filter(tool => selected.has(tool.name) && (always ? always.has(tool.name) : tool.alwaysLoad)).length);
     const revision = row.revision + 1;
     return tx.extension.update({ where: { id, revision: input.revision }, data: { enabled: input.enabled, tools: json(tools.map(tool => ({ ...tool, enabled: selected.has(tool.name), alwaysLoad: always ? always.has(tool.name) : tool.alwaysLoad }))), revision, testedRevision: row.testedRevision === row.revision ? revision : null, testId: null } });
   });
   cancelExtensionOperations(id);
   return extensionView(await requireExtension(saved.id));
+}
+
+/** Refuses more always-loaded tools, across the enabled connections, than every request can carry; `own` is this connection's. */
+async function withinAlwaysLoadLimit(tx: Prisma.TransactionClient, id: string, own: number) {
+  const others = await tx.extension.findMany({ where: { enabled: true, id: { not: id } }, select: { tools: true } });
+  const total = own + others.reduce((sum, item) => sum + extensionToolsSchema.parse(item.tools).filter(tool => tool.enabled && tool.alwaysLoad).length, 0);
+  if (total > EXTENSION_LIMITS.alwaysLoadTools) throw new ApiError({ code: "VALIDATION_ERROR", message: tf("errors.tooManyAlwaysLoadedTools", { max: EXTENSION_LIMITS.alwaysLoadTools }) });
 }
 
 /**
@@ -111,6 +119,7 @@ export async function setExtensionToolLoading(id: string, raw: unknown) {
     const tools = extensionToolsSchema.parse(row.tools);
     const always = new Set(input.alwaysLoad);
     if (always.size !== input.alwaysLoad.length || input.alwaysLoad.some(name => !tools.some(tool => tool.name === name))) throw new ApiError({ code: "VALIDATION_ERROR", message: t("errors.invalidToolSelectionTestTheConnectionAgain") });
+    if (row.enabled) await withinAlwaysLoadLimit(tx, id, tools.filter(tool => tool.enabled && always.has(tool.name)).length);
     const saved = await tx.extension.updateMany({ where: { id, revision: input.revision }, data: { tools: json(tools.map(tool => ({ ...tool, alwaysLoad: always.has(tool.name) }))) } });
     if (!saved.count) throw conflict();
   });

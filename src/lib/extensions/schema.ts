@@ -5,7 +5,12 @@ import { ApiError } from "@/lib/server/api-error";
 
 import { autoReviewSchema } from "@/lib/approvals/auto-review-schema";
 import { t } from "@/lib/locale";
-export const EXTENSION_LIMITS = { connections: 20, tools: 64, enabledTools: 32, schemaBytes: 16_384, responseBytes: 524_288, outputBytes: 32_768, timeoutMs: 20_000 } as const;
+/**
+ * Tools past what a request can carry in full are loaded on demand (src/tools/deferred.ts), so how many a
+ * connection offers and how many are enabled is bounded only by the list of names that stands in for them.
+ * Always-loaded tools are sent with every request, so they keep the count every model takes.
+ */
+export const EXTENSION_LIMITS = { connections: 20, tools: 256, enabledTools: 256, alwaysLoadTools: 32, schemaBytes: 16_384, responseBytes: 524_288, outputBytes: 32_768, timeoutMs: 20_000 } as const;
 export const externalToolIdPattern = /^ext[a-f0-9]{56}$/;
 export const extensionIdSchema = z.string().uuid();
 const ajv = new Ajv({ strict: false, allErrors: false, validateFormats: false, ownProperties: true, code: { optimize: false }, loopRequired: 20, loopEnum: 20 });

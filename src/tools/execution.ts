@@ -8,7 +8,9 @@ import { reserveRunStep, updateStep, type StepState } from "@/lib/agent/runs";
 import { logToolExecution } from "@/lib/server/tool-log";
 import { LOCAL_WORKSPACE_ID } from "@/lib/local/workspace";
 import type { ModelMessage, ToolSet } from "ai";
-import type { ModelRef } from "@/lib/models/preferences-schema";
+import { modelRefKey, type ModelRef } from "@/lib/models/preferences-schema";
+import { contextBudget } from "@/lib/models/context-budget";
+import { getModelPreferences, modelInLibrary } from "@/lib/models/preferences";
 import type { AnyToolDescriptor, ToolSkipReason, ToolTriggerType } from "./types";
 import { listAvailableRegisteredTools, toolAvailability, unavailabilityError, skipReasonFor } from "./registry";
 import { TERMINAL_FOLDER_TOOLS } from "./terminal-companions";
@@ -354,6 +356,13 @@ export const SUBAGENT_EXCLUDED_TOOLS = new Set(["askUser", "createTask", "readWo
  * the brief the sub-agent got was written by the model, so it never counts as the
  * user's words, for a review under Auto or for anything else.
  */
+/** The context window of the model a request is for, when its catalog entry or the user's setting says; null otherwise. */
+async function knownContextWindow(modelRef?: ModelRef) {
+  if (!modelRef) return null;
+  const budget = contextBudget(await modelInLibrary("chat", modelRef), (await getModelPreferences()).contextLimits[modelRefKey(modelRef)]);
+  return budget.capacitySource === "unknown" ? null : budget.contextWindow;
+}
+
 export async function createChatToolSet(options?: { modelRef?: ModelRef; chatId?: string | null; toolIds?: string[]; runId?: string | null; usesMemory?: boolean; documentCollections?: string[]; unattended?: boolean; compactionAllowance?: CompactionAllowance;
   subagent?: { parentToolCallId: string; userText: readonly string[] } }): Promise<ToolSet> {
   const resultBudgetUsed = new Map<string, number>();
@@ -368,7 +377,7 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; chatId?
 
   // Past a size, extension tools are loaded on demand: the search tool is offered for them,
   // knowing exactly this request's deferred tools; with nothing deferred it is left out.
-  const loading = planToolLoading(descriptors);
+  const loading = planToolLoading(descriptors, descriptors.some(tool => tool.extensionId) ? await knownContextWindow(options?.modelRef) : null);
   const offered = descriptors.flatMap(tool => tool.id !== FIND_TOOLS_ID ? [tool] : loading
     ? [{ ...tool, modelDescription: findToolsDescription(tool.modelDescription, loading), execute: async ({ input }: { input: FindExtensionToolsInput }) => findExtensionTools(loading.catalog, input) }]
     : []);

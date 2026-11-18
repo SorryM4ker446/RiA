@@ -2,7 +2,7 @@ import { z } from "zod";
 import { FOUND_LIMIT, searchDeferredTools, type DeferredTool } from "@/tools/deferred";
 
 export const FIND_EXTENSION_TOOLS_DESCRIPTION =
-  `Load extension tools that are listed below but not yet available. Only their names and one-line summaries are sent until loaded; once this returns, the tools it loaded can be called from your next step, with their full parameters. Load by exact name with names (up to ${FOUND_LIMIT}), or search names and descriptions with query. Load a tool before calling it, and only the tools the task needs. Do not use it for the tools you already have.`;
+  `Load extension tools that are listed below but not yet available. Until loaded, only their names are sent, with a one-line summary while the list is short; once this returns, the tools it loaded can be called from your next step, with their full parameters. Load by exact name with names (up to ${FOUND_LIMIT}), or search names and descriptions with query. Load a tool before calling it, and only the tools the task needs. Do not use it for the tools you already have.`;
 
 export const findExtensionToolsInput = z.strictObject({
   names: z.array(z.string().trim().min(1).max(200)).min(1).max(FOUND_LIMIT).optional().describe("Exact names from the list."),

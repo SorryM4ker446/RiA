@@ -105,7 +105,7 @@ async function discover(client: Client, signal: AbortSignal): Promise<ExtensionT
   do {
     const result = await client.listTools(cursor ? { cursor } : undefined, { signal, timeout: EXTENSION_LIMITS.timeoutMs });
     tools.push(...extensionToolsSchema.parse(result.tools.map(tool => ({ name: tool.name, description: tool.description ?? tool.name, inputSchema: tool.inputSchema, enabled: false }))));
-    if (tools.length > EXTENSION_LIMITS.tools) throw new ApiError({ code: "VALIDATION_ERROR", message: t("errors.eachExtensionSupportsUpTo64ToolsReduce") });
+    if (tools.length > EXTENSION_LIMITS.tools) throw new ApiError({ code: "VALIDATION_ERROR", message: tf("errors.tooManyExtensionTools", { max: EXTENSION_LIMITS.tools }) });
     cursor = result.nextCursor;
     if (cursor && cursors.has(cursor)) throw new ApiError({ code: "UPSTREAM_FAILED", message: t("errors.extensionReturnedARepeatedToolsPage") });
     if (cursor) cursors.add(cursor);

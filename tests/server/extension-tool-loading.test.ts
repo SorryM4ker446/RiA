@@ -6,7 +6,7 @@ import type { ModelMessage, UIMessage } from "ai";
 import { NextRequest } from "next/server";
 import { createTestDatabase } from "../helpers/database";
 import { localAccessCookie } from "../helpers/local-access";
-import { seedTestModelPreferences } from "../helpers/model-library";
+import { CHAT_MODEL_REF, seedTestModelPreferences } from "../helpers/model-library";
 import { languageModel, resetProviderState } from "../helpers/model-provider";
 import { wireText } from "../helpers/wire-text";
 import { startExtensionService } from "../helpers/extension-service";
@@ -18,8 +18,8 @@ const chatRoute = await import("@/app/api/chat/route");
 const loadingRoute = await import("@/app/api/extensions/[id]/loading/route");
 const { createChat } = await import("@/lib/chat/store");
 const { createChatToolSet } = await import("@/tools/execution");
-const { activeToolIds, toolLoadingOf, DEFERRAL_THRESHOLD_BYTES, FIND_TOOLS_ID } = await import("@/tools/deferred");
-const { externalToolId, externalToolIdPattern } = await import("@/lib/extensions/schema");
+const { activeToolIds, deferralThreshold, toolLoadingOf, DEFERRAL_COUNT, DEFERRAL_THRESHOLD_TOKENS, FIND_TOOLS_ID } = await import("@/tools/deferred");
+const { EXTENSION_LIMITS, externalToolId, externalToolIdPattern } = await import("@/lib/extensions/schema");
 const { saveExtension, testExtension, activateExtension, setExtensionToolLoading } = await import("@/lib/extensions/store");
 
 beforeEach(async (t: TestContext) => {
@@ -55,7 +55,7 @@ test("past the size, extension tools are listed by name and a line each, and the
   const big = await connection("Workspace", [...many(20), { name: "status", description: long("Report the workspace status"), alwaysLoad: true }]);
   const tools = await createChatToolSet();
   const loading = toolLoadingOf(tools)!;
-  assert.ok(loading, `twenty tools of about 1.5 KB pass ${DEFERRAL_THRESHOLD_BYTES} bytes`);
+  assert.ok(loading, `twenty tools of about 1.5 KB pass ${DEFERRAL_THRESHOLD_TOKENS} tokens`);
   assert.equal(loading.deferred.size, 20);
   const description = String(tools[FIND_TOOLS_ID].description);
   assert.match(description, new RegExp(`${big.toolId("tool_7")}: Workspace · tool_7 — Create calendar events for a team\\.`));
@@ -125,4 +125,58 @@ test("always load is saved without a new revision, survives a fresh detection, a
   const response = await loadingRoute.PUT(new NextRequest(`http://localhost/api/extensions/${row.id}/loading`, { method: "PUT", headers: { cookie: localAccessCookie(), "content-type": "application/json" }, body: JSON.stringify({ revision: saved.revision, alwaysLoad: [] }) }), { params: Promise.resolve({ id: row.id }) });
   assert.equal(response.status, 200, await response.clone().text());
   assert.equal((await response.json()).data.tools[0].alwaysLoad, false);
+});
+
+test("many small tools are deferred by their number, not only their size", async () => {
+  const tiny = await connection("Tiny", Array.from({ length: 40 }, (_, index) => ({ name: `op_${index}`, description: `Operation ${index}.` })));
+  const tools = await createChatToolSet();
+  const loading = toolLoadingOf(tools)!;
+  assert.ok(loading, `${DEFERRAL_COUNT + 8} tools pass ${DEFERRAL_COUNT}, though they are small`);
+  assert.equal(loading.deferred.size, 40);
+  assert.ok(!activeToolIds(tools, [])!.includes(tiny.toolId("op_0")));
+});
+
+test("a long list names each tool only, and a name from it or words for what it does still load it", async () => {
+  const wide = await connection("Wide", Array.from({ length: 200 }, (_, index) => ({ name: `op_${index}`, description: index === 150 ? "Book a meeting room for a team." : `Operation number ${index}.` })));
+  const tools = await createChatToolSet();
+  const description = String(tools[FIND_TOOLS_ID].description);
+  assert.match(description, /^- Wide · op_150$/m);
+  assert.ok(!description.includes(wide.toolId("op_150")) && !description.includes("Operation number"), "no ids or summaries in a long list");
+  assert.ok(Buffer.byteLength(description) < 8 * 1024, "two hundred names cost every request little");
+  const find = (input: unknown) => tools[FIND_TOOLS_ID].execute!(input, { toolCallId: "find", messages: [] }) as Promise<{ loaded: string[] }>;
+  assert.deepEqual((await find({ names: ["Wide · op_150"] })).loaded, [wide.toolId("op_150")]);
+  assert.deepEqual((await find({ query: "meeting room" })).loaded, [wide.toolId("op_150")]);
+});
+
+test("far more tools than before can be enabled, while always-loaded ones stay within what every request carries", async () => {
+  const names = (count: number, prefix: string) => Array.from({ length: count }, (_, index) => `${prefix}_${index}`);
+  const add = async (name: string, count: number) => {
+    const id = randomUUID();
+    await db.extension.create({ data: { id, name, kind: "mcp-http", config: { type: "mcp-http", url: "http://127.0.0.1:9/mcp" }, enabled: false, revision: 1, testedRevision: 1,
+      tools: names(count, name).map(tool => ({ name: tool, description: `${tool}.`, inputSchema: { type: "object" }, enabled: false, alwaysLoad: false })) } });
+    return id;
+  };
+  const first = await add("first", 150), second = await add("second", 106);
+  const enabled = await activateExtension(first, { revision: 1, enabled: true, tools: names(150, "first"), alwaysLoad: names(EXTENSION_LIMITS.alwaysLoadTools, "first") });
+  assert.equal(enabled.tools.filter(tool => tool.enabled).length, 150);
+  await assert.rejects(activateExtension(second, { revision: 1, enabled: true, tools: names(106, "second"), alwaysLoad: ["second_0"] }), /始终加载|Always load/, "one more always-loaded tool than every request carries");
+  const both = await activateExtension(second, { revision: 1, enabled: true, tools: names(106, "second") });
+  assert.equal(both.tools.filter(tool => tool.enabled).length, 106, `${EXTENSION_LIMITS.enabledTools} enabled in all`);
+  await assert.rejects(setExtensionToolLoading(second, { revision: both.revision, alwaysLoad: ["second_0"] }), /始终加载|Always load/);
+  const third = await add("third", 1);
+  await assert.rejects(activateExtension(third, { revision: 1, enabled: true, tools: ["third_0"] }), new RegExp(String(EXTENSION_LIMITS.enabledTools)), "past the total");
+});
+
+test("the size that defers follows the model's context window, up to the bound that keeps each request's cost down", async () => {
+  assert.equal(deferralThreshold(null), DEFERRAL_THRESHOLD_TOKENS, "a window not known gets the bound");
+  assert.equal(deferralThreshold(1_000_000), DEFERRAL_THRESHOLD_TOKENS, "a large window does not send more with every request");
+  assert.equal(deferralThreshold(32_768), 3_276, "a small one defers at a tenth of it");
+  // Eight tools of a few hundred tokens: sent in full to a model of an ordinary window, deferred for a small one.
+  const few = await connection("Few", Array.from({ length: 8 }, (_, index) => ({ name: `op_${index}`, description: `${"Operation details. ".repeat(60)}${index}` })));
+  assert.equal(toolLoadingOf(await createChatToolSet({ modelRef: CHAT_MODEL_REF })), null);
+  const settings = await seedTestModelPreferences(db);
+  settings.contextLimits = { [`${CHAT_MODEL_REF.providerId}:${CHAT_MODEL_REF.modelId}`]: { contextLength: 16_384, maxOutputTokens: null } };
+  await db.workspacePreference.update({ where: { id: "local" }, data: { settings } });
+  const small = toolLoadingOf(await createChatToolSet({ modelRef: CHAT_MODEL_REF }));
+  assert.ok(small?.deferred.has(few.toolId("op_0")), "past a tenth of a 16K window");
 });
