@@ -120,6 +120,8 @@ export type ToolDescriptor<Input = unknown, Output = unknown> = {
   /** The connection this tool comes from, as people named it. */
   extensionName?: string;
   extensionRevision?: number;
+  /** An extension tool sent in full even when extension tools are loaded on demand. */
+  alwaysLoad?: boolean;
   /** Whether a call waits for the user; a function decides per call, from its input and the conversation it is in. */
   requiresApproval?: boolean | ((input: unknown, context: { chatId?: string | null }) => Promise<boolean>);
   /**

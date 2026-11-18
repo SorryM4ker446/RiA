@@ -22,6 +22,7 @@ after(async () => { await db.$disconnect(); cleanup(); });
 const VALID_INPUTS: Record<string, unknown> = {
   runTerminalCommand: { grantId: "grant-1", command: "Get-Date" },
   readConversationHistory: { query: "the access code" },
+  findExtensionTools: { query: "calendar events" },
   extractMemory: { worthKeeping: "They prefer short answers." },
   readTerminalLog: { logId: "8d9c6f0e-4b7a-4c1d-9e2f-3a5b6c7d8e9f", stream: "stdout", startLine: 1, lineCount: 50 },
   checkTerminalCommand: { id: "8d9c6f0e-4b7a-4c1d-9e2f-3a5b6c7d8e9f", waitSeconds: 30 },

@@ -147,6 +147,19 @@ handling. Each operation has a 20-second deadline with no automatic call retries
 Configuring an extension does not change model token prices or account for fees
 charged separately by that external service.
 
+## Loading tools on demand
+
+Every enabled external tool is sent to the model with each request: its description and its parameter schema. Once the enabled external tools of a request together pass 24 KiB (about 6,000 tokens), they are loaded on demand instead:
+
+- The model gets one line per tool (its name, the connection and tool, and the first sentence of its description) in the description of `findExtensionTools`, a tool only the model uses.
+- It calls `findExtensionTools` with exact names, or with words to look for, to load at most five tools at a time. From its next step those tools are sent in full and can be called; the others stay a line each.
+- What was loaded is read back from the conversation's own `findExtensionTools` results, so it carries over to later turns. Once a summary replaces those results, the model looks the tool up again.
+- **Always load**, in a connection's **Manage tools** sheet, sends a tool in full every time, for a tool used in most conversations. It is off by default, only shown for selected tools, and not on the extension list. Saving it alone does not change the connection's revision, so approvals waiting for that connection and calls under way are unaffected.
+
+Below the size, nothing changes: every enabled tool is sent in full and `findExtensionTools` is not offered. Approval, automatic review, revision binding and execution are the same for a loaded tool as for any other; only what each step offers the model changes. Context compaction and the usage view count the tools a step actually sends. A template that allows only some external tools defers only those.
+
+The cost is an extra step when a deferred tool is first needed. The descriptions in the list come from the connected services and are marked as data, not instructions.
+
 ## Configuration, updates and cancellation
 
 Edits require the current revision and disable the connection until detection
@@ -223,7 +236,8 @@ pre-upgrade workspace snapshot when rolling back to a previous application build
 ## Bounds and protocol limits
 
 Up to 20 connections, 64 discovered tools per connection and 32 enabled external
-tools in total are supported. Input schemas must be JSON object schemas, at most
+tools in total are supported; past 24 KiB of definitions, enabled tools are loaded
+on demand (see above). Input schemas must be JSON object schemas, at most
 16 KiB and 16 nested levels. Reference keywords and regular-expression schema
 rules are rejected; schemas outside the supported subset fail detection visibly.
 Wire responses/messages are capped at 512 KiB; retained results above 32 KiB become

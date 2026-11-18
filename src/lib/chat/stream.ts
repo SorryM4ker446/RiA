@@ -32,6 +32,7 @@ import { templateAllowsTool } from "@/tools/template-access";
 import { contextCalibration, conversationCalibration, recordContextCalibration } from "@/lib/models/context-calibration";
 import { compactAfterTurn } from "./compaction";
 import { planReminder } from "@/tools/definitions/update-plan";
+import { activeToolIds } from "@/tools/deferred";
 import { createTurnFailureReader } from "./tool-failure";
 /** OpenRouter passes along reasoning it cannot show as encrypted details. */
 function hasEncryptedReasoning(metadata: unknown) {
@@ -209,6 +210,10 @@ async function openChatAnswer(params: ChatAnswer) {
   const toolDefinitions = tools ? await Promise.all(Object.entries(tools).map(async ([name, tool]) => tool.type === "provider"
     ? { type: "provider", name, id: tool.id, args: tool.args }
     : { type: "function", name, description: tool.description, inputSchema: await asSchema(tool.inputSchema).jsonSchema })) : undefined;
+  // With extension tools loaded on demand, a step sends only the tools it offers; the context is measured on those.
+  let activeTools = tools ? activeToolIds(tools, modelMessages) : null;
+  const sentDefinitions = () => activeTools ? toolDefinitions?.filter(tool => activeTools!.includes(tool.name)) : toolDefinitions;
+  const sentTools = () => tools && activeTools ? Object.fromEntries(Object.entries(tools).filter(([name]) => activeTools!.includes(name))) : tools;
   const calibration = await conversationCalibration(modelRef, messages);
   const contextReport = () => ({ ...stepContext.report, ...(params.compactionAllowance?.exhausted ? { compactionAllowanceExhausted: true } : {}) });
   // The conversation's one summary. A fold during this turn updates it, so the next
@@ -217,13 +222,13 @@ async function openChatAnswer(params: ChatAnswer) {
   let keptSummary = stored?.summary ?? null, summaryModel = "", foldState = stored?.state ?? EMPTY_SUMMARY_STATE;
   let foldWrites: Promise<unknown> = Promise.resolve();
   let restoredSeen: SummaryState["files"] = [];
-  const stepContext = createStepContext({ budget, system: systemPrompt, tools: toolDefinitions, signal, calibration, onModelFold: params.onModelFold,
-    sizes: { skills: params.skillsPrompt, extensionTools: toolDefinitions?.filter(tool => externalToolIdPattern.test(tool.name)) },
+  const stepContext = createStepContext({ budget, system: systemPrompt, tools: sentDefinitions(), signal, calibration, onModelFold: params.onModelFold,
+    sizes: { skills: params.skillsPrompt, extensionTools: sentDefinitions()?.filter(tool => externalToolIdPattern.test(tool.name)) },
     handoff: stored ? { state: stored.summary, calls: stored.state.calls, ...(stored.state.restored === undefined ? {} : { restored: stored.state.restored }) } : null,
     recorded: () => [recordedFacts(foldState), tools?.readConversationHistory ? LOOKUP_HINT : ""].filter(Boolean).join("\n"),
     summarize: async (records, previous, sent) => {
       const { state, modelRef: used } = await summarizeWithAuxiliary({ main: activeRef, records, previous, signal, allowance: params.compactionAllowance, request: getLatestUserMessage(messages)?.text,
-        ...(sent ? { conversation: { system: systemPrompt, tools, ...sent } } : {}) });
+        ...(sent ? { conversation: { system: systemPrompt, tools: sentTools(), ...sent } } : {}) });
       summaryModel = `${used.providerId}:${used.modelId}`;
       return state;
     },
@@ -302,12 +307,18 @@ async function openChatAnswer(params: ChatAnswer) {
     // provider's support for forcing a call and cannot be refused for reasoning.
     // The model may still answer without it; the turn records that when it does.
     prepareStep: async ({ messages: stepMessages, stepNumber }) => {
+      // Tools loaded on demand in an earlier step are offered, in full, from this one.
+      if (tools) {
+        activeTools = activeToolIds(tools, stepMessages);
+        const sent = sentDefinitions();
+        stepContext.setTools(sent, sent?.filter(tool => externalToolIdPattern.test(tool.name)));
+      }
       const prepared = await stepContext.prepare(stepMessages);
       thinkingClock.stepStarted();
       // A reminder about the checklist rides on this step only, after everything else, so the prompt before it stays as it was.
       const reminder = tools && "updatePlan" in tools ? planReminder(stepMessages) : null;
       const messages = reminder ? [...prepared.messages, { role: "user" as const, content: [{ type: "text" as const, text: reminder }] }] : prepared.messages;
-      return { ...prepared, messages, ...(stepNumber === 0 && params.chosenTool ? { activeTools: [params.chosenTool] } : {}) };
+      return { ...prepared, messages, ...(stepNumber === 0 && params.chosenTool ? { activeTools: [params.chosenTool] } : activeTools ? { activeTools } : {}) };
     },
     onStepFinish: ({ usage, toolCalls, stepNumber, reasoning, providerMetadata, text }) => {
       stepContext.observeUsage(usage.inputTokens);

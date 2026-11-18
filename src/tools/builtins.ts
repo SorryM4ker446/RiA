@@ -18,6 +18,8 @@ import { runWebSearch, webSearchInput } from "@/tools/definitions/web-search";
 import { READ_WEB_PAGE_DESCRIPTION, readWebPageInput, runReadWebPage } from "@/tools/definitions/read-web-page";
 import { UPDATE_PLAN_DESCRIPTION, planProgress, updatePlanInput } from "@/tools/definitions/update-plan";
 import { ASK_USER_DESCRIPTION, askUserInput, readAnswer } from "@/tools/definitions/ask-user";
+import { FIND_EXTENSION_TOOLS_DESCRIPTION, findExtensionTools, findExtensionToolsInput } from "@/tools/definitions/find-extension-tools";
+import { planToolLoading } from "@/tools/deferred";
 import { documentProcessorTools } from "@/tools/definitions/document-processor";
 import { readPluginSkill } from "@/tools/definitions/plugin-skill";
 import { activeSkillPackages } from "@/lib/plugins/store";
@@ -170,6 +172,21 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       // Loaded here because it reaches the chat message modules, which the tool list must stay free of.
       const { scheduleMemoryExtraction } = await import("@/lib/memory/extraction");
       return scheduleMemoryExtraction({ chatId, modelRef, hint: input.worthKeeping, userAsked: input.userAsked });
+    },
+  },
+  // Offered only when extension tools are deferred; each request then gives it the deferred tools of that request.
+  findExtensionTools: {
+    id: "findExtensionTools",
+    displayName: t("tools.findExtensionTools.displayName"),
+    description: t("tools.findExtensionTools.description"),
+    modelDescription: FIND_EXTENSION_TOOLS_DESCRIPTION,
+    modeSupport: ["chat"],
+    surface: { category: "extension", user: null, template: "always", underlying: "model" },
+    inputSchema: findExtensionToolsInput,
+    execute: async ({ input, modelRef }) => {
+      // Loaded here because the registry lists these built-in tools itself.
+      const { listAvailableRegisteredTools } = await import("./registry");
+      return findExtensionTools(planToolLoading(await listAvailableRegisteredTools("chat", modelRef))?.catalog ?? [], input);
     },
   },
   readConversationHistory: {

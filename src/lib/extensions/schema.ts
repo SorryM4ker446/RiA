@@ -46,10 +46,13 @@ export type ExtensionConfig = z.infer<typeof extensionConfigSchema>;
 export const credentialSchema = z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_-]{0,99}$/), z.string().min(1).max(4096)).refine(value => Object.keys(value).length <= 20);
 export const saveExtensionSchema = z.strictObject({ name: z.string().trim().min(1).max(80), config: extensionConfigSchema, credentials: credentialSchema.optional(), clearCredentials: z.boolean().optional(), revision: z.number().int().positive().optional() });
 export type SaveExtension = z.infer<typeof saveExtensionSchema>;
-export const extensionToolSchema = z.strictObject({ name: z.string().min(1).max(200), description: z.string().max(2000), inputSchema: inputSchemaSchema, enabled: z.boolean().default(false) });
+// `alwaysLoad`: sent to the model in full even when extension tools are loaded on demand.
+export const extensionToolSchema = z.strictObject({ name: z.string().min(1).max(200), description: z.string().max(2000), inputSchema: inputSchemaSchema, enabled: z.boolean().default(false), alwaysLoad: z.boolean().default(false) });
 export const extensionToolsSchema = z.array(extensionToolSchema).max(EXTENSION_LIMITS.tools).refine(tools => new Set(tools.map(tool => tool.name)).size === tools.length);
 export type ExtensionTool = z.infer<typeof extensionToolSchema>;
-export const activationSchema = z.strictObject({ revision: z.number().int().positive(), enabled: z.boolean(), tools: z.array(z.string().min(1).max(200)).max(EXTENSION_LIMITS.tools) });
+export const activationSchema = z.strictObject({ revision: z.number().int().positive(), enabled: z.boolean(), tools: z.array(z.string().min(1).max(200)).max(EXTENSION_LIMITS.tools), alwaysLoad: z.array(z.string().min(1).max(200)).max(EXTENSION_LIMITS.tools).optional() });
+/** Which tools always load. A preference about what each request sends, not about what may run, so it leaves the revision alone. */
+export const toolLoadingSchema = z.strictObject({ revision: z.number().int().positive(), alwaysLoad: z.array(z.string().min(1).max(200)).max(EXTENSION_LIMITS.tools) });
 export const bindingSchema = z.strictObject({ extensionId: extensionIdSchema, revision: z.number().int().positive() });
 export const externalInputSchema = z.strictObject({ arguments: z.record(z.string(), z.json()), binding: bindingSchema.optional(), autoReview: autoReviewSchema.optional() });
 export type ExternalInput = z.infer<typeof externalInputSchema>;

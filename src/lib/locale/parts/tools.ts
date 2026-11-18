@@ -41,6 +41,8 @@ export const toolsMessages = {
   "tools.compactContext.hint": "可以写上要重点保留的内容，发送后开始",
   "tools.extractMemory.displayName": "整理长期记忆",
   "tools.extractMemory.description": "模型判断值得记住时，把你说过的内容整理进 MEMORY.md。",
+  "tools.findExtensionTools.displayName": "查找扩展工具",
+  "tools.findExtensionTools.description": "扩展工具较多时，只先告诉模型工具名和一句话说明，模型需要时再加载完整工具。",
   "tools.readConversationHistory.displayName": "查看对话原文",
   "tools.readConversationHistory.description": "查找这段对话里被摘要或缩短的原始内容。",
   "tools.createTask.displayName": "创建任务",

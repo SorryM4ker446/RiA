@@ -142,7 +142,9 @@ export function createStepContext(params: {
     return params.restoreAfterFold(inUse).catch(() => { params.signal?.throwIfAborted(); return ""; });
   };
   const report: StepContextReport = { checks: 0, compactions: 0, degraded: false, estimatedInputTokens: 0, usageCalibration: params.calibration ?? 1, budget: params.budget };
-  const input = (messages: ModelMessage[]) => ({ system: params.system, messages, tools: params.tools });
+  // The tool definitions this step sends; they change when extension tools are loaded on demand.
+  let tools = params.tools, extensionTools = params.sizes?.extensionTools;
+  const input = (messages: ModelMessage[]) => ({ system: params.system, messages, tools });
   // The scale starts as a guess from earlier requests. The first step the provider
   // counts replaces it, and from there it only rises within the stream, since one step's
   // lighter content says nothing about the next.
@@ -231,8 +233,8 @@ export function createStepContext(params: {
         else parts[part.type === "reasoning" ? "messages" : "toolResults"] += size(part);
       }
     });
-    const skills = size(params.sizes?.skills ?? ""), extensionTools = params.sizes?.extensionTools ? size(params.sizes.extensionTools) : 0;
-    return { ...parts, skills, extensionTools, system: Math.max(0, size(params.system) - skills), tools: Math.max(0, size(params.tools ?? "") - extensionTools) };
+    const skills = size(params.sizes?.skills ?? ""), extensionToolSize = extensionTools ? size(extensionTools) : 0;
+    return { ...parts, skills, extensionTools: extensionToolSize, system: Math.max(0, size(params.system) - skills), tools: Math.max(0, size(tools ?? "") - extensionToolSize) };
   }
   /**
    * Fold completed work into the summary when the step reaches the trigger, or
@@ -377,6 +379,16 @@ export function createStepContext(params: {
   return {
     report,
     prepare,
+    /**
+     * The tool definitions the next step sends, when they differ from the last: a tool
+     * loaded on demand adds its own. The provider's count of the last step no longer
+     * covers them, so the next step is estimated whole.
+     */
+    setTools(next: unknown, nextExtensionTools?: unknown) {
+      if (JSON.stringify(next ?? null) === JSON.stringify(tools ?? null)) return;
+      tools = next; extensionTools = nextExtensionTools;
+      version++;
+    },
     /**
      * Recover a step the provider refused as over its window: the local count
      * was too low, so raise its scale, stop trusting the usage anchor, and fold

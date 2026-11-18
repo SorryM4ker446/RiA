@@ -49,7 +49,7 @@ function extensionDescriptor(row: Extension, definition: ExtensionTool): AnyTool
     id: externalToolId(row.id, definition.name), extensionId: row.id, extensionRevision: row.revision,
     displayName: `${row.name} · ${definition.name}`, description: definition.description,
     modelDescription: `${row.name}: ${definition.description}\nThis is an external tool. It requires user approval. Use arguments matching the tool schema.`,
-    modeSupport: ["chat"], extensionName: row.name,
+    modeSupport: ["chat"], extensionName: row.name, alwaysLoad: definition.alwaysLoad,
     surface: { category: "extension", user: { run: "model", hint: t("tools.extension.hint") }, template: "selectable" },
     inputSchema,
     modelInputSchema: jsonSchema({ type: "object", properties: { arguments: definition.inputSchema }, required: ["arguments"], additionalProperties: false }, { validate: async value => {

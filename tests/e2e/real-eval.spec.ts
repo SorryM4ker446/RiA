@@ -4,6 +4,7 @@ import type { Page } from "@playwright/test";
 import { test, expect, type RealModel } from "../helpers/real-model";
 import { browserApi, browserData } from "../helpers/browser-api";
 import { decodePersistedAssistantToolMessage } from "../../src/lib/ai/ui-message";
+import { startExtensionService } from "../helpers/extension-service";
 
 /*
  * A scored baseline of the model's behaviour in RiA (`npm run test:real`, tag
@@ -327,4 +328,71 @@ test("checklist: kept for work the user waits for, not for a quick action @real 
       } finally { cleanup(); }
     });
   }
+});
+
+/** A workspace server with many tools: past the size at which extension tools are loaded on demand. */
+function workspaceTools() {
+  const notes = (purpose: string) => `${purpose}. Use it only when the user asks for this kind of change in their team workspace. ${"It works on the team's shared workspace account, respects the members' permissions, and reports what changed or why nothing did. ".repeat(6)}`;
+  const text = (description: string) => ({ type: "string", description });
+  const schema = (properties: Record<string, object>, required: string[]) => ({ type: "object", properties, required, additionalProperties: false });
+  const tool = (name: string, purpose: string, properties: Record<string, object>, required: string[]) => ({ name, description: notes(purpose), inputSchema: schema(properties, required) });
+  return [
+    tool("create_calendar_event", "Create an event on the team calendar", { title: text("Event title"), start: text("Start time, ISO 8601"), durationMinutes: { type: "integer" }, attendees: { type: "array", items: { type: "string" } } }, ["title", "start"]),
+    tool("list_calendar_events", "List events on the team calendar in a time range", { from: text("Start, ISO 8601"), to: text("End, ISO 8601") }, ["from", "to"]),
+    tool("update_calendar_event", "Change the time or attendees of a calendar event", { eventId: text("Event id"), start: text("New start"), attendees: { type: "array", items: { type: "string" } } }, ["eventId"]),
+    tool("delete_calendar_event", "Cancel and remove a calendar event", { eventId: text("Event id") }, ["eventId"]),
+    tool("send_email", "Send an email from the team mailbox", { to: { type: "array", items: { type: "string" } }, subject: text("Subject"), body: text("Body") }, ["to", "subject", "body"]),
+    tool("search_email", "Search the team mailbox", { query: text("Words to find") }, ["query"]),
+    tool("draft_email", "Save an email draft for review", { to: { type: "array", items: { type: "string" } }, subject: text("Subject"), body: text("Body") }, ["subject", "body"]),
+    tool("search_files", "Search the shared drive by name or content", { query: text("Words to find") }, ["query"]),
+    tool("read_file", "Read a file from the shared drive", { path: text("File path") }, ["path"]),
+    tool("upload_file", "Upload a file to the shared drive", { path: text("Target path"), content: text("File content") }, ["path", "content"]),
+    tool("create_issue", "Open an issue in the team tracker", { title: text("Issue title"), body: text("Details") }, ["title"]),
+    tool("list_issues", "List open issues in the team tracker", { label: text("Label filter") }, []),
+    tool("comment_issue", "Comment on an issue", { issueId: text("Issue id"), body: text("Comment") }, ["issueId", "body"]),
+    tool("close_issue", "Close an issue", { issueId: text("Issue id") }, ["issueId"]),
+    tool("find_contact", "Find a colleague's contact details", { name: text("Name") }, ["name"]),
+    tool("add_contact", "Add a contact to the team directory", { name: text("Name"), email: text("Email") }, ["name", "email"]),
+    tool("post_message", "Post a message to a team chat channel", { channel: text("Channel"), text: text("Message") }, ["channel", "text"]),
+    tool("list_channels", "List the team chat channels", {}, []),
+    tool("create_task_item", "Add an item to the team task board", { title: text("Task title"), assignee: text("Assignee") }, ["title"]),
+    tool("complete_task_item", "Mark a task board item as done", { taskId: text("Task id") }, ["taskId"]),
+    tool("create_document", "Create a document in the team wiki", { title: text("Title"), body: text("Content") }, ["title"]),
+    tool("search_documents", "Search the team wiki", { query: text("Words to find") }, ["query"]),
+    tool("submit_expense", "Submit an expense claim", { amount: { type: "number" }, description: text("What it was for") }, ["amount", "description"]),
+    tool("list_expenses", "List submitted expense claims", { month: text("Month, YYYY-MM") }, []),
+  ];
+}
+
+test("extension tools on demand: a tool not sent in full is found and used; a request needing none loads none @real @eval", async ({ page, real }) => {
+  const service = await startExtensionService({ tools: workspaceTools() });
+  try {
+    const created = await browserApi(page, `${real.origin}/api/extensions`, "POST", { name: "Team workspace", config: { type: "mcp-http", url: `${service.origin}/mcp` } });
+    expect(created.status).toBe(201);
+    const tested = await browserApi(page, `${real.origin}/api/extensions/${created.body.data.id}/test`, "POST", { revision: created.body.data.revision });
+    expect(tested.status).toBe(200);
+    const enabled = await browserApi(page, `${real.origin}/api/extensions/${created.body.data.id}`, "PATCH", { revision: tested.body.data.revision, enabled: true, tools: tested.body.data.tools.slice(0, 24).map((tool: { name: string }) => tool.name) });
+    expect(enabled.status).toBe(200);
+    const names = new Map((enabled.body.data.tools as Array<{ id: string; name: string }>).map(tool => [tool.id, tool.name]));
+    for (let run = 1; run <= REPEATS; run++) {
+      await measured(page, real, async () => {
+        const chatId = await newChat(page, real, `按需加载 ${run}`);
+        await ask(page, real, chatId, "在团队日历上给明天下午三点安排一个 30 分钟的设计评审，参加的人是林然。");
+        const { answer } = await turn(page, real, chatId);
+        const saved = await savedTools(page, real, chatId);
+        const tools = saved.map(tool => names.get(tool.toolName) ?? tool.toolName);
+        // How many other workspace tools it called on the way; a fair answer needs none.
+        const workspace = new Set(names.values());
+        const checks = { searched: tools.includes("findExtensionTools"), calendar: tools.includes("create_calendar_event"), other: tools.filter(name => workspace.has(name) && name !== "create_calendar_event").length };
+        return { scenario: "deferred-tool-found", run, pass: checks.searched && checks.calendar, checks, tools, answer };
+      });
+      await measured(page, real, async () => {
+        const chatId = await newChat(page, real, `不需要扩展 ${run}`);
+        await ask(page, real, chatId, "把这句话翻译成英文：今天下午三点开会。");
+        const { answer, tools } = await turn(page, real, chatId);
+        const checks = { searched: tools.includes("findExtensionTools"), translated: /3|three|meeting/i.test(answer) };
+        return { scenario: "deferred-none-needed", run, pass: !checks.searched && checks.translated, checks, tools, answer };
+      });
+    }
+  } finally { await service.close(); }
 });

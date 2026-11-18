@@ -212,3 +212,30 @@ test("extension sheets remain usable in a narrow window, restore focus, validate
   await expect(page.getByTestId(`extension-${row.id}`).getByText("已停用", { exact: true })).toBeVisible();
   expect(app.service.state.calls).toHaveLength(0); expect(errors).toEqual([]);
 });
+
+test("a tool set to always load in the connection's tool sheet is saved without disturbing an approval waiting for it", { tag: "@integration" }, async ({ page, app }) => {
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  const row = await create(page, app, "MCP echo", "mcp-http"); await enable(page, row, "echo");
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  const chat = await ask(page, app);
+  const before = (await browserData(page, "/api/extensions")).items[0];
+  expect(before.tools[0].alwaysLoad).toBe(false);
+
+  await page.goto(`${app.runtime.origin}/extensions`);
+  // The setting sits in the connection's own tool sheet, reached from its menu, not on the list.
+  await expect(page.getByLabel("始终加载 echo", { exact: true })).toHaveCount(0);
+  await chooseRowAction(page, page.getByTestId(`extension-${row.id}`), "管理工具");
+  const sheet = page.getByRole("dialog", { name: "MCP echo · 工具", exact: true });
+  await sheet.getByLabel("始终加载 echo", { exact: true }).check();
+  await sheet.getByRole("button", { name: "保存工具选择", exact: true }).click();
+  await expect(page.getByText("已保存工具的加载方式。")).toBeVisible();
+  const after = (await browserData(page, "/api/extensions")).items[0];
+  expect(after.tools[0].alwaysLoad).toBe(true);
+  expect(after.revision).toBe(before.revision);
+
+  // The call put to the user before the change still runs once approved.
+  await page.goto(`${app.runtime.origin}/chat?conversationId=${chat.id}`);
+  await page.getByRole("button", { name: "批准", exact: true }).click();
+  await expect.poll(() => app.service.state.calls.length).toBe(1);
+  expect(errors).toEqual([]);
+});

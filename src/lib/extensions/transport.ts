@@ -120,7 +120,7 @@ export async function probeConnection(config: ExtensionConfig, credentials: Reco
   const response = await extensionFetch(config.url, signal)(config.url, { method: "HEAD", headers: credentials });
   await response.body?.cancel();
   if (!response.ok && response.status !== 405) throw new ApiError({ code: "UPSTREAM_FAILED", message: tf("server.extension.checkHttp", { status: response.status }) });
-  return [{ name: "request", description: config.description, inputSchema: config.inputSchema, enabled: false }];
+  return [{ name: "request", description: config.description, inputSchema: config.inputSchema, enabled: false, alwaysLoad: false }];
 }
 
 function sameDefinition(a: ExtensionTool, b: ExtensionTool) {

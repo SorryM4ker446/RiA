@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { ApiError } from "@/lib/server/api-error";
 import { cancelExtensionOperations, startExtensionOperation } from "./activity";
 import { credentialEncryptionAvailable, decryptCredentials, encryptCredentials } from "./secrets";
-import { activationSchema, EXTENSION_LIMITS, extensionConfigSchema, extensionToolsSchema, externalToolId, saveExtensionSchema, type SaveExtension } from "./schema";
+import { activationSchema, EXTENSION_LIMITS, extensionConfigSchema, extensionToolsSchema, externalToolId, saveExtensionSchema, toolLoadingSchema, type SaveExtension } from "./schema";
 import { canonical, connectionCredentials, probeConnection, publicExtensionError, sameDefinition, validateProcessConfig } from "./transport";
 import { pluginManifestSchema } from "@/lib/plugins/schema";
 
@@ -66,7 +66,7 @@ export async function testExtension(id: string, revision: number, signal?: Abort
     const previous = extensionToolsSchema.parse(current.tools);
     const changed = tools.length !== previous.length || tools.some(tool => !previous.some(old => sameDefinition(old, tool)));
     const nextRevision = changed ? revision + 1 : revision;
-    const saved = await db.extension.updateMany({ where: { id, revision, testId: token }, data: { tools: json(tools.map(tool => ({ ...tool, enabled: !changed && previous.some(old => old.name === tool.name && old.enabled) }))), enabled: changed ? false : current.enabled, revision: nextRevision, testedRevision: nextRevision, testId: null, lastTestAt: new Date(), lastError: null } });
+    const saved = await db.extension.updateMany({ where: { id, revision, testId: token }, data: { tools: json(tools.map(tool => ({ ...tool, enabled: !changed && previous.some(old => old.name === tool.name && old.enabled), alwaysLoad: previous.some(old => old.name === tool.name && old.alwaysLoad) }))), enabled: changed ? false : current.enabled, revision: nextRevision, testedRevision: nextRevision, testId: null, lastTestAt: new Date(), lastError: null } });
     if (!saved.count) throw conflict();
     if (changed) cancelExtensionOperations(id);
     return extensionView(await requireExtension(id));
@@ -90,11 +90,31 @@ export async function activateExtension(id: string, raw: unknown) {
     const others = await tx.extension.findMany({ where: { enabled: true, id: { not: id } }, select: { tools: true } });
     const total = others.reduce((sum, item) => sum + extensionToolsSchema.parse(item.tools).filter(tool => tool.enabled).length, 0) + (input.enabled ? selected.size : 0);
     if (total > EXTENSION_LIMITS.enabledTools) throw new ApiError({ code: "VALIDATION_ERROR", message: t("errors.upTo32ExternalToolsCanBeEnabled") });
+    const always = input.alwaysLoad ? new Set(input.alwaysLoad) : null;
+    if (always && [...always].some(name => !tools.some(tool => tool.name === name))) throw new ApiError({ code: "VALIDATION_ERROR", message: t("errors.invalidToolSelectionTestTheConnectionAgain") });
     const revision = row.revision + 1;
-    return tx.extension.update({ where: { id, revision: input.revision }, data: { enabled: input.enabled, tools: json(tools.map(tool => ({ ...tool, enabled: selected.has(tool.name) }))), revision, testedRevision: row.testedRevision === row.revision ? revision : null, testId: null } });
+    return tx.extension.update({ where: { id, revision: input.revision }, data: { enabled: input.enabled, tools: json(tools.map(tool => ({ ...tool, enabled: selected.has(tool.name), alwaysLoad: always ? always.has(tool.name) : tool.alwaysLoad }))), revision, testedRevision: row.testedRevision === row.revision ? revision : null, testId: null } });
   });
   cancelExtensionOperations(id);
   return extensionView(await requireExtension(saved.id));
+}
+
+/**
+ * Sets which tools always load. Only what each request sends changes, so the
+ * revision stays: approvals bound to it and calls under way are unaffected.
+ */
+export async function setExtensionToolLoading(id: string, raw: unknown) {
+  const input = toolLoadingSchema.parse(raw);
+  await db.$transaction(async tx => {
+    const row = await tx.extension.findUnique({ where: { id } });
+    if (!row || row.revision !== input.revision) throw conflict();
+    const tools = extensionToolsSchema.parse(row.tools);
+    const always = new Set(input.alwaysLoad);
+    if (always.size !== input.alwaysLoad.length || input.alwaysLoad.some(name => !tools.some(tool => tool.name === name))) throw new ApiError({ code: "VALIDATION_ERROR", message: t("errors.invalidToolSelectionTestTheConnectionAgain") });
+    const saved = await tx.extension.updateMany({ where: { id, revision: input.revision }, data: { tools: json(tools.map(tool => ({ ...tool, alwaysLoad: always.has(tool.name) }))) } });
+    if (!saved.count) throw conflict();
+  });
+  return extensionView(await requireExtension(id));
 }
 
 export async function deleteExtension(id: string, revision: number) {
