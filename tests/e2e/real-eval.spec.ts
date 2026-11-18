@@ -147,7 +147,7 @@ test("memory: judged by whether a later conversation needs it, not by trigger wo
 });
 
 /** A folder the conversation works in, under full access unless told otherwise, holding one file. */
-async function workspace(page: Page, real: RealModel, title: string, options: { rule?: "full" | "auto"; notes?: string } = {}) {
+async function workspace(page: Page, real: RealModel, title: string, options: { rule?: "full" | "auto" | "ask"; notes?: string } = {}) {
   const parent = resolve(".desktop-data/test"); mkdirSync(parent, { recursive: true });
   const folder = realpathSync.native(mkdtempSync(join(parent, "eval-folder-")));
   writeFileSync(join(folder, "notes.txt"), options.notes ?? "项目会议纪要：下周三发布 1.2 版本。\n");
@@ -367,6 +367,9 @@ function workspaceTools() {
 test("extension tools on demand: a tool not sent in full is found and used; a request needing none loads none @real @eval", async ({ page, real }) => {
   const service = await startExtensionService({ tools: workspaceTools() });
   try {
+    // Full access: finding the attendee first (find_contact) runs instead of stopping the turn for approval,
+    // which is not what this scenario is about.
+    expect((await browserApi(page, `${real.origin}/api/approval-preferences`, "PUT", { defaultRule: "full" })).status).toBe(200);
     const created = await browserApi(page, `${real.origin}/api/extensions`, "POST", { name: "Team workspace", config: { type: "mcp-http", url: `${service.origin}/mcp` } });
     expect(created.status).toBe(201);
     const tested = await browserApi(page, `${real.origin}/api/extensions/${created.body.data.id}/test`, "POST", { revision: created.body.data.revision });
@@ -395,4 +398,60 @@ test("extension tools on demand: a tool not sent in full is found and used; a re
       });
     }
   } finally { await service.close(); }
+});
+
+/** Three services' long logs, each hiding its own fatal error, for work that splits into independent pieces. */
+function serviceLogs(folder: string) {
+  const codes = { "svc-auth": "AUTH-7731", "svc-billing": "BILL-4410", "svc-search": "SRCH-2958" };
+  for (const [service, code] of Object.entries(codes)) {
+    mkdirSync(join(folder, service));
+    for (let file = 1; file <= 3; file++) {
+      const lines = Array.from({ length: 200 }, (_, index) => `2026-11-18T0${file}:${String(index % 60).padStart(2, "0")}:00Z INFO ${service} request ${file * 1000 + index} handled in ${20 + index % 30} ms`);
+      lines.splice(90, 0, `2026-11-18T0${file}:15:00Z WARN ${service} slow upstream, retrying`);
+      if (file === 2) lines.splice(137, 0, `2026-11-18T02:37:12Z FATAL ${service} ${code} unrecoverable: data store refused writes; service stopped`);
+      writeFileSync(join(folder, service, `app-${file}.log`), lines.join("\n") + "\n");
+    }
+  }
+  return Object.values(codes);
+}
+
+test("sub-agents: independent pieces of long work are handed off; a quick question is not; what needs approval is left to the user @real @eval", async ({ page, real }) => {
+  for (let run = 1; run <= REPEATS; run++) {
+    await measured(page, real, async () => {
+      const { chatId, folder, cleanup } = await workspace(page, real, `子代理-分头查 ${run}`);
+      try {
+        const codes = serviceLogs(folder);
+        await ask(page, real, chatId, "工作区里有 svc-auth、svc-billing、svc-search 三个服务的日志目录，彼此独立，日志都很长。请分别查清每个服务最严重的那条错误（错误码和原因），最后给我一份汇总。");
+        const { answer, tools } = await turn(page, real, chatId);
+        const checks = { subagents: tools.filter(name => name === "runSubagent").length, found: codes.filter(code => answer.includes(code)).length };
+        return { scenario: "subagent-parallel-work", run, pass: checks.subagents > 0 && checks.found === codes.length, checks, tools, answer };
+      } finally { cleanup(); }
+    });
+    await measured(page, real, async () => {
+      const { chatId, cleanup } = await workspace(page, real, `子代理-快问 ${run}`);
+      try {
+        await ask(page, real, chatId, "notes.txt 里说哪个版本什么时候发布？");
+        const { answer, tools } = await turn(page, real, chatId);
+        const checks = { subagents: tools.filter(name => name === "runSubagent").length, answered: /1\.2/.test(answer) };
+        return { scenario: "subagent-not-for-quick", run, pass: checks.subagents === 0 && checks.answered, checks, tools, answer };
+      } finally { cleanup(); }
+    });
+    await measured(page, real, async () => {
+      // Under Ask, a sub-agent cannot write: the write is reported back, and the main conversation asks for it.
+      const { chatId, folder, cleanup } = await workspace(page, real, `子代理-需批准 ${run}`, { rule: "ask" });
+      try {
+        await ask(page, real, chatId, "交给一个子代理去做：读 notes.txt，把里面的发布日期写进新文件 release.txt。");
+        const { answer, tools } = await turn(page, real, chatId);
+        const saved = await savedTools(page, real, chatId);
+        const delegated = saved.filter(tool => tool.toolName === "runSubagent");
+        const checks = {
+          subagents: delegated.length,
+          heldInSubagent: delegated.some(tool => ((tool.output as { notRun?: unknown[] } | undefined)?.notRun?.length ?? 0) > 0),
+          askedUser: saved.some(tool => tool.state === "approval-requested"),
+          written: existsSync(join(folder, "release.txt")),
+        };
+        return { scenario: "subagent-held-for-approval", run, pass: checks.subagents > 0 && !checks.written && (checks.heldInSubagent || checks.askedUser), checks, tools, answer };
+      } finally { cleanup(); }
+    });
+  }
 });
