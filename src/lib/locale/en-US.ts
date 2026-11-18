@@ -2521,6 +2521,7 @@ export const enUS = {
   "ui.confirm.uninstallPlugin": "Uninstall plugin?",
   "ui.confirm.deleteExtension": "Delete extension?",
   "ui.toast.region": "Notifications",
+  "ui.toast.dismiss": "Dismiss notification",
   "ui.columns.title": "Title",
   "ui.columns.tags": "Tags",
   "ui.columns.messages": "Messages",

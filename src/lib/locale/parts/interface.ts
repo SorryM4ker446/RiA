@@ -948,6 +948,7 @@ export const interfaceMessages = {
   "ui.confirm.uninstallPlugin": "卸载插件？",
   "ui.confirm.deleteExtension": "删除扩展？",
   "ui.toast.region": "通知",
+  "ui.toast.dismiss": "关闭通知",
   "ui.columns.title": "标题",
   "ui.columns.tags": "标签",
   "ui.columns.messages": "消息",

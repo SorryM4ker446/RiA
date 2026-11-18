@@ -1,7 +1,7 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
 import { t, tf, localizeMessage } from "@/lib/locale";
-import { useEffect, useId, useRef, useState, type Ref } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { ArrowUpRight, Brain, ChevronDown, Info, LayoutTemplate } from "lucide-react";
@@ -24,7 +24,7 @@ type Props = Pick<
   | "modelMode"
   | "toggleEphemeral"
   | "assistants" | "assistantsError" | "loadAssistants" | "applyAssistant"
-> & { toastAnchorRef?: Ref<HTMLDivElement> };
+>;
 
 /** The memory glyph crossed out the way lucide draws its "-off" icons: cut where the slash passes, then the slash. */
 function BrainOff({ className }: { className?: string }) {
@@ -56,7 +56,6 @@ export function ChatHeader({
   modelMode,
   toggleEphemeral,
   assistants, assistantsError, loadAssistants, applyAssistant,
-  toastAnchorRef,
 }: Props) {
   useLocale();
   const toast = useToast();
@@ -143,8 +142,6 @@ export function ChatHeader({
     {slot ? createPortal(header, slot) : null}
     {/* The page's heading, for the document outline and screen readers; the title in the top row is a menu button. */}
     {title ? <h1 className="sr-only">{title}</h1> : null}
-    {/* Where the toolbar row used to be: confirmations still appear centred here, over the top of the conversation. */}
-    <div ref={toastAnchorRef} className="chat-toast-anchor" aria-hidden="true" />
     {snapshot ? <TemplateDetails key={activeChat?.id} snapshot={snapshot} open={detailsOpen} onOpenChange={setDetailsOpen} returnFocus={() => titleButton.current?.focus()} /> : null}
     <Reveal className="chat-header-notices">{hasTemplateUpdate || assistantsError ? <div className="flex flex-wrap items-center gap-2 px-6 pb-1 pt-2 text-xs">
       {hasTemplateUpdate ? <Button variant="ghost" size="sm" disabled={isPending} onClick={() => void applyAssistant(snapshot.templateId)}>{t("ui.chat.chat-toolbar.updateToLatestTemplate")}</Button> : null}

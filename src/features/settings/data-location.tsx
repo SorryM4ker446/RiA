@@ -319,7 +319,7 @@ export function DataLocationNotices() {
         return;
       }
       if (view.lowSpace) {
-        toast({ title: t("dataLocation.lowSpace.title"), description: tf("dataLocation.lowSpace.detail", { size: formatSize(view.lowSpace.freeBytes) }), action: { label: t("dataLocation.lowSpace.action"), run: () => open("storage") } });
+        toast({ tone: "warning", title: t("dataLocation.lowSpace.title"), description: tf("dataLocation.lowSpace.detail", { size: formatSize(view.lowSpace.freeBytes) }), action: { label: t("dataLocation.lowSpace.action"), run: () => open("storage") } });
         void api.dismissLowSpace();
       }
     }).catch(() => {});

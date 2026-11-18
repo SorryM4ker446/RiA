@@ -2,7 +2,7 @@
 import { useLocale } from "@/lib/locale/client";
 
 import { useRef, useState } from "react";
-import { useToastAnchor } from "@/components/ui/toast";
+import { useToastClearance } from "@/components/ui/toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,9 +26,9 @@ export default function ChatPage() {
   useLocale();
   const chat = useChatState();
   const openSettings = useOpenSettings();
-  // Confirmations appear centred near the top of the conversation, just below the window's top row.
-  const toastAnchor = useRef<HTMLDivElement>(null);
-  useToastAnchor(toastAnchor);
+  // Notes in the corner rise above the composer and the cards over it whenever they would cover them.
+  const dock = useRef<HTMLDivElement>(null);
+  useToastClearance(dock);
   const [executionPanel, setExecutionPanel] = useState<{ chatId: string; messageId?: string } | null>(null);
   // Commands from the palette and keyboard shortcuts; one sent from another page runs once chat is ready.
   useChatCommands(command => {
@@ -54,14 +54,14 @@ export default function ChatPage() {
       <ToolLessModelNotice {...chat} />
       <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Card className="chat-canvas relative flex h-full min-h-0 flex-col overflow-hidden rounded-none border-0 bg-transparent shadow-none">
-          <ChatHeader {...chat} toastAnchorRef={toastAnchor} />
+          <ChatHeader {...chat} />
 
           <CardContent className="flex min-h-0 flex-1 flex-col gap-0 p-0">
             <MessageRenderer {...chat} onShowSources={showExecutionDetails} />
 
             {/* What the turn did, above the composer: the place someone looks
                 when an answer mentions a task or a search they did not see. */}
-            <div className="chat-dock flex max-h-[50%] shrink-0 flex-col gap-3 overflow-y-auto px-4 pb-5 pt-2 sm:px-7">
+            <div ref={dock} className="chat-dock flex max-h-[50%] shrink-0 flex-col gap-3 overflow-y-auto px-4 pb-5 pt-2 sm:px-7">
               {chat.isHistoryReady ? <ApprovalDock key={chat.activeChatId} {...chat} onDetails={showExecutionDetails} /> : null}
               {chat.isHistoryReady ? <PlanStrip messages={chat.messages} isPending={chat.isPending} /> : null}
               <div className="mx-auto flex w-full max-w-[42rem] flex-wrap items-center gap-1">

@@ -87,7 +87,7 @@ export function YourRia() {
   const sort = useCallback(async (quietly: boolean) => {
     const read = ++lastRead.current;
     const response = await fetch(ENDPOINT, { method: "POST" }).catch(() => null);
-    if (!response?.ok) { if (!quietly) toast(t("settings.yourRia.memory.organizeFailed")); return; }
+    if (!response?.ok) { if (!quietly) toast({ title: t("settings.yourRia.memory.organizeFailed"), tone: "error" }); return; }
     const body = await response.json();
     if (read === lastRead.current) setView(body.data);
   }, [toast]);
@@ -108,7 +108,7 @@ export function YourRia() {
       const response = await request();
       const body = await response.json().catch(() => null);
       if (!response.ok) {
-        toast({ title: t(options.failed), description: localizeMessage(getApiErrorMessage(body, t("settings.yourRia.memory.changed"))) });
+        toast({ title: t(options.failed), description: localizeMessage(getApiErrorMessage(body, t("settings.yourRia.memory.changed"))), tone: "error" });
         await load();
         return false;
       }
@@ -116,7 +116,7 @@ export function YourRia() {
       const commit = () => flushSync(() => setView(body.data));
       if (options.removing) await animateRemoval(options.removing, commit); else commit();
       return true;
-    } catch { toast(t(options.failed)); return false; }
+    } catch { toast({ title: t(options.failed), tone: "error" }); return false; }
     finally { changing.current = false; setBusy(false); }
   }
 
