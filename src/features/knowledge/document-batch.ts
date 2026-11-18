@@ -12,7 +12,8 @@ import { documentRequest, DocumentRequestError } from "./document-client";
 export const DOCUMENT_EXTENSIONS = [".pdf", ".md", ".txt", ".docx"] as const;
 
 export type BatchStatus = "waiting" | "importing" | "retrying" | "added" | "updated" | "unchanged" | "failed" | "skipped";
-export type BatchItem = { id: string; file: File; name: string; status: BatchStatus; message?: string; retryInSeconds?: number };
+/** `name` is what the list shows; `documentName` is the name the document is saved under. */
+export type BatchItem = { id: string; file: File; name: string; documentName: string; status: BatchStatus; message?: string; retryInSeconds?: number };
 
 /** How many times one document waits out a rate limit before it is reported as failed. */
 const RATE_LIMIT_WAITS = 5;
@@ -21,18 +22,45 @@ const MAX_WAIT_SECONDS = 60;
 const extensionOf = (name: string) => name.slice(name.lastIndexOf(".")).toLowerCase();
 export const isDocumentFile = (file: File) => (DOCUMENT_EXTENSIONS as readonly string[]).includes(extensionOf(file.name));
 
+/** Between the folders of a path within the chosen folder, in a document name (which cannot hold a slash). */
+export const PATH_SEPARATOR = " › ";
+/** The longest document name the library accepts. */
+const DOCUMENT_NAME_LIMIT = 180;
+
 /**
  * The items for a set of chosen files. Files the library cannot read, or that are
  * too large, are listed as skipped with the reason rather than dropped, so the
  * person sees what was left out. A folder's path is kept in the name shown.
+ *
+ * A document is saved under its file name, and a name already in the library is
+ * updated. Files of a folder that share a name (`finance/readme.md`,
+ * `hr/readme.md`) would overwrite one another, so those are named by their path
+ * within the folder instead (`finance › readme.md`); importing the folder again
+ * gives the same names. Files sharing a name with no folder path to tell them
+ * apart are skipped after the first.
  */
-export function batchItems(files: File[], reasons: { unsupported: string; tooLarge: string }): BatchItem[] {
+export function batchItems(files: File[], reasons: { unsupported: string; tooLarge: string; sameName: string; nameTooLong: string }): BatchItem[] {
+  const pathOf = (file: File) => (file as File & { webkitRelativePath?: string }).webkitRelativePath || "";
+  const readable = (file: File) => isDocumentFile(file) && file.size <= DOCUMENT_LIMITS.fileBytes;
+  const sharing = new Map<string, number>();
+  for (const file of files) if (readable(file)) sharing.set(file.name, (sharing.get(file.name) ?? 0) + 1);
+  const seen = new Set<string>();
   return files.map((file, index) => {
-    const name = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
-    const base = { id: `${index}:${name}`, file, name };
+    const name = pathOf(file) || file.name;
+    const base = { id: `${index}:${name}`, file, name, documentName: file.name };
     if (!isDocumentFile(file)) return { ...base, status: "skipped", message: reasons.unsupported };
     if (file.size > DOCUMENT_LIMITS.fileBytes) return { ...base, status: "skipped", message: reasons.tooLarge };
-    return { ...base, status: "waiting" };
+    if ((sharing.get(file.name) ?? 0) < 2) return { ...base, status: "waiting" };
+    // The first part of a folder's path is the chosen folder itself; the rest tells the files apart.
+    const inside = pathOf(file).split("/").slice(1);
+    if (inside.length < 2) {
+      if (seen.has(file.name)) return { ...base, status: "skipped", message: reasons.sameName };
+      seen.add(file.name);
+      return { ...base, status: "waiting" };
+    }
+    const documentName = inside.join(PATH_SEPARATOR);
+    if (documentName.length > DOCUMENT_NAME_LIMIT) return { ...base, documentName, status: "skipped", message: reasons.nameTooLong };
+    return { ...base, documentName, status: "waiting" };
   });
 }
 
@@ -63,7 +91,7 @@ export async function importBatch(items: BatchItem[], collection: string, signal
       if (signal.aborted) { set(item.id, { status: "waiting", message: undefined, retryInSeconds: undefined }); return current; }
       set(item.id, { status: "importing", message: undefined, retryInSeconds: undefined });
       const data = new FormData();
-      data.set("file", item.file, item.file.name);
+      data.set("file", item.file, item.documentName);
       if (collection.trim()) data.set("collection", collection.trim());
       try {
         const result = await documentRequest<{ change: string }>("/api/documents", { method: "POST", body: data, signal });

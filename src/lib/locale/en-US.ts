@@ -550,6 +550,8 @@ export const enUS = {
   "documents.batch.title": "Batch import",
   "documents.batch.progress": "Batch import: {settled}/{total}",
   "documents.batch.unsupported": "Unsupported file type",
+  "documents.batch.sameName": "Another file in this batch has the same name and no folder path tells them apart; import it on its own or rename it",
+  "documents.batch.nameTooLong": "The path in the folder is too long; document names hold at most 180 characters",
   "documents.batch.stop": "Stop",
   "documents.batch.retry": "Retry unfinished",
   "documents.batch.dismiss": "Done",

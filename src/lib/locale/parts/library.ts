@@ -103,6 +103,8 @@ export const libraryMessages = {
   "documents.batch.title": "批量导入",
   "documents.batch.progress": "批量导入：{settled}/{total}",
   "documents.batch.unsupported": "不支持的文件类型",
+  "documents.batch.sameName": "这批里已有同名文件，无法区分它们的位置；请单独导入或改名",
+  "documents.batch.nameTooLong": "文件夹里的路径太长，文档名最多 180 个字符",
   "documents.batch.stop": "停止",
   "documents.batch.retry": "重试未完成的",
   "documents.batch.dismiss": "完成",

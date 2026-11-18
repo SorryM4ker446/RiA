@@ -126,7 +126,7 @@ export function DocumentLibrary({ mode, importOpen, onImportClose, onShowAll, hi
   }
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (selected.length > 1) { await importAll(batchItems(selected, { unsupported: t("documents.batch.unsupported"), tooLarge: t("documents.tooLarge") })); return; }
+    if (selected.length > 1) { await importAll(batchItems(selected, { unsupported: t("documents.batch.unsupported"), tooLarge: t("documents.tooLarge"), sameName: t("documents.batch.sameName"), nameTooLong: t("documents.batch.nameTooLong") })); return; }
     const file = selected[0];
     if (!file || !file.size) { setError(t("documents.selectFirst")); return; }
     const data = new FormData(); data.set("file", file, file.name);

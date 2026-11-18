@@ -3,6 +3,9 @@ import { openDocumentImport } from "../helpers/knowledge";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { browserData } from "../helpers/browser-api";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => {
@@ -59,4 +62,28 @@ test("one chosen document still goes through the preview before it is saved", as
   await form.getByRole("button", { name: "预览导入", exact: true }).click();
   await expect(page.getByRole("button", { name: "确认保存文档", exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "批量导入", exact: true })).toHaveCount(0);
+});
+
+test("files of a folder that share a name are kept apart by their path in it, and stay apart when the folder is imported again", async ({ page, app }) => {
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ria-batch-folder-")));
+  try {
+    const folder = join(root, "制度");
+    for (const [path, body] of [["finance/readme.md", "财务：发票三十天内付款。"], ["hr/readme.md", "人事：年假需提前一周申请。"], ["考勤.txt", "每天九点前打卡。"]]) {
+      mkdirSync(dirname(join(folder, path)), { recursive: true });
+      writeFileSync(join(folder, path), body);
+    }
+    await openWorkspace(page, app.origin);
+    await page.goto(`${app.origin}/knowledge?view=documents`);
+    const form = await openDocumentImport(page);
+    for (let round = 0; round < 2; round++) {
+      await page.getByLabel("选择一个文件夹，导入其中所有可读取的文档").setInputFiles(folder);
+      await form.getByRole("button", { name: "导入 3 个文档", exact: true }).click();
+      const list = page.getByRole("region", { name: "批量导入", exact: true });
+      await expect(list.getByRole("status")).toHaveText("批量导入：3/3", { timeout: 15_000 });
+      await expect(list.locator(`li[data-status="${round ? "unchanged" : "added"}"]`)).toHaveCount(3);
+      await list.getByRole("button", { name: "完成", exact: true }).click();
+    }
+    const documents = (await browserData(page, `${app.origin}/api/documents`)) as { filename: string }[];
+    expect(documents.map(document => document.filename).sort()).toEqual(["finance › readme.md", "hr › readme.md", "考勤.txt"].sort());
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
