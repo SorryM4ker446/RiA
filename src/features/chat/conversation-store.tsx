@@ -28,6 +28,8 @@ import { useRefreshOnReturn } from "@/lib/use-refresh-on-return";
 const COALESCE_MS = 120;
 
 export type TurnNotice = { type: "turn-started" | "turn-finished"; chatId: string; source: "chat" | "task"; outcome?: string; title?: string | null };
+/** What a background note-taking run did for a conversation (see announceMemoryWrite). */
+export type MemoryNotice = { chatId: string; outcome: "updated" | "unchanged" | "full" | "failed"; added: number; updated: number; removed: number; dropped: number };
 
 export type ReloadOutcome = { status: "read"; list: ChatSummary[] } | { status: "superseded" } | { status: "failed"; message: string };
 
@@ -72,6 +74,8 @@ type Store = {
   setCreating: (creating: boolean) => void;
   /** Hears a turn start or end in any conversation, whoever started it. */
   onTurn: (listener: (notice: TurnNotice) => void) => () => void;
+  /** Hears what each background note-taking run did, until the returned function is called. */
+  onMemory: (listener: (notice: MemoryNotice) => void) => () => void;
 };
 
 const ConversationStoreContext = createContext<Store | null>(null);
@@ -95,6 +99,7 @@ export function ConversationStoreProvider({ children }: { children: ReactNode })
   const chatsRef = useRef(chats);
   useEffect(() => { chatsRef.current = chats; }, [chats]);
   const turnListeners = useRef(new Set<(notice: TurnNotice) => void>());
+  const memoryListeners = useRef(new Set<(notice: MemoryNotice) => void>());
   const changedListeners = useRef(new Set<() => void>());
   // A change heard while a read is under way is read after it, not dropped.
   const readAgain = useRef(false);
@@ -179,6 +184,10 @@ export function ConversationStoreProvider({ children }: { children: ReactNode })
     return () => { changedListeners.current.delete(listener); };
   }, []);
 
+  const onMemory = useCallback((listener: (notice: MemoryNotice) => void) => {
+    memoryListeners.current.add(listener);
+    return () => { memoryListeners.current.delete(listener); };
+  }, []);
   const onTurn = useCallback((listener: (notice: TurnNotice) => void) => {
     turnListeners.current.add(listener);
     return () => { turnListeners.current.delete(listener); };
@@ -221,13 +230,20 @@ export function ConversationStoreProvider({ children }: { children: ReactNode })
         try { listener(notice); } catch { /* One listener failing does not keep the others from hearing it. */ }
       }
     });
+    source.addEventListener("memory", event => {
+      let notice: MemoryNotice;
+      try { notice = JSON.parse((event as MessageEvent<string>).data); } catch { return; }
+      for (const listener of memoryListeners.current) {
+        try { listener(notice); } catch { /* One listener failing does not keep the others from hearing it. */ }
+      }
+    });
     return () => { window.clearTimeout(timer); source.close(); };
   }, []);
 
   const value = useMemo<Store>(() => ({
     chats, setChats, isLoading, nextCursor, isLoadingMore, reload, readVersion, loadMore, invalidate, update, remove, onRemoved, onChanged,
-    activeId, setActiveId, workingId, setWorkingId, isCreating, setCreating, onTurn,
-  }), [chats, isLoading, nextCursor, isLoadingMore, reload, readVersion, loadMore, invalidate, update, remove, onRemoved, onChanged, activeId, workingId, isCreating, onTurn]);
+    activeId, setActiveId, workingId, setWorkingId, isCreating, setCreating, onTurn, onMemory,
+  }), [chats, isLoading, nextCursor, isLoadingMore, reload, readVersion, loadMore, invalidate, update, remove, onRemoved, onChanged, activeId, workingId, isCreating, onTurn, onMemory]);
   return <ConversationStoreContext.Provider value={value}>{children}</ConversationStoreContext.Provider>;
 }
 

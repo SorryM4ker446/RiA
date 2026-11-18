@@ -6,11 +6,12 @@ import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { exportConversation } from "@/lib/conversations/export";
 
+import { t } from "@/lib/locale";
 async function GETHandler(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     await requireLocalWorkspace(req); enforceRateLimit("conversationExport");
     const params = req.nextUrl.searchParams;
-    if (params.getAll("format").length > 1) throw new ApiError({ code: "VALIDATION_ERROR", message: "Duplicate format parameter" });
+    if (params.getAll("format").length > 1) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.request.duplicateFormat") });
     const { format } = z.strictObject({ format: z.enum(["json", "markdown"]).default("markdown") }).parse(Object.fromEntries(params));
     const { id } = await context.params;
     const output = await exportConversation(id, format);

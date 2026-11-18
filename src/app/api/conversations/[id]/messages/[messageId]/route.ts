@@ -9,6 +9,7 @@ import { migrateMessageMedia, prepareMessageMedia, replaceMessageMedia } from "@
 
 import { invalidateChatSummary } from "@/lib/chat/store";
 
+import { t } from "@/lib/locale";
 const updateMessageSchema = z.strictObject({
   content: z.string().min(1).max(1_000_000).optional(),
   status: z.enum(["pending", "success", "error"]).optional(),
@@ -33,7 +34,7 @@ async function GETHandler(req: NextRequest, context: Params) {
 
     const message = await getScopedMessage(conversationId, messageId);
     if (!message) {
-      throw new ApiError({ code: "NOT_FOUND", message: "Message not found" });
+      throw new ApiError({ code: "NOT_FOUND", message: t("server.message.notFound") });
     }
 
     return Response.json({ data: await migrateMessageMedia(message) });
@@ -54,7 +55,7 @@ async function PATCHHandler(req: NextRequest, context: Params) {
 
     const existing = await getScopedMessage(conversationId, messageId);
     if (!existing) {
-      throw new ApiError({ code: "NOT_FOUND", message: "Message not found" });
+      throw new ApiError({ code: "NOT_FOUND", message: t("server.message.notFound") });
     }
 
     const prepared = parsed.data.content ? await prepareMessageMedia(parsed.data.content) : null;
@@ -84,7 +85,7 @@ async function DELETEHandler(req: NextRequest, context: Params) {
 
     const existing = await getScopedMessage(conversationId, messageId);
     if (!existing) {
-      throw new ApiError({ code: "NOT_FOUND", message: "Message not found" });
+      throw new ApiError({ code: "NOT_FOUND", message: t("server.message.notFound") });
     }
 
     await db.$transaction(async (tx) => {

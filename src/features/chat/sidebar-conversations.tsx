@@ -177,7 +177,7 @@ function Row({ chat, active, state, onOpen }: { chat: ChatSummary; active: boole
   const [draft, setDraft] = useState(chat.title);
   const stateLabel = state ? t(STATE_LABEL[state] as Parameters<typeof t>[0]) : null;
 
-  const failed = (cause: unknown) => toast({ title: t("sidebar.failed"), description: cause instanceof Error ? cause.message : undefined });
+  const failed = (cause: unknown) => toast({ title: t("sidebar.failed"), description: cause instanceof Error ? cause.message : undefined, tone: "error" });
   async function rename() {
     const title = draft.trim();
     setEditing(false);

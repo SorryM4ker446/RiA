@@ -6,6 +6,7 @@ import { assistantConfigSchema, isDefaultAssistantId, type AssistantConfig, type
 import { DEFAULT_ASSISTANTS } from "./defaults";
 import type { Prisma } from "@prisma/client";
 
+import { t } from "@/lib/locale";
 const CUSTOM_TEMPLATE_LIMIT = 50;
 const defaultOrder = DEFAULT_ASSISTANTS.map(template => template.id);
 
@@ -18,25 +19,25 @@ export async function listAssistants(): Promise<AssistantTemplate[]> {
 }
 export async function resolveAssistant(id: string, tx: Prisma.TransactionClient = db): Promise<AssistantSnapshot> {
   const row = await tx.assistantTemplate.findUnique({ where: { id } });
-  if (!row) throw new ApiError({ code: "NOT_FOUND", message: "助理模板不存在或已删除。" });
+  if (!row) throw new ApiError({ code: "NOT_FOUND", message: t("errors.assistantTemplateDoesNotExistOrWasDeleted") });
   const config = assistantConfigSchema.parse(row.config);
-  if (tx === db && config.model && !await modelInLibrary("chat", config.model)) throw new ApiError({ code: "CONFIGURATION_ERROR", message: "模板绑定的模型已移除，请修改模板后使用。" });
+  if (tx === db && config.model && !await modelInLibrary("chat", config.model)) throw new ApiError({ code: "CONFIGURATION_ERROR", message: t("errors.theTemplateSAssignedModelWasRemovedUpdate") });
   return { ...config, templateId: row.id, templateRevision: row.revision };
 }
 export async function saveAssistant(input: AssistantConfig, id?: string, revision?: number) {
   const config = assistantConfigSchema.parse(input);
-  if ((await Promise.all(config.tools.map(resolveToolDescriptor))).some(tool => !tool)) throw new ApiError({ code: "VALIDATION_ERROR", message: "模板包含不支持的工具。" });
-  if (config.model && !await modelInLibrary("chat", config.model)) throw new ApiError({ code: "VALIDATION_ERROR", message: "只能绑定已添加的聊天模型。" });
+  if ((await Promise.all(config.tools.map(resolveToolDescriptor))).some(tool => !tool)) throw new ApiError({ code: "VALIDATION_ERROR", message: t("errors.theTemplateContainsUnsupportedTools") });
+  if (config.model && !await modelInLibrary("chat", config.model)) throw new ApiError({ code: "VALIDATION_ERROR", message: t("errors.onlyChatModelsAlreadyInYourLibraryCan") });
   return db.$transaction(async tx => {
     if (id) {
       const row = await tx.assistantTemplate.findUnique({ where: { id } });
-      if (!row) throw new ApiError({ code: "NOT_FOUND", message: "助理模板不存在或已删除。" });
+      if (!row) throw new ApiError({ code: "NOT_FOUND", message: t("errors.assistantTemplateDoesNotExistOrWasDeleted") });
       const changed = await tx.assistantTemplate.updateMany({ where: { id, revision }, data: { config, revision: { increment: 1 } } });
-      if (!changed.count) throw new ApiError({ code: "CONFLICT", message: "模板已被其他操作修改，请刷新后重试。" });
+      if (!changed.count) throw new ApiError({ code: "CONFLICT", message: t("errors.theTemplateWasChangedByAnotherOperationRefresh") });
       return tx.assistantTemplate.findUniqueOrThrow({ where: { id } });
     }
     // The defaults do not use up room for the user's own templates.
-    if (await tx.assistantTemplate.count({ where: { NOT: { id: { startsWith: "builtin_" } } } }) >= CUSTOM_TEMPLATE_LIMIT) throw new ApiError({ code: "CONFLICT", message: "最多保存 50 个自定义助理模板。" });
+    if (await tx.assistantTemplate.count({ where: { NOT: { id: { startsWith: "builtin_" } } } }) >= CUSTOM_TEMPLATE_LIMIT) throw new ApiError({ code: "CONFLICT", message: t("errors.upTo50CustomAssistantTemplatesCanBe") });
     return tx.assistantTemplate.create({ data: { config } });
   });
 }

@@ -306,4 +306,4 @@ export function getMessageRoleLabel(role: UIMessage["role"]): string {
 }
 
 /** What a turn's stream says while it waits for a place, or while the provider is retried. */
-export type TurnNotice = { state: "queued"; ahead: number } | { state: "retrying"; attempt: number; seconds: number };
+export type TurnNotice = { state: "queued"; ahead: number } | { state: "retrying"; attempt: number; seconds: number } | { state: "reviewing" };

@@ -7,6 +7,7 @@ import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { readJsonBody } from "@/lib/server/request-body";
 import { saveInterfaceLocale } from "@/lib/scheduler/task-wording";
 
+import { t } from "@/lib/locale";
 const input = z.strictObject({ locale: z.enum(["zh-CN", "en-US"]) });
 
 /** The language the user chose for the interface, which work that runs unattended is worded in too. */
@@ -15,7 +16,7 @@ export const PUT = protectDataOperation(async (req: NextRequest) => {
     await requireLocalWorkspace(req);
     enforceRateLimit("modelSettings");
     const parsed = input.safeParse(await readJsonBody(req, 1024));
-    if (!parsed.success) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid language" });
+    if (!parsed.success) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.locale.invalid") });
     await saveInterfaceLocale(parsed.data.locale);
     return Response.json({ data: parsed.data }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

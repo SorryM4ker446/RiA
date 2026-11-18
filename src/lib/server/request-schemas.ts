@@ -5,6 +5,7 @@ import { getToolDescriptor, listToolDescriptors } from "@/tools/builtins";
 import { currentToolId, legacyToolIds } from "@/tools/legacy-names";
 import { externalToolIdPattern, externalInputSchema } from "@/lib/extensions/schema";
 
+import { t } from "@/lib/locale";
 export const identifierSchema = z.string().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/);
 // A client names a model by provider as well as id. Validating the pair here
 // only fixes the shape; membership of "我的模型" is checked server-side before
@@ -47,7 +48,8 @@ const toolPart = z.strictObject({
   state: z.enum(["input-streaming", "input-available", "approval-requested", "approval-responded", "output-available", "output-error", "output-denied"]),
   input: z.json().optional(), output: z.json().optional(), rawInput: z.json().optional(),
   errorText: z.string().max(16_000).optional(),
-  approval: z.strictObject({ id: identifierSchema, approved: z.boolean().optional(), reason: z.string().max(2000).optional() }).optional(),
+  // An answer to a question travels as the reason, so it has room for three answered questions.
+  approval: z.strictObject({ id: identifierSchema, approved: z.boolean().optional(), reason: z.string().max(8000).optional() }).optional(),
   providerExecuted: z.boolean().optional(), preliminary: z.boolean().optional(),
   callProviderMetadata: providerMetadata, resultProviderMetadata: providerMetadata,
   title: z.string().max(500).optional(),
@@ -78,10 +80,10 @@ const messageSchema = z.strictObject({
 }).superRefine((message, ctx) => {
   // Assistant messages grow with the tool loop; user/system inputs retain the
   // existing part-count bound as well as their role and attachment checks.
-  if (message.role !== "assistant" && message.parts.length > 100) ctx.addIssue({ code: "custom", path: ["parts"], message: "Too many message parts" });
-  if (message.parts.filter((part) => part.type === "file").length > MEDIA_LIMITS.attachmentCount) ctx.addIssue({ code: "custom", message: "Too many attachments" });
-  if (message.role !== "assistant" && message.parts.some((part) => part.type !== "text" && !(message.role === "user" && part.type === "file"))) ctx.addIssue({ code: "custom", message: "Parts are not allowed for this role" });
-  if (message.role === "user" && !message.parts.some((part) => part.type === "file" || (part.type === "text" && part.text.trim()))) ctx.addIssue({ code: "custom", message: "User message must contain text or an attachment" });
+  if (message.role !== "assistant" && message.parts.length > 100) ctx.addIssue({ code: "custom", path: ["parts"], message: t("server.chat.tooManyParts") });
+  if (message.parts.filter((part) => part.type === "file").length > MEDIA_LIMITS.attachmentCount) ctx.addIssue({ code: "custom", message: t("server.attachment.tooMany") });
+  if (message.role !== "assistant" && message.parts.some((part) => part.type !== "text" && !(message.role === "user" && part.type === "file"))) ctx.addIssue({ code: "custom", message: t("server.chat.partsNotAllowed") });
+  if (message.role === "user" && !message.parts.some((part) => part.type === "file" || (part.type === "text" && part.text.trim()))) ctx.addIssue({ code: "custom", message: t("server.chat.emptyUserMessage") });
 });
 
 export const chatRequestSchema = z.strictObject({

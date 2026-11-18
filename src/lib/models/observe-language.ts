@@ -7,7 +7,7 @@ import { getModelProvider, type ReasoningPreference } from "@/lib/models/provide
 import { canFallback, recordModelAttempt } from "@/lib/models/usage";
 import { modelCallSource } from "./call-context";
 import { beginModelAttempt } from "./call-controls";
-import { heldSlot } from "./call-slots";
+import { currentTurn } from "./call-slots";
 import { type ModelPreferences, type ModelRef } from "@/lib/models/preferences-schema";
 import { modelRefKey } from "@/lib/models/preferences-schema";
 import { assertContextFits, contextBudget, estimateContextTokens, MIN_CALIBRATION, requestOutputCap, type ContextBudget } from "./context-budget";
@@ -76,12 +76,12 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
     return limits.backgroundMaxEstimatedUsd === null && limits.backgroundDailyEstimatedUsd === null;
   };
   /** The wait before trying again, said on the turn's stream so the page can show it. */
-  const announceRetry = (attempt: number, delay: number) => heldSlot()?.notify({ state: "retrying", attempt, seconds: Math.max(1, Math.round(delay / 1000)) });
-  // A background call under a monetary ceiling is priced from its output cap. An
-  // assumed default limit would price every unattended call as its maximum, so
-  // with no known limit such a call is bounded by the planning reservation.
-  const pricedCap = (cap: number, capacity: ContextBudget, limits: ModelPreferences["callLimits"]) =>
-    capacity.outputLimit === null && callSource === "scheduled" && (limits.backgroundMaxEstimatedUsd !== null || limits.backgroundDailyEstimatedUsd !== null) ? Math.min(cap, capacity.outputTokens) : cap;
+  const announceRetry = (attempt: number, delay: number) => currentTurn()?.notify({ state: "retrying", attempt, seconds: Math.max(1, Math.round(delay / 1000)) });
+  // A background call under a monetary ceiling is priced from its output cap, so
+  // one with no known limit, which otherwise sends none, is bounded by the
+  // planning reservation: it needs a figure to be priced at all.
+  const pricedCap = (cap: number | undefined, capacity: ContextBudget, limits: ModelPreferences["callLimits"]) =>
+    capacity.outputLimit === null && callSource === "scheduled" && (limits.backgroundMaxEstimatedUsd !== null || limits.backgroundDailyEstimatedUsd !== null) ? Math.min(cap ?? capacity.outputTokens, capacity.outputTokens) : cap;
   /**
    * The output cap for one attempt on `target`. Callers that plan context (the
    * chat step manager, summaries) measure input more precisely, so this gate

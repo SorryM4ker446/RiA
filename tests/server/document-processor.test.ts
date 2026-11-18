@@ -10,6 +10,7 @@ const cleanup = createTestDatabase();
 const { db } = await import("@/db");
 const { exportDocument, processUpload, loadProcessorDocument } = await import("@/lib/document-processor/service");
 const { documentDownload } = await import("@/lib/document-processor/schema");
+const { DOCUMENT_LIMITS } = await import("@/lib/documents/types");
 const { parseDocument } = await import("@/lib/documents/parser");
 const { indexDocument } = await import("@/lib/documents/store");
 const { createChatToolSet, executeRegisteredTool, resolveToolDescriptor } = await import("@/tools/catalog");
@@ -79,7 +80,7 @@ test("plain text keeps literal Markdown and Word parsing escapes literal symbols
 });
 
 test("malformed, binary, scanned and oversized uploads fail without creating knowledge rows", async () => {
-  for (const [name, bytes, status] of [["bad.pdf", Buffer.from("not pdf"), 400], ["binary.txt", Buffer.from([0xff, 0xfe]), 400], ["empty.pdf", textPdf(""), 400], ["old.doc", Buffer.from("legacy"), 415], ["large.txt", Buffer.alloc(8 * 1024 * 1024 + 1, 65), 413]] as const) {
+  for (const [name, bytes, status] of [["bad.pdf", Buffer.from("not pdf"), 400], ["binary.txt", Buffer.from([0xff, 0xfe]), 400], ["empty.pdf", textPdf(""), 400], ["old.doc", Buffer.from("legacy"), 415], ["large.txt", Buffer.alloc(DOCUMENT_LIMITS.fileBytes + 1, 65), 413]] as const) {
     const form = new FormData(); form.set("file", new File([new Uint8Array(bytes)], name));
     assert.equal((await parseRoute.POST(request("/api/document-processor/parse", form))).status, status, name);
   }
@@ -98,7 +99,7 @@ test("authentication, Origin, payload limits and unsupported fields protect proc
 });
 
 test("empty, invalid Unicode and excessive document structures cannot produce corrupt files", async () => {
-  for (const content of [" ", "x\u0000", "\ud800", "x".repeat(100_001)]) await assert.rejects(() => output("docx", content));
+  for (const content of [" ", "x\u0000", "\ud800", "x".repeat(DOCUMENT_LIMITS.characters + 1)]) await assert.rejects(() => output("docx", content));
   await assert.rejects(() => output("docx", "*a* ".repeat(10_000)), /结构过于复杂/);
   const controller = new AbortController(); controller.abort();
   await assert.rejects(() => exportDocument({ filename: "x", content: "Cancelled", syntax: "plain", format: "docx" }, controller.signal));

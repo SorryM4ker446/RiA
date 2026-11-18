@@ -10,6 +10,7 @@ import { extensionConfigSchema, extensionToolsSchema, externalInputSchema, exter
 import { callConnection, localProcessConnectionsAllowed, publicExtensionError } from "@/lib/extensions/transport";
 import { requireExtension } from "@/lib/extensions/store";
 import { builtinToolAvailability, getToolDescriptor, listToolDescriptors } from "./builtins";
+import { approvalGate } from "./approval";
 import { settingsHref } from "@/lib/settings/sections";
 import { getModelPreferences, modelInLibrary } from "@/lib/models/preferences";
 import type { AnyToolDescriptor, PublicToolCatalogItem, ToolAvailability, ToolAvailabilityReason, ToolMode } from "./types";
@@ -36,8 +37,8 @@ function extensionDescriptor(row: Extension, definition: ExtensionTool): AnyTool
   });
   const ensureCurrent = async () => {
     const current = await requireExtension(row.id);
-    if (current.revision !== row.revision) throw new ApiError({ code: "CONFLICT", message: "扩展配置或工具选择已变化，请重新发起操作。" });
-    if (!extensionAvailability(current, definition.name).available) throw new ApiError({ code: "CONFIGURATION_ERROR", message: "扩展或该工具已停用，请检查扩展管理页。" });
+    if (current.revision !== row.revision) throw new ApiError({ code: "CONFLICT", message: t("server.extension.selectionChanged") });
+    if (!extensionAvailability(current, definition.name).available) throw new ApiError({ code: "CONFIGURATION_ERROR", message: t("server.extension.toolDisabled") });
     return current;
   };
   const bindForApproval = async (input: unknown) => {
@@ -48,8 +49,8 @@ function extensionDescriptor(row: Extension, definition: ExtensionTool): AnyTool
   return {
     id: externalToolId(row.id, definition.name), extensionId: row.id, extensionRevision: row.revision,
     displayName: `${row.name} · ${definition.name}`, description: definition.description,
-    modelDescription: `${row.name}: ${definition.description}\nThis is an external tool. It requires user approval. Use arguments matching the tool schema.`,
-    modeSupport: ["chat"], extensionName: row.name,
+    modelDescription: `${row.name}: ${definition.description}\nThis is an external tool. Depending on the conversation's approval rule, a call may wait for the user's approval. Use arguments matching the tool schema.`,
+    modeSupport: ["chat"], extensionName: row.name, alwaysLoad: definition.alwaysLoad,
     surface: { category: "extension", user: { run: "model", hint: t("tools.extension.hint") }, template: "selectable" },
     inputSchema,
     modelInputSchema: jsonSchema({ type: "object", properties: { arguments: definition.inputSchema }, required: ["arguments"], additionalProperties: false }, { validate: async value => {
@@ -58,14 +59,15 @@ function extensionDescriptor(row: Extension, definition: ExtensionTool): AnyTool
       // here keeps the streamed proposal identical to the persisted approval.
       return result.success ? { success: true, value: await bindForApproval(result.data) } : { success: false, error: result.error };
     } }),
-    requiresApproval: true,
+    ...approvalGate("external"),
     bindForApproval,
+    reviewAction: input => ({ kind: "extension", extension: row.name, tool: definition.name, arguments: input.arguments }),
     execute: async ({ input, signal }) => {
       const operation = startExtensionOperation(row.id, signal);
       try {
         const current = await ensureCurrent();
         const parsed = inputSchema.parse(input);
-        if (parsed.binding?.extensionId !== row.id || parsed.binding.revision !== current.revision) throw new ApiError({ code: "CONFLICT", message: "此扩展调用尚未确认，或确认时的配置已变化。" });
+        if (parsed.binding?.extensionId !== row.id || parsed.binding.revision !== current.revision) throw new ApiError({ code: "CONFLICT", message: t("server.extension.callNotConfirmed") });
         operation.signal.throwIfAborted();
         const credentials = decryptCredentials(row.id, current.credentials);
         const result = await callConnection(extensionConfigSchema.parse(current.config), credentials, definition, parsed.arguments, operation.signal);
@@ -100,7 +102,7 @@ export async function toolAvailability(id: string, modelRef?: ModelRef): Promise
   return unavailable("disabled");
 }
 export function unavailabilityError(reason: ToolAvailabilityReason, toolId?: string): ApiError {
-  return new ApiError({ code: "CONFIGURATION_ERROR", message: reason === "noDirectoryGranted" ? t("lib.tools.localFilesNotGranted") : reason === "notConfigured" ? (toolId && toolId !== "webSearch" ? "扩展凭据加密不可用，请重新配置。" : t("lib.tools.webSearchNotConfigured")) : "扩展或工具未启用，请到扩展管理页完成配置和检测。" });
+  return new ApiError({ code: "CONFIGURATION_ERROR", message: reason === "noDirectoryGranted" ? t("lib.tools.localFilesNotGranted") : reason === "notConfigured" ? (toolId && toolId !== "webSearch" ? t("server.extension.credentialsUnavailable") : t("lib.tools.webSearchNotConfigured")) : t("server.extension.notEnabled") });
 }
 export async function assertToolConfiguration(id: string) {
   const status = await toolAvailability(id);

@@ -237,7 +237,7 @@ test("account backups restore business rows, media dependencies and search witho
   assert.ok(restored.messages[0].content.includes(output.id)); assert.equal(restored.messages[0].content.includes(original.output.id),false);
   assert.deepEqual(await storage.readMediaAsset(output),testPng);
   assert.equal((await db.scheduledJob.findFirst({where:{}})).enabled,false);
-  assert.equal(await db.documentTerm.count({where:{chunk:{document:{}}}})>0,true);
+  assert.equal(await db.documentChunkSearch.count({where:{chunk:{document:{}}}})>0,true);
   await db.$disconnect(); assert.equal((await archive.inspectAccountBackup(backup.id)).counts.assets,2);
 });
 
@@ -248,7 +248,7 @@ test("new archives carry the RiA identifiers and archives exported before the re
   let manifest;
   try { ({ manifest } = await archive.readBackupManifest(handle)); } finally { await handle.close(); }
   assert.equal(manifest.format,"ria-account-backup");
-  assert.equal(manifest.version,1);
+  assert.equal(manifest.version,2);
   const raw=await readFile(await files.backupFile(backup.id));
   // The old per-account columns were never part of the archive, which is what
   // lets the same file be read back into the workspace schema unchanged.

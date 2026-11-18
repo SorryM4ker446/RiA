@@ -6,6 +6,7 @@ import { LOCAL_FILE_LIMITS, LocalFileRefused } from "@/lib/local-files/limits";
 import { resolveProjectFile } from "@/lib/local-files/safe-path";
 import { ApiError } from "@/lib/server/api-error";
 import { terminalGrant } from "@/lib/terminal/runtime";
+import { prepareEditCheckpoint } from "@/lib/checkpoints/record";
 import { applyEdits, replacementRegion, unifiedDiff, type Region } from "./edits";
 import { contentHash, decodeProjectText, encodeProjectText, lineCount, toWorking, type ProjectText } from "./text";
 
@@ -111,7 +112,7 @@ export async function readProjectFile(input: ReadProjectFileInput, signal?: Abor
   return { grantId: grant.id, path: target.relativePath, hash: current.hash, bytes: current.bytes.byteLength, totalLines, eol: current.file.eol, bom: current.file.bom, startLine: input.startLine, lines, nextLine };
 }
 
-type Plan = { target: Awaited<ReturnType<typeof resolveProjectFile>>; beforeHash: string | null; after: Buffer; afterHash: string; diff: string; added: number; removed: number; created: boolean; beforeStats: { bytes: number; lines: number } | null; afterLines: number };
+type Plan = { target: Awaited<ReturnType<typeof resolveProjectFile>>; beforeHash: string | null; before: Buffer | null; after: Buffer; afterHash: string; diff: string; added: number; removed: number; created: boolean; beforeStats: { bytes: number; lines: number } | null; afterLines: number };
 
 /** The edit as it would apply to the file now. Throws, with what to do next, when it cannot. */
 async function planEdit(input: EditProjectFileInput, grant: { realPath: string }): Promise<Plan> {
@@ -139,7 +140,7 @@ async function planEdit(input: EditProjectFileInput, grant: { realPath: string }
   const after = encodeProjectText(next);
   if (after.byteLength > LOCAL_FILE_LIMITS.fileBytes) throw invalid("The edited file would be larger than file tools accept; use the terminal.");
   const { diff, added, removed } = unifiedDiff(target.relativePath, current ? current.file.text : null, next.text, regions, PROJECT_FILE_LIMITS.diffCharacters);
-  return { target, beforeHash: current?.hash ?? null, after, afterHash: contentHash(after), diff, added, removed, created: !current,
+  return { target, beforeHash: current?.hash ?? null, before: current?.bytes ?? null, after, afterHash: contentHash(after), diff, added, removed, created: !current,
     beforeStats: current ? { bytes: current.bytes.byteLength, lines: lineCount(current.file.text) } : null, afterLines: lineCount(next.text) };
 }
 
@@ -187,7 +188,8 @@ async function writeAtomically(absolutePath: string, bytes: Buffer) {
   }
 }
 
-export async function applyProjectEdit(input: EditProjectFileInput, signal?: AbortSignal) {
+/** owner: the conversation and run the edit belongs to, so it can be undone from there. */
+export async function applyProjectEdit(input: EditProjectFileInput, signal?: AbortSignal, owner?: { chatId?: string | null; runId?: string | null }) {
   const binding = input.binding;
   if (!binding) throw refuse("This edit was not prepared for execution; propose it again.");
   if (binding.stale) throw refuse(`${binding.path} changed after this edit was proposed. Read it again and propose a new edit.`);
@@ -207,7 +209,11 @@ export async function applyProjectEdit(input: EditProjectFileInput, signal?: Abo
       throw refuse(`${binding.path} changed after this edit was approved. Read it again and propose a new edit.`);
     }
     signal?.throwIfAborted();
+    const recorded = owner?.chatId
+      ? await prepareEditCheckpoint({ chatId: owner.chatId, runId: owner.runId, grantId: grant.id, root: grant.realPath }, { path: plan.target.relativePath, before: plan.before, after: plan.after })
+      : null;
     await writeAtomically(plan.target.absolutePath, plan.after);
+    await recorded?.();
     return {
       grantId: grant.id, cwd: grant.realPath, path: plan.target.relativePath, created: plan.created,
       beforeHash: plan.beforeHash, hash: plan.afterHash, added: plan.added, removed: plan.removed, diff: plan.diff,

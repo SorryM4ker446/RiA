@@ -121,8 +121,8 @@ test("bulk indexing cancels at a controlled request boundary and resumes persist
   await preview(page, "长规程.md", Buffer.from(Array.from({ length: 40 }, (_, i) => `费用规定${i}：公务出行须保留票据。OFFLINE_EMBED_FAIL_AT=1 ${"说明".repeat(400)}`).join("\n\n"))); const long = await save(page);
   await expect.poll(() => browserData(page, "/api/documents").then(() => app.readRows("SELECT id FROM model_requests WHERE mode='embedding'").length)).toBeGreaterThan(0);
   await expect.poll(async () => (await page.evaluate(async () => (await (await fetch("/api/documents")).json()).indexing.running))).toBe(false);
-  expect(app.readRows("SELECT id FROM document_chunks WHERE documentId=? AND embedding IS NOT NULL", short.id)).toHaveLength(1);
-  expect(app.readRows("SELECT id FROM document_chunks WHERE documentId=? AND embedding IS NOT NULL", long.id)).toHaveLength(0);
+  expect(app.readRows("SELECT id FROM document_chunks WHERE documentId=? AND vector IS NOT NULL", short.id)).toHaveLength(1);
+  expect(app.readRows("SELECT id FROM document_chunks WHERE documentId=? AND vector IS NOT NULL", long.id)).toHaveLength(0);
   const failedAutomatically = app.readRows("SELECT id FROM model_requests WHERE mode='embedding'").length;
   await page.reload();
   const summaries = await browserData(page, "/api/documents"); expect(summaries[0].id).toBe(long.id);
@@ -143,8 +143,8 @@ test("bulk indexing cancels at a controlled request boundary and resumes persist
   await expect(maintenance).toContainText("长规程.md：已取消 · 32/40");
   await expect(page.getByRole("button", { name: "批量构建或继续", exact: true })).toBeEnabled();
   release(); await handled; await page.unroute(`**/api/documents/${long.id}/embeddings`);
-  expect(app.readRows("SELECT id FROM document_chunks WHERE documentId=? AND embedding IS NOT NULL", long.id)).toHaveLength(32);
-  expect(app.readRows("SELECT id FROM document_chunks WHERE documentId=? AND embedding IS NOT NULL", short.id)).toHaveLength(1);
+  expect(app.readRows("SELECT id FROM document_chunks WHERE documentId=? AND vector IS NOT NULL", long.id)).toHaveLength(32);
+  expect(app.readRows("SELECT id FROM document_chunks WHERE documentId=? AND vector IS NOT NULL", short.id)).toHaveLength(1);
   expect(app.readRows("SELECT id FROM model_requests WHERE mode='embedding'")).toHaveLength(failedAutomatically + 1);
   { const here = page.url(); await page.goto("about:blank"); await app.restart(); await page.goto(here); }
   await expect(page.getByText("待处理 32/40", { exact: true })).toBeVisible();
@@ -153,7 +153,7 @@ test("bulk indexing cancels at a controlled request boundary and resumes persist
   await expect(maintenance).toContainText("长规程.md：已完成 · 40/40");
   await expect(page.getByRole("button", { name: "批量构建或继续", exact: true })).toBeDisabled();
   expect(app.readRows("SELECT id FROM model_requests WHERE mode='embedding'").length).toBeLessThanOrEqual(failedAutomatically + 3);
-  expect(app.readRows("SELECT id FROM document_chunks WHERE embedding IS NOT NULL")).toHaveLength(41);
+  expect(app.readRows("SELECT id FROM document_chunks WHERE vector IS NOT NULL")).toHaveLength(41);
   const directory = join(tmpdir(), "ria-document-structure-qa"); await mkdir(directory, { recursive: true });
   await maintenance.screenshot({ path: join(directory, "desktop-index.png"), animations: "disabled" });
   await page.setViewportSize({ width: 390, height: 844 });

@@ -37,7 +37,7 @@ Installed application data is stored in:
 %APPDATA%/RiA/data/app.db
 ```
 
-The same data directory contains file-backed `media/`, encrypted settings, migration backups, and `logs/desktop.log`. Reinstalling or uninstalling the application does not intentionally delete this user-data directory. Backups must include both SQLite and media; automatic database migration backups cover SQLite only. See [Media storage and migration](media-storage.md).
+The same data directory contains file-backed `media/`, encrypted settings, migration backups, `logs/desktop.log`, and the cache (`checkpoints/`, `terminal-logs/`, `chromium-cache/`). **Settings › Storage** moves the data to another drive, leaving a directory junction at this path, and can give the cache its own folder; see [Data and cache location](data-location.md). Reinstalling or uninstalling the application does not intentionally delete this user-data directory, wherever it was moved. Backups must include both SQLite and media; automatic database migration backups cover SQLite only. See [Media storage and migration](media-storage.md).
 
 The shared **Settings → Backup & restore** section stores unencrypted portable workspace archives under `backups/`, alongside but separate from database migration `.bak` files. It supports export/import, confirmed restore with a safety archive, and retention cleanup while the service runs. **Settings → Models** stores workspace defaults and optional fallback in SQLite; provider keys remain in desktop encrypted settings and are never added to these settings or archives. See [Workspace backups](workspace-backups.md) and [Model settings and usage](model-usage.md).
 

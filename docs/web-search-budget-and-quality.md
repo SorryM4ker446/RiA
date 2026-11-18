@@ -30,3 +30,13 @@ No matches, no search executed and provider failure remain distinct. A provider 
 Web/document sources, tool input/output and retrieval diagnostics appear in **Execution records**. Its compact list groups linked approval continuations into one request; expansion shows tool calls, used sources and diagnostic information. Sources and verbose input/output are disclosed on demand. Pending approvals appear in a card above the composer without opening the records sheet. Inline answer citations remain in chat. A limitation is explained only when a requested action cannot be completed, distinguishing template restrictions from missing configuration.
 
 Offline tests cover each protocol, provider-only routing, missing searches versus empty results, cancellation, errors, usage accounting and template restrictions. Browser tests cover autonomous gateway search and persisted execution details. These verify integration contracts; real account access, search quality and billing require live-service validation.
+
+## Reading a page
+
+`readWebPage` reads one page instead of searching: the user gives a URL, or a search result's snippet is not enough. It needs no search provider or key, since RiA fetches the page itself.
+
+- **What comes back.** An HTML page's main content as Markdown, through Mozilla Readability (navigation, scripts, forms and images dropped; links made absolute), with the page title. A page Readability cannot handle gives its body text. PDFs go through the document parser; plain text, Markdown, CSV, JSON, XML and YAML come back as they are. Other content types are refused with the type named.
+- **Long pages.** 20,000 characters per call unless the model asks for more (up to 200,000), ending at a line break when one is near, with `nextOffset` to read on. A fetched page is kept 15 minutes (30 pages at most), so reading on does not fetch it again.
+- **Limits.** http and https only, no user name or password in the address, 10 MB, 30 seconds, 10 redirects. Each redirect is checked like the first address.
+- **Local and private addresses.** A name that resolves to this computer or a private, link-local, carrier-grade NAT or multicast range (for example `localhost`, `192.168.x.x`, `10.x.x.x`, `169.254.169.254`) is read only when the user's own messages contain that host, as in "look at localhost:3000". An address taken from a page, file or tool result cannot reach the local network that way. The connection goes to the address that was checked, so a name cannot resolve differently between the check and the request.
+- **No model call.** Reading costs nothing beyond the request; it appears in execution records like other tools, and the Auto approval review sees that a page was read, never what it said.

@@ -161,10 +161,11 @@ export async function preferredModel(mode: GenerationMode, supplied?: ModelRef |
 }
 
 /**
- * Which model does the work around a turn. With none chosen, or one that can no
- * longer be called, it falls to the model the work is for.
+ * The internal sub-agent model: it does the work around a turn (approval reviews,
+ * summaries, memory, search planning). With none chosen, or one that can no longer
+ * be called, it falls to the model the work is for. Stored as `auxiliary`.
  */
-export async function auxiliaryModel(main: ModelRef): Promise<ModelRef> {
+export async function internalAgentModel(main: ModelRef): Promise<ModelRef> {
   const settings = await getModelPreferences();
   const chosen = settings.auxiliary;
   return chosen && libraryModel(settings, "chat", chosen) && getModelProvider(chosen.providerId).isConfigured() ? chosen : main;

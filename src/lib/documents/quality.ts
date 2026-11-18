@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ApiError } from "@/lib/server/api-error";
 import type { DocumentSource } from "./types";
 
+import { t } from "@/lib/locale";
 export const expectationSchema = z.strictObject({
   kind: z.enum(["fact", "condition", "exception", "quantity", "conflict"]),
   statement: z.string().trim().min(1).max(400),
@@ -49,6 +50,6 @@ export function validateQualityOutput(text: string, criteria: QualityCriterion[]
       return check;
     });
   } catch {
-    throw new ApiError({ code: "UPSTREAM_FAILED", message: "模型评审结果格式或摘录校验失败；请人工检查回答。" });
+    throw new ApiError({ code: "UPSTREAM_FAILED", message: t("errors.modelReviewFormatOrExcerptValidationFailedReview") });
   }
 }

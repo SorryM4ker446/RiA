@@ -129,8 +129,9 @@ test("an old archive without activity restores empty coverage from restoration t
   const backup = await createAccountBackup(); const file = await openBackup(backup.id);
   const manifest = (await readBackupManifest(file)).manifest as unknown as Record<string, unknown>; await file.close();
   delete manifest.events; delete manifest.activityCoverage; delete manifest.reviews;
-  // Archives from before the activity feature also predate the RiA rename.
-  manifest.format = "private-ai-account-backup";
+  // Archives from before the activity feature also predate the RiA rename and format 2,
+  // so they hold no document blocks; the document is left out with its block.
+  manifest.format = "private-ai-account-backup"; manifest.version = 1; manifest.documents = [];
   const json = Buffer.from(JSON.stringify(manifest)); const header = Buffer.alloc(44);
   header.write("PAIB0001"); header.writeUInt32BE(json.length, 8); createHash("sha256").update(json).digest().copy(header, 12);
   const oldId = randomUUID(); await writeFile(await backupFile(oldId), Buffer.concat([header, json]));

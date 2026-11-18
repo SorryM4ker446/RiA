@@ -3,7 +3,14 @@ import { Ajv } from "ajv";
 import { z } from "zod";
 import { ApiError } from "@/lib/server/api-error";
 
-export const EXTENSION_LIMITS = { connections: 20, tools: 64, enabledTools: 32, schemaBytes: 16_384, responseBytes: 524_288, outputBytes: 32_768, timeoutMs: 20_000 } as const;
+import { autoReviewSchema } from "@/lib/approvals/auto-review-schema";
+import { t } from "@/lib/locale";
+/**
+ * Tools past what a request can carry in full are loaded on demand (src/tools/deferred.ts), so how many a
+ * connection offers and how many are enabled is bounded only by the list of names that stands in for them.
+ * Always-loaded tools are sent with every request, so they keep the count every model takes.
+ */
+export const EXTENSION_LIMITS = { connections: 20, tools: 256, enabledTools: 256, alwaysLoadTools: 32, schemaBytes: 16_384, responseBytes: 524_288, outputBytes: 32_768, timeoutMs: 20_000 } as const;
 export const externalToolIdPattern = /^ext[a-f0-9]{56}$/;
 export const extensionIdSchema = z.string().uuid();
 const ajv = new Ajv({ strict: false, allErrors: false, validateFormats: false, ownProperties: true, code: { optimize: false }, loopRequired: 20, loopEnum: 20 });
@@ -25,12 +32,12 @@ export function validateToolSchema(value: unknown) {
     ajv.removeSchema(value);
     return validate;
   } catch {
-    throw new ApiError({ code: "VALIDATION_ERROR", message: "工具参数必须是有效的 JSON Schema 对象（最多 16 KiB，不支持引用或正则规则）。" });
+    throw new ApiError({ code: "VALIDATION_ERROR", message: t("errors.toolParametersRequireAValidJSONSchemaObject") });
   }
 }
 
 export const inputSchemaSchema = z.record(z.string(), z.json()).superRefine((value, ctx) => {
-  try { validateToolSchema(value); } catch { ctx.addIssue({ code: "custom", message: "Invalid or unsupported tool JSON Schema" }); }
+  try { validateToolSchema(value); } catch { ctx.addIssue({ code: "custom", message: t("server.extension.unsupportedToolSchema") }); }
 });
 const endpoint = z.string().trim().max(2048).refine(value => {
   try { const url = new URL(value); return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password && !url.hash && !url.search; } catch { return false; }
@@ -44,12 +51,15 @@ export type ExtensionConfig = z.infer<typeof extensionConfigSchema>;
 export const credentialSchema = z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_-]{0,99}$/), z.string().min(1).max(4096)).refine(value => Object.keys(value).length <= 20);
 export const saveExtensionSchema = z.strictObject({ name: z.string().trim().min(1).max(80), config: extensionConfigSchema, credentials: credentialSchema.optional(), clearCredentials: z.boolean().optional(), revision: z.number().int().positive().optional() });
 export type SaveExtension = z.infer<typeof saveExtensionSchema>;
-export const extensionToolSchema = z.strictObject({ name: z.string().min(1).max(200), description: z.string().max(2000), inputSchema: inputSchemaSchema, enabled: z.boolean().default(false) });
+// `alwaysLoad`: sent to the model in full even when extension tools are loaded on demand.
+export const extensionToolSchema = z.strictObject({ name: z.string().min(1).max(200), description: z.string().max(2000), inputSchema: inputSchemaSchema, enabled: z.boolean().default(false), alwaysLoad: z.boolean().default(false) });
 export const extensionToolsSchema = z.array(extensionToolSchema).max(EXTENSION_LIMITS.tools).refine(tools => new Set(tools.map(tool => tool.name)).size === tools.length);
 export type ExtensionTool = z.infer<typeof extensionToolSchema>;
-export const activationSchema = z.strictObject({ revision: z.number().int().positive(), enabled: z.boolean(), tools: z.array(z.string().min(1).max(200)).max(EXTENSION_LIMITS.tools) });
+export const activationSchema = z.strictObject({ revision: z.number().int().positive(), enabled: z.boolean(), tools: z.array(z.string().min(1).max(200)).max(EXTENSION_LIMITS.tools), alwaysLoad: z.array(z.string().min(1).max(200)).max(EXTENSION_LIMITS.tools).optional() });
+/** Which tools always load. A preference about what each request sends, not about what may run, so it leaves the revision alone. */
+export const toolLoadingSchema = z.strictObject({ revision: z.number().int().positive(), alwaysLoad: z.array(z.string().min(1).max(200)).max(EXTENSION_LIMITS.tools) });
 export const bindingSchema = z.strictObject({ extensionId: extensionIdSchema, revision: z.number().int().positive() });
-export const externalInputSchema = z.strictObject({ arguments: z.record(z.string(), z.json()), binding: bindingSchema.optional() });
+export const externalInputSchema = z.strictObject({ arguments: z.record(z.string(), z.json()), binding: bindingSchema.optional(), autoReview: autoReviewSchema.optional() });
 export type ExternalInput = z.infer<typeof externalInputSchema>;
 // Provider function names stay below 64 characters. The connection identity is
 // reversible so resolving one tool never loads every connection's schemas.

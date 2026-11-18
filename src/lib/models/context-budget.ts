@@ -1,5 +1,6 @@
 import { ApiError } from "@/lib/server/api-error";
 
+import { t } from "@/lib/locale";
 export type ContextCapacity = { contextLength?: number | null; maxOutputTokens?: number | null };
 export const CONTEXT_COUNTING = "character-class-estimate" as const;
 export type ContextBudget = {
@@ -51,22 +52,22 @@ export function contextBudget(model?: ContextCapacity | null, configured?: Conte
 }
 
 /**
- * Output limit assumed when neither the catalog nor the user states one: the
- * per-call maximum of current frontier models. A model whose real limit is
- * lower needs that limit configured, or the provider rejects the call.
- */
-export const DEFAULT_OUTPUT_LIMIT = 131_072;
-
-/**
- * The output cap sent with one call.
+ * The output cap sent with one call, or undefined to send none.
  *
- * The planning reservation only sizes the input budget. A call may use all of
- * the output limit — known, else the default — that its actual input leaves
- * room for, and never less than the reservation. A caller's explicit, smaller
- * cap is kept.
+ * The planning reservation only sizes the input budget. With a known output
+ * limit a call may use all of it that its actual input leaves room for, and
+ * never less than the reservation. With no known limit no cap is sent, so the
+ * provider's own default applies: any number chosen here would be a guess, and
+ * one above a model's real limit makes the provider refuse the call. A caller's
+ * explicit cap is kept, within the room the window leaves when the window is known.
  */
-export function requestOutputCap(budget: ContextBudget, requested: number | undefined, estimatedInputTokens: number): number {
-  const room = Math.max(budget.outputTokens, Math.min(budget.outputLimit ?? DEFAULT_OUTPUT_LIMIT, budget.contextWindow - budget.safetyTokens - estimatedInputTokens));
+export function requestOutputCap(budget: ContextBudget, requested: number | undefined, estimatedInputTokens: number): number | undefined {
+  const windowRoom = budget.contextWindow - budget.safetyTokens - estimatedInputTokens;
+  if (budget.outputLimit === null) {
+    if (requested === undefined) return undefined;
+    return budget.capacitySource === "unknown" ? requested : Math.min(requested, Math.max(budget.outputTokens, windowRoom));
+  }
+  const room = Math.max(budget.outputTokens, Math.min(budget.outputLimit, windowRoom));
   return requested === undefined ? room : Math.min(requested, room);
 }
 
@@ -167,7 +168,7 @@ export function assertContextFits(budget: ContextBudget, input: unknown, scale =
 export function assertInputFits(budget: ContextBudget, estimatedInputTokens: number) {
   if (estimatedInputTokens > budget.inputTokens) throw new ApiError({
     code: "CONTEXT_LIMIT",
-    message: "The required context exceeds this model's input budget. Use a larger-context model or reduce the current input or attachments. Saved execution records have been preserved.",
+    message: t("errors.contextLimit"),
     details: { ...budget, estimatedInputTokens },
   });
   return estimatedInputTokens;

@@ -1,4 +1,5 @@
 "use client";
+import { Reveal } from "@/components/ui/reveal";
 import { useLocale } from "@/lib/locale/client";
 
 import { t, tf, localizeMessage } from "@/lib/locale";
@@ -13,17 +14,24 @@ import { cn } from "@/lib/utils/cn";
 import { isToolPart, safeJson, type ToolPart } from "./page-utils";
 import type { ChatState } from "./use-chat-state";
 import { CommandText } from "./command-text";
+import { terminalLimitLabel } from "./terminal-result";
 import { DiffText } from "./diff-text";
+import { QuestionCard, pendingQuestion } from "./question-card";
 
 type Props = Pick<ChatState, "messages" | "isPending" | "addToolApprovalResponse" | "selectedModelInfo" | "declineApprovals" | "setIsModelMenuOpen"> & { onDetails: (messageId: string) => void };
 
 export function ApprovalDock({ messages, isPending, addToolApprovalResponse, selectedModelInfo, declineApprovals, setIsModelMenuOpen, onDetails }: Props) {
   useLocale();
   const message = messages.at(-1);
-  if (message?.role !== "assistant") return null;
-  const tools = message.parts.filter(isToolPart);
+  const tools = message?.role === "assistant" ? message.parts.filter(isToolPart) : [];
   const pending = tools.filter(part => part.state === "approval-requested" && "approval" in part && !!part.approval);
-  return pending.length ? <ApprovalRequest key={`${message.id}:${pending[0].toolCallId}`} part={pending[0]} count={pending.length} disabled={isPending} modelCannotContinue={selectedModelInfo?.supportsTools === false} respond={addToolApprovalResponse} decline={() => declineApprovals(message.id)} changeModel={() => setIsModelMenuOpen(true)} onDetails={() => onDetails(message.id)} /> : null;
+  // A question asks for an answer, not a yes or no.
+  const question = message?.role === "assistant" ? pendingQuestion(messages) : null;
+  // Answered or approved, the card folds away instead of vanishing.
+  return <Reveal>{!message || message.role !== "assistant" ? null
+    : question ? <QuestionCard key={`${message.id}:${question.part.toolCallId}`} {...question} count={pending.length} disabled={isPending} respond={addToolApprovalResponse} />
+    : pending.length ? <ApprovalRequest key={`${message.id}:${pending[0].toolCallId}`} part={pending[0]} count={pending.length} disabled={isPending} modelCannotContinue={selectedModelInfo?.supportsTools === false} respond={addToolApprovalResponse} decline={() => declineApprovals(message.id)} changeModel={() => setIsModelMenuOpen(true)} onDetails={() => onDetails(message.id)} />
+    : null}</Reveal>;
 }
 
 function ApprovalRequest({ part, count, disabled: busyElsewhere, modelCannotContinue, respond, decline, changeModel, onDetails }: {
@@ -46,7 +54,7 @@ function ApprovalRequest({ part, count, disabled: busyElsewhere, modelCannotCont
   const detailsId = useId();
   const busy = useRef(false);
   const approval = "approval" in part ? part.approval : undefined;
-  const input = part.input as { command?: unknown; binding?: { cwd?: unknown; path?: unknown; diff?: unknown; added?: unknown; removed?: unknown; stale?: unknown }; arguments?: unknown } | undefined;
+  const input = part.input as { command?: unknown; timeoutSeconds?: unknown; runInBackground?: unknown; autoReview?: { reason?: unknown }; binding?: { cwd?: unknown; path?: unknown; diff?: unknown; added?: unknown; removed?: unknown; stale?: unknown }; arguments?: unknown } | undefined;
   // An edit is approved by the diff the server computed from the file, never by its raw arguments.
   const edit = part.type === "tool-editProjectFile" && typeof input?.binding?.diff === "string" ? input.binding as { path?: unknown; diff: string; added?: unknown; removed?: unknown; stale?: unknown } : null;
   const entryText = typeof entry?.value === "string" ? entry.value : "";
@@ -70,7 +78,9 @@ function ApprovalRequest({ part, count, disabled: busyElsewhere, modelCannotCont
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex min-w-0 items-center gap-2"><Badge variant="warning">{t("ui.chat.approval-dock.pendingApproval")}</Badge><CardTitle className="min-w-0 truncate text-sm">{localizeMessage(part.title ?? (terminal ? t("ui.chat.approval-dock.runTerminalCommand") : part.type.replace(/^tool-/, "")))}</CardTitle></div>
         <CardDescription role="status" className="sr-only">{t("chat.messages.approvalPending")}</CardDescription>
-        {terminal ? <p className="truncate text-xs text-muted-foreground" title={typeof input?.binding?.cwd === "string" ? input.binding.cwd : undefined}>{t("ui.chat.approval-dock.workingDirectory")}{typeof input?.binding?.cwd === "string" ? input.binding.cwd : t("ui.chat.approval-dock.waitingForDirectoryValidation")}</p> : null}
+        {terminal ? <p className="truncate text-xs text-muted-foreground" title={typeof input?.binding?.cwd === "string" ? input.binding.cwd : undefined}>{t("ui.chat.approval-dock.workingDirectory")}{typeof input?.binding?.cwd === "string" ? input.binding.cwd : t("ui.chat.approval-dock.waitingForDirectoryValidation")}{input?.runInBackground === true ? ` · ${t("ui.chat.terminal-result.background")}` : ""}{terminalLimitLabel(input?.timeoutSeconds) ? ` · ${terminalLimitLabel(input?.timeoutSeconds)}` : ""}</p> : null}
+        {input?.autoReview ? <p className="text-xs text-muted-foreground">{typeof input.autoReview.reason === "string" && input.autoReview.reason.trim()
+          ? tf("ui.chat.approval-dock.autoReviewAsked", { reason: input.autoReview.reason.trim() }) : t("ui.chat.approval-dock.autoReviewFailed")}</p> : null}
         {edit ? <p className="truncate text-xs text-muted-foreground" title={String(edit.path ?? "")}>{t("ui.chat.approval-dock.file")}{String(edit.path ?? "")} {tf("ui.chat.approval-dock.changeCounts", { added: Number(edit.added ?? 0), removed: Number(edit.removed ?? 0) })}</p> : null}
         {edit?.stale ? <p role="alert" className="text-xs text-destructive">{t("ui.chat.approval-dock.staleEdit")}</p> : null}
         {entry ? <p className="truncate text-xs text-muted-foreground" title={String(entry.key ?? "")}>{t(replaced !== null ? "ui.chat.approval-dock.replacesEntry" : "ui.chat.approval-dock.newEntry")}{String(entry.key ?? "")}</p> : null}

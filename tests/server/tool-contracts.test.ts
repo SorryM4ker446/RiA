@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 import { MockLanguageModelV3 } from "ai/test";
 import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import { createTestDatabase } from "../helpers/database";
+import { skipRetryWaits } from "../helpers/retry-waits";
 import { seedTestModelPreferences, CHAT_MODEL_REF } from "../helpers/model-library";
 import { localAccessCookie } from "../helpers/local-access";
 import { languageModel } from "../helpers/model-provider";
@@ -127,7 +128,8 @@ for (const outcome of ["end", "error", "cancel"] as const) {
   });
 }
 
-test("provider submission failure releases the model lease", async () => {
+test("provider submission failure releases the model lease", async (t) => {
+  skipRetryWaits(t);
   const model = new MockLanguageModelV3({ doStream: async () => { throw new Error("Provider unavailable"); } });
   await assert.rejects(async () => await observeLanguageModel(model, CHAT_MODEL_REF, () => model).doStream({ prompt: [] }), /Provider unavailable/);
   await removeModel(CHAT_MODEL_REF);

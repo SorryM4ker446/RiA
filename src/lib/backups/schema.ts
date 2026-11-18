@@ -2,13 +2,15 @@ import { approvalRuleSchema } from "@/lib/approvals/rules";
 import { assistantConfigSchema, assistantSnapshotSchema } from "@/lib/assistants/schema";
 import { z } from "zod";
 import { generationRecipeSchema } from "@/lib/media/generation-recipe";
-import { documentPagesSchema } from "@/lib/documents/types";
+import { DOCUMENT_LIMITS, documentPagesSchema } from "@/lib/documents/types";
 import { CHAT_ATTACHMENT_TYPES } from "@/lib/media/limits";
 import { legacyPreferencesSchema, preferencesSchema, providerAgnosticPreferencesSchema, providerIdSchema } from "@/lib/models/preferences-schema";
 import { eventSchema, factsSchema } from "@/lib/activity/types";
 import { legacyChatFields, legacyResultsSchema, legacyTopicsConsistent, legacyTopicsSchema } from "@/lib/backups/legacy-topics";
 
-export const BACKUP_LIMITS = { bytes: 512 * 1024 * 1024, manifest: 32 * 1024 * 1024, chunk: 8 * 1024 * 1024, rows: 10_000, stagingAgeMs: 60 * 60_000 };
+import { t } from "@/lib/locale";
+import { BACKUP_MAX_BYTES } from "@/lib/backups/limits";
+export const BACKUP_LIMITS = { bytes: BACKUP_MAX_BYTES, manifest: 32 * 1024 * 1024, chunk: 8 * 1024 * 1024, rows: 10_000, stagingAgeMs: 60 * 60_000 };
 export const backupId = z.string().uuid();
 const id = z.string().regex(/^[a-zA-Z0-9_-]{1,200}$/);
 const date = z.iso.datetime();
@@ -22,7 +24,14 @@ const chat = z.strictObject({ id, title: z.string().max(4000), pinned: z.boolean
 const memory = z.strictObject({ id, key: z.string().max(2000), value: text, score: z.number().nullable(), source: z.enum(["manual", "assistant"]).optional(), confirmed: z.boolean().optional(), lastUsedAt: date.nullable().optional(), embedding: z.array(z.number()).max(16_384).nullable(), embeddingModelId: z.string().max(200).nullable().optional(), embeddingModelProvider: providerIdSchema.nullable().optional(), ...timestamps });
 const task = z.strictObject({ id, title: z.string().max(4000), details: text.nullable(), dueDate: date.nullable(), timeZone: z.string().min(1).max(100).refine(value => { try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; } catch { return false; } }), reminderEnabled: z.boolean(), remindedAt: date.nullable(), repeatRule: z.enum(["none", "daily", "weekly", "monthly"]), repeatAnchor: date.nullable(), repeatGenerated: z.boolean(), priority: z.enum(["low", "medium", "high"]), status: z.enum(["todo", "in_progress", "done"]), ...timestamps });
 const chunk = z.strictObject({ id, documentId: id, chunkKey: z.string().max(200), ordinal: count, pageNumber: count.nullable(), text, heading: z.string().max(600).nullable().default(null), tokenCount: count.default(0), terms: z.array(z.strictObject({ chunkId: id, term: z.string().min(1).max(100), frequency: count.positive().default(1) })).max(3000) });
-const document = z.strictObject({ id, filename: z.string().min(1).max(180), collection: z.string().max(40).nullable().optional(), format: z.enum(["pdf", "docx", "md", "txt"]), byteSize: count.max(8 * 1024 * 1024), contentHash: z.string().max(128), pages: documentPagesSchema, characterCount: count.max(100_000), indexVersion: count, indexedAt: date, ...timestamps, chunks: z.array(chunk).max(256) });
+/** A document as archives before format 2 hold it: pages, chunks and keyword terms inside the manifest. */
+const legacyDocument = z.strictObject({ id, filename: z.string().min(1).max(180), collection: z.string().max(40).nullable().optional(), format: z.enum(["pdf", "docx", "md", "txt"]), byteSize: count.max(DOCUMENT_LIMITS.fileBytes), contentHash: z.string().max(128), pages: documentPagesSchema, characterCount: count.max(DOCUMENT_LIMITS.characters), indexVersion: count, indexedAt: date, ...timestamps, chunks: z.array(chunk).max(DOCUMENT_LIMITS.chunks) });
+/**
+ * A document in a format 2 archive: its description here, its pages, chunks and
+ * vectors in a block of their own after the media files (see documents.ts).
+ */
+const document = z.strictObject({ id, filename: z.string().min(1).max(180), collection: z.string().max(40).nullable().optional(), format: z.enum(["pdf", "docx", "md", "txt"]), byteSize: count.max(DOCUMENT_LIMITS.fileBytes), contentHash: z.string().max(128), characterCount: count.max(DOCUMENT_LIMITS.characters), indexVersion: count, indexedAt: date, ...timestamps,
+  chunkCount: count.max(DOCUMENT_LIMITS.chunks), content: z.strictObject({ byteSize: count.positive().max(BACKUP_MAX_BYTES), sha256: z.string().regex(/^[a-f0-9]{64}$/) }) });
 const asset = z.strictObject({ id: backupId, mediaType: z.enum([...CHAT_ATTACHMENT_TYPES, "video/mp4", "video/webm", "video/quicktime"]), byteSize: count.positive().max(100 * 1024 * 1024), kind: z.enum(["attachment", "generated-image", "generated-video"]), modelId: z.string().max(200).nullable(), modelProvider: providerIdSchema.nullable().optional(), description: z.string().max(4000).nullable(), generation: generationRecipeSchema.nullable(), sourceChatId: id.nullable(), createdAt: date, lastUsedAt: date, sha256: z.string().regex(/^[a-f0-9]{64}$/), references: z.array(z.strictObject({ messageId: id, assetId: backupId })).max(BACKUP_LIMITS.rows), inputs: z.array(z.strictObject({ assetId: backupId, inputAssetId: backupId })).max(4) });
 const usage = z.strictObject({ id, requestId: id, mode: z.enum(["chat", "image", "video", "embedding"]), modelId: z.string().max(200), modelProvider: providerIdSchema.optional(), source: z.enum(["chat", "summary", "scheduled", "tool", "embedding", "media", "unattributed"]).optional(), estimatedUsd: z.number().nonnegative().nullable().optional(), status: z.enum(["success", "error", "aborted", "pending", "interrupted"]), durationMs: count, inputTokens: count.nullable(), outputTokens: count.nullable(), costUsd: z.number().nonnegative().nullable(), costSource: z.enum(["provider", "configured", "unknown"]), errorCode: z.string().max(60).nullable(), fallback: z.boolean(), createdAt: date });
 /** Identifier written into new archives. */
@@ -33,13 +42,13 @@ export const BACKUP_FORMAT = "ria-account-backup";
  */
 export const LEGACY_BACKUP_FORMAT = "private-ai-account-backup";
 export const backupManifestSchema = z.strictObject({
-  format: z.enum([BACKUP_FORMAT, LEGACY_BACKUP_FORMAT]), version: z.literal(1), createdAt: date,
+  format: z.enum([BACKUP_FORMAT, LEGACY_BACKUP_FORMAT]), version: z.union([z.literal(1), z.literal(2)]), createdAt: date,
   assistantTemplates: z.array(z.strictObject({ id, config: assistantConfigSchema, revision: count.positive(), ...timestamps })).max(50).default([]),
   // Always empty in new archives; read from older ones by the legacy topics module.
   topics: legacyTopicsSchema,
   artifacts: legacyResultsSchema,
   memoryDocument: z.strictObject({ id: z.literal("local"), content: text, revision: z.number().int().nonnegative(), deletedRevision: z.number().int().nonnegative(), topics: text.optional(), updatedAt: date }).nullable().optional(),
-  chats: z.array(chat).max(BACKUP_LIMITS.rows), memories: z.array(memory).max(BACKUP_LIMITS.rows), tasks: z.array(task).max(BACKUP_LIMITS.rows), documents: z.array(document).max(100), assets: z.array(asset).max(BACKUP_LIMITS.rows), // Every shape the library has had, so an archive written before provider
+  chats: z.array(chat).max(BACKUP_LIMITS.rows), memories: z.array(memory).max(BACKUP_LIMITS.rows), tasks: z.array(task).max(BACKUP_LIMITS.rows), documents: z.array(z.union([legacyDocument, document])).max(DOCUMENT_LIMITS.documentsPerUser), assets: z.array(asset).max(BACKUP_LIMITS.rows), // Every shape the library has had, so an archive written before provider
   // qualified references still imports. Conversion happens on read; the archive
   // itself is never rewritten.
   preferences: z.union([preferencesSchema, providerAgnosticPreferencesSchema, legacyPreferencesSchema]), usage: z.array(usage).max(5000),
@@ -50,9 +59,11 @@ export const backupManifestSchema = z.strictObject({
     modelError: z.string().max(60).nullable(), modelText: z.string().max(100_000).nullable(), createdAt: date,
   })).max(1000).default([]),
 }).superRefine((data, context) => {
-  const error = () => context.addIssue({ code: "custom", message: "Backup contains duplicate, inconsistent or excessive relationships" });
+  const error = () => context.addIssue({ code: "custom", message: t("server.backup.inconsistent") });
   const messages = data.chats.flatMap(chat => chat.messages);
-  const chunks = data.documents.flatMap(document => document.chunks);
+  // Format 1 keeps documents in the manifest; format 2 keeps them in blocks of their own. Never a mix.
+  if (data.documents.some(document => ("content" in document) !== (data.version === 2))) error();
+  const chunks = data.documents.flatMap(document => "chunks" in document ? document.chunks : []);
   if (messages.length > BACKUP_LIMITS.rows || chunks.flatMap(chunk => chunk.terms).length > 100_000) error();
   const unique = (rows: { id: string }[]) => { const ids = new Set(rows.map(row => row.id)); if (ids.size !== rows.length) error(); return ids; };
   const distinct = (values: string[]) => { if (new Set(values).size !== values.length) error(); };
@@ -71,6 +82,7 @@ export const backupManifestSchema = z.strictObject({
     distinct(chat.tags.map(tag => tag.label));
   }
   for (const document of data.documents) {
+    if (!("chunks" in document)) continue;
     if (document.chunks.some(chunk => chunk.documentId !== document.id || chunk.terms.some(term => term.chunkId !== chunk.id))) error();
     distinct(document.chunks.map(chunk => chunk.chunkKey));
     for (const chunk of document.chunks) distinct(chunk.terms.map(term => term.term));
@@ -93,3 +105,6 @@ export const backupManifestSchema = z.strictObject({
   if (ready.length !== data.assets.length) error();
 });
 export type BackupManifest = z.infer<typeof backupManifestSchema>;
+export type BackupDocument = BackupManifest["documents"][number];
+/** A document whose pages, chunks and vectors are in a block after the media files. */
+export const hasDocumentContent = (document: BackupDocument): document is Extract<BackupDocument, { content: unknown }> => "content" in document;

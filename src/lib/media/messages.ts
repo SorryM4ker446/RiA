@@ -10,14 +10,15 @@ import { parseChatDocument } from "@/lib/media/document-attachments";
 import { assetIdFromUrl, decodeMediaMessage, encodeMediaMessage, IMAGE_MESSAGE_PREFIX, VIDEO_MESSAGE_PREFIX, type MediaReference } from "@/lib/media/message-codec";
 import { createMediaAsset, decodeImageDataUrl, getMediaAsset, readMediaAsset, toMediaReference } from "@/lib/media/storage";
 
+import { t } from "@/lib/locale";
 async function resolveAttachments(inputs: Array<{ url: string; mediaType?: string }>, allowDocuments: boolean) {
-  if (inputs.length > MEDIA_LIMITS.attachmentCount) throw new ApiError({ code: "VALIDATION_ERROR", message: "Too many attachments" });
+  if (inputs.length > MEDIA_LIMITS.attachmentCount) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.attachment.tooMany") });
   const assets = [];
   for (const input of inputs) {
     const id = assetIdFromUrl(input.url);
-    if (!id) throw new ApiError({ code: "VALIDATION_ERROR", message: "Upload attachments before using them; remote and data URLs are not accepted" });
+    if (!id) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.attachment.uploadFirst") });
     const asset = await getMediaAsset(id);
-    if ((!asset.mediaType.startsWith("image/") && !(allowDocuments && asset.kind === "attachment" && isDocumentAttachment(asset.mediaType))) || (input.mediaType && input.mediaType !== asset.mediaType)) throw new ApiError({ code: "VALIDATION_ERROR", message: "Attachment type does not match" });
+    if ((!asset.mediaType.startsWith("image/") && !(allowDocuments && asset.kind === "attachment" && isDocumentAttachment(asset.mediaType))) || (input.mediaType && input.mediaType !== asset.mediaType)) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.attachment.kindMismatch") });
     assets.push(asset);
   }
   const validation = attachmentValidationError(assets.map((asset) => ({ size: asset.byteSize, type: asset.mediaType })), allowDocuments);
@@ -29,7 +30,7 @@ export const resolveImageInputs = (inputs: Array<{ url: string; mediaType?: stri
 export const resolveChatAttachments = (inputs: Array<{ url: string; mediaType?: string }>) => resolveAttachments(inputs, true);
 
 async function normalizeFiles(files: PersistedFilePart[], legacy: boolean) {
-  if (files.length > MEDIA_LIMITS.attachmentCount) throw new ApiError({ code: "VALIDATION_ERROR", message: "Too many image attachments" });
+  if (files.length > MEDIA_LIMITS.attachmentCount) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.attachment.tooManyImages") });
   // Legacy payloads are decoded and validated before anything is written: a
   // migration that fails is retried on every read, so storing an asset the
   // message will never accept would multiply files and rows per read.
@@ -37,7 +38,7 @@ async function normalizeFiles(files: PersistedFilePart[], legacy: boolean) {
   for (const file of files) {
     const id = assetIdFromUrl(file.url);
     if (!id && legacy && file.url.startsWith("data:")) { planned.push({ decoded: decodeImageDataUrl(file.url, MEDIA_LIMITS.attachmentBytes), filename: file.filename }); continue; }
-    if (!id) throw new ApiError({ code: "VALIDATION_ERROR", message: "Attachment must reference an uploaded file" });
+    if (!id) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.attachment.mustBeUploaded") });
     const [asset] = await resolveChatAttachments([file]);
     planned.push({ reference: toMediaReference(asset), filename: isDocumentAttachment(asset.mediaType) ? asset.description ?? file.filename : file.filename });
   }
@@ -55,9 +56,9 @@ async function normalizeFiles(files: PersistedFilePart[], legacy: boolean) {
 
 async function importLegacyVideo(url: string, modelId: string, description: string) {
   const match = /^\/generated-videos\/(\d+-[0-9a-f-]{36}\.(mp4|webm|mov))$/.exec(url);
-  if (!match) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid legacy video path" });
+  if (!match) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.media.invalidLegacyVideoPath") });
   const configured = process.env.LEGACY_VIDEO_DIRECTORY;
-  if (configured && !isAbsolute(configured)) throw new ApiError({ code: "CONFIGURATION_ERROR", message: "Legacy video directory must be absolute" });
+  if (configured && !isAbsolute(configured)) throw new ApiError({ code: "CONFIGURATION_ERROR", message: t("server.media.legacyVideoDirectory") });
   const directories = configured ? [configured] : [join(process.cwd(), "public", "generated-videos")];
   for (const directory of directories) {
     try {
@@ -71,7 +72,7 @@ async function importLegacyVideo(url: string, modelId: string, description: stri
       return await createMediaAsset({ bytes, mediaType: match[2] === "webm" ? "video/webm" : match[2] === "mov" ? "video/quicktime" : "video/mp4", kind: "generated-video", modelId, description });
     } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   }
-  throw new ApiError({ code: "NOT_FOUND", message: "Legacy video file is no longer available" });
+  throw new ApiError({ code: "NOT_FOUND", message: t("server.media.legacyVideoMissing") });
 }
 
 export async function prepareMessageMedia(content: string, legacy = false) {
@@ -83,9 +84,9 @@ export async function prepareMessageMedia(content: string, legacy = false) {
       id = (await createMediaAsset({ ...decoded, kind: "generated-image", modelId: media.modelId, description: media.text })).id;
     }
     if (!id && legacy && media.type === "video-result" && media.videoUrl) id = (await importLegacyVideo(media.videoUrl, media.modelId, media.text)).id;
-    if (!id) throw new ApiError({ code: "VALIDATION_ERROR", message: "Generated media must reference a stored asset" });
+    if (!id) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.media.generatedNeedsAsset") });
     const asset = await getMediaAsset(id);
-    if (!asset.mediaType.startsWith(media.type === "image-result" ? "image/" : "video/")) throw new ApiError({ code: "VALIDATION_ERROR", message: "Media type does not match the message" });
+    if (!asset.mediaType.startsWith(media.type === "image-result" ? "image/" : "video/")) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.media.typeMismatch") });
     return { content: encodeMediaMessage({ type: media.type, assetId: id, relativePath: asset.relativePath, mediaType: asset.mediaType, modelId: asset.modelId ?? media.modelId, text: media.text }), assetIds: [id] };
   }
   const userMessage = decodePersistedUserMessage(content);
@@ -93,14 +94,14 @@ export async function prepareMessageMedia(content: string, legacy = false) {
     const files = await normalizeFiles(userMessage.files, legacy);
     return { content: encodePersistedUserMessage({ ...userMessage, files }), assetIds: files.map((file) => file.assetId) };
   }
-  if ([IMAGE_MESSAGE_PREFIX, VIDEO_MESSAGE_PREFIX, USER_MESSAGE_PREFIX].some((prefix) => content.startsWith(prefix))) throw new ApiError({ code: "VALIDATION_ERROR", message: "Malformed media message" });
+  if ([IMAGE_MESSAGE_PREFIX, VIDEO_MESSAGE_PREFIX, USER_MESSAGE_PREFIX].some((prefix) => content.startsWith(prefix))) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.media.malformedMessage") });
   return { content, assetIds: [] as string[] };
 }
 
 export async function replaceMessageMedia(tx: Prisma.TransactionClient, messageId: string, assetIds: string[]) {
   const ids = [...new Set(assetIds)];
   const owned = await tx.mediaAsset.count({ where: { id: { in: ids }, deletedAt: null } });
-  if (owned !== ids.length) throw new ApiError({ code: "NOT_FOUND", message: "Media asset is unavailable" });
+  if (owned !== ids.length) throw new ApiError({ code: "NOT_FOUND", message: t("server.media.assetUnavailable") });
   await tx.mediaAsset.updateMany({ where: { OR: [{ id: { in: ids } }, { references: { some: { messageId } } }] }, data: { lastUsedAt: new Date() } });
   await tx.messageMedia.deleteMany({ where: { messageId } });
   if (ids.length) await tx.messageMedia.createMany({ data: ids.map((assetId) => ({ messageId, assetId })) });
@@ -145,7 +146,7 @@ export async function materializeChatAttachments(messages: UIMessage[], signal?:
       if (isDocumentAttachment(asset.mediaType)) {
         const text = await parseChatDocument(data, asset.mediaType, signal);
         if (characters + text.length > CHAT_DOCUMENT_CHARACTERS) {
-          if (message.id === latestUserId) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: "本次文档正文合计超过 100,000 字符，请减少附件。" });
+          if (message.id === latestUserId) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("errors.documentTextExceeds100000CharactersInTotal") });
           parts.push({ type: "text", text: `[Earlier document attachment omitted from model context: ${asset.description || "document"}]` });
           continue;
         }

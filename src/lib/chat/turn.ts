@@ -10,7 +10,7 @@ import { getModelPreferences } from "@/lib/models/preferences";
 import { getModelProvider } from "@/lib/models/providers";
 import { compactForRequest } from "@/lib/chat/compaction";
 import { createCompactionAllowance } from "@/lib/chat/task-summary";
-import { t } from "@/lib/locale";
+import { t, tf } from "@/lib/locale";
 import { ApiError } from "@/lib/server/api-error";
 import { setupServerProxy } from "@/lib/server/proxy";
 import { listPublicToolCatalog } from "@/tools/catalog";
@@ -21,6 +21,8 @@ import { conversationCollections } from "@/lib/conversations/document-scope";
 import { conversationWorkspace, formatWorkspaceContext } from "@/lib/local-files/workspace";
 import { resolveInvocation } from "@/lib/chat/invocation";
 import { db } from "@/db";
+import { takeBackgroundCommandContext } from "@/lib/terminal/runtime";
+import { takeUndoContext } from "@/lib/checkpoints/undo";
 import type { CallSource } from "@/lib/models/call-context";
 
 /**
@@ -38,11 +40,9 @@ export async function answerChatRequest(input: ChatRequest, signal: AbortSignal,
   // OpenRouter here refused every DeepSeek-only install before it could say so,
   // which is the one thing a user who only ever added a DeepSeek model needs
   // to be able to run.
-  if (!getModelProvider(modelRef.providerId).isConfigured()) {
-    throw new ApiError({
-      code: "CONFIGURATION_ERROR",
-      message: `${modelRef.providerId.toUpperCase()}_API_KEY is not configured. Set it in .env and restart the dev server before chatting.`,
-    });
+  const provider = getModelProvider(modelRef.providerId);
+  if (!provider.isConfigured()) {
+    throw new ApiError({ code: "CONFIGURATION_ERROR", message: tf("lib.chat.providerKeyMissing", { provider: provider.displayName }), details: { fix: "apiKeys" } });
   }
   setupServerProxy();
 
@@ -83,7 +83,9 @@ export async function answerChatRequest(input: ChatRequest, signal: AbortSignal,
   // optional tools configured away this turn are named there, so the model
   // can answer honestly about what it could not check.
   const skillsPrompt = await formatPluginSkills({ onDemand: toolsEnabled });
-  const systemPrompt = buildSystemPrompt(toolsEnabled, unavailableStatuses, (await getModelPreferences()).persona)
+  // The memory rule only where its tool is offered: memory on, and a template that allows tools at all.
+  const memoryOffered = toolsEnabled && usesMemory && (!input.assistant || templateAllowsTool(input.assistant.tools, "extractMemory"));
+  const systemPrompt = buildSystemPrompt(toolsEnabled, unavailableStatuses, (await getModelPreferences()).persona, { memory: memoryOffered })
     + formatAssistantInstructions(input.assistant)
     + (toolsEnabled && !unavailableTools.includes("searchKnowledge") ? formatKnowledgeScope(conversationCollections(input.conversationPolicy ?? conversation.chat)) : "")
     + skillsPrompt;
@@ -107,8 +109,11 @@ export async function answerChatRequest(input: ChatRequest, signal: AbortSignal,
     const block = buildRequestContext({
       currentTime: formatCurrentTime(),
       workspace,
+      // Background commands that ended since the last turn, and those still running.
+      backgroundCommands: takeBackgroundCommandContext(conversation.chat.id),
       historyExcerpt: historyComplete ? "" : context.historyExcerpt,
-      fileChanges,
+      // Files the user put back with Undo since the last turn, then files changed since the model read them.
+      fileChanges: [takeUndoContext(conversation.chat.id), fileChanges].filter(Boolean).join("\n\n"),
       memoryDocument: usesMemory ? memoryForRequest(await readMemoryDocument(), sentTexts) : "",
     });
     // A note from whoever started the turn (a late task run) travels with the rest of the reference data.

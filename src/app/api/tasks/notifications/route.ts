@@ -6,12 +6,13 @@ import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { readEmptyBody } from "@/lib/server/request-body";
 import { claimNoticesToAnnounce } from "@/lib/scheduler/notices";
 
+import { t } from "@/lib/locale";
 /** A claim, not a read: each notice is handed over once, for the desktop to show as a system notification. */
 export const POST = protectDataOperation(async (req: NextRequest) => {
   try {
     await requireLocalWorkspace(req);
     if (process.env.APP_RUNTIME !== "desktop") {
-      throw new ApiError({ code: "FORBIDDEN", message: "Task notifications require the desktop application." });
+      throw new ApiError({ code: "FORBIDDEN", message: t("server.tasks.notificationsDesktopOnly") });
     }
     enforceRateLimit("reminders");
     await readEmptyBody(req);

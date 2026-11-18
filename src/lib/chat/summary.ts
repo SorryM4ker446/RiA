@@ -7,7 +7,7 @@ import { getModelPreferences, modelInLibrary, preferredModel } from "@/lib/model
 import { contextBudget } from "@/lib/models/context-budget";
 import { modelRefKey, type ModelRef } from "@/lib/models/preferences-schema";
 import { summaryRecordCharacters } from "./tool-history";
-import { summarizeWithAuxiliary, TASK_STATE_VERSION, type CompactionAllowance, type ConversationForSummary } from "./task-summary";
+import { summarizeWithInternalAgent, TASK_STATE_VERSION, type CompactionAllowance, type ConversationForSummary } from "./task-summary";
 import { foldIntoState, readSummaryState, type SummaryState } from "./compaction-state";
 import { t } from "@/lib/locale";
 
@@ -90,7 +90,7 @@ export async function summarizeOlderTurns(params: {
     const folded = new Set(state.calls);
     const preferences = await getModelPreferences();
     const recordCharacters = summaryRecordCharacters(contextBudget(await modelInLibrary("chat", main), preferences.contextLimits[modelRefKey(main)]).inputTokens);
-    const { state: summary, modelRef: chosen } = await summarizeWithAuxiliary({ main, previous, records: delta.map(message => `${message.role}: ${summaryText(message, folded, recordCharacters)}`), signal: params.signal, allowance: params.allowance, focus: params.focus, conversation: params.conversation });
+    const { state: summary, modelRef: chosen } = await summarizeWithInternalAgent({ main, previous, records: delta.map(message => `${message.role}: ${summaryText(message, folded, recordCharacters)}`), signal: params.signal, allowance: params.allowance, focus: params.focus, conversation: params.conversation });
     if (!summary) return null;
     params.signal?.throwIfAborted();
     const saved = await db.chat.updateMany({

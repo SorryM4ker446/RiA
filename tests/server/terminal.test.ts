@@ -16,7 +16,7 @@ const { createGrant, listGrants, revokeGrant } = await import("@/lib/local-files
 const { bindTerminalApproval, runTerminalCommand, getTerminalSession, stopTerminalSession, terminalEnvironment } = await import("@/lib/terminal/runtime");
 const { createChatToolSet } = await import("@/tools/catalog");
 const { startRun, cancelRun } = await import("@/lib/agent/runs");
-const { terminalInputSchema, TERMINAL_LIMITS } = await import("@/lib/terminal/schema");
+const { terminalInputSchema, TERMINAL_LIMITS, TERMINAL_MAX_TIMEOUT_SECONDS, TERMINAL_UNATTENDED_TIMEOUT_SECONDS } = await import("@/lib/terminal/schema");
 const permissionRoute = await import("@/app/api/directory-grants/[id]/route");
 const sessionsRoute = await import("@/app/api/terminal/sessions/[id]/route");
 const manualRoute = await import("@/app/api/tools/run/route");
@@ -38,8 +38,8 @@ async function folder() {
 const workspaceChat = async (grantId: string) => (await db.chat.create({ data: { title: "Workspace", workspaceGrantId: grantId } })).id;
 const echo = win ? "[Console]::WriteLine('ready')" : "printf 'ready\\n'";
 const long = win ? `${echo}; Start-Sleep -Seconds 30` : `${echo}; sleep 30`;
-async function prepared(grantId: string, command = echo, timeoutSeconds = 20) {
-  return bindTerminalApproval({ grantId, command, timeoutSeconds });
+async function prepared(grantId: string, command = echo, timeoutSeconds?: number) {
+  return bindTerminalApproval({ grantId, command, ...(timeoutSeconds === undefined ? {} : { timeoutSeconds }) });
 }
 async function eventually(check: () => boolean, timeout = 10_000) {
   const deadline = Date.now() + timeout;
@@ -62,9 +62,35 @@ after(async () => {
   cleanup();
 });
 
-test("new terminal inputs have no timeout while old approval payloads remain readable", () => {
+test("a terminal input has no time limit unless it names one, within a day", () => {
   assert.equal(terminalInputSchema.parse({ grantId: "folder", command: echo }).timeoutSeconds, undefined);
   assert.equal(terminalInputSchema.parse({ grantId: "folder", command: echo, timeoutSeconds: 1 }).timeoutSeconds, 1);
+  assert.equal(terminalInputSchema.safeParse({ grantId: "folder", command: echo, timeoutSeconds: TERMINAL_MAX_TIMEOUT_SECONDS + 1 }).success, false);
+  assert.equal(terminalInputSchema.safeParse({ grantId: "folder", command: echo, timeoutSeconds: 0 }).success, false);
+});
+
+test("a command that reaches its own time limit is stopped and reports timed-out with its output so far", async () => {
+  const grant = await folder();
+  const started = Date.now();
+  const result = await runTerminalCommand(await prepared(grant.id, long, 2));
+  assert.equal(result.status, "timed-out");
+  assert.equal(result.timeoutSeconds, 2);
+  assert.match(result.stdout, /ready/, "what it printed before the limit is kept");
+  assert.ok(Date.now() - started < 20_000, "stopped at its limit, not when the command would have ended");
+  await revokeGrant(grant.id);
+});
+
+test("only a run nobody is watching gives a command without a limit the unattended one", async () => {
+  const grant = await folder();
+  const watched = await runTerminalCommand(await prepared(grant.id));
+  assert.equal(watched.status, "completed");
+  assert.equal(watched.timeoutSeconds, undefined, "a conversation imposes no limit: the person can stop it");
+  const unattended = await runTerminalCommand(await prepared(grant.id), undefined, null, { unattended: true });
+  assert.equal(unattended.status, "completed");
+  assert.equal(unattended.timeoutSeconds, TERMINAL_UNATTENDED_TIMEOUT_SECONDS);
+  const named = await runTerminalCommand(await prepared(grant.id, echo, 90), undefined, null, { unattended: true });
+  assert.equal(named.timeoutSeconds, 90, "a limit the model named is kept in a task as well");
+  await revokeGrant(grant.id);
 });
 
 test("terminal commands remain usable in a long-running LLM turn", async () => {
@@ -99,7 +125,9 @@ test("there is no terminal permission to change on a folder, and a tool cannot i
   assert.equal((await manualRoute.POST(request("/api/tools/run", "POST", { tool: "runTerminalCommand", input: { grantId: grant.id, command: echo } }))).status, 400);
   const tools = await createChatToolSet({ toolIds: ["runTerminalCommand"], chatId: await workspaceChat(grant.id) });
   const schema = await asSchema(tools.runTerminalCommand.inputSchema).jsonSchema;
-  assert.equal((schema.properties as Record<string, unknown>).timeoutSeconds, undefined);
+  // The model may name a limit for a server or a watcher; it is never required.
+  assert.ok((schema.properties as Record<string, unknown>).timeoutSeconds);
+  assert.equal(((schema as { required?: string[] }).required ?? []).includes("timeoutSeconds"), false);
   assert.ok(tools.runTerminalCommand);
   assert.match(tools.runTerminalCommand.description!, new RegExp(grant.id));
   assert.equal((await createChatToolSet({ toolIds: [] })).runTerminalCommand, undefined);
@@ -233,13 +261,13 @@ for (const action of ["stop", "abort", "revoke"] as const) {
   });
 }
 
-test("legacy timeout values do not stop a running command and explicit stop still works", async () => {
+test("a command with no time limit keeps running in a conversation, and an explicit stop still works", async () => {
   const grant = await folder();
-  const input = await prepared(grant.id, long, 1);
+  const input = await prepared(grant.id, long);
   const pending = runTerminalCommand(input);
   try {
     await eventually(() => getTerminalSession(input.binding.sessionId).stdout.includes("ready"));
-    // Cross the old one-second deadline; this is the behavior being removed.
+    // Nothing imposes a deadline on it: it runs until it exits or is stopped.
     await new Promise(resolve => setTimeout(resolve, 1100));
     assert.equal(getTerminalSession(input.binding.sessionId).status, "running");
   } finally { stopTerminalSession(input.binding.sessionId); await pending; }
@@ -253,20 +281,24 @@ test("pre-aborted requests settle without leaving a running session", async () =
   assert.equal(aborted.status, "stopped"); assert.ok(aborted.finishedAt); assert.equal(aborted.stdout, "");
 });
 
-test("concurrent commands are bounded and ordinary child processes terminate with their shell", async () => {
+test("many commands run at once, and ordinary child processes terminate with their shell", async () => {
   const grant = await folder();
   const child = win ? "Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 60') -PassThru | ForEach-Object { [Console]::WriteLine($_.Id) }; Start-Sleep -Seconds 30" : "sleep 60 & echo $!; sleep 30";
-  const first = await prepared(grant.id, child), second = await prepared(grant.id, long), third = await prepared(grant.id);
-  const running = [runTerminalCommand(first), runTerminalCommand(second)];
+  // There is no cap on commands running at once: well past the old limit of two, every one starts.
+  const first = await prepared(grant.id, child);
+  const others = await Promise.all(Array.from({ length: 9 }, () => prepared(grant.id, long)));
+  const all = [first, ...others];
+  const running = all.map(input => runTerminalCommand(input));
+  const stopAll = () => { for (const input of all) { try { stopTerminalSession(input.binding.sessionId); } catch { /* already gone */ } } };
   try {
-    await assert.rejects(runTerminalCommand(third), /同时运行/);
-    await eventually(() => /^\d+/m.test(getTerminalSession(first.binding.sessionId).stdout));
+    await eventually(() => all.every(input => { try { return getTerminalSession(input.binding.sessionId).stdout.length > 0; } catch { return false; } }), 30_000);
+    for (const input of all) assert.equal(getTerminalSession(input.binding.sessionId).status, "running");
     const pid = Number(getTerminalSession(first.binding.sessionId).stdout.trim());
-    stopTerminalSession(first.binding.sessionId); stopTerminalSession(second.binding.sessionId);
+    stopAll();
     await Promise.all(running);
     if (win) await eventually(() => { try { process.kill(pid, 0); return false; } catch { return true; } });
   } finally {
-    stopTerminalSession(first.binding.sessionId); stopTerminalSession(second.binding.sessionId);
+    stopAll();
     await Promise.allSettled(running);
   }
 });

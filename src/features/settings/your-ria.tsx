@@ -17,7 +17,7 @@ import { animateRemoval, removalKey } from "@/lib/ui/removal";
 
 type Note = { line: number; text: string };
 type Topic = { id: string; title: string; summary: string; updatedAt: string; notes: Note[] };
-type MemoryView = { content: string; revision: number; updatedAt: string | null; topics: Topic[]; unsorted: Note[]; settled: boolean; organizing: boolean };
+type MemoryView = { content: string; revision: number; updatedAt: string | null; topics: Topic[]; unsorted: Note[]; settled: boolean; organizing: boolean; capacity?: { notes: number; maxNotes: number; full: boolean } };
 type Screen = { name: "home" } | { name: "memory" } | { name: "topic"; id: string } | { name: "source" };
 
 const ENDPOINT = "/api/memory/document";
@@ -87,7 +87,7 @@ export function YourRia() {
   const sort = useCallback(async (quietly: boolean) => {
     const read = ++lastRead.current;
     const response = await fetch(ENDPOINT, { method: "POST" }).catch(() => null);
-    if (!response?.ok) { if (!quietly) toast(t("settings.yourRia.memory.organizeFailed")); return; }
+    if (!response?.ok) { if (!quietly) toast({ title: t("settings.yourRia.memory.organizeFailed"), tone: "error" }); return; }
     const body = await response.json();
     if (read === lastRead.current) setView(body.data);
   }, [toast]);
@@ -108,7 +108,7 @@ export function YourRia() {
       const response = await request();
       const body = await response.json().catch(() => null);
       if (!response.ok) {
-        toast({ title: t(options.failed), description: localizeMessage(getApiErrorMessage(body, t("settings.yourRia.memory.changed"))) });
+        toast({ title: t(options.failed), description: localizeMessage(getApiErrorMessage(body, t("settings.yourRia.memory.changed"))), tone: "error" });
         await load();
         return false;
       }
@@ -116,7 +116,7 @@ export function YourRia() {
       const commit = () => flushSync(() => setView(body.data));
       if (options.removing) await animateRemoval(options.removing, commit); else commit();
       return true;
-    } catch { toast(t(options.failed)); return false; }
+    } catch { toast({ title: t(options.failed), tone: "error" }); return false; }
     finally { changing.current = false; setBusy(false); }
   }
 
@@ -180,6 +180,7 @@ export function YourRia() {
         action={view ? <Button type="button" size="sm" variant="secondary" data-ria-focus="" onClick={() => go({ name: "memory" }, "forward")}>{t("settings.yourRia.memory.manage")}</Button>
           : loadFailed ? <Button type="button" size="sm" variant="ghost" onClick={() => void load()}>{t("settings.yourRia.memory.retry")}</Button> : null}>
         <div className="text-xs leading-relaxed text-muted-foreground">{memoryHint || <Skeleton className="h-4 w-32" />}</div>
+        {view?.capacity?.full ? <p role="status" className="memory-full text-xs leading-relaxed text-warning">{tf("settings.yourRia.memory.full", { max: view.capacity.maxNotes })}</p> : null}
       </SettingsSection>
       <SettingsSection icon={FileText} title="MEMORY.md"
         action={view ? <Button type="button" size="sm" variant="secondary" onClick={() => go({ name: "source" }, "forward")}>{t("settings.yourRia.source.view")}</Button> : null}>
@@ -189,6 +190,7 @@ export function YourRia() {
   } else if (shown.name === "memory") {
     header = <PageHeader level={2} trail={trail(home)} title={t("settings.yourRia.memory.title")} description={t("settings.yourRia.memory.description")} />;
     content = <>
+      {view?.capacity?.full ? <p role="status" className="memory-full text-xs leading-relaxed text-warning">{tf("settings.yourRia.memory.full", { max: view.capacity.maxNotes })}</p> : null}
       {!view ? (loadFailed ? failed : loading) : noteCount ? <section aria-label={t("settings.yourRia.memory.topics")}>
         <div className="memory-group-title">
           <span>{t("settings.yourRia.memory.topics")}</span>

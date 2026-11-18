@@ -89,10 +89,14 @@ function seedValidRuntime(root, runtime) {
   write("desktop-runtime.json", "{}");
   write("prisma/schema.prisma");
   write("prisma/migrations/0001_init/migration.sql");
-  for (const entry of ["pdfjs-dist/legacy/build/pdf.mjs", "pdfjs-dist/legacy/build/pdf.worker.mjs", "mammoth/lib/index.js", "jszip/lib/index.js"]) {
+  for (const entry of ["pdfjs-dist/legacy/build/pdf.mjs", "pdfjs-dist/legacy/build/pdf.worker.mjs", "mammoth/lib/index.js", "jszip/lib/index.js",
+    "@napi-rs/canvas/package.json", "tesseract.js/src/index.js", "tesseract.js/src/worker-script/node/index.js",
+    ...["tesseract-core-relaxedsimd", "tesseract-core-simd", "tesseract-core"].flatMap(core => [`tesseract.js-core/${core}.js`, `tesseract.js-core/${core}.wasm`]),
+    "@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz", "@tesseract.js-data/chi_sim/4.0.0_best_int/chi_sim.traineddata.gz"]) {
     write(`node_modules/${entry}`);
   }
   write("node_modules/.prisma/client/query_engine.dll.node");
+  write("node_modules/@napi-rs/canvas-win32-x64-msvc/skia.win32-x64-msvc.node");
   return runtime;
 }
 

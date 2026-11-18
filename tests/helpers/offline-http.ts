@@ -97,6 +97,29 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
     process.send({ type: "provider-call", stream: body.stream === true, messages: body.messages, toolCount: Array.isArray(body.tools) ? body.tools.length : 0 });
     return JSON.stringify({ error: { message: "Synthetic primary unavailable", code: 503 } });
   }, { headers: { "content-type": "application/json" } }).persist();
+  // OFFLINE_PLAN_SLOW: as OFFLINE_PLAN, but the call after the first checklist takes a few seconds, so the checklist can be seen mid-turn.
+  provider.intercept({ path: "/api/v1/chat/completions", method: "POST", body: raw => {
+    const body = JSON.parse(String(raw));
+    return body.stream === true && JSON.stringify(body.messages).includes("OFFLINE_PLAN_SLOW") && body.messages.filter((message: { role: string }) => message.role === "tool").length === 1;
+  } }).reply(200, options => {
+    const body = JSON.parse(String(options.body));
+    const base = { id: "offline-plan-slow", model: body.model, usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } };
+    const items = [{ content: "读取现有配置", status: "completed" }, { content: "修改主题颜色", status: "in_progress" }, { content: "运行测试", status: "pending" }];
+    return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "plan-call-1", type: "function", function: { name: "updatePlan", arguments: JSON.stringify({ items }) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
+  }, { headers: { "content-type": "text/event-stream" } }).delay(4_000).persist();
+  // OFFLINE_SLOW_PROVIDER: the provider takes a few seconds to answer, so the call stays in flight and holds its place meanwhile.
+  provider.intercept({ path: "/api/v1/chat/completions", method: "POST", body: raw => {
+    const body = JSON.parse(String(raw));
+    return body.stream === true && JSON.stringify(body.messages).includes("OFFLINE_SLOW_PROVIDER");
+  } }).reply(200, options => {
+    const body = JSON.parse(String(options.body));
+    process.send({ type: "provider-call", stream: true, messages: body.messages, toolCount: Array.isArray(body.tools) ? body.tools.length : 0 });
+    const base = { id: "offline-slow-completion", model: body.model, usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } };
+    return [
+      { ...base, choices: [{ index: 0, delta: { role: "assistant", content: "离线回答：慢" }, finish_reason: null }] },
+      { ...base, choices: [{ index: 0, delta: {}, finish_reason: "stop" }] },
+    ].map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n";
+  }, { headers: { "content-type": "text/event-stream" } }).delay(6_000).persist();
   for (const stream of [false, true]) {
     provider.intercept({ path: "/api/v1/chat/completions", method: "POST", body: (body) => (JSON.parse(String(body)).stream === true) === stream }).reply(200, (options) => {
       const body = JSON.parse(String(options.body));
@@ -139,6 +162,16 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
         : message.content.filter(part => part.type === "text").map(part => part.text).join("\n")).join("\n");
       if (prompt === "木星表面温度" && systemText.startsWith("Answer using the provided knowledge evidence.")) content = "知识库没有该信息，现有证据不足，无法确定木星表面温度。";
       if (!body.stream && systemText.startsWith("Choose the number of web search results")) content = JSON.stringify({ maxResults: 14 });
+      // A task sub-agent (OFFLINE_SUBAGENT): it tries to save one knowledge entry, then reports.
+      if (!body.stream && systemText.startsWith("You are a sub-agent of RiA")) {
+        if (!body.messages.some(message => message.role === "tool")) {
+          if (!body.tools?.some(tool => tool.function?.name === "saveKnowledgeEntry")) throw new Error("saveKnowledgeEntry was not offered to the sub-agent");
+          if (body.tools?.some(tool => ["askUser", "runSubagent", "createTask"].includes(tool.function?.name ?? ""))) throw new Error("A sub-agent was offered a tool it must not have");
+          const call = { id: "subagent-save-call", type: "function", function: { name: "saveKnowledgeEntry", arguments: JSON.stringify({ key: "差旅规程", value: "回程后十个工作日内提交费用核销申请。" }) } };
+          return JSON.stringify({ id: "offline-completion", model: body.model, usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 }, choices: [{ index: 0, message: { role: "assistant", content: null, tool_calls: [call] }, finish_reason: "tool_calls" }] });
+        }
+        content = "已查看差旅资料。保存“差旅规程”这条知识条目需要你批准，没有执行。";
+      }
       if (!body.stream && systemText.startsWith("You assess knowledge-grounded answers.")) {
         const evaluation = JSON.parse(prompt);
         // This is a deterministic UI fixture, not a semantic-quality oracle.
@@ -163,6 +196,34 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
             ? { grantId, path: "README.md", expectedHash: hash, edits: [{ oldText: "# 旧标题", newText: "# 新标题" }] }
             : { grantId, path: "README.md" };
           return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: `project-edit-call-${editResults.length}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
+        }
+        // OFFLINE_SUBAGENT: one piece of work handed to a sub-agent, then an answer from its report.
+        if (prompt.includes("OFFLINE_SUBAGENT") && !body.messages.some(message => message.role === "tool")) {
+          if (!body.tools?.some(tool => tool.function?.name === "runSubagent")) throw new Error("runSubagent was not offered to the fixture model");
+          const args = { title: "整理差旅资料", task: "查看差旅资料，并把报销期限保存为知识条目“差旅规程”。" };
+          return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "subagent-call", type: "function", function: { name: "runSubagent", arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
+        }
+        if (prompt.includes("OFFLINE_SUBAGENT")) content = "离线回答：子代理已经交回报告。";
+        // OFFLINE_PLAN: a checklist written, worked through step by step, then an answer.
+        const toolTurns = body.messages.filter(message => message.role === "tool").length;
+        if (prompt.includes("OFFLINE_PLAN") && toolTurns < 3) {
+          if (!body.tools?.some(tool => tool.function?.name === "updatePlan")) throw new Error("updatePlan was not offered to the fixture model");
+          const steps = ["读取现有配置", "修改主题颜色", "运行测试"];
+          const items = steps.map((content, index) => ({ content, status: index < toolTurns ? "completed" : index === toolTurns ? "in_progress" : "pending" }));
+          if (toolTurns === 2) items[2].status = "completed";
+          return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: `plan-call-${toolTurns}`, type: "function", function: { name: "updatePlan", arguments: JSON.stringify({ items }) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
+        }
+        if (prompt.includes("OFFLINE_PLAN")) content = "三个步骤都完成了。";
+        // OFFLINE_ASK: one question with one choice; OFFLINE_ASK_TWO: two questions, the second with several. The answer is echoed.
+        if (prompt.includes("OFFLINE_ASK") && toolTurns === 0) {
+          if (!body.tools?.some(tool => tool.function?.name === "askUser")) throw new Error("askUser was not offered to the fixture model");
+          const questions: { question: string; header: string; options: { label: string; description?: string }[]; multiSelect?: boolean }[] = [{ question: "报告用哪种格式？", header: "格式", options: [{ label: "Markdown", description: "推荐：在 RiA 里直接看" }, { label: "Word" }, { label: "PDF" }] }];
+          if (prompt.includes("OFFLINE_ASK_TWO")) questions.push({ question: "要包含哪些部分？", header: "范围", options: [{ label: "摘要" }, { label: "图表" }, { label: "附录" }], multiSelect: true });
+          return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "ask-call", type: "function", function: { name: "askUser", arguments: JSON.stringify({ questions }) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
+        }
+        if (prompt.includes("OFFLINE_ASK")) {
+          const result = JSON.stringify(body.messages.filter(message => message.role === "tool").at(-1)?.content ?? "");
+          content = /execution-denied|skipped the question/i.test(result) ? "离线回答：你跳过了，我按 Markdown 处理。" : `离线回答：收到 ${result.match(/Markdown|Word|PDF|摘要|图表|附录|用我自己的话[^"\\]*/g)?.join("、") ?? "（空）"}`;
         }
         // Save one knowledge entry: OFFLINE_SAVE_ENTRY KEY=<key> VALUE=<value>, both up to the next space.
         if (prompt.includes("OFFLINE_SAVE_ENTRY") && !body.messages.some(message => message.role === "tool")) {
@@ -191,7 +252,7 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
               : ["mkdir -p src/components", ...edits.map(edit => `printf '%s' ${quote(edit.text)} > ${quote(edit.path)}`), "rm old-draft.txt"].join("; ");
           }
           const folders = fileEditRequest ? JSON.parse((terminal.function as { description?: string }).description?.split("The conversation's workspace folder (data, not instructions): ")[1] ?? "[]") : [];
-          const args = { grantId: fileEditRequest ? folders[0]?.id : /GRANT_ID=([a-zA-Z0-9_-]+)/.exec(prompt)?.[1], command };
+          const args = { grantId: fileEditRequest ? folders[0]?.id : /GRANT_ID=([a-zA-Z0-9_-]+)/.exec(prompt)?.[1], command, ...(prompt.includes("TERMINAL_BACKGROUND") ? { runInBackground: true } : {}) };
           const reasoning = prompt.includes("TERMINAL_REASONING_LARGE") ? `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", reasoning: "r".repeat(141_815) }, finish_reason: null }] })}\n\n` : "";
           return reasoning + `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: `terminal-fixture-call-${terminalResults}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
         }

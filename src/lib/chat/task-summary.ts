@@ -1,7 +1,8 @@
 import { generateText, type ModelMessage, type ToolSet } from "ai";
 import { getChatModel } from "@/lib/ai/client";
 import { withModelCallSource } from "@/lib/models/call-context";
-import { auxiliaryModel, getModelPreferences, modelInLibrary } from "@/lib/models/preferences";
+import { getModelPreferences, internalAgentModel, modelInLibrary } from "@/lib/models/preferences";
+import { runInternalAgent } from "@/lib/agents/internal";
 import { modelRefKey, type ModelRef } from "@/lib/models/preferences-schema";
 import { assertContextFits, contextBudget, estimateContextTokens, type ContextBudget } from "@/lib/models/context-budget";
 import { contextCalibration } from "@/lib/models/context-calibration";
@@ -94,14 +95,15 @@ async function summarizeConversation(params: { modelRef: ModelRef; conversation:
 }
 
 /**
- * The auxiliary model when one is chosen. If it fails, the model the work is for
- * tries before the fold gives up, unless the turn has no summary calls left. With no
- * auxiliary model, the conversation it just sent is the cheapest and fullest evidence;
- * if that does not work, the records do.
+ * A summary as an internal sub-agent: on the internal sub-agent model when one is
+ * chosen. If it fails, the model the work is for tries before the fold gives up,
+ * unless the turn has no summary calls left. With no internal sub-agent model, the
+ * conversation it just sent is the cheapest and fullest evidence; if that does not
+ * work, the records do.
  */
-export async function summarizeWithAuxiliary(params: Omit<Parameters<typeof summarizeTaskState>[0], "modelRef"> & { main: ModelRef; conversation?: ConversationForSummary }) {
+export async function summarizeWithInternalAgent(params: Omit<Parameters<typeof summarizeTaskState>[0], "modelRef"> & { main: ModelRef; conversation?: ConversationForSummary }) {
   const { main, conversation, ...rest } = params;
-  const chosen = await auxiliaryModel(main);
+  const chosen = await internalAgentModel(main);
   if (conversation && modelRefKey(chosen) === modelRefKey(main)) {
     try { return { state: await summarizeConversation({ modelRef: main, conversation, signal: params.signal, allowance: params.allowance }), modelRef: main }; }
     catch (error) {
@@ -109,12 +111,9 @@ export async function summarizeWithAuxiliary(params: Omit<Parameters<typeof summ
       if (params.allowance?.exhausted) throw error;
     }
   }
-  try { return { state: await summarizeTaskState({ ...rest, modelRef: chosen }), modelRef: chosen }; }
-  catch (error) {
-    params.signal?.throwIfAborted();
-    if (modelRefKey(chosen) === modelRefKey(main) || params.allowance?.exhausted) throw error;
-    return { state: await summarizeTaskState({ ...rest, modelRef: main }), modelRef: main };
-  }
+  // A summary has no deadline of its own: its calls are bounded by their size.
+  return runInternalAgent(main, async (modelRef, signal) => ({ state: await summarizeTaskState({ ...rest, signal, modelRef }), modelRef }),
+    { timeoutMs: null, signal: params.signal, source: "summary", fallback: () => !params.allowance?.exhausted });
 }
 
 /** Fold only new evidence; bound every summarizer request, including its previous state. */

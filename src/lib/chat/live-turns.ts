@@ -1,7 +1,8 @@
 import { ApiError, normalizeApiError } from "@/lib/server/api-error";
 import { compactBacklog } from "@/lib/chat/stream-backlog";
-import { acquireSlot, runHolding, type SlotHolder, type SlotNotice } from "@/lib/models/call-slots";
+import { runInTurn, type TurnContext, type SlotNotice } from "@/lib/models/call-slots";
 
+import { t } from "@/lib/locale";
 /*
  * Turns the service holds while they run.
  *
@@ -13,10 +14,11 @@ import { acquireSlot, runHolding, type SlotHolder, type SlotNotice } from "@/lib
  * stopping it, or the request it was started for ending on its own terms
  * (`outer`), ends it early.
  *
- * A turn takes one of the service's places for model work before it starts
- * (see call-slots). With all of them taken it waits, and says so on its stream
- * ("queued, n ahead"), instead of being refused; what it does once started
- * works within its place. A turn the user asked for goes before a task's.
+ * A turn starts at once and holds no place of its own: each model call it makes
+ * takes one of the service's places while it is in flight (see call-slots).
+ * With all of them taken the call waits, and the turn says so on its stream
+ * ("queued, n ahead"), instead of being refused. A call for a turn the user
+ * asked for goes before a task's.
  *
  * Whoever listens is told when a turn starts, when it leaves the queue, and
  * when it ends, which is how the sidebar and the desktop's notifications learn
@@ -30,6 +32,7 @@ export type TurnSource = "chat" | "task";
 export type TurnOutcome = "succeeded" | "failed" | "waiting_approval" | "stopped";
 export type TurnEvent =
   | { type: "turn-started"; chatId: string; source: TurnSource; queued: boolean }
+  | { type: "turn-queued"; chatId: string; source: TurnSource }
   | { type: "turn-running"; chatId: string; source: TurnSource }
   | { type: "turn-finished"; chatId: string; source: TurnSource; outcome: TurnOutcome; errorCode?: string };
 
@@ -57,9 +60,6 @@ const encoder = new TextEncoder();
 const sse = (chunk: object) => encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`);
 const endsEvent = (bytes: Uint8Array) => bytes.length >= 2 && bytes[bytes.length - 1] === 10 && bytes[bytes.length - 2] === 10;
 
-/** What a stream that waited in the queue is sent as, before the answer's own response exists. */
-const QUEUED_HEADERS = { "content-type": "text/event-stream", "cache-control": "no-store", "x-vercel-ai-ui-message-stream": "v1" };
-
 function emit(event: TurnEvent) {
   for (const listener of registry.listeners) {
     try { listener(event); } catch { /* One listener failing does not keep the others from hearing it. */ }
@@ -78,7 +78,7 @@ export function isTurnLive(chatId: string): boolean {
   return Boolean(turn && !turn.done);
 }
 
-/** Whether this conversation's turn is waiting for a place. */
+/** Whether one of this conversation's model calls is waiting for a place now. */
 export function isTurnQueued(chatId: string): boolean {
   const turn = registry.turns.get(chatId);
   return Boolean(turn && !turn.done && turn.queued);
@@ -202,38 +202,38 @@ function notify(turn: LiveTurn, notice: SlotNotice) {
  * without stopping the turn. A conversation answers one turn at a time: asking
  * for a second while one runs is refused before anything is saved.
  *
- * With a place free the turn starts at once and its response is the answer's.
- * Otherwise the response comes back at once and says the turn is queued;
- * `beforeQueue` runs first (to save the user's message, so it is there to see
- * while the turn waits), and the answer follows on the same stream once a place
- * frees up. A failure to start then arrives on the stream as its error.
+ * The turn starts at once. Its model calls each take a place when they are
+ * made (see call-slots); while one waits, the turn's stream says it is queued
+ * and the conversation reads as queued, and the answer goes on once it runs.
  */
 export async function holdTurn(chatId: string, start: (signal: AbortSignal) => Promise<Response>, options: {
   source: TurnSource;
   outer?: AbortSignal;
   /** Runs when the turn has ended and before anyone is told, so what they read then includes it. */
   settle?: (chatId: string, outcome: TurnOutcome) => Promise<void>;
-  /** Runs once the turn is known to wait for a place, before its response is returned. */
-  beforeQueue?: () => Promise<void>;
 }): Promise<Response> {
-  if (isTurnLive(chatId)) throw new ApiError({ code: "CONFLICT", message: "This conversation is still answering. Wait for it to finish or stop it first." });
+  if (isTurnLive(chatId)) throw new ApiError({ code: "CONFLICT", message: t("server.conversation.stillAnswering") });
   const controller = new AbortController();
   const turn: LiveTurn = { chatId, source: options.source, controller, headers: null, chunks: [], atBoundary: true, pendingNotices: [], queued: false, done: false, waiting: new Set() };
   registry.turns.set(chatId, turn);
   const stopWithOuter = () => controller.abort(options.outer?.reason);
   if (options.outer?.aborted) stopWithOuter();
   options.outer?.addEventListener("abort", stopWithOuter, { once: true });
-  const holder: SlotHolder = { notify: notice => notify(turn, notice), ended: false };
+  // Its calls tell it when they wait for a place, and when none waits any more.
+  const context: TurnContext = { ended: false, notify: notice => {
+    if (notice.state === "queued" && !turn.queued) { turn.queued = true; emit({ type: "turn-queued", chatId: turn.chatId, source: options.source }); }
+    if (notice.state === "running" && turn.queued) { turn.queued = false; emit({ type: "turn-running", chatId: turn.chatId, source: options.source }); }
+    notify(turn, notice);
+  } };
 
   const outcome = outcomeReader();
-  let release: (() => void) | null = null;
-  /** Ends the turn: gives its place back, records how it went and tells everyone. */
+  /** Ends the turn: records how it went and tells everyone. */
   const finish = async (result: { outcome: TurnOutcome; errorCode?: string }) => {
     options.outer?.removeEventListener("abort", stopWithOuter);
-    holder.ended = true;
+    context.ended = true;
     turn.done = true;
+    turn.queued = false;
     wakeAll(turn);
-    release?.();
     if (registry.turns.get(turn.chatId) === turn) registry.turns.delete(turn.chatId);
     await options.settle?.(turn.chatId, result.outcome).catch(() => console.error("chat.turn.settle_failed"));
     emit({ type: "turn-finished", chatId: turn.chatId, source: options.source, ...result });
@@ -259,100 +259,29 @@ export async function holdTurn(chatId: string, start: (signal: AbortSignal) => P
       await finish(body ? outcome.finish(controller.signal.aborted) : { outcome: "failed", errorCode: "INTERNAL_ERROR" });
     }
   };
-  const begin = () => runHolding(holder, () => start(controller.signal));
 
-  // A place free now, or the turn waits for one.
-  let queuedNow!: () => void;
-  const waits = new Promise<"queued">(resolve => { queuedNow = () => resolve("queued"); });
-  const acquiring = acquireSlot({
-    priority: options.source === "chat" ? "foreground" : "background",
-    signal: controller.signal,
-    onWait: ahead => { turn.queued = true; queuedNow(); notify(turn, { state: "queued", ahead }); },
-  });
-  let first: (() => void) | "queued";
-  try { first = await Promise.race([acquiring, waits]); }
-  catch (error) {
-    // Given up before it began (stopped at once): it leaves as a turn that could not start does.
+  let response: Response;
+  try {
+    response = await runInTurn(context, () => start(controller.signal));
+  } catch (error) {
+    // It could not start: it leaves without a trace, and the caller hears why.
     options.outer?.removeEventListener("abort", stopWithOuter);
-    holder.ended = true;
+    context.ended = true;
     turn.done = true;
     if (registry.turns.get(chatId) === turn) registry.turns.delete(chatId);
     throw error;
   }
-
-  if (first !== "queued") {
-    release = first;
-    let response: Response;
-    try {
-      response = await begin();
-    } catch (error) {
-      options.outer?.removeEventListener("abort", stopWithOuter);
-      holder.ended = true;
-      turn.done = true;
-      release();
-      if (registry.turns.get(chatId) === turn) registry.turns.delete(chatId);
-      throw error;
-    }
-    turn.headers = new Headers(response.headers);
-    // A conversation made for this turn is known by the id the service gave it.
-    const madeId = turn.headers.get("x-chat-id");
-    if (madeId && madeId !== chatId) {
-      if (registry.turns.get(chatId) === turn) registry.turns.delete(chatId);
-      turn.chatId = madeId;
-      registry.turns.set(madeId, turn);
-    }
-    emit({ type: "turn-started", chatId: turn.chatId, source: options.source, queued: false });
-    runHolding(holder, () => { void pump(response); });
-    return new Response(follow(turn), { status: response.status, headers: turn.headers });
-  }
-
-  // Queued: the user's message is kept, and the response says the turn waits.
-  try { await options.beforeQueue?.(); }
-  catch (error) {
-    controller.abort(error);
-    await acquiring.catch(() => null).then(given => { if (typeof given === "function") given(); });
-    holder.ended = true;
-    turn.done = true;
+  turn.headers = new Headers(response.headers);
+  // A conversation made for this turn is known by the id the service gave it.
+  const madeId = turn.headers.get("x-chat-id");
+  if (madeId && madeId !== chatId) {
     if (registry.turns.get(chatId) === turn) registry.turns.delete(chatId);
-    throw error;
+    turn.chatId = madeId;
+    registry.turns.set(madeId, turn);
   }
-  turn.headers = new Headers({ ...QUEUED_HEADERS, "x-chat-id": chatId });
-  emit({ type: "turn-started", chatId, source: options.source, queued: true });
-  void (async () => {
-    try { release = await acquiring; }
-    catch {
-      // Given up while it waited: nothing ran, so nothing was written.
-      append(turn, sse({ type: "abort" }));
-      await finish({ outcome: "stopped" });
-      return;
-    }
-    turn.queued = false;
-    notify(turn, { state: "running" });
-    emit({ type: "turn-running", chatId, source: options.source });
-    let response: Response;
-    try { response = await begin(); }
-    catch (error) {
-      // Stopped as its place came free: a stop, as any other stop is, and not an error.
-      if (controller.signal.aborted) {
-        append(turn, sse({ type: "abort" }));
-        await finish({ outcome: "stopped" });
-        return;
-      }
-      const { code, message } = normalizeApiError(error);
-      append(turn, sse({ type: "error", errorText: JSON.stringify({ error: { code, message } }) }));
-      outcome.push(sse({ type: "error", errorText: JSON.stringify({ error: { code } }) }));
-      await finish(outcome.finish(controller.signal.aborted));
-      return;
-    }
-    const madeId = response.headers.get("x-chat-id");
-    if (madeId && madeId !== turn.chatId) {
-      if (registry.turns.get(turn.chatId) === turn) registry.turns.delete(turn.chatId);
-      turn.chatId = madeId;
-      registry.turns.set(madeId, turn);
-    }
-    runHolding(holder, () => { void pump(response); });
-  })();
-  return new Response(follow(turn), { status: 200, headers: turn.headers });
+  emit({ type: "turn-started", chatId: turn.chatId, source: options.source, queued: turn.queued });
+  runInTurn(context, () => { void pump(response); });
+  return new Response(follow(turn), { status: response.status, headers: turn.headers });
 }
 
 /** Attaches to the turn running in a conversation, from its start; null when none is. */

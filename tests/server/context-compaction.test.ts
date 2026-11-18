@@ -315,7 +315,21 @@ test("a request that uses up its compaction calls keeps labelled excerpts, compl
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ria-context-project-"))); roots.push(root);
   writeFileSync(join(root, "step.cjs"), "require('node:fs').appendFileSync('steps.txt','x'); console.log('0'.repeat(4000)); console.log('step done');\n");
   const grant = await createGrant({ path: root });
-  await capacity(20_000);
+  // The window is the fixed prompt (system text and tool definitions, which grow with what RiA offers) plus
+  // room the six steps outgrow, so they need more folds than the allowance gives whatever the fixed part is.
+  await capacity(200_000);
+  let fixed = 0;
+  t.mock.method(languageModel, "doStream", async options => {
+    fixed = estimateContextTokens({ prompt: options.prompt, tools: options.tools });
+    return { stream: new ReadableStream<LanguageModelV3StreamPart>({ start(controller) {
+      controller.enqueue({ type: "stream-start", warnings: [] });
+      controller.enqueue({ type: "text-start", id: "m" }); controller.enqueue({ type: "text-delta", id: "m", delta: "ok" }); controller.enqueue({ type: "text-end", id: "m" });
+      controller.enqueue({ type: "finish", finishReason: { unified: "stop", raw: undefined }, usage: { inputTokens: { total: undefined, noCache: undefined, cacheRead: undefined, cacheWrite: undefined }, outputTokens: { total: 1, text: 1, reasoning: 0 } } });
+      controller.close();
+    } }) };
+  });
+  await wireText(await route.POST(request({ chatId: await workspaceChat(grant.id), messages: [ui("measure-user", "user", "Run the six steps.")] })));
+  await capacity(fixed + 12_000);
   await saveModelPreferences({ ...await getModelPreferences(), callLimits: { ...(await getModelPreferences()).callLimits, compactionCallsPerTurn: 1 } });
   // The bulk is in the calls, which excerpts leave alone, so summaries are needed.
   let summaries = 0, calls = 0, summaryPrompt = "";
@@ -424,7 +438,7 @@ test("compacting context is listed for people and never offered to the model, wh
   const { createChatToolSet } = await import("@/tools/catalog");
   const { getToolDescriptor } = await import("@/tools/builtins");
   const restricted = await createChatToolSet({ modelRef: CHAT_MODEL_REF, toolIds: ["createTask"] });
-  assert.deepEqual(Object.keys(restricted), ["createTask", "readWorkspaceActivity", "extractMemory", "readConversationHistory"], "the model's own underlying tools come with any tool");
+  assert.deepEqual(Object.keys(restricted), ["createTask", "readWorkspaceActivity", "extractMemory", "readConversationHistory", "updatePlan", "askUser"], "the model's own underlying tools come with any tool");
   assert.ok(!("compactContext" in await createChatToolSet({ modelRef: CHAT_MODEL_REF })));
   assert.equal(getToolDescriptor("compactContext")?.surface.user?.run, "direct", "a person runs it from the slash menu, with no model answering");
 });

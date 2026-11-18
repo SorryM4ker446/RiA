@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, beforeEach, test, type TestContext } from "node:test";
 import type { LanguageModelV3Prompt, LanguageModelV3StreamPart } from "@ai-sdk/provider";
-import { InvalidToolInputError, NoSuchToolError } from "ai";
+import { APICallError, InvalidToolInputError, NoSuchToolError } from "ai";
 import { NextRequest } from "next/server";
 import { createTestDatabase } from "../helpers/database";
 import { localAccessCookie } from "../helpers/local-access";
@@ -17,6 +17,7 @@ const { decodePersistedAssistantToolMessage, readToolError } = await import("@/l
 const { mapStoredMessagesToUI, hasLaterUserMessage } = await import("@/features/chat/page-utils");
 const { createTurnFailureReader, describeTurnFailure, ToolRunError } = await import("@/lib/chat/tool-failure");
 const { ApiError } = await import("@/lib/server/api-error");
+const { getApiErrorFix, getApiErrorMessage } = await import("@/lib/api-error-message");
 
 beforeEach(async (t: TestContext) => {
   t.mock.method(console, "error", () => {}); t.mock.method(console, "info", () => {});
@@ -107,4 +108,48 @@ test("a message counts as moved on from only once another user message follows i
   assert.equal(hasLaterUserMessage(messages, "q1"), true);
   assert.equal(hasLaterUserMessage(messages, "q2"), false, "its own answer does not count");
   assert.equal(hasLaterUserMessage(messages, "missing"), false);
+});
+
+test("a provider's refusal says what to fix when waiting will not help, and names where", () => {
+  const status = (statusCode: number) => describeTurnFailure(Object.assign(new Error(`HTTP ${statusCode}`), { statusCode }), "OpenRouter");
+  const rejected = status(401);
+  assert.equal(rejected.code, "CONFIGURATION_ERROR");
+  assert.match(rejected.message, /OpenRouter 拒绝了 API 密钥/);
+  assert.deepEqual(rejected.details, { fix: "apiKeys" });
+  assert.match(status(403).message, /OpenRouter 拒绝了这次请求/);
+  const missing = status(404);
+  assert.equal(missing.code, "CONFIGURATION_ERROR");
+  assert.deepEqual(missing.details, { fix: "models" });
+  assert.match(missing.message, /不再提供这个模型/);
+  assert.match(status(429).message, /限制请求频率/);
+  assert.match(status(402).message, /OpenRouter 账户余额不足/);
+  // A server error is the one a later try can fix.
+  assert.equal(status(503).message, "模型服务暂时不可用，请稍后重试。");
+  // Without the provider's name the sentence still reads.
+  assert.match(describeTurnFailure(Object.assign(new Error("x"), { statusCode: 401 })).message, /^模型服务 ?拒绝了 API 密钥/);
+});
+
+test("a rejected key reaches the page as a fix it can offer, not as an outage", async t => {
+  const calls = t.mock.method(languageModel, "doStream", async () => { throw new APICallError({ message: "No auth credentials found", url: "https://openrouter.ai/api/v1/chat/completions", requestBodyValues: {}, statusCode: 401, isRetryable: false }); });
+  const chat = await createChat({ title: "Rejected key" });
+  const body = await (await post({ chatId: chat.id, messages: [{ id: `user-${chat.id}`, role: "user", parts: [{ type: "text", text: "你好" }] }] })).text();
+  const errorText = body.split("\n").filter(line => line.startsWith("data: ")).map(line => { try { return JSON.parse(line.slice(6)); } catch { return null; } }).find(event => event?.type === "error")?.errorText;
+  assert.ok(errorText, "the answer ended with an error");
+  assert.equal(getApiErrorFix(errorText), "apiKeys");
+  assert.match(getApiErrorMessage(errorText), /拒绝了 API 密钥/);
+  assert.doesNotMatch(getApiErrorMessage(errorText), /暂时不可用/);
+  assert.equal(calls.mock.callCount(), 1, "a rejected key is not retried");
+});
+
+test("a provider's status is found through the wrappers the SDK puts around it, and what already says what it is stays", async () => {
+  const { describeProviderFailure, providerStatusOf } = await import("@/lib/models/provider-errors");
+  const refused = Object.assign(new Error("401"), { statusCode: 401 });
+  assert.equal(providerStatusOf({ lastError: refused }), 401, "a retry wrapper");
+  assert.equal(providerStatusOf({ cause: { cause: refused } }), 401, "a cause chain");
+  assert.equal(providerStatusOf(new Error("socket hang up")), undefined);
+  assert.deepEqual((describeProviderFailure({ lastError: refused }, "DeepSeek") as InstanceType<typeof ApiError>).details, { fix: "apiKeys" });
+  const known = new ApiError({ code: "VALIDATION_ERROR", message: "bad input" });
+  assert.equal(describeProviderFailure(known), known);
+  const timeout = Object.assign(new Error("slow"), { name: "TimeoutError" });
+  assert.equal(describeProviderFailure(timeout), timeout);
 });

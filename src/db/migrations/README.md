@@ -1,5 +1,29 @@
 # Database migrations
 
+`20261121100000_document_search` moves keyword search to SQLite's full-text index:
+`document_chunk_search` holds one row per chunk, its terms each written as hexadecimal UTF-8 and
+repeated by frequency, and the external-content FTS5 table `document_chunk_search_index` is kept in
+step by triggers, keyed by that table's own INTEGER PRIMARY KEY (VACUUM may renumber an implicit
+rowid). A data step in the desktop migrator fills it from `document_terms` in the same
+transaction. `20261121100100_drop_document_terms` then drops `document_terms`. Older builds cannot
+read the changed tables; rolling back means restoring the backup taken before the upgrade.
+
+`20261120100000_document_vectors` stores document vectors as binary: unit-length little-endian
+Float32 in `document_chunks.vector`, a quarter of the JSON they were. The desktop migrator converts
+existing vectors in the same transaction (`electron/migration-steps.ts`, a data step that runs
+right after this migration's SQL); vectors it cannot read are cleared, with their model and hash,
+and the background indexing builds them again. Triggers now clear a chunk's vector whenever its
+text or section changes, and every vector of a document when its file name or collection changes,
+whichever code path writes it, and bump `knowledge_documents.vectorRevision` whenever a document's
+chunks or vectors change so the search index in memory reloads only those documents. The JSON
+`embedding` column stays, emptied, so an older build still reads the table; it finds no vectors
+and builds them again (an embedding cost). Rolling back without that cost means restoring the
+backup taken before the upgrade.
+
+`20261119100000_file_checkpoints` adds what each turn changed in a workspace file, so the change can
+be undone. Only hashes are stored; the content before and after is kept by hash in `checkpoints/`
+beside the database. `checkpoint_preferences` holds the store's size limit. Both tables are additive and older builds ignore them.
+
 `20261118100000_call_limit_defaults` moves call limits still at the earlier defaults to the new
 ones: 8 model calls at once (was 4) and 1000 automatic task runs a day (was 20). Any other value
 is kept. Only the settings document changes, and older builds read the new values.

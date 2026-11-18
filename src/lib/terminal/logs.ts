@@ -4,10 +4,11 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { z } from "zod";
 import { db } from "@/db";
-import { localDataDirectory } from "@/lib/local/data-directory";
+import { localCacheDirectory } from "@/lib/local/data-directory";
 import { ApiError } from "@/lib/server/api-error";
 import { terminalLogReferenceSchema, type TerminalLogReference } from "./schema";
 
+import { t } from "@/lib/locale";
 /**
  * Full output of commands that exceeded the in-memory capture. Logs live beside
  * the local database, owned by the command's folder grant and run: they are
@@ -28,9 +29,9 @@ const metaSchema = terminalLogReferenceSchema.extend({ grantId: z.string(), runI
 type Meta = z.infer<typeof metaSchema>;
 type Stream = "stdout" | "stderr";
 
-export const terminalLogRoot = () => join(localDataDirectory("Terminal logs"), "terminal-logs");
+export const terminalLogRoot = () => join(localCacheDirectory("Terminal logs"), "terminal-logs");
 const logDirectory = (id: string) => join(terminalLogRoot(), id);
-const notFound = () => new ApiError({ code: "NOT_FOUND", message: "此终端日志不存在、已过期或已清理；请重新执行命令获取输出。" });
+const notFound = () => new ApiError({ code: "NOT_FOUND", message: t("server.terminal.logGone") });
 
 async function readMeta(id: string): Promise<Meta | null> {
   try { return metaSchema.parse(JSON.parse(await readFile(join(logDirectory(id), "meta.json"), "utf8"))); } catch { return null; }

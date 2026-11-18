@@ -56,9 +56,10 @@ const SMOKE_EMBEDDING_PROVIDER = "openrouter";
 /**
  * Generates embeddings for a list of texts. Returns null entries when the
  * embedding backend is unavailable or a call fails, so callers can fall back
- * to keyword scoring.
+ * to keyword scoring. A failed call also returns its `error`, so a caller that
+ * must say why (building an index) can.
  */
-export async function embedTextsWithModel(values: string[], signal?: AbortSignal): Promise<{ embeddings: Array<number[] | null>; modelRef: ModelRef | null }> {
+export async function embedTextsWithModel(values: string[], signal?: AbortSignal): Promise<{ embeddings: Array<number[] | null>; modelRef: ModelRef | null; error?: unknown }> {
   if (values.length === 0) {
     return { embeddings: values.map(() => null), modelRef: null };
   }
@@ -85,7 +86,7 @@ export async function embedTextsWithModel(values: string[], signal?: AbortSignal
     return { embeddings: embeddings.map((embedding) => (Array.isArray(embedding) ? embedding : null)), modelRef };
   } catch (error) {
     console.warn("embedding generation failed, falling back to keyword scoring", error instanceof Error ? error.name : "UnknownError");
-    return { embeddings: values.map(() => null), modelRef: null };
+    return { embeddings: values.map(() => null), modelRef: null, error };
   }
 }
 

@@ -146,7 +146,7 @@ test("a task's run shows in its open conversation as it is written", async ({ pa
   await expect(transcript(page).getByText(/离线回答：w0/)).toHaveCount(1);
 });
 
-test("with every place taken a conversation waits its turn, says so, and answers once one frees", async ({ page, app }) => {
+test("with every place taken by a call in flight a conversation's call waits, says so, and answers once it frees", async ({ page, app }) => {
   await openWorkspace(page, app.origin);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   const settings = await browserData(page, `${app.origin}/api/models`);
@@ -156,8 +156,8 @@ test("with every place taken a conversation waits its turn, says so, and answers
   await page.goto(`${app.origin}/chat?conversationId=${first}`);
   await expect(title(page)).toHaveText("先来的");
   const sidebar = await openRecentConversations(page);
-  await send(page, LONG);
-  await expect(transcript(page)).toContainText("离线回答：w0");
+  // The provider takes seconds to answer this one, so its call holds the only place meanwhile.
+  await send(page, "OFFLINE_SLOW_PROVIDER");
   await row(sidebar, "后到的").click();
   await expect(title(page)).toHaveText("后到的");
   await send(page, "排队的问题");
@@ -169,7 +169,7 @@ test("with every place taken a conversation waits its turn, says so, and answers
   expect((await messagesOf(page, app.origin, second)).map(message => message.role)).toEqual(["user"]);
   await expect(transcript(page)).toContainText("离线回答：排队的问题", { timeout: 40_000 });
   await expect.poll(async () => (await messagesOf(page, app.origin, second)).map(message => message.role)).toEqual(["user", "assistant"]);
-  await expect.poll(async () => (await messagesOf(page, app.origin, first)).at(-1)?.content ?? "").toContain(LAST_WORD);
+  await expect.poll(async () => (await messagesOf(page, app.origin, first)).at(-1)?.content ?? "").toContain("离线回答：慢");
 });
 
 test("a message written while the answer is coming waits in the queue and is sent when it ends", async ({ page, app }) => {

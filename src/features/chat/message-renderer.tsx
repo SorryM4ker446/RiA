@@ -79,13 +79,14 @@ type Props = Pick<ChatState,
   | "isPending" | "startEditingMessage" | "regenerateMessage" | "requestDeleteMessage" | "setEditingMessageText" | "editingMessageText"
   | "saveEditedMessage" | "cancelEditingMessage" | "attachingImageKey" | "onReuseImageForEditing" | "reuseImageActionLabel"
   | "addToolApprovalResponse" | "olderMessagesCursor" | "isLoadingOlderMessages" | "loadOlderMessages" | "selectedChatModel"
+  | "memoryNoteByMessageId"
 > & { onShowSources?: (messageId: string) => void };
 export function MessageRenderer({
   compaction, isOrganizing, turnNotice, isCompacting, tools, selectedModelInfo, onShowSources, modelMode, activeChatId,
   isLoadingHistory, isOpeningConversation, arrivingQuestion, messages, imageByMessageId, videoByMessageId, status, editingMessageId,
   isPending, startEditingMessage, regenerateMessage, requestDeleteMessage, setEditingMessageText, editingMessageText,
   saveEditedMessage, cancelEditingMessage, attachingImageKey, onReuseImageForEditing, reuseImageActionLabel, olderMessagesCursor,
-  isLoadingOlderMessages, loadOlderMessages,
+  isLoadingOlderMessages, loadOlderMessages, memoryNoteByMessageId,
 }: Props) {
   useLocale();
   // Opening counts as loading: before it is known which conversation is open, or
@@ -313,9 +314,9 @@ export function MessageRenderer({
           copyState={copiedMessageId === message.id ? "copied" : refusedMessageId === message.id ? "refused" : null}
           imageUrl={imageByMessageId[message.id]} videoUrl={videoByMessageId[message.id]}
           attachingImageKey={attachingImageKey} reuseImageActionLabel={reuseImageActionLabel}
-          tools={tools} alwaysReasons={alwaysReasons} notice={isLast ? turnNotice : null} canShowSources={!!onShowSources}
+          tools={tools} alwaysReasons={alwaysReasons} notice={isLast ? turnNotice : null} canShowSources={!!onShowSources} memoryNote={memoryNoteByMessageId[message.id]}
           compactionSummary={compaction?.coveredIds.includes(message.id) ? compaction.summary : null}
-          day={day} actions={rowActions} />;
+          chatId={activeChatId} day={day} actions={rowActions} />;
       })}
       {isCompacting || (shownStatus === "submitted" && modelMode === "chat" && shown.at(-1)?.role === "user")
         ? <ReplyPending reasoning={alwaysReasons} organizing={isCompacting || isOrganizing} notice={turnNotice} />

@@ -5,13 +5,12 @@ import { listNotices, markAllNoticesRead, unreadNoticeCount } from "@/lib/schedu
 import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { t } from "@/lib/locale";
-
 export const GET = protectDataOperation(async (req: NextRequest) => {
   try {
     await requireLocalWorkspace(req);
     const includeRead = req.nextUrl.searchParams.get("includeRead") === "true";
     if ([...req.nextUrl.searchParams.keys()].some((key) => key !== "includeRead")) {
-      throw new ApiError({ code: "VALIDATION_ERROR", message: "Unexpected query parameter" });
+      throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.request.unexpectedQuery") });
     }
     const [notices, unread] = await Promise.all([listNotices({ includeRead }), unreadNoticeCount()]);
     return Response.json({ data: { notices, unread } }, { headers: { "Cache-Control": "no-store" } });

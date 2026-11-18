@@ -1,11 +1,21 @@
 import type { NextConfig } from "next";
 import { MEDIA_LIMITS } from "./src/lib/media/limits-constants";
+import { DOCUMENT_UPLOAD_LIMITS } from "./src/lib/documents/limits-constants";
 import { LEGACY_SETTINGS_PATHS, settingsHref } from "./src/lib/settings/sections";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { dirname, relative } from "node:path";
 
-// Parser workers load native Node modules after deployment, outside the route bundle.
+// Parser and OCR workers load native Node modules after deployment, outside the route bundle.
+// Only the files those workers use: PDF.js's legacy build and its data, the Tesseract cores
+// its Node worker loads (relaxed SIMD, SIMD or neither, chosen at run time; in Node it always
+// takes the full cores, never the LSTM-only ones) and the compact LSTM models.
+const RUNTIME_FILES: Record<string, string[]> = {
+  "pdfjs-dist": ["package.json", "legacy/build/*.mjs", "cmaps/**/*", "standard_fonts/**/*"],
+  "tesseract.js-core": ["package.json", "index.js", ...["tesseract-core-relaxedsimd", "tesseract-core-simd", "tesseract-core"].flatMap(core => [`${core}.js`, `${core}.wasm`])],
+  "@tesseract.js-data/eng": ["package.json", "4.0.0_best_int/*"],
+  "@tesseract.js-data/chi_sim": ["package.json", "4.0.0_best_int/*"],
+};
 function documentRuntimeFiles() {
   const visited = new Set<string>();
   const files: string[] = [];
@@ -16,7 +26,7 @@ function documentRuntimeFiles() {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
     const directory = relative(process.cwd(), dirname(manifestPath)).replaceAll("\\", "/");
     if (directory.startsWith("../")) throw new Error("Document parser dependencies must be installed inside this project");
-    files.push(...(name === "pdfjs-dist" ? ["package.json", "legacy/build/*.mjs", "cmaps/**/*", "standard_fonts/**/*"] : ["**/*"]).map(pattern => `${directory}/${pattern}`));
+    files.push(...(RUNTIME_FILES[name] ?? ["**/*"]).map(pattern => `${directory}/${pattern}`));
     for (const dependency of Object.keys(manifest.dependencies ?? {})) include(dependency, manifestPath);
     for (const dependency of Object.keys(manifest.optionalDependencies ?? {})) {
       try { createRequire(manifestPath).resolve(`${dependency}/package.json`); }
@@ -24,7 +34,7 @@ function documentRuntimeFiles() {
       include(dependency, manifestPath);
     }
   }
-  for (const name of ["pdfjs-dist", "mammoth", "jszip"]) include(name, `${process.cwd()}/package.json`);
+  for (const name of ["pdfjs-dist", "mammoth", "jszip", "tesseract.js", "@tesseract.js-data/eng", "@tesseract.js-data/chi_sim"]) include(name, `${process.cwd()}/package.json`);
   return files;
 }
 
@@ -43,7 +53,7 @@ const nextConfig: NextConfig = {
   // The printed development entry accepts every loopback spelling, and the dev
   // asset fence otherwise blocks resources for any host it did not initialize.
   allowedDevOrigins: ["127.0.0.1", "[::1]"],
-  serverExternalPackages: ["pdfjs-dist", "mammoth", "jszip"],
+  serverExternalPackages: ["pdfjs-dist", "mammoth", "jszip", "tesseract.js"],
   outputFileTracingIncludes: {
     "/api/documents": documentRuntimeFiles(),
   },
@@ -89,7 +99,7 @@ const nextConfig: NextConfig = {
   },
   // Leave room for handlers to detect overflow before Proxy truncates a network chunk.
   experimental: {
-    proxyClientMaxBodySize: MEDIA_LIMITS.uploadBodyBytes + 1024 * 1024,
+    proxyClientMaxBodySize: Math.max(MEDIA_LIMITS.uploadBodyBytes, DOCUMENT_UPLOAD_LIMITS.bodyBytes) + 1024 * 1024,
     // The desktop service runs from a per-machine installation directory that
     // standard users cannot write and that uninstall must leave empty. Keep the
     // response cache in memory; prerendered pages are still read from the build.

@@ -3,7 +3,8 @@ import { db } from "@/db";
 import { t } from "@/lib/locale";
 import { getImageModel, getVideoModel } from "@/lib/ai/client";
 import { imageRequestSchema, videoRequestSchema } from "@/lib/server/request-schemas";
-import { ApiError, callUpstream } from "@/lib/server/api-error";
+import { ApiError } from "@/lib/server/api-error";
+import { describeProviderFailure, providerNameOf } from "@/lib/models/provider-errors";
 import { setupServerProxy } from "@/lib/server/proxy";
 import { resolveImageInputs } from "@/lib/media/messages";
 import { createMediaAsset, readMediaAsset, toMediaReference } from "@/lib/media/storage";
@@ -16,7 +17,7 @@ import { canFallback, recordModelAttempt } from "@/lib/models/usage";
 
 export async function generateStoredMedia(type: "image" | "video", value: unknown, signal: AbortSignal, allowFallback = true) {
   const body = type === "image" ? imageRequestSchema.parse(value) : videoRequestSchema.parse(value);
-  if (body.chatId && !await db.chat.findFirst({ where: { id: body.chatId }, select: { id: true } })) throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
+  if (body.chatId && !await db.chat.findFirst({ where: { id: body.chatId }, select: { id: true } })) throw new ApiError({ code: "NOT_FOUND", message: t("server.conversation.notFound") });
   const inputs = "inputImages" in body ? body.inputImages : body.inputImage ? [body.inputImage] : [];
   const assets = await resolveImageInputs(inputs);
   let model = await preferredModel(type, body.model);
@@ -58,7 +59,8 @@ export async function generateStoredMedia(type: "image" | "video", value: unknow
       break;
     } catch (error) {
       await recordModelAttempt({ attemptId: admission.id, source: "media", mode: type, modelId: model.modelId, modelProvider: model.providerId, started, error, fallback: attempt > 0 });
-      if (attempt + 1 === candidates.length || !canFallback(error, signal)) await callUpstream(async () => { throw error; });
+      // A rejected key or a delisted model says so, and where to fix it, instead of "try again later".
+      if (attempt + 1 === candidates.length || !canFallback(error, signal)) throw describeProviderFailure(error, providerNameOf(model.providerId));
     }
   }
   if (!output) throw new ApiError({ code: "UPSTREAM_FAILED", message: t("lib.media.noOutput") });

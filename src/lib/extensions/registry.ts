@@ -5,6 +5,7 @@ import { extensionConfigSchema, credentialSchema } from "./schema";
 import { connectionCredentials } from "./transport";
 import type { RegistryPage, RegistryRemote, RegistryServer } from "./registry-types";
 
+import { t } from "@/lib/locale";
 const REGISTRY_ORIGIN = "https://registry.modelcontextprotocol.io";
 export const REGISTRY_LIMITS = { pageSize: 20, responseBytes: 1_048_576, timeoutMs: 10_000, cacheMs: 3_600_000, cacheEntries: 64 } as const;
 const text = (max: number) => z.string().max(max);
@@ -32,7 +33,7 @@ const serverSchema = z.object({
 });
 const pageSchema = z.object({ servers: z.array(z.unknown()).max(100), metadata: z.object({ nextCursor: text(2048).nullish() }).optional() });
 const cache = new Map<string, { expires: number; value: unknown }>();
-const unavailable = () => new ApiError({ code: "UPSTREAM_FAILED", message: "MCP 官方目录暂时不可用，请稍后重试；已有连接仍可使用。" });
+const unavailable = () => new ApiError({ code: "UPSTREAM_FAILED", message: t("errors.officialMCPCatalogIsTemporarilyUnavailableTryAgain") });
 const hasVariables = (value: string) => /[{}]|%7[bd]/i.test(value);
 
 function safeLink(value?: string): string | null {
@@ -43,22 +44,22 @@ function safeLink(value?: string): string | null {
 
 function normalizeRemote(input: unknown): RegistryRemote {
   const parsed = remoteSchema.safeParse(input);
-  if (!parsed.success) return { type: "unknown", url: "", headers: [], unavailableReason: "连接元数据格式不受支持，请参阅项目说明后手动配置。" };
+  if (!parsed.success) return { type: "unknown", url: "", headers: [], unavailableReason: t("server.registry.unsupportedMetadata") };
   const remote = parsed.data;
   const headers = remote.headers.map(header => {
     const candidate = header.value ?? header.default ?? "";
-    return { key: header.name, value: header.isSecret || hasVariables(candidate) ? "" : candidate, required: header.isRequired, description: header.description, placeholder: header.placeholder || (hasVariables(candidate) ? candidate : "请输入完整请求头值") };
+    return { key: header.name, value: header.isSecret || hasVariables(candidate) ? "" : candidate, required: header.isRequired, description: header.description, placeholder: header.placeholder || (hasVariables(candidate) ? candidate : t("server.registry.headerPlaceholder")) };
   });
   let unavailableReason: string | null = null;
-  if (remote.type !== "streamable-http") unavailableReason = "当前仅支持 Streamable HTTP；此传输方式需要其他客户端或手动适配。";
-  else if (hasVariables(remote.url)) unavailableReason = "接口地址包含变量，请参阅项目说明填写实际地址后手动添加。";
-  else if (!extensionConfigSchema.safeParse({ type: "mcp-http", url: remote.url }).success) unavailableReason = "接口地址不符合现有连接要求：需 HTTP(S) 地址，且不含账号、查询参数或片段。";
+  if (remote.type !== "streamable-http") unavailableReason = t("server.registry.httpOnly");
+  else if (hasVariables(remote.url)) unavailableReason = t("server.registry.urlVariables");
+  else if (!extensionConfigSchema.safeParse({ type: "mcp-http", url: remote.url }).success) unavailableReason = t("server.registry.urlInvalid");
   else {
     try {
       const values = Object.fromEntries(headers.map(header => [header.key, header.value || "required"]));
       if (!credentialSchema.safeParse(values).success || new Set(headers.map(header => header.key.toLowerCase())).size !== headers.length) throw new Error();
       connectionCredentials({ type: "mcp-http", url: remote.url }, values);
-    } catch { unavailableReason = "请求头格式超出当前连接支持范围，请参阅项目说明后手动配置。"; }
+    } catch { unavailableReason = t("server.registry.headersUnsupported"); }
   }
   return { type: remote.type, url: remote.url, headers, unavailableReason };
 }
@@ -76,7 +77,7 @@ function normalizeServer(input: unknown): RegistryServer | null {
     repositoryUrl: safeLink(server.repository?.url), websiteUrl: safeLink(server.websiteUrl),
     updatedAt: date && Number.isFinite(date.getTime()) ? date.toISOString() : null,
     remotes: server.remotes.map(normalizeRemote),
-    packages: server.packages.map(item => ({ registry: item.registryType, identifier: item.identifier, version: item.version ?? "未注明", transport: item.transport.type })),
+    packages: server.packages.map(item => ({ registry: item.registryType, identifier: item.identifier, version: item.version ?? t("server.registry.versionUnknown"), transport: item.transport.type })),
   };
 }
 
@@ -115,7 +116,7 @@ async function fetchRegistry<T>(path: string, signal: AbortSignal, parse: (value
     const response = await fetch(`${REGISTRY_ORIGIN}${path}`, { headers: { Accept: "application/json" }, credentials: "omit", cache: "no-store", redirect: "error", signal: combined });
     if (!response.ok) {
       await response.body?.cancel();
-      if (response.status === 404) throw new ApiError({ code: "NOT_FOUND", message: "该扩展或版本已不在官方目录中，请重新搜索。" });
+      if (response.status === 404) throw new ApiError({ code: "NOT_FOUND", message: t("errors.thisExtensionOrVersionIsNoLongerIn") });
       throw unavailable();
     }
     const value = parse(await readJson(response, combined));
@@ -125,7 +126,7 @@ async function fetchRegistry<T>(path: string, signal: AbortSignal, parse: (value
     return value;
   } catch (error) {
     if (signal.aborted) throw signal.reason;
-    if (timeout.aborted) throw new ApiError({ code: "TIMEOUT", message: "MCP 官方目录请求超时，请稍后重试。" });
+    if (timeout.aborted) throw new ApiError({ code: "TIMEOUT", message: t("errors.officialMCPCatalogRequestTimedOutTryAgain") });
     if (error instanceof ApiError) throw error;
     throw unavailable();
   }

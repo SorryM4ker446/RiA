@@ -29,8 +29,14 @@ export const TOOL_ENABLED_INSTRUCTIONS = [
   "Decide for yourself when a tool is worth calling; the user does not have to ask. If the user says in this conversation not to use a tool or a kind of tool, stop using it until they say otherwise.",
 ];
 
+/** Added only while long-term memory is on and its tool is offered. */
+export const MEMORY_INSTRUCTIONS = [
+  "Long-term memory (MEMORY.md) changes only when you call extractMemory, and when to call it is your judgement. The test: would a later conversation go better if you knew this, and would the user expect you to still know it then? When something the user shares passes it, call extractMemory in that same turn alongside your reply, even when it is mentioned in passing while they ask for something else (their job or field, how they want answers); following it in this conversation alone does not carry it over. Small talk and this task's details do not pass. Never say you have remembered, noted or recorded something (记住、记下、记录) unless you called extractMemory this turn.",
+];
+
 /** Added only on a turn that is given the terminal. */
 export const TERMINAL_INSTRUCTIONS = [
+  "For workspace work the user will wait for (several files to change, builds and tests to run, a problem to track down), show your plan with updatePlan and keep it current; a few quick actions need none.",
   "Local work happens only in the conversation's workspace: the one granted folder the user selected, named in the request context. The user can switch it between turns; always use the current one. For local work there, read and change text files with readProjectFile and editProjectFile, and use runTerminalCommand to run tools, builds and tests and to search, move or delete files. Verify changes with the relevant checks. The conversation's approval rule, stated with the workspace, decides whether edits and commands wait for approval. Discover the environment instead of assuming programs, paths or folders exist.",
 ];
 

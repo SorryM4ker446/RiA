@@ -14,6 +14,7 @@ const { providerState, resetProviderState } = await import("../helpers/model-pro
 const { defaultModelPreferences } = await import("@/lib/models/preferences-schema");
 const { indexDocument, deleteDocument } = await import("@/lib/documents/store");
 const { indexDocumentEmbeddings, semanticCoverage, validDocumentVector } = await import("@/lib/documents/semantic");
+const { encodeDocumentVector } = await import("@/lib/documents/vectors");
 const { searchDocuments, formatDocumentContext } = await import("@/lib/documents/retrieval");
 const { buildSystemPrompt } = await import("@/lib/chat/model-context");
 const { markDocumentCitations } = await import("@/lib/documents/references");
@@ -137,7 +138,7 @@ test("heading changes preserve chunk identities but invalidate embeddings and re
   const original = await db.documentChunk.findFirstOrThrow({ where: { documentId: target.id, ordinal: 1 } });
   await document("差旅规程.md", "# 报销\n\n公务出行需要费用核销。");
   const next = await db.documentChunk.findUniqueOrThrow({ where: { id: original.id } });
-  assert.equal(next.heading, "报销"); assert.equal(next.embedding, null);
+  assert.equal(next.heading, "报销"); assert.equal(next.vector, null);
 });
 
 test("model changes, malformed vectors and mismatched dimensions cannot become semantic evidence", async () => {
@@ -147,9 +148,9 @@ test("model changes, malformed vectors and mismatched dimensions cannot become s
   assert.equal((await semanticCoverage([target.id])).counts.get(target.id), undefined);
   assert.deepEqual(await searchDocuments("出门办事的钱怎样领回来"), []);
   await preference();
-  await db.documentChunk.updateMany({ where: { documentId: target.id }, data: { embedding: [1, 0] } });
+  await db.documentChunk.updateMany({ where: { documentId: target.id }, data: { vector: encodeDocumentVector([1, 0]) } });
   assert.deepEqual(await searchDocuments("出门办事的钱怎样领回来"), []);
-  for (const vector of [[], [0, 0], [1, NaN], [1, "bad"], new Array(4097).fill(1)]) assert.equal(validDocumentVector(vector), null);
+  for (const vector of [[], [0, 0], [1, NaN], [1, "bad"], new Array(8193).fill(1)]) assert.equal(validDocumentVector(vector), null);
 });
 
 test("editing document context invalidates vectors while unchanged imports retain them", async () => {
@@ -234,16 +235,20 @@ test("citation status requires the actual versioned source link and never implie
   assert.equal(markDocumentCitations(sources, `只是提到 ${url}`)[0].citationStatus, "not-cited");
 });
 
-test("portable backups retain lexical frequencies and headings but exclude regenerable semantic vectors", async () => {
+test("portable backups carry headings and semantic vectors, and restore rebuilds keyword search", async () => {
   const target = await document("差旅规程.md", "# 差旅规程\n\n公务出行的费用核销需要保留票据。");
   await indexDocumentEmbeddings(target.id, target.contentHash, modelRef);
   const backup = await createAccountBackup();
   const file = await openBackup(backup.id);
   const { manifest } = await readBackupManifest(file);
   await file.close();
-  assert.ok(manifest.documents[0].chunks.some(chunk => chunk.heading === "差旅规程"));
-  assert.ok(manifest.documents[0].chunks.every(chunk => !("embedding" in chunk)));
+  // Chunks and vectors travel in the document's own block, not in the manifest.
+  assert.ok("content" in manifest.documents[0] && !("chunks" in manifest.documents[0]));
+  const embedded = await db.documentChunk.count({ where: { vector: { not: null } } });
+  assert.ok(embedded > 0);
   await exclusiveDataOperation(() => restoreAccountBackup(backup.id));
+  assert.ok(await db.documentChunk.count({ where: { heading: "差旅规程" } }));
+  assert.equal(await db.documentChunk.count({ where: { vector: { not: null } } }), embedded, "vectors come back, so nothing is paid for twice");
   assert.equal(await db.documentChunk.count({ where: { embedding: { not: Prisma.AnyNull } } }), 0);
   assert.ok((await searchDocuments("费用核销"))[0].snippet.includes("保留票据"));
 });

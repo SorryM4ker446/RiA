@@ -8,6 +8,7 @@ import { readJsonBody } from "@/lib/server/request-body";
 import { approvalRuleSchema } from "@/lib/approvals/rules";
 import { defaultApprovalRule, saveDefaultApprovalRule } from "@/lib/approvals/preferences";
 
+import { t } from "@/lib/locale";
 const input = z.strictObject({ defaultRule: approvalRuleSchema });
 
 /** The approval rule a new conversation starts with. */
@@ -26,7 +27,7 @@ export const PUT = protectDataOperation(async (req: NextRequest) => {
     await requireLocalWorkspace(req);
     enforceRateLimit("directoryGrants");
     const parsed = input.safeParse(await readJsonBody(req, 1024));
-    if (!parsed.success) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid approval rule" });
+    if (!parsed.success) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.approval.invalidRule") });
     return Response.json({ data: { defaultRule: await saveDefaultApprovalRule(parsed.data.defaultRule) } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return createApiErrorResponse(error, "Failed to save the approval rule");

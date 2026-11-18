@@ -118,6 +118,7 @@ model Chat {
   tags            ChatTag[]
   generatedMedia  MediaAsset[]
   agentRuns       AgentRun[]
+  fileCheckpoints FileCheckpoint[]
   scheduledRuns   ScheduledRun[]
   scheduledJobs   ScheduledJob[]
   workspaceReview WorkspaceReview?
@@ -172,6 +173,7 @@ model AgentRun {
   finishedAt   DateTime?
   updatedAt    DateTime @updatedAt
   steps        AgentStep[]
+  fileCheckpoints FileCheckpoint[]
 
   @@index([chatId, startedAt])
   @@index([status, startedAt])
@@ -186,6 +188,8 @@ model AgentStep {
   kind      String
   toolName  String?
   toolCallId String?
+  /// For a task sub-agent's own call: the call that started the sub-agent.
+  parentToolCallId String?
   state     String   @default("running")
   // A short, already-redacted description: enough to recognise the step in a
   // list without copying a whole result into a second store.
@@ -326,9 +330,13 @@ model KnowledgeDocument {
   characterCount Int
   indexVersion   Int
   indexedAt      DateTime @default(now())
+  /// Bumped by triggers whenever the chunks or their vectors change; the search index reloads by it.
+  vectorRevision Int      @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   chunks         DocumentChunk[]
+  ocr            DocumentOcr?
+  folderFiles    KnowledgeFolderFile[]
 
   @@unique([filename])
   @@index([updatedAt, id])
@@ -345,12 +353,15 @@ model DocumentChunk {
   text       String
   heading    String?
   tokenCount Int @default(0)
+  /// Vectors written before they were stored as binary; emptied by the migration and kept so older builds still read the table.
   embedding  Json?
+  /// The vector as normalised little-endian Float32. Cleared by triggers when the text, section, file name or collection changes.
+  vector     Bytes?
   embeddingModelId String?
   embeddingModelProvider String?
   embeddingContextHash String?
   document   KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  terms      DocumentTerm[]
+  search     DocumentChunkSearch?
 
   @@unique([documentId, chunkKey])
   @@index([documentId, ordinal])
@@ -358,15 +369,42 @@ model DocumentChunk {
   @@map("document_chunks")
 }
 
-model DocumentTerm {
-  chunkId String
-  term    String
-  frequency Int @default(1)
+/// Text recognition for a scanned PDF's pages without a text layer. The PDF waits in
+/// the cache folder (ocr/<documentId>.pdf) until every page is read and the text is in
+/// the document. `sourceHash` is the PDF's SHA-256, so the same file imported again
+/// reuses the text instead of reading it twice; `contentHash` is the document version
+/// the job belongs to, and a job whose document has moved on is dropped.
+model DocumentOcr {
+  id          String            @id @default(cuid())
+  documentId  String            @unique
+  sourceHash  String
+  contentHash String
+  /// Page numbers still to be read, in order.
+  pages       Json
+  /// The text read so far, by page number.
+  results     Json
+  /// pending, running, failed or done.
+  status      String            @default("pending")
+  error       String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  document    KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@map("document_ocr")
+}
+
+/// A chunk's keyword terms for the full-text index `document_chunk_search_index`
+/// (an FTS5 table kept in step by triggers, created in its migration). Each term
+/// is its UTF-8 bytes in hexadecimal, repeated by its frequency, so the index's
+/// tokenizer never splits a term and BM25 sees the chunk's term frequencies.
+model DocumentChunkSearch {
+  id      Int           @id @default(autoincrement())
+  chunkId String        @unique
+  terms   String
   chunk   DocumentChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
 
-  @@id([chunkId, term])
-  @@index([term, chunkId])
-  @@map("document_terms")
+  @@map("document_chunk_search")
 }
 
 // A directory the user explicitly opened to the assistant. This is a permission
@@ -645,4 +683,95 @@ model InterfacePreference {
   locale    String
   updatedAt DateTime @updatedAt
   @@map("interface_preferences")
+}
+
+// What a turn changed in a workspace file, kept so the change can be undone.
+// The content before (and after) lives in a content-addressed store beside the
+// database (`checkpoints/blobs/<sha256>`); a row only names the hashes. A null
+// kind says whether the turn created, modified or deleted the file.
+model FileCheckpoint {
+  id          String    @id @default(cuid())
+  chatId      String
+  chat        Chat      @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  runId       String?
+  run         AgentRun? @relation(fields: [runId], references: [id], onDelete: Cascade)
+  grantId     String
+  // The folder's real path when the change was made; undo refuses once the grant points elsewhere.
+  root        String
+  path        String
+  // "edit" (editProjectFile) or "terminal" (a command's observed changes).
+  source      String
+  // "created", "modified" or "deleted".
+  kind        String
+  // Full SHA-256 of the content; null when there was none (created / deleted) or it was not read.
+  beforeHash  String?
+  afterHash   String?
+  beforeBytes Int?
+  afterBytes  Int?
+  // Set when the content before is the file's blob in the workspace's git repository,
+  // restored from there rather than from a copy.
+  beforeGitOid String?
+  // False when the content before could not be kept (too large, not read in time); reason says which.
+  restorable  Boolean   @default(true)
+  reason      String?
+  createdAt   DateTime  @default(now())
+  undoneAt    DateTime?
+
+  @@index([chatId, runId])
+  @@index([grantId])
+  @@index([createdAt])
+  @@map("file_checkpoints")
+}
+
+// How much the undo store may hold, in MiB.
+model CheckpointPreference {
+  id        String   @id @default("local")
+  limitMb   Int      @default(2048)
+  updatedAt DateTime @updatedAt
+  @@map("checkpoint_preferences")
+}
+
+/// A folder the knowledge base keeps in step with. Only read: adding one grants the assistant nothing.
+model KnowledgeFolder {
+  id           String                @id @default(cuid())
+  /// The folder's name as shown, and the first part of its documents' names; unique among folders.
+  label        String                @unique
+  /// The path the user chose, verbatim.
+  path         String
+  /// The resolved real path when it was added; the boundary of every scan.
+  realPath     String                @unique
+  /// The topic its documents are filed under.
+  collection   String?
+  /// pending, synced, missing or failed; whether a sync is running is known only to the running service.
+  status       String                @default("pending")
+  error        String?
+  lastSyncedAt DateTime?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  files        KnowledgeFolderFile[]
+
+  @@map("knowledge_folders")
+}
+
+/// One supported file in a synced folder, as last seen, and the document it became.
+model KnowledgeFolderFile {
+  id           String             @id @default(cuid())
+  folderId     String
+  /// Inside the folder, with forward slashes.
+  relativePath String
+  documentId   String?
+  byteSize     Int
+  /// The file's modification time in whole milliseconds.
+  modifiedAt   Float
+  /// synced, failed or skipped.
+  status       String
+  error        String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  folder       KnowledgeFolder    @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  document     KnowledgeDocument? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@unique([folderId, relativePath])
+  @@index([documentId])
+  @@map("knowledge_folder_files")
 }

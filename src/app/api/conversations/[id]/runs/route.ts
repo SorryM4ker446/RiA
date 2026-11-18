@@ -10,7 +10,6 @@ import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { cancelRun, listRuns } from "@/lib/agent/runs";
 import { getChat } from "@/lib/chat/store";
 import { t } from "@/lib/locale";
-
 const stopSchema = z.strictObject({ action: z.literal("stop"), reason: z.string().trim().max(200).optional() });
 
 type Params = { params: Promise<{ id: string }> };
@@ -19,12 +18,12 @@ async function GETHandler(req: NextRequest, context: Params) {
   try {
     await requireLocalWorkspace(req);
     const { id } = await context.params;
-    if (!await getChat(id)) throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
+    if (!await getChat(id)) throw new ApiError({ code: "NOT_FOUND", message: t("server.conversation.notFound") });
     const runId = req.nextUrl.searchParams.get("runId");
     if (runId !== null) {
-      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(runId)) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid run ID" });
+      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(runId)) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.run.invalidId") });
       const run = await db.agentRun.findFirst({ where: { id: runId, chatId: id }, select: { id: true, startedAt: true } });
-      if (!run) throw new ApiError({ code: "NOT_FOUND", message: "Execution record not found" });
+      if (!run) throw new ApiError({ code: "NOT_FOUND", message: t("server.run.recordNotFound") });
       return Response.json({ data: await resolveRunMessage(id, run) }, { headers: { "Cache-Control": "private, no-store" } });
     }
     const limit = Math.min(50, Math.max(1, Number(req.nextUrl.searchParams.get("limit") ?? 20) || 20));
@@ -46,7 +45,7 @@ async function POSTHandler(req: NextRequest, context: Params) {
     enforceRateLimit("conversationExport");
     const { id } = await context.params;
     const parsed = stopSchema.safeParse(await readJsonBody(req, 4 * 1024));
-    if (!parsed.success) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid run action", details: parsed.error.flatten() });
+    if (!parsed.success) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.run.invalidAction"), details: parsed.error.flatten() });
     const runs = await listRuns(id, 50);
     const target = runs.find((run) => run.status === "running" || run.status === "waiting_approval");
     if (!target) throw new ApiError({ code: "NOT_FOUND", message: t("api.runs.nothingRunning") });

@@ -117,7 +117,7 @@ test("the auxiliary model is chosen in settings, follows the conversation by def
   await openWorkspace(page, app.origin);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   await page.goto(`${app.origin}/chat?settings=models`);
-  const select = page.getByRole("combobox", { name: "辅助模型", exact: true });
+  const select = page.getByRole("combobox", { name: "内部子代理模型", exact: true });
   await expect(select).toContainText("跟随对话模型");
   await select.click();
   await page.getByRole("option").filter({ hasText: /gemini/i }).first().click();

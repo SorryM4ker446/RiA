@@ -2,24 +2,26 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { DEFAULT_MAX_CONCURRENT } from "@/lib/models/preferences-schema";
 
 /*
- * Places for work that talks to a model, shared by the whole service.
+ * Places for model calls in flight, shared by the whole service.
  *
- * How many there are is the "maximum concurrent calls" setting. A turn of a
- * conversation takes one place for as long as it runs, and everything that
- * turn does (its model steps, the summaries it writes, a search it makes) works
- * within that place instead of competing with it: a turn that has started is
- * never refused half way. Work outside any turn (an image, indexing a document)
- * takes a place for each call.
+ * How many there are is the "maximum concurrent calls" setting. A place is
+ * taken by one model call for as long as that call is in flight and given back
+ * when it is recorded as ended. A turn holds no place of its own: while its
+ * tools run (a build, a command, a search) it holds none, so a long-running
+ * task never keeps the person's next message waiting for more than one call.
  *
- * With every place taken, work waits its turn instead of being refused. What
+ * With every place taken, a call waits its turn instead of being refused. What
  * the user asked for goes before what runs in the background, and each kind in
  * the order it asked. Waiting can be given up (the signal), which leaves the
- * queue at once.
+ * queue at once. A call made inside a turn tells that turn while it waits, so
+ * its stream can say it is queued.
  */
 
 export type SlotPriority = "foreground" | "background";
-/** What a slot holder may be told while it waits or works: its place in the queue, or a retry under way. */
-export type SlotNotice = { state: "queued"; ahead: number } | { state: "running" } | { state: "retrying"; attempt: number; seconds: number };
+/** What a turn may be told while its calls wait or work: their place in the queue, or a retry under way. */
+export type SlotNotice = { state: "queued"; ahead: number } | { state: "running" } | { state: "retrying"; attempt: number; seconds: number }
+  // An Auto approval review of a tool call is under way.
+  | { state: "reviewing" };
 
 type Waiter = { priority: SlotPriority; grant: () => void; onWait?: (ahead: number) => void };
 type Slots = { inUse: number; queue: Waiter[]; capacity: () => Promise<number> };
@@ -120,26 +122,42 @@ export function releaseForAttempt(attemptId: string | undefined) {
   release?.();
 }
 
-/** Work under way inside a held place: a turn, and the calls it makes. */
-export type SlotHolder = { notify: (notice: SlotNotice) => void; ended: boolean };
-const holders = new AsyncLocalStorage<SlotHolder>();
+/** A turn under way, which the calls it makes tell when they wait for a place or retry. */
+export type TurnContext = {
+  notify: (notice: SlotNotice) => void;
+  ended: boolean;
+  /** Calls of this turn waiting for a place now; the turn reads as queued while there are any. */
+  waiting?: number;
+};
+const turns = new AsyncLocalStorage<TurnContext>();
 
-/** Runs `work` as the holder of a place, so the calls it makes, now or later in its course, use that place. */
-export function runHolding<T>(holder: SlotHolder, work: () => T): T { return holders.run(holder, work); }
+/** Runs `work` as part of a turn, so the calls it makes, now or later in its course, tell that turn. */
+export function runInTurn<T>(turn: TurnContext, work: () => T): T { return turns.run(turn, work); }
 
-/** The place the current work holds, while it holds it. */
-export function heldSlot(): SlotHolder | null {
-  const holder = holders.getStore();
-  return holder && !holder.ended ? holder : null;
+/** The turn the current work belongs to, while it runs. */
+export function currentTurn(): TurnContext | null {
+  const turn = turns.getStore();
+  return turn && !turn.ended ? turn : null;
 }
 
 /**
- * Runs one model call in a place: the current turn's when it is inside one,
- * otherwise a place of its own for as long as `call` takes. `release` in the
- * result gives back a place taken for a call whose work outlives `call` (a
- * stream); it does nothing for a turn's own place.
+ * A place for one model call, waited for when all are taken. `release` gives
+ * it back; the caller holds it while the call is in flight (see holdForAttempt).
+ * Inside a turn, the turn hears while the call waits, and that it runs once
+ * none of its calls wait any more.
  */
-export async function slotForCall(priority: SlotPriority, signal?: AbortSignal): Promise<{ release: () => void; own: boolean }> {
-  if (heldSlot()) return { release: () => {}, own: false };
-  return { release: await acquireSlot({ priority, signal }), own: true };
+export async function slotForCall(priority: SlotPriority, signal?: AbortSignal): Promise<{ release: () => void }> {
+  const turn = currentTurn();
+  let waited = false;
+  try {
+    return { release: await acquireSlot({ priority, signal, ...(turn ? { onWait: (ahead: number) => {
+      if (!waited) { waited = true; turn.waiting = (turn.waiting ?? 0) + 1; }
+      turn.notify({ state: "queued", ahead });
+    } } : {}) }) };
+  } finally {
+    if (turn && waited) {
+      turn.waiting = Math.max(0, (turn.waiting ?? 1) - 1);
+      if (turn.waiting === 0 && !turn.ended) turn.notify({ state: "running" });
+    }
+  }
 }

@@ -21,6 +21,7 @@ import { formatBytes } from "@/features/media/api-client";
 import type { ModelPreferences } from "@/lib/models/preferences-schema";
 import { CHAT_PREFS_STORAGE_PREFIX, LAST_ACTIVE_CHAT_STORAGE_KEY } from "@/features/chat/types";
 import { useSettingsDirty } from "@/features/settings/settings-context";
+import { BACKUP_MAX_BYTES } from "@/lib/backups/limits";
 type Backup = { id: string; createdAt: string; bytes: number };
 type ModelSummary = { providerId: string; modelId: string; name: string };
 type Detail = Backup & { counts: { assistantTemplates?: number; results?: number; chats: number; messages: number; tasks: number; memories: number; documents: number; assets: number; usage: number }; models?: { restored: ModelSummary[]; removed: ModelSummary[] } };
@@ -47,7 +48,7 @@ export function BackupSettings() {
     finally { lock.current = false; setBusy(false); setPending(null); }
   }
   async function importFile(file: File) {
-    if (file.size > 512 * 1024 * 1024 || !file.size) throw new Error(t("backups.error.fileSize"));
+    if (file.size > BACKUP_MAX_BYTES || !file.size) throw new Error(t("backups.error.fileSize"));
     const controller = new AbortController(); uploadController.current = controller; setProgress(0);
     let id: string | undefined;
     try {

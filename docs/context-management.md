@@ -54,13 +54,13 @@ the cap sent to the provider. Each call is capped by the known output limit — 
 configured value, else the catalog value, never above the catalog — reduced only
 as far as that call's estimated input requires to stay within the window, and
 never below the reservation. When neither a configured nor a catalog output
-limit is known, a default of 131,072 tokens (128K, the per-call maximum of
-current frontier models) is used the same way, for any provider and model. A
-model whose real output limit is lower must have it configured, or the provider
-rejects the call. An internal call that asks for a smaller cap keeps it. The one
+limit is known, no cap is sent, for any provider and model, so the provider's
+own default applies: an assumed figure would be a guess, and one above a
+model's real limit makes the provider refuse the call. An internal call that
+asks for a cap keeps it, within the room a known window leaves. The one
 exception is a scheduled background call while a background monetary ceiling is
-enabled: with no known limit, it is bounded by the reservation so it is not
-priced as a 128K-token answer.
+enabled: with no known limit, it is capped at the reservation so it can be
+priced.
 
 Counting uses a character-class estimate with request framing, covering system
 instructions, tool JSON schemas, messages, summaries, retrieval evidence and
@@ -226,10 +226,11 @@ freed space straight away.
 Where the summary ends, the transcript shows a marker that opens to what it says. The
 turns above it stay readable; the model now sees them as the summary.
 
-### Auxiliary model
+### Internal sub-agent model
 
-**Models → Defaults and call settings → Auxiliary model** picks a chat model for
-work around a turn: summaries, in-stream folds and planning a web search. Unset,
+**Models → Defaults and call settings → Internal sub-agent model** picks a chat model for
+work around a turn: summaries, in-stream folds and planning a web search (see
+[sub-agents](subagents.md)). Unset,
 the model the work is for does it. A chosen model that was removed or whose
 provider has no key falls back the same way, a summary it fails to write is tried
 once on the model the work is for, and removing a model from the library clears the
@@ -277,14 +278,14 @@ Older summary formats remain readable; extending their coverage carries their
 valid state forward while rebuilding from stored evidence. Concurrent history
 edits or newer summary coverage prevent an obsolete write from winning.
 
-With no auxiliary model, a summary straight after a turn or during one sends the
+With no internal sub-agent model, a summary straight after a turn or during one sends the
 conversation exactly as the model just received it, with its system prompt and tool
 definitions, then the writing instructions and the full results of anything shown only
 as excerpts. It therefore reads the prefix from a provider's cache and works from the
 real messages. Its tool definitions cannot run anything. If the conversation has a call
 still waiting for a result, leaves no room, or the model replies with a tool call, the
 summary is written from records instead, as it always is for a person's request and for
-an auxiliary model, which have nothing cached to read.
+an internal sub-agent model, which have nothing cached to read.
 
 Older-turn summaries receive every stored tool call of each message, each in the
 same bounded record form the in-stream compactor uses, which keeps status, exit

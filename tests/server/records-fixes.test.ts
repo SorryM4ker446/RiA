@@ -33,7 +33,7 @@ beforeEach(async (t: TestContext) => {
   // The OpenRouter key also configures search, so the tool is mounted; both
   // budget refusals below are answered before any request is made.
   // The wrapper checks the tool quota before anything else.
-  globalThis.__riaRateLimitStore.clear();
+  globalThis.__riaRateLimitStore?.clear();
   await db.directoryGrant.deleteMany({});
   await db.agentStep.deleteMany({});
   await db.agentRun.deleteMany({});

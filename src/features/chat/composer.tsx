@@ -30,6 +30,7 @@ import { ContextUsage } from "@/features/chat/context-usage";
 import { ApprovalRulePicker } from "@/features/chat/approval-rule-picker";
 import { COMPACT_CONTEXT_TOOL } from "@/lib/chat/compact-context";
 import { useEffect, useLayoutEffect, useRef, useSyncExternalStore, type UIEvent } from "react";
+import { pendingQuestion } from "./question-card";
 import { TASK_DEFAULT_MODEL } from "@/features/chat/types";
 
 /**
@@ -284,7 +285,9 @@ export function Composer({
                       ? localizeMessage(choice.tool.surface.user.hint)
                       : choice.skills.length
                         ? t("chat.slash.skillHint")
-                        : t("chat.composer.placeholderChat")
+                        : pendingQuestion(messages)
+                          ? t("chat.ask.placeholder")
+                          : t("chat.composer.placeholderChat")
               }
               ref={textareaRef}
               rows={3}

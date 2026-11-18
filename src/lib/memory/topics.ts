@@ -5,7 +5,7 @@ import type { ModelRef } from "@/lib/models/preferences-schema";
 import { normalizeApiError } from "@/lib/server/api-error";
 import { runBackgroundDataOperation } from "@/lib/server/data-operations";
 import { memoryNotes, readMemoryDocument } from "./document";
-import { askMemoryModel, readJsonReply } from "./model-call";
+import { askInternalAgent, readJsonReply } from "@/lib/agents/internal";
 import { readStoredTopics, topicsFromReply, viewTopics } from "./topic-view";
 
 /**
@@ -41,7 +41,7 @@ async function organize(main: ModelRef | undefined) {
   const view = viewTopics(notes, stored);
   if (view.settled) return false;
   const current = view.topics.map(topic => ({ id: topic.id, title: topic.title, summary: topic.summary, lines: topic.notes.map(note => note.line) }));
-  const reply = await askMemoryModel(main ?? await preferredModel("chat"), {
+  const reply = await askInternalAgent(main ?? await preferredModel("chat"), {
     system: MEMORY_TOPICS_INSTRUCTIONS,
     prompt: `Notes:\n${notes.map(note => `${note.line}. ${note.text}`).join("\n")}\n\nCurrent topics:\n${JSON.stringify(current)}`,
     read: text => replySchema.parse(readJsonReply(text)).topics,

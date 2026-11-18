@@ -8,18 +8,19 @@ import { createMediaAsset, toMediaReference, validateMediaBytes } from "@/lib/me
 import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { readLimitedBody } from "@/lib/server/request-body";
 
+import { t } from "@/lib/locale";
 async function POSTHandler(req: NextRequest) {
   try {
     await requireLocalWorkspace(req);
     enforceRateLimit("upload");
-    if (!req.headers.get("content-type")?.toLowerCase().startsWith("multipart/form-data;")) throw new ApiError({ code: "UNSUPPORTED_MEDIA_TYPE", message: "Content-Type must be multipart/form-data" });
+    if (!req.headers.get("content-type")?.toLowerCase().startsWith("multipart/form-data;")) throw new ApiError({ code: "UNSUPPORTED_MEDIA_TYPE", message: t("server.request.multipartRequired") });
     const bytes = await readLimitedBody(req, MEDIA_LIMITS.uploadBodyBytes);
     let form: FormData;
     try { form = await new Response(bytes, { headers: { "Content-Type": req.headers.get("content-type") || "" } }).formData(); }
-    catch { throw new ApiError({ code: "VALIDATION_ERROR", message: "Expected multipart attachments" }); }
-    if ([...form.keys()].some((key) => key !== "files")) throw new ApiError({ code: "VALIDATION_ERROR", message: "Unexpected upload field" });
+    catch { throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.upload.multipartExpected") }); }
+    if ([...form.keys()].some((key) => key !== "files")) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.upload.unexpectedField") });
     const entries = form.getAll("files");
-    if (!entries.length || entries.some((file) => !(file instanceof File))) throw new ApiError({ code: "VALIDATION_ERROR", message: "files is required" });
+    if (!entries.length || entries.some((file) => !(file instanceof File))) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.upload.filesRequired") });
     const files = entries as File[];
     const validation = attachmentValidationError(files, true);
     if (validation) throw new ApiError({ code: "VALIDATION_ERROR", message: validation });
@@ -34,7 +35,7 @@ async function POSTHandler(req: NextRequest) {
       validateMediaBytes(input.bytes, input.mediaType, MEDIA_LIMITS.attachmentBytes);
       if (isDocumentAttachment(input.mediaType)) {
         characters += (await parseChatDocument(input.bytes, input.mediaType, req.signal)).length;
-        if (characters > CHAT_DOCUMENT_CHARACTERS) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: "本次文档正文合计超过 100,000 字符，请减少附件。" });
+        if (characters > CHAT_DOCUMENT_CHARACTERS) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("errors.documentTextExceeds100000CharactersInTotal") });
       }
     }
     req.signal.throwIfAborted();

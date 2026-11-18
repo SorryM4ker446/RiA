@@ -37,13 +37,13 @@ for (const width of [1440, 390]) {
     const ready = new Promise<void>(resolve => { releaseRuns = resolve; });
     await page.route("**/api/conversations/*/runs?*", async route => {
       await ready;
-      await route.fulfill({ json: { data: [{ id: "running-layout", goal: "Original question", status: "running", startedAt: now, steps: [], budget: { maxSteps: 8, maxFailures: 2, deadlineMs: 120000 } }] } });
+      await route.fulfill({ json: { data: [{ id: "running-layout", goal: "Original question", status: "waiting_approval", startedAt: now, steps: [], budget: { maxSteps: 8, maxFailures: 2, deadlineMs: 120000 } }] } });
     });
     await page.goto("/chat");
     const permissions = page.getByRole("button", { name: /选择工作区|工作区：/ }).first();
     const records = page.getByRole("button", { name: "执行记录", exact: true });
     await expect(permissions).toBeVisible();
-    await expect(records).not.toContainText("执行中");
+    await expect(records).not.toContainText("等待你回应");
     const before = (await permissions.boundingBox())!;
     const recordBefore = (await records.boundingBox())!;
     try {
@@ -51,7 +51,8 @@ for (const width of [1440, 390]) {
     } finally {
       releaseRuns();
     }
-    await expect(records).toContainText("执行中");
+    // A turn waiting on the user is the state the bar points out; the layout around it stays put.
+    await expect(records).toContainText("等待你回应");
     const after = (await permissions.boundingBox())!;
     expect(after.x).toBeCloseTo(before.x, 1);
     expect(after.y).toBeCloseTo(before.y, 1);
@@ -301,19 +302,20 @@ test("running step summaries show the newest call first and preserve expanded de
   const details = await openExecutionDetails(page);
   const calls = details.getByRole("region", { name: "工具调用", exact: true }).locator("details");
   await expect(calls).toHaveCount(2);
-  await expect(calls.nth(0)).toContainText("searchKnowledge");
-  await expect(calls.nth(1)).toContainText("webSearch");
-  await expect(calls.locator("summary")).toHaveText(["工具详情：searchKnowledge · 执行完成", "工具详情：webSearch · 执行完成"]);
-  const secondCall = calls.filter({ has: page.locator("summary").filter({ hasText: "searchKnowledge" }) });
+  // A step shown before its message part reads by the tool's name, not its internal id.
+  await expect(calls.nth(0)).toContainText("知识检索");
+  await expect(calls.nth(1)).toContainText("联网搜索");
+  await expect(calls.locator("summary")).toHaveText(["工具详情：知识检索 · 执行完成", "工具详情：联网搜索 · 执行完成"]);
+  const secondCall = calls.filter({ has: page.locator("summary").filter({ hasText: "知识检索" }) });
   await secondCall.locator("summary").click();
   await expect(secondCall.locator("pre")).toContainText("second search");
   await expect(secondCall.getByRole("status")).toHaveText("正在等待完整详情；当前显示已保存的步骤摘要。");
 
   steps.push({ id: "step-three", position: 3, kind: "tool", toolName: "readLocalFile", state: "running", input: { query: "third call" }, output: { results: [] } });
   await expect(calls).toHaveCount(3);
-  await expect(calls.nth(0)).toContainText("readLocalFile");
-  await expect(calls.nth(1)).toContainText("searchKnowledge");
-  await expect(calls.nth(2)).toContainText("webSearch");
+  await expect(calls.nth(0)).toContainText("读取资料文件");
+  await expect(calls.nth(1)).toContainText("知识检索");
+  await expect(calls.nth(2)).toContainText("联网搜索");
   await expect(secondCall.locator("pre")).toBeVisible();
   await details.screenshot({ path: join(tmpdir(), "ria-execution-newest-first-desktop.png"), animations: "disabled" });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -338,6 +340,35 @@ for (const code of ["RATE_LIMITED", "CONFLICT"]) {
     await expect(alert).not.toContainText('"error"');
   });
 }
+
+for (const [fix, button, section, during] of [["apiKeys", "打开 API 密钥", "services", true], ["apiKeys", "打开 API 密钥", "services", false], ["models", "打开模型设置", "models", true]] as const) {
+  test(`a failure the user can fix (${fix}, ${during ? "during the answer" : "before it"}) offers the way there`, async ({ page }) => {
+    await mockHistory(page, [userMessage, assistantMessage]);
+    const payload = { error: { code: "CONFIGURATION_ERROR", message: "OpenRouter 拒绝了 API 密钥，请到“设置 → API 密钥”检查或更换。", details: { fix } } };
+    await page.route("**/api/chat", (route) => during
+      ? route.fulfill({ contentType: "text/event-stream", headers: { "x-vercel-ai-ui-message-stream": "v1" }, body: streamBody([{ type: "error", errorText: JSON.stringify(payload) }]) })
+      : route.fulfill({ status: 400, json: payload }));
+    await page.goto("/chat");
+    await page.getByPlaceholder(/输入你的问题/).fill("Follow-up");
+    await page.getByRole("button", { name: "发送", exact: true }).click();
+    const alert = page.getByRole("alert").filter({ hasText: "请求失败" });
+    await expect(alert).toContainText("拒绝了 API 密钥");
+    await expect(alert).not.toContainText(".env");
+    await alert.getByRole("button", { name: button }).click();
+    await expect(page).toHaveURL(new RegExp(`[?&]settings=${section}`));
+  });
+}
+
+test("a failure with nowhere to fix it offers no settings button", async ({ page }) => {
+  await mockHistory(page, [userMessage, assistantMessage]);
+  await page.route("**/api/chat", route => route.fulfill({ status: 500, json: { error: { code: "UPSTREAM_FAILED", message: "模型服务暂时不可用，请稍后重试。", details: {} } } }));
+  await page.goto("/chat");
+  await page.getByPlaceholder(/输入你的问题/).fill("Follow-up");
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  const alert = page.getByRole("alert").filter({ hasText: "请求失败" });
+  await expect(alert).toContainText("暂时不可用");
+  await expect(alert.getByRole("button", { name: /打开/ })).toHaveCount(0);
+});
 
 for (const approved of [true, false]) {
   test(`reloaded tool approval ${approved ? "acceptance" : "denial"} sends one continuation`, async ({ page }) => {

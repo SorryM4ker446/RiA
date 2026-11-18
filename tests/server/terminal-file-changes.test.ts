@@ -22,7 +22,7 @@ async function folder() {
   const grant = await createGrant({ path: root });
   return (await listGrants()).find(value => value.id === grant.id)!;
 }
-const run = async (grantId: string, command: string, signal?: AbortSignal) => runTerminalCommand(await bindTerminalApproval({ grantId, command, timeoutSeconds: 20 }), signal);
+const run = async (grantId: string, command: string, signal?: AbortSignal) => runTerminalCommand(await bindTerminalApproval({ grantId, command }), signal);
 after(async () => {
   await db.$disconnect();
   for (const root of roots) {
@@ -53,7 +53,7 @@ test("failed and stopped commands retain the file changes actually written befor
   const failed = await run(grant.id, win ? "[IO.File]::WriteAllText('partial.txt','saved'); exit 7" : "printf saved > partial.txt; exit 7");
   assert.equal(failed.status, "failed");
   assert.equal(failed.fileChanges?.files[0].path, "partial.txt");
-  const input = await bindTerminalApproval({ grantId: grant.id, command: win ? "[IO.File]::WriteAllText('stopped.txt','saved'); [Console]::WriteLine('ready'); Start-Sleep -Seconds 30" : "printf saved > stopped.txt; printf ready; sleep 30", timeoutSeconds: 20 });
+  const input = await bindTerminalApproval({ grantId: grant.id, command: win ? "[IO.File]::WriteAllText('stopped.txt','saved'); [Console]::WriteLine('ready'); Start-Sleep -Seconds 30" : "printf saved > stopped.txt; printf ready; sleep 30" });
   const controller = new AbortController();
   const pending = runTerminalCommand(input, controller.signal);
   try {

@@ -17,6 +17,8 @@ const summaryStateSchema = z.object({
    * prompt cache keeps matching it. A later change to a file is reported separately.
    */
   restored: z.string().optional(),
+  /** The task checklist as the model last stated it, so a long task keeps its plan after a fold. */
+  plan: z.array(z.object({ content: z.string(), status: z.string() })).optional(),
 });
 export type SummaryState = z.infer<typeof summaryStateSchema>;
 export const EMPTY_SUMMARY_STATE: SummaryState = { calls: [], files: [], skills: [], log: [] };
@@ -74,7 +76,13 @@ export function foldIntoState(state: SummaryState, change: { calls?: string[]; t
     const line = logLine(call);
     if (line) log.push(line);
   }
+  const planCall = [...(change.toolCalls ?? [])].reverse().find(call => call.toolName === "updatePlan");
+  const planItems = (planCall?.input as { items?: unknown } | undefined)?.items;
+  const plan = Array.isArray(planItems)
+    ? planItems.flatMap(item => typeof item?.content === "string" && typeof item?.status === "string" ? [{ content: item.content.slice(0, 200), status: item.status }] : []).slice(0, 20)
+    : state.plan;
   return {
+    ...(plan?.length ? { plan } : {}),
     calls: [...new Set([...state.calls, ...(change.calls ?? [])])].slice(-MAX_CALLS),
     files: latestFirstSeen([...state.files, ...files], file => `${file.grantId}\n${file.path}`, MAX_FILES),
     skills: latestFirstSeen([...state.skills, ...skills], skill => skill, MAX_SKILLS),
@@ -83,6 +91,10 @@ export function foldIntoState(state: SummaryState, change: { calls?: string[]; t
 }
 
 /** The exact record that travels under a summary. */
-export function recordedFacts(state: Pick<SummaryState, "log">): string {
-  return state.log.length ? `Recorded by the application as it happened, not written by a model:\n${state.log.map(line => `- ${line}`).join("\n")}` : "";
+export function recordedFacts(state: Pick<SummaryState, "log"> & Partial<Pick<SummaryState, "plan">>): string {
+  const mark = { completed: "x", in_progress: ">", pending: " " } as Record<string, string>;
+  return [
+    state.log.length ? `Recorded by the application as it happened, not written by a model:\n${state.log.map(line => `- ${line}`).join("\n")}` : "",
+    state.plan?.length ? `Your task checklist as you last stated it (updatePlan):\n${state.plan.map(item => `- [${mark[item.status] ?? " "}] ${item.content}`).join("\n")}` : "",
+  ].filter(Boolean).join("\n\n");
 }

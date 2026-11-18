@@ -202,13 +202,14 @@ for (const [policy, name, body] of quotaCases) {
   });
 }
 
-test("automatic tool calls share the manual tool quota and never execute when limited", async () => {
+test("tool calls the model makes are not held to the manual tool quota", async () => {
+  // A turn that reads many files makes dozens of calls a minute. The manual
+  // quota running out must not refuse them; the manual route keeps it.
   for (let index = 0; index < RATE_LIMIT_POLICIES.tools.limit; index++) enforceRateLimit("tools");
+  assert.throws(() => enforceRateLimit("tools"), (error: { code: string }) => error.code === "RATE_LIMITED");
   const tools = await createChatToolSet();
-  // The SDK always passes the call options with a tool's input; the quota is
-  // refused before the tool itself runs.
-  await assert.rejects(tools.createTask.execute({ title: "must not execute", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }, { toolCallId: "call1", messages: [] }), (error: { code: string }) => error.code === "RATE_LIMITED");
-  assert.equal(await db.scheduledJob.count(), 0);
+  await tools.createTask.execute({ title: "runs past the quota", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }, { toolCallId: "call1", messages: [] });
+  assert.equal(await db.scheduledJob.count({ where: { title: "runs past the quota" } }), 1);
 });
 
 test("rate storage stays bounded without evicting active quotas", (t) => {

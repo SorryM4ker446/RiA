@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { ApiError } from "@/lib/server/api-error";
 import { readApprovalRule, type ApprovalRule } from "@/lib/approvals/rules";
 
+import { t } from "@/lib/locale";
 /**
  * The one granted folder a conversation works in.
  *
@@ -54,15 +55,15 @@ export async function conversationWorkspace(chatId: string | null | undefined): 
 /** Refuses a folder tool call whose folder is not the conversation's current workspace. */
 export async function requireConversationWorkspace(chatId: string | null | undefined, grantId: string): Promise<void> {
   const workspace = await conversationWorkspace(chatId);
-  if (!workspace) throw new ApiError({ code: "FORBIDDEN", message: "此会话尚未选择工作区，请先在输入框上方选择一个已授权的工作区。" });
-  if (workspace.id !== grantId) throw new ApiError({ code: "FORBIDDEN", message: "此目录不是当前会话的工作区。工作区可能已切换，请在当前工作区中重新提出操作。" });
+  if (!workspace) throw new ApiError({ code: "FORBIDDEN", message: t("server.workspace.notChosen") });
+  if (workspace.id !== grantId) throw new ApiError({ code: "FORBIDDEN", message: t("server.workspace.notCurrent") });
 }
 
 /** Checks a requested choice: null clears it, anything else must be an active grant. */
 export async function assertSelectableWorkspace(grantId: string | null): Promise<void> {
   if (grantId === null) return;
   const grant = await db.directoryGrant.findFirst({ where: { id: grantId, revokedAt: null }, select: { id: true } });
-  if (!grant) throw new ApiError({ code: "CONFLICT", message: "该目录尚未授权或授权已撤销，无法选为工作区。" });
+  if (!grant) throw new ApiError({ code: "CONFLICT", message: t("server.workspace.notGranted") });
 }
 
 /**
@@ -75,6 +76,7 @@ export async function assertSelectableWorkspace(grantId: string | null): Promise
 const APPROVAL_RULE_CONTEXT: Record<ApprovalRule, string> = {
   ask: "Approval rule: ask. Each editProjectFile edit and each runTerminalCommand command waits for the user to approve it.",
   acceptEdits: "Approval rule: acceptEdits. editProjectFile edits are written without asking; each runTerminalCommand command waits for the user to approve it.",
+  auto: "Approval rule: auto. editProjectFile edits are written without asking. Each runTerminalCommand command, and each extension tool call, is checked against the user's request first: one that plainly serves it runs without asking, anything else waits for the user. Make only the changes the user asked for.",
   full: "Approval rule: full. editProjectFile edits and runTerminalCommand commands run without asking, so make only the changes the user asked for.",
 };
 

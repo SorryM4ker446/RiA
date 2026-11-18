@@ -137,7 +137,7 @@ export async function compactOnRequest(params: { chatId?: string | null; focus?:
   const { chatId, focus } = params;
   if (!chatId) return { status: "nothing", freedTokens: 0 };
   const chat = await db.chat.findUnique({ where: { id: chatId }, select: { id: true } });
-  if (!chat) throw new ApiError({ code: "NOT_FOUND", message: "Conversation was not found" });
+  if (!chat) throw new ApiError({ code: "NOT_FOUND", message: t("server.conversation.notFound") });
   // Waits out a running job, so what it wrote is what this one builds on.
   for (let running = jobs.get(chatId); running; running = jobs.get(chatId)) await running;
   const { messages } = await storedFromSummary(chatId);

@@ -47,6 +47,8 @@ export const runtime: {
    * only handle on the child process being launched is this one.
    */
   restartAbort: AbortController | null;
+  /** The fixed data path and the cache folder this run settled on; read by the settings page. */
+  dataLocation: { dataRoot: string; cacheDirectory: string; cacheUnavailable: string | null } | null;
   reminderPoller: TaskReminderPoller | null;
   /** Notifications for answers that end while the window is not in front; started and stopped with the poller. */
   conversationAlerts: ConversationAlerts | null;
@@ -81,7 +83,7 @@ export const runtime: {
   activeAccelerator: string;
 } = {
   mainWindow: null, nextServer: null, desktopPaths: null, logger: null, settingsStore: null,
-  desktopSessionToken: "", serverPort: 0, isQuitting: false, restartInProgress: null, restartAbort: null,
+  desktopSessionToken: "", serverPort: 0, isQuitting: false, restartInProgress: null, restartAbort: null, dataLocation: null,
   reminderPoller: null, conversationAlerts: null, tray: null, closeBehaviour: "quit",
   updateService: null, notifiedUpdateVersion: null, updateNotification: null, activeAccelerator: "",
 };

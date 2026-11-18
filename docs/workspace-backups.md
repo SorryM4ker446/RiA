@@ -10,14 +10,16 @@ identities and preserves snapshots whose original template was deleted. Old
 archives default to no templates and no conversation snapshot; newly exported
 archives require this version or later. Templates do not grant filesystem access.
 
-Document semantic vectors are regenerable and excluded from portable archives.
-Extracted text, chunk identities, Markdown headings, token counts and term
-frequencies are preserved. After restoration, explicitly build the **semantic index** again;
-keyword retrieval works immediately. Old archives default missing frequencies to
-one, token counts to zero and headings to absent. Raw SQLite safety copies still
-include vectors. Memory embeddings retain their existing archive behavior.
-Archives exported with the new document index fields require this version or a
-newer version to restore; earlier builds reject those additional fields.
+Archives are written in format 2: each document's extracted pages, chunks (with
+their identities, headings and token counts) and semantic vectors are a gzip block
+of their own after the media files, and the manifest describes each block by size
+and SHA-256. Restore checks every block before anything is replaced, keeps chunk
+identities so citations still resolve, rebuilds the keyword index from the text,
+and brings a vector back only when its provider, model and contextual hash still
+describe its chunk; any other chunk is embedded again in the background. Archives
+from before format 2 still restore: they hold no vectors, so their documents are
+embedded again. Builds older than format 2 reject format 2 archives. Memory
+embeddings keep their existing archive behavior.
 
 An archive includes conversations/messages/tags, MEMORY.md, memories and embeddings (tagged with the provider and model that created each vector), extracted document text and indexes, private media files and references, generation recipes, model preferences and the **My models** library, retention settings, and up to 5,000 recorded model attempts. OpenRouter catalog snapshots are a refreshable cache and are not included. Older preference and memory records remain importable. Preference documents from before model references were provider-qualified are converted on read: the earliest format becomes explicit migration candidates that are not automatically enabled, and the bare-id format becomes OpenRouter references, because every model this application has called so far was reached through that provider. Original PDF/Word source files are not retained by document import and are not included.
 
@@ -37,7 +39,7 @@ compatibility and is always empty; to-dos in an older archive are not restored.
 
 Stop generation and wait for other requests to finish first. Backup, import and restore operations use a single-process maintenance gate: an in-flight request returns HTTP 409 to a maintenance operation, and a business request during maintenance receives HTTP 503. Chat consumption and persistence retain the gate even after an HTTP reader disconnects. There are no forced cancellations or unlimited retries.
 
-Restore validates files, stages new immutable media paths, and creates a safety archive of the current workspace before changing business rows in one SQLite transaction. The safety backup and the transaction are serialized with model-settings mutations, so a concurrent model removal or settings save cannot interleave with the restored snapshot. The access credential is not part of a restore and stays as it is. Any database failure rolls back the business changes. IDs and internal media/document/source references are remapped, so the same archive can be imported repeatedly without collisions. A restore requires space for the archive, the safety archive and another copy of its media. Large restores remain subject to the existing SQLite transaction timeout; a timeout rolls back rather than extending it indefinitely.
+Restore validates files, stages new immutable media paths, and creates a safety archive of the current workspace before changing business rows in one SQLite transaction. The safety backup and the transaction are serialized with model-settings mutations, so a concurrent model removal or settings save cannot interleave with the restored snapshot. The access credential is not part of a restore and stays as it is. Any database failure rolls back the business changes. IDs and internal media/document/source references are remapped, so the same archive can be imported repeatedly without collisions. Document chunks keep their identities from a format 2 archive, since a restore replaces every document; a citation that names a chunk still resolves. A restore requires space for the archive, the safety archive and another copy of its media. A restore's transaction may run for up to 30 minutes, since writing a large knowledge base back takes that long; past it the transaction rolls back rather than running on. Nothing else can change the workspace while it runs.
 
 Pending messages become errors and historical pending tool approvals become denied. Model preferences, backup retention settings and the **My models** library return to their archived values; the restore confirmation shows which models will be re-added or removed, by name and model id, so two providers offering the same id stay distinguishable. Refresh other open windows after restoring; local per-conversation controls in those windows are not a synchronized database snapshot.
 
@@ -47,7 +49,7 @@ Unmigrated legacy video links prevent portable backup creation, including a rest
 
 ## Limits and retention
 
-- Archive: 512 MiB; JSON manifest: 32 MiB. Core collections and total messages: at most 10,000 each; documents: 100; document terms: 100,000; usage: 5,000.
+- Archive: 4 GiB; JSON manifest: 32 MiB. Core collections and total messages: at most 10,000 each; documents: as many as the library may hold; usage: 5,000. Each document's pages, chunks and vectors are a gzip block of their own after the media files (format 2); one block may expand to at most 1 GiB.
 - Existing file limits remain 8 MiB per attachment, 20 MiB per generated image and 100 MiB per generated video.
 - Imports send ordered chunks of at most 8 MiB. This does not raise the existing API/Proxy body limits. One upload can be in progress at a time, with a one-hour lifetime; restarting the service requires re-importing.
 - Defaults: retain archives for 30 days and keep at most 10. Configure 1–365 days and 2–20 copies on the backup page. Automatic cleanup always retains the newest completed archive; a newly created safety archive is also preserved during that restore's cleanup.

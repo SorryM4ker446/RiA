@@ -1,7 +1,7 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
 
-import { t, localizeMessage } from "@/lib/locale";
+import { t, tf, localizeMessage } from "@/lib/locale";
 
 import { useEffect, useState } from "react";
 import { Square, Terminal } from "lucide-react";
@@ -14,6 +14,14 @@ import { CommandText } from "./command-text";
 
 export const terminalStatusLabels = (): Record<TerminalSessionView["status"], string> => ({ running: t("tools.runningPrefix"), completed: t("chat.tasks.statusDone"), failed: t("chatApi.runToolFailed"), stopped: t("ui.chat.terminal-result.stopped"), "timed-out": t("ui.chat.terminal-result.timedOut") });
 
+/** A command's time limit as a person reads it, or null when it has none. */
+export function terminalLimitLabel(seconds: unknown): string | null {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0) return null;
+  if (seconds < 120) return tf("ui.chat.terminal-result.limitSeconds", { count: Math.round(seconds) });
+  if (seconds < 7200) return tf("ui.chat.terminal-result.limitMinutes", { count: Math.round(seconds / 60) });
+  return tf("ui.chat.terminal-result.limitHours", { count: Math.round(seconds / 360) / 10 });
+}
+
 export function TerminalResult({ input, output, active }: { input: unknown; output?: unknown; active: boolean }) {
   useLocale();
   const proposal = input as Partial<TerminalInput> | undefined;
@@ -25,7 +33,9 @@ export function TerminalResult({ input, output, active }: { input: unknown; outp
   const [retry, setRetry] = useState(0);
 
   useEffect(() => {
-    if (!active || !sessionId || final) return;
+    // A background command's result arrives while it is still running: it is followed until it ends.
+    const followsBackground = final?.background === true && final.status === "running";
+    if (!sessionId || (final && !followsBackground) || (!active && !followsBackground)) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let absent = 0;
@@ -38,7 +48,8 @@ export function TerminalResult({ input, output, active }: { input: unknown; outp
         if (controller.signal.aborted) return;
         setLive(payload.data);
         setError(undefined);
-        if (payload.data.status === "running") timer = setTimeout(poll, 750);
+        // A server can run for hours; it is looked at less often than a command the answer waits on.
+        if (payload.data.status === "running") timer = setTimeout(poll, followsBackground ? 2000 : 750);
       } catch (cause) {
         if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : t("ui.chat.terminal-result.couldNotLoadTerminalOutput"));
       }
@@ -59,11 +70,12 @@ export function TerminalResult({ input, output, active }: { input: unknown; outp
     } catch (cause) { setError(cause instanceof Error ? cause.message : t("ui.chat.terminal-result.couldNotStopTerminalCommand")); }
     finally { setStopping(false); }
   }
-  const result = final ?? live;
+  // While a background command runs, what is live is newer than the result the call returned.
+  const result = final?.background && final.status === "running" && live ? live : final ?? live;
   return <section aria-label={t("ui.chat.terminal-result.terminalCommand")} className="mt-2 flex min-w-0 flex-col gap-2">
     <div className="flex flex-wrap items-center gap-2">
       <Terminal aria-hidden="true" className="size-4 text-muted-foreground" />
-      <span className="text-muted-foreground">PowerShell</span>
+      <span className="text-muted-foreground">{["PowerShell", (final?.background ?? live?.background ?? proposal?.runInBackground) ? t("ui.chat.terminal-result.background") : null, terminalLimitLabel(final?.timeoutSeconds ?? live?.timeoutSeconds ?? proposal?.timeoutSeconds)].filter(Boolean).join(" · ")}</span>
       {result ? <Badge variant="outline">{terminalStatusLabels()[result.status]}</Badge> : null}
       {result?.status === "running" ? <Button size="sm" variant="outline" disabled={stopping} onClick={() => void stop()}>
         {stopping ? <Spinner data-icon="inline-start" /> : <Square data-icon="inline-start" />}{t("ui.chat.terminal-result.stopCommand")}</Button> : null}
@@ -75,6 +87,6 @@ export function TerminalResult({ input, output, active }: { input: unknown; outp
       {result.stderr ? <pre aria-label={t("ui.chat.terminal-result.terminalErrorOutput")} className="chat-list-scroll max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md border p-3 font-mono text-xs text-destructive">{result.stderr}</pre> : null}
       <p className="text-muted-foreground">{t("ui.chat.terminal-result.exitCode")}{result.exitCode ?? "—"}{result.truncated ? t(result.log ? (result.log.complete ? "ui.chat.terminal-result.outputSavedToLog" : "ui.chat.terminal-result.outputPartlySavedToLog") : "ui.chat.terminal-result.outputTruncatedUpTo64KiB") : ""}</p>
     </> : null}
-    {error && !final ? <Alert variant="destructive"><AlertDescription className="flex flex-wrap items-center gap-2">{localizeMessage(error)}<Button size="sm" variant="outline" onClick={() => setRetry(value => value + 1)}>{t("ui.chat.terminal-result.retryLoading")}</Button></AlertDescription></Alert> : null}
+    {error && (!final || (final.background && final.status === "running")) ? <Alert variant="destructive"><AlertDescription className="flex flex-wrap items-center gap-2">{localizeMessage(error)}<Button size="sm" variant="outline" onClick={() => setRetry(value => value + 1)}>{t("ui.chat.terminal-result.retryLoading")}</Button></AlertDescription></Alert> : null}
   </section>;
 }

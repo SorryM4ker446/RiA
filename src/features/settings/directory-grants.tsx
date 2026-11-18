@@ -18,6 +18,8 @@ import { useToast } from "@/components/ui/toast";
 import { APPROVAL_RULES, readApprovalRule, type ApprovalRule } from "@/lib/approvals/rules";
 import { cn } from "@/lib/utils/cn";
 
+const formatStoreSize = (bytes: number) => bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : bytes < 1024 ** 3 ? `${(bytes / 1024 ** 2).toFixed(1)} MB` : `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+
 type GrantRow = {
   id: string;
   label: string;
@@ -51,6 +53,7 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
   useLocale();
   const pathId = useId();
   const ruleId = useId();
+  const undoLimitId = useId();
   const toast = useToast();
   const loadRequest = useRef(0);
   const [grants, setGrants] = useState<GrantRow[]>([]);
@@ -61,6 +64,8 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
   const [choosing, setChoosing] = useState(false);
   // The rule a new conversation starts with; null until it has been read.
   const [defaultRule, setDefaultRule] = useState<ApprovalRule | null>(null);
+  // How much the undo store may hold and holds now; null until read.
+  const [undoStore, setUndoStore] = useState<{ limitMb: number; usedBytes: number; choicesMb: number[] } | null>(null);
   const busy = saving || choosing;
 
   const load = useCallback(async () => {
@@ -92,6 +97,9 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
     void fetch("/api/approval-preferences", { cache: "no-store" }).then(response => response.ok ? response.json() : null)
       .then(payload => { if (active && payload) setDefaultRule(readApprovalRule(payload.data?.defaultRule)); })
       .catch(() => undefined);
+    void fetch("/api/checkpoint-preferences", { cache: "no-store" }).then(response => response.ok ? response.json() : null)
+      .then(payload => { if (active && payload?.data) setUndoStore(payload.data); })
+      .catch(() => undefined);
     return () => { active = false; };
   }, [embedded]);
 
@@ -107,6 +115,23 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
     } catch (cause) {
       setDefaultRule(previous);
       setError(cause instanceof Error ? cause.message : t("approval.saveFailed"));
+    }
+  }
+
+  /** A lower limit applies at once: the copies least needed go first. */
+  async function changeUndoLimit(value: string) {
+    if (!undoStore) return;
+    const previous = undoStore;
+    setUndoStore({ ...undoStore, limitMb: Number(value) });
+    try {
+      const response = await fetch("/api/checkpoint-preferences", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limitMb: Number(value) }) });
+      if (!response.ok) throw new Error(await readError(response));
+      const payload = await response.json();
+      setUndoStore(payload.data);
+      toast(t("settings.undoStore.saved"));
+    } catch (cause) {
+      setUndoStore(previous);
+      setError(cause instanceof Error ? cause.message : t("settings.undoStore.saveFailed"));
     }
   }
 
@@ -247,6 +272,15 @@ export function DirectoryGrantSettings({ embedded = false, onChange }: { embedde
               {APPROVAL_RULES.map(rule => <SelectOption key={rule} value={rule}>{t(`approval.rule.${rule}`)} · {t(`approval.ruleHint.${rule}`)}</SelectOption>)}
             </SelectField>
             <FieldDescription>{t("approval.defaultHint")}</FieldDescription>
+          </Field>
+        ) : null}
+        {!embedded && undoStore ? (
+          <Field className="gap-2">
+            <FieldLabel htmlFor={undoLimitId}>{t("settings.undoStore.title")}</FieldLabel>
+            <SelectField id={undoLimitId} className="w-full sm:w-72" value={String(undoStore.limitMb)} onValueChange={value => void changeUndoLimit(value)}>
+              {undoStore.choicesMb.map(mb => <SelectOption key={mb} value={String(mb)}>{`${mb / 1024} GB`}</SelectOption>)}
+            </SelectField>
+            <FieldDescription>{tf("settings.undoStore.hint", { used: formatStoreSize(undoStore.usedBytes) })}</FieldDescription>
           </Field>
         ) : null}
       </div>

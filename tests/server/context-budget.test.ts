@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ModelMessage, UIMessage } from "ai";
 import { createHash } from "node:crypto";
-import { assertContextFits, contextBudget, estimateContextTokens, estimateImageTokens, imageDimensions, estimateTextTokens, requestOutputCap, DEFAULT_OUTPUT_LIMIT, MIN_CALIBRATION } from "@/lib/models/context-budget";
+import { assertContextFits, contextBudget, estimateContextTokens, estimateImageTokens, imageDimensions, estimateTextTokens, requestOutputCap, MIN_CALIBRATION } from "@/lib/models/context-budget";
 import { createStepContext, modelHistoryRecords, withoutToolRecords } from "@/lib/chat/step-context";
 import { buildChatContext } from "@/lib/chat/context";
 import { summaryCapacity } from "@/lib/chat/task-summary";
@@ -32,14 +32,17 @@ test("model capacity uses catalog limits, configurable reductions, and a labelle
   assert.equal(preferencesSchema.safeParse({ ...legacy, contextLimits: { "openrouter:test/model": { contextLength: 0, maxOutputTokens: 1 } } }).success, false);
 });
 
-test("the sent output cap uses the known limit, else the default, that the input leaves room for", () => {
+test("the sent output cap uses the known limit that the input leaves room for, and none when the limit is unknown", () => {
   const unknown = contextBudget({ contextLength: 1_000_000 });
   assert.equal(unknown.outputLimit, null);
   assert.equal(unknown.outputTokens, 8192, "the planning reservation is unchanged");
-  assert.equal(requestOutputCap(unknown, undefined, 10_000), DEFAULT_OUTPUT_LIMIT);
-  assert.equal(DEFAULT_OUTPUT_LIMIT, 131_072);
-  assert.equal(requestOutputCap(unknown, undefined, 900_000), 1_000_000 - unknown.safetyTokens - 900_000, "the default also stays within the window");
+  // Unknown: no cap is sent, so the provider's own default applies rather than a guess above the model's real limit.
+  assert.equal(requestOutputCap(unknown, undefined, 10_000), undefined);
+  assert.equal(requestOutputCap(unknown, undefined, 900_000), undefined);
+  assert.equal(requestOutputCap(contextBudget({ contextLength: 128_000 }), undefined, 10_000), undefined, "a typical 128K model with an 8K limit is not sent 110K");
   assert.equal(requestOutputCap(unknown, 512, 10_000), 512, "an explicit caller cap is kept");
+  assert.equal(requestOutputCap(unknown, 200_000, 900_000), 1_000_000 - unknown.safetyTokens - 900_000, "and kept within the known window");
+  assert.equal(requestOutputCap(contextBudget(), 50_000, 10_000), 50_000, "with an unknown window too, the caller's cap is sent as asked");
 
   const catalog = contextBudget({ contextLength: 200_000, maxOutputTokens: 128_000 });
   assert.equal(catalog.outputTokens, 8192); assert.equal(catalog.outputLimit, 128_000);

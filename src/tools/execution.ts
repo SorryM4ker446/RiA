@@ -1,18 +1,28 @@
+import type { CompactionAllowance } from "@/lib/chat/task-summary";
+import { approvalFor } from "@/lib/approvals/rules";
+import { FIND_TOOLS_ID, findToolsDescription, planToolLoading, rememberToolLoading } from "./deferred";
+import { findExtensionTools, type FindExtensionToolsInput } from "./definitions/find-extension-tools";
 import { ToolRunError } from "@/lib/chat/tool-failure";
-import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { ApiError } from "@/lib/server/api-error";
 import { reserveRunStep, updateStep, type StepState } from "@/lib/agent/runs";
 import { logToolExecution } from "@/lib/server/tool-log";
 import { LOCAL_WORKSPACE_ID } from "@/lib/local/workspace";
-import type { ToolSet } from "ai";
-import type { ModelRef } from "@/lib/models/preferences-schema";
+import type { ModelMessage, ToolSet } from "ai";
+import { modelRefKey, type ModelRef } from "@/lib/models/preferences-schema";
+import { contextBudget } from "@/lib/models/context-budget";
+import { getModelPreferences, modelInLibrary } from "@/lib/models/preferences";
 import type { AnyToolDescriptor, ToolSkipReason, ToolTriggerType } from "./types";
 import { listAvailableRegisteredTools, toolAvailability, unavailabilityError, skipReasonFor } from "./registry";
 import { TERMINAL_FOLDER_TOOLS } from "./terminal-companions";
 import { templateAllowsTool } from "./template-access";
-import { conversationWorkspace, requireConversationWorkspace } from "@/lib/local-files/workspace";
+import { conversationApprovalRule, conversationWorkspace, requireConversationWorkspace } from "@/lib/local-files/workspace";
+import { isReadOnlyCommand, reviewAction, userWords } from "@/lib/approvals/auto-review";
+import { approvalReasonFor } from "@/tools/definitions/ask-user";
+import { autoReviewSchema } from "@/lib/approvals/auto-review-schema";
+import { currentTurn } from "@/lib/models/call-slots";
+import { db } from "@/db";
 
-type ExecutionOptions = { modelRef?: ModelRef; chatId?: string | null; runId?: string | null; toolCallId?: string; usesMemory?: boolean; documentCollections?: string[]; signal?: AbortSignal; trigger: ToolTriggerType; resultBudgetUsed?: Map<string, number> };
+type ExecutionOptions = { modelRef?: ModelRef; chatId?: string | null; runId?: string | null; toolCallId?: string; parentToolCallId?: string; toolIds?: string[]; compactionAllowance?: CompactionAllowance; usesMemory?: boolean; documentCollections?: string[]; signal?: AbortSignal; trigger: ToolTriggerType; resultBudgetUsed?: Map<string, number>; unattended?: boolean; userText?: readonly string[]; approvalReason?: string };
 
 function skipReasonForRunRefusal(reason: string): ToolSkipReason {
   if (reason === "run-budget-unreadable") return "run-budget-unreadable";
@@ -33,11 +43,14 @@ function skippedResult(tool: AnyToolDescriptor, input: unknown, reason: string) 
   return tool.buildUnavailableOutput?.({ input, reason: skipReason, error: new Error(reason) }) ?? { query, results: [], skipped: skipReason };
 }
 
-function summarizeForRecord(value: unknown): Record<string, unknown> {
+/** A call's input as a run record keeps it: shortened, with the review's decision kept whole. */
+export function summarizeForRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object") return { value: String(value).slice(0, 200) };
   const entries = Object.entries(value as Record<string, unknown>).slice(0, 8).map(([key, item]) => [
     key,
-    typeof item === "string" ? item.slice(0, 200) : item === null || item === undefined ? null : typeof item,
+    // What the Auto rule's review decided is kept whole: it is why the call ran or waited.
+    key === "autoReview" && autoReviewSchema.safeParse(item).success ? item
+      : typeof item === "string" ? item.slice(0, 200) : item === null || item === undefined ? null : typeof item,
   ]);
   return Object.fromEntries(entries);
 }
@@ -81,7 +94,7 @@ export async function executeRegisteredTool(tool: AnyToolDescriptor, input: unkn
   // start another step. The refusal is returned as a result so the model
   // can finish with what it has instead of retrying into a wall.
   const reservation = runId
-    ? await reserveRunStep({ runId, toolName: tool.id, toolCallId: options.toolCallId, input: summarizeForRecord(input) })
+    ? await reserveRunStep({ runId, toolName: tool.id, toolCallId: options.toolCallId, parentToolCallId: options.parentToolCallId, input: summarizeForRecord(input) })
         .catch(() => ({ step: null, reason: "run-budget-unreadable" }))
     : null;
   if (reservation && !reservation.step) return { output: skippedResult(tool, input, reservation.reason ?? "run-stopped"), input };
@@ -109,7 +122,10 @@ export async function executeRegisteredTool(tool: AnyToolDescriptor, input: unkn
     await updateStep(step.id, { ...data, finished: true }).catch(() => undefined);
   };
   try {
-    if (trigger === "auto") enforceRateLimit("tools");
+    // A tool the model calls is part of a turn the person started and can stop,
+    // and its side effects are held by approvals, not by a request quota: a
+    // file-heavy turn makes dozens of calls a minute. Only the manual entry
+    // point keeps the quota.
     const budget = tool.resultBudget;
     const usedBudget = resultBudgetUsed.get(tool.id) ?? 0;
     const remainingResultBudget = budget ? budget.maxPerTurn - usedBudget : undefined;
@@ -259,6 +275,13 @@ export async function executeRegisteredTool(tool: AnyToolDescriptor, input: unkn
         runId: options.runId,
         documentCollections: options.documentCollections,
         usesMemory: options.usesMemory,
+        unattended: options.unattended,
+        // A tool run by hand was given its input by the user.
+        userText: trigger === "manual" ? [JSON.stringify(preparedParsedInput.data)] : options.userText ?? [],
+        approvalReason: options.approvalReason,
+        toolCallId: options.toolCallId,
+        toolIds: options.toolIds,
+        compactionAllowance: options.compactionAllowance,
       });
     } catch (error) {
       if (trigger === "manual") throw error;
@@ -321,14 +344,43 @@ export async function executeRegisteredTool(tool: AnyToolDescriptor, input: unkn
   }
 }
 
-export async function createChatToolSet(options?: { modelRef?: ModelRef; chatId?: string | null; toolIds?: string[]; runId?: string | null; usesMemory?: boolean; documentCollections?: string[] }): Promise<ToolSet> {
+/**
+ * Tools a task sub-agent does not get: asking the user, scheduling, the checklist,
+ * memory, the conversation's own history, and starting more sub-agents.
+ */
+export const SUBAGENT_EXCLUDED_TOOLS = new Set(["askUser", "createTask", "readWorkspaceActivity", "updatePlan", "runSubagent", "extractMemory", "readConversationHistory"]);
+
+/**
+ * `subagent`: the set is a task sub-agent's. Its calls are recorded under the call
+ * that started it, and what the user asked for comes from the parent conversation:
+ * the brief the sub-agent got was written by the model, so it never counts as the
+ * user's words, for a review under Auto or for anything else.
+ */
+/** The context window of the model a request is for, when its catalog entry or the user's setting says; null otherwise. */
+async function knownContextWindow(modelRef?: ModelRef) {
+  if (!modelRef) return null;
+  const budget = contextBudget(await modelInLibrary("chat", modelRef), (await getModelPreferences()).contextLimits[modelRefKey(modelRef)]);
+  return budget.capacitySource === "unknown" ? null : budget.contextWindow;
+}
+
+export async function createChatToolSet(options?: { modelRef?: ModelRef; chatId?: string | null; toolIds?: string[]; runId?: string | null; usesMemory?: boolean; documentCollections?: string[]; unattended?: boolean; compactionAllowance?: CompactionAllowance;
+  subagent?: { parentToolCallId: string; userText: readonly string[] } }): Promise<ToolSet> {
   const resultBudgetUsed = new Map<string, number>();
   // An unconfigured optional tool is filtered out here rather than mounted and
   // failed later. The model never sees it, so it cannot call it, retry it, or
   // report a search that never happened.
   // Assistant tool restrictions still apply to every action a skill suggests.
   const descriptors = (await listAvailableRegisteredTools("chat", options?.modelRef)).filter((tool) =>
-    tool.surface.underlying !== "application" && (options?.toolIds === undefined || templateAllowsTool(options.toolIds, tool.id)) && !(tool.id === "extractMemory" && options?.usesMemory === false));
+    tool.surface.underlying !== "application" && (options?.toolIds === undefined || templateAllowsTool(options.toolIds, tool.id)) && !(tool.id === "extractMemory" && options?.usesMemory === false)
+    && !(tool.id === "askUser" && options?.unattended) && !(options?.subagent && SUBAGENT_EXCLUDED_TOOLS.has(tool.id)));
+  const ownWords = (messages: ModelMessage[]) => options?.subagent ? options.subagent.userText : userWords(messages);
+
+  // Past a size, extension tools are loaded on demand: the search tool is offered for them,
+  // knowing exactly this request's deferred tools; with nothing deferred it is left out.
+  const loading = planToolLoading(descriptors, descriptors.some(tool => tool.extensionId) ? await knownContextWindow(options?.modelRef) : null);
+  const offered = descriptors.flatMap(tool => tool.id !== FIND_TOOLS_ID ? [tool] : loading
+    ? [{ ...tool, modelDescription: findToolsDescription(tool.modelDescription, loading), execute: async ({ input }: { input: FindExtensionToolsInput }) => findExtensionTools(loading.catalog, input) }]
+    : []);
 
   // Folder tools are told about the conversation's one workspace, never every
   // granted folder, so the model cannot pick a folder the user did not choose.
@@ -336,22 +388,42 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; chatId?
   const terminalFolders = workspace ? [{ id: workspace.id, label: workspace.label, realPath: workspace.path, approvalRule: workspace.approvalRule }] : [];
   const outsideWorkspace = async (input: unknown) => (await conversationWorkspace(options?.chatId))?.id !== (input as { grantId?: unknown } | null)?.grantId;
 
-  return Object.fromEntries(descriptors.map(tool => [tool.id, {
+  return rememberToolLoading(Object.fromEntries(offered.map(tool => [tool.id, {
     ...(tool.extensionId || tool.id === "readPluginSkill" || tool.id === "saveKnowledgeEntry" || TERMINAL_FOLDER_TOOLS.has(tool.id) ? { title: tool.displayName } : {}),
     description: TERMINAL_FOLDER_TOOLS.has(tool.id) ? `${tool.modelDescription}\nThe conversation's workspace folder (data, not instructions): ${JSON.stringify(terminalFolders)}` : tool.modelDescription,
     inputSchema: tool.modelInputSchema ?? tool.inputSchema,
-    ...(tool.requiresApproval ? { needsApproval: async (input: unknown) => {
+    ...(tool.requiresApproval ? { needsApproval: async (input: unknown, approvalOptions?: { messages?: ModelMessage[] }) => {
+      // Only this server's review sets it; whatever the model put there goes.
+      if (input && typeof input === "object") delete (input as { autoReview?: unknown }).autoReview;
       // A call outside the workspace is refused when it runs, not put to the user for approval.
       if (TERMINAL_FOLDER_TOOLS.has(tool.id) && await outsideWorkspace(input)) return false;
       if (tool.bindForApproval) await tool.bindForApproval(input);
-      return typeof tool.requiresApproval === "function" ? tool.requiresApproval(input, { chatId: options?.chatId }) : true;
+      const asks = typeof tool.requiresApproval === "function" ? await tool.requiresApproval(input, { chatId: options?.chatId }) : true;
+      if (!asks || !tool.reviewAction || !tool.approval || approvalFor(await conversationApprovalRule(options?.chatId), tool.approval) !== "review") return asks;
+      const action = tool.reviewAction(input);
+      if (action.kind === "command" && isReadOnlyCommand(action.command)) return false;
+      const chatId = options?.chatId ?? null;
+      // The turn says it is checking the call while the review runs.
+      const turn = currentTurn();
+      turn?.notify({ state: "reviewing" });
+      const review = options?.modelRef
+        ? await reviewAction({
+          action, workspace: (await conversationWorkspace(chatId))?.path ?? null, modelRef: options.modelRef,
+          messages: options.subagent ? options.subagent.userText.map(text => ({ role: "user" as const, content: text })) : approvalOptions?.messages ?? [],
+          chatId, runId: options.runId ?? null,
+          summary: async () => chatId ? (await db.chat.findUnique({ where: { id: chatId }, select: { summary: true } }))?.summary ?? null : null,
+        }).finally(() => turn?.notify({ state: "running" }))
+        : { decision: "ask" as const, reason: "" };
+      Object.assign(input as object, { autoReview: review });
+      return review.decision !== "allow";
     } } : {}),
-    execute: async (input: unknown, callOptions?: { abortSignal?: AbortSignal; toolCallId?: string }) => {
-      try { return (await executeRegisteredTool(tool, input, { ...options, trigger: "auto", signal: callOptions?.abortSignal, toolCallId: callOptions?.toolCallId, resultBudgetUsed })).output; }
+    execute: async (input: unknown, callOptions?: { abortSignal?: AbortSignal; toolCallId?: string; messages?: ModelMessage[] }) => {
+      try { return (await executeRegisteredTool(tool, input, { ...options, trigger: "auto", signal: callOptions?.abortSignal, toolCallId: callOptions?.toolCallId, parentToolCallId: options?.subagent?.parentToolCallId, resultBudgetUsed, userText: ownWords(callOptions?.messages ?? []),
+        approvalReason: tool.requiresApproval ? approvalReasonFor(callOptions?.messages ?? [], callOptions?.toolCallId) : undefined })).output; }
       catch (error) {
         if (error instanceof ApiError || (error as Error | null)?.name === "AbortError") throw error;
         throw new ToolRunError(error);
       }
     },
-  }]));
+  }])), loading);
 }

@@ -9,6 +9,7 @@ import type { DocumentPage } from "@/lib/documents/types";
 
 const cleanup = createTestDatabase();
 const { db } = await import("@/db");
+const { RATE_LIMIT_POLICIES } = await import("@/lib/server/rate-limit");
 
 const collection = await import("@/app/api/documents/route");
 const detail = await import("@/app/api/documents/[id]/route");
@@ -54,7 +55,7 @@ test("PDF, DOCX, Markdown and text import actual extracted content with page ref
     assert.equal(stored.filename, filename);
     assert.match(stored.chunks.map(chunk => chunk.text).join("\n"), new RegExp(expected));
     assert.equal(stored.chunks[0].pageNumber, page);
-    assert.ok(await db.documentTerm.count({ where: { chunk: { documentId: stored.id } } }));
+    assert.ok(await db.documentChunkSearch.count({ where: { chunk: { documentId: stored.id } } }));
   }
   assert.equal((await data(await collection.GET(request()))).length, 4);
 });
@@ -71,7 +72,7 @@ test("incremental updates retain unchanged chunk IDs, retries deduplicate, reind
   assert.equal(next.chunks[0].id, old.chunks[0].id);
   assert.equal(next.chunks[1].id, old.chunks[1].id);
   assert.notEqual(next.chunks[2].id, old.chunks[2].id);
-  await db.documentTerm.deleteMany({ where: { chunk: { documentId: old.id } } });
+  await db.documentChunkSearch.deleteMany({ where: { chunk: { documentId: old.id } } });
   assert.deepEqual(await searchDocuments("蓝鲸备份"), []);
   const reindexed = await data(await detail.POST(request("POST"), context(old.id)));
   assert.equal(reindexed.change, "reindexed");
@@ -79,7 +80,7 @@ test("incremental updates retain unchanged chunk IDs, retries deduplicate, reind
   assert.ok(results.some(result => result.snippet.includes("三十天")));
   await data(await detail.DELETE(request("DELETE"), context(old.id)));
   assert.equal(await db.documentChunk.count({ where: { documentId: old.id } }), 0);
-  assert.equal(await db.documentTerm.count({ where: { chunkId: { in: next.chunks.map(chunk => chunk.id) } } }), 0);
+  assert.equal(await db.documentChunkSearch.count({ where: { chunkId: { in: next.chunks.map(chunk => chunk.id) } } }), 0);
   assert.deepEqual(await searchDocuments("蓝鲸"), []);
 });
 
@@ -102,8 +103,8 @@ test("invalid content, size, compressed expansion and unexpected requests cannot
   assert.equal((await upload("guide.pdf", "%PDF-broken")).status, 400);
   assert.equal((await upload("old.doc", "old word")).status, 415);
   assert.equal((await upload("binary.txt", Buffer.from([255, 0]))).status, 400);
-  assert.equal((await upload("large.txt", Buffer.alloc(8 * 1024 * 1024 + 1))).status, 413);
-  const bomb = await wordDocument("hello", { "word/extra.xml": "a".repeat(13 * 1024 * 1024) });
+  assert.equal((await upload("large.txt", Buffer.alloc(DOCUMENT_LIMITS.fileBytes + 1))).status, 413);
+  const bomb = await wordDocument("hello", { "word/extra.xml": "a".repeat(DOCUMENT_LIMITS.expandedBytes + 1024 * 1024) });
   assert.equal((await upload("expanded.docx", bomb)).status, 413);
   assert.match((await data(await detail.GET(request(), context(document.id)))).chunks[0].text, /Preserve/);
   const freshCookie = cookie;
@@ -118,7 +119,9 @@ test("invalid content, size, compressed expansion and unexpected requests cannot
 });
 
 test("ingestion rate limits return Retry-After without modifying documents", async () => {
-  for (let i = 0; i < 6; i++) await data(await upload("same.txt", "Limited import"), i ? 200 : 201);
+  // A folder of documents fits well inside the quota; only a runaway loop meets it.
+  assert.ok(RATE_LIMIT_POLICIES.documents.limit >= 50);
+  for (let i = 0; i < RATE_LIMIT_POLICIES.documents.limit; i++) await data(await upload("same.txt", "Limited import"), i ? 200 : 201);
   const response = await upload("new.txt", "Not stored");
   assert.equal(response.status, 429);
   assert.ok(Number(response.headers.get("retry-after")) > 0);
@@ -138,7 +141,7 @@ test("parser timeout and cancellation release concurrency capacity", async t => 
 test("failed indexing and stale reindex keep previous document and its index atomic", async () => {
   const { document } = await data(await upload("atomic.txt", "月球基地补给每周二抵达。"), 201);
   const original = await db.knowledgeDocument.findUnique({ where: { id: document.id } });
-  await assert.rejects(indexDocument({ ...original, pages: [{ pageNumber: null, text: "# a\n\n".repeat(300) }] }), (error: any) => error.code === "PAYLOAD_TOO_LARGE");
+  await assert.rejects(indexDocument({ ...original, pages: [{ pageNumber: null, text: "# a\n\n".repeat(DOCUMENT_LIMITS.chunks + 1) }] }), (error: any) => error.code === "PAYLOAD_TOO_LARGE");
   await assert.rejects(indexDocument({ ...original, pages: original.pages as DocumentPage[] }, { id: original.id, contentHash: "stale" }), (error: any) => error.code === "CONFLICT");
   assert.equal((await db.knowledgeDocument.findUnique({ where: { id: document.id } })).contentHash, original.contentHash);
   assert.ok((await searchDocuments("月球基地补给")).length);
@@ -149,7 +152,8 @@ test("a database failure during term insertion rolls back the text, chunks and p
   const { document } = await data(await upload("rollback.txt", "火星仓库每周四开放。"), 201);
   const original = await db.knowledgeDocument.findUnique({ where: { id: document.id } });
   const chunks = await db.documentChunk.findMany({ where: { documentId: document.id } });
-  await db.$executeRawUnsafe("CREATE TRIGGER document_test_failure BEFORE INSERT ON document_terms WHEN NEW.term = 'tripwire' BEGIN SELECT RAISE(ABORT, 'Synthetic index failure'); END");
+  // The term "tripwire" as the keyword index stores it (hexadecimal UTF-8).
+  await db.$executeRawUnsafe(`CREATE TRIGGER document_test_failure BEFORE INSERT ON document_chunk_search WHEN NEW.terms LIKE '%${Buffer.from("tripwire").toString("hex")}%' BEGIN SELECT RAISE(ABORT, 'Synthetic index failure'); END`);
   try {
     await assert.rejects(indexDocument({ ...original, pages: [{ pageNumber: null, text: "tripwire" }] }));
   } finally { await db.$executeRawUnsafe("DROP TRIGGER document_test_failure"); }
@@ -169,11 +173,11 @@ test("parser concurrency rejects excess work and all workers settle before capac
 });
 
 test("document count cap is enforced transactionally while updates remain available", async () => {
-  await db.knowledgeDocument.createMany({ data: Array.from({ length: 99 }, (_, index) => ({ filename: `quota-${index}.txt`, format: "txt", byteSize: 4, contentHash: "old", pages: [{ pageNumber: null, text: "seed" }], characterCount: 4, indexVersion: 1 })) });
+  await db.knowledgeDocument.createMany({ data: Array.from({ length: DOCUMENT_LIMITS.documentsPerUser - 1 }, (_, index) => ({ filename: `quota-${index}.txt`, format: "txt", byteSize: 4, contentHash: "old", pages: [{ pageNumber: null, text: "seed" }], characterCount: 4, indexVersion: 1 })) });
   const settled = await Promise.allSettled(["last-a.txt", "last-b.txt"].map(filename => indexDocument({ filename, format: "txt", byteSize: 4, pages: [{ pageNumber: null, text: "last" }] })));
   assert.equal(settled.filter(result => result.status === "fulfilled").length, 1);
   assert.equal(settled.find(result => result.status === "rejected").reason.code, "CONFLICT");
-  assert.equal(await db.knowledgeDocument.count({ where: {} }), 100);
+  assert.equal(await db.knowledgeDocument.count({ where: {} }), DOCUMENT_LIMITS.documentsPerUser);
   assert.equal((await upload("overflow.txt", "rejected")).status, 409);
   assert.equal((await upload("quota-0.txt", "updated in place")).status, 200);
   assert.equal((await upload("quota-1.txt", "updated in place too")).status, 200);
@@ -184,5 +188,23 @@ test("empty, image-only and binary documents fail clearly, and path-like filenam
   assert.throws(() => validateDocumentFile(new File([], "empty.txt")), (error: any) => error.code === "VALIDATION_ERROR");
   await assert.rejects(parseDocument(textPdf(""), "pdf"), /没有可检索的文本/);
   await assert.rejects(parseDocument(Buffer.from([0, 1, 2]), "txt"), /二进制内容/);
-  await assert.rejects(parseDocument(Buffer.from("x".repeat(100_001)), "txt"), (error: any) => error.code === "PAYLOAD_TOO_LARGE");
+  await assert.rejects(parseDocument(Buffer.from("x".repeat(DOCUMENT_LIMITS.characters + 1)), "txt"), (error: any) => error.code === "PAYLOAD_TOO_LARGE");
+});
+
+test("a document far past the old 256-chunk cap imports in one transaction, and the library's chunk total is capped", async () => {
+  const sections = Array.from({ length: 1500 }, (_, index) => `# 第${index}节\n\n第${index}节规定报销上限为${index}元，超出需要主管审批。`).join("\n\n");
+  const { document, added } = await indexDocument({ filename: "large.md", format: "md", byteSize: sections.length, pages: [{ pageNumber: null, text: sections }] });
+  assert.ok(added > 256, `added ${added}`);
+  assert.equal(await db.documentChunkSearch.count({ where: { chunk: { documentId: document.id } } }), added);
+  assert.ok((await searchDocuments("第1234节 报销上限")).some(source => source.snippet.includes("1234元")));
+
+  const limits = DOCUMENT_LIMITS as { libraryChunks: number };
+  const previous = limits.libraryChunks;
+  limits.libraryChunks = added + 1;
+  try {
+    await assert.rejects(indexDocument({ filename: "one-more.md", format: "md", byteSize: 20, pages: [{ pageNumber: null, text: "第一段。\n\n# 二\n\n第二段。" }] }), /10 万|100,000/);
+    // Updating the document already in the library counts its own chunks once, not twice.
+    const updated = await indexDocument({ filename: "large.md", format: "md", byteSize: sections.length, pages: [{ pageNumber: null, text: `${sections}\n\n结尾。` }] });
+    assert.equal(updated.change, "updated");
+  } finally { limits.libraryChunks = previous; }
 });

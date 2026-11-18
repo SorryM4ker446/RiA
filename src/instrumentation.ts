@@ -5,6 +5,9 @@ export async function register() {
     // No command survives a restart; expired or orphaned terminal logs can go.
     const { pruneTerminalLogs } = await import("@/lib/terminal/logs");
     await pruneTerminalLogs().catch(() => console.error("terminal.log.prune.failed"));
+    // Undo checkpoints past their retention or the store's size go; so does content nothing needs.
+    const { pruneCheckpoints } = await import("@/lib/checkpoints/prune");
+    void pruneCheckpoints().catch(() => console.error("checkpoints.prune.failed"));
     const { startBackupMaintenance } = await import("@/lib/backups/maintenance");
     startBackupMaintenance();
     // Started here rather than from a route: a schedule the user switched on has
@@ -18,6 +21,19 @@ export async function register() {
     if (process.env.APP_RUNTIME === "desktop") {
       const { startScheduler } = await import("@/lib/scheduler/runner");
       startScheduler().start();
+      // The knowledge base's vectors are loaded in the background shortly after start, so the
+      // first search does not wait for them. Delayed so the window and the first page come first.
+      const { warmDocumentSearch } = await import("@/lib/documents/semantic");
+      const warm = setTimeout(() => { void warmDocumentSearch().catch(() => console.error("documents.index.warm.failed")); }, 5_000);
+      warm.unref();
+      // Scanned pages a restart left unread carry on, after the window and the first page.
+      const { resumeDocumentOcr } = await import("@/lib/documents/ocr/runner");
+      const ocr = setTimeout(() => { void resumeDocumentOcr().catch(() => console.error("documents.ocr.resume.failed")); }, 8_000);
+      ocr.unref();
+      // Synced folders are watched from now on, and each is scanned once for what changed while RiA was closed.
+      const { startKnowledgeFolderWatching } = await import("@/lib/documents/folders/sync");
+      const folders = setTimeout(() => { void startKnowledgeFolderWatching().catch(() => console.error("documents.folders.start.failed")); }, 10_000);
+      folders.unref();
     }
   }
 }

@@ -348,7 +348,7 @@ test("the memory confirmation states the result and its effect, then leaves on i
   await memory.click();
   await expect(notice.locator(".toast-title")).toHaveText("长期记忆已关闭");
   await expect(notice.locator(".toast-description")).toHaveText("这个会话不再读取或写入长期记忆");
-  // A notice, not a control: it takes no clicks and is gone within a few seconds.
+  // A notice, not a control: clicks go through it to what is beneath, and it is gone within a few seconds.
   await expect(notice).toHaveCSS("pointer-events", "none");
   await expect(toasts(page).locator(".toast")).toHaveCount(0, { timeout: 4500 });
   expect(await page.evaluate(() => (window as unknown as { blinked: string[] }).blinked)).toEqual([]);

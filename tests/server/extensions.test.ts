@@ -226,7 +226,8 @@ test("assistant templates accept external tools, retain their allowlist and can 
   const config = assistantConfigSchema.parse({ name: "External assistant", instructions: "Use only the selected tool.", tools: [id] });
   const template = await saveAssistant(config);
   const snapshot = await resolveAssistant(template.id);
-  const offered = async () => Object.keys(await createChatToolSet({ toolIds: snapshot.tools })).filter(name => name !== "readConversationHistory" && name !== "extractMemory");
+  // The model's own tools come with any tool; only the template's choice is compared.
+  const offered = async () => Object.keys(await createChatToolSet({ toolIds: snapshot.tools })).filter(name => !["readConversationHistory", "extractMemory", "updatePlan", "askUser"].includes(name));
   assert.deepEqual(await offered(), [id]);
   await activateExtension(row.id, { revision: enabled.revision, enabled: false, tools: [enabled.tools[0].name] });
   assert.deepEqual(await offered(), []);

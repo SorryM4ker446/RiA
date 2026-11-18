@@ -4,6 +4,8 @@ import { LocalFileRefused, localGrantLabelSchema } from "@/lib/local-files/limit
 import { resolveGrant } from "@/lib/local-files/safe-path";
 import { activeTerminalSessionIds, stopTerminalCommandsForGrant } from "@/lib/terminal/runtime";
 import { removeTerminalLogsForGrant } from "@/lib/terminal/logs";
+import { forgetFileSnapshot } from "@/lib/terminal/file-changes";
+import { forgetCheckpointsForGrant } from "@/lib/checkpoints/prune";
 
 /**
  * Directories the user has opened to the assistant.
@@ -141,6 +143,9 @@ async function reviveGrant(id: string, label: string, resolvedPath: string): Pro
  */
 export async function revokeGrant(id: string): Promise<{ revoked: true }> {
   stopTerminalCommandsForGrant(id);
+  const row = await db.directoryGrant.findUnique({ where: { id }, select: { realPath: true } });
+  if (row) forgetFileSnapshot(row.realPath);
+  await forgetCheckpointsForGrant(id).catch(() => console.error("checkpoints.remove.failed"));
   await removeTerminalLogsForGrant(id, activeTerminalSessionIds()).catch(() => console.error("terminal.log.remove.failed"));
   await db.directoryGrant.deleteMany({ where: { OR: [{ id }, { revokedAt: { not: null } }] } });
   return { revoked: true };

@@ -1,15 +1,29 @@
 import { z } from "zod";
+import { DOCUMENT_UPLOAD_LIMITS } from "./limits-constants";
 
 export const DOCUMENT_LIMITS = {
-  fileBytes: 8 * 1024 * 1024,
-  bodyBytes: 9 * 1024 * 1024,
-  characters: 100_000,
-  pages: 200,
-  chunks: 256,
-  documentsPerUser: 100,
+  ...DOCUMENT_UPLOAD_LIMITS,
+  /*
+   * What one document may hold once extracted, set from measurements rather than
+   * guessed (tests/benchmarks/knowledge-benchmark.ts). Its chunks are written in one
+   * transaction, which holds SQLite's only writer: 10,000 chunks take about three
+   * seconds, so these keep one import short enough not to stall the rest of the app.
+   */
+  characters: 4_000_000,
+  // Pages cost nothing at search time; a long, mostly visual PDF fits as long as its text does.
+  pages: 1000,
+  chunks: 10_000,
+  /**
+   * Chunks in the whole library. Every one with a vector is held in memory as int8
+   * for search by meaning: 100,000 of 1,024 dimensions take about 100 MB.
+   */
+  libraryChunks: 100_000,
+  /** Decompressed data a Word archive may hold: images and styles included, so well above its text. */
+  expandedBytes: 64 * 1024 * 1024,
+  documentsPerUser: 2_000,
   // PDF.js can take several seconds to cold-start on a constrained CI or
-  // Windows machine before it begins reading the document.
-  parseTimeoutMs: 30_000,
+  // Windows machine before it begins reading a document, and a large one takes longer.
+  parseTimeoutMs: 90_000,
   /** How long worker cleanup may block the response before it is abandoned. */
   terminateGraceMs: 2_000,
 } as const;

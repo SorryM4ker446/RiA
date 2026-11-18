@@ -422,6 +422,83 @@ test("completed replies show real file changes, persist them and open validated 
   expect(errors).toEqual([]);
 });
 
+test("a reply's file changes are undone from a list or one by one, each undo can be redone, and a file changed since is left alone", async ({ page, app }) => {
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const grant = await setup(page, app, true, "full");
+  mkdirSync(join(app.folder, "src"));
+  writeFileSync(join(app.folder, "src", "theme.ts"), "export const theme = { radius: 4 };\n");
+  writeFileSync(join(app.folder, "old-draft.txt"), "旧草稿\n");
+  const chat = (await browserApi(page, "/api/conversations", "POST", { title: "撤销修改" })).body.data;
+  await browserApi(page, `/api/conversations/${chat.id}`, "PATCH", { workspaceGrantId: grant.id });
+  await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
+  await trackChatStreams(page);
+  await page.getByPlaceholder(/输入你的问题/).fill("请整理个人资料卡片：统一配色，新增资料卡组件和使用说明，并移除旧草稿。");
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  await waitForChatStream(page);
+  const files = page.getByRole("region", { name: "最近编辑的文件", exact: true });
+  await expect(files.getByText("新增 2 个 · 修改 1 个 · 删除 1 个", { exact: true })).toHaveCount(1);
+  const notices = page.getByRole("region", { name: "通知", exact: true });
+  const themeAfter = readFileSync(join(app.folder, "src", "theme.ts"), "utf8");
+  // The user edits one of the created files afterwards: undo must not discard that.
+  writeFileSync(join(app.folder, "README.md"), "我自己改过的说明\n");
+
+  // Several files: a list first, checked against the files as they are now.
+  await files.getByRole("button", { name: "撤销修改", exact: true }).click();
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toContainText("撤销这次回答的文件修改");
+  const confirm = dialog.getByRole("button", { name: "撤销 3 个文件", exact: true });
+  await expect(confirm).toBeEnabled();
+  await expect(dialog).toContainText("恢复（这次删除的）");
+  await expect(dialog).toContainText("之后被改动过，不撤销");
+  await expect(dialog.getByRole("checkbox", { name: "README.md", exact: true })).toBeDisabled();
+  await dialog.getByRole("checkbox", { name: "src/theme.ts", exact: true }).click();
+  await expect(dialog.getByRole("button", { name: "撤销 2 个文件", exact: true })).toBeEnabled();
+  await page.screenshot({ path: join(tmpdir(), "ria-undo-dialog.png"), animations: "disabled" });
+  // Nothing changes until it is confirmed.
+  expect(existsSync(join(app.folder, "old-draft.txt"))).toBe(false);
+  await dialog.getByRole("button", { name: "撤销 2 个文件", exact: true }).click();
+  await expect(notices).toContainText("已撤销 2 个文件的修改");
+  expect(readFileSync(join(app.folder, "old-draft.txt"), "utf8")).toBe("旧草稿\n");
+  expect(existsSync(join(app.folder, "src", "components", "profile-card.tsx"))).toBe(false);
+  expect(readFileSync(join(app.folder, "README.md"), "utf8")).toBe("我自己改过的说明\n");
+  expect(readFileSync(join(app.folder, "src", "theme.ts"), "utf8")).toBe(themeAfter);
+  await expect(files.getByText("已撤销 2 个", { exact: true })).toBeVisible();
+  await expect(files.getByRole("button", { name: "打开文件 src/components/profile-card.tsx", exact: true })).toContainText("已撤销");
+
+  // The toast takes it back.
+  await notices.getByRole("button", { name: "重做", exact: true }).click();
+  await expect(notices).toContainText("已重做 2 个文件的修改");
+  expect(existsSync(join(app.folder, "old-draft.txt"))).toBe(false);
+  expect(existsSync(join(app.folder, "src", "components", "profile-card.tsx"))).toBe(true);
+  await expect(files.getByText("已撤销 2 个", { exact: true })).toHaveCount(0);
+
+  // One file at a time from its row, at once: it can be redone, so nothing is asked.
+  await files.getByRole("button", { name: "src/theme.ts 的更多操作", exact: true }).click();
+  await page.getByRole("menuitem", { name: "撤销此文件", exact: true }).click();
+  await expect(notices).toContainText("已撤销 theme.ts 的修改");
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  expect(readFileSync(join(app.folder, "src", "theme.ts"), "utf8")).toBe("export const theme = { radius: 4 };\n");
+  await expect(files.getByRole("button", { name: "打开文件 src/theme.ts", exact: true })).toContainText("已恢复到这次回答之前");
+  await page.screenshot({ path: join(tmpdir(), "ria-undo-changes.png"), animations: "disabled" });
+  // A file changed since is left as it is, and its row says why.
+  await files.getByRole("button", { name: "README.md 的更多操作", exact: true }).click();
+  await page.getByRole("menuitem", { name: "撤销此文件", exact: true }).click();
+  await expect(files.getByText("之后被改动过，不撤销", { exact: true })).toBeVisible();
+  expect(readFileSync(join(app.folder, "README.md"), "utf8")).toBe("我自己改过的说明\n");
+  // Redo from the row brings the change back; the state survives a reload.
+  await files.getByRole("button", { name: "src/theme.ts 的更多操作", exact: true }).click();
+  await page.getByRole("menuitem", { name: "重做此文件", exact: true }).click();
+  await expect(notices).toContainText("已重做 theme.ts 的修改");
+  expect(readFileSync(join(app.folder, "src", "theme.ts"), "utf8")).toBe(themeAfter);
+  await files.getByRole("button", { name: "src/theme.ts 的更多操作", exact: true }).click();
+  await page.getByRole("menuitem", { name: "撤销此文件", exact: true }).click();
+  await expect(notices).toContainText("已撤销 theme.ts 的修改");
+  await page.reload();
+  await expect(files.getByRole("button", { name: "打开文件 src/theme.ts", exact: true })).toContainText("已撤销");
+  expect(errors).toEqual([]);
+});
+
 test("rejection executes nothing and a long command exposes live output and can be stopped", async ({ page, app }) => {
   const grant = await setup(page, app);
   await ask(page, app, grant.id);
@@ -441,4 +518,28 @@ test("rejection executes nothing and a long command exposes live output and can 
   await expect(page.getByRole("button", { name: "停止命令", exact: true })).toHaveCount(0);
   await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes('"status":"stopped"'))).toBe(true);
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
+});
+
+test("a background command keeps running after the answer, stays live in its card and can be stopped there", async ({ page, app }) => {
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  const grant = await setup(page, app, false, "full");
+  const chat = (await browserApi(page, "/api/conversations", "POST", { title: "后台终端" })).body.data;
+  await browserApi(page, `/api/conversations/${chat.id}`, "PATCH", { workspaceGrantId: grant.id });
+  await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
+  await page.getByPlaceholder(/输入你的问题/).fill(`OFFLINE_TERMINAL_COMMAND GRANT_ID=${grant.id} TERMINAL_STOP TERMINAL_BACKGROUND`);
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  // The answer ends while the 30-second command is still going.
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
+  const dialog = await openExecutionDetails(page);
+  const terminal = dialog.getByRole("region", { name: "终端命令" }).or(dialog.locator("section[aria-label='终端命令']")).first();
+  await expect(terminal).toContainText("后台运行");
+  // The call returned while the command kept going, and says so rather than "finished".
+  await expect(dialog.locator("details.execution-disclosure summary").first()).toContainText("已在后台启动");
+  await expect(dialog.getByLabel("终端输出", { exact: true })).toContainText("terminal-ready-你好");
+  await expect(dialog.getByRole("button", { name: "停止命令", exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "停止命令", exact: true }).click();
+  await expect(terminal.getByText("已停止", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "停止命令", exact: true })).toHaveCount(0);
+  expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
+  expect(errors).toEqual([]);
 });

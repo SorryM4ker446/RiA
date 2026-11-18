@@ -6,6 +6,7 @@ import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { isTimeZone } from "@/lib/scheduler/cron";
 import { previewWorkspaceReview } from "@/lib/activity/reviews";
+import { t } from "@/lib/locale";
 const query = z.strictObject({ period: z.enum(["daily", "weekly"]), timeZone: z.string().min(1).max(100).refine(isTimeZone) });
 export const GET = protectDataOperation(async (req: NextRequest) => {
   try {
@@ -13,9 +14,9 @@ export const GET = protectDataOperation(async (req: NextRequest) => {
     enforceRateLimit("conversationSearch");
     const params = [...req.nextUrl.searchParams];
     if (new Set(params.map(([key]) => key)).size !== params.length) {
-      throw new ApiError({ code: "VALIDATION_ERROR", message: "Duplicate review query parameters" });
+      throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.activity.duplicateQuery") });
     }
     const input = query.parse(Object.fromEntries(params));
     return Response.json({ data: await previewWorkspaceReview(input.period, input.timeZone) }, { headers: { "Cache-Control": "private, no-store" } });
-  } catch (error) { return createApiErrorResponse(error, "无法读取事实回顾。"); }
+  } catch (error) { return createApiErrorResponse(error, t("server.fallback.review")); }
 });

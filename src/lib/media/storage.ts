@@ -10,6 +10,7 @@ import { generationRecipeSchema, type GenerationRecipe } from "@/lib/media/gener
 import { LOCAL_WORKSPACE_ID } from "@/lib/local/workspace";
 import { localDataDirectory } from "@/lib/local/data-directory";
 
+import { t } from "@/lib/locale";
 const extensions: Record<string, string> = {
   "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif",
   "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov",
@@ -35,7 +36,7 @@ export function mediaOwnerDirectory(workspaceId: string): string {
   return createHash("sha256").update(workspaceId).digest("hex");
 }
 
-function pathError() { return new ApiError({ code: "NOT_FOUND", message: "Media file is unavailable" }); }
+function pathError() { return new ApiError({ code: "NOT_FOUND", message: t("server.media.fileUnavailable") }); }
 function isMissing(error: unknown) { return (error as NodeJS.ErrnoException)?.code === "ENOENT"; }
 
 async function safeOwnerDirectory(workspaceId: string, create: boolean) {
@@ -59,7 +60,7 @@ function assertRelativePath(asset: Pick<MediaAsset, "id" | "mediaType" | "relati
 }
 
 export function validateMediaBytes(bytes: Uint8Array, mediaType: string, maxBytes: number) {
-  if (!bytes.length || bytes.length > maxBytes) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: "Media is empty or exceeds the size limit" });
+  if (!bytes.length || bytes.length > maxBytes) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("server.media.emptyOrTooLarge") });
   const head = Buffer.from(bytes.buffer, bytes.byteOffset, Math.min(bytes.byteLength, 32));
   const matches = mediaType === "image/png" ? head.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
     : mediaType === "image/jpeg" ? head[0] === 255 && head[1] === 216 && head[2] === 255
@@ -70,13 +71,13 @@ export function validateMediaBytes(bytes: Uint8Array, mediaType: string, maxByte
     : mediaType === "application/pdf" ? head.toString("ascii", 0, 5) === "%PDF-"
     : mediaType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ? head.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))
     : false;
-  if (!matches) throw new ApiError({ code: "VALIDATION_ERROR", message: "Unsupported media type or mismatched file signature" });
+  if (!matches) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.media.unsupportedType") });
 }
 
 export function decodeImageDataUrl(url: string, maxBytes: number) {
   const match = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]*={0,2})$/.exec(url);
-  if (!match || match[2].length % 4 !== 0) throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid image data URL" });
-  if (match[2].length > Math.ceil(maxBytes / 3) * 4) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: "Image exceeds the size limit" });
+  if (!match || match[2].length % 4 !== 0) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.media.invalidImageDataUrl") });
+  if (match[2].length > Math.ceil(maxBytes / 3) * 4) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("server.media.imageTooLarge") });
   const bytes = Buffer.from(match[2], "base64");
   validateMediaBytes(bytes, match[1], maxBytes);
   return { bytes, mediaType: match[1] };
@@ -111,8 +112,8 @@ export async function createMediaAsset(input: {
 // Failed transactions leave only managed orphan files for the normal grace period.
 export async function stageMediaFile(input: { bytes: Uint8Array; mediaType: string; kind: "attachment" | "generated-image" | "generated-video" }) {
   const maximum = input.kind === "attachment" ? MEDIA_LIMITS.attachmentBytes : input.kind === "generated-image" ? MEDIA_LIMITS.generatedImageBytes : MEDIA_LIMITS.generatedVideoBytes;
-  if ((input.kind === "generated-video") !== input.mediaType.startsWith("video/")) throw new ApiError({ code: "VALIDATION_ERROR", message: "Unexpected media type" });
-  if (input.kind === "generated-image" && !input.mediaType.startsWith("image/")) throw new ApiError({ code: "VALIDATION_ERROR", message: "Unexpected media type" });
+  if ((input.kind === "generated-video") !== input.mediaType.startsWith("video/")) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.media.unexpectedType") });
+  if (input.kind === "generated-image" && !input.mediaType.startsWith("image/")) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.media.unexpectedType") });
   validateMediaBytes(input.bytes, input.mediaType, maximum);
   const directory = await safeOwnerDirectory(LOCAL_WORKSPACE_ID, true);
   const id = randomUUID();
@@ -187,7 +188,7 @@ export async function deleteMediaAsset(id: string, olderThan?: Date) {
     const claimed = await tx.mediaAsset.updateMany({ where: {
       id, references: { none: {} }, usedByGenerations: { none: {} }, ...(olderThan ? { lastUsedAt: { lt: olderThan } } : {}),
     }, data: { deletedAt: new Date() } });
-    if (claimed.count !== 1) throw new ApiError({ code: "CONFLICT", message: "Media is still referenced or too recent to clean up" });
+    if (claimed.count !== 1) throw new ApiError({ code: "CONFLICT", message: t("server.media.stillReferenced") });
     return existing;
   });
   await removeClaimedAsset(asset);

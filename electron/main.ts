@@ -8,7 +8,8 @@ import { createDesktopLogger } from "./logger";
 import { runDesktopMigrations } from "./migrations";
 import { runWorkspaceUpgrade } from "./desktop-workspace-upgrade";
 import { findAvailablePort } from "./next-server";
-import { resolveDesktopPaths } from "./paths";
+import { resolveDataRoot, resolveDesktopPaths } from "./paths";
+import { dataMoveRequested, removeLegacyWebCache, settleDataLocation, webCacheForThisRun, writeNotes } from "./desktop-data-location";
 import { DesktopSettingsStore } from "./settings";
 import { reconcileUpdateDirectory, removeEmptyVersionFolders, UpdateService } from "./updater";
 import { DEVELOPMENT_APP_USER_MODEL_ID, INSTALLED_APP_USER_MODEL_ID } from "./app-identity";
@@ -29,6 +30,23 @@ if (process.env.DESKTOP_USER_DATA_DIR) {
 
 app.setName(PRODUCT_NAME);
 
+/** The fixed path the data is opened at; a directory junction when the data was moved to another drive. */
+const dataRoot = resolveDataRoot({
+  isPackaged: packagedRuntime,
+  userDataPath: app.getPath("userData"),
+  compiledDirectory: __dirname,
+  projectRootOverride: process.env.DESKTOP_PROJECT_ROOT,
+  dataDirectoryOverride: process.env.DESKTOP_DATA_DIR,
+});
+/*
+ * Chromium's HTTP cache lives with RiA's own cache, not in the profile folder on
+ * the system drive. Chromium takes the folder only before the app is ready, so it
+ * is read from the location record as it stands; a cache move this start makes
+ * applies from the next one.
+ */
+const webCacheInUse = webCacheForThisRun(dataRoot);
+app.commandLine.appendSwitch("disk-cache-dir", webCacheInUse);
+
 const singleInstanceLock = app.requestSingleInstanceLock();
 if (!singleInstanceLock) {
   app.quit();
@@ -46,6 +64,16 @@ async function bootstrap() {
   */
   app.setAppUserModelId(packagedRuntime ? INSTALLED_APP_USER_MODEL_ID : DEVELOPMENT_APP_USER_MODEL_ID);
 
+  /*
+   * The data folder is settled before anything opens it, the log included: a
+   * requested move runs here, an interrupted one is finished or undone, and a
+   * folder the data was moved to that cannot be found stops the start instead
+   * of leaving an empty workspace in its place. Then the workspace upgrade, then
+   * the migrations, then the service, so an update's migrations always run on
+   * the data where it now lives.
+   */
+  const location = await settleDataLocation({ dataRoot, interactive: !smokeTest, webCacheInUse });
+  runtime.dataLocation = { dataRoot, cacheDirectory: location.cacheDirectory, cacheUnavailable: location.cacheUnavailable };
   runtime.desktopPaths = resolveDesktopPaths({
     isPackaged: packagedRuntime,
     resourcesPath: process.resourcesPath,
@@ -54,6 +82,7 @@ async function bootstrap() {
     projectRootOverride: process.env.DESKTOP_PROJECT_ROOT,
     runtimeDirectoryOverride: process.env.DESKTOP_RUNTIME_DIR,
     dataDirectoryOverride: process.env.DESKTOP_DATA_DIR,
+    cacheDirectory: location.cacheDirectory,
   });
   runtime.logger = createDesktopLogger(runtime.desktopPaths.logFile);
   runtime.logger.info("Starting desktop application", {
@@ -63,6 +92,8 @@ async function bootstrap() {
     osVersion: process.getSystemVersion(),
     gpu: app.getGPUFeatureStatus(),
   });
+  writeNotes(runtime.logger, location.notes);
+  removeLegacyWebCache(app.getPath("userData"), runtime.logger);
 
   runWorkspaceUpgrade({ desktopPaths: runtime.desktopPaths, logger: runtime.logger });
 
@@ -120,6 +151,7 @@ async function bootstrap() {
     logger: runtime.logger,
     launch: launchUpdateInstaller,
     onChange: broadcastUpdateState,
+    blocked: dataMoveRequested,
     previousInstall: updatesSupported
       ? await reconcileUpdateDirectory({ directory: updateDirectory, currentVersion: applicationVersion, logsDirectory: runtime.desktopPaths.logsDirectory, logger: runtime.logger })
       : null,

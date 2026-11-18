@@ -11,7 +11,7 @@ import { modelInLibrary } from "@/lib/models/preferences";
 
 const filters = z.strictObject({ type: z.enum(["all", "image", "video"]).default("all"), kind: z.enum(["all", "attachment", "generated-image", "generated-video"]).default("all"), usage: z.enum(["all", "referenced", "unused"]).default("all") });
 export async function listMediaLibrary(params: URLSearchParams) {
-  for (const key of new Set(params.keys())) if (params.getAll(key).length > 1) throw new ApiError({ code: "VALIDATION_ERROR", message: "Duplicate query parameter" });
+  for (const key of new Set(params.keys())) if (params.getAll(key).length > 1) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.request.duplicateQuery") });
   const pagination = new URLSearchParams();
   for (const key of ["cursor", "limit"]) if (params.has(key)) pagination.set(key, params.get(key)!);
   const query = filters.parse(Object.fromEntries([...params].filter(([key]) => !["cursor", "limit"].includes(key))));

@@ -16,7 +16,7 @@ export const documentProcessorTools: Record<string, AnyToolDescriptor> = {
       const end = Math.min(document.content.length, parsed.offset + parsed.limit);
       let position = 0;
       const pages = document.pages.flatMap(page => { const start = position; position += page.text.length + 2; return start < end && start + page.text.length > parsed.offset ? [{ pageNumber: page.pageNumber, text: page.text.slice(Math.max(0, parsed.offset - start), Math.max(0, end - start)) }] : []; });
-      return { documentId: parsed.documentId, filename: document.filename, contentHash: document.source.contentHash, characterCount: document.content.length, offset: parsed.offset, text: document.content.slice(parsed.offset, end), pages, nextOffset: end < document.content.length ? end : null, notes: conversionNotes };
+      return { documentId: parsed.documentId, filename: document.filename, contentHash: document.source.contentHash, characterCount: document.content.length, offset: parsed.offset, text: document.content.slice(parsed.offset, end), pages, nextOffset: end < document.content.length ? end : null, notes: conversionNotes() };
     },
   },
   convertDocument: {
@@ -29,10 +29,10 @@ export const documentProcessorTools: Record<string, AnyToolDescriptor> = {
       const parsed = documentConvertSchema.parse(input); signal?.throwIfAborted();
       if (parsed.attachmentId) {
         const document = await loadAttachmentDocument(parsed.attachmentId, signal); signal?.throwIfAborted();
-        return { attachmentId: parsed.attachmentId, filename: exportFilename(document.filename, parsed.format), format: parsed.format, downloadUrl: `/api/media/${encodeURIComponent(parsed.attachmentId)}/export?format=${parsed.format}`, notes: conversionNotes };
+        return { attachmentId: parsed.attachmentId, filename: exportFilename(document.filename, parsed.format), format: parsed.format, downloadUrl: `/api/media/${encodeURIComponent(parsed.attachmentId)}/export?format=${parsed.format}`, notes: conversionNotes() };
       }
       const document = await loadProcessorDocument(parsed.documentId!, { collections: documentCollections }); signal?.throwIfAborted();
-      return { documentId: parsed.documentId, contentHash: document.source.contentHash, filename: exportFilename(document.filename, parsed.format), format: parsed.format, downloadUrl: `/api/documents/${encodeURIComponent(parsed.documentId!)}/export?format=${parsed.format}&version=${document.source.contentHash}`, notes: conversionNotes };
+      return { documentId: parsed.documentId, contentHash: document.source.contentHash, filename: exportFilename(document.filename, parsed.format), format: parsed.format, downloadUrl: `/api/documents/${encodeURIComponent(parsed.documentId!)}/export?format=${parsed.format}&version=${document.source.contentHash}`, notes: conversionNotes() };
     },
   },
 };

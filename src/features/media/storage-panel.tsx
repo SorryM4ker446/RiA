@@ -6,6 +6,7 @@ import { getApiErrorMessage } from "@/lib/api-error-message";
 
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { formatSize } from "@/features/settings/data-location";
 import { Reveal } from "@/components/ui/reveal";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
@@ -41,7 +42,7 @@ export function StoragePanel({ revision = 0, onChanged, embedded = false }: { re
       const response = await fetch("/api/media/cleanup", { method: "POST" });
       const payload = await response.json();
       if (!response.ok) throw new Error(getApiErrorMessage(payload, t("mediaStorage.cleanupFailed")));
-      toast(`${t("mediaStorage.cleaned")} ${payload.data.removedCount} ${t("mediaStorage.freedFiles")} ${(payload.data.freedBytes / 1024 / 1024).toFixed(2)} ${t("mediaStorage.mib")}${payload.data.failedCount ? ` ${payload.data.failedCount} ${t("mediaStorage.failedSuffix")}` : ""}`);
+      toast(`${t("mediaStorage.cleaned")} ${payload.data.removedCount} ${t("mediaStorage.freedFiles")} ${formatSize(payload.data.freedBytes)}${payload.data.failedCount ? ` ${payload.data.failedCount} ${t("mediaStorage.failedSuffix")}` : ""}`);
       await refresh();
       onChanged?.();
     } catch (error) { setError(error instanceof Error ? error.message : t("mediaStorage.cleanupFailed")); }
@@ -54,7 +55,7 @@ export function StoragePanel({ revision = 0, onChanged, embedded = false }: { re
   const content = <div className="flex flex-col gap-4">
     <Reveal className="-mt-4">{error ? <p role="alert" className="mt-4 rounded-lg bg-destructive/5 p-3 text-sm text-destructive shadow-hairline"><span>{localizeMessage(error)}</span><Button size="sm" variant="ghost" className="ml-2 h-auto px-2 py-0.5 align-baseline" onClick={() => void refresh()}>{t("ui.chat.chat-toolbar.retry")}</Button></p> : null}</Reveal>
     {stats ? <dl className="stat-grid">
-      <div><dt>{t("mediaStorage.diskUsage")}</dt><dd>{(stats.totalBytes / 1024 / 1024).toFixed(2)} <span className="text-xs font-normal text-muted-foreground">MiB</span></dd></div>
+      <div><dt>{t("mediaStorage.diskUsage")}</dt><dd>{formatSize(stats.totalBytes).split(" ")[0]} <span className="text-xs font-normal text-muted-foreground">{formatSize(stats.totalBytes).split(" ")[1]}</span></dd></div>
       <div><dt>{t("mediaStorage.assetCount")}</dt><dd>{stats.assetCount}</dd></div>
       <div><dt>{t("mediaStorage.referenced")}</dt><dd>{stats.referencedCount}</dd></div>
       <div><dt>{t("mediaStorage.unreferenced")}</dt><dd>{stats.unreferencedCount}</dd></div>

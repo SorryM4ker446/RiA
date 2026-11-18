@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import type { FlexibleSchema } from "ai";
 import type { ModelRef } from "@/lib/models/preferences-schema";
+import type { ReviewedAction } from "@/lib/approvals/auto-review";
 
 export type ToolMode = "chat" | "image" | "video";
 export type ToolTriggerType = "manual" | "auto";
@@ -16,6 +17,18 @@ type ToolExecutionContext<Input> = {
   runId?: string | null;
   documentCollections?: string[];
   usesMemory?: boolean;
+  /** The turn belongs to a run nobody is watching (a scheduled task), so nobody can stop what a tool starts. */
+  unattended?: boolean;
+  /** The user's own words in the conversation (or, for a tool the user ran by hand, its input): what the user asked for, as opposed to what a tool returned. */
+  userText?: readonly string[];
+  /** The reason the user's approval of this call carried: for a question, the answer. */
+  approvalReason?: string;
+  /** This call's identity in the conversation. */
+  toolCallId?: string;
+  /** The tools the conversation's assistant template allows; absent when it has no list. */
+  toolIds?: string[];
+  /** The turn's allowance of summary calls, which work a tool does for the turn (a sub-agent's compaction) draws on too. */
+  compactionAllowance?: import("@/lib/chat/task-summary").CompactionAllowance;
 };
 
 type ToolBudgetExceededContext = {
@@ -52,7 +65,7 @@ type ToolMemoryContext<Input, Output> = {
 };
 
 /** Where a tool sits when people browse or choose tools. */
-export type ToolCategory = "knowledge" | "web" | "workspace" | "tasks" | "context" | "extension";
+export type ToolCategory = "knowledge" | "web" | "workspace" | "tasks" | "agents" | "context" | "extension";
 
 /**
  * Who can reach a tool, stated once. Every list of tools is derived from this:
@@ -113,6 +126,10 @@ export type ToolDescriptor<Input = unknown, Output = unknown> = {
   /** The connection this tool comes from, as people named it. */
   extensionName?: string;
   extensionRevision?: number;
+  /** An extension tool sent in full even when extension tools are loaded on demand. */
+  alwaysLoad?: boolean;
+  /** The kind of action, which the conversation's approval rule decides (see approvalGate). */
+  approval?: import("@/lib/approvals/rules").ApprovalAction;
   /** Whether a call waits for the user; a function decides per call, from its input and the conversation it is in. */
   requiresApproval?: boolean | ((input: unknown, context: { chatId?: string | null }) => Promise<boolean>);
   /**
@@ -125,6 +142,12 @@ export type ToolDescriptor<Input = unknown, Output = unknown> = {
    * through the reference it is handed.
    */
   bindForApproval?: (input: unknown) => Promise<unknown>;
+  /**
+   * What a call does, as the Auto rule's review is shown it. A tool that has
+   * this is reviewed under auto instead of waiting for the user; one without it
+   * waits under auto as under ask.
+   */
+  reviewAction?: (input: Input) => ReviewedAction;
   prepareInput?: (context: ToolPrepareInputContext<Input>) => Promise<Input> | Input;
   buildBudgetExceededOutput?: (context: ToolBudgetExceededContext) => Output;
   /**

@@ -1,6 +1,7 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
-import { t } from "@/lib/locale";
+import { localizeMessage, t } from "@/lib/locale";
+import { SettingsLink } from "@/features/settings/settings-context";
 import type { DocumentIndexing, DocumentSummary } from "./document-client";
 import type { IndexProgress } from "./index-maintenance";
 import { Button } from "@/components/ui/button";
@@ -25,7 +26,10 @@ export function IndexStatus({ documents, progress, busy, automatic, start, cance
     <section aria-label={t("ui.knowledge.index-status.indexSection")} className="flex flex-col gap-3">
     <h3 className="text-xs font-medium tracking-label">{t("ui.knowledge.index-status.indexSection")}</h3>
     {automatic.running ? <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground"><Spinner aria-hidden="true" className="size-3.5" />{t("ui.knowledge.index-status.buildingAutomatically")}</p>
-      : automatic.failed ? <p role="status" className="text-xs text-muted-foreground">{t("ui.knowledge.index-status.automaticFailed")}</p> : null}
+      : automatic.failed ? <div role="status" className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <span>{automatic.failure ? `${t("ui.knowledge.index-status.automaticStopped")} ${localizeMessage(automatic.failure.message)}` : t("ui.knowledge.index-status.automaticFailed")}</span>
+        {automatic.failure?.fix ? <SettingsLink className="underline-offset-4 hover:underline" section={automatic.failure.fix === "apiKeys" ? "services" : "models"}>{t(automatic.failure.fix === "apiKeys" ? "chatPage.openApiKeys" : "chatPage.openModels")}</SettingsLink> : null}
+      </div> : null}
     <div className="flex flex-wrap gap-2"><Badge variant="outline">{t("ui.knowledge.index-status.pendingBuild")}{pending.length} {t("ui.knowledge.index-status.documents")}</Badge><Badge variant="outline">{t("ui.knowledge.document-library.localIndexNeedsUpdating")}{old.length} {t("conversations.counts.loadedUnit")}</Badge><Badge variant="outline">{t("ui.knowledge.index-status.staleVectors")}{documents.reduce((sum, document) => sum + (document.semantic?.stale ?? 0), 0)}</Badge><Badge variant="outline">{t("ui.knowledge.index-status.modelMismatch")}{documents.reduce((sum, document) => sum + (document.semantic?.differentModel ?? 0), 0)}</Badge><Badge variant="outline">{t("ui.knowledge.index-status.invalidVectors")}{documents.reduce((sum, document) => sum + (document.semantic?.invalid ?? 0), 0)}</Badge></div>
     <p className="max-w-3xl text-xs leading-6 text-muted-foreground">{t("ui.knowledge.index-status.selectAnEmbeddingModelInModels")}</p>
     <div className="flex flex-wrap gap-2"><Button type="button" size="sm" variant="outline" disabled={busy || automatic.running || !pending.length} onClick={start}>{t("ui.knowledge.index-status.buildOrResumeInBulk")}</Button>{busy && progress.some(item => item.status === "indexing") ? <Button type="button" size="sm" variant="outline" onClick={cancel}>{t("ui.knowledge.index-status.cancelIndexing")}</Button> : null}</div>

@@ -11,7 +11,7 @@ type Context = { params: Promise<{ id: string }> };
 export async function PUT(req: NextRequest, context: Context) {
   try {
     await requireLocalWorkspace(req); enforceRateLimit("backupChunks");
-    if (req.nextUrl.searchParams.getAll("offset").length > 1) throw new ApiError({ code: "VALIDATION_ERROR", message: "Duplicate query parameter" });
+    if (req.nextUrl.searchParams.getAll("offset").length > 1) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.request.duplicateQuery") });
     const query = z.strictObject({ offset: z.string().regex(/^(0|[1-9]\d{0,9})$/).transform(Number) }).parse(Object.fromEntries(req.nextUrl.searchParams));
     return Response.json({ data: await exclusiveDataOperation(() => context.params.then(({ id }) => appendBackupImport(id, query.offset, req))) });
   } catch (error) { return createApiErrorResponse(error, t("api.backups.importChunkFailed")); }

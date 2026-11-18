@@ -8,7 +8,6 @@ import { ApiError, createApiErrorResponse } from "@/lib/server/api-error";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { readJsonBody } from "@/lib/server/request-body";
 import { t } from "@/lib/locale";
-
 const createGrantSchema = z.strictObject({
   label: z.string().trim().max(200).optional(),
   path: z.string().min(1).max(4000)
@@ -35,11 +34,11 @@ async function GETHandler(req: NextRequest) {
     // withdrawn and when. Anything else is still a request the endpoint does not
     // answer to, so it is refused rather than ignored.
     if ([...req.nextUrl.searchParams.keys()].some((key) => key !== "includeRevoked")) {
-      throw new ApiError({ code: "VALIDATION_ERROR", message: "Unexpected query parameter" });
+      throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.request.unexpectedQuery") });
     }
     const includeRevoked = req.nextUrl.searchParams.get("includeRevoked");
     if (includeRevoked !== null && includeRevoked !== "true" && includeRevoked !== "false") {
-      throw new ApiError({ code: "VALIDATION_ERROR", message: "includeRevoked must be true or false" });
+      throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.grants.includeRevokedBoolean") });
     }
     const data = await listGrants({ includeRevoked: includeRevoked === "true" });
     return Response.json({ data }, { headers: { "Cache-Control": "no-store" } });
@@ -58,7 +57,7 @@ async function POSTHandler(req: NextRequest) {
     await requireLocalWorkspace(req);
     enforceRateLimit("directoryGrants");
     const parsed = createGrantSchema.safeParse(await readJsonBody(req));
-    if (!parsed.success) throw new ApiError({ code: "VALIDATION_ERROR", message: "label and path are required" });
+    if (!parsed.success) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.grants.labelAndPathRequired") });
     const data = await createGrant(parsed.data);
     return Response.json({ data }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {

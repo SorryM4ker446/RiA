@@ -2,7 +2,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 
 export const echoSchema = { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false };
-export async function startExtensionService() {
+/** `tools` replaces the one `echo` tool the MCP endpoint lists, for a server with many tools. */
+export async function startExtensionService(options: { tools?: Array<{ name: string; description: string; inputSchema: object }> } = {}) {
   const state = { calls: [] as Array<{ method: string; path: string; args: unknown; authorization: string | undefined }>, probes: 0, fail: false, changed: false, oversized: false, redirect: false, hold: false, held: [] as ServerResponse[], onCall: undefined as (() => void) | undefined, onProbe: undefined as (() => void) | undefined };
   const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
     const reply = (value: unknown, status = 200) => { response.writeHead(status, { "Content-Type": "application/json" }); response.end(JSON.stringify(value)); };
@@ -23,7 +24,7 @@ export async function startExtensionService() {
     if (body.method === "tools/list") {
       state.probes++; state.onProbe?.();
       if (state.hold) { state.held.push(response); return; }
-      reply({ jsonrpc: "2.0", id: body.id, result: { tools: [{ name: "echo", description: state.changed ? "Changed tool definition" : "Echo a test value", inputSchema: echoSchema, annotations: { readOnlyHint: true } }] } }); return;
+      reply({ jsonrpc: "2.0", id: body.id, result: { tools: options.tools ?? [{ name: "echo", description: state.changed ? "Changed tool definition" : "Echo a test value", inputSchema: echoSchema, annotations: { readOnlyHint: true } }] } }); return;
     }
     if (body.method === "tools/call") {
       state.calls.push({ method: "MCP", path: request.url!, args: body.params.arguments, authorization: request.headers.authorization }); state.onCall?.();

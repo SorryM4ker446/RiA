@@ -7,7 +7,7 @@ import { z } from "zod";
 
 export const acceptanceScenarios = [
   "clean-install", "offline-startup", "upgrade", "directory-change", "migration-failure",
-  "proxy", "native-notification", "sleep-resume", "uninstall-reinstall", "cancel-install", "in-app-update",
+  "proxy", "native-notification", "sleep-resume", "uninstall-reinstall", "cancel-install", "in-app-update", "data-location",
 ];
 const artifactSchema = z.strictObject({
   filename: z.string().min(1).max(200).refine(value => !/[\\/:]/.test(value) && value.endsWith(".msi")),

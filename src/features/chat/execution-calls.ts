@@ -2,7 +2,8 @@ import type { UIMessage } from "ai";
 import type { RunView } from "@/lib/agent/runs";
 import { isToolPart, type ToolPart } from "./page-utils";
 
-export type ExecutionCall = { key: string; part?: ToolPart; step?: RunView["steps"][number] };
+/** `children`: a task sub-agent's own calls, recorded under the call that started it. */
+export type ExecutionCall = { key: string; part?: ToolPart; step?: RunView["steps"][number]; children?: ExecutionCall[] };
 
 /** Enrich only exact call identities within an already linked request. */
 export function executionCalls(run?: RunView, message?: UIMessage): ExecutionCall[] {
@@ -23,5 +24,13 @@ export function executionCalls(run?: RunView, message?: UIMessage): ExecutionCal
   for (const part of parts) {
     if (!attached.has(part.toolCallId)) calls.push({ key: `call:${part.toolCallId}`, part });
   }
-  return calls.reverse();
+  // A sub-agent's calls go inside the call that started it, in the order they ran.
+  const byCallId = new Map(calls.flatMap(call => { const id = call.part?.toolCallId ?? call.step?.toolCallId; return id ? [[id, call] as const] : []; }));
+  const nested = calls.filter(call => {
+    const parent = call.step?.parentToolCallId ? byCallId.get(call.step.parentToolCallId) : undefined;
+    if (!parent || parent === call) return true;
+    (parent.children ??= []).push(call);
+    return false;
+  });
+  return nested.reverse();
 }

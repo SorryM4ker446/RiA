@@ -1,9 +1,10 @@
 import { ApiError } from "@/lib/server/api-error";
 import { MEDIA_LIMITS } from "@/lib/media/limits";
 
+import { t } from "@/lib/locale";
 export async function readLimitedBody(request: Request, limit: number | null): Promise<Uint8Array<ArrayBuffer>> {
   const declared = request.headers.get("content-length");
-  if (limit !== null && declared && Number(declared) > limit) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: "Request body is too large" });
+  if (limit !== null && declared && Number(declared) > limit) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("server.request.bodyTooLarge") });
   const reader = request.body?.getReader();
   if (!reader) return new Uint8Array();
   const chunks: Uint8Array[] = [];
@@ -15,7 +16,7 @@ export async function readLimitedBody(request: Request, limit: number | null): P
       size += value.byteLength;
       if (limit !== null && size > limit) {
         await reader.cancel();
-        throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: "Request body is too large" });
+        throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("server.request.bodyTooLarge") });
       }
       chunks.push(value);
     }
@@ -28,18 +29,18 @@ export async function readLimitedBody(request: Request, limit: number | null): P
 
 function assertJsonContentType(request: Request) {
   if (request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() !== "application/json") {
-    throw new ApiError({ code: "UNSUPPORTED_MEDIA_TYPE", message: "Content-Type must be application/json" });
+    throw new ApiError({ code: "UNSUPPORTED_MEDIA_TYPE", message: t("server.request.jsonRequired") });
   }
 }
 
 function parseJsonBytes(bytes: Uint8Array): unknown {
   let value: unknown;
   try { value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); }
-  catch { throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid JSON body" }); }
+  catch { throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.request.invalidJson") }); }
   const pending = [{ value, depth: 0 }];
   while (pending.length) {
     const item = pending.pop()!;
-    if (item.depth > 32) throw new ApiError({ code: "VALIDATION_ERROR", message: "JSON nesting is too deep" });
+    if (item.depth > 32) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.request.jsonTooDeep") });
     if (item.value && typeof item.value === "object") {
       for (const child of Object.values(item.value)) pending.push({ value: child, depth: item.depth + 1 });
     }
@@ -60,6 +61,6 @@ export async function readEmptyBody(request: Request) {
   assertJsonContentType(request);
   const body = parseJsonBytes(bytes);
   if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length) {
-    throw new ApiError({ code: "VALIDATION_ERROR", message: "This operation accepts no fields" });
+    throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.request.noFieldsAccepted") });
   }
 }

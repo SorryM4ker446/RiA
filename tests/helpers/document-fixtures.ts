@@ -43,3 +43,49 @@ export async function wordMergedDocument() {
     "word/numbering.xml": '<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/></w:lvl></w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num></w:numbering>',
   });
 }
+
+/**
+ * A PDF whose pages are images of text, as a scanner makes them: no text layer, one
+ * JPEG per page. A page given as `{ text }` is an ordinary text page instead, for
+ * mixed documents. Pages are small so OCR in tests stays quick.
+ */
+export async function scannedPdf(pages: Array<string[] | { text: string }>) {
+  const { createCanvas } = await import("@napi-rs/canvas");
+  const pageWidth = 500, lineHeight = 40;
+  const objects: Buffer[] = [];
+  const add = (body: Buffer | string) => { objects.push(Buffer.isBuffer(body) ? body : Buffer.from(body)); return objects.length; };
+  const catalog = add(""), pagesObject = add(""), font = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  const kids: number[] = [];
+  for (const page of pages) {
+    if (!Array.isArray(page)) {
+      const escaped = page.text.replaceAll("\\", "\\\\").replaceAll("(", "\(").replaceAll(")", "\)");
+      const stream = `BT /F1 12 Tf 30 150 Td (${escaped}) Tj ET`;
+      const contents = add(`<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`);
+      kids.push(add(`<< /Type /Page /Parent ${pagesObject} 0 R /MediaBox [0 0 ${pageWidth} 200] /Resources << /Font << /F1 ${font} 0 R >> >> /Contents ${contents} 0 R >>`));
+      continue;
+    }
+    const pageHeight = 40 + page.length * lineHeight;
+    const scale = 3, canvas = createCanvas(pageWidth * scale, pageHeight * scale);
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#ffffff"; context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = "#111111"; context.font = `${22 * scale}px 'Microsoft YaHei', Arial, sans-serif`;
+    page.forEach((line, index) => context.fillText(line, 20 * scale, (40 + index * lineHeight) * scale));
+    const jpeg = await canvas.encode("jpeg", 92);
+    const image = add(Buffer.concat([Buffer.from(`<< /Type /XObject /Subtype /Image /Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`), jpeg, Buffer.from("\nendstream")]));
+    const stream = `q ${pageWidth} 0 0 ${pageHeight} 0 0 cm /Im1 Do Q`;
+    const contents = add(`<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`);
+    kids.push(add(`<< /Type /Page /Parent ${pagesObject} 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /Im1 ${image} 0 R >> >> /Contents ${contents} 0 R >>`));
+  }
+  objects[catalog - 1] = Buffer.from(`<< /Type /Catalog /Pages ${pagesObject} 0 R >>`);
+  objects[pagesObject - 1] = Buffer.from(`<< /Type /Pages /Kids [${kids.map(kid => `${kid} 0 R`).join(" ")}] /Count ${kids.length} >>`);
+  const chunks = [Buffer.from("%PDF-1.7\n")];
+  const offsets: number[] = [];
+  let length = chunks[0].length;
+  objects.forEach((body, index) => {
+    offsets.push(length);
+    const object = Buffer.concat([Buffer.from(`${index + 1} 0 obj\n`), body, Buffer.from("\nendobj\n")]);
+    chunks.push(object); length += object.length;
+  });
+  chunks.push(Buffer.from(`xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map(offset => `${String(offset).padStart(10, "0")} 00000 n \n`).join("")}trailer\n<< /Size ${objects.length + 1} /Root ${catalog} 0 R >>\nstartxref\n${length}\n%%EOF\n`));
+  return Buffer.concat(chunks);
+}

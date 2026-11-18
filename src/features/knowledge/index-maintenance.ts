@@ -2,6 +2,10 @@ import { t, tf } from "@/lib/locale";
 import type { DocumentSummary } from "./document-client";
 import { documentRequest, DocumentRequestError } from "./document-client";
 
+import { RATE_LIMIT_POLICIES } from "@/lib/server/rate-limit";
+
+/** Requests one page operation sends, kept under the service's quota for them so a run pauses on its own terms rather than being refused. */
+export const PAGE_REQUESTS = Math.floor(RATE_LIMIT_POLICIES.documentEmbeddings.limit * 0.8);
 export type IndexProgress = { id: string; filename: string; status: "waiting" | "indexing" | "complete" | "failed" | "paused" | "cancelled"; indexed: number; total: number; error?: string };
 
 /** One explicit, bounded operation. Resume reads persisted batches; never retries writes. */
@@ -24,7 +28,7 @@ export async function maintainDocumentIndexes(documents: DocumentSummary[], sign
         }
         for (let batch = 0; batch < 8; batch++) {
           signal.throwIfAborted();
-          if (requests === 12) { item.status = "paused"; item.error = t("ui.knowledge.index-maintenance.reachedThe12RequestLimitFor"); emit(); return items; }
+          if (requests === PAGE_REQUESTS) { item.status = "paused"; item.error = tf("ui.knowledge.index-maintenance.reachedRequestLimit", { count: PAGE_REQUESTS }); emit(); return items; }
           requests++;
           const progress = await request<{ indexed: number; total: number; remaining: number }>(`/api/documents/${document.id}/embeddings`, {
             method: "POST", signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirm: true, contentHash: document.contentHash, modelRef }),

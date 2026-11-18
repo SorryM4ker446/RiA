@@ -23,6 +23,16 @@ export function validateDocumentFile(file: File): { filename: string; format: Do
 }
 
 export async function parseDocument(bytes: Uint8Array, format: DocumentFormat, signal?: AbortSignal, options?: { escapeMarkdown?: boolean }): Promise<DocumentPage[]> {
+  return (await parseDocumentForImport(bytes, format, signal, options)).pages;
+}
+
+/**
+ * Parses a file for the knowledge base. A PDF's pages that hold almost no text
+ * are listed in `ocrPages`, to be read by OCR after the import; with
+ * `allowTextless`, a PDF with no text at all imports with no text yet instead of
+ * being refused.
+ */
+export async function parseDocumentForImport(bytes: Uint8Array, format: DocumentFormat, signal?: AbortSignal, options?: { escapeMarkdown?: boolean; allowTextless?: boolean }): Promise<{ pages: DocumentPage[]; ocrPages: number[] }> {
   if (!bytes.length || bytes.length > DOCUMENT_LIMITS.fileBytes) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.documents.invalidSize") });
   if ((format === "pdf" && Buffer.from(bytes.subarray(0, 5)).toString() !== "%PDF-") || (format === "docx" && (bytes[0] !== 0x50 || bytes[1] !== 0x4b))) {
     throw new ApiError({ code: "VALIDATION_ERROR", message: t("lib.documents.magicMismatch") });
@@ -38,8 +48,8 @@ export async function parseDocument(bytes: Uint8Array, format: DocumentFormat, s
       // PDF.js imports canvas even for text extraction. Its native font scan
       // runs at module load, before useSystemFonts: false can take effect.
       eval: true, execArgv: [], env: { DISABLE_SYSTEM_FONTS_LOAD: "1" }, stdout: true, stderr: true,
-      resourceLimits: { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 16 },
-      workerData: { bytes, format, escapeMarkdown: options?.escapeMarkdown ?? false, limits: DOCUMENT_LIMITS, messages: documentParserMessages(),
+      resourceLimits: { maxOldGenerationSizeMb: 256, maxYoungGenerationSizeMb: 32 },
+      workerData: { bytes, format, escapeMarkdown: options?.escapeMarkdown ?? false, allowTextless: options?.allowTextless ?? false, limits: DOCUMENT_LIMITS, messages: documentParserMessages(),
         pdfPath: runtimeRequire.resolve("pdfjs-dist/legacy/build/pdf.mjs"),
         pdfWorkerPath: runtimeRequire.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs"),
         mammothPath: runtimeRequire.resolve("mammoth"), zipPath: runtimeRequire.resolve("jszip"),
@@ -48,7 +58,7 @@ export async function parseDocument(bytes: Uint8Array, format: DocumentFormat, s
     worker.stdout?.resume();
     worker.stderr?.resume();
     const activeWorker = worker;
-    return await new Promise<DocumentPage[]>((resolve, reject) => {
+    return await new Promise<{ pages: DocumentPage[]; ocrPages: number[] }>((resolve, reject) => {
       const timeout = setTimeout(() => {
         // Fixed phase names locate a stalled worker without retaining document
         // names, contents or dependency error strings in diagnostics.
@@ -56,10 +66,10 @@ export async function parseDocument(bytes: Uint8Array, format: DocumentFormat, s
         finish(new ApiError({ code: "TIMEOUT", message: t("lib.documents.parseTimeout") }));
       }, DOCUMENT_LIMITS.parseTimeoutMs);
       const abort = () => finish(new ApiError({ code: "VALIDATION_ERROR", message: t("lib.documents.importCancelled") }));
-      function finish(error?: Error, pages?: DocumentPage[]) {
+      function finish(error?: Error, result?: { pages: DocumentPage[]; ocrPages: number[] }) {
         clearTimeout(timeout);
         signal?.removeEventListener("abort", abort);
-        if (error) reject(error); else resolve(pages!);
+        if (error) reject(error); else resolve(result!);
       }
       signal?.addEventListener("abort", abort, { once: true });
       activeWorker.once("error", () => finish(new ApiError({ code: "VALIDATION_ERROR", message: t("lib.documents.parseFailed") })));
@@ -69,7 +79,8 @@ export async function parseDocument(bytes: Uint8Array, format: DocumentFormat, s
         if (result.code) finish(new ApiError({ code: result.code, message: result.message }));
         else {
           const parsed = documentPagesSchema.safeParse(result.pages);
-          if (parsed.success) finish(undefined, parsed.data);
+          const ocrPages = Array.isArray(result.ocrPages) && result.ocrPages.every((page: unknown) => Number.isInteger(page) && (page as number) >= 1 && (page as number) <= DOCUMENT_LIMITS.pages) ? result.ocrPages as number[] : null;
+          if (parsed.success && ocrPages) finish(undefined, { pages: parsed.data, ocrPages });
           else finish(new ApiError({ code: "VALIDATION_ERROR", message: t("lib.documents.invalidText") }));
         }
       });

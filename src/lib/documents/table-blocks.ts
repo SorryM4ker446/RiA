@@ -1,3 +1,4 @@
+import { t } from "@/lib/locale";
 /** Split pipe tables without treating escaped delimiters or inline code as cells. */
 export function tableCells(line: string): string[] {
   const cells: string[] = []; let cell = ""; let escaped = false; let code = 0;
@@ -48,7 +49,7 @@ export function documentBlocks(text: string) {
 export function tableChunks(text: string, limit = 1000) {
   const [header, divider, ...rows] = text.split("\n"); const prefix = `${header}\n${divider}`;
   const chunks: string[] = []; let current = prefix;
-  if (prefix.length > limit || rows.some(row => prefix.length + row.length + 1 > limit)) throw new Error("表格表头与单行合计超过 1000 字符，请先拆分宽表或过长单元格。");
+  if (prefix.length > limit || rows.some(row => prefix.length + row.length + 1 > limit)) throw new Error(t("server.documents.tableRowTooLong"));
   for (const row of rows) {
     if (current.length + row.length + 1 > limit) { chunks.push(current); current = prefix; }
     current += `\n${row}`;

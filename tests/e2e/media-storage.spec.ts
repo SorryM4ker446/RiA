@@ -47,7 +47,9 @@ test("multipart uploads above the Proxy default retain the existing attachment l
     expect(assets).toHaveLength(2);
     for (const asset of assets) {
       expect(asset.byteSize).toBe(paddedPng.length);
-      expect(Number((await request.head(asset.url)).headers()["content-length"])).toBe(paddedPng.length);
+      // The stored file is whole: compared by its bytes, since Next.js (from 16.4.5) drops a route's Content-Length.
+      expect((await request.head(asset.url)).ok()).toBe(true);
+      expect(Buffer.compare(await (await request.get(asset.url)).body(), paddedPng)).toBe(0);
     }
   } finally {
     for (const asset of assets) await request.delete(asset.url);
@@ -165,7 +167,7 @@ test("storage cleanup requires confirmation and displays its result", async ({ p
   await page.route("**/api/media", (route) => route.fulfill({ json: { data: { assetCount: 3, totalBytes: 1048576, referencedCount: 1, unreferencedCount: 2, reclaimableCount: cleanups ? 0 : 2, looseFileCount: 0, graceHours: 24 } } }));
   await page.route("**/api/media/cleanup", (route) => { cleanups += 1; return route.fulfill({ json: { data: { removedCount: 2, freedBytes: 1048576, failedCount: 0 } } }); });
   await page.goto("/storage");
-  await expect(page.getByText("1.00 MiB", { exact: true })).toBeVisible();
+  await expect(page.getByText("1.0 MB", { exact: true }).first()).toBeVisible();
   await page.getByRole("button", { name: "清理未使用媒体" }).click();
   expect(cleanups).toBe(0);
   await page.getByRole("button", { name: "确认清理过期文件" }).click();

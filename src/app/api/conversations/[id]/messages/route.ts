@@ -8,6 +8,7 @@ import { getChat, listChatMessagePage, saveChatMessage, updateChatTitle } from "
 import { readJsonBody } from "@/lib/server/request-body";
 import { readPageOptions } from "@/lib/server/pagination";
 
+import { t } from "@/lib/locale";
 const createMessageSchema = z.strictObject({
   role: z.enum(["user", "assistant", "system"]),
   content: z.string().min(1).max(1_000_000),
@@ -34,7 +35,7 @@ async function GETHandler(req: NextRequest, context: Params) {
 
     const page = await listChatMessagePage(chatId, readPageOptions(req.nextUrl.searchParams, `messages:${chatId}`, 50));
     if (!page) {
-      throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
+      throw new ApiError({ code: "NOT_FOUND", message: t("server.conversation.notFound") });
     }
 
     return Response.json(page);
@@ -51,7 +52,7 @@ async function POSTHandler(req: NextRequest, context: Params) {
     if (!parsed.success) throw parsed.error;
     const chat = await getChat(chatId);
     if (!chat) {
-      throw new ApiError({ code: "NOT_FOUND", message: "Conversation not found" });
+      throw new ApiError({ code: "NOT_FOUND", message: t("server.conversation.notFound") });
     }
 
     const message = await saveChatMessage({

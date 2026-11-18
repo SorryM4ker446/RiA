@@ -92,7 +92,7 @@ Each row is one line: its title, with a dot at its end when the conversation nee
 The dot means one of five things, also read out to screen readers:
 
 - **Task running** — its scheduled task is running now.
-- **Queued** — an answer waits for a place to run (a hollow ring).
+- **Queued** — the answer's next model call waits for a place (a hollow ring).
 - **Answering** — an answer is being written in it: in this window, in another one, or one this window started and then left.
 - **Waiting for your approval** — its latest answer asks for an approval.
 - **New answer** — an answer ended there that has not been opened yet. Opening the conversation clears it; the conversation open in chat never shows it.
@@ -105,7 +105,7 @@ An answer belongs to the service, not to the page that asked for it. Switching t
 
 ### When every place is taken
 
-How many answers (and other model calls) run at once is **Maximum concurrent calls** in Settings → Models, 8 unless changed. An answer past that is not refused: it waits, its conversation shows **Queued — n ahead** and a hollow dot in the sidebar, and it starts by itself when a place frees up. Your own conversations go before tasks waiting for a place. Your message is saved as soon as it is queued, so a reload still shows it; **stop** takes a queued answer out of the queue. Once an answer has started, everything it does (its steps, the summaries it writes, a search it makes) works within its place and is never refused part way.
+How many model calls are in flight at once is **Maximum concurrent calls** in Settings → Models, 8 unless changed. A place is taken by a call only while it is in flight: an answer that is running its tools, a command or a build holds none, so any number of conversations and tasks can be answering at once. A call past the limit is not refused: it waits, its conversation shows **Queued — n ahead** and a hollow dot in the sidebar, and it goes on by itself when a place frees up. Your own conversations' calls go before tasks' calls. An answer starts, and your message is saved, at once; **stop** takes a waiting call out of the queue.
 
 When the provider is busy or rate-limited, a call is retried with growing waits, or after the wait the provider asks for (up to a minute), about half a minute in all; the answer says **The service is busy — retrying in n s (attempt n)** meanwhile. With a fallback model configured, the failing model gets two quick retries and the fallback takes over.
 
@@ -134,7 +134,8 @@ While a turn is running, the send control is replaced by **stop**. Stopping asks
   size. Touch devices keep these controls visible.
 - **Enter** sends, **Shift+Enter** adds a line; an Enter that is part of an input-method composition does not send.
 - **Escape** closes a delete confirmation; with none open, it stops a running turn.
-- Every answer has a **copy** control, and a code block has its own **copy code** control that appears on hover or focus — selecting text across a scrollable code box is a poor substitute. When the clipboard is unavailable the answer is not interrupted and the text stays selectable.
+- Every answer has a **copy** control. A code block has a header with its language and its own **Copy** control — selecting text across a scrollable code box is a poor substitute. When the clipboard is unavailable the answer is not interrupted and the text stays selectable.
+- **Code, formulas and diagrams.** A code block whose fence names a language highlight.js knows is highlighted, in colours for the light and the dark theme; a fence without a language stays plain text (no guessing). Formulas are typeset with KaTeX: `$…$` and `\(…\)` inline, `$$…$$` and `\[…\]` displayed, scrolling sideways when wider than the answer. A dollar sign before a number is read as a price ("$5 and $10" stays text) unless what follows it looks like a formula. A ```` ```mermaid ```` block is drawn as a diagram, in Mermaid's strict mode and in colours for the current theme; **Source** shows the text, and a diagram that does not parse shows its source with Mermaid's message. These libraries load only when an answer needs them. Code is highlighted as it streams, so a finished answer looks as it did while it was written; a formula or diagram waits until its block is finished, so a half-written one is never typeset or drawn. Rendering stays behind the sanitiser; KaTeX runs after it on the formulas alone and does not allow its HTML-producing commands.
 
 ## Following the scroll
 

@@ -228,6 +228,9 @@ jobs:
       - name: Smoke-test Electron from a maximized window
         run: npm run test:desktop:smoke -- --maximized
 
+      - name: Smoke-test Electron after moving its data folder
+        run: npm run test:desktop:data-move
+
       # A synthetic .click() cannot catch this class of defect: the broken
       # version passed every other gate because the React SyntheticEvent was
       # never structured-cloned across the contextBridge. Only a real trusted
@@ -259,6 +262,7 @@ jobs:
           path: |
             .desktop-data/test/electron-smoke-*/data/logs/desktop.log*
             .desktop-data/test/electron-smoke-*/data/logs/transparency-failure.png
+            .desktop-data/test/electron-smoke-*/moved-data/logs/desktop.log*
             .desktop-data/test/caption-click-*/data/logs/desktop.log*
           include-hidden-files: true
           if-no-files-found: ignore

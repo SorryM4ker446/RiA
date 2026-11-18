@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { t } from "@/lib/locale";
 import { buildDocumentChunks, DOCUMENT_INDEX_VERSION, hashDocumentContent } from "@/lib/documents/chunks";
 import { DOCUMENT_LIMITS, documentPagesSchema, type DocumentPage } from "@/lib/documents/types";
-import { documentEmbeddingText, documentTerms } from "@/lib/documents/lexical";
+import { documentEmbeddingText, documentSearchText, documentTerms } from "@/lib/documents/lexical";
 import { ApiError } from "@/lib/server/api-error";
 import { recordWorkspaceEvent } from "@/lib/activity/events";
 import type { DocumentRevision } from "./upload";
@@ -16,22 +16,29 @@ export const documentSummarySelect = {
 } as const;
 
 type DocumentInput = { filename: string; collection?: string | null; format: string; byteSize: number; pages: DocumentPage[] };
-export async function indexDocument(input: DocumentInput, expected?: { id: string; contentHash: string }, importBase?: DocumentRevision | null) {
+/** `textPending`: some pages' text is still to come from OCR, so the document may have no chunks yet. */
+export async function indexDocument(input: DocumentInput, expected?: { id: string; contentHash: string }, importBase?: DocumentRevision | null, options: { textPending?: boolean } = {}) {
   const pages = documentPagesSchema.parse(input.pages);
   const characterCount = pages.reduce((sum, page) => sum + page.text.length, 0);
   if (characterCount > DOCUMENT_LIMITS.characters) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.documents.charLimit") });
-  const prepared = buildDocumentChunks(pages).map(chunk => ({ ...chunk, ...documentTerms(documentEmbeddingText(chunk, input)) }));
+  const prepared = buildDocumentChunks(pages, { allowEmpty: options.textPending }).map(chunk => ({ ...chunk, ...documentTerms(documentEmbeddingText(chunk, input)) }));
   const contentHash = hashDocumentContent(JSON.stringify(pages));
   return db.$transaction(async tx => {
-    const existing = await tx.knowledgeDocument.findUnique({ where: { filename: input.filename }, include: { chunks: true } });
+    // Vectors are not needed to compare chunks, and a large document holds many.
+    const existing = await tx.knowledgeDocument.findUnique({ where: { filename: input.filename }, include: { chunks: { omit: { vector: true, embedding: true } } } });
     if (expected && (!existing || existing.id !== expected.id || existing.contentHash !== expected.contentHash || existing.collection !== (input.collection ?? null))) {
       throw new ApiError({ code: "CONFLICT", message: t("lib.documents.modifiedOrDeleted") });
     }
     if (importBase !== undefined && (importBase === null ? Boolean(existing) : !existing || existing.id !== importBase.id || existing.contentHash !== importBase.contentHash || existing.collection !== importBase.collection)) {
-      throw new ApiError({ code: "CONFLICT", message: "同名文档在预览后已改变，请重新预览再确认保存。" });
+      throw new ApiError({ code: "CONFLICT", message: t("errors.theDocumentWithThisNameChangedAfterPreview") });
     }
     if (!existing && await tx.knowledgeDocument.count({ where: {} }) >= DOCUMENT_LIMITS.documentsPerUser) {
       throw new ApiError({ code: "CONFLICT", message: t("lib.documents.tooManyDocuments") });
+    }
+    // The library as it would be after this import: every other document's chunks plus this one's.
+    const others = await tx.documentChunk.count({ where: existing ? { documentId: { not: existing.id } } : {} });
+    if (others + prepared.length > DOCUMENT_LIMITS.libraryChunks) {
+      throw new ApiError({ code: "CONFLICT", message: t("lib.documents.libraryFull") });
     }
     // Unchanged content skips the re-chunking, but only when nothing else about
     // the document changed either. The collection is part of what the request
@@ -51,25 +58,23 @@ export async function indexDocument(input: DocumentInput, expected?: { id: strin
     const obsolete = (existing?.chunks ?? []).filter(chunk => !next.has(chunk.chunkKey));
     if (obsolete.length) await tx.documentChunk.deleteMany({ where: { id: { in: obsolete.map(chunk => chunk.id) } } });
     const created = prepared.filter(chunk => !old.has(chunk.chunkKey)).map(chunk => ({ ...chunk, id: randomUUID(), documentId: document.id }));
-    if (created.length) await tx.documentChunk.createMany({ data: created.map(({ terms: _terms, ...chunk }) => chunk) });
+    // Keep parameter batches bounded; the enclosing transaction preserves the previous index on failure.
+    for (let offset = 0; offset < created.length; offset += 500) await tx.documentChunk.createMany({ data: created.slice(offset, offset + 500).map(({ terms: _terms, ...chunk }) => chunk) });
     const retained = prepared.filter(chunk => old.has(chunk.chunkKey));
     for (const chunk of retained) {
       const previous = old.get(chunk.chunkKey)!;
+      if (previous.ordinal === chunk.ordinal && previous.heading === chunk.heading && previous.tokenCount === chunk.tokenCount) continue;
       await tx.documentChunk.update({ where: { id: previous.id }, data: { ordinal: chunk.ordinal, heading: chunk.heading, tokenCount: chunk.tokenCount } });
     }
-    await tx.documentTerm.deleteMany({ where: { chunk: { documentId: document.id } } });
-    const indexed = prepared.map(chunk => ({ ...chunk, id: old.get(chunk.chunkKey)?.id ?? created.find(item => item.chunkKey === chunk.chunkKey)!.id }));
-    const terms = indexed.flatMap(chunk => chunk.terms.map(term => ({ chunkId: chunk.id, ...term })));
-    // Retain only vectors whose contextual text still describes this chunk.
-    // Document edits and collection moves cannot leave stale semantic evidence.
-    for (const chunk of indexed) {
-      const previous = old.get(chunk.chunkKey);
-      if (previous?.embeddingContextHash && previous.embeddingContextHash !== hashDocumentContent(documentEmbeddingText(chunk, input))) {
-        await tx.documentChunk.update({ where: { id: chunk.id }, data: { embedding: Prisma.DbNull, embeddingModelId: null, embeddingModelProvider: null, embeddingContextHash: null } });
-      }
-    }
-    // Keep parameter batches bounded; the enclosing transaction preserves the previous index on failure.
-    for (let offset = 0; offset < terms.length; offset += 500) await tx.documentTerm.createMany({ data: terms.slice(offset, offset + 500) });
+    // Vectors whose contextual text changed (a new section path, a collection move) are
+    // cleared by the database's own triggers as the rows above are written, whatever
+    // path writes them, so no stale semantic evidence survives an update.
+    // The keyword index is rewritten whole: a chunk's terms include its section, file name and collection.
+    const ids = new Map([...old].map(([key, chunk]) => [key, chunk.id]));
+    for (const chunk of created) ids.set(chunk.chunkKey, chunk.id);
+    await tx.documentChunkSearch.deleteMany({ where: { chunk: { documentId: document.id } } });
+    const search = prepared.map(chunk => ({ chunkId: ids.get(chunk.chunkKey)!, terms: documentSearchText(chunk.terms) }));
+    for (let offset = 0; offset < search.length; offset += 500) await tx.documentChunkSearch.createMany({ data: search.slice(offset, offset + 500) });
     if (!expected && (!existing || existing.contentHash !== contentHash || existing.collection !== document.collection)) {
       await recordWorkspaceEvent(tx, { kind: existing ? "document.updated" : "document.imported", entityId: document.id, label: document.filename });
     }
@@ -77,7 +82,9 @@ export async function indexDocument(input: DocumentInput, expected?: { id: strin
       document: await tx.knowledgeDocument.findUniqueOrThrow({ where: { id: document.id }, select: documentSummarySelect }),
       change: expected ? "reindexed" : existing ? "updated" : "created", added: created.length, removed: obsolete.length, retained: retained.length,
     };
-  });
+    // A document at the chunk limit takes about three seconds to write here; Prisma's default of
+    // five would fail it on a slower machine. Other database work waits for it meanwhile.
+  }, { timeout: 30_000 });
 }
 
 export async function getDocument(id: string) {
@@ -87,9 +94,11 @@ export async function getDocument(id: string) {
 }
 
 export async function reindexDocument(id: string) {
-  const document = await db.knowledgeDocument.findFirst({ where: { id } });
+  const document = await db.knowledgeDocument.findFirst({ where: { id }, include: { ocr: { select: { status: true } } } });
   if (!document) throw new ApiError({ code: "NOT_FOUND", message: t("lib.documents.notFound") });
-  return indexDocument({ ...document, pages: documentPagesSchema.parse(document.pages) }, { id, contentHash: document.contentHash });
+  // A scan still being read may have no text to index yet.
+  const textPending = Boolean(document.ocr && document.ocr.status !== "done");
+  return indexDocument({ ...document, pages: documentPagesSchema.parse(document.pages) }, { id, contentHash: document.contentHash }, undefined, { textPending });
 }
 
 export async function deleteDocument(id: string) {

@@ -1,10 +1,11 @@
+import { t } from "@/lib/locale";
 type WordNode = { type: string; value?: string; children?: WordNode[]; body?: WordNode[]; styleId?: string; styleName?: string;
   numbering?: { isOrdered?: boolean }; colSpan?: number; rowSpan?: number; isHeader?: boolean; checked?: boolean };
 
 /** Self-contained because the bounded parser worker runs this function's source. */
 export function serializeWordDocument(document: WordNode, limit: number, escapeMarkdown = false): string {
   let visited = 0;
-  const fail = () => { throw Object.assign(new Error("文档结构过大或表格跨度无效。"), { code: "PAYLOAD_TOO_LARGE" }); };
+  const fail = () => { throw Object.assign(new Error(t("server.documents.structureTooLarge")), { code: "PAYLOAD_TOO_LARGE" }); };
   const bounded = (value: string) => { if (value.length > limit) fail(); return value; };
   const cellText = (value: string) => {
     const text = value.trim().replace(/\r?\n+/g, " / ");

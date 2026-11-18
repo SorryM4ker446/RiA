@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-export const callSources = ["chat", "summary", "scheduled", "tool", "embedding", "media", "unattributed"] as const;
+export const callSources = ["chat", "summary", "scheduled", "tool", "agent", "embedding", "media", "unattributed"] as const;
 export type CallSource = typeof callSources[number];
 const state = globalThis as typeof globalThis & { modelCallContext?: AsyncLocalStorage<CallSource> };
 const context = state.modelCallContext ??= new AsyncLocalStorage<CallSource>();

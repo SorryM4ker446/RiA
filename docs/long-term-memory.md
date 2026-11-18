@@ -14,10 +14,16 @@ saved on request and found by matching. The switch does not touch them.
 
 Judging and extracting are separate, so neither can stand in for the other.
 
-**Judging.** The chat model decides, by calling the `extractMemory` tool. Its description
-says most turns do not qualify and spells out what does: something that will matter in a
-future, unrelated conversation and that MEMORY.md does not already say. It leaves out this
-task's progress, what a document or history records, small talk and guesses. The tool is
+**Judging.** The chat model decides, by calling the `extractMemory` tool. There is no list
+of trigger words: the tool's description and a line in the system prompt give one test,
+whether a later conversation would go better for knowing this and whether the user would
+expect it to be remembered. The usual cases are who the user is, how they want the model to
+work (answer length, format, language, tone, a correction) and lasting facts no file
+records, including ones mentioned in passing while asking for something else. It leaves out
+this task's progress and details, what a document or history records, small talk, guesses,
+and anything a page, file or tool result says rather than the user. Worked examples of both
+come with the tool's description (a teacher's subject mentioned while asking for a quiz is
+noted; a draft's working title is not). The tool is
 offered only while memory is on, in any template that allows a tool, and stops if the user
 says in the conversation not to use it, like every tool only the model calls.
 
@@ -27,8 +33,8 @@ When the user plainly asks it to remember something, the model says so with `use
 which skips that wait. What gets written still comes only from what the user wrote.
 
 **Extracting.** A separate call then reads the current notes and the conversation's latest
-forty messages, in the background, so the answer does not wait. It runs on the auxiliary
-model when one is chosen, and on the conversation's model if there is none or it fails. It
+forty messages, in the background, so the answer does not wait. It runs on the internal
+sub-agent model when one is chosen, and on the conversation's model if there is none or it fails. It
 follows the conversation's thinking setting.
 
 It reads nothing from before memory was last turned back on, so what was said with the switch
@@ -52,8 +58,8 @@ replaces or removes old ones.
 
 Topics are for a person to look through the notes. After an extraction writes, a further
 background call reads the notes and the current topics, and replies with which lines belong
-to which topic, a title and a one-sentence summary. It runs on the auxiliary model when one
-is chosen, and on the conversation's model if there is none or it fails. From Settings,
+to which topic, a title and a one-sentence summary. It runs on the internal sub-agent model
+when one is chosen, and on the conversation's model if there is none or it fails. From Settings,
 where there is no conversation, the default chat model stands in.
 
 MEMORY.md stays the only source. Topics are joined to it when read, so they cannot show a

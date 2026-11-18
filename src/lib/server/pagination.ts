@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ApiError } from "@/lib/server/api-error";
 
+import { t } from "@/lib/locale";
 const cursorSchema = z.strictObject({
   v: z.literal(1), scope: z.string().max(500),
   date: z.iso.datetime(), id: z.string().min(1).max(200),
@@ -13,7 +14,7 @@ export function readPageOptions(params: URLSearchParams, scope: string, defaultL
     cursor: z.string().min(1).max(1500).regex(/^[A-Za-z0-9_-]+$/).optional(),
   }).parse(Object.fromEntries(params));
   if (params.getAll("limit").length > 1 || params.getAll("cursor").length > 1) {
-    throw new ApiError({ code: "VALIDATION_ERROR", message: "Duplicate pagination parameter" });
+    throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.request.duplicatePagination") });
   }
   if (!input.cursor) return { limit: input.limit ?? defaultLimit };
   try {
@@ -21,7 +22,7 @@ export function readPageOptions(params: URLSearchParams, scope: string, defaultL
     if (cursor.scope !== scope) throw new Error("Cursor scope mismatch");
     return { limit: input.limit ?? defaultLimit, cursor: { date: new Date(cursor.date), id: cursor.id } };
   } catch {
-    throw new ApiError({ code: "VALIDATION_ERROR", message: "Invalid pagination cursor" });
+    throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.request.invalidCursor") });
   }
 }
 

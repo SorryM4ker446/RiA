@@ -45,6 +45,7 @@ When every place for model work is taken (**Maximum concurrent calls**), the tur
 
 - `GET /api/chat/:id/stream` reads the turn running in a conversation from its start and follows it to its end, in the same UI message stream format as `POST /api/chat` (this is the URL the AI SDK reconnects to). What the turn had said before the reader joined comes first, with consecutive `text-delta` or `reasoning-delta` parts of one part id merged into one (parts carrying anything besides `type`, `id` and `delta` are kept as they are); everything after it arrives as written. It returns `204` when none is running.
 - `DELETE /api/chat/:id/stream` stops the running turn and returns `{ "data": { "stopped": true } }`, or `false` when none was running. What was written is saved once, as an interrupted answer, and the stream ends.
+- `GET /api/conversations/live` returns `{ "data": { "answering": n } }`: how many conversations are answering now, task runs and queued turns included. The storage settings read it before a data or cache move, which restarts the application.
 - `GET /api/conversations/events` is a server-sent event stream for as long as it stays open: `ready` once on connecting (`{ "answering": [ids] }`), `turn` when a turn starts, leaves the queue or ends (`{ "type": "turn-started" | "turn-running" | "turn-finished", "chatId", "source": "chat" | "task", "queued"?, "outcome"?, "title"? }`, where `outcome` is `succeeded`, `failed`, `waiting_approval` or `stopped`), and `changed` whenever conversations, their messages or the tasks that own them change. `changed` does not say what changed: read the list again. A client that reconnects reads the list again on `ready`.
 
 Conversation summaries add `answering` (a turn is running in it now, or waiting for a place, whoever started it), `queued` (that turn is waiting for a place) and `unread` (an answer ended there that has not been opened). `PATCH /api/conversations/:id` with `{ "unread": false }` marks it read; only the service marks a conversation unread, when a turn ends there other than one stopped by the user.
@@ -73,11 +74,17 @@ The memory and retrieval endpoints remain deliberate local integration contracts
 File actions are offered through `runTerminalCommand`, `readProjectFile` and
 `editProjectFile` in any granted folder. Whether an edit or command waits for
 approval is the conversation's approval rule (`approvalRule` on
-`PATCH /api/conversations/:id`: `ask`, `acceptEdits` or `full`); a task's
+`PATCH /api/conversations/:id`: `ask`, `acceptEdits`, `auto` or `full`); a task's
 conversation follows the task's. `GET`/`PUT /api/approval-preferences` reads and
-sets `{ defaultRule }`, the rule new conversations start with. There is no
+sets `{ defaultRule }`, the rule new conversations start with. An approval reply's `reason`
+may be up to 8,000 characters: for a model's question (`askUser`) it carries the answer,
+`{ "answers": [{ "selected": [labels], "other"?: text }] }`, checked against the question
+([Checklists and questions](plans-and-questions.md)). There is no
 `PATCH /api/directory-grants/:id`: a folder has no terminal switch. Completed replies can show observed
-file changes from terminal results and exact edits.
+file changes from terminal results and exact edits, and
+`POST /api/conversations/:id/undo` reads, previews, undoes or redoes them, all or chosen files,
+and `GET`/`PUT /api/checkpoint-preferences` reads and sets the undo storage limit
+([Undoing a reply's file changes](terminal-tools.md#undoing-a-replys-file-changes)).
 `POST /api/terminal/files/resolve` accepts `{ grantId, path }` and resolves an
 existing regular file inside a currently granted folder; the desktop
 bridge opens the returned canonical path after a user click. See [Terminal

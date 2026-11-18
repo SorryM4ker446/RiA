@@ -4,6 +4,7 @@ import { stopTerminalCommandsForRun } from "@/lib/terminal/runtime";
 import type { Prisma } from "@prisma/client";
 import { ApiError } from "@/lib/server/api-error";
 
+import { t } from "@/lib/locale";
 /**
  * Execution records.
  *
@@ -71,14 +72,14 @@ async function readRunAllowance(client: Prisma.TransactionClient, runId: string)
 }
 
 /** Reserve budget and a unique position before any tool side effect. */
-export async function reserveRunStep(params: { runId: string; toolName: string; toolCallId?: string; input?: unknown }) {
+export async function reserveRunStep(params: { runId: string; toolName: string; toolCallId?: string; parentToolCallId?: string; input?: unknown }) {
   return db.$transaction(async tx => {
     const allowance = await readRunAllowance(tx, params.runId);
     if (!allowance.allowed) return { step: null, reason: allowance.reason };
     const latest = await tx.agentStep.aggregate({ where: { runId: params.runId }, _max: { position: true } });
     const step = await tx.agentStep.create({ data: {
       runId: params.runId, position: (latest._max.position ?? 0) + 1,
-      kind: "tool", toolName: params.toolName, toolCallId: params.toolCallId, state: "running",
+      kind: "tool", toolName: params.toolName, toolCallId: params.toolCallId, parentToolCallId: params.parentToolCallId ?? null, state: "running",
       ...(params.input === undefined ? {} : { input: params.input as Prisma.InputJsonValue }),
     } });
     return { step, reason: null };
@@ -183,7 +184,7 @@ export async function addRunCost(runId: string, costUsd: number | null) {  if (c
 /** Stops a run and marks its unfinished steps, so nothing appears to be in flight. */
 export async function cancelRun(runId: string, reason: string) {
   const run = await db.agentRun.findUnique({ where: { id: runId } });
-  if (!run) throw new ApiError({ code: "NOT_FOUND", message: "Run not found" });
+  if (!run) throw new ApiError({ code: "NOT_FOUND", message: t("server.run.notFound") });
   if (run.status !== "running" && run.status !== "waiting_approval") return run;
   await db.agentStep.updateMany({
     where: { runId, state: { in: ["running", "waiting_approval"] } },
@@ -209,6 +210,8 @@ export type RunView = {
     kind: string;
     toolName: string | null;
     toolCallId?: string | null;
+    /** A task sub-agent's call: the call that started the sub-agent. */
+    parentToolCallId?: string | null;
     state: StepState;
     input?: unknown;
     output: unknown;
@@ -277,6 +280,7 @@ export async function listRuns(chatId: string, limit = 20): Promise<RunView[]> {
       kind: step.kind,
       toolName: step.toolName,
       toolCallId: step.toolCallId,
+      ...(step.parentToolCallId ? { parentToolCallId: step.parentToolCallId } : {}),
       input: step.input,
       state: step.state as StepState,
       output: step.output,
