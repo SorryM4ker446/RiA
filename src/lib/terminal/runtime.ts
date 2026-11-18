@@ -226,7 +226,8 @@ export async function runTerminalCommand(raw: TerminalInput, signal?: AbortSigna
     const beforeFiles = await captureFileSnapshot(grant.realPath, Infinity, { keep });
     if (signal?.aborted || stopping) {
       view.status = stopping ?? "stopped";
-      return { ...view, finishedAt: new Date().toISOString() };
+      view.finishedAt = new Date().toISOString();
+      return { ...view };
     }
     const command = process.platform === "win32" ? path.join(process.env.SystemRoot || "C:/Windows", "System32/WindowsPowerShell/v1.0/powershell.exe") : "/bin/sh";
     const args = process.platform === "win32" ? ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedPowerShellCommand()] : ["-s"];
@@ -332,7 +333,9 @@ export async function runTerminalCommand(raw: TerminalInput, signal?: AbortSigna
       // Missing change observations must not overwrite the command's actual result.
       view.fileChanges = { files: [], complete: false };
     }
-    return { ...view, finishedAt: new Date().toISOString() };
+    // One moment for both: the result returned and the session kept must say the same.
+    view.finishedAt = new Date().toISOString();
+    return { ...view };
   } catch (error) {
     view.status = stopping ?? "failed";
     await closeLog(false);
@@ -341,7 +344,7 @@ export async function runTerminalCommand(raw: TerminalInput, signal?: AbortSigna
     if (timer) clearTimeout(timer);
     signal?.removeEventListener("abort", abort);
     if (view.status === "running") view.status = stopping ?? "failed";
-    view.finishedAt = new Date().toISOString();
+    view.finishedAt ??= new Date().toISOString();
   } };
   const finished = execute();
   session.done = finished.then(() => undefined, () => undefined);
