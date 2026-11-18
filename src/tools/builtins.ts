@@ -20,6 +20,7 @@ import { UPDATE_PLAN_DESCRIPTION, planProgress, updatePlanInput } from "@/tools/
 import { ASK_USER_DESCRIPTION, askUserInput, readAnswer } from "@/tools/definitions/ask-user";
 import { FIND_EXTENSION_TOOLS_DESCRIPTION, findExtensionTools, findExtensionToolsInput } from "@/tools/definitions/find-extension-tools";
 import { planToolLoading } from "@/tools/deferred";
+import { approvalGate } from "./approval";
 import { documentProcessorTools } from "@/tools/definitions/document-processor";
 import { readPluginSkill } from "@/tools/definitions/plugin-skill";
 import { activeSkillPackages } from "@/lib/plugins/store";
@@ -84,7 +85,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     displayName: t("tools.saveKnowledgeEntry.displayName"),
     description: t("tools.saveKnowledgeEntry.description"),
     modelDescription:
-      "Add one entry to the user's knowledge base, where searchKnowledge can find it later, or change one. Use it when the user asks to save or add something to the knowledge base, such as a reference, a definition, a procedure or a fact to look up later, or to correct an entry. To change an entry, use its exact key as searchKnowledge shows it (the result's title): saving under an existing key replaces that entry's text, and the user sees the text being replaced before approving. A new key adds a new entry. Do not use it for notes about the user or how they want you to work, for passing information, or for anything the user did not ask you to save. The user approves the entry before it is saved.",
+      "Add one entry to the user's knowledge base, where searchKnowledge can find it later, or change one. Use it when the user asks to save or add something to the knowledge base, such as a reference, a definition, a procedure or a fact to look up later, or to correct an entry. To change an entry, use its exact key as searchKnowledge shows it (the result's title): saving under an existing key replaces that entry's text, and the user sees the text being replaced before approving. A new key adds a new entry. Do not use it for notes about the user or how they want you to work, for passing information, or for anything the user did not ask you to save. Unless the conversation has full access, the user approves the entry before it is saved.",
     modeSupport: ["chat"],
     surface: { category: "knowledge", user: { run: "model", hint: t("tools.saveKnowledgeEntry.hint") }, template: "selectable" },
     inputSchema: saveKnowledgeEntryFields,
@@ -97,9 +98,9 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     bindForApproval: bindEntryReplacement,
     // An entry enters every later conversation it matches. The model may be acting on
     // text it read in a page, document or command output, so its request to save
-    // something is shown to the user first. Saving by hand through the knowledge page
-    // is not a model call and needs no approval.
-    requiresApproval: true,
+    // something is shown to the user first, unless the conversation has full access.
+    // Saving by hand through the knowledge page is not a model call and needs no approval.
+    ...approvalGate("appData"),
     execute: async ({ input, trigger }) => saveApprovedEntry(input, trigger),
   },
   searchKnowledge: {
@@ -120,7 +121,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     modelDescription:
       "Schedule something for you to do later, on your own, at a time the user names. The task runs in its own conversation, which starts without anything said here, so write prompt as a complete instruction with everything the run needs. A task that repeats takes cron, five fields read in timeZone (minute hour day-of-month month day-of-week), for example \"0 9 * * 1-5\" for 09:00 on weekdays; a task that runs once takes runAt, a local date and time written YYYY-MM-DDTHH:mm, such as 2030-01-31T09:30. Give exactly one of the two. Work out a relative time such as tomorrow from the current date and time in the request context, and use the time zone given there unless the user names another. A reminder is a task too: its prompt is to tell the user what they asked to be reminded of. Use it only when the user wants something done or said at a later time or on a schedule. Do not use it for something you can do now, and never create a task the user did not ask for.",
     modeSupport: ["chat"],
-    requiresApproval: true,
+    ...approvalGate("appData"),
     surface: { category: "tasks", user: { run: "model", hint: t("tools.createTask.hint") }, template: "selectable" },
     inputSchema: createTaskInputSchema,
     execute: async ({ input }) => createTask(input),

@@ -10,6 +10,7 @@ import { extensionConfigSchema, extensionToolsSchema, externalInputSchema, exter
 import { callConnection, localProcessConnectionsAllowed, publicExtensionError } from "@/lib/extensions/transport";
 import { requireExtension } from "@/lib/extensions/store";
 import { builtinToolAvailability, getToolDescriptor, listToolDescriptors } from "./builtins";
+import { approvalGate } from "./approval";
 import { settingsHref } from "@/lib/settings/sections";
 import { getModelPreferences, modelInLibrary } from "@/lib/models/preferences";
 import type { AnyToolDescriptor, PublicToolCatalogItem, ToolAvailability, ToolAvailabilityReason, ToolMode } from "./types";
@@ -48,7 +49,7 @@ function extensionDescriptor(row: Extension, definition: ExtensionTool): AnyTool
   return {
     id: externalToolId(row.id, definition.name), extensionId: row.id, extensionRevision: row.revision,
     displayName: `${row.name} · ${definition.name}`, description: definition.description,
-    modelDescription: `${row.name}: ${definition.description}\nThis is an external tool. It requires user approval. Use arguments matching the tool schema.`,
+    modelDescription: `${row.name}: ${definition.description}\nThis is an external tool. Depending on the conversation's approval rule, a call may wait for the user's approval. Use arguments matching the tool schema.`,
     modeSupport: ["chat"], extensionName: row.name, alwaysLoad: definition.alwaysLoad,
     surface: { category: "extension", user: { run: "model", hint: t("tools.extension.hint") }, template: "selectable" },
     inputSchema,
@@ -58,7 +59,7 @@ function extensionDescriptor(row: Extension, definition: ExtensionTool): AnyTool
       // here keeps the streamed proposal identical to the persisted approval.
       return result.success ? { success: true, value: await bindForApproval(result.data) } : { success: false, error: result.error };
     } }),
-    requiresApproval: true,
+    ...approvalGate("external"),
     bindForApproval,
     reviewAction: input => ({ kind: "extension", extension: row.name, tool: definition.name, arguments: input.arguments }),
     execute: async ({ input, signal }) => {

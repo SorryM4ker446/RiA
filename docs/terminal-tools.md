@@ -27,19 +27,23 @@ and execution records as other chat tools. It is unavailable in the web runtime.
 
 ## Approval rules
 
-Whether an action in the workspace waits for you is decided by the conversation's
-approval rule, not by the folder:
+Whether an action waits for you is decided by the conversation's approval rule
+(a task's conversation uses the task's), not by the folder or the tool. Every tool
+that changes something declares one kind of action, and one table decides it
+(`src/lib/approvals/rules.ts`):
 
-| Rule | File edits (`editProjectFile`) | Terminal commands (`runTerminalCommand`) |
-| --- | --- | --- |
-| **Ask** (default) | Wait for approval of the shown diff | Wait for approval of the exact command |
-| **Accept edits** | Written directly | Wait for approval |
-| **Auto** | Written directly | Reviewed first; run without asking when the review allows it, otherwise wait for approval |
-| **Full access** | Written directly | Run without asking |
+| Rule | File edits (`editProjectFile`) | Terminal commands (`runTerminalCommand`) | Extension tools (MCP, HTTP) | Creating a task, saving a knowledge entry |
+| --- | --- | --- | --- | --- |
+| **Ask** (default) | Wait for approval of the shown diff | Wait for approval of the exact command | Wait for approval | Wait for approval |
+| **Accept edits** | Written directly | Wait for approval | Wait for approval | Wait for approval |
+| **Auto** | Written directly | Reviewed first; run without asking when the review allows it, otherwise wait for approval | Reviewed like commands | Wait for approval |
+| **Full access** | Written directly | Run without asking | Run without asking | Done without asking |
 
-Creating a task and saving a knowledge entry ask under every rule. Extension (MCP)
-tool calls ask under every rule but **Auto**, where they are reviewed like commands.
-Reading files and logs never asks.
+Reading files, logs, the knowledge base or the web never asks. A question the
+model asks you (`askUser`) is not an approval and waits for your answer under
+every rule. Under **Full access**, extension tools can send email or data to the
+services they connect to without asking; choose it only for work you trust the
+model with. A new tool declares its kind of action and follows the same table.
 
 ### Auto
 

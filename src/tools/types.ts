@@ -122,6 +122,8 @@ export type ToolDescriptor<Input = unknown, Output = unknown> = {
   extensionRevision?: number;
   /** An extension tool sent in full even when extension tools are loaded on demand. */
   alwaysLoad?: boolean;
+  /** The kind of action, which the conversation's approval rule decides (see approvalGate). */
+  approval?: import("@/lib/approvals/rules").ApprovalAction;
   /** Whether a call waits for the user; a function decides per call, from its input and the conversation it is in. */
   requiresApproval?: boolean | ((input: unknown, context: { chatId?: string | null }) => Promise<boolean>);
   /**

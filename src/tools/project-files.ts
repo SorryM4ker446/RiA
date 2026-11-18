@@ -1,6 +1,5 @@
 import { jsonSchema, zodSchema } from "ai";
-import { conversationApprovalRule } from "@/lib/local-files/workspace";
-import { runsWithoutAsking } from "@/lib/approvals/rules";
+import { approvalGate } from "./approval";
 import {
   applyProjectEdit, bindProjectEdit, editProjectFileFields, editProjectFileInputSchema, readProjectFile, readProjectFileInputSchema,
   type EditProjectFileInput, type ProjectEditResult, type ReadProjectFileInput,
@@ -28,7 +27,7 @@ export const editProjectFileTool: ToolDescriptor<EditProjectFileInput, ProjectEd
   modelDescription: "Change a UTF-8 text file in the workspace folder by exact replacement, or create one. Prefer this to PowerShell for editing source code, configuration and documents: no quoting or encoding is involved. First read the file with readProjectFile and pass its hash as expectedHash. Each edit's oldText must match the current file exactly once (copy it with indentation and line breaks, without the line-number prefix); set replaceAll to change every occurrence. All edits are located in the file as read, must not overlap, and are applied together or not at all. Use content instead of edits to create a new file (omit expectedHash) or rewrite a whole file. The file keeps its line endings and BOM. The conversation's approval rule decides whether the user approves the shown diff first: under ask they do; under acceptEdits, auto and full the edit is written directly. On failure nothing is written and the error says what to do: re-read when the file changed, add context when oldText is ambiguous. Use runTerminalCommand to run, build or test, and to rename, move or delete files.",
   modeSupport: ["chat"],
   surface: { category: "workspace", user: null, template: { follows: "runTerminalCommand" } },
-  requiresApproval: async (_input, context) => !runsWithoutAsking(await conversationApprovalRule(context.chatId), "edit"),
+  ...approvalGate("edit"),
   inputSchema: editProjectFileInputSchema,
   modelInputSchema: jsonSchema<EditProjectFileInput>(() => zodSchema(modelEditSchema).jsonSchema, { validate: async value => {
     const parsed = editProjectFileInputSchema.safeParse(value);

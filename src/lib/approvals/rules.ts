@@ -1,23 +1,23 @@
 import { z } from "zod";
 
 /*
- * What the model may do in a conversation's workspace folder without asking.
+ * What the model may do without asking, by the kind of action a tool takes.
  *
- * A granted folder is one the model may work in, terminal included; the rule
- * is the only thing that decides whether an action waits for the user. It
- * belongs to the conversation (a task's conversation uses the task's), so two
- * conversations in one folder can work under different rules.
+ * The rule belongs to the conversation (a task's conversation uses the task's),
+ * so two conversations can work under different rules. Every tool that changes
+ * something declares one kind of action, and this one table decides it:
  *
- * - ask: the user approves each file edit and each terminal command.
- * - acceptEdits: file edits are made directly; terminal commands are approved.
- * - auto: file edits are made directly; a terminal command, or an extension
- *   tool call, is first reviewed by a separate model call, and runs without
- *   asking only if that review allows it (see auto-review.ts). Commands that
- *   only read skip the review.
- * - full: edits and commands run without asking.
+ * | action   | ask | acceptEdits | auto   | full  |
+ * | edit     | ask | allow       | allow  | allow |  files in the workspace folder
+ * | command  | ask | ask         | review | allow |  terminal commands
+ * | external | ask | ask         | review | allow |  extension tools (MCP, HTTP)
+ * | appData  | ask | ask         | ask    | allow |  creating a task, saving a knowledge entry
  *
- * Creating a task and saving a knowledge entry ask under every rule; extension
- * tools ask under every rule but auto.
+ * A review is a separate model call that lets the action run only when it
+ * plainly serves what the user asked, and otherwise asks (see auto-review.ts);
+ * commands that only read skip it. Tools that only read declare nothing and
+ * never ask. A question the model puts to the user is not an approval and
+ * always waits for the answer.
  */
 export const APPROVAL_RULES = ["ask", "acceptEdits", "auto", "full"] as const;
 export type ApprovalRule = (typeof APPROVAL_RULES)[number];
@@ -27,7 +27,19 @@ export const DEFAULT_APPROVAL_RULE: ApprovalRule = "ask";
 /** A stored rule; anything unreadable asks. */
 export const readApprovalRule = (value: unknown): ApprovalRule => approvalRuleSchema.catch(DEFAULT_APPROVAL_RULE).parse(value);
 
-/** Whether an action in the workspace goes ahead without the user approving it, or a review under auto. */
-export function runsWithoutAsking(rule: ApprovalRule, action: "edit" | "command"): boolean {
-  return action === "edit" ? rule !== "ask" : rule === "full";
+export const APPROVAL_ACTIONS = ["edit", "command", "external", "appData"] as const;
+export type ApprovalAction = (typeof APPROVAL_ACTIONS)[number];
+export type ApprovalDecision = "allow" | "review" | "ask";
+
+/** The table above: what a rule does with an action. */
+export function approvalFor(rule: ApprovalRule, action: ApprovalAction): ApprovalDecision {
+  if (rule === "full") return "allow";
+  if (action === "edit") return rule === "ask" ? "ask" : "allow";
+  if (action === "appData") return "ask";
+  return rule === "auto" ? "review" : "ask";
+}
+
+/** Whether an action goes ahead without the user, and without a review. */
+export function runsWithoutAsking(rule: ApprovalRule, action: ApprovalAction): boolean {
+  return approvalFor(rule, action) === "allow";
 }

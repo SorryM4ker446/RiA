@@ -173,7 +173,7 @@ A task reads back with `id`, `kind`, `title`, `prompt`, `enabled`, `cron`, `time
 
 `catchUp` (default `true`) can be given on creation and changed with `PATCH`. A prompt task may be created with `template` (`dailyBrief` or `weeklySummary`); its `title` may then be empty and its `prompt` left out, and `PATCH` with an empty `title` or a `null` prompt hands that part back to the template. A task reads back its stored `title` and `prompt` (empty and `null` while it uses the template) with its `template`. `PUT /api/interface-locale` with `{ "locale": "zh-CN" | "en-US" }` saves the interface language the user chose; the interface sends it when the language is switched.
 
-The `createTask` tool takes `title`, `prompt`, `timeZone` and exactly one of `cron` or `runAt`, and creates a switched-on prompt task that follows the default chat model and has no folder. It always asks for approval.
+The `createTask` tool takes `title`, `prompt`, `timeZone` and exactly one of `cron` or `runAt`, and creates a switched-on prompt task that follows the default chat model and has no folder. It waits for approval under every approval rule but **Full access**.
 
 A conversation reads back with `task`: `{ id, model }` for a task's conversation, otherwise `null`. For a task's conversation `workspaceGrantId`, `approvalRule` and `ephemeral` are the task's and `assistantConfig` is `null`. `PATCH /api/conversations/:id` answers 409 to `assistantTemplateId`, `workspaceGrantId`, `approvalRule` or `ephemeral` for a task's conversation; change them on the task. A chat request for a task's conversation that names a model other than the task's is refused with 400.
 

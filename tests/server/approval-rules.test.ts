@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomBytes, randomUUID } from "node:crypto";
 import { after, beforeEach, test } from "node:test";
 import type { TestContext } from "node:test";
 import { NextRequest } from "next/server";
@@ -8,7 +9,9 @@ import { localAccessCookie } from "../helpers/local-access";
 const cleanup = createTestDatabase();
 const { db } = await import("@/db");
 const { createChat } = await import("@/lib/chat/store");
-const { runsWithoutAsking, APPROVAL_RULES } = await import("@/lib/approvals/rules");
+const { runsWithoutAsking, approvalFor, APPROVAL_ACTIONS, APPROVAL_RULES } = await import("@/lib/approvals/rules");
+const { createChatToolSet } = await import("@/tools/execution");
+const { externalToolId } = await import("@/lib/extensions/schema");
 const { conversationApprovalRule } = await import("@/lib/local-files/workspace");
 const preferencesRoute = await import("@/app/api/approval-preferences/route");
 const conversationRoute = await import("@/app/api/conversations/[id]/route");
@@ -24,6 +27,8 @@ beforeEach(async (t: TestContext) => {
   await db.scheduledJob.deleteMany({});
   await db.chat.deleteMany({});
   await db.approvalPreference.deleteMany({});
+  await db.extension.deleteMany({});
+  process.env.RIA_EXTENSION_KEY ??= randomBytes(32).toString("base64");
 });
 after(async () => { await db.$disconnect(); cleanup(); });
 
@@ -68,4 +73,42 @@ test("a conversation changes its own rule, which the next call reads; a task's c
     assert.equal((await conversationRoute.PATCH(request(`/api/conversations/${chat.id}`, "PATCH", body), ctx(chat.id))).status, 409);
   }
   assert.equal(await conversationApprovalRule(null), "ask");
+});
+
+test("one table decides every kind of action: edits, commands, extension calls and writes to RiA's own data", () => {
+  assert.deepEqual(APPROVAL_RULES.map(rule => [rule, ...APPROVAL_ACTIONS.map(action => approvalFor(rule, action))]), [
+    // rule          edit     command   external  appData
+    ["ask", "ask", "ask", "ask", "ask"],
+    ["acceptEdits", "allow", "ask", "ask", "ask"],
+    ["auto", "allow", "review", "review", "ask"],
+    ["full", "allow", "allow", "allow", "allow"],
+  ]);
+});
+
+test("extension calls, new tasks and knowledge entries wait for the user under every rule but full access", async () => {
+  const extensionId = randomUUID();
+  await db.extension.create({ data: { id: extensionId, name: "Calendar", kind: "mcp-http", config: { type: "mcp-http", url: "http://127.0.0.1:9/mcp" }, enabled: true, revision: 1, testedRevision: 1,
+    tools: [{ name: "create_event", description: "Create an event.", inputSchema: { type: "object", properties: { title: { type: "string" } } }, enabled: true, alwaysLoad: false }] } });
+  const extensionTool = externalToolId(extensionId, "create_event");
+  const inputs: Record<string, () => unknown> = {
+    createTask: () => ({ prompt: "Remind me to send the report.", runAt: "2031-01-31T09:30", timeZone: "Asia/Shanghai" }),
+    saveKnowledgeEntry: () => ({ key: "Report day", value: "Reports go out on Fridays." }),
+    [extensionTool]: () => ({ arguments: { title: "Design review" } }),
+  };
+  const waits = async (rule: "ask" | "acceptEdits" | "auto" | "full", toolId: string) => {
+    const chat = await createChat({ title: `${rule} ${toolId}` });
+    await db.chat.update({ where: { id: chat.id }, data: { approvalRule: rule } });
+    const tools = await createChatToolSet({ chatId: chat.id });
+    const gate = tools[toolId].needsApproval;
+    assert.equal(typeof gate, "function", `${toolId} has an approval gate`);
+    return (gate as (input: unknown, options: { toolCallId: string; messages: [] }) => Promise<boolean>)(inputs[toolId](), { toolCallId: "call", messages: [] });
+  };
+  for (const toolId of ["createTask", "saveKnowledgeEntry", extensionTool]) {
+    assert.equal(await waits("ask", toolId), true, `${toolId} asks under ask`);
+    assert.equal(await waits("acceptEdits", toolId), true, `${toolId} asks when only edits are accepted`);
+    assert.equal(await waits("full", toolId), false, `${toolId} runs under full access`);
+  }
+  // Under auto, writes to RiA's own data still ask, with no review; extension calls are reviewed (auto-review tests).
+  assert.equal(await waits("auto", "createTask"), true);
+  assert.equal(await waits("auto", "saveKnowledgeEntry"), true);
 });

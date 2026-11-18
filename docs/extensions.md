@@ -131,9 +131,12 @@ servers, arbitrary UI plugins and DSH/Cordis plugins are not implemented here.
    default. You can also select
    the external tools in a custom assistant template. A template grants no additional
    process, filesystem or service permissions.
-5. Review each proposed external call in chat and approve or reject it. The direct
-   tool endpoint refuses external tools, so it cannot bypass this confirmation. Read-only hints from a server
-   do not authorize automatic execution.
+5. Whether a call waits for you follows the conversation's approval rule, as
+   terminal commands do: under Ask and Accept edits you approve or reject each call;
+   under Auto a separate review lets a call run only when it plainly serves your
+   request, otherwise it asks; under Full access calls run directly. The direct tool
+   endpoint refuses external tools, so it cannot bypass this. Read-only hints from a
+   server do not authorize running a call without the rule allowing it.
 
 All call sites use the shared registry and execution pipeline. Internal tools
 keep their existing input schemas and IDs. External IDs are stable, connection-

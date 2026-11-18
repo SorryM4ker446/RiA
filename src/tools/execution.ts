@@ -1,3 +1,4 @@
+import { approvalFor } from "@/lib/approvals/rules";
 import { FIND_TOOLS_ID, findToolsDescription, planToolLoading, rememberToolLoading } from "./deferred";
 import { findExtensionTools, type FindExtensionToolsInput } from "./definitions/find-extension-tools";
 import { ToolRunError } from "@/lib/chat/tool-failure";
@@ -370,7 +371,7 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; chatId?
       if (TERMINAL_FOLDER_TOOLS.has(tool.id) && await outsideWorkspace(input)) return false;
       if (tool.bindForApproval) await tool.bindForApproval(input);
       const asks = typeof tool.requiresApproval === "function" ? await tool.requiresApproval(input, { chatId: options?.chatId }) : true;
-      if (!asks || !tool.reviewAction || await conversationApprovalRule(options?.chatId) !== "auto") return asks;
+      if (!asks || !tool.reviewAction || !tool.approval || approvalFor(await conversationApprovalRule(options?.chatId), tool.approval) !== "review") return asks;
       const action = tool.reviewAction(input);
       if (action.kind === "command" && isReadOnlyCommand(action.command)) return false;
       const chatId = options?.chatId ?? null;
