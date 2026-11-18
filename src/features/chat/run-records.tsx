@@ -72,6 +72,8 @@ export function RunRecords({ activeChatId, refreshKey, messages, open, onOpenCha
   const hasActiveRun = runs.some(
     (run) => run.status === "running" || run.status === "waiting_approval",
   );
+  // A turn waiting for an approval or an answer: the one in-progress state the user has to act on.
+  const waitingRun = runs.some(run => run.status === "waiting_approval");
 
   const load = useCallback(async () => {
     const requestId = ++runsRequestRef.current;
@@ -198,7 +200,7 @@ export function RunRecords({ activeChatId, refreshKey, messages, open, onOpenCha
             <History data-icon="inline-start" aria-hidden="true" />
             {t("runs.title")}<Badge variant="secondary">{entries.length}</Badge>
             {error && <span className="text-destructive">{t("backups.error.load")}</span>}
-            {hasActiveRun && <span className="flex items-center gap-1.5 text-muted-foreground"><RunningOrbit />{t("ui.chat.run-records.running")}</span>}
+            {waitingRun ? <span className="records-waiting">{t("ui.chat.run-records.waiting")}</span> : null}
           </Button>
         </SheetTrigger>
       </div>

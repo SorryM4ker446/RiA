@@ -1,4 +1,5 @@
 "use client";
+import { Reveal } from "@/components/ui/reveal";
 import { useLocale } from "@/lib/locale/client";
 
 import { t, tf, localizeMessage } from "@/lib/locale";
@@ -22,13 +23,15 @@ type Props = Pick<ChatState, "messages" | "isPending" | "addToolApprovalResponse
 export function ApprovalDock({ messages, isPending, addToolApprovalResponse, selectedModelInfo, declineApprovals, setIsModelMenuOpen, onDetails }: Props) {
   useLocale();
   const message = messages.at(-1);
-  if (message?.role !== "assistant") return null;
-  const tools = message.parts.filter(isToolPart);
+  const tools = message?.role === "assistant" ? message.parts.filter(isToolPart) : [];
   const pending = tools.filter(part => part.state === "approval-requested" && "approval" in part && !!part.approval);
   // A question asks for an answer, not a yes or no.
-  const question = pendingQuestion(messages);
-  if (question) return <QuestionCard key={`${message.id}:${question.part.toolCallId}`} {...question} count={pending.length} disabled={isPending} respond={addToolApprovalResponse} />;
-  return pending.length ? <ApprovalRequest key={`${message.id}:${pending[0].toolCallId}`} part={pending[0]} count={pending.length} disabled={isPending} modelCannotContinue={selectedModelInfo?.supportsTools === false} respond={addToolApprovalResponse} decline={() => declineApprovals(message.id)} changeModel={() => setIsModelMenuOpen(true)} onDetails={() => onDetails(message.id)} /> : null;
+  const question = message?.role === "assistant" ? pendingQuestion(messages) : null;
+  // Answered or approved, the card folds away instead of vanishing.
+  return <Reveal>{!message || message.role !== "assistant" ? null
+    : question ? <QuestionCard key={`${message.id}:${question.part.toolCallId}`} {...question} count={pending.length} disabled={isPending} respond={addToolApprovalResponse} />
+    : pending.length ? <ApprovalRequest key={`${message.id}:${pending[0].toolCallId}`} part={pending[0]} count={pending.length} disabled={isPending} modelCannotContinue={selectedModelInfo?.supportsTools === false} respond={addToolApprovalResponse} decline={() => declineApprovals(message.id)} changeModel={() => setIsModelMenuOpen(true)} onDetails={() => onDetails(message.id)} />
+    : null}</Reveal>;
 }
 
 function ApprovalRequest({ part, count, disabled: busyElsewhere, modelCannotContinue, respond, decline, changeModel, onDetails }: {

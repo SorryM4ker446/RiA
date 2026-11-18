@@ -39,12 +39,15 @@ test("a synced folder fills the library, follows changes on Sync now, reports a 
   await desktop(page, app);
   const folders = page.getByRole("region", { name: "同步的文件夹" });
   await expect(folders.getByText("还没有同步的文件夹。")).toBeVisible();
-  await folders.getByRole("button", { name: "添加文件夹" }).click();
+  await folders.getByRole("button", { name: "同步文件夹" }).click();
   const card = page.getByRole("form", { name: "同步一个文件夹" });
   await expect(card.getByText(app.folder)).toBeVisible();
   await card.getByLabel("主题").fill("Ops");
   await card.getByRole("button", { name: "开始同步" }).click();
   await expect(page.getByText("已开始同步这个文件夹。")).toBeVisible();
+  // Away from the chat, notes sit 20px from the bottom-right corner.
+  const note = page.getByRole("region", { name: "通知", exact: true }).locator(".toast").last();
+  await expect.poll(async () => { const box = (await note.boundingBox())!; const view = page.viewportSize()!; return Math.abs(view.width - (box.x + box.width) - 20) <= 1 && Math.abs(view.height - (box.y + box.height) - 20) <= 1; }).toBe(true);
   const row = folders.getByRole("listitem").filter({ hasText: "Handbook" });
   await expect(row.getByText("已同步")).toBeVisible({ timeout: 30_000 });
   await expect(row).toContainText("2 份文档");

@@ -187,6 +187,7 @@ export const MessageRow = memo(function MessageRow({
     ? readMessageInvocation(previousMetadata)?.tool?.label ?? null : null;
   const isLastAssistantStreaming = status === "streaming" && message.role === "assistant";
   const isLive = !isUser && isLast && (status === "streaming" || status === "submitted" || toolParts.some(part => part.state === "approval-requested"));
+  const waitingFor = toolParts.find(part => part.state === "approval-requested");
   const plan = isUser ? null : shownPlan(message, isLive);
   const isReasoning = isLastAssistantStreaming && message.parts.some(part => part.type === "reasoning" && part.state === "streaming");
   const isEditable = isUser && fileParts.length === 0 && !isEditing && !isPending;
@@ -305,6 +306,7 @@ export const MessageRow = memo(function MessageRow({
         {isLive && (notice?.state === "reviewing" || (!isReasoning && !text && !(thinking && thinking.kind !== "hidden"))) && !toolParts.some(part => part.state === "approval-requested") && (!plan || notice)
           ? <ReplyPending reasoning={alwaysReasons} notice={notice} />
           : null}
+        {isLive && !text && waitingFor ? <p className="reply-waiting" role="status">{t(waitingFor.type === "tool-askUser" ? "chat.messages.waitingForAnswer" : "chat.messages.waitingForApproval")}</p> : null}
         {isUser && !isEditing && invocation ? <MessageChoices invocation={invocation} /> : null}
         {/* Leaves with a fold, not a jump, once the final answer starts. */}
         <Reveal>{plan ? <TaskPlan messageId={message.id} items={plan} /> : null}</Reveal>

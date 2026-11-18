@@ -115,9 +115,9 @@ export function KnowledgeFolders({ collections, onChanged }: { collections: stri
 
   if (!canChoose && !folders.length) return null;
   return <section aria-label={t("knowledgeFolders.title")} className="flex min-w-0 flex-col gap-2">
-    <header className="flex items-center justify-between gap-2">
-      <div className="flex items-baseline gap-2"><h3 className="text-sm font-medium">{t("knowledgeFolders.title")}</h3><span className="text-xs text-muted-foreground">{t("knowledgeFolders.subtitle")}</span></div>
-      {canChoose ? <Button size="sm" variant="ghost" disabled={busy} onClick={() => void choose()}><FolderPlus data-icon="inline-start" />{t("knowledgeFolders.add")}</Button> : null}
+    <header className="flex items-start justify-between gap-2">
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5"><h3 className="whitespace-nowrap text-sm font-medium">{t("knowledgeFolders.title")}</h3><span className="min-w-0 text-xs text-muted-foreground">{t("knowledgeFolders.subtitle")}</span></div>
+      {canChoose ? <Button size="sm" variant="ghost" disabled={busy} title={t("knowledgeFolders.addHint")} onClick={() => void choose()}><FolderPlus data-icon="inline-start" />{t("knowledgeFolders.add")}</Button> : null}
     </header>
     <Reveal className="-mt-2">{chosen ? <form className="knowledge-import-card mt-2" aria-label={t("knowledgeFolders.addTitle")} onSubmit={event => { event.preventDefault(); add(); }}>
       <FieldGroup className="grid items-end gap-3 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto]">

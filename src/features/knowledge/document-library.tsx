@@ -38,6 +38,11 @@ import { animateRemoval, removalKey } from "@/lib/ui/removal";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 export { documentRequest } from "./document-client";
 
+/** A document name with break points after its folder separators, so a long path wraps between folders. */
+function breakable(name: string) {
+  return name.split(/(?<=\/| \u203a )/).flatMap((part, index) => index ? [<wbr key={index} />, part] : [part]);
+}
+
 /** How many documents the knowledge overview lists before "All" leads to the full view. */
 export const OVERVIEW_DOCUMENTS = 5;
 
@@ -110,6 +115,9 @@ export function DocumentLibrary({ mode, importOpen, onImportClose, onShowAll, hi
   function choose(files: File[]) {
     setSelected(files); setBatch(null); setPreview(null); previewData.current = null; setError("");
   }
+  // Files from a folder or a drop replace what the file field showed, so it does not keep naming an earlier pick.
+  const [fileField, setFileField] = useState(0);
+  function chooseElsewhere(files: File[]) { setFileField(value => value + 1); choose(files); }
   async function importAll(items: BatchItem[]) {
     setPreview(null); previewData.current = null; setBatch(items);
     await run(async signal => {
@@ -118,7 +126,8 @@ export function DocumentLibrary({ mode, importOpen, onImportClose, onShowAll, hi
         const done = await importBatch(items, collection, signal, setBatch, t("documents.requestFailed"));
         if (signal.aborted) { toast(t("documents.batch.stopped")); return; }
         const count = (status: BatchStatus) => done.filter(item => item.status === status).length;
-        toast(tf("documents.batch.summary", { added: count("added"), updated: count("updated"), unchanged: count("unchanged"), failed: count("failed"), skipped: count("skipped") }));
+        // A title to read at a glance, the counts below it; a batch with failures is marked.
+        toast({ title: t("documents.batch.done"), description: tf("documents.batch.summary", { added: count("added"), updated: count("updated"), unchanged: count("unchanged"), failed: count("failed"), skipped: count("skipped") }), ...(count("failed") ? { tone: "warning" as const } : {}) });
         setResults(null); setDiagnostics(null);
         try { await refresh(signal); } catch { if (!signal.aborted) setError(t("ui.knowledge.document-library.documentSavedButRefreshingTheList")); }
       } finally { setImporting(false); }
@@ -201,17 +210,17 @@ export function DocumentLibrary({ mode, importOpen, onImportClose, onShowAll, hi
     <Reveal className="-mt-4">{importOpen ? <div ref={importCard} className="knowledge-import-card mt-4" data-dragging={dragging || undefined}
       onDragOver={event => { if (!busy && event.dataTransfer.types.includes("Files")) { event.preventDefault(); setDragging(true); } }}
       onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
-      onDrop={event => { if (!event.dataTransfer.files.length) return; event.preventDefault(); setDragging(false); if (!busy) choose(Array.from(event.dataTransfer.files)); }}>
+      onDrop={event => { if (!event.dataTransfer.files.length) return; event.preventDefault(); setDragging(false); if (!busy) chooseElsewhere(Array.from(event.dataTransfer.files)); }}>
       <form onSubmit={event => void upload(event)} aria-label={t("ui.knowledge.document-library.importKnowledgeDocuments")}>
         <FieldGroup className="grid items-end gap-3 sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_auto]">
-          <Field className="min-w-0 gap-2"><FieldLabel className="text-xs" htmlFor="knowledge-document-file">{t("documents.fileLabel")}</FieldLabel><FileInput id="knowledge-document-file" accept={DOCUMENT_EXTENSIONS.join(",")} aria-label={t("documents.fileLabel")} buttonLabel={t("documents.fileButton")} placeholder={formatList(["PDF", "Word", "Markdown", "TXT"])} disabled={busy} name="file" multiple required={selected.length === 0} onChange={event => choose(Array.from(event.target.files ?? []))} /></Field>
+          <Field className="min-w-0 gap-2"><FieldLabel className="text-xs" htmlFor="knowledge-document-file">{t("documents.fileLabel")}</FieldLabel><FileInput key={fileField} id="knowledge-document-file" accept={DOCUMENT_EXTENSIONS.join(",")} aria-label={t("documents.fileLabel")} buttonLabel={t("documents.fileButton")} placeholder={formatList(["PDF", "Word", "Markdown", "TXT"])} disabled={busy} name="file" multiple required={selected.length === 0} onChange={event => choose(Array.from(event.target.files ?? []))} /></Field>
           <Field className="min-w-0 gap-2"><FieldLabel className="text-xs" htmlFor="knowledge-document-collection">{t("documents.collectionLabel")}</FieldLabel><Input id="knowledge-document-collection" aria-label={t("documents.collectionLabel")} disabled={busy} list="document-collections" name="collection" onChange={event => { setCollection(event.target.value); setPreview(null); previewData.current = null; }} placeholder={t("documents.collectionPlaceholder")} value={collection} /><datalist id="document-collections">{[...new Set(documents.map(document => document.collection).filter((value): value is string => Boolean(value)))].map(value => <option key={value} value={value} />)}</datalist></Field>
           <div className="flex items-center gap-1">
             <Button disabled={busy} type="submit">{importing ? <Spinner data-icon="inline-start" /> : <Upload data-icon="inline-start" />}{selected.length > 1 ? tf("documents.batch.importCount", { count: selected.filter(isDocumentFile).length }) : t("documents.previewImport")}</Button>
             {/* A whole folder: its readable documents, subfolders included, go in as one batch. */}
             <Button asChild type="button" variant="ghost" title={t("documents.batch.chooseFolder")} className={busy ? "pointer-events-none opacity-45" : undefined}><label>
               <FolderOpen data-icon="inline-start" />{t("documents.batch.folder")}
-              <input type="file" className="sr-only" multiple aria-label={t("documents.batch.chooseFolder")} disabled={busy} {...{ webkitdirectory: "" }} onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ""; if (files.length) choose(files); }} />
+              <input type="file" className="sr-only" multiple aria-label={t("documents.batch.chooseFolder")} disabled={busy} {...{ webkitdirectory: "" }} onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ""; if (files.length) chooseElsewhere(files); }} />
             </label></Button>
             <Button type="button" variant="ghost" onClick={closeImport}>{t("knowledge.cancelEdit")}</Button>
           </div>
@@ -243,11 +252,11 @@ export function DocumentLibrary({ mode, importOpen, onImportClose, onShowAll, hi
       {results?.length === 0 ? <p role="status" className="text-sm leading-6 text-muted-foreground">{t("documents.noMatches")}</p> : null}
       <DocumentSources sources={results ?? []} />
     </> : null}
-    {awaitingFirstDocumentLoad ? <div className="flex flex-col gap-2" aria-label={t("documents.loading")}><Skeleton className="h-16 rounded-xl" /><Skeleton className="h-16 rounded-xl" /></div> : !documents.length ? <Empty className="py-6"><EmptyHeader><EmptyMedia><FileText /></EmptyMedia><EmptyTitle>{t("documents.empty")}</EmptyTitle><EmptyDescription>{t("ui.knowledge.document-library.importKnowledgeToSearchItHere")}</EmptyDescription></EmptyHeader></Empty> : <ul aria-label={t("documents.importedTitle")} className="item-list" style={{ "--cols": "20px minmax(0, 1fr) 7.5rem 5.5rem 4rem auto", "--cols-narrow": "minmax(0, 1fr) 5.5rem auto" } as React.CSSProperties}>
+    {awaitingFirstDocumentLoad ? <div className="flex flex-col gap-2" aria-label={t("documents.loading")}><Skeleton className="h-16 rounded-xl" /><Skeleton className="h-16 rounded-xl" /></div> : !documents.length ? <Empty className="py-6"><EmptyHeader><EmptyMedia><FileText /></EmptyMedia><EmptyTitle>{t("documents.empty")}</EmptyTitle><EmptyDescription>{t("ui.knowledge.document-library.importKnowledgeToSearchItHere")}</EmptyDescription></EmptyHeader></Empty> : <ul aria-label={t("documents.importedTitle")} className="item-list" style={{ "--cols": "20px minmax(0, 1fr) 7.5rem 9rem 4rem auto", "--cols-narrow": "minmax(0, 1fr) 5.5rem auto" } as React.CSSProperties}>
       {listed.map(document => <li className="item-row data-row knowledge-document-row min-w-0" key={document.id} {...removalKey(document.id)}>
         <span className="item-row-icon" title={document.folder ? tf("knowledgeFolders.fromFolder", { folder: document.folder.label }) : undefined}>{document.folder ? <FolderSync aria-hidden="true" /> : <FileText aria-hidden="true" />}</span>
         <div className="flex min-w-0 flex-col gap-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-2"><Link className="min-w-0 break-words text-sm font-medium hover:underline underline-offset-4 [overflow-wrap:anywhere]" href={`/knowledge/documents/${document.id}`}>{document.filename}</Link>{document.collection && <span className="min-w-0 truncate rounded bg-muted px-1.5 text-xs leading-5 text-muted-foreground">{document.collection}</span>}</div>
+          <div className="flex min-w-0 flex-wrap items-center gap-2"><Link className="min-w-0 break-words text-sm font-medium hover:underline underline-offset-4" href={`/knowledge/documents/${document.id}`}>{breakable(document.filename)}</Link>{document.collection && <span className="min-w-0 truncate rounded bg-muted px-1.5 text-xs leading-5 text-muted-foreground">{document.collection}</span>}</div>
         </div>
         <span className="col-meta col-optional">{document._count.chunks} {t("documents.chunkUnit")} · {formatNumber(document.characterCount)} {t("documents.characterUnit")}</span>
         <span className="col-meta col-optional">{(readiness => readiness ? <Status tone={readiness.tone} title={readiness.detail}>{readiness.label}</Status> : null)(documentReadiness(document, automaticIndexing.running))}</span>
@@ -286,7 +295,7 @@ function BatchList({ items, running, onStop, onRetry, onDismiss }: { items: Batc
     <h3 className="text-sm font-medium" role="status">{tf("documents.batch.progress", { settled, total: items.length })}</h3>
     <ul className="chat-list-scroll flex max-h-64 flex-col gap-1.5 overflow-y-auto text-xs">
       {items.map(item => <li key={item.id} className="flex min-w-0 items-center gap-3" data-status={item.status}>
-        <span className="min-w-0 flex-1 truncate" title={item.name}>{item.name}</span>
+        <span className="min-w-0 flex-1 truncate" title={item.documentName !== item.file.name ? `${item.name} · ${tf("documents.batch.savedAs", { name: item.documentName })}` : item.name}>{item.name}{item.documentName !== item.file.name ? <span className="text-muted-foreground"> · {tf("documents.batch.savedAs", { name: item.documentName })}</span> : null}</span>
         {item.message ? <span className="min-w-0 max-w-[45%] truncate text-muted-foreground" title={localizeMessage(item.message)}>{localizeMessage(item.message)}</span> : null}
         <Status tone={BATCH_TONES[item.status]}>{item.status === "importing" ? <Spinner aria-hidden="true" className="size-3" /> : null}{label(item)}</Status>
       </li>)}

@@ -156,7 +156,6 @@ export function EditedFiles({ parts, chatId = null, runIds = [] }: { parts: read
   }, [canUndo, refresh]);
 
   if (!files.length && complete) return null;
-  const visible = expanded ? files : files.slice(0, 3);
   const canOpen = typeof window !== "undefined" && !!window.riaDesktop?.openFile;
   const stateOf = (file: FileRef) => states?.get(refKey(file));
   const undoable = states ? [...states.values()].filter(item => item.status === "ready") : [];
@@ -245,22 +244,7 @@ export function EditedFiles({ parts, chatId = null, runIds = [] }: { parts: read
     : null;
   const undoneCount = states ? [...states.values()].filter(item => item.undone).length : 0;
 
-  return <div ref={cardRef} className="mt-5"><Card className="edited-files" role="region" aria-label={t("ui.chat.edited-files.recentlyEditedFiles")}>
-    <CardHeader className="gap-0 px-3 pb-1 pt-3">
-      <CardTitle className="flex min-h-7 items-center gap-2"><Files aria-hidden="true" className="size-4 text-muted-foreground" />{t("ui.chat.edited-files.recentlyEditedFiles")}<Badge variant="secondary">{files.length}</Badge>
-        {undoneCount ? <span className="text-xs font-normal text-muted-foreground">{tf("ui.chat.edited-files.undoneCount", { count: undoneCount })}</span> : null}
-        {headerAction ? <Button type="button" variant="ghost" size="sm" className="ml-auto h-7 text-xs font-normal text-muted-foreground" disabled={busy || !!dialog} onClick={headerAction.act}>
-          {busy ? <Spinner data-icon="inline-start" /> : <headerAction.icon data-icon="inline-start" />}{headerAction.label}
-        </Button> : null}
-      </CardTitle>
-      <CardDescription className="sr-only">{["created", "modified", "deleted"].flatMap(kind => {
-        const count = files.filter(file => file.kind === kind).length;
-        return count ? [tf("ui.chat.edited-files.items", { v0: labels()[kind as keyof typeof labels], v1: count })] : [];
-      }).join(" · ") || t("ui.chat.edited-files.fileChangeDetectionIncomplete")}</CardDescription>
-    </CardHeader>
-    <CardContent className="flex flex-col gap-0 px-1.5 pb-1.5">
-      <ul className="flex min-w-0 flex-col gap-1">
-        {visible.map(file => {
+  const renderRow = (file: (typeof files)[number]) => {
           const key = `${file.grantId}:${file.cwd}:${file.path}`;
           const filename = nameOf(file.path);
           const directory = file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/")) : "";
@@ -297,8 +281,26 @@ export function EditedFiles({ parts, chatId = null, runIds = [] }: { parts: read
             </DropdownMenu> : null}
             <Reveal className="edited-files-note">{note ? <p className="px-2 pb-1 text-xs text-muted-foreground">{note}</p> : null}</Reveal>
           </li>;
-        })}
+  };
+  return <div ref={cardRef} className="mt-5"><Card className="edited-files" role="region" aria-label={t("ui.chat.edited-files.recentlyEditedFiles")}>
+    <CardHeader className="gap-0 px-3 pb-1 pt-3">
+      <CardTitle className="flex min-h-7 items-center gap-2 text-[13px] font-medium"><Files aria-hidden="true" className="size-4 text-muted-foreground" />{t("ui.chat.edited-files.recentlyEditedFiles")}<Badge variant="secondary">{files.length}</Badge>
+        {undoneCount ? <span className="text-xs font-normal text-muted-foreground">{tf("ui.chat.edited-files.undoneCount", { count: undoneCount })}</span> : null}
+        {headerAction ? <Button type="button" variant="ghost" size="sm" className="ml-auto h-7 text-xs font-normal text-muted-foreground" disabled={busy || !!dialog} onClick={headerAction.act}>
+          {busy ? <Spinner data-icon="inline-start" /> : <headerAction.icon data-icon="inline-start" />}{headerAction.label}
+        </Button> : null}
+      </CardTitle>
+      <CardDescription className="sr-only">{["created", "modified", "deleted"].flatMap(kind => {
+        const count = files.filter(file => file.kind === kind).length;
+        return count ? [tf("ui.chat.edited-files.items", { v0: labels()[kind as keyof typeof labels], v1: count })] : [];
+      }).join(" · ") || t("ui.chat.edited-files.fileChangeDetectionIncomplete")}</CardDescription>
+    </CardHeader>
+    <CardContent className="flex flex-col gap-0 px-1.5 pb-1.5">
+      <ul className="flex min-w-0 flex-col gap-1">
+        {files.slice(0, 3).map(renderRow)}
       </ul>
+      {/* The rest unfold under the first three rather than jumping in. */}
+      <Reveal>{expanded && files.length > 3 ? <ul className="flex min-w-0 flex-col gap-1 pt-1">{files.slice(3).map(renderRow)}</ul> : null}</Reveal>
       {files.length > 3 ? <Button type="button" variant="ghost" size="sm" onClick={() => setExpanded(value => !value)}>{expanded ? <ChevronUp data-icon="inline-start" /> : <ChevronDown data-icon="inline-start" />}{expanded ? t("ui.chat.edited-files.collapse") : tf("ui.chat.edited-files.showMoreFiles", { v0: files.length - 3 })}</Button> : null}
       {!complete || !canOpen ? <p className="px-2 py-1 text-xs text-muted-foreground">{!complete ? t("ui.chat.edited-files.someFilesCouldNotBeCounted") : t("ui.chat.edited-files.openFilesInTheDesktopApp")}</p> : null}
       <Reveal>{error ? <Alert variant="destructive"><AlertDescription>{localizeMessage(error)}</AlertDescription></Alert> : null}</Reveal>

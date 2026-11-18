@@ -1268,6 +1268,9 @@ body:has(.alert-dialog-content) :is(.dialog-overlay, .dialog-content)[data-state
 .code-block-action svg { width: 13px; height: 13px; }
 .mermaid-diagram { display: flex; justify-content: center; padding: 14px; overflow-x: auto; }
 .mermaid-diagram svg { max-width: 100%; height: auto; }
+.mermaid-diagram { animation: content-in var(--dur-base) var(--ease-out); }
+.mermaid-block[data-state="drawing"] .mermaid-loading { min-height: 96px; }
+.extension-always-load { animation: content-in var(--dur-fast) var(--ease-out); }
 .mermaid-loading, .mermaid-error { margin: 0; padding: 10px 14px 0; font-size: 12px; color: hsl(var(--muted-foreground)); }
 .mermaid-error span { display: block; margin-top: 2px; font-family: var(--font-mono, ui-monospace, monospace); font-size: 11.5px; color: hsl(var(--destructive)); overflow-wrap: anywhere; }
 /* Formulas: a wide one scrolls on its own instead of widening the answer. */
@@ -1363,6 +1366,10 @@ body:has(.alert-dialog-content) :is(.dialog-overlay, .dialog-content)[data-state
 .edited-files-choice { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 6px 8px; border-radius: 10px; transition: background-color var(--dur-fast) var(--ease-out); }
 .edited-files-choice:hover:not([data-blocked]) { background: hsl(var(--foreground) / .04); }
 .edited-files-choice[data-blocked] { opacity: .6; }
+/* A turn waiting on the user: a quiet amber dot and a few words, in the records bar and in the answer itself. */
+.records-waiting, .reply-waiting { display: inline-flex; align-items: center; gap: 7px; color: hsl(var(--muted-foreground)); }
+.records-waiting::before, .reply-waiting::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 999px; background: hsl(var(--warning)); }
+.reply-waiting { margin: 2px 0 6px; font-size: 13px; line-height: 20px; animation: content-in var(--dur-base) var(--ease-out); }
 /* Notes in the bottom-right corner, newest at the bottom; across the bottom in a narrow window.
    --toast-bottom lifts the stack over a page's own bottom area (useToastClearance). */
 .toast-stack { position: fixed; right: 20px; bottom: var(--toast-bottom, 20px); z-index: 60; width: 360px; max-width: calc(100vw - 32px); pointer-events: none; transition: bottom var(--dur-slow) var(--ease-out); }

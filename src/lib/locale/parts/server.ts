@@ -213,7 +213,7 @@ export const serverMessages = {
   "server.processor.noteLayout": "按提取后的文本结构转换，原文排版、图片、页眉页脚和合并单元格不会完整保留。",
   "server.processor.noteOcr": "扫描 PDF 需要先做 OCR；远程图片和链接内容不会自动下载。",
   "server.preview.local": "预览只在本机提取文本，尚未保存或调用模型。",
-  "server.preview.pdf": "PDF 保留页码和提取顺序；复杂版面及表格需人工核对，扫描页需先 OCR。",
+  "server.preview.pdf": "PDF 保留页码和提取顺序；复杂版面及表格需人工核对。",
   "server.preview.table": "表格以文本表示行列，长表分块重复表头；请核对合并单元格和缺失内容。",
   "server.diagnostics.emptyQuery": "查询为空",
   "server.diagnostics.emptyLibrary": "所选范围没有资料",

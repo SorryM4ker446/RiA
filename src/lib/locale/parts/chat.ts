@@ -29,6 +29,8 @@ export const chatMessages = {
   "chat.toolbar.hintVideo": "当前为视频生成模式，输入描述后生成视频。",
   "chat.toolbar.hintChat": "对话、资料与行动，在这里连接。",
   "chat.toolbar.statusGenerating": "生成中",
+  "chat.messages.waitingForAnswer": "等待你回答下方的问题",
+  "chat.messages.waitingForApproval": "等待你批准下方的操作",
   "chat.toolbar.statusReady": "就绪",
   "chat.toolbar.kindChat": "聊天模型",
   "chat.toolbar.kindImage": "图像模型",

@@ -37,13 +37,13 @@ for (const width of [1440, 390]) {
     const ready = new Promise<void>(resolve => { releaseRuns = resolve; });
     await page.route("**/api/conversations/*/runs?*", async route => {
       await ready;
-      await route.fulfill({ json: { data: [{ id: "running-layout", goal: "Original question", status: "running", startedAt: now, steps: [], budget: { maxSteps: 8, maxFailures: 2, deadlineMs: 120000 } }] } });
+      await route.fulfill({ json: { data: [{ id: "running-layout", goal: "Original question", status: "waiting_approval", startedAt: now, steps: [], budget: { maxSteps: 8, maxFailures: 2, deadlineMs: 120000 } }] } });
     });
     await page.goto("/chat");
     const permissions = page.getByRole("button", { name: /选择工作区|工作区：/ }).first();
     const records = page.getByRole("button", { name: "执行记录", exact: true });
     await expect(permissions).toBeVisible();
-    await expect(records).not.toContainText("执行中");
+    await expect(records).not.toContainText("等待你回应");
     const before = (await permissions.boundingBox())!;
     const recordBefore = (await records.boundingBox())!;
     try {
@@ -51,7 +51,8 @@ for (const width of [1440, 390]) {
     } finally {
       releaseRuns();
     }
-    await expect(records).toContainText("执行中");
+    // A turn waiting on the user is the state the bar points out; the layout around it stays put.
+    await expect(records).toContainText("等待你回应");
     const after = (await permissions.boundingBox())!;
     expect(after.x).toBeCloseTo(before.x, 1);
     expect(after.y).toBeCloseTo(before.y, 1);

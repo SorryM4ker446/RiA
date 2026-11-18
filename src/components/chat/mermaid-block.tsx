@@ -20,6 +20,23 @@ type Drawn = { svg: string; error: null } | { svg: null; error: string } | null;
  * allowed). The source is one click away; a diagram that does not parse shows
  * its source with Mermaid's message instead of an empty box.
  */
+/** The page's own colours, as Mermaid reads them: flat boxes on the code-block surface, no shadows, labels on the same ground. */
+function diagramColours() {
+  const style = getComputedStyle(document.documentElement);
+  const colour = (name: string, alpha?: number) => {
+    const [h, sat, light] = style.getPropertyValue(name).trim().split(/\s+/);
+    return alpha === undefined ? `hsl(${h}, ${sat}, ${light})` : `hsla(${h}, ${sat}, ${light}, ${alpha})`;
+  };
+  return {
+    darkMode: document.documentElement.classList.contains("dark"),
+    background: colour("--muted"), mainBkg: colour("--card"), primaryColor: colour("--card"), secondaryColor: colour("--muted"), tertiaryColor: colour("--muted"),
+    primaryTextColor: colour("--foreground"), secondaryTextColor: colour("--foreground"), tertiaryTextColor: colour("--foreground"), textColor: colour("--foreground"),
+    primaryBorderColor: colour("--foreground", .28), secondaryBorderColor: colour("--foreground", .2), tertiaryBorderColor: colour("--foreground", .2),
+    lineColor: colour("--muted-foreground"), edgeLabelBackground: colour("--muted"), clusterBkg: colour("--muted"), clusterBorder: colour("--foreground", .14),
+    noteBkgColor: colour("--muted"), noteTextColor: colour("--foreground"), noteBorderColor: colour("--foreground", .2), fontSize: "13px",
+  };
+}
+
 export function MermaidBlock({ code }: { code: string }) {
   useLocale();
   const dark = useSyncExternalStore(watchTheme, isDark, () => false);
@@ -32,7 +49,7 @@ export function MermaidBlock({ code }: { code: string }) {
     void (async () => {
       try {
         const { default: mermaid } = await import("mermaid");
-        mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: dark ? "dark" : "neutral", fontFamily: "inherit" });
+        mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "base", themeVariables: diagramColours(), fontFamily: "inherit" });
         await mermaid.parse(code);
         const { svg } = await mermaid.render(`${id}-${dark ? "d" : "l"}`, code);
         if (current) setDrawn({ svg, error: null });

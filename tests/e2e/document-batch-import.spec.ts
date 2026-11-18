@@ -42,7 +42,7 @@ test("several documents import as a batch: each shows how it went, an unreadable
   await expect(list.locator('li[data-status="added"]')).toHaveCount(2);
   await expect(list.locator("li").filter({ hasText: "照片.png" })).toContainText("不支持的文件类型");
   await expect(list.locator("li").filter({ hasText: "照片.png" })).toContainText("已跳过");
-  await expect(page.getByText(/批量导入完成：新增 2，更新 0，未变化 0，失败 0，跳过 1。/)).toBeVisible();
+  await expect(page.getByRole("region", { name: "通知", exact: true })).toContainText("批量导入完成新增 2，更新 0，未变化 0，失败 0，跳过 1");
   const documents = (await browserData(page, `${app.origin}/api/documents`)) as { filename: string; collection: string | null }[];
   expect(documents.map(document => [document.filename, document.collection]).sort()).toEqual([["考勤.txt", "制度"], ["报销.md", "制度"]].sort());
 
@@ -76,7 +76,7 @@ test("files of a folder that share a name are kept apart by their path in it, an
     await page.goto(`${app.origin}/knowledge?view=documents`);
     const form = await openDocumentImport(page);
     for (let round = 0; round < 2; round++) {
-      await page.getByLabel("选择一个文件夹，导入其中所有可读取的文档").setInputFiles(folder);
+      await page.getByLabel("导入文件夹里所有可读取的文档，只导入一次").setInputFiles(folder);
       await form.getByRole("button", { name: "导入 3 个文档", exact: true }).click();
       const list = page.getByRole("region", { name: "批量导入", exact: true });
       await expect(list.getByRole("status")).toHaveText("批量导入：3/3", { timeout: 15_000 });
