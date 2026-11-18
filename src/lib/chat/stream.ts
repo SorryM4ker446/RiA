@@ -21,7 +21,7 @@ import { contextBudget } from "@/lib/models/context-budget";
 import { modelRefKey } from "@/lib/models/preferences-schema";
 import { createStepContext, withoutToolRecords } from "./step-context";
 import { createThinkingClock, thinkingRecordSchema } from "./thinking";
-import { summarizeWithAuxiliary, type CompactionAllowance } from "./task-summary";
+import { summarizeWithInternalAgent, type CompactionAllowance } from "./task-summary";
 import { commitTurnFold, keepRestoredContext } from "./summary";
 import { storedSummary } from "./model-context";
 import { EMPTY_SUMMARY_STATE, foldIntoState, recordedFacts, toolCallsIn, type SummaryState } from "./compaction-state";
@@ -227,7 +227,7 @@ async function openChatAnswer(params: ChatAnswer) {
     handoff: stored ? { state: stored.summary, calls: stored.state.calls, ...(stored.state.restored === undefined ? {} : { restored: stored.state.restored }) } : null,
     recorded: () => [recordedFacts(foldState), tools?.readConversationHistory ? LOOKUP_HINT : ""].filter(Boolean).join("\n"),
     summarize: async (records, previous, sent) => {
-      const { state, modelRef: used } = await summarizeWithAuxiliary({ main: activeRef, records, previous, signal, allowance: params.compactionAllowance, request: getLatestUserMessage(messages)?.text,
+      const { state, modelRef: used } = await summarizeWithInternalAgent({ main: activeRef, records, previous, signal, allowance: params.compactionAllowance, request: getLatestUserMessage(messages)?.text,
         ...(sent ? { conversation: { system: systemPrompt, tools: sentTools(), ...sent } } : {}) });
       summaryModel = `${used.providerId}:${used.modelId}`;
       return state;

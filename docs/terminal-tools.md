@@ -48,9 +48,9 @@ model with. A new tool declares its kind of action and follows the same table.
 ### Auto
 
 Under **Auto** a command, or an extension tool call, that would otherwise wait is
-first put to a separate model call: the auxiliary model when one is chosen in
-model settings, otherwise the conversation's model (used again if the auxiliary
-one fails). That call starts from a fresh context and sees only:
+first put to a separate model call, an internal sub-agent: the internal sub-agent model
+when one is chosen in model settings, otherwise the conversation's model (used again if
+the chosen one fails). That call starts from a fresh context and sees only:
 
 - the user's own messages in the request (the first and the latest three; how many
   were left out between them is stated, with the conversation's stored summary, up

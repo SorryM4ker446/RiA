@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { ModelMessage } from "ai";
 import { z } from "zod";
 import { autoReviewSchema, type AutoReview } from "./auto-review-schema";
-import { askAuxiliaryModel, readJsonReply } from "@/lib/memory/model-call";
+import { askInternalAgent, readJsonReply } from "@/lib/agents/internal";
 import type { ModelRef } from "@/lib/models/preferences-schema";
 
 /*
@@ -235,7 +235,7 @@ async function judge(input: ReviewRequest, actions: ReviewedAction[]): Promise<A
         return found ? { decision: found.decision, reason: found.reason } : { decision: "ask" as const, reason: "" };
       });
     };
-    return await (input.ask ?? askAuxiliaryModel)(input.modelRef, { system: REVIEW_RULES, prompt, read }, { timeoutMs: REVIEW_TIMEOUT_MS });
+    return await (input.ask ?? askInternalAgent)(input.modelRef, { system: REVIEW_RULES, prompt, read }, { timeoutMs: REVIEW_TIMEOUT_MS });
   } catch { return failed; }
 }
 

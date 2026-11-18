@@ -20,7 +20,7 @@ const chatRoute = await import("@/app/api/chat/route");
 const toolRoute = await import("@/app/api/tools/run/route");
 const { compactAfterTurn, compactionsSettled } = await import("@/lib/chat/compaction");
 const { exclusiveDataOperation } = await import("@/lib/server/data-operations");
-const { auxiliaryModel, getModelPreferences, modelInLibrary, removeModel, saveModelPreferences } = await import("@/lib/models/preferences");
+const { internalAgentModel, getModelPreferences, modelInLibrary, removeModel, saveModelPreferences } = await import("@/lib/models/preferences");
 const { preferencesSchema } = await import("@/lib/models/preferences-schema");
 const { commitTurnFold } = await import("@/lib/chat/summary");
 const { buildChatContext } = await import("@/lib/chat/context");
@@ -29,7 +29,7 @@ const { changedFiles, restoredContext, RESTORED_SHARE } = await import("@/lib/ch
 const restoredText = async (params: Parameters<typeof restoredContext>[0]) => (await restoredContext(params)).text;
 const { lookupConversationHistory } = await import("@/lib/chat/history-lookup");
 const { recordedFacts, toolCallsIn } = await import("@/lib/chat/compaction-state");
-const { summarizeWithAuxiliary } = await import("@/lib/chat/task-summary");
+const { summarizeWithInternalAgent } = await import("@/lib/chat/task-summary");
 const { conversationCalibration, recordContextCalibration } = await import("@/lib/models/context-calibration");
 const { estimateTextTokens, MIN_CALIBRATION } = await import("@/lib/models/context-budget");
 const { historicalToolText, shownExcerptCharacters, summaryRecordCharacters } = await import("@/lib/chat/tool-history");
@@ -250,20 +250,20 @@ test("a job cannot overwrite a history that moved on, a deleted conversation, or
   assert.equal(await second, null);
 });
 
-test("the auxiliary model does the summaries when chosen, and the conversation's model otherwise", async t => {
+test("the internal sub-agent model does the summaries when chosen, and the conversation's model otherwise", async t => {
   await capacity(32_000);
-  assert.deepEqual(await auxiliaryModel(CHAT_MODEL_REF), CHAT_MODEL_REF, "none chosen");
+  assert.deepEqual(await internalAgentModel(CHAT_MODEL_REF), CHAT_MODEL_REF, "none chosen");
   const current = await getModelPreferences();
   assert.equal(preferencesSchema.safeParse({ ...current, auxiliary: { providerId: "openrouter", modelId: "not/in-library" } }).success, false);
   await saveModelPreferences({ ...current, auxiliary: OTHER_MODEL });
-  assert.deepEqual(await auxiliaryModel(CHAT_MODEL_REF), OTHER_MODEL);
+  assert.deepEqual(await internalAgentModel(CHAT_MODEL_REF), OTHER_MODEL);
   const { chat } = await longChat();
   t.mock.method(languageModel, "doGenerate", async () => summaryAnswer("Earlier: Lisbon."));
   await compactAfterTurn({ chatId: chat.id, modelRef: CHAT_MODEL_REF });
   assert.equal((await db.chat.findUniqueOrThrow({ where: { id: chat.id } })).summaryModelId, `${OTHER_MODEL.providerId}:${OTHER_MODEL.modelId}`);
   await removeModel(OTHER_MODEL);
   assert.equal((await getModelPreferences()).auxiliary, null, "removing it from the library clears the choice");
-  assert.deepEqual(await auxiliaryModel(CHAT_MODEL_REF), CHAT_MODEL_REF);
+  assert.deepEqual(await internalAgentModel(CHAT_MODEL_REF), CHAT_MODEL_REF);
   const { auxiliary: _dropped, ...older } = await getModelPreferences();
   assert.equal(preferencesSchema.parse(older).auxiliary, null, "settings saved before this existed still read");
 });
@@ -635,7 +635,7 @@ test("a summary reads the conversation just sent, runs nothing, and falls back t
   const prompts: string[] = [];
   let replies = [summaryAnswer("Handoff from the conversation.")];
   t.mock.method(languageModel, "doGenerate", async options => { prompts.push(JSON.stringify({ prompt: options.prompt, tools: options.tools, toolChoice: options.toolChoice })); return replies.shift() ?? summaryAnswer("Handoff from the records."); });
-  const direct = await summarizeWithAuxiliary({ main: CHAT_MODEL_REF, records: ["record"], conversation });
+  const direct = await summarizeWithInternalAgent({ main: CHAT_MODEL_REF, records: ["record"], conversation });
   assert.match(direct.state, /Handoff from the conversation/);
   assert.equal(prompts.length, 1);
   assert.match(prompts[0], /Fix the ledger[\s\S]*Write the handoff now[\s\S]*FULL-RESULT-OF-AN-EXCERPT/, "the conversation first, then what to do, then what it only showed as excerpts");
@@ -644,7 +644,7 @@ test("a summary reads the conversation just sent, runs nothing, and falls back t
   // A model that calls a tool instead has written no summary, and nothing ran.
   replies = [{ ...summaryAnswer(""), content: [{ type: "tool-call" as const, toolCallId: "c", toolName: "danger", input: "{}" }], finishReason: { unified: "tool-calls" as const, raw: "tool_calls" } }] as unknown as typeof replies;
   prompts.length = 0;
-  const fallback = await summarizeWithAuxiliary({ main: CHAT_MODEL_REF, records: ["record"], conversation });
+  const fallback = await summarizeWithInternalAgent({ main: CHAT_MODEL_REF, records: ["record"], conversation });
   assert.match(fallback.state, /Handoff from the records/);
   assert.equal(prompts.length, 2);
   assert.match(prompts[1], /New evidence to fold in/);

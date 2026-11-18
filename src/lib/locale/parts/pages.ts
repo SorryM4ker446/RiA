@@ -121,8 +121,8 @@ export const pageMessages = {
   "models.removedPrefix": "已移除：{value}",
   "models.embeddingModelLabel": "嵌入模型",
   "models.embeddingModelHint": "选择后，知识库的内容会自动发给这个模型，用来按意思查找资料，可能产生少量费用。",
-  "models.auxiliaryModelLabel": "辅助模型",
-  "models.auxiliaryModelHint": "整理上下文、规划搜索这类幕后工作用它",
+  "models.auxiliaryModelLabel": "内部子代理模型",
+  "models.auxiliaryModelHint": "做审批审查、上下文摘要、长期记忆和搜索规划；任务子代理用对话的模型",
   "models.auxiliaryFollowsChat": "跟随对话模型",
   "models.disableEmbedding": "不使用（只按关键词查找）",
   "models.preferencesNote":
@@ -151,7 +151,7 @@ export const pageMessages = {
   "models.usage.knownCost": "已知费用",
   "models.usage.unknownCost": "费用未知",
   "models.usageNote":
-    "按每次模型尝试记录，包含聊天辅助调用和嵌入；备用调用单独计数。最多显示最近 100 条。未知费用不按零计算。本页不是完整账单。",
+    "按每次模型尝试记录，包含内部子代理、任务子代理的调用和嵌入；备用调用单独计数。最多显示最近 100 条。未知费用不按零计算。本页不是完整账单。",
   "models.thTime": "时间 / 模型",
   "models.thResult": "结果",
   "models.thDuration": "耗时",

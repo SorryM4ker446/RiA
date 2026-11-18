@@ -7,7 +7,7 @@ import { runBackgroundDataOperation } from "@/lib/server/data-operations";
 import { normalizeApiError } from "@/lib/server/api-error";
 import { applyMemoryChangesCounted, MAX_MEMORY_LINES, parseMemoryDocument, readMemoryDocument, writeMemoryDocument, type MemoryChange } from "./document";
 import { announceMemoryWrite, type MemoryWriteEvent } from "@/lib/conversations/events";
-import { askAuxiliaryModel, readJsonReply } from "./model-call";
+import { askInternalAgent, readJsonReply } from "@/lib/agents/internal";
 import { memoryTopicsRunning, memoryTopicsSettled, scheduleMemoryTopics } from "./topics";
 
 /**
@@ -67,7 +67,7 @@ async function extract(chatId: string, main: ModelRef, hint: string, retries = R
   // Based on the revision it read, so a person's deletion during the call is not undone.
   const document = await readMemoryDocument();
   const prompt = `Today is ${new Date().toISOString().slice(0, 10)}.\n\nCurrent MEMORY.md:\n${numbered(document.content)}\n\nHint from the assistant (not evidence): ${JSON.stringify(hint.slice(0, 500))}\n\nConversation:\n${await evidence(chatId)}`;
-  const changes: MemoryChange[] = await askAuxiliaryModel(main, { system: MEMORY_EXTRACTION_INSTRUCTIONS, prompt, read: text => changesSchema.parse(readJsonReply(text)).changes });
+  const changes: MemoryChange[] = await askInternalAgent(main, { system: MEMORY_EXTRACTION_INSTRUCTIONS, prompt, read: text => changesSchema.parse(readJsonReply(text)).changes });
   if (!changes.length) return NOTHING;
   const { content: next, added, updated, removed, dropped } = applyMemoryChangesCounted(document.content, changes);
   // A note that would have been kept but did not fit is the one thing worth saying even when nothing changed.

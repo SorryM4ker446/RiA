@@ -33,8 +33,8 @@ When the user plainly asks it to remember something, the model says so with `use
 which skips that wait. What gets written still comes only from what the user wrote.
 
 **Extracting.** A separate call then reads the current notes and the conversation's latest
-forty messages, in the background, so the answer does not wait. It runs on the auxiliary
-model when one is chosen, and on the conversation's model if there is none or it fails. It
+forty messages, in the background, so the answer does not wait. It runs on the internal
+sub-agent model when one is chosen, and on the conversation's model if there is none or it fails. It
 follows the conversation's thinking setting.
 
 It reads nothing from before memory was last turned back on, so what was said with the switch
@@ -58,8 +58,8 @@ replaces or removes old ones.
 
 Topics are for a person to look through the notes. After an extraction writes, a further
 background call reads the notes and the current topics, and replies with which lines belong
-to which topic, a title and a one-sentence summary. It runs on the auxiliary model when one
-is chosen, and on the conversation's model if there is none or it fails. From Settings,
+to which topic, a title and a one-sentence summary. It runs on the internal sub-agent model
+when one is chosen, and on the conversation's model if there is none or it fails. From Settings,
 where there is no conversation, the default chat model stands in.
 
 MEMORY.md stays the only source. Topics are joined to it when read, so they cannot show a
