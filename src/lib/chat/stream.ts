@@ -203,7 +203,7 @@ async function openChatAnswer(params: ChatAnswer) {
   };
 
   const preferences = await getModelPreferences();
-  const tools = toolsEnabled ? await createChatToolSet({ modelRef, chatId: chat.id, runId, toolIds: input.assistant?.tools, usesMemory: params.usesMemory !== false, documentCollections: conversationCollections(input.conversationPolicy ?? chat), unattended: params.callSource === "scheduled" }) : undefined;
+  const tools = toolsEnabled ? await createChatToolSet({ modelRef, chatId: chat.id, runId, toolIds: input.assistant?.tools, usesMemory: params.usesMemory !== false, documentCollections: conversationCollections(input.conversationPolicy ?? chat), unattended: params.callSource === "scheduled", compactionAllowance: params.compactionAllowance }) : undefined;
   // An assistant's tools can all be unavailable this turn, leaving none to send.
   const modelMessages = tools && !Object.keys(tools).length && !input.isApprovalResume ? withoutToolRecords(params.modelMessages) : params.modelMessages;
   const budget = contextBudget(input.model, preferences.contextLimits[modelRefKey(modelRef)]);

@@ -162,6 +162,16 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
         : message.content.filter(part => part.type === "text").map(part => part.text).join("\n")).join("\n");
       if (prompt === "木星表面温度" && systemText.startsWith("Answer using the provided knowledge evidence.")) content = "知识库没有该信息，现有证据不足，无法确定木星表面温度。";
       if (!body.stream && systemText.startsWith("Choose the number of web search results")) content = JSON.stringify({ maxResults: 14 });
+      // A task sub-agent (OFFLINE_SUBAGENT): it tries to save one knowledge entry, then reports.
+      if (!body.stream && systemText.startsWith("You are a sub-agent of RiA")) {
+        if (!body.messages.some(message => message.role === "tool")) {
+          if (!body.tools?.some(tool => tool.function?.name === "saveKnowledgeEntry")) throw new Error("saveKnowledgeEntry was not offered to the sub-agent");
+          if (body.tools?.some(tool => ["askUser", "runSubagent", "createTask"].includes(tool.function?.name ?? ""))) throw new Error("A sub-agent was offered a tool it must not have");
+          const call = { id: "subagent-save-call", type: "function", function: { name: "saveKnowledgeEntry", arguments: JSON.stringify({ key: "差旅规程", value: "回程后十个工作日内提交费用核销申请。" }) } };
+          return JSON.stringify({ id: "offline-completion", model: body.model, usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 }, choices: [{ index: 0, message: { role: "assistant", content: null, tool_calls: [call] }, finish_reason: "tool_calls" }] });
+        }
+        content = "已查看差旅资料。保存“差旅规程”这条知识条目需要你批准，没有执行。";
+      }
       if (!body.stream && systemText.startsWith("You assess knowledge-grounded answers.")) {
         const evaluation = JSON.parse(prompt);
         // This is a deterministic UI fixture, not a semantic-quality oracle.
@@ -187,6 +197,13 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
             : { grantId, path: "README.md" };
           return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: `project-edit-call-${editResults.length}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
         }
+        // OFFLINE_SUBAGENT: one piece of work handed to a sub-agent, then an answer from its report.
+        if (prompt.includes("OFFLINE_SUBAGENT") && !body.messages.some(message => message.role === "tool")) {
+          if (!body.tools?.some(tool => tool.function?.name === "runSubagent")) throw new Error("runSubagent was not offered to the fixture model");
+          const args = { title: "整理差旅资料", task: "查看差旅资料，并把报销期限保存为知识条目“差旅规程”。" };
+          return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "subagent-call", type: "function", function: { name: "runSubagent", arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
+        }
+        if (prompt.includes("OFFLINE_SUBAGENT")) content = "离线回答：子代理已经交回报告。";
         // OFFLINE_PLAN: a checklist written, worked through step by step, then an answer.
         const toolTurns = body.messages.filter(message => message.role === "tool").length;
         if (prompt.includes("OFFLINE_PLAN") && toolTurns < 3) {

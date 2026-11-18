@@ -23,6 +23,12 @@ type ToolExecutionContext<Input> = {
   userText?: readonly string[];
   /** The reason the user's approval of this call carried: for a question, the answer. */
   approvalReason?: string;
+  /** This call's identity in the conversation. */
+  toolCallId?: string;
+  /** The tools the conversation's assistant template allows; absent when it has no list. */
+  toolIds?: string[];
+  /** The turn's allowance of summary calls, which work a tool does for the turn (a sub-agent's compaction) draws on too. */
+  compactionAllowance?: import("@/lib/chat/task-summary").CompactionAllowance;
 };
 
 type ToolBudgetExceededContext = {
@@ -59,7 +65,7 @@ type ToolMemoryContext<Input, Output> = {
 };
 
 /** Where a tool sits when people browse or choose tools. */
-export type ToolCategory = "knowledge" | "web" | "workspace" | "tasks" | "context" | "extension";
+export type ToolCategory = "knowledge" | "web" | "workspace" | "tasks" | "agents" | "context" | "extension";
 
 /**
  * Who can reach a tool, stated once. Every list of tools is derived from this:

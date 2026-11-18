@@ -12,8 +12,27 @@ import { formatToolState, safeJson } from "./page-utils";
 import { executionGuidance } from "@/lib/execution-messages";
 import type { ExecutionCall } from "./execution-calls";
 
-export function ExecutionToolCall({ call, isLatest, waiting, onReviewApproval }: {
-  call: ExecutionCall; isLatest: boolean; waiting: boolean; onReviewApproval: () => void;
+type SubagentOutput = { title?: unknown; status?: unknown; report?: unknown; error?: unknown; notRun?: Array<{ tool?: unknown; reason?: unknown }> };
+
+/** A sub-agent's result as it reads: its report, what it could not do, and how it ended. */
+function SubagentResult({ output }: { output: SubagentOutput }) {
+  const report = typeof output.report === "string" ? output.report : "";
+  const notRun = Array.isArray(output.notRun) ? output.notRun : [];
+  return <div className="flex min-w-0 flex-col gap-2">
+    {output.status === "failed" ? <p className="break-words leading-5 text-destructive">{tf("ui.chat.subagent.failed", { error: typeof output.error === "string" ? output.error : "" })}</p> : null}
+    {report ? <div className="flex min-w-0 flex-col gap-1">
+      <p className="text-[11px] text-muted-foreground">{t("ui.chat.subagent.report")}</p>
+      <p className="whitespace-pre-wrap break-words font-normal leading-5">{report}</p>
+    </div> : null}
+    {notRun.length ? <div className="flex min-w-0 flex-col gap-1">
+      <p className="text-[11px] text-muted-foreground">{tf("ui.chat.subagent.notRun", { count: notRun.length })}</p>
+      <ul className="flex min-w-0 flex-col gap-0.5 pl-4">{notRun.map((item, index) => <li className="list-disc break-words font-normal leading-5" key={index}>{localizeMessage(String(item.tool ?? ""))}</li>)}</ul>
+    </div> : null}
+  </div>;
+}
+
+export function ExecutionToolCall({ call, isLatest, waiting, onReviewApproval, nested = false }: {
+  call: ExecutionCall; isLatest: boolean; waiting: boolean; onReviewApproval: () => void; nested?: boolean;
 }) {
   useLocale();
   const { part, step } = call;
@@ -46,7 +65,12 @@ export function ExecutionToolCall({ call, isLatest, waiting, onReviewApproval }:
   // What the Auto rule's review decided, when the call went through one.
   const reviewed = (part?.input as { autoReview?: { decision?: unknown; reason?: unknown } } | undefined)?.autoReview;
   const autoReview = reviewed && (reviewed.decision === "allow" || reviewed.decision === "ask") ? { decision: reviewed.decision, reason: typeof reviewed.reason === "string" ? reviewed.reason.trim() : "" } : null;
-  const name = localizeMessage(part?.title ?? (toolName === "runTerminalCommand" ? t("ui.chat.approval-dock.runTerminalCommand") : toolName));
+  const subagent = part?.type === "tool-runSubagent";
+  const subagentTitle = subagent && part?.input && typeof part.input === "object" && typeof (part.input as { title?: unknown }).title === "string" ? (part.input as { title: string }).title : "";
+  // A step recorded without its message part (a sub-agent's own call) still reads by the tool's name.
+  const builtinName = (t(`tools.${toolName}.displayName` as Parameters<typeof t>[0]) as string | undefined) ?? toolName;
+  const name = subagentTitle ? tf("ui.chat.subagent.name", { title: subagentTitle })
+    : localizeMessage(part?.title ?? (toolName === "runTerminalCommand" ? t("ui.chat.approval-dock.runTerminalCommand") : part ? toolName : builtinName));
 
   return <details className="execution-disclosure text-xs" data-call-id={part?.toolCallId ?? step?.toolCallId ?? step?.id}
     open={expanded ?? defaultExpanded}>
@@ -64,24 +88,30 @@ export function ExecutionToolCall({ call, isLatest, waiting, onReviewApproval }:
           <p className="text-[11px] text-muted-foreground">{t("ui.chat.approval-dock.file")}{edit.path}</p>
           <pre aria-label={t("ui.chat.approval-dock.changesAwaitingApproval")} className="execution-code chat-list-scroll"><DiffText diff={edit.diff} /></pre>
         </div> : null}
-        {!terminal && !edit && part.input !== undefined ? <div className="flex min-w-0 flex-col gap-1">
+        {!terminal && !edit && !subagent && part.input !== undefined ? <div className="flex min-w-0 flex-col gap-1">
           <p className="text-[11px] text-muted-foreground">{t("ui.chat.execution-turn-details.inputParameters")}</p>
           <pre className="execution-code chat-list-scroll">{safeJson(part.input && typeof part.input === "object" && "arguments" in part.input && ("binding" in part.input || "autoReview" in part.input) ? part.input.arguments : part.input)}</pre>
         </div> : null}
         {pendingApproval ? <Button disabled={!isLatest || !!stoppedStep} onClick={onReviewApproval} size="sm" type="button" variant="outline" className="w-fit">{t("ui.chat.execution-turn-details.returnToChatToApprove")}</Button> : null}
-        {!terminal && !edit && part.state === "output-available" && part.output !== undefined ? <div className="flex min-w-0 flex-col gap-1">
+        {subagent && part.state === "output-available" && part.output && typeof part.output === "object" ? <SubagentResult output={part.output as SubagentOutput} /> : null}
+        {!terminal && !edit && !subagent && part.state === "output-available" && part.output !== undefined ? <div className="flex min-w-0 flex-col gap-1">
           <p className="text-[11px] text-muted-foreground">{t("ui.chat.execution-turn-details.executionResult")}</p>
           <pre className="execution-code chat-list-scroll">{safeJson(part.output)}</pre>
         </div> : null}
         {part.state === "output-error" && part.errorText ? <p className="break-words leading-5 text-destructive">{readToolError(part.errorText)}</p> : null}
       </> : <>
-        <p role="status" className="leading-5 text-muted-foreground">{t(waiting ? "ui.chat.run-records.waitingForDetails" : "ui.chat.run-records.detailsUnavailable")}</p>
+        {/* A sub-agent's own call is only ever recorded as a step; there are no fuller details to wait for. */}
+        {nested ? null : <p role="status" className="leading-5 text-muted-foreground">{t(waiting ? "ui.chat.run-records.waitingForDetails" : "ui.chat.run-records.detailsUnavailable")}</p>}
         {step?.input != null || step?.output != null ? <>
           <p className="text-[11px] text-muted-foreground">{t("ui.chat.run-records.savedStepSummary")}</p>
           <pre className="execution-code chat-list-scroll">{safeJson({ input: step?.input, output: step?.output })}</pre>
         </> : null}
       </>}
       {step?.errorCode ? <p className="break-words leading-5 text-destructive">{executionGuidance(step.errorCode)}</p> : null}
+      {call.children?.length ? <section className="execution-subagent-steps flex min-w-0 flex-col gap-1 border-l border-border pl-3" aria-label={t("ui.chat.subagent.steps")}>
+        <p className="text-[11px] text-muted-foreground">{tf("ui.chat.subagent.stepCount", { count: call.children.length })}</p>
+        {call.children.map(child => <ExecutionToolCall key={child.key} call={child} isLatest={isLatest} waiting={waiting} onReviewApproval={onReviewApproval} nested />)}
+      </section> : null}
     </div>
   </details>;
 }

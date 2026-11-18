@@ -6,7 +6,7 @@ import { localizeMessage, t, tf } from "@/lib/locale";
 import { toolLabel } from "@/features/chat/use-tools";
 import type { ToolCatalogItem } from "@/features/chat/types";
 
-const CATEGORY_KEYS = { knowledge: "ui.assistants.tools.knowledge", web: "ui.assistants.tools.web", workspace: "ui.assistants.tools.workspace", tasks: "ui.assistants.tools.tasks" } as const;
+const CATEGORY_KEYS = { knowledge: "ui.assistants.tools.knowledge", web: "ui.assistants.tools.web", workspace: "ui.assistants.tools.workspace", tasks: "ui.assistants.tools.tasks", agents: "ui.assistants.tools.agents" } as const;
 /** A list this long is easier to search than to scan. */
 const SEARCH_FROM = 12;
 /** A connection with more tools than this starts folded, so it stays one line until wanted. */

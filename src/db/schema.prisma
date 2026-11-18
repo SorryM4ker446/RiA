@@ -188,6 +188,8 @@ model AgentStep {
   kind      String
   toolName  String?
   toolCallId String?
+  /// For a task sub-agent's own call: the call that started the sub-agent.
+  parentToolCallId String?
   state     String   @default("running")
   // A short, already-redacted description: enough to recognise the step in a
   // list without copying a whole result into a second store.

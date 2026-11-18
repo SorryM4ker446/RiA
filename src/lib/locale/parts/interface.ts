@@ -155,6 +155,7 @@ export const interfaceMessages = {
   "ui.assistants.tools.web": "联网",
   "ui.assistants.tools.workspace": "本地工作区",
   "ui.assistants.tools.tasks": "任务",
+  "ui.assistants.tools.agents": "子代理",
   "ui.assistants.tools.removed": "已移除",
   "ui.assistants.tools.count": "{selected}/{total}",
   "ui.assistants.tools.selectAll": "全选",
@@ -798,6 +799,7 @@ export const interfaceMessages = {
   "ui.models.usage-history.historySummary": "历史摘要",
   "ui.models.usage-history.scheduledReview": "自动运行的任务",
   "ui.models.usage-history.toolSynthesis": "工具综合",
+  "ui.models.usage-history.subagents": "子代理",
   "ui.models.usage-history.mediaGeneration": "媒体生成",
   "ui.models.usage-history.sourceNotRecorded": "来源未记录",
   "ui.models.usage-history.callDetailsList": "调用明细列表",
@@ -971,5 +973,11 @@ export const interfaceMessages = {
   "ui.models.limitInvalidUsd": "请输入 {min}–{max} 之间的金额，或留空表示不限制",
   "ui.models.timeZoneHint": "IANA 时区名称，例如 Asia/Shanghai",
   "ui.models.timeZoneInvalid": "无法识别的时区，请输入 IANA 时区名称，例如 Asia/Shanghai",
-  "ui.models.fixLimitsBeforeSaving": "模型调用限制中有超出范围的值，修正后才能保存。"
+  "ui.models.fixLimitsBeforeSaving": "模型调用限制中有超出范围的值，修正后才能保存。",
+  "ui.chat.subagent.name": "子代理：{title}",
+  "ui.chat.subagent.report": "报告",
+  "ui.chat.subagent.notRun": "需要你批准、没有执行的操作（{count}）",
+  "ui.chat.subagent.failed": "子代理没能完成：{error}",
+  "ui.chat.subagent.steps": "子代理的操作",
+  "ui.chat.subagent.stepCount": "子代理的操作（{count}）",
 } as const;

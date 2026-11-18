@@ -1,3 +1,4 @@
+import type { CompactionAllowance } from "@/lib/chat/task-summary";
 import { approvalFor } from "@/lib/approvals/rules";
 import { FIND_TOOLS_ID, findToolsDescription, planToolLoading, rememberToolLoading } from "./deferred";
 import { findExtensionTools, type FindExtensionToolsInput } from "./definitions/find-extension-tools";
@@ -19,7 +20,7 @@ import { autoReviewSchema } from "@/lib/approvals/auto-review-schema";
 import { currentTurn } from "@/lib/models/call-slots";
 import { db } from "@/db";
 
-type ExecutionOptions = { modelRef?: ModelRef; chatId?: string | null; runId?: string | null; toolCallId?: string; usesMemory?: boolean; documentCollections?: string[]; signal?: AbortSignal; trigger: ToolTriggerType; resultBudgetUsed?: Map<string, number>; unattended?: boolean; userText?: readonly string[]; approvalReason?: string };
+type ExecutionOptions = { modelRef?: ModelRef; chatId?: string | null; runId?: string | null; toolCallId?: string; parentToolCallId?: string; toolIds?: string[]; compactionAllowance?: CompactionAllowance; usesMemory?: boolean; documentCollections?: string[]; signal?: AbortSignal; trigger: ToolTriggerType; resultBudgetUsed?: Map<string, number>; unattended?: boolean; userText?: readonly string[]; approvalReason?: string };
 
 function skipReasonForRunRefusal(reason: string): ToolSkipReason {
   if (reason === "run-budget-unreadable") return "run-budget-unreadable";
@@ -40,7 +41,8 @@ function skippedResult(tool: AnyToolDescriptor, input: unknown, reason: string) 
   return tool.buildUnavailableOutput?.({ input, reason: skipReason, error: new Error(reason) }) ?? { query, results: [], skipped: skipReason };
 }
 
-function summarizeForRecord(value: unknown): Record<string, unknown> {
+/** A call's input as a run record keeps it: shortened, with the review's decision kept whole. */
+export function summarizeForRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object") return { value: String(value).slice(0, 200) };
   const entries = Object.entries(value as Record<string, unknown>).slice(0, 8).map(([key, item]) => [
     key,
@@ -90,7 +92,7 @@ export async function executeRegisteredTool(tool: AnyToolDescriptor, input: unkn
   // start another step. The refusal is returned as a result so the model
   // can finish with what it has instead of retrying into a wall.
   const reservation = runId
-    ? await reserveRunStep({ runId, toolName: tool.id, toolCallId: options.toolCallId, input: summarizeForRecord(input) })
+    ? await reserveRunStep({ runId, toolName: tool.id, toolCallId: options.toolCallId, parentToolCallId: options.parentToolCallId, input: summarizeForRecord(input) })
         .catch(() => ({ step: null, reason: "run-budget-unreadable" }))
     : null;
   if (reservation && !reservation.step) return { output: skippedResult(tool, input, reservation.reason ?? "run-stopped"), input };
@@ -275,6 +277,9 @@ export async function executeRegisteredTool(tool: AnyToolDescriptor, input: unkn
         // A tool run by hand was given its input by the user.
         userText: trigger === "manual" ? [JSON.stringify(preparedParsedInput.data)] : options.userText ?? [],
         approvalReason: options.approvalReason,
+        toolCallId: options.toolCallId,
+        toolIds: options.toolIds,
+        compactionAllowance: options.compactionAllowance,
       });
     } catch (error) {
       if (trigger === "manual") throw error;
@@ -337,7 +342,20 @@ export async function executeRegisteredTool(tool: AnyToolDescriptor, input: unkn
   }
 }
 
-export async function createChatToolSet(options?: { modelRef?: ModelRef; chatId?: string | null; toolIds?: string[]; runId?: string | null; usesMemory?: boolean; documentCollections?: string[]; unattended?: boolean }): Promise<ToolSet> {
+/**
+ * Tools a task sub-agent does not get: asking the user, scheduling, the checklist,
+ * memory, the conversation's own history, and starting more sub-agents.
+ */
+export const SUBAGENT_EXCLUDED_TOOLS = new Set(["askUser", "createTask", "readWorkspaceActivity", "updatePlan", "runSubagent", "extractMemory", "readConversationHistory"]);
+
+/**
+ * `subagent`: the set is a task sub-agent's. Its calls are recorded under the call
+ * that started it, and what the user asked for comes from the parent conversation:
+ * the brief the sub-agent got was written by the model, so it never counts as the
+ * user's words, for a review under Auto or for anything else.
+ */
+export async function createChatToolSet(options?: { modelRef?: ModelRef; chatId?: string | null; toolIds?: string[]; runId?: string | null; usesMemory?: boolean; documentCollections?: string[]; unattended?: boolean; compactionAllowance?: CompactionAllowance;
+  subagent?: { parentToolCallId: string; userText: readonly string[] } }): Promise<ToolSet> {
   const resultBudgetUsed = new Map<string, number>();
   // An unconfigured optional tool is filtered out here rather than mounted and
   // failed later. The model never sees it, so it cannot call it, retry it, or
@@ -345,7 +363,8 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; chatId?
   // Assistant tool restrictions still apply to every action a skill suggests.
   const descriptors = (await listAvailableRegisteredTools("chat", options?.modelRef)).filter((tool) =>
     tool.surface.underlying !== "application" && (options?.toolIds === undefined || templateAllowsTool(options.toolIds, tool.id)) && !(tool.id === "extractMemory" && options?.usesMemory === false)
-    && !(tool.id === "askUser" && options?.unattended));
+    && !(tool.id === "askUser" && options?.unattended) && !(options?.subagent && SUBAGENT_EXCLUDED_TOOLS.has(tool.id)));
+  const ownWords = (messages: ModelMessage[]) => options?.subagent ? options.subagent.userText : userWords(messages);
 
   // Past a size, extension tools are loaded on demand: the search tool is offered for them,
   // knowing exactly this request's deferred tools; with nothing deferred it is left out.
@@ -380,7 +399,8 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; chatId?
       turn?.notify({ state: "reviewing" });
       const review = options?.modelRef
         ? await reviewAction({
-          action, workspace: (await conversationWorkspace(chatId))?.path ?? null, messages: approvalOptions?.messages ?? [], modelRef: options.modelRef,
+          action, workspace: (await conversationWorkspace(chatId))?.path ?? null, modelRef: options.modelRef,
+          messages: options.subagent ? options.subagent.userText.map(text => ({ role: "user" as const, content: text })) : approvalOptions?.messages ?? [],
           chatId, runId: options.runId ?? null,
           summary: async () => chatId ? (await db.chat.findUnique({ where: { id: chatId }, select: { summary: true } }))?.summary ?? null : null,
         }).finally(() => turn?.notify({ state: "running" }))
@@ -389,7 +409,7 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; chatId?
       return review.decision !== "allow";
     } } : {}),
     execute: async (input: unknown, callOptions?: { abortSignal?: AbortSignal; toolCallId?: string; messages?: ModelMessage[] }) => {
-      try { return (await executeRegisteredTool(tool, input, { ...options, trigger: "auto", signal: callOptions?.abortSignal, toolCallId: callOptions?.toolCallId, resultBudgetUsed, userText: userWords(callOptions?.messages ?? []),
+      try { return (await executeRegisteredTool(tool, input, { ...options, trigger: "auto", signal: callOptions?.abortSignal, toolCallId: callOptions?.toolCallId, parentToolCallId: options?.subagent?.parentToolCallId, resultBudgetUsed, userText: ownWords(callOptions?.messages ?? []),
         approvalReason: tool.requiresApproval ? approvalReasonFor(callOptions?.messages ?? [], callOptions?.toolCallId) : undefined })).output; }
       catch (error) {
         if (error instanceof ApiError || (error as Error | null)?.name === "AbortError") throw error;

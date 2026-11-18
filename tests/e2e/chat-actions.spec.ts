@@ -301,19 +301,20 @@ test("running step summaries show the newest call first and preserve expanded de
   const details = await openExecutionDetails(page);
   const calls = details.getByRole("region", { name: "工具调用", exact: true }).locator("details");
   await expect(calls).toHaveCount(2);
-  await expect(calls.nth(0)).toContainText("searchKnowledge");
-  await expect(calls.nth(1)).toContainText("webSearch");
-  await expect(calls.locator("summary")).toHaveText(["工具详情：searchKnowledge · 执行完成", "工具详情：webSearch · 执行完成"]);
-  const secondCall = calls.filter({ has: page.locator("summary").filter({ hasText: "searchKnowledge" }) });
+  // A step shown before its message part reads by the tool's name, not its internal id.
+  await expect(calls.nth(0)).toContainText("知识检索");
+  await expect(calls.nth(1)).toContainText("联网搜索");
+  await expect(calls.locator("summary")).toHaveText(["工具详情：知识检索 · 执行完成", "工具详情：联网搜索 · 执行完成"]);
+  const secondCall = calls.filter({ has: page.locator("summary").filter({ hasText: "知识检索" }) });
   await secondCall.locator("summary").click();
   await expect(secondCall.locator("pre")).toContainText("second search");
   await expect(secondCall.getByRole("status")).toHaveText("正在等待完整详情；当前显示已保存的步骤摘要。");
 
   steps.push({ id: "step-three", position: 3, kind: "tool", toolName: "readLocalFile", state: "running", input: { query: "third call" }, output: { results: [] } });
   await expect(calls).toHaveCount(3);
-  await expect(calls.nth(0)).toContainText("readLocalFile");
-  await expect(calls.nth(1)).toContainText("searchKnowledge");
-  await expect(calls.nth(2)).toContainText("webSearch");
+  await expect(calls.nth(0)).toContainText("读取资料文件");
+  await expect(calls.nth(1)).toContainText("知识检索");
+  await expect(calls.nth(2)).toContainText("联网搜索");
   await expect(secondCall.locator("pre")).toBeVisible();
   await details.screenshot({ path: join(tmpdir(), "ria-execution-newest-first-desktop.png"), animations: "disabled" });
   await page.setViewportSize({ width: 390, height: 844 });

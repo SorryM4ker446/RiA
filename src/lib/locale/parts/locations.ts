@@ -168,4 +168,5 @@ export const locationMessages = {
   "knowledgeFolders.status.someLeftOut": "{count} 个文件未导入",
   "knowledgeFolders.fromFolder": "来自同步文件夹「{folder}」",
   "server.knowledgeFolders.nested": "这个文件夹和已同步的「{folder}」重叠，同一个文件会变成两份文档。请选择不重叠的文件夹。",
+  "server.subagent.noModel": "没有可以运行子代理的模型。",
 } as const;

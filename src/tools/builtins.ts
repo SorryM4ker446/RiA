@@ -19,6 +19,7 @@ import { READ_WEB_PAGE_DESCRIPTION, readWebPageInput, runReadWebPage } from "@/t
 import { UPDATE_PLAN_DESCRIPTION, planProgress, updatePlanInput } from "@/tools/definitions/update-plan";
 import { ASK_USER_DESCRIPTION, askUserInput, readAnswer } from "@/tools/definitions/ask-user";
 import { FIND_EXTENSION_TOOLS_DESCRIPTION, findExtensionTools, findExtensionToolsInput } from "@/tools/definitions/find-extension-tools";
+import { RUN_SUBAGENT_DESCRIPTION, runSubagentInput } from "@/tools/definitions/run-subagent";
 import { planToolLoading } from "@/tools/deferred";
 import { approvalGate } from "./approval";
 import { documentProcessorTools } from "@/tools/definitions/document-processor";
@@ -172,6 +173,24 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       // Loaded here because it reaches the chat message modules, which the tool list must stay free of.
       const { scheduleMemoryExtraction } = await import("@/lib/memory/extraction");
       return scheduleMemoryExtraction({ chatId, modelRef, hint: input.worthKeeping, userAsked: input.userAsked });
+    },
+  },
+  // A task sub-agent: its own context and the conversation's tools, within the conversation's approval rule (see src/lib/agents/task.ts).
+  runSubagent: {
+    id: "runSubagent",
+    displayName: t("tools.runSubagent.displayName"),
+    description: t("tools.runSubagent.description"),
+    modelDescription: RUN_SUBAGENT_DESCRIPTION,
+    modeSupport: ["chat"],
+    surface: { category: "agents", user: { run: "model", hint: t("tools.runSubagent.hint") }, template: "selectable" },
+    inputSchema: runSubagentInput,
+    execute: async ({ input, chatId, runId, modelRef, toolIds, documentCollections, signal, toolCallId, userText, unattended, compactionAllowance }) => {
+      if (!modelRef) throw new ApiError({ code: "CONFIGURATION_ERROR", message: t("server.subagent.noModel") });
+      // Loaded here: the sub-agent builds a tool set of its own, from the registry that lists this tool.
+      const { runTaskAgent } = await import("@/lib/agents/task");
+      const result = await runTaskAgent({ task: input.task, chatId, runId, modelRef, toolIds, documentCollections, signal, unattended, compactionAllowance,
+        parentToolCallId: toolCallId ?? `subagent-${Date.now()}`, userText: userText ?? [] });
+      return { title: input.title, ...result };
     },
   },
   // Offered only when extension tools are deferred; each request then gives it the deferred tools of that request.

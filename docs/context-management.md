@@ -226,10 +226,11 @@ freed space straight away.
 Where the summary ends, the transcript shows a marker that opens to what it says. The
 turns above it stay readable; the model now sees them as the summary.
 
-### Auxiliary model
+### Internal sub-agent model
 
-**Models → Defaults and call settings → Auxiliary model** picks a chat model for
-work around a turn: summaries, in-stream folds and planning a web search. Unset,
+**Models → Defaults and call settings → Internal sub-agent model** picks a chat model for
+work around a turn: summaries, in-stream folds and planning a web search (see
+[sub-agents](subagents.md)). Unset,
 the model the work is for does it. A chosen model that was removed or whose
 provider has no key falls back the same way, a summary it fails to write is tried
 once on the model the work is for, and removing a model from the library clears the
@@ -277,14 +278,14 @@ Older summary formats remain readable; extending their coverage carries their
 valid state forward while rebuilding from stored evidence. Concurrent history
 edits or newer summary coverage prevent an obsolete write from winning.
 
-With no auxiliary model, a summary straight after a turn or during one sends the
+With no internal sub-agent model, a summary straight after a turn or during one sends the
 conversation exactly as the model just received it, with its system prompt and tool
 definitions, then the writing instructions and the full results of anything shown only
 as excerpts. It therefore reads the prefix from a provider's cache and works from the
 real messages. Its tool definitions cannot run anything. If the conversation has a call
 still waiting for a result, leaves no room, or the model replies with a tool call, the
 summary is written from records instead, as it always is for a person's request and for
-an auxiliary model, which have nothing cached to read.
+an internal sub-agent model, which have nothing cached to read.
 
 Older-turn summaries receive every stored tool call of each message, each in the
 same bounded record form the in-stream compactor uses, which keeps status, exit

@@ -18,6 +18,7 @@ export const toolsMessages = {
   "tools.toolCalling.description": "模型自己判断该用哪个工具，用完带着结果继续回答。",
   "tools.searchKnowledge.hint": "想查什么？",
   "tools.createTask.hint": "要做什么，什么时候？",
+  "tools.runSubagent.hint": "要交给子代理做什么？",
   "tools.webSearch.hint": "想搜索什么？",
   "tools.saveKnowledgeEntry.hint": "写下要保存的内容",
   "tools.readDocument.hint": "想了解什么？",
@@ -46,6 +47,8 @@ export const toolsMessages = {
   "tools.readConversationHistory.displayName": "查看对话原文",
   "tools.readConversationHistory.description": "查找这段对话里被摘要或缩短的原始内容。",
   "tools.createTask.displayName": "创建任务",
+  "tools.runSubagent.displayName": "交给子代理",
+  "tools.runSubagent.description": "把一项需要很多步骤或大量阅读的工作交给子代理：它用全新的上下文和对话的工具去做，做完交回一份报告。需要你批准的操作它不会执行，会写在报告里。",
   "tools.createTask.description": "安排一件让 RiA 到点自己去做的事，可以只做一次，也可以重复。",
 
   // --- webSearch ---------------------------------------------------------
