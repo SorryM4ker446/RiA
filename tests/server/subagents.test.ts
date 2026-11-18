@@ -217,3 +217,16 @@ test("a sub-agent's summaries draw on the turn's compaction allowance", async t 
   assert.ok(folded.status === "done" || /压缩|compact/i.test(folded.error ?? ""), folded.error);
   assert.ok(allowance.remaining < 2, `the sub-agent's folds were counted against the turn (${allowance.remaining} left)`);
 });
+
+test("the checklist stays the main assistant's: handing off says to keep it current, and parallel work is one step", async () => {
+  const { getToolDescriptor } = await import("@/tools/builtins");
+  const subagent = getToolDescriptor("runSubagent")!.modelDescription;
+  assert.match(subagent, /cannot see or update your checklist/);
+  assert.match(subagent, /mark the step in_progress before handing it off, and update the checklist as soon as the report comes back/);
+  // As Claude Code tells its main agent: the report is not the user's to read, and a brief says whether to change anything.
+  assert.match(subagent, /The report comes back to you, not to the user[^.]*: tell the user what it found or did in your answer/);
+  assert.match(subagent, /whether it should change anything \(edit files, run commands that change things\) or only look and report/);
+  const plan = getToolDescriptor("updatePlan")!.modelDescription;
+  assert.match(plan, /Work you hand to several sub-agents at once is one step/);
+  assert.match(plan, /sub-agents cannot update the checklist/);
+});

@@ -26,6 +26,7 @@ export const UPDATE_PLAN_DESCRIPTION = [
   "Show the user a checklist of the work ahead and keep it current, so they can follow progress on work they are waiting for. Whether to use it is your judgement; the test is whether the user would want to see where you are.",
   "Use it when the work will take a while or many tool calls (changes across several files, a build-test-fix loop, an investigation in stages) or when the user gave several separate things to do. Skip it when a few quick actions finish the job, for a single answer or for conversation: there it only adds noise.",
   "Write it before starting; mark a step in_progress just before working on it and completed as soon as it is done. Each call gives the whole list as it stands, with at most one in_progress; add or drop steps as the work changes.",
+  "Work you hand to several sub-agents at once is one step (such as \"check the three services\"), since only one step can be in_progress; sub-agents cannot update the checklist, so you keep it current as their reports come back.",
   "Use it for: \"add validation to the signup form, write tests, run the suite and fix what fails\" (write, test, fix: the user waits through it); \"rename this setting everywhere and update the docs\" (many files); \"summarise each of these three reports\" (several requests).",
   "Skip it for: \"create notes.md with a heading\" (one quick action); \"why does this test fail?\" before any work is decided (an answer).",
 ].join(" ");

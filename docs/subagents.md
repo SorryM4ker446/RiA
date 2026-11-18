@@ -32,6 +32,13 @@ steps or much reading whose details the main answer does not need: researching
 across many documents or pages, examining a large folder, trying several approaches.
 Several calls in one step run at the same time, with no fixed limit.
 
+As in Claude Code, the tool's description also tells the model that the brief should say
+whether the sub-agent may change anything or only look, and that the report comes back to
+the model rather than the user (who sees it only by opening the run record), so the answer
+has to say what it found. The checklist stays the main model's: a sub-agent cannot see or
+update it, the step is marked in progress before handing it off and updated when the report
+comes back, and work handed to several sub-agents at once is one step.
+
 - **Fresh context.** The sub-agent starts with its instructions (including the
   current date and time) and the brief, nothing else. Its context is compacted like
   the main conversation's when it grows, through the internal sub-agent, and those
