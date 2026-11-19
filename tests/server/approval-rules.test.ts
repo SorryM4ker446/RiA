@@ -75,13 +75,13 @@ test("a conversation changes its own rule, which the next call reads; a task's c
   assert.equal(await conversationApprovalRule(null), "ask");
 });
 
-test("one table decides every kind of action: edits, commands, extension calls and writes to RiA's own data", () => {
+test("one table decides every kind of action: edits, commands, extension calls, writes to RiA's own data and paid pictures", () => {
   assert.deepEqual(APPROVAL_RULES.map(rule => [rule, ...APPROVAL_ACTIONS.map(action => approvalFor(rule, action))]), [
-    // rule          edit     command   external  appData
-    ["ask", "ask", "ask", "ask", "ask"],
-    ["acceptEdits", "allow", "ask", "ask", "ask"],
-    ["auto", "allow", "review", "review", "ask"],
-    ["full", "allow", "allow", "allow", "allow"],
+    // rule          edit     command   external  appData  generate
+    ["ask", "ask", "ask", "ask", "ask", "review"],
+    ["acceptEdits", "allow", "ask", "ask", "ask", "review"],
+    ["auto", "allow", "review", "review", "ask", "review"],
+    ["full", "allow", "allow", "allow", "allow", "allow"],
   ]);
 });
 

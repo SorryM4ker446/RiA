@@ -169,3 +169,24 @@ test("expanding a section brings it into view without shifting the content sidew
   expect(await panel.evaluate(node => node.clientWidth)).toBe(before.width);
   await expect(dialog.getByText("读取文档", { exact: true })).toBeInViewport();
 });
+
+test("every section arrives with the same motion, from the side of the list it was chosen from", async ({ page, app }) => {
+  await openWorkspace(page, app.origin);
+  const dialog = await openSettings(page);
+  const panel = dialog.locator(".settings-window-panel[data-state='active']");
+  const page_ = panel.locator(".settings-window-page");
+  // The panel does not fade beneath the page as well: the page is the one motion.
+  await expect(panel).toHaveCSS("animation-name", "none");
+  await dialog.getByRole("tab", { name: "模型", exact: true }).click();
+  await expect(page_).toHaveCSS("animation-name", "settings-page-down");
+  await dialog.getByRole("tab", { name: "应用偏好", exact: true }).click();
+  await expect(page_).toHaveCSS("animation-name", "settings-page-up");
+
+  // Your RiA arrives like the others; its own sideways slide is kept for moving between its screens.
+  await dialog.getByRole("tab", { name: "你的 RiA", exact: true }).click();
+  await expect(page_).toHaveCSS("animation-name", "settings-page-down");
+  const screen = panel.locator(".ria-screen").last();
+  await expect(screen).toHaveCSS("animation-name", "none");
+  await dialog.getByRole("button", { name: "管理", exact: true }).click();
+  await expect(screen).toHaveCSS("animation-name", "ria-forward");
+});

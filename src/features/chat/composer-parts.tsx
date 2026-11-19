@@ -1,18 +1,12 @@
 "use client";
-import { PencilLine, X } from "lucide-react";
+import { FileText, PencilLine, X } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { t, tf } from "@/lib/locale";
 import { useLocale } from "@/lib/locale/client";
 import { Button } from "@/components/ui/button";
-import { DocumentAttachment } from "@/components/chat/document-attachment";
 import { isDocumentAttachment } from "@/lib/media/limits";
 import { attachmentLabel } from "@/features/chat/draft";
 import type { ChatState } from "@/features/chat/use-chat-state";
-
-const REMOVE_BUTTON = [
-  "absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full border border-border bg-background",
-  "text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100",
-].join(" ");
 
 /** Written while the answer was still coming: sent in order once the conversation is free. */
 export function QueuedMessages({ queuedMessages, queueHeldBy, editQueued, removeQueued }: Pick<ChatState, "queuedMessages" | "queueHeldBy" | "editQueued" | "removeQueued">) {
@@ -53,38 +47,40 @@ export function QueuedMessages({ queuedMessages, queueHeldBy, editQueued, remove
  */
 export function ComposerAttachments({ attachments, removeAttachmentAt, isUploadingAttachments }: Pick<ChatState, "attachments" | "removeAttachmentAt" | "isUploadingAttachments">) {
   useLocale();
+  if (!attachments.length && !isUploadingAttachments) return null;
+  /*
+   * One row of tiles the same height, an image as its thumbnail and a document as
+   * its name and type. Each has its own remove in its corner, shown when it is
+   * pointed at or reached by keyboard (always on a touch screen), so the row holds
+   * nothing else; sending takes them all.
+   */
   return (
-    <>
-      {attachments.length > 0 ? (
-        <ul className="flex flex-wrap gap-2 px-3 pt-3" aria-label={t("chat.composer.attachmentListLabel")}>
-          {attachments.map((attachment, index) => isDocumentAttachment(attachment.mediaType) ? (
-            <li className="w-56 max-w-full" key={attachment.url}>
-              <DocumentAttachment {...attachment} onRemove={() => removeAttachmentAt(index)} />
-            </li>
+    <ul className="composer-attachments" aria-label={t("chat.composer.attachmentListLabel")}>
+      {attachments.map((attachment, index) => {
+        const name = attachmentLabel(attachment);
+        const document = isDocumentAttachment(attachment.mediaType);
+        return <li className="composer-attachment group" key={`${attachment.url}-${index}`}>
+          {document ? (
+            <div className="composer-file" title={name}>
+              <FileText aria-hidden="true" className="composer-file-icon" />
+              <span className="composer-file-text">
+                <span className="composer-file-name">{name}</span>
+                <span className="composer-file-type">{attachment.mediaType === "application/pdf" ? "PDF" : "Word"}</span>
+              </span>
+            </div>
           ) : (
-            <li className="group relative" key={`${attachment.url}-${index}`}>
-              {/* eslint-disable-next-line @next/next/no-img-element -- the asset
-                lives behind the local credential, which a next/image loader
-                would fetch without it. */}
-              <img alt={attachmentLabel(attachment)} className="h-14 w-14 rounded-md border border-border object-cover" src={attachment.url} />
-              <button
-                aria-label={t("chat.composer.removeAttachment")}
-                className={REMOVE_BUTTON}
-                onClick={() => removeAttachmentAt(index)}
-                type="button"
-              >
-                <X aria-hidden="true" className="h-3 w-3" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {isUploadingAttachments ? (
-        <p className="flex items-center gap-1.5 px-3 pt-2 text-[11px] text-muted-foreground" role="status">
-          <Spinner aria-hidden="true" className="h-3 w-3" />
-          {t("chat.composer.uploadingAttachment")}
-        </p>
-      ) : null}
-    </>
+            // eslint-disable-next-line @next/next/no-img-element -- the asset lives behind the local credential, which a next/image loader would fetch without it.
+            <img alt={name} title={name} className="composer-thumbnail" src={attachment.url} />
+          )}
+          <button aria-label={document ? tf("ui.chat.document-attachment.removeAttachment", { v0: name }) : t("chat.composer.removeAttachment")} className="composer-attachment-remove" onClick={() => removeAttachmentAt(index)} type="button">
+            <X aria-hidden="true" />
+          </button>
+        </li>;
+      })}
+      {/* An upload under way holds its place in the row rather than adding a line under it. */}
+      {isUploadingAttachments ? <li className="composer-attachment">
+        <p className="composer-file composer-file-pending" role="status"><Spinner aria-hidden="true" className="size-3.5" /><span className="composer-file-name">{t("chat.composer.uploadingAttachment")}</span></p>
+      </li> : null}
+    </ul>
   );
 }

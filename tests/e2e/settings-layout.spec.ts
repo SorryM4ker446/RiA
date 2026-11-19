@@ -63,14 +63,19 @@ test("compact settings preserve unsaved fields across tabs and keep connection o
   await expect(page.getByLabel("出站代理 URL", { exact: true })).toBeHidden();
   await connection.click();
   await page.getByLabel("出站代理 URL", { exact: true }).fill("http://127.0.0.1:7897");
+  const secureDns = page.getByRole("checkbox", { name: "代理虚拟地址回查", exact: true });
+  await expect(secureDns).not.toBeChecked();
+  await expect(secureDns).toHaveAccessibleDescription(/只解析到代理虚拟地址.*Cloudflare.*默认关闭/);
+  await secureDns.check();
   await page.getByRole("tab", { name: "应用偏好", exact: true }).click();
   await expect(page.getByRole("heading", { name: "关闭窗口时", exact: true })).toBeVisible();
   await page.getByRole("tab", { name: "API 密钥", exact: true }).click();
   await expect(key).toHaveValue("local-ui-fixture");
+  await expect(secureDns).toBeChecked();
   await page.getByRole("checkbox", { name: "删除已保存的 OpenRouter 密钥", exact: true }).check();
   await expect(key).toBeDisabled();
   await page.getByRole("button", { name: "保存并重启本地服务", exact: true }).click();
-  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("desktop-settings-input")!))).toMatchObject({ clearOpenrouterApiKey: true, outboundProxyUrl: "http://127.0.0.1:7897", openrouterSiteName: "RiA", deepseekApiKey: "" });
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("desktop-settings-input")!))).toMatchObject({ clearOpenrouterApiKey: true, outboundProxyUrl: "http://127.0.0.1:7897", webFakeIpDoh: true, openrouterSiteName: "RiA", deepseekApiKey: "" });
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 960 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -119,3 +124,62 @@ for (const theme of ["dark", "light"] as const) {
     expect(errors).toEqual([]);
   });
 }
+
+test("choosing to keep running in the tray only saves the choice: the window is not shown again or reloaded", async ({ page, app }) => {
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  await page.addInitScript(() => {
+    const settings = { hasOpenrouterApiKey: true, hasDeepseekApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "", windowBounds: null };
+    const calls: string[] = [];
+    (window as unknown as { bridgeCalls: string[] }).bridgeCalls = calls;
+    // Showing the window again is what made it flash; it is kept here only so such a call would be seen.
+    Object.defineProperty(window, "riaDesktop", { value: {
+      showFromTray: async () => { calls.push("showFromTray"); return { shown: true }; },
+      getSettings: async () => { calls.push("getSettings"); return settings; },
+      getRuntimeInfo: async () => { calls.push("getRuntimeInfo"); return { appVersion: "0.1.22", packaged: false, dataDirectory: "fixture/data", mediaDirectory: "fixture/media", logFile: "fixture/log" }; },
+      saveSettings: async (input: { closeBehaviour?: "quit" | "tray" }) => { calls.push("saveSettings"); if (input.closeBehaviour) settings.closeBehaviour = input.closeBehaviour; return { settings, restarting: false }; },
+    } });
+  });
+  await openWorkspace(page, app.origin);
+  await page.goto(`${app.origin}/chat?settings=application`);
+  await page.evaluate(() => { (window as unknown as { sameDocument: boolean }).sameDocument = true; });
+  const choice = page.getByRole("radio", { name: "继续在托盘运行", exact: true });
+  await choice.click();
+  await expect(choice).toBeChecked();
+  const calls = await page.evaluate(() => (window as unknown as { bridgeCalls: string[] }).bridgeCalls);
+  expect(calls.filter(name => name === "saveSettings")).toHaveLength(1);
+  expect(calls.slice(calls.lastIndexOf("saveSettings") + 1)).toEqual([]);
+  expect(await page.evaluate(() => (window as unknown as { sameDocument?: boolean }).sameDocument)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test("diagnostics copy where the data, cache and log really are; the API keys page no longer lists paths", async ({ page, app }) => {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.addInitScript(() => {
+    const settings = { hasOpenrouterApiKey: true, hasDeepseekApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "", windowBounds: null };
+    (window as unknown as { logsOpened: number }).logsOpened = 0;
+    Object.defineProperty(window, "riaDesktop", { value: {
+      getSettings: async () => settings,
+      getRuntimeInfo: async () => ({ appVersion: "0.1.22", packaged: true, platform: "win32", dataDirectory: "E:\RiA-Data", dataMoved: true, cacheDirectory: "E:\RiA-Cache", cacheSeparate: true, logFile: "E:\RiA-Data\logs\desktop.log", notificationsSupported: true }),
+      saveSettings: async () => ({ settings, restarting: false }),
+      openLogsFolder: async () => { (window as unknown as { logsOpened: number }).logsOpened++; return { opened: true }; },
+    } });
+  });
+  await openWorkspace(page, app.origin);
+  await page.goto(`${app.origin}/chat?settings=services`);
+  const dialog = page.getByRole("dialog");
+  // The disclosure is titled once; its contents no longer repeat the title or list paths.
+  await expect(dialog.locator("summary").filter({ hasText: "本地安全" })).toHaveCount(1);
+  await expect(dialog.getByRole("heading", { name: "本地安全" })).toHaveCount(0);
+  await expect(dialog).not.toContainText("媒体目录");
+  await expect(dialog).not.toContainText("数据目录");
+  await dialog.getByRole("tab", { name: "应用偏好", exact: true }).click();
+  const section = dialog.getByRole("region", { name: "诊断" }).or(dialog.locator(".settings-section").filter({ hasText: "诊断" })).first();
+  await expect(section).toBeVisible();
+  await section.getByRole("button", { name: "打开日志文件夹", exact: true }).click();
+  expect(await page.evaluate(() => (window as unknown as { logsOpened: number }).logsOpened)).toBe(1);
+  await section.getByRole("button", { name: "复制诊断信息", exact: true }).click();
+  await expect(page.getByText("诊断信息已复制", { exact: true })).toBeVisible();
+  // The system clipboard on Windows hands lines back with CRLF.
+  const copied = (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, "\n");
+  expect(copied).toBe(["RiA 0.1.22 · 安装版 · win32", "数据：E:\RiA-Data（已从默认位置移出）", "缓存：E:\RiA-Cache（单独位置）", "日志：E:\RiA-Data\logs\desktop.log"].join("\n"));
+});

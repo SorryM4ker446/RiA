@@ -2,6 +2,7 @@ import { t } from "@/lib/locale";
 import { dedupeAttachmentNames, encodeImageMessage, encodeVideoMessage, type ModelMode, type UploadableFilePart } from "@/features/chat/page-utils";
 import { encodePersistedUserMessage } from "@/lib/ai/ui-message";
 import { attachmentValidationError, MEDIA_LIMITS } from "@/lib/media/limits";
+import { assetIdFromUrl } from "@/lib/media/message-codec";
 import type { UIMessage } from "ai";
 import type { ModelRef } from "@/lib/models/preferences-schema";
 import type { Dispatch, RefObject, SetStateAction } from "react";
@@ -201,15 +202,12 @@ export async function runMediaGeneration({ kind, model, content, uploadParts, ge
 /**
  * What the composer still holds once the turn that was just sent is finished.
  *
- * Only the references that were sent are removed. A media turn takes long enough
- * for the user to attach something else while it runs — the composer stays
- * usable throughout — and clearing everything would throw that away without a
- * word. A reference is identified by the asset it points at, so re-picking the
- * same picture yields a new one and is kept.
+ * Remove the draft parts that were sent, keeping anything added while the
+ * generation was running. A new part can point to the same stored asset.
  */
 export function remainingAttachments(current: UploadableFilePart[], sent: UploadableFilePart[]) {
-  const sentUrls = new Set(sent.map((part) => part.url));
-  return current.filter((part) => !sentUrls.has(part.url));
+  const sentParts = new Set(sent);
+  return current.filter((part) => !sentParts.has(part));
 }
 
 export function useMediaGeneration({ session, activeChatId, isConversationReady, isHistoryReady, setMessages, reloadMessages, ensureActiveChatId, loadChats, setPageError, modelMode, selectedImageModel, selectedVideoModel, textareaRef }: Options) {
@@ -270,19 +268,37 @@ export function useMediaGeneration({ session, activeChatId, isConversationReady,
     });
   }
   async function onReuseImageForEditing(params: { imageUrl: string; key: string; filenameBase: string }) {
+    if (!isConversationReady) return;
+    const lock = uploadLockRef.current;
+    if (lock.busy) { setPageError(t("ui.chat.use-media-generation.attachmentsAreProcessingWaitBeforeAdding")); return; }
+    const stored = assetIdFromUrl(params.imageUrl) !== null;
     const version = viewVersionRef.current;
+    const isOriginView = () => version === viewVersionRef.current && viewRef.current.session === session && modeRef.current === modelMode;
+    if (stored) {
+      lock.begin();
+      setIsUploadingAttachments(true);
+    }
     setPageError(null);
     setAttachingImageKey(params.key);
     try {
-      const blob = await chatApi.readImage(params.imageUrl);
-      if (version !== viewVersionRef.current) return;
-      const mediaType = blob.type.startsWith("image/") ? blob.type : "image/png";
+      const blob = stored ? null : await chatApi.readImage(params.imageUrl);
+      const mediaType = blob ? (blob.type.startsWith("image/") ? blob.type : "image/png") : await chatApi.readStoredImageType(params.imageUrl);
+      if (!isOriginView()) return;
       const extension = mediaType.includes("jpeg") ? "jpg" : mediaType.includes("webp") ? "webp" : mediaType.includes("gif") ? "gif" : "png";
-      appendAttachments([new File([blob], `${params.filenameBase}.${extension}`, { type: mediaType, lastModified: Date.now() })]);
-      textareaRef.current?.focus();
+      const filename = `${params.filenameBase}.${extension}`;
+      if (blob) {
+        await appendAttachments([new File([blob], filename, { type: mediaType })]);
+      } else {
+        const count = session.getSnapshot().draft.attachments.length;
+        if (modelMode === "video" && count >= 1) { setPageError(t("mediaGen.videoReferenceLimit")); return; }
+        if (count >= MEDIA_LIMITS.attachmentCount) { setPageError(t("lib.media.tooManyAttachments")); return; }
+        setAttachmentsOf(session, current => [...current, { type: "file", url: params.imageUrl, mediaType, filename }]);
+      }
+      if (isOriginView()) textareaRef.current?.focus();
     } catch (error) {
-      if (version === viewVersionRef.current) setPageError(error instanceof Error ? error.message : t("mediaGen.attachImageFailed"));
+      if (isOriginView()) setPageError(error instanceof Error ? error.message : t("mediaGen.attachImageFailed"));
     } finally {
+      if (stored && lock.end()) setIsUploadingAttachments(false);
       setAttachingImageKey((current) => current === params.key ? null : current);
     }
   }

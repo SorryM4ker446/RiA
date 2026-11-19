@@ -19,6 +19,9 @@ const forceStandalone = !development && !packaged;
  * whole smoke run on the moved data through the junction left at the fixed path.
  */
 const dataMove = process.argv.includes("--data-move");
+// The same for a cache folder move, which start-up runs after the data is settled.
+const cacheMove = process.argv.includes("--cache-move");
+if (dataMove && cacheMove) throw new Error("Only one move can wait for a start; choose --data-move or --cache-move");
 if (installed && !process.env.DESKTOP_INSTALL_DIR) {
   throw new Error("Set DESKTOP_INSTALL_DIR to the directory chosen in the MSI installer");
 }
@@ -64,15 +67,47 @@ function runtimeCacheWrites() {
 // Every mode opens its data at <user data>/data, which is testRoot/data here.
 const dataRoot = join(testRoot, "data");
 const movedData = join(testRoot, "moved-data");
-if (dataMove) {
+const movedCache = join(testRoot, "moved-cache");
+if (dataMove || cacheMove) {
   const compiled = createRequire(import.meta.url);
   const { runDesktopMigrations } = compiled(join(repositoryRoot, "electron-dist", "migrations.js"));
-  const { requestDataMove } = compiled(join(repositoryRoot, "electron-dist", "data-location.js"));
+  const { requestDataMove, requestCacheMove } = compiled(join(repositoryRoot, "electron-dist", "data-location.js"));
   mkdirSync(join(dataRoot, "backups"), { recursive: true });
   const silent = { info() {}, warn() {}, error() {} };
   runDesktopMigrations({ databaseFile: join(dataRoot, "app.db"), migrationsDirectory: join(repositoryRoot, "src", "db", "migrations"), backupsDirectory: join(dataRoot, "backups"), logger: silent });
-  await requestDataMove({ dataRoot, target: movedData, databaseFileName: "app.db" });
+  if (dataMove) await requestDataMove({ dataRoot, target: movedData, databaseFileName: "app.db" });
+  else await requestCacheMove({ dataRoot, target: movedCache });
 }
+
+function verifyCacheMove() {
+  const state = JSON.parse(readFileSync(`${dataRoot}.location.json`, "utf8"));
+  if (state.pendingCache !== null || state.lastResult?.kind !== "cache" || state.lastResult.outcome !== "moved") throw new Error(`The cache folder move did not finish: ${JSON.stringify(state.lastResult)}`);
+  if (resolve(state.cache?.path ?? "") !== resolve(movedCache)) throw new Error(`The cache folder was not switched: ${JSON.stringify(state.cache)}`);
+  const paths = reportedPaths();
+  if (!paths.cacheSeparate || !samePlace(paths.cacheDirectory, movedCache)) throw new Error(`The diagnostics did not report the moved cache folder: ${JSON.stringify(paths)}`);
+}
+
+/*
+ * A clean exit is not a passed run: the application also exits 0 when it quits
+ * on its own partway through start-up. Only the smoke run's own last line says
+ * every check ran.
+ */
+function verifySmokeCompleted() {
+  const log = join(dataRoot, "logs", "desktop.log");
+  if (!existsSync(log) || !readFileSync(log, "utf8").includes("Desktop Electron smoke test passed")) {
+    throw new Error("The application exited before the smoke checks finished");
+  }
+}
+
+/** The paths the diagnostics report, as the smoke run logged them. */
+function reportedPaths() {
+  const log = readFileSync(join(dataRoot, "logs", "desktop.log"), "utf8");
+  const marker = "Desktop runtime paths ";
+  const line = log.split(/\r?\n/).findLast(entry => entry.includes(marker));
+  if (!line) throw new Error("The smoke run did not log the runtime paths");
+  return JSON.parse(line.slice(line.indexOf(marker) + marker.length));
+}
+const samePlace = (a, b) => resolve(a).toLowerCase() === resolve(b).toLowerCase();
 
 function verifyDataMove() {
   if (!lstatSync(dataRoot).isSymbolicLink()) throw new Error("The data folder was not replaced by a junction");
@@ -82,6 +117,9 @@ function verifyDataMove() {
     if (!existsSync(path)) throw new Error(`The moved data folder is missing ${path}`);
   }
   if (!state.previousCopies.some(copy => existsSync(join(copy.path, "app.db")))) throw new Error("The folder the data moved from was not kept");
+  // The diagnostics name where the data now is, not the link left at the fixed path.
+  const paths = reportedPaths();
+  if (!paths.dataMoved || !samePlace(paths.dataDirectory, movedData)) throw new Error(`The diagnostics did not report the moved data folder: ${JSON.stringify(paths)}`);
 }
 
 const child = spawn(
@@ -127,12 +165,15 @@ child.on("exit", (code, signal) => {
     console.error(`The service wrote ${cacheWrites.length} cache file(s) into its runtime directory, e.g. ${cacheWrites[0]}`);
     process.exitCode = 1;
   } else if (code === 0 && !timedOut) {
-    if (dataMove) {
-      try { verifyDataMove(); } catch (error) {
-        console.error(`${error instanceof Error ? error.message : String(error)}. Diagnostics: ${testRoot}`);
-        process.exitCode = 1;
-        return;
-      }
+    try {
+      verifySmokeCompleted();
+      if (dataMove) verifyDataMove();
+      if (cacheMove) verifyCacheMove();
+    } catch (error) {
+      console.error(`${error instanceof Error ? error.message : String(error)}. Diagnostics: ${testRoot}`);
+      printDesktopSmokeDiagnostics(testRoot);
+      process.exitCode = 1;
+      return;
     }
     if (resolve(dirname(testRoot)) !== expectedParent) {
       throw new Error(`Refusing to clean unexpected smoke-test directory: ${testRoot}`);

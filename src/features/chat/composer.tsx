@@ -87,7 +87,6 @@ type Props = Pick<
   | "onComposerDragOver"
   | "onComposerDragLeave"
   | "onComposerDrop"
-  | "clearAttachments"
   | "removeAttachmentAt"
   | "attachmentNames"
   | "activeChat"
@@ -145,7 +144,6 @@ export function Composer({
   onComposerDragOver,
   onComposerDragLeave,
   onComposerDrop,
-  clearAttachments,
   removeAttachmentAt,
   attachmentNames,
   activeChat,
@@ -265,7 +263,7 @@ export function Composer({
         open={menu.open} notice={menu.notice} items={menu.items} activeIndex={menu.activeIndex} query={menu.query} listId={menu.listId}
         onActivate={menu.setActiveIndex} onSelect={menu.select} onDismiss={menu.dismiss}
         anchor={
-      <div className="composer-surface">
+      <div className="composer-surface" data-attachments={attachments.length > 0 || undefined}>
         <div className="composer-body">
           <div className="composer-field">
             {choiceWords.length ? <ComposerChoices ref={choicesRef} words={choiceWords} /> : null}
@@ -434,18 +432,10 @@ export function Composer({
             /> : null}
             {modelMode === "chat" && !isConvertTool ? <ContextUsage messages={messages} freedTokens={freedByCompaction} /> : null}
 
-            {/* Visible hint stays exactly as before; this second, hidden node
-              exists only so a screen reader hears the attachment state in the
-              interface language instead of the browser's own wording. */}
-            {attachmentNames.length > 0 ? (
-              <span className="truncate text-[11px] text-muted-foreground">
-                {attachmentNames.join(t("chat.composer.attachmentSeparator"))}
-              </span>
-            ) : (
-              <span className="sr-only">
-                {t("chat.composer.pasteHint")}
-              </span>
-            )}
+            {/* The attachments show as thumbnails above, each named and removable there, so this row
+              keeps to the controls; these hidden nodes let a screen reader hear the attachment state in
+              the interface language instead of the browser's own wording. */}
+            {attachmentNames.length === 0 ? <span className="sr-only">{t("chat.composer.pasteHint")}</span> : null}
             <span aria-live="polite" className="sr-only">
               {attachmentNames.length > 0
                 ? tf("chat.composer.attachmentsSelected", {
@@ -456,18 +446,6 @@ export function Composer({
                   })
                 : ""}
             </span>
-            {attachments.length > 0 ? (
-              <Button
-                onClick={clearAttachments}
-                size="sm"
-                type="button"
-                variant="ghost"
-              >
-                {tf("chat.composer.clearAttachments", {
-                  count: attachments.length,
-                })}
-              </Button>
-            ) : null}
           </div>
 
           {/* Stopping replaces sending while a turn is running. The label says

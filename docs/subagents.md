@@ -6,7 +6,7 @@ the caller's stop, and cost recording. Their contracts are opposite.
 
 | | Internal sub-agents | Task sub-agents |
 | --- | --- | --- |
-| Started by | RiA itself, around a turn | The model, with the `runSubagent` tool |
+| Started by | RiA itself, around a turn | The model, with the `runSubagent` tool, when it judges the work suits one; the composer does not offer it |
 | Work | Approval review under Auto, context and task summaries, long-term memory, planning a web search | Any self-contained piece of work the model hands off |
 | Model | The internal sub-agent model, or the model the work is for | The conversation's model |
 | Tools | None | The conversation's tools, with a few exceptions (below) |
@@ -46,7 +46,8 @@ comes back, and work handed to several sub-agents at once is one step.
   answer and any other sub-agents of the turn.
 - **Tools.** The conversation's tools, within its assistant template, except
   `askUser`, `createTask`, `readWorkspaceActivity`, `updatePlan`, `extractMemory`,
-  `readConversationHistory` and `runSubagent` itself. Extension tools loaded on demand
+  `readConversationHistory`, `generateImage` (a picture belongs in the conversation the user reads),
+  `runSubagent` itself and `checkSubagents`. Extension tools loaded on demand
   work as in the main conversation.
 - **Approval.** What runs follows the conversation's approval rule (see
   [terminal tools](terminal-tools.md#approval-rules)). An action the rule would ask
@@ -56,21 +57,75 @@ comes back, and work handed to several sub-agents at once is one step.
   never the brief: the brief is the model's text and cannot authorize anything. The
   same holds for every tool that checks what the user asked for.
 - **No step cap.** As for the main turn, it runs until the work is done; stopping
-  the turn stops every sub-agent it started. Its commands are attended when the turn
+  any turn of the conversation stops every sub-agent of the conversation, foreground
+  and background, also when the stop comes while that turn is still starting. Its commands are attended when the turn
   is (a person can stop it), so they get no unattended time limit; a sub-agent in a
   scheduled task's turn gets that limit, as the task's own commands do.
-- **Result.** `{ title, status, report, notRun, toolCalls }`; `status` is `failed`
-  with `error` when the provider fails, which the main answer can report.
+- **Result.** `{ id, title, status, report, notRun, toolCalls }`; `status` is `failed`
+  with `error` when the provider fails, which the main answer can report, and `stopped`
+  when the user stopped it from its card (the turn then carries on without the report).
 - **Records and cost.** Its tool calls are steps of the turn's run, recorded under
   the call that started it (`agent_steps.parentToolCallId`); the execution record
   shows them inside the sub-agent's entry, with its report and the actions it did not
   run. Its model calls appear in usage under **Sub-agents** and are added to the
   turn's cost.
 
+## Foreground and background
+
+By default the step that calls `runSubagent` waits for the report. With `background: true`
+the call answers at once with the sub-agent's `id` and the turn goes on, as Claude Code's
+`run_in_background` does. The tool's description says which suits what: waiting when the
+result is needed to go on, the background when there is other work meanwhile or the user
+should not wait.
+
+Whether to start one is the model's judgement, not a keyword match. The description gives
+the test (work that can be written up as a brief, and is either heavy enough to crowd the
+model's context or something the user wants done apart: split up, side by side, out of the
+way) with worked examples of both kinds, in the manner of the checklist tool. A user who wants
+work handed off is understood without saying "sub-agent"; a user asking what sub-agents are
+is answered, not handed a sub-agent. The real-model eval scores both
+(`subagent-by-intent`, `subagent-question-is-not-a-request`).
+
+Every sub-agent has a record in `subagent_runs` (status, report, actions not run, whether
+the model has been given the report), kept by the registry in `src/lib/agents/subagents.ts`.
+A background report reaches the model by itself, once:
+
+- **During the turn.** Before each step, reports of background sub-agents that have
+  ended are taken and sent as an automatic notice, marked as not coming from the user;
+  the turn keeps it for its remaining steps. A later turn reads it again with
+  `checkSubagents`, by id; it is not written into the conversation's history.
+- **After the turn.** A report that ends while the conversation is idle wakes it
+  (`src/lib/agents/subagent-continuation.ts`): a turn starts whose message is that
+  notice, saved with a `notice` marker so the conversation shows a line ("sub-agent X
+  ended; RiA carries on") rather than a message from the user. A report that comes
+  while a turn runs is taken by its next step, or wakes the conversation when that turn
+  ends. Nothing is woken while the conversation waits for an approval (the report goes
+  with the next request), after a turn the user stopped, or for a sub-agent that was
+  stopped or interrupted; those are told at the next chance. A woken turn ends with the
+  usual completion alert; in a task's conversation it runs as the task's would.
+- **On demand.** `checkSubagents` lists the conversation's sub-agents with their status,
+  run time and current tool, and with an id gives one report. The model need not poll.
+
+A sub-agent still marked running when the service starts again was cut off by the restart:
+it reads as **interrupted** and is not run again. A task's run counts as done only once its
+background sub-agents have ended and the turns their reports woke have answered; stopping
+the task stops them.
+
+In the conversation each sub-agent is a card in the answer that started it: the title, a
+**Background** tag, how long it has run and which tool it is using, a stop of its own, and
+its report folded under it once it ends. The card follows the service's `subagent` events
+on `/api/conversations/events`; `GET /api/conversations/[id]/subagents` lists them and
+`POST /api/conversations/[id]/subagents/[subagentId]/stop` stops one.
+
 ## Testing
 
 `tests/server/subagents.test.ts` covers the tools offered, actions not run under Ask
 and run under Full access, nesting and cost, parallel runs, stopping, provider
 failures, the internal runner's fallback and deadline, the unattended time limit
-only in scheduled turns, and summaries counted against the turn's allowance. `tests/e2e/subagents.spec.ts`
-checks the execution record through the offline model (`OFFLINE_SUBAGENT`).
+only in scheduled turns, summaries counted against the turn's allowance, and in the
+background: the id handed back at once with the report joining the next step, a late
+report waking the conversation with a notice, stopping one from its card and all of
+them with a turn, interrupted ones after a restart, and a task waiting for them.
+`tests/e2e/subagents.spec.ts` checks the card, the execution record and the background
+flow through the offline model (`OFFLINE_SUBAGENT`, `OFFLINE_SUBAGENT_BG`), and that a
+notice shows as a line.

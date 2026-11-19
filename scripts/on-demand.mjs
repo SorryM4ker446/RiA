@@ -7,7 +7,7 @@
 // `real` takes the provider and model to use and an API key for each run;
 // nothing about a provider is kept in the repository:
 //
-//   npm run test:real -- --provider deepseek --model deepseek-flash [--max-usd 0.05] [playwright arguments]
+//   npm run test:real -- --provider deepseek --model deepseek-flash [--image-model <id>] [--max-usd 0.05] [playwright arguments]
 //
 // The key is read from RIA_REAL_API_KEY when it is set, and otherwise asked for
 // without being shown. It is handed only to the isolated service each scenario
@@ -60,15 +60,17 @@ if (suite === "real") {
   const provider = takeOption(rest, "provider") ?? process.env.RIA_REAL_PROVIDER;
   const model = takeOption(rest, "model") ?? process.env.RIA_REAL_MODEL;
   const maxUsd = takeOption(rest, "max-usd") ?? process.env.RIA_REAL_MAX_USD ?? "0.05";
+  // Optional: an image model of the same provider, for the scenarios that make pictures.
+  const imageModel = takeOption(rest, "image-model") ?? process.env.RIA_REAL_IMAGE_MODEL ?? "";
   if (!provider || !PROVIDERS.includes(provider) || !model) {
-    console.error(`Usage: npm run test:real -- --provider ${PROVIDERS.join("|")} --model <model id> [--max-usd 0.05] [playwright arguments]`);
+    console.error(`Usage: npm run test:real -- --provider ${PROVIDERS.join("|")} --model <model id> [--image-model <model id>] [--max-usd 0.05] [playwright arguments]`);
     process.exit(2);
   }
   if (!(Number(maxUsd) > 0)) { console.error("--max-usd must be a positive amount in US dollars."); process.exit(2); }
   const key = process.env.RIA_REAL_API_KEY?.trim() || (await askHidden(`API key for ${provider} (not shown, not saved): `)).trim();
   if (!key) { console.error("No API key given."); process.exit(2); }
-  console.log(`Real-model scenarios with ${provider} / ${model}, stopping once more than $${maxUsd} is spent.`);
-  Object.assign(env, { RIA_REAL_PROVIDER: provider, RIA_REAL_MODEL: model, RIA_REAL_MAX_USD: maxUsd, RIA_REAL_API_KEY: key });
+  console.log(`Real-model scenarios with ${provider} / ${model}${imageModel ? ` (pictures: ${imageModel})` : ""}, stopping once more than $${maxUsd} is spent.`);
+  Object.assign(env, { RIA_REAL_PROVIDER: provider, RIA_REAL_MODEL: model, RIA_REAL_IMAGE_MODEL: imageModel, RIA_REAL_MAX_USD: maxUsd, RIA_REAL_API_KEY: key });
   // One at a time: the spending cap is counted as the scenarios run.
   if (!rest.some(arg => arg.startsWith("--workers"))) rest.push("--workers=1");
 }

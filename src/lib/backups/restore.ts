@@ -53,7 +53,8 @@ export async function restoreAccountBackup(id: string) {
     function transform(value: unknown, field = ""): unknown {
       if (typeof value === "string") {
         if (field === "snippet") return value;
-        if (["id", "assistantTemplateId", "templateId", "assetId", "inputAssetId", "chatId", "sourceChatId", "messageId", "documentId", "chunkId"].includes(field)) return mapped(value);
+        // A picture made in chat names its file (mediaId) and the pictures it was built on (referenceImages).
+        if (["id", "assistantTemplateId", "templateId", "assetId", "inputAssetId", "chatId", "sourceChatId", "messageId", "documentId", "chunkId", "mediaId", "referenceImages"].includes(field)) return mapped(value);
         if (["url", "videoUrl"].includes(field)) return documentLinks(value.replace(/^\/api\/media\/([a-f0-9-]{36})$/, (_match, id) => `/api/media/${mapped(id)}`));
         return documentLinks(value);
       }
@@ -119,7 +120,7 @@ export async function restoreAccountBackup(id: string) {
       for (let i = 0; i < tags.length; i += 500) await tx.chatTag.createMany({ data: tags.slice(i, i + 500) });
       const messages = manifest.chats.flatMap(chat => chat.messages.map(message => ({ ...message, id: mapped(message.id), chatId: mapped(message.chatId), clientMessageId: null, content: content(message.content), status: message.status === "pending" ? "error" as const : message.status })));
       for (let i = 0; i < messages.length; i += 250) await tx.message.createMany({ data: messages.slice(i, i + 250) });
-      const assets = manifest.assets.map((asset, index) => ({ ...staged[index], modelId: asset.modelId, modelProvider: asset.modelProvider ?? null, description: asset.description, generation: asset.generation ? JSON.parse(JSON.stringify(transform(asset.generation))) as Prisma.InputJsonValue : Prisma.DbNull, sourceChatId: asset.sourceChatId ? mapped(asset.sourceChatId) : null, createdAt: asset.createdAt, lastUsedAt: asset.lastUsedAt }));
+      const assets = manifest.assets.map((asset, index) => ({ ...staged[index], contentHash: /^[a-f0-9]{64}$/.test(asset.sha256) ? asset.sha256 : null, modelId: asset.modelId, modelProvider: asset.modelProvider ?? null, description: asset.description, generation: asset.generation ? JSON.parse(JSON.stringify(transform(asset.generation))) as Prisma.InputJsonValue : Prisma.DbNull, sourceChatId: asset.sourceChatId ? mapped(asset.sourceChatId) : null, createdAt: asset.createdAt, lastUsedAt: asset.lastUsedAt }));
       for (let i = 0; i < assets.length; i += 250) await tx.mediaAsset.createMany({ data: assets.slice(i, i + 250) });
       const references = manifest.assets.flatMap(asset => asset.references.map(ref => ({ messageId: mapped(ref.messageId), assetId: mapped(ref.assetId) })));
       for (let i = 0; i < references.length; i += 500) await tx.messageMedia.createMany({ data: references.slice(i, i + 500) });

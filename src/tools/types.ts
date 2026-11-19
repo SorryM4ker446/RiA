@@ -19,6 +19,8 @@ type ToolExecutionContext<Input> = {
   usesMemory?: boolean;
   /** The turn belongs to a run nobody is watching (a scheduled task), so nobody can stop what a tool starts. */
   unattended?: boolean;
+  /** The turn started on a schedule, including a resumed approval. */
+  scheduled?: boolean;
   /** The user's own words in the conversation (or, for a tool the user ran by hand, its input): what the user asked for, as opposed to what a tool returned. */
   userText?: readonly string[];
   /** The reason the user's approval of this call carried: for a question, the answer. */
@@ -65,7 +67,7 @@ type ToolMemoryContext<Input, Output> = {
 };
 
 /** Where a tool sits when people browse or choose tools. */
-export type ToolCategory = "knowledge" | "web" | "workspace" | "tasks" | "agents" | "context" | "extension";
+export type ToolCategory = "knowledge" | "web" | "workspace" | "tasks" | "agents" | "media" | "context" | "extension";
 
 /**
  * Who can reach a tool, stated once. Every list of tools is derived from this:
@@ -158,6 +160,8 @@ export type ToolDescriptor<Input = unknown, Output = unknown> = {
    */
   buildUnavailableOutput?: (context: { input: unknown; reason: ToolSkipReason; error: unknown }) => Output;
   execute: (context: ToolExecutionContext<Input>) => Promise<Output>;
+  /** Projects the stored result for the model, including images when supported. */
+  modelOutput?: (output: Output, supportsImageInput: boolean) => Promise<import("ai").ToolResultPart["output"]>;
 };
 
 export type AnyToolDescriptor = ToolDescriptor<any, any>;

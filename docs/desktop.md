@@ -79,6 +79,8 @@ Open **Settings** from the bottom of the sidebar; it opens over the current page
 
 Saving settings restarts the local Next.js service so that server-only environment variables are refreshed. The desktop app uses only the provider keys and outbound proxy saved in Settings, in development as well: a value left empty there stays empty for the service and is not taken from the project's `.env`, so what Settings shows is what the service actually uses. `.env` values apply to the browser loop (`npm run dev`) only. Plaintext API keys are not written to SQLite, normal logs, the standalone runtime, or the installer.
 
+Under **API keys → Connection and site options**, **Look up proxy virtual addresses** is off by default. When enabled, a web read whose system DNS returns only fake IPs asks Cloudflare for the hostname's IP addresses. Web reads honor the same outbound HTTP(S) proxy and `NO_PROXY` settings. [Reading web pages](web-search-budget-and-quality.md#reading-a-page)
+
 Extension credentials use authenticated encryption in SQLite with a separate,
 stable encryption key protected by Electron `safeStorage`. Only the local service
 receives that key; the renderer receives configured status. A lost or inaccessible

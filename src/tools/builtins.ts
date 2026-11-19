@@ -7,7 +7,8 @@ import { ApiError } from "@/lib/server/api-error";
 import { getChatModel } from "@/lib/ai/client";
 import { t, tf } from "@/lib/locale";
 import { bindEntryReplacement, saveApprovedEntry, saveKnowledgeEntryFields, saveKnowledgeEntryModelFields, type SaveKnowledgeEntryToolInput } from "@/lib/knowledge/entry-approval";
-import { preferredModel, getModelPreferences } from "@/lib/models/preferences";
+import { preferredModel, getModelPreferences, modelInLibrary } from "@/lib/models/preferences";
+import { getModelProvider } from "@/lib/models/providers";
 import { runInternalAgent } from "@/lib/agents/internal";
 import type { ModelRef } from "@/lib/models/preferences-schema";
 import { createTask, createTaskInputSchema } from "@/tools/definitions/create-task";
@@ -19,7 +20,8 @@ import { READ_WEB_PAGE_DESCRIPTION, readWebPageInput, runReadWebPage } from "@/t
 import { UPDATE_PLAN_DESCRIPTION, planProgress, updatePlanInput } from "@/tools/definitions/update-plan";
 import { ASK_USER_DESCRIPTION, askUserInput, readAnswer } from "@/tools/definitions/ask-user";
 import { FIND_EXTENSION_TOOLS_DESCRIPTION, findExtensionTools, findExtensionToolsInput } from "@/tools/definitions/find-extension-tools";
-import { RUN_SUBAGENT_DESCRIPTION, runSubagentInput } from "@/tools/definitions/run-subagent";
+import { CHECK_SUBAGENTS_DESCRIPTION, RUN_SUBAGENT_DESCRIPTION, checkSubagentsInput, runSubagentInput } from "@/tools/definitions/run-subagent";
+import { GENERATE_IMAGE_DESCRIPTION, generateImageInput, generateImageModelFields, generatedImageForModel, runGenerateImage, type GenerateImageInput } from "@/tools/definitions/generate-image";
 import { planToolLoading } from "@/tools/deferred";
 import { approvalGate } from "./approval";
 import { documentProcessorTools } from "@/tools/definitions/document-processor";
@@ -85,7 +87,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     displayName: t("tools.saveKnowledgeEntry.displayName"),
     description: t("tools.saveKnowledgeEntry.description"),
     modelDescription:
-      "Add one entry to the user's knowledge base, where searchKnowledge can find it later, or change one. Use it when the user asks to save or add something to the knowledge base, such as a reference, a definition, a procedure or a fact to look up later, or to correct an entry. To change an entry, use its exact key as searchKnowledge shows it (the result's title): saving under an existing key replaces that entry's text, and the user sees the text being replaced before approving. A new key adds a new entry. Do not use it for notes about the user or how they want you to work, for passing information, or for anything the user did not ask you to save. Unless the conversation has full access, the user approves the entry before it is saved.",
+      "Add one entry to the user's knowledge base, where searchKnowledge finds it later, or change one. Whether to use it is your judgement; the test is whether the user wants this kept as reference material that they or you will look up again. Use it for: \"save our VPN setup steps to the knowledge base\" (a procedure to look up); \"keep this: the SLA is 99.9% a month\" (a fact to keep); \"the OA address entry is out of date, it is oa2.example.com now\" (correcting an entry). Skip it for: \"I am a nurse\" or \"keep answers short\" (about the user or how to work: that is extractMemory); a figure from a page you just read that the user did not ask to keep; anything that matters only to this task. To change an entry, use its exact key as searchKnowledge shows it (the result's title): saving under an existing key replaces that entry's text, and a new key adds a new entry. Unless the conversation has full access, the user sees the entry, and any text it replaces, and approves it before it is saved.",
     modeSupport: ["chat"],
     surface: { category: "knowledge", user: { run: "model", hint: t("tools.saveKnowledgeEntry.hint") }, template: "selectable" },
     inputSchema: saveKnowledgeEntryFields,
@@ -108,7 +110,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     displayName: t("tools.searchKnowledge.displayName"),
     description: t("tools.searchKnowledge.description"),
     modelDescription:
-      "Search the knowledge base: imported documents and saved knowledge entries; returns citable results. Nothing from the knowledge base reaches you unless you search, so use it whenever the answer may depend on what the user has imported or saved. Do not use it for general knowledge, opinions, or anything answerable without the workspace.",
+      "Search the user's knowledge base, their imported documents and saved entries, for citable passages. Nothing from it reaches you unless you search. Whether to use it is your judgement; the test is whether the answer may depend on something the user has imported or saved: their organisation's rules, their projects, their notes, a document they mention. Use it for: \"how many days do I have to file travel expenses?\" (a rule of theirs); \"what did the Q3 review say about churn?\" (their document); \"what is the OA login address?\" (a saved entry). Skip it for: \"explain photosynthesis in one sentence\" (general knowledge); opinions, or writing help that needs nothing of theirs. Search again with other words when the first results miss. Cite the passages you use, and say so when nothing relevant was found rather than answering as if it had been.",
     modeSupport: ["chat"],
     surface: { category: "knowledge", user: { run: "model", hint: t("tools.searchKnowledge.hint") }, template: "selectable" },
     inputSchema: searchKnowledgeInputSchema,
@@ -119,7 +121,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     displayName: t("tools.createTask.displayName"),
     description: t("tools.createTask.description"),
     modelDescription:
-      "Schedule something for you to do later, on your own, at a time the user names. The task runs in its own conversation, which starts without anything said here, so write prompt as a complete instruction with everything the run needs. A task that repeats takes cron, five fields read in timeZone (minute hour day-of-month month day-of-week), for example \"0 9 * * 1-5\" for 09:00 on weekdays; a task that runs once takes runAt, a local date and time written YYYY-MM-DDTHH:mm, such as 2030-01-31T09:30. Give exactly one of the two. Work out a relative time such as tomorrow from the current date and time in the request context, and use the time zone given there unless the user names another. A reminder is a task too: its prompt is to tell the user what they asked to be reminded of. Use it only when the user wants something done or said at a later time or on a schedule. Do not use it for something you can do now, and never create a task the user did not ask for.",
+      "Schedule something for you to do later, on your own, at a time the user names; a reminder is a task whose prompt is to tell the user what they asked to be reminded of. Whether to use it is your judgement; the test is whether the user wants something done or said at a later time or on a schedule, rather than now. Use it for: \"remind me at 3 tomorrow to call the bank\" (said later); \"every weekday at 9, summarise my unread mail\" (a schedule); \"on Friday morning, check the release page and tell me what changed\" (done later). Skip it for: \"summarise this now\" (you can do it now); a schedule the user only mentions, such as \"we meet every Monday\", without asking for anything to happen then. Never create a task the user did not ask for. The task runs in its own conversation, which starts without anything said here, so write prompt as a complete instruction with everything the run needs. A task that repeats takes cron, five fields read in timeZone (minute hour day-of-month month day-of-week), for example \"0 9 * * 1-5\" for 09:00 on weekdays; a task that runs once takes runAt, a local date and time written YYYY-MM-DDTHH:mm, such as 2030-01-31T09:30. Give exactly one of the two. Work out a relative time such as tomorrow from the current date and time in the request context, and use the time zone given there unless the user names another. Unless the conversation has full access, the user approves the task before it is created.",
     modeSupport: ["chat"],
     ...approvalGate("appData"),
     surface: { category: "tasks", user: { run: "model", hint: t("tools.createTask.hint") }, template: "selectable" },
@@ -130,7 +132,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     id: "readWorkspaceActivity",
     displayName: t("tools.readWorkspaceActivity.displayName"),
     description: t("tools.readWorkspaceActivity.description"),
-    modelDescription: "Read what was recorded as changing in the user's workspace over the last complete day or the last complete week: counts of documents imported and updated and of memories confirmed, with the recorded items. Use it when asked to review or summarise recent activity. The result says whether the record covers the whole period; when it does not, say so rather than treating the counts as totals. It records only those kinds of change, not conversations.",
+    modelDescription: "Read what changed in the user's workspace over the last complete day or the last complete week: documents imported and updated and memories confirmed, with the recorded items. Use it to review or summarise recent activity. It records only those kinds of change, not conversations. The result says whether the record covers the whole period; when it does not, say so rather than treating the counts as totals.",
     modeSupport: ["chat"],
     surface: { category: "tasks", user: null, template: { follows: "createTask" }, underlying: "model" },
     inputSchema: z.strictObject({
@@ -182,15 +184,46 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     description: t("tools.runSubagent.description"),
     modelDescription: RUN_SUBAGENT_DESCRIPTION,
     modeSupport: ["chat"],
-    surface: { category: "agents", user: { run: "model", hint: t("tools.runSubagent.hint") }, template: "selectable" },
+    // Only the model calls it: a person who wants work handed off says so, and the model decides how to split it.
+    surface: { category: "agents", user: null, template: "selectable" },
     inputSchema: runSubagentInput,
     execute: async ({ input, chatId, runId, modelRef, toolIds, documentCollections, signal, toolCallId, userText, unattended, compactionAllowance }) => {
       if (!modelRef) throw new ApiError({ code: "CONFIGURATION_ERROR", message: t("server.subagent.noModel") });
+      if (!chatId) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.subagent.noConversation") });
       // Loaded here: the sub-agent builds a tool set of its own, from the registry that lists this tool.
-      const { runTaskAgent } = await import("@/lib/agents/task");
-      const result = await runTaskAgent({ task: input.task, chatId, runId, modelRef, toolIds, documentCollections, signal, unattended, compactionAllowance,
-        parentToolCallId: toolCallId ?? `subagent-${Date.now()}`, userText: userText ?? [] });
-      return { title: input.title, ...result };
+      const { startSubagent } = await import("@/lib/agents/subagents");
+      const { watchSubagentReports } = await import("@/lib/agents/subagent-continuation");
+      watchSubagentReports();
+      const background = input.background === true;
+      const started = await startSubagent({ task: input.task, title: input.title, background, chatId, runId, modelRef, toolIds, documentCollections, unattended, compactionAllowance,
+        turnSignal: signal, parentToolCallId: toolCallId ?? `subagent-${Date.now()}`, userText: userText ?? [] });
+      if (background) return { id: started.id, title: input.title, background: true, status: "running" as const,
+        note: "Running in the background. Its report reaches you by itself when it ends; do not wait or poll for it." };
+      const outcome = await started.outcome;
+      // The turn was stopped: the step ends with it, as any other tool's would.
+      signal?.throwIfAborted();
+      return { id: started.id, title: input.title, ...outcome, ...(outcome.status === "stopped" ? { note: "The user stopped this sub-agent before it finished. Carry on without its report." } : {}) };
+    },
+  },
+  checkSubagents: {
+    id: "checkSubagents",
+    displayName: t("tools.checkSubagents.displayName"),
+    description: t("tools.checkSubagents.description"),
+    modelDescription: CHECK_SUBAGENTS_DESCRIPTION,
+    modeSupport: ["chat"],
+    surface: { category: "agents", user: null, template: { follows: "runSubagent" }, underlying: "model" },
+    inputSchema: checkSubagentsInput,
+    execute: async ({ input, chatId }) => {
+      if (!chatId) return { subagents: [] };
+      const { listSubagents, readSubagent } = await import("@/lib/agents/subagents");
+      const seconds = (view: { startedAt: string; finishedAt: string | null }) => Math.round(((view.finishedAt ? Date.parse(view.finishedAt) : Date.now()) - Date.parse(view.startedAt)) / 1000);
+      if (input.id) {
+        const view = await readSubagent(chatId, input.id, { deliver: true });
+        if (!view) throw new ApiError({ code: "NOT_FOUND", message: t("server.subagent.notFound") });
+        return { id: view.id, title: view.title, status: view.status, background: view.background, seconds: seconds(view), currentStep: view.currentStep, toolCalls: view.toolCalls,
+          ...(view.status === "running" ? {} : { report: view.report, notRun: view.notRun, error: view.error }) };
+      }
+      return { subagents: (await listSubagents(chatId)).map(view => ({ id: view.id, title: view.title, status: view.status, background: view.background, seconds: seconds(view), currentStep: view.currentStep })) };
     },
   },
   // Offered only when extension tools are deferred; each request then gives it the deferred tools of that request.
@@ -232,7 +265,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     displayName: t("tools.webSearch.displayName"),
     description: t("tools.webSearch.description"),
     modelDescription:
-      "Retrieve external information through web search. Choose maxResults yourself according to the question's complexity and breadth; there is no RiA per-turn result quota. Provider per-request limits still apply (DeepSeek Search: 50, OpenRouter: 25). Search again with focused queries if more evidence is needed. Use it when the answer depends on facts outside this workspace: current events, external facts, web sources, links, or anything the user expects to be looked up. Do not use it for questions you can answer from general knowledge, and prefer the knowledge base when the answer is already stored there.",
+      "Search the web for current or external information, with sources you can cite. Whether to use it is your judgement; the test is whether the answer depends on facts outside what you know and outside the user's workspace, or on something that may have changed since you learned it. Use it for: \"what did the city announce about the metro today?\" (current events); \"what is the latest version of Node.js?\" (may have changed); \"find the official docs for this API\" (a source to look up). Skip it for: \"explain how a TCP handshake works\" (general knowledge); \"what is our travel reimbursement deadline?\" (the user's own material: searchKnowledge). Choose maxResults yourself by the question's complexity and breadth; there is no RiA per-turn quota, but provider limits apply (DeepSeek Search: 50, OpenRouter: 25). Search again with focused queries when the evidence is thin, and read a page with readWebPage when a snippet is not enough. Cite the sources you use.",
     modeSupport: ["chat"],
     surface: { category: "web", user: { run: "model", hint: t("tools.webSearch.hint") }, template: "selectable" },
     inputSchema: webSearchInput,
@@ -279,6 +312,34 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       return answer;
     },
   },
+  generateImage: {
+    id: "generateImage",
+    displayName: t("tools.generateImage.displayName"),
+    description: t("tools.generateImage.description"),
+    modelDescription: GENERATE_IMAGE_DESCRIPTION,
+    modeSupport: ["chat"],
+    // Only the model calls it: it writes the description from the conversation. A prompt
+    // already written goes through the image mode instead.
+    surface: { category: "media", user: null, template: "selectable" },
+    inputSchema: generateImageInput,
+    // The model is shown the fields it writes; a stored call with the review's verdict still validates.
+    modelInputSchema: jsonSchema<GenerateImageInput>(() => zodSchema(generateImageModelFields).jsonSchema, { validate: async value => {
+      const parsed = generateImageInput.safeParse(value);
+      return parsed.success ? { success: true, value: parsed.data } : { success: false, error: parsed.error };
+    } }),
+    // A picture costs money. It runs when the user's own latest message asks for it, or
+    // under full access; one the model decides on by itself waits for the user.
+    ...approvalGate("generate"),
+    reviewAction: input => ({ kind: "image", prompt: input.prompt, referenceImages: input.referenceImages ?? [], ...(input.aspectRatio ? { aspectRatio: input.aspectRatio } : {}) }),
+    buildUnavailableOutput: ({ reason, error }) => ({
+      skipped: reason,
+      note: reason === "notConfigured" ? "No picture was made. Tell the user to choose a default image model in Settings → Models."
+        : reason === "temporarilyUnavailable" && error instanceof ApiError ? `No picture was made. ${error.message}`
+          : "No picture was made.",
+    }),
+    execute: async ({ input, chatId, signal, scheduled }) => runGenerateImage(input, { chatId, signal, background: scheduled }),
+    modelOutput: generatedImageForModel,
+  },
   readWebPage: {
     id: "readWebPage",
     displayName: t("tools.readWebPage.displayName"),
@@ -311,6 +372,12 @@ export async function builtinToolAvailability(toolId: string, modelRef?: ModelRe
   if (toolId === "readPluginSkill") {
     // Any active skill can be loaded on demand, so the prompt only needs its index.
     return (await activeSkillPackages()).length ? { available: true, reason: null, configEntry: null } : { available: false, reason: "disabled", configEntry: settingsHref("extensions") };
+  }
+  if (toolId === "generateImage") {
+    // The default image model, as the image mode uses it, from a provider with a key.
+    const ref = (await getModelPreferences()).image.model;
+    const ready = Boolean(ref && await modelInLibrary("image", ref) && getModelProvider(ref.providerId).isConfigured());
+    return ready ? { available: true, reason: null, configEntry: null } : { available: false, reason: "notConfigured", configEntry: settingsHref("models") };
   }
   if (toolId === "webSearch" && !searchConfigured(modelRef)) {
     // The reason a tool is missing comes with where to fix it, so the interface

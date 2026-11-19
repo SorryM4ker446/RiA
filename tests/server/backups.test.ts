@@ -87,6 +87,28 @@ test("portable backup restores PDF and Word chat attachment bytes and message re
   assert.ok(JSON.stringify(materialized).includes("备份还原后保留附件正文。"));
 });
 
+test("a picture made in chat keeps pointing at its own file after a restore, as do the pictures it was built on", async () => {
+  const { encodePersistedAssistantToolMessage, decodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
+  const chat = await db.chat.create({ data: { title: "Pictures" } });
+  const reference = await storage.createMediaAsset({ bytes: testPng, mediaType: "image/png", kind: "attachment" });
+  const made = await storage.createMediaAsset({ bytes: Buffer.concat([testPng, Buffer.from("made")]), mediaType: "image/png", kind: "generated-image", sourceChatId: chat.id,
+    generation: { version: 1, type: "image", modelId: "google/gemini-2.5-flash-image", prompt: "Night", inputImages: [{ assetId: reference.id, mediaType: "image/png" }], aspectRatio: "16:9" } });
+  const input = { prompt: "Night", referenceImages: [reference.id], aspectRatio: "16:9" };
+  await saveChatMessage({ chatId: chat.id, role: "assistant", content: encodePersistedAssistantToolMessage({ type: "assistant-tool-message", text: "Here it is.", tools: [{ toolName: "generateImage", toolCallId: "draw", state: "output-available", input,
+    output: { mediaId: made.id, mediaType: "image/png", model: "google/gemini-2.5-flash-image", prompt: "Night", referenceImages: [reference.id], aspectRatio: "16:9", note: "shown" } }] }) });
+  const backup = await exclusiveDataOperation(() => archive.createAccountBackup(false));
+  await exclusiveDataOperation(() => restoreAccountBackup(backup.id));
+  const message = await db.message.findFirstOrThrow({ where: { role: "assistant" } });
+  const call = decodePersistedAssistantToolMessage(message.content)!.tools[0] as { input: typeof input; output: { mediaId: string; referenceImages: string[] } };
+  assert.notEqual(call.output.mediaId, made.id, "ids are new after a restore");
+  const restoredMade = await storage.getMediaAsset(call.output.mediaId);
+  assert.deepEqual(await storage.readMediaAsset(restoredMade), Buffer.concat([testPng, Buffer.from("made")]));
+  assert.equal(await db.messageMedia.count({ where: { messageId: message.id, assetId: restoredMade.id } }), 1, "the answer still refers to its picture");
+  const restoredReference = await storage.getMediaAsset(call.output.referenceImages[0]);
+  assert.deepEqual(call.input.referenceImages, [restoredReference.id]);
+  assert.deepEqual((restoredMade.generation as { inputImages: { assetId: string }[] }).inputImages.map(image => image.assetId), [restoredReference.id]);
+});
+
 test("portable restore retains machine-local extensions but disables them and invalidates old approvals", async () => {
   const id = randomUUID();
   const { encryptCredentials } = await import("@/lib/extensions/secrets");

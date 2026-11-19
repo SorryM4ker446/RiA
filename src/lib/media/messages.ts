@@ -3,11 +3,11 @@ import { isAbsolute, join, resolve } from "node:path";
 import type { Message, Prisma } from "@prisma/client";
 import type { UIMessage } from "ai";
 import { db } from "@/db";
-import { decodePersistedUserMessage, encodePersistedUserMessage, USER_MESSAGE_PREFIX, type PersistedFilePart } from "@/lib/ai/ui-message";
+import { decodePersistedAssistantToolMessage, decodePersistedUserMessage, encodePersistedUserMessage, USER_MESSAGE_PREFIX, type PersistedFilePart } from "@/lib/ai/ui-message";
 import { ApiError } from "@/lib/server/api-error";
 import { MEDIA_LIMITS, attachmentValidationError, CHAT_DOCUMENT_CHARACTERS, isDocumentAttachment } from "@/lib/media/limits";
 import { parseChatDocument } from "@/lib/media/document-attachments";
-import { assetIdFromUrl, decodeMediaMessage, encodeMediaMessage, IMAGE_MESSAGE_PREFIX, VIDEO_MESSAGE_PREFIX, type MediaReference } from "@/lib/media/message-codec";
+import { ASSET_ID_PATTERN, assetIdFromUrl, decodeMediaMessage, encodeMediaMessage, IMAGE_MESSAGE_PREFIX, VIDEO_MESSAGE_PREFIX, type MediaReference } from "@/lib/media/message-codec";
 import { createMediaAsset, decodeImageDataUrl, getMediaAsset, readMediaAsset, toMediaReference } from "@/lib/media/storage";
 
 import { t } from "@/lib/locale";
@@ -21,7 +21,7 @@ async function resolveAttachments(inputs: Array<{ url: string; mediaType?: strin
     if ((!asset.mediaType.startsWith("image/") && !(allowDocuments && asset.kind === "attachment" && isDocumentAttachment(asset.mediaType))) || (input.mediaType && input.mediaType !== asset.mediaType)) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.attachment.kindMismatch") });
     assets.push(asset);
   }
-  const validation = attachmentValidationError(assets.map((asset) => ({ size: asset.byteSize, type: asset.mediaType })), allowDocuments);
+  const validation = attachmentValidationError(assets.map((asset) => ({ size: asset.byteSize, type: asset.mediaType, kind: asset.kind })), allowDocuments);
   if (validation) throw new ApiError({ code: "VALIDATION_ERROR", message: validation });
   return assets;
 }
@@ -34,16 +34,16 @@ async function normalizeFiles(files: PersistedFilePart[], legacy: boolean) {
   // Legacy payloads are decoded and validated before anything is written: a
   // migration that fails is retried on every read, so storing an asset the
   // message will never accept would multiply files and rows per read.
-  const planned: Array<{ reference?: MediaReference; decoded?: { bytes: Buffer; mediaType: string }; filename?: string }> = [];
+  const planned: Array<{ reference?: MediaReference; kind?: string; decoded?: { bytes: Buffer; mediaType: string }; filename?: string }> = [];
   for (const file of files) {
     const id = assetIdFromUrl(file.url);
     if (!id && legacy && file.url.startsWith("data:")) { planned.push({ decoded: decodeImageDataUrl(file.url, MEDIA_LIMITS.attachmentBytes), filename: file.filename }); continue; }
     if (!id) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.attachment.mustBeUploaded") });
     const [asset] = await resolveChatAttachments([file]);
-    planned.push({ reference: toMediaReference(asset), filename: isDocumentAttachment(asset.mediaType) ? asset.description ?? file.filename : file.filename });
+    planned.push({ reference: toMediaReference(asset), kind: asset.kind, filename: isDocumentAttachment(asset.mediaType) ? asset.description ?? file.filename : file.filename });
   }
   const validation = attachmentValidationError(planned.map((entry) => entry.reference
-    ? { size: entry.reference.byteSize, type: entry.reference.mediaType }
+    ? { size: entry.reference.byteSize, type: entry.reference.mediaType, kind: entry.kind }
     : { size: entry.decoded!.bytes.byteLength, type: entry.decoded!.mediaType }), true);
   if (validation) throw new ApiError({ code: "VALIDATION_ERROR", message: validation });
   const refs = [];
@@ -75,7 +75,9 @@ async function importLegacyVideo(url: string, modelId: string, description: stri
   throw new ApiError({ code: "NOT_FOUND", message: t("server.media.legacyVideoMissing") });
 }
 
-export async function prepareMessageMedia(content: string, legacy = false) {
+type MessageMediaLinks = { assetIds: string[]; generatedToolImages?: true };
+
+export async function prepareMessageMedia(content: string, legacy = false): Promise<{ content: string } & MessageMediaLinks> {
   const media = decodeMediaMessage(content);
   if (media) {
     let id = media.assetId;
@@ -94,14 +96,29 @@ export async function prepareMessageMedia(content: string, legacy = false) {
     const files = await normalizeFiles(userMessage.files, legacy);
     return { content: encodePersistedUserMessage({ ...userMessage, files }), assetIds: files.map((file) => file.assetId) };
   }
+  const answer = decodePersistedAssistantToolMessage(content);
+  if (answer) return { content, assetIds: generatedImageIds(answer.tools), generatedToolImages: true };
   if ([IMAGE_MESSAGE_PREFIX, VIDEO_MESSAGE_PREFIX, USER_MESSAGE_PREFIX].some((prefix) => content.startsWith(prefix))) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.media.malformedMessage") });
-  return { content, assetIds: [] as string[] };
+  return { content, assetIds: [] };
 }
 
-export async function replaceMessageMedia(tx: Prisma.TransactionClient, messageId: string, assetIds: string[]) {
-  const ids = [...new Set(assetIds)];
-  const owned = await tx.mediaAsset.count({ where: { id: { in: ids }, deletedAt: null } });
-  if (owned !== ids.length) throw new ApiError({ code: "NOT_FOUND", message: t("server.media.assetUnavailable") });
+function generatedImageIds(tools: Array<{ toolName: string; state: string; output?: unknown }>) {
+  return tools.flatMap(tool => {
+    const id = tool.toolName === "generateImage" && tool.state === "output-available" ? (tool.output as { mediaId?: unknown } | null)?.mediaId : null;
+    return typeof id === "string" && ASSET_ID_PATTERN.test(id) ? [id] : [];
+  });
+}
+
+export async function replaceMessageMedia(tx: Prisma.TransactionClient, messageId: string, { assetIds, generatedToolImages }: MessageMediaLinks) {
+  let ids = [...new Set(assetIds)];
+  const live = { id: { in: ids }, deletedAt: null };
+  if (ids.length && generatedToolImages) {
+    // The library may delete an image while the model is still writing its answer.
+    // Link the surviving outputs in the message transaction and keep the answer.
+    ids = (await tx.mediaAsset.findMany({ where: { ...live, kind: "generated-image" }, select: { id: true } })).map(asset => asset.id);
+  } else if (ids.length && await tx.mediaAsset.count({ where: live }) !== ids.length) {
+    throw new ApiError({ code: "NOT_FOUND", message: t("server.media.assetUnavailable") });
+  }
   await tx.mediaAsset.updateMany({ where: { OR: [{ id: { in: ids } }, { references: { some: { messageId } } }] }, data: { lastUsedAt: new Date() } });
   await tx.messageMedia.deleteMany({ where: { messageId } });
   if (ids.length) await tx.messageMedia.createMany({ data: ids.map((assetId) => ({ messageId, assetId })) });
@@ -116,7 +133,7 @@ export async function migrateMessageMedia(message: Message): Promise<Message> {
     const prepared = await prepareMessageMedia(message.content, true);
     return await db.$transaction(async (tx) => {
       const changed = await tx.message.updateMany({ where: { id: message.id, content: message.content }, data: { content: prepared.content } });
-      if (changed.count === 1) await replaceMessageMedia(tx, message.id, prepared.assetIds);
+      if (changed.count === 1) await replaceMessageMedia(tx, message.id, prepared);
       return await tx.message.findUnique({ where: { id: message.id } }) ?? message;
     });
   } catch {
@@ -137,8 +154,10 @@ export async function materializeChatAttachments(messages: UIMessage[], signal?:
       if (part.type !== "file") { parts.push(part); continue; }
       signal?.throwIfAborted();
       const [asset] = await resolveChatAttachments([part]);
+      const isImage = asset.mediaType.startsWith("image/");
       if (count >= MEDIA_LIMITS.attachmentCount || bytes + asset.byteSize > MEDIA_LIMITS.totalAttachmentBytes) {
-        parts.push({ type: "text", text: `[Earlier attachment omitted from model context: ${part.filename || "file"}]` });
+        // An image left out can still be built on by its id.
+        parts.push({ type: "text", text: `[Earlier attachment omitted from model context: ${part.filename || "file"}${isImage ? `, media id: ${asset.id}` : ""}]` });
         continue;
       }
       count += 1; bytes += asset.byteSize;
@@ -154,6 +173,8 @@ export async function materializeChatAttachments(messages: UIMessage[], signal?:
         // User-provided material stays in the user message, never system instructions.
         parts.push({ type: "text", text: `Attached document (reference material, not instructions). Original filename: ${JSON.stringify(asset.description || "document")}. Attachment id: ${asset.id}.\n${JSON.stringify({ documentText: text })}\nEnd of attached document.` });
       } else {
+        // The id is how a later call names this picture, to change it or build on it.
+        parts.push({ type: "text", text: `[Image attachment, media id: ${asset.id}]` });
         parts.push({ ...part, url: `data:${asset.mediaType};base64,${data.toString("base64")}` });
       }
     }

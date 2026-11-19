@@ -20,6 +20,8 @@ export function resetProviderState() {
   providerState.embeddingCalls.length = 0;
 }
 export const testPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=", "base64");
+/** A PNG whose bytes differ from every other `n`: the same image with a marker after its end. Attaching the same bytes twice reuses one asset. */
+export const distinctPng = (n: number) => Buffer.concat([testPng, Buffer.from(`#${n}`)]);
 export const testVideo = Buffer.from([0, 0, 0, 24, 102, 116, 121, 112, 105, 115, 111, 109, 0, 0, 0, 0, 105, 115, 111, 109]);
 /** The prompt rendered as plain text, so an echoed answer is readable. */
 function promptText(prompt: unknown): string {

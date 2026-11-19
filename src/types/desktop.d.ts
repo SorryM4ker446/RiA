@@ -3,6 +3,7 @@ type DesktopSettingsView = {
   hasOpenrouterApiKey: boolean;
   hasDeepseekApiKey: boolean;
   outboundProxyUrl: string;
+  webFakeIpDoh: boolean;
   openrouterSiteName: string;
   openrouterHttpReferer: string;
   encryptionAvailable: boolean;
@@ -63,8 +64,12 @@ type DesktopRuntimeInfo = {
   appVersion: string;
   packaged: boolean;
   platform: string;
+  /** Where the data really is, links resolved; and whether it was moved from its default place. */
   dataDirectory: string;
-  mediaDirectory: string;
+  dataMoved: boolean;
+  cacheDirectory: string;
+  /** The cache lives in a folder of its own rather than in the data folder. */
+  cacheSeparate: boolean;
   logFile: string;
   notificationsSupported: boolean;
 };
@@ -76,6 +81,7 @@ type DesktopSettingsInput = {
   clearOpenrouterApiKey?: boolean;
   clearDeepseekApiKey?: boolean;
   outboundProxyUrl?: string;
+  webFakeIpDoh?: boolean;
   openrouterSiteName?: string;
   openrouterHttpReferer?: string;
   closeBehaviour?: "quit" | "tray";
@@ -92,6 +98,7 @@ interface Window {
       present: (token: string) => Promise<boolean>;
     };
     getRuntimeInfo: () => Promise<DesktopRuntimeInfo>;
+    openLogsFolder: () => Promise<{ opened: boolean }>;
     getSettings: () => Promise<DesktopSettingsView>;
     saveSettings: (
       input: DesktopSettingsInput,
@@ -99,7 +106,6 @@ interface Window {
     chooseFolder: () => Promise<{ canceled: boolean; path: string }>;
     revealPath: (target: string) => Promise<{ revealed: boolean }>;
     openFile: (target: string) => Promise<{ opened: boolean }>;
-    showFromTray: () => Promise<{ shown: boolean }>;
     onNavigate?: (listener: (path: string) => void) => () => void;
     globalHotkey: string;
     setGlobalHotkey: (

@@ -94,18 +94,51 @@ export async function createMediaAsset(input: {
 }) {
   const generation = input.generation ? generationRecipeSchema.parse(input.generation) : undefined;
   const inputIds = [...new Set(generation?.inputImages.map(image => image.assetId) ?? [])];
+  const contentHash = hashBytes(input.bytes);
+  // Attaching what the library already holds (an image generated here, one attached before) reuses
+  // that asset: one file, however many messages refer to it. A generated output is always new.
+  if (input.kind === "attachment") {
+    const same = await findSameContent(input.bytes, input.mediaType, contentHash);
+    if (same) return same;
+  }
   const staged = await stageMediaFile(input);
   return db.$transaction(async tx => {
     if (await tx.mediaAsset.count({ where: { id: { in: inputIds }, deletedAt: null } }) !== inputIds.length) throw pathError();
     const source = input.sourceChatId ? await tx.chat.findFirst({ where: { id: input.sourceChatId }, select: { id: true } }) : null;
     await tx.mediaAsset.updateMany({ where: { id: { in: inputIds } }, data: { lastUsedAt: new Date() } });
     return tx.mediaAsset.create({ data: {
-      ...staged,
+      ...staged, contentHash,
       modelId: input.modelId?.slice(0, 200), modelProvider: input.modelProvider, description: input.description?.slice(0, 4000),
       ...(generation ? { generation, inputs: { create: inputIds.map(inputAssetId => ({ inputAssetId })) } } : {}),
       sourceChatId: source?.id,
     } });
   });
+}
+
+const hashBytes = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+
+/**
+ * A live asset with exactly these bytes, or null. Candidates are those of the
+ * same type and size; one stored before hashes were kept is hashed from its file
+ * the first time it is compared, and keeps the hash. The bytes are compared as
+ * well, so a hash alone never makes two files one.
+ */
+async function findSameContent(bytes: Uint8Array, mediaType: string, contentHash: string): Promise<MediaAsset | null> {
+  const candidates = await db.mediaAsset.findMany({
+    where: { deletedAt: null, mediaType, byteSize: bytes.byteLength, OR: [{ contentHash }, { contentHash: null }] },
+    orderBy: [{ contentHash: "desc" }, { createdAt: "asc" }], take: 20,
+  });
+  for (const candidate of candidates) {
+    let stored: Buffer;
+    try { stored = await readMediaAsset(candidate); } catch { continue; }
+    const hash = candidate.contentHash ?? hashBytes(stored);
+    if (!candidate.contentHash) await db.mediaAsset.updateMany({ where: { id: candidate.id, contentHash: null }, data: { contentHash: hash } }).catch(() => {});
+    if (hash !== contentHash || !stored.equals(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength))) continue;
+    // Attached again: it is in use, so the library's cleanup leaves it for now.
+    const used = await db.mediaAsset.updateMany({ where: { id: candidate.id, deletedAt: null }, data: { lastUsedAt: new Date() } });
+    if (used.count) return { ...candidate, contentHash: hash, lastUsedAt: new Date() };
+  }
+  return null;
 }
 
 // A complete, unreferenced file can be staged before an atomic metadata restore.

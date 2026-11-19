@@ -58,7 +58,9 @@ async function turn(page: Page, real: RealModel, chatId: string) {
   const answer = last.startsWith(marker) ? (JSON.parse(last.slice(marker.length)) as { text?: string }).text ?? "" : last;
   const runs = await browserData(page, `${real.origin}/api/conversations/${chatId}/runs?limit=20`) as Run[];
   const steps = runs.flatMap(run => run.steps).filter(step => step.toolName);
-  return { answer, steps, tools: steps.map(step => step.toolName!) };
+  // A call still waiting for the user's approval has no step yet; the saved answer holds it.
+  const pending = last.startsWith(marker) ? ((JSON.parse(last.slice(marker.length)) as { tools?: { toolName: string; state: string }[] }).tools ?? []).filter(tool => tool.state === "approval-requested").map(tool => tool.toolName) : [];
+  return { answer, steps, tools: [...steps.map(step => step.toolName!), ...pending] };
 }
 
 async function measured(page: Page, real: RealModel, work: () => Promise<Omit<Outcome, "costUsd" | "requests">>) {
@@ -493,3 +495,164 @@ test("checklist with sub-agents: kept by the main assistant around the hand-off,
     });
   }
 });
+
+/** Until the conversation's sub-agents have ended and any turn their reports woke has answered. */
+async function settled(page: Page, real: RealModel, chatId: string) {
+  await expect.poll(async () => {
+    const list = await browserData(page, `${real.origin}/api/conversations/${chatId}/subagents`) as { status: string }[];
+    const answering = (await browserData(page, `${real.origin}/api/conversations/${chatId}`) as { answering: boolean }).answering;
+    return !answering && list.every(item => item.status !== "running");
+  }, { timeout: 300_000, intervals: [2_000] }).toBe(true);
+}
+
+test("sub-agents by intent: wanting work handed off starts one without the word being said; asking about sub-agents does not @real @eval", async ({ page, real }) => {
+  for (let run = 1; run <= REPEATS; run++) {
+    await measured(page, real, async () => {
+      const { chatId, folder, cleanup } = await workspace(page, real, `意图-交出去 ${run}`);
+      try {
+        const codes = serviceLogs(folder);
+        // Never says "sub-agent": it asks for the digging to happen out of the way while the conversation goes on.
+        await ask(page, real, chatId, "工作区里三个服务的日志很长，彻底排查每个服务最严重的错误这种体力活别占着你，找人去做就行，我们先接着聊：BILL 这个前缀一般代表什么？排查有结果了再告诉我。");
+        await settled(page, real, chatId);
+        const { steps, tools } = await turn(page, real, chatId);
+        const messages = await browserData(page, `${real.origin}/api/conversations/${chatId}/messages`) as { role: string; content: string }[];
+        const answers = messages.filter(message => message.role === "assistant").map(message => message.content).join("\n");
+        // The run record keeps only the type of a boolean input, so whether it went to the background is read from the sub-agents' own records.
+        const records = await browserData(page, `${real.origin}/api/conversations/${chatId}/subagents`) as { background: boolean }[];
+        const checks = { subagents: steps.filter(step => step.toolName === "runSubagent").length, background: records.filter(item => item.background).length, found: codes.filter(code => answers.includes(code)).length };
+        return { scenario: "subagent-by-intent", run, pass: checks.subagents > 0, checks, tools, answer: answers };
+      } finally { cleanup(); }
+    });
+    await measured(page, real, async () => {
+      const chatId = await newChat(page, real, `意图-只是问问 ${run}`);
+      await ask(page, real, chatId, "RiA 里的子代理是什么？什么时候适合用它？");
+      const { answer, tools } = await turn(page, real, chatId);
+      const checks = { subagents: tools.filter(name => name === "runSubagent").length, answered: answer.length > 20 };
+      return { scenario: "subagent-question-is-not-a-request", run, pass: checks.subagents === 0 && checks.answered, checks, tools, answer };
+    });
+  }
+});
+
+test("tasks and knowledge entries: each used for what the user wants kept or done later, not for what merely sounds like it @real @eval", async ({ page, real }) => {
+  for (let run = 1; run <= REPEATS; run++) {
+    await measured(page, real, async () => {
+      const chatId = await newChat(page, real, `任务-以后 ${run}`);
+      await ask(page, real, chatId, "明天上午九点提醒我给银行打电话，问一下信用卡年费的事。");
+      const { answer, tools } = await turn(page, real, chatId);
+      const checks = { task: tools.includes("createTask") };
+      return { scenario: "task-for-later", run, pass: checks.task, checks, tools, answer };
+    });
+    await measured(page, real, async () => {
+      const chatId = await newChat(page, real, `任务-现在 ${run}`);
+      // Mentions a weekly schedule, but asks for something now.
+      await ask(page, real, chatId, "我们团队每周一上午开例会，帮我写一份例会议程模板。");
+      const { answer, tools } = await turn(page, real, chatId);
+      const checks = { task: tools.includes("createTask"), answered: answer.length > 40 };
+      return { scenario: "task-not-for-now", run, pass: !checks.task && checks.answered, checks, tools, answer };
+    });
+    await measured(page, real, async () => {
+      const chatId = await newChat(page, real, `知识条目 ${run}`);
+      await ask(page, real, chatId, "把这个存进知识库：公司 VPN 服务器地址是 vpn.example.com，端口 443，用工号登录。");
+      const { answer, tools } = await turn(page, real, chatId);
+      const checks = { entry: tools.includes("saveKnowledgeEntry"), memory: tools.includes("extractMemory") };
+      return { scenario: "entry-when-asked", run, pass: checks.entry && !checks.memory, checks, tools, answer };
+    });
+    await measured(page, real, async () => {
+      const chatId = await newChat(page, real, `偏好不是条目 ${run}`);
+      await ask(page, real, chatId, "我做财务的，以后跟我说话直接给结论，别绕弯子。今天先帮我算一下 1200 的 13% 是多少。");
+      const { answer, tools } = await turn(page, real, chatId);
+      const checks = { entry: tools.includes("saveKnowledgeEntry"), memory: tools.includes("extractMemory"), answered: /156/.test(answer) };
+      return { scenario: "preference-not-entry", run, pass: !checks.entry && checks.memory && checks.answered, checks, tools, answer };
+    });
+  }
+});
+
+type PictureCall = { state: string; input?: { prompt?: string; referenceImages?: string[]; aspectRatio?: string; autoReview?: { decision?: string } }; output?: { mediaId?: string; skipped?: string } };
+type PictureUsage = { id: string; mode: string; status: string; modelId: string; costSource: string; costUsd: number | null };
+
+async function pictureUsage(page: Page, real: RealModel): Promise<PictureUsage[]> {
+  return ((await browserData(page, `${real.origin}/api/usage?source=media`)) as { recent: PictureUsage[] }).recent;
+}
+
+/** The generateImage calls of the latest answer, as saved: their inputs and results whole. */
+async function pictureCalls(page: Page, real: RealModel, chatId: string): Promise<PictureCall[]> {
+  const messages = await browserData(page, `${real.origin}/api/conversations/${chatId}/messages`) as { role: string; content: string }[];
+  const last = messages.filter(message => message.role === "assistant").at(-1)?.content ?? "";
+  return (decodePersistedAssistantToolMessage(last)?.tools ?? []).filter(tool => tool.toolName === "generateImage") as PictureCall[];
+}
+
+/*
+ * Pictures in chat (needs `--image-model`). Under the default Ask rule, a picture
+ * the user asks for is reviewed and made at once; asked to change it, the model
+ * passes the first picture as a reference; asked how to draw, it answers in words.
+ */
+test("pictures: asked for, made at once; asked to change, built on the first; asked how, answered in words @real @eval", async ({ page, real }) => {
+  test.skip(!real.imageModelId, "needs --image-model");
+  for (let run = 1; run <= REPEATS; run++) {
+    const chatId = await newChat(page, real, `画图 ${run}`);
+    let first: string | undefined;
+    await measured(page, real, async () => {
+      await ask(page, real, chatId, "画一只穿宇航服的橘猫，水彩风格，方形构图。");
+      const { answer, tools } = await turn(page, real, chatId);
+      const calls = await pictureCalls(page, real, chatId);
+      first = calls.find(call => call.state === "output-available")?.output?.mediaId;
+      const detail = first ? await browserApi(page, `${real.origin}/api/media/${first}/details`) : null;
+      const checks = {
+        called: calls.length, made: Boolean(first), waited: calls.some(call => call.state === "approval-requested"),
+        review: calls[0]?.input?.autoReview?.decision ?? "none", stored: detail?.status === 200,
+        promptSaysCat: /cat|猫/i.test(calls[0]?.input?.prompt ?? ""), square: calls[0]?.input?.aspectRatio ?? "-",
+      };
+      return { scenario: "picture-asked", run, pass: checks.made && !checks.waited && checks.stored && checks.promptSaysCat, checks, tools, answer: `${answer}\nPROMPT: ${calls[0]?.input?.prompt ?? ""}` };
+    });
+    if (!first) continue;
+    await measured(page, real, async () => {
+      await ask(page, real, chatId, "把背景换成夜晚的星空，猫保持不变。");
+      const { answer, tools } = await turn(page, real, chatId);
+      const calls = await pictureCalls(page, real, chatId);
+      const made = calls.find(call => call.state === "output-available");
+      const checks = {
+        called: calls.length, made: Boolean(made), waited: calls.some(call => call.state === "approval-requested"),
+        builtOnFirst: Boolean(made?.input?.referenceImages?.includes(first!)), promptSaysNight: /night|star|夜|星/i.test(made?.input?.prompt ?? calls[0]?.input?.prompt ?? ""),
+      };
+      return { scenario: "picture-changed", run, pass: checks.made && checks.builtOnFirst && !checks.waited, checks, tools, answer: `${answer}\nPROMPT: ${made?.input?.prompt ?? ""}` };
+    });
+    await measured(page, real, async () => {
+      const howChat = await newChat(page, real, `怎么画 ${run}`);
+      await ask(page, real, howChat, "新手怎么画好一只猫？给我三个要点。");
+      const { answer, tools } = await turn(page, real, howChat);
+      const checks = { called: tools.includes("generateImage"), answered: answer.length > 40 };
+      return { scenario: "picture-not-asked", run, pass: !checks.called && checks.answered, checks, tools, answer };
+    });
+  }
+});
+
+for (const canSeeImage of [false, true]) {
+  test(`picture inspection ${canSeeImage ? "with" : "without"} image input @real @eval`, async ({ page, real }) => {
+    test.skip(!real.imageModelId, "needs --image-model");
+    test.skip(canSeeImage && !real.chatImageInput, "needs a vision-capable --model");
+    if (!canSeeImage) real.disableChatImageInput();
+    for (let run = 1; run <= REPEATS; run++) {
+      const chatId = await newChat(page, real, `核验成图 ${run}`);
+      await measured(page, real, async () => {
+        const before = new Set((await pictureUsage(page, real)).map(row => row.id));
+        await ask(page, real, chatId, "用图片工具画一张方图，白底，左边一个红色正方形，右边一个蓝色圆形。画完后请检查成图，告诉我画面里实际上有什么。");
+        const { answer, tools } = await turn(page, real, chatId);
+        const calls = await pictureCalls(page, real, chatId);
+        const made = calls.filter(call => call.state === "output-available" && call.output?.mediaId).length;
+        const rows = (await pictureUsage(page, real)).filter(row => !before.has(row.id));
+        const imageCostsRecorded = made > 0 && rows.length === made && rows.every(row => row.mode === "image" && row.status === "success"
+          && row.modelId === real.imageModelId && row.costSource === "provider" && row.costUsd !== null);
+        const disclosedLimit = /(?:无法|未能|不能|没法|没有.{0,5}(?:收到|获得)|看不到|未收到).{0,25}(?:图|视觉|核验|核对|检查|确认)|(?:图像|图片).{0,20}(?:无法|看不到|不能)/u.test(answer)
+          || /(?:成图|图像|图片|这张图)(?:本身)?(?:没有|没|未)(?:回传|传回|发给)/u.test(answer)
+          || /(?:无法|未能|不能|没法)(?:直接|真正)?(?:查看|核实)(?:它|成图|图片|图像|画面|内容)/u.test(answer);
+        const describedShapes = /(?:红色?[^，。\n]{0,6}(?:方|方块))|(?:(?:方形|方块)[^，。\n]{0,6}红)/u.test(answer) && /(?:蓝色?[^，。\n]{0,6}圆)|(?:圆形[^，。\n]{0,6}蓝)/u.test(answer);
+        const askedToResend = /(?:重新|再次|再|请|直接).{0,12}(?:上传|发给我|附上|发过来)/u.test(answer);
+        const checks = { made, performedInspection: made > 0 && describedShapes && !disclosedLimit, disclosedLimit, askedToResend,
+          imageCostsRecorded, imageCostUsd: rows.reduce((sum, row) => sum + (row.costUsd ?? 0), 0),
+          generation: made ? "generated" : calls[0]?.output?.skipped ?? calls[0]?.state ?? "no-call" };
+        return { scenario: canSeeImage ? "picture-inspection-vision" : "picture-inspection-text", run,
+          pass: imageCostsRecorded && (canSeeImage ? checks.performedInspection : checks.disclosedLimit && !describedShapes && !askedToResend), checks, tools, answer };
+      });
+    }
+  });
+}

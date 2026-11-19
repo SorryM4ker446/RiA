@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { randomBytes } from "node:crypto";
 import { join, resolve } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { TEST_ACCESS_TOKEN, openWorkspace } from "./workspace-entry";
 import { browserApi, browserData } from "./browser-api";
 
@@ -26,6 +27,11 @@ export type RealModel = {
   origin: string;
   provider: Provider;
   modelId: string;
+  chatImageInput: boolean;
+  /** The image model chosen as the default, when the run was given one (`--image-model`). */
+  imageModelId: string | null;
+  /** Simulates an unavailable vision input path in this scenario's temporary library. */
+  disableChatImageInput(): void;
   /** The model's usage in this scenario's service so far. */
   usage(page: Page): Promise<Usage>;
 };
@@ -38,8 +44,9 @@ function settings() {
   const modelId = process.env.RIA_REAL_MODEL;
   const key = process.env.RIA_REAL_API_KEY;
   const maxUsd = Number(process.env.RIA_REAL_MAX_USD ?? "0.05");
+  const imageModelId = process.env.RIA_REAL_IMAGE_MODEL?.trim() || null;
   if (!provider || !(provider in KEY_VARIABLES) || !modelId || !key) throw new Error("Run real-model scenarios with `npm run test:real -- --provider <id> --model <id>`, which asks for the key.");
-  return { provider, modelId, key, maxUsd };
+  return { provider, modelId, imageModelId, key, maxUsd };
 }
 
 async function startService(provider: Provider, key: string) {
@@ -67,7 +74,7 @@ async function startService(provider: Provider, key: string) {
   const origin = `http://localhost:${port}`;
   await expect.poll(() => fetch(`${origin}/api/health`).then(response => response.status).catch(() => 0), { timeout: 30_000 }).toBe(200);
   return {
-    origin,
+    origin, database,
     async close() {
       server.kill();
       await new Promise(done => server.once("exit", done));
@@ -83,18 +90,41 @@ async function readUsage(page: Page, origin: string): Promise<Usage> {
 
 export const test = base.extend<{ real: RealModel }>({
   real: async ({ page }, runTest, info) => {
-    const { provider, modelId, key, maxUsd } = settings();
+    const { provider, modelId, imageModelId, key, maxUsd } = settings();
     test.skip(spent.usd >= maxUsd, `The run has spent $${spent.usd.toFixed(4)}, at or over its $${maxUsd} cap.`);
     const service = await startService(provider, key);
     try {
       await openWorkspace(page, service.origin);
       const model = { providerId: provider, modelId };
       expect((await browserApi(page, `${service.origin}/api/models/catalog`, "POST", { providerId: provider, mode: "chat" })).status, "the provider's catalog could be read with this key").toBe(200);
-      expect((await browserApi(page, `${service.origin}/api/models/library`, "POST", { action: "add", model })).status, `${modelId} is offered by ${provider}`).toBe(200);
+      const registered = await browserApi(page, `${service.origin}/api/models/library`, "POST", { action: "add", model });
+      expect(registered.status, `${modelId} is offered by ${provider}`).toBe(200);
       const preferences = (await browserApi(page, `${service.origin}/api/models`)).body.data;
       preferences.chat.model = model;
+      if (imageModelId) {
+        const image = { providerId: provider, modelId: imageModelId };
+        expect((await browserApi(page, `${service.origin}/api/models/catalog`, "POST", { providerId: provider, mode: "image" })).status, "the provider's image catalog could be read").toBe(200);
+        expect((await browserApi(page, `${service.origin}/api/models/library`, "POST", { action: "add", model: image })).status, `${imageModelId} is offered by ${provider}`).toBe(200);
+        // The library changed: chosen again on the settings as they now are.
+        Object.assign(preferences, (await browserApi(page, `${service.origin}/api/models`)).body.data);
+        preferences.chat.model = model;
+        preferences.image.model = image;
+      }
       expect((await browserApi(page, `${service.origin}/api/models`, "PUT", preferences)).status).toBe(200);
-      await runTest({ origin: service.origin, provider, modelId, usage: target => readUsage(target, service.origin) });
+      await runTest({ origin: service.origin, provider, modelId, imageModelId, chatImageInput: registered.body.data.supportsImageInput === true,
+        usage: target => readUsage(target, service.origin),
+        disableChatImageInput() {
+          const db = new DatabaseSync(service.database, { timeout: 5000 });
+          try {
+            const result = db.prepare(`UPDATE account_preferences
+              SET settings = json_set(settings, (
+                SELECT '$.library[' || item.key || '].supportsImageInput' FROM json_each(settings, '$.library') item
+                WHERE json_extract(item.value, '$.providerId') = ? AND json_extract(item.value, '$.modelId') = ?
+              ), json('false')) WHERE id = 'local'`).run(provider, modelId);
+            expect(result.changes).toBe(1);
+          } finally { db.close(); }
+        },
+      });
     } finally {
       const usage = await readUsage(page, service.origin).catch(() => null);
       if (usage) {

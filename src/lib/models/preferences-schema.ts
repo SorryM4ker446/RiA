@@ -29,6 +29,7 @@ const price = z.number().min(0).max(PRICE_MAX).nullable();
 export const callLimitRanges = {
   maxConcurrent: { min: 1, max: 32, integer: true },
   compactionCallsPerTurn: { min: 1, max: 1000, integer: true },
+  imageRequestsPerMinute: { min: 1, max: 1000, integer: true },
   backgroundDailyCalls: { min: 0, max: 1000, integer: true },
   backgroundMaxEstimatedUsd: { min: 0, max: PRICE_MAX, integer: false },
   backgroundDailyEstimatedUsd: { min: 0, max: PRICE_MAX, integer: false },
@@ -92,6 +93,7 @@ export function systemTimeZone(): string {
 
 /** How many model calls may run at once unless the user chooses otherwise. */
 export const DEFAULT_MAX_CONCURRENT = 8;
+export const DEFAULT_IMAGE_REQUESTS_PER_MINUTE = 12;
 export const legacyModelCandidateSchema = z.strictObject({ mode: z.enum(libraryModes), ref: modelRefSchema });
 const preferencesShape = {
   contextLimits: z.record(id, z.strictObject({
@@ -106,11 +108,12 @@ const preferencesShape = {
     backgroundDailyCalls: callCount(callLimitRanges.backgroundDailyCalls).default(callLimitRanges.backgroundDailyCalls.max),
     // Summary calls one chat request may make while compacting its context.
     compactionCallsPerTurn: callCount(callLimitRanges.compactionCallsPerTurn).default(20),
+    imageRequestsPerMinute: callCount(callLimitRanges.imageRequestsPerMinute).default(DEFAULT_IMAGE_REQUESTS_PER_MINUTE),
     backgroundMaxEstimatedUsd: price.default(null),
     backgroundDailyEstimatedUsd: price.default(null),
     // The day the daily allowance counts is the person's: the service runs on their computer, so its zone is theirs.
     timeZone: z.string().min(1).max(100).refine(value => { try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; } catch { return false; } }).default(systemTimeZone),
-  }).default(() => ({ maxConcurrent: DEFAULT_MAX_CONCURRENT, backgroundDailyCalls: callLimitRanges.backgroundDailyCalls.max, compactionCallsPerTurn: 20, backgroundMaxEstimatedUsd: null, backgroundDailyEstimatedUsd: null, timeZone: systemTimeZone() })),
+  }).prefault({}),
   version: z.literal(3),
   defaultMode: z.enum(modelModes),
   chat: modePreference,

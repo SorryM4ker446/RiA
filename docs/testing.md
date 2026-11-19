@@ -11,6 +11,7 @@ How the tests are organised, how to run them, and the rules that keep them relia
 | `npm run test:desktop` | `tests/desktop/*.test.ts` — the Electron main process's parts, desktop migrations, packaging and installer checks | Node's test runner and SQLite; Electron where a test needs it |
 | `npm run test:desktop:smoke` | The real Electron window against the prepared standalone runtime: start-up, the page bridge, authentication, persistence across service restarts, backups, media, documents, notifications. `-- --maximized` starts the window maximised | The packaged-style runtime in an isolated profile; no model calls |
 | `npm run test:desktop:data-move` | The same smoke run after a data folder move: the launch finds a requested move, copies and verifies the data, leaves a junction at the fixed path before the workspace upgrade and migrations run, and the whole run then works through it; the old folder is kept | The packaged-style runtime in an isolated profile; no model calls |
+| `npm run test:desktop:cache-move` | The same smoke run after a cache folder move: the launch runs the requested move, switches the cache folder and carries on to the whole run; a run that exits before its last check fails, not only one that exits with an error | The packaged-style runtime in an isolated profile; no model calls |
 | `node --expose-gc --import ./tests/helpers/register-typescript.ts tests/benchmarks/knowledge-benchmark.ts` | The knowledge base past its limits (default 100,000 chunks × 1,024 dimensions): how long one import holds the write transaction, keyword rows per chunk, the vector index's load time, memory and search time, and whether its ranking still matches exact scoring. Sets the document limits; run it again before changing them | A throwaway database in the system temporary directory; no model calls |
 | `npm run test:desktop:dev` | The same smoke run against `next dev` | Slow on first compile; it can exceed the smoke run's two-minute limit on a busy machine, which is not a failure of the code |
 | `npm run test:db` | Desktop migrations and local-database verification | A temporary database unless `LOCAL_DATABASE_FILE` names one |
@@ -90,6 +91,12 @@ Each scenario starts its own service with a temporary database, the key in that 
 
 ```bash
 npm run test:real -- --provider openrouter --model deepseek/deepseek-v4.1-flash --max-usd 0.20 tests/e2e/real-eval.spec.ts
+```
+
+The picture scenarios need an image model of the same provider, added to the library and made the default with `--image-model`. The `pictures:` scenario checks drawing, editing by media ID and answering a how-to question without a generation. The `picture inspection` scenarios check the reply with and without visual input. Both use the same real chat model. The latter disables image input in its temporary model library. The usage report includes an OpenRouter image charge when the provider supplies it. The spending threshold uses known costs after each test, so check provider billing when a call has unknown cost.
+
+```bash
+npm run test:real -- --provider openrouter --model deepseek/deepseek-v4.1-flash --image-model google/gemini-3.1-flash-lite-image --max-usd 0.10 tests/e2e/real-eval.spec.ts -g "picture inspection"
 ```
 
 ## What tests do not cover

@@ -7,6 +7,7 @@ import { localAccessCookie } from "../helpers/local-access";
 import { seedTestModelPreferences } from "../helpers/model-library";
 import { languageModel, resetProviderState } from "../helpers/model-provider";
 import { wireText } from "../helpers/wire-text";
+import { runningToolCall } from "@/lib/chat/thinking";
 
 const cleanup = createTestDatabase();
 process.env.RIA_TEST_PROVIDER = "1";
@@ -137,4 +138,15 @@ test("a reasoning turn with tool steps stores where the tools fell", async t => 
   const { payload, ui } = await ask(t, [{ reasoning: "先查一下", tool: "searchKnowledge" }, { reasoning: "再想一步", text: "回答" }]);
   assert.deepEqual(payload?.thinking?.marks, [{ at: 4, tools: ["searchKnowledge"] }]);
   assert.deepEqual(readThinking(ui)?.segments, [{ text: "先查一下", tools: ["searchKnowledge"] }, { text: "再想一步", tools: [] }]);
+});
+
+test("a running turn names the call it is waiting on, and a sub-agent the work it was handed", () => {
+  const subagent = { type: "tool-runSubagent", state: "input-available", toolCallId: "call-2", input: { title: "整理差旅资料", task: "…" } };
+  const done = { type: "tool-searchKnowledge", state: "output-available", toolCallId: "call-1", input: {} };
+  assert.deepEqual(runningToolCall([done, subagent], true), { tool: "runSubagent", callId: "call-2", subagentTitle: "整理差旅资料" });
+  assert.deepEqual(runningToolCall([{ type: "tool-readDocument", state: "input-streaming", toolCallId: "call-3" }], true), { tool: "readDocument", callId: "call-3" });
+  // Nothing once the turn has ended, when every call has its result, or while the user is being asked.
+  assert.equal(runningToolCall([subagent], false), null);
+  assert.equal(runningToolCall([done, { type: "text", state: "done" }], true), null);
+  assert.equal(runningToolCall([subagent, { type: "tool-askUser", state: "approval-requested", toolCallId: "call-4" }], true), null);
 });

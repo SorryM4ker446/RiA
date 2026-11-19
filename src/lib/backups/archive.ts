@@ -104,7 +104,8 @@ export async function createAccountBackup(prune = true) {
   for (const asset of assets) {
     const file = await openMediaAsset(asset);
     try {
-      const { relativePath: _path, deletedAt: _deleted, ...fields } = asset;
+      // The file's hash travels as sha256 below; a restore keeps it as the asset's content hash.
+      const { relativePath: _path, deletedAt: _deleted, contentHash: _hash, ...fields } = asset;
       media.push({ ...fields, sha256: await copyAndHash(file) });
     } finally { await file.close(); }
   }

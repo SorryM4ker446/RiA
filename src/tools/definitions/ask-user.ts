@@ -36,9 +36,11 @@ export type AskAnswer = z.infer<typeof askAnswerSchema>;
 export type AskUserOutput = { answers: { question: string; selected: string[]; other?: string }[] };
 
 export const ASK_USER_DESCRIPTION = [
-  "Ask the user to choose when the way forward depends on a decision only they can make and it changes the result (an approach, format, scope or target).",
-  "1 to 3 questions, 2 to 5 short options each; put a recommended option first and say so. They can also answer in their own words or skip; the turn pauses until then, and if they skip, decide yourself and say what you assumed.",
-  "Do not ask what you can find out yourself, what they already said, or for permission to do what they asked.",
+  "Ask the user to choose, with 1 to 3 questions of 2 to 5 short options each; the turn pauses until they answer.",
+  "Whether to use it is your judgement; the test is whether the way forward depends on a decision only they can make, and it changes the result: an approach, a format, the scope or the target.",
+  "Use it for: \"add a database to this app\" with nothing saying which (SQLite or Postgres changes everything after it); \"write up the findings\" when it could be a one-page note or a full report and nothing says which.",
+  "Skip it for: what you can find out yourself (read the file, run the check); what they already said; permission to do what they asked; a small choice with a sensible default (take it and say so).",
+  "Put a recommended option first and say so. They can also answer in their own words or skip; if they skip, decide yourself and say what you assumed.",
 ].join(" ");
 
 /** Why a submitted answer does not fit the question; null when it does. */

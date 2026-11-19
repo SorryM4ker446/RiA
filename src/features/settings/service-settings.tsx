@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { SettingsSection } from "@/features/settings/settings-section";
 import { SettingsLink, useSettingsDirty } from "@/features/settings/settings-context";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { settingsRequest } from "@/features/settings/api-client";
 import { libraryModel, type ModelPreferences } from "@/lib/models/preferences-schema";
@@ -33,10 +34,10 @@ export function ServiceSettings() {
   const windowDesktop = useDesktopRuntime();
   const [settings, setSettings] = useState<DesktopSettingsView | null>(null);
   const [modelState, setModelState] = useState<ModelPreferences | null>(null);
-  const [runtime, setRuntime] = useState<DesktopRuntimeInfo | null>(null);
   const [openrouterApiKey, setOpenrouterApiKey] = useState("");
   const [deepseekApiKey, setDeepseekApiKey] = useState("");
   const [outboundProxyUrl, setOutboundProxyUrl] = useState("");
+  const [webFakeIpDoh, setWebFakeIpDoh] = useState(false);
   const [openrouterSiteName, setOpenrouterSiteName] = useState("");
   const [openrouterHttpReferer, setOpenrouterHttpReferer] = useState("");
   const [clearOpenrouterApiKey, setClearOpenrouterApiKey] = useState(false);
@@ -55,18 +56,17 @@ export function ServiceSettings() {
 
     Promise.all([
       bridge.getSettings(),
-      bridge.getRuntimeInfo(),
       // The readiness steps describe what is configured, and two of the three
       // live in model settings rather than in the desktop store. A failure here
       // must not block the section, so it is settled separately below.
       // Unknown readiness is shown as unknown rather than as a failure.
       settingsRequest<{ data: ModelPreferences }>("/api/models").catch(() => null),
     ])
-      .then(([loadedSettings, loadedRuntime, models]) => {
+      .then(([loadedSettings, models]) => {
         setSettings(loadedSettings);
-        setRuntime(loadedRuntime);
         if (models?.data) setModelState(models.data);
         setOutboundProxyUrl(loadedSettings.outboundProxyUrl);
+        setWebFakeIpDoh(loadedSettings.webFakeIpDoh === true);
         setOpenrouterSiteName(loadedSettings.openrouterSiteName);
         setOpenrouterHttpReferer(loadedSettings.openrouterHttpReferer);
         // The desktop shell reopens settings with `saved=1` after a restart, or
@@ -91,7 +91,8 @@ export function ServiceSettings() {
   // edit counts against what was loaded, or against empty when nothing was.
   const loaded = settings ?? { outboundProxyUrl: "", openrouterSiteName: "", openrouterHttpReferer: "" };
   const keysChanged = Boolean(openrouterApiKey || deepseekApiKey || clearOpenrouterApiKey || clearDeepseekApiKey)
-    || outboundProxyUrl !== loaded.outboundProxyUrl || openrouterSiteName !== loaded.openrouterSiteName || openrouterHttpReferer !== loaded.openrouterHttpReferer;
+    || outboundProxyUrl !== loaded.outboundProxyUrl || openrouterSiteName !== loaded.openrouterSiteName || openrouterHttpReferer !== loaded.openrouterHttpReferer
+    || webFakeIpDoh !== (settings?.webFakeIpDoh === true);
   useSettingsDirty(!isSaving && keysChanged);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -109,6 +110,7 @@ export function ServiceSettings() {
         clearOpenrouterApiKey,
         clearDeepseekApiKey,
         outboundProxyUrl,
+        webFakeIpDoh,
         openrouterSiteName,
         openrouterHttpReferer,
       });
@@ -181,6 +183,10 @@ export function ServiceSettings() {
                         { id: "site-name", label: t("settings.siteNameLabel"), value: openrouterSiteName, onChange: setOpenrouterSiteName, placeholder: "RiA Desktop" },
                         { id: "http-referrer", label: "OpenRouter HTTP Referrer", value: openrouterHttpReferer, onChange: setOpenrouterHttpReferer, placeholder: t("settings.refererPlaceholder") },
                       ].map(field => <Field key={field.id} orientation="horizontal" className="settings-field"><FieldContent><FieldLabel htmlFor={field.id}>{field.label}</FieldLabel></FieldContent><Input className="min-w-0 flex-1" id={field.id} onChange={event => field.onChange(event.target.value)} placeholder={field.placeholder} value={field.value} /></Field>)}
+                      <Field orientation="horizontal" className="settings-field">
+                        <FieldContent><FieldLabel htmlFor="web-fake-ip-doh">{t("settings.webFakeIpDoh")}</FieldLabel><FieldDescription id="web-fake-ip-doh-hint">{t("settings.webFakeIpDohHint")}</FieldDescription></FieldContent>
+                        <Checkbox id="web-fake-ip-doh" aria-describedby="web-fake-ip-doh-hint" checked={webFakeIpDoh} disabled={isSaving} onCheckedChange={checked => setWebFakeIpDoh(checked === true)} />
+                      </Field>
                     </FieldGroup>
                   </details>
                   {!settings?.encryptionAvailable && <Alert variant="destructive"><AlertTitle>{t("settings.encryptionUnavailableTitle")}</AlertTitle><AlertDescription>{t("settings.encryptionUnavailableBody")}</AlertDescription></Alert>}
@@ -191,9 +197,8 @@ export function ServiceSettings() {
 
           <details className="settings-disclosure px-1">
             <summary className="settings-disclosure-trigger"><ShieldCheck aria-hidden="true" className="size-4" />{t("ui.settings.localSecurityRuntimeInformation")}<ChevronDown aria-hidden="true" className="ml-auto size-4" /></summary>
-            <div className="grid gap-5 pb-2 pt-4 sm:grid-cols-2">
-              <section className="flex flex-col gap-2 text-xs text-muted-foreground" aria-label={t("settings.securityTitle")}><h2 className="text-sm font-medium text-foreground">{t("settings.securityTitle")}</h2><p>{t("settings.securityKey")}</p><p>{t("settings.securityNoPlaintext")}</p><p>{t("settings.securityLocalApi")}</p></section>
-              <section className="flex flex-col gap-2 break-all text-xs text-muted-foreground" aria-label={t("settings.runtimeTitle")}><h2 className="text-sm font-medium text-foreground">{t("settings.runtimeTitle")}</h2><p>{t("settings.runtimeVersion")}{runtime?.appVersion || "—"} · {runtime?.packaged ? t("settings.runtimePackaged") : t("settings.runtimeDev")}</p><p>{t("settings.runtimeDataDirectory")}{runtime?.dataDirectory || "—"}</p><p>{t("settings.runtimeMediaDirectory")}{runtime?.mediaDirectory || "—"}</p><p>{t("settings.runtimeLogFile")}{runtime?.logFile || "—"}</p><SettingsLink className="text-foreground underline underline-offset-4" section="storage">{t("settings.manageStorage")}</SettingsLink></section>
+            <div className="grid gap-5 pb-2 pt-4">
+              <section className="flex flex-col gap-2 text-xs text-muted-foreground" aria-label={t("settings.securityTitle")}><p>{t("settings.securityKey")}</p><p>{t("settings.securityNoPlaintext")}</p><p>{t("settings.securityLocalApi")}</p></section>
             </div>
           </details>
       </div>

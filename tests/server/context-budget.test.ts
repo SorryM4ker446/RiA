@@ -4,6 +4,7 @@ import type { ModelMessage, UIMessage } from "ai";
 import { createHash } from "node:crypto";
 import { assertContextFits, contextBudget, estimateContextTokens, estimateImageTokens, imageDimensions, estimateTextTokens, requestOutputCap, MIN_CALIBRATION } from "@/lib/models/context-budget";
 import { createStepContext, modelHistoryRecords, withoutToolRecords } from "@/lib/chat/step-context";
+import { contextReportSchema } from "@/lib/chat/context-report";
 import { buildChatContext } from "@/lib/chat/context";
 import { summaryCapacity } from "@/lib/chat/task-summary";
 import { preferencesSchema, defaultModelPreferences } from "@/lib/models/preferences-schema";
@@ -361,4 +362,15 @@ test("images are estimated from their dimensions, other binary data per byte", (
   assert.equal(estimateImageTokens(new Uint8Array(5000)), 5000);
   const photo = estimateContextTokens({ content: [{ type: "file", mediaType: "image/png", data: png(4000, 3000) }] });
   assert.ok(photo < 5000, `photo estimated at ${photo}`);
+});
+
+test("a provider count far below the estimate keeps a positive ratio, so the turn's report is still saved", async () => {
+  const manager = createStepContext({ budget: contextBudget({ contextLength: 1_000_000 }), system: "system", summarize: async () => "state" });
+  await manager.prepare([user, ...bulkyBlock("one"), ...bulkyBlock("two")]);
+  manager.observeUsage(1);
+  assert.ok(manager.report.observedRatio! > 0, `ratio ${manager.report.observedRatio}`);
+  assert.ok(contextReportSchema.safeParse(manager.report).success, "the report parses as it is saved");
+  manager.observeUsage(0);
+  assert.equal(manager.report.observedRatio, undefined, "a count of zero compares nothing");
+  assert.ok(contextReportSchema.safeParse(manager.report).success);
 });

@@ -101,12 +101,13 @@ test("chat permissions grant a directory without sending the draft, offer its te
   await expect(page.getByRole("button", { name: "发送", exact: true })).toBeEnabled();
   // The confirmation appears in the bottom-right corner, above the composer it would otherwise cover, and lets clicks through.
   const toast = page.getByRole("region", { name: "通知", exact: true }).locator(".toast").last();
-  await expect(toast).toContainText("已切换到工作区");
+  await expect(toast.locator(".toast-text")).toHaveText(`已切换到 ${basename(app.folder)}`);
   const composer = (await page.locator(".composer-surface").boundingBox())!;
   await expect.poll(async () => {
     const box = (await toast.boundingBox())!;
     const viewport = page.viewportSize()!;
-    return Math.abs(viewport.width - (box.x + box.width) - 20) <= 1 && box.y + box.height <= composer.y;
+    // A plain note has the one compact width every plain note has.
+    return Math.abs(viewport.width - (box.x + box.width) - 20) <= 1 && box.y + box.height <= composer.y && Math.round(box.width) === 280;
   }).toBe(true);
   await expect(toast).toHaveCSS("pointer-events", "none");
   expect((await browserData(page, `/api/conversations/${chat.id}`)).workspaceGrantId).toBe(grant.id);

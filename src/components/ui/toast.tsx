@@ -26,8 +26,8 @@ const ToastContext = createContext<Show | null>(null);
 const VISIBLE = 3;
 const GAP = 8;
 /** Long enough to read once, never long enough to linger. A failure, or one with an action, stays long enough to act on. */
-const duration = (toast: Toast) => toast.action || toast.tone === "error" ? 6500
-  : Math.min(5000, 2600 + (toast.title.length + (toast.description?.length ?? 0)) * 30);
+const duration = (toast: Toast) => toast.action || toast.tone === "error" ? 5000
+  : Math.min(4000, 2000 + (toast.title.length + (toast.description?.length ?? 0)) * 25);
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /**
@@ -58,25 +58,29 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   // Which note the pointer is over, from its position, since notes let clicks through and get no hover of their own.
   const stack = useRef<HTMLElement>(null);
+  /** Where the pointer last was in the window, or null once it left. */
+  const pointer = useRef<{ x: number; y: number } | null>(null);
+  const locate = useCallback(() => {
+    const at = pointer.current;
+    let over: number | null = null;
+    if (at) for (const note of stack.current?.querySelectorAll<HTMLElement>('.toast:not([data-state="leaving"])') ?? []) {
+      const box = note.getBoundingClientRect();
+      if (at.x >= box.left && at.x <= box.right && at.y >= box.top && at.y <= box.bottom) over = Number(note.dataset.id);
+    }
+    setHovered(over);
+  }, []);
   useEffect(() => {
     let frame = 0;
     const find = (event: PointerEvent) => {
+      pointer.current = { x: event.clientX, y: event.clientY };
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        const notes = stack.current?.querySelectorAll<HTMLElement>('.toast:not([data-state="leaving"])') ?? [];
-        let over: number | null = null;
-        for (const note of notes) {
-          const box = note.getBoundingClientRect();
-          if (event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom) over = Number(note.dataset.id);
-        }
-        setHovered(over);
-      });
+      frame = requestAnimationFrame(locate);
     };
-    const leave = () => setHovered(null);
+    const leave = () => { pointer.current = null; setHovered(null); };
     window.addEventListener("pointermove", find, { passive: true });
     document.documentElement.addEventListener("pointerleave", leave);
     return () => { cancelAnimationFrame(frame); window.removeEventListener("pointermove", find); document.documentElement.removeEventListener("pointerleave", leave); };
-  }, []);
+  }, [locate]);
   useEffect(() => {
     const update = () => setHidden(document.visibilityState === "hidden");
     update();
@@ -104,6 +108,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     });
   }, []);
   const measure = useCallback((id: number, height: number) => setHeights(old => old[id] === height ? old : { ...old, [id]: height }), []);
+
+  /*
+   * What pauses the notes is read again whenever they change, not only when the
+   * pointer or the focus moves. A note closed by hand takes its focused button
+   * with it, and the browser sends no blur for a removed element, so the stack
+   * stayed "focused" and every later note waited forever. Likewise the note the
+   * pointer was over can go, or the stack can move out from under a still pointer.
+   */
+  useEffect(() => {
+    setFocused(Boolean(stack.current?.contains(document.activeElement)));
+    const frame = requestAnimationFrame(locate);
+    return () => cancelAnimationFrame(frame);
+  }, [toasts, heights, locate]);
 
   // Each one sits above the newer ones still showing; one leaving keeps its place as it fades.
   const offsets = new Map<number, number>();
@@ -166,7 +183,7 @@ function ToastItem({ toast, offset, paused, pointed, onDismiss, onRemove, onMeas
   const Icon = toast.tone === "error" ? CircleAlert : toast.tone === "warning" ? TriangleAlert : null;
   return (
     <div ref={node} className="toast" data-id={toast.id} data-pointed={pointed ? "" : undefined} role={toast.tone === "error" ? "alert" : undefined}
-      data-state={toast.leaving ? "leaving" : entered ? "shown" : "entering"} data-tone={toast.tone} data-action={toast.action ? "" : undefined}
+      data-state={toast.leaving ? "leaving" : entered ? "shown" : "entering"} data-tone={toast.tone} data-action={toast.action ? "" : undefined} data-size={toast.description || toast.action ? "wide" : undefined}
       style={{ "--toast-offset": `${offset}px` } as React.CSSProperties}
       onTransitionEnd={event => { if (toast.leaving && event.target === event.currentTarget && event.propertyName === "opacity") onRemove(toast.id); }}>
       {Icon ? <Icon className="toast-icon" aria-hidden="true" /> : null}

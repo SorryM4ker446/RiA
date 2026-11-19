@@ -144,7 +144,8 @@ export function createStepContext(params: {
   const report: StepContextReport = { checks: 0, compactions: 0, degraded: false, estimatedInputTokens: 0, usageCalibration: params.calibration ?? 1, budget: params.budget };
   // The tool definitions this step sends; they change when extension tools are loaded on demand.
   let tools = params.tools, extensionTools = params.sizes?.extensionTools;
-  const input = (messages: ModelMessage[]) => ({ system: params.system, messages, tools });
+  let system = params.system;
+  const input = (messages: ModelMessage[]) => ({ system, messages, tools });
   // The scale starts as a guess from earlier requests. The first step the provider
   // counts replaces it, and from there it only rises within the stream, since one step's
   // lighter content says nothing about the next.
@@ -234,7 +235,7 @@ export function createStepContext(params: {
       }
     });
     const skills = size(params.sizes?.skills ?? ""), extensionToolSize = extensionTools ? size(extensionTools) : 0;
-    return { ...parts, skills, extensionTools: extensionToolSize, system: Math.max(0, size(params.system) - skills), tools: Math.max(0, size(tools ?? "") - extensionToolSize) };
+    return { ...parts, skills, extensionTools: extensionToolSize, system: Math.max(0, size(system) - skills), tools: Math.max(0, size(tools ?? "") - extensionToolSize) };
   }
   /**
    * Fold completed work into the summary when the step reaches the trigger, or
@@ -379,6 +380,11 @@ export function createStepContext(params: {
   return {
     report,
     prepare,
+    setSystem(next: string) {
+      if (system === next) return;
+      system = next;
+      version++;
+    },
     /**
      * The tool definitions the next step sends, when they differ from the last: a tool
      * loaded on demand adds its own. The provider's count of the last step no longer
@@ -425,7 +431,10 @@ export function createStepContext(params: {
       const ratio = inputTokens / unscaledEstimate;
       observedRatio = Math.max(observedRatio ?? 0, ratio);
       report.measuredInputTokens = inputTokens;
-      report.observedRatio = Math.round(ratio * 1000) / 1000;
+      // Three significant digits, not three decimals: a provider counting far less than the estimate
+      // (a tiny step after a large one) rounded to 0, which the saved report refuses, and the whole
+      // report of the turn was dropped with it. A count of zero says nothing to compare.
+      if (ratio > 0) report.observedRatio = Number(ratio.toPrecision(3)); else delete report.observedRatio;
       // A provider's refusal has already said the count was too low; usage does not undo it.
       report.usageCalibration = report.overflowRecoveries ? Math.max(report.usageCalibration, ratio) : Math.max(MIN_CALIBRATION, observedRatio);
       if (lastPrepared) anchor = { tokens: inputTokens, ...lastPrepared };

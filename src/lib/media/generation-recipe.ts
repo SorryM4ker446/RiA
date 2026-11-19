@@ -2,6 +2,9 @@ import { z } from "zod";
 import { ASSET_ID_PATTERN } from "@/lib/media/message-codec";
 import { providerIdSchema, type ModelRef } from "@/lib/models/preferences-schema";
 
+/** Width to height, as image models take it ("16:9"); which ratios a model honours is the provider's to say. */
+export const imageAspectRatioSchema = z.string().regex(/^[1-9]\d?:[1-9]\d?$/, "an aspect ratio such as 16:9") as z.ZodType<`${number}:${number}`>;
+
 const input = z.strictObject({ assetId: z.string().regex(ASSET_ID_PATTERN), mediaType: z.enum(["image/png", "image/jpeg", "image/webp", "image/gif"]) });
 
 // The provider is optional so recipes written before model references were
@@ -17,7 +20,7 @@ const recipeBase = {
 };
 
 export const generationRecipeSchema = z.discriminatedUnion("type", [
-  z.strictObject({ ...recipeBase, type: z.literal("image") }),
+  z.strictObject({ ...recipeBase, type: z.literal("image"), aspectRatio: imageAspectRatioSchema.optional() }),
   z.strictObject({ ...recipeBase, type: z.literal("video"), inputImages: z.array(input).max(1), aspectRatio: z.enum(["16:9", "9:16", "1:1"]), duration: z.number().int().min(1).max(60).optional(), fps: z.number().int().min(1).max(120).optional() }),
 ]);
 export type GenerationRecipe = z.infer<typeof generationRecipeSchema>;

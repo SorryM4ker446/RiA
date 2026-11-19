@@ -21,6 +21,7 @@ import { ToolLessModelNotice } from "@/features/chat/tool-less-model-notice";
 import { localizeMessage, t } from "@/lib/locale";
 import { PlanStrip } from "@/features/chat/task-plan";
 import { useOpenSettings } from "@/features/settings/settings-context";
+import { looksLikeQuestion } from "@/features/chat/image-mode-question";
 
 export default function ChatPage() {
   useLocale();
@@ -85,10 +86,12 @@ export default function ChatPage() {
                 />
               </div>
 
-              <ComposerNotice modelHint={chat.modelHint} notice={chat.inputNotice} dimmed={chat.isModelMenuOpen} onChooseModel={() => chat.setIsModelMenuOpen(true)} onDismiss={chat.dismissInputNotice} />
+              <ComposerNotice modelHint={chat.modelHint} notice={chat.inputNotice} imageQuestion={chat.modelMode === "image" && looksLikeQuestion(chat.input)} dimmed={chat.isModelMenuOpen}
+                onChooseModel={() => chat.setIsModelMenuOpen(true)} onDismiss={chat.dismissInputNotice} onSwitchToChat={() => chat.onModeSelect("chat")} />
 
+              {/* As wide as the composer it sits on, not across the whole row. */}
               {effectiveError ? (
-                <Alert variant="destructive">
+                <Alert variant="destructive" className="chat-error mx-auto w-full max-w-[42rem]">
                   <AlertTitle className="flex items-center gap-2">
                     <TriangleAlert aria-hidden="true" className="h-4 w-4" />
                     {t("chatPage.errorTitle")}
@@ -103,16 +106,7 @@ export default function ChatPage() {
                         {t(errorFix === "apiKeys" ? "chatPage.openApiKeys" : "chatPage.openModels")}
                       </Button>
                     ) : null}
-                    <Button
-                      onClick={() => {
-                        setPageError(null);
-                        clearError();
-                        clearPreferencesError();
-                      }}
-                      size="sm"
-                      type="button"
-                      variant="outline"
-                    >
+                    <Button size="sm" type="button" variant="outline" onClick={() => { setPageError(null); clearError(); clearPreferencesError(); }}>
                       {t("chatPage.dismissError")}
                     </Button>
                   </div>

@@ -30,7 +30,8 @@ Normal chat uses automatic tool selection. Typing `/` in the composer chooses a 
 | Terminal: `runTerminalCommand`, `checkTerminalCommand`, `stopTerminalCommand` | General Windows PowerShell for file management and development commands, approval per the conversation's rule, bounded output, live status and stop controls; background commands the model checks and stops itself | Separate terminal permission; fresh non-interactive process per command. No PTY, persistent shell session or OS sandbox. [Terminal](terminal-tools.md) |
 | Project files: `readProjectFile`, `editProjectFile` | Line-range reads with a content hash; exact text replacement or file creation applied atomically, with the diff shown for approval | Offered wherever the terminal is and governed by the same folder permission and approval mode. UTF-8 text only; `.git` and credential files are refused. Rename, move, delete and execution stay in the terminal. [Terminal](terminal-tools.md#project-file-tools) |
 | External tools | MCP Streamable HTTP, desktop stdio and HTTP connectors; detection, explicit tool selection, enablement and per-call approval following the conversation's approval rule (reviewed under Auto, run directly under Full access). Past a tenth of the context window (at most about 6,000 tokens) of tool definitions or 32 tools, the model gets a line per tool (names only in a long list) and loads the ones it needs with `findExtensionTools` (the model's own); a tool set to always load is sent in full | Required runtimes and accounts are configured separately; no automatic OAuth or dependency installation. [Extensions](extensions.md) |
-| Sub-agents: `runSubagent` | Hands a self-contained piece of work to a sub-agent with a fresh context, the conversation's tools (no questions, tasks, checklist, memory, history or nested sub-agents) and the conversation's model; several run at once; returns a report and the actions it did not run | Follows the conversation's approval rule; what the rule would ask about is not run but reported. [Sub-agents](subagents.md) |
+| Sub-agents: `runSubagent` | The model's own, started when it judges the work suits one, including when the user wants work handed off or split up; a person cannot pick it in the composer. Hands a self-contained piece of work to a sub-agent with a fresh context, the conversation's tools (no questions, tasks, checklist, memory, history or nested sub-agents) and the conversation's model; several run at once; in the foreground the step waits for its report, in the background the turn goes on and the report reaches the model by itself (`checkSubagents` shows status); returns a report and the actions it did not run | Follows the conversation's approval rule; what the rule would ask about is not run but reported. [Sub-agents](subagents.md) |
+| Pictures: `generateImage` | Makes a picture with the default image model and displays it in the answer. The media ID lets the model edit it later. A visual inspection requires an actual image in the tool result. | Requires a default image model and its provider's API key. Runs under full access or when the reviewer confirms the user's latest message asks for a picture. Otherwise it waits for approval. Scheduled calls use the background cost allowance. Available only to the main chat model. [Pictures made in chat](media-library.md#pictures-made-in-chat) |
 | Skills: `readPluginSkill` | Enabled community Skills contribute an index; instructions and reference files load on demand from saved textual snapshots | Needs a tool-capable chat model. Skill installation adds no script execution or filesystem permission. [Plugin packages](plugin-packages.md) |
 
 ## Shared execution contract
@@ -40,6 +41,26 @@ Normal chat uses automatic tool selection. Typing `/` in the composer chooses a 
 - Model tool support, assistant scope, connection state, directory grants and per-call approvals are separate requirements. Importing a plugin or viewing marketplace metadata satisfies none of these automatically.
 - Runs and steps record kind, tool name, state, error code, timing and a bounded input/output summary. Step, failure, time and cost controls apply; cancellation stops subsequent work and does not undo completed effects. Interrupted writes and old approvals are not automatically replayed. [Execution records](execution-history.md)
 - Disabling a plugin/connection blocks subsequent calls and invalidates approvals. Uninstall removes owned configuration while retaining unrelated connections and historical results. Portable restore keeps local declarations but disables them. [Persistence](plugin-packages.md#persistence-and-api)
+
+## How a tool's description is written
+
+Every built-in tool's `modelDescription` follows one order, as Claude Code's tools do; a part
+that has nothing to say is left out:
+
+1. **What it does**, in one sentence.
+2. **When it is worth calling**: the test the model applies, stated as its own judgement
+   ("whether to use it is your judgement; the test is …"), not as a keyword rule. Triggers
+   such as "when the user says X" are avoided: the model reads what the user wants.
+3. **Use it for / Skip it for**: a few short examples in the user's words, each with the
+   reason in parentheses. Only tools whose timing is a judgement get them (memory, the
+   checklist, sub-agents, knowledge search, web search and pages, questions, tasks, the
+   terminal, knowledge entries, pictures). Operational tools (reading a log, checking a command,
+   converting a document, loading a skill) skip this part: an example there only costs tokens.
+4. **How to call it**: inputs, limits, approval.
+5. **What comes back**, and what the answer then has to tell the user.
+
+Descriptions are sent with every request, so each sentence has to earn its place. A change
+to one is checked against the real-model eval (`tests/e2e/real-eval.spec.ts`) before and after.
 
 ## Discovery and installation
 

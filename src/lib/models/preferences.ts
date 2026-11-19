@@ -4,6 +4,7 @@ import { ApiError } from "@/lib/server/api-error";
 import { t } from "@/lib/locale";
 import { getModelProvider } from "@/lib/models/providers";
 import {
+  DEFAULT_IMAGE_REQUESTS_PER_MINUTE,
   defaultModelPreferences,
   libraryModel,
   modelLibraryItemSchema,
@@ -114,8 +115,13 @@ export async function acquireModelLease(mode: LibraryMode, ref: ModelRef) {
 async function persist(tx: PreferenceTx, settings: ModelPreferences) {
   // Older builds refuse a settings document with a field they do not know, so one
   // left at its default stays out of it and going back to them keeps working.
-  const { auxiliary, ...withoutAuxiliary } = settings;
-  const stored = (auxiliary ? settings : withoutAuxiliary) as Prisma.InputJsonValue;
+  const { auxiliary, callLimits, ...rest } = settings;
+  const { imageRequestsPerMinute, ...otherCallLimits } = callLimits;
+  const stored: Prisma.InputJsonValue = {
+    ...rest,
+    ...(auxiliary ? { auxiliary } : {}),
+    callLimits: imageRequestsPerMinute === DEFAULT_IMAGE_REQUESTS_PER_MINUTE ? otherCallLimits : callLimits,
+  };
   await tx.workspacePreference.upsert({
     where: { id: PREFERENCE_ROW_ID },
     create: { id: PREFERENCE_ROW_ID, settings: stored },

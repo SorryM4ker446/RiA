@@ -69,7 +69,7 @@ async function PATCHHandler(req: NextRequest, context: Params) {
         },
       });
 
-      if (prepared) await replaceMessageMedia(tx, message.id, prepared.assetIds);
+      if (prepared) await replaceMessageMedia(tx, message.id, prepared);
       return message;
     });
     return Response.json({ data: updated });

@@ -22,6 +22,7 @@ import { ThemeSettings } from "@/features/settings/theme";
 import { CloseBehaviourSettings } from "@/features/settings/close-behaviour";
 import { HotkeySettings } from "@/features/settings/hotkey";
 import { UpdateSettings } from "@/features/settings/updates";
+import { DiagnosticsSettings } from "@/features/settings/diagnostics";
 import { WorkspaceReviewPreview } from "@/features/settings/workspace-review";
 import { BackgroundTaskRules, TaskNotificationSettings } from "@/features/settings/task-automation";
 import { NoticeCenter } from "@/features/settings/notice-center";
@@ -99,7 +100,7 @@ function SectionContent({ id }: { id: SettingsSectionId }) {
   switch (id) {
     case "ria": return <YourRia />;
     case "services": return <ServiceSettings />;
-    case "application": return <><PageHeader level={2} title={t("ui.settings.application")} /><div className="settings-panel flex flex-col"><LanguageSettings /><ThemeSettings /><CloseBehaviourSettings /><HotkeySettings /><UpdateSettings /></div></>;
+    case "application": return <><PageHeader level={2} title={t("ui.settings.application")} /><div className="settings-panel flex flex-col"><LanguageSettings /><ThemeSettings /><CloseBehaviourSettings /><HotkeySettings /><UpdateSettings /><DiagnosticsSettings /></div></>;
     case "automation": return <><PageHeader level={2} title={t("ui.settings.automationNotifications")} /><div className="settings-panel flex flex-col"><TaskNotificationSettings /><BackgroundTaskRules /><NoticeCenter /><WorkspaceReviewPreview /></div></>;
     case "files": return <><PageHeader level={2} title={t("ui.settings.filePermissions")} /><div className="settings-panel"><DirectoryGrantSettings /></div></>;
     case "models": return <ModelSettings />;
@@ -227,6 +228,9 @@ function SettingsWindow({ section, kept, desktop, anchor, onAnchorShown, onSelec
   // mounted out of sight so their edits are still there on return. Every other
   // section reads fresh data when it is opened again.
   const mounted = order.filter(id => id === section || kept.has(id));
+  // Which way the reader moved in the list, so the section arrives from that side; the first one shown just fades in.
+  const [arrival, setArrival] = useState<{ section: SettingsSectionId; direction: "none" | "down" | "up" }>({ section, direction: "none" });
+  if (arrival.section !== section) setArrival({ section, direction: order.indexOf(section) < order.indexOf(arrival.section) ? "up" : "down" });
   // Storage is managed from the desktop app; the browser lists it only when a link opened it there.
   const visibleGroups = groups.map(group => ({ ...group, items: group.items.filter(item => item.id !== "storage" || desktop || section === "storage") }));
 
@@ -268,7 +272,7 @@ function SettingsWindow({ section, kept, desktop, anchor, onAnchorShown, onSelec
     </Dialog.Close>
     {/* Each section scrolls on its own, so one kept in the background is still where it was left. */}
     {mounted.map(id => <TabsContent key={id} value={id} forceMount className="settings-window-panel data-[state=inactive]:hidden">
-      <SettingsSectionContext.Provider value={id}><div className="settings-window-page"><SectionContent id={id} /></div></SettingsSectionContext.Provider>
+      <SettingsSectionContext.Provider value={id}><div className="settings-window-page" data-direction={id === section ? arrival.direction : undefined}><SectionContent id={id} /></div></SettingsSectionContext.Provider>
     </TabsContent>)}
   </Tabs>;
 }

@@ -2,6 +2,7 @@
 import { useLocale } from "@/lib/locale/client";
 import { t } from "@/lib/locale";
 import { ReplyPending } from "./message-thinking";
+import { SubagentsProvider } from "./subagent-card";
 import { useDayRollover } from "./message-time";
 import { readThinking } from "@/lib/chat/thinking";
 import { MessageNavigator } from "./message-navigator";
@@ -301,7 +302,7 @@ export function MessageRenderer({
         </h1>
         <p className="chat-welcome-description">{t("chat.messages.empty")}</p>
       </div>
-    ) : (<>
+    ) : (<SubagentsProvider chatId={activeChatId} enabled={shown.some(message => message.parts.some(part => part.type === "tool-runSubagent"))}>
       {shown.map((message, index) => {
         const isLast = index === shown.length - 1;
         // The message just sent arrives with motion; history that is loaded appears at once.
@@ -321,7 +322,7 @@ export function MessageRenderer({
       {isCompacting || (shownStatus === "submitted" && modelMode === "chat" && shown.at(-1)?.role === "user")
         ? <ReplyPending reasoning={alwaysReasons} organizing={isCompacting || isOrganizing} notice={turnNotice} />
         : null}
-    </>)}
+    </SubagentsProvider>)}
   </div>
   </div>
   {showNavigation && <MessageNavigator key={activeChatId ?? "draft"} messages={messages} scrollRef={scrollRef} onNavigate={jumpToMessage}

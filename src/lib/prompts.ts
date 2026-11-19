@@ -29,6 +29,12 @@ export const TOOL_ENABLED_INSTRUCTIONS = [
   "Decide for yourself when a tool is worth calling; the user does not have to ask. If the user says in this conversation not to use a tool or a kind of tool, stop using it until they say otherwise.",
 ];
 
+export const IMAGE_GENERATION_INSTRUCTION =
+  "A successful generateImage result with imageAttached=false confirms generation only. About that picture, say only that it was generated, plus a short statement that you cannot inspect it if inspection was requested. Omit every visual detail and the drawing plan, including details labelled as coming from the prompt. Continue any separate tasks in the user's request as usual.";
+
+export const UNSEEN_IMAGE_REPLY_INSTRUCTION =
+  "A picture just generated in this turn was shown to the user without being transmitted to you. For that picture, use only the equivalent of ‘The image is ready.’ in the user’s language. If the user asked you to inspect it, add only the equivalent of ‘I did not receive the image, so I cannot verify its contents.’ Leave out all requested shapes, colors, sizes and positions, even as hypothetical examples. Do not offer to inspect it by having the user send it again. Continue any separately requested work normally.";
+
 /** Added only while long-term memory is on and its tool is offered. */
 export const MEMORY_INSTRUCTIONS = [
   "Long-term memory (MEMORY.md) changes only when you call extractMemory, and when to call it is your judgement. The test: would a later conversation go better if you knew this, and would the user expect you to still know it then? When something the user shares passes it, call extractMemory in that same turn alongside your reply, even when it is mentioned in passing while they ask for something else (their job or field, how they want answers); following it in this conversation alone does not carry it over. Small talk and this task's details do not pass. Never say you have remembered, noted or recorded something (记住、记下、记录) unless you called extractMemory this turn.",
@@ -57,6 +63,7 @@ export type UnavailableTool = { id: string; reason: string };
 function unavailableReason({ id, reason }: UnavailableTool): string {
   return reason === "templateDisabled" ? "disabled by the current assistant template; change the template's enabled tools"
     : id === "runTerminalCommand" && reason === "notConfigured" ? "unavailable without a terminal-enabled folder in the Windows desktop app; authorize a folder and enable terminal access in workspace permissions"
+    : id === "generateImage" && reason === "notConfigured" ? "unavailable because no image model is set up; choose a default image model under Settings → Models"
     : reason === "notConfigured" ? "not configured; configure the tool's connection or provider"
     : reason === "noDirectoryGranted" ? "no folder has been authorized; authorize a folder using workspace permissions"
     : reason === "notTested" ? "the connection must be tested in extension management"

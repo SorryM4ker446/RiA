@@ -135,7 +135,11 @@ async function runPrompt(task: ClaimedTask, signal: AbortSignal): Promise<TaskOu
     return { status: "skipped", error: "BACKGROUND_LIMIT", ...(existing ? { chatId: existing } : {}) };
   }
   const chatId = existing ?? await taskConversation(task);
-  const outcome = await runUnattendedTurn({ chatId, text: task.prompt, signal, callSource: background ? "scheduled" : "chat", ...(note ? { requestNote: note } : {}) });
+  const answered = await runUnattendedTurn({ chatId, text: task.prompt, signal, callSource: background ? "scheduled" : "chat", ...(note ? { requestNote: note } : {}) });
+  // The run is done only once the sub-agents it left in the background have ended and their reports
+  // have been answered; how the last of those turns went is how the run went.
+  const { settleSubagentWork } = await import("@/lib/agents/subagent-continuation");
+  const outcome = answered.status === "succeeded" ? await settleSubagentWork(chatId, signal) ?? answered : answered;
   await announce(task, outcome.status, chatId);
   return { status: outcome.status, chatId, ...(outcome.status === "failed" ? { error: outcome.errorCode ?? "INTERNAL_ERROR" } : {}) };
 }

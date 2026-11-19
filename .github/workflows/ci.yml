@@ -231,6 +231,9 @@ jobs:
       - name: Smoke-test Electron after moving its data folder
         run: npm run test:desktop:data-move
 
+      - name: Smoke-test Electron after moving its cache folder
+        run: npm run test:desktop:cache-move
+
       # A synthetic .click() cannot catch this class of defect: the broken
       # version passed every other gate because the React SyntheticEvent was
       # never structured-cloned across the contextBridge. Only a real trusted

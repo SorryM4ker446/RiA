@@ -166,7 +166,7 @@ export async function saveChatMessage(params: {
   const saved = await db.$transaction(async (tx) => {
     if (updateExisting && normalizedClientMessageId) for (const statement of rewriteStatements(tx, chatId, normalizedClientMessageId)) await statement;
     const message = await writeMessage(tx);
-    if (message.content === prepared.content) await replaceMessageMedia(tx, message.id, prepared.assetIds);
+    if (message.content === prepared.content) await replaceMessageMedia(tx, message.id, prepared);
     await tx.chat.update({ where: { id: chatId }, data: { lastMessageAt: new Date() } });
     return message;
   });
@@ -194,12 +194,28 @@ function fromMessage(from: { createdAt: Date; id: string }) {
   return { OR: [{ createdAt: { gt: from.createdAt } }, { createdAt: from.createdAt, id: { gte: from.id } }] };
 }
 
+function approvalMessage(chatId: string, messageId: string) {
+  return db.message.findFirst({ where: {
+    chatId, role: "assistant",
+    OR: [{ id: messageId }, { clientMessageId: messageId }],
+  }, select: { id: true, content: true, createdAt: true } });
+}
+
+export async function approvalIsScheduled(chatId: string, messageId: string) {
+  const row = await approvalMessage(chatId, messageId);
+  if (!row) return false;
+  if (decodePersistedAssistantToolMessage(row.content)?.scheduled) return true;
+  // An approval already waiting when the app was updated can still be linked
+  // to the scheduled run that saved it.
+  return Boolean(await db.scheduledRun.findFirst({ where: {
+    chatId, trigger: "scheduled", status: "waiting_approval",
+    startedAt: { lte: row.createdAt }, finishedAt: { gte: row.createdAt },
+  }, select: { id: true } }));
+}
+
 /** Claim a persisted pending approval once, before any side effect is executed. */
 export async function claimToolApproval(chatId: string, message: UIMessage) {
-  const existing = await db.message.findFirst({ where: {
-    chatId, role: "assistant",
-    OR: [{ id: message.id }, { clientMessageId: message.id }],
-  } });
+  const existing = await approvalMessage(chatId, message.id);
   const persisted = existing ? decodePersistedAssistantToolMessage(existing.content) : null;
   if (!existing || !persisted) {
     throw new ApiError({ code: "NOT_FOUND", message: t("server.approval.notFound") });
@@ -293,6 +309,8 @@ export async function saveRegeneratedResponse(params: {
   clientMessageId: string;
 }) {
   const { snapshot } = params;
+  // A regenerated answer may have made pictures too; it refers to them as any answer does.
+  const prepared = await prepareMessageMedia(params.content);
   const saved = await db.$transaction(async (tx) => {
     const chat = await tx.chat.findFirst({ where: { id: snapshot.chatId } });
     if (!chat) throw new ApiError({ code: "NOT_FOUND", message: t("server.conversation.notFound") });
@@ -317,10 +335,11 @@ export async function saveRegeneratedResponse(params: {
     const message = await tx.message.create({ data: {
       chatId: snapshot.chatId,
       role: "assistant",
-      content: params.content,
+      content: prepared.content,
       status: "success",
       clientMessageId: params.clientMessageId,
     } });
+    if (prepared.assetIds.length) await replaceMessageMedia(tx, message.id, prepared);
     await tx.chat.update({ where: { id: snapshot.chatId }, data: { lastMessageAt: new Date() } });
     return message;
   });

@@ -18,7 +18,6 @@ export const toolsMessages = {
   "tools.toolCalling.description": "模型自己判断该用哪个工具，用完带着结果继续回答。",
   "tools.searchKnowledge.hint": "想查什么？",
   "tools.createTask.hint": "要做什么，什么时候？",
-  "tools.runSubagent.hint": "要交给子代理做什么？",
   "tools.webSearch.hint": "想搜索什么？",
   "tools.saveKnowledgeEntry.hint": "写下要保存的内容",
   "tools.readDocument.hint": "想了解什么？",
@@ -48,7 +47,11 @@ export const toolsMessages = {
   "tools.readConversationHistory.description": "查找这段对话里被摘要或缩短的原始内容。",
   "tools.createTask.displayName": "创建任务",
   "tools.runSubagent.displayName": "交给子代理",
-  "tools.runSubagent.description": "把一项需要很多步骤或大量阅读的工作交给子代理：它用全新的上下文和对话的工具去做，做完交回一份报告。需要你批准的操作它不会执行，会写在报告里。",
+  "tools.runSubagent.description": "把一项需要很多步骤或大量阅读的工作交给子代理：它用全新的上下文和对话的工具去做，做完交回一份报告。需要你批准的操作它不会执行，会写在报告里。它也可以在后台运行，对话照常进行。",
+  "tools.generateImage.displayName": "生成图片",
+  "tools.generateImage.description": "按对话内容写好完整的画面描述，用默认的生图模型画出来，图片显示在对话里，可以接着修改。每次生成都会产生费用：你在这一轮里明确要它画时直接生成，否则先问你；完全访问下不再询问。",
+  "tools.checkSubagents.displayName": "查看子代理",
+  "tools.checkSubagents.description": "列出这个对话的子代理和各自正在做什么，也能再次读取报告。",
   "tools.createTask.description": "安排一件让 RiA 到点自己去做的事，可以只做一次，也可以重复。",
 
   // --- webSearch ---------------------------------------------------------
@@ -60,6 +63,8 @@ export const toolsMessages = {
   "tools.updatePlan.description": "把多步任务列成清单，边做边勾选。",
   "tools.readWebPage.displayName": "读取网页",
   "tools.readWebPage.description": "读出网页正文，长页面分段读。",
+  "tools.readWebPage.fakeIpDisabled": "{host} 的 DNS 只返回了代理虚拟地址（fake-IP）。可在「设置 → API 密钥 → 连接与站点选项」启用「代理虚拟地址回查」，或在代理中让该域名返回真实 IP。",
+  "tools.readWebPage.fakeIpUnverified": "{host} 的 DNS 返回了代理虚拟地址（fake-IP），Cloudflare 安全 DNS 回查未能确认公网地址。请检查代理连接或让该域名返回真实 IP。",
   "tools.readWebPage.hint": "想读哪个网址？",
   "tools.webSearch.resultCountLabel": "结果数（可空）",
   // --- saveKnowledgeEntry ---------------------------------------------------------

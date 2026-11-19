@@ -55,8 +55,9 @@ export function CloseBehaviourSettings() {
       // This save touches nothing the local service reads at start-up, so it
       // neither restarts the service nor blanks the window. The tray is built
       // before this returns, and a tray that could not be built rejects here
-      // rather than leaving the card claiming a setting that never took.
-      if (next === "tray") await window.riaDesktop!.showFromTray();
+      // rather than leaving the card claiming a setting that never took. The
+      // window is left as it is: it is already in front, and showing it again
+      // made the whole application flash.
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : t("settings.close.failed"));
     } finally {

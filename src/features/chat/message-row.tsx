@@ -9,14 +9,17 @@ import { EditedFiles } from "./edited-files";
 import { TaskPlan, shownPlan } from "./task-plan";
 import { Reveal } from "@/components/ui/reveal";
 import { QuestionRecords } from "./question-card";
-import { MessageThinking, ReplyPending } from "./message-thinking";
+import { MessageThinking, ReplyPending, ToolRunning } from "./message-thinking";
 import { CompactionMarker } from "./compaction-marker";
 import { formatMessageTime, fullMessageTime, readMessageTime } from "./message-time";
-import { readThinking } from "@/lib/chat/thinking";
+import { readThinking, runningToolCall } from "@/lib/chat/thinking";
+import { readMessageNotice } from "@/lib/chat/invocation-schema";
+import { SubagentCard, SubagentNoticeLine } from "@/features/chat/subagent-card";
 import { toolLabel } from "./use-tools";
 import { MessageChoices } from "./composer-choices";
 import { readMessageInvocation } from "@/lib/chat/invocation-schema";
 import { isDocumentAttachment } from "@/lib/media/limits";
+import { generatedPictures } from "./generated-pictures";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
@@ -188,12 +191,19 @@ export const MessageRow = memo(function MessageRow({
   const isLastAssistantStreaming = status === "streaming" && message.role === "assistant";
   const isLive = !isUser && isLast && (status === "streaming" || status === "submitted" || toolParts.some(part => part.state === "approval-requested"));
   const waitingFor = toolParts.find(part => part.state === "approval-requested");
+  // The call the turn is waiting on while it runs; the checklist and questions show as themselves.
+  const running = runningToolCall(toolParts, isLive);
+  const runningName = running ? toolName(running.tool) : null;
   const plan = isUser ? null : shownPlan(message, isLive);
   const isReasoning = isLastAssistantStreaming && message.parts.some(part => part.type === "reasoning" && part.state === "streaming");
   const isEditable = isUser && fileParts.length === 0 && !isEditing && !isPending;
   const isRegenerable = message.role === "assistant" && isLast;
   // An answer still being written has no time to state yet.
   const savedAt = isLive || isEditing ? null : readMessageTime(message.metadata);
+
+  // RiA's own notice that background sub-agents ended: a line between the turns, not the user's message.
+  const ownNotice = isUser ? readMessageNotice(message.metadata) : null;
+  if (ownNotice) return <div className="flex w-full justify-center pb-3" {...removalKey(message.id)} data-message-id={message.id} data-message-role="notice"><SubagentNoticeLine titles={ownNotice.titles} /></div>;
 
   return (
     <><div className={cn("flex w-full", isUser ? "justify-end pb-4" : "justify-start")} {...removalKey(message.id)} data-message-id={message.id} data-message-role={message.role} data-arriving={arriving || undefined}>
@@ -303,9 +313,12 @@ export const MessageRow = memo(function MessageRow({
           reasoning={isReasoning}
           answering={answerStarted(message)} /> : null}
         {/* With a checklist on show, the plain "replying" line says nothing it does not; a queue, retry or review still shows. */}
-        {isLive && (notice?.state === "reviewing" || (!isReasoning && !text && !(thinking && thinking.kind !== "hidden"))) && !toolParts.some(part => part.state === "approval-requested") && (!plan || notice)
+        {isLive && (notice?.state === "reviewing" || (!isReasoning && !text && !runningName && !(thinking && thinking.kind !== "hidden"))) && !toolParts.some(part => part.state === "approval-requested") && (!plan || notice)
           ? <ReplyPending reasoning={alwaysReasons} notice={notice} />
           : null}
+        {/* A sub-agent has a card of its own, which says what it is doing; any other tool says so in a line. */}
+        {running && running.tool !== "runSubagent" && runningName && !isReasoning && notice?.state !== "reviewing" ? <ToolRunning key={running.callId} name={runningName} /> : null}
+        {!isUser ? toolParts.filter(part => part.type === "tool-runSubagent").map(part => <SubagentCard key={`subagent-${part.toolCallId}`} part={part} runIds={readRunIds(message.metadata)} toolName={toolName} />) : null}
         {isLive && !text && waitingFor ? <p className="reply-waiting" role="status">{t(waitingFor.type === "tool-askUser" ? "chat.messages.waitingForAnswer" : "chat.messages.waitingForApproval")}</p> : null}
         {isUser && !isEditing && invocation ? <MessageChoices invocation={invocation} /> : null}
         {/* Leaves with a fold, not a jump, once the final answer starts. */}
@@ -321,6 +334,28 @@ export const MessageRow = memo(function MessageRow({
         </p> : null}
         {!isUser && !isLastAssistantStreaming && canShowSources ? <AnswerSources message={message} onShowAll={() => actions.current?.onShowSources?.(message.id)} /> : null}
         {toolParts.map(part => part.type === "tool-convertDocument" && part.state === "output-available" ? <DocumentDownload key={`download-${part.toolCallId}`} output={part.output} /> : null)}
+        {!isUser ? generatedPictures(toolParts).map(picture => (
+          <div className="mt-3 space-y-2" key={`picture-${picture.callId}`} data-testid="generated-picture">
+            <Image
+              alt={t("chat.messages.generatedImage")}
+              className="max-h-[420px] w-full rounded-lg object-contain"
+              src={picture.url}
+              title={picture.prompt}
+              unoptimized
+              width={1024}
+              height={1024}
+            />
+            <Button
+              disabled={Boolean(attachingImageKey)}
+              onClick={() => void actions.current?.onReuseImageForEditing({ imageUrl: picture.url, key: `${message.id}-${picture.callId}`, filenameBase: `generated-${picture.mediaId}` })}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              {attachingImageKey === `${message.id}-${picture.callId}` ? t("chat.messages.reusing") : reuseImageActionLabel}
+            </Button>
+          </div>
+        )) : null}
         {imageUrl ? (
           <div className="mt-3 space-y-2">
             <Image

@@ -61,6 +61,22 @@ test("the reviewer is shown the user's own words and the names of tools read, ne
 const verdicts = (...items: { decision: string; reason: string }[]) => JSON.stringify({ verdicts: items.map((item, index) => ({ id: index + 1, ...item })) });
 const base = { workspace: "C:/work", messages: conversation, modelRef: CHAT_MODEL_REF };
 
+test("repeated paid image calls receive individual verdicts even in the same step", async (t: TestContext) => {
+  const reviews = t.mock.method(languageModel, "doGenerate", async () => reply(verdicts(
+    { decision: "allow", reason: "The user asked for one image." },
+    { decision: "ask", reason: "This would spend money on a second copy." },
+  )));
+  const request = { ...base, messages: [{ role: "user" as const, content: "Draw one cat." }],
+    action: { kind: "image" as const, prompt: "Draw a cat.", referenceImages: [] }, chatId: "chat-draw", runId: "run-draw" };
+  const verdictsByCall = await Promise.all([reviewAction(request), reviewAction(request)]);
+  assert.deepEqual(verdictsByCall.map(item => item.decision), ["allow", "ask"]);
+  assert.equal(reviews.mock.callCount(), 1);
+  await reviewAction(request);
+  assert.equal(reviews.mock.callCount(), 2, "a later image call is reviewed again");
+  assert.equal((await reviewAction({ ...request, userText: ["Draw one cat.", ""] })).decision, "ask");
+  assert.equal(reviews.mock.callCount(), 2, "an attachment-only or empty latest message grants no automatic approval");
+});
+
 test("a review shows the model the user's words and tool names only, reuses an allow for the same request and never an ask", async (t: TestContext) => {
   const prompts: string[] = [];
   let decision = "allow";

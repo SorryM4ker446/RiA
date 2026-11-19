@@ -11,7 +11,7 @@ type PromptPart = Extract<LanguageModelV3Message["content"], readonly unknown[]>
 import { NextRequest } from "next/server";
 import { createTestDatabase } from "../helpers/database";
 import { localAccessCookie } from "../helpers/local-access";
-import { testPng, testVideo, languageModel, providerState } from "../helpers/model-provider";
+import { distinctPng, testPng, testVideo, languageModel, providerState } from "../helpers/model-provider";
 import { seedTestModelPreferences } from "../helpers/model-library";
 import { textPdf, wordDocument, wordTableDocument } from "../helpers/document-fixtures";
 
@@ -52,7 +52,9 @@ async function multipart(files, session = cookie) {
     body: await encoded.arrayBuffer(),
   });
 }
-async function createImage() { return storage.createMediaAsset({ bytes: testPng, mediaType: "image/png", kind: "attachment" }); }
+// Each a different picture: attaching the same bytes again would reuse the asset.
+let pictures = 0;
+async function createImage() { return storage.createMediaAsset({ bytes: distinctPng(++pictures), mediaType: "image/png", kind: "attachment" }); }
 async function newChat() { return db.chat.create({ data: { title: "Media test" } }); }
 function imageContent(asset) { return encodeMediaMessage({ type: "image-result", assetId: asset.id, modelId: "test", text: "Stored image" }); }
 beforeEach(async (t: TestContext) => {
@@ -182,7 +184,7 @@ test("chat persists attachment references while giving the model authenticated b
   assert.equal(decodePersistedUserMessage(stored.content).files[0].assetId, asset.id);
   assert.equal(await db.messageMedia.count({ where: { assetId: asset.id } }), 1);
   const modelImage = languageModel.doStreamCalls.at(-1).prompt.flatMap((entry) => (Array.isArray(entry.content) ? entry.content as PromptPart[] : [])).find((part: PromptPart): part is LanguageModelV3FilePart => part.type === "file" && part.mediaType === "image/png");
-  assert.deepEqual(typeof modelImage.data === "string" ? Buffer.from(modelImage.data, "base64") : Buffer.from(modelImage.data as Uint8Array), testPng);
+  assert.deepEqual(typeof modelImage.data === "string" ? Buffer.from(modelImage.data, "base64") : Buffer.from(modelImage.data as Uint8Array), distinctPng(pictures));
 });
 
 test("PDF and Word chat attachments send extracted text to a text-only model without indexing knowledge", async () => {
@@ -277,7 +279,7 @@ test("shared media survives deletion of one conversation and has a fresh cleanup
   for (const chat of [first, second]) await saveChatMessage({ chatId: chat.id, role: "assistant", content: imageContent(asset) });
   await assert.rejects(storage.deleteMediaAsset(asset.id), (error: { code?: string }) => error.code === "CONFLICT");
   await deleteChat(first.id);
-  assert.deepEqual(await storage.readMediaAsset(await storage.getMediaAsset(asset.id)), testPng);
+  assert.deepEqual(await storage.readMediaAsset(await storage.getMediaAsset(asset.id)), distinctPng(pictures));
   assert.equal(await db.messageMedia.count({ where: { assetId: asset.id } }), 1);
   await db.mediaAsset.update({ where: { id: asset.id }, data: { lastUsedAt: new Date(0) } });
   await deleteChat(second.id);
@@ -307,7 +309,8 @@ test("legacy base64 messages migrate on read without losing data or duplicating 
   const normalized = decodeMediaMessage(rows.find((row) => row.id === image.id).content);
   assert.deepEqual(await storage.readMediaAsset(await storage.getMediaAsset(normalized.assetId)), testPng);
   await listChatMessages(chat.id);
-  assert.equal(await db.mediaAsset.count({ where: {} }), 2);
+  // The attachment is the generated image's bytes, so both messages refer to the one asset.
+  assert.equal(await db.mediaAsset.count({ where: {} }), 1);
   assert.equal(await db.messageMedia.count({ where: { message: { chatId: chat.id } } }), 2);
 });
 
@@ -379,4 +382,28 @@ test("storage statistics and cleanup require the local access credential", async
   assert.equal(cleanupResult.removedCount >= 1, true);
   assert.equal(cleanupResult.failedCount, 0);
   assert.equal(await db.mediaAsset.count(), 0);
+});
+
+test("attaching the same picture again reuses its asset, a generated one included, while different bytes get their own", async () => {
+  const generated = await storage.createMediaAsset({ bytes: distinctPng(900), mediaType: "image/png", kind: "generated-image", modelId: "test/image" });
+  // Reused as an attachment, as "edit this image" and pasting it again do: the generated asset itself.
+  const reused = await storage.createMediaAsset({ bytes: distinctPng(900), mediaType: "image/png", kind: "attachment", description: "copy.png" });
+  assert.equal(reused.id, generated.id);
+  const first = await storage.createMediaAsset({ bytes: distinctPng(901), mediaType: "image/png", kind: "attachment" });
+  const again = await storage.createMediaAsset({ bytes: distinctPng(901), mediaType: "image/png", kind: "attachment" });
+  assert.equal(again.id, first.id);
+  // An asset stored before hashes were kept is found by hashing its file, and keeps the hash.
+  await db.mediaAsset.update({ where: { id: first.id }, data: { contentHash: null } });
+  assert.equal((await storage.createMediaAsset({ bytes: distinctPng(901), mediaType: "image/png", kind: "attachment" })).id, first.id);
+  assert.match((await db.mediaAsset.findUniqueOrThrow({ where: { id: first.id } })).contentHash ?? "", /^[a-f0-9]{64}$/);
+  // Different bytes, or a deleted asset, are not reused; a generated output is always its own.
+  assert.notEqual((await storage.createMediaAsset({ bytes: distinctPng(902), mediaType: "image/png", kind: "attachment" })).id, first.id);
+  assert.notEqual((await storage.createMediaAsset({ bytes: distinctPng(900), mediaType: "image/png", kind: "generated-image" })).id, generated.id);
+  await db.mediaAsset.update({ where: { id: first.id }, data: { deletedAt: new Date() } });
+  assert.notEqual((await storage.createMediaAsset({ bytes: distinctPng(901), mediaType: "image/png", kind: "attachment" })).id, first.id);
+  // Uploading the same file twice in one request gives one asset.
+  const response = await upload.POST(await multipart([new File([distinctPng(903)], "a.png", { type: "image/png" }), new File([distinctPng(903)], "b.png", { type: "image/png" })]));
+  const uploaded = (await response.json()).data;
+  assert.equal(uploaded[0].assetId, uploaded[1].assetId);
+  assert.deepEqual(uploaded.map((item: { filename: string }) => item.filename), ["a.png", "b.png"]);
 });

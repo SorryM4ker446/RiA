@@ -6,7 +6,7 @@ import type { AnyToolDescriptor } from "../types";
 import { t } from "@/lib/locale";
 export const readPluginSkill: AnyToolDescriptor = {
   id: "readPluginSkill", displayName: "读取插件技能", description: "用到时才加载已启用技能的说明。",
-  modelDescription: "Load an enabled plugin skill listed in the skill index. Omit path to get the package's skill instructions and, for marketplace skills, its bundled files; then read SKILL.md and relevant references by path. A file response contains at most 12000 characters; continue at nextOffset until null. This tool cannot access local files, network or execute scripts. Do not use for user documents or inactive/uninstalled skills.",
+  modelDescription: "Load an enabled plugin skill listed in the skill index: its instructions and, for marketplace skills, its bundled files. Use it when a listed skill fits the task, before following it; not for the user's documents or for skills that are not enabled. Omit path to get the package's skill instructions; then read SKILL.md and relevant references by path. A file response holds at most 12000 characters; continue at nextOffset until null. It cannot reach local files or the network, or run scripts.",
   modeSupport: ["chat"],
   surface: { category: "context", user: null, template: "always" },
   inputSchema: z.strictObject({ packageId: z.string().max(100), path: z.string().max(300).optional(), offset: z.number().int().min(0).max(500_000).default(0) }),

@@ -19,15 +19,16 @@ export function estimatedCallCost(prompt: unknown, maxOutputTokens: number | und
   const input = Buffer.byteLength(JSON.stringify(prompt) ?? "", "utf8");
   return (input * Math.max(rate.inputPerMillion, rate.cacheReadPerMillion ?? 0, rate.cacheWritePerMillion ?? 0) + maxOutputTokens * rate.outputPerMillion) / 1_000_000;
 }
-export async function beginModelAttempt(input: { mode: LibraryMode; ref: ModelRef; prompt?: unknown; maxOutputTokens?: number; fallback?: boolean; source?: CallSource; signal?: AbortSignal }) {
+export async function beginModelAttempt(input: { mode: LibraryMode; ref: ModelRef; prompt?: unknown; maxOutputTokens?: number; fallback?: boolean; source?: CallSource; background?: boolean; signal?: AbortSignal }) {
   input.signal?.throwIfAborted();
   const source = input.source ?? modelCallSource();
+  const background = input.background === true || source === "scheduled";
   // A place for the call: the turn's own when it is part of one, otherwise one
   // of its own, waited for when all are taken. Given back when the attempt is
   // recorded (recordModelAttempt), or here when it is not admitted.
-  const slot = await slotForCall(source === "scheduled" || source === "embedding" ? "background" : "foreground", input.signal);
+  const slot = await slotForCall(background || source === "embedding" ? "background" : "foreground", input.signal);
   try {
-    const admitted = await admit(input, source);
+    const admitted = await admit(input, source, background);
     holdForAttempt(admitted.id, slot.release);
     return admitted;
   } catch (error) {
@@ -36,10 +37,7 @@ export async function beginModelAttempt(input: { mode: LibraryMode; ref: ModelRe
   }
 }
 
-async function admit(input: { mode: LibraryMode; ref: ModelRef; prompt?: unknown; maxOutputTokens?: number; fallback?: boolean; signal?: AbortSignal }, source: CallSource) {
-  // Summaries only run inside a chat request the user started and can stop, so
-  // they are attributed separately but share that request's foreground controls.
-  const background = source === "scheduled";
+async function admit(input: { mode: LibraryMode; ref: ModelRef; prompt?: unknown; maxOutputTokens?: number; fallback?: boolean; signal?: AbortSignal }, source: CallSource, background: boolean) {
   const now = new Date(), id = randomUUID();
   return db.$transaction(async tx => {
     // Acquire SQLite's writer before reading counters, so concurrent admissions
@@ -51,10 +49,11 @@ async function admit(input: { mode: LibraryMode; ref: ModelRef; prompt?: unknown
     const preferences = stored ? upgradeModelPreferences(stored.settings) : defaultModelPreferences();
     const limits = preferences.callLimits;
     const rate = preferences.rates[modelRefKey(input.ref)];
-    const estimate = input.mode === "image" || input.mode === "video" ? rate?.perRequest ?? null : estimatedCallCost(input.prompt, input.maxOutputTokens, rate);
+    const isMedia = input.mode === "image" || input.mode === "video";
+    const estimate = isMedia ? rate?.perRequest ?? null : estimatedCallCost(input.prompt, input.maxOutputTokens, rate);
     if (background) {
       if ((limits.backgroundMaxEstimatedUsd !== null || limits.backgroundDailyEstimatedUsd !== null) && estimate === null) {
-        throw new ApiError({ code: "BACKGROUND_LIMIT", message: t("errors.backgroundCostLimitsAreEnabledConfigureModelInput") });
+        throw new ApiError({ code: "BACKGROUND_LIMIT", message: t(isMedia ? "errors.backgroundCostLimitsConfigureMediaRate" : "errors.backgroundCostLimitsAreEnabledConfigureModelInput") });
       }
       if (limits.backgroundMaxEstimatedUsd !== null && estimate! > limits.backgroundMaxEstimatedUsd) {
         throw new ApiError({ code: "BACKGROUND_LIMIT", message: t("errors.estimatedBackgroundCallCostExceedsThePerCall") });

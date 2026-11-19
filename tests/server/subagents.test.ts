@@ -29,15 +29,16 @@ beforeEach(async (t: TestContext) => {
 after(async () => { await db.$disconnect(); cleanup(); });
 
 const usage = { inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 5, text: 5, reasoning: 0 } };
-type Step = { tool?: { name: string; input: unknown }; tools?: Array<{ name: string; input: unknown }>; text?: string };
+type Step = { tool?: { name: string; input: unknown }; tools?: Array<{ name: string; input: unknown }>; text?: string; before?: (signal?: AbortSignal) => Promise<void> };
 const isSubagent = (options: { prompt: unknown }) => JSON.stringify(options.prompt).includes("You are a sub-agent of RiA");
 
 /** The parent turn streams; each sub-agent generates. Both follow their own script and record what they were offered. */
 function script(t: TestContext, parent: Step[], subagent: (call: number, options: { prompt: unknown }) => Promise<Step> | Step) {
-  const seen = { parent: [] as Array<{ tools: string[] }>, subagent: [] as Array<{ tools: string[]; prompt: string }> };
-  t.mock.method(languageModel, "doStream", async (options: { tools?: Array<{ name: string }> }) => {
+  const seen = { parent: [] as Array<{ tools: string[]; prompt: string }>, subagent: [] as Array<{ tools: string[]; prompt: string }> };
+  t.mock.method(languageModel, "doStream", async (options: { tools?: Array<{ name: string }>; prompt: unknown; abortSignal?: AbortSignal }) => {
     const step = parent[seen.parent.length] ?? { text: "Done." };
-    seen.parent.push({ tools: (options.tools ?? []).map(tool => tool.name) });
+    seen.parent.push({ tools: (options.tools ?? []).map(tool => tool.name), prompt: JSON.stringify(options.prompt) });
+    await step.before?.(options.abortSignal);
     const calls = step.tools ?? (step.tool ? [step.tool] : []);
     return { stream: new ReadableStream<LanguageModelV3StreamPart>({ start(controller) {
       controller.enqueue({ type: "stream-start", warnings: [] });
@@ -229,4 +230,124 @@ test("the checklist stays the main assistant's: handing off says to keep it curr
   const plan = getToolDescriptor("updatePlan")!.modelDescription;
   assert.match(plan, /Work you hand to several sub-agents at once is one step/);
   assert.match(plan, /sub-agents cannot update the checklist/);
+});
+
+// --- background sub-agents ----------------------------------------------------
+
+const subagents = await import("@/lib/agents/subagents");
+const continuation = await import("@/lib/agents/subagent-continuation");
+const liveTurns = await import("@/lib/chat/live-turns");
+const { decodePersistedUserMessage } = await import("@/lib/ai/ui-message");
+const background = { ...brief, title: "Look in the background", background: true };
+
+async function until<T>(read: () => Promise<T | null | undefined | false>, what: string, ms = 8_000): Promise<T> {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const value = await read();
+    if (value) return value;
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+}
+const ended = (id: string) => until(async () => { const row = await db.subagentRun.findUnique({ where: { id } }); return row && row.status !== "running" ? row : null; }, `sub-agent ${id} to end`);
+const aborted = () => Object.assign(new Error("aborted"), { name: "AbortError" });
+/** Waits until the signal stops it. */
+const blocked = (signal?: AbortSignal) => new Promise<never>((_, reject) => signal?.addEventListener("abort", () => reject(aborted()), { once: true }));
+/** A gate the sub-agent waits at, until the test opens it. */
+function gate() {
+  let open!: () => void;
+  const opened = new Promise<void>(resolve => { open = resolve; });
+  return { open, wait: () => opened };
+}
+function quiet(t: TestContext) {
+  t.mock.restoreAll();
+  for (const method of ["error", "info", "warn"] as const) t.mock.method(console, method, () => {});
+}
+
+test("a background sub-agent hands back its id at once, the turn goes on, and its report joins the turn's next step", async t => {
+  const done = new Promise<void>(resolve => { const off = subagents.onSubagentFinished(() => { off(); resolve(); }); });
+  const seen = script(t, [
+    { tool: { name: "runSubagent", input: background } },
+    // The turn carries on while it runs; the next step waits here until it has ended.
+    { tool: { name: "checkSubagents", input: {} }, before: () => done },
+    { text: "It found the travel desk rule." },
+  ], () => ({ text: "Hotels go through the travel desk." }));
+  const chat = await createChat({ title: "Background" });
+  await ask(chat.id, "Have a sub-agent look into the policy while you go on.");
+  const [output] = await subagentOutputs(chat.id) as unknown as Array<{ id: string; status: string; background: boolean }>;
+  assert.equal(output.status, "running", "the call answered at once, before the work was done");
+  assert.equal(output.background, true);
+  assert.match(seen.parent[2].prompt, /Automatic notice from RiA, not a message from the user/);
+  assert.match(seen.parent[2].prompt, /Hotels go through the travel desk/);
+  const row = await db.subagentRun.findUniqueOrThrow({ where: { id: output.id } });
+  assert.deepEqual([row.status, row.delivered, row.background], ["done", true, true]);
+  // Taken by that step, it does not wake the conversation again.
+  await new Promise(resolve => setTimeout(resolve, 200));
+  assert.equal(await db.message.count({ where: { chatId: chat.id, role: "user" } }), 1);
+});
+
+test("a report that arrives after the turn has ended wakes the conversation with an automatic notice", async t => {
+  continuation.watchSubagentReports();
+  const hold = gate();
+  const seen = script(t, [{ tool: { name: "runSubagent", input: background } }, { text: "Started it; I will tell you." }, { text: "Here is what it found." }], async () => { await hold.wait(); return { text: "Hotels go through the travel desk." }; });
+  const chat = await createChat({ title: "Woken" });
+  await ask(chat.id, "Look into it in the background.");
+  hold.open();
+  const notice = await until(async () => {
+    const rows = await db.message.findMany({ where: { chatId: chat.id, role: "user" }, orderBy: { createdAt: "asc" } });
+    return rows.length === 2 ? rows[1] : null;
+  }, "the woken turn's message");
+  assert.deepEqual(decodePersistedUserMessage(notice.content)?.notice, { kind: "subagents", titles: ["Look in the background"] }, "it is RiA's notice, not the user's message");
+  await until(async () => !liveTurns.isTurnLive(chat.id) && await db.message.count({ where: { chatId: chat.id, role: "assistant" } }) === 2, "the woken turn to answer");
+  assert.match(seen.parent[2].prompt, /Automatic notice from RiA[\s\S]*Hotels go through the travel desk/);
+});
+
+test("a sub-agent can be stopped from its card, and stopping a turn stops all of the conversation's", async t => {
+  continuation.watchSubagentReports();
+  script(t, [{ tools: [{ name: "runSubagent", input: { ...background, title: "One" } }, { name: "runSubagent", input: { ...background, title: "Two" } }] }, { text: "Both started." }],
+    async (_call, options) => blocked((options as { abortSignal?: AbortSignal }).abortSignal));
+  const chat = await createChat({ title: "Stops" });
+  await ask(chat.id, "Start two in the background.");
+  const [one, two] = await db.subagentRun.findMany({ where: { chatId: chat.id }, orderBy: { title: "asc" } });
+  assert.equal(subagents.stopSubagent("another-chat", one.id), false, "only its own conversation can stop it");
+  assert.equal(subagents.stopSubagent(chat.id, one.id), true);
+  assert.equal((await ended(one.id)).status, "stopped");
+  assert.equal((await db.subagentRun.findUniqueOrThrow({ where: { id: two.id } })).status, "running");
+  // A later turn the user stops takes the other one with it.
+  quiet(t);
+  let answering = false;
+  script(t, [{ text: "never", before: signal => { answering = true; return blocked(signal); } }], () => ({ text: "unused" }));
+  const asking = ask(chat.id, "Something else meanwhile.").catch(() => {});
+  await until(async () => answering, "the second turn to start answering");
+  liveTurns.stopTurn(chat.id);
+  await asking;
+  assert.equal((await ended(two.id)).status, "stopped");
+  // Stopped ones wake nothing.
+  await new Promise(resolve => setTimeout(resolve, 200));
+  assert.equal(await db.message.count({ where: { chatId: chat.id, role: "user" } }), 2);
+});
+
+test("one still marked running after a restart reads as interrupted, and is told at the next chance", async () => {
+  const chat = await createChat({ title: "Restarted" });
+  await db.subagentRun.create({ data: { id: "sa_00000000beef", chatId: chat.id, toolCallId: "call-old", title: "Before the restart", task: "Anything", background: true } });
+  const [view] = await subagents.listSubagents(chat.id);
+  assert.equal(view.status, "interrupted");
+  assert.equal(await subagents.hasReportToContinue(chat.id), false, "an interrupted one does not wake the conversation");
+  const taken = await subagents.takeSubagentReports(chat.id);
+  assert.match(taken.text, /Before the restart \(sa_00000000beef\): was cut off when RiA restarted/);
+  assert.equal((await subagents.takeSubagentReports(chat.id)).text, "", "told once");
+});
+
+test("a task's run waits for its background sub-agents and the turns their reports wake", async t => {
+  const hold = gate();
+  script(t, [{ tool: { name: "runSubagent", input: background } }, { text: "Started." }, { text: "Report read." }], async () => { await hold.wait(); return { text: "Finished the check." }; });
+  const chat = await createChat({ title: "Task conversation" });
+  await ask(chat.id, "Run the check in the background.");
+  let settled = false;
+  const waiting = continuation.settleSubagentWork(chat.id, new AbortController().signal).then(outcome => { settled = true; return outcome; });
+  await new Promise(resolve => setTimeout(resolve, 150));
+  assert.equal(settled, false, "not done while the sub-agent runs");
+  hold.open();
+  assert.deepEqual(await waiting, { status: "succeeded" });
+  assert.equal(await db.message.count({ where: { chatId: chat.id, role: "assistant" } }), 2, "the woken turn answered before the run counted as done");
 });

@@ -138,9 +138,11 @@ test("a task's run shows in its open conversation as it is written", async ({ pa
   await expect(transcript(page)).toContainText("离线回答：short");
 
   await browserApi(page, `${app.origin}/api/tasks/${task.id}/run`, "POST");
-  // Shown while it is still being written, not only once it is done.
-  await expect(transcript(page)).toContainText("离线回答：w0", { timeout: 20_000 });
-  expect(await transcript(page).textContent()).not.toContain(LAST_WORD);
+  // Shown while it is still being written, not only once it is done: after the run's own message, as an answer of its own.
+  await expect(answer(page)).toContainText("离线回答：w0", { timeout: 20_000 });
+  expect(await answer(page).textContent()).not.toContain(LAST_WORD);
+  await expect(transcript(page).locator('[data-message-role="user"]').last()).toContainText(LAST_WORD);
+  await expect(transcript(page).locator('[data-message-role="assistant"]').first()).not.toContainText("w0");
   await expect(answer(page)).toContainText(LAST_WORD, { timeout: 30_000 });
   await expect.poll(async () => ((await browserData(page, `${app.origin}/api/tasks`)) as { lastStatus: string | null }[])[0].lastStatus, { timeout: 20_000 }).toBe("done");
   await expect(transcript(page).getByText(/离线回答：w0/)).toHaveCount(1);

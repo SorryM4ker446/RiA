@@ -10,7 +10,7 @@ import {
   truncateTitle,
   type PersistedAssistantToolItem
 } from "@/lib/ai/ui-message";
-import { claimToolApproval, createChat, getChat, getRegenerationSnapshot, releaseUnclaimedToolApproval, saveChatMessage, saveRegeneratedResponse } from "@/lib/chat/store";
+import { approvalIsScheduled, claimToolApproval, createChat, getChat, getRegenerationSnapshot, releaseUnclaimedToolApproval, saveChatMessage, saveRegeneratedResponse } from "@/lib/chat/store";
 import { ApiError, normalizeApiError } from "@/lib/server/api-error";
 import { type UIMessage } from "ai";
 import type { ChatRequest } from "@/lib/chat/request";
@@ -82,16 +82,18 @@ export async function prepareChatPersistence(input: ChatRequest, options: { defe
   });
 
   let previousRunIds: string[] = [];
+  const scheduledApproval = isApprovalResume && await approvalIsScheduled(chat.id, messages.at(-1)!.id);
   if (isApprovalResume && !options.deferApproval) previousRunIds = await claimChatApproval(chat.id, messages.at(-1)!);
 
   if (latestUserMessage && !isApprovalResume) {
     const userContent =
-      latestUserMessage.files.length > 0 || latestUserMessage.invocation
+      latestUserMessage.files.length > 0 || latestUserMessage.invocation || latestUserMessage.notice
         ? encodePersistedUserMessage({
           type: "user-message",
           text: latestUserMessage.text,
           files: latestUserMessage.files,
           ...(latestUserMessage.invocation ? { invocation: latestUserMessage.invocation } : {}),
+          ...(latestUserMessage.notice ? { notice: latestUserMessage.notice } : {}),
         })
         : latestUserMessage.text;
 
@@ -110,7 +112,7 @@ export async function prepareChatPersistence(input: ChatRequest, options: { defe
     ? await getRegenerationSnapshot(chat.id, latestUserMessage.id)
     : null;
 
-  return { chat, regenerationSnapshot, previousRunIds, ...(isApprovalResume && options.deferApproval ? { approvalDeferred: true } : {}) };
+  return { chat, regenerationSnapshot, previousRunIds, ...(scheduledApproval ? { scheduledApproval: true } : {}), ...(isApprovalResume && options.deferApproval ? { approvalDeferred: true } : {}) };
 }
 export type ChatPersistence = Omit<Awaited<ReturnType<typeof prepareChatPersistence>>, "previousRunIds"> & { previousRunIds?: string[] };
 export async function claimChatApproval(chatId: string, message: UIMessage) {
@@ -129,7 +131,7 @@ export async function claimChatApproval(chatId: string, message: UIMessage) {
     throw error;
   }
 }
-export async function persistChatResponse(params: { skippedTool?: string; thinking?: Pick<ThinkingRecord, "kind" | "durationMs"> | null; input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; unavailableTools?: string[]; runId?: string | null; contextReport?: unknown }) {
+export async function persistChatResponse(params: { skippedTool?: string; thinking?: Pick<ThinkingRecord, "kind" | "durationMs"> | null; input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; unavailableTools?: string[]; runId?: string | null; contextReport?: unknown; scheduled?: boolean }) {
   const { input, conversation, responseMessage, isAborted, generationFailed } = params;
   const { latestUserMessage, modelRef } = input;
   const { unavailableTools = [] } = params;
@@ -158,6 +160,7 @@ export async function persistChatResponse(params: { skippedTool?: string; thinki
         ? encodePersistedAssistantToolMessage({
           type: "assistant-tool-message",
           text: assistantText,
+          ...(params.scheduled && toolItems.some(tool => tool.state === "approval-requested") ? { scheduled: true } : {}),
           ...(reasoning ? { reasoning } : {}),
           ...(params.thinking ? { thinking: { ...params.thinking, ...(reasoning ? { marks: thinkingMarks(responseMessage.parts) } : {}) } } : {}),
           ...(contextReport.success ? { contextBudget: contextReport.data } : {}),

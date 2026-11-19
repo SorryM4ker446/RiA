@@ -74,4 +74,9 @@ An older version opens the data through the junction like any other folder. Befo
 
 ## Development and tests
 
-`DESKTOP_DATA_DIR` sets the fixed path; a move works there as well. `npm run test:desktop:data-move` records a move before launching Electron and runs the whole smoke test through the junction; `tests/desktop/data-location.test.ts` covers moves, recovery, the cache and copy deletion with real junctions.
+`DESKTOP_DATA_DIR` sets the fixed path; a move works there as well. `npm run test:desktop:data-move` records a move before launching Electron and runs the whole smoke test through the junction, and `npm run test:desktop:cache-move` does the same after a cache move; both fail if the application exits before the smoke run's last check; `tests/desktop/data-location.test.ts` covers moves, recovery, the cache and copy deletion with real junctions.
+
+## Diagnostics
+
+**Settings → Application → Diagnostics** opens the log folder and copies the facts a problem report needs: the version and how RiA was installed, and where the data, the cache and the log really are, with links resolved, saying whether the data was moved and whether the cache has a folder of its own. The fixed path the data is opened at is only a link after a move, so it is never what these report. Media has no location of its own to report: it is part of the data.
+

@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld("riaDesktop", {
     present: (token: string) => ipcRenderer.invoke("desktop:startup:present", token) as Promise<boolean>,
   },
   getRuntimeInfo: () => ipcRenderer.invoke("desktop:runtime:get"),
+  openLogsFolder: () => ipcRenderer.invoke("desktop:logs:open") as Promise<{ opened: boolean }>,
   getSettings: () => ipcRenderer.invoke("desktop:settings:get"),
   saveSettings: (input: DesktopSettingsInput) => ipcRenderer.invoke("desktop:settings:save", input),
   // A folder the user chose with the operating system dialog. There is no other
@@ -25,7 +26,6 @@ contextBridge.exposeInMainWorld("riaDesktop", {
   revealPath: (target: string) => ipcRenderer.invoke("desktop:folder:reveal", target) as Promise<{ revealed: boolean }>,
   openFile: (target: string) => ipcRenderer.invoke("desktop:file:open", target) as Promise<{ opened: boolean }>,
   // Leaving the app or coming back to it, both from the settings screen.
-  showFromTray: () => ipcRenderer.invoke("desktop:tray:show") as Promise<{ shown: boolean }>,
   // The shortcut only brings the window forward, and that happens in the main
   // process. There is no renderer notification for it: a channel nothing in the
   // app listens to invites a handler nobody wrote, and the shortcut already works.

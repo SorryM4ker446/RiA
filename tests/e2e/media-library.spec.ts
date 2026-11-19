@@ -15,11 +15,12 @@ async function register(page: Page, origin: string) {
   // The workspace has no login: the run's access cookie is already active.
   await openWorkspace(page, origin);
 }
+/** Uploads `count` different pictures: the same bytes again would reuse the asset already there. */
 async function upload(page: Page, count = 1): Promise<Array<{ assetId: string; url: string; mediaType: string }>> {
   return page.evaluate(async count => {
     const bytes = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII="), c => c.charCodeAt(0));
     const form = new FormData();
-    for (let i = 0; i < count; i++) form.append("files", new Blob([bytes], { type: "image/png" }), "library.png");
+    for (let i = 0; i < count; i++) form.append("files", new Blob([bytes, new TextEncoder().encode(`#${crypto.randomUUID()}`)], { type: "image/png" }), "library.png");
     const response = await fetch("/api/media/upload", { method: "POST", body: form });
     if (response.status !== 201) throw new Error("Fixture upload failed");
     return (await response.json()).data;
