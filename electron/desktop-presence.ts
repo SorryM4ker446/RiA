@@ -11,11 +11,17 @@ export function openFromNotice(path: string | null) {
   if (path && runtime.mainWindow && !runtime.mainWindow.isDestroyed()) runtime.mainWindow.webContents.send("desktop:navigate", path);
 }
 
+/**
+ * Brings the window forward. One already on screen is only focused: showing a
+ * window that is showing makes Windows repaint the whole translucent window,
+ * which reads as the application flashing.
+ */
 export function focusMainWindow() {
-  if (!runtime.mainWindow || runtime.mainWindow.isDestroyed()) return;
-  if (runtime.mainWindow.isMinimized()) runtime.mainWindow.restore();
-  runtime.mainWindow.show();
-  runtime.mainWindow.focus();
+  const window = runtime.mainWindow;
+  if (!window || window.isDestroyed()) return;
+  if (window.isMinimized()) window.restore();
+  if (!window.isVisible()) window.show();
+  window.focus();
 }
 
 /**
@@ -168,10 +174,7 @@ export async function applyDesktopPresence(): Promise<void> {
 }
 
 export function showMainWindow() {
-  if (!runtime.mainWindow || runtime.mainWindow.isDestroyed()) return;
-  if (runtime.mainWindow.isMinimized()) runtime.mainWindow.restore();
-  runtime.mainWindow.show();
-  runtime.mainWindow.focus();
+  focusMainWindow();
 }
 
 export function quitFromTray() {

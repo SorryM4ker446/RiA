@@ -97,6 +97,12 @@ test("a failure is marked as one and read out at once", async ({ page, app }) =>
   await expect(note).toHaveAttribute("data-tone", "error");
   await expect(note).toHaveAttribute("role", "alert");
   await expect(note.locator(".toast-icon")).toBeVisible();
+  // With a line on what went wrong it takes the wider of the two sizes.
+  await expect(note.locator(".toast-description")).toBeVisible();
+  // Measured once it has moved into place: it slides in from a slightly smaller scale.
+  await expect(note).toHaveAttribute("data-state", "shown");
+  await settled(page);
+  expect(Math.round((await note.boundingBox())!.width)).toBe(340);
 });
 
 test("in a narrow window notes run across the bottom, above the composer", async ({ page, app }) => {
@@ -104,11 +110,49 @@ test("in a narrow window notes run across the bottom, above the composer", async
   await chat(page, app, "窄窗口通知");
   await chooseRule(page, "自动");
   const note = toasts(page).locator(".toast").last();
-  await expect(note).toBeVisible();
+  await expect(note).toHaveAttribute("data-state", "shown");
   await settled(page);
   const box = (await note.boundingBox())!;
   const composer = (await page.locator(".composer-surface").boundingBox())!;
   expect(Math.round(box.x)).toBe(16);
   expect(Math.round(box.width)).toBe(390 - 32);
   expect(box.y + box.height).toBeLessThanOrEqual(composer.y);
+});
+
+test("after one note is closed by hand, the next still goes on its own", async ({ page, app }) => {
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await chat(page, app, "关闭后的通知");
+  await chooseRule(page, "完全访问");
+  const first = toasts(page).locator(".toast").last();
+  await first.hover({ force: true });
+  await first.getByRole("button", { name: "关闭通知", exact: true }).click();
+  await expect(toasts(page).locator(".toast")).toHaveCount(0);
+  // The pointer stays where the closed note was, and its button had the focus when it went.
+  await chooseRule(page, "询问");
+  await page.mouse.move(10, 10);
+  await expect(toasts(page).locator(".toast")).toHaveCount(0, { timeout: 8_000 });
+});
+
+test("a note shown before moving to another page still goes on its own there", async ({ page, app }) => {
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await chat(page, app, "换页后的通知");
+  await chooseRule(page, "自动");
+  await chooseRule(page, "询问");
+  await page.getByRole("link", { name: "任务", exact: true }).first().click();
+  await expect(page).toHaveURL(/\/tasks/);
+  await expect(toasts(page).locator(".toast")).toHaveCount(0, { timeout: 8_000 });
+});
+
+test("notes keep one compact size whatever their text, and a wider one only with an action", async ({ page, app }) => {
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await chat(page, app, "通知尺寸");
+  await chooseRule(page, "自动");
+  await chooseRule(page, "自动接受编辑");
+  const notes = toasts(page).locator('.toast:not([data-state="leaving"])');
+  await expect(notes.last()).toHaveAttribute("data-state", "shown");
+  await settled(page);
+  // Different lengths of text, the same width, both on the right edge.
+  const boxes = await Promise.all((await notes.all()).map(note => note.boundingBox()));
+  expect(boxes.map(box => Math.round(box!.width))).toEqual([280, 280]);
+  expect(boxes.every(box => Math.abs(1280 - (box!.x + box!.width) - 20) <= 1)).toBe(true);
 });

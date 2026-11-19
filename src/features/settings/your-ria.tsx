@@ -58,7 +58,8 @@ export function YourRia() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [screen, setScreen] = useState<Screen>({ name: "home" });
-  const [direction, setDirection] = useState<"forward" | "back">("forward");
+  // "enter" until the reader moves between its screens: arriving at the section is the settings window's motion, shared by every section.
+  const [direction, setDirection] = useState<"enter" | "forward" | "back">("enter");
   const root = useRef<HTMLDivElement>(null);
   const changing = useRef(false);
   const lastRead = useRef(0);

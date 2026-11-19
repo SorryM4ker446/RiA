@@ -227,6 +227,9 @@ function SettingsWindow({ section, kept, desktop, anchor, onAnchorShown, onSelec
   // mounted out of sight so their edits are still there on return. Every other
   // section reads fresh data when it is opened again.
   const mounted = order.filter(id => id === section || kept.has(id));
+  // Which way the reader moved in the list, so the section arrives from that side; the first one shown just fades in.
+  const [arrival, setArrival] = useState<{ section: SettingsSectionId; direction: "none" | "down" | "up" }>({ section, direction: "none" });
+  if (arrival.section !== section) setArrival({ section, direction: order.indexOf(section) < order.indexOf(arrival.section) ? "up" : "down" });
   // Storage is managed from the desktop app; the browser lists it only when a link opened it there.
   const visibleGroups = groups.map(group => ({ ...group, items: group.items.filter(item => item.id !== "storage" || desktop || section === "storage") }));
 
@@ -268,7 +271,7 @@ function SettingsWindow({ section, kept, desktop, anchor, onAnchorShown, onSelec
     </Dialog.Close>
     {/* Each section scrolls on its own, so one kept in the background is still where it was left. */}
     {mounted.map(id => <TabsContent key={id} value={id} forceMount className="settings-window-panel data-[state=inactive]:hidden">
-      <SettingsSectionContext.Provider value={id}><div className="settings-window-page"><SectionContent id={id} /></div></SettingsSectionContext.Provider>
+      <SettingsSectionContext.Provider value={id}><div className="settings-window-page" data-direction={id === section ? arrival.direction : undefined}><SectionContent id={id} /></div></SettingsSectionContext.Provider>
     </TabsContent>)}
   </Tabs>;
 }

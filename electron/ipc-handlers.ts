@@ -6,7 +6,7 @@ import { app, BrowserWindow, dialog, ipcMain, Notification, shell, type IpcMainI
 import { type DesktopSettingsInput } from "./settings";
 import { installationRoot } from "./updater";
 import { runtime, PRODUCT_NAME, packagedRuntime, smokeTest, applicationVersion, windowTransitions, startupPresentations } from "./runtime-state";
-import { quitFromTray, registerGlobalHotkey, showMainWindow, updateTrayMenu, applyDesktopPresence } from "./desktop-presence";
+import { quitFromTray, registerGlobalHotkey, updateTrayMenu, applyDesktopPresence } from "./desktop-presence";
 import { restartLocalService } from "./local-service";
 import { runAutomaticUpdateCheck } from "./desktop-updates";
 import {
@@ -217,12 +217,6 @@ export function registerIpcHandlers() {
       });
     }, 150);
     return { settings, restarting: true };
-  });
-
-  ipcMain.handle("desktop:tray:show", async (event) => {
-    assertTrustedIpcSender(event);
-    showMainWindow();
-    return { shown: true };
   });
 
   /*

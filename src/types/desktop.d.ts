@@ -99,7 +99,6 @@ interface Window {
     chooseFolder: () => Promise<{ canceled: boolean; path: string }>;
     revealPath: (target: string) => Promise<{ revealed: boolean }>;
     openFile: (target: string) => Promise<{ opened: boolean }>;
-    showFromTray: () => Promise<{ shown: boolean }>;
     onNavigate?: (listener: (path: string) => void) => () => void;
     globalHotkey: string;
     setGlobalHotkey: (

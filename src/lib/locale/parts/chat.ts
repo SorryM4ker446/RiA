@@ -101,7 +101,6 @@ export const chatMessages = {
   "chat.composer.placeholderImage": "描述你想生成的图片，或粘贴参考图...（Enter 发送，Shift+Enter 换行）",
   "chat.composer.placeholderVideo": "描述你想生成的视频，或粘贴参考图...（Enter 发送，Shift+Enter 换行）",
   "chat.composer.placeholderChat": "输入你的问题，或添加图片、PDF、Word 文档…",
-  "chat.composer.clearAttachments": "清除附件（{count}）",
   "chat.composer.pasteHint": "支持 Ctrl/Cmd+V 直接粘贴图片",
   "chat.composer.attachmentSeparator": "，",
   "chat.composer.notSelected": "未选择",

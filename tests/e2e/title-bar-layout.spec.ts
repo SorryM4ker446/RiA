@@ -145,3 +145,12 @@ for (const locale of ["zh-CN", "en-US"] as const) {
     expect(errors).toEqual([]);
   });
 }
+
+test("the conversation's top bar still moves the window beside its title", async ({ page, app }) => {
+  await open(page, app.origin, "/chat");
+  const header = page.locator(".workspace-topbar .chat-header");
+  await expect(header).toBeVisible();
+  // The header opts out of the drag region, so it may only cover what it shows, not the row up to the search box.
+  const [box, search] = await Promise.all([header.boundingBox(), page.locator(".command-search").boundingBox()]);
+  expect(box!.x + box!.width).toBeLessThan(search!.x - 120);
+});

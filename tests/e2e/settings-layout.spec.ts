@@ -119,3 +119,31 @@ for (const theme of ["dark", "light"] as const) {
     expect(errors).toEqual([]);
   });
 }
+
+test("choosing to keep running in the tray only saves the choice: the window is not shown again or reloaded", async ({ page, app }) => {
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  await page.addInitScript(() => {
+    const settings = { hasOpenrouterApiKey: true, hasDeepseekApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "", windowBounds: null };
+    const calls: string[] = [];
+    (window as unknown as { bridgeCalls: string[] }).bridgeCalls = calls;
+    // Showing the window again is what made it flash; it is kept here only so such a call would be seen.
+    Object.defineProperty(window, "riaDesktop", { value: {
+      showFromTray: async () => { calls.push("showFromTray"); return { shown: true }; },
+      getSettings: async () => { calls.push("getSettings"); return settings; },
+      getRuntimeInfo: async () => { calls.push("getRuntimeInfo"); return { appVersion: "0.1.22", packaged: false, dataDirectory: "fixture/data", mediaDirectory: "fixture/media", logFile: "fixture/log" }; },
+      saveSettings: async (input: { closeBehaviour?: "quit" | "tray" }) => { calls.push("saveSettings"); if (input.closeBehaviour) settings.closeBehaviour = input.closeBehaviour; return { settings, restarting: false }; },
+    } });
+  });
+  await openWorkspace(page, app.origin);
+  await page.goto(`${app.origin}/chat?settings=application`);
+  await page.evaluate(() => { (window as unknown as { sameDocument: boolean }).sameDocument = true; });
+  const choice = page.getByRole("radio", { name: "继续在托盘运行", exact: true });
+  await choice.click();
+  await expect(choice).toBeChecked();
+  const calls = await page.evaluate(() => (window as unknown as { bridgeCalls: string[] }).bridgeCalls);
+  expect(calls.filter(name => name === "saveSettings")).toHaveLength(1);
+  expect(calls.slice(calls.lastIndexOf("saveSettings") + 1)).toEqual([]);
+  expect(await page.evaluate(() => (window as unknown as { sameDocument?: boolean }).sameDocument)).toBe(true);
+  expect(errors).toEqual([]);
+});
+

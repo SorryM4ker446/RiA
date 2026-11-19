@@ -91,6 +91,24 @@ test("mixed chat attachments survive draft reload and restart, send document tex
   await expect(attachments.getByText("发布说明.docx", { exact: true })).toBeVisible();
   await expect(attachments.getByRole("img", { name: "参考图.png" })).toBeVisible();
   await expect(page.getByRole("status").filter({ hasText: "正在上传并处理附件" })).toBeHidden();
+  // The thumbnails name and remove themselves; the controls below stay one row, without the file names repeated.
+  await expect(attachments.getByRole("img", { name: "参考图.png" })).toHaveAttribute("title", "参考图.png");
+  // Nothing beside the tiles: each one's remove shows in its corner when it is pointed at.
+  await expect(attachments.getByRole("listitem")).toHaveCount(3);
+  const remove = attachments.getByRole("button", { name: "移除附件 支持时间.pdf", exact: true });
+  await expect(remove).toHaveCSS("opacity", "0");
+  await attachments.getByRole("listitem").filter({ hasText: "支持时间.pdf" }).hover();
+  await expect(remove).toHaveCSS("opacity", "1");
+  const controls = page.locator(".composer-controls");
+  // Only the hidden announcement for screen readers still names them there.
+  expect(await controls.evaluate(node => {
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    let shown = "";
+    for (let text = walker.nextNode(); text; text = walker.nextNode()) if (!text.parentElement?.closest(".sr-only")) shown += text.nodeValue;
+    return shown;
+  })).not.toContain("参考图.png");
+  expect((await controls.boundingBox())!.height).toBeLessThan(44);
+  await page.locator(".composer-surface").screenshot({ path: test.info().outputPath("composer-attachments.png"), animations: "disabled" });
   await page.locator(".composer-input").fill("分析这两个文档并比较说明。");
   await page.reload();
   await expect(page.locator(".composer-input")).toHaveValue("分析这两个文档并比较说明。");
@@ -98,7 +116,7 @@ test("mixed chat attachments survive draft reload and restart, send document tex
   expect(app.readRows('SELECT id FROM "knowledge_documents"')).toHaveLength(0);
   expect(app.readRows('SELECT id FROM "document_chunks"')).toHaveLength(0);
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  await expect(attachments.locator(".chat-document-attachment").first()).toHaveCSS("animation-name", "dialog-panel-in");
+  await expect(attachments.locator(".composer-attachment").first()).toHaveCSS("animation-name", "dialog-panel-in");
   await page.setViewportSize({ width: 390, height: 844 });
   await mkdir(screenshots, { recursive: true });
   await page.getByRole("button", { name: "发送", exact: true }).scrollIntoViewIfNeeded();

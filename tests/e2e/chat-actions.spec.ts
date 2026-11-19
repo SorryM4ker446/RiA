@@ -368,6 +368,12 @@ test("a failure with nowhere to fix it offers no settings button", async ({ page
   const alert = page.getByRole("alert").filter({ hasText: "请求失败" });
   await expect(alert).toContainText("暂时不可用");
   await expect(alert.getByRole("button", { name: /打开/ })).toHaveCount(0);
+  // In the composer's width, not a block across the whole row.
+  const [box, composer] = await Promise.all([alert.boundingBox(), page.locator(".composer-surface").boundingBox()]);
+  expect(box!.width).toBeLessThanOrEqual(composer!.width + 1);
+  await page.screenshot({ path: test.info().outputPath("chat-error.png"), animations: "disabled" });
+  await alert.getByRole("button", { name: "关闭提示", exact: true }).click();
+  await expect(alert).toHaveCount(0);
 });
 
 for (const approved of [true, false]) {
