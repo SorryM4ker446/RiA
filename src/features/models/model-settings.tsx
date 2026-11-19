@@ -38,15 +38,17 @@ const modeNames = (): Record<LibraryMode, string> => ({ chat: t("models.mode.cha
 const UNSET = "__unset__";
 const toSelectValue = (ref: ModelRef | null) => (ref ? modelRefKey(ref) : UNSET);
 // The background limits are edited with the other rules for tasks, under Automation & notifications.
-type CallLimitKey = "maxConcurrent" | "compactionCallsPerTurn";
-const callLimitFields = (): [CallLimitKey, string][] => [
-  ["maxConcurrent", t("ui.models.maximumConcurrentCalls")],
-  ["compactionCallsPerTurn", t("ui.models.compactionCallsPerTurn")],
-];
+const callLimitLabels = {
+  maxConcurrent: "ui.models.maximumConcurrentCalls",
+  compactionCallsPerTurn: "ui.models.compactionCallsPerTurn",
+  imageRequestsPerMinute: "ui.models.imageRequestsPerMinute",
+} as const;
+type CallLimitKey = keyof typeof callLimitLabels;
+const callLimitKeys = Object.keys(callLimitLabels) as CallLimitKey[];
 /** The call limits the server would refuse, found before saving so each can be pointed out where it is typed. */
 function callLimitProblems(limits: ModelPreferences["callLimits"]) {
   const problems = new Set<CallLimitKey | "timeZone">();
-  for (const key of ["maxConcurrent", "compactionCallsPerTurn"] as CallLimitKey[]) {
+  for (const key of callLimitKeys) {
     const range = callLimitRanges[key], value = limits[key];
     if (value === null && !range.integer) continue;
     if (value === null || !Number.isFinite(value) || value < range.min || value > range.max || (range.integer && !Number.isInteger(value))) problems.add(key);
@@ -268,14 +270,15 @@ export function ModelSettings() {
           <legend className="mb-1 text-sm font-medium">{t("ui.models.modelCallLimits")}</legend>
           <p className="text-xs text-muted-foreground">{t("ui.models.backgroundCallsAreScheduledReviews")}</p>
           <div className="setting-rows">
-            {callLimitFields().map(([key, label]) => {
+            {callLimitKeys.map(key => {
               const range = callLimitRanges[key], value = settings.callLimits[key], invalid = limitProblems.has(key);
               const bounds = { min: range.min.toLocaleString("en-US"), max: range.max.toLocaleString("en-US") };
+              const hint = key === "imageRequestsPerMinute" ? "ui.models.imageRequestsPerMinuteHint" : "ui.models.limitRangeInteger";
               return <Field key={key} orientation="horizontal" className="setting-row" data-invalid={invalid || undefined}>
-                <span className="setting-row-label"><FieldLabel htmlFor={`call-limit-${key}`}>{label}</FieldLabel>
+                <span className="setting-row-label"><FieldLabel htmlFor={`call-limit-${key}`}>{t(callLimitLabels[key])}</FieldLabel>
                 {invalid
                   ? <FieldError id={`call-limit-${key}-hint`} className="text-xs">{tf(range.integer ? "ui.models.limitInvalidInteger" : "ui.models.limitInvalidUsd", bounds)}</FieldError>
-                  : <FieldDescription id={`call-limit-${key}-hint`} className="setting-row-hint">{tf(range.integer ? "ui.models.limitRangeInteger" : "ui.models.limitRangeUsd", bounds)}</FieldDescription>}</span>
+                  : <FieldDescription id={`call-limit-${key}-hint`} className="setting-row-hint">{tf(hint, bounds)}</FieldDescription>}</span>
                 <Input id={`call-limit-${key}`} className="w-44" aria-describedby={`call-limit-${key}-hint`} aria-invalid={invalid || undefined} type="number" inputMode={range.integer ? "numeric" : "decimal"} min={range.min} max={range.max} step={range.integer ? 1 : "any"} value={value === null || Number.isNaN(value) ? "" : value} disabled={busy}
                   onChange={event => setSettings({ ...settings, callLimits: { ...settings.callLimits, [key]: event.target.value === "" ? (range.integer ? Number.NaN : null) : Number(event.target.value) } })} />
               </Field>;

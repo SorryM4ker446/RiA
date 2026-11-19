@@ -114,13 +114,14 @@ test("finishing a media turn empties the composer of what it sent and nothing el
   const sent = [part("/api/media/asset-1", "one.png")];
   // The composer stayed usable for the whole turn, so this one was attached
   // after the prompt was sent and has not been used for anything yet.
-  const during = [part("/api/media/asset-1", "one.png"), part("/api/media/asset-2", "two.png")];
+  const during = [...sent, part("/api/media/asset-2", "two.png")];
 
   assert.deepEqual(remainingAttachments(during, sent).map((entry) => entry.url), ["/api/media/asset-2"],
     "an attachment added while the generation was running is the user's and stays");
   assert.deepEqual(remainingAttachments(sent, sent), [], "the composer is still emptied of a turn's own references");
-  assert.deepEqual(remainingAttachments([part("/api/media/asset-3", "again.png")], sent).map((entry) => entry.url), ["/api/media/asset-3"],
-    "re-picking the same picture is a new upload and is kept");
+  const selectedAgain = part("/api/media/asset-1", "one.png");
+  assert.deepEqual(remainingAttachments([...sent, selectedAgain], sent), [selectedAgain],
+    "re-picking the same stored image adds a new draft part and is kept");
 });
 
 // --- legacy rate keys ------------------------------------------------------------

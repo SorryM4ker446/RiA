@@ -86,6 +86,12 @@ export const chatApi = {
     if (!response.ok) throw new Error(getApiErrorMessage(await response.json().catch(() => null), t("chatApi.readImageFailed")));
     return response.blob();
   },
+  async readStoredImageType(url: string) {
+    const response = await fetch(url, { method: "HEAD", cache: "no-store" });
+    const mediaType = response.headers.get("Content-Type");
+    if (!response.ok || !mediaType?.startsWith("image/")) throw new Error(t("chatApi.readImageFailed"));
+    return mediaType;
+  },
 };
 
 export async function persistConversationMessage(params: {

@@ -1,7 +1,8 @@
 import { withModelCallSource, type CallSource } from "@/lib/models/call-context";
 import { getChatModel } from "@/lib/ai/client";
 import { getModelProvider } from "@/lib/models/providers";
-import { getLatestUserMessage } from "@/lib/ai/ui-message";
+import { getLatestUserMessage, getTextFromUIMessage } from "@/lib/ai/ui-message";
+import { readMessageNotice } from "@/lib/chat/invocation-schema";
 import { t } from "@/lib/locale";
 import { ApiError, apiErrorPayload, normalizeApiError } from "@/lib/server/api-error";
 import { createChatToolSet } from "@/tools/catalog";
@@ -32,6 +33,8 @@ import { templateAllowsTool } from "@/tools/template-access";
 import { contextCalibration, conversationCalibration, recordContextCalibration } from "@/lib/models/context-calibration";
 import { compactAfterTurn } from "./compaction";
 import { planReminder } from "@/tools/definitions/update-plan";
+import { hasUnseenGeneratedImage } from "@/tools/definitions/generate-image";
+import { UNSEEN_IMAGE_REPLY_INSTRUCTION } from "@/lib/prompts";
 import { takeSubagentReports } from "@/lib/agents/subagents";
 import { activeToolIds } from "@/tools/deferred";
 import { createTurnFailureReader } from "./tool-failure";
@@ -204,7 +207,15 @@ async function openChatAnswer(params: ChatAnswer) {
   };
 
   const preferences = await getModelPreferences();
-  const tools = toolsEnabled ? await createChatToolSet({ modelRef, chatId: chat.id, runId, toolIds: input.assistant?.tools, usesMemory: params.usesMemory !== false, documentCollections: conversationCollections(input.conversationPolicy ?? chat), unattended: params.callSource === "scheduled", compactionAllowance: params.compactionAllowance }) : undefined;
+  const unattended = params.callSource === "scheduled";
+  const scheduled = unattended || conversation.scheduledApproval === true;
+  let activeRef = modelRef;
+  let activeSystem = systemPrompt;
+  let reviewMessages: ModelMessage[] | undefined;
+  const reviewUserText = input.latestUserMessage?.notice ? [] : messages.flatMap(message =>
+    message.role === "user" && !readMessageNotice(message.metadata) ? [getTextFromUIMessage(message)] : []);
+  const tools = toolsEnabled ? await createChatToolSet({ modelRef, chatId: chat.id, runId, toolIds: input.assistant?.tools, usesMemory: params.usesMemory !== false, documentCollections: conversationCollections(input.conversationPolicy ?? chat), unattended, scheduled, compactionAllowance: params.compactionAllowance,
+    activeModel: () => activeRef, reviewMessages: () => reviewMessages, reviewUserText }) : undefined;
   // An assistant's tools can all be unavailable this turn, leaving none to send.
   const modelMessages = tools && !Object.keys(tools).length && !input.isApprovalResume ? withoutToolRecords(params.modelMessages) : params.modelMessages;
   const budget = contextBudget(input.model, preferences.contextLimits[modelRefKey(modelRef)]);
@@ -229,7 +240,7 @@ async function openChatAnswer(params: ChatAnswer) {
     recorded: () => [recordedFacts(foldState), tools?.readConversationHistory ? LOOKUP_HINT : ""].filter(Boolean).join("\n"),
     summarize: async (records, previous, sent) => {
       const { state, modelRef: used } = await summarizeWithInternalAgent({ main: activeRef, records, previous, signal, allowance: params.compactionAllowance, request: getLatestUserMessage(messages)?.text,
-        ...(sent ? { conversation: { system: systemPrompt, tools: sentTools(), ...sent } } : {}) });
+        ...(sent ? { conversation: { system: activeSystem, tools: sentTools(), ...sent } } : {}) });
       summaryModel = `${used.providerId}:${used.modelId}`;
       return state;
     },
@@ -262,8 +273,7 @@ async function openChatAnswer(params: ChatAnswer) {
   // messages stay whole, and later steps keep the folded state.
   // The model answering this request: the selected one, or the fallback once
   // it has taken over. Cost and calibration are recorded for it.
-  let activeRef = modelRef;
-  const toPrompt = async (stepMessages: ModelMessage[]): Promise<LanguageModelV3Prompt> => convertToLanguageModelPrompt({ prompt: await standardizePrompt({ system: systemPrompt, messages: stepMessages }), supportedUrls: await observed.supportedUrls, download: undefined });
+  const toPrompt = async (stepMessages: ModelMessage[]): Promise<LanguageModelV3Prompt> => convertToLanguageModelPrompt({ prompt: await standardizePrompt({ system: activeSystem, messages: stepMessages }), supportedUrls: await observed.supportedUrls, download: undefined });
   const observed: ReturnType<typeof getChatModel> = withModelCallSource(params.callSource ?? "chat", () => getChatModel(modelRef, {
     reasoning: input.reasoning,
     // Whichever model answers takes the request as it stands — same tools, same
@@ -310,6 +320,10 @@ async function openChatAnswer(params: ChatAnswer) {
     // provider's support for forcing a call and cannot be refused for reasoning.
     // The model may still answer without it; the turn records that when it does.
     prepareStep: async ({ messages: stepMessages, stepNumber }) => {
+      // The approval reviewer reads the actual conversation before app reminders are appended.
+      reviewMessages = stepMessages;
+      activeSystem = hasUnseenGeneratedImage(stepMessages) ? `${systemPrompt}\n${UNSEEN_IMAGE_REPLY_INSTRUCTION}` : systemPrompt;
+      stepContext.setSystem(activeSystem);
       // Tools loaded on demand in an earlier step are offered, in full, from this one.
       if (tools) {
         activeTools = activeToolIds(tools, stepMessages);
@@ -327,7 +341,7 @@ async function openChatAnswer(params: ChatAnswer) {
       // A reminder about the checklist rides on this step only, after everything else, so the prompt before it stays as it was.
       const reminder = tools && "updatePlan" in tools ? planReminder(stepMessages) : null;
       const messages = [...prepared.messages, ...[...subagentReports, ...(reminder ? [reminder] : [])].map(text => ({ role: "user" as const, content: [{ type: "text" as const, text }] }))];
-      return { ...prepared, messages, ...(stepNumber === 0 && params.chosenTool ? { activeTools: [params.chosenTool] } : activeTools ? { activeTools } : {}) };
+      return { ...prepared, messages, system: activeSystem, ...(stepNumber === 0 && params.chosenTool ? { activeTools: [params.chosenTool] } : activeTools ? { activeTools } : {}) };
     },
     onStepFinish: ({ usage, toolCalls, stepNumber, reasoning, providerMetadata, text }) => {
       stepContext.observeUsage(usage.inputTokens);
@@ -394,7 +408,7 @@ async function openChatAnswer(params: ChatAnswer) {
         await persistChatResponse({
           // Ended by a stop, whether or not the stream got as far as saying so.
           input, conversation, responseMessage, isAborted: isAborted || signal.aborted, generationFailed, skippedTool, thinking: thinkingClock.report(),
-          unavailableTools: params.unavailableTools,
+          unavailableTools: params.unavailableTools, scheduled,
           runId: params.runId,
           contextReport: contextReport(),
         });

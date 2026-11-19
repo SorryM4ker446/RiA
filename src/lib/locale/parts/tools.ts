@@ -48,6 +48,8 @@ export const toolsMessages = {
   "tools.createTask.displayName": "创建任务",
   "tools.runSubagent.displayName": "交给子代理",
   "tools.runSubagent.description": "把一项需要很多步骤或大量阅读的工作交给子代理：它用全新的上下文和对话的工具去做，做完交回一份报告。需要你批准的操作它不会执行，会写在报告里。它也可以在后台运行，对话照常进行。",
+  "tools.generateImage.displayName": "生成图片",
+  "tools.generateImage.description": "按对话内容写好完整的画面描述，用默认的生图模型画出来，图片显示在对话里，可以接着修改。每次生成都会产生费用：你在这一轮里明确要它画时直接生成，否则先问你；完全访问下不再询问。",
   "tools.checkSubagents.displayName": "查看子代理",
   "tools.checkSubagents.description": "列出这个对话的子代理和各自正在做什么，也能再次读取报告。",
   "tools.createTask.description": "安排一件让 RiA 到点自己去做的事，可以只做一次，也可以重复。",

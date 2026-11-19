@@ -39,6 +39,7 @@ const VALID_INPUTS: Record<string, unknown> = {
   compactContext: { focus: "keep the failing test name" },
   webSearch: { query: "weather" },
   readWebPage: { url: "https://example.com/", offset: 20000 },
+  generateImage: { prompt: "A cat in a white spacesuit, studio light", referenceImages: ["00000000-0000-4000-8000-000000000000"], aspectRatio: "16:9" },
   updatePlan: { items: [{ content: "Read", status: "completed" }, { content: "Write", status: "in_progress" }] },
   askUser: { questions: [{ question: "Which format?", options: [{ label: "Markdown" }, { label: "Word" }] }] },
   listLocalFiles: { grantId: "grant-1", path: "" },

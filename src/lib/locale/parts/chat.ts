@@ -78,6 +78,8 @@ export const chatMessages = {
   "chat.modelHint.addAction": "添加模型",
   "chat.modelHint.choose": "先选择一个模型再发送。",
   "chat.modelHint.chooseAction": "选择模型",
+  "chat.modeHint.imageQuestion": "生图模式只会把文字当作画面描述。想提问，请切回聊天。",
+  "chat.modeHint.switchToChat": "切回聊天",
   "chat.modelHint.addMenuItem": "添加模型…",
   "chat.toolbar.modelUnavailable": "当前模型不可用：{modelId}",
   "chat.toolbar.taskDefaultModel": "默认（{name}）",

@@ -7,7 +7,8 @@ import { ApiError } from "@/lib/server/api-error";
 import { getChatModel } from "@/lib/ai/client";
 import { t, tf } from "@/lib/locale";
 import { bindEntryReplacement, saveApprovedEntry, saveKnowledgeEntryFields, saveKnowledgeEntryModelFields, type SaveKnowledgeEntryToolInput } from "@/lib/knowledge/entry-approval";
-import { preferredModel, getModelPreferences } from "@/lib/models/preferences";
+import { preferredModel, getModelPreferences, modelInLibrary } from "@/lib/models/preferences";
+import { getModelProvider } from "@/lib/models/providers";
 import { runInternalAgent } from "@/lib/agents/internal";
 import type { ModelRef } from "@/lib/models/preferences-schema";
 import { createTask, createTaskInputSchema } from "@/tools/definitions/create-task";
@@ -20,6 +21,7 @@ import { UPDATE_PLAN_DESCRIPTION, planProgress, updatePlanInput } from "@/tools/
 import { ASK_USER_DESCRIPTION, askUserInput, readAnswer } from "@/tools/definitions/ask-user";
 import { FIND_EXTENSION_TOOLS_DESCRIPTION, findExtensionTools, findExtensionToolsInput } from "@/tools/definitions/find-extension-tools";
 import { CHECK_SUBAGENTS_DESCRIPTION, RUN_SUBAGENT_DESCRIPTION, checkSubagentsInput, runSubagentInput } from "@/tools/definitions/run-subagent";
+import { GENERATE_IMAGE_DESCRIPTION, generateImageInput, generateImageModelFields, generatedImageForModel, runGenerateImage, type GenerateImageInput } from "@/tools/definitions/generate-image";
 import { planToolLoading } from "@/tools/deferred";
 import { approvalGate } from "./approval";
 import { documentProcessorTools } from "@/tools/definitions/document-processor";
@@ -310,6 +312,34 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       return answer;
     },
   },
+  generateImage: {
+    id: "generateImage",
+    displayName: t("tools.generateImage.displayName"),
+    description: t("tools.generateImage.description"),
+    modelDescription: GENERATE_IMAGE_DESCRIPTION,
+    modeSupport: ["chat"],
+    // Only the model calls it: it writes the description from the conversation. A prompt
+    // already written goes through the image mode instead.
+    surface: { category: "media", user: null, template: "selectable" },
+    inputSchema: generateImageInput,
+    // The model is shown the fields it writes; a stored call with the review's verdict still validates.
+    modelInputSchema: jsonSchema<GenerateImageInput>(() => zodSchema(generateImageModelFields).jsonSchema, { validate: async value => {
+      const parsed = generateImageInput.safeParse(value);
+      return parsed.success ? { success: true, value: parsed.data } : { success: false, error: parsed.error };
+    } }),
+    // A picture costs money. It runs when the user's own latest message asks for it, or
+    // under full access; one the model decides on by itself waits for the user.
+    ...approvalGate("generate"),
+    reviewAction: input => ({ kind: "image", prompt: input.prompt, referenceImages: input.referenceImages ?? [], ...(input.aspectRatio ? { aspectRatio: input.aspectRatio } : {}) }),
+    buildUnavailableOutput: ({ reason, error }) => ({
+      skipped: reason,
+      note: reason === "notConfigured" ? "No picture was made. Tell the user to choose a default image model in Settings → Models."
+        : reason === "temporarilyUnavailable" && error instanceof ApiError ? `No picture was made. ${error.message}`
+          : "No picture was made.",
+    }),
+    execute: async ({ input, chatId, signal, scheduled }) => runGenerateImage(input, { chatId, signal, background: scheduled }),
+    modelOutput: generatedImageForModel,
+  },
   readWebPage: {
     id: "readWebPage",
     displayName: t("tools.readWebPage.displayName"),
@@ -342,6 +372,12 @@ export async function builtinToolAvailability(toolId: string, modelRef?: ModelRe
   if (toolId === "readPluginSkill") {
     // Any active skill can be loaded on demand, so the prompt only needs its index.
     return (await activeSkillPackages()).length ? { available: true, reason: null, configEntry: null } : { available: false, reason: "disabled", configEntry: settingsHref("extensions") };
+  }
+  if (toolId === "generateImage") {
+    // The default image model, as the image mode uses it, from a provider with a key.
+    const ref = (await getModelPreferences()).image.model;
+    const ready = Boolean(ref && await modelInLibrary("image", ref) && getModelProvider(ref.providerId).isConfigured());
+    return ready ? { available: true, reason: null, configEntry: null } : { available: false, reason: "notConfigured", configEntry: settingsHref("models") };
   }
   if (toolId === "webSearch" && !searchConfigured(modelRef)) {
     // The reason a tool is missing comes with where to fix it, so the interface

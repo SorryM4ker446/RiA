@@ -1,7 +1,7 @@
 "use client";
 import { useLocale } from "@/lib/locale/client";
 import { t, tf, type MessageKey } from "@/lib/locale";
-import { CircleAlert, Cpu, X } from "lucide-react";
+import { CircleAlert, Cpu, MessageCircleQuestionMark, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Reveal } from "@/components/ui/reveal";
 import { useOpenSettings } from "@/features/settings/settings-context";
@@ -20,12 +20,15 @@ export type InputNotice = { key: MessageKey; values?: Record<string, string> };
  * While the model menu is open the text fades but keeps its place, so the menu
  * does not sit on top of it and closing the menu does not move the composer.
  */
-export function ComposerNotice({ modelHint, notice, dimmed, onChooseModel, onDismiss }: {
+export function ComposerNotice({ modelHint, notice, imageQuestion = false, dimmed, onChooseModel, onDismiss, onSwitchToChat }: {
   modelHint: "add" | "choose" | null;
   notice: InputNotice | null;
+  /** The image mode holds text that reads as a question, which it would draw rather than answer. */
+  imageQuestion?: boolean;
   dimmed: boolean;
   onChooseModel: () => void;
   onDismiss: () => void;
+  onSwitchToChat?: () => void;
 }) {
   useLocale();
   const openSettings = useOpenSettings();
@@ -37,6 +40,9 @@ export function ComposerNotice({ modelHint, notice, dimmed, onChooseModel, onDis
   </> : notice ? <>
     <span className="flex min-w-0 items-center gap-2 text-muted-foreground"><CircleAlert aria-hidden="true" className="size-4 shrink-0" />{notice.values ? tf(notice.key, notice.values) : t(notice.key)}</span>
     <Button size="icon" variant="ghost" className="size-7 shrink-0" aria-label={t("chatPage.dismissError")} onClick={onDismiss}><X aria-hidden="true" className="size-4" /></Button>
+  </> : imageQuestion ? <>
+    <span className="flex min-w-0 items-center gap-2 text-muted-foreground" data-testid="image-question-hint"><MessageCircleQuestionMark aria-hidden="true" className="size-4 shrink-0" />{t("chat.modeHint.imageQuestion")}</span>
+    {onSwitchToChat ? <Button size="sm" variant="ghost" className="shrink-0" onClick={onSwitchToChat}>{t("chat.modeHint.switchToChat")}</Button> : null}
   </> : null;
   return <Reveal className="chat-dock-notice">
     {content ? <div role="status" className={cn("mx-auto flex w-full max-w-[42rem] items-center justify-between gap-3 rounded-xl border border-border/70 px-3 py-2 text-sm transition-opacity duration-[--dur-fast]", dimmed && "opacity-0")}>

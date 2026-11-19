@@ -92,6 +92,7 @@ export const serverMessages = {
   "lib.media.unsupportedChatAttachmentType": "支持 PNG、JPEG、WebP、GIF 图片，以及 PDF 和 Word（.docx）文档；旧版 .doc 请先转换为 .docx。",
   "lib.media.unsupportedAttachmentType": "仅支持 PNG、JPEG、WebP 和 GIF 图片。",
   "lib.media.attachmentSize": "每个附件须大于 0 字节且不超过 8 MiB。",
+  "lib.media.generatedImageAttachmentSize": "复用的成图须大于 0 字节且不超过 20 MiB。",
   "lib.media.totalAttachmentSize": "附件总大小不能超过 20 MiB。",
 
   // --- backups -------------------------------------------------------------

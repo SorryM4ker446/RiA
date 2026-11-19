@@ -46,7 +46,8 @@ comes back, and work handed to several sub-agents at once is one step.
   answer and any other sub-agents of the turn.
 - **Tools.** The conversation's tools, within its assistant template, except
   `askUser`, `createTask`, `readWorkspaceActivity`, `updatePlan`, `extractMemory`,
-  `readConversationHistory`, `runSubagent` itself and `checkSubagents`. Extension tools loaded on demand
+  `readConversationHistory`, `generateImage` (a picture belongs in the conversation the user reads),
+  `runSubagent` itself and `checkSubagents`. Extension tools loaded on demand
   work as in the main conversation.
 - **Approval.** What runs follows the conversation's approval rule (see
   [terminal tools](terminal-tools.md#approval-rules)). An action the rule would ask

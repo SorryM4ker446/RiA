@@ -29,11 +29,16 @@ export function attachmentMediaType(file: { type: string; name?: string }) {
   return file.type;
 }
 
-export function attachmentValidationError(files: Array<{ size: number; type: string; name?: string }>, allowDocuments = false): string | null {
+/** Only a stored asset's server-owned kind can grant the generated-image size allowance. */
+export function attachmentValidationError(files: Array<{ size: number; type: string; name?: string; kind?: string }>, allowDocuments = false): string | null {
   if (files.length > MEDIA_LIMITS.attachmentCount) return t("lib.media.tooManyAttachments");
   const types: readonly string[] = allowDocuments ? CHAT_ATTACHMENT_TYPES : IMAGE_MEDIA_TYPES;
   if (files.some((file) => !types.includes(allowDocuments ? attachmentMediaType(file) : file.type))) return t(allowDocuments ? "lib.media.unsupportedChatAttachmentType" : "lib.media.unsupportedAttachmentType");
-  if (files.some((file) => file.size === 0 || file.size > MEDIA_LIMITS.attachmentBytes)) return t("lib.media.attachmentSize");
+  for (const file of files) {
+    const generated = file.kind === "generated-image" && file.type.startsWith("image/");
+    const limit = generated ? MEDIA_LIMITS.generatedImageBytes : MEDIA_LIMITS.attachmentBytes;
+    if (file.size <= 0 || file.size > limit) return t(generated ? "lib.media.generatedImageAttachmentSize" : "lib.media.attachmentSize");
+  }
   if (files.reduce((sum, file) => sum + file.size, 0) > MEDIA_LIMITS.totalAttachmentBytes) return t("lib.media.totalAttachmentSize");
   return null;
 }

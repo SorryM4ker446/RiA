@@ -15,6 +15,8 @@ process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 
 const { DEFAULT_IMAGE_MODEL, DEFAULT_VIDEO_MODEL } = await import("@/config/model");
+const { MEDIA_LIMITS } = await import("@/lib/media/limits");
+const { encodePersistedUserMessage } = await import("@/lib/ai/ui-message");
 const storage = await import("@/lib/media/storage");
 const { saveChatMessage } = await import("@/lib/chat/store");
 const { encodeMediaMessage } = await import("@/lib/media/message-codec");
@@ -90,6 +92,29 @@ test("new generations persist validated parameters, source chats and protected i
   const referenced = await payload(await routes.library.GET(req("/api/media/library?usage=referenced")));
   assert.deepEqual(referenced.data.map(asset => asset.id), [input.id]);
   assert.equal((await storage.getMediaStats()).referencedCount, 1);
+});
+
+test("a generated image at the output limit can be saved and reused by reference, within the combined limit", async () => {
+  const bytes = Buffer.alloc(MEDIA_LIMITS.generatedImageBytes);
+  testPng.copy(bytes);
+  const input = await storage.createMediaAsset({ bytes, kind: "generated-image", mediaType: "image/png" });
+  const reference = { url: `/api/media/${input.id}`, mediaType: "image/png" };
+  const source = await chat();
+  const message = await saveChatMessage({
+    chatId: source.id,
+    role: "user",
+    content: encodePersistedUserMessage({ type: "user-message", text: "Change the background", files: [reference] }),
+  });
+  assert.equal(await db.messageMedia.count({ where: { messageId: message.id, assetId: input.id } }), 1);
+  const output = await generate("image", { chatId: source.id, inputImages: [reference] });
+  assert.deepEqual((await detail(output.asset.assetId)).generation.inputImages, [{ assetId: input.id, mediaType: "image/png" }]);
+  assert.ok(bytes.equals(providerState.imageCalls[0].files[0].data));
+  const other = await image();
+  await payload(await routes.image.POST(req("/api/image", "POST", {
+    prompt: "Combine the pictures",
+    inputImages: [reference, { url: `/api/media/${other.id}`, mediaType: "image/png" }],
+  })), 400);
+  assert.equal(providerState.imageCalls.length, 1);
 });
 
 test("image regeneration reuses owned inputs, creates a distinct file and leaves history unchanged", async () => {

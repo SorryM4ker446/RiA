@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, beforeEach, test } from "node:test";
+import { generateImage } from "ai";
 
 import { createTestDatabase } from "../helpers/database";
+import { testPng } from "../helpers/model-provider";
 
 const cleanup = createTestDatabase();
 const { openRouterProvider } = await import("@/lib/models/providers/openrouter");
@@ -38,6 +40,27 @@ function truncatedBodyResponse() {
 function jsonResponse(body: unknown) {
   return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 }
+
+test("OpenRouter image calls preserve reported cost, including zero, without sharing charges between requests", async (t) => {
+  const key = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = "offline-image-key";
+  t.after(() => { if (key === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = key; });
+  const costs = new Map<string, number>([["priced", 0.047], ["free", 0]]);
+  const requests = t.mock.method(globalThis, "fetch", async (url: string, init: RequestInit) => {
+    assert.equal(url, "https://openrouter.ai/api/v1/chat/completions");
+    const { model, messages } = JSON.parse(String(init.body));
+    return jsonResponse({
+      model,
+      choices: [{ index: 0, message: { role: "assistant", images: [{ type: "image_url", image_url: { url: `data:image/png;base64,${testPng.toString("base64")}` } }] } }],
+      usage: { prompt_tokens: 12, completion_tokens: 500, total_tokens: 512, cost: costs.get(messages[0].content) },
+    });
+  });
+  const model = openRouterProvider.createImageModel!("example/image");
+  const generated = await Promise.all(["priced", "missing", "free"].map(prompt => generateImage({ model, prompt, maxRetries: 0 })));
+  assert.equal(requests.mock.callCount(), 3);
+  assert.deepEqual(generated.map(result => result.providerMetadata.openrouter?.images), [[{ requestCost: 0.047 }], undefined, [{ requestCost: 0 }]]);
+  assert.ok(generated.every(result => result.image.mediaType === "image/png" && result.usage.totalTokens === 512));
+});
 
 // --- a body that stops arriving is this machine's connection, not bad JSON -----
 

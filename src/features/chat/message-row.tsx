@@ -19,6 +19,7 @@ import { toolLabel } from "./use-tools";
 import { MessageChoices } from "./composer-choices";
 import { readMessageInvocation } from "@/lib/chat/invocation-schema";
 import { isDocumentAttachment } from "@/lib/media/limits";
+import { generatedPictures } from "./generated-pictures";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
@@ -333,6 +334,28 @@ export const MessageRow = memo(function MessageRow({
         </p> : null}
         {!isUser && !isLastAssistantStreaming && canShowSources ? <AnswerSources message={message} onShowAll={() => actions.current?.onShowSources?.(message.id)} /> : null}
         {toolParts.map(part => part.type === "tool-convertDocument" && part.state === "output-available" ? <DocumentDownload key={`download-${part.toolCallId}`} output={part.output} /> : null)}
+        {!isUser ? generatedPictures(toolParts).map(picture => (
+          <div className="mt-3 space-y-2" key={`picture-${picture.callId}`} data-testid="generated-picture">
+            <Image
+              alt={t("chat.messages.generatedImage")}
+              className="max-h-[420px] w-full rounded-lg object-contain"
+              src={picture.url}
+              title={picture.prompt}
+              unoptimized
+              width={1024}
+              height={1024}
+            />
+            <Button
+              disabled={Boolean(attachingImageKey)}
+              onClick={() => void actions.current?.onReuseImageForEditing({ imageUrl: picture.url, key: `${message.id}-${picture.callId}`, filenameBase: `generated-${picture.mediaId}` })}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              {attachingImageKey === `${message.id}-${picture.callId}` ? t("chat.messages.reusing") : reuseImageActionLabel}
+            </Button>
+          </div>
+        )) : null}
         {imageUrl ? (
           <div className="mt-3 space-y-2">
             <Image

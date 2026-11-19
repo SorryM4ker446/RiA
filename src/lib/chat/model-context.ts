@@ -6,6 +6,7 @@ import {
   TOOL_ENABLED_INSTRUCTIONS,
   unavailableToolLines,
   TERMINAL_INSTRUCTIONS,
+  IMAGE_GENERATION_INSTRUCTION,
   MEMORY_INSTRUCTIONS,
   type UnavailableTool,
 } from "@/lib/prompts";
@@ -20,24 +21,51 @@ import { readSummaryState } from "./compaction-state";
 import { REQUEST_CONTEXT_HEADER } from "./context-report";
 import { readMemoryDocument, withoutWithheldMemory } from "@/lib/memory/document";
 import { mapStoredMessagesToUI } from "@/features/chat/page-utils";
+import { assetIdFromUrl, decodeMediaMessage, IMAGE_MESSAGE_PREFIX } from "@/lib/media/message-codec";
+import { generatedImageForModel, generateImageModelFields } from "@/tools/definitions/generate-image";
+/**
+ * A model that cannot see images gets a line where each one was, with its media
+ * id: it cannot look at the picture, but it can still hand it to a tool that
+ * builds on it.
+ */
 function stripFilePartsForTextOnlyModel(messages: UIMessage[]): UIMessage[] {
   return messages.map((message) => {
     const parts = Array.isArray(message.parts) ? message.parts : [];
-    const withoutFiles = parts.filter((part) => part.type !== "file" || !part.mediaType.startsWith("image/"));
-    const hadFiles = withoutFiles.length !== parts.length;
-
-    if (!hadFiles) return message;
-    if (withoutFiles.length > 0) {
-      return {
-        ...message,
-        parts: withoutFiles,
-      } satisfies UIMessage;
-    }
-
+    if (!parts.some(part => part.type === "file" && part.mediaType.startsWith("image/"))) return message;
     return {
       ...message,
-      parts: [{ type: "text", text: "(The previous message was an image, which this model cannot read.)" }],
+      parts: parts.map(part => {
+        if (part.type !== "file" || !part.mediaType.startsWith("image/")) return part;
+        const id = assetIdFromUrl(part.url);
+        return { type: "text" as const, text: `(An image was attached here${id ? `, media id: ${id}` : ""}; this model cannot see images.)` };
+      }),
     } satisfies UIMessage;
+  });
+}
+
+/**
+ * A picture made in the image mode is stored as its own answer, which the page
+ * shows as "image generated · model". The model gets the picture's media id with
+ * it, so a later turn can change it or build on it.
+ */
+async function withGeneratedImageIds(chatId: string | undefined, messages: UIMessage[]): Promise<UIMessage[]> {
+  if (!chatId) return messages;
+  const rows = await db.message.findMany({ where: { chatId, role: "assistant", content: { startsWith: IMAGE_MESSAGE_PREFIX } }, select: { id: true, clientMessageId: true, content: true } });
+  if (!rows.length) return messages;
+  const byId = new Map<string, { assetId: string; modelId: string }>();
+  for (const row of rows) {
+    const media = decodeMediaMessage(row.content);
+    if (media?.type !== "image-result" || !media.assetId) continue;
+    const found = { assetId: media.assetId, modelId: media.modelId };
+    byId.set(row.id, found);
+    if (row.clientMessageId) byId.set(row.clientMessageId, found);
+  }
+  return messages.map(message => {
+    const found = message.role === "assistant" ? byId.get(message.id) : undefined;
+    if (!found) return message;
+    const text = message.parts.flatMap(part => part.type === "text" ? [part.text] : []).join("\n").trim();
+    const note = `[Picture made in the image mode by ${found.modelId} from the user's message before this one; media id: ${found.assetId}]`;
+    return { ...message, parts: [{ type: "text" as const, text: text ? `${text}\n${note}` : note }] };
   });
 }
 type StoredPosition = { id: string; createdAt: Date };
@@ -215,20 +243,24 @@ export async function keepRequestContext(chatId: string, messageId: string | und
 
 export async function prepareModelContext(input: ChatRequest, signal?: AbortSignal) {
   const { model } = input;
-  const { messages, anchor } = await storedConversation(input.requestedChatId, input.messages, input.body.trigger !== "regenerate-message" && !input.isApprovalResume);
+  const stored = await storedConversation(input.requestedChatId, input.messages, input.body.trigger !== "regenerate-message" && !input.isApprovalResume);
+  const { anchor } = stored;
+  const messages = await withGeneratedImageIds(input.requestedChatId, stored.messages);
   const effectiveMessages = model?.supportsImageInput
     ? messages
     : stripFilePartsForTextOnlyModel(messages);
-  const stored = input.requestedChatId ? await storedSummary(input.requestedChatId) : null;
+  const summary = input.requestedChatId ? await storedSummary(input.requestedChatId) : null;
   const context = buildChatContext(effectiveMessages, {
     ...await conversationWindow(model, input.modelRef, messages),
     maxMessages: effectiveMessages.length,
     anchorMessageIds: anchor,
     requestContexts: input.requestedChatId ? await sentRequestContexts(input.requestedChatId, input.conversationPolicy?.ephemeral) : undefined,
     // A model that cannot take tools cannot take a record of them either.
-    ...((input.body.mode ?? "chat") === "chat" && input.model?.supportsTools === true && (!input.assistant || input.assistant.tools.length > 0) ? { toolRecords: { replaysReasoning: input.modelRef.providerId === "deepseek", covered: stored?.state.calls, keepPreviousToolTurn: true } } : {}),
+    ...((input.body.mode ?? "chat") === "chat" && input.model?.supportsTools === true && (!input.assistant || input.assistant.tools.length > 0) ? { toolRecords: { replaysReasoning: input.modelRef.providerId === "deepseek", covered: summary?.state.calls, keepPreviousToolTurn: true } } : {}),
   });
-  const modelMessages = await convertToModelMessages(await materializeChatAttachments(context.messages, signal));
+  const modelMessages = await convertToModelMessages(await materializeChatAttachments(context.messages, signal), {
+    tools: { generateImage: { inputSchema: generateImageModelFields, toModelOutput: ({ output }: { output: unknown }) => generatedImageForModel(output) } },
+  });
 
   return { context, modelMessages };
 }
@@ -260,9 +292,13 @@ export function buildSystemPrompt(
   persona?: { name?: string; language?: string; answerStyle?: string; notes?: string } | null,
   options: { memory?: boolean } = {},
 ): string {
-  // The terminal paragraph only when the terminal is actually offered this turn.
-  const terminalOffered = toolsEnabled && !unavailableTools.some(tool => (typeof tool === "string" ? tool : tool.id) === "runTerminalCommand");
-  const toolInstruction = toolsEnabled ? [...TOOL_ENABLED_INSTRUCTIONS, ...(options.memory ? MEMORY_INSTRUCTIONS : []), ...(terminalOffered ? TERMINAL_INSTRUCTIONS : [])] : TOOL_DISABLED_INSTRUCTIONS;
+  const offers = (id: string) => !unavailableTools.some(tool => (typeof tool === "string" ? tool : tool.id) === id);
+  const toolInstruction = toolsEnabled ? [
+    ...TOOL_ENABLED_INSTRUCTIONS,
+    ...(options.memory ? MEMORY_INSTRUCTIONS : []),
+    ...(offers("runTerminalCommand") ? TERMINAL_INSTRUCTIONS : []),
+    ...(offers("generateImage") ? [IMAGE_GENERATION_INSTRUCTION] : []),
+  ] : TOOL_DISABLED_INSTRUCTIONS;
   const personaText = formatPersona(persona);
 
   return [

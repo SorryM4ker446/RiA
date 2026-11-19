@@ -1,5 +1,6 @@
 import { t } from "@/lib/locale";
 import { ApiError } from "@/lib/server/api-error";
+import { DEFAULT_IMAGE_REQUESTS_PER_MINUTE } from "@/lib/models/preferences-schema";
 
 /*
  * Per-minute quotas for the local service. It serves one person on their own
@@ -14,7 +15,7 @@ export const RATE_LIMIT_POLICIES = {
   fileUndo: { limit: 30, windowMs: 60_000 },
   // Read by every card of changed files as it appears, so it allows far more.
   fileUndoStatus: { limit: 600, windowMs: 60_000 },
-  image: { limit: 6, windowMs: 60_000 },
+  image: { limit: DEFAULT_IMAGE_REQUESTS_PER_MINUTE, windowMs: 60_000 },
   video: { limit: 3, windowMs: 60_000 },
   upload: { limit: 120, windowMs: 60_000 },
   // A folder imported as a batch sends one request per document.
@@ -135,8 +136,8 @@ export function checkRateLimit(input: CheckRateLimitInput): CheckRateLimitResult
  * installation shares one bucket per policy, so opening extra windows or
  * clearing cookies cannot raise the limit.
  */
-export function enforceRateLimit(policy: keyof typeof RATE_LIMIT_POLICIES) {
-  const result = checkRateLimit({ key: policy, ...RATE_LIMIT_POLICIES[policy] });
+export function enforceRateLimit(policy: keyof typeof RATE_LIMIT_POLICIES, limit: number = RATE_LIMIT_POLICIES[policy].limit) {
+  const result = checkRateLimit({ key: policy, windowMs: RATE_LIMIT_POLICIES[policy].windowMs, limit });
   if (!result.allowed) {
     throw new ApiError({
       code: "RATE_LIMITED",

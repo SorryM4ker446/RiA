@@ -21,6 +21,7 @@ import { ToolLessModelNotice } from "@/features/chat/tool-less-model-notice";
 import { localizeMessage, t } from "@/lib/locale";
 import { PlanStrip } from "@/features/chat/task-plan";
 import { useOpenSettings } from "@/features/settings/settings-context";
+import { looksLikeQuestion } from "@/features/chat/image-mode-question";
 
 export default function ChatPage() {
   useLocale();
@@ -85,7 +86,8 @@ export default function ChatPage() {
                 />
               </div>
 
-              <ComposerNotice modelHint={chat.modelHint} notice={chat.inputNotice} dimmed={chat.isModelMenuOpen} onChooseModel={() => chat.setIsModelMenuOpen(true)} onDismiss={chat.dismissInputNotice} />
+              <ComposerNotice modelHint={chat.modelHint} notice={chat.inputNotice} imageQuestion={chat.modelMode === "image" && looksLikeQuestion(chat.input)} dimmed={chat.isModelMenuOpen}
+                onChooseModel={() => chat.setIsModelMenuOpen(true)} onDismiss={chat.dismissInputNotice} onSwitchToChat={() => chat.onModeSelect("chat")} />
 
               {/* As wide as the composer it sits on, not across the whole row. */}
               {effectiveError ? (

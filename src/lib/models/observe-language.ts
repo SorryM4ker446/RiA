@@ -38,7 +38,12 @@ export type ObserveOptions = {
 };
 
 const sameRef = (a: ModelRef, b: ModelRef) => a.providerId === b.providerId && a.modelId === b.modelId;
-const hasImages = (prompt: Prompt) => prompt.some(message => message.role === "user" && message.content.some(part => part.type === "file"));
+const hasImages = (prompt: Prompt) => prompt.some(message => {
+  if (message.role === "user") return message.content.some(part => part.type === "file");
+  if (message.role !== "tool" && message.role !== "assistant") return false;
+  return message.content.some(part => part.type === "tool-result" && part.output.type === "content"
+    && part.output.value.some(item => item.type === "image-data" || item.type === "image-url"));
+});
 
 /**
  * How long a chat model that failed stays degraded. Within the window its calls
@@ -168,8 +173,10 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
       const libraryModel = await modelInLibrary("chat", modelRef);
       if (!libraryModel) throw new ApiError({ code: "CONFIGURATION_ERROR", message: `${t("lib.models.modelWord")} ${modelRef.modelId} ${t("lib.models.removedSuffix")}` });
       if (params.tools?.length && !libraryModel.supportsTools) throw new ApiError({ code: "VALIDATION_ERROR", message: `${t("lib.models.chatPrefix")} ${modelRef.modelId} ${t("lib.models.chatNoTools")}` });
-      if (hasImages(params.prompt) && !libraryModel.supportsImageInput) throw new ApiError({ code: "VALIDATION_ERROR", message: `${t("lib.models.chatPrefix")} ${modelRef.modelId} ${t("lib.models.chatNoImage")}` });
       const candidates = await candidatesFor(params);
+      if (hasImages(params.prompt) && !libraryModel.supportsImageInput && candidates.some(ref => sameRef(ref, modelRef))) {
+        throw new ApiError({ code: "VALIDATION_ERROR", message: `${t("lib.models.chatPrefix")} ${modelRef.modelId} ${t("lib.models.chatNoImage")}` });
+      }
       // The call as sent to the model now answering; re-planned when that changes.
       let base = params;
       // Each candidate is retried after a transient failure before the next is

@@ -33,7 +33,7 @@ Business handlers return errors as JSON with `Cache-Control: no-store`:
 | `SERVICE_UNAVAILABLE` | 503 | SQLite query/connection wait timed out or document parsers are busy |
 | `TIMEOUT` | 504 | Upstream operation or document parsing timed out |
 
-The order is Host/Origin/desktop boundary, local access credential, applicable quota, limited body reading and schema validation, resource/configuration checks, then business work. The local entry point is the one exception: it authenticates itself with a one-time handshake code instead of the credential it is about to issue. Health requires a valid desktop Host but no desktop Cookie.
+Operations check the Host/Origin/desktop boundary and local access credential before reading the request. Most quotas are checked before body reading. Image generation checks its shared quota in the generation service before calling a provider. Library regeneration reads the confirmation and stored recipe first to apply the correct quota for images or videos. The local entry point authenticates with a one-time handshake code. Health requires a valid desktop Host.
 
 JSON operations require `application/json`. Unknown request fields and unknown model IDs are rejected instead of silently selecting a default model; omitting the model still selects its default. Chat accepts user/assistant history, bounded message parts, uploaded image references and the supported tool/approval states. Client system history is never promoted to the server system prompt. Only a final persisted pending approval can continue execution. Media generation accepts private uploaded references, never arbitrary remote or data URLs.
 
@@ -45,7 +45,7 @@ Raw ORM/provider diagnostics are not logged or returned because they can contain
 
 The common reader counts actual bytes, including requests without Content-Length, and cancels oversized streams on endpoints with a byte limit. JSON bodies default to 2 MiB and JSON nesting to 32 levels. `POST /api/chat` reads the complete body without a byte limit so terminal scripts, approvals and history are not restricted by request size. It bypasses Next.js Proxy body cloning; the route authenticates through `protectDataOperation` and `requireLocalWorkspace` before reading the body. Content type, JSON shape, nesting, origin and local credential checks still apply. Cleanup and DELETE accept no body or an empty JSON object (at most 16 KiB).
 
-Existing media limits remain: four attachments per message, PNG/JPEG/WebP/GIF only, at most 8 MiB each and 20 MiB combined, with a 21 MiB multipart envelope. Signatures, ownership and stored sizes are checked before use. Next.js Proxy buffering is capped 1 MiB above the larger of the media (21 MiB) and knowledge-document (33 MiB) envelopes, so valid uploads over its default 10 MiB buffer are not truncated and handlers have room to detect overflow before truncation; the accepted media multipart limit remains 21 MiB. Actual chunked HTTP overflow is covered by a browser-suite regression. Generated image/video storage limits remain 20/100 MiB. See [Media storage](media-storage.md).
+Media limits allow four attachments per message and 20 MiB combined, with a 21 MiB multipart envelope. Each upload is limited to 8 MiB. A reference to an existing generated image can use the full 20 MiB combined allowance. Generation references must be PNG, JPEG, WebP or GIF. Signatures, ownership and stored sizes are checked before use. Next.js Proxy buffering is capped 1 MiB above the larger of the media (21 MiB) and knowledge-document (33 MiB) envelopes, so valid uploads over its default 10 MiB buffer are not truncated and handlers have room to detect overflow before truncation; the accepted media multipart limit remains 21 MiB. Actual chunked HTTP overflow is covered by a browser-suite regression. Generated image/video storage limits remain 20/100 MiB. See [Media storage](media-storage.md).
 
 ## Single-process quotas
 
@@ -57,9 +57,9 @@ Quotas stop a runaway loop rather than ration what the person asks for: importin
 | Manual tool execution (calls the model makes during a turn are not counted) | 30 attempts / minute |
 | Extension configuration, activation, deletion and detection, shared | 30 attempts / minute |
 | Document export and layout preview, shared | 20 attempts / minute |
-| Image generation | 6 requests / minute |
+| Image generation, shared by chat, image mode and library regeneration | 12 requests / 60 seconds by default, adjustable under **Settings → Models → Model call limits** |
 | Video generation | 3 requests / minute |
-| Media library regeneration attempts; valid recipes also consume the image/video quota above | 6 attempts / minute |
+| Media library video regeneration, also subject to the video quota above | 6 attempts / minute |
 | Attachment upload | 120 requests / minute |
 | Document import/reindex, shared between both operations | 60 attempts / minute; a batch import waits out the limit as `Retry-After` says |
 | Explicit document semantic indexing | 60 requests / minute; at most 32 chunks per request, no automatic retry |

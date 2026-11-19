@@ -20,12 +20,16 @@ test("model limits persist and source filters display real recorded chat calls w
   // Each limit states its range, and a value outside it is pointed out where it is typed and cannot be saved.
   const save = page.getByRole("button", { name: "保存模型偏好", exact: true });
   const compaction = page.getByLabel("每次请求压缩调用上限", { exact: true });
+  const imageQuotaLabel = "图片生成请求数（每 60 秒）";
+  const imageQuota = page.getByLabel(imageQuotaLabel, { exact: true });
+  await expect(imageQuota).toHaveValue("12");
   await expect(page.getByText("1–32 的整数", { exact: true })).toBeVisible();
   // The limits for tasks that run on their own are with the other task rules, not here.
   await expect(page.getByLabel("每日自动运行次数", { exact: true })).toHaveCount(0);
   const puts: string[] = []; page.on("request", request => { if (new URL(request.url()).pathname === "/api/models" && request.method() === "PUT") puts.push(request.url()); });
   for (const [label, value, message] of [
     ["每次请求压缩调用上限", "1001", "请输入 1–1,000 之间的整数"],
+    [imageQuotaLabel, "0", "请输入 1–1,000 之间的整数"],
     ["最大并发调用数", "", "请输入 1–32 之间的整数"],
     ["预算时区", "Mars/Base", "无法识别的时区，请输入 IANA 时区名称，例如 Asia/Shanghai"],
   ]) {
@@ -39,14 +43,16 @@ test("model limits persist and source filters display real recorded chat calls w
   }
   await expect(save).toBeEnabled(); expect(puts).toEqual([]);
   await compaction.fill("1000"); await expect(compaction).not.toHaveAttribute("aria-invalid", "true");
+  await imageQuota.fill("18");
   await page.getByLabel("预算时区").fill("America/New_York");
   const saving = page.waitForResponse(response => new URL(response.url()).pathname === "/api/models" && response.request().method() === "PUT");
   await page.getByRole("button", { name: "保存模型偏好", exact: true }).click();
   const saved = await saving;
   expect(saved.status()).toBe(200);
-  expect((await saved.json()).data.callLimits.compactionCallsPerTurn).toBe(1000);
+  expect((await saved.json()).data.callLimits).toMatchObject({ compactionCallsPerTurn: 1000, imageRequestsPerMinute: 18 });
   await expect(page.getByRole("button", { name: "保存模型偏好", exact: true })).toBeEnabled();
   await page.reload(); await expect(page.getByLabel("每次请求压缩调用上限")).toHaveValue("1000");
+  await expect(imageQuota).toHaveValue("18");
   await expect(page.getByLabel("预算时区")).toHaveValue("America/New_York");
   await page.getByLabel("每次请求压缩调用上限").fill("999");
   // Usage is its own section; the unsaved limit waits in the models section meanwhile.

@@ -138,11 +138,23 @@ export function imageDimensions(bytes: Uint8Array): { width: number; height: num
  * encoding — the long edge is at most 2048 pixels for the common ones — and
  * the largest per-pixel rate among them is about one token per 750 pixels.
  */
-export function estimateImageTokens(bytes: Uint8Array): number {
+export function estimateImageTokens(bytes: Uint8Array, byteLength = bytes.byteLength): number {
   const size = imageDimensions(bytes);
-  if (!size) return bytes.byteLength;
+  if (!size) return byteLength;
   const shrink = Math.min(1, 2048 / Math.max(size.width, size.height));
-  return Math.min(bytes.byteLength, Math.ceil(size.width * shrink * size.height * shrink / 750));
+  return Math.min(byteLength, Math.ceil(size.width * shrink * size.height * shrink / 750));
+}
+
+/**
+ * A base64 picture priced as its bytes would be. Only the head is decoded: the
+ * dimensions are near the start, and the byte count follows from the length.
+ */
+function estimateBase64ImageTokens(base64: string): number {
+  const byteLength = Math.floor(base64.length * 3 / 4);
+  try {
+    // A whole number of base64 groups, so the head decodes on its own.
+    return estimateImageTokens(Uint8Array.from(atob(base64.slice(0, 87_380)), character => character.charCodeAt(0)), byteLength);
+  } catch { return byteLength; }
 }
 
 /**
@@ -155,6 +167,15 @@ export function estimateContextTokens(value: unknown, scale = 1): number {
   let binaryTokens = 0;
   const encoded = JSON.stringify(value, (_key, item) => {
     if (item instanceof Uint8Array) { binaryTokens += estimateImageTokens(item); return `[binary attachment: ${item.byteLength} bytes]`; }
+    // The same picture as base64 text: a data URL, or a tool result's image part.
+    if (typeof item === "string" && item.startsWith("data:image/")) {
+      const comma = item.indexOf(",");
+      if (comma > 0 && item.slice(0, comma).endsWith(";base64")) { binaryTokens += estimateBase64ImageTokens(item.slice(comma + 1)); return "[image attachment]"; }
+    }
+    if (item && typeof item === "object" && (item as { type?: unknown }).type === "image-data" && typeof (item as { data?: unknown }).data === "string") {
+      binaryTokens += estimateBase64ImageTokens((item as { data: string }).data);
+      return { ...item, data: "[image attachment]" };
+    }
     return item;
   });
   return Math.ceil((estimateTextTokens(encoded ?? "") + binaryTokens + 256) * Math.max(MIN_CALIBRATION, scale));

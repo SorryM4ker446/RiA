@@ -40,6 +40,8 @@ export type PersistedAssistantToolMessagePayload = {
   type: "assistant-tool-message";
   text: string;
   tools: PersistedAssistantToolItem[];
+  /** Preserves the budget of a scheduled turn across a pending approval. */
+  scheduled?: true;
   /**
    * The model's chain of thought for this answer.
    *
@@ -247,6 +249,7 @@ export function decodePersistedAssistantToolMessage(
     return {
       type: "assistant-tool-message",
       text: parsed.text,
+      ...(parsed.scheduled === true ? { scheduled: true } : {}),
       ...(typeof parsed.runId === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(parsed.runId) ? { runId: parsed.runId } : {}),
       ...(Array.isArray(parsed.runIds) ? { runIds: [...new Set(parsed.runIds.filter((id): id is string => typeof id === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(id)))].slice(-100) } : {}),
       ...(typeof parsed.modelLabel === "string" ? { modelLabel: parsed.modelLabel.slice(0, 240) } : {}),

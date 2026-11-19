@@ -72,6 +72,7 @@ export const errorMessages = {
   "errors.documentTextExceeds100000CharactersInTotal": "本次文档正文合计超过 100,000 字符，请减少附件。",
   "errors.concurrentModelCallLimitReachedWaitForCurrent": "模型并发调用已达上限，请等待当前调用结束。",
   "errors.backgroundCostLimitsAreEnabledConfigureModelInput": "后台费用上限已启用，请先配置模型输入和输出价格。未知费用不能按零领取额度。",
+  "errors.backgroundCostLimitsConfigureMediaRate": "后台费用上限已启用，请先在模型设置中填写每次媒体调用的估算费率。",
   "errors.estimatedBackgroundCallCostExceedsThePerCall": "后台调用预估费用超过单次上限。",
   "errors.backgroundCallsHaveReachedTheCountOrEstimated": "后台调用已达到本地日期的次数或预估费用上限。",
   "errors.pluginPackageExceeds2MiB": "插件包超过 2 MiB。",

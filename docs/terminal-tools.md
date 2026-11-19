@@ -32,12 +32,15 @@ Whether an action waits for you is decided by the conversation's approval rule
 that changes something declares one kind of action, and one table decides it
 (`src/lib/approvals/rules.ts`):
 
-| Rule | File edits (`editProjectFile`) | Terminal commands (`runTerminalCommand`) | Extension tools (MCP, HTTP) | Creating a task, saving a knowledge entry |
-| --- | --- | --- | --- | --- |
-| **Ask** (default) | Wait for approval of the shown diff | Wait for approval of the exact command | Wait for approval | Wait for approval |
-| **Accept edits** | Written directly | Wait for approval | Wait for approval | Wait for approval |
-| **Auto** | Written directly | Reviewed first; run without asking when the review allows it, otherwise wait for approval | Reviewed like commands | Wait for approval |
-| **Full access** | Written directly | Run without asking | Run without asking | Done without asking |
+| Rule | File edits (`editProjectFile`) | Terminal commands (`runTerminalCommand`) | Extension tools (MCP, HTTP) | Creating a task, saving a knowledge entry | Pictures (`generateImage`) |
+| --- | --- | --- | --- | --- | --- |
+| **Ask** (default) | Wait for approval of the shown diff | Wait for approval of the exact command | Wait for approval | Wait for approval | Made when your latest message asks for it, otherwise wait for approval |
+| **Accept edits** | Written directly | Wait for approval | Wait for approval | Wait for approval | As under Ask |
+| **Auto** | Written directly | Reviewed first; run without asking when the review allows it, otherwise wait for approval | Reviewed like commands | Wait for approval | As under Ask |
+| **Full access** | Written directly | Run without asking | Run without asking | Done without asking | Made without asking |
+
+Whether your latest message asks for a picture is judged by the same reviewer
+model, from your own words only; see [pictures made in chat](media-library.md#pictures-made-in-chat).
 
 Reading files, logs, the knowledge base or the web never asks. A question the
 model asks you (`askUser`) is not an approval and waits for your answer under

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { after, beforeEach, test, type TestContext } from "node:test";
 import { NextRequest } from "next/server";
 import { MockLanguageModelV3 } from "ai/test";
-import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
+import type { LanguageModelV3Prompt, LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import type { CatalogState } from "@/lib/models/catalog";
 import type { CatalogFailureReason } from "@/lib/models/providers";
 import type { ModelRef } from "@/lib/models/preferences-schema";
@@ -62,6 +62,26 @@ test("model preferences persist in the workspace and reject unavailable models, 
   await payload(await models.PUT(req("/api/models","PUT",{...settings,library:[...settings.library,{...settings.library[0],modelId:"smuggled/model"}]})));
   assert.deepEqual((await getModelPreferences()).library,settings.library);
 });
+test("existing preferences default to 12 image requests and the API validates updates", async () => {
+  const settings = await getModelPreferences();
+  const { imageRequestsPerMinute, ...legacyLimits } = settings.callLimits;
+  assert.equal(imageRequestsPerMinute, 12);
+  await db.workspacePreference.update({
+    where: { id: "local" },
+    data: { settings: { ...settings, callLimits: legacyLimits } },
+  });
+  const current = (await payload(await models.GET(req("/api/models")))).data;
+  assert.deepEqual(current.callLimits, { ...legacyLimits, imageRequestsPerMinute: 12 });
+
+  for (const limit of [0, 1.5, 1001]) {
+    await payload(await models.PUT(req("/api/models", "PUT", {
+      ...current, callLimits: { ...current.callLimits, imageRequestsPerMinute: limit },
+    })), 400);
+  }
+  const changedLimits = { ...current.callLimits, imageRequestsPerMinute: 18 };
+  await payload(await models.PUT(req("/api/models", "PUT", { ...current, callLimits: changedLimits })));
+  assert.deepEqual((await payload(await models.GET(req("/api/models")))).data.callLimits, changedLimits);
+});
 test("every registered provider id is one a stored model reference may name",()=>{
   // A library row names a provider by id. An adapter that is registered but
   // missing from `providerIds` could be called but never stored, which is
@@ -117,9 +137,10 @@ test("a stored version 1 or 2 workspace upgrades in place on read",async()=>{
     assert.deepEqual(read.chat.model,expected.model);
     assert.deepEqual(read.legacyCandidates.map(candidate=>candidate.ref),expected.candidates);
     // The upgrade is persisted, so the next read is an ordinary version 3 read. A setting left unset is not written.
-    const {auxiliary:unset,...written}=read;
+    const {auxiliary:unset,callLimits:{imageRequestsPerMinute,...callLimits},...written}=read;
     assert.equal(unset,null);
-    assert.deepEqual((await db.workspacePreference.findUnique({where:{id:"local"}})).settings,written);
+    assert.equal(imageRequestsPerMinute,12);
+    assert.deepEqual((await db.workspacePreference.findUnique({where:{id:"local"}})).settings,{...written,callLimits});
   }
 });
 test("model removal waits for an active provider lease",async()=>{
@@ -219,6 +240,14 @@ test("usage cost distinguishes provider values, configured estimates and unknown
   const rate={inputPerMillion:2,outputPerMillion:4,perRequest:0.05};
   assert.equal(usageCost("chat",{inputTokens:{total:1000},outputTokens:{total:500}},{},rate).costUsd,0.004);
   assert.equal(usageCost("image",undefined,{},rate).costUsd,0.05);
+  assert.deepEqual(
+    [0, 0.047].map(requestCost => {
+      const measured = usageCost("image", undefined, { openrouter: { images: [{ requestCost }] } }, rate);
+      return [measured.costUsd, measured.costSource];
+    }),
+    [[0, "provider"], [0.047, "provider"]],
+    "reported image charges take precedence over the configured estimate",
+  );
   assert.equal(usageCost("chat",{inputTokens:2,outputTokens:2},{openrouter:{cost:0}},rate).costUsd,0);
   assert.equal(usageCost("chat",{},{}).costUsd,null);
   assert.equal(usageCost("embedding",{tokens:1000},{},rate).costUsd,0.002);
@@ -228,7 +257,7 @@ test("usage cost distinguishes provider values, configured estimates and unknown
 // inspects, so the fixture parts are asserted to it at the stream boundary.
 type StreamPartFixture = Record<string, any>;
 const finish={type:"finish",finishReason:{unified:"stop" as const,raw:undefined},usage:{inputTokens:{total:10,noCache:undefined,cacheRead:undefined,cacheWrite:undefined},outputTokens:{total:3,text:undefined,reasoning:undefined}}};
-async function languageCall(chunks?:StreamPartFixture[],{tools,abort,status=503}:{tools?:boolean;abort?:boolean;status?:number}={}) {
+async function languageCall(chunks?:StreamPartFixture[],{tools,abort,status=503,prompt=[{role:"user",content:[{type:"text",text:"Test"}]}]}:{tools?:boolean;abort?:boolean;status?:number;prompt?:LanguageModelV3Prompt}={}) {
   let backupCalls=0;
   const backup=new MockLanguageModelV3({doStream:async()=>{backupCalls++;return {stream:new ReadableStream({start(controller){for(const part of [{type:"stream-start",warnings:[]},{type:"text-start",id:"b"},{type:"text-delta",id:"b",delta:"Backup answer"},{type:"text-end",id:"b"},finish]) controller.enqueue(part as LanguageModelV3StreamPart);controller.close();}})};}});
   const failure=Object.assign(new Error("synthetic upstream failure"),{statusCode:status});
@@ -237,7 +266,7 @@ async function languageCall(chunks?:StreamPartFixture[],{tools,abort,status=503}
     await requireLocalWorkspace(request);
     const model=observeLanguageModel(primary,chatModelRef,()=>backup);
     try {
-      const result=await model.doStream({prompt:[{role:"user",content:[{type:"text",text:"Test"}]}],...(tools?{tools:[{type:"function",name:"task",inputSchema:{}}]}:{}),...(abort?{abortSignal:AbortSignal.abort()}: {})});
+      const result=await model.doStream({prompt,...(tools?{tools:[{type:"function",name:"task",inputSchema:{}}]}:{}),...(abort?{abortSignal:AbortSignal.abort()}: {})});
       const parts=[];for await(const part of result.stream)parts.push(part);return Response.json({parts});
     } catch {return Response.json({failed:true},{status:502});}
   });
@@ -278,6 +307,23 @@ test("chat fallback takes over a call with tools when it can call them, and not 
   assert.equal((await languageCall(undefined,{tools:true})).backupCalls,0);
 });
 
+test("a tool result with image bytes only falls back to a chat model that accepts images", async t => {
+  skipRetryWaits(t);
+  const settings = await getModelPreferences();
+  settings.chat.fallback = ref("deepseek/deepseek-v4-flash");
+  await saveModelPreferences(settings);
+  const prompt: LanguageModelV3Prompt = [{ role: "tool", content: [{
+    type: "tool-result", toolCallId: "picture", toolName: "generateImage",
+    output: { type: "content", value: [{ type: "image-data", data: testPng.toString("base64"), mediaType: "image/png" }] },
+  }] }];
+  assert.equal((await languageCall(undefined, { prompt })).backupCalls, 0);
+  settings.chat.fallback = ref("google/gemini-3-flash-preview");
+  await saveModelPreferences(settings);
+  const result = await languageCall(undefined, { prompt });
+  assert.equal(result.backupCalls, 1);
+  await payload(result.response);
+});
+
 const failing=(counter:{calls:number})=>new MockLanguageModelV3({
   doStream:async()=>{counter.calls++;return {stream:new ReadableStream({start(controller){controller.enqueue({type:"stream-start",warnings:[]} as LanguageModelV3StreamPart);controller.enqueue({type:"error",error:Object.assign(new Error("synthetic outage"),{statusCode:503})} as LanguageModelV3StreamPart);controller.close();}})};},
   doGenerate:async()=>{counter.calls++;throw Object.assign(new Error("synthetic outage"),{statusCode:503});},
@@ -293,6 +339,25 @@ async function inRequest<T>(work:()=>Promise<T>){
   return value;
 }
 const streamOnce=async(model:ReturnType<typeof observeLanguageModel>)=>{const result=await model.doStream({prompt:[{role:"user",content:[{type:"text",text:"Hello"}]}]});for await(const _part of result.stream);};
+
+test("a vision fallback already answering a text-only model's turn can receive the generated image", async t => {
+  skipRetryWaits(t);
+  const primaryRef = ref("deepseek/deepseek-v4-flash");
+  const settings = await getModelPreferences();
+  settings.chat.fallback = ref("google/gemini-3-flash-preview");
+  await saveModelPreferences(settings);
+  const primary = { calls: 0 }, backup = { calls: 0 };
+  await inRequest(async () => {
+    const model = observeLanguageModel(failing(primary), primaryRef, () => answering(backup));
+    await streamOnce(model);
+    const result = await model.doStream({ prompt: [{ role: "tool", content: [{
+      type: "tool-result", toolCallId: "picture", toolName: "generateImage",
+      output: { type: "content", value: [{ type: "image-data", data: testPng.toString("base64"), mediaType: "image/png" }] },
+    }] }] });
+    for await (const _part of result.stream);
+  });
+  assert.equal(backup.calls, 2);
+});
 
 const quickAttempts = async () => 1 + (await import("@/lib/models/model-retry")).QUICK_RETRIES;
 
@@ -385,6 +450,44 @@ test("media fallback records actual selected models, respects defaults and leave
   assert.equal((await regenerate.POST(req(`/api/media/${asset.id}/regenerate`,"POST",{confirm:true}),{params:Promise.resolve({id:asset.id})})).status,502);assert.equal(calls-before,1);
   assert.deepEqual(await (await import("@/lib/media/storage")).readMediaAsset(asset),testPng);
 });
+test("image edits skip a primary without reference support and use only the compatible fallback", async () => {
+  const settings = await getModelPreferences();
+  const primary = ref("google/gemini-3.1-flash-image-preview");
+  const fallback = ref("google/gemini-2.5-flash-image");
+  settings.image = { model: primary, fallback };
+  settings.rates["openrouter:google/gemini-2.5-flash-image"] = { inputPerMillion: null, outputPerMillion: null, perRequest: 0.03 };
+  settings.library = settings.library.map(item => item.modelId === primary.modelId ? { ...item, endpointImageInput: null } : item);
+  const storeSettings = () => db.workspacePreference.update({ where: { id: "local" }, data: { settings } });
+  await storeSettings();
+  const { createMediaAsset } = await import("@/lib/media/storage");
+  const input = await createMediaAsset({ bytes: testPng, kind: "attachment", mediaType: "image/png" });
+  const inputImages = [{ url: `/api/media/${input.id}`, mediaType: "image/png" }];
+  const edit = { prompt: "Change the background", aspectRatio: "4:3", inputImages };
+  const result = await payload(await imageRoute.POST(req("/api/image", "POST", edit)));
+  assert.equal(result.modelId, fallback.modelId);
+  assert.equal(providerState.imageCalls.length, 1);
+  assert.equal(providerState.imageCalls[0].aspectRatio, "4:3");
+  assert.ok(testPng.equals(providerState.imageCalls[0].files[0].data));
+  const asset = await db.mediaAsset.findUniqueOrThrow({ where: { id: result.asset.assetId } });
+  assert.deepEqual(asset.generation, {
+    version: 1, type: "image", modelId: fallback.modelId, modelProvider: fallback.providerId,
+    prompt: edit.prompt, aspectRatio: edit.aspectRatio, inputImages: [{ assetId: input.id, mediaType: "image/png" }],
+  });
+  const { recent } = await usageSummary();
+  assert.equal(recent.length, 1);
+  assert.equal(recent[0].modelId, fallback.modelId);
+  assert.equal(recent[0].fallback, true);
+  assert.equal(recent[0].costUsd, 0.03);
+
+  const textOnly = await payload(await imageRoute.POST(req("/api/image", "POST", { prompt: "Draw a tree" })));
+  assert.equal(textOnly.modelId, primary.modelId);
+  settings.library = settings.library.map(item => item.modelId === fallback.modelId ? { ...item, endpointImageInput: false } : item);
+  await storeSettings();
+  await payload(await imageRoute.POST(req("/api/image", "POST", edit)), 400);
+  assert.equal(providerState.imageCalls.length, 2);
+  assert.equal((await usageSummary()).totals.requests, 2);
+});
+
 test("model APIs enforce the local access credential, Origin, quotas and removed-model warnings without returning prompts or secrets",async()=>{
   assert.equal((await models.GET(req("/api/models","GET",undefined,""))).status,401);
   assert.equal((await models.PUT(req("/api/models","PUT",{},cookie,{origin:"https://outside.invalid"}))).status,403);

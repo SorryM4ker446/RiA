@@ -1,4 +1,5 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import type { ImageModelV3 } from "@ai-sdk/provider";
 import { z } from "zod";
 import { BodyReadError, readLimitedJson } from "@/lib/models/catalog-read";
 import { libraryModes, reasoningEfforts, type ReasoningCapability } from "@/lib/models/preferences-schema";
@@ -6,7 +7,7 @@ import { openRouterImagePrices, openRouterVideoPrices } from "@/lib/models/catal
 import { CatalogFetchError, type CatalogModel, type ModelProvider, type ReasoningPreference } from "@/lib/models/providers/types";
 
 const catalogMaxBodyBytes = 8 * 1024 * 1024;
-const openrouter = createOpenRouter({
+const openRouterSettings = {
   baseURL: "https://openrouter.ai/api/v1",
   apiKey: process.env.OPENROUTER_API_KEY,
   headers: {
@@ -15,7 +16,37 @@ const openrouter = createOpenRouter({
       ? { "X-OpenRouter-Title": process.env.OPENROUTER_SITE_NAME ?? process.env.OPENROUTER_X_TITLE! }
       : {}),
   },
-});
+};
+const openrouter = createOpenRouter(openRouterSettings);
+const imageResponseCost = z.object({ usage: z.object({ cost: z.number().nonnegative() }) });
+
+function createImageModel(modelId: string): ImageModelV3 {
+  return {
+    specificationVersion: "v3", provider: "openrouter", modelId, maxImagesPerCall: 1,
+    async doGenerate(options) {
+      // The SDK exposes image tokens but drops the cost from the same response.
+      // Keep the metadata local to this call so concurrent generations cannot mix charges.
+      let reportedCost: Promise<number | undefined> | undefined;
+      const model = createOpenRouter({ ...openRouterSettings, fetch: async (input, init) => {
+        const response = await fetch(input, init);
+        if (response.ok) {
+          reportedCost = response.clone().json().then(
+            body => imageResponseCost.safeParse(body).data?.usage.cost,
+            () => undefined,
+          );
+        }
+        return response;
+      } }).imageModel(modelId);
+      const result = await model.doGenerate(options);
+      const cost = await reportedCost;
+      if (cost === undefined) return result;
+      // The image SDK forwards only the images array from provider metadata.
+      return { ...result, providerMetadata: {
+        ...result.providerMetadata, openrouter: { images: [{ requestCost: cost }] },
+      } };
+    },
+  };
+}
 
 function openRouterKey() {
   return process.env.OPENROUTER_API_KEY?.trim() ?? "";
@@ -213,7 +244,7 @@ export const openRouterProvider: ModelProvider = {
   },
   fetchCatalog: fetchOpenRouterCatalog,
   createChatModel: (modelId) => openrouter(modelId),
-  createImageModel: (modelId) => openrouter.imageModel(modelId),
+  createImageModel,
   createVideoModel: (modelId) => openrouter.videoModel(modelId),
   createEmbeddingModel: (modelId) => openrouter.textEmbeddingModel(modelId),
   probeImageInput: async (modelId) => {

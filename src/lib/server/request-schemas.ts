@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CHAT_ATTACHMENT_TYPES, IMAGE_MEDIA_TYPES, MEDIA_LIMITS } from "@/lib/media/limits";
 import { modelRefSchema } from "@/lib/models/preferences-schema";
+import { imageAspectRatioSchema } from "@/lib/media/generation-recipe";
 import { getToolDescriptor, listToolDescriptors } from "@/tools/builtins";
 import { currentToolId, legacyToolIds } from "@/tools/legacy-names";
 import { externalToolIdPattern, externalInputSchema } from "@/lib/extensions/schema";
@@ -110,6 +111,7 @@ export const imageRequestSchema = z.strictObject({
   prompt: z.string().trim().max(4000).default(""),
   model: chatModelSchema.optional(),
   inputImages: z.array(imageReference).max(MEDIA_LIMITS.attachmentCount).default([]),
+  aspectRatio: imageAspectRatioSchema.optional(),
 }).refine((body) => Boolean(body.prompt || body.inputImages.length), "prompt or inputImages is required");
 
 export const videoRequestSchema = z.strictObject({

@@ -53,11 +53,11 @@ export async function runInternalAgent<T>(main: ModelRef, attempt: (modelRef: Mo
 }
 
 /** An internal sub-agent that answers in text, read by `read`; a reply that did not complete counts as a failure. */
-export async function askInternalAgent<T>(main: ModelRef, request: { system: string; prompt: string; read: (text: string) => T }, options: { timeoutMs?: number } = {}): Promise<T> {
+export async function askInternalAgent<T>(main: ModelRef, request: { system: string; prompt: string; read: (text: string) => T }, options: { timeoutMs?: number; source?: CallSource } = {}): Promise<T> {
   return runInternalAgent(main, async (modelRef, signal) => {
     const preferences = await getModelPreferences();
     const result = await generateText({ model: getChatModel(modelRef, { reasoning: preferences.thinking }), system: request.system, prompt: request.prompt, maxRetries: 0, abortSignal: signal });
     if (result.finishReason !== "stop") throw new Error("The reply did not complete");
     return request.read(result.text);
-  }, { timeoutMs: options.timeoutMs ?? TIMEOUT_MS });
+  }, { timeoutMs: options.timeoutMs ?? TIMEOUT_MS, source: options.source });
 }

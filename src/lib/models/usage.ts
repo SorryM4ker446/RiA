@@ -36,7 +36,8 @@ export function usageCost(mode: Mode, usage: unknown, metadata: unknown, rate?: 
   const cacheWrite = finite(input.cacheWrite);
   const noCache = finite(input.noCache) ?? (inputTokens !== null && (cacheRead !== null || cacheWrite !== null) ? Math.max(0, inputTokens - (cacheRead ?? 0) - (cacheWrite ?? 0)) : null);
   const provider = object(object(metadata).openrouter);
-  const upstream = finite(provider.cost ?? object(provider.usage).cost);
+  const imageRequestCost = mode === "image" && Array.isArray(provider.images) ? object(provider.images[0]).requestCost : undefined;
+  const upstream = finite(provider.cost ?? object(provider.usage).cost ?? imageRequestCost);
   if (upstream !== null) return { inputTokens, outputTokens, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite, costUsd: upstream, costSource: "provider" };
   let cost: number | null = null;
   if (rate && (mode === "image" || mode === "video") && rate.perRequest != null) cost = rate.perRequest;

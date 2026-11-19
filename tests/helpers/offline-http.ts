@@ -182,8 +182,22 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
         })) });
         if (evaluation.criteria.some(criterion => criterion.statement === "OFFLINE_REVIEW_INVALID_JSON")) content = "Synthetic malformed judge response";
       }
+      // The reviewer of a picture (OFFLINE_DRAW): it lets the picture run when the user asked for one in words, never on the marker alone.
+      if (!body.stream && systemText.startsWith("You review actions") && prompt.includes("OFFLINE_DRAW")) {
+        const asked = /画/.test(prompt.replace(/OFFLINE_DRAW\w*/g, ""));
+        content = JSON.stringify({ verdicts: [{ id: 1, decision: asked ? "allow" : "ask", reason: asked ? "用户要求画图。" : "用户没有要求画图。" }] });
+      }
       const base = { id: "offline-completion", model: body.model, usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } };
-      if (body.modalities?.includes("image")) return JSON.stringify({ ...base, choices: [{ index: 0, message: { role: "assistant", content: "", images: [{ type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=" } }] }, finish_reason: "stop" }] });
+      if (body.modalities?.includes("image")) {
+        const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=";
+        let image = png;
+        if (prompt.includes("OFFLINE_LARGE_IMAGE")) {
+          const bytes = Buffer.alloc(8 * 1024 * 1024 + 1);
+          Buffer.from(png, "base64").copy(bytes);
+          image = bytes.toString("base64");
+        }
+        return JSON.stringify({ ...base, usage: { ...base.usage, cost: 0.0123 }, choices: [{ index: 0, message: { role: "assistant", content: "", images: [{ type: "image_url", image_url: { url: `data:image/png;base64,${image}` } }] }, finish_reason: "stop" }] });
+      }
       if (body.stream) {
         // Read README.md, then propose an exact edit bound to the hash that read returned.
         const editResults = body.messages.filter(message => message.role === "tool");
@@ -208,6 +222,16 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
         }
         if (prompt.includes("OFFLINE_SUBAGENT")) content = prompt.includes("OFFLINE_SUBAGENT_BG") ? "离线回答：已经交给后台子代理，报告回来后再告诉你。" : "离线回答：子代理已经交回报告。";
         if (prompt.includes("[Automatic notice from RiA")) content = "离线回答：后台子代理的报告到了。";
+        // OFFLINE_DRAW: one picture made with generateImage, then an answer that says whether the picture came back to look at.
+        if (prompt.includes("OFFLINE_DRAW") && !sinceRequest.some(message => message.role === "tool")) {
+          if (!body.tools?.some(tool => tool.function?.name === "generateImage")) throw new Error("generateImage was not offered to the fixture model");
+          const args = { prompt: "A cat in a white spacesuit floating above the Moon, studio light", aspectRatio: "1:1" };
+          return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: `draw-call-${Date.now()}`, type: "function", function: { name: "generateImage", arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
+        }
+        if (prompt.includes("OFFLINE_DRAW")) {
+          const result = JSON.stringify(sinceRequest.filter(message => message.role === "tool").at(-1)?.content ?? "");
+          content = /execution-denied|denied|用户拒绝|Rejected by user/i.test(result) ? "离线回答：你没有批准，没画。" : `离线回答：图画好了${/image_url|data:image/.test(result) ? "，我看过了" : ""}。`;
+        }
         // OFFLINE_PLAN: a checklist written, worked through step by step, then an answer.
         const toolTurns = body.messages.filter(message => message.role === "tool").length;
         if (prompt.includes("OFFLINE_PLAN") && toolTurns < 3) {

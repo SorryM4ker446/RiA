@@ -53,7 +53,8 @@ export async function restoreAccountBackup(id: string) {
     function transform(value: unknown, field = ""): unknown {
       if (typeof value === "string") {
         if (field === "snippet") return value;
-        if (["id", "assistantTemplateId", "templateId", "assetId", "inputAssetId", "chatId", "sourceChatId", "messageId", "documentId", "chunkId"].includes(field)) return mapped(value);
+        // A picture made in chat names its file (mediaId) and the pictures it was built on (referenceImages).
+        if (["id", "assistantTemplateId", "templateId", "assetId", "inputAssetId", "chatId", "sourceChatId", "messageId", "documentId", "chunkId", "mediaId", "referenceImages"].includes(field)) return mapped(value);
         if (["url", "videoUrl"].includes(field)) return documentLinks(value.replace(/^\/api\/media\/([a-f0-9-]{36})$/, (_match, id) => `/api/media/${mapped(id)}`));
         return documentLinks(value);
       }
