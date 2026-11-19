@@ -58,7 +58,9 @@ async function turn(page: Page, real: RealModel, chatId: string) {
   const answer = last.startsWith(marker) ? (JSON.parse(last.slice(marker.length)) as { text?: string }).text ?? "" : last;
   const runs = await browserData(page, `${real.origin}/api/conversations/${chatId}/runs?limit=20`) as Run[];
   const steps = runs.flatMap(run => run.steps).filter(step => step.toolName);
-  return { answer, steps, tools: steps.map(step => step.toolName!) };
+  // A call still waiting for the user's approval has no step yet; the saved answer holds it.
+  const pending = last.startsWith(marker) ? ((JSON.parse(last.slice(marker.length)) as { tools?: { toolName: string; state: string }[] }).tools ?? []).filter(tool => tool.state === "approval-requested").map(tool => tool.toolName) : [];
+  return { answer, steps, tools: [...steps.map(step => step.toolName!), ...pending] };
 }
 
 async function measured(page: Page, real: RealModel, work: () => Promise<Omit<Outcome, "costUsd" | "requests">>) {
@@ -531,3 +533,36 @@ test("sub-agents by intent: wanting work handed off starts one without the word 
   }
 });
 
+test("tasks and knowledge entries: each used for what the user wants kept or done later, not for what merely sounds like it @real @eval", async ({ page, real }) => {
+  for (let run = 1; run <= REPEATS; run++) {
+    await measured(page, real, async () => {
+      const chatId = await newChat(page, real, `任务-以后 ${run}`);
+      await ask(page, real, chatId, "明天上午九点提醒我给银行打电话，问一下信用卡年费的事。");
+      const { answer, tools } = await turn(page, real, chatId);
+      const checks = { task: tools.includes("createTask") };
+      return { scenario: "task-for-later", run, pass: checks.task, checks, tools, answer };
+    });
+    await measured(page, real, async () => {
+      const chatId = await newChat(page, real, `任务-现在 ${run}`);
+      // Mentions a weekly schedule, but asks for something now.
+      await ask(page, real, chatId, "我们团队每周一上午开例会，帮我写一份例会议程模板。");
+      const { answer, tools } = await turn(page, real, chatId);
+      const checks = { task: tools.includes("createTask"), answered: answer.length > 40 };
+      return { scenario: "task-not-for-now", run, pass: !checks.task && checks.answered, checks, tools, answer };
+    });
+    await measured(page, real, async () => {
+      const chatId = await newChat(page, real, `知识条目 ${run}`);
+      await ask(page, real, chatId, "把这个存进知识库：公司 VPN 服务器地址是 vpn.example.com，端口 443，用工号登录。");
+      const { answer, tools } = await turn(page, real, chatId);
+      const checks = { entry: tools.includes("saveKnowledgeEntry"), memory: tools.includes("extractMemory") };
+      return { scenario: "entry-when-asked", run, pass: checks.entry && !checks.memory, checks, tools, answer };
+    });
+    await measured(page, real, async () => {
+      const chatId = await newChat(page, real, `偏好不是条目 ${run}`);
+      await ask(page, real, chatId, "我做财务的，以后跟我说话直接给结论，别绕弯子。今天先帮我算一下 1200 的 13% 是多少。");
+      const { answer, tools } = await turn(page, real, chatId);
+      const checks = { entry: tools.includes("saveKnowledgeEntry"), memory: tools.includes("extractMemory"), answered: /156/.test(answer) };
+      return { scenario: "preference-not-entry", run, pass: !checks.entry && checks.memory && checks.answered, checks, tools, answer };
+    });
+  }
+});

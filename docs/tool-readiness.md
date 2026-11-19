@@ -41,6 +41,26 @@ Normal chat uses automatic tool selection. Typing `/` in the composer chooses a 
 - Runs and steps record kind, tool name, state, error code, timing and a bounded input/output summary. Step, failure, time and cost controls apply; cancellation stops subsequent work and does not undo completed effects. Interrupted writes and old approvals are not automatically replayed. [Execution records](execution-history.md)
 - Disabling a plugin/connection blocks subsequent calls and invalidates approvals. Uninstall removes owned configuration while retaining unrelated connections and historical results. Portable restore keeps local declarations but disables them. [Persistence](plugin-packages.md#persistence-and-api)
 
+## How a tool's description is written
+
+Every built-in tool's `modelDescription` follows one order, as Claude Code's tools do; a part
+that has nothing to say is left out:
+
+1. **What it does**, in one sentence.
+2. **When it is worth calling**: the test the model applies, stated as its own judgement
+   ("whether to use it is your judgement; the test is …"), not as a keyword rule. Triggers
+   such as "when the user says X" are avoided: the model reads what the user wants.
+3. **Use it for / Skip it for**: a few short examples in the user's words, each with the
+   reason in parentheses. Only tools whose timing is a judgement get them (memory, the
+   checklist, sub-agents, knowledge search, web search and pages, questions, tasks, the
+   terminal, knowledge entries). Operational tools (reading a log, checking a command,
+   converting a document, loading a skill) skip this part: an example there only costs tokens.
+4. **How to call it**: inputs, limits, approval.
+5. **What comes back**, and what the answer then has to tell the user.
+
+Descriptions are sent with every request, so each sentence has to earn its place. A change
+to one is checked against the real-model eval (`tests/e2e/real-eval.spec.ts`) before and after.
+
 ## Discovery and installation
 
 **Settings → Extensions → Discover extensions** searches the official MCP Registry and opens connection drafts. Results scroll in a bounded panel with cursor loading. Users still configure credentials, detect tools, select and enable them.
