@@ -1,5 +1,7 @@
 import { formatList, getLocale, t, type Locale } from "@/lib/locale";
 import type { UIMessage } from "ai";
+import { readMessageNotice } from "@/lib/chat/invocation-schema";
+import { subagentNoticeText } from "@/lib/chat/subagent-notice";
 
 export type MessageLocation = { id: string; title: string; response: string };
 
@@ -19,7 +21,9 @@ export function messageLocations(messages: readonly UIMessage[], locale: Locale 
   let current: MessageLocation | undefined;
   for (const message of messages) {
     if (message.role === "user") {
-      current = { id: message.id, title: excerpt(message, locale) || t("ui.chat.message-locations.attachmentMessage", locale), response: "" };
+      // RiA's own notice reads as its line, not as the text the model was sent.
+      const notice = readMessageNotice(message.metadata);
+      current = { id: message.id, title: notice ? subagentNoticeText(notice.titles, locale) : excerpt(message, locale) || t("ui.chat.message-locations.attachmentMessage", locale), response: "" };
       locations.push(current);
     } else if (message.role === "assistant" && current) {
       current.response = [current.response, excerpt(message, locale)].filter(Boolean).join(" ").slice(0, 240);

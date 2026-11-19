@@ -198,12 +198,16 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
           return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: `project-edit-call-${editResults.length}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
         }
         // OFFLINE_SUBAGENT: one piece of work handed to a sub-agent, then an answer from its report.
-        if (prompt.includes("OFFLINE_SUBAGENT") && !body.messages.some(message => message.role === "tool")) {
+        // OFFLINE_SUBAGENT_BG hands it off in the background: the answer comes at once, and the report wakes a turn later.
+        // Tool results since this request's own message, so a conversation can ask for a sub-agent more than once.
+        const sinceRequest = body.messages.slice(body.messages.findLastIndex(message => message.role === "user") + 1);
+        if (prompt.includes("OFFLINE_SUBAGENT") && !sinceRequest.some(message => message.role === "tool")) {
           if (!body.tools?.some(tool => tool.function?.name === "runSubagent")) throw new Error("runSubagent was not offered to the fixture model");
-          const args = { title: "整理差旅资料", task: "查看差旅资料，并把报销期限保存为知识条目“差旅规程”。" };
+          const args = { title: "整理差旅资料", task: "查看差旅资料，并把报销期限保存为知识条目“差旅规程”。", ...(prompt.includes("OFFLINE_SUBAGENT_BG") ? { background: true } : {}) };
           return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "subagent-call", type: "function", function: { name: "runSubagent", arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
         }
-        if (prompt.includes("OFFLINE_SUBAGENT")) content = "离线回答：子代理已经交回报告。";
+        if (prompt.includes("OFFLINE_SUBAGENT")) content = prompt.includes("OFFLINE_SUBAGENT_BG") ? "离线回答：已经交给后台子代理，报告回来后再告诉你。" : "离线回答：子代理已经交回报告。";
+        if (prompt.includes("[Automatic notice from RiA")) content = "离线回答：后台子代理的报告到了。";
         // OFFLINE_PLAN: a checklist written, worked through step by step, then an answer.
         const toolTurns = body.messages.filter(message => message.role === "tool").length;
         if (prompt.includes("OFFLINE_PLAN") && toolTurns < 3) {

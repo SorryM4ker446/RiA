@@ -23,6 +23,7 @@ const VALID_INPUTS: Record<string, unknown> = {
   runTerminalCommand: { grantId: "grant-1", command: "Get-Date" },
   readConversationHistory: { query: "the access code" },
   runSubagent: { title: "Check the policy", task: "Find the travel policy and summarise it." },
+  checkSubagents: { id: "sa_0123456789ab" },
   findExtensionTools: { query: "calendar events" },
   extractMemory: { worthKeeping: "They prefer short answers." },
   readTerminalLog: { logId: "8d9c6f0e-4b7a-4c1d-9e2f-3a5b6c7d8e9f", stream: "stdout", startLine: 1, lineCount: 50 },

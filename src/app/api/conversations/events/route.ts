@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { requireLocalWorkspace } from "@/lib/local/workspace";
 import { liveTurnIds, onTurnEvent, type TurnEvent } from "@/lib/chat/live-turns";
 import { onConversationsChanged, onMemoryWrite } from "@/lib/conversations/events";
+import { onSubagentEvent } from "@/lib/agents/subagents";
 import { createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { db } from "@/db";
 
@@ -28,6 +29,8 @@ const KEEPALIVE_MS = 25_000;
  *              outcome?, title? }); a finished one names its conversation, for
  *              a notification about it.
  *   changed  — something about the conversations changed; read them again.
+ *   subagent — a sub-agent started, began a step or ended ({ chatId, id,
+ *              toolCallId, status, currentStep }); its card reads it.
  *
  * A listener that reconnects reads the list again on `ready`, so nothing said
  * while it was away is missed.
@@ -56,6 +59,7 @@ export async function GET(req: NextRequest) {
       const offTurn = onTurnEvent(event => { void onTurn(event); });
       const offChanged = onConversationsChanged(() => send("changed", {}));
       const offMemory = onMemoryWrite(event => send("memory", event));
+      const offSubagent = onSubagentEvent(event => send("subagent", event));
       const keepalive = setInterval(() => {
         if (!open) return;
         try { controller.enqueue(encoder.encode(": keepalive\n\n")); } catch { close(); }
@@ -63,7 +67,7 @@ export async function GET(req: NextRequest) {
       close = () => {
         if (!open) return;
         open = false;
-        offTurn(); offChanged(); offMemory(); clearInterval(keepalive);
+        offTurn(); offChanged(); offMemory(); offSubagent(); clearInterval(keepalive);
         try { controller.close(); } catch { /* Already closed by the reader. */ }
       };
       req.signal.addEventListener("abort", () => close(), { once: true });

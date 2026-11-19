@@ -4,7 +4,8 @@ import { decodePersistedAssistantToolMessage } from "@/lib/ai/ui-message";
 import { storedFromSummary } from "@/lib/chat/model-context";
 import { parseChatRequest } from "@/lib/chat/request";
 import { answerChatRequest } from "@/lib/chat/turn";
-import { holdTurn, isTurnLive, waitForTurnEnd } from "@/lib/chat/live-turns";
+import { holdTurn, isTurnLive, waitForTurnEnd, type TurnSource } from "@/lib/chat/live-turns";
+import type { MessageNotice } from "@/lib/chat/invocation-schema";
 import { markTurnAnswered } from "@/lib/conversations/mutations";
 import { ApiError, normalizeApiError } from "@/lib/server/api-error";
 import type { CallSource } from "@/lib/models/call-context";
@@ -82,6 +83,10 @@ async function readOutcome(response: Response, signal: AbortSignal): Promise<Una
 
 export async function runUnattendedTurn(params: {
   chatId: string; text: string; signal: AbortSignal; callSource?: CallSource; requestNote?: string;
+  /** Who the turn is for: a task (the default), or the conversation itself, woken by an automatic notice. */
+  source?: TurnSource;
+  /** The message is an automatic notice, not something the user said; the conversation shows it as one. */
+  notice?: MessageNotice;
 }): Promise<UnattendedOutcome> {
   try {
     for (;;) {
@@ -98,11 +103,11 @@ export async function runUnattendedTurn(params: {
       const input = await parseChatRequest({
         chatId: params.chatId,
         trigger: "submit-message",
-        messages: [...messages.slice(-(SENT_MESSAGES - 1)), { id: generateId(), role: "user", parts: [{ type: "text", text: params.text }] }],
+        messages: [...messages.slice(-(SENT_MESSAGES - 1)), { id: generateId(), role: "user", parts: [{ type: "text", text: params.text }], ...(params.notice ? { metadata: { notice: params.notice } } : {}) }],
       });
       let response: Response;
       try {
-        response = await holdTurn(params.chatId, signal => answerChatRequest(input, signal, { callSource: params.callSource, requestNote: params.requestNote }), { source: "task", outer: params.signal, settle: markTurnAnswered });
+        response = await holdTurn(params.chatId, signal => answerChatRequest(input, signal, { callSource: params.callSource, requestNote: params.requestNote }), { source: params.source ?? "task", outer: params.signal, settle: markTurnAnswered });
       } catch (error) {
         // Another turn began between the wait and the start: wait for that one too.
         if (error instanceof ApiError && error.code === "CONFLICT" && isTurnLive(params.chatId)) continue;

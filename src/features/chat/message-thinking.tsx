@@ -139,6 +139,17 @@ export function MessageThinking({ thinking, live, reasoning, answering, toolName
   </details>;
 }
 
+/**
+ * A tool the turn is waiting on. The reasoning above has stopped and nothing else on screen moves while
+ * it runs, so this says what is running and for how long. A sub-agent has its card instead.
+ */
+export function ToolRunning({ name }: { name: string }) {
+  useLocale();
+  const taken = seconds(useElapsed(true));
+  const text = taken ? tf("chat.thinking.toolRunningTime", { tool: name, seconds: taken }) : tf("chat.thinking.toolRunning", { tool: name });
+  return <p className="reply-pending" role="status"><span className="thinking-live">{text}</span></p>;
+}
+
 /** Between sending and the first thing the model returns: waiting for a place, a retry, or the model itself. */
 export function ReplyPending({ reasoning, organizing = false, notice = null }: { reasoning: boolean; organizing?: boolean; notice?: TurnNotice | null }) {
   useLocale();

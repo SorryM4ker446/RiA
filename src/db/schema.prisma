@@ -118,6 +118,7 @@ model Chat {
   tags            ChatTag[]
   generatedMedia  MediaAsset[]
   agentRuns       AgentRun[]
+  subagentRuns    SubagentRun[]
   fileCheckpoints FileCheckpoint[]
   scheduledRuns   ScheduledRun[]
   scheduledJobs   ScheduledJob[]
@@ -178,6 +179,39 @@ model AgentRun {
   @@index([chatId, startedAt])
   @@index([status, startedAt])
   @@map("agent_runs")
+}
+
+/// A task sub-agent: one piece of work the model handed off with runSubagent.
+/// In the foreground the turn waits for its report; in the background the turn
+/// goes on and the report reaches the model when it is done. The row is what
+/// the conversation's card reads, and what a restart finds: one still marked
+/// running then was cut off with the process, and is marked interrupted.
+model SubagentRun {
+  id          String   @id
+  chatId      String
+  chat        Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  /// The run of the turn that started it, where its tool calls are recorded.
+  runId       String?
+  /// The runSubagent call that started it.
+  toolCallId  String
+  title       String
+  task        String
+  background  Boolean  @default(false)
+  /// running, done, failed, stopped or interrupted.
+  status      String   @default("running")
+  report      String?
+  /// The actions it did not run because they needed the user's approval, as JSON.
+  notRun      Json?
+  toolCalls   Int      @default(0)
+  error       String?
+  /// Whether the model has been given its report, in a turn or by checkSubagents.
+  delivered   Boolean  @default(false)
+  startedAt   DateTime @default(now())
+  finishedAt  DateTime?
+
+  @@index([chatId, startedAt])
+  @@index([status])
+  @@map("subagent_runs")
 }
 
 model AgentStep {

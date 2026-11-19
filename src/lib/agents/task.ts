@@ -53,6 +53,8 @@ export async function runTaskAgent(params: {
   signal?: AbortSignal; parentToolCallId: string; userText: readonly string[];
   /** The turn runs with nobody watching (a scheduled task); a turn someone can stop is not. */
   unattended?: boolean; compactionAllowance?: CompactionAllowance;
+  /** Told the id of each tool as the sub-agent starts it, so its card can say what it is doing. */
+  onStep?: (tool: string) => void;
 }): Promise<TaskAgentResult> {
   const notRun: NotRun[] = [];
   const preferences = await getModelPreferences();
@@ -64,9 +66,11 @@ export async function runTaskAgent(params: {
   // A call the rule would ask about is answered "not run" instead of waiting for an approval nobody can give.
   const tools: ToolSet = Object.fromEntries(Object.entries(offered).map(([id, tool]) => {
     const gate = tool.needsApproval;
-    if (!gate || !tool.execute) return [id, tool];
+    if (!tool.execute) return [id, tool];
     const run = tool.execute;
+    if (!gate) return [id, { ...tool, execute: (input: unknown, options: Parameters<typeof run>[1]) => { params.onStep?.(id); return run(input, options); } }];
     return [id, { ...tool, needsApproval: undefined, execute: async (input: unknown, options: Parameters<typeof run>[1]) => {
+      params.onStep?.(id);
       const asks = typeof gate === "function" ? await gate(input, options) : true;
       if (!asks) return run(input, options);
       notRun.push({ tool: String(tool.title ?? id), input, reason: NOT_RUN_REASON });

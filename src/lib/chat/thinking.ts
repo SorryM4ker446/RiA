@@ -97,3 +97,20 @@ export function createThinkingClock(now: () => number = Date.now, earlier?: Pick
     },
   };
 }
+
+type CallLike = { type: string; state?: string; toolCallId?: string; input?: unknown };
+
+/**
+ * The tool call a running turn is waiting on: the latest one whose input has
+ * arrived and that has no result yet. None while the turn is not running, or
+ * while it waits for the user, which says so itself. A sub-agent's call carries
+ * the title of the work it was handed.
+ */
+export function runningToolCall(parts: readonly CallLike[], live: boolean): { tool: string; callId: string; subagentTitle?: string } | null {
+  if (!live || parts.some(part => part.state === "approval-requested")) return null;
+  const part = [...parts].reverse().find(item => item.type.startsWith("tool-") && (item.state === "input-streaming" || item.state === "input-available"));
+  if (!part) return null;
+  const tool = part.type.slice("tool-".length);
+  const title = tool === "runSubagent" ? (part.input as { title?: unknown } | undefined)?.title : undefined;
+  return { tool, callId: part.toolCallId ?? tool, ...(typeof title === "string" && title.trim() ? { subagentTitle: title.trim() } : {}) };
+}

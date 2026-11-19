@@ -493,3 +493,41 @@ test("checklist with sub-agents: kept by the main assistant around the hand-off,
     });
   }
 });
+
+/** Until the conversation's sub-agents have ended and any turn their reports woke has answered. */
+async function settled(page: Page, real: RealModel, chatId: string) {
+  await expect.poll(async () => {
+    const list = await browserData(page, `${real.origin}/api/conversations/${chatId}/subagents`) as { status: string }[];
+    const answering = (await browserData(page, `${real.origin}/api/conversations/${chatId}`) as { answering: boolean }).answering;
+    return !answering && list.every(item => item.status !== "running");
+  }, { timeout: 300_000, intervals: [2_000] }).toBe(true);
+}
+
+test("sub-agents by intent: wanting work handed off starts one without the word being said; asking about sub-agents does not @real @eval", async ({ page, real }) => {
+  for (let run = 1; run <= REPEATS; run++) {
+    await measured(page, real, async () => {
+      const { chatId, folder, cleanup } = await workspace(page, real, `意图-交出去 ${run}`);
+      try {
+        const codes = serviceLogs(folder);
+        // Never says "sub-agent": it asks for the digging to happen out of the way while the conversation goes on.
+        await ask(page, real, chatId, "工作区里三个服务的日志很长，彻底排查每个服务最严重的错误这种体力活别占着你，找人去做就行，我们先接着聊：BILL 这个前缀一般代表什么？排查有结果了再告诉我。");
+        await settled(page, real, chatId);
+        const { steps, tools } = await turn(page, real, chatId);
+        const messages = await browserData(page, `${real.origin}/api/conversations/${chatId}/messages`) as { role: string; content: string }[];
+        const answers = messages.filter(message => message.role === "assistant").map(message => message.content).join("\n");
+        // The run record keeps only the type of a boolean input, so whether it went to the background is read from the sub-agents' own records.
+        const records = await browserData(page, `${real.origin}/api/conversations/${chatId}/subagents`) as { background: boolean }[];
+        const checks = { subagents: steps.filter(step => step.toolName === "runSubagent").length, background: records.filter(item => item.background).length, found: codes.filter(code => answers.includes(code)).length };
+        return { scenario: "subagent-by-intent", run, pass: checks.subagents > 0, checks, tools, answer: answers };
+      } finally { cleanup(); }
+    });
+    await measured(page, real, async () => {
+      const chatId = await newChat(page, real, `意图-只是问问 ${run}`);
+      await ask(page, real, chatId, "RiA 里的子代理是什么？什么时候适合用它？");
+      const { answer, tools } = await turn(page, real, chatId);
+      const checks = { subagents: tools.filter(name => name === "runSubagent").length, answered: answer.length > 20 };
+      return { scenario: "subagent-question-is-not-a-request", run, pass: checks.subagents === 0 && checks.answered, checks, tools, answer };
+    });
+  }
+});
+

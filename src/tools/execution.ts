@@ -348,7 +348,7 @@ export async function executeRegisteredTool(tool: AnyToolDescriptor, input: unkn
  * Tools a task sub-agent does not get: asking the user, scheduling, the checklist,
  * memory, the conversation's own history, and starting more sub-agents.
  */
-export const SUBAGENT_EXCLUDED_TOOLS = new Set(["askUser", "createTask", "readWorkspaceActivity", "updatePlan", "runSubagent", "extractMemory", "readConversationHistory"]);
+export const SUBAGENT_EXCLUDED_TOOLS = new Set(["askUser", "createTask", "readWorkspaceActivity", "updatePlan", "runSubagent", "checkSubagents", "extractMemory", "readConversationHistory"]);
 
 /**
  * `subagent`: the set is a task sub-agent's. Its calls are recorded under the call

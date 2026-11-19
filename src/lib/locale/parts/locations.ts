@@ -170,4 +170,6 @@ export const locationMessages = {
   "knowledgeFolders.fromFolder": "来自同步文件夹「{folder}」",
   "server.knowledgeFolders.nested": "这个文件夹和已同步的「{folder}」重叠，同一个文件会变成两份文档。请选择不重叠的文件夹。",
   "server.subagent.noModel": "没有可以运行子代理的模型。",
+  "server.subagent.noConversation": "子代理只能在对话里运行。",
+  "server.subagent.notFound": "这个对话里没有这个子代理。",
 } as const;

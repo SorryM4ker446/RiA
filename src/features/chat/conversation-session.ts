@@ -368,7 +368,12 @@ export class ConversationSession {
     if (!answering) { this.following = false; return; }
     if (this.state.history !== "ready" || this.following) return;
     this.following = true;
-    void this.chat.resumeStream().catch(() => { /* Nothing to attach to: the turn ended; its answer is read from what was saved. */ });
+    // A turn this window did not start began with a message of its own (a task's prompt, RiA's notice
+    // that sub-agents ended), saved before it answers. Read first, so the answer follows that message
+    // instead of being added to the last answer shown.
+    void this.addNewTurns().catch(() => {})
+      .then(() => this.chat.resumeStream())
+      .catch(() => { /* Nothing to attach to: the turn ended; its answer is read from what was saved. */ });
   }
 
   /** A turn someone else started here, heard while this window was not reading one: it is new, so it can be followed. */

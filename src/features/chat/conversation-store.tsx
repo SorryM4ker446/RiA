@@ -29,6 +29,7 @@ const COALESCE_MS = 120;
 
 export type TurnNotice = { type: "turn-started" | "turn-finished"; chatId: string; source: "chat" | "task"; outcome?: string; title?: string | null };
 /** What a background note-taking run did for a conversation (see announceMemoryWrite). */
+export type SubagentNotice = { chatId: string; id: string; toolCallId: string; status: "running" | "done" | "failed" | "stopped" | "interrupted"; currentStep: string | null };
 export type MemoryNotice = { chatId: string; outcome: "updated" | "unchanged" | "full" | "failed"; added: number; updated: number; removed: number; dropped: number };
 
 export type ReloadOutcome = { status: "read"; list: ChatSummary[] } | { status: "superseded" } | { status: "failed"; message: string };
@@ -76,6 +77,8 @@ type Store = {
   onTurn: (listener: (notice: TurnNotice) => void) => () => void;
   /** Hears what each background note-taking run did, until the returned function is called. */
   onMemory: (listener: (notice: MemoryNotice) => void) => () => void;
+  /** Hears each sub-agent start, step and end, in any conversation. */
+  onSubagent: (listener: (notice: SubagentNotice) => void) => () => void;
 };
 
 const ConversationStoreContext = createContext<Store | null>(null);
@@ -100,6 +103,7 @@ export function ConversationStoreProvider({ children }: { children: ReactNode })
   useEffect(() => { chatsRef.current = chats; }, [chats]);
   const turnListeners = useRef(new Set<(notice: TurnNotice) => void>());
   const memoryListeners = useRef(new Set<(notice: MemoryNotice) => void>());
+  const subagentListeners = useRef(new Set<(notice: SubagentNotice) => void>());
   const changedListeners = useRef(new Set<() => void>());
   // A change heard while a read is under way is read after it, not dropped.
   const readAgain = useRef(false);
@@ -184,6 +188,10 @@ export function ConversationStoreProvider({ children }: { children: ReactNode })
     return () => { changedListeners.current.delete(listener); };
   }, []);
 
+  const onSubagent = useCallback((listener: (notice: SubagentNotice) => void) => {
+    subagentListeners.current.add(listener);
+    return () => { subagentListeners.current.delete(listener); };
+  }, []);
   const onMemory = useCallback((listener: (notice: MemoryNotice) => void) => {
     memoryListeners.current.add(listener);
     return () => { memoryListeners.current.delete(listener); };
@@ -237,13 +245,20 @@ export function ConversationStoreProvider({ children }: { children: ReactNode })
         try { listener(notice); } catch { /* One listener failing does not keep the others from hearing it. */ }
       }
     });
+    source.addEventListener("subagent", event => {
+      let notice: SubagentNotice;
+      try { notice = JSON.parse((event as MessageEvent<string>).data); } catch { return; }
+      for (const listener of subagentListeners.current) {
+        try { listener(notice); } catch { /* One listener failing does not keep the others from hearing it. */ }
+      }
+    });
     return () => { window.clearTimeout(timer); source.close(); };
   }, []);
 
   const value = useMemo<Store>(() => ({
     chats, setChats, isLoading, nextCursor, isLoadingMore, reload, readVersion, loadMore, invalidate, update, remove, onRemoved, onChanged,
-    activeId, setActiveId, workingId, setWorkingId, isCreating, setCreating, onTurn, onMemory,
-  }), [chats, isLoading, nextCursor, isLoadingMore, reload, readVersion, loadMore, invalidate, update, remove, onRemoved, onChanged, activeId, workingId, isCreating, onTurn, onMemory]);
+    activeId, setActiveId, workingId, setWorkingId, isCreating, setCreating, onTurn, onMemory, onSubagent,
+  }), [chats, isLoading, nextCursor, isLoadingMore, reload, readVersion, loadMore, invalidate, update, remove, onRemoved, onChanged, activeId, workingId, isCreating, onTurn, onMemory, onSubagent]);
   return <ConversationStoreContext.Provider value={value}>{children}</ConversationStoreContext.Provider>;
 }
 

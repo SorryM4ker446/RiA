@@ -86,12 +86,13 @@ export async function prepareChatPersistence(input: ChatRequest, options: { defe
 
   if (latestUserMessage && !isApprovalResume) {
     const userContent =
-      latestUserMessage.files.length > 0 || latestUserMessage.invocation
+      latestUserMessage.files.length > 0 || latestUserMessage.invocation || latestUserMessage.notice
         ? encodePersistedUserMessage({
           type: "user-message",
           text: latestUserMessage.text,
           files: latestUserMessage.files,
           ...(latestUserMessage.invocation ? { invocation: latestUserMessage.invocation } : {}),
+          ...(latestUserMessage.notice ? { notice: latestUserMessage.notice } : {}),
         })
         : latestUserMessage.text;
 

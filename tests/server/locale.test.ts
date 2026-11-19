@@ -41,8 +41,8 @@ test("the default is Chinese, unsupported preferences fall back, and server rend
   assert.equal(getLocale(), "zh-CN");
   assert.equal(t("nav.settings"), "设置");
   assert.equal(t("nav.settings", "en-US"), "Settings");
-  assert.equal(tf("chat.composer.clearAttachments", { count: 3 }, "en-US"), "Clear attachments (3)");
-  assert.match(tf("chat.composer.clearAttachments", {}, "en-US"), /\{count\}/);
+  assert.equal(tf("chat.subagent.runningFor", { seconds: 3 }, "en-US"), "Running · 3s");
+  assert.match(tf("chat.subagent.runningFor", {}, "en-US"), /\{seconds\}/);
   const date = new Date("2026-10-20T12:00:00Z");
   const options: Intl.DateTimeFormatOptions = { timeZone: "UTC", month: "long", day: "numeric" };
   assert.equal(formatDateTime(date, options, "en-US"), date.toLocaleString("en-US", options));

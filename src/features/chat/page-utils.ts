@@ -259,7 +259,7 @@ export function mapStoredMessagesToUI(messages: StoredMessage[]): {
       return {
         id: uiMessageId,
         role: message.role,
-        ...(parsedUserMessage.invocation ? { metadata: { invocation: parsedUserMessage.invocation } } : {}),
+        ...(parsedUserMessage.invocation || parsedUserMessage.notice ? { metadata: { ...(parsedUserMessage.invocation ? { invocation: parsedUserMessage.invocation } : {}), ...(parsedUserMessage.notice ? { notice: parsedUserMessage.notice } : {}) } } : {}),
         parts: parts.length > 0 ? parts : [{ type: "text", text: t("chat.messages.attachmentOnlyFallback") }],
       } satisfies UIMessage;
     }

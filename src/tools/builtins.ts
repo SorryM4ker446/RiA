@@ -19,7 +19,7 @@ import { READ_WEB_PAGE_DESCRIPTION, readWebPageInput, runReadWebPage } from "@/t
 import { UPDATE_PLAN_DESCRIPTION, planProgress, updatePlanInput } from "@/tools/definitions/update-plan";
 import { ASK_USER_DESCRIPTION, askUserInput, readAnswer } from "@/tools/definitions/ask-user";
 import { FIND_EXTENSION_TOOLS_DESCRIPTION, findExtensionTools, findExtensionToolsInput } from "@/tools/definitions/find-extension-tools";
-import { RUN_SUBAGENT_DESCRIPTION, runSubagentInput } from "@/tools/definitions/run-subagent";
+import { CHECK_SUBAGENTS_DESCRIPTION, RUN_SUBAGENT_DESCRIPTION, checkSubagentsInput, runSubagentInput } from "@/tools/definitions/run-subagent";
 import { planToolLoading } from "@/tools/deferred";
 import { approvalGate } from "./approval";
 import { documentProcessorTools } from "@/tools/definitions/document-processor";
@@ -182,15 +182,46 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
     description: t("tools.runSubagent.description"),
     modelDescription: RUN_SUBAGENT_DESCRIPTION,
     modeSupport: ["chat"],
-    surface: { category: "agents", user: { run: "model", hint: t("tools.runSubagent.hint") }, template: "selectable" },
+    // Only the model calls it: a person who wants work handed off says so, and the model decides how to split it.
+    surface: { category: "agents", user: null, template: "selectable" },
     inputSchema: runSubagentInput,
     execute: async ({ input, chatId, runId, modelRef, toolIds, documentCollections, signal, toolCallId, userText, unattended, compactionAllowance }) => {
       if (!modelRef) throw new ApiError({ code: "CONFIGURATION_ERROR", message: t("server.subagent.noModel") });
+      if (!chatId) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.subagent.noConversation") });
       // Loaded here: the sub-agent builds a tool set of its own, from the registry that lists this tool.
-      const { runTaskAgent } = await import("@/lib/agents/task");
-      const result = await runTaskAgent({ task: input.task, chatId, runId, modelRef, toolIds, documentCollections, signal, unattended, compactionAllowance,
-        parentToolCallId: toolCallId ?? `subagent-${Date.now()}`, userText: userText ?? [] });
-      return { title: input.title, ...result };
+      const { startSubagent } = await import("@/lib/agents/subagents");
+      const { watchSubagentReports } = await import("@/lib/agents/subagent-continuation");
+      watchSubagentReports();
+      const background = input.background === true;
+      const started = await startSubagent({ task: input.task, title: input.title, background, chatId, runId, modelRef, toolIds, documentCollections, unattended, compactionAllowance,
+        turnSignal: signal, parentToolCallId: toolCallId ?? `subagent-${Date.now()}`, userText: userText ?? [] });
+      if (background) return { id: started.id, title: input.title, background: true, status: "running" as const,
+        note: "Running in the background. Its report reaches you by itself when it ends; do not wait or poll for it." };
+      const outcome = await started.outcome;
+      // The turn was stopped: the step ends with it, as any other tool's would.
+      signal?.throwIfAborted();
+      return { id: started.id, title: input.title, ...outcome, ...(outcome.status === "stopped" ? { note: "The user stopped this sub-agent before it finished. Carry on without its report." } : {}) };
+    },
+  },
+  checkSubagents: {
+    id: "checkSubagents",
+    displayName: t("tools.checkSubagents.displayName"),
+    description: t("tools.checkSubagents.description"),
+    modelDescription: CHECK_SUBAGENTS_DESCRIPTION,
+    modeSupport: ["chat"],
+    surface: { category: "agents", user: null, template: { follows: "runSubagent" }, underlying: "model" },
+    inputSchema: checkSubagentsInput,
+    execute: async ({ input, chatId }) => {
+      if (!chatId) return { subagents: [] };
+      const { listSubagents, readSubagent } = await import("@/lib/agents/subagents");
+      const seconds = (view: { startedAt: string; finishedAt: string | null }) => Math.round(((view.finishedAt ? Date.parse(view.finishedAt) : Date.now()) - Date.parse(view.startedAt)) / 1000);
+      if (input.id) {
+        const view = await readSubagent(chatId, input.id, { deliver: true });
+        if (!view) throw new ApiError({ code: "NOT_FOUND", message: t("server.subagent.notFound") });
+        return { id: view.id, title: view.title, status: view.status, background: view.background, seconds: seconds(view), currentStep: view.currentStep, toolCalls: view.toolCalls,
+          ...(view.status === "running" ? {} : { report: view.report, notRun: view.notRun, error: view.error }) };
+      }
+      return { subagents: (await listSubagents(chatId)).map(view => ({ id: view.id, title: view.title, status: view.status, background: view.background, seconds: seconds(view), currentStep: view.currentStep })) };
     },
   },
   // Offered only when extension tools are deferred; each request then gives it the deferred tools of that request.

@@ -53,7 +53,7 @@ type LiveTurn = {
   waiting: Set<() => void>;
 };
 
-type Registry = { turns: Map<string, LiveTurn>; listeners: Set<(event: TurnEvent) => void> };
+type Registry = { turns: Map<string, LiveTurn>; listeners: Set<(event: TurnEvent) => void>; stopListeners?: Set<(chatId: string) => void> };
 // Kept on the process, so a reloaded module in development still finds the turns already running.
 const registry: Registry = ((globalThis as { __riaLiveTurns?: Registry }).__riaLiveTurns ??= { turns: new Map(), listeners: new Set() });
 const encoder = new TextEncoder();
@@ -70,6 +70,17 @@ function emit(event: TurnEvent) {
 export function onTurnEvent(listener: (event: TurnEvent) => void): () => void {
   registry.listeners.add(listener);
   return () => { registry.listeners.delete(listener); };
+}
+
+/**
+ * Hears each stop the user asks for, as it is asked: before the turn ends, and
+ * also for one stopped while it is still starting, which never reports an end.
+ * Work the turn started outside itself (background sub-agents) stops with it.
+ */
+export function onTurnStopRequested(listener: (chatId: string) => void): () => void {
+  const listeners = registry.stopListeners ??= new Set();
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
 }
 
 /** Whether a turn is running in this conversation now, or waiting for a place to run. */
@@ -296,5 +307,8 @@ export function stopTurn(chatId: string): boolean {
   const turn = registry.turns.get(chatId);
   if (!turn || turn.done) return false;
   turn.controller.abort(new DOMException("Stopped", "AbortError"));
+  for (const listener of registry.stopListeners ?? []) {
+    try { listener(chatId); } catch { /* One listener failing does not keep the others from hearing it. */ }
+  }
   return true;
 }

@@ -23,7 +23,8 @@ function sourcesOf(assistant: NonNullable<ReturnType<typeof decodePersistedAssis
 
 function exportContent(content: string) {
   const user = decodePersistedUserMessage(content);
-  if (user) return { text: user.text, hasMedia: user.files.length > 0 };
+  // RiA's own notice that sub-agents ended is marked as such: the user did not write it.
+  if (user) return { text: user.text, hasMedia: user.files.length > 0, ...(user.notice ? { automaticNotice: true as const } : {}) };
   const assistant = decodePersistedAssistantToolMessage(content);
   if (assistant) return {
     text: assistant.text, hasMedia: false,
@@ -84,7 +85,7 @@ export async function exportConversation(id: string, format: "json" | "markdown"
     `Tags: ${snapshot.conversation.tags.map(heading).join(", ") || "—"}`,
     `Pinned: ${snapshot.conversation.pinned} · Archived: ${snapshot.conversation.archived}`,
     ...snapshot.messages.map(message => [
-      `## ${message.role} · ${message.createdAt} · ${message.status}`, literalBlock(message.text),
+      `## ${"automaticNotice" in message && message.automaticNotice ? "RiA notice" : message.role} · ${message.createdAt} · ${message.status}`, literalBlock(message.text),
       ...message.attachments.map(asset => `Attachment: ${asset.mediaType} (${asset.byteSize} bytes), authenticated local reference: ${asset.url}`),
       ...("tools" in message && message.tools ? message.tools.map(tool => `Tool: ${heading(tool.name)} (${heading(tool.state)})`) : []),
       ...("documentSources" in message && message.documentSources ? message.documentSources.map(source => `Source: ${heading(source.filename)}${source.pageNumber ? ` · page ${source.pageNumber}` : ""}\n\n${literalBlock(source.excerpt)}`) : []),

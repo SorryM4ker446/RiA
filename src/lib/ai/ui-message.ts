@@ -1,5 +1,5 @@
 import { thinkingRecordSchema, type ThinkingRecord } from "@/lib/chat/thinking";
-import { messageInvocationSchema, readMessageInvocation, type MessageInvocation } from "@/lib/chat/invocation-schema";
+import { messageInvocationSchema, messageNoticeSchema, readMessageInvocation, readMessageNotice, type MessageInvocation, type MessageNotice } from "@/lib/chat/invocation-schema";
 import { documentDiagnosticsSchema, type DocumentDiagnostics } from "@/lib/documents/diagnostics";
 import { UIMessage } from "ai";
 import { z } from "zod";
@@ -21,6 +21,8 @@ export type PersistedUserMessagePayload = {
   files: PersistedFilePart[];
   /** What the user chose in the composer for this message. */
   invocation?: MessageInvocation;
+  /** RiA wrote it, as an automatic notice; see messageNoticeSchema. */
+  notice?: MessageNotice;
 };
 
 export type PersistedAssistantToolItem = {
@@ -111,6 +113,7 @@ export function getLatestUserMessage(messages: UIMessage[]): {
   text: string;
   files: PersistedFilePart[];
   invocation: MessageInvocation | null;
+  notice: MessageNotice | null;
 } | null {
   const userMessages = messages.filter((message) => message.role === "user");
   const latest = userMessages[userMessages.length - 1];
@@ -126,7 +129,7 @@ export function getLatestUserMessage(messages: UIMessage[]): {
     }));
 
   if (!text && files.length === 0) return null;
-  return { id: latest.id, text, files, invocation: readMessageInvocation(latest.metadata) };
+  return { id: latest.id, text, files, invocation: readMessageInvocation(latest.metadata), notice: readMessageNotice(latest.metadata) };
 }
 
 export function encodePersistedUserMessage(payload: PersistedUserMessagePayload): string {
@@ -152,10 +155,12 @@ export function decodePersistedUserMessage(content: string): PersistedUserMessag
     );
 
     const invocation = messageInvocationSchema.safeParse(parsed.invocation);
+    const notice = messageNoticeSchema.safeParse(parsed.notice);
     return {
       type: "user-message",
       text: parsed.text,
       ...(invocation.success ? { invocation: invocation.data } : {}),
+      ...(notice.success ? { notice: notice.data } : {}),
       files: validFiles.map((file) => ({
         url: file.url,
         mediaType: file.mediaType,
