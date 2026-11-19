@@ -33,6 +33,7 @@ export type DesktopSettingsInput = {
   clearOpenrouterApiKey?: boolean;
   clearDeepseekApiKey?: boolean;
   outboundProxyUrl?: string;
+  webFakeIpDoh?: boolean;
   openrouterSiteName?: string;
   openrouterHttpReferer?: string;
   closeBehaviour?: DesktopCloseBehaviour;
@@ -48,6 +49,7 @@ export type DesktopSettingsView = {
   hasOpenrouterApiKey: boolean;
   hasDeepseekApiKey: boolean;
   outboundProxyUrl: string;
+  webFakeIpDoh: boolean;
   openrouterSiteName: string;
   openrouterHttpReferer: string;
   encryptionAvailable: boolean;
@@ -67,6 +69,7 @@ type StoredDesktopSettings = {
   encryptedDeepseekApiKey?: string;
   encryptedExtensionKey?: string;
   outboundProxyUrl?: string;
+  webFakeIpDoh?: boolean;
   openrouterSiteName?: string;
   openrouterHttpReferer?: string;
   closeBehaviour?: DesktopCloseBehaviour;
@@ -232,6 +235,7 @@ export class DesktopSettingsStore {
       hasOpenrouterApiKey: Boolean(stored.encryptedOpenrouterApiKey),
       hasDeepseekApiKey: Boolean(stored.encryptedDeepseekApiKey),
       outboundProxyUrl: stored.outboundProxyUrl || "",
+      webFakeIpDoh: stored.webFakeIpDoh === true,
       openrouterSiteName: stored.openrouterSiteName || "",
       openrouterHttpReferer: stored.openrouterHttpReferer || "",
       encryptionAvailable: safeStorage.isEncryptionAvailable(),
@@ -266,6 +270,7 @@ export class DesktopSettingsStore {
       version: 1,
       ...(input.locale === undefined ? {} : { locale: input.locale }),
       ...(input.outboundProxyUrl === undefined ? {} : { outboundProxyUrl: normalizeHttpUrl(input.outboundProxyUrl, "Proxy URL") }),
+      ...(input.webFakeIpDoh === undefined ? {} : { webFakeIpDoh: input.webFakeIpDoh === true }),
       ...(input.openrouterSiteName === undefined ? {} : { openrouterSiteName: normalizeText(input.openrouterSiteName, 200) }),
       ...(input.openrouterHttpReferer === undefined ? {} : { openrouterHttpReferer: normalizeHttpUrl(input.openrouterHttpReferer, "HTTP referrer") }),
       ...(input.closeBehaviour === "tray" || input.closeBehaviour === "quit" ? { closeBehaviour: input.closeBehaviour } : {}),
@@ -312,6 +317,7 @@ export class DesktopSettingsStore {
       OPENROUTER_API_KEY: openrouterApiKey,
       DEEPSEEK_API_KEY: deepseekApiKey,
       OUTBOUND_PROXY_URL: stored.outboundProxyUrl || "",
+      RIA_WEB_FAKE_IP_DOH: stored.webFakeIpDoh === true ? "1" : "0",
       OPENROUTER_SITE_NAME: stored.openrouterSiteName || "RiA Desktop",
       OPENROUTER_HTTP_REFERER: stored.openrouterHttpReferer || "",
       // Until the user chooses a language in the app, unattended work is worded in this one.

@@ -3,6 +3,7 @@ type DesktopSettingsView = {
   hasOpenrouterApiKey: boolean;
   hasDeepseekApiKey: boolean;
   outboundProxyUrl: string;
+  webFakeIpDoh: boolean;
   openrouterSiteName: string;
   openrouterHttpReferer: string;
   encryptionAvailable: boolean;
@@ -80,6 +81,7 @@ type DesktopSettingsInput = {
   clearOpenrouterApiKey?: boolean;
   clearDeepseekApiKey?: boolean;
   outboundProxyUrl?: string;
+  webFakeIpDoh?: boolean;
   openrouterSiteName?: string;
   openrouterHttpReferer?: string;
   closeBehaviour?: "quit" | "tray";

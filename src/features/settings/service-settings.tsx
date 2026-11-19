@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { SettingsSection } from "@/features/settings/settings-section";
 import { SettingsLink, useSettingsDirty } from "@/features/settings/settings-context";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { settingsRequest } from "@/features/settings/api-client";
 import { libraryModel, type ModelPreferences } from "@/lib/models/preferences-schema";
@@ -36,6 +37,7 @@ export function ServiceSettings() {
   const [openrouterApiKey, setOpenrouterApiKey] = useState("");
   const [deepseekApiKey, setDeepseekApiKey] = useState("");
   const [outboundProxyUrl, setOutboundProxyUrl] = useState("");
+  const [webFakeIpDoh, setWebFakeIpDoh] = useState(false);
   const [openrouterSiteName, setOpenrouterSiteName] = useState("");
   const [openrouterHttpReferer, setOpenrouterHttpReferer] = useState("");
   const [clearOpenrouterApiKey, setClearOpenrouterApiKey] = useState(false);
@@ -64,6 +66,7 @@ export function ServiceSettings() {
         setSettings(loadedSettings);
         if (models?.data) setModelState(models.data);
         setOutboundProxyUrl(loadedSettings.outboundProxyUrl);
+        setWebFakeIpDoh(loadedSettings.webFakeIpDoh === true);
         setOpenrouterSiteName(loadedSettings.openrouterSiteName);
         setOpenrouterHttpReferer(loadedSettings.openrouterHttpReferer);
         // The desktop shell reopens settings with `saved=1` after a restart, or
@@ -88,7 +91,8 @@ export function ServiceSettings() {
   // edit counts against what was loaded, or against empty when nothing was.
   const loaded = settings ?? { outboundProxyUrl: "", openrouterSiteName: "", openrouterHttpReferer: "" };
   const keysChanged = Boolean(openrouterApiKey || deepseekApiKey || clearOpenrouterApiKey || clearDeepseekApiKey)
-    || outboundProxyUrl !== loaded.outboundProxyUrl || openrouterSiteName !== loaded.openrouterSiteName || openrouterHttpReferer !== loaded.openrouterHttpReferer;
+    || outboundProxyUrl !== loaded.outboundProxyUrl || openrouterSiteName !== loaded.openrouterSiteName || openrouterHttpReferer !== loaded.openrouterHttpReferer
+    || webFakeIpDoh !== (settings?.webFakeIpDoh === true);
   useSettingsDirty(!isSaving && keysChanged);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -106,6 +110,7 @@ export function ServiceSettings() {
         clearOpenrouterApiKey,
         clearDeepseekApiKey,
         outboundProxyUrl,
+        webFakeIpDoh,
         openrouterSiteName,
         openrouterHttpReferer,
       });
@@ -178,6 +183,10 @@ export function ServiceSettings() {
                         { id: "site-name", label: t("settings.siteNameLabel"), value: openrouterSiteName, onChange: setOpenrouterSiteName, placeholder: "RiA Desktop" },
                         { id: "http-referrer", label: "OpenRouter HTTP Referrer", value: openrouterHttpReferer, onChange: setOpenrouterHttpReferer, placeholder: t("settings.refererPlaceholder") },
                       ].map(field => <Field key={field.id} orientation="horizontal" className="settings-field"><FieldContent><FieldLabel htmlFor={field.id}>{field.label}</FieldLabel></FieldContent><Input className="min-w-0 flex-1" id={field.id} onChange={event => field.onChange(event.target.value)} placeholder={field.placeholder} value={field.value} /></Field>)}
+                      <Field orientation="horizontal" className="settings-field">
+                        <FieldContent><FieldLabel htmlFor="web-fake-ip-doh">{t("settings.webFakeIpDoh")}</FieldLabel><FieldDescription id="web-fake-ip-doh-hint">{t("settings.webFakeIpDohHint")}</FieldDescription></FieldContent>
+                        <Checkbox id="web-fake-ip-doh" aria-describedby="web-fake-ip-doh-hint" checked={webFakeIpDoh} disabled={isSaving} onCheckedChange={checked => setWebFakeIpDoh(checked === true)} />
+                      </Field>
                     </FieldGroup>
                   </details>
                   {!settings?.encryptionAvailable && <Alert variant="destructive"><AlertTitle>{t("settings.encryptionUnavailableTitle")}</AlertTitle><AlertDescription>{t("settings.encryptionUnavailableBody")}</AlertDescription></Alert>}

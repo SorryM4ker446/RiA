@@ -408,6 +408,8 @@ export const pageMessages = {
   "settings.deepseekHint": "仅用于聊天模型。图片与视频生成仍需 OpenRouter。",
   "settings.clearDeepseek": "清除已保存的 DeepSeek 密钥",
   "settings.proxyLabel": "出站代理 URL",
+  "settings.webFakeIpDoh": "代理虚拟地址回查",
+  "settings.webFakeIpDohHint": "网页域名只解析到代理虚拟地址（fake-IP）时，向 Cloudflare 查询该域名的公网 IP。默认关闭。",
   "settings.proxyPlaceholder": "http://127.0.0.1:7897（可选）",
   "settings.siteNameLabel": "OpenRouter 站点名称",
   "settings.refererPlaceholder": "https://example.com（可选）",

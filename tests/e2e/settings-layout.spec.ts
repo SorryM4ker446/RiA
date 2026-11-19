@@ -63,14 +63,19 @@ test("compact settings preserve unsaved fields across tabs and keep connection o
   await expect(page.getByLabel("出站代理 URL", { exact: true })).toBeHidden();
   await connection.click();
   await page.getByLabel("出站代理 URL", { exact: true }).fill("http://127.0.0.1:7897");
+  const secureDns = page.getByRole("checkbox", { name: "代理虚拟地址回查", exact: true });
+  await expect(secureDns).not.toBeChecked();
+  await expect(secureDns).toHaveAccessibleDescription(/只解析到代理虚拟地址.*Cloudflare.*默认关闭/);
+  await secureDns.check();
   await page.getByRole("tab", { name: "应用偏好", exact: true }).click();
   await expect(page.getByRole("heading", { name: "关闭窗口时", exact: true })).toBeVisible();
   await page.getByRole("tab", { name: "API 密钥", exact: true }).click();
   await expect(key).toHaveValue("local-ui-fixture");
+  await expect(secureDns).toBeChecked();
   await page.getByRole("checkbox", { name: "删除已保存的 OpenRouter 密钥", exact: true }).check();
   await expect(key).toBeDisabled();
   await page.getByRole("button", { name: "保存并重启本地服务", exact: true }).click();
-  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("desktop-settings-input")!))).toMatchObject({ clearOpenrouterApiKey: true, outboundProxyUrl: "http://127.0.0.1:7897", openrouterSiteName: "RiA", deepseekApiKey: "" });
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("desktop-settings-input")!))).toMatchObject({ clearOpenrouterApiKey: true, outboundProxyUrl: "http://127.0.0.1:7897", webFakeIpDoh: true, openrouterSiteName: "RiA", deepseekApiKey: "" });
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 960 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

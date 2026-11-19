@@ -63,6 +63,8 @@ export const toolsMessages = {
   "tools.updatePlan.description": "把多步任务列成清单，边做边勾选。",
   "tools.readWebPage.displayName": "读取网页",
   "tools.readWebPage.description": "读出网页正文，长页面分段读。",
+  "tools.readWebPage.fakeIpDisabled": "{host} 的 DNS 只返回了代理虚拟地址（fake-IP）。可在「设置 → API 密钥 → 连接与站点选项」启用「代理虚拟地址回查」，或在代理中让该域名返回真实 IP。",
+  "tools.readWebPage.fakeIpUnverified": "{host} 的 DNS 返回了代理虚拟地址（fake-IP），Cloudflare 安全 DNS 回查未能确认公网地址。请检查代理连接或让该域名返回真实 IP。",
   "tools.readWebPage.hint": "想读哪个网址？",
   "tools.webSearch.resultCountLabel": "结果数（可空）",
   // --- saveKnowledgeEntry ---------------------------------------------------------

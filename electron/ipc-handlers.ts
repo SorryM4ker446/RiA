@@ -231,6 +231,7 @@ export function registerIpcHandlers() {
       || input.clearOpenrouterApiKey
       || input.clearDeepseekApiKey
       || input.outboundProxyUrl !== undefined
+      || input.webFakeIpDoh !== undefined
       || input.openrouterSiteName !== undefined
       || input.openrouterHttpReferer !== undefined,
     );

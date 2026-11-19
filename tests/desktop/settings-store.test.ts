@@ -62,6 +62,9 @@ app.whenReady().then(async () => {
     });
     report.defaultLocale = (await card.getView()).locale;
     report.defaultAutoCheckUpdates = (await card.getView()).autoCheckUpdates;
+    assert.equal((await card.getView()).webFakeIpDoh, false);
+    assert.equal((await card.getServerEnvironment()).RIA_WEB_FAKE_IP_DOH, "0");
+    await card.save({ webFakeIpDoh: true });
     await card.save({ locale: "en-US" });
     // What the close-behaviour card and the hotkey picker each send on their own.
     await card.save({ closeBehaviour: "tray" });
@@ -74,6 +77,10 @@ app.whenReady().then(async () => {
     report.mutedFinished = card.showsTaskNotice("task-finished");
     report.partialSave = await card.getView();
     const reopenedCard = new DesktopSettingsStore(join(root, "card.json"));
+    assert.equal((await reopenedCard.getView()).webFakeIpDoh, true);
+    assert.equal((await reopenedCard.getServerEnvironment()).RIA_WEB_FAKE_IP_DOH, "1");
+    await reopenedCard.save({ webFakeIpDoh: false });
+    assert.equal((await reopenedCard.getServerEnvironment()).RIA_WEB_FAKE_IP_DOH, "0");
     report.savedLocale = (await reopenedCard.getView()).locale;
     try { await card.save({ locale: "invalid" }); } catch { report.invalidLocaleRejected = (await card.getView()).locale === "en-US"; }
     // Search runs through the model providers; a key saved for the former
