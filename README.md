@@ -8,13 +8,13 @@
 
 RiA keeps your conversations, knowledge base, memory and settings on your computer, in a local SQLite database. You bring the model: connect OpenRouter for hundreds of chat, image, video and embedding models, or DeepSeek directly. Only what an operation needs is sent to the service that performs it.
 
-Current version: **0.1.21** · Windows x64 · Built with Electron, Next.js, the Vercel AI SDK, Prisma and SQLite.
+Current version: **0.1.22** · Windows x64 · Built with Electron, Next.js, the Vercel AI SDK, Prisma and SQLite.
 
 ## Ask your own documents
 
-![The knowledge library: imported documents, their status and a search with cited passages](docs/images/en/knowledge.png)
+![The knowledge library: imported documents under their topics, each ready to search](docs/images/en/knowledge.png)
 
-Import PDF, Word, Markdown or text files, check the extracted text, and save them under topics such as Finance or IT. RiA indexes them in the background as soon as an embedding model is chosen; each document simply shows **Ready**, **Processing** or **Pending**.
+Import PDF, Word, Markdown or text files, many at once or a whole folder, check the extracted text, and save them under topics such as Finance or IT. A synced folder keeps the knowledge base in step with it, and scanned PDF pages are read with local OCR. RiA indexes them in the background as soon as an embedding model is chosen; each document simply shows **Ready**, **Processing** or **Pending**.
 
 Search combines keyword matching (BM25) with search by meaning, so a question in your own words still finds the paragraph that uses different ones. In chat the model searches when a question depends on your material and cites the exact passage, with a link back to the version it read. Knowledge entries hold short facts you want kept, such as an address, a code or a definition. [Knowledge library](docs/document-knowledge.md)
 
@@ -22,13 +22,15 @@ Search combines keyword matching (BM25) with search by meaning, so a question in
 
 ![The slash menu listing tools and assistant templates](docs/images/en/slash-menu.png)
 
-Type `/` in the message box to pick a tool, a Skill or an assistant template. Only what you can actually use is listed; the model can also choose tools on its own. Built in: knowledge search, document reading and conversion to Markdown, TXT, HTML or Word, web search through your chat model's provider, tasks that run on a schedule, a PowerShell terminal, and file reading and editing in folders you grant. [Tools](docs/tool-readiness.md) · [Assistant templates](docs/assistant-templates.md)
+Type `/` in the message box to pick a tool, a Skill or an assistant template. Only what you can actually use is listed; the model can also choose tools on its own. Built in: knowledge search, document reading and conversion to Markdown, TXT, HTML or Word, web search through your chat model's provider and reading the pages it finds, tasks that run on a schedule, a PowerShell terminal that can keep commands running in the background, and file reading and editing in folders you grant.
+
+For longer work the model keeps a checklist you can follow, asks you when a decision is yours, and can hand a self-contained piece of work to a sub-agent that runs it with the conversation's tools, in the background if the conversation should go on meanwhile. [Tools](docs/tool-readiness.md) · [Checklists and questions](docs/plans-and-questions.md) · [Sub-agents](docs/subagents.md) · [Assistant templates](docs/assistant-templates.md)
 
 ## Nothing happens behind your back
 
 ![An approval card showing the knowledge entry text that will be replaced](docs/images/en/approval.png)
 
-Actions with consequences wait for you. Each terminal command, file edit, external tool call and knowledge-base change shows exactly what will happen before you approve or reject it: the command, the diff, or the entry text being replaced. **Execution records** keep every step, tool input and output, source and failure for each request. Folder access is granted per folder, and the terminal is enabled separately. [Execution records](docs/execution-history.md) · [Terminal](docs/terminal-tools.md)
+Actions with consequences wait for you. Each terminal command, file edit, external tool call and knowledge-base change shows exactly what will happen before you approve or reject it: the command, the diff, or the entry text being replaced. **Execution records** keep every step, tool input and output, source and failure for each request. Each conversation has its own approval rule: **Ask**, **Accept edits**, **Auto**, where a reviewer checks each command first and only what it is unsure of waits for you, or **Full access**. File changes a reply made can be undone. Folder access is granted per folder. [Execution records](docs/execution-history.md) · [Terminal and approval rules](docs/terminal-tools.md)
 
 ## It remembers what matters
 
@@ -54,15 +56,15 @@ Installing a Skill never runs its scripts or grants file access. [Plugins](docs/
 
 | | |
 | --- | --- |
-| Chat | Streaming answers, reasoning shown while the model thinks and folded when it answers, image/PDF/Word attachments, message times, search, tags, archive and export. [Conversations](docs/conversation-management.md) |
+| Chat | Streaming answers, reasoning shown while the model thinks and folded when it answers, highlighted code, formulas and Mermaid diagrams, image/PDF/Word attachments, several conversations running at once with unread marks, search, tags, archive and export. [Conversations](docs/conversation-management.md) |
 | Media | Image and video generation through supported OpenRouter models, kept in a private media library. [Media library](docs/media-library.md) |
 | Tasks | Have RiA do something by itself, once or on a schedule, each task in its own conversation, with a notification when it is done. [Tasks](docs/tasks.md) |
-| Desktop | Tray, global hotkey, command palette (**Ctrl+K**), light and dark themes, Chinese and English interface. [Desktop](docs/desktop.md) |
-| Your data | Backup and restore, storage cleanup, backups as a scheduled task, and workspace reviews. [Backups](docs/workspace-backups.md) · [Storage](docs/media-storage.md) |
+| Desktop | Tray, global hotkey, command palette (**Ctrl+K**), notifications when an answer or a task finishes, in-app updates, light and dark themes, Chinese and English interface. [Desktop](docs/desktop.md) |
+| Your data | Backup and restore, storage cleanup, backups as a scheduled task, workspace reviews, and moving the data or the cache to another drive. [Backups](docs/workspace-backups.md) · [Storage](docs/media-storage.md) · [Data location](docs/data-location.md) |
 
 ![The same conversation in the light theme](docs/images/en/chat-light.png)
 
-<sub>Screenshots are of RiA 0.1.18 running with demo documents and a test model.</sub>
+<sub>Screenshots are of RiA 0.1.22 running with demo documents and a test model.</sub>
 
 ## Get started
 
@@ -75,7 +77,7 @@ History, local keyword search and scheduled backups work without a model service
 
 ## Privacy
 
-Everything RiA stores is local: by default under `%APPDATA%\RiA`. A model, embedding, search or connector request sends only what that operation needs to the service you configured; choosing an embedding model is the consent to send your knowledge base's text to it. Portable backups exclude API keys and the local access credential. Local API requests are checked for the access credential, Host and Origin, size limits and rate limits. [API security](docs/api-security.md) · [Backups](docs/workspace-backups.md)
+Everything RiA stores is local: by default under `%APPDATA%\RiA`, or wherever you move it under **Settings → Storage**. A model, embedding, search or connector request sends only what that operation needs to the service you configured; choosing an embedding model is the consent to send your knowledge base's text to it. Portable backups exclude API keys and the local access credential. Local API requests are checked for the access credential, Host and Origin, size limits and rate limits. [API security](docs/api-security.md) · [Backups](docs/workspace-backups.md)
 
 ## Development
 
@@ -103,7 +105,7 @@ This builds the desktop runtime and packages a versioned MSI with SHA-256 verifi
 | `npm run desktop:package` | Unpacked application in `out/RiA-win32-x64/` |
 | `npm run desktop:make` | MSI and verification metadata in `out/make/wix/x64/` |
 
-The installer lets you choose the program directory; workspace data stays under `%APPDATA%\RiA`. A manually started release workflow builds a draft GitHub release with a signed update manifest, and installed copies offer published releases in Settings. Windows code signing is not configured. See [desktop development and release](docs/desktop.md) and [Windows release acceptance](docs/windows-release-acceptance.md).
+The installer lets you choose the program directory; workspace data is kept apart from it, by default under `%APPDATA%\RiA`. A manually started release workflow builds a draft GitHub release with a signed update manifest, and installed copies offer published releases in Settings. Windows code signing is not configured. See [desktop development and release](docs/desktop.md) and [Windows release acceptance](docs/windows-release-acceptance.md).
 
 ### Validation
 

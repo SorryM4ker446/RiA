@@ -8,13 +8,13 @@
 
 对话、知识库、记忆和设置都存在你自己电脑上的 SQLite 数据库里。模型由你自己选：接入 OpenRouter 可以使用数百种对话、图片、视频和嵌入模型，也可以直连 DeepSeek。每次操作只会把这次需要的内容发给对应的服务。
 
-当前版本：**0.1.21** · Windows x64 · 基于 Electron、Next.js、Vercel AI SDK、Prisma 和 SQLite。
+当前版本：**0.1.22** · Windows x64 · 基于 Electron、Next.js、Vercel AI SDK、Prisma 和 SQLite。
 
 ## 从你的资料里找答案
 
-![知识库：已导入的文档、处理状态，以及一次带引用片段的检索](docs/images/knowledge.png)
+![知识库：按主题导入的文档，均已可以检索](docs/images/knowledge.png)
 
-导入 PDF、Word、Markdown 或文本文件，确认提取出的文字，再按“财务”“IT”这样的主题保存。选好嵌入模型后，RiA 会在后台自动建立索引，每份文档只显示**就绪**、**处理中**或**待处理**。
+导入 PDF、Word、Markdown 或文本文件（可以一次导入很多份，或整个文件夹），确认提取出的文字，再按“财务”“IT”这样的主题保存。同步的文件夹有改动时，知识库会跟着更新；扫描版 PDF 的页面用本地 OCR 识别。选好嵌入模型后，RiA 会在后台自动建立索引，每份文档只显示**就绪**、**处理中**或**待处理**。
 
 检索同时用关键词（BM25）和语义：换个说法提问，也能找到用词不同的那段原文。在对话里，问题涉及你的资料时，模型会自己去搜，并引用具体段落，链接指向它读到的那个版本。知识条目用来存地址、编号、定义这类简短事实。[知识库](docs/document-knowledge.md)
 
@@ -22,13 +22,15 @@
 
 ![斜杠菜单列出工具和助理模板](docs/images/slash-menu.png)
 
-在输入框里打 `/`，就能选工具、Skill 或助理模板，菜单里只列出你实际能用的。模型也可以自己决定用哪个工具。内置工具包括：知识检索、读取文档并转换为 Markdown、TXT、HTML 或 Word、通过对话模型的服务商联网搜索、按计划自动运行的任务、PowerShell 终端，以及在你授权的文件夹里读取和修改文件。[工具](docs/tool-readiness.md) · [助理模板](docs/assistant-templates.md)
+在输入框里打 `/`，就能选工具、Skill 或助理模板，菜单里只列出你实际能用的。模型也可以自己决定用哪个工具。内置工具包括：知识检索、读取文档并转换为 Markdown、TXT、HTML 或 Word、通过对话模型的服务商联网搜索并阅读搜到的网页、按计划自动运行的任务、可以让命令在后台持续运行的 PowerShell 终端，以及在你授权的文件夹里读取和修改文件。
+
+做较长的工作时，模型会列出你能跟进的任务清单，需要你拿主意时直接问你，还能把一块独立的工作交给子代理，用这段对话的工具去完成；需要时它在后台运行，对话照常进行。[工具](docs/tool-readiness.md) · [任务清单与提问](docs/plans-and-questions.md) · [子代理](docs/subagents.md) · [助理模板](docs/assistant-templates.md)
 
 ## 每一步都经过你同意
 
 ![审批卡显示将被替换的知识条目原文](docs/images/approval.png)
 
-会产生后果的操作都要等你确认。终端命令、文件修改、外部工具调用和知识库改动，在你批准或拒绝之前，都会先把要发生的事完整列出来：要执行的命令、文件改动对比，或者将被替换的条目原文。**执行记录**保存每次请求的每一步、工具的输入输出、来源和失败原因。文件夹按个授权，终端要单独开启。[执行记录](docs/execution-history.md) · [终端](docs/terminal-tools.md)
+会产生后果的操作都要等你确认。终端命令、文件修改、外部工具调用和知识库改动，在你批准或拒绝之前，都会先把要发生的事完整列出来：要执行的命令、文件改动对比，或者将被替换的条目原文。**执行记录**保存每次请求的每一步、工具的输入输出、来源和失败原因。每段对话有自己的审批规则：**询问**、**自动接受编辑**、**自动**（先由审核检查每条命令，拿不准的才等你决定）或**完全访问**。回答改过的文件可以撤销。文件夹按个授权。[执行记录](docs/execution-history.md) · [终端与审批规则](docs/terminal-tools.md)
 
 ## 记得对你重要的事
 
@@ -54,15 +56,15 @@
 
 | | |
 | --- | --- |
-| 对话 | 流式回答；思考过程在模型思考时展开、开始回答时收起；可附图片、PDF 和 Word；显示消息时间；支持搜索、标签、归档和导出。[会话](docs/conversation-management.md) |
+| 对话 | 流式回答；思考过程在模型思考时展开、开始回答时收起；代码高亮、公式和 Mermaid 图；可附图片、PDF 和 Word；多段对话可以同时进行，并标出未读；支持搜索、标签、归档和导出。[会话](docs/conversation-management.md) |
 | 媒体 | 通过支持的 OpenRouter 模型生成图片和视频，保存在本地私有媒体库。[媒体库](docs/media-library.md) |
 | 任务 | 让 RiA 在你定的时间自己去做一件事，可以只做一次，也可以按计划重复；每个任务有自己的对话，完成后通知你。[任务](docs/tasks.md) |
-| 桌面 | 托盘、全局快捷键、命令面板（**Ctrl+K**）、浅色和深色主题、中英文界面。[桌面](docs/desktop.md) |
-| 你的数据 | 备份与恢复、存储清理、定时备份任务和工作区回顾。[备份](docs/workspace-backups.md) · [存储](docs/media-storage.md) |
+| 桌面 | 托盘、全局快捷键、命令面板（**Ctrl+K**）、回答或任务完成时的通知、应用内更新、浅色和深色主题、中英文界面。[桌面](docs/desktop.md) |
+| 你的数据 | 备份与恢复、存储清理、定时备份任务、工作区回顾，以及把数据或缓存移到其他磁盘。[备份](docs/workspace-backups.md) · [存储](docs/media-storage.md) · [数据位置](docs/data-location.md) |
 
 ![浅色主题下的同一段对话](docs/images/chat-light.png)
 
-<sub>截图来自运行中的 RiA 0.1.18，使用的是演示文档和测试模型。</sub>
+<sub>截图来自运行中的 RiA 0.1.22，使用的是演示文档和测试模型。</sub>
 
 ## 开始使用
 
@@ -75,7 +77,7 @@
 
 ## 隐私
 
-RiA 保存的所有内容都在本地，默认位于 `%APPDATA%\RiA`。模型、嵌入、搜索或连接请求只把这次操作需要的内容发给你配置的服务；选择嵌入模型，就表示同意把知识库文字发给该模型。便携备份不包含 API 密钥和本地访问凭据。本地接口会校验访问凭据、Host 和 Origin，并限制请求大小和频率。[接口安全](docs/api-security.md) · [备份](docs/workspace-backups.md)
+RiA 保存的所有内容都在本地，默认位于 `%APPDATA%\RiA`，也可以在**设置 → 存储**里移到别处。模型、嵌入、搜索或连接请求只把这次操作需要的内容发给你配置的服务；选择嵌入模型，就表示同意把知识库文字发给该模型。便携备份不包含 API 密钥和本地访问凭据。本地接口会校验访问凭据、Host 和 Origin，并限制请求大小和频率。[接口安全](docs/api-security.md) · [备份](docs/workspace-backups.md)
 
 ## 开发
 
@@ -103,7 +105,7 @@ npm run desktop:make
 | `npm run desktop:package` | 未打包的应用，位于 `out/RiA-win32-x64/` |
 | `npm run desktop:make` | MSI 和校验信息，位于 `out/make/wix/x64/` |
 
-安装时可以选择程序目录，工作区数据始终在 `%APPDATA%\RiA`。手动触发的发布流程会生成带签名更新清单的 GitHub 草稿版本，已安装的 RiA 可以在设置里查看并安装已发布的版本。目前没有配置 Windows 代码签名。另见[桌面开发与发布](docs/desktop.md)和 [Windows 发布验收](docs/windows-release-acceptance.md)。
+安装时可以选择程序目录；工作区数据默认在 `%APPDATA%\RiA`，与程序目录分开。手动触发的发布流程会生成带签名更新清单的 GitHub 草稿版本，已安装的 RiA 可以在设置里查看并安装已发布的版本。目前没有配置 Windows 代码签名。另见[桌面开发与发布](docs/desktop.md)和 [Windows 发布验收](docs/windows-release-acceptance.md)。
 
 ### 验证
 
