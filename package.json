@@ -44,6 +44,7 @@
     "test:desktop:dev": "npm run desktop:compile && node scripts/smoke-desktop.mjs --development",
     "test:desktop:package": "node scripts/smoke-desktop.mjs --packaged",
     "test:desktop:data-move": "node scripts/smoke-desktop.mjs --data-move",
+    "test:desktop:cache-move": "node scripts/smoke-desktop.mjs --cache-move",
     "workspace:status": "node --import ./tests/helpers/register-typescript.ts scripts/upgrade-local-workspace.mjs --status",
     "workspace:prepare": "node --import ./tests/helpers/register-typescript.ts scripts/upgrade-local-workspace.mjs --prepare",
     "workspace:restore": "node --import ./tests/helpers/register-typescript.ts scripts/upgrade-local-workspace.mjs --restore",

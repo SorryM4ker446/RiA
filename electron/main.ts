@@ -47,6 +47,9 @@ const dataRoot = resolveDataRoot({
 const webCacheInUse = webCacheForThisRun(dataRoot);
 app.commandLine.appendSwitch("disk-cache-dir", webCacheInUse);
 
+/** Whether start-up has opened the main window; until then closing windows never quits. */
+let mainWindowOpened = false;
+
 const singleInstanceLock = app.requestSingleInstanceLock();
 if (!singleInstanceLock) {
   app.quit();
@@ -167,6 +170,7 @@ async function bootstrap() {
   const hasAnyProviderKey = settings.hasOpenrouterApiKey || settings.hasDeepseekApiKey;
   const initialPath = packagedRuntime && !hasAnyProviderKey ? "/chat?settings=services&welcome=1" : "/chat";
   runtime.mainWindow = await createMainWindow(initialPath, true);
+  mainWindowOpened = true;
   const showTaskNotice = createTaskNotificationDelivery(Notification, openFromNotice, runtime.logger, () => runtime.settingsStore?.getLocale() ?? "zh-CN", notificationIcon);
   // The notice stays in the app either way; the user chose which ones also appear on screen.
   const announceTaskNotice = (notice: TaskNotice) => { if (runtime.settingsStore?.showsTaskNotice(notice.title) !== false) showTaskNotice(notice); };
@@ -258,6 +262,14 @@ app.on("activate", () => {
  * otherwise in settings.
  */
 app.on("window-all-closed", () => {
+  /*
+   * Before the main window exists the only windows are start-up's own, such as
+   * the progress window of a data or cache move. Closing the last of those is
+   * not the user closing the app: quitting there ended the start right after
+   * every move, so the restart that runs a move never came back. Start-up ends
+   * itself when it has to, through its own failure path or the Quit choice.
+   */
+  if (!mainWindowOpened) return;
   if (runtime.tray && !runtime.isQuitting) return;
   app.quit();
 });
