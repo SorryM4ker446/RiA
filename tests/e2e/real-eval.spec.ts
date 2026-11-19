@@ -566,3 +566,93 @@ test("tasks and knowledge entries: each used for what the user wants kept or don
     });
   }
 });
+
+type PictureCall = { state: string; input?: { prompt?: string; referenceImages?: string[]; aspectRatio?: string; autoReview?: { decision?: string } }; output?: { mediaId?: string; skipped?: string } };
+type PictureUsage = { id: string; mode: string; status: string; modelId: string; costSource: string; costUsd: number | null };
+
+async function pictureUsage(page: Page, real: RealModel): Promise<PictureUsage[]> {
+  return ((await browserData(page, `${real.origin}/api/usage?source=media`)) as { recent: PictureUsage[] }).recent;
+}
+
+/** The generateImage calls of the latest answer, as saved: their inputs and results whole. */
+async function pictureCalls(page: Page, real: RealModel, chatId: string): Promise<PictureCall[]> {
+  const messages = await browserData(page, `${real.origin}/api/conversations/${chatId}/messages`) as { role: string; content: string }[];
+  const last = messages.filter(message => message.role === "assistant").at(-1)?.content ?? "";
+  return (decodePersistedAssistantToolMessage(last)?.tools ?? []).filter(tool => tool.toolName === "generateImage") as PictureCall[];
+}
+
+/*
+ * Pictures in chat (needs `--image-model`). Under the default Ask rule, a picture
+ * the user asks for is reviewed and made at once; asked to change it, the model
+ * passes the first picture as a reference; asked how to draw, it answers in words.
+ */
+test("pictures: asked for, made at once; asked to change, built on the first; asked how, answered in words @real @eval", async ({ page, real }) => {
+  test.skip(!real.imageModelId, "needs --image-model");
+  for (let run = 1; run <= REPEATS; run++) {
+    const chatId = await newChat(page, real, `画图 ${run}`);
+    let first: string | undefined;
+    await measured(page, real, async () => {
+      await ask(page, real, chatId, "画一只穿宇航服的橘猫，水彩风格，方形构图。");
+      const { answer, tools } = await turn(page, real, chatId);
+      const calls = await pictureCalls(page, real, chatId);
+      first = calls.find(call => call.state === "output-available")?.output?.mediaId;
+      const detail = first ? await browserApi(page, `${real.origin}/api/media/${first}/details`) : null;
+      const checks = {
+        called: calls.length, made: Boolean(first), waited: calls.some(call => call.state === "approval-requested"),
+        review: calls[0]?.input?.autoReview?.decision ?? "none", stored: detail?.status === 200,
+        promptSaysCat: /cat|猫/i.test(calls[0]?.input?.prompt ?? ""), square: calls[0]?.input?.aspectRatio ?? "-",
+      };
+      return { scenario: "picture-asked", run, pass: checks.made && !checks.waited && checks.stored && checks.promptSaysCat, checks, tools, answer: `${answer}\nPROMPT: ${calls[0]?.input?.prompt ?? ""}` };
+    });
+    if (!first) continue;
+    await measured(page, real, async () => {
+      await ask(page, real, chatId, "把背景换成夜晚的星空，猫保持不变。");
+      const { answer, tools } = await turn(page, real, chatId);
+      const calls = await pictureCalls(page, real, chatId);
+      const made = calls.find(call => call.state === "output-available");
+      const checks = {
+        called: calls.length, made: Boolean(made), waited: calls.some(call => call.state === "approval-requested"),
+        builtOnFirst: Boolean(made?.input?.referenceImages?.includes(first!)), promptSaysNight: /night|star|夜|星/i.test(made?.input?.prompt ?? calls[0]?.input?.prompt ?? ""),
+      };
+      return { scenario: "picture-changed", run, pass: checks.made && checks.builtOnFirst && !checks.waited, checks, tools, answer: `${answer}\nPROMPT: ${made?.input?.prompt ?? ""}` };
+    });
+    await measured(page, real, async () => {
+      const howChat = await newChat(page, real, `怎么画 ${run}`);
+      await ask(page, real, howChat, "新手怎么画好一只猫？给我三个要点。");
+      const { answer, tools } = await turn(page, real, howChat);
+      const checks = { called: tools.includes("generateImage"), answered: answer.length > 40 };
+      return { scenario: "picture-not-asked", run, pass: !checks.called && checks.answered, checks, tools, answer };
+    });
+  }
+});
+
+for (const canSeeImage of [false, true]) {
+  test(`picture inspection ${canSeeImage ? "with" : "without"} image input @real @eval`, async ({ page, real }) => {
+    test.skip(!real.imageModelId, "needs --image-model");
+    test.skip(canSeeImage && !real.chatImageInput, "needs a vision-capable --model");
+    if (!canSeeImage) real.disableChatImageInput();
+    for (let run = 1; run <= REPEATS; run++) {
+      const chatId = await newChat(page, real, `核验成图 ${run}`);
+      await measured(page, real, async () => {
+        const before = new Set((await pictureUsage(page, real)).map(row => row.id));
+        await ask(page, real, chatId, "用图片工具画一张方图，白底，左边一个红色正方形，右边一个蓝色圆形。画完后请检查成图，告诉我画面里实际上有什么。");
+        const { answer, tools } = await turn(page, real, chatId);
+        const calls = await pictureCalls(page, real, chatId);
+        const made = calls.filter(call => call.state === "output-available" && call.output?.mediaId).length;
+        const rows = (await pictureUsage(page, real)).filter(row => !before.has(row.id));
+        const imageCostsRecorded = made > 0 && rows.length === made && rows.every(row => row.mode === "image" && row.status === "success"
+          && row.modelId === real.imageModelId && row.costSource === "provider" && row.costUsd !== null);
+        const disclosedLimit = /(?:无法|未能|不能|没法|没有.{0,5}(?:收到|获得)|看不到|未收到).{0,25}(?:图|视觉|核验|核对|检查|确认)|(?:图像|图片).{0,20}(?:无法|看不到|不能)/u.test(answer)
+          || /(?:成图|图像|图片|这张图)(?:本身)?(?:没有|没|未)(?:回传|传回|发给)/u.test(answer)
+          || /(?:无法|未能|不能|没法)(?:直接|真正)?(?:查看|核实)(?:它|成图|图片|图像|画面|内容)/u.test(answer);
+        const describedShapes = /(?:红色?[^，。\n]{0,6}(?:方|方块))|(?:(?:方形|方块)[^，。\n]{0,6}红)/u.test(answer) && /(?:蓝色?[^，。\n]{0,6}圆)|(?:圆形[^，。\n]{0,6}蓝)/u.test(answer);
+        const askedToResend = /(?:重新|再次|再|请|直接).{0,12}(?:上传|发给我|附上|发过来)/u.test(answer);
+        const checks = { made, performedInspection: made > 0 && describedShapes && !disclosedLimit, disclosedLimit, askedToResend,
+          imageCostsRecorded, imageCostUsd: rows.reduce((sum, row) => sum + (row.costUsd ?? 0), 0),
+          generation: made ? "generated" : calls[0]?.output?.skipped ?? calls[0]?.state ?? "no-call" };
+        return { scenario: canSeeImage ? "picture-inspection-vision" : "picture-inspection-text", run,
+          pass: imageCostsRecorded && (canSeeImage ? checks.performedInspection : checks.disclosedLimit && !describedShapes && !askedToResend), checks, tools, answer };
+      });
+    }
+  });
+}
