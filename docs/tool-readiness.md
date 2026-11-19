@@ -1,16 +1,13 @@
 # Tool readiness
 
-Updated: 2026-10-18
-
-Chat execution details consolidate tool parameters/results, web/document
-references, legacy local-file uses and retrieval diagnostics. Chat prose retains
-inline citations, attachments and document downloads. Pending approvals appear
-above the composer without opening the detail sheet; each terminal command still
-requires human review. Linked approval continuations share one execution entry.
+Chat execution details consolidate tool inputs and results, sources and retrieval
+diagnostics. Citations, attachments and downloads also appear in chat. When an
+action needs approval, its card appears above the composer. Linked approval
+continuations share one execution entry. [Approval rules](terminal-tools.md#approval-rules)
 
 ## Current scope
 
-RiA has a shared tool registry and execution pipeline for built-in tools, MCP servers and HTTP connectors. The earlier three-tool checklist and fixed weekly schedule are historical; they no longer describe the delivered application. This document records implemented behavior and remaining validation, without subjective readiness scores.
+RiA has a shared tool registry and execution pipeline for built-in tools, MCP servers and HTTP connectors.
 
 Normal chat uses automatic tool selection. Typing `/` in the composer chooses a tool or skills for one message: a chosen tool is offered alone on the first step only, so it does not restrict later model calls. Each tool declares who can reach it (`surface`), and the slash menu, template editor and built-in tool list all follow that declaration. Tools only the model uses, such as the terminal and the Skill reader, never appear in the slash menu.
 
@@ -18,7 +15,7 @@ Normal chat uses automatic tool selection. Typing `/` in the composer chooses a 
 
 | Area | Current behavior | Boundaries and documentation |
 | --- | --- | --- |
-| Knowledge: `searchKnowledge` | Memories and documents, local keyword retrieval, optional semantic + BM25 retrieval, collection scope, versioned citations and quality evaluations | Candidate memories stay outside model context until confirmed. Embedding and answer-quality checks may call configured services. [Document knowledge](document-knowledge.md) |
+| Knowledge: `searchKnowledge` | Confirmed knowledge entries and documents, local keyword retrieval, optional semantic + BM25 retrieval, collection scope and versioned citations | The document library also offers explicit quality evaluation. Embedding and answer-quality checks may call configured services. [Document knowledge](document-knowledge.md) |
 | Memory: `extractMemory` | The model's own: a person cannot run or choose it, and it is offered only while long-term memory is on. See [long-term memory](long-term-memory.md) | Always ready while memory is on |
 | Knowledge: `saveKnowledgeEntry` | Adds a named entry to the knowledge base, with provenance; a save the model requests waits for approval unless the conversation has full access; saving under an existing name replaces that entry after the approval shows the text being replaced, and an entry edited meanwhile is not overwritten | Always ready |
 | Tasks: `createTask`, `readWorkspaceActivity` | Schedules a prompt for RiA to carry out later, once or on a cron schedule in an IANA time zone, in the task's own conversation; asks for approval unless the conversation has full access. `readWorkspaceActivity` is the model's own read of recorded workspace changes for a day or week, offered with `createTask` | Tasks run only while the desktop app is running. [Tasks](tasks.md) |
@@ -27,7 +24,7 @@ Normal chat uses automatic tool selection. Typing `/` in the composer chooses a 
 | Questions: `askUser` | The model's own: asks the user 1–3 questions with 2–5 options each, pausing the turn like an approval | Waits for the user under every approval rule; not offered in scheduled tasks. [Checklists and questions](plans-and-questions.md) |
 | Search: `webSearch` | DeepSeek native/Search API, OpenRouter gateway search through the selected chat model's provider, model-selected result counts and citations | No RiA per-turn result-count quota; provider API ceilings and run execution limits apply. Missing configuration is distinct from zero results. No general search-result cache or automatic retry is promised. [Search notes](web-search-budget-and-quality.md) |
 | Documents: `readDocument`, `convertDocument` | Reads stored extracted text in bounded ranges; exports Markdown, TXT, HTML or DOCX | Knowledge document details integrate copy editing, preview and export; import supports PDF/DOCX/Markdown/TXT. Chat PDF/DOCX attachments are parsed without automatic knowledge import. [Document processing](document-processor.md) · [Chat attachments](media-storage.md#pdf-and-word-in-chat) |
-| Terminal: `runTerminalCommand`, `checkTerminalCommand`, `stopTerminalCommand` | General Windows PowerShell for file management and development commands, approval per the conversation's rule, bounded output, live status and stop controls; background commands the model checks and stops itself | Separate terminal permission; fresh non-interactive process per command. No PTY, persistent shell session or OS sandbox. [Terminal](terminal-tools.md) |
+| Terminal: `runTerminalCommand`, `checkTerminalCommand`, `stopTerminalCommand` | General Windows PowerShell for file management and development commands, approval per the conversation's rule, bounded output, live status and stop controls; background commands the model checks and stops itself | Uses the conversation's granted workspace. Each command gets a fresh non-interactive process. See [terminal limits](terminal-tools.md#authority-and-limits) for the execution boundary. |
 | Project files: `readProjectFile`, `editProjectFile` | Line-range reads with a content hash; exact text replacement or file creation applied atomically, with the diff shown for approval | Offered wherever the terminal is and governed by the same folder permission and approval mode. UTF-8 text only; `.git` and credential files are refused. Rename, move, delete and execution stay in the terminal. [Terminal](terminal-tools.md#project-file-tools) |
 | External tools | MCP Streamable HTTP, desktop stdio and HTTP connectors; detection, explicit tool selection, enablement and per-call approval following the conversation's approval rule (reviewed under Auto, run directly under Full access). Past a tenth of the context window (at most about 6,000 tokens) of tool definitions or 32 tools, the model gets a line per tool (names only in a long list) and loads the ones it needs with `findExtensionTools` (the model's own); a tool set to always load is sent in full | Required runtimes and accounts are configured separately; no automatic OAuth or dependency installation. [Extensions](extensions.md) |
 | Sub-agents: `runSubagent` | The model's own, started when it judges the work suits one, including when the user wants work handed off or split up; a person cannot pick it in the composer. Hands a self-contained piece of work to a sub-agent with a fresh context, the conversation's tools (no questions, tasks, checklist, memory, history or nested sub-agents) and the conversation's model; several run at once; in the foreground the step waits for its report, in the background the turn goes on and the report reaches the model by itself (`checkSubagents` shows status); returns a report and the actions it did not run | Follows the conversation's approval rule; what the rule would ask about is not run but reported. [Sub-agents](subagents.md) |

@@ -146,11 +146,11 @@ require this version or a newer version to restore the scope correctly.
 
 Every entry records where it came from: added by hand, or inferred by the assistant. An inferred entry is stored as a **candidate**: visible, editable and deletable in the knowledge page, but it does not enter the context of any answer until you accept it. New candidates are no longer made; older ones may arrive from a backup.
 
-When the model asks to save an entry with `saveKnowledgeEntry`, the request waits for your approval with its name and content shown, because a saved entry enters every later conversation it matches and the model may be acting on text it read in a page, document or command output. To change an entry, the model saves under its exact name: the approval then shows the text being replaced beside the new text, and approving replaces that entry rather than adding a numbered copy. If the entry is edited after the request and before the approval, nothing is written and the model is told to look it up again. A new name adds a new entry. Saving by hand needs no approval. Anything naming the tool's earlier id, `saveMemory`, in old conversations, templates and backups reads as this one.
+With `saveKnowledgeEntry`, the model can add a named entry or replace an entry by its exact name. Under **Full access** the save can proceed directly. Under other approval rules the card shows the proposed text and, on replacement, the existing text. If the entry changes while approval is pending, the save is refused and the model is told to look it up again. A new name adds a new entry. You can also save entries directly in the knowledge page. Old conversations, templates and backups may refer to the tool by its earlier id, `saveMemory`. [Approval rules](terminal-tools.md#approval-rules)
 
-Chat includes at most six confirmed entries, and only those that match the message — a keyword or semantic match of at least 0.3 — before recency and manual weight order them. An entry belongs to no topic, so a conversation or search kept to chosen topics leaves entries out.
+The model retrieves matching confirmed entries through `searchKnowledge`. The requested result count covers both entries and document passages, defaults to six and can be set up to eight. Matching entries can reserve space based on keyword coverage or similarity compared with the selected document passages. Entries are outside document collections, so a search scoped to chosen collections leaves them out.
 
-Editing a candidate is how it is accepted. An entry is stamped with the time it was last used, and the page shows **last used** so it is clear which entries are doing something and which have gone untouched.
+Editing and saving a candidate accepts it. A restored or older entry may also carry a last-used timestamp.
 
 Provenance travels with workspace backups. Restoring an archive does not turn an inference you never accepted into one you are treated as having accepted.
 
@@ -168,10 +168,10 @@ retains the existing `data` array. Its additional `diagnostics` explains empty
 scope (without claiming an untested model is missing), no hits, missing model, absent compatible indices or embedding failure with
 keyword fallback. Counts include scoped chunks, compatible/scanned/stale vectors,
 candidate counts, invalid or mismatched vector dimensions, selected excerpts, excerpt characters, duration and policy.
-Automatic chat records the initial retrieval diagnostics in message metadata,
-including turns with no sources; they survive reload and backup. Tool search returns
-its own diagnostics with its output. Diagnostics never assert that a model answer
-is correct and do not contain query or document text.
+In chat, `searchKnowledge` returns diagnostics with the tool output, including
+searches with no sources. Older messages can also contain saved diagnostics from
+before search moved to the tool. Diagnostics describe retrieval coverage and do
+not contain query or document text. Answer correctness requires separate review.
 
 ### Explicit quality evaluation
 

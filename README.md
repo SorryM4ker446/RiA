@@ -2,21 +2,13 @@
 
 **English** · [简体中文](README.zh-CN.md)
 
-**A local-first AI agent for your Windows desktop: it answers from your own documents, uses tools with your approval, and remembers what matters to you.**
+**A local-first AI agent for your Windows desktop. It reads and changes files in your workspace, runs commands, and checks the results with tools you control.**
 
 ![RiA answering a question from the user's own documents, with citations](docs/images/en/chat.png)
 
 RiA keeps your conversations, knowledge base, memory and settings on your computer, in a local SQLite database. You bring the model: connect OpenRouter for hundreds of chat, image, video and embedding models, or DeepSeek directly. Only what an operation needs is sent to the service that performs it.
 
 Current version: **0.1.22** · Windows x64 · Built with Electron, Next.js, the Vercel AI SDK, Prisma and SQLite.
-
-## Ask your own documents
-
-![The knowledge library: imported documents under their topics, each ready to search](docs/images/en/knowledge.png)
-
-Import PDF, Word, Markdown or text files, many at once or a whole folder, check the extracted text, and save them under topics such as Finance or IT. A synced folder keeps the knowledge base in step with it, and scanned PDF pages are read with local OCR. RiA indexes them in the background as soon as an embedding model is chosen; each document simply shows **Ready**, **Processing** or **Pending**.
-
-Search combines keyword matching (BM25) with search by meaning, so a question in your own words still finds the paragraph that uses different ones. In chat the model searches when a question depends on your material and cites the exact passage, with a link back to the version it read. Knowledge entries hold short facts you want kept, such as an address, a code or a definition. [Knowledge library](docs/document-knowledge.md)
 
 ## Tools, one keystroke away
 
@@ -26,11 +18,19 @@ Type `/` in the message box to pick a tool, a Skill or an assistant template. On
 
 For longer work the model keeps a checklist you can follow, asks you when a decision is yours, and can hand a self-contained piece of work to a sub-agent that runs it with the conversation's tools, in the background if the conversation should go on meanwhile. [Tools](docs/tool-readiness.md) · [Checklists and questions](docs/plans-and-questions.md) · [Sub-agents](docs/subagents.md) · [Assistant templates](docs/assistant-templates.md)
 
-## Nothing happens behind your back
+## Control what runs
 
 ![An approval card showing the knowledge entry text that will be replaced](docs/images/en/approval.png)
 
-Actions with consequences wait for you. Each terminal command, file edit, external tool call and knowledge-base change shows exactly what will happen before you approve or reject it: the command, the diff, or the entry text being replaced. **Execution records** keep every step, tool input and output, source and failure for each request. Each conversation has its own approval rule: **Ask**, **Accept edits**, **Auto**, where a reviewer checks each command first and only what it is unsure of waits for you, or **Full access**. File changes a reply made can be undone. Folder access is granted per folder. [Execution records](docs/execution-history.md) · [Terminal and approval rules](docs/terminal-tools.md)
+You grant access per folder and choose an approval rule for each conversation. **Ask** lets you review commands, file diffs and other actions as they come up. **Accept edits** allows file edits, **Auto** reviews commands and extension calls before deciding whether to ask, and **Full access** lets the conversation's tools act directly within their configured permissions. **Execution records** keep the steps, sources and results. You can undo eligible file changes. [Execution records](docs/execution-history.md) · [Terminal and approval rules](docs/terminal-tools.md#approval-rules)
+
+## Ask your own documents
+
+![The knowledge library: imported documents under their topics, each ready to search](docs/images/en/knowledge.png)
+
+Import PDF, Word, Markdown or text files, many at once or a whole folder, check the extracted text, and save them under topics such as Finance or IT. A synced folder keeps the knowledge base in step with it, and scanned PDF pages are read with local OCR. RiA indexes them in the background as soon as an embedding model is chosen; each document simply shows **Ready**, **Processing** or **Pending**.
+
+Search combines keyword matching (BM25) with search by meaning, so a question in your own words still finds the paragraph that uses different ones. In chat the model searches when a question depends on your material and cites the exact passage, with a link back to the version it read. Knowledge entries hold short facts you want kept, such as an address, a code or a definition. [Knowledge library](docs/document-knowledge.md)
 
 ## It remembers what matters
 
@@ -42,12 +42,12 @@ With long-term memory on, the model notes durable things about you, such as your
 
 ![My models: chat, image, video and embedding models from OpenRouter](docs/images/en/models.png)
 
-Add the models you want from the live OpenRouter catalog or DeepSeek, choose defaults for chat, images, video and embeddings, and pick an optional auxiliary model for background work such as summaries. Context window, tool support and pricing come from the provider. Usage is recorded per request, and the usage ring in the message box shows what the context currently holds. A model that cannot call tools still chats; RiA asks you to confirm first and explains which features it can't use. API keys are kept in the system-encrypted store. [Models and usage](docs/model-usage.md)
+Add the models you want from the live OpenRouter catalog or DeepSeek, choose defaults for chat, images, video and embeddings, and optionally choose an **Internal sub-agent model** for work such as summaries and approval reviews. Context window, tool support and pricing come from the provider. Usage is recorded per request, and the usage ring in the message box shows what the context currently holds. A model without tool calling can still chat. RiA asks you to confirm first and explains the available features. API keys are kept in the system-encrypted store. [Models and usage](docs/model-usage.md)
 
 ## Extend it
 
 - **Community Skills** from skills.sh: instructions and reference files the model reads when they are relevant.
-- **MCP servers and HTTP APIs**: discover servers in the official MCP Registry or connect Streamable HTTP, local stdio MCP or plain HTTP tools yourself. Every external call needs your approval.
+- **MCP servers and HTTP APIs**: discover servers in the official MCP Registry or connect Streamable HTTP, local stdio MCP or plain HTTP tools yourself. Calls follow the conversation's approval rule. [Connections](docs/extensions.md)
 - **RiA plugin packages** (`.ria-plugin.json`) combine Skills with connections and install in one step.
 
 Installing a Skill never runs its scripts or grants file access. [Plugins](docs/plugin-packages.md) · [Connections](docs/extensions.md)
@@ -71,7 +71,7 @@ Installing a Skill never runs its scripts or grants file access. [Plugins](docs/
 1. Install `RiA-<version>-x64.msi`, built as described in [Build an installer](#build-an-installer). No separate Node.js or database server is needed.
 2. Open **Settings → API keys** and add an OpenRouter or DeepSeek key. OpenRouter is needed for images, video and embeddings.
 3. In **Settings → Models**, add models to **My models** and choose a default chat model. Pick one that supports tool calling to use tools, Skills and knowledge search, and choose an embedding model to search by meaning.
-4. Start chatting. Import documents under **Knowledge**, type `/` for tools, and grant folders through **Workspace permissions** when you want RiA to work with files.
+4. Use **Workspace permissions** to grant the folder you want RiA to work in, then give it a task. Type `/` to choose tools, or import documents under **Knowledge** to make them available for search across chats.
 
 History, local keyword search and scheduled backups work without a model service. Tasks run while RiA is open, including in the tray.
 

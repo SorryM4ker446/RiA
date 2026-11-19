@@ -2,30 +2,27 @@
 
 ## Core Rule
 
-Manual tool calls and automatic semantic tool calls are the same tool capability with different trigger sources.
+Direct tool calls and model tool calls share the descriptor and executor.
 
-- `manual`: the composer runs a tool directly, without the model, such as converting a document.
-- `auto`: the system decides from the user request that a tool should be used.
+- `manual`: the composer calls `/api/tools/run` for a descriptor marked `surface.user.run: "direct"`, such as document conversion.
+- `auto`: the model calls a tool in a conversation. This also covers a user selecting a tool or Skill in the slash menu when the model is needed to prepare or use it.
 
-The trigger records how the tool call started. It must not create a separate business path for the tool.
+The descriptor's surface determines where the tool can run. The trigger records which execution entry point started the call.
 
 ## Required Pipeline
 
-After a tool is selected, both trigger sources should use the same descriptor-driven pipeline:
+Both entry points use `executeRegisteredTool` in `src/tools/execution.ts`.
 
-1. Build the raw tool input.
-2. Run `descriptor.prepareInput` when the tool defines it.
-3. Validate the prepared input with the tool schema.
-4. Apply shared budget and safety limits.
-5. Execute the tool.
-6. Build assistant-facing text from the tool output.
-7. Record logs and memory according to the shared tool policy.
+1. Validate the initial input against the descriptor's schema and check the tool's availability.
+2. Check the active directory grant for workspace tools, apply the descriptor's optional input preparation and validate the prepared input.
+3. Apply the applicable result budget and admission checks, and use the conversation's approval rule for tools that declare an action.
+4. Execute the tool and record its outcome. The route returns the structured result, and the conversation can apply the descriptor's model-facing output policy.
 
-The tool descriptor should stay the single source of truth for parameter preparation, validation, execution, result rendering, and persistence policy.
+The descriptor owns its input schema, preparation, execution and model-facing output. The shared executor enforces common rules. [Tool readiness](tool-readiness.md) · [Approval rules](terminal-tools.md#approval-rules)
 
 ## Why This Matters
 
-Keeping manual and automatic calls on one pipeline prevents behavior drift. For example, a web search triggered automatically should not use model-planned parameters while a manual web search silently falls back to internal defaults.
+Keeping calls on one pipeline gives each tool the same schema, preparation and security checks wherever it is available. A model-selected tool uses the same policy when a user requests it from the slash menu.
 
 Shared preparation also makes later changes easier to reason about:
 
