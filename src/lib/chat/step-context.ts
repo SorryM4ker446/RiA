@@ -425,7 +425,10 @@ export function createStepContext(params: {
       const ratio = inputTokens / unscaledEstimate;
       observedRatio = Math.max(observedRatio ?? 0, ratio);
       report.measuredInputTokens = inputTokens;
-      report.observedRatio = Math.round(ratio * 1000) / 1000;
+      // Three significant digits, not three decimals: a provider counting far less than the estimate
+      // (a tiny step after a large one) rounded to 0, which the saved report refuses, and the whole
+      // report of the turn was dropped with it. A count of zero says nothing to compare.
+      if (ratio > 0) report.observedRatio = Number(ratio.toPrecision(3)); else delete report.observedRatio;
       // A provider's refusal has already said the count was too low; usage does not undo it.
       report.usageCalibration = report.overflowRecoveries ? Math.max(report.usageCalibration, ratio) : Math.max(MIN_CALIBRATION, observedRatio);
       if (lastPrepared) anchor = { tokens: inputTokens, ...lastPrepared };
