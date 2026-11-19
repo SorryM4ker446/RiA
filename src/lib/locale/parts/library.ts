@@ -67,7 +67,7 @@ export const libraryMessages = {
   "mediaStorage.mib": "MiB。",
   "mediaStorage.failedSuffix": "项暂未清理，可稍后重试。",
   "mediaStorage.title": "媒体存储",
-  "mediaStorage.description": "图片、视频和附件保存在本机数据目录，不随应用构建被替换。",
+  "mediaStorage.description": "图片、视频和附件都放在数据目录里，随数据一起移动和备份。",
   "mediaStorage.diskUsage": "磁盘占用",
   "mediaStorage.assetCount": "媒体资产",
   "mediaStorage.referenced": "被消息或生成结果引用",

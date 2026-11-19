@@ -9,9 +9,9 @@ New generated images, videos, and uploaded attachments are written to private fi
 - Isolated tests: their own temporary database and media directories.
 - Local Web overrides: set `MEDIA_DIRECTORY` to an absolute private directory. Without it, an absolute `file:` SQLite database URL is required. There is no working-directory fallback for new media.
 
-Electron explicitly passes its resolved user-data media directory to the local server. Changing the installation directory or rebuilding `.desktop-runtime` does not move this storage. Media files are placed in a hashed workspace directory with server-generated UUID filenames. Client filenames and relative paths are never used to choose a filesystem destination.
+Media is part of the data: the files live in `media/` inside the data folder and move with it when the data is moved under **Settings → Storage**. The settings show no separate media location; `MEDIA_DIRECTORY` points elsewhere only in development and tests. Changing the installation directory or rebuilding `.desktop-runtime` does not move this storage. Media files are placed in a hashed workspace directory with server-generated UUID filenames. Client filenames and relative paths are never used to choose a filesystem destination.
 
-Back up the SQLite database **and the entire media directory together while the app is closed**. Existing automatic pre-migration database backups do not include media files. Reinstallation retains media only while the user-data directory is retained; manually deleting it removes the data.
+For a complete copy, **quit RiA and copy the whole data folder**, which holds the database and the media together (its location is under **Settings → Storage**). Existing automatic pre-migration database backups do not include media files. Reinstallation retains media only while the user-data directory is retained; manually deleting it removes the data.
 
 ## API contract
 
@@ -77,4 +77,4 @@ Stored generation recipes also protect their reference images. An input cannot b
 
 The storage page and media library require confirmation before reclaiming eligible files. Cleanup does not remove referenced assets, recent uploads/generations, or unrecognized files. Failed deletions retain a tombstone and can be retried. There is no automatic background cleanup. The explicit asset DELETE endpoint does not wait for the grace period, but still refuses to delete a referenced asset.
 
-Deleted files cannot be restored without a backup. **Backup & restore** creates portable workspace archives containing business data and managed media, with a safety backup before confirmed restore. It also cleans expired backup archives automatically; media cleanup itself still requires confirmation. See [Workspace backups](workspace-backups.md) for archive limits, legacy-video migration requirements and rollback behavior. For a complete installation snapshot or larger datasets, continue to back up the database and media directory together while the app is closed.
+Deleted files cannot be restored without a backup. **Backup & restore** creates portable workspace archives containing business data and managed media, with a safety backup before confirmed restore. It also cleans expired backup archives automatically; media cleanup itself still requires confirmation. See [Workspace backups](workspace-backups.md) for archive limits, legacy-video migration requirements and rollback behavior. For a complete installation snapshot or larger datasets, quit RiA and copy the whole data folder.

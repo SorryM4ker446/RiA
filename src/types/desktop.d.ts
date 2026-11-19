@@ -63,8 +63,12 @@ type DesktopRuntimeInfo = {
   appVersion: string;
   packaged: boolean;
   platform: string;
+  /** Where the data really is, links resolved; and whether it was moved from its default place. */
   dataDirectory: string;
-  mediaDirectory: string;
+  dataMoved: boolean;
+  cacheDirectory: string;
+  /** The cache lives in a folder of its own rather than in the data folder. */
+  cacheSeparate: boolean;
   logFile: string;
   notificationsSupported: boolean;
 };
@@ -92,6 +96,7 @@ interface Window {
       present: (token: string) => Promise<boolean>;
     };
     getRuntimeInfo: () => Promise<DesktopRuntimeInfo>;
+    openLogsFolder: () => Promise<{ opened: boolean }>;
     getSettings: () => Promise<DesktopSettingsView>;
     saveSettings: (
       input: DesktopSettingsInput,

@@ -33,7 +33,6 @@ export function ServiceSettings() {
   const windowDesktop = useDesktopRuntime();
   const [settings, setSettings] = useState<DesktopSettingsView | null>(null);
   const [modelState, setModelState] = useState<ModelPreferences | null>(null);
-  const [runtime, setRuntime] = useState<DesktopRuntimeInfo | null>(null);
   const [openrouterApiKey, setOpenrouterApiKey] = useState("");
   const [deepseekApiKey, setDeepseekApiKey] = useState("");
   const [outboundProxyUrl, setOutboundProxyUrl] = useState("");
@@ -55,16 +54,14 @@ export function ServiceSettings() {
 
     Promise.all([
       bridge.getSettings(),
-      bridge.getRuntimeInfo(),
       // The readiness steps describe what is configured, and two of the three
       // live in model settings rather than in the desktop store. A failure here
       // must not block the section, so it is settled separately below.
       // Unknown readiness is shown as unknown rather than as a failure.
       settingsRequest<{ data: ModelPreferences }>("/api/models").catch(() => null),
     ])
-      .then(([loadedSettings, loadedRuntime, models]) => {
+      .then(([loadedSettings, models]) => {
         setSettings(loadedSettings);
-        setRuntime(loadedRuntime);
         if (models?.data) setModelState(models.data);
         setOutboundProxyUrl(loadedSettings.outboundProxyUrl);
         setOpenrouterSiteName(loadedSettings.openrouterSiteName);
@@ -191,9 +188,8 @@ export function ServiceSettings() {
 
           <details className="settings-disclosure px-1">
             <summary className="settings-disclosure-trigger"><ShieldCheck aria-hidden="true" className="size-4" />{t("ui.settings.localSecurityRuntimeInformation")}<ChevronDown aria-hidden="true" className="ml-auto size-4" /></summary>
-            <div className="grid gap-5 pb-2 pt-4 sm:grid-cols-2">
-              <section className="flex flex-col gap-2 text-xs text-muted-foreground" aria-label={t("settings.securityTitle")}><h2 className="text-sm font-medium text-foreground">{t("settings.securityTitle")}</h2><p>{t("settings.securityKey")}</p><p>{t("settings.securityNoPlaintext")}</p><p>{t("settings.securityLocalApi")}</p></section>
-              <section className="flex flex-col gap-2 break-all text-xs text-muted-foreground" aria-label={t("settings.runtimeTitle")}><h2 className="text-sm font-medium text-foreground">{t("settings.runtimeTitle")}</h2><p>{t("settings.runtimeVersion")}{runtime?.appVersion || "—"} · {runtime?.packaged ? t("settings.runtimePackaged") : t("settings.runtimeDev")}</p><p>{t("settings.runtimeDataDirectory")}{runtime?.dataDirectory || "—"}</p><p>{t("settings.runtimeMediaDirectory")}{runtime?.mediaDirectory || "—"}</p><p>{t("settings.runtimeLogFile")}{runtime?.logFile || "—"}</p><SettingsLink className="text-foreground underline underline-offset-4" section="storage">{t("settings.manageStorage")}</SettingsLink></section>
+            <div className="grid gap-5 pb-2 pt-4">
+              <section className="flex flex-col gap-2 text-xs text-muted-foreground" aria-label={t("settings.securityTitle")}><p>{t("settings.securityKey")}</p><p>{t("settings.securityNoPlaintext")}</p><p>{t("settings.securityLocalApi")}</p></section>
             </div>
           </details>
       </div>

@@ -105,7 +105,7 @@ export const interfaceMessages = {
   "ui.settings.chatOnly": "聊天与联网搜索",
   "ui.settings.connectionSiteOptions": "连接与站点选项",
   "ui.settings.proxyOpenRouter": "代理 / OpenRouter",
-  "ui.settings.localSecurityRuntimeInformation": "本地安全与运行信息",
+  "ui.settings.localSecurityRuntimeInformation": "本地安全",
   "ui.chat.document-attachment.documentAttachment": "文档附件",
   "ui.chat.document-attachment.documentAttachment2": "· 文档附件",
   "ui.chat.document-attachment.removeAttachment": "移除附件 {v0}",

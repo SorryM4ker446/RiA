@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld("riaDesktop", {
     present: (token: string) => ipcRenderer.invoke("desktop:startup:present", token) as Promise<boolean>,
   },
   getRuntimeInfo: () => ipcRenderer.invoke("desktop:runtime:get"),
+  openLogsFolder: () => ipcRenderer.invoke("desktop:logs:open") as Promise<{ opened: boolean }>,
   getSettings: () => ipcRenderer.invoke("desktop:settings:get"),
   saveSettings: (input: DesktopSettingsInput) => ipcRenderer.invoke("desktop:settings:save", input),
   // A folder the user chose with the operating system dialog. There is no other

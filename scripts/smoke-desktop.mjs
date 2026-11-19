@@ -83,6 +83,8 @@ function verifyCacheMove() {
   const state = JSON.parse(readFileSync(`${dataRoot}.location.json`, "utf8"));
   if (state.pendingCache !== null || state.lastResult?.kind !== "cache" || state.lastResult.outcome !== "moved") throw new Error(`The cache folder move did not finish: ${JSON.stringify(state.lastResult)}`);
   if (resolve(state.cache?.path ?? "") !== resolve(movedCache)) throw new Error(`The cache folder was not switched: ${JSON.stringify(state.cache)}`);
+  const paths = reportedPaths();
+  if (!paths.cacheSeparate || !samePlace(paths.cacheDirectory, movedCache)) throw new Error(`The diagnostics did not report the moved cache folder: ${JSON.stringify(paths)}`);
 }
 
 /*
@@ -97,6 +99,15 @@ function verifySmokeCompleted() {
   }
 }
 
+/** The paths the diagnostics report, as the smoke run logged them. */
+function reportedPaths() {
+  const log = readFileSync(join(dataRoot, "logs", "desktop.log"), "utf8");
+  const marker = "Desktop runtime paths ";
+  const line = log.split(/\r?\n/).findLast(entry => entry.includes(marker));
+  if (!line) throw new Error("The smoke run did not log the runtime paths");
+  return JSON.parse(line.slice(line.indexOf(marker) + marker.length));
+}
+const samePlace = (a, b) => resolve(a).toLowerCase() === resolve(b).toLowerCase();
 
 function verifyDataMove() {
   if (!lstatSync(dataRoot).isSymbolicLink()) throw new Error("The data folder was not replaced by a junction");
@@ -106,6 +117,9 @@ function verifyDataMove() {
     if (!existsSync(path)) throw new Error(`The moved data folder is missing ${path}`);
   }
   if (!state.previousCopies.some(copy => existsSync(join(copy.path, "app.db")))) throw new Error("The folder the data moved from was not kept");
+  // The diagnostics name where the data now is, not the link left at the fixed path.
+  const paths = reportedPaths();
+  if (!paths.dataMoved || !samePlace(paths.dataDirectory, movedData)) throw new Error(`The diagnostics did not report the moved data folder: ${JSON.stringify(paths)}`);
 }
 
 const child = spawn(

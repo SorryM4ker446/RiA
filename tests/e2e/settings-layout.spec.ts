@@ -147,3 +147,34 @@ test("choosing to keep running in the tray only saves the choice: the window is 
   expect(errors).toEqual([]);
 });
 
+test("diagnostics copy where the data, cache and log really are; the API keys page no longer lists paths", async ({ page, app }) => {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.addInitScript(() => {
+    const settings = { hasOpenrouterApiKey: true, hasDeepseekApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "", windowBounds: null };
+    (window as unknown as { logsOpened: number }).logsOpened = 0;
+    Object.defineProperty(window, "riaDesktop", { value: {
+      getSettings: async () => settings,
+      getRuntimeInfo: async () => ({ appVersion: "0.1.22", packaged: true, platform: "win32", dataDirectory: "E:\RiA-Data", dataMoved: true, cacheDirectory: "E:\RiA-Cache", cacheSeparate: true, logFile: "E:\RiA-Data\logs\desktop.log", notificationsSupported: true }),
+      saveSettings: async () => ({ settings, restarting: false }),
+      openLogsFolder: async () => { (window as unknown as { logsOpened: number }).logsOpened++; return { opened: true }; },
+    } });
+  });
+  await openWorkspace(page, app.origin);
+  await page.goto(`${app.origin}/chat?settings=services`);
+  const dialog = page.getByRole("dialog");
+  // The disclosure is titled once; its contents no longer repeat the title or list paths.
+  await expect(dialog.locator("summary").filter({ hasText: "本地安全" })).toHaveCount(1);
+  await expect(dialog.getByRole("heading", { name: "本地安全" })).toHaveCount(0);
+  await expect(dialog).not.toContainText("媒体目录");
+  await expect(dialog).not.toContainText("数据目录");
+  await dialog.getByRole("tab", { name: "应用偏好", exact: true }).click();
+  const section = dialog.getByRole("region", { name: "诊断" }).or(dialog.locator(".settings-section").filter({ hasText: "诊断" })).first();
+  await expect(section).toBeVisible();
+  await section.getByRole("button", { name: "打开日志文件夹", exact: true }).click();
+  expect(await page.evaluate(() => (window as unknown as { logsOpened: number }).logsOpened)).toBe(1);
+  await section.getByRole("button", { name: "复制诊断信息", exact: true }).click();
+  await expect(page.getByText("诊断信息已复制", { exact: true })).toBeVisible();
+  // The system clipboard on Windows hands lines back with CRLF.
+  const copied = (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, "\n");
+  expect(copied).toBe(["RiA 0.1.22 · 安装版 · win32", "数据：E:\RiA-Data（已从默认位置移出）", "缓存：E:\RiA-Cache（单独位置）", "日志：E:\RiA-Data\logs\desktop.log"].join("\n"));
+});

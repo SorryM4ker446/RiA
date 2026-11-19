@@ -1,7 +1,8 @@
 /* What the page may ask of the desktop shell, each request checked to come from the app's own page. */
 import { openLocalFile } from "./open-local-file";
 import { type WindowAction } from "./window-transitions";
-import { dirname, isAbsolute } from "node:path";
+import { realpathSync } from "node:fs";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Notification, shell, type IpcMainInvokeEvent } from "electron";
 import { type DesktopSettingsInput } from "./settings";
 import { installationRoot } from "./updater";
@@ -55,6 +56,12 @@ export function performWindowAction(target: BrowserWindow, action: WindowAction)
   else if (target.isMaximized()) target.unmaximize(); else target.maximize();
 }
 
+/** A path with its links resolved; the path as given when it cannot be read. */
+function realPath(path: string) {
+  try { return realpathSync.native(path); } catch { return path; }
+}
+const samePlace = (a: string, b: string) => process.platform === "win32" ? resolve(a).toLowerCase() === resolve(b).toLowerCase() : resolve(a) === resolve(b);
+
 export function registerIpcHandlers() {
   // The caption is drawn by the page, so the verbs live here rather than in the
   // window factory: `createMainWindow` runs a second time from `activate`, and
@@ -101,18 +108,36 @@ export function registerIpcHandlers() {
   ipcMain.handle("desktop:startup:claim", event => startupFor(event)?.claim() ?? null);
   ipcMain.handle("desktop:startup:present", (event, token: unknown) => startupFor(event)?.present(token) ?? false);
 
+  /*
+   * Where things really are, for the diagnostics the settings copy. The data is
+   * opened at a fixed path, which after a move is only a link to where it lives;
+   * reporting that path said the data was still on the system drive. Every path
+   * here has its links resolved. Media is part of the data and has no place of its
+   * own to report.
+   */
   ipcMain.handle("desktop:runtime:get", (event) => {
     assertTrustedIpcSender(event);
     if (!runtime.desktopPaths) throw new Error("Desktop paths are not initialized.");
+    const fixedData = runtime.dataLocation?.dataRoot ?? dirname(runtime.desktopPaths.databaseFile);
+    const dataDirectory = realPath(fixedData);
+    const cacheDirectory = realPath(runtime.dataLocation?.cacheDirectory ?? fixedData);
     return {
       appVersion: applicationVersion,
       packaged: packagedRuntime,
       platform: process.platform,
-      dataDirectory: dirname(runtime.desktopPaths.databaseFile),
-      mediaDirectory: runtime.desktopPaths.mediaDirectory,
-      logFile: runtime.desktopPaths.logFile,
+      dataDirectory,
+      dataMoved: !samePlace(dataDirectory, fixedData),
+      cacheDirectory,
+      cacheSeparate: !samePlace(cacheDirectory, dataDirectory),
+      logFile: realPath(runtime.desktopPaths.logFile),
       notificationsSupported: Notification.isSupported(),
     };
+  });
+  ipcMain.handle("desktop:logs:open", async (event) => {
+    assertTrustedIpcSender(event);
+    if (!runtime.desktopPaths) throw new Error("Desktop paths are not initialized.");
+    const failure = await shell.openPath(realPath(runtime.desktopPaths.logsDirectory));
+    return { opened: !failure };
   });
 
   ipcMain.handle("desktop:settings:get", async (event) => {

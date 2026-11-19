@@ -29,7 +29,7 @@ export async function runSmokeAssertion() {
   )) as {
     health?: { status?: number; body?: { status?: string } };
     conversation?: { status?: number; body?: { data?: { id?: string } } };
-    runtime?: { packaged?: boolean };
+    runtime?: { packaged?: boolean; dataDirectory?: string; dataMoved?: boolean; cacheDirectory?: string; cacheSeparate?: boolean; logFile?: string };
     settings?: { hasOpenrouterApiKey?: boolean; hasDeepseekApiKey?: boolean; encryptionAvailable?: boolean };
   };
   const updates = await runtime.mainWindow.webContents.executeJavaScript("window.riaDesktop.updates.state()", true) as { supported?: boolean; currentVersion?: string; phase?: string };
@@ -50,6 +50,8 @@ export async function runSmokeAssertion() {
   ) {
     throw new Error("Desktop renderer bridge or authenticated API smoke check failed.");
   }
+  // What the diagnostics report: the smoke run around a data or cache move checks these name the moved places.
+  runtime.logger?.info(`Desktop runtime paths ${JSON.stringify({ dataDirectory: result.runtime?.dataDirectory, dataMoved: result.runtime?.dataMoved, cacheDirectory: result.runtime?.cacheDirectory, cacheSeparate: result.runtime?.cacheSeparate, logFile: result.runtime?.logFile })}`);
 
   // The caption is drawn by the page, so the real window is the only place its
   // behaviour can be checked: a browser build has no bridge and no window state.
