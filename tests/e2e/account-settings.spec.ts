@@ -50,7 +50,8 @@ test("portable backup import uploads bounded chunks and restores the workspace",
   await register(page, app.origin);
   await page.evaluate(async () => {
     const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII="), c => c.charCodeAt(0)); const form = new FormData();
-    for (let i = 0; i < 2; i++) { const bytes = new Uint8Array(4.5 * 1024 * 1024); bytes.set(png); form.append("files", new Blob([bytes], { type: "image/png" }), `image-${i}.png`); }
+    // Two different files: the same bytes twice would be kept once.
+    for (let i = 0; i < 2; i++) { const bytes = new Uint8Array(4.5 * 1024 * 1024); bytes.set(png); bytes[bytes.length - 1] = i + 1; form.append("files", new Blob([bytes], { type: "image/png" }), `image-${i}.png`); }
     const response = await fetch("/api/media/upload", { method: "POST", body: form }); if (response.status !== 201) throw new Error("Synthetic media upload failed");
   });
   await openBackups(page, app.origin); await page.getByRole("button", { name: "创建备份", exact: true }).click(); await expect(page.getByRole("article")).toHaveCount(1);

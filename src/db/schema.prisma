@@ -225,6 +225,8 @@ model MediaAsset {
   relativePath      String   @unique
   mediaType         String
   byteSize          Int
+  /// SHA-256 of the bytes, hex. Null on assets stored before it was kept, until one is compared.
+  contentHash       String?
   kind              String
   modelId           String?
   // Null on assets generated before model references were provider-qualified.
@@ -244,6 +246,7 @@ model MediaAsset {
   @@index([createdAt, id])
   @@index([sourceChatId])
   @@index([kind])
+  @@index([mediaType, byteSize])
   @@map("media_assets")
 }
 

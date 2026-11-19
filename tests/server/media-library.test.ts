@@ -7,7 +7,7 @@ import type { TestContext } from "node:test";
 import { NextRequest } from "next/server";
 import { createTestDatabase } from "../helpers/database";
 import { localAccessCookie } from "../helpers/local-access";
-import { testPng, testVideo, providerState, getImageModel, getVideoModel } from "../helpers/model-provider";
+import { distinctPng, testPng, testVideo, providerState, getImageModel, getVideoModel } from "../helpers/model-provider";
 import { seedTestModelPreferences } from "../helpers/model-library";
 
 const cleanup = createTestDatabase();
@@ -27,7 +27,9 @@ let cookie;
 const context = id => ({ params: Promise.resolve({ id }) });
 const req = (url, method = "GET", body = undefined, session = cookie, headers = {}) => new NextRequest(`http://localhost${url}`, { method, headers: { cookie: session, "content-type": "application/json", ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 async function payload(response, status = 200) { assert.equal(response.status, status, await response.clone().text()); return response.json(); }
-async function image() { return storage.createMediaAsset({ bytes: testPng, kind: "attachment", mediaType: "image/png", description: "Uploaded image" }); }
+// Each a different picture: attaching the same bytes again would reuse the asset.
+let pictures = 0;
+async function image() { return storage.createMediaAsset({ bytes: distinctPng(++pictures), kind: "attachment", mediaType: "image/png", description: "Uploaded image" }); }
 async function chat() { return db.chat.create({ data: { title: "Media source" } }); }
 async function generate(type = "image", body = {}) { return payload(await routes[type].POST(req(`/api/${type}`, "POST", { prompt: "Original prompt", ...body }))); }
 async function detail(id, session = cookie) { return (await payload(await routes.details.GET(req(`/api/media/${id}/details`, "GET", undefined, session), context(id)))).data; }
