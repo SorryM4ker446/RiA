@@ -1,6 +1,6 @@
 name: Release
 
-# Started by hand from the Actions page on main. It builds the Windows installer
+# Started by hand from the Actions page on main. It builds both Windows installers
 # for the version in package.json and publishes it as a draft release whose tag
 # does not exist yet. A draft is invisible to installed copies: they read the
 # latest published release only, so a build reaches users once its manual
@@ -96,10 +96,19 @@ jobs:
       - name: Verify compiled installer
         run: ./scripts/verify-windows-installer.ps1
 
+      - name: Wrap the verified MSI in the branded Setup executable
+        run: npm run desktop:setup
+
+      - name: Exercise the installer window states
+        run: ./scripts/make-setup.ps1 -CheckPreview
+
+      - name: Exercise Windows Installer upgrade, rollback and reinstall
+        run: ./scripts/test-setup-transaction.ps1 -PerMachine
+
       - name: Sign the update manifest
         env:
           RIA_UPDATE_SIGNING_KEY: ${{ secrets.RIA_UPDATE_SIGNING_KEY }}
-        run: npm run desktop:update-manifest
+        run: npm run desktop:update-manifest -- --with-setup
 
       - name: Publish draft release
         env:
@@ -108,6 +117,7 @@ jobs:
           $version = "${{ steps.release.outputs.version }}"
           $directory = "out/make/wix/x64"
           gh release create "${{ steps.release.outputs.tag }}" --draft --target "${{ github.sha }}" --title "RiA $version" --notes "RiA $version for Windows x64. Publish this draft only after the Windows release acceptance has passed." `
+            "$directory/RiA-Setup-$version-x64.exe" "$directory/RiA-Setup-$version-x64.exe.sha256" `
             "$directory/RiA-$version-x64.msi" "$directory/update-manifest.json" "$directory/verification.json"
 
       - name: Upload release failure diagnostics
@@ -116,6 +126,9 @@ jobs:
         with:
           name: release-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            .desktop-data/setup-build/setup-check.log
+            .desktop-data/setup-build/preview-check-*/failure.txt
+            .desktop-data/setup-build/msi-test-*/*.log
             .desktop-data/test/electron-smoke-*/data/logs/desktop.log*
           include-hidden-files: true
           if-no-files-found: ignore

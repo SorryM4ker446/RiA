@@ -62,6 +62,8 @@ export const windowsInstallerConfig = {
     creator.wixTemplate = creator.wixTemplate.replace(loggingAnchor, [
       loggingAnchor,
       '    <Property Id="MsiLogging" Value="voicewarmup" />',
+      // Keep the directory provided by Setup when MSI crosses into its elevated service.
+      '    <Property Id="APPLICATIONROOTDIRECTORY" Secure="yes" />',
       '    <Property Id="PERUSERRIA">',
       '      <RegistrySearch Id="PerUserRiaMarker" Root="HKCU" Key="Software\\Microsoft\\RiA" Name="installed" Type="raw" />',
       "    </Property>",

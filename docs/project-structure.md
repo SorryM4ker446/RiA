@@ -1,16 +1,14 @@
 # Project structure and runtime model
 
-> Reflects the current implementation (a single-user local workspace, no accounts). Dated 2026-10-25.
-
 ## 1. What this is
 
-A local AI assistant for one person on one machine. Data, media and the knowledge base live on the machine; network requests serve models, search and explicitly configured external extensions.
+A local-first Windows desktop agent for one person. It works in a granted directory, uses conversation-scoped tools and records their actions and results. Data, media and the knowledge base live on the machine. Network requests reach configured models and services, web pages or external tools as needed.
 
 The application has **no account system**: no registration, no sign-in, no sign-out and no multi-tenant isolation. What protects the data is a *local access credential* that only a process or page on this machine can obtain. See [Local access and security](api-security.md).
 
 ## 2. Three runtimes
 
-One body of business code, three ways to start it:
+One body of business code serves the desktop application, local browser development and automated tests:
 
 | Runtime | `APP_RUNTIME` | Started by | Data location |
 | --- | --- | --- | --- |
@@ -39,19 +37,22 @@ src/features/       Client modules grouped by feature: assistants, chat, command
 src/lib/            Shared infrastructure
   activity/         Workspace events and local fact reviews
   agent/            Execution records: tool runs, their steps and stop state
+  agents/           Internal model jobs and foreground or background task sub-agents
   ai/               AI SDK client and message encoding
+  approvals/        Per-conversation action rules and model review
   assistants/       Default and custom assistant templates
   backups/          Archive, import, restore and retention
-  chat/             Request validation, context, streaming and persistence
+  chat/             Request validation, context, live turns, streaming and persistence
   conversations/    Conversation queries, changes and export
   documents/        Extraction, index and retrieval
   document-processor/ Editable extraction snapshots and on-demand Markdown/TXT/HTML/DOCX exports
   extensions/       Machine-local MCP/HTTP connections, encrypted credentials and lifecycle
+  knowledge/        Knowledge entries and their retrieval
   locale/           Interface copy (Chinese and English catalogs) and lookup helpers
   local/            Local workspace identity
   local-files/      User-granted directories: path safety, grants and their limits
   media/            Private media storage, generation and migration
-  memory/           Memory storage, retrieval scoring and vector rebuild
+  memory/           MEMORY.md, extraction and topic organization
   models/           Provider adapters, dynamic catalogs, my models, availability, preferences and usage
   plugins/          Plugin packages, the bundled catalog and the skills.sh marketplace
   project-files/    Reading and editing files inside an authorized workspace
@@ -60,6 +61,7 @@ src/lib/            Shared infrastructure
   settings/         Settings overlay sections and their addresses
   terminal/         PowerShell runtime, permissions, logs and file-change tracking
   ui/, utils/       Small client helpers (list removal without layout jumps, class-name merging)
+  web/              Public-page retrieval and outbound connection handling
   *.ts              Client hooks and helpers used across features (use-*.ts, clipboard, downloads)
 src/tools/          Built-in definitions, unified registry and shared execution pipeline
 src/types/          Ambient type declarations (the desktop bridge)
@@ -83,7 +85,9 @@ Every business table belongs to **one workspace**; there is no `userId`:
 
 - `chats` / `messages` / `chat_tags`
 - `media_assets` / `message_media` / `media_generation_inputs`
-- `memories`, `scheduled_jobs` / `scheduled_runs` (tasks and their runs), `knowledge_documents` / `document_chunks` / `document_terms`
+- `agent_runs` / `agent_steps` / `subagent_runs` (execution records and task sub-agents)
+- `memory_documents` (MEMORY.md) and `memories` (knowledge entries)
+- `scheduled_jobs` / `scheduled_runs` (tasks and their runs), `knowledge_documents` / `document_chunks` / `document_chunk_search` (FTS5)
 - `model_requests` (usage), `account_preferences` (a single application preference, primary key fixed to `local`)
 
 Media and backup directories are still named `sha256(<workspace id>)`, so files already on disk do not have to be moved.

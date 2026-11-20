@@ -2,6 +2,7 @@ import { createPrivateKey, createPublicKey, sign, verify } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { installerArtifact } from "./desktop-release-manifest.mjs";
 
 export const updateManifestName = "update-manifest.json";
 export const publicKeySource = join("electron", "update-signing-key.ts");
@@ -23,19 +24,32 @@ export async function shippedPublicKey(root) {
  * a manifest the installed copies cannot verify would publish a release that no
  * existing installation is able to accept.
  */
-export async function writeUpdateManifest(root, privateKeyPem) {
+export async function writeUpdateManifest(root, privateKeyPem, { requireSetup = false } = {}) {
   if (!privateKeyPem?.trim()) throw new Error("RIA_UPDATE_SIGNING_KEY is not set");
   const directory = join(root, "out", "make", "wix", "x64");
   const record = JSON.parse(await readFile(join(directory, "verification.json"), "utf8"));
   const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
   if (record.version !== manifest.version) throw new Error("The installer record does not match the package version");
-  if (record.platform !== "win32" || record.arch !== "x64" || record.artifacts?.length !== 1) throw new Error("Expected exactly one Windows x64 installer");
-  const [artifact] = record.artifacts;
+  if (record.platform !== "win32" || record.arch !== "x64" || !Array.isArray(record.artifacts)) throw new Error("Expected Windows x64 installers");
   const product = manifest.productName ?? "RiA";
-  if (artifact.filename !== `${product}-${record.version}-x64.msi`) throw new Error(`Unexpected installer name: ${artifact.filename}`);
+  const msiName = `${product}-${record.version}-x64.msi`;
+  const setupName = `${product}-Setup-${record.version}-x64.exe`;
+  const names = new Set(record.artifacts.map(item => item.filename));
+  if (!names.has(msiName) || names.size !== record.artifacts.length || [...names].some(name => name !== msiName && name !== setupName))
+    throw new Error("Unexpected or duplicate installer names");
+  if (requireSetup && !names.has(setupName)) throw new Error("The release is missing its Setup EXE");
+
+  const [artifact, setup] = await Promise.all([msiName, setupName].map(async filename => {
+    const expected = record.artifacts.find(item => item.filename === filename);
+    if (!expected) return null;
+    const actual = await installerArtifact(directory, filename);
+    if (actual.bytes !== expected.bytes || actual.sha256 !== expected.sha256) throw new Error(`Installer bytes do not match verification.json: ${filename}`);
+    return actual;
+  }));
   const payload = JSON.stringify({
     product, version: record.version, platform: "win32", arch: "x64",
     filename: artifact.filename, bytes: artifact.bytes, sha256: artifact.sha256,
+    ...(setup ? { setup } : {}),
   });
   const privateKey = createPrivateKey(privateKeyPem);
   const signature = sign(null, Buffer.from(payload, "utf8"), privateKey);
@@ -44,10 +58,12 @@ export async function writeUpdateManifest(root, privateKeyPem) {
   }
   const path = join(directory, updateManifestName);
   await writeFile(path, JSON.stringify({ payload, signature: signature.toString("base64") }, null, 2) + "\n");
-  return { path, version: record.version, filename: artifact.filename };
+  return { path, version: record.version, filename: artifact.filename, ...(setup ? { setupFilename: setup.filename } : {}) };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const result = await writeUpdateManifest(resolve(dirname(fileURLToPath(import.meta.url)), ".."), process.env.RIA_UPDATE_SIGNING_KEY);
-  console.log(`Signed the update manifest for ${result.filename}.`);
+  const args = process.argv.slice(2);
+  if (args.some(arg => arg !== "--with-setup")) throw new Error("Only --with-setup is supported");
+  const result = await writeUpdateManifest(resolve(dirname(fileURLToPath(import.meta.url)), ".."), process.env.RIA_UPDATE_SIGNING_KEY, { requireSetup: args.includes("--with-setup") });
+  console.log(`Signed the update manifest for ${[result.filename, result.setupFilename].filter(Boolean).join(" and ")}.`);
 }

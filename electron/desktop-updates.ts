@@ -3,7 +3,7 @@ import { basename, dirname, join } from "node:path";
 import { app, Notification, powerMonitor } from "electron";
 import { installationRoot, launchInstaller, type InstallPlan, type UpdateState } from "./updater";
 import { runtime, PRODUCT_NAME, smokeTest } from "./runtime-state";
-import { notificationIcon, showMainWindow } from "./desktop-presence";
+import { notificationIcon, quitFromTray, showMainWindow } from "./desktop-presence";
 
 /*
  * Updates replace an installed copy, so only an installed copy looks for them: a
@@ -11,7 +11,6 @@ import { notificationIcon, showMainWindow } from "./desktop-presence";
  * not reach the network or touch the download folder an installed copy uses.
  */
 export const updatesSupported = app.isPackaged && process.platform === "win32" && !smokeTest;
-const UPDATE_FIRST_CHECK_MS = 30_000;
 const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 export function broadcastUpdateState(state: UpdateState) {
@@ -20,7 +19,7 @@ export function broadcastUpdateState(state: UpdateState) {
 
 /**
  * Runs the installer once this process has gone, from a helper that outlives it
- * (see launchInstaller). Both programs are named by their full system path.
+ * (see launchInstaller). The downloaded Setup or Windows Installer receives the handoff.
  */
 export async function launchUpdateInstaller(plan: Pick<InstallPlan, "installer" | "installLog" | "resultFile">): Promise<void> {
   const system = join(process.env.SystemRoot || "C:\\Windows", "System32");
@@ -30,7 +29,11 @@ export async function launchUpdateInstaller(plan: Pick<InstallPlan, "installer" 
     installRoot,
     relaunch: join(installRoot, basename(process.execPath)),
     waitForPid: process.pid,
-  }, { directory: dirname(plan.installer), system, installer: { program: join(system, "msiexec.exe"), window: 1 } });
+  }, { directory: dirname(plan.installer), system });
+  runtime.logger?.info("Quitting so the update can install", { installRoot });
+  // Give the visible update dialog time to show the handoff. The prepared
+  // launcher waits for the actual process exit before starting Windows Installer.
+  setTimeout(quitFromTray, 1500);
 }
 
 export function notifyUpdateAvailable(version: string) {
@@ -65,7 +68,7 @@ export async function runAutomaticUpdateCheck() {
 export function scheduleUpdateChecks() {
   if (!updatesSupported) return;
   const run = () => { void runAutomaticUpdateCheck().catch(error => runtime.logger?.warn("Automatic update check failed", error)); };
-  setTimeout(run, UPDATE_FIRST_CHECK_MS).unref();
+  run();
   setInterval(run, UPDATE_CHECK_INTERVAL_MS).unref();
   // A machine that slept through the interval checks when it wakes, not hours later.
   powerMonitor.on("resume", () => {

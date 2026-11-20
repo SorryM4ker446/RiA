@@ -5,7 +5,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
-import { acceptanceScenarios, checkAcceptance, initializeAcceptance } from "../../scripts/desktop-release-acceptance.mjs";
+import { acceptanceScenarios, checkAcceptance, initializeAcceptance, setupAcceptanceScenarios } from "../../scripts/desktop-release-acceptance.mjs";
 
 async function fixture(run) {
   const root = await mkdtemp(join(tmpdir(), "ria-acceptance-"));
@@ -74,6 +74,23 @@ test("acceptance rejects changed installer bytes and an old record after a same-
     await assert.rejects(checkAcceptance(context.manifest, context.record), /Installer bytes/);
     await writeFile(context.manifest, JSON.stringify({ ...context.release, artifacts: [{ ...context.release.artifacts[0], sha256: createHash("sha256").update("changed").digest("hex") }] }));
     await assert.rejects(checkAcceptance(context.manifest, context.record), /different installer/);
+  });
+});
+
+test("acceptance also binds the branded Setup's bytes when it is part of the release", async () => {
+  await fixture(async context => {
+    const setup = { filename: "RiA-Setup-1.2.3-x64.exe", bytes: 5, sha256: createHash("sha256").update("setup").digest("hex") };
+    const executable = join(context.root, setup.filename);
+    await writeFile(executable, "setup");
+    await writeFile(context.manifest, JSON.stringify({ ...context.release, artifacts: [...context.release.artifacts, setup] }));
+    const record = await completed(context);
+    assert.deepEqual(record.scenarios.map(item => item.id), [...acceptanceScenarios, ...setupAcceptanceScenarios]);
+    assert.deepEqual((await checkAcceptance(context.manifest, context.record)).release.artifacts, [...context.release.artifacts, setup]);
+    await context.save({ ...record, scenarios: record.scenarios.filter(item => acceptanceScenarios.includes(item.id)) });
+    await assert.rejects(checkAcceptance(context.manifest, context.record), /duplicated or missing/);
+    await context.save(record);
+    await writeFile(executable, "other");
+    await assert.rejects(checkAcceptance(context.manifest, context.record), /Installer bytes/);
   });
 });
 

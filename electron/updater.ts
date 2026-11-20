@@ -1,16 +1,18 @@
 import { spawn } from "node:child_process";
-import { createHash, createPublicKey, verify } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { copyFile, mkdir, open, readdir, readFile, rename, rm, rmdir, statfs, writeFile } from "node:fs/promises";
+import { createHash, createPublicKey, randomUUID, verify } from "node:crypto";
+import { createReadStream, existsSync, readFileSync, renameSync } from "node:fs";
+import { copyFile, mkdir, open, readdir, readFile, rm, rmdir, statfs, writeFile } from "node:fs/promises";
 import { basename, dirname, join, win32 } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import type { DesktopLogger } from "./logger";
 
 export const UPDATE_REPOSITORY = "SorryM4ker446/RiA";
 export const UPDATE_MANIFEST_URL = `https://github.com/${UPDATE_REPOSITORY}/releases/latest/download/update-manifest.json`;
-export const installerUrl = (manifest: UpdateManifest) =>
+export const installerUrl = (manifest: UpdateArtifact & { version: string }) =>
   `https://github.com/${UPDATE_REPOSITORY}/releases/download/v${manifest.version}/${manifest.filename}`;
 
-export type UpdateManifest = { product: "RiA"; version: string; platform: "win32"; arch: "x64"; filename: string; bytes: number; sha256: string };
+type UpdateArtifact = { filename: string; bytes: number; sha256: string };
+export type UpdateManifest = UpdateArtifact & { product: "RiA"; version: string; platform: "win32"; arch: "x64"; setup?: UpdateArtifact };
 
 export type UpdatePhase = "idle" | "checking" | "current" | "available" | "downloading" | "ready" | "installing";
 export type UpdateFailure = "network" | "verification" | "install" | "space";
@@ -44,7 +46,7 @@ export type InstallPlan = {
   resultFile: string;
   /** The installation root, kept on upgrade instead of the installer's default. */
   installRoot: string;
-  /** Started again once the installer has finished, whatever its outcome. */
+  /** Started after the installer finishes, unless Windows needs to restart. */
   relaunch: string;
   waitForPid: number;
 };
@@ -63,6 +65,9 @@ const PENDING_FILE = "pending.json";
 const RESULT_FILE = "install-result.json";
 const INSTALL_LOG = "install.log";
 const LAUNCHER_FILE = "install.js";
+const LAUNCHER_OWNER_FILE = "install-owner.json";
+const LAUNCHER_READY_FILE = "install-ready";
+const LAUNCHER_START_TIMEOUT_MS = 15_000;
 /*
  * Windows Installer works from a copy of the package in %WINDIR%\Installer,
  * made before it checks disk space, and registers the product by writing a
@@ -74,6 +79,8 @@ const INSTALLER_PACKAGE_COPIES = 2;
 const INSTALL_HEADROOM_BYTES = 128 * 1024 * 1024;
 /** Windows Installer's "out of disk space" (1601) and "not enough space to install a file" (1307), as its log records them in any language. */
 const DISK_FULL_NOTE = /Note: 1: (?:1601 2: ([A-Za-z]:)|1307 2: ([A-Za-z]:)\\)/;
+const SETUP_PACKAGE_LOG = /^install_\d+_RiAMsi\.log$/i;
+const isSetup = (filename: string) => filename.endsWith(".exe");
 
 export function compareVersions(left: string, right: string): number {
   const a = VERSION.exec(left), b = VERSION.exec(right);
@@ -100,13 +107,21 @@ export function verifyManifest(document: unknown, publicKeyPem: string): UpdateM
   let manifest: Partial<UpdateManifest>;
   try { manifest = JSON.parse(payload) as Partial<UpdateManifest>; }
   catch { throw new VerificationError("The update manifest payload is not JSON."); }
-  const { product, version, platform, arch, filename, bytes, sha256 } = manifest;
+  const { product, version, platform, arch, setup } = manifest ?? {};
   if (product !== "RiA" || platform !== "win32" || arch !== "x64") throw new VerificationError("The update is for another product or platform.");
   if (typeof version !== "string" || !VERSION.test(version)) throw new VerificationError("The update version is invalid.");
-  if (filename !== `RiA-${version}-x64.msi`) throw new VerificationError("The installer name does not match the version.");
-  if (!Number.isSafeInteger(bytes) || bytes! <= 0 || bytes! > MAX_INSTALLER_BYTES) throw new VerificationError("The installer size is invalid.");
+  const msi = verifyArtifact(manifest, `RiA-${version}-x64.msi`);
+  return { product, version, platform, arch, ...msi,
+    ...(setup === undefined ? {} : { setup: verifyArtifact(setup, `RiA-Setup-${version}-x64.exe`) }) };
+}
+
+function verifyArtifact(value: unknown, expectedName: string): UpdateArtifact {
+  const { filename, bytes, sha256 } = (value ?? {}) as Partial<UpdateArtifact>;
+  if (filename !== expectedName) throw new VerificationError("The installer name does not match the version.");
+  if (typeof bytes !== "number" || !Number.isSafeInteger(bytes) || bytes <= 0 || bytes > MAX_INSTALLER_BYTES)
+    throw new VerificationError("The installer size is invalid.");
   if (typeof sha256 !== "string" || !/^[0-9a-f]{64}$/.test(sha256)) throw new VerificationError("The installer checksum is invalid.");
-  return { product, version, platform, arch, filename, bytes: bytes!, sha256 };
+  return { filename, bytes, sha256 };
 }
 
 async function fileDigest(path: string): Promise<{ bytes: number; sha256: string }> {
@@ -128,11 +143,16 @@ export function volumeOf(path: string): string {
  * room for its two copies of the package on the system volume. Once the
  * download is on disk it is already counted in what is free.
  */
-export function updateSpaceNeeds(input: { downloadDirectory: string; installerCacheDirectory: string; bytes: number; downloaded: boolean }): Map<string, number> {
+export function updateSpaceNeeds(input: { downloadDirectory: string; installerCacheDirectory: string; bytes: number; downloaded: boolean; packageBytes?: number }): Map<string, number> {
   const needs = new Map<string, number>();
   const add = (path: string, bytes: number) => { const volume = volumeOf(path); needs.set(volume, (needs.get(volume) ?? 0) + bytes); };
   if (!input.downloaded) add(input.downloadDirectory, input.bytes);
-  add(input.installerCacheDirectory, input.bytes * INSTALLER_PACKAGE_COPIES + INSTALL_HEADROOM_BYTES);
+  const packageBytes = input.packageBytes ?? input.bytes;
+  add(input.installerCacheDirectory, packageBytes * INSTALLER_PACKAGE_COPIES + INSTALL_HEADROOM_BYTES);
+  if (input.packageBytes !== undefined) {
+    // Setup stages its embedded MSI in the user's temporary directory.
+    add(input.downloadDirectory, packageBytes);
+  }
   return needs;
 }
 
@@ -199,27 +219,66 @@ export type InstallerProgram = { program: string; window: 0 | 1 };
  *
  * It waits for the application to exit, so Windows Installer never finds the running
  * copy's files in use, then runs the installer in its own progress window and waits
- * for it. Whatever the outcome, it records the exit code for the next start, deletes
- * the downloaded installer (Windows Installer keeps its own cached copy) and starts
- * the application again, so a cancelled elevation prompt returns the user to the
- * version they had.
+ * for it. It deletes the download after Windows Installer has finished with it,
+ * records the outcome, and returns to RiA unless Windows needs to restart.
  */
-export function installLauncher(plan: InstallPlan, installer: InstallerProgram = { program: "msiexec.exe", window: 1 }): string {
+export function installLauncher(plan: InstallPlan, installer: InstallerProgram = { program: isSetup(plan.installer) ? plan.installer : "msiexec.exe", window: 1 }): string {
   // JSON string literals are valid JScript string literals. Windows paths cannot
   // contain a double quote, so the command lines need no further escaping.
   const literal = (value: string | number) => JSON.stringify(value);
-  const command = `"${installer.program}" /i "${plan.installer}" /passive /norestart /L*V "${plan.installLog}" APPLICATIONROOTDIRECTORY="${plan.installRoot}"`;
+  const setup = isSetup(plan.installer);
+  const directory = dirname(plan.resultFile);
+  const owner = literal(join(directory, LAUNCHER_OWNER_FILE));
+  const command = setup
+    ? `"${installer.program}" -passive -norestart -log "${plan.installLog}"`
+    : `"${installer.program}" /i "${plan.installer}" /passive /norestart /L*V "${plan.installLog}" APPLICATIONROOTDIRECTORY="${plan.installRoot}"`;
   return [
     'var shell = new ActiveXObject("WScript.Shell");',
     'var files = new ActiveXObject("Scripting.FileSystemObject");',
-    `var processes = GetObject(${literal(String.raw`winmgmts:{impersonationLevel=impersonate}!\\.\root\cimv2`)});`,
+    "function runCommand(command, windowStyle, wait) {",
+    "  if (command.indexOf('%') < 0) return shell.Run(command, windowStyle, wait);",
+    "  var commandEnvironment = shell.Environment('PROCESS');",
+    // Run expands environment variables. A single expansion of the whole
+    // command preserves literal percent characters in Windows paths.
+    "  commandEnvironment('RIA_UPDATE_COMMAND') = command;",
+    "  try { return shell.Run('%RIA_UPDATE_COMMAND%', windowStyle, wait); }",
+    "  finally { commandEnvironment.Remove('RIA_UPDATE_COMMAND'); }",
+    "}",
+    "var processes;",
+    `function appRunning() { return processes.ExecQuery("SELECT ProcessId FROM Win32_Process WHERE ProcessId = " + ${literal(Math.trunc(plan.waitForPid))}).Count > 0; }`,
     "var deadline = new Date().getTime() + 120000;",
-    `while (new Date().getTime() < deadline && processes.ExecQuery("SELECT ProcessId FROM Win32_Process WHERE ProcessId = " + ${literal(Math.trunc(plan.waitForPid))}).Count > 0) WScript.Sleep(200);`,
+    `var resultPath = ${literal(plan.resultFile)};`,
+    "function record(code) {",
+    "  var result = files.CreateTextFile(resultPath + '.tmp', true);",
+    "  result.Write('{\"exitCode\":' + code + '}');",
+    "  result.Close();",
+    "  files.MoveFile(resultPath + '.tmp', resultPath);",
+    "}",
+    "try {",
+    `  processes = GetObject(${literal(String.raw`winmgmts:{impersonationLevel=impersonate}!\\.\root\cimv2`)});`,
+    "  if (!appRunning()) WScript.Quit(1);",
+    `  files.CreateTextFile(${literal(join(directory, LAUNCHER_READY_FILE))}, false).Close();`,
+    `  while (!files.FileExists(${owner})) {`,
+    "    if (new Date().getTime() >= deadline) WScript.Quit(1);",
+    // RiA may publish the owner file and exit while the WMI query is in flight.
+    `    if (!appRunning() && !files.FileExists(${owner})) WScript.Quit(1);`,
+    "    WScript.Sleep(50);",
+    "  }",
+    "  while (new Date().getTime() < deadline && appRunning()) WScript.Sleep(200);",
+    "  if (appRunning()) { record(1618); WScript.Quit(1618); }",
+    "} catch (error) { record(-1); WScript.Quit(1); }",
+    ...(setup ? [
+      'var environment = shell.Environment("PROCESS");',
+      `environment("RIA_SETUP_UPDATE_ROOT") = ${literal(plan.installRoot)};`,
+    ] : []),
     "var code = -1;",
-    `try { code = shell.Run(${literal(command)}, ${installer.window}, true); } catch (error) {}`,
-    `try { var result = files.CreateTextFile(${literal(plan.resultFile)}, true); result.Write('{"exitCode":' + code + '}'); result.Close(); } catch (error) {}`,
+    `try { code = runCommand(${literal(command)}, ${installer.window}, true); } catch (error) {}`,
+    ...(setup ? ['environment.Remove("RIA_SETUP_UPDATE_ROOT");'] : []),
     `try { files.DeleteFile(${literal(plan.installer)}, true); } catch (error) {}`,
-    `try { shell.Run(${literal(`"${plan.relaunch}"`)}, 1, false); } catch (error) {}`,
+    "try { record(code); } catch (error) {}",
+    `try { files.DeleteFile(${owner}, true); } catch (error) {}`,
+    "if (code === 3010 || code === 1641) WScript.Quit(0);",
+    `try { runCommand(${literal(`"${plan.relaunch}"`)}, 1, false); } catch (error) {}`,
   ].join("\r\n");
 }
 
@@ -239,13 +298,48 @@ export function installLauncher(plan: InstallPlan, installer: InstallerProgram =
  */
 export async function launchInstaller(plan: InstallPlan, options: { directory: string; system: string; installer?: InstallerProgram }): Promise<void> {
   const launcher = join(options.directory, LAUNCHER_FILE);
-  await writeFile(launcher, `\ufeff${installLauncher(plan, options.installer)}`, "utf16le");
+  const ready = join(options.directory, LAUNCHER_READY_FILE);
+  const owner = join(options.directory, LAUNCHER_OWNER_FILE);
+  const ownerTemp = `${owner}.tmp`;
+  const installer = options.installer ?? { program: isSetup(plan.installer) ? plan.installer : join(options.system, "msiexec.exe"), window: 1 };
+  await rm(ready, { force: true });
+  await writeFile(launcher, `\ufeff${installLauncher(plan, installer)}`, "utf16le");
   const child = spawn(join(options.system, "wscript.exe"), ["//B", "//Nologo", "//E:jscript", launcher], { cwd: options.system, detached: true, stdio: "ignore", windowsHide: true });
-  await new Promise<void>((resolve, reject) => {
-    child.once("spawn", resolve);
-    child.once("error", reject);
-  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      child.once("spawn", resolve);
+      child.once("error", reject);
+    });
+    const deadline = Date.now() + LAUNCHER_START_TIMEOUT_MS;
+    // Windows may start wscript.exe successfully even if policy prevents it
+    // from running the script. Wait for the script to confirm it can watch RiA.
+    while (true) {
+      if (child.exitCode !== null || child.signalCode !== null) throw new Error("Windows Script Host exited before the update launcher was ready.");
+      if (existsSync(ready)) break;
+      if (Date.now() >= deadline) throw new Error("The update launcher did not report readiness.");
+      await delay(25);
+    }
+    await writeFile(ownerTemp, JSON.stringify({ pid: child.pid }));
+    renameSync(ownerTemp, owner);
+  } catch (error) {
+    child.kill();
+    await rm(ownerTemp, { force: true }).catch(() => {});
+    throw error;
+  }
   child.unref();
+}
+
+/** The detached launcher owns the download, logs and relaunch until it publishes a result. */
+export function updateInstallInProgress(directory: string): boolean {
+  try {
+    const { pid } = JSON.parse(readFileSync(join(directory, LAUNCHER_OWNER_FILE), "utf8")) as { pid?: number };
+    if (!pid || !Number.isInteger(pid) || pid <= 0 || pid > 0x7fff_ffff) return false;
+    if (existsSync(join(directory, RESULT_FILE))) return false;
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
 }
 
 /**
@@ -259,6 +353,7 @@ export async function launchInstaller(plan: InstallPlan, options: { directory: s
  */
 export async function reconcileUpdateDirectory(input: { directory: string; currentVersion: string; logsDirectory: string; logger: DesktopLogger }): Promise<PreviousInstall | null> {
   const { directory, currentVersion, logsDirectory, logger } = input;
+  if (updateInstallInProgress(directory)) return null;
   let previous: PreviousInstall | null = null;
   try {
     const pending = JSON.parse(await readFile(join(directory, PENDING_FILE), "utf8")) as { version?: unknown };
@@ -271,7 +366,12 @@ export async function reconcileUpdateDirectory(input: { directory: string; curre
       else if (exitCode === USER_CANCELLED) previous = { outcome: "cancelled", version };
       else {
         const kept = join(logsDirectory, "update-install.log");
-        const logFile = await copyFile(join(directory, INSTALL_LOG), kept).then(() => kept, () => null);
+        // Preserve a package log from an earlier Burn-based test build if present.
+        const entries = await readdir(directory).catch(() => []);
+        const packageLog = entries.filter(name => SETUP_PACKAGE_LOG.test(name)).sort().at(-1);
+        const installerLog = packageLog ? join(directory, packageLog) : join(directory, INSTALL_LOG);
+        const logFile = await copyFile(installerLog, kept).then(() => kept, () =>
+          packageLog ? copyFile(join(directory, INSTALL_LOG), kept).then(() => kept, () => null) : null);
         const diskFull = logFile ? await readFile(logFile).then(diskFullVolume, () => null) : null;
         previous = { outcome: "failed", version, exitCode, logFile, diskFull };
       }
@@ -386,9 +486,10 @@ export class UpdateService {
    * than leaving Windows Installer to run out of space part-way. A volume whose
    * free space cannot be read is not held against the update.
    */
-  private async ensureSpace(bytes: number, downloaded: boolean): Promise<void> {
+  private async ensureSpace(manifest: UpdateManifest, downloaded: boolean): Promise<void> {
     const { directory, installerCacheDirectory } = this.options;
-    const needs = updateSpaceNeeds({ downloadDirectory: directory, installerCacheDirectory, bytes, downloaded });
+    const needs = updateSpaceNeeds({ downloadDirectory: directory, installerCacheDirectory,
+      bytes: manifest.setup?.bytes ?? manifest.bytes, downloaded, packageBytes: manifest.setup ? manifest.bytes : undefined });
     const freeSpace = this.options.freeSpace ?? volumeFreeSpace;
     for (const [volume, required] of needs) {
       const path = volume === volumeOf(installerCacheDirectory) ? installerCacheDirectory : directory;
@@ -408,9 +509,10 @@ export class UpdateService {
     if (this.state.phase !== "available" || !manifest || this.options.blocked?.()) return this.getState();
     const controller = new AbortController();
     this.download = controller;
-    const final = join(this.options.directory, manifest.filename);
-    const partial = `${final}.partial`;
-    this.update({ phase: "downloading", failure: null, received: 0, total: manifest.bytes });
+    const artifact = manifest.setup ?? manifest;
+    const final = join(this.options.directory, artifact.filename);
+    const partial = `${final}.${randomUUID()}.partial`;
+    this.update({ phase: "downloading", failure: null, received: 0, total: artifact.bytes });
     let stall: ReturnType<typeof setTimeout> | undefined;
     const armStall = () => {
       clearTimeout(stall);
@@ -418,13 +520,13 @@ export class UpdateService {
       stall.unref?.();
     };
     try {
-      await this.ensureSpace(manifest.bytes, false);
+      await this.ensureSpace(manifest, false);
       if (this.download !== controller) throw new Error("The download was superseded.");
       await mkdir(this.options.directory, { recursive: true });
       const started = Date.now();
-      this.options.logger.info("Downloading update", { version: manifest.version, bytes: manifest.bytes, file: final });
+      this.options.logger.info("Downloading update", { version: manifest.version, bytes: artifact.bytes, file: final });
       armStall();
-      const response = await this.options.fetch((this.options.installerUrl ?? installerUrl)(manifest), { signal: controller.signal, redirect: "follow" });
+      const response = await this.options.fetch((this.options.installerUrl ?? installerUrl)({ ...manifest, ...artifact }), { signal: controller.signal, redirect: "follow" });
       if (!response.ok || !response.body) throw new Error(`Installer request failed (${response.status})`);
       const hash = createHash("sha256");
       const file = await open(partial, "w");
@@ -436,18 +538,19 @@ export class UpdateService {
           if (done) break;
           armStall();
           received += value.byteLength;
-          if (received > manifest.bytes) throw new VerificationError("The installer is larger than its manifest says.");
+          if (received > artifact.bytes) throw new VerificationError("The installer is larger than its manifest says.");
           hash.update(value);
-          await file.write(value);
-          const percent = Math.floor((received / manifest.bytes) * 100);
+          await file.writeFile(value);
+          const percent = Math.floor((received / artifact.bytes) * 100);
           if (percent !== reported && this.download === controller) { reported = percent; this.update({ received }); }
         }
       } finally {
         await file.close();
       }
-      if (received !== manifest.bytes || hash.digest("hex") !== manifest.sha256) throw new VerificationError("The installer does not match its manifest.");
+      if (received !== artifact.bytes || hash.digest("hex") !== artifact.sha256) throw new VerificationError("The installer does not match its manifest.");
       if (this.download !== controller) throw new Error("The download was superseded.");
-      await rename(partial, final);
+      // Publish without yielding between the ownership check and the rename.
+      renameSync(partial, final);
       this.installer = final;
       this.options.logger.info("Update downloaded and verified", { version: manifest.version, bytes: received, seconds: Math.round((Date.now() - started) / 1000) });
       this.update({ phase: "ready", received });
@@ -488,7 +591,7 @@ export class UpdateService {
   }
 
   /**
-   * Hands the downloaded installer to Windows Installer.
+   * Hands the downloaded installer to the detached launcher.
    *
    * The file is checked again immediately before, since it has been sitting in a
    * user-writable folder since the download. Resolves once the installer step is
@@ -499,9 +602,11 @@ export class UpdateService {
     if (this.state.phase !== "ready" || !manifest || !installer || this.options.blocked?.()) return this.getState();
     this.update({ phase: "installing", failure: null });
     try {
+      const artifact = manifest.setup ?? manifest;
       const digest = await fileDigest(installer);
-      if (digest.bytes !== manifest.bytes || digest.sha256 !== manifest.sha256) throw new VerificationError("The downloaded installer changed after it was verified.");
-      await this.ensureSpace(manifest.bytes, true);
+      if (digest.bytes !== artifact.bytes || digest.sha256 !== artifact.sha256) throw new VerificationError("The downloaded installer changed after it was verified.");
+      await this.ensureSpace(manifest, true);
+      await rm(join(this.options.directory, RESULT_FILE), { force: true });
       await writeFile(join(this.options.directory, PENDING_FILE), JSON.stringify({ version: manifest.version, startedAt: new Date().toISOString() }));
       await this.options.launch({ installer, installLog: join(this.options.directory, INSTALL_LOG), resultFile: join(this.options.directory, RESULT_FILE) });
       this.options.logger.info("Update handed to Windows Installer", { version: manifest.version, installer, installLog: join(this.options.directory, INSTALL_LOG) });

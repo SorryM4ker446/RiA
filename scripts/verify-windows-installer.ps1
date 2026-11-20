@@ -56,6 +56,9 @@ $purge = @(Read-MsiTable 'CustomAction' | Where-Object { $_[0] -match 'RemoveFol
 if ($selectable.Count -ne 1 -or $browse.Count -ne 1 -or $purge.Count -ne 0) {
     throw 'Compiled MSI directory selection or uninstall safety is incorrect'
 }
+if (($properties.SecureCustomProperties -split ';') -notcontains 'APPLICATIONROOTDIRECTORY') {
+    throw 'The elevated MSI service must accept the directory provided by Setup'
+}
 $responseCache = @(Read-MsiTable 'Directory' | Where-Object { $_[2] -match '(^|\|)route-cache$' })
 if ($responseCache.Count -ne 0) {
     throw 'Compiled MSI contains regenerable Next.js response caches'

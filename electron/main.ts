@@ -11,7 +11,7 @@ import { findAvailablePort } from "./next-server";
 import { resolveDataRoot, resolveDesktopPaths } from "./paths";
 import { dataMoveRequested, removeLegacyWebCache, settleDataLocation, webCacheForThisRun, writeNotes } from "./desktop-data-location";
 import { DesktopSettingsStore } from "./settings";
-import { reconcileUpdateDirectory, removeEmptyVersionFolders, UpdateService } from "./updater";
+import { reconcileUpdateDirectory, removeEmptyVersionFolders, updateInstallInProgress, UpdateService } from "./updater";
 import { DEVELOPMENT_APP_USER_MODEL_ID, INSTALLED_APP_USER_MODEL_ID } from "./app-identity";
 import { UPDATE_SIGNING_PUBLIC_KEY } from "./update-signing-key";
 import { createTaskNotificationDelivery, TaskReminderPoller, type TaskNotice } from "./task-reminders";
@@ -50,7 +50,8 @@ app.commandLine.appendSwitch("disk-cache-dir", webCacheInUse);
 /** Whether start-up has opened the main window; until then closing windows never quits. */
 let mainWindowOpened = false;
 
-const singleInstanceLock = app.requestSingleInstanceLock();
+const updateDirectory = join(app.getPath("temp"), `${PRODUCT_NAME}-updates`);
+const singleInstanceLock = !(updatesSupported && updateInstallInProgress(updateDirectory)) && app.requestSingleInstanceLock();
 if (!singleInstanceLock) {
   app.quit();
 }
@@ -133,7 +134,6 @@ async function bootstrap() {
   runtime.desktopSessionToken = randomBytes(32).toString("hex");
   runtime.serverPort = await findAvailablePort();
   runtime.nextServer = await launchNextServer();
-  const updateDirectory = join(app.getPath("temp"), `${PRODUCT_NAME}-updates`);
   /*
    * Release acceptance has to update a test machine to a build that is not
    * published yet, so a folder served over HTTP can stand in for the release.
