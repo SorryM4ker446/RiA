@@ -125,17 +125,22 @@ try {
     for (let attempt = 0; attempt < 60; attempt++) {
       const probe = await cdp.send("Runtime.evaluate", {
         expression: `(async () => {
+          const state = await window.riaDesktop?.windowControls.state();
+          if (!state) return null;
           const selectors = ${JSON.stringify(CONTROL_SELECTORS)};
           const nodes = selectors
             .map(selector => [...document.querySelectorAll(selector)]
               .find(node => node.getClientRects().length > 0));
           if (nodes.some(node => !node)) return null;
-          if (document.documentElement.getAnimations().some(animation => animation.playState === "running" || animation.pending)) return null;
+          // An entrance or reframe can begin while the native state request is in flight.
+          const root = document.documentElement;
+          if (document.visibilityState !== "visible" || getComputedStyle(root).transform !== "none" ||
+              root.getAnimations().some(animation => animation.playState === "running" || animation.pending)) return null;
           return {
-            maximized: (await window.riaDesktop.windowControls.state()).maximized,
+            maximized: state.maximized,
             windowWidth: window.innerWidth,
             screenWidth: window.screen.availWidth,
-            contentRight: document.documentElement.clientWidth,
+            contentRight: root.clientWidth,
             // The app-region is not inherited, so a control that only inherits
             // no-drag from a wrapper is still inside the drag region.
             regions: nodes.map(node => getComputedStyle(node).webkitAppRegion || "-"),

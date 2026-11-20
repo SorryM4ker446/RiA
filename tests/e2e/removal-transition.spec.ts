@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
 import { chooseRowAction } from "../helpers/row-menu";
 import { toasts } from "../helpers/toast";
-import { watchLayout } from "../helpers/layout-watch";
+import { expectEased, watchLayout } from "../helpers/layout-watch";
 
 // Deleting an item folds it away so the content after it slides up, instead of
 // the page jumping when the list reloads without it.
@@ -34,10 +34,10 @@ test("deleting a backup folds its card away without the page jumping", async ({ 
   await expect(page.getByRole("article", { name: /backup-first/ })).toHaveCount(0);
   await expect(toasts(page).getByText("备份文件已永久删除")).toBeVisible();
   await page.waitForTimeout(400);
-  const positions = (await layout.read()).frames.following.map(box => box.top);
-  const steps = positions.slice(1).map((top, index) => Math.abs(top - positions[index]));
-  const travelled = Math.abs(positions.at(-1)! - positions[0]);
-  // The following row moves up by the removed row's height, spread over many frames.
-  expect(travelled, JSON.stringify(positions)).toBeGreaterThan(removed.height * 0.9);
-  expect(Math.max(...steps), JSON.stringify(positions)).toBeLessThan(40);
+  const record = await layout.read();
+  expectEased(record, "following", "top", { atLeast: Math.floor(removed.height * 0.9) + 1 });
+  const frames = record.frames.following;
+  const speeds = frames.slice(1).map((frame, index) => Math.abs(frame.top - frames[index].top) / (frame.at - frames[index].at));
+  // Keep the 40px jump bound at 60 Hz, scaled by the time between the actual samples.
+  expect(Math.max(...speeds), JSON.stringify(frames)).toBeLessThan(40 / (1000 / 60));
 });

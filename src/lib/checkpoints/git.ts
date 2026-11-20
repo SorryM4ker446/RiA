@@ -25,19 +25,21 @@ const split = (output: string) => output.split("\0").filter(Boolean);
 export async function readGitView(root: string): Promise<GitView | null> {
   const options = { cwd: root, env: gitEnvironment(), windowsHide: true, timeout: 10_000, maxBuffer: 256 * 1024 * 1024 };
   try {
-    const [staged, ignored] = await Promise.all([
+    // A failed Git read must still wait for its sibling to release the working directory.
+    const [staged, ignored] = await Promise.allSettled([
       run("git", ["-c", "core.quotepath=off", "ls-files", "--stage", "-z"], options),
       run("git", ["-c", "core.quotepath=off", "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"], options),
     ]);
+    if (staged.status !== "fulfilled" || ignored.status !== "fulfilled") return null;
     const oids = new Map<string, string>();
-    for (const entry of split(staged.stdout)) {
+    for (const entry of split(staged.value.stdout)) {
       // "<mode> <oid> <stage>\t<path>"; only ordinary files at stage 0.
       const tab = entry.indexOf("\t");
       const [mode, oid, stage] = entry.slice(0, tab).split(" ");
       if (stage === "0" && (mode === "100644" || mode === "100755")) oids.set(entry.slice(tab + 1), oid);
     }
     const ignoredFiles = new Set<string>(), ignoredDirectories = new Set<string>();
-    for (const entry of split(ignored.stdout)) (entry.endsWith("/") ? ignoredDirectories.add(entry.slice(0, -1)) : ignoredFiles.add(entry));
+    for (const entry of split(ignored.value.stdout)) (entry.endsWith("/") ? ignoredDirectories.add(entry.slice(0, -1)) : ignoredFiles.add(entry));
     return { oids, ignoredFiles, ignoredDirectories };
   } catch { return null; }
 }

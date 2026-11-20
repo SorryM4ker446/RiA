@@ -28,11 +28,17 @@ test("desktop development launcher allows the application window to become visib
       const { join } = require("node:path");
       const root = join(__dirname, "..");
       app.setPath("userData", join(root, "user-data"));
+      let finished = false;
       function finish(result) {
+        if (finished) return;
+        finished = true;
+        clearTimeout(deadline);
         writeFileSync(join(root, "window-result.json"), JSON.stringify(result));
-        app.exit(result.visible ? 0 : 1);
+        process.exitCode = result.visible ? 0 : 1;
+        // Close the window normally so its renderer releases the fixture directory before teardown.
+        app.quit();
       }
-      setTimeout(() => finish({ visible: false, error: "Window startup timed out" }), 10_000);
+      const deadline = setTimeout(() => finish({ visible: false, error: "Window startup timed out" }), 10_000);
       app.whenReady().then(() => {
         const window = new BrowserWindow({
           show: false, width: 320, height: 160,

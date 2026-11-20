@@ -49,10 +49,7 @@ export function ServiceSettings() {
 
   useEffect(() => {
     const bridge = window.riaDesktop;
-    if (!bridge) {
-      queueMicrotask(() => setIsLoading(false));
-      return;
-    }
+    if (!bridge) return;
 
     Promise.all([
       bridge.getSettings(),
@@ -159,7 +156,7 @@ export function ServiceSettings() {
             </ol>
           )}
           <SettingsSection id="service-keys" icon={KeyRound} title={t("settings.serviceTitle")} description={t("ui.settings.configureModelServiceKeysKeysAre")}>
-              {isLoading && !settings ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Spinner aria-hidden="true" className="size-4" />{t("settings.loading")}</p> : (
+              {windowDesktop && isLoading && !settings ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Spinner aria-hidden="true" className="size-4" />{t("settings.loading")}</p> : (
                 <form className="flex flex-col gap-5" onSubmit={onSubmit}>
                   <FieldGroup className="settings-fields gap-0">
                     {[

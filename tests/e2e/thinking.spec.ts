@@ -105,8 +105,9 @@ test("reasoning stays open while it arrives and folds as the answer starts, with
     const heights: { at: number; height: number }[] = [];
     (window as unknown as { replyStream: { send: (chunks: unknown[]) => void } }).replyStream.send([{ type: "text-start", id: "t" }, { type: "text-delta", id: "t", delta: "这是回答" }]);
     for (let i = 0; i < 90; i++) {
-      await new Promise(resolve => requestAnimationFrame(resolve));
-      heights.push({ at: performance.now(), height: node.getBoundingClientRect().height });
+      // Match the animation's frame timestamp and sample after its callback has written the height.
+      const at = await new Promise<number>(resolve => requestAnimationFrame(time => setTimeout(() => resolve(time), 0)));
+      heights.push({ at, height: node.getBoundingClientRect().height });
       if (!(node as HTMLDetailsElement).open && !node.getAnimations({ subtree: true }).length && heights.length > 3) break;
     }
     return heights;

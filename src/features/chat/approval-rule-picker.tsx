@@ -55,17 +55,18 @@ export function ApprovalRulePicker({ rule, locked, saving, onSelect }: {
   }, [rule]);
   const current = rule ?? initial ?? remembered;
   const name = current ? t(`approval.rule.${current}`) : t("approval.label");
+  const unavailable = locked || saving;
 
   async function choose(value: string) {
     const next = readApprovalRule(value);
-    if (next === current || locked || saving) return;
+    if (next === current || unavailable) return;
     if (await onSelect(next)) toast(tf("approval.changed", { rule: t(`approval.rule.${next}`) }));
   }
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button size="sm" variant="ghost" className="approval-rule-picker composer-control max-w-[12rem]" disabled={locked}
+        <Button size="sm" variant="ghost" className="approval-rule-picker composer-control max-w-[12rem]" disabled={unavailable}
           aria-label={tf("approval.current", { rule: name })} title={locked ? t("approval.lockedWhileGenerating") : current ? t(`approval.ruleHint.${current}`) : t("approval.label")}>
           <ShieldCheck aria-hidden="true" data-icon="inline-start" />
           {/* On a phone the row keeps one line: the name folds away and the button keeps it as its label. */}
@@ -77,7 +78,7 @@ export function ApprovalRulePicker({ rule, locked, saving, onSelect }: {
         <DropdownMenuLabel>{t("approval.label")}</DropdownMenuLabel>
         <DropdownMenuRadioGroup value={current ?? ""} onValueChange={value => void choose(value)}>
           {APPROVAL_RULES.map(value => (
-            <DropdownMenuRadioItem key={value} value={value}>
+            <DropdownMenuRadioItem key={value} value={value} disabled={unavailable}>
               <span className="flex min-w-0 flex-col">
                 <span className="truncate">{t(`approval.rule.${value}`)}</span>
                 <span className="text-xs text-muted-foreground">{t(`approval.ruleHint.${value}`)}</span>
