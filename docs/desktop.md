@@ -156,7 +156,7 @@ $installer.RelatedProducts('{918C97A2-902B-42D0-9B52-F979309DAC68}') | ForEach-O
 
 The quiet uninstall removes the files and the registration and leaves an empty, protected `<volume>:\Config.Msi`; an administrator may delete it while no installation is running.
 
-First-time WiX preparation computes SHA-256 through .NET without requiring the `Get-FileHash` cmdlet. Windows PowerShell downloads use basic parsing to avoid an Internet Explorer dependency on unattended runners. The checksum must match before extraction; an invalid cached ZIP stops the build. Cached and first-time preparation both require validation when this flow changes.
+First-time WiX preparation computes SHA-256 through .NET without requiring the `Get-FileHash` cmdlet. Windows PowerShell downloads use basic parsing to avoid an Internet Explorer dependency on unattended runners. The checksum must match before Windows' built-in `tar.exe` extracts the archive. Preparation succeeds only when extraction succeeds and both `candle.exe` and `light.exe` exist. Cached and first-time preparation both require validation when this flow changes.
 
 The installation directory contains application files, including the `app-<version>` subdirectory. Data, credentials and Electron browser caches still use `%APPDATA%\RiA`; selecting D: for installation does not move these. Uninstall removes MSI-owned files and shortcuts, retains user data and does not recursively erase unrelated files in the selected folder. Close RiA before upgrading; keep the chosen directory consistent between releases. To relocate an existing MSI installation, back up and uninstall first, then reinstall in the new directory.
 
