@@ -135,6 +135,9 @@
   },
   "overrides": {
     "@babel/core": "7.29.6",
+    "@prisma/config@6.19.3": {
+      "effect": "3.22.1"
+    },
     "deepmerge-ts": "8.0.2",
     "extract-zip": "npm:@electron-internal/extract-zip@1.0.5",
     "js-yaml": "4.3.2",

@@ -18,5 +18,15 @@ try {
 if ($actualHash -ne $expectedHash) {
     throw 'WiX archive checksum mismatch. Remove the invalid archive and retry.'
 }
-Expand-Archive -LiteralPath $archive -DestinationPath $toolDirectory -Force
+# CI can expose the PowerShell 7 Archive module to Windows PowerShell 5.1.
+$tar = Join-Path ([Environment]::GetFolderPath('System')) 'tar.exe'
+& $tar -xf $archive -C $toolDirectory
+if ($LASTEXITCODE -ne 0) {
+    throw "WiX archive extraction failed (tar.exe exit code $LASTEXITCODE)."
+}
+foreach ($name in @('candle.exe', 'light.exe')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $toolDirectory $name) -PathType Leaf)) {
+        throw "WiX archive extraction did not produce $name in $toolDirectory."
+    }
+}
 Write-Output "WiX 3.14.1 is ready at $toolDirectory"
