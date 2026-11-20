@@ -5,7 +5,6 @@ import { realpathSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Notification, shell, type IpcMainInvokeEvent } from "electron";
 import { type DesktopSettingsInput } from "./settings";
-import { installationRoot } from "./updater";
 import { runtime, PRODUCT_NAME, packagedRuntime, smokeTest, applicationVersion, windowTransitions, startupPresentations } from "./runtime-state";
 import { quitFromTray, registerGlobalHotkey, updateTrayMenu, applyDesktopPresence } from "./desktop-presence";
 import { restartLocalService } from "./local-service";
@@ -153,20 +152,10 @@ export function registerIpcHandlers() {
   };
   ipcMain.handle("desktop:update:state", event => updates(event).getState());
   ipcMain.handle("desktop:update:check", event => updates(event).check());
-  /*
-   * Download, verify and install in one request. It outlives the call: progress
-   * arrives as state changes, and the page learns the app is about to quit from
-   * the "installing" state before it does. The installer is waiting for this
-   * process to exit, and the quit is the one the tray uses, so the local service
-   * is stopped first.
-   */
+  // The confirmed installer handoff owns quitting; repeated IPC requests only see progress.
   ipcMain.handle("desktop:update:apply", event => {
     const service = updates(event);
-    void service.apply().then(state => {
-      if (state.phase !== "installing") return;
-      runtime.logger?.info("Quitting so the update can install", { version: state.availableVersion, installRoot: installationRoot(process.execPath) });
-      setTimeout(() => quitFromTray(), 1500);
-    }, error => runtime.logger?.error("Update failed", error));
+    void service.apply().catch(error => runtime.logger?.error("Update failed", error));
     return service.getState();
   });
   ipcMain.handle("desktop:update:cancel", event => updates(event).cancelDownload());

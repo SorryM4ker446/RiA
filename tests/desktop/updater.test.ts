@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash, generateKeyPairSync, sign, type KeyObject } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { runInNewContext } from "node:vm";
 import {
-  compareVersions, diskFullVolume, installationRoot, launchInstaller, reconcileUpdateDirectory, removeEmptyVersionFolders, updateSpaceNeeds, UpdateService, verifyManifest, volumeOf,
-  type UpdateManifest, type UpdateState,
+  compareVersions, diskFullVolume, installationRoot, installLauncher, launchInstaller, reconcileUpdateDirectory, removeEmptyVersionFolders, updateSpaceNeeds, UpdateService, verifyManifest, volumeOf,
+  updateInstallInProgress, type UpdateManifest, type UpdateState,
 } from "../../electron/updater";
 import type { DesktopLogger } from "../../electron/logger";
 
@@ -15,6 +16,11 @@ const silent = { info: () => {}, warn: () => {}, error: () => {} };
 const keys = generateKeyPairSync("ed25519");
 const publicKey = String(keys.publicKey.export({ type: "spki", format: "pem" }));
 const installerBytes = Buffer.from("fake msi bytes ".repeat(4096));
+const setupBytes = Buffer.concat([installerBytes, Buffer.from("fake setup wrapper")]);
+const setupArtifact = {
+  filename: "RiA-Setup-1.2.4-x64.exe", bytes: setupBytes.length,
+  sha256: createHash("sha256").update(setupBytes).digest("hex"),
+};
 
 function signed(fields: Partial<UpdateManifest> = {}, key: KeyObject = keys.privateKey) {
   const version = fields.version ?? "1.2.4";
@@ -85,7 +91,35 @@ test("a manifest is accepted only with a valid signature and consistent fields",
   assert.throws(() => verifyManifest(signed({ filename: "..\\..\\evil.msi" }), publicKey), /name/);
   assert.throws(() => verifyManifest(signed({ product: "Other" as "RiA" }), publicKey), /product/);
   assert.throws(() => verifyManifest(signed({ sha256: "abc" }), publicKey), /checksum/);
+  assert.throws(() => verifyManifest(signed({ setup: { ...setupArtifact, filename: "RiA-Setup-1.2.3-x64.exe" } }), publicKey), /name/);
   assert.throws(() => verifyManifest({ payload: 1 }, publicKey), /malformed/);
+});
+
+test("a signed Setup is preferred and verified before handoff, while MSI-only releases still work", async () => {
+  const folder = temporary("ria-update-setup-");
+  try {
+    const bundled = service(folder.root, { manifest: signed({ setup: setupArtifact }), installer: () => streamed(setupBytes) });
+    assert.equal((await bundled.updates.check()).phase, "available");
+    assert.deepEqual(bundled.requests, ["https://updates.invalid/manifest.json"]);
+    assert.deepEqual(bundled.launched, []);
+    assert.deepEqual(readdirSync(folder.root), []);
+    assert.equal((await bundled.updates.apply()).phase, "installing");
+    assert.equal(bundled.requests[1], `https://updates.invalid/${setupArtifact.filename}`);
+    assert.deepEqual(bundled.launched[0], {
+      installer: join(folder.root, setupArtifact.filename),
+      installLog: join(folder.root, "install.log"),
+      resultFile: join(folder.root, "install-result.json"),
+    });
+    assert.equal(bundled.states.find(state => state.phase === "downloading")?.total, setupBytes.length);
+
+    const tampered = service(folder.root, { manifest: signed({ setup: setupArtifact }), installer: () => streamed(installerBytes) });
+    await tampered.updates.check();
+    assert.equal((await tampered.updates.apply()).failure, "verification");
+    assert.equal(tampered.launched.length, 0);
+    assert.equal(tampered.requests.length, 2);
+  } finally {
+    folder.remove();
+  }
 });
 
 test("a check offers only a newer verified release and shares one request", async () => {
@@ -181,6 +215,37 @@ test("a cancelled download is removed and cannot report afterwards", async () =>
   }
 });
 
+test("cancelling and retrying does not let the cancelled download remove the replacement Setup", async () => {
+  const folder = temporary("ria-update-retry-");
+  let resumeCancelled!: () => void;
+  let resumeRetry!: () => void;
+  const cancelledGate = new Promise<void>(resolve => { resumeCancelled = resolve; });
+  const retryGate = new Promise<void>(resolve => { resumeRetry = resolve; });
+  let attempt = 0;
+  try {
+    const run = service(folder.root, {
+      manifest: signed({ setup: setupArtifact }),
+      installer: () => streamed(setupBytes, ++attempt === 1 ? cancelledGate : retryGate),
+    });
+    await run.updates.check();
+    const first = run.updates.startDownload();
+    await waitFor(() => run.updates.getState().received === 1024);
+    run.updates.cancelDownload();
+    const second = run.updates.startDownload();
+    await waitFor(() => run.updates.getState().received === 1024);
+    resumeCancelled();
+    await first;
+    resumeRetry();
+    assert.equal((await second).phase, "ready");
+    assert.deepEqual(readdirSync(folder.root), [setupArtifact.filename]);
+    assert.deepEqual(readFileSync(join(folder.root, setupArtifact.filename)), setupBytes);
+  } finally {
+    resumeCancelled();
+    resumeRetry();
+    folder.remove();
+  }
+});
+
 test("installing re-verifies the download, records the attempt and hands over the paths", async () => {
   const folder = temporary("ria-update-install-");
   try {
@@ -266,6 +331,10 @@ test("an update needs its download's size where it is saved and two package copi
   // A finished download already occupies its space.
   assert.deepEqual([...updateSpaceNeeds({ downloadDirectory: "C:\\temp", installerCacheDirectory: "C:\\Windows\\Installer", bytes, downloaded: true })],
     [["C:", bytes * 2 + headroom]]);
+  // Setup stages its MSI beside the download volume; Windows Installer uses the system volume.
+  assert.deepEqual([...updateSpaceNeeds({ downloadDirectory: "D:\\temp", installerCacheDirectory: "C:\\Windows\\Installer",
+    bytes: bytes + megabytes(1), packageBytes: bytes, downloaded: false })],
+  [["D:", bytes * 2 + megabytes(1)], ["C:", bytes * 2 + headroom]]);
   assert.equal(volumeOf("e:\\RiA\\app-0.1.18"), "E:");
 });
 
@@ -346,6 +415,10 @@ test("the update folder is emptied at start-up and the outcome of the last insta
     writeFileSync(join(directory, "install.log"), msiLog("MSI (s) (88:30) [08:10:45:426]: Note: 1: 1307 2: C:\\WINDOWS\\Installer\\215fe321.msi \r\n"));
     assert.deepEqual(await reconcile("1.2.3"), { outcome: "failed", version: "1.2.4", exitCode: 1603, logFile: join(logs, "update-install.log"), diskFull: "C:" });
 
+    prepare({ "pending.json": '{"version":"1.2.4"}', "install-result.json": '{"exitCode":1603}', "install.log": "Burn failed" });
+    writeFileSync(join(directory, "install_000_RiAMsi.log"), msiLog("Note: 1: 1307 2: D:\\cache\\package.msi"));
+    assert.deepEqual(await reconcile("1.2.3"), { outcome: "failed", version: "1.2.4", exitCode: 1603, logFile: join(logs, "update-install.log"), diskFull: "D:" });
+
     // The installer step never ran.
     prepare({ "pending.json": '{"version":"1.2.4"}' });
     assert.deepEqual(await reconcile("1.2.3"), { outcome: "failed", version: "1.2.4", exitCode: null, logFile: null, diskFull: null });
@@ -425,47 +498,142 @@ test("the installation root is the folder above the versioned application folder
   assert.equal(installationRoot(join("D:\\Portable", "RiA.exe")), join("D:\\Portable"));
 });
 
-test("the installer step, started as the application starts it, waits for the app, removes the installer, records the result and restarts the app", { skip: process.platform !== "win32", timeout: 60_000 }, async () => {
+const windowsHandoff = { skip: process.platform !== "win32", timeout: 60_000 };
+test("the launcher sees the handoff even if RiA exits during its process query", () => {
+  let registered = false, processQueries = 0, launches = 0;
+  const script = installLauncher({
+    installer: "update.msi", installLog: "install.log", resultFile: "install-result.json",
+    installRoot: "RiA", relaunch: "RiA.exe", waitForPid: 42,
+  });
+  const files = {
+    FileExists: () => registered,
+    CreateTextFile: () => ({ Write() {}, Close() {} }),
+    MoveFile() {}, DeleteFile() {},
+  };
+  runInNewContext(script, {
+    ActiveXObject: function (name: string) {
+      return name === "WScript.Shell" ? { Run: () => { launches++; return 0; } } : files;
+    },
+    GetObject: () => ({
+      ExecQuery() {
+        if (++processQueries === 1) return { Count: 1 };
+        registered = true;
+        return { Count: 0 };
+      },
+    }),
+    WScript: { Sleep() {}, Quit: (code: number) => assert.fail(`launcher quit with ${code}`) },
+  });
+  assert.equal(launches, 2, "the installer runs first and the app relaunches afterwards");
+});
+test("the Windows launcher waits for the app, runs the MSI, records the result and relaunches", windowsHandoff, () => testInstallerHandoff("msi"));
+test("the Windows launcher runs Setup with its progress window and carries the original install root", windowsHandoff, () => testInstallerHandoff("exe"));
+test("Setup requiring a restart records the result without relaunching RiA", windowsHandoff, () => testInstallerHandoff("exe", 3010));
+test("an early Windows Script Host exit leaves the application running and the installer available for retry", windowsHandoff, async () => {
+  const folder = temporary("ria-update-host-exit-");
+  try {
+    // A system executable that exits on these arguments without running the script.
+    copyFileSync(join(process.env.SystemRoot || "C:\\Windows", "System32", "where.exe"), join(folder.root, "wscript.exe"));
+    const installer = join(folder.root, setupArtifact.filename);
+    writeFileSync(installer, setupBytes);
+    await assert.rejects(launchInstaller({
+      installer, installLog: join(folder.root, "install.log"), resultFile: join(folder.root, "install-result.json"),
+      installRoot: folder.root, relaunch: process.execPath, waitForPid: process.pid,
+    }, { directory: folder.root, system: folder.root }), /exited before the update launcher was ready/);
+    assert.equal(updateInstallInProgress(folder.root), false);
+    assert.ok(existsSync(installer));
+  } finally {
+    folder.remove();
+  }
+});
+
+test("the Windows launcher preserves literal percent signs in the executable path", windowsHandoff, async () => {
+  const folder = temporary("ria-update-literal-path-");
+  try {
+    const literalFolder = join(folder.root, "%SystemRoot%");
+    mkdirSync(literalFolder);
+    const installer = join(literalFolder, setupArtifact.filename);
+    const system = join(process.env.SystemRoot || "C:\\Windows", "System32");
+    // The stand-in returns an argument error, proving the executable was found.
+    copyFileSync(join(system, "where.exe"), installer);
+    const resultFile = join(folder.root, "install-result.json");
+    const application = spawn(process.execPath, ["-e", "process.stdin.resume()"], { stdio: ["pipe", "ignore", "ignore"], windowsHide: true });
+    try {
+      await launchInstaller({
+        installer, installLog: join(folder.root, "install.log"), resultFile,
+        installRoot: folder.root, relaunch: join(folder.root, "no-relaunch.exe"), waitForPid: application.pid!,
+      }, { directory: folder.root, system, installer: { program: installer, window: 0 } });
+    } finally {
+      application.stdin!.end();
+    }
+    await waitFor(() => existsSync(resultFile));
+    const { exitCode } = JSON.parse(readFileSync(resultFile, "utf8")) as { exitCode: number };
+    assert.ok(Number.isInteger(exitCode) && exitCode > 0, "the literal path was passed to the process launcher");
+  } finally {
+    folder.remove();
+  }
+});
+
+async function waitFor(condition: () => boolean, timeout = 5_000) {
+  const deadline = Date.now() + timeout;
+  while (!condition() && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
+  assert.ok(condition(), "the expected update state did not arrive");
+}
+
+async function testInstallerHandoff(format: "msi" | "exe", exitCode = 1603) {
+  const setup = format === "exe";
   // A quote, spaces and characters outside the ANSI code page in every path the script has to carry.
   const folder = temporary("ria update it's 更新-");
   try {
     const root = join(folder.root, "Install Root");
     mkdirSync(root);
-    const installer = join(folder.root, "RiA-1.2.4-x64.msi");
+    const installer = join(folder.root, setup ? setupArtifact.filename : "RiA-1.2.4-x64.msi");
     writeFileSync(installer, "installer");
     // Records the arguments it received as UTF-8, as Windows Installer receives them: as Unicode.
     const fakeInstaller = join(folder.root, "fake installer.cmd");
-    writeFileSync(join(folder.root, "record.js"), `const { writeFileSync } = require("node:fs"), { join } = require("node:path"); writeFileSync(join(__dirname, "arguments.json"), JSON.stringify(process.argv.slice(2))); writeFileSync(join(__dirname, "cwd.txt"), process.cwd()); process.exit(1603);`);
+    writeFileSync(join(folder.root, "record.js"), `const { writeFileSync } = require("node:fs"), { join } = require("node:path"); writeFileSync(join(__dirname, "arguments.json"), JSON.stringify(process.argv.slice(2))); writeFileSync(join(__dirname, "cwd.txt"), process.cwd()); writeFileSync(join(__dirname, "update-root.txt"), process.env.RIA_SETUP_UPDATE_ROOT ?? ""); process.exit(${exitCode});`);
     writeFileSync(fakeInstaller, `@"${process.execPath}" "%~dp0record.js" %*\r\n@exit /b %ERRORLEVEL%\r\n`);
     const relaunch = join(root, "relaunch.cmd");
     writeFileSync(relaunch, `@echo relaunched> "%~dp0relaunched.txt"\r\n`);
     const system = join(process.env.SystemRoot || "C:\\Windows", "System32");
-    const application = spawn(process.execPath, ["-e", "setTimeout(() => {}, 1500)"], { stdio: "ignore", windowsHide: true });
+    const application = spawn(process.execPath, ["-e", "process.stdin.resume()"], { stdio: ["pipe", "ignore", "ignore"], windowsHide: true });
     const exited = new Promise<number>(resolve => application.once("exit", () => resolve(Date.now())));
     // Detached through Windows Script Host, exactly as the application starts it:
     // a detached PowerShell started this way once exited without running anything.
-    await launchInstaller({
-      installer, installLog: join(folder.root, "install.log"), resultFile: join(folder.root, "install-result.json"),
-      installRoot: root, relaunch, waitForPid: application.pid!,
-    }, { directory: folder.root, system, installer: { program: fakeInstaller, window: 0 } });
-    // Starting the application again is the step's last action, so its effect is the signal
-    // that everything before it has happened. The result file is not: the installer is
-    // deleted after that file appears.
+    let pid: number;
+    try {
+      await launchInstaller({
+        installer, installLog: join(folder.root, "install.log"), resultFile: join(folder.root, "install-result.json"),
+        installRoot: root, relaunch, waitForPid: application.pid!,
+      }, { directory: folder.root, system, installer: { program: fakeInstaller, window: 0 } });
+      pid = (JSON.parse(readFileSync(join(folder.root, "install-owner.json"), "utf8")) as { pid: number }).pid;
+      assert.ok(updateInstallInProgress(folder.root));
+      assert.equal(await reconcileUpdateDirectory({ directory: folder.root, currentVersion: "1.2.3", logsDirectory: root, logger: silent }), null);
+      assert.ok(existsSync(installer), "starting RiA must leave the active installer and handoff in place");
+    } finally {
+      application.stdin!.end();
+    }
     const relaunched = join(root, "relaunched.txt");
-    const finished = Date.now() + 45_000;
-    while (!existsSync(relaunched) && Date.now() < finished) await new Promise(resolve => setTimeout(resolve, 100));
+    await waitFor(() => {
+      try { process.kill(pid, 0); return false; }
+      catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH"; }
+    }, 45_000);
     const applicationExit = await exited;
-    assert.ok(existsSync(relaunched), "the application was not started again");
+    if (exitCode === 3010) assert.equal(existsSync(relaunched), false, "RiA must wait for Windows to restart");
+    else await waitFor(() => existsSync(relaunched));
+    assert.equal(updateInstallInProgress(folder.root), false, "the completed handoff must release startup");
 
     const argumentsFile = join(folder.root, "arguments.json");
     assert.ok(statSync(argumentsFile).mtimeMs >= applicationExit - 50, "the installer ran before the application exited");
-    assert.deepEqual(JSON.parse(readFileSync(argumentsFile, "utf8")),
-      ["/i", installer, "/passive", "/norestart", "/L*V", join(folder.root, "install.log"), `APPLICATIONROOTDIRECTORY=${root}`]);
-    assert.deepEqual(JSON.parse(readFileSync(join(folder.root, "install-result.json"), "utf8")), { exitCode: 1603 });
+    const log = join(folder.root, "install.log");
+    assert.deepEqual(JSON.parse(readFileSync(argumentsFile, "utf8")), setup
+      ? ["-passive", "-norestart", "-log", log]
+      : ["/i", installer, "/passive", "/norestart", "/L*V", log, `APPLICATIONROOTDIRECTORY=${root}`]);
+    if (setup) assert.equal(readFileSync(join(folder.root, "update-root.txt"), "utf8"), root);
+    assert.deepEqual(JSON.parse(readFileSync(join(folder.root, "install-result.json"), "utf8")), { exitCode });
     // Not the application's folder: a process's current directory cannot be removed, so an inherited one survived the upgrade.
     assert.equal(readFileSync(join(folder.root, "cwd.txt"), "utf8").toLowerCase(), system.toLowerCase());
     assert.equal(existsSync(installer), false, "the installer was not deleted after the installation");
   } finally {
     folder.remove();
   }
-});
+}
