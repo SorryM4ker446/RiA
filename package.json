@@ -34,6 +34,8 @@
     "desktop:build": "node scripts/build-desktop.mjs",
     "desktop:package": "npm run desktop:build && electron-forge package --platform win32 --arch x64",
     "desktop:make": "node scripts/make-desktop.mjs",
+    "desktop:setup": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/make-setup.ps1",
+    "desktop:setup:preview": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/make-setup.ps1 -Preview",
     "desktop:version": "node scripts/bump-version.mjs",
     "desktop:release-manifest": "node scripts/desktop-release-manifest.mjs",
     "desktop:update-manifest": "node scripts/update-manifest.mjs",

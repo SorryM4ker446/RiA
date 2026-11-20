@@ -48,6 +48,7 @@ test("Windows installer installs per machine, refuses to install beside a per-us
     assert.match(xml, /<RegistrySearch Id="PerUserRiaMarker" Root="HKCU" Key="Software\\Microsoft\\RiA" Name="installed" Type="raw" \/>/);
     assert.ok(xml.includes(`<Condition Message="${perUserInstallationMessage}"><![CDATA[Installed OR WIX_UPGRADE_DETECTED OR NOT PERUSERRIA]]></Condition>`));
     assert.match(xml, /<Property Id="MsiLogging" Value="voicewarmup" \/>/);
+    assert.match(xml, /<Property Id="APPLICATIONROOTDIRECTORY" Secure="yes" \/>/);
     // The earlier version is removed inside the upgrade's transaction, so a failed upgrade restores it.
     assert.match(xml, /<MajorUpgrade AllowSameVersionUpgrades="yes" Schedule="afterInstallInitialize" /);
     assert.doesNotMatch(xml, /DISABLEROLLBACK|AlwaysInstallElevated/);
