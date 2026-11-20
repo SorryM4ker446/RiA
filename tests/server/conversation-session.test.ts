@@ -13,6 +13,7 @@ const storage = new Map<string, string>();
 };
 
 const { ConversationSession, DRAFT_CHAT, HistoryUnavailableError, forgetSession, keepUnchanged, keptSessions, openSession, sessionFor } = await import("@/features/chat/conversation-session");
+const { encodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
 type Session = InstanceType<typeof ConversationSession>;
 
 /** A service stand-in: each request is answered by the script given, or refused. */
@@ -210,6 +211,31 @@ test("a session follows a turn it is not already reading, once, and not its own 
   session.follow(true);
   await settle();
   assert.equal(own.reconnects(), 1);
+});
+
+test("reconnecting names a saved run so its live copy is not appended to its saved answer", async () => {
+  const question = stored("question", "user", "Question");
+  const report = stored("answer-Report", "assistant", encodePersistedAssistantToolMessage({
+    type: "assistant-tool-message", text: "Report", runId: "report-run", tools: [],
+  }));
+  let entries = [question];
+  let seenRunId: string | null = null;
+  const replay = service(answer("Report"));
+  const session = new ConversationSession("already-saved", {
+    ...replay.transport,
+    async reconnectToStream({ headers }) {
+      seenRunId = new Headers(headers).get("x-ria-seen-run-id");
+      if (seenRunId === "report-run") return null;
+      return replay.transport.sendMessages({ chatId: "already-saved", messageId: question.id, messages: [], abortSignal: undefined, trigger: "submit-message" });
+    },
+  }, { readHistory: async () => ({ data: entries }) });
+  await session.loadHistory();
+  // The report is visible in storage while the live stream is still attachable.
+  entries = [question, report];
+  session.follow(true);
+  await settle();
+  assert.equal(seenRunId, "report-run");
+  assert.deepEqual(texts(session), ["Question", "Report"]);
 });
 
 test("sessions are kept for going back to: answers read in the background up to a bound, others as last seen", async () => {

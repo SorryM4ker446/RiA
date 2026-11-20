@@ -493,9 +493,12 @@ test("a reply's file changes are undone from a list or one by one, each undo can
   expect(readFileSync(join(app.folder, "src", "theme.ts"), "utf8")).toBe(themeAfter);
   await files.getByRole("button", { name: "src/theme.ts 的更多操作", exact: true }).click();
   await page.getByRole("menuitem", { name: "撤销此文件", exact: true }).click();
-  await expect(notices).toContainText("已撤销 theme.ts 的修改");
+  // An earlier undo can still have a toast. Wait for this operation to change the row before reloading.
+  const theme = files.getByRole("button", { name: "打开文件 src/theme.ts", exact: true });
+  await expect(theme).toContainText("已撤销");
   await page.reload();
-  await expect(files.getByRole("button", { name: "打开文件 src/theme.ts", exact: true })).toContainText("已撤销");
+  await expect(theme).toContainText("已撤销");
+  expect(readFileSync(join(app.folder, "src", "theme.ts"), "utf8")).toBe("export const theme = { radius: 4 };\n");
   expect(errors).toEqual([]);
 });
 

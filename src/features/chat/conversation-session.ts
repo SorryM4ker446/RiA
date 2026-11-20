@@ -117,6 +117,8 @@ export class ConversationSession {
   private readonly historyWaiters: { resolve: () => void; reject: (error: Error) => void }[] = [];
   /** This window reads the turn under way: its own, or one it attached to. */
   private following = false;
+  /** Keeps saved history from replacing the starting point of a reconnect. */
+  private reconnecting = false;
   /** Its history has been read from the service at least once (one made here, new, has none to read). */
   private readOnce = false;
 
@@ -299,9 +301,14 @@ export class ConversationSession {
    * only turns after the last one shown, and nothing while a turn is being read here.
    */
   async addNewTurns() {
-    if (this.state.history !== "ready" || isAnswering(this.chat)) return;
+    await this.readNewTurns(false);
+  }
+
+  private async readNewTurns(forReconnect: boolean): Promise<string | undefined> {
+    const canRead = () => this.state.history === "ready" && !isAnswering(this.chat) && (!this.reconnecting || forReconnect);
+    if (!canRead()) return;
     const payload = await this.readHistory(this.id).catch(() => null);
-    if (!payload || isAnswering(this.chat)) return;
+    if (!payload || !canRead()) return;
     const mapped = mapStoredMessagesToUI((payload.data ?? []) as Parameters<typeof mapStoredMessagesToUI>[0]);
     const current = this.chat.messages;
     const known = new Set(current.map(message => message.id));
@@ -313,6 +320,16 @@ export class ConversationSession {
       if (added.length) this.chat.messages = [...current, ...added];
     }
     this.set({ images: { ...mapped.imageMap, ...this.state.images }, videos: { ...mapped.videoMap, ...this.state.videos } });
+
+    if (!forReconnect) return;
+    const saved = mapped.uiMessages.at(-1);
+    const shown = this.chat.lastMessage;
+    const savedRunId = (saved?.metadata as { runId?: string } | undefined)?.runId;
+    if (saved?.role !== "assistant" || shown?.id !== saved.id || !savedRunId || (shown.metadata as { runId?: string } | undefined)?.runId !== savedRunId) return;
+    // A saved answer can land while the server is still draining its stream.
+    // Use the saved copy, including when the window had only read part of it.
+    if (JSON.stringify(shown) !== JSON.stringify(saved)) this.chat.messages = [...this.chat.messages.slice(0, -1), saved];
+    return savedRunId;
   }
 
   private settleHistoryWaiters() {
@@ -366,14 +383,22 @@ export class ConversationSession {
   follow(answering: boolean) {
     if (isAnswering(this.chat)) { this.following = true; return; }
     if (!answering) { this.following = false; return; }
-    if (this.state.history !== "ready" || this.following) return;
+    if (this.state.history !== "ready" || this.following || this.reconnecting) return;
     this.following = true;
+    this.reconnecting = true;
     // A turn this window did not start began with a message of its own (a task's prompt, RiA's notice
     // that sub-agents ended), saved before it answers. Read first, so the answer follows that message
     // instead of being added to the last answer shown.
-    void this.addNewTurns().catch(() => {})
-      .then(() => this.chat.resumeStream())
-      .catch(() => { /* Nothing to attach to: the turn ended; its answer is read from what was saved. */ });
+    void this.readNewTurns(true).catch(() => undefined)
+      .then(runId => {
+        if (!isAnswering(this.chat)) return this.chat.resumeStream({ headers: runId ? { "x-ria-seen-run-id": runId } : undefined });
+      })
+      .finally(() => {
+        this.reconnecting = false;
+        // The turn can finish during the reconnect, before this window could read it.
+        return this.addNewTurns();
+      })
+      .catch(() => { /* The next history read can recover an interrupted reconnect. */ });
   }
 
   /** A turn someone else started here, heard while this window was not reading one: it is new, so it can be followed. */

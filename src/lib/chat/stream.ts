@@ -102,7 +102,12 @@ const streamError = (error: unknown) => JSON.stringify(apiErrorPayload(normalize
 export async function streamChatResponse(params: Omit<ChatAnswer, "modelMessages"> & ({ modelMessages: ModelMessage[]; settleContext?: undefined } | { modelMessages?: undefined; settleContext: () => Promise<ModelMessage[]> })) {
   const respond = (execute: (writer: UIMessageStreamWriter) => Promise<void>) => createUIMessageStreamResponse({
     stream: createUIMessageStream({ execute: ({ writer }) => execute(writer), onError: streamError }),
-    headers: { "x-chat-id": params.conversation.chat.id, "x-model-id": params.input.modelRef.modelId, "Cache-Control": "no-store" },
+    headers: {
+      "x-chat-id": params.conversation.chat.id,
+      "x-model-id": params.input.modelRef.modelId,
+      ...(params.runId ? { "x-chat-run-id": params.runId } : {}),
+      "Cache-Control": "no-store",
+    },
   });
   const relay = async (stream: ReadableStream<UIMessageChunk>, writer: UIMessageStreamWriter) => {
     // The SDK continues consuming after the HTTP reader disconnects. Hold

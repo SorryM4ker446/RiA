@@ -296,9 +296,10 @@ export async function holdTurn(chatId: string, start: (signal: AbortSignal) => P
 }
 
 /** Attaches to the turn running in a conversation, from its start; null when none is. */
-export function attachTurn(chatId: string): Response | null {
+export function attachTurn(chatId: string, seenRunId?: string | null): Response | null {
   const turn = registry.turns.get(chatId);
   if (!turn || turn.done || !turn.headers) return null;
+  if (seenRunId && turn.headers.get("x-chat-run-id") === seenRunId) return null;
   return new Response(follow(turn), { status: 200, headers: turn.headers });
 }
 
