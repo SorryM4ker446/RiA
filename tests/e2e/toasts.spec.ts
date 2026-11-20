@@ -16,10 +16,11 @@ const test = base.extend<{ app: App }>({ app: async ({}, provide) => {
   try { await provide(runtime); } finally { await runtime.close(); }
 } });
 
-async function chat(page: Page, app: App, title: string) {
+async function chat(page: Page, app: App, title: string, beforeOpen?: () => Promise<unknown>) {
   await openWorkspace(page, app.origin);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   const created = (await browserApi(page, "/api/conversations", "POST", { title })).body.data;
+  await beforeOpen?.();
   await page.goto(`${app.origin}/chat?conversationId=${created.id}`);
   await expect(page.locator(".composer-surface")).toBeVisible();
 }
@@ -135,7 +136,17 @@ test("after one note is closed by hand, the next still goes on its own", async (
 
 test("a note shown before moving to another page still goes on its own there", async ({ page, app }) => {
   await page.setViewportSize({ width: 1280, height: 860 });
-  await chat(page, app, "换页后的通知");
+  let releaseList!: () => void;
+  const listGate = new Promise<void>(resolve => { releaseList = resolve; });
+  try {
+    await chat(page, app, "换页后的通知", () => page.route(/\/api\/conversations(?:\?.*)?$/, async route => {
+      if (route.request().method() === "GET") await listGate;
+      await route.fallback();
+    }));
+    await expect(page.locator(".composer-surface").getByRole("button", { name: /^审批规则：/ })).toBeDisabled();
+  } finally {
+    releaseList();
+  }
   await chooseRule(page, "自动");
   await chooseRule(page, "询问");
   await page.getByRole("link", { name: "任务", exact: true }).first().click();
