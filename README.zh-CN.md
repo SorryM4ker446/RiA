@@ -68,7 +68,7 @@
 
 ## 开始使用
 
-1. 安装 `RiA-<version>-x64.msi`，构建方法见[构建安装包](#构建安装包)。不需要另外安装 Node.js 或数据库。
+1. 在 Windows x64 上，从 Release 下载带 RiA 安装界面的 `RiA-Setup-<version>-x64.exe`，或选择 Windows Installer 版 `RiA-<version>-x64.msi`。本地出包见[构建安装包](#构建安装包)。
 2. 打开**设置 → API 密钥**，填入 OpenRouter 或 DeepSeek 的密钥。图片、视频和嵌入需要 OpenRouter。
 3. 在**设置 → 模型**里把模型加入“我的模型”，并选一个默认对话模型。要使用工具、Skill 和知识检索，请选支持工具调用的模型；要按语义检索，再选一个嵌入模型。
 4. 在**工作区权限**里授权要处理的文件夹，再开始一个任务。输入 `/` 选择工具，或在**知识库**导入希望跨会话检索的文档。
@@ -95,15 +95,17 @@ Electron 会以子进程方式启动和停止本地 Next.js 服务，密钥在�
 
 ```powershell
 npm run desktop:make
+npm run desktop:setup
 ```
 
-这条命令会构建桌面运行时，并在 `out/make/wix/x64/` 生成带版本号的 MSI 和 SHA-256 校验信息。发布新版本前先运行一次 `npm run desktop:version`；构建本身不会改版本号。
+这两条命令构建桌面运行时，并在 `out/make/wix/x64/` 生成两种安装包和 SHA-256 校验信息。发布前要更改版本号时，运行 `npm run desktop:version`。
 
 | 命令 | 产物 |
 | --- | --- |
 | `npm run desktop:build` | 经过校验的独立运行时，位于 `.desktop-runtime/` |
 | `npm run desktop:package` | 未打包的应用，位于 `out/RiA-win32-x64/` |
 | `npm run desktop:make` | MSI 和校验信息，位于 `out/make/wix/x64/` |
+| `npm run desktop:setup` | RiA Setup EXE 及 SHA-256，位于相同目录 |
 
 安装时可以选择程序目录；工作区数据默认在 `%APPDATA%\RiA`，与程序目录分开。手动触发的发布流程会生成带签名更新清单的 GitHub 草稿版本，已安装的 RiA 可以在设置里查看并安装已发布的版本。目前没有配置 Windows 代码签名。另见[桌面开发与发布](docs/desktop.md)和 [Windows 发布验收](docs/windows-release-acceptance.md)。
 

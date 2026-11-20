@@ -254,6 +254,15 @@ jobs:
       - name: Verify compiled installer
         run: ./scripts/verify-windows-installer.ps1
 
+      - name: Build the branded Setup executable
+        run: npm run desktop:setup
+
+      - name: Exercise the installer window states
+        run: ./scripts/make-setup.ps1 -CheckPreview
+
+      - name: Exercise Windows Installer upgrade, rollback and reinstall
+        run: ./scripts/test-setup-transaction.ps1 -PerMachine
+
       - name: Prepare unverified manual Windows acceptance record
         run: npm run desktop:acceptance -- --init
 
@@ -263,6 +272,9 @@ jobs:
         with:
           name: desktop-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            .desktop-data/setup-build/setup-check.log
+            .desktop-data/setup-build/preview-check-*/failure.txt
+            .desktop-data/setup-build/msi-test-*/*.log
             .desktop-data/test/electron-smoke-*/data/logs/desktop.log*
             .desktop-data/test/electron-smoke-*/data/logs/transparency-failure.png
             .desktop-data/test/electron-smoke-*/moved-data/logs/desktop.log*

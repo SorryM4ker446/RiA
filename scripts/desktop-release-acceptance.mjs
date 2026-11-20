@@ -9,13 +9,18 @@ export const acceptanceScenarios = [
   "clean-install", "offline-startup", "upgrade", "directory-change", "migration-failure",
   "proxy", "native-notification", "sleep-resume", "uninstall-reinstall", "cancel-install", "in-app-update", "data-location",
 ];
+export const setupAcceptanceScenarios = [
+  "setup-clean-install", "setup-upgrade-rollback", "setup-upgrade-uninstall",
+];
+const scenarioIds = [...acceptanceScenarios, ...setupAcceptanceScenarios];
+const requiredScenarios = release => release.artifacts.length === 2 ? scenarioIds : acceptanceScenarios;
 const artifactSchema = z.strictObject({
-  filename: z.string().min(1).max(200).refine(value => !/[\\/:]/.test(value) && value.endsWith(".msi")),
+  filename: z.string().min(1).max(200).refine(value => !/[\\/:]/.test(value) && /\.(msi|exe)$/.test(value)),
   bytes: z.number().int().positive(), sha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
 const releaseSchema = z.strictObject({
   version: z.string().regex(/^\d+\.\d+\.\d+$/), platform: z.literal("win32"), arch: z.literal("x64"),
-  artifacts: z.array(artifactSchema).length(1),
+  artifacts: z.array(artifactSchema).min(1).max(2),
 });
 const recordSchema = z.strictObject({
   schemaVersion: z.literal(1), release: releaseSchema,
@@ -24,9 +29,9 @@ const recordSchema = z.strictObject({
     installationType: z.string().max(200), tester: z.string().max(200), previousVersion: z.string().max(50),
   }),
   scenarios: z.array(z.strictObject({
-    id: z.enum(acceptanceScenarios), result: z.enum(["not-run", "pass", "fail"]),
+    id: z.enum(scenarioIds), result: z.enum(["not-run", "pass", "fail"]),
     testedAt: z.iso.datetime().nullable(), evidence: z.array(z.string().trim().min(1).max(2000)).max(20),
-  })).length(acceptanceScenarios.length),
+  })).min(acceptanceScenarios.length).max(scenarioIds.length),
 });
 
 async function readJson(path) {
@@ -50,8 +55,13 @@ async function verifiedRelease(manifestPath) {
   const release = parse(releaseSchema, {
     version: manifest.version, platform: manifest.platform, arch: manifest.arch, artifacts: manifest.artifacts,
   }, "release manifest");
+  const msi = release.artifacts.find(artifact => artifact.filename.endsWith(".msi"));
+  const suffix = `-${release.version}-x64.msi`;
+  if (!msi?.filename.endsWith(suffix)) throw new Error("Installer filename does not match its release version");
+  const setup = `${msi.filename.slice(0, -suffix.length)}-Setup-${release.version}-x64.exe`;
+  if (release.artifacts.some(artifact => artifact !== msi && artifact.filename !== setup))
+    throw new Error("Setup filename does not match its release version");
   for (const artifact of release.artifacts) {
-    if (!artifact.filename.endsWith(`-${release.version}-x64.msi`)) throw new Error("Installer filename does not match its release version");
     const current = await digest(join(dirname(manifestPath), artifact.filename));
     if (current.bytes !== artifact.bytes || current.sha256 !== artifact.sha256) {
       throw new Error("Installer bytes do not match the release manifest; rebuild its checksum record");
@@ -65,7 +75,7 @@ export async function initializeAcceptance(manifestPath, recordPath) {
   const record = {
     schemaVersion: 1, release,
     environment: { windowsBuild: "", vm: "", installationType: "", tester: "", previousVersion: "" },
-    scenarios: acceptanceScenarios.map(id => ({ id, result: "not-run", testedAt: null, evidence: [] })),
+    scenarios: requiredScenarios(release).map(id => ({ id, result: "not-run", testedAt: null, evidence: [] })),
   };
   // A new build must never overwrite the tester's existing acceptance evidence.
   await writeFile(recordPath, JSON.stringify(record, null, 2) + "\n", { flag: "wx" });
@@ -78,7 +88,9 @@ export async function checkAcceptance(manifestPath, recordPath) {
   if (JSON.stringify(record.release) !== JSON.stringify(release)) {
     throw new Error("Acceptance belongs to a different installer version or checksum");
   }
-  if (new Set(record.scenarios.map(item => item.id)).size !== acceptanceScenarios.length) {
+  const required = requiredScenarios(release);
+  const supplied = new Set(record.scenarios.map(item => item.id));
+  if (record.scenarios.length !== required.length || required.some(id => !supplied.has(id))) {
     throw new Error("Acceptance scenarios are duplicated or missing");
   }
   const incomplete = record.scenarios.filter(item => item.result !== "pass").map(item => item.id);

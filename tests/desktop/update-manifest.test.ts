@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { generateKeyPairSync } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +9,8 @@ import { verifyManifest } from "../../electron/updater";
 import { writeUpdateManifest } from "../../scripts/update-manifest.mjs";
 import { generateUpdateSigningKey } from "../../scripts/update-signing-key.mjs";
 
-const sha256 = "a".repeat(64);
+const msiBytes = Buffer.alloc(1234, 1);
+const sha256 = createHash("sha256").update(msiBytes).digest("hex");
 
 function release(version = "1.4.0") {
   const root = mkdtempSync(join(tmpdir(), "ria-update-manifest-"));
@@ -20,6 +21,7 @@ function release(version = "1.4.0") {
   writeFileSync(join(root, "package.json"), JSON.stringify({ productName: "RiA", version: "1.4.0" }));
   const directory = join(root, "out", "make", "wix", "x64");
   mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, `RiA-${version}-x64.msi`), msiBytes);
   writeFileSync(join(directory, "verification.json"), JSON.stringify({
     version, platform: "win32", arch: "x64", artifacts: [{ filename: `RiA-${version}-x64.msi`, bytes: 1234, sha256 }],
   }));
@@ -37,6 +39,29 @@ test("the release manifest is signed with the key the application ships with", a
     const other = String(generateKeyPairSync("ed25519").privateKey.export({ type: "pkcs8", format: "pem" }));
     await assert.rejects(writeUpdateManifest(fixture.root, other), /does not match/);
     await assert.rejects(writeUpdateManifest(fixture.root, ""), /RIA_UPDATE_SIGNING_KEY/);
+  } finally {
+    fixture.remove();
+  }
+});
+
+test("a release can require Setup, signing both installers in one legacy-compatible manifest", async () => {
+  const fixture = release();
+  try {
+    await assert.rejects(writeUpdateManifest(fixture.root, fixture.privateKey, { requireSetup: true }), /missing its Setup/);
+    const verification = join(fixture.directory, "verification.json");
+    const record = JSON.parse(readFileSync(verification, "utf8"));
+    const filename = "RiA-Setup-1.4.0-x64.exe";
+    const bytes = Buffer.alloc(5678, 2);
+    const setup = { filename, bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
+    writeFileSync(join(fixture.directory, filename), bytes);
+    writeFileSync(verification, JSON.stringify({ ...record, artifacts: [...record.artifacts, setup] }));
+    const written = await writeUpdateManifest(fixture.root, fixture.privateKey, { requireSetup: true });
+    const manifest = verifyManifest(JSON.parse(readFileSync(written.path, "utf8")), fixture.publicKey);
+    assert.deepEqual(manifest.setup, setup);
+    assert.equal(manifest.filename, record.artifacts[0].filename);
+    assert.equal(manifest.sha256, record.artifacts[0].sha256);
+    writeFileSync(join(fixture.directory, filename), Buffer.alloc(bytes.length, 3));
+    await assert.rejects(writeUpdateManifest(fixture.root, fixture.privateKey, { requireSetup: true }), /bytes do not match/);
   } finally {
     fixture.remove();
   }

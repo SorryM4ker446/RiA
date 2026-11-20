@@ -68,7 +68,7 @@ Installing a Skill never runs its scripts or grants file access. [Plugins](docs/
 
 ## Get started
 
-1. Install `RiA-<version>-x64.msi`, built as described in [Build an installer](#build-an-installer). No separate Node.js or database server is needed.
+1. On Windows x64, download `RiA-Setup-<version>-x64.exe` from the release for the RiA installer, or choose `RiA-<version>-x64.msi` for Windows Installer. To build them locally, see [Build an installer](#build-an-installer).
 2. Open **Settings → API keys** and add an OpenRouter or DeepSeek key. OpenRouter is needed for images, video and embeddings.
 3. In **Settings → Models**, add models to **My models** and choose a default chat model. Pick one that supports tool calling to use tools, Skills and knowledge search, and choose an embedding model to search by meaning.
 4. Use **Workspace permissions** to grant the folder you want RiA to work in, then give it a task. Type `/` to choose tools, or import documents under **Knowledge** to make them available for search across chats.
@@ -95,15 +95,17 @@ Electron starts and stops the local Next.js service as a child process; configur
 
 ```powershell
 npm run desktop:make
+npm run desktop:setup
 ```
 
-This builds the desktop runtime and packages a versioned MSI with SHA-256 verification metadata in `out/make/wix/x64/`. Run `npm run desktop:version` once before building a new version; builds do not change the version on their own.
+These commands build the desktop runtime and put both installers and their SHA-256 verification metadata in `out/make/wix/x64/`. To change the version before a release, run `npm run desktop:version`.
 
 | Command | Output |
 | --- | --- |
 | `npm run desktop:build` | Verified standalone runtime in `.desktop-runtime/` |
 | `npm run desktop:package` | Unpacked application in `out/RiA-win32-x64/` |
 | `npm run desktop:make` | MSI and verification metadata in `out/make/wix/x64/` |
+| `npm run desktop:setup` | RiA Setup EXE and SHA-256 in the same directory |
 
 The installer lets you choose the program directory; workspace data is kept apart from it, by default under `%APPDATA%\RiA`. A manually started release workflow builds a draft GitHub release with a signed update manifest, and installed copies offer published releases in Settings. Windows code signing is not configured. See [desktop development and release](docs/desktop.md) and [Windows release acceptance](docs/windows-release-acceptance.md).
 
