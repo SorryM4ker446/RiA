@@ -34,7 +34,7 @@ const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 test("a held turn keeps running when its reader leaves, and anyone attaching reads it from the start", async () => {
   const events: unknown[] = [];
   const off = onTurnEvent(event => events.push(event));
-  const turn = scriptedTurn();
+  const turn = scriptedTurn({ "x-chat-run-id": "held-run" });
   const first = await holdTurn("held", turn.start, { source: "chat" });
   turn.push({ type: "start", messageId: "a" });
   turn.push({ type: "text-delta", id: "t", delta: "Hel" });
@@ -44,8 +44,9 @@ test("a held turn keeps running when its reader leaves, and anyone attaching rea
   assert.equal(isTurnLive("held"), true);
   assert.equal(turn.signal().aborted, false, "leaving is not stopping");
 
-  // Opened again: everything said so far, then what follows, to the end.
-  const again = attachTurn("held")!;
+  assert.equal(attachTurn("held", "held-run"), null, "a reader that has this run's saved answer skips replay");
+  // A reader with an older saved run gets everything said so far and what follows.
+  const again = attachTurn("held", "previous-run")!;
   assert.ok(again);
   const reading = readAll(again);
   turn.push({ type: "text-delta", id: "t", delta: "lo" });
