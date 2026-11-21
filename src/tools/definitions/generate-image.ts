@@ -68,24 +68,31 @@ export async function runGenerateImage(input: GenerateImageInput, context: { cha
   };
 }
 
-/** The prompt stays in the stored record. The model receives the generation outcome and any pixels sent with it. */
-export async function generatedImageForModel(output: unknown, supportsImageInput = false): Promise<ToolResultPart["output"]> {
+/** Earlier image calls are represented by a receipt in model history. */
+export function generatedImageReceipt(output: unknown) {
   const value = output as Partial<GenerateImageOutput> | null;
   if (!value || typeof value.mediaId !== "string" || !ASSET_ID_PATTERN.test(value.mediaId)) {
-    return { type: "json", value: (output ?? null) as never };
+    return null;
   }
-  const facts = { mediaId: value.mediaId, status: "generated" };
-  const withoutImage = { type: "json" as const, value: {
-    ...facts, imageAttached: false,
+  return {
+    mediaId: value.mediaId, status: "generated", imageAttached: false,
     note: "You did not receive the image. Briefly confirm that the picture is ready. If asked to inspect it, say that you cannot verify the contents without the image. Omit the drawing prompt, requested composition and visual details from your reply.",
-  } };
+  };
+}
+
+/** The prompt stays in the stored record. The model receives the generation outcome and any pixels sent with it. */
+export async function generatedImageForModel(output: unknown, supportsImageInput = false): Promise<ToolResultPart["output"]> {
+  const receipt = generatedImageReceipt(output);
+  if (!receipt) return { type: "json", value: (output ?? null) as never };
+  const { mediaId, status } = receipt;
+  const withoutImage = { type: "json" as const, value: receipt };
   if (!supportsImageInput) return withoutImage;
   try {
     const { getMediaAsset, readMediaAsset } = await import("@/lib/media/storage");
-    const asset = await getMediaAsset(value.mediaId);
+    const asset = await getMediaAsset(mediaId);
     const bytes = await readMediaAsset(asset);
     return { type: "content" as const, value: [
-      { type: "text" as const, text: JSON.stringify({ ...facts, imageAttached: true }) },
+      { type: "text" as const, text: JSON.stringify({ mediaId, status, imageAttached: true }) },
       { type: "image-data" as const, data: bytes.toString("base64"), mediaType: asset.mediaType },
     ] };
   } catch {

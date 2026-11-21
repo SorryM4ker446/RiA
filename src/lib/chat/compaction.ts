@@ -86,12 +86,12 @@ export function compactAfterTurn(params: { chatId: string; modelRef: ModelRef; c
     if (paused(chatId, messages.length)) return null;
     const window = await conversationWindow(model, modelRef, messages);
     const stored = await storedSummary(chatId);
-    const covered = new Set(stored?.state.calls);
+    const toolRecords = { covered: stored?.state.calls, replaysReasoning: modelRef.providerId === "deepseek" };
     // The next turn is likely the size of this one. If that would not fit, fold now, so
     // that request finds the summary ready instead of waiting for it.
     let latestUser = 0;
     messages.forEach((message, index) => { if (message.role === "user") latestUser = index; });
-    const latestTurn = estimateContextTokens(messages.slice(latestUser).map(message => message.parts.filter(part => !("toolCallId" in part && covered.has(part.toolCallId)))));
+    const latestTurn = buildChatContext(messages.slice(latestUser), { maxTokens: window.maxTokens, maxMessages: messages.length, toolRecords }).estimatedSize;
     const threshold = Math.max(window.maxTokens * PRECOMPACT_FLOOR, Math.min(window.maxTokens * PRECOMPACT_SHARE, window.maxTokens - latestTurn));
     // The window counts only the conversation. What the provider counted for the latest
     // request also includes the instructions and tool definitions, so it can see the
@@ -100,7 +100,7 @@ export function compactAfterTurn(params: { chatId: string; modelRef: ModelRef; c
     const report = latestContextReport(messages);
     const measured = report?.measuredInputTokens ?? report?.estimatedInputTokens;
     const reachesTrigger = measured !== undefined && measured + latestTurn * await conversationCalibration(modelRef, messages) >= budget.triggerTokens * LOOKAHEAD_MARGIN;
-    const context = buildChatContext(messages, { ...window, maxMessages: messages.length, anchorMessageIds: anchor, toolRecords: { covered: stored?.state.calls },
+    const context = buildChatContext(messages, { ...window, maxMessages: messages.length, anchorMessageIds: anchor, toolRecords,
       ...(reachesTrigger ? { maxTokens: Math.floor(window.maxTokens * COMPACTED_TAIL), refillRatio: 1 } : { maxTokens: Math.floor(threshold) }) });
     if (!context.omittedMessages) return null;
     const lastOlder = context.allMessages[context.omittedMessages - 1];

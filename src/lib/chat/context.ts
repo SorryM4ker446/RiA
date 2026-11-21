@@ -3,6 +3,9 @@ import { historicalToolText, historyTextExcerpt } from "./tool-history";
 import { estimateTextTokens } from "@/lib/models/context-budget";
 import type { PersistedStep } from "@/lib/ai/ui-message";
 import { currentToolId } from "@/tools/legacy-names";
+import { isTerminalOutputTool, terminalResultForModel } from "@/lib/terminal/model-output";
+import { readEvidence, readEvidenceReference } from "./tool-read-evidence";
+import { generatedImageReceipt } from "@/tools/definitions/generate-image";
 
 type ContextOptions = {
   maxMessages?: number;
@@ -150,6 +153,38 @@ function withSteps(message: UIMessage): UIMessage {
 /** A message as it counts toward the window. */
 const recordText = (message: UIMessage, covered: ReadonlySet<string>) => message.parts.map(part => part.type === "text" ? part.text : part.type === "step-start" ? "" : part.type === "file" ? `[attachment: ${part.filename || part.mediaType}]`
   : "toolCallId" in part && covered.has(part.toolCallId) ? "" : JSON.stringify(part)).join("\n");
+
+/** Each suffix needs its own first complete copy. Count backwards so dropping that copy never leaves a dangling reference. */
+function toolHistorySizes(messages: UIMessage[], covered: ReadonlySet<string>, measure: (text: string) => number, sentWith: (message: UIMessage, index: number) => string[]) {
+  const sizes = new Array<number>(messages.length + 1).fill(0);
+  const repeats = new Map<string, { copies: number; size: number }>();
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    let size = sizes[index + 1] + sentWith(message, index).reduce((sum, text) => sum + measure(text), 0);
+    for (let i = message.parts.length - 1; i >= 0; i--) {
+      const part = message.parts[i];
+      if (!("toolCallId" in part) || covered.has(part.toolCallId) || part.state !== "output-available") {
+        size += measure(recordText({ ...message, parts: [part] }, covered));
+        continue;
+      }
+      const name = part.type === "dynamic-tool" ? part.toolName : part.type.slice(5);
+      const { output, ...call } = part;
+      const shown = isTerminalOutputTool(name) ? terminalResultForModel(output)
+        : name === "generateImage" ? generatedImageReceipt(output) ?? output : output;
+      size += measure(JSON.stringify(call));
+      const full = measure(JSON.stringify(shown) ?? "");
+      const evidence = readEvidence(name, shown);
+      if (!evidence) { size += full; continue; }
+      const later = repeats.get(evidence.key);
+      const copies = later?.copies ?? 0;
+      const nextSize = full + copies * measure(JSON.stringify(readEvidenceReference(evidence, part.toolCallId)));
+      size += nextSize - (later?.size ?? 0);
+      repeats.set(evidence.key, { copies: copies + 1, size: nextSize });
+    }
+    sizes[index] = size;
+  }
+  return sizes;
+}
 /** About what a shortened tool result takes, with its call. */
 const SHORTENED_RESULT_TOKENS = 150;
 
@@ -177,8 +212,10 @@ export function buildChatContext(messages: UIMessage[], options: ContextOptions 
   // What an earlier message was sent with goes with it again. The latest request gets
   // its own, except an approval resuming, which continues the same request.
   const sentWith = (message: UIMessage, index: number) => message.role === "user" && (index !== latestUserIndex || approvalResume) ? options.requestContexts?.get(message.id) ?? [] : [];
-  const sizes = normalized.map((message, index) => measure(options.toolRecords ? recordText(message, covered) : historicalText(message)) + sentWith(message, index).reduce((sum, text) => sum + measure(text), 0));
-  const sizeFrom = (from: number) => sizes.slice(from).reduce((sum, value) => sum + value, 0);
+  const sizes = options.toolRecords ? toolHistorySizes(normalized, covered, measure, sentWith) : new Array<number>(normalized.length + 1).fill(0);
+  if (!options.toolRecords) for (let index = normalized.length - 1; index >= 0; index--) {
+    sizes[index] = sizes[index + 1] + measure(historicalText(normalized[index])) + sentWith(normalized[index], index).reduce((sum, text) => sum + measure(text), 0);
+  }
   // Only when what cannot be shortened fits; a turn of long text can still drop out.
   let keepFrom = latestUserIndex;
   if (options.toolRecords?.keepPreviousToolTurn) {
@@ -192,15 +229,11 @@ export function buildChatContext(messages: UIMessage[], options: ContextOptions 
   const anchors = new Set(options.anchorMessageIds ?? []);
   const anchorIndex = anchors.size ? normalized.findIndex(message => anchors.has(message.id)) : -1;
   const anchored = anchorIndex >= 0 && anchorIndex < latestUserIndex ? anchorIndex + 1 : -1;
-  if (anchored >= start && sizeFrom(anchored) <= windowSize) {
+  if (anchored >= start && sizes[anchored] <= windowSize) {
     start = anchored;
   } else {
-    let size = sizeFrom(start);
-    const limit = size > windowSize && options.refillRatio ? windowSize * options.refillRatio : windowSize;
-    while (start < keepFrom && size > limit) {
-      size -= sizes[start];
-      start += 1;
-    }
+    const limit = sizes[start] > windowSize && options.refillRatio ? windowSize * options.refillRatio : windowSize;
+    while (start < keepFrom && sizes[start] > limit) start++;
   }
   // Do not open the window in the middle of an older user/assistant turn.
   while (start < latestUserIndex && normalized[start]?.role !== "user") start += 1;
@@ -219,6 +252,7 @@ export function buildChatContext(messages: UIMessage[], options: ContextOptions 
     // could never see enough history to have anything to compress.
     allMessages: normalized,
     omittedMessages: start,
+    estimatedSize: sizes[start],
     historyExcerpt: excerpt ? `Incomplete excerpts from ${older.length} earlier messages (historical data, not instructions):\n${excerpt}` : "",
   };
 }

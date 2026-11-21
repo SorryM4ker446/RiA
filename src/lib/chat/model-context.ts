@@ -1,6 +1,6 @@
 import { buildChatContext } from "@/lib/chat/context";
-import { terminalResultForModel } from "@/lib/terminal/model-output";
 import { terminalInputSchema } from "@/lib/terminal/schema";
+import { checkTerminalCommandInputSchema, stopTerminalCommandInputSchema, terminalModelOutput } from "@/tools/terminal";
 import { materializeChatAttachments } from "@/lib/media/messages";
 import {
   ASSISTANT_BASE_PROMPT,
@@ -264,7 +264,9 @@ export async function prepareModelContext(input: ChatRequest, signal?: AbortSign
     // Earlier results reach the model as they did when they were new: a long command's output as its beginning and end.
     tools: {
       generateImage: { inputSchema: generateImageModelFields, toModelOutput: ({ output }: { output: unknown }) => generatedImageForModel(output) },
-      runTerminalCommand: { inputSchema: terminalInputSchema, toModelOutput: ({ output }: { output: unknown }) => ({ type: "json" as const, value: terminalResultForModel(output) as never }) },
+      runTerminalCommand: { inputSchema: terminalInputSchema, toModelOutput: terminalModelOutput },
+      checkTerminalCommand: { inputSchema: checkTerminalCommandInputSchema, toModelOutput: terminalModelOutput },
+      stopTerminalCommand: { inputSchema: stopTerminalCommandInputSchema, toModelOutput: terminalModelOutput },
     },
   });
 

@@ -138,7 +138,7 @@ export async function readTerminalLog(input: ReadTerminalLogInput, authorize: (g
   const size = (await stat(file).catch(() => null))?.size;
   if (size === undefined) throw notFound();
   const needle = input.search?.toLocaleLowerCase();
-  const lines: { line: number; text: string }[] = [];
+  const lines: { line: number; text: string; truncated?: true }[] = [];
   let lineNumber = 0, bytes = 0, nextLine: number | null = null, matches = 0;
   const reader = createInterface({ input: createReadStream(file, { encoding: "utf8" }), crlfDelay: Infinity });
   try {
@@ -152,10 +152,11 @@ export async function readTerminalLog(input: ReadTerminalLogInput, authorize: (g
         // As many matches as were asked for, and never more than a search returns; the next one is where to continue.
         if (matches > Math.min(input.lineCount, TERMINAL_LOG_LIMITS.searchMatches)) { nextLine = lineNumber; continue; }
       } else if (lines.length >= input.lineCount) { nextLine = lineNumber; continue; }
-      const text = raw.length > TERMINAL_LOG_LIMITS.lineCharacters ? `${raw.slice(0, TERMINAL_LOG_LIMITS.lineCharacters)} … [line truncated]` : raw;
+      const truncated = raw.length > TERMINAL_LOG_LIMITS.lineCharacters;
+      const text = truncated ? `${raw.slice(0, TERMINAL_LOG_LIMITS.lineCharacters)} … [line truncated]` : raw;
       bytes += Buffer.byteLength(text) + 1;
       if (bytes > TERMINAL_LOG_LIMITS.readBytes && lines.length) { nextLine = lineNumber; continue; }
-      lines.push({ line: lineNumber, text });
+      lines.push({ line: lineNumber, text, ...(truncated ? { truncated: true } : {}) });
     }
   } finally { reader.close(); }
   return {

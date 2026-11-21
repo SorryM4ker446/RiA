@@ -244,12 +244,26 @@ the latest 8 KiB of each of stdout and stderr, so a build or test summary at the
 end is kept. An explicit marker states how many bytes in between were omitted.
 Output and command text are saved with the chat and sent to its model.
 
-The model is sent less: up to 16 KiB of a command's output, the beginning and the end of
-each stream, with a line where the rest was left out saying how many bytes and how to read
+The model sees up to 16 KiB of output per command, check or stop result. The preview
+keeps the beginning and end of each stream and identifies omitted bytes and how to read
 them (`src/lib/terminal/model-output.ts`); the card, the execution record and approvals keep
 the capture. Compared with a real model on a test log whose one failure sat in the middle,
 16 KiB found the failure every time with about a quarter of the input, while 64 KiB hid the
 gap and the model reported no failure. Earlier results are replayed to the model the same way.
+
+A zero exit code records that the process exited normally. For a completed command whose
+model-facing output had gaps, RiA checks whether the preview already contains a recognized
+test or build success summary at its end. A later explicit verification can also establish
+the result after abbreviated output from earlier commands. If the preview lacks that evidence,
+RiA requires a recognized outcome and coverage of the finalized log from both non-empty streams.
+Filtered searches are useful leads and an empty result leaves the outcome unverified.
+When the evidence is insufficient, the answer says so and the run does not record success.
+Retrieved diagnostic matches can still appear beside that status. Commands with custom
+output can remain unverified even after a complete read if their output has no recognized outcome.
+Codex's execution result keeps the process status separate from bounded output. Claude Code
+exposes a `Stop` hook for projects that want a completion check. RiA applies its evidence
+check in the chat stream and reports what it could verify within the current turn.
+[Codex execution result](https://github.com/openai/codex/blob/main/codex-rs/core/src/tools/context.rs) · [Claude Code Stop hooks](https://code.claude.com/docs/en/hooks#stop-decision-control)
 
 When output exceeds what the model is sent (16 KiB), its complete stdout and stderr are also saved as
 a terminal log in the cache folder (`terminal-logs/<command id>`, beside the local database unless a cache folder was chosen; see [Data and cache location](data-location.md)), and the

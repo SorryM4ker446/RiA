@@ -1,5 +1,6 @@
 import type { UIMessage } from "ai";
 import { terminalLogReferenceSchema } from "@/lib/terminal/schema";
+import { isTerminalOutputTool } from "@/lib/terminal/model-output";
 
 const TRUNCATED = "\n… [truncated] …\n";
 export const TOOL_HISTORY_CHARACTERS = 4000;
@@ -112,7 +113,7 @@ export function historicalToolText(part: UIMessage["parts"][number], limit = TOO
   const tool = part.type === "dynamic-tool" && "toolName" in part ? String(part.toolName) : part.type.slice(5);
   const output = "output" in part ? part.output : undefined;
   const result = record(output);
-  const terminal = tool === "runTerminalCommand";
+  const terminal = isTerminalOutputTool(tool);
   const metadata = {
     tool: historyTextExcerpt(tool, 160), state: "state" in part ? part.state : undefined,
     toolCallId: "toolCallId" in part ? historyTextExcerpt(String(part.toolCallId), 128) : undefined,
@@ -121,6 +122,7 @@ export function historicalToolText(part: UIMessage["parts"][number], limit = TOO
       status: typeof result.status === "string" ? historyTextExcerpt(result.status, 40) : undefined,
       exitCode: typeof result.exitCode === "number" || result.exitCode === null ? result.exitCode : undefined,
       capturedOutputTruncated: typeof result.truncated === "boolean" ? result.truncated : undefined,
+      modelOutputOmitted: result.modelOutputOmitted === true || undefined,
       // Lets a later step read the omitted middle with readTerminalLog.
       fullLog: terminalLogReferenceSchema.safeParse(result.log).data,
     } : {}),
@@ -142,11 +144,12 @@ export function historicalToolText(part: UIMessage["parts"][number], limit = TOO
     text += prefix + historyTextExcerpt(describe(value, scale > 1), available);
   }
   add("error", "errorText" in part ? part.errorText : undefined, 400);
-  if (terminal && result && ("stdout" in result || "stderr" in result)) {
-    for (const line of terminalDiagnostics(result)) add("diagnostic", line, 140, 80);
-    add("stderr", result.stderr, 600);
+  if (terminal && result) {
+    const stdout = result.stdout ?? result.newStdout, stderr = result.stderr ?? result.newStderr;
+    for (const line of terminalDiagnostics({ stdout, stderr })) add("diagnostic", line, 140, 80);
+    add("stderr", stderr, 600);
     add("file changes", fileChangesText(result.fileChanges), 600);
-    add("captured stdout", result.stdout, 650);
+    add("captured stdout", stdout, 650);
   } else if (tool === "editProjectFile" && result && typeof result.diff === "string") {
     // The diff is the record of what changed; the input repeats it.
     add("diff", result.diff, 2800);

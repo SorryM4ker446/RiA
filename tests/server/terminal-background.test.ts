@@ -9,6 +9,8 @@ import { createTestDatabase } from "../helpers/database";
 import { localAccessCookie } from "../helpers/local-access";
 import { seedTestModelPreferences } from "../helpers/model-library";
 import { languageModel, resetProviderState } from "../helpers/model-provider";
+import { TERMINAL_LIMITS } from "@/lib/terminal/schema";
+import { createTerminalEvidenceReview } from "@/lib/chat/terminal-evidence";
 
 const cleanup = createTestDatabase();
 process.env.RIA_TEST_PROVIDER = "1";
@@ -192,4 +194,87 @@ test("a request after a background command ended carries the notice to the model
   assert.match(prompts[0], new RegExp(`${input.binding.sessionId} ended`));
   assert.match(prompts[0], /completed, exit code 0/);
   await revokeGrant(grant.id);
+});
+
+for (const read of ["skipped", "no match", "no outcome", "complete", "reported failure"] as const) {
+  test(`a zero exit after omitted terminal output stays unverified with log review ${read}`, async t => {
+    resetProviderState();
+    process.env.OPENROUTER_API_KEY = "offline-fixture-placeholder";
+    await seedTestModelPreferences(db);
+    const grant = await folder();
+    const chat = await db.chat.create({ data: { title: "Verification", workspaceGrantId: grant.id, approvalRule: "full" } });
+    const line = `fixture ${"x".repeat(1_200)}`;
+    const summary = read === "complete" ? "Tests: 19 passed, 0 failed" : read === "reported failure" ? "Tests: 18 passed, 1 failed" : "No result summary";
+    const lines = Array.from({ length: 24 }, () => print(line));
+    lines.splice(12, 0, print(summary));
+    const input = await background(grant.id, lines.join("; "));
+    await runTerminalCommand(input, undefined, null, { chatId: chat.id });
+    await eventually(() => getTerminalSession(input.binding.sessionId).status === "completed");
+    const id = input.binding.sessionId;
+    let count = 0;
+    t.mock.method(languageModel, "doStream", async (options: LanguageModelV3CallOptions) => {
+      const step = count++;
+      if (step === 1) {
+        const checked = options.prompt.flatMap(message => message.role === "tool" ? message.content : [])
+          .find(part => part.type === "tool-result" && part.toolName === "checkTerminalCommand");
+        assert.ok(checked?.type === "tool-result" && checked.output.type === "json");
+        const data = checked.output.value as { newStdout: string; modelOutputOmitted: boolean; log: { id: string } };
+        assert.equal(data.modelOutputOmitted, true);
+        assert.equal(data.log.id, id);
+        assert.ok(Buffer.byteLength(data.newStdout) <= TERMINAL_LIMITS.modelOutputBytes + 300);
+        assert.ok(!data.newStdout.includes(summary), "the test outcome is in the omitted middle");
+      }
+      const tool = step === 0 ? { name: "checkTerminalCommand", input: { id, waitSeconds: 5 } }
+        : step === 1 && read !== "skipped" ? { name: "readTerminalLog", input: { logId: id, stream: "stdout", startLine: 1, lineCount: 40, ...(read === "no match" ? { search: "ABSENT-DIAGNOSTIC" } : {}) } } : null;
+      return { stream: new ReadableStream<LanguageModelV3StreamPart>({ start(controller) {
+        controller.enqueue({ type: "stream-start", warnings: [] });
+        if (tool) controller.enqueue({ type: "tool-call", toolCallId: `check-${step}`, toolName: tool.name, input: JSON.stringify(tool.input) });
+        else {
+          controller.enqueue({ type: "text-start", id: "answer" });
+          controller.enqueue({ type: "text-delta", id: "answer", delta: "All checks passed." });
+          controller.enqueue({ type: "text-end", id: "answer" });
+        }
+        controller.enqueue({ type: "finish", finishReason: { unified: tool ? "tool-calls" : "stop", raw: undefined }, usage: { inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 5, text: 5, reasoning: 0 } } });
+        controller.close();
+      } }) };
+    });
+    const response = await chatRoute.POST(new NextRequest("http://localhost/api/chat", { method: "POST", headers: { cookie: localAccessCookie(), "content-type": "application/json" }, body: JSON.stringify({ chatId: chat.id, messages: [{ id: "verify", role: "user", parts: [{ type: "text", text: "Did the command pass?" }] }] }) }));
+    assert.equal(response.status, 200);
+    const wire = await response.text();
+    const text = wire.split("\n").filter(line => line.startsWith("data: {")).map(line => JSON.parse(line.slice(6))).filter(chunk => chunk.type === "text-delta").map(chunk => chunk.delta).join("");
+    const run = await db.agentRun.findFirstOrThrow({ where: { chatId: chat.id } });
+    if (read === "complete") {
+      assert.equal(text, "All checks passed.");
+      assert.equal(run.status, "succeeded");
+    } else {
+      assert.match(text, read === "reported failure" ? /报告了失败|reports a failure/ : /仍待核验|still unverified/);
+      assert.doesNotMatch(text, /All checks passed/);
+      assert.doesNotMatch((await db.message.findFirstOrThrow({ where: { chatId: chat.id, role: "assistant" } })).content, /All checks passed/);
+      assert.match(wire, /"terminalEvidenceUnverified":true/);
+      assert.equal(run.stopReason, "terminal-evidence-incomplete");
+    }
+    await revokeGrant(grant.id);
+  });
+}
+
+test("verification needs every line of the finalized log, including stderr", () => {
+  const review = createTerminalEvidenceReview();
+  const id = "8d9c6f0e-4b7a-4c1d-9e2f-3a5b6c7d8e9f";
+  const log = { id, stdoutBytes: 100, stderrBytes: 80, complete: true, expiresAt: "2100-01-01T00:00:00Z" };
+  review.observe("runTerminalCommand", { id, status: "completed", modelOutputOmitted: true, log });
+  const read = (stream: "stdout" | "stderr", line: number, truncated = false) => review.observe("readTerminalLog", {
+    logId: id, stream, totalLines: 2, totalBytes: log[`${stream}Bytes`], complete: true, lines: [{ line, text: stream === "stdout" && line === 2 ? "Tests: 2 passed, 0 failed" : "fixture", truncated }],
+  });
+  read("stdout", 2); read("stderr", 1); read("stderr", 2, true);
+  assert.equal(review.pending().length, 1);
+  read("stdout", 1);
+  assert.equal(review.pending().length, 1);
+  read("stderr", 2);
+  assert.deepEqual(review.pending(), []);
+  review.clearVisibleEvidence();
+  review.observe("readTerminalLog", { logId: id, stream: "stdout", totalLines: 2, totalBytes: log.stdoutBytes, complete: true,
+    lines: [{ line: 1, text: "ℹ pass 2" }, { line: 2, text: "ℹ fail 0" }] });
+  assert.equal(review.pending().length, 1, "compacting the stderr evidence makes the outcome unverified again");
+  read("stderr", 1); read("stderr", 2);
+  assert.deepEqual(review.pending(), []);
 });
