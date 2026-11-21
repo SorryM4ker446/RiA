@@ -2,12 +2,13 @@ import { test as base, expect, type Page } from "@playwright/test";
 import { expectImportClosed, openDocumentImport, previewImportButton, searchDocumentContent } from "../helpers/knowledge";
 import { chooseMenuAction } from "../helpers/row-menu";
 import { NO_CREDENTIAL_STATE, localHostOrigin, openWorkspace } from "../helpers/workspace-entry";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { browserApi, browserData } from "../helpers/browser-api";
 import { scannedPdf, textPdf, wordDocument } from "../helpers/document-fixtures";
-import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { openDocumentReferences } from "../helpers/execution-records";
 import { acceptConfirm } from "../helpers/confirm";
@@ -112,7 +113,7 @@ test("scanned PDF pages are read after the import, and a reading that fails can 
   test.setTimeout(120_000);
   await register(page, app.origin);
   await page.getByRole("link", { name: /知识库/ }).click();
-  // Enough scanned pages to keep the reader busy while a second scan is imported behind it.
+  // Multiple scanned pages make the progress count visible.
   const filler = Array.from({ length: 9 }, (_, index) => [`Aisle ${index + 1} is restocked every morning.`]);
   const first = await scannedPdf([{ text: "Policy overview for the warehouse team." }, ["Aurora warehouse opens on Thursdays."], ...filler]);
   await openDocumentImport(page);
@@ -123,25 +124,33 @@ test("scanned PDF pages are read after the import, and a reading that fails can 
   await page.getByRole("button", { name: "确认保存文档", exact: true }).click();
   const savedResponse = await saved;
   expect(savedResponse.ok()).toBe(true);
-  const warehouse = (await savedResponse.json()).data.document;
   await expectImportClosed(page);
   // The row counts the pages as they are read.
   await expect(page.getByText(/^正在识别文字 \d\/10 页$/)).toBeVisible();
-
-  // A second scan waits behind the first; its kept copy goes missing before its turn comes.
-  const second = await scannedPdf([["Night shift starts at ten."]]);
-  const { document } = await importFile(page, "night.pdf", second);
-  const [{ file: database }] = app.readRows("PRAGMA database_list") as Array<{ file: string }>;
-  const kept = join(dirname(database), "ocr", `${document.id}.pdf`);
-  expect(existsSync(kept)).toBe(true);
-  rmSync(kept);
-  // The first scan is still being read, so the second has not been opened yet.
-  expect(app.readRows("SELECT status FROM document_ocr WHERE documentId = ?", warehouse.id)).toEqual([{ status: "running" }]);
-  await expect(page.getByText("文字识别失败", { exact: true })).toBeVisible({ timeout: 90_000 });
   await expect(page.getByText(/^正在识别文字/)).toHaveCount(0);
   await searchDocumentContent(page, "Aurora warehouse Thursdays");
   await expect(page.getByText(/Aurora warehouse opens on Thursdays/).first()).toBeVisible();
 
+  // Seed an interrupted import with its cached PDF missing while the service is stopped.
+  const second = await scannedPdf([["Night shift starts at ten."]]);
+  const documentId = randomUUID();
+  const [{ file: database }] = app.readRows("PRAGMA database_list") as Array<{ file: string }>;
+  const kept = join(dirname(database), "ocr", `${documentId}.pdf`);
+  const pages = JSON.stringify([{ pageNumber: 1, text: "" }]);
+  const contentHash = createHash("sha256").update(pages).digest("hex");
+  const sourceHash = createHash("sha256").update(second).digest("hex");
+  await app.restart(() => {
+    const sqlite = new DatabaseSync(database);
+    try {
+      sqlite.prepare(`INSERT INTO knowledge_documents (id, filename, format, byteSize, contentHash, pages, characterCount, indexVersion, updatedAt)
+        VALUES (?, 'night.pdf', 'pdf', ?, ?, ?, 0, 1, CURRENT_TIMESTAMP)`).run(documentId, second.byteLength, contentHash, pages);
+      sqlite.prepare(`INSERT INTO document_ocr (id, documentId, sourceHash, contentHash, pages, results, updatedAt)
+        VALUES (?, ?, ?, ?, '[1]', '{}', CURRENT_TIMESTAMP)`).run(randomUUID(), documentId, sourceHash, contentHash);
+    } finally { sqlite.close(); }
+  });
+  await page.reload();
+  await expect(page.getByText("文字识别失败", { exact: true })).toBeVisible({ timeout: 90_000 });
+  expect(existsSync(kept)).toBe(false);
   writeFileSync(kept, second);
   await page.reload();
   await chooseMenuAction(page, "night.pdf", "重新识别文字 night.pdf");

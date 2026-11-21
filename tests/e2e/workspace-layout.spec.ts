@@ -355,6 +355,9 @@ test("the memory confirmation states the result and its effect, then leaves on i
 });
 
 test("a one-off task checks its time in its own zone and persists without a model", async ({ page, app }) => {
+  const year = new Date().getUTCFullYear() + 1;
+  const secondSunday = String(8 + (7 - new Date(Date.UTC(year, 2, 1)).getUTCDay()) % 7).padStart(2, "0");
+  await page.clock.setFixedTime(new Date(`${year}-03-01T12:00:00Z`));
   await openWorkspace(page, app.origin);
   await page.goto(`${app.origin}/tasks`);
   // Keep the real exit animation in progress long enough to expose typing
@@ -372,12 +375,12 @@ test("a one-off task checks its time in its own zone and persists without a mode
   await form.getByRole("button", { name: "高级", exact: true }).click();
   await form.getByLabel("时区", { exact: true }).fill("America/New_York");
   // 02:30 does not happen in New York on the day the clocks go forward.
-  await chooseTaskDateTime(page, form, "日期", "2030-03-10T02:30");
+  await chooseTaskDateTime(page, form, "日期", `${year}-03-${secondSunday}T02:30`);
   await form.getByRole("button", { name: "创建", exact: true }).click();
   await expect(form.getByRole("alert")).toContainText("在该时区存在的日期和时间");
   expect(app.readRows("SELECT id FROM scheduled_jobs")).toHaveLength(0);
   await form.getByLabel("时区", { exact: true }).fill("Asia/Shanghai");
-  await chooseTaskDateTime(page, form, "日期", "2030-11-20T09:00");
+  await chooseTaskDateTime(page, form, "日期", `${year}-03-20T09:00`);
   await page.setViewportSize({ width: 390, height: 780 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: join(tmpdir(), "ria-workspace-ui", "tasks-create-mobile.png"), animations: "disabled" });
@@ -385,7 +388,7 @@ test("a one-off task checks its time in its own zone and persists without a mode
   await expect(page.getByTestId("task-item").filter({ hasText: "独立页面的一次提醒" })).toBeVisible();
   const payload = await browserApi(page, "/api/tasks");
   expect(payload.body.data).toHaveLength(1);
-  expect(payload.body.data[0]).toMatchObject({ nextRunAt: "2030-11-20T01:00:00.000Z", timeZone: "Asia/Shanghai", cron: null, enabled: true, kind: "prompt" });
+  expect(payload.body.data[0]).toMatchObject({ nextRunAt: `${year}-03-20T01:00:00.000Z`, timeZone: "Asia/Shanghai", cron: null, enabled: true, kind: "prompt" });
   await app.restart(); await page.reload();
   await expect(page.getByTestId("task-item").filter({ hasText: "独立页面的一次提醒" })).toContainText("已安排");
   expect(app.providerCalls).toEqual([]);
