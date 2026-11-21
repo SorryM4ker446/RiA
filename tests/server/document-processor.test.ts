@@ -125,6 +125,9 @@ test("document tools obey collection scope, assistant allowlists and run budgets
   const options = { toolCallId: "document-call", messages: [] };
   const excerpt = await tools.readDocument.execute!({ documentId: first.document.id, offset: 0, limit: 12 }, options) as any;
   assert.equal(excerpt.text.length, 12); assert.equal(excerpt.nextOffset, 12);
+  // The excerpt is sent once; pages only say where each page's part begins.
+  assert.ok(excerpt.pages.every((page: Record<string, unknown>) => !("text" in page) && typeof page.offset === "number"));
+  assert.equal(JSON.stringify(excerpt).split(JSON.stringify(excerpt.text).slice(1, -1)).length - 1, 1);
   await assert.rejects(() => tools.readDocument.execute!({ documentId: second.document.id }, options), /主题/);
   await assert.rejects(() => tools.convertDocument.execute!({ documentId: second.document.id, format: "docx" }, options), /主题/);
   const file = await tools.convertDocument.execute!({ documentId: first.document.id, format: "docx" }, options);
@@ -141,4 +144,17 @@ test("exports and layout previews share a bounded quota without changing source 
   for (let index = 0; index < 20; index++) assert.equal((await exportRoute.POST(request("/api/document-processor/export", { filename: "x", content: "Safe", syntax: "plain", format: "txt" }))).status, 200);
   const limited = await exportRoute.POST(request("/api/document-processor/export", { filename: "x", content: "Safe", syntax: "plain", format: "txt" }));
   assert.equal(limited.status, 429); assert.ok(limited.headers.get("Retry-After")); assert.equal(await db.knowledgeDocument.count(), 0);
+});
+
+test("a document excerpt across pages names each page's start, once, and its offsets lead the next read on", async () => {
+  const document = await indexDocument({ filename: "分页.md", format: "md", byteSize: 100, collection: "财务", pages: [{ pageNumber: 1, text: "第一页的内容。" }, { pageNumber: 2, text: "第二页的内容。" }, { pageNumber: 3, text: "第三页。" }] });
+  const tools = await createChatToolSet({ toolIds: ["readDocument"], documentCollections: ["财务"] });
+  const options = { toolCallId: "pages-call", messages: [] };
+  const first = await tools.readDocument.execute!({ documentId: document.document.id, offset: 3, limit: 10 }, options) as any;
+  assert.equal(first.text, "的内容。\n\n第二页的");
+  assert.deepEqual(first.pages, [{ pageNumber: 1, offset: 3 }, { pageNumber: 2, offset: 9 }]);
+  // A page's offset is a place to read from.
+  const second = await tools.readDocument.execute!({ documentId: document.document.id, offset: first.pages[1].offset, limit: 7 }, options) as any;
+  assert.equal(second.text, "第二页的内容。");
+  assert.equal(second.nextOffset, 16);
 });

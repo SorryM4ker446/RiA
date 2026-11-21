@@ -246,10 +246,10 @@ export async function runTerminalCommand(raw: TerminalInput, signal?: AbortSigna
       try { process.kill(-child!.pid!, "SIGKILL"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") console.error("terminal.cleanup.failed"); }
     });
     // Keep the beginning and the most recent end of each stream in memory: the
-    // end is where builds and test runners report their outcome. Once output
-    // exceeds that, a log keeps all of it for reading back on demand.
+    // end is where builds and test runners report their outcome. Once output is
+    // more than the model is sent of it, a log keeps all of it for reading back on demand.
     const headLimit = TERMINAL_LIMITS.outputBytes - 2 * TERMINAL_LIMITS.tailBytes;
-    let headBytes = 0;
+    let headBytes = 0, seenBytes = 0, logRequested = false;
     const captured = { stdout: { head: "", tail: Buffer.alloc(0), omitted: 0 }, stderr: { head: "", tail: Buffer.alloc(0), omitted: 0 } };
     let pending: { field: "stdout" | "stderr"; text: string }[] | null = null;
     const render = (field: "stdout" | "stderr") => {
@@ -271,11 +271,13 @@ export async function runTerminalCommand(raw: TerminalInput, signal?: AbortSigna
       const decoder = new StringDecoder("utf8");
       const headText = decoder.write(selected);
       const headUsed = Buffer.byteLength(headText);
-      if (headUsed < bytes.length && !view.truncated) {
-        view.truncated = true;
-        // Everything so far is still in the head, so the log starts complete.
-        pending = [{ field, text: clean.slice(headText.length) }];
-        const snapshot = { stdout: captured.stdout.head + (field === "stdout" ? headText : ""), stderr: captured.stderr.head + (field === "stderr" ? headText : "") };
+      if (headUsed < bytes.length) view.truncated = true;
+      if (!logRequested && seenBytes + bytes.length > TERMINAL_LIMITS.modelOutputBytes) {
+        logRequested = true;
+        // Everything before this chunk is still whole in the heads (the model's share is smaller than the capture),
+        // so the log starts complete with them, and this chunk follows.
+        pending = [{ field, text: clean }];
+        const snapshot = { stdout: captured.stdout.head, stderr: captured.stderr.head };
         logOpening = openTerminalLog({ id: view.id, grantId: input.grantId, runId, ...snapshot, active: activeTerminalSessionIds() }).then(writer => {
           for (const item of pending ?? []) writer?.write(item.field, item.text);
           pending = null;
@@ -284,6 +286,7 @@ export async function runTerminalCommand(raw: TerminalInput, signal?: AbortSigna
       }
       captured[field].head += headText;
       headBytes += headUsed;
+      seenBytes += bytes.length;
       const rest = bytes.subarray(headUsed);
       if (rest.length) {
         // Close the head, even with a few bytes left before a split character,

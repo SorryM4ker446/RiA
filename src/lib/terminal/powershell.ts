@@ -62,8 +62,10 @@ try {
   [RiATerminalJob]::Attach(${process.pid})
   $command = [Console]::In.ReadToEnd()
   $global:LASTEXITCODE = 0
-  & ([ScriptBlock]::Create($command))
-  if (-not $?) { exit 1 }
+  # Formatted here, inside the statement: left to the host, a table of objects (Select-Object Name,Length)
+  # was still waiting to be written when the script exited, and the command printed nothing.
+  & { & ([ScriptBlock]::Create($command)); $global:RiACommandSucceeded = $? } | Out-Default
+  if (-not $global:RiACommandSucceeded) { exit 1 }
   exit $global:LASTEXITCODE
 } catch { [Console]::Error.WriteLine($_.ToString()); exit 1 }
 `, "utf16le").toString("base64");

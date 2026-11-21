@@ -1,8 +1,7 @@
-import { execFile, spawn } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { rename, rm } from "node:fs/promises";
-import path from "node:path";
+import { rm } from "node:fs/promises";
 import { promisify } from "node:util";
 
 /*
@@ -59,29 +58,48 @@ export function gitBlobHasher(size: number, oidLength: number) {
 }
 
 /**
- * Writes a blob from the repository to `target`, any size, checking as it
- * streams that it is the content expected (by SHA-256). Written to a temporary
- * name beside the target first; false when git no longer has it or it differs.
+ * Writes a blob from the repository to a new file at `temporary`, any size,
+ * checking as it streams that it is the content expected (by SHA-256); false
+ * when git no longer has it, it differs or it could not be written. Settles
+ * only once git has exited and the file is closed: a failed write stops git,
+ * and what was written is removed after both are done, so nothing still holds
+ * the file when the caller moves on.
  */
-export async function restoreGitBlob(root: string, oid: string, expectedSha256: string, target: string): Promise<boolean> {
+export async function writeGitBlob(root: string, oid: string, expectedSha256: string, temporary: string): Promise<boolean> {
   if (!/^[a-f0-9]{40}([a-f0-9]{24})?$/.test(oid)) return false;
-  const temporary = path.join(path.dirname(target), `.ria-undo-${randomUUID()}.tmp`);
-  try {
-    const hash = createHash("sha256");
-    const ok = await new Promise<boolean>(resolve => {
-      const child = spawn("git", ["cat-file", "blob", oid], { cwd: root, env: gitEnvironment(), windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
-      const out = createWriteStream(temporary, { flags: "wx" });
-      child.stdout.on("data", (chunk: Buffer) => hash.update(chunk));
-      child.stdout.pipe(out);
-      let code: number | null = null, closed = false;
-      const done = () => { if (code !== null && closed) resolve(code === 0); };
-      child.on("error", () => { out.destroy(); resolve(false); });
-      child.on("close", value => { code = value ?? 1; done(); });
-      out.on("close", () => { closed = true; done(); });
-      out.on("error", () => resolve(false));
-    });
-    if (!ok || hash.digest("hex") !== expectedSha256) return false;
-    await rename(temporary, target);
-    return true;
-  } finally { await rm(temporary, { force: true }).catch(() => {}); }
+  const hash = createHash("sha256");
+  let created = false;
+  const written = await new Promise<boolean>(resolve => {
+    const out = createWriteStream(temporary, { flags: "wx" });
+    out.on("open", () => { created = true; });
+    let child: ChildProcess;
+    try {
+      child = spawn("git", ["cat-file", "blob", oid], { cwd: root, env: gitEnvironment(), windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
+    } catch {
+      out.on("error", () => {});
+      out.on("close", () => resolve(false));
+      out.destroy();
+      return;
+    }
+    let exited = false, outClosed = false, failed = false, exitCode: number | null = null;
+    const settle = () => { if (exited && outClosed) resolve(!failed && exitCode === 0); };
+    const fail = () => {
+      if (failed) return;
+      failed = true;
+      if (!exited && child.pid) child.kill();
+      out.destroy();
+    };
+    child.stdout!.on("data", (chunk: Buffer) => hash.update(chunk));
+    child.stdout!.pipe(out);
+    // Node emits close after an unsuccessful spawn too, once its stdio is closed.
+    child.on("error", fail);
+    child.stdout!.on("error", fail);
+    child.on("close", code => { exited = true; exitCode = code; if (code !== 0) fail(); settle(); });
+    out.on("error", fail);
+    out.on("close", () => { outClosed = true; settle(); });
+  });
+  if (written && hash.digest("hex") === expectedSha256) return true;
+  // Only a file this call created is removed: one already at that name is not ours.
+  if (created) await rm(temporary, { force: true }).catch(() => {});
+  return false;
 }

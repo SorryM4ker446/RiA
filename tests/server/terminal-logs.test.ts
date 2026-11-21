@@ -11,6 +11,7 @@ const { db } = await import("@/db");
 const { createGrant, listGrants, revokeGrant } = await import("@/lib/local-files/grants");
 const { bindTerminalApproval, runTerminalCommand } = await import("@/lib/terminal/runtime");
 const { TERMINAL_LIMITS } = await import("@/lib/terminal/schema");
+const { terminalResultForModel } = await import("@/lib/terminal/model-output");
 const { TERMINAL_LOG_LIMITS, pruneTerminalLogs, readTerminalLog, terminalLogRoot } = await import("@/lib/terminal/logs");
 const { terminalGrant } = await import("@/lib/terminal/runtime");
 const { createChatToolSet } = await import("@/tools/catalog");
@@ -66,6 +67,16 @@ test("output beyond the capture keeps its beginning and end in memory and all of
   const found = await readTerminalLog({ logId: result.log.id, stream: "stdout", startLine: 1, lineCount: 200, search: "MIDDLE-MARKER" }, allow);
   assert.deepEqual(found.lines.map(line => line.line), [10000]);
   assert.equal(found.totalLines, 20001); assert.equal(found.complete, true); assert.equal(found.nextLine, null);
+  // A search returns as many matches as were asked for, and says where the next one is.
+  const two = await readTerminalLog({ logId: result.log.id, stream: "stdout", startLine: 1, lineCount: 2, search: "line 1" }, allow);
+  assert.deepEqual(two.lines.map(line => line.line), [1, 10]);
+  assert.equal(two.nextLine, 11);
+  const following = await readTerminalLog({ logId: result.log.id, stream: "stdout", startLine: two.nextLine!, lineCount: 2, search: "line 1" }, allow);
+  assert.deepEqual(following.lines.map(line => line.line), [11, 12]);
+  // Asked for more than a search gives, it still stops at the search's own limit.
+  const many = await readTerminalLog({ logId: result.log.id, stream: "stdout", startLine: 1, lineCount: 500, search: "line" }, allow);
+  assert.equal(many.lines.length, TERMINAL_LOG_LIMITS.searchMatches);
+  assert.equal(many.nextLine, many.lines.at(-1)!.line + 1);
   const around = await readTerminalLog({ logId: result.log.id, stream: "stdout", startLine: 9999, lineCount: 3 }, allow);
   assert.deepEqual(around.lines.map(line => line.text.trim()), ["line 9999", "src/app.ts:42 error TS2304: middle-marker", "line 10001"]);
   assert.equal(around.nextLine, 10002);
@@ -80,11 +91,36 @@ test("output beyond the capture keeps its beginning and end in memory and all of
   assert.ok(record.includes(result.log.id));
 });
 
-test("output within the capture leaves no log behind", async () => {
+test("short output leaves no log behind and reaches the model whole", async () => {
   const grant = await folder();
   const result = await run(grant.id, win ? "'small output'" : "echo 'small output'");
   assert.equal(result.truncated, false); assert.equal(result.log, undefined);
   assert.equal(existsSync(path.join(terminalLogRoot(), result.id)), false);
+  assert.deepEqual(terminalResultForModel(result), result);
+});
+
+test("output longer than the model is sent keeps a log, and the model reads its beginning and end with where the rest is", { timeout: 60_000 }, async () => {
+  const grant = await folder();
+  // About 30 KB: whole in the card's capture, more than the model's share.
+  const result = await run(grant.id, win
+    ? "1..1200 | ForEach-Object { if ($_ -eq 600) { 'FAIL refunds keep the shipping fee' } else { \"ok line $_ of the test run\" } }"
+    : "i=1; while [ $i -le 1200 ]; do if [ $i -eq 600 ]; then echo 'FAIL refunds keep the shipping fee'; else echo \"ok line $i of the test run\"; fi; i=$((i+1)); done");
+  assert.equal(result.status, "completed");
+  assert.equal(result.truncated, false, "the card still shows all of it");
+  assert.match(result.stdout, /FAIL refunds/);
+  assert.ok(result.log, "a log is kept for the part the model is not sent");
+  const shown = terminalResultForModel(result);
+  assert.ok(Buffer.byteLength(shown.stdout) <= TERMINAL_LIMITS.modelOutputBytes + 300);
+  assert.match(shown.stdout, /^ok line 1 /);
+  assert.match(shown.stdout, /ok line 1200 of the test run\s*$/);
+  assert.doesNotMatch(shown.stdout, /FAIL refunds/, "the middle is left out");
+  assert.match(shown.stdout, new RegExp(`bytes of this output are not shown here; read them with readTerminalLog \\(logId ${result.log!.id}\\)`));
+  // The left-out middle is in the log.
+  const found = await readTerminalLog({ logId: result.log!.id, stream: "stdout", startLine: 1, lineCount: 5, search: "FAIL" }, allow);
+  assert.deepEqual(found.lines.map(line => line.line), [600]);
+  // A short error stream beside a long log is shown whole.
+  const both = terminalResultForModel({ ...result, stderr: "Error: one line on stderr" });
+  assert.equal(both.stderr, "Error: one line on stderr");
 });
 
 test("a log that reaches its size limit is marked incomplete without failing the command", { timeout: 60_000 }, async () => {
