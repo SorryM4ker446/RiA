@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { memorySwitch } from "../helpers/chat-header";
-import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
+import { fixtureLibraryItem, mockConversationModelPreferences, modelsRouteFixture } from "../helpers/model-fixture";
 import { settingsDialog } from "../helpers/settings";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,7 +14,9 @@ for (const pointer of ["mouse", "touch"] as const) {
       test(`clicking an open select trigger closes it without changing its selection ${narrow ? "in a narrow window" : "on desktop"}`, async ({ page }) => {
         await page.setViewportSize(narrow ? { width: 390, height: 780 } : { width: 1440, height: 960 });
         await page.route("**/api/models", route => route.fulfill({ json: modelsRouteFixture([fixtureLibraryItem("fixture/chat", ["chat"])], { chat: "fixture/chat" }) }));
-        await page.route("**/api/conversations", route => route.fulfill({ json: { data: [{ id: "toggle", title: "重复展开与收起", messageCount: 0, lastMessageAt: new Date().toISOString() }] } }));
+        const chat = { id: "toggle", title: "重复展开与收起", messageCount: 0, lastMessageAt: new Date().toISOString(), modelPreferences: null };
+        await page.route("**/api/conversations", route => route.fulfill({ json: { data: [chat] } }));
+        await mockConversationModelPreferences(page, chat);
         await page.route("**/api/conversations/*/messages", route => route.fulfill({ json: { data: [] } }));
         await page.route("**/api/conversations/*/runs?*", route => route.fulfill({ json: { data: [] } }));
         let writes = 0;
@@ -43,16 +45,19 @@ for (const pointer of ["mouse", "touch"] as const) {
           await expect(page.getByRole("listbox")).toHaveCount(0);
           await expect(trigger).toBeFocused();
         }
+        expect(writes).toBe(0);
         // A real keyboard selection still updates the value and closes the list.
         const mode = page.getByRole("combobox", { name: "聊天模式", exact: true });
         await mode.press("Enter");
         await expect(page.getByRole("option", { name: "聊天模式", exact: true })).toBeFocused();
         await page.keyboard.press("ArrowDown");
         await expect(page.getByRole("option", { name: "文生图模式", exact: true })).toBeFocused();
+        const saved = page.waitForResponse(response => response.request().method() === "PATCH" && new URL(response.url()).pathname === "/api/conversations/toggle");
         await page.keyboard.press("Enter");
+        expect((await saved).ok()).toBe(true);
         await expect(mode).toContainText("文生图模式");
         await expect(page.getByRole("listbox")).toHaveCount(0);
-        expect(writes).toBe(0);
+        expect(writes).toBe(1);
       });
     }
   });

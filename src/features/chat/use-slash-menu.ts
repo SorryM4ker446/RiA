@@ -9,7 +9,7 @@ import type { ChatState } from "@/features/chat/use-chat-state";
 
 type Options = Pick<ChatState,
   | "modelMode" | "input" | "setInput" | "tools" | "skills" | "assistants" | "choice" | "chooseTool" | "toggleSkill"
-  | "applyAssistant" | "isPending" | "loadToolCatalog" | "removeLastChoice" | "handleTextareaKeyDown"
+  | "applyAssistant" | "canApplyAssistant" | "isPending" | "loadToolCatalog" | "removeLastChoice" | "handleTextareaKeyDown"
 > & {
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   /** The tools the conversation's template allows, when it limits them. */
@@ -25,7 +25,7 @@ type Options = Pick<ChatState,
  */
 export function useSlashMenu(options: Options) {
   const {
-    modelMode, input, setInput, tools, skills, assistants, choice, chooseTool, toggleSkill, applyAssistant, isPending, loadToolCatalog,
+    modelMode, input, setInput, tools, skills, assistants, choice, chooseTool, toggleSkill, applyAssistant, canApplyAssistant, isPending, loadToolCatalog,
     removeLastChoice, handleTextareaKeyDown, textareaRef, allowedToolIds, modelCanCallTools, activeTemplateId,
   } = options;
   const openSettings = useOpenSettings();
@@ -62,11 +62,12 @@ export function useSlashMenu(options: Options) {
       items.push({
         key: `template:${template.id}`, group: "templates", label: name,
         description: template.builtin ? localizeMessage(template.config.description) : template.config.description,
+        blocked: canApplyAssistant ? undefined : t("chat.slash.templateUnavailable"),
         icon: TEMPLATE_ICON, chosen: activeTemplateId === template.id, run: () => void applyAssistant(template.id),
       });
     }
     return items;
-  }, [tools, skills, assistants, allowedToolIds, modelCanCallTools, choice.tool, choice.skills, activeTemplateId, chooseTool, toggleSkill, applyAssistant, openSettings]);
+  }, [tools, skills, assistants, allowedToolIds, modelCanCallTools, choice.tool, choice.skills, activeTemplateId, chooseTool, toggleSkill, applyAssistant, canApplyAssistant, openSettings]);
   const visibleItems = useMemo(() => {
     if (!slash) return [];
     if (slash.query) return filterSlashItems(allItems, slash.query);

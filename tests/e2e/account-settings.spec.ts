@@ -23,7 +23,8 @@ async function openBackups(page: Page, origin: string) { await page.goto(`${orig
 test("workspace backup downloads and confirmed restore preserve media and business data across restart", { tag: "@integration" }, async ({ page, app }, info) => {
   await register(page, app.origin);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6", image: "google/gemini-3.1-flash-image-preview" });
-  const chat = (await browserApi(page, "/api/conversations", "POST", { title: "需要恢复的会话" })).body.data;
+  const modelPreferences = { modelMode: "chat", selectedChatModel: { providerId: "openrouter", modelId: "google/gemini-3-flash-preview" }, selectedImageModel: null, selectedVideoModel: null };
+  const chat = (await browserApi(page, "/api/conversations", "POST", { title: "需要恢复的会话", modelPreferences })).body.data;
   await browserApi(page, `/api/conversations/${chat.id}/messages`, "POST", { role: "user", content: "备份正文", clientMessageId: randomUUID() });
   await browserApi(page, "/api/knowledge", "POST", { key: "restore-key", value: "保留知识" });
   expect((await browserApi(page, "/api/tasks", "POST", newTask("保留任务"))).status).toBe(201);
@@ -37,6 +38,7 @@ test("workspace backup downloads and confirmed restore preserve media and busine
   await chooseRowAction(page, page.getByRole("article"), "恢复"); const dialog = page.getByRole("dialog", { name: "确认覆盖当前数据？" }); await expect(dialog.getByRole("button", { name: "确认恢复" })).toBeDisabled(); await dialog.getByRole("button", { name: "取消操作" }).click(); expect(await browserData(page, "/api/conversations")).toHaveLength(0);
   await chooseRowAction(page, page.getByRole("article"), "恢复"); await dialog.getByLabel("恢复确认文字").fill("恢复"); await dialog.getByRole("button", { name: "确认恢复" }).click(); await expect(toasts(page).getByText("恢复完成")).toBeVisible();
   const restored = await browserData(page, "/api/conversations"); expect(restored[0].title).toBe("需要恢复的会话"); expect(restored[0].id).not.toBe(chat.id);
+  expect(restored[0].modelPreferences).toEqual(modelPreferences);
   expect((await browserData(page, `/api/conversations/${restored[0].id}/messages`))[0].content).toBe("备份正文");
   expect(await browserData(page, "/api/tasks")).toHaveLength(1);
   const media = (await browserData(page, "/api/media/library"))[0]; expect(media.id).not.toBe(image.body.asset.assetId);
@@ -117,9 +119,8 @@ test("saved mode defaults apply to new conversations and model settings survive 
     await openRecentConversations(page);
     await expect(page.getByRole("button", { name: /^New Chat/ })).toBeVisible();
     expect(await browserData(page, "/api/conversations")).toEqual([expect.objectContaining({ id: chat.id })]);
-    await expect.poll(() => page.evaluate(id =>
-      JSON.parse(localStorage.getItem(`chat:prefs:${id}`) ?? "null"), chat.id))
-      .toMatchObject({ modelMode: "image", selectedImageModel: { providerId: "openrouter", modelId: "google/gemini-3.1-flash-image-preview" } });
+    const stored = await browserData(page, `/api/conversations/${chat.id}`);
+    expect(stored.modelPreferences).toMatchObject({ modelMode: "image", selectedImageModel: { providerId: "openrouter", modelId: "google/gemini-3.1-flash-image-preview" } });
   } finally {
     releaseCreation();
     await page.unrouteAll({ behavior: "wait" });

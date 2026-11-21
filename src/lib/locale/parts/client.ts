@@ -118,6 +118,7 @@ export const clientMessages = {
 
   // --- chat preferences -----------------------------------------------------
   "chatPrefs.defaultsLoadFailed": "无法读取默认模型。",
+  "chatPrefs.saveFailed": "无法保存此会话的模型选择。",
   "chatPrefs.staleModelWarning": "此会话保存的模型已不在“我的模型”中，请重新选择。",
 
   // --- message presentation -------------------------------------------------

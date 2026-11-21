@@ -98,6 +98,7 @@ model Chat {
   // default rule; a task's conversation uses the task's rule instead.
   approvalRule    String       @default("ask")
   assistantConfig Json?
+  modelPreferences Json?
   // A model-written summary of the turns before `summaryUpToMessageId`. Kept
   // alongside the messages it came from, so the original text is never replaced
   // by it and can still be read.

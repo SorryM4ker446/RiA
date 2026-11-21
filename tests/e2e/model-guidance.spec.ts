@@ -6,12 +6,49 @@ import { browserApi, browserData } from "../helpers/browser-api";
 import { wordDocument } from "../helpers/document-fixtures";
 import { settingsDialog } from "../helpers/settings";
 import { toasts } from "../helpers/toast";
+import { chatTitle } from "../helpers/chat-header";
 
 // Each test starts from an empty installation with the offline model catalog.
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => { const app = await startStandaloneServer({ modelFixture: true }); try { await runTest(app); } finally { await app.close(); } },
 });
 const docxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+test("a conversation keeps its own model and sends with it after the service and browser reopen", async ({ page, browser, app }) => {
+  await openWorkspace(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  const created = await browserApi(page, "/api/conversations", "POST", { title: "单独选择模型的会话" });
+  expect(created.status).toBe(201);
+  const chat = created.body.data;
+  await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
+  await expect(chatTitle(page)).toHaveText("单独选择模型的会话");
+  const picker = page.getByRole("combobox", { name: "选择模型", exact: true });
+  await expect(picker).toHaveText("Claude Opus Offline");
+  await picker.click();
+  const saved = page.waitForResponse(response => response.request().method() === "PATCH" && new URL(response.url()).pathname === `/api/conversations/${chat.id}`);
+  await page.getByRole("option", { name: "Gemini Flash Offline", exact: true }).click();
+  expect((await saved).status()).toBe(200);
+  await expect(picker).toHaveText("Gemini Flash Offline");
+
+  // A new browser context has no storage for the previous origin, just as
+  // after the desktop service starts on a new port.
+  await page.goto("about:blank");
+  await app.restart();
+  const reopened = await browser.newPage({ locale: "zh-CN" });
+  try {
+    await openWorkspace(reopened, app.origin);
+    await reopened.goto(`${app.origin}/chat?conversationId=${chat.id}`);
+    await expect(reopened.getByRole("combobox", { name: "选择模型", exact: true })).toHaveText("Gemini Flash Offline");
+    expect((await browserData(reopened, "/api/models")).chat.model.modelId).toBe("anthropic/claude-opus-4.6");
+    await reopened.getByPlaceholder(/输入你的问题/).fill("重启后继续");
+    const answer = reopened.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/chat");
+    await reopened.getByRole("button", { name: "发送", exact: true }).click();
+    expect((await answer).headers()["x-model-id"]).toBe("google/gemini-3-flash-preview");
+    await expect(reopened.getByText("离线回答：重启后继续", { exact: true })).toBeVisible();
+  } finally {
+    await reopened.close();
+  }
+});
 
 test("with no model the chat says how to add one, and a model added in settings is offered without a reload", async ({ page, app }) => {
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));

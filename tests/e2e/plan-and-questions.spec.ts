@@ -69,7 +69,7 @@ test("one question with one choice is answered by choosing, and the answer stays
   await first.focus();
   await expect(first).toBeFocused();
   await page.keyboard.press("2");
-  await waitForChatStream(page);
+  await waitForChatStream(page, 2);
   await expect(card).toBeHidden();
   await expect(answer(page)).toContainText("离线回答：收到 Word");
   await expect(answer(page).locator(".question-record")).toContainText("报告用哪种格式？Word");
@@ -94,7 +94,7 @@ test("several questions go one after another, with several choices, Other in you
   await card.getByRole("button", { name: "下一题", exact: true }).click();
   await expect(card.getByRole("checkbox", { name: /摘要/ })).toHaveAttribute("aria-checked", "true");
   await card.getByRole("button", { name: "提交", exact: true }).click();
-  await waitForChatStream(page);
+  await waitForChatStream(page, 2);
   await expect(answer(page)).toContainText("用我自己的话：纯文本");
   await expect(answer(page)).toContainText("摘要");
   await expect(answer(page)).toContainText("附录");
@@ -104,7 +104,7 @@ test("a question can be skipped, or answered by typing in the message box", asyn
   await send(page, app, "OFFLINE_ASK 帮我写周报");
   const card = page.getByRole("region", { name: "需要你回答的问题", exact: true });
   await card.getByRole("button", { name: "跳过", exact: true }).click();
-  await waitForChatStream(page);
+  await waitForChatStream(page, 2);
   await expect(answer(page)).toContainText("你跳过了");
   await expect(answer(page).locator(".question-record")).toContainText("已跳过");
 
@@ -113,6 +113,6 @@ test("a question can be skipped, or answered by typing in the message box", asyn
   await expect(card.getByRole("heading", { name: "报告用哪种格式？" })).toBeVisible();
   await page.getByPlaceholder("输入你的回答，或在上方选择…").fill("用我自己的话就行");
   await page.getByRole("button", { name: "发送", exact: true }).click();
-  await waitForChatStream(page);
+  await waitForChatStream(page, 4);
   await expect(answer(page)).toContainText("用我自己的话就行");
 });

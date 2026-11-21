@@ -13,15 +13,21 @@ export async function loadAccountChatDefaults(): Promise<{ preferences: ChatScop
     library: data.library,
   };
 }
-export function staleChatModelWarning(chatId: string, library: ModelLibraryItem[]) {
-  try {
-    const raw = JSON.parse(window.localStorage.getItem(getChatPrefsStorageKey(chatId)) || "null");
-    if (raw && [["chat", "selectedChatModel"], ["image", "selectedImageModel"], ["video", "selectedVideoModel"]].some(([mode, key]) => {
-      const saved = readStoredModelRef(raw[key]);
-      return saved && !library.some(item => item.providerId === saved.providerId && item.modelId === saved.modelId && item.modes.includes(mode as ModelMode));
-    })) return t("chatPrefs.staleModelWarning");
-  } catch { /* Malformed local preferences are ignored. */ }
+export function staleChatModelWarning(preferences: Partial<ChatScopedPreferences> | null, library: ModelLibraryItem[]) {
+  const selections = [["chat", preferences?.selectedChatModel], ["image", preferences?.selectedImageModel], ["video", preferences?.selectedVideoModel]] as const;
+  if (selections.some(([mode, saved]) => saved && !library.some(item => item.providerId === saved.providerId && item.modelId === saved.modelId && item.modes.includes(mode)))) {
+    return t("chatPrefs.staleModelWarning");
+  }
   return null;
+}
+
+export function resolveChatPreferences(stored: Partial<ChatScopedPreferences> | null, defaults: ChatScopedPreferences): ChatScopedPreferences {
+  return {
+    modelMode: stored?.modelMode ?? defaults.modelMode,
+    selectedChatModel: stored?.selectedChatModel ?? defaults.selectedChatModel,
+    selectedImageModel: stored?.selectedImageModel ?? defaults.selectedImageModel,
+    selectedVideoModel: stored?.selectedVideoModel ?? defaults.selectedVideoModel,
+  };
 }
 
 export function getDefaultChatPreferences(): ChatScopedPreferences {
@@ -56,9 +62,9 @@ export function parseModelRefValue(value: string): ModelRef | null {
 }
 
 export function readChatPreferences(chatId: string): ChatScopedPreferences | null {
-  const raw = window.localStorage.getItem(getChatPrefsStorageKey(chatId));
-  if (!raw) return null;
   try {
+    const raw = window.localStorage.getItem(getChatPrefsStorageKey(chatId));
+    if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<ChatScopedPreferences>;
     const modelMode: ModelMode = parsed.modelMode === "chat" || parsed.modelMode === "image" || parsed.modelMode === "video" ? parsed.modelMode : "chat";
     return { modelMode, selectedChatModel: readStoredModelRef(parsed.selectedChatModel), selectedImageModel: readStoredModelRef(parsed.selectedImageModel), selectedVideoModel: readStoredModelRef(parsed.selectedVideoModel) };

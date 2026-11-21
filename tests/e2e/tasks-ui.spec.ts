@@ -151,6 +151,9 @@ test("running a task by hand answers in its one conversation, and every run cont
 });
 
 test("a one-off task asks for a new time before it is switched back on, and deleting keeps its conversation", async ({ page, app }) => {
+  const year = new Date().getUTCFullYear() + 1;
+  // Keep the date in the future for the real service and open the picker in its month.
+  await page.clock.setFixedTime(new Date(`${year}-01-01T17:00:00Z`));
   await openWorkspace(page, app.origin);
   await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
   await page.goto(`${app.origin}/tasks`);
@@ -158,11 +161,11 @@ test("a one-off task asks for a new time before it is switched back on, and dele
   await sheet.getByLabel("Name", { exact: true }).fill("Send the report");
   await sheet.getByLabel("What to do", { exact: true }).fill("Remind me to send the quarterly report");
   await chooseOption(sheet.getByRole("combobox", { name: "When to run", exact: true }), "Once");
-  await chooseTaskDateTime(page, sheet, "Date", "2030-01-15T09:30");
+  await chooseTaskDateTime(page, sheet, "Date", `${year}-01-15T09:30`);
   await sheet.getByRole("button", { name: "Create", exact: true }).click();
   await expect(sheet).toHaveCount(0);
   const [task] = await browserData(page, `${app.origin}/api/tasks`) as Task[];
-  expect(task).toMatchObject({ cron: null, nextRunAt: "2030-01-15T14:30:00.000Z", enabled: true });
+  expect(task).toMatchObject({ cron: null, nextRunAt: `${year}-01-15T14:30:00.000Z`, enabled: true });
   await expect(row(page, "Send the report")).toContainText("Once,");
   await rowAction(page, "Send the report", "Run now");
   await expect.poll(async () => ((await browserData(page, `${app.origin}/api/tasks`)) as Task[])[0].lastStatus, { timeout: 20_000 }).toBe("done");

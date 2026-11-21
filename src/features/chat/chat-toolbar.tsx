@@ -23,7 +23,7 @@ type Props = Pick<
   | "isLoadingChats"
   | "modelMode"
   | "toggleEphemeral"
-  | "assistants" | "assistantsError" | "loadAssistants" | "applyAssistant"
+  | "assistants" | "assistantsError" | "loadAssistants" | "applyAssistant" | "canApplyAssistant"
 >;
 
 /** The memory glyph crossed out the way lucide draws its "-off" icons: cut where the slash passes, then the slash. */
@@ -55,7 +55,7 @@ export function ChatHeader({
   isLoadingChats,
   modelMode,
   toggleEphemeral,
-  assistants, assistantsError, loadAssistants, applyAssistant,
+  assistants, assistantsError, loadAssistants, applyAssistant, canApplyAssistant,
 }: Props) {
   useLocale();
   const toast = useToast();
@@ -91,7 +91,7 @@ export function ChatHeader({
   const templateName = snapshot ? (snapshot.templateId.startsWith("builtin_") ? localizeMessage(snapshot.name) : snapshot.name) : null;
   const memoryOff = activeChat?.ephemeral === true;
   const title = activeChat?.title ?? (awaitingConversation ? null : t("chat.toolbar.newChat"));
-  const choosing = isPending || isLoadingChats || ownedByTask;
+  const choosing = isPending || !canApplyAssistant;
 
   const header = (
     // These controls depend on the conversation: its template and its memory switch. Until the list
@@ -145,7 +145,7 @@ export function ChatHeader({
     {title ? <h1 className="sr-only">{title}</h1> : null}
     {snapshot ? <TemplateDetails key={activeChat?.id} snapshot={snapshot} open={detailsOpen} onOpenChange={setDetailsOpen} returnFocus={() => titleButton.current?.focus()} /> : null}
     <Reveal className="chat-header-notices">{hasTemplateUpdate || assistantsError ? <div className="flex flex-wrap items-center gap-2 px-6 pb-1 pt-2 text-xs">
-      {hasTemplateUpdate ? <Button variant="ghost" size="sm" disabled={isPending} onClick={() => void applyAssistant(snapshot.templateId)}>{t("ui.chat.chat-toolbar.updateToLatestTemplate")}</Button> : null}
+      {hasTemplateUpdate ? <Button variant="ghost" size="sm" disabled={choosing} onClick={() => void applyAssistant(snapshot.templateId)}>{t("ui.chat.chat-toolbar.updateToLatestTemplate")}</Button> : null}
       {assistantsError ? <span role="alert">{localizeMessage(assistantsError)} <Button variant="ghost" size="sm" onClick={() => void loadAssistants()}>{t("ui.chat.chat-toolbar.retry")}</Button></span> : null}
     </div> : null}</Reveal>
   </>;

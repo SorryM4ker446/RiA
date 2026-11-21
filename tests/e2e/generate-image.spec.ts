@@ -224,6 +224,10 @@ test("adding a picture to the next question grows the message box smoothly: the 
   // Its name changes while it works ("加入中..."), so it is found by place: the action after "查看大图".
   const reuse = answer(page).getByTestId("generated-picture").getByRole("button").nth(1);
   await expect(reuse).toHaveText("带图追问");
+  const composerBody = page.locator(".composer-body");
+  const settleComposer = () => composerBody.evaluate(node => Promise.all(node.getAnimations({ subtree: true })
+    .filter(animation => animation instanceof CSSTransition && animation.transitionProperty === "height")
+    .map(animation => animation.finished.catch(() => {}))));
   const layout = () => page.evaluate(() => {
     const form = document.querySelector("form textarea")!.closest("form")!;
     const list = document.querySelector('[data-testid="message-list"]')!;
@@ -245,16 +249,24 @@ test("adding a picture to the next question grows the message box smoothly: the 
   for (const draft of ["", "这张图里"]) {
     if (draft) { await attachments.getByRole("button", { name: "移除这张图片" }).click(); await expect(attachments).toHaveCount(0); }
     await input.fill(draft);
+    // Finish the previous resize before taking a reading position. Otherwise
+    // Playwright can scroll the moving reuse button into view during the click.
+    await settleComposer();
+    await expect(reuse).toBeInViewport({ ratio: 1 });
+    await expect.poll(async () => (await layout()).fromEnd).toBeLessThanOrEqual(2);
     const before = await layout();
     await watchStop();
     await reuse.click();
     await expect(reuse).toHaveText("加入中...");
     await expect(page.getByRole("button", { name: "发送", exact: true })).toBeDisabled();
-    expect((await layout()).bottom).toBe(before.bottom);
+    const whileReading = await layout();
+    expect(whileReading.bottom).toBe(before.bottom);
+    expect(Math.abs(whileReading.fromEnd - before.fromEnd)).toBeLessThanOrEqual(2);
     release();
     await expect(attachments.getByRole("img")).toHaveCount(1);
     await expect(input).toBeFocused();
     await expect(input).toHaveValue(draft);
+    await settleComposer();
     const after = await layout();
     expect(after.bottom).toBe(before.bottom);
     expect(Math.abs(after.fromEnd - before.fromEnd)).toBeLessThanOrEqual(2);
@@ -262,6 +274,7 @@ test("adding a picture to the next question grows the message box smoothly: the 
     gate = new Promise<void>(resolve => { release = resolve; });
   }
   await attachments.getByRole("button", { name: "移除这张图片" }).click();
+  await settleComposer();
   fail = true;
   const before = await layout();
   await reuse.click();

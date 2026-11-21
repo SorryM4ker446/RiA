@@ -44,6 +44,7 @@ export const chatMessages = {
   "chat.slash.group.templates": "助理模板",
   "chat.slash.chosen": "已选择",
   "chat.slash.needsSetup": "需要先配置，选择后前往",
+  "chat.slash.templateUnavailable": "当前无法切换助理模板",
   "chat.slash.toolLessNotice": "当前模型不支持工具调用，需要模型调用的工具暂不可用。",
   "chat.approval.modelCannotContinue": "当前模型不支持工具调用，无法执行这个请求。可以更换模型后再处理，或放弃它继续对话。",
   "chat.approval.changeModel": "更换模型",

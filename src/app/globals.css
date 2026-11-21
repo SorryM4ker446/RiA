@@ -1604,7 +1604,7 @@ body:has(.alert-dialog-content) :is(.dialog-overlay, .dialog-content)[data-state
 .settings-step-number { display: grid; width: 16px; height: 16px; flex-shrink: 0; place-items: center; border-radius: 50%; background: hsl(var(--foreground) / .08); color: hsl(var(--muted-foreground)); font-size: 11px; }
 .settings-field > [data-slot="field-content"], .settings-field > [data-slot="field-label"] { flex: 0 0 10rem; }
 .settings-field [data-slot="field-description"] { font-size: 12px; }
-/* A checkbox row: the box leads, and its title and explanation take the rest of the row instead of the label column. */
+/* Fill the space before the trailing checkbox with the label and its explanation. */
 .settings-field.settings-check-field { align-items: flex-start; gap: 10px; }
 .settings-field.settings-check-field > [role="checkbox"] { margin-top: 2px; }
 .settings-field.settings-check-field > [data-slot="field-content"] { flex: 1 1 auto; min-width: 0; }

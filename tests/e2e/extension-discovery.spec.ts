@@ -97,7 +97,7 @@ test("official metadata discovery adds a disabled MCP connection and uses the ex
   await expect.poll(() => isContinuationHeld(page)).toBe(true);
   await expect(page.getByRole("button", { name: "发送", exact: true })).toHaveCount(0);
   await releaseContinuation(page);
-  await waitForChatStream(page);
+  await waitForChatStream(page, 2);
   await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
   await page.goto("about:blank");
   await app.runtime.restart(); await page.goto(`${app.runtime.origin}/extensions`);

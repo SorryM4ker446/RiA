@@ -15,6 +15,7 @@ import { announceConversationsChanged } from "@/lib/conversations/events";
 import { warmFileSnapshot } from "@/lib/terminal/file-changes";
 import { terminalRuntimeAllowed } from "@/lib/terminal/schema";
 import { t } from "@/lib/locale";
+import { chatModelPreferencesSchema } from "@/lib/chat/model-preferences";
 export const updateConversationSchema = z.strictObject({
   title: z.string().trim().min(1).max(200).optional(),
   // A title the page made from the first message, which a model-written one may still replace; any other is the user's.
@@ -26,6 +27,7 @@ export const updateConversationSchema = z.strictObject({
   workspaceGrantId: z.string().trim().min(1).max(200).nullable().optional(),
   approvalRule: approvalRuleSchema.optional(),
   assistantTemplateId: assistantIdSchema.nullable().optional(),
+  modelPreferences: chatModelPreferencesSchema.optional(),
   tags: z.array(chatTagSchema).max(8).transform(tags => [...new Set(tags)].sort()).optional(),
   // Opening a conversation reads what arrived in it; only the service marks it unread.
   unread: z.literal(false).optional(),
@@ -77,6 +79,7 @@ export async function updateConversation(id: string, input: z.infer<typeof updat
       ...(input.ephemeral !== undefined ? { ephemeral: input.ephemeral } : {}),
       ...(input.workspaceGrantId !== undefined ? { workspaceGrantId: input.workspaceGrantId } : {}),
       ...(input.approvalRule !== undefined ? { approvalRule: input.approvalRule } : {}),
+      ...(input.modelPreferences !== undefined ? { modelPreferences: input.modelPreferences } : {}),
       ...(input.unread !== undefined ? { unread: false } : {}),
       ...(input.tags !== undefined ? { tags: { deleteMany: {}, create: input.tags.map(label => ({ label })) } } : {}),
     }, include: conversationInclude });

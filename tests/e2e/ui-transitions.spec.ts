@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { chatTitle } from "../helpers/chat-header";
-import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
+import { fixtureLibraryItem, mockConversationModelPreferences, modelsRouteFixture } from "../helpers/model-fixture";
 import { expectEased, expectNoUnexpectedShift, expectSteady, watchLayout } from "../helpers/layout-watch";
 
 test("the first launch is dark and the wordmark stays readable across saved themes", async ({ page }) => {
@@ -305,10 +305,11 @@ for (const stale of ["deleted", "archived"] as const) {
 for (const reducedMotion of [false, true]) {
   test(`choosing a model with a longer name eases the tool picker aside${reducedMotion ? " at once with reduced motion" : ""}`, async ({ page }) => {
     await page.emulateMedia({ reducedMotion: reducedMotion ? "reduce" : "no-preference" });
-    const chat = { id: "fluid-conversation", title: "Fluid conversation", lastMessageAt: "2026-10-24T00:00:00Z", messageCount: 0 };
+    const chat = { id: "fluid-conversation", title: "Fluid conversation", lastMessageAt: "2026-10-24T00:00:00Z", messageCount: 0, modelPreferences: null };
     const library = [fixtureLibraryItem("short/model", ["chat"], { name: "Short" }), fixtureLibraryItem("long/model", ["chat"], { name: "A considerably longer model name" })];
     await page.route("**/api/models", route => route.fulfill({ json: modelsRouteFixture(library, { chat: "short/model" }) }));
     await page.route("**/api/conversations", route => route.fulfill({ json: { data: [chat] } }));
+    await mockConversationModelPreferences(page, chat);
     await page.route("**/api/conversations/*/messages", route => route.fulfill({ json: { data: [] } }));
     await page.route("**/api/conversations/*/runs**", route => route.fulfill({ json: { data: [] } }));
     await page.route("**/api/tasks**", route => route.fulfill({ json: { data: [] } }));

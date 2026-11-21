@@ -107,14 +107,14 @@ function trackChatRequestBytes(page: Page) {
   return sizes;
 }
 
-async function approveAndFinish(page: Page) {
+async function approveAndFinish(page: Page, request: number) {
   const continuation = page.waitForResponse(response => new URL(response.url()).pathname === "/api/chat" && response.request().method() === "POST");
   await page.getByRole("button", { name: "批准", exact: true }).click();
   const response = await continuation;
   expect(response.status()).toBe(200);
   // A command's file write precedes the next model step and message commit.
   // Wait for this stream's completion before asserting the next ready state.
-  await waitForChatStream(page);
+  await waitForChatStream(page, request);
 }
 
 test("desktop folder permission, exact command approval and persisted output survive reload without re-execution", async ({ page, app }) => {
@@ -303,7 +303,7 @@ test("approval mode resumes a long script without truncation through persistence
   expect(Buffer.byteLength(command)).toBeGreaterThan(2 * 1024 * 1024);
   const digest = (value: string) => createHash("sha256").update(value).digest("hex");
   const commandHash = digest(command);
-  await approveAndFinish(page);
+  await approveAndFinish(page, 2);
   await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
   await expect(page.getByRole("alert").filter({ hasText: "请求失败" })).toHaveCount(0);
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
@@ -360,7 +360,7 @@ test("the next approval stays disabled until the preceding continuation stream i
     await releaseContinuation(page);
   }
   await expect(page.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
-  await approveAndFinish(page);
+  await approveAndFinish(page, 3);
   await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
   expect(await storedTerminalStates(page, chat.id)).toEqual(["output-available", "output-available"]);
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("onceonce");

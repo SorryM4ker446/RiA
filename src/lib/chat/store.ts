@@ -10,6 +10,7 @@ import { pageResult, type PageOptions } from "@/lib/server/pagination";
 import { deleteConversations } from "@/lib/conversations/mutations";
 import { resolveAssistant } from "@/lib/assistants/store";
 import { announceConversationsChanged } from "@/lib/conversations/events";
+import type { ChatModelPreferences } from "./model-preferences";
 
 import { readAnswer } from "@/tools/definitions/ask-user";
 import { t } from "@/lib/locale";
@@ -59,7 +60,7 @@ export async function getChat(chatId: string) {
  * replace, "manual" for a name someone gave. A conversation with no title of its own yet ("New Chat" or
  * its template's name) is "auto"; any other given title is kept ("named").
  */
-export async function createChat(params: { chatId?: string; title?: string; assistantTemplateId?: string; ephemeral?: boolean; titleSource?: "auto" | "manual" }) {
+export async function createChat(params: { chatId?: string; title?: string; assistantTemplateId?: string; ephemeral?: boolean; titleSource?: "auto" | "manual"; modelPreferences?: ChatModelPreferences }) {
   const { chatId, title } = params;
 
   if (chatId) {
@@ -73,6 +74,7 @@ export async function createChat(params: { chatId?: string; title?: string; assi
       // A new conversation starts from the default approval rule; changing the default later leaves it as it is.
       approvalRule: await defaultApprovalRule(),
       ...(assistant ? { assistantConfig: assistant, ephemeral: !assistant.usesMemory } : {}),
+      modelPreferences: params.modelPreferences,
       ...(chatId ? { id: chatId } : {}),
       ...(params.ephemeral === undefined ? {} : { ephemeral: params.ephemeral }),
       title: truncateTitle(title ?? assistant?.name ?? "New Chat"),

@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import type { ChatScopedPreferences } from "@/features/chat/types";
 import { browserApi } from "./browser-api";
 
 const fixtureModels = {
@@ -11,6 +12,18 @@ const fixtureModels = {
 // Every fixture model is reached through the same offline provider, which is
 // what the local library stores alongside the id.
 const modelRef = (modelId: string) => ({ providerId: "openrouter" as const, modelId });
+
+/** Persists model selections for a conversation provided by a browser fixture. */
+export async function mockConversationModelPreferences(page: Page, chat: { id: string; modelPreferences: ChatScopedPreferences | null }) {
+  await page.route(`**/api/conversations/${chat.id}`, route => {
+    if (route.request().method() === "PATCH") {
+      const { modelPreferences } = route.request().postDataJSON();
+      if (!modelPreferences) return route.fallback();
+      chat.modelPreferences = modelPreferences;
+    }
+    return route.fulfill({ json: { data: chat } });
+  });
+}
 
 /** A library row shaped exactly as the settings page reads it. */
 export function fixtureLibraryItem(modelId: string, modes: ("chat" | "image" | "video" | "embedding")[], overrides: Record<string, unknown> = {}) {

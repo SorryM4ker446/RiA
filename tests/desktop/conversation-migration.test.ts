@@ -6,10 +6,32 @@ import { DatabaseSync } from "node:sqlite";
 import { createRequire } from "node:module";
 import { test } from "node:test";
 
-import { accountScopedMigrationsFrom } from "../helpers/legacy-workspace";
+import { accountScopedMigrationsFrom, applyMigrations } from "../helpers/legacy-workspace";
 
 const { runDesktopMigrations } = createRequire(import.meta.url)("../../electron-dist/migrations.js");
 const migrationsDirectory = resolve("src/db/migrations");
+test("upgrading recovers the last recorded chat model without changing model-less conversations", () => {
+  const root = mkdtempSync(join(tmpdir(), "ria-chat-model-upgrade-"));
+  const databaseFile = join(root, "app.db");
+  try {
+    applyMigrations(databaseFile, { upTo: "20261126100000_chat_title_source", includeWorkspaceMigration: true });
+    const database = new DatabaseSync(databaseFile);
+    try {
+      database.exec("INSERT INTO chats (id,title,updatedAt) VALUES ('used','Used',CURRENT_TIMESTAMP),('blank','Blank',CURRENT_TIMESTAMP),('damaged','Damaged',CURRENT_TIMESTAMP)");
+      const answer = database.prepare("INSERT INTO messages (id,chatId,role,content,createdAt) VALUES (?,?,'assistant',?,?)");
+      const recorded = (modelLabel: string) => `__ASSISTANT_TOOL_MESSAGE__:${JSON.stringify({ modelLabel })}`;
+      answer.run("a", "used", recorded("openrouter/vendor/older"), "2026-10-20");
+      answer.run("b", "used", recorded("deepseek/deepseek-chat"), "2026-10-21");
+      answer.run("c", "damaged", "__ASSISTANT_TOOL_MESSAGE__:{broken", "2026-10-21");
+      database.exec(readFileSync(join(migrationsDirectory, "20261127100000_chat_model_preferences", "migration.sql"), "utf8"));
+      const read = (id: string) => database.prepare("SELECT modelPreferences FROM chats WHERE id=?").get(id)?.modelPreferences;
+      assert.deepEqual(JSON.parse(String(read("used"))), { selectedChatModel: { providerId: "deepseek", modelId: "deepseek-chat" } });
+      assert.equal(read("blank"), null);
+      assert.equal(read("damaged"), null);
+    } finally { database.close(); }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("conversation migration backfills safe text, survives vacuum and restart, and cascades indexes", () => {
   const root = mkdtempSync(join(tmpdir(), "ria-conversation-upgrade-"));
   const databaseFile = join(root, "app.db");

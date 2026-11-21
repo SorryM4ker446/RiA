@@ -1,5 +1,6 @@
 import type { AssistantSnapshot } from "@/lib/assistants/schema";
 import type { ModelRef } from "@/lib/models/preferences-schema";
+import type { ChatModelPreferences } from "@/lib/chat/model-preferences";
 import type { ApprovalRule } from "@/lib/approvals/rules";
 import {
   decodePersistedAssistantToolMessage,
@@ -23,6 +24,7 @@ export type ChatSummary = {
   /** What the model may do in the workspace without asking; a task's conversation shows the task's. */
   approvalRule?: ApprovalRule;
   assistantConfig?: AssistantSnapshot | null;
+  modelPreferences?: Partial<ChatModelPreferences> | null;
   tags?: string[];
   /**
    * The task that owns this conversation. It adds to it on its own, and decides
