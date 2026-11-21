@@ -3,7 +3,7 @@ import { createResumeRecovery } from "./resume-recovery";
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { app, dialog, net, Notification, powerMonitor, globalShortcut } from "electron";
+import { app, BrowserWindow, dialog, net, Notification, powerMonitor, globalShortcut } from "electron";
 import { createDesktopLogger } from "./logger";
 import { runDesktopMigrations } from "./migrations";
 import { runWorkspaceUpgrade } from "./desktop-workspace-upgrade";
@@ -16,7 +16,8 @@ import { DEVELOPMENT_APP_USER_MODEL_ID, INSTALLED_APP_USER_MODEL_ID } from "./ap
 import { UPDATE_SIGNING_PUBLIC_KEY } from "./update-signing-key";
 import { createTaskNotificationDelivery, TaskReminderPoller, type TaskNotice } from "./task-reminders";
 import { ConversationAlerts, createConversationNotificationDelivery } from "./conversation-alerts";
-import { runtime, PRODUCT_NAME, DESKTOP_COOKIE_NAME, packagedRuntime, smokeTest, applicationVersion, smokeReminders } from "./runtime-state";
+import { runtime, PRODUCT_NAME, DESKTOP_COOKIE_NAME, packagedRuntime, smokeTest, applicationVersion, smokeReminders, startupPresentations, windowTransitions } from "./runtime-state";
+import { beginDesktopShutdown } from "./desktop-shutdown";
 import { focusMainWindow, notificationIcon, openFromNotice, applyDesktopPresence, registerGlobalHotkey } from "./desktop-presence";
 import { launchNextServer, restartLocalService, setDesktopCookie } from "./local-service";
 import { broadcastUpdateState, launchUpdateInstaller, scheduleUpdateChecks, updatesSupported } from "./desktop-updates";
@@ -170,6 +171,7 @@ async function bootstrap() {
   const hasAnyProviderKey = settings.hasOpenrouterApiKey || settings.hasDeepseekApiKey;
   const initialPath = packagedRuntime && !hasAnyProviderKey ? "/chat?settings=services&welcome=1" : "/chat";
   runtime.mainWindow = await createMainWindow(initialPath, true);
+  if (runtime.isQuitting) return;
   mainWindowOpened = true;
   const showTaskNotice = createTaskNotificationDelivery(Notification, openFromNotice, runtime.logger, () => runtime.settingsStore?.getLocale() ?? "zh-CN", notificationIcon);
   // The notice stays in the app either way; the user chose which ones also appear on screen.
@@ -201,7 +203,7 @@ async function bootstrap() {
       runtime.logger?.warn("Could not apply the desktop presence setting", error);
     });
     const hotkey = await runtime.settingsStore?.getGlobalHotkey().catch(() => "");
-    if (hotkey) registerGlobalHotkey(hotkey);
+    if (hotkey && !runtime.isQuitting) registerGlobalHotkey(hotkey);
   }
   const recoverAfterResume = createResumeRecovery({
     current: () => runtime.nextServer,
@@ -245,13 +247,16 @@ app.on("second-instance", () => {
 app.on("child-process-gone", (_event, details) => runtime.logger?.error("Child process gone", details));
 
 app.on("activate", () => {
+  if (runtime.isQuitting) return;
   if (runtime.mainWindow) {
-    runtime.mainWindow.show();
+    focusMainWindow();
     return;
   }
   if (runtime.nextServer) {
     void createMainWindow("/chat").then((window) => {
       runtime.mainWindow = window;
+    }).catch(error => {
+      if (!runtime.isQuitting) runtime.logger?.warn("Could not open the main window", error);
     });
   }
 });
@@ -269,58 +274,28 @@ app.on("window-all-closed", () => {
    * every move, so the restart that runs a move never came back. Start-up ends
    * itself when it has to, through its own failure path or the Quit choice.
    */
-  if (!mainWindowOpened) return;
-  if (runtime.tray && !runtime.isQuitting) return;
+  if (!mainWindowOpened || runtime.isQuitting || runtime.tray) return;
   app.quit();
 });
 
 app.on("before-quit", (event) => {
-  // A global shortcut outlives the windows that own it. Releasing it here is
-  // what stops the combination staying dead in the system while the app runs on
-  // with no window.
-  globalShortcut.unregisterAll();
-  if (runtime.isQuitting) return;
-  /*
-   * A restart in flight owns a service `nextServer` does not point at yet: the
-   * stopped one is cleared before the new one is launched, and the new one is
-   * only assigned once it has answered. Returning here — which is what a plain
-   * `!nextServer` test did — let the quit run to completion with that launch
-   * still going, so the restart carried on inside a process the user had just
-   * closed: it reassigned `nextServer`, re-armed the reminder poller, could
-   * build a tray icon, and could raise the "unable to restart" dialog behind a
-   * quit. The launch is abandoned and awaited instead.
-   */
-  if (!runtime.nextServer && !runtime.restartInProgress) {
-    /*
-     * There is nothing left to stop, but the quit still has to finish, and a
-     * bare return says nothing about that. `isQuitting` stays false, which
-     * leaves the window's own close handler as the only thing deciding whether
-     * the application exits — and in tray mode that handler hides the window
-     * instead of closing it, so a quit is swallowed by a window the user meant
-     * to close. A service that died, or a restart that failed, leaves the
-     * application here, so this is a state ordinary use reaches rather than one
-     * only start-up passes through.
-     *
-     * It ends the way the branch below ends, because it is the same guarantee:
-     * the quit belongs to this handler, not to a close the user can cancel.
-     */
-    event.preventDefault();
-    runtime.isQuitting = true;
-    void (async () => { await runtime.reminderPoller?.stop(); await runtime.conversationAlerts?.stop(); })().finally(() => app.exit(0));
-    return;
-  }
+  // Keep Electron from destroying a still-visible window or bypassing service
+  // cleanup on a repeated Quit. The handler below completes the exit.
   event.preventDefault();
-  runtime.isQuitting = true;
-  runtime.restartAbort?.abort(new Error("The application is quitting."));
-  void (async () => {
-    await runtime.reminderPoller?.stop(); await runtime.conversationAlerts?.stop();
-    await runtime.restartInProgress?.catch(() => {});
-    await runtime.nextServer?.stop();
-  })().finally(() => app.exit(0));
+  const shutdown = beginDesktopShutdown(runtime, () => {
+    if (process.platform !== "win32") return;
+    for (const window of BrowserWindow.getAllWindows()) {
+      startupPresentations.get(window)?.dispose();
+      windowTransitions.get(window)?.dispose();
+      if (window.isVisible() || window.isMinimized()) window.hide();
+    }
+  }, () => globalShortcut.unregisterAll());
+  void shutdown?.catch(error => runtime.logger?.error("Desktop shutdown failed", error)).finally(() => app.exit(0));
 });
 
 if (singleInstanceLock) {
   void bootstrap().catch((error) => {
+    if (runtime.isQuitting) return;
     const message = error instanceof Error ? error.message : String(error);
     runtime.logger?.error("Desktop application failed to start", error);
     if (!smokeTest) dialog.showErrorBox(`${PRODUCT_NAME} failed to start`, `${message}\n\nSee the desktop log for details.`);

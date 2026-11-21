@@ -2,7 +2,7 @@
 import { windowAppearance } from "./window-appearance";
 import { createStartupPresentation } from "./startup-presentation";
 import { createWindowTransitions } from "./window-transitions";
-import { BrowserWindow, Menu, screen, session } from "electron";
+import { app, BrowserWindow, Menu, screen, session } from "electron";
 import { configureDesktopSession, secureBrowserWindow } from "./security";
 import { runtime, PRODUCT_NAME, packagedRuntime, smokeTest, windowTransitions, startupPresentations } from "./runtime-state";
 import { setDesktopCookie } from "./local-service";
@@ -55,6 +55,7 @@ export async function createMainWindow(initialPath: string, animateStartup = fal
   * place the window off-screen with no way to drag it back.
   */
   const savedBounds = !smokeTest ? await runtime.settingsStore?.getView().then((view) => view.windowBounds).catch(() => null) : null;
+  if (runtime.isQuitting) throw new Error("The application is quitting.");
   const usableBounds = savedBounds && isBoundsOnAScreen(savedBounds) ? savedBounds : null;
 
   const window = new BrowserWindow({
@@ -119,9 +120,14 @@ export async function createMainWindow(initialPath: string, animateStartup = fal
     }
     // Everything this needs is already known: anything read here would be a
     // promise, and by the time it settled the window would already be gone.
-    if (runtime.isQuitting || smokeTest || runtime.closeBehaviour !== "tray" || !runtime.tray) return;
-    event.preventDefault();
-    window.hide();
+    if (runtime.isQuitting || smokeTest) return;
+    if (runtime.closeBehaviour === "tray" && runtime.tray) {
+      event.preventDefault();
+      window.hide();
+    } else if (process.platform === "win32") {
+      event.preventDefault();
+      app.quit();
+    }
   });
 
   // The page draws the caption, so the window verbs have to be reachable from

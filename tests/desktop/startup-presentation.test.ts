@@ -82,3 +82,16 @@ test("non-startup windows retain ready-to-show and hidden smoke windows stay hid
     app.ready(); assert.equal(app.shows(), Number(show)); app.close();
   }
 });
+
+test("quitting prevents an unfinished startup presentation from showing the window", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const app = fixture();
+  const token = app.startup.claim();
+  app.ready();
+  app.startup.dispose();
+  t.mock.timers.tick(5000);
+  assert.equal(await app.startup.present(token), false);
+  assert.equal(app.shows(), 0);
+  assert.equal(app.listeners(), 0);
+  app.close();
+});

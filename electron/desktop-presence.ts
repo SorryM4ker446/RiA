@@ -17,6 +17,7 @@ export function openFromNotice(path: string | null) {
  * which reads as the application flashing.
  */
 export function focusMainWindow() {
+  if (runtime.isQuitting) return;
   const window = runtime.mainWindow;
   if (!window || window.isDestroyed()) return;
   if (window.isMinimized()) window.restore();
@@ -154,6 +155,7 @@ export function registerGlobalHotkey(accelerator: string): HotkeyOutcome {
  */
 export async function applyDesktopPresence(): Promise<void> {
   const behaviour = (await runtime.settingsStore?.getCloseBehaviour().catch(() => "quit")) ?? "quit";
+  if (runtime.isQuitting) return;
   /*
    * A tray is not optional once the behaviour is "tray": closing the window then
    * hides it, so one that could not be created would leave the app running with no
@@ -178,13 +180,5 @@ export function showMainWindow() {
 }
 
 export function quitFromTray() {
-  /*
-   * Not `app.quit()` with a flag already set. Setting `isQuitting` here meant
-   * `before-quit` returned early, and that handler is where the local service
-   * is stopped — so quitting from the tray left the Next child process running
-   * with nothing supervising it. `before-quit` sets the flag itself.
-   */
-  runtime.tray?.destroy();
-  runtime.tray = null;
   app.quit();
 }
