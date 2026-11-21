@@ -747,3 +747,63 @@ test("model warnings name each library model a provider reported as not found, o
   const {recentFailures}=await payload(await models.GET(req("/api/models")));
   assert.deepEqual(recentFailures,[{providerId:CHAT_MODEL_REF.providerId,modelId:CHAT_MODEL_REF.modelId,failedAt:new Date(now-day).toISOString()}]);
 });
+
+test("image and video models listed in the chat catalog are offered only for their own modes, and old entries are corrected from the catalog",async t=>{
+  // The chat catalog lists a vision chat model, an image model that also writes text, and one that writes only text but is in the image catalog as well.
+  const chatRows=[
+    {id:"acme/vision",name:"Vision",description:"Chat that reads images",architecture:{input_modalities:["text","image"],output_modalities:["text"]},supported_parameters:["tools"]},
+    {id:"google/nano-lite",name:"Nano Lite",description:"Image generation",architecture:{input_modalities:["text","image"],output_modalities:["image","text"]},supported_parameters:["tools"]},
+    {id:"acme/camera",name:"Camera",description:"Video generation",architecture:{input_modalities:["text"],output_modalities:["video"]}},
+    {id:"acme/both",name:"Both",description:"Chat, and pictures through the image endpoint",architecture:{input_modalities:["text"],output_modalities:["text"]},supported_parameters:["tools"]},
+  ];
+  const imageRows=[
+    {id:"google/nano-lite",name:"Nano Lite",description:"Image generation",architecture:{input_modalities:["text","image"],output_modalities:["image"]}},
+    {id:"acme/both",name:"Both",description:"Image generation",architecture:{input_modalities:["text"],output_modalities:["image"]}},
+  ];
+  let chatAvailable=true;
+  t.mock.method(globalThis,"fetch",async input=>{
+    const url=String(input);
+    if(url.includes("/endpoints")) return Response.json({endpoints:[]});
+    if(url.endsWith("/images/models")) return Response.json({data:imageRows});
+    if(url.includes("/models?output_modalities=text")) return chatAvailable?Response.json({data:chatRows}):new Response("unavailable",{status:503});
+    return Response.json({data:[]});
+  });
+  // An entry added before the catalog said what it outputs: the old merge made it a chat model too, and the chat default.
+  const legacy=await getModelPreferences();
+  const now=new Date().toISOString();
+  legacy.library=[...legacy.library,{providerId:"openrouter",modelId:"google/nano-lite",name:"Nano Lite",description:"",modes:["chat","image"],supportsImageInput:true,endpointImageInput:null,supportsTools:true,contextLength:null,pricing:{},addedAt:now,lastSeenAt:now}];
+  legacy.library.push({ ...legacy.library.at(-1)!, modelId: "acme/camera", name: "Camera", modes: ["chat"] });
+  legacy.chat={model:ref("google/nano-lite"),fallback:null};
+  await db.workspacePreference.update({where:{id:"local"},data:{settings:legacy as never}});
+  // With no chat catalog read yet, nothing is guessed: the entry stays as it is.
+  chatAvailable=false;
+  await payload(await catalogRoute.POST(req("/api/models/catalog","POST",{mode:"chat"})));
+  assert.deepEqual((await getModelPreferences()).library.find(item=>item.modelId==="google/nano-lite")?.modes,["chat","image"]);
+
+  chatAvailable=true;
+  const chat=(await payload(await catalogRoute.POST(req("/api/models/catalog","POST",{mode:"chat"})))).catalogs.openrouter.chat;
+  // Left out of the chat list on purpose, not counted as a skipped row.
+  assert.deepEqual(chat.models.map(model=>model.modelId).sort(),["acme/both","acme/vision"]);
+  assert.equal(chat.skipped,0);
+  const corrected=await getModelPreferences();
+  assert.deepEqual(corrected.library.find(item=>item.modelId==="google/nano-lite")?.modes,["image"]);
+  assert.deepEqual(corrected.library.find(item=>item.modelId==="acme/camera")?.modes,["video"]);
+  assert.equal(corrected.chat.model,null,"the chat default that named it is cleared, so a chat model is asked for");
+  // The server refuses it for chat, as the message box no longer offers it.
+  await assert.rejects(preferredModel("chat",ref("google/nano-lite")),(error:{code?:string})=>error.code==="CONFIGURATION_ERROR");
+
+  // Added again from the image catalog: image only. A vision chat model is chat; one in both catalogs that writes only text is both.
+  await payload(await catalogRoute.POST(req("/api/models/catalog","POST",{mode:"image"})));
+  for(const modelId of ["google/nano-lite","acme/vision","acme/both"]) await payload(await libraryRoute.POST(req("/api/models/library","POST",{action:"add",model:ref(modelId)})));
+  const library=new Map((await getModelPreferences()).library.map(item=>[item.modelId,item]));
+  assert.deepEqual(library.get("google/nano-lite")?.modes,["image"]);
+  assert.equal(library.get("google/nano-lite")?.supportsTools,false);
+  assert.deepEqual(library.get("acme/vision")?.modes,["chat"]);
+  assert.equal(library.get("acme/vision")?.supportsImageInput,true);
+  assert.deepEqual([...(library.get("acme/both")?.modes??[])].sort(),["chat","image"]);
+  // Choosing the image model for chat is refused; for pictures it is accepted.
+  const settings=await getModelPreferences();
+  assert.equal((await models.PUT(req("/api/models","PUT",{...settings,chat:{model:ref("google/nano-lite"),fallback:null}}))).status,400);
+  await payload(await models.PUT(req("/api/models","PUT",{...settings,chat:{model:ref("acme/vision"),fallback:null},image:{model:ref("google/nano-lite"),fallback:null}})));
+  assert.deepEqual(await preferredModel("image"),ref("google/nano-lite"));
+});

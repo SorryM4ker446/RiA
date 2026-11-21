@@ -205,11 +205,19 @@ export async function addModel(ref: ModelRef): Promise<{ data: ModelLibraryItem;
         addedAt: new Date().toISOString(),
         lastSeenAt: snapshot.fetchedAt.toISOString(),
       });
-      return item.success && item.data.modelId === ref.modelId ? [{ item: item.data, fetchedAt: snapshot.fetchedAt }] : [];
+      const outputs = Array.isArray(source.outputs) ? source.outputs.filter((value): value is string => typeof value === "string") : undefined;
+      return item.success && item.data.modelId === ref.modelId ? [{ item: item.data, fetchedAt: snapshot.fetchedAt, outputs }] : [];
     });
   });
   if (!matches.length) throw new ApiError({ code: "NOT_FOUND", message: t("lib.models.notInCatalog") });
-  const modes = [...new Set(matches.flatMap(match => match.item.modes))] as LibraryMode[];
+  // A chat listing counts only when it shows a model that writes text and no media: an image or video
+  // model is listed in the chat catalog too, and a listing cached before outputs were kept cannot say.
+  const makesMedia = matches.some(match => match.item.modes.some(mode => mode === "image" || mode === "video"));
+  const chatListing = (match: (typeof matches)[number]) => match.outputs
+    ? !match.outputs.some(output => output === "image" || output === "video")
+    : !makesMedia;
+  const modes = [...new Set(matches.flatMap(match => match.item.modes.filter(mode => mode !== "chat" || chatListing(match))))] as LibraryMode[];
+  if (!modes.length) throw new ApiError({ code: "NOT_FOUND", message: t("lib.models.notInCatalog") });
   const hasImageGeneration = modes.includes("image");
   const probe = provider.probeImageInput;
   const endpointImageInput = hasImageGeneration && probe ? await probe(ref.modelId) : null;
@@ -221,9 +229,9 @@ export async function addModel(ref: ModelRef): Promise<{ data: ModelLibraryItem;
     const next = modelLibraryItemSchema.parse({
       ...latest,
       modes,
-      supportsImageInput: matches.some(match => match.item.modes.includes("chat") && match.item.supportsImageInput) || endpointImageInput === true || (!hasImageGeneration && matches.some(match => match.item.supportsImageInput)),
+      supportsImageInput: matches.some(match => match.item.modes.includes("chat") && chatListing(match) && match.item.supportsImageInput) || endpointImageInput === true || (!hasImageGeneration && matches.some(match => match.item.supportsImageInput)),
       endpointImageInput,
-      supportsTools: matches.some(match => match.item.supportsTools),
+      supportsTools: modes.includes("chat") && matches.some(match => match.item.supportsTools),
       // Refreshed on every add, so a model the provider changed into an
       // online variant is noticed the next time it is added or re-added.
       providerSearch: matches.some(match => match.item.providerSearch),
@@ -260,6 +268,41 @@ export async function syncLibraryReasoning(providerId: ProviderId, models: Array
       && JSON.stringify(rows.get(item.modelId)) !== JSON.stringify(item.reasoning);
     if (!current.library.some(changed)) return;
     await persist(tx, preferencesSchema.parse({ ...current, library: current.library.map(item => changed(item) ? { ...item, reasoning: rows.get(item.modelId) } : item) }));
+  }));
+}
+
+/**
+ * A model the provider's chat catalog shows to be an image or video model
+ * (it writes text beside the pictures it makes) is not a chat model, though an
+ * entry added before this was known may say so. Each chat catalog read corrects
+ * those entries: chat is taken off and the declared generation modes are offered.
+ * The chat default, fallback and internal sub-agent model that
+ * named one are cleared with it, so nothing keeps calling it as a chat model;
+ * the message box then asks for a chat model to be chosen.
+ */
+export async function syncLibraryGenerators(providerId: ProviderId, generators: Array<{ modelId: string; outputs: ("image" | "video")[] }>): Promise<ModelRef[]> {
+  const found = new Map(generators.map(generator => [generator.modelId, generator]));
+  if (!found.size) return [];
+  return withModelSettingsLock(() => db.$transaction(async tx => {
+    const current = await readPreferences(tx);
+    const changed: ModelRef[] = [];
+    const library = current.library.map(item => {
+      const generator = item.providerId === providerId && item.modes.includes("chat") ? found.get(item.modelId) : undefined;
+      if (!generator) return item;
+      const modes = [...new Set([...item.modes.filter(mode => mode !== "chat"), ...generator.outputs])];
+      if (!modes.length) return item;
+      changed.push({ providerId: item.providerId, modelId: item.modelId });
+      return { ...item, modes, supportsTools: false };
+    });
+    if (!changed.length) return [];
+    const lost = new Set(changed.map(modelRefKey));
+    const keep = (ref: ModelRef | null) => (ref && lost.has(modelRefKey(ref)) ? null : ref);
+    await persist(tx, preferencesSchema.parse({
+      ...current, library,
+      chat: { ...current.chat, model: keep(current.chat.model), fallback: keep(current.chat.fallback) },
+      auxiliary: keep(current.auxiliary ?? null),
+    }));
+    return changed;
   }));
 }
 
