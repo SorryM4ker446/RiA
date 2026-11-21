@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
+import { realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { after, beforeEach, test } from "node:test";
 import type { TestContext } from "node:test";
@@ -248,7 +249,8 @@ test("generation tolerates a removed source chat but cannot resurrect an input d
 test("the file of an asset is located for the file manager only after the same checks a read makes", async () => {
   const asset = await image();
   const located = await payload(await routes.locate.POST(req(`/api/media/${asset.id}/locate`, "POST"), context(asset.id)));
-  assert.equal(located.data.absolutePath, join(storage.getMediaDirectory(), asset.relativePath.split("/")[0], `${asset.id}.png`));
+  const mediaRoot = await realpath(storage.getMediaDirectory());
+  assert.equal(located.data.absolutePath, join(mediaRoot, asset.relativePath.split("/")[0], `${asset.id}.png`));
   // An unknown id, a foreign one and a file missing from disk are all simply not there.
   await payload(await routes.locate.POST(req(`/api/media/${randomUUID()}/locate`, "POST"), context(randomUUID())), 404);
   await payload(await routes.locate.POST(req("/api/media/..%2F..%2Fsecret/locate", "POST"), context("../../secret")), 404);

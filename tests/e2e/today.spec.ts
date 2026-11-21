@@ -30,6 +30,7 @@ test("the quick ask starts a new conversation and sends the question there", asy
   await ask.fill("从首页问的问题");
   // Typing alone creates nothing.
   expect(await browserData(page, "/api/conversations")).toHaveLength(1);
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeEnabled();
   await ask.press("Enter");
   await expect(page).toHaveURL(/\/chat/);
   await expect(page.getByText("离线回答：从首页问的问题", { exact: true })).toBeVisible();
@@ -67,6 +68,8 @@ test("a question asked on the home page arrives as a message at once, without sh
       if (row) { rows.add(row); seen.questionRows = rows.size; if (!list?.textContent?.includes("离线回答：新问题")) seen.questionBeforeAnswer = true; }
     }).observe(document.body, { childList: true, subtree: true, characterData: true });
   });
+  // The input can accept text before the model is loaded and the form can submit.
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeEnabled();
   await ask.press("Enter");
   await expect(page).toHaveURL(/\/chat/);
   await expect(transcript.getByText("离线回答：新问题", { exact: true })).toBeVisible();
